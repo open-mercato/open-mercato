@@ -39,6 +39,10 @@
     var overdue = ms < TODAY;
     card.classList.toggle('is-overdue', overdue);
     card.querySelector('.tl-deal-date use').setAttribute('href', overdue ? '#ic-warn' : '#ic-calendar');
+    var label = card.getAttribute('aria-label');
+    if (label) {
+      card.setAttribute('aria-label', label.replace(/, closes .*$/, ', closes ' + long(ms) + (overdue ? ', overdue' : '')));
+    }
   }
 
   function insertSorted(cell, card) {

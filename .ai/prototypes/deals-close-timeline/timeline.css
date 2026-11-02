@@ -83,17 +83,20 @@
 /* Board */
 .tl-board {
   --lane-w: 12rem;
+  --col-min: 12rem;
   position: relative;
   border: 1px solid var(--border); border-radius: var(--radius-lg);
-  background: var(--card); overflow: hidden;
+  background: var(--card); overflow-x: auto;
 }
 .tl-row {
   display: grid;
-  grid-template-columns: var(--lane-w) repeat(var(--cols), minmax(0, 1fr));
+  grid-template-columns: var(--lane-w) repeat(var(--cols), minmax(var(--col-min), 1fr));
+  min-width: calc(var(--lane-w) + var(--cols) * var(--col-min));
   border-bottom: 1px solid var(--border);
 }
 .tl-head-row { background: color-mix(in oklab, var(--muted) 40%, transparent); }
 .tl-corner { border-right: 1px solid var(--border); }
+.tl-corner, .tl-lane-head { position: sticky; left: 0; z-index: 1; background: var(--card); }
 .tl-col-head {
   display: flex; flex-direction: column; gap: 0.125rem;
   padding: 0.5rem 0.625rem; border-left: 1px solid var(--border); min-width: 0;

@@ -3,6 +3,8 @@
 Input for the prototype under `.ai/prototypes/deals-close-timeline/`. This is **not** a spec. It
 sets the vocabulary and per-state behavior so the prototype can be checked against something.
 Status: **approved 2026-10-26** with the proposed defaults for §7.
+Aligned on 2026-11-02 with `.ai/specs/2026-10-26-deals-close-date-timeline.md`. Where the two differ,
+the spec wins; the prototype screens are illustrative where they show older behaviour.
 
 ## §1 Problem
 
@@ -53,12 +55,15 @@ row by row. Slipped or bunched-up deals get missed.
 
 - **US-A1** As a sales rep, I want to see my open deals placed on a timeline by expected close
   date, so that I know what I have to close this month.
-  - AC: the Timeline tab loads with week columns starting last week, with all filters inherited.
+  - AC: the Timeline tab loads with week columns starting last week. Search, people, companies, Status, Owner and Pipeline filters carry over from the other views; List filters the timeline can't apply are named in an info alert.
   - AC: each deal card shows title, probability, formatted value with currency, close date,
     company and stage colour.
-  - AC: cards in one cell are sorted by date, then value. With more than 3 in a cell, a "+N more"
-    button opens a popover listing all of them with dates.
-  - AC: clicking a deal opens the existing deal detail page.
+  - AC: cards in one cell are sorted by date, then id (amounts in different currencies aren't
+    comparable). With more than 3 in a cell, a "+N more" button opens a popover listing all of them
+    with dates.
+  - AC: clicking a deal, or pressing Enter on it, opens the existing deal detail page.
+  - AC: columns keep a readable minimum width; on narrow screens the board scrolls horizontally and
+    lane names stay visible.
 - **US-A2** As a sales manager, I want to switch columns between weeks, months, and quarters, so
   that I can do both a weekly standup and a quarterly forecast review.
   - AC: the column-size control is a segmented toggle, and the selection persists per user (saved view).
@@ -71,8 +76,10 @@ row by row. Slipped or bunched-up deals get missed.
     above the lanes pages back to them.
 - **US-A4** As a user, I want closed deals (won/lost) excluded by default, so that the timeline
   shows actionable pipeline.
-  - AC: the default status filter is `open`, and enabling won/lost renders those cards muted with
-    a status label.
+  - AC: a visible **Hide closed deals / All deals** toggle defaults to Hide closed deals (closed
+    as classified by the status vocabulary, not a literal `open`). Under All deals, or when won/lost
+    is chosen in the Status filter, those cards render muted with a status label. Closed deals can't
+    be rescheduled from the timeline in v1.
 
 ### Epic B — Organize by who owns it or where it stands
 
@@ -97,12 +104,14 @@ row by row. Slipped or bunched-up deals get missed.
     Month columns shift by whole months and quarter columns by whole quarters, keeping the day of
     month (clamped to month end).
   - AC: on drop the card moves immediately (optimistic) and is re-sorted in its cell, and a flash
-    says "Close date moved to <date>" with **Undo** (about 6s).
+    says "Close date moved to <date>". Undo comes from the shell's last-operation banner, as for
+    every other deal edit (the prototype's Undo flash is illustrative only).
   - AC: Esc during a drag cancels it, and the card returns to its origin.
   - AC: dropping into the original column does nothing and makes no request.
 - **US-C2** As a keyboard user, I want to reschedule without a mouse.
-  - AC: with a focused card, `Enter` opens a "Change close date" dialog containing a date input.
-    This is also the path for picking an exact day. `Cmd/Ctrl+Enter` saves and `Escape` cancels.
+  - AC: a "Change close date" action on the card menu, and on each "+N more" popover row, opens a
+    dialog containing a date input. This is also the path for picking an exact day. When the new
+    date isn't visible, the view stays and the flash offers "Show deal", which receives focus. `Cmd/Ctrl+Enter` saves and `Escape` cancels.
     Arrow Up/Down move focus within a cell, and Left/Right move it across columns.
 - **US-C3** As a rep, I want to know when my change collided with someone else's edit.
   - AC: a 409 optimistic-lock response reverts the card and shows the shared record-conflict bar
