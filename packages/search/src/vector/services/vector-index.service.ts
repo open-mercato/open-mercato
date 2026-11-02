@@ -34,11 +34,11 @@ function isExcludedCustomField(key: string, exclusion: CustomFieldExclusion): bo
 }
 
 function withoutExcludedRecordCustomFields(
-  record: Record<string, any>,
+  record: Record<string, unknown>,
   exclusion: CustomFieldExclusion,
-): Record<string, any> {
+): Record<string, unknown> {
   if (exclusion !== 'all' && exclusion.size === 0) return record
-  const filtered: Record<string, any> = {}
+  const filtered: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(record)) {
     const isCustomField = key.startsWith('cf:') || key.startsWith('cf_')
     if (isCustomField && isExcludedCustomField(key.slice(3), exclusion)) continue
@@ -48,11 +48,11 @@ function withoutExcludedRecordCustomFields(
 }
 
 function withoutExcludedCustomFields(
-  customFields: Record<string, any>,
+  customFields: Record<string, unknown>,
   exclusion: CustomFieldExclusion,
-): Record<string, any> {
+): Record<string, unknown> {
   if (exclusion !== 'all' && exclusion.size === 0) return customFields
-  const filtered: Record<string, any> = {}
+  const filtered: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(customFields)) {
     const isPrefixed = key.startsWith('cf:') || key.startsWith('cf_')
     if (isExcludedCustomField(key, exclusion)) continue
@@ -63,8 +63,8 @@ function withoutExcludedCustomFields(
 }
 
 function applyBuildRecordChanges(
-  buildRecord: Record<string, any>,
-  record: Record<string, any>,
+  buildRecord: Record<string, unknown>,
+  record: Record<string, unknown>,
   exclusion: CustomFieldExclusion,
 ): void {
   if (buildRecord === record) return
@@ -80,8 +80,8 @@ function applyBuildRecordChanges(
 }
 
 function applyBuildCustomFieldChanges(
-  buildCustomFields: Record<string, any>,
-  customFields: Record<string, any>,
+  buildCustomFields: Record<string, unknown>,
+  customFields: Record<string, unknown>,
   exclusion: CustomFieldExclusion,
 ): void {
   if (buildCustomFields === customFields) return
@@ -461,7 +461,7 @@ export class VectorIndexService {
         )
         return {
           ...result,
-          items: result.items.map((item) => withoutExcludedRecordCustomFields(item as Record<string, any>, exclusion) as typeof item),
+          items: result.items.map((item) => withoutExcludedRecordCustomFields(item as Record<string, unknown>, exclusion) as typeof item),
         }
       },
     }
@@ -1003,7 +1003,7 @@ export class VectorIndexService {
         reason: 'missing_record',
       }
     }
-    return this.indexExisting(entry, driver, args, raw as Record<string, any>, this.createCustomFieldExclusionLookup())
+    return this.indexExisting(entry, driver, args, raw as Record<string, unknown>, this.createCustomFieldExclusionLookup())
   }
 
   async deleteRecord(args: DeleteRecordArgs): Promise<VectorIndexOperationResult> {
