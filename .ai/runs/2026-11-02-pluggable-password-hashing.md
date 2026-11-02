@@ -51,16 +51,16 @@ Route every user and customer-portal password hash/verify through one `passwordH
 
 ### Phase 1: Spec and shared service
 
-- [ ] 1.1 Spec
-- [ ] 1.2 Shared passwordHasher service
+- [x] 1.1 Spec — d82e0ffb9
+- [x] 1.2 Shared passwordHasher service — 15a057846, fe8feff87, a985ca409
 
 ### Phase 2: Call sites
 
-- [ ] 2.1 auth call sites
-- [ ] 2.2 customer_accounts call sites
-- [ ] 2.3 onboarding pending hash
+- [x] 2.1 auth call sites — 58d2e5f03
+- [x] 2.2 customer_accounts call sites — 97e90e460
+- [x] 2.3 onboarding pending hash — befc37d1d
 
 ### Phase 3: Docs and gate
 
-- [ ] 3.1 Env docs and docs page
+- [x] 3.1 Env docs and docs page — c49bc163f, 20b0ad236
 - [ ] 3.2 Full validation gate
