@@ -4,13 +4,14 @@ When working on search functionality, use this guide. It covers indexing, queryi
 
 ## Always
 
-1. **MUST** create a `search.ts` file for every module with searchable entities.
-2. **MUST** define `fieldPolicy.excluded` for any sensitive fields (passwords, tokens, SSNs, bank accounts) -- never allow them into any index.
-3. **MUST** define `formatResult` for every entity that uses the tokens strategy -- without it, users see raw UUIDs instead of names.
-4. **MUST** include `checksumSource` in every `buildSource` return value so the indexer can detect changes and skip redundant re-embedding.
-5. **MUST** use the `entityId` format `module:entity_name` and ensure it matches the entity registry exactly.
-6. **MUST** use `fieldPolicy.hashOnly` for PII fields (email, phone, tax_id) that need exact-match filtering but not fuzzy search.
-7. **MUST** declare `aclFeatures` on every entity, naming the owning module's view feature(s) — the same gate that entity's own list/read route enforces. `search.global` only authorizes *using* search; `aclFeatures` is what authorizes *reading the records*. Global search, the hybrid `GET /api/search/search` endpoint and the AI tools all fail closed, so an entity without it silently vanishes from results for every non-superadmin.
+1. **MUST** resolve `SearchIndexer` from DI; direct constructors pass its encrypted-field resolver. Never register the legacy `VectorIndexService` callback path.
+2. **MUST** create a `search.ts` file for every module with searchable entities.
+3. **MUST** define `fieldPolicy.excluded` for any sensitive fields (passwords, tokens, SSNs, bank accounts) -- never allow them into any index.
+4. **MUST** define `formatResult` for every entity that uses the tokens strategy -- without it, users see raw UUIDs instead of names.
+5. **MUST** include `checksumSource` in every `buildSource` return value so the indexer can detect changes and skip redundant re-embedding.
+6. **MUST** use the `entityId` format `module:entity_name` and ensure it matches the entity registry exactly.
+7. **MUST** use `fieldPolicy.hashOnly` for PII fields (email, phone, tax_id) that need exact-match filtering but not fuzzy search.
+8. **MUST** declare `aclFeatures` on every entity, naming the owning module's view feature(s) — the same gate that entity's own list/read route enforces. `search.global` only authorizes *using* search; `aclFeatures` is what authorizes *reading the records*. Global search, the hybrid `GET /api/search/search` endpoint and the AI tools all fail closed, so an entity without it silently vanishes from results for every non-superadmin.
 
 ## Ask First
 
@@ -247,8 +248,6 @@ interface SearchBuildContext {
   queryEngine?: QueryEngine
 }
 ```
-
-`SearchIndexer` leaves custom fields declared `encrypted` out of this context: out of `customFields`, the record's `cf:` / `cf_` keys and every record loaded through `queryEngine` (including fields joined from `customFieldSources`). When the definitions cannot be read, it leaves out every custom field of that entity and reports `search.encrypted_custom_fields_unresolved`; an indexer constructed without `encryptedCustomFieldKeysResolver` leaves out every custom field and reports `search.encrypted_custom_fields_resolver_missing`, so resolve `searchIndexer` from DI or pass `createEncryptedCustomFieldKeysResolver(em.getKysely())` (exported from `@open-mercato/search/di`). `IndexableRecord.fields` keeps them for the hashed token index (the fulltext driver also receives them for an entity without a `fieldPolicy.searchable` list, tracked in #7894), so a missing custom field in source text is expected for encrypted fields, not a bug to work around. A key declared `encrypted` by the record's tenant or globally is left out for every organization of that tenant. `VectorIndexService` (`@open-mercato/search/vector`) calls the same callbacks without this exclusion; do not register it as `vectorIndexService`.
 
 ### Load Related Data via QueryEngine
 

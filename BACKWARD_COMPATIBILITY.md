@@ -623,20 +623,6 @@ STABLE HTTP/service BREAK (403/404/504), Documents only: org-wide files bypass s
 
 ---
 
-## Search Build Contexts Omit Encrypted Custom Fields (2026-10-30)
-
-Every module's search `buildSource` received custom fields decrypted, so a source that turns them into text, as the customers Company and Person sources do, sent the plaintext of custom fields declared `encrypted` to the embedding provider, and any callback could copy it into a stored presenter or link, against `packages/search/AGENTS.md` ("Never include encrypted or sensitive fields in `buildSource` text output"). `SearchIndexer` now keeps them out of every build context. Spec: [`.ai/specs/2026-10-30-search-build-context-encrypted-custom-fields.md`](.ai/specs/2026-10-30-search-build-context-encrypted-custom-fields.md).
-
-| Surface | Change | Classification |
-|---------|--------|----------------|
-| Function behaviour (`SearchIndexer` build contexts: `buildSource`, `formatResult`, `resolveUrl`, `resolveLinks`, in `indexRecord`, `indexRecordsById`, the reindex paths and `bulkIndexRecords`) | `ctx.customFields`, the record's `cf:` / `cf_` keys and every record a callback loads through `ctx.queryEngine` (including custom fields joined from `customFieldSources`) omit custom fields whose definition has `configJson.encrypted`. When the definitions cannot be read, every custom field of that entity is omitted and the failure is reported as `search.encrypted_custom_fields_unresolved`; an indexer constructed without `encryptedCustomFieldKeysResolver` omits every custom field and reports `search.encrypted_custom_fields_resolver_missing`. `IndexableRecord.fields` is unchanged: the hashed `search_tokens` index still covers them, the fulltext driver keeps filtering fields by `fieldPolicy` (`SEARCH_EXCLUDE_ENCRYPTED_FIELDS` does not cover custom fields; #7894), and the vector strategy's fallback text for a record without source text still reads them | ⚠️ Emergency Security Exception (steps 1-3 waived). Regression-tested in `search-indexer-encrypted-custom-fields.test.ts` and, through the fulltext and vector strategies, `search-indexer-encrypted-custom-fields.boundary.test.ts` and, with the real customers Company source, `search-indexer-encrypted-custom-fields.customers.test.ts` |
-| Type definitions, import paths | `SearchIndexerOptions` gains the optional `encryptedCustomFieldKeysResolver`; `@open-mercato/search/di` additionally exports `createEncryptedCustomFieldKeysResolver` and the `EncryptedCustomFieldKeysResolver` type, next to `createEncryptionMapResolver` | ✓ ADDITIVE |
-| Database schema, event IDs, API routes, DI names, ACL features, CLI commands | No change | ✓ n/a |
-
-**Qualifying argument**: the surface is the decrypted value of an encrypted custom field in a build context, and that value is the vulnerability: whatever a callback returns is stored in the fulltext and vector indexes or sent to the embedding provider, so any bridge (an opt-in flag, a deprecation window, a constructor without the resolver keeping the old context) would keep the plaintext reaching those stores for every source that formats custom fields, the first-party customers sources included. The change is the narrowest that closes it: non-encrypted custom fields still reach callbacks whenever the definitions are known, and `IndexableRecord.fields` is untouched. Leaving out every custom field is limited to the cases where the indexer cannot tell which fields are encrypted.
-
-**Migration path**: module authors whose source built text from an encrypted custom field lose that text, which is the fix; code that constructs `SearchIndexer` itself passes `createEncryptedCustomFieldKeysResolver(em.getKysely())` to keep non-encrypted custom fields. Operators reindex entities that carry encrypted custom fields to drop values indexed before the upgrade (see UPGRADE_NOTES.md).
-
 ## Public pay links (2026-10-27, #7823)
 
 STABLE API §7: `GET /api/checkout/pay/:slug` omits admin fields; retaining them preserves disclosure. Client/operator migration: [notes](UPGRADE_NOTES.md). @haxiorz [approved](https://github.com/open-mercato/open-mercato/pull/8087#issuecomment-6505348826) on 2026-10-29: steps 1–3 waived for all 18 admin fields; client/operator migration acknowledged.
@@ -648,3 +634,11 @@ STABLE tools/execute writes bypass approval; no bridge. [Migrate](UPGRADE_NOTES.
 ## SCIM rate limiting (2026-10-27)
 
 SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: ApiRouteBeforeAuth` is additive. See [contract and migration](.ai/specs/enterprise/implemented/SPEC-ENT-004-2026-02-19-sso-directory-sync.md#migration--backward-compatibility).
+
+## Search Build Contexts Omit Encrypted Custom Fields (2026-10-30)
+
+**Surface and classification:** STABLE `SearchIndexer` callback behavior now omits encrypted custom fields from `SearchBuildContext.customFields`, `cf:` / `cf_` record keys, and query-engine hydrated records. Resolver absence or failure omits all custom fields; the optional resolver type and `@open-mercato/search/di` factory are additive. The hashed token index remains unchanged. This behavior break uses the [Emergency Security Exception](#emergency-security-exception); see the [spec](.ai/specs/2026-10-30-search-build-context-encrypted-custom-fields.md).
+
+**Qualifying argument:** decrypted custom-field values in these contexts are the vulnerability because callbacks can send or store them as plaintext in vector/fulltext outputs. A flag, deprecation window, or legacy constructor path would preserve that disclosure. The narrowing leaves non-encrypted fields available whenever definitions resolve and changes no unrelated contract.
+
+**Migration path:** direct `SearchIndexer` constructors pass `createEncryptedCustomFieldKeysResolver(em.getKysely())`; module authors stop deriving source text from encrypted fields. Operators reindex affected entities to remove previously indexed values. Client and operator details are in [UPGRADE_NOTES.md](UPGRADE_NOTES.md#search-sources-no-longer-receive-the-plaintext-of-encrypted-custom-fields-7872).
