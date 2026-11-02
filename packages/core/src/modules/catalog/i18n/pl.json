@@ -648,6 +648,7 @@
   "catalog.products.errors.notFound": "Nie znaleziono produktu w katalogu.",
   "catalog.products.errors.skuExists": "SKU jest już używany.",
   "catalog.products.errors.taxClassNotFound": "Nie znaleziono klasy podatkowej.",
+  "catalog.products.errors.undoVariantSkuInUse": "Nie można przywrócić tego produktu, ponieważ SKU {sku} jest już używany przez inny wariant. Zmień lub usuń SKU tego wariantu, a następnie ponów cofnięcie.",
   "catalog.products.filters.active": "Aktywne",
   "catalog.products.filters.categories": "Kategorie",
   "catalog.products.filters.categoriesLoadError": "Nie udało się załadować kategorii",

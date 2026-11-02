@@ -45,7 +45,11 @@ const mockEm = {
   persist: jest.fn(function persist(this: any) { return this }),
   remove: jest.fn(function remove(this: any) { return this }),
   flush: jest.fn(async () => {}),
-  transactional: jest.fn(async (work: (tx: any) => unknown) => work(mockEm)),
+  transactional: jest.fn(async (work: (tx: any) => unknown) => {
+    const result = await work(mockEm)
+    await mockEm.commit()
+    return result
+  }),
   find: jest.fn(),
   count: jest.fn(async () => 0),
   getKysely: jest.fn(() => buildUsageKysely(0)),
@@ -650,7 +654,7 @@ describe('attachments API', () => {
       mockEm.find.mockClear()
       const res = await list(new Request(`http://x/api/attachments?entityId=example:todo&recordId=r1&${query}`))
       expect(res.status).toBe(200)
-      const options = mockEm.find.mock.calls[0]?.[2] as { limit?: number } | undefined
+      const options = mockEm.find.mock.calls.find(([, filter]) => filter?.entityId === 'example:todo')?.[2] as { limit?: number } | undefined
       expect(typeof options?.limit).toBe('number')
       expect(options!.limit!).toBeLessThanOrEqual(100)
     }
@@ -696,6 +700,7 @@ describe('attachments API', () => {
       isSuperAdmin: true,
     }))
     mockEm.findOne.mockImplementation(async (entity: any) => {
+      if (entity?.name === 'AttachmentPartition') return partitions[0]
       if (entity?.name === 'Attachment') {
         return {
           id: 'att-1',
@@ -714,6 +719,7 @@ describe('attachments API', () => {
     expect(mockEm.findOne).toHaveBeenCalledWith(
       expect.any(Function),
       { id: 'att-1', tenantId: 't1' },
+      expect.objectContaining({ refresh: true }),
     )
     expect(mockEm.remove).toHaveBeenCalled()
   })

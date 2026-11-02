@@ -73,6 +73,10 @@
       "types": "./src/lib/data/consistency.ts",
       "default": "./dist/lib/data/consistency.js"
     },
+    "./lib/host-pinning": {
+      "types": "./src/lib/host-pinning.ts",
+      "default": "./dist/lib/host-pinning.js"
+    },
     "./lib/logger": {
       "types": "./src/lib/logger/index.ts",
       "default": "./dist/lib/logger/index.js"
@@ -134,10 +138,10 @@
     "html-to-text": "^10.0.0",
     "pino": "^10.3.1",
     "rate-limiter-flexible": "^11.2.0",
-    "re2js": "2.8.6",
+    "re2js": "2.8.7",
     "reflect-metadata": "^0.2.2",
     "sanitize-html": "2.17.5",
-    "undici": "^8.11.2"
+    "undici": "^8.12.2"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",

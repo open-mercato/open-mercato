@@ -78,6 +78,7 @@ describe('grant check errors are translated', () => {
 
   test('refusing to modify a super administrator account', async () => {
     const context = restrictedAdminContext()
+    mockFindOneWithDecryption.mockResolvedValueOnce({ id: targetUserId, tenantId })
     ;(context.em as unknown as { findOne: jest.Mock }).findOne.mockResolvedValueOnce({ isSuperAdmin: true })
 
     await expect(

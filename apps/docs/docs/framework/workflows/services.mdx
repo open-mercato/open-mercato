@@ -437,6 +437,8 @@ await apiFetch(`/api/workflows/tasks/${taskId}/reassign`, {
 })
 ```
 
+Completing a task whose run is no longer active (`COMPLETED`, `FAILED`, `CANCELLED`, `COMPENSATING` or `COMPENSATED`) answers `409` with `code: 'WORKFLOW_NOT_ACTIVE'` and writes nothing — the task, the run context and the cursor stay as they were; the portal route answers its standard `404`. Cancelling a run moves its `PENDING` / `IN_PROGRESS` tasks to `CANCELLED` and logs one `USER_TASK_CANCELLED` event per task, so they leave the open-task lists.
+
 Reassignment stamps `reassigned_by` / `reassigned_at` / `reassign_reason`, logs a `USER_TASK_REASSIGNED` event, releases an in-flight claim, and returns an `IN_PROGRESS` task to `PENDING`. It honours `x-om-ext-optimistic-lock-expected-updated-at` when a client sends one. Its gate is **visibility, not ownership** — which is what makes it the remedy for a task nobody owns (`403 TASK_NOT_ACTIONABLE` on the act routes).
 
 The portal routes are a **new surface, not a relaxation**: they take a portal session (not a bearer token), refuse a backoffice principal with `401`, and the backoffice task routes still refuse a portal session with `401`. `GET /api/workflows/portal/tasks/{id}` additionally returns `canComplete`, which is `false` for a company administrator reading a member's task. Every portal refusal is the same `404` body.
@@ -451,6 +453,7 @@ A USER_TASK with a `deadline` schedules its reminders and its breach **once, at 
 - On breach the resolution is pure and fail-safe (`lib/breach-routing.ts`): an outgoing transition with `kind: 'slaBreach'` wins, otherwise the step's `onBreach` action applies (`route` bound to a durable transition id, `reassign` to a user id *or* a role name, or `notify`), otherwise nothing routes — which is exactly the previous behavior. A `route` whose transition no longer exists on the step resolves to "nothing", never to "follow whichever route happens to be valid": auto-routing a breach would advance the run past work the author never said could be skipped.
 - A routed breach sets `status = 'ESCALATED'` — an existing `UserTaskStatus`, so no state-machine change.
 - A task in a **parallel branch** does not follow its breach route; the skip is logged as `route_skipped_branch`.
+- A breach on a **closed run** (`COMPLETED`, `FAILED`, `CANCELLED`, `COMPENSATING`, `COMPENSATED`) is still recorded, but it neither follows a route nor marks the run for attention; the skip is logged as `route_skipped_closed_run` / `attention_skipped_closed_run` and the task stays open. (A run cancelled after its tasks were closed has no open task left, so its SLA jobs are no-ops.) Reminders, `notify` and `reassign` are unaffected. The breach is one-shot, so a route skipped on a `FAILED` run does not fire again after a retry.
 
 ## Event Listeners
 
