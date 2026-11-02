@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { z } from 'zod'
 import { UniqueConstraintViolationException, type FilterQuery } from '@mikro-orm/core'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -69,7 +70,7 @@ export async function GET(req: Request) {
     tenantId: auth.tenantId,
     organizationId: auth.orgId,
   })
-  if (!allowed) return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 })
+  if (!allowed) return NextResponse.json({ ok: false, error: (await resolveTranslations()).translate('api.errors.forbidden') }, { status: 403 })
 
   const url = new URL(req.url)
   const orgFilter = url.searchParams.get('organizationId')
@@ -77,7 +78,7 @@ export async function GET(req: Request) {
     tenantId: auth.tenantId,
     organizationId: orgFilter,
   })) {
-    return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 })
+    return NextResponse.json({ ok: false, error: (await resolveTranslations()).translate('api.errors.forbidden') }, { status: 403 })
   }
 
   const em = container.resolve('em') as EntityManager
@@ -128,7 +129,7 @@ export async function POST(req: Request) {
     tenantId: auth.tenantId,
     organizationId: parsed.data.organizationId,
   })
-  if (!allowed) return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 })
+  if (!allowed) return NextResponse.json({ ok: false, error: (await resolveTranslations()).translate('api.errors.forbidden') }, { status: 403 })
 
   const guardResult = await validateCrudMutationGuard(container, {
     tenantId: auth.tenantId,
@@ -210,7 +211,7 @@ export async function DELETE(req: Request) {
     tenantId: auth.tenantId,
     organizationId: existing.organizationId,
   })
-  if (!allowed) return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 })
+  if (!allowed) return NextResponse.json({ ok: false, error: (await resolveTranslations()).translate('api.errors.forbidden') }, { status: 403 })
 
   const guardResult = await validateCrudMutationGuard(container, {
     tenantId: auth.tenantId,

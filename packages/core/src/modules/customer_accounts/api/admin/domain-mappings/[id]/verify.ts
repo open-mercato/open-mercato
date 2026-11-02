@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -31,7 +32,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     tenantId: auth.tenantId,
     organizationId: record.organizationId,
   })
-  if (!allowed) return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 })
+  if (!allowed) return NextResponse.json({ ok: false, error: (await resolveTranslations()).translate('api.errors.forbidden') }, { status: 403 })
 
   const guardResult = await validateCrudMutationGuard(container, {
     tenantId: auth.tenantId,
