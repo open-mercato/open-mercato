@@ -172,6 +172,9 @@ const acceptCategorySuggestionCommand: CommandHandler<AcceptSuggestionInput, Acc
       ? await em.findOne(CatalogProduct, { id: suggestion.product })
       : suggestion.product
     if (!product) throw new CrudHttpError(404, { error: 'Catalog product not found' })
+    if (product.deletedAt) {
+      throw new CrudHttpError(422, { code: 'product_unavailable' })
+    }
 
     const category = await em.findOne(CatalogProductCategory, {
       id: categoryId,

@@ -119,6 +119,26 @@ describe('catalog.category_suggestions.accept', () => {
       .rejects.toMatchObject({ status: 422, body: { code: 'category_unavailable' } })
   })
 
+  it('returns 422 product_unavailable and writes nothing when the product is soft-deleted', async () => {
+    const suggestion = buildSuggestion({ product: buildProduct({ deletedAt: new Date('2026-02-01T00:00:00Z') }) })
+    const em = buildEm([suggestion, buildCategory()])
+    await expect(acceptCategorySuggestionCommand.execute({ id: SUGGESTION }, buildCtx(em)))
+      .rejects.toMatchObject({ status: 422, body: { code: 'product_unavailable' } })
+    expect(syncCategoryAssignments).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(suggestion.status).toBe('pending')
+    expect(emitCatalogEvent).not.toHaveBeenCalled()
+  })
+
+  it('accepts a suggestion for a live product whose deletedAt is null', async () => {
+    findWithDecryption.mockResolvedValueOnce([])
+    const suggestion = buildSuggestion({ product: buildProduct({ deletedAt: null }) })
+    const em = buildEm([suggestion, buildCategory()])
+    const result = await acceptCategorySuggestionCommand.execute({ id: SUGGESTION }, buildCtx(em))
+    expect(result.categoryIdsAfter).toEqual([CATEGORY])
+    expect(suggestion.status).toBe('accepted')
+  })
+
   it('marks the suggestion auto_applied and emits the accepted event when autoApplied is set', async () => {
     findWithDecryption.mockResolvedValueOnce([])
     const suggestion = buildSuggestion()
