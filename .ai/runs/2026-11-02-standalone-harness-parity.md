@@ -54,3 +54,7 @@ PR: #8467
 ### Phase 3: Consolidation
 
 - [x] 3.1 Remove automatic PR execution, update guards/documentation, and consolidate into one main-targeted PR — a28622634
+
+## Consolidation validation
+
+35 focused script tests, unchanged snapshot trigger/no-automatic-PR-job guards, translation/template-sync hooks, and diff whitespace checks passed. PR #8467 is self-contained against main; #8468 is closed as superseded. Earlier broad validation failures remain disclosed; the consolidated head requires normal CI verification.
