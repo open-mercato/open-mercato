@@ -135,6 +135,15 @@ describe('Customer ActivitiesSection wrapper', () => {
           createdAt: '2026-03-29T10:00:00.000Z',
           updatedAt: '2026-03-29T10:00:00.000Z',
         },
+        {
+          id: 'undated-newest-record',
+          interactionType: 'call',
+          status: 'done',
+          occurredAt: null,
+          scheduledAt: null,
+          createdAt: '2026-03-30T11:00:00.000Z',
+          updatedAt: '2026-03-30T11:00:00.000Z',
+        },
       ],
     })
 
@@ -154,7 +163,7 @@ describe('Customer ActivitiesSection wrapper', () => {
       const latestProps = activityTimelineMock.mock.calls[activityTimelineMock.mock.calls.length - 1]?.[0] as {
         activities: Array<{ id: string }>
       }
-      expect(latestProps.activities).toHaveLength(4)
+      expect(latestProps.activities).toHaveLength(5)
     })
     const timelineProps = activityTimelineMock.mock.calls[activityTimelineMock.mock.calls.length - 1]?.[0] as {
       activities: Array<{ id: string }>
@@ -165,6 +174,7 @@ describe('Customer ActivitiesSection wrapper', () => {
       'upcoming-later',
       'recent-history',
       'old-history',
+      'undated-newest-record',
     ])
 
     nowSpy.mockRestore()

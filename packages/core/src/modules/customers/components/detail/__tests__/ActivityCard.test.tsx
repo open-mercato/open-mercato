@@ -79,6 +79,21 @@ describe('ActivityCard', () => {
     expect(screen.getByRole('button', { name: /Sentiment/i })).toBeDisabled()
   })
 
+  it('shows the translated undated state instead of created_at', () => {
+    renderWithProviders(
+      <ActivityCard
+        activity={createActivity({
+          occurredAt: null,
+          scheduledAt: null,
+          createdAt: '2026-04-10T09:30:00.000Z',
+        })}
+      />,
+      { locale: 'en', dict: enDict as Record<string, string> },
+    )
+
+    expect(screen.getByText(enDict['customers.timeline.date.undated'] as string)).toBeInTheDocument()
+  })
+
   it.each(['planned', 'in_progress', 'waiting', 'follow_up_custom'])(
     'shows the Mark done affordance for open status %s',
     (status) => {

@@ -39,8 +39,6 @@ export function ActivityTimeline({ activities, onEdit, onMarkDone }: ActivityTim
   return (
     <div>
       {activities.map((activity, index) => {
-        // An undated activity contributes no year, so it never splits the
-        // timeline (issue #8286 — occurrence date, never created_at).
         const occurrenceDate = activityOccurrenceDate(activity)
         const activityYear = occurrenceDate ? new Date(occurrenceDate).getFullYear() : null
         const prevOccurrenceDate = index > 0 ? activityOccurrenceDate(activities[index - 1]) : null
@@ -85,10 +83,6 @@ function TimelineEntry({
   onEdit?: (activity: InteractionSummary) => void
   onMarkDone?: (activityId: string, updatedAt?: string | null) => void | Promise<void>
 }) {
-  // Show the activity's real occurrence date (occurred_at → scheduled_at). A
-  // `NULL` occurrence must never display its `created_at` materialisation time as
-  // the date the activity happened — render an explicitly undated state instead
-  // (issue #8286).
   const occurrenceDate = activityOccurrenceDate(activity)
   const TypeIcon = TYPE_ICONS[activity.interactionType]
   const title = activity.title ?? activity.body ?? activity.interactionType
@@ -121,15 +115,15 @@ function TimelineEntry({
         <div className="shrink-0">
           {occurrenceDate ? (
             <>
-              <span className="block text-[11px] font-semibold leading-tight text-foreground">
+              <span className="block text-overline font-semibold leading-tight text-foreground">
                 {formatRelativeDate(occurrenceDate, t)}
               </span>
-              <span className="block text-[10px] leading-tight text-muted-foreground">
+              <span className="block text-overline leading-tight text-muted-foreground">
                 {formatTime(occurrenceDate)}
               </span>
             </>
           ) : (
-            <span className="block text-[11px] font-semibold leading-tight text-muted-foreground">
+            <span className="block text-overline font-semibold leading-tight text-muted-foreground">
               {t('customers.timeline.date.undated', 'No date')}
             </span>
           )}
@@ -193,8 +187,7 @@ function TimelineEntry({
   )
 }
 
-function formatRelativeDate(isoString: string | null, t: TranslateFn): string {
-  if (isoString === null) return ''
+function formatRelativeDate(isoString: string, t: TranslateFn): string {
   try {
     const date = new Date(isoString)
     const now = new Date()
@@ -211,8 +204,7 @@ function formatRelativeDate(isoString: string | null, t: TranslateFn): string {
   }
 }
 
-function formatTime(isoString: string | null): string {
-  if (isoString === null) return ''
+function formatTime(isoString: string): string {
   try {
     return new Date(isoString).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
   } catch {

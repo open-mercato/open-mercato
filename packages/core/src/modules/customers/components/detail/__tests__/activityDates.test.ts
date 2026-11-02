@@ -1,11 +1,4 @@
-/**
- * @jest-environment jsdom
- *
- * Regression tests for issue #8286 — the Activities UI must never use an
- * activity's `created_at` (materialisation time) as its occurrence date. `NULL`
- * occurrences stay undated and sort last, both in the shared compare helper and
- * at every render site that consumes it.
- */
+/** @jest-environment jsdom */
 import type { InteractionSummary } from '../types'
 import {
   activityOccurrenceDate,
@@ -61,7 +54,6 @@ describe('activityOccurrenceDate (issue #8286)', () => {
   })
 
   it('returns null when neither occurred_at nor scheduled_at exists — never created_at', () => {
-    // The regression: an undated task must not surface its created_at as a date.
     const activity = createActivity({ occurredAt: null, scheduledAt: null, createdAt: '2026-03-01T09:00:00.000Z' })
     expect(activityOccurrenceDate(activity)).toBeNull()
   })
@@ -69,10 +61,6 @@ describe('activityOccurrenceDate (issue #8286)', () => {
 
 describe('compareActivitiesByOccurrence (issue #8286)', () => {
   it('never orders an undated activity by its created_at against a dated one', () => {
-    // `undated` has a *later* created_at than `dated`'s occurred_at; if created_at
-    // were used as a fake occurrence date, it could interleave before/after the
-    // dated item. The fix pushes the undated activity to the end regardless of
-    // its created_at, in both directions.
     const dated = createActivity({ id: 'dated', occurredAt: '2026-01-10T09:00:00.000Z', createdAt: '2026-03-01T00:00:00.000Z' })
     const undated = createActivity({ id: 'undated', occurredAt: null, scheduledAt: null, createdAt: '2026-06-01T00:00:00.000Z' })
 
@@ -96,16 +84,12 @@ describe('compareActivitiesByOccurrence (issue #8286)', () => {
   it('uses scheduled_at as the occurrence surrogate for an upcoming task', () => {
     const scheduledSoon = createActivity({ id: 'scheduled', occurredAt: null, scheduledAt: '2026-12-31T09:00:00.000Z' })
     const occurredLongAgo = createActivity({ id: 'occurred', occurredAt: '2026-01-01T00:00:00.000Z' })
-    // scheduled_at acts as the occurrence surrogate so the near-future scheduled
-    // item outranks the long-past occurred item when desc.
     expect(
       [occurredLongAgo, scheduledSoon].sort((left, right) => compareActivitiesByOccurrence(left, right, 'desc')).map((a) => a.id),
     ).toEqual(['scheduled', 'occurred'])
   })
 
   it('keeps the id-descending tie-break for activities sharing an occurrence date', () => {
-    // Preserves the previous behavior that the "filters timeline by search term"
-    // test relies on: equal-time items fall back to a deterministic id order.
     const a = createActivity({ id: 'a', occurredAt: '2026-03-29T09:00:00.000Z' })
     const b = createActivity({ id: 'b', occurredAt: '2026-03-29T09:00:00.000Z' })
     expect([a, b].sort((left, right) => compareActivitiesByOccurrence(left, right, 'desc')).map((x) => x.id)).toEqual(['b', 'a'])

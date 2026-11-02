@@ -10,7 +10,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Kbd } from '@open-mercato/ui/primitives/kbd'
 import { ActivityTimelineFilters } from './ActivityTimelineFilters'
 import { ActivityTimeline } from './ActivityTimeline'
-import { compareActivitiesByOccurrence } from './activityDates'
+import { activityOccurrenceDate, compareActivitiesByOccurrence } from './activityDates'
 import { resolveAuthorUserNames } from './authorUserLookup'
 import type { ActivitySummary, InteractionSummary } from './types'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -95,9 +95,6 @@ function sortTimelineActivities(items: InteractionSummary[]): InteractionSummary
       return leftScheduled - rightScheduled
     }
 
-    // Fall through to the activity's real occurrence date (occurred_at ->
-    // scheduled_at). An undated activity sorts last; created_at is never used as
-    // a fake occurrence time (issue #8286).
     return compareActivitiesByOccurrence(left, right, 'desc')
   })
 }
@@ -242,11 +239,7 @@ export function ActivitiesSection({
       }
       const legacyFiltered = legacyItems.filter((entry) => {
         if (filterTypes.length > 0 && !filterTypes.includes(entry.interactionType)) return false
-        // Match an active date range against the activity's occurrence date only
-        // (occurred_at -> scheduled_at). A range-active undated activity is
-        // hidden rather than matched by its created_at materialisation time
-        // (issue #8286).
-        const occurrence = entry.occurredAt ?? entry.scheduledAt
+        const occurrence = activityOccurrenceDate(entry)
         if (occurrence) {
           const dateOnly = toDateOnly(occurrence)
           if (filterDateFrom && dateOnly < filterDateFrom) return false

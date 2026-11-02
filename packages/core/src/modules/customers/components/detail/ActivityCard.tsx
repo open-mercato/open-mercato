@@ -46,8 +46,7 @@ const TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
   task: ListTodo,
 }
 
-function formatDayLabel(value: string | null, t: ReturnType<typeof useT>): string {
-  if (value === null) return ''
+function formatDayLabel(value: string, t: ReturnType<typeof useT>): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ''
   const now = new Date()
@@ -59,8 +58,7 @@ function formatDayLabel(value: string | null, t: ReturnType<typeof useT>): strin
   return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
 }
 
-function formatTimeLabel(value: string | null): string {
-  if (value === null) return ''
+function formatTimeLabel(value: string): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ''
   return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
@@ -119,9 +117,6 @@ function buildEmailCardWidgetData(activity: InteractionSummary): EmailCardWidget
 
 export function ActivityCard({ activity, onOpen, onChanged, runMutation }: ActivityCardProps) {
   const t = useT()
-  // Show the activity's real occurrence date (occurred_at -> scheduled_at).
-  // A `NULL` occurrence never displays its created_at materialisation time as
-  // the date it happened (issue #8286).
   const occurrenceDate = activityOccurrenceDate(activity)
   const TypeIcon = TYPE_ICONS[activity.interactionType] ?? StickyNote
   const titleBase = activity.title ?? activity.body ?? activity.interactionType

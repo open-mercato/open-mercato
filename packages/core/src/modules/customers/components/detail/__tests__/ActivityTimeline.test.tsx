@@ -108,7 +108,6 @@ describe('ActivityTimeline canceled status', () => {
       { locale: 'en', dict: enDict as Record<string, string> },
     )
 
-    // The undated state renders explicitly; created_at must not leak into the date column.
     expect(screen.getByText(enDict['customers.timeline.date.undated'] as string)).toBeInTheDocument()
     expect(screen.queryByText('01/15')).not.toBeInTheDocument()
   })

@@ -7,18 +7,20 @@ import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWith
 import { ActivityHistorySection } from '../ActivityHistorySection'
 
 const readApiResultOrThrowMock = jest.fn()
+const mockActivityCard = jest.fn(() => null)
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   readApiResultOrThrow: (...args: unknown[]) => readApiResultOrThrowMock(...args),
 }))
 
 jest.mock('../ActivityCard', () => ({
-  ActivityCard: () => null,
+  ActivityCard: (props: unknown) => mockActivityCard(props),
 }))
 
 describe('ActivityHistorySection', () => {
   beforeEach(() => {
     jest.useFakeTimers().setSystemTime(new Date('2026-04-16T12:00:00.000Z'))
+    mockActivityCard.mockClear()
     readApiResultOrThrowMock.mockReset()
     readApiResultOrThrowMock.mockImplementation((url: string) => {
       if (url.startsWith('/api/customers/interactions/counts?')) {
@@ -71,6 +73,83 @@ describe('ActivityHistorySection', () => {
 
     expect(diffDays).toBeGreaterThanOrEqual(89)
     expect(diffDays).toBeLessThanOrEqual(91)
+  })
+
+  it('does not admit a legacy undated activity through its created_at date', async () => {
+    readApiResultOrThrowMock.mockImplementation((url: string) => {
+      if (url.startsWith('/api/customers/interactions/counts?')) {
+        return Promise.resolve({ result: { call: 2, email: 0, meeting: 0, note: 0, task: 0, total: 2 } })
+      }
+      if (url.startsWith('/api/customers/interactions?')) return Promise.resolve({ items: [] })
+      if (url.startsWith('/api/customers/activities?')) {
+        return Promise.resolve({
+          items: [
+            {
+              id: 'dated',
+              activityType: 'call',
+              occurredAt: '2026-04-10T09:00:00.000Z',
+              createdAt: '2026-04-10T09:00:00.000Z',
+            },
+            {
+              id: 'undated',
+              activityType: 'call',
+              occurredAt: null,
+              createdAt: '2026-04-15T09:00:00.000Z',
+            },
+          ],
+          totalPages: 1,
+        })
+      }
+      return Promise.resolve({})
+    })
+
+    renderWithProviders(<ActivityHistorySection entityId="company-123" />)
+
+    await waitFor(() => {
+      expect(mockActivityCard).toHaveBeenCalledTimes(1)
+    })
+    const renderedActivity = mockActivityCard.mock.calls[0]?.[0] as { activity: { id: string } }
+    expect(renderedActivity.activity.id).toBe('dated')
+  })
+
+  it('does not render a null year separator before an undated canonical activity', async () => {
+    readApiResultOrThrowMock.mockImplementation((url: string) => {
+      if (url.startsWith('/api/customers/interactions/counts?')) {
+        return Promise.resolve({ result: { call: 2, email: 0, meeting: 0, note: 0, task: 0, total: 2 } })
+      }
+      if (url.startsWith('/api/customers/interactions?')) {
+        return Promise.resolve({
+          items: [
+            {
+              id: 'dated',
+              interactionType: 'call',
+              status: 'done',
+              occurredAt: '2026-04-10T09:00:00.000Z',
+              scheduledAt: null,
+              createdAt: '2026-04-10T09:00:00.000Z',
+              updatedAt: '2026-04-10T09:00:00.000Z',
+            },
+            {
+              id: 'undated',
+              interactionType: 'call',
+              status: 'done',
+              occurredAt: null,
+              scheduledAt: null,
+              createdAt: '2026-04-15T09:00:00.000Z',
+              updatedAt: '2026-04-15T09:00:00.000Z',
+            },
+          ],
+        })
+      }
+      return Promise.resolve({})
+    })
+
+    renderWithProviders(<ActivityHistorySection entityId="company-123" useCanonicalInteractions />)
+
+    await waitFor(() => {
+      expect(mockActivityCard).toHaveBeenCalledTimes(2)
+    })
+    expect(screen.queryByText('· null ·')).not.toBeInTheDocument()
   })
 
   it('fetches legacy fallback pages in parallel rather than one at a time', async () => {

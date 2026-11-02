@@ -74,10 +74,6 @@ function computeRangeStart(range: '7d' | '30d' | '90d'): Date {
   return date
 }
 
-function toTimelineTimestamp(activity: InteractionSummary): string {
-  return activity.occurredAt ?? activity.scheduledAt ?? activity.createdAt
-}
-
 function normalizeLegacyActivity(activity: ActivitySummary): InteractionSummary {
   return {
     id: activity.id,
@@ -119,9 +115,6 @@ function sortTimelineActivities(items: InteractionSummary[]): InteractionSummary
     if (leftIsUpcoming !== rightIsUpcoming) return leftIsUpcoming ? -1 : 1
     if (leftIsUpcoming && rightIsUpcoming) return leftScheduled - rightScheduled
 
-    // Fall through to the activity's real occurrence date (occurred_at ->
-    // scheduled_at). An undated activity sorts last; created_at is never used as
-    // a fake occurrence time (issue #8286).
     return compareActivitiesByOccurrence(left, right, 'desc')
   })
 }
@@ -154,7 +147,9 @@ function matchesSearch(activity: InteractionSummary, query: string): boolean {
 }
 
 function isWithinRange(activity: InteractionSummary, start: Date): boolean {
-  const timestamp = new Date(toTimelineTimestamp(activity))
+  const occurrenceDate = activityOccurrenceDate(activity)
+  if (occurrenceDate === null) return false
+  const timestamp = new Date(occurrenceDate)
   if (Number.isNaN(timestamp.getTime())) return false
   return timestamp >= start
 }
@@ -453,14 +448,11 @@ export function ActivityHistorySection({
         ) : (
           <div className="space-y-4">
             {activities.map((activity, index) => {
-              // Year separator uses the real occurrence date; an undated
-              // activity contributes no year so it never splits the feed
-              // (issue #8286).
               const currentOccurrence = activityOccurrenceDate(activity)
               const currentYear = currentOccurrence ? new Date(currentOccurrence).getFullYear() : null
               const previousOccurrence = index > 0 ? activityOccurrenceDate(activities[index - 1]) : null
               const previousYear = previousOccurrence ? new Date(previousOccurrence).getFullYear() : null
-              const showYearSeparator = previousYear !== null && currentYear !== previousYear
+              const showYearSeparator = currentYear !== null && previousYear !== null && currentYear !== previousYear
               return (
                 <React.Fragment key={activity.id}>
                   {showYearSeparator ? (
