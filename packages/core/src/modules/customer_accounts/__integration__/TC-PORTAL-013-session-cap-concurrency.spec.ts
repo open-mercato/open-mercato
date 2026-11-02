@@ -1,11 +1,9 @@
 import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test'
-import { getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures'
-import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import {
   createCustomerUserFixture,
   deleteCustomerUserFixture,
-  portalLogin,
 } from '@open-mercato/core/helpers/integration/customerAccountsFixtures'
 
 /**
@@ -13,34 +11,42 @@ import {
  *
  * Each login counted the customer's live sessions, revoked the overflow and inserted its own
  * session with nothing serializing those steps, so logins that overlapped all read the same
- * count and the customer kept more sessions than MAX_CUSTOMER_SESSIONS_PER_USER (default 5).
+ * count and the customer kept more sessions than MAX_CUSTOMER_SESSIONS_PER_USER.
  * The count, revoke and insert now run in one transaction under a per-customer advisory lock.
+ * The integration environment does not set MAX_CUSTOMER_SESSIONS_PER_USER, so the cap is the
+ * default of 5.
  *
  * Surfaces:
  *   - POST /api/customer_accounts/login (sequential, then a concurrent burst)
- *   - customer_user_sessions live rows, read directly because no portal API lists another
- *     device's revoked state
+ *   - GET /api/customer_accounts/admin/users/:id (live sessions with their decrypted user agent)
  */
 
 const DEFAULT_SESSION_CAP = 5
 const SEQUENTIAL_LOGINS = DEFAULT_SESSION_CAP - 1
 const CONCURRENT_LOGINS = 5
+const USER_AGENT_PREFIX = 'tc-portal-013'
 
-function login(request: APIRequestContext, email: string, password: string, tenantId: string): Promise<APIResponse> {
+function login(
+  request: APIRequestContext,
+  input: { email: string; password: string; tenantId: string; userAgent: string },
+): Promise<APIResponse> {
   return request.post('/api/customer_accounts/login', {
-    data: { email, password, tenantId },
-    headers: { 'Content-Type': 'application/json' },
+    data: { email: input.email, password: input.password, tenantId: input.tenantId },
+    headers: { 'Content-Type': 'application/json', 'User-Agent': input.userAgent },
   })
 }
 
-async function countLiveSessions(userId: string): Promise<number> {
-  return withClient(async (client) => {
-    const result = await client.query<{ live: string }>(
-      'select count(*)::text as live from customer_user_sessions where user_id = $1 and deleted_at is null and expires_at > now()',
-      [userId],
-    )
-    return Number(result.rows[0]?.live ?? -1)
+async function listLiveSessions(
+  request: APIRequestContext,
+  adminToken: string,
+  userId: string,
+): Promise<Array<{ id: string; userAgent: string | null }>> {
+  const response = await apiRequest(request, 'GET', `/api/customer_accounts/admin/users/${userId}`, {
+    token: adminToken,
   })
+  expect(response.status(), 'admin user detail must load').toBe(200)
+  const body = (await response.json()) as { sessions: Array<{ id: string; userAgent: string | null }> }
+  return body.sessions
 }
 
 test.describe('TC-PORTAL-013: portal session cap holds under concurrent logins', () => {
@@ -52,22 +58,32 @@ test.describe('TC-PORTAL-013: portal session cap holds under concurrent logins',
     try {
       const user = await createCustomerUserFixture(request, adminToken, {})
       userId = user.id
+      const credentials = { email: user.email, password: user.password, tenantId }
 
       for (let index = 0; index < SEQUENTIAL_LOGINS; index += 1) {
-        await portalLogin(request, { email: user.email, password: user.password, tenantId })
+        const response = await login(request, { ...credentials, userAgent: `${USER_AGENT_PREFIX}-sequential-${index}` })
+        expect(response.status(), `sequential login ${index + 1} must succeed`).toBe(200)
       }
-      expect(await countLiveSessions(user.id), 'sequential logins stay below the cap').toBe(SEQUENTIAL_LOGINS)
+      expect(await listLiveSessions(request, adminToken, user.id), 'sequential logins stay below the cap')
+        .toHaveLength(SEQUENTIAL_LOGINS)
 
       const burst = await Promise.all(
-        Array.from({ length: CONCURRENT_LOGINS }, () => login(request, user.email, user.password, tenantId)),
+        Array.from({ length: CONCURRENT_LOGINS }, (_, index) =>
+          login(request, { ...credentials, userAgent: `${USER_AGENT_PREFIX}-burst-${index}` }),
+        ),
       )
       const succeeded = burst.filter((response) => response.status() === 200).length
       expect(succeeded, 'the concurrent logins must succeed').toBe(CONCURRENT_LOGINS)
 
-      expect(await countLiveSessions(user.id), 'the concurrent burst must not exceed the cap').toBe(DEFAULT_SESSION_CAP)
+      const afterBurst = await listLiveSessions(request, adminToken, user.id)
+      expect(afterBurst, 'the concurrent burst must not exceed the cap').toHaveLength(DEFAULT_SESSION_CAP)
+      const burstSessions = afterBurst.filter((session) => session.userAgent?.startsWith(`${USER_AGENT_PREFIX}-burst-`))
+      expect(burstSessions, 'every burst login keeps its session with a readable user agent').toHaveLength(CONCURRENT_LOGINS)
 
-      await portalLogin(request, { email: user.email, password: user.password, tenantId })
-      expect(await countLiveSessions(user.id), 'a later login keeps the cap').toBe(DEFAULT_SESSION_CAP)
+      const lastLogin = await login(request, { ...credentials, userAgent: `${USER_AGENT_PREFIX}-last` })
+      expect(lastLogin.status(), 'a later login must succeed').toBe(200)
+      expect(await listLiveSessions(request, adminToken, user.id), 'a later login keeps the cap')
+        .toHaveLength(DEFAULT_SESSION_CAP)
     } finally {
       await deleteCustomerUserFixture(request, adminToken, userId)
     }

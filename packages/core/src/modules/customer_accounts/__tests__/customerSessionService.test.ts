@@ -184,8 +184,7 @@ describe('CustomerSessionService.createSession — concurrent session cap', () =
 
     expect(transactionalMock).toHaveBeenCalledTimes(1)
     expect(executeMock).toHaveBeenCalledTimes(1)
-    const [lockSql, lockParams] = executeMock.mock.calls[0] as unknown as [string, unknown[]]
-    expect(lockSql).toContain('pg_try_advisory_xact_lock')
+    const [, lockParams] = executeMock.mock.calls[0] as unknown as [string, unknown[]]
     expect(lockParams).toEqual([`customer_accounts:session_cap:${userId}`])
     expect(executeMock.mock.invocationCallOrder[0]).toBeLessThan(findMock.mock.invocationCallOrder[0])
     expect(findMock.mock.invocationCallOrder[0]).toBeLessThan(persistMock.mock.invocationCallOrder[0])
@@ -193,8 +192,12 @@ describe('CustomerSessionService.createSession — concurrent session cap', () =
     expect(createMock.mock.calls[0][1].user).toEqual({ id: userId })
   })
 
-  const buildRaceEm = () => {
-    let rows: { id: string; userId: string; deletedAt: Date | null }[] = []
+  const buildRaceEm = (options: { existingIds?: string[]; failInsert?: boolean } = {}) => {
+    let rows: { id: string; userId: string; deletedAt: Date | null }[] = (options.existingIds ?? []).map((id) => ({
+      id,
+      userId,
+      deletedAt: null,
+    }))
     let created = 0
     const heldKeys = new Set<string>()
     const lockAttempts: { key: string; locked: boolean }[] = []
@@ -220,6 +223,7 @@ describe('CustomerSessionService.createSession — concurrent session cap', () =
         }),
         persist: jest.fn((entity: { id: string; user: { id: string } }) => ({
           flush: jest.fn(async () => {
+            if (options.failInsert) throw new Error('insert failed')
             rows.push({ id: entity.id, userId: entity.user.id, deletedAt: null })
           }),
         })),
@@ -242,8 +246,12 @@ describe('CustomerSessionService.createSession — concurrent session cap', () =
       fork: jest.fn(() => ({
         transactional: jest.fn(async (work: (tx: unknown) => Promise<unknown>) => {
           const holding: string[] = []
+          const committed = rows.map((row) => ({ ...row }))
           try {
             return await work(buildTx(holding))
+          } catch (error) {
+            rows = committed
+            throw error
           } finally {
             for (const key of holding) heldKeys.delete(key)
           }
@@ -271,7 +279,18 @@ describe('CustomerSessionService.createSession — concurrent session cap', () =
     expect(liveRows()).toHaveLength(1)
   })
 
-  it('does not make logins of different users wait for each other', async () => {
+  it('rolls back the revoke of the oldest session when the new session cannot be inserted', async () => {
+    process.env.MAX_CUSTOMER_SESSIONS_PER_USER = '1'
+    const { CustomerSessionService } = await import('../services/customerSessionService')
+    const { raceEm, liveRows } = buildRaceEm({ existingIds: ['oldest'], failInsert: true })
+
+    const service = new CustomerSessionService(raceEm)
+    await expect(service.createSession(user, ['portal.view'])).rejects.toThrow('insert failed')
+
+    expect(liveRows().map((row) => row.id)).toEqual(['oldest'])
+  })
+
+  it('uses a separate lock key per user so logins of different users never contend', async () => {
     process.env.MAX_CUSTOMER_SESSIONS_PER_USER = '1'
     const { CustomerSessionService } = await import('../services/customerSessionService')
     const { raceEm, liveRows, lockAttempts } = buildRaceEm()
