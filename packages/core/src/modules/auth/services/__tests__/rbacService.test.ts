@@ -265,8 +265,8 @@ describe('RbacService', () => {
       }] : [])
     })
 
-    it.each([null, 'sess_test'])('caps persistent and session keys on cold and warm caches (%s)', async (sessionTokenHash) => {
-      key.sessionTokenHash = sessionTokenHash
+    it.each([null, 'sess_test'])('caps persistent and session keys on cold and warm caches (%s)', async (sessionToken) => {
+      key.sessionToken = sessionToken
       for (const organizationId of ['org-1', 'org-2']) {
         const scope = { tenantId: 'tenant-1', organizationId }
         for (let attempt = 0; attempt < 2; attempt += 1) {
