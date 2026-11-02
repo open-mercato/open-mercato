@@ -18,6 +18,7 @@ import { ActionLogService } from '@open-mercato/core/modules/audit_logs/services
 import { resolveCanonicalAuthSubject } from '@open-mercato/core/modules/audit_logs/lib/actorSubject'
 import { loadAuditLogDisplayMaps } from '../../display'
 import { requireResolvedTenantScope } from '../../readScope'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['audit_logs.view_self'] },
@@ -194,11 +195,12 @@ export async function GET(req: Request) {
   }
   const entries = entriesResult.items
 
+  const { translate } = await resolveTranslations()
   const displayMaps = await loadAuditLogDisplayMaps(em, {
     userIds: entries.map((entry: any) => entry.actorUserId).filter((value: any): value is string => Boolean(value)),
     tenantIds: entries.map((entry: any) => entry.tenantId).filter((value: any): value is string => Boolean(value)),
     organizationIds: entries.map((entry: any) => entry.organizationId).filter((value: any): value is string => Boolean(value)),
-  })
+  }, { translate })
 
   const rows = entries.flatMap((entry: any) => {
     const actionType = deriveActionLogActionType(entry)
@@ -207,7 +209,9 @@ export async function GET(req: Request) {
       : actionType.charAt(0).toUpperCase() + actionType.slice(1)
     const baseRow = {
       when: entry.createdAt?.toISOString?.() ?? '',
-      user: entry.actorUserId ? displayMaps.users[entry.actorUserId] ?? entry.actorUserId : 'System',
+      user: entry.actorUserId
+        ? displayMaps.users[entry.actorUserId] ?? translate('audit_logs.actor.unknown_user', 'Unknown user')
+        : 'System',
       action: actionLabel,
       source: deriveActionLogSource(entry.contextJson, entry.actorUserId).toUpperCase(),
     }

@@ -158,7 +158,8 @@
         "om-evolve-harness",
         "om-judge-agent-session",
         "om-share-this-session",
-        "om-eject-and-customize"
+        "om-eject-and-customize",
+        "om-setup-ci"
       ]
     },
     "automation": {

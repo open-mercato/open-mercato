@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { slugify } from "@open-mercato/shared/lib/slugify";
 import { parseObjectLike } from "@open-mercato/shared/lib/json/parseObjectLike";
-import { parseLocaleNumber } from "@open-mercato/shared/lib/number";
+import { formatLocaleNumberInput, parseLocaleNumber } from "@open-mercato/shared/lib/number";
 import type { ReferenceUnitCode } from "@open-mercato/shared/lib/units/unitCodes";
 import {
   CATALOG_CONFIGURABLE_PRODUCT_TYPES,
@@ -382,6 +382,41 @@ export function withCanonicalUomFields(
           toBaseFactor:
             typeof conversion?.toBaseFactor === "string"
               ? toCanonicalDecimalString(conversion.toBaseFactor, locale)
+              : conversion?.toBaseFactor,
+        }))
+      : values.unitConversions,
+  };
+}
+
+// The inverse of `withCanonicalUomFields`: renders the canonical dot-decimal UoM strings in
+// the locale's own decimal separator, so the form redisplays `2,5` rather than `2.5` once a
+// save merges the submitted values back into the visible fields (issue #6309).
+function toLocaleDecimalString(raw: string, locale?: string): string {
+  if (!raw.trim()) return raw;
+  const parsed = parseLocaleNumber(raw, locale);
+  return parsed === null ? raw : formatLocaleNumberInput(parsed, locale);
+}
+
+export function withLocaleUomFields(
+  values: ProductFormValues,
+  locale?: string,
+): ProductFormValues {
+  return {
+    ...values,
+    defaultSalesUnitQuantity:
+      typeof values.defaultSalesUnitQuantity === "string"
+        ? toLocaleDecimalString(values.defaultSalesUnitQuantity, locale)
+        : values.defaultSalesUnitQuantity,
+    unitPriceBaseQuantity:
+      typeof values.unitPriceBaseQuantity === "string"
+        ? toLocaleDecimalString(values.unitPriceBaseQuantity, locale)
+        : values.unitPriceBaseQuantity,
+    unitConversions: Array.isArray(values.unitConversions)
+      ? values.unitConversions.map((conversion) => ({
+          ...conversion,
+          toBaseFactor:
+            typeof conversion?.toBaseFactor === "string"
+              ? toLocaleDecimalString(conversion.toBaseFactor, locale)
               : conversion?.toBaseFactor,
         }))
       : values.unitConversions,
