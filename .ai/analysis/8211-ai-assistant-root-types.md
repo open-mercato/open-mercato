@@ -32,7 +32,7 @@ Every configured command was attempted in order, with a per-command timeout and 
 | yarn i18n:check-usage | Initial same EINVAL; retry with TMPDIR=/tmp exceeded 60-second bound |
 | yarn typecheck | PASS, 42 tasks |
 | yarn test | TIMEOUT, incomplete (30/49 tasks successful when terminated) |
-| yarn build:app | Pending at report preparation; see PR review for final result |
+| yarn build:app | PASS, optimized production build and TypeScript completed |
 
 `yarn template:sync` and `git diff --check` passed. No generated source files changed. Full gate is **not green**; merge approval is withheld until remaining validation succeeds. A complete create-mercato-app + channel-discord installation/build was not run.
 
