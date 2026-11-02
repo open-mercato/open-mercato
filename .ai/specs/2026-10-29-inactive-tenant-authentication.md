@@ -63,3 +63,7 @@ Both package builds, generation, translation sync/usage checks, typechecking, ap
 
 - 2026-10-29: Defined the tenant suspension authentication contract and implementation/validation plan for #7813.
 - 2026-10-29: Implemented staff, portal, and cached API-key checks, added regression and integration coverage, and completed independent code review.
+
+### 2026-11-02 — Release prerequisite repair
+
+Backported the existing #7447 cross-site sign-in guard and its shared URL policy into the release repair for #8191, as required by the inherited review. Staff and portal login, refresh, magic-link and invitation completion retain the original origin/Fetch Metadata assertions; tenant eligibility remains independently enforced. The source API integration specs TC-AUTH-069 and TC-PORTAL-012 ship with the repair. Focused local evidence: 64 core and 63 shared tests passed; core build passed. Hosted CI and API integration execution remain separate gates.

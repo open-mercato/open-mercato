@@ -7,6 +7,7 @@ jest.mock('@open-mercato/core/modules/customer_accounts/lib/tenantEligibility', 
   isCustomerTenantActive: jest.fn(async () => true),
 }))
 
+
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const organizationId = '22222222-2222-4222-8222-222222222222'
 const userId = '33333333-3333-4333-8333-333333333333'
@@ -22,7 +23,7 @@ const mockCustomerUserService = {
   verifyPassword: mockVerifyPassword,
   checkLockout: jest.fn(() => false),
   incrementFailedAttempts: jest.fn(),
-  resetFailedAttemptsUnlessLocked: jest.fn(async () => true),
+  resetFailedAttempts: jest.fn(async () => undefined),
   updateLastLoginAt: jest.fn(async () => undefined),
 }
 

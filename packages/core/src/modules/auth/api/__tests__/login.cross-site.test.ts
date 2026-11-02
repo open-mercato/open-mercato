@@ -9,6 +9,7 @@ jest.mock('@open-mercato/core/modules/auth/lib/tenantEligibility', () => ({
   isStaffTenantActive: jest.fn(async () => true),
 }))
 
+
 const tenantId = randomUUID()
 const orgId = randomUUID()
 
