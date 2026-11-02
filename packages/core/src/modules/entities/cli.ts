@@ -991,10 +991,10 @@ const decryptDatabase: ModuleCli = {
         const schema = meta?.schema
         const qualifiedTable = schema ? `"${schema}"."${tableName}"` : `"${tableName}"`
         const scopes = [scope]
-        const fieldCols = fields.flatMap((f: any) => {
-          const r = resolveProperty(meta, f.field)
-          return r.columnName ? [r.columnName] : []
-        })
+        const fieldCols = fields.flatMap((field) => [
+          resolveProperty(meta, field.field).columnName,
+          field.hashField ? resolveProperty(meta, field.hashField).columnName : null,
+        ].filter((column): column is string => Boolean(column)))
         const colList = Array.from(new Set([pk, ...fieldCols]))
         for (const scope of scopes) {
           let sampleRows: unknown
@@ -1078,10 +1078,10 @@ const decryptDatabase: ModuleCli = {
       const tableName = meta.tableName
       const schema = meta?.schema
       const qualifiedTable = schema ? `"${schema}"."${tableName}"` : `"${tableName}"`
-      const fieldCols = fields.flatMap((f: any) => {
-        const r = resolveProperty(meta, f.field)
-        return r.columnName ? [r.columnName] : []
-      })
+      const fieldCols = fields.flatMap((field) => [
+        resolveProperty(meta, field.field).columnName,
+        field.hashField ? resolveProperty(meta, field.hashField).columnName : null,
+      ].filter((column): column is string => Boolean(column)))
       const colList = Array.from(new Set([pk, ...fieldCols]))
       totalEntitiesProcessed++
 
@@ -1254,9 +1254,25 @@ const decryptDatabase: ModuleCli = {
             const columns = fields.map((field) => resolveProperty(meta, field.field).columnName).filter((column): column is string => Boolean(column))
             const scopes = [scope]
             for (const scope of scopes) {
-              const rows = await executeProtected(`SELECT ${columns.map((column) => `"${column}"`).join(', ')} FROM ${table} WHERE tenant_id = ? AND organization_id IS NOT DISTINCT FROM ?`, [scope.tenantId, scope.organizationId])
-              if ((Array.isArray(rows) ? rows : []).some((row) => columns.some((column) => isEncryptedPayloadShape(row[column])))) {
-                failCli('[internal] Encrypted values remain during the protected final sweep. Encryption maps remain active; stop writers and retry.')
+              const primaryKey = meta.primaryKeys?.[0] ?? 'id'
+              const selectedColumns = [...new Set([primaryKey, ...columns])]
+              let lastVerifiedId: string | null = null
+              while (true) {
+                let query = `SELECT ${selectedColumns.map((column) => `"${column}"`).join(', ')} FROM ${table} WHERE tenant_id = ? AND organization_id IS NOT DISTINCT FROM ?`
+                const parameters: unknown[] = [scope.tenantId, scope.organizationId]
+                if (lastVerifiedId !== null) {
+                  query += ` AND "${primaryKey}" > ?`
+                  parameters.push(lastVerifiedId)
+                }
+                query += ` ORDER BY "${primaryKey}" LIMIT ?`
+                parameters.push(batchSize)
+                const rows = await executeProtected(query, parameters)
+                const batch = Array.isArray(rows) ? rows : []
+                if (!batch.length) break
+                if (batch.some((row) => columns.some((column) => isEncryptedPayloadShape(row[column])))) {
+                  failCli('[internal] Encrypted values remain during the protected final sweep. Encryption maps remain active; stop writers and retry.')
+                }
+                lastVerifiedId = String(batch[batch.length - 1]![primaryKey])
               }
             }
           }
