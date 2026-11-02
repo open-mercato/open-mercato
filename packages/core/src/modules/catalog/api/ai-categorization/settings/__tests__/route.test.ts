@@ -6,6 +6,7 @@ const validateCrudMutationGuardMock = jest.fn()
 const runCrudMutationGuardAfterSuccessMock = jest.fn()
 const getStatusMock = jest.fn()
 const setValueMock = jest.fn()
+const deleteByTagsMock = jest.fn()
 
 const container = {
   resolve: jest.fn((name: string) => {
@@ -14,6 +15,9 @@ const container = {
     }
     if (name === 'moduleConfigService') {
       return { setValue: (...args: unknown[]) => setValueMock(...args) }
+    }
+    if (name === 'cache') {
+      return { deleteByTags: (...args: unknown[]) => deleteByTagsMock(...args) }
     }
     throw new Error(`Unexpected container resolve: ${name}`)
   }),
@@ -57,6 +61,7 @@ describe('catalog ai-categorization settings route', () => {
     validateCrudMutationGuardMock.mockResolvedValue({ ok: true, shouldRunAfterSuccess: true, metadata: { token: 'guard' } })
     runCrudMutationGuardAfterSuccessMock.mockResolvedValue(undefined)
     setValueMock.mockResolvedValue(undefined)
+    deleteByTagsMock.mockResolvedValue(undefined)
     getStatusMock.mockResolvedValue({
       available: true,
       enabled: false,
@@ -140,6 +145,24 @@ describe('catalog ai-categorization settings route', () => {
       expect.objectContaining({ enabled: true }),
       { tenantId },
     )
+  })
+
+  it('invalidates the tenant sidebar nav cache after saving so the review page entry reflects the new setting', async () => {
+    const response = await PUT(makePutRequest({ ...DEFAULT_SETTINGS, enabled: true }))
+    expect(response.status).toBe(200)
+    expect(deleteByTagsMock).toHaveBeenCalledWith([`nav:sidebar:tenant:${tenantId}`])
+  })
+
+  it('does not invalidate the nav cache when the write is blocked', async () => {
+    validateCrudMutationGuardMock.mockResolvedValue({ ok: false, status: 409, body: { error: 'Conflict' } })
+    await PUT(makePutRequest({ ...DEFAULT_SETTINGS, enabled: true }))
+    expect(deleteByTagsMock).not.toHaveBeenCalled()
+  })
+
+  it('still succeeds when the nav cache invalidation fails', async () => {
+    deleteByTagsMock.mockRejectedValue(new Error('cache down'))
+    const response = await PUT(makePutRequest({ ...DEFAULT_SETTINGS, enabled: true }))
+    expect(response.status).toBe(200)
   })
 
   it('aborts the write before persisting when the guard blocks it', async () => {

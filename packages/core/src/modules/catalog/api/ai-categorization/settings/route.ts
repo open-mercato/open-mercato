@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import { runWithCacheTenant } from '@open-mercato/cache'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -61,6 +62,17 @@ async function resolveSettingsContext(req: Request): Promise<SettingsContext> {
   }
 }
 
+async function invalidateSidebarNavCache(container: SettingsContext['container'], tenantId: string) {
+  try {
+    const cache = container.resolve('cache') as {
+      deleteByTags?: (tags: string[]) => Promise<unknown>
+    } | null
+    await runWithCacheTenant(tenantId, () => cache?.deleteByTags?.([`nav:sidebar:tenant:${tenantId}`]))
+  } catch (err) {
+    logger.warn('catalog.ai_categorization.settings.PUT Sidebar cache invalidation failed', { err })
+  }
+}
+
 function buildResponse(status: CatalogCategorizationStatus) {
   return {
     settings: status.settings,
@@ -116,6 +128,8 @@ async function PUT(req: Request) {
 
     const moduleConfigService = context.container.resolve('moduleConfigService') as ModuleConfigService
     await writeAiCategorizationSettings(moduleConfigService, { tenantId: context.tenantId }, body.settings)
+
+    await invalidateSidebarNavCache(context.container, context.tenantId)
 
     if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
       await runCrudMutationGuardAfterSuccess(context.container, {
