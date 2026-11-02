@@ -6,6 +6,7 @@ const progressJobId = '44444444-4444-4444-8444-444444444444'
 const getStatusMock = jest.fn()
 const createJobMock = jest.fn()
 const enqueueMock = jest.fn()
+const failJobMock = jest.fn()
 const runGuardsMock = jest.fn()
 const resolveScopeMock = jest.fn()
 
@@ -15,7 +16,10 @@ const container = {
       return { getStatus: (...args: unknown[]) => getStatusMock(...args) }
     }
     if (name === 'progressService') {
-      return { createJob: (...args: unknown[]) => createJobMock(...args) }
+      return {
+        createJob: (...args: unknown[]) => createJobMock(...args),
+        failJob: (...args: unknown[]) => failJobMock(...args),
+      }
     }
     throw new Error(`Unexpected container resolve: ${name}`)
   }),
@@ -60,6 +64,7 @@ describe('catalog ai-categorization bulk route', () => {
     runGuardsMock.mockResolvedValue({ ok: true })
     createJobMock.mockResolvedValue({ id: progressJobId })
     enqueueMock.mockResolvedValue('job')
+    failJobMock.mockResolvedValue(undefined)
   })
 
   it('requires the ai_categorization.use feature', () => {
@@ -140,5 +145,16 @@ describe('catalog ai-categorization bulk route', () => {
       ids: [uuidFor(1), uuidFor(2)],
       scope: { organizationId, tenantId, userId },
     })
+  })
+
+  it('fails the progress job it created when enqueueing throws, so no phantom job is left pending', async () => {
+    enqueueMock.mockRejectedValue(new Error('redis down'))
+    const response = await POST(makeRequest({ productIds: [uuidFor(1)] }))
+    expect(response.status).toBe(500)
+    expect(failJobMock).toHaveBeenCalledWith(
+      progressJobId,
+      { errorMessage: 'Bulk AI categorization could not be queued' },
+      { tenantId, organizationId, userId },
+    )
   })
 })

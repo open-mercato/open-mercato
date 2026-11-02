@@ -24,7 +24,8 @@
 | 6 | 6.1 | Auto-apply: settings UI, service logic, tests (spec step 15) | dispatch | done | 22979a00b5 |
 | 7 | 7.1 | On-create subscriber, settings switch, integration test (spec step 16) | dispatch | done | ebe798dabe |
 | 7 | 7.2 | Docs page in apps/docs (spec step 17) | dispatch | done | f6148e197d |
-| 8 | 8.1 | Spec sync, PR body update, full gate | inline | todo | — |
+| 8 | 8.1 | Spec sync, PR body update, full gate | inline | done | 867ec9e7ba |
+| 8 | 8.2-review-fix | Worker must not rethrow after failJob; fail the progress job when enqueue fails | inline | done | — |
 
 **Source doc:** `.ai/specs/2026-10-28-catalog-ai-product-categorization.md`
 **Spec PR:** adeptofvoltron/open-mercato#17 (design only). This plan's PR is the separate **implementation PR**, so the spec-only guard of `om-auto-continue-pr` does not apply to it.

@@ -38,9 +38,15 @@ describe('catalog:product-ai-categorize worker', () => {
     expect(mockFailJob).not.toHaveBeenCalled()
   })
 
-  it('fails the progress job and rethrows when the processor throws', async () => {
+  it('fails the progress job and does not rethrow, so the queue never repeats paid model calls', async () => {
     mockCategorize.mockRejectedValue(new Error('kaboom'))
-    await expect(handle({ id: 'q1', payload, createdAt: new Date().toISOString() }, {} as never)).rejects.toThrow('kaboom')
+    await expect(handle({ id: 'q1', payload, createdAt: new Date().toISOString() }, {} as never)).resolves.toBeUndefined()
     expect(mockFailJob).toHaveBeenCalledWith('job-1', { errorMessage: 'kaboom' }, expect.objectContaining({ tenantId: 't' }))
+  })
+
+  it('still does not rethrow when marking the progress job failed also throws', async () => {
+    mockCategorize.mockRejectedValue(new Error('kaboom'))
+    mockFailJob.mockRejectedValueOnce(new Error('db down'))
+    await expect(handle({ id: 'q1', payload, createdAt: new Date().toISOString() }, {} as never)).resolves.toBeUndefined()
   })
 })

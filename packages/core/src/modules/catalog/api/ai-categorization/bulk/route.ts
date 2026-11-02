@@ -125,7 +125,23 @@ export async function POST(req: Request) {
         userId: auth.sub,
       },
     }
-    await getCatalogQueue(CATALOG_PRODUCT_AI_CATEGORIZE_QUEUE).enqueue(payload)
+    try {
+      await getCatalogQueue(CATALOG_PRODUCT_AI_CATEGORIZE_QUEUE).enqueue(payload)
+    } catch (enqueueError) {
+      await progressService
+        .failJob(
+          progressJob.id,
+          { errorMessage: 'Bulk AI categorization could not be queued' },
+          { tenantId: auth.tenantId, organizationId, userId: auth.sub },
+        )
+        .catch((failError: unknown) => {
+          logger.error('catalog.ai_categorization.bulk.POST could not fail the orphaned progress job', {
+            progressJobId: progressJob.id,
+            err: failError,
+          })
+        })
+      throw enqueueError
+    }
 
     return NextResponse.json(
       responseSchema.parse({
