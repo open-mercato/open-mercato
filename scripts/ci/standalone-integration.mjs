@@ -137,7 +137,10 @@ try {
   run('yarn', ['tsx', 'scripts/prepare-standalone-example-integration.ts', appDir], { env: appEnv })
   run('yarn', ['generate'], { cwd: appDir, env: appEnv })
   run('yarn', ['initialize'], { cwd: appDir, env: appEnv })
-  run('yarn', ['build'], { cwd: appDir, env: { ...appEnv, NODE_OPTIONS: '--max-old-space-size=8192' } })
+  run('yarn', ['build'], {
+    cwd: appDir,
+    env: { ...appEnv, NODE_ENV: 'production', NODE_OPTIONS: '--max-old-space-size=8192' },
+  })
   assertProductionBuildArtifacts(appDir)
   await startServer()
   run('yarn', ['tsx', 'scripts/ci/select-standalone-tests.ts', suite, values['base-ref'] ?? '', selectionPath], { env: testEnv })

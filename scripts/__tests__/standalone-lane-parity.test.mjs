@@ -19,6 +19,9 @@ test('the snapshot runs the shared lifecycle against the exact published version
   assert.equal(runner.env.STANDALONE_VERSION, '${{ needs.snapshot.outputs.snapshot_version }}')
   assert.ok(steps.findIndex((step) => step.name === 'Wait for npm registry propagation') < steps.indexOf(runner))
   assert.ok(steps.some((step) => step.with?.path?.includes('standalone-selection.json')))
+
+  const lifecycle = read('scripts/ci/standalone-integration.mjs')
+  assert.match(lifecycle, /run\('yarn', \['build'\], \{\s*cwd: appDir,\s*env: \{ \.\.\.appEnv, NODE_ENV: 'production'/)
 })
 
 test('snapshot workflow cannot reintroduce independent app and test settings', () => {
