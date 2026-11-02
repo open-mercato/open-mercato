@@ -24,13 +24,15 @@ Offline confirmation is an operator acknowledgment, not a mechanism that stops e
 
 ## Progress
 
+PR: #8488
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Adapt reviewed maintenance changes
 
-- [ ] 1.1 Compare and adapt the release safety repair to main.
-- [ ] 1.2 Preserve custom documents and add focused coverage.
-- [ ] 1.3 Update operator documentation and specification.
+- [x] 1.1 Compare and adapt the release safety repair to main. — 56dd6dcca
+- [x] 1.2 Preserve custom documents and add focused coverage. — 56dd6dcca
+- [x] 1.3 Update operator documentation and specification. — 56dd6dcca
 
 ### Phase 2: Verify and publish
 
