@@ -33,7 +33,8 @@ Compatibility mode uses database aggregates and a scoped subquery to suppress br
 
 ## Progress
 
-PR: #6887
+PR: #8482
+Branch: carry/pr-6887-ready-7ac9
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
@@ -42,3 +43,5 @@ PR: #6887
 - [x] 1.1 Add the scoped merged-task count helper with storage-mode, bridge and pagination regression coverage. — 4e189e0bc1
 - [x] 1.2 Wire both profile overview APIs and cover the missing badge count through route and tab tests. — 6228645a36
 - [x] 1.3 Validate, review and publish the completed implementation. — 71b8130877
+
+- 2026-11-02T15:26:34Z: Carried forward from #6887 to #8482 by `om-auto-review-pr` autofix. Current-main conflicts preserve adapter-task, author-visibility and cache regressions; current-head hosted CI and legitimate QA sign-off remain the next steps.
