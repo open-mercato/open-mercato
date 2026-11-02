@@ -21,7 +21,7 @@ export type ConfirmDialogOptions = {
   description?: string;
   confirmText?: string | false;
   cancelText?: string | false;
-  variant?: "default" | "destructive";
+  variant?: "default" | "warning" | "destructive";
 };
 
 export type UseConfirmDialogReturn = {
