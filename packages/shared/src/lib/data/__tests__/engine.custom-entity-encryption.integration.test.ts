@@ -83,10 +83,10 @@ describePostgres('custom entity encryption in PostgreSQL JSONB (#7810)', () => {
         expect(outOfScope.items).toEqual([])
         expect(outOfScope.total).toBe(0)
       }
-      await db.updateTable('custom_entities_storage').set({ doc: { ...stored.doc, tags: ['red', 'blue'] } }).execute()
+      await db.updateTable('custom_entities_storage').set({ doc: { ...stored.doc, status: 'red', tags: ['red', 'blue'] } }).execute()
       const scopedResult = await queryEngine.query(entityId, {
         forceCustomEntityStorage: true, tenantId, organizationId, fields: ['id', 'secret'],
-        filters: { secret: '123', organization_id: { $in: [organizationId] }, tags: { $overlap: ['red'] } },
+        filters: { secret: '123', organization_id: { $in: [organizationId] }, status: { $in: ['red'] } },
       })
       expect(scopedResult.items).toEqual([{ id: recordId, secret: '123' }])
       expect(scopedResult.total).toBe(1)
@@ -96,19 +96,19 @@ describePostgres('custom entity encryption in PostgreSQL JSONB (#7810)', () => {
       })
       expect(groupedResult.items).toEqual([{ id: recordId }])
       expect(groupedResult.total).toBe(1)
-      const overlapResult = await queryEngine.query(entityId, {
+      const membershipResult = await queryEngine.query(entityId, {
         forceCustomEntityStorage: true, tenantId, organizationId, fields: ['id', 'tags'],
-        filters: { $or: [{ secret: 'missing' }, { tags: { $overlap: ['red'] } }] },
+        filters: { $or: [{ secret: 'missing' }, { status: { $in: ['red'] } }] },
       })
-      expect(overlapResult.items).toEqual([{ id: recordId, tags: '["red", "blue"]' }])
-      expect(overlapResult.total).toBe(1)
-      await db.updateTable('custom_entities_storage').set({ doc: { ...stored.doc, tags: '["red", "blue"]' } }).execute()
-      const scalarResult = await queryEngine.query(entityId, {
+      expect(membershipResult.items).toEqual([{ id: recordId, tags: '["red", "blue"]' }])
+      expect(membershipResult.total).toBe(1)
+      await db.updateTable('custom_entities_storage').set({ doc: { ...stored.doc, status: ['red'], tags: ['red', 'blue'] } }).execute()
+      const nonScalarResult = await queryEngine.query(entityId, {
         forceCustomEntityStorage: true, tenantId, organizationId, fields: ['id'],
-        filters: { $or: [{ secret: 'missing' }, { tags: { $overlap: ['red'] } }] },
+        filters: { $or: [{ secret: 'missing' }, { status: { $in: ['red'] } }] },
       })
-      expect(scalarResult.items).toEqual([])
-      expect(scalarResult.total).toBe(0)
+      expect(nonScalarResult.items).toEqual([])
+      expect(nonScalarResult.total).toBe(0)
       await db.updateTable('custom_entities_storage').set({ doc: { id: recordId, secret: 'legacy plaintext', title: 'Visible' } }).execute()
       await engine.updateCustomEntityRecord({ entityId, recordId, tenantId, organizationId, values: { title: 'Updated' } })
       const updated = await db.selectFrom('custom_entities_storage').select('doc').executeTakeFirstOrThrow()
