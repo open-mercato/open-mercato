@@ -24,59 +24,59 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
-### Rebuild customer search vectors after the privacy fix (#7826)
+### Public pay-link responses exclude administrative configuration (#7823)
 
-The person, company, and customer-account vector builders now use explicit safe
-fields. Contact email/phone, `hashOnly` and `excluded` custom fields, unapproved
-custom fields, and fields declared encrypted are omitted from embedding text.
-Contact details are also omitted from result presenters. Names remain available
-for result display; semantic matching no longer uses encrypted name/contact
-fields. Customer-account email remains available through hashed search.
+`GET /api/checkout/pay/:slug` now returns an explicit public allowlist, including
+after password verification and in authenticated link preview. It no longer
+returns the start/success/error email subjects, bodies or send flags, nor
+`logoAttachmentId`, `customFieldsetCode`, `templateId`, `maxCompletions`,
+`completionCount`, `activeReservationCount`, `isLocked`, `createdAt` or `updatedAt`.
+Payer-facing prices, branding, legal text, customer-field definitions, result
+messages, public custom fields, and derived availability remain available.
 
-Single, by-ID, queued-batch, and bulk indexing now honor the configured safe
-source. Failed, null, or empty sources skip vector writes instead of embedding
-raw fields; independent fulltext/token indexing continues. Customer sources also
-exclude live tenant/organization encryption declarations. Search DI supplies the
-existing source-context `container`; integrations invoking customer builders
-directly must provide it with `tenantEncryptionService`. Missing dependencies or
-failed policy lookup skip the vector write. Restore policy access and reindex any
-records skipped during an outage.
+**Client action:** pay-page extensions reading the removed fields must stop doing
+so. Read management configuration only in authenticated administration flows via
+`GET /api/checkout/links/:id` (`checkout.view`), whose response is unchanged. Use
+`logoPreviewUrl`/`logoUrl` and `remainingUses` on public pages. Do not proxy the
+administrative response to unauthenticated clients.
 
-When `TENANT_DATA_ENCRYPTION=false`, the policy service cannot read live
-declarations. Person/company vector writes are therefore skipped entirely;
-fulltext/token indexing continues. Turning encryption off does not authorize
-exporting fields classified by retained encryption maps. Re-enable policy access
-and reindex to restore these vectors. Encryption-at-rest toggle behavior is unchanged.
+**Operator action:** deploy the patched checkout package and app, invalidate cached
+public pay-link responses, and review email templates for confidential content
+that may already have been publicly exposed. Previously downloaded responses
+cannot be recalled. No database migration or stored-data conversion is needed;
+existing links, templates, credentials and password sessions remain usable.
 
-Deploy the fix to every app and indexing worker before rebuilding. Existing
-embeddings and stored presenters are **not automatically removed** by this code
-change. For every affected tenant and organization scope:
+This response removal follows the Emergency Security Exception in
+[`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md): retaining the old shape
+would preserve the disclosure. Human maintainer @haxiorz [approved the waiver](https://github.com/open-mercato/open-mercato/pull/8087#issuecomment-6505348826)
+on 2026-10-29 for all 18 removed administrative fields and acknowledged the
+client/operator migration. Independent review and QA approval remain required.
+The [pay-links spec](.ai/specs/implemented/2026-03-19-checkout-pay-links.md)
+records the complete allowlist and regression coverage.
 
-1. Pause indexing producers/workers, drain or discard outstanding vector jobs
-   using the deployment's queue tooling, and prevent old workers from restarting.
-2. Purge the affected vector entries through the configured driver's
-   `purge(entityId, tenantId, organizationId)` operation, or the corresponding
-   `searchIndexer.purgeEntity({ entityId, tenantId, organizationId })` DI operation.
-   The latter purges all configured strategies for that entity. Use the published
-   IDs `customers:customer_person_profile`, `customers:customer_company_profile`,
-   and `customer_accounts:customer_user`; include soft-deleted records in the purge.
-   Verify the affected entries are absent before restarting indexing; the reindex
-   API can continue after a failed purge, so `purgeFirst` alone is not proof of deletion.
-3. Re-enable only upgraded workers. As an administrator with
-   `search.embeddings.manage`, call `POST /api/search/embeddings/reindex` with
-   `{ "entityId": "<affected-entity-id>", "purgeFirst": true }` for each ID and scope.
-   Run the `vector-indexing` worker and verify completion and sample results.
-   The vector reindex endpoint also rebuilds fulltext data when that strategy is
-   configured, replacing old presenter metadata; confirm its jobs have drained.
+<a id="signed-body-limits"></a>
 
-If you use the broader `purgeEntity` operation, rebuild fulltext explicitly with
-`POST /api/search/reindex` as well. `yarn mercato search reindex` alone does not
-rebuild every search store. Rebuild after purging even when a record has not
-changed; otherwise an old checksum can leave stale sensitive metadata behind.
-Review backups, replicas, external vector stores, and embedding-provider retention
-under your deployment's deletion procedures. Local reindexing cannot retract data
-already retained by an external provider. No data purge is run by the upgrade.
+### Signed Discord interactions and agent traces have finite body limits (#7241)
 
+`POST /api/channel_discord/interactions` and `POST /api/agent_orchestrator/trace/ingest`
+now accept at most 1,048,576 bytes (1 MiB) by default, using the existing shared
+`OM_WEBHOOK_MAX_BODY_BYTES` positive safe-integer override. Invalid values use the
+default. Declared or streamed overflow returns `413 { error: 'payload_too_large' }`
+before signature verification, parsing, candidate lookup, or command execution.
+Discord requests with invalid signature headers are rejected before body consumption.
+Bodies exactly at the cap retain their existing verification and success behavior.
+
+**Action for clients:** keep encoded bodies within the deployed cap. Runtime adapters
+must reduce or split oversized traces into valid payloads, preserve ingestion
+idempotency semantics, and sign each resulting body. Retrying unchanged oversized
+payloads will continue to fail.
+
+**Action for operators:** align ingress limits with the application cap. If legitimate
+payloads exceed 1 MiB, set an appropriate finite `OM_WEBHOOK_MAX_BODY_BYTES` after
+considering memory/concurrency and its effect on other shared bounded webhook readers.
+No database migration, credential rotation, or stored-data repair is required.
+See the [Discord migration section](.ai/specs/2026-06-19-discord-communication-channel-integration.md)
+and [trace migration section](.ai/specs/enterprise/agent-orchestrator/next/2026-06-19-agent-trace-eval-capture.md).
 
 ### Inbound webhook receipt deduplication includes verified scope (#7830)
 
@@ -137,6 +137,59 @@ the byte limit to return a small acknowledgement promptly. Configure an explicit
 activity timeout for a slower endpoint, and move large results behind a separate
 retrieval or asynchronous workflow.
 Existing request configuration and successful response envelopes are unchanged.
+
+### Rebuild customer search vectors after the privacy fix (#7826)
+
+The person, company, and customer-account vector builders now use explicit safe
+fields. Contact email/phone, `hashOnly` and `excluded` custom fields, unapproved
+custom fields, and fields declared encrypted are omitted from embedding text.
+Contact details are also omitted from result presenters. Names remain available
+for result display; semantic matching no longer uses encrypted name/contact
+fields. Customer-account email remains available through hashed search.
+
+Single, by-ID, queued-batch, and bulk indexing now honor the configured safe
+source. Failed, null, or empty sources skip vector writes instead of embedding
+raw fields; independent fulltext/token indexing continues. Customer sources also
+exclude live tenant/organization encryption declarations. Search DI supplies the
+existing source-context `container`; integrations invoking customer builders
+directly must provide it with `tenantEncryptionService`. Missing dependencies or
+failed policy lookup skip the vector write. Restore policy access and reindex any
+records skipped during an outage.
+
+When `TENANT_DATA_ENCRYPTION=false`, the policy service cannot read live
+declarations. Person/company vector writes are therefore skipped entirely;
+fulltext/token indexing continues. Turning encryption off does not authorize
+exporting fields classified by retained encryption maps. Re-enable policy access
+and reindex to restore these vectors. Encryption-at-rest toggle behavior is unchanged.
+
+Deploy the fix to every app and indexing worker before rebuilding. Existing
+embeddings and stored presenters are **not automatically removed** by this code
+change. For every affected tenant and organization scope:
+
+1. Pause indexing producers/workers, drain or discard outstanding vector jobs
+   using the deployment's queue tooling, and prevent old workers from restarting.
+2. Purge the affected vector entries through the configured driver's
+   `purge(entityId, tenantId, organizationId)` operation, or the corresponding
+   `searchIndexer.purgeEntity({ entityId, tenantId, organizationId })` DI operation.
+   The latter purges all configured strategies for that entity. Use the published
+   IDs `customers:customer_person_profile`, `customers:customer_company_profile`,
+   and `customer_accounts:customer_user`; include soft-deleted records in the purge.
+   Verify the affected entries are absent before restarting indexing; the reindex
+   API can continue after a failed purge, so `purgeFirst` alone is not proof of deletion.
+3. Re-enable only upgraded workers. As an administrator with
+   `search.embeddings.manage`, call `POST /api/search/embeddings/reindex` with
+   `{ "entityId": "<affected-entity-id>", "purgeFirst": true }` for each ID and scope.
+   Run the `vector-indexing` worker and verify completion and sample results.
+   The vector reindex endpoint also rebuilds fulltext data when that strategy is
+   configured, replacing old presenter metadata; confirm its jobs have drained.
+
+If you use the broader `purgeEntity` operation, rebuild fulltext explicitly with
+`POST /api/search/reindex` as well. `yarn mercato search reindex` alone does not
+rebuild every search store. Rebuild after purging even when a record has not
+changed; otherwise an old checksum can leave stale sensitive metadata behind.
+Review backups, replicas, external vector stores, and embedding-provider retention
+under your deployment's deletion procedures. Local reindexing cannot retract data
+already retained by an external provider. No data purge is run by the upgrade.
 
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
