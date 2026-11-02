@@ -32,8 +32,8 @@
 Open Mercato encrypts sensitive entity fields at rest using AES-GCM via `TenantDataEncryptionService`. The encryption lifecycle is:
 
 1. **Enable**: seed `EncryptionMap` records (`mercato entities seed-encryption --tenant <uuid>`)
-2. **Rotate keys**: re-encrypt under a new DEK (`mercato entities rotate-encryption-key --tenant <uuid> --old-key <secret>`)
-3. **Disable** *(this spec)*: decrypt all fields to plaintext and optionally deactivate maps (`mercato entities decrypt-database --tenant <uuid> --confirm <tenantUuid>`)
+2. **Rotate keys**: re-encrypt under a new DEK (`TENANT_DATA_ENCRYPTION_OLD_KEY=<secret-from-secret-manager> mercato entities rotate-encryption-key --tenant <uuid>`)
+3. **Disable** *(this spec)*: stop every application, worker and integration writer, decrypt all fields, and optionally retire policies with `--deactivate-maps --confirm-offline-maintenance <tenantUuid>`; restart every replica before resuming writes. Online policy retirement is unsupported.
 
 Operators who decide to disable encryption (e.g. when moving to an external vault or changing compliance posture) currently have no supported path to drain encrypted data back to plaintext. They must patch rows manually or write one-off scripts, which is error-prone and untested.
 
@@ -72,8 +72,8 @@ Add a `decrypt-database` command to the existing `entities` module CLI (`package
 4. Decrypts via `decryptWithAesGcm` using the tenant DEK obtained from `createKmsService()`.
 5. Writes the plaintext value back using raw SQL (same pattern as `rotate-encryption-key`). JSON.parse is attempted on the decrypted string; if JSON.parse returns a non-string primitive (number, boolean, object, array), the raw string is written instead to avoid type mismatches with text columns.
 6. Clears hash-field columns (`hashField` entries in `EncryptionMap.fieldsJson`) by setting them to `NULL` **only if `rowDecrypted = true`**. Hash fields are never nulled on rows where all field values were already plaintext. If any mapped field or `hashField` column does not exist in metadata, preflight fails before reading or updating rows so the command cannot report success while leaving ciphertext or stale hashes behind.
-7. Optionally (via `--deactivate-maps`) sets `EncryptionMap.isActive = false` and `deletedAt = now()` for all **processed maps** — defined as every map included in the run's selected map set after applying `--tenant`, `--org`, and `--entity` filters, regardless of whether any rows were actually updated. When `--org` is provided, global maps (`organization_id IS NULL`) are always included in the processed set, because they were part of the selected map set and apply to tenant-wide rows.
-8. Prints a final summary and a post-step reminder to set `TENANT_DATA_ENCRYPTION=false`.
+7. Optionally retires exact selected map IDs only after explicit `--confirm-offline-maintenance <tenantUuid>`, with every application, worker and integration writer stopped. A single EntityManager transaction locks policy and selected data tables, refreshes the policy snapshot, scans every primary-key keyset page for residual ciphertext, and then deactivates the validated IDs. Organization-only work reads applicable tenant fallback maps but never retires them.
+8. Prints a final summary. Only a complete tenant sweep advises disabling tenant encryption; organization-only work keeps tenant encryption enabled for other scopes. Restart every replica before resuming writes.
 
 ### Design Decisions
 
@@ -88,12 +88,12 @@ Add a `decrypt-database` command to the existing `entities` module CLI (`package
 | Fail preflight on missing mapped or `hashField` columns | Schema drift must not let a destructive maintenance command report success while leaving ciphertext or stale lookup hashes behind. Resolve the map metadata before any row is read or changed. |
 | `malformedPayloadCount` per-scope + global aggregate | Per-scope counts (logged in `--debug`) help the operator locate problematic tables/columns. Global total + top-N table:column summary surfaced in the final summary. |
 | Keyset pagination (`id > lastId ORDER BY id LIMIT n`) | Offset pagination degrades on large tables; keyset is O(log n) and safe across long-running commands. For UUID PKs (standard in Open Mercato), ordering is lexicographic — deterministic, not insertion-ordered. Concurrent inserts during a long run may not be covered by the current pass; the command is idempotent — run it again to catch any missed rows. An index on `(tenant_id, organization_id, id)` is **recommended** for large tables; without it the DB may fall back to a sequential scan per batch (slow but correct). |
-| Distinct org scopes from `encryption_maps`, not entity tables | Fast and complete. If a map has no org, it covers global records. |
+| Effective scopes from actual entity rows | Include organizations without map rows; concrete scopes use exact maps or tenant fallback, while null-organization rows use the aggregate field union. Never retire a tenant-wide fallback after only an organization-scoped sweep. |
 | Batch transactional updates with single-connection constraint | All UPDATEs in a batch run on the same connection inside the explicit transaction; no interleaving with implicit autocommit queries. Short per-batch transactions + optional sleep reduce prod write amplification. |
 | `--confirm <tenantUuid>` with no interactive fallback | Operator must type the exact tenant UUID. Deterministic for CI pipelines and runbooks; prevents copy-paste accidents. |
 | Separate `--deactivate-maps` flag (not default) | Operator may want to verify decryption before committing to disable; decouples the two concerns. |
 | "Processed map" = map in the selected set, not "map with updated rows" | Deactivation should not depend on whether any rows changed — a tenant already in plaintext still benefits from removing map overhead. |
-| Global maps always processed when `--org` is provided | Global maps apply to tenant-wide rows and are part of the selected map set; deactivating only per-org maps while leaving global maps active would leave overhead and potential confusion. |
+| Global fallback policies remain active after `--org` | Their fields may be needed to decrypt the requested organization, but other organizations/global records remain outside that partial retirement scope. |
 | `--check` reports both encrypted candidates and malformed payloads | Active map count alone doesn't reveal ciphertexts. Sampling gives "estimated encrypted candidates" + "malformed payloads" — both surfaced so the operator has a complete picture. Labeled as an estimate. Unavailable DEKs or failed sample queries are reported after the sweep and make the check exit non-zero. |
 | JSON.parse result must be string | Encrypted values are always serialized strings. If JSON.parse returns non-string, write the raw string to avoid type mismatch on text columns. |
 | Do not toggle `TENANT_DATA_ENCRYPTION` env var | Env var lives in infrastructure config; CLI cannot reliably change it across all replicas. |
@@ -126,11 +126,12 @@ mercato entities decrypt-database
   [--entity <id>]              Optional: limit to one entity type (e.g. customers:customer_entity)
   [--dry-run]                  Preview only — no writes
   [--check]                    Report env status, active map count, and sampling decrypt/malformed estimate; implies --dry-run
-  [--deactivate-maps]          Mark processed EncryptionMap records as inactive after decryption
+  [--deactivate-maps]          Retire exact complete policies after an offline protected sweep
+  [--confirm-offline-maintenance <tenantUuid>] Required for actual map retirement; stop all writers first
   [--confirm <tenantUuid>]     Required safety gate: operator must pass the exact tenant UUID; no interactive fallback
   [--batch-size <n>]           Rows fetched per transaction batch; default 500; use keyset pagination on id
   [--sleep-ms <n>]             Milliseconds to pause between batches; default 0; use on prod to reduce write pressure
-  [--debug]                    Verbose output (DEK fingerprint, row counts per batch, batch timing, per-scope malformed count)
+  [--debug]                    Verbose output (scope metadata, row counts per batch, timing, malformed counts; never keys or fingerprints)
 ```
 
 ### Data Flow
@@ -553,3 +554,8 @@ None.
 
 ### 2026-02-18
 - Initial specification
+
+
+### 2026-11-02 offline maintenance clarification
+
+The deprecated `--old-key`/`--oldKey` bridge requires explicit `--allow-unsafe-old-key`; prefer secret-manager injection through `TENANT_DATA_ENCRYPTION_OLD_KEY`. No removal is scheduled. Normal maintenance SQL updates compare selected old values and pin tenant/organization scope; a concurrent change fails without writing stale values. Final policy-retirement verification remains bounded by `--batch-size`, including later pages. A successful confirmation is operator attestation that external writers are stopped, not an online writer-coordination guarantee. See [the maintenance specification](../2026-09-30-encryption-key-rotation-hardening.md).
