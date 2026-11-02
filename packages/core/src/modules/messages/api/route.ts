@@ -16,7 +16,7 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
 import { User } from '../../auth/data/entities'
 import { Message, MessageObject } from '../data/entities'
-import { composeMessageSchema, listMessagesSchema, type ListMessagesInput } from '../data/validators'
+import { composeMessageSchema, listMessagesSchema, type ComposeMessageInput, type ListMessagesInput } from '../data/validators'
 import {
   composeRequiresChannelTypeResolution,
   composeSourceHintSchema,
@@ -144,7 +144,19 @@ export async function GET(req: Request) {
   const { ctx, scope } = await resolveMessageContext(req)
   const url = new URL(req.url)
   const params = Object.fromEntries(url.searchParams)
-  const input = listMessagesSchema.parse(params)
+  let input: ListMessagesInput
+  try {
+    input = listMessagesSchema.parse(params)
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      const { translate } = await resolveTranslations()
+      return Response.json(
+        { error: translate('messages.errors.invalidListQuery', 'Invalid request parameters'), details: err.issues },
+        { status: 400 },
+      )
+    }
+    throw err
+  }
 
   const cache = isCrudCacheEnabled() ? resolveCrudCache(ctx.container) : null
   const cacheKey = cache ? buildMessageListCacheKey(scope, input) : null
@@ -309,7 +321,8 @@ export async function GET(req: Request) {
       'r.status as recipient_status',
       'r.read_at',
     ])
-    .orderBy('m.sent_at', 'desc')
+    .orderBy(sql`${sql.ref('m.sent_at')} desc nulls last`)
+    .orderBy('m.id', 'desc')
     .offset(offset)
     .limit(input.pageSize)
     .execute()
@@ -416,6 +429,7 @@ export async function GET(req: Request) {
           senderUserId: message.senderUserId,
           priority: message.priority,
           status: row.recipient_status ?? (row.is_draft ? 'draft' : 'sent'),
+          isDraft: row.is_draft,
           hasObjects: (objectsByMessage[message.id] || []).length > 0,
           objectCount: (objectsByMessage[message.id] || []).length,
           hasAttachments: (attachmentCountByMessage[message.id] || 0) > 0,
@@ -494,10 +508,22 @@ export async function POST(req: Request) {
     sentAt: _clientSuppliedSentAt,
     ...clientBody
   } = (body ?? {}) as Record<string, unknown>
-  const input = composeMessageSchema.parse({
-    ...clientBody,
-    ...(sourceChannelType ? { sourceChannelType } : {}),
-  })
+  let input: ComposeMessageInput
+  try {
+    input = composeMessageSchema.parse({
+      ...clientBody,
+      ...(sourceChannelType ? { sourceChannelType } : {}),
+    })
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      const { translate } = await resolveTranslations()
+      return Response.json(
+        { error: translate('messages.errors.invalidComposePayload', 'Invalid message payload'), details: err.issues },
+        { status: 400 },
+      )
+    }
+    throw err
+  }
 
   const isPublicVisibility = input.visibility === 'public'
   const sendViaEmail = isPublicVisibility ? true : input.sendViaEmail
@@ -716,6 +742,9 @@ export const openApi: OpenApiRouteDoc = {
           }),
         },
       ],
+      errors: [
+        { status: 400, description: 'Query parameters failed validation', schema: errorResponseSchema },
+      ],
     },
     POST: {
       summary: 'Compose a message',
@@ -730,6 +759,7 @@ export const openApi: OpenApiRouteDoc = {
         },
       ],
       errors: [
+        { status: 400, description: 'Compose payload failed validation', schema: errorResponseSchema },
         { status: 403, description: 'Access denied, including a parentMessageId the caller cannot read', schema: errorResponseSchema },
         { status: 404, description: 'parentMessageId is unknown, deleted, or outside the caller organization', schema: errorResponseSchema },
       ],

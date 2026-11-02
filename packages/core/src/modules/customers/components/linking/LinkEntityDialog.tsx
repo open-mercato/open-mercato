@@ -403,11 +403,19 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
 
   const handleRowClick = React.useCallback(
     (option: LinkEntityOption) => {
-      setFocusedId(option.id)
       const isSelected = draftSet.has(option.id)
       toggleDraftId(option.id, !isSelected)
+      if (!isSelected) {
+        setFocusedId(option.id)
+        return
+      }
+      setFocusedId((current) => {
+        if (current !== option.id) return current
+        const remaining = draftIds.filter((id) => id !== option.id)
+        return remaining.length > 0 ? remaining[0] : null
+      })
     },
-    [draftSet, toggleDraftId],
+    [draftIds, draftSet, toggleDraftId],
   )
 
   const handleAddNewCreated = React.useCallback(

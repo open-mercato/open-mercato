@@ -58,6 +58,7 @@ jest.mock('#generated/entities.ids.generated', () => ({
 jest.mock('../shared', () => ({
   cloneJson: (value: unknown) => (value == null ? value : JSON.parse(JSON.stringify(value))),
   commandActorScope: () => ({ tenantId: TENANT_ID, organizationId: ORG_ID }),
+  commandScopeWhere: () => ({}),
   ensureOrganizationScope: jest.fn(),
   ensureSameScope: jest.fn(),
   ensureSameTenant: jest.fn(),
