@@ -174,7 +174,7 @@ export function DealAssociationsField({
 
   return (
     <div className="space-y-2">
-      <div className="flex flex-col gap-2 rounded-md border border-input bg-background p-2">
+      <div className="flex flex-col gap-2">
         {selectedOptions.length ? (
           <div className="flex flex-wrap gap-2">
             {selectedOptions.map((option) => (

@@ -68,6 +68,14 @@ jest.mock('../useDealPipelines', () => ({
 
 // Surfaces the two values under test so the assertions do not depend on the real
 // picker's async roster fetch.
+jest.mock('../../../formConfig', () => {
+  const ReactForMock = require('react') as typeof React
+  return {
+    DictionarySelectField: ({ value }: { value?: string }) =>
+      ReactForMock.createElement('div', { role: 'combobox', 'aria-label': 'Status' }, value ?? ''),
+  }
+})
+
 jest.mock('../DealDetailsFields', () => {
   const ReactForMock = require('react') as typeof React
   return {

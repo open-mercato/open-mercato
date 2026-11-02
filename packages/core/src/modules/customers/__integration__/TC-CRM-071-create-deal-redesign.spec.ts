@@ -94,10 +94,11 @@ test.describe('TC-CRM-071: Create deal (UX redesign)', () => {
       await login(page, 'admin');
       await page.goto('/backend/customers/deals/create', { waitUntil: 'domcontentloaded' });
 
-      // Readiness: the redesigned page renders the DS FormHeader back-link and the first
-      // section card uses "Create deal" as its title (rendered via DealSectionCard, not an <h1>).
-      // Wait for the section card title plus the required field before interacting.
+      // Readiness: the pinned action bar renders the back-link; the page title lives in the app
+      // breadcrumb and an sr-only h1 (#5109). Wait for the link plus the required field before
+      // interacting.
       await expect(page.getByRole('link', { name: /Back to deals/i })).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByRole('heading', { level: 1, name: 'Create deal' })).toBeAttached();
 
       // CRITICAL — wait for the form to be fully hydrated before typing. Deal title lives in client
       // state and the "Create deal" submit button stays disabled until the async custom-field load
@@ -116,6 +117,13 @@ test.describe('TC-CRM-071: Create deal (UX redesign)', () => {
       const titleInput = page.getByLabel(/Deal title/i);
       await expect(titleInput).toBeVisible();
       await titleInput.fill(dealTitle);
+
+      // Probability and the custom attributes sit under "More details" (#5109). The fixture's
+      // required custom field opens the disclosure on load; expand it explicitly otherwise.
+      const moreDetailsToggle = page.getByRole('button', { name: 'More details', exact: true });
+      await expect(moreDetailsToggle).toBeVisible();
+      if ((await moreDetailsToggle.getAttribute('aria-expanded')) !== 'true') await moreDetailsToggle.click();
+      await expect(moreDetailsToggle).toHaveAttribute('aria-expanded', 'true');
 
       // Value + probability use SuffixInput (currency-code / % adornment); both render placeholder "0".
       const valueInput = page.getByPlaceholder('0').first();
