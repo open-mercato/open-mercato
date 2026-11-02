@@ -1,0 +1,156 @@
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { spawn, spawnSync } from 'node:child_process'
+import { parseArgs } from 'node:util'
+import { setTimeout as delay } from 'node:timers/promises'
+import { listPublishablePackages } from '../registry/publish.mjs'
+import { createStandaloneIntegrationEnvironment } from '../lib/standalone-integration-env.mjs'
+import { pinStandalonePackages, verifyStandalonePackages } from '../lib/standalone-pr-gate.mjs'
+import { assertProductionBuildArtifacts } from '../lib/standalone-build-artifacts.mjs'
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
+const { values } = parseArgs({ options: {
+  source: { type: 'string', default: 'local' },
+  version: { type: 'string' },
+  'app-dir': { type: 'string' },
+  suite: { type: 'string' },
+  'base-ref': { type: 'string' },
+} })
+const source = values.source
+const suite = values.suite ?? (source === 'published' ? 'full' : 'affected')
+if (!['local', 'published'].includes(source)) throw new Error('Source must be local or published')
+if (!['smoke', 'affected', 'full'].includes(suite)) throw new Error('Suite must be smoke, affected or full')
+if (source === 'published' && !/^\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(values.version ?? '')) {
+  throw new Error('Published source requires an exact --version')
+}
+if (suite === 'affected' && !values['base-ref']) throw new Error('Affected suite requires --base-ref')
+const scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-standalone-gate-'))
+const appDir = path.resolve(values['app-dir'] ?? path.join(scratchDir, 'app'))
+if (fs.existsSync(appDir)) throw new Error(`Standalone app directory already exists: ${appDir}`)
+const appUrl = 'http://localhost:3001'
+const databaseUrl = process.env.DATABASE_URL ?? 'postgres://mercato:secret@localhost:5432/mercato_test'
+const { appEnv, testEnv } = createStandaloneIntegrationEnvironment({ appDir, repoRoot, baseUrl: appUrl, databaseUrl })
+const installEnv = {
+  YARN_ENABLE_HARDENED_MODE: '0',
+  YARN_ENABLE_IMMUTABLE_INSTALLS: '0',
+  YARN_ENABLE_GLOBAL_CACHE: '0',
+  YARN_ENABLE_MIRROR: '0',
+  YARN_CACHE_FOLDER: path.join(scratchDir, 'yarn-cache'),
+}
+const logPath = `${appDir}.log`
+const selectionPath = path.join(repoRoot, '.ai', 'qa', 'test-results', 'standalone-selection.json')
+let server = null
+
+function run(command, args, { cwd = repoRoot, env = {}, capture = false, retry = false } = {}) {
+  const invocation = retry
+    ? ['bash', [path.join(repoRoot, 'scripts', 'ci', 'npm-retry-on-quarantine.sh'), command, ...args]]
+    : [command, args]
+  console.log(`$ ${command} ${args.join(' ')}`)
+  const result = spawnSync(invocation[0], invocation[1], {
+    cwd,
+    env: { ...process.env, ...env },
+    stdio: capture ? ['ignore', 'pipe', 'inherit'] : 'inherit',
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+  })
+  if (result.error) throw result.error
+  if (result.status !== 0) throw new Error(`Standalone command failed (${result.status}): ${command} ${args.join(' ')}`)
+  return result.stdout
+}
+
+function packLocalPackages() {
+  const packages = listPublishablePackages(repoRoot).filter((entry) => entry.name.startsWith('@open-mercato/') || entry.name === 'create-mercato-app')
+  for (const entry of packages) {
+    const fileName = entry.name.replaceAll('/', '-').replaceAll('@', '')
+    entry.tarball = path.join(scratchDir, `${fileName}.tgz`)
+    run('yarn', ['workspace', entry.name, 'pack', '--out', entry.tarball])
+    const unpackRoot = path.join(scratchDir, fileName)
+    fs.mkdirSync(unpackRoot)
+    run('tar', ['-xzf', entry.tarball, '-C', unpackRoot])
+    entry.unpackedDir = path.join(unpackRoot, 'package')
+  }
+  return packages
+}
+
+async function startServer() {
+  const logFd = fs.openSync(logPath, 'w')
+  server = spawn('yarn', ['start'], {
+    cwd: appDir,
+    env: { ...process.env, ...appEnv, NODE_ENV: 'production', PORT: '3001' },
+    stdio: ['ignore', logFd, logFd],
+    detached: process.platform !== 'win32',
+  })
+  fs.closeSync(logFd)
+  let spawnError = null
+  server.once('error', (error) => { spawnError = error })
+  for (let attempt = 0; attempt < 180; attempt += 1) {
+    if (spawnError) throw spawnError
+    if (server.exitCode !== null) throw new Error(`Standalone app exited before readiness: ${logPath}`)
+    try {
+      const response = await fetch(`${appUrl}/login`, { signal: AbortSignal.timeout(2_000) })
+      if (response.ok) return
+    } catch {}
+    await delay(1_000)
+  }
+  throw new Error(`Standalone app did not become ready: ${logPath}`)
+}
+
+async function stopServer() {
+  if (!server?.pid) return
+  const exited = new Promise((resolve) => server.once('close', resolve))
+  function signal(signalName) {
+    try {
+      process.kill(process.platform === 'win32' ? server.pid : -server.pid, signalName)
+    } catch (error) {
+      if (error.code !== 'ESRCH') throw error
+    }
+  }
+  signal('SIGTERM')
+  await Promise.race([exited, delay(10_000)])
+  signal('SIGKILL')
+}
+
+try {
+  const packages = source === 'local' ? packLocalPackages() : []
+  const scaffoldPackage = source === 'local'
+    ? packages.find((entry) => entry.name === 'create-mercato-app')?.tarball
+    : `create-mercato-app@${values.version}`
+  if (!scaffoldPackage) throw new Error('create-mercato-app was not packed')
+  run('npm', ['exec', '--yes', '--package', scaffoldPackage, '--', 'create-mercato-app', appDir,
+    '--preset', 'classic', '--skip-agentic-setup', '--no-init-git'], { retry: source === 'published' })
+  const manifestPath = path.join(appDir, 'package.json')
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+  const installedManifest = source === 'local'
+    ? pinStandalonePackages(manifest, packages)
+    : { ...manifest, dependencies: { ...manifest.dependencies, '@open-mercato/enterprise': values.version } }
+  fs.writeFileSync(manifestPath, `${JSON.stringify(installedManifest, null, 2)}\n`)
+  const exampleEnv = fs.readFileSync(path.join(appDir, '.env.example'), 'utf8')
+  fs.writeFileSync(path.join(appDir, '.env'), `${exampleEnv.trimEnd()}\n${Object.entries(appEnv).map(([key, value]) => `${key}=${value}`).join('\n')}\n`)
+  run('yarn', ['install'], { cwd: appDir, env: installEnv, retry: source === 'published' })
+  if (source === 'local') console.log(`Verified PR package contents: ${verifyStandalonePackages(appDir, packages).join(', ')}`)
+  run('yarn', ['generate'], { cwd: appDir, env: appEnv })
+  run('yarn', ['tsx', 'scripts/prepare-standalone-example-integration.ts', appDir], { env: appEnv })
+  run('yarn', ['generate'], { cwd: appDir, env: appEnv })
+  run('yarn', ['initialize'], { cwd: appDir, env: appEnv })
+  run('yarn', ['build'], { cwd: appDir, env: { ...appEnv, NODE_OPTIONS: '--max-old-space-size=8192' } })
+  assertProductionBuildArtifacts(appDir)
+  await startServer()
+  run('yarn', ['tsx', 'scripts/ci/select-standalone-tests.ts', suite, values['base-ref'] ?? '', selectionPath], { env: testEnv })
+  const selection = JSON.parse(fs.readFileSync(selectionPath, 'utf8'))
+  if (!selection.selected.length) throw new Error('Standalone gate selected no tests')
+  const listOutput = run('yarn', ['playwright', 'test', '--config', '.ai/qa/tests/playwright.config.ts',
+    ...selection.selected, '--list', '--reporter=json'], { env: { ...testEnv, OM_INTEGRATION_MODULES: '' }, capture: true })
+  const listed = JSON.parse(listOutput)
+  if (listed.errors?.length || !listed.suites?.length) throw new Error('Playwright did not collect the standalone suite successfully')
+  run('yarn', ['test:integration', ...selection.selected], { env: { ...testEnv, OM_INTEGRATION_MODULES: '' } })
+} catch (error) {
+  console.error(error.message)
+  if (fs.existsSync(logPath)) console.error(fs.readFileSync(logPath, 'utf8').split('\n').slice(-200).join('\n'))
+  process.exitCode = 1
+} finally {
+  await stopServer()
+  console.log(`Standalone app: ${appDir}; server log: ${logPath}; selection report: ${selectionPath}`)
+  if (values['app-dir']) fs.rmSync(scratchDir, { recursive: true, force: true })
+}

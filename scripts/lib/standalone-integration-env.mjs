@@ -1,0 +1,44 @@
+import path from 'node:path'
+
+export function createStandaloneIntegrationEnvironment({ appDir, repoRoot, baseUrl, databaseUrl }) {
+  const shared = {
+    APP_URL: baseUrl,
+    NEXT_PUBLIC_APP_URL: baseUrl,
+    PLATFORM_PORTAL_BASE_URL: baseUrl,
+    DATABASE_URL: databaseUrl,
+    AUTH_SECRET: 'ci-standalone-test-auth-secret',
+    JWT_SECRET: 'ci-standalone-test-jwt-secret-32-chars-min',
+    OM_SECURITY_MFA_SETUP_SECRET: 'ci-standalone-test-mfa-setup-secret',
+    TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'ci-standalone-test-fallback-key',
+    NODE_ENV: 'test',
+    OM_TEST_MODE: '1',
+    OM_TEST_AUTH_RATE_LIMIT_MODE: 'opt-in',
+    OM_INTEGRATION_TEST: 'true',
+    OM_ENABLE_PUSH_STUB_ADAPTER: '1',
+    NEXT_PUBLIC_DOCUMENTS_COLLAB_URL: 'ws://127.0.0.1:4101',
+    DOCUMENTS_COLLAB_JWT_SECRET_V2: 'ci-standalone-documents-collab-v2-secret-32b',
+    OM_DISABLE_EMAIL_DELIVERY: '1',
+    SELF_SERVICE_ONBOARDING_ENABLED: '',
+    SYSTEM_EMAIL_PROVIDER: '',
+    OM_TEST_BROWSER_TELEMETRY_MODE: '',
+    OM_WEBHOOKS_ALLOW_PRIVATE_URLS: '1',
+    ENABLE_CRUD_API_CACHE: 'true',
+    MOCK_GATEWAY_WEBHOOK_SECRET: 'open-mercato-mock-dev-webhook-secret',
+    MOCK_CARRIER_WEBHOOK_SECRET: 'open-mercato-mock-dev-carrier-webhook-secret',
+    MOCK_INBOUND_WEBHOOK_SECRET: 'open-mercato-mock-dev-inbound-webhook-secret',
+    NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED: 'true',
+    OM_ENABLE_ENTERPRISE_MODULES: 'true',
+    OM_ENABLE_ENTERPRISE_MODULES_SSO: 'true',
+    OM_ENABLE_ENTERPRISE_MODULES_SECURITY: 'true',
+    AUTO_SPAWN_WORKERS: 'false',
+    AUTO_SPAWN_SCHEDULER: 'false',
+    CACHE_STRATEGY: 'sqlite',
+    CACHE_SQLITE_PATH: path.join(appDir, '.mercato', 'cache', 'cache.db'),
+    OM_TEST_EMAIL_CAPTURE_PATH: path.join(repoRoot, '.ai', 'qa', 'email-capture.jsonl'),
+    OM_OPTIMISTIC_LOCK: 'all',
+  }
+  return {
+    appEnv: { ...shared, OM_DOCUMENTS_COLLAB_INTEGRATION: '1' },
+    testEnv: { ...shared, BASE_URL: baseUrl, OM_TEST_APP_ROOT: appDir, OM_DRAIN_DEBUG: '1' },
+  }
+}
