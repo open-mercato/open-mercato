@@ -111,9 +111,9 @@ export async function POST(req: Request) {
 
   const existing = await customerUserService.findByEmail(email, tenantId)
   if (existing) {
-    // Pay the same password-hashing cost as the new-user branch (which hashes the password),
-    // so the endpoint's 202-for-both contract is not undone by a timing side channel.
-    await getPasswordHasher().equalizeTiming(password)
+    // Perform the same configured hash operation as CustomerUserService.createUser,
+    // then discard it so the endpoint's 202-for-both contract is not a timing oracle.
+    await getPasswordHasher().hash(password)
     const existingOrg = await findOrganizationInTenant(em, existing.organizationId, tenantId)
     // Prefer the org's active custom domain when available; fall back to the
     // platform login URL preserved by `resolvePortalLoginUrl`.

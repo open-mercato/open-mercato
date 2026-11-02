@@ -275,6 +275,10 @@ export function createPasswordHasher(
       } catch {
         // Malformed Argon2id hashes still receive the complete failed-auth work profile.
       }
+      // On a cold process, the unknown-account path creates its dummy Argon2id
+      // hash before verifying it. Create the same cached hash here so a failed
+      // real Argon2id check performs the same one-hash/one-verify work profile.
+      await getArgon2TimingHash()
       await bcryptCompare(password, BCRYPT_TIMING_EQUALIZER_HASH)
       return false
     }

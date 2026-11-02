@@ -13,6 +13,11 @@ const mockFlush = jest.fn()
 const mockPersist = jest.fn()
 const mockCreate = jest.fn()
 const mockExecute = jest.fn()
+const mockPasswordHash = jest.fn()
+const mockPasswordHasher = {
+  algorithm: 'bcrypt' as 'bcrypt' | 'argon2id',
+  hash: mockPasswordHash,
+}
 
 const mockCustomerUserService = {
   findByEmail: mockFindByEmail,
@@ -45,6 +50,10 @@ const mockContainer = {
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => mockContainer),
+}))
+
+jest.mock('@open-mercato/shared/lib/auth/passwordHasher', () => ({
+  getPasswordHasher: jest.fn(() => mockPasswordHasher),
 }))
 
 jest.mock('@open-mercato/shared/lib/ratelimit/helpers', () => ({
@@ -115,31 +124,38 @@ describe('POST /api/customer_accounts/signup', () => {
       email: 'new@example.com',
       displayName: 'New User',
     })
+    mockPasswordHash.mockResolvedValue('discarded-password-hash')
   })
 
-  test('returns 202 for an existing email without creating another account', async () => {
-    mockFindByEmail.mockResolvedValueOnce({
-      id: existingUserId,
-      email: 'existing@example.com',
-      displayName: 'Existing User',
-    })
+  test.each(['bcrypt', 'argon2id'] as const)(
+    'returns 202 for an existing email and performs one configured %s hash',
+    async (algorithm) => {
+      mockPasswordHasher.algorithm = algorithm
+      mockFindByEmail.mockResolvedValueOnce({
+        id: existingUserId,
+        email: 'existing@example.com',
+        displayName: 'Existing User',
+      })
 
-    const res = await POST(makeRequest({
-      email: 'existing@example.com',
-      password: 'Secret123!',
-      displayName: 'Probe User',
-      tenantId,
-      organizationId,
-    }))
-    const body = await res.json()
+      const res = await POST(makeRequest({
+        email: 'existing@example.com',
+        password: 'Secret123!',
+        displayName: 'Probe User',
+        tenantId,
+        organizationId,
+      }))
+      const body = await res.json()
 
-    expect(res.status).toBe(202)
-    expect(body).toEqual({ ok: true })
-    expect(mockCreateUser).not.toHaveBeenCalled()
-    expect(mockCreateEmailVerification).not.toHaveBeenCalled()
-    expect(mockEmitCustomerAccountsEvent).not.toHaveBeenCalled()
-    expect(mockSendEmail).toHaveBeenCalledTimes(1)
-  })
+      expect(res.status).toBe(202)
+      expect(body).toEqual({ ok: true })
+      expect(mockCreateUser).not.toHaveBeenCalled()
+      expect(mockCreateEmailVerification).not.toHaveBeenCalled()
+      expect(mockEmitCustomerAccountsEvent).not.toHaveBeenCalled()
+      expect(mockSendEmail).toHaveBeenCalledTimes(1)
+      expect(mockPasswordHash).toHaveBeenCalledTimes(1)
+      expect(mockPasswordHash).toHaveBeenCalledWith('Secret123!')
+    },
+  )
 
   test('returns 202 for a new email and creates the account flow', async () => {
     mockFindOneRole.mockResolvedValueOnce({
@@ -172,5 +188,6 @@ describe('POST /api/customer_accounts/signup', () => {
       organizationId,
     })
     expect(mockSendEmail).toHaveBeenCalledTimes(1)
+    expect(mockPasswordHash).not.toHaveBeenCalled()
   })
 })

@@ -246,11 +246,12 @@ describe('createPasswordHasher', () => {
   )
 
   it.each(['bcrypt', 'argon2id'] as const)(
-    'runs one real Argon2id check plus the bcrypt failure work under %s configuration',
+    'runs one real Argon2id check, initializes the timing hash, and adds bcrypt failure work under %s configuration',
     async (algorithm) => {
       const stored = argon2Hash()
+      const timingHash = argon2Hash(FAST_ARGON2, phcBase64(16, 3), phcBase64(32, 4))
       const argon2 = {
-        hash: jest.fn(async () => argon2Hash()),
+        hash: jest.fn(async () => timingHash),
         verify: jest.fn(async () => false),
       }
       const hasher = createPasswordHasher(config({ algorithm }), { loadArgon2: async () => argon2 })
@@ -259,7 +260,43 @@ describe('createPasswordHasher', () => {
 
       expect(argon2.verify).toHaveBeenCalledTimes(1)
       expect(argon2.verify).toHaveBeenCalledWith(stored, 'wrong')
-      expect(argon2.hash).not.toHaveBeenCalled()
+      expect(argon2.hash).toHaveBeenCalledTimes(1)
+
+      await expect(hasher.verify('wrong again', stored)).resolves.toBe(false)
+      expect(argon2.verify).toHaveBeenCalledTimes(2)
+      expect(argon2.hash).toHaveBeenCalledTimes(1)
+    },
+  )
+
+  it.each(['bcrypt', 'argon2id'] as const)(
+    'keeps cold and warm Argon2id operation counts equal for failed and absent accounts under %s configuration',
+    async (algorithm) => {
+      const makeArgon2 = () => ({
+        hash: jest.fn(async () => argon2Hash()),
+        verify: jest.fn(async () => false),
+      })
+      const failedAccountArgon2 = makeArgon2()
+      const absentAccountArgon2 = makeArgon2()
+      const failedAccountHasher = createPasswordHasher(config({ algorithm }), {
+        loadArgon2: async () => failedAccountArgon2,
+      })
+      const absentAccountHasher = createPasswordHasher(config({ algorithm }), {
+        loadArgon2: async () => absentAccountArgon2,
+      })
+
+      await failedAccountHasher.verify('wrong', argon2Hash())
+      await absentAccountHasher.equalizeTiming('wrong')
+      expect(failedAccountArgon2.hash).toHaveBeenCalledTimes(1)
+      expect(absentAccountArgon2.hash).toHaveBeenCalledTimes(1)
+      expect(failedAccountArgon2.verify).toHaveBeenCalledTimes(1)
+      expect(absentAccountArgon2.verify).toHaveBeenCalledTimes(1)
+
+      await failedAccountHasher.verify('wrong again', argon2Hash())
+      await absentAccountHasher.equalizeTiming('wrong again')
+      expect(failedAccountArgon2.hash).toHaveBeenCalledTimes(1)
+      expect(absentAccountArgon2.hash).toHaveBeenCalledTimes(1)
+      expect(failedAccountArgon2.verify).toHaveBeenCalledTimes(2)
+      expect(absentAccountArgon2.verify).toHaveBeenCalledTimes(2)
     },
   )
 

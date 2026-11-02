@@ -65,7 +65,7 @@ No route, request or response change. New public helpers in `@open-mercato/share
 
 ## Migration & Backward Compatibility
 
-- Default unchanged: `bcrypt` cost 10 for new hashes, same timing-equalizer hash cost, no writes on login.
+- Default storage behavior is unchanged: new hashes remain bcrypt cost 10 and successful bcrypt logins do not write. Failed and absent-account checks intentionally add Argon2id work to keep mixed-algorithm authentication timing uniform.
 - Existing hashes keep working under both settings; no migration, no forced reset.
 - Turning `argon2id` on: new and changed passwords use Argon2id; bcrypt hashes upgrade on the next successful login.
 - Turning it back off: Argon2id hashes keep verifying and are re-hashed to bcrypt on the next login, so a rollback path exists.
@@ -82,7 +82,7 @@ No API or UI path changes shape. Unit tests cover the hasher (both algorithms ve
 | Risk | Severity | Area | Mitigation | Residual |
 |---|---|---|---|---|
 | Timing side channel during mixed-algorithm migration | Medium | login enumeration | Failed and absent-account checks both perform bcrypt and Argon2id verification work, independent of stored/configured algorithm | Low; infrastructure jitter and stored historical cost parameters can still vary |
-| Native binary missing on an exotic platform | Medium | argon2id installs | Lazy load with a clear error naming the package; bcrypt installs never load it | Operator must stay on bcrypt there |
+| Native binary missing on an exotic platform | Medium | password verification | Prebuilt binaries cover supported deployment platforms; lazy-load failure surfaces a clear operator error instead of silently weakening the mixed-algorithm timing profile | The built-in hasher requires a supported binary even when bcrypt is configured; an unsupported platform needs a compatible custom hasher |
 | Argon2id memory use under login bursts (19 MiB per concurrent hash) | Low | server memory | Rate limits already bound login concurrency; parameters configurable | Low |
 
 ## Final Compliance Report

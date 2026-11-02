@@ -49,13 +49,14 @@ describe('customer_accounts signup — organization lookup must bind tenantId', 
     expect(existingBranch).not.toMatch(/resolvePortalLoginUrl\s*\(\s*baseUrl\s*,\s*orgRow\.slug/)
   })
 
-  test('existing-account branch pays the password-hash floor so the 202 response is not a timing oracle', () => {
+  test('existing-account branch performs the same configured hash as new-account creation', () => {
     expect(signupSource).toMatch(/from\s+['"]@open-mercato\/shared\/lib\/auth\/passwordHasher['"]/)
 
     const existingBranchMatch = signupSource.match(/if\s*\(\s*existing\s*\)\s*\{([\s\S]*?)\n\s{2}\}/)
     expect(existingBranchMatch).not.toBeNull()
     const existingBranch = existingBranchMatch?.[1] ?? ''
-    expect(existingBranch).toMatch(/await\s+getPasswordHasher\(\)\.equalizeTiming\(\s*password\s*\)/)
+    expect(existingBranch).toMatch(/await\s+getPasswordHasher\(\)\.hash\(\s*password\s*\)/)
+    expect(existingBranch).not.toMatch(/equalizeTiming/)
   })
 })
 
