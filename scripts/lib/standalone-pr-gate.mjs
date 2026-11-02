@@ -67,7 +67,7 @@ export function selectStandaloneSpecs(discovered, changedPaths, suite) {
   return {
     suite,
     fullSuite,
-    changedModules: [...changedModules].sort(),
+    changedModules: [...changedModules].sort((left, right) => left.localeCompare(right)),
     selected: selected.map((spec) => spec.path),
     excluded: discovered.filter((spec) => !selected.includes(spec)).map((spec) => ({
       path: spec.path,
@@ -150,5 +150,5 @@ export function verifyStandalonePackages(appDir, packages) {
   if (!checked.has('@open-mercato/core') || !checked.has('@open-mercato/shared')) {
     throw new Error('Standalone package verification found no core/shared runtime')
   }
-  return [...checked].sort()
+  return [...checked].sort((left, right) => left.localeCompare(right))
 }
