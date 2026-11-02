@@ -25,7 +25,7 @@ Stack this PR on the pre-merge standalone gate PR. Reuse its shared environment 
 - The follow-up depends on the pre-merge gate PR; keep the PR diff separate by targeting that branch until it merges.
 - Preserve disabled email and browser telemetry rather than quietly broadening snapshot runtime behavior. Their exclusion remains explicit.
 - Full scaffold/build/integration execution requires available database and browser infrastructure. Record actual validation limits.
-- Initial full unit execution hit an SMTP Jest worker SIGSEGV; the affected credentials suites pass alone (23 tests). A full retry is running. The full gate is not yet green.
+- Initial full unit execution hit an SMTP Jest worker SIGSEGV; the affected credentials suites pass alone (23 tests). The full retry completed 47 Turbo tasks before the docs test exhausted its 1 GiB Node heap. The full gate is not green; draft status is retained.
 - PR2 targets the PR1 branch, so main/release-only CI jobs will run after retargeting to main. No branch protection is changed.
 
 ## Non-goals
