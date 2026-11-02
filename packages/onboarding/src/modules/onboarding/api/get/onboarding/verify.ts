@@ -23,8 +23,10 @@ import { computeConsentIntegrityHash } from '@open-mercato/core/modules/auth/lib
 import { resolveConsentClientIp } from '@open-mercato/onboarding/modules/onboarding/lib/consentClientIp'
 import { runBestEffortProvisioningStep } from '@open-mercato/onboarding/modules/onboarding/lib/provisioning'
 import {
+  ProvisioningLeaseLostError,
   isProvisioningLeaseActive,
   startProvisioningLeaseHeartbeat,
+  type ProvisioningLease,
 } from '@open-mercato/onboarding/modules/onboarding/lib/provisioning-lease'
 import { getModules } from '@open-mercato/shared/lib/modules/registry'
 import { isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
@@ -100,7 +102,8 @@ async function completeProvisionedRequest(args: {
 }) {
   const ids = resolveProvisioningIds(args.request)
   if (!ids || isProvisioningLeaseActive(args.request.processingStartedAt)) return null
-  await args.service.markCompleted(args.request, ids)
+  const completed = await args.service.markCompleted(args.request, ids)
+  if (!completed) return null
   after(async () => {
     await runDeferredProvisioning({
       requestId: args.request.id,
@@ -208,7 +211,7 @@ export async function GET(req: Request) {
   let tenantId: string | null = null
   let organizationId: string | null = null
   let userId: string | null = null
-  let stopLeaseHeartbeat: () => Promise<void> = async () => {}
+  let lease: ProvisioningLease | null = null
 
   try {
     const setupResult = await setupInitialTenant(em, {
@@ -238,14 +241,16 @@ export async function GET(req: Request) {
     const user = mainUserSnapshot.user
     const resolvedUserId = String(user.id)
     userId = resolvedUserId
-    await service.updateProvisioningIds(request, {
+    const leaseHeldSince = await service.updateProvisioningIds(request, {
       tenantId: resolvedTenantId,
       organizationId: resolvedOrganizationId,
       userId: resolvedUserId,
     })
-    stopLeaseHeartbeat = startProvisioningLeaseHeartbeat(new OnboardingService(em.fork()), request.id)
+    if (!leaseHeldSince) throw new ProvisioningLeaseLostError()
+    lease = startProvisioningLeaseHeartbeat(new OnboardingService(em.fork()), request.id, leaseHeldSince)
 
     if (request.marketingConsent) {
+      lease.assertHeld()
       const now = new Date()
       const clientIp = resolveConsentClientIp(req)
       const integrityHash = computeConsentIntegrityHash({
@@ -291,6 +296,7 @@ export async function GET(req: Request) {
     const modules = getModules()
     for (const mod of modules) {
       if (!mod.setup?.seedDefaults) continue
+      lease.assertHeld()
       const seedEm = em.fork()
       await runBestEffortProvisioningStep(`seedDefaults:${mod.id}`, () =>
         runModuleSetupHook({
@@ -306,12 +312,14 @@ export async function GET(req: Request) {
         }),
       )
     }
-    await stopLeaseHeartbeat()
-    await service.markCompleted(request, {
-      tenantId: resolvedTenantId,
-      organizationId: resolvedOrganizationId,
-      userId: resolvedUserId,
-    })
+    const heldSince = await lease.release()
+    if (!heldSince) throw new ProvisioningLeaseLostError()
+    const completed = await service.markCompleted(
+      request,
+      { tenantId: resolvedTenantId, organizationId: resolvedOrganizationId, userId: resolvedUserId },
+      heldSince,
+    )
+    if (!completed) throw new ProvisioningLeaseLostError()
     // TODO: Move deferred provisioning into a durable job keyed by request id so process restarts can resume
     // seedExamples/index rebuild/email dispatch instead of leaving completed requests stuck on preparing.
     after(async () => {
@@ -323,13 +331,17 @@ export async function GET(req: Request) {
     })
     return redirectToPreparing(baseUrl, resolvedTenantId)
   } catch (error) {
-    await stopLeaseHeartbeat()
+    const heldSince = lease ? await lease.release() : request.processingStartedAt ?? null
+    if (error instanceof ProvisioningLeaseLostError || !heldSince) {
+      logger.warn('Verification stopped after losing the provisioning lease', { requestId: request.id, err: error })
+      return redirectWithStatus(baseUrl, 'error')
+    }
     if (error instanceof Error && error.message === 'USER_EXISTS') {
-      await service.resetProcessing(request)
+      await service.resetProcessing(request, heldSince)
       return redirectWithStatus(baseUrl, 'already_exists')
     }
     logger.error('Verification failed', { err: error })
-    await service.resetProcessing(request)
+    await service.resetProcessing(request, heldSince)
     return redirectWithStatus(baseUrl, 'error')
   }
 }

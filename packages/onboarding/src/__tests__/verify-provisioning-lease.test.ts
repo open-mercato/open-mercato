@@ -1,5 +1,8 @@
 import { OnboardingRequest } from '../modules/onboarding/data/entities'
-import { PROVISIONING_LEASE_STALE_MS } from '../modules/onboarding/lib/provisioning-lease'
+import {
+  PROVISIONING_LEASE_HEARTBEAT_MS,
+  PROVISIONING_LEASE_STALE_MS,
+} from '../modules/onboarding/lib/provisioning-lease'
 
 type RequestRow = Pick<
   OnboardingRequest,
@@ -53,6 +56,11 @@ const blockingSeedModule: SeedModule = {
 }
 let seedModules: SeedModule[] = [blockingSeedModule]
 
+function holdsLease(request: OnboardingRequest, heldSince: Date | null | undefined) {
+  if (row.id !== request.id || row.status !== 'processing') return false
+  return (row.processingStartedAt?.getTime() ?? null) === (heldSince?.getTime() ?? null)
+}
+
 function toEntity(source: RequestRow): OnboardingRequest {
   return Object.assign(new OnboardingRequest(), { ...source })
 }
@@ -76,15 +84,17 @@ class InMemoryOnboardingService {
     return true
   }
 
-  async renewProcessing(requestId: string, renewedAt: Date) {
+  async renewProcessing(requestId: string, heldSince: Date, renewedAt: Date) {
     leaseRenewals += 1
     if (row.id !== requestId || row.status !== 'processing') return false
+    if (row.processingStartedAt?.getTime() !== heldSince.getTime()) return false
     row.processingStartedAt = renewedAt
     return true
   }
 
-  async resetProcessing(request: OnboardingRequest) {
-    if (row.id !== request.id || row.status !== 'processing') return false
+  async resetProcessing(request: OnboardingRequest, heldSince = request.processingStartedAt ?? null) {
+    if (!holdsLease(request, heldSince)) return false
+    events.push('resetProcessing')
     row.status = 'pending'
     row.processingStartedAt = null
     request.status = 'pending'
@@ -93,12 +103,18 @@ class InMemoryOnboardingService {
   }
 
   async updateProvisioningIds(request: OnboardingRequest, data: ProvisioningIds) {
+    if (!holdsLease(request, request.processingStartedAt)) return null
     const refreshed = { ...data, processingStartedAt: new Date() }
     Object.assign(request, refreshed)
     Object.assign(row, refreshed)
+    return refreshed.processingStartedAt
   }
 
-  async markCompleted(request: OnboardingRequest, data: ProvisioningIds) {
+  async markCompleted(request: OnboardingRequest, data: ProvisioningIds, heldSince = request.processingStartedAt ?? null) {
+    if (!holdsLease(request, heldSince)) {
+      events.push('markCompleted:rejected')
+      return false
+    }
     events.push('markCompleted')
     leaseRenewalsAtCompletion = leaseRenewals
     const completed = {
@@ -110,6 +126,7 @@ class InMemoryOnboardingService {
     }
     Object.assign(request, completed)
     Object.assign(row, completed)
+    return true
   }
 }
 
@@ -313,6 +330,64 @@ describe('onboarding verify provisioning lease', () => {
 
     expect(leaseRenewals).toBe(leaseRenewalsAtCompletion)
     expect(row.processingStartedAt).toBeNull()
+  })
+
+  it('stops a verify whose lease renewal fails after the request was moved back to pending', async () => {
+    seedModules = [blockingSeedModule, {
+      id: 'later_defaults',
+      setup: {
+        seedDefaults: async () => {
+          events.push('laterDefaults')
+        },
+      },
+    }]
+    const original = GET(verifyRequest())
+    await seedDefaultsEntered
+    Object.assign(row, { status: 'pending', processingStartedAt: null })
+
+    await jest.advanceTimersByTimeAsync(PROVISIONING_LEASE_HEARTBEAT_MS)
+    releaseSeedDefaults()
+    const response = await original
+
+    expect(response.headers.get('location')).toBe('https://app.example.com/onboarding?status=error')
+    expect(events).toEqual(['seedDefaults:start', 'seedDefaults:end'])
+    expect(row.status).toBe('pending')
+    expect(row.completedAt).toBeNull()
+    expect(row.passwordHash).toBe('hashed')
+  })
+
+  it('does not let a verify that lost its lease complete or reset a newer run of the same request', async () => {
+    const original = GET(verifyRequest())
+    await seedDefaultsEntered
+    const newerLease = new Date(Date.now() + 1000)
+    const newerIds = {
+      tenantId: '44444444-4444-4444-8444-444444444444',
+      organizationId: '55555555-5555-4555-8555-555555555555',
+      userId: '66666666-6666-4666-8666-666666666666',
+    }
+    Object.assign(row, { status: 'processing', processingStartedAt: newerLease, ...newerIds })
+
+    await jest.advanceTimersByTimeAsync(PROVISIONING_LEASE_HEARTBEAT_MS)
+    releaseSeedDefaults()
+    const response = await original
+
+    expect(response.headers.get('location')).toBe('https://app.example.com/onboarding?status=error')
+    expect(events).toEqual(['seedDefaults:start', 'seedDefaults:end'])
+    expect(row).toMatchObject({ status: 'processing', processingStartedAt: newerLease, completedAt: null, ...newerIds })
+  })
+
+  it('does not complete the request when the lease was lost between the last renewal and completion', async () => {
+    const original = GET(verifyRequest())
+    await seedDefaultsEntered
+    const newerLease = new Date(Date.now() + 1000)
+    Object.assign(row, { processingStartedAt: newerLease })
+
+    releaseSeedDefaults()
+    const response = await original
+
+    expect(response.headers.get('location')).toBe('https://app.example.com/onboarding?status=error')
+    expect(events).toEqual(['seedDefaults:start', 'seedDefaults:end', 'markCompleted:rejected'])
+    expect(row).toMatchObject({ status: 'processing', processingStartedAt: newerLease, completedAt: null })
   })
 
   it.each([

@@ -1,6 +1,7 @@
 import {
   PROVISIONING_LEASE_HEARTBEAT_MS,
   PROVISIONING_LEASE_STALE_MS,
+  ProvisioningLeaseLostError,
   isProvisioningLeaseActive,
   startProvisioningLeaseHeartbeat,
 } from '../modules/onboarding/lib/provisioning-lease'
@@ -29,6 +30,8 @@ describe('isProvisioningLeaseActive', () => {
 })
 
 describe('startProvisioningLeaseHeartbeat', () => {
+  const heldSince = new Date('2026-11-01T12:00:00.000Z')
+
   beforeEach(() => {
     jest.useFakeTimers()
     reportError.mockReset()
@@ -42,62 +45,73 @@ describe('startProvisioningLeaseHeartbeat', () => {
     expect(PROVISIONING_LEASE_HEARTBEAT_MS * 4).toBeLessThan(PROVISIONING_LEASE_STALE_MS)
     const renewProcessing = jest.fn().mockResolvedValue(true)
 
-    const stop = startProvisioningLeaseHeartbeat({ renewProcessing }, 'req-1')
+    const lease = startProvisioningLeaseHeartbeat({ renewProcessing }, 'req-1', heldSince)
     await jest.advanceTimersByTimeAsync(PROVISIONING_LEASE_HEARTBEAT_MS * 3)
-    await stop()
+    const releasedHeldSince = await lease.release()
     await jest.advanceTimersByTimeAsync(PROVISIONING_LEASE_HEARTBEAT_MS * 3)
 
     expect(renewProcessing).toHaveBeenCalledTimes(3)
-    expect(renewProcessing).toHaveBeenCalledWith('req-1', expect.any(Date))
+    const [firstCall, secondCall, thirdCall] = renewProcessing.mock.calls
+    expect(firstCall[0]).toBe('req-1')
+    expect(firstCall[1]).toBe(heldSince)
+    expect(secondCall[1]).toBe(firstCall[2])
+    expect(thirdCall[1]).toBe(secondCall[2])
+    expect(releasedHeldSince).toBe(thirdCall[2])
+    expect(() => lease.assertHeld()).not.toThrow()
   })
 
   it('reports a failed renewal without throwing and keeps renewing', async () => {
     const failure = new Error('connection lost')
     const renewProcessing = jest.fn().mockRejectedValueOnce(failure).mockResolvedValue(true)
 
-    const stop = startProvisioningLeaseHeartbeat({ renewProcessing }, 'req-1')
+    const lease = startProvisioningLeaseHeartbeat({ renewProcessing }, 'req-1', heldSince)
     await jest.advanceTimersByTimeAsync(PROVISIONING_LEASE_HEARTBEAT_MS * 2)
-    await stop()
+    const releasedHeldSince = await lease.release()
 
     expect(renewProcessing).toHaveBeenCalledTimes(2)
+    expect(renewProcessing.mock.calls[1][1]).toBe(heldSince)
+    expect(releasedHeldSince).toBe(renewProcessing.mock.calls[1][2])
     expect(reportError).toHaveBeenCalledWith(failure, {
       module: 'onboarding',
       code: 'onboarding.provisioning_lease_renewal_failed',
     })
   })
 
-  it('stops renewing once the lease is no longer held', async () => {
+  it('stops renewing and reports the lease as lost once it is no longer held', async () => {
     const renewProcessing = jest.fn().mockResolvedValue(false)
 
-    const stop = startProvisioningLeaseHeartbeat({ renewProcessing }, 'req-1')
+    const lease = startProvisioningLeaseHeartbeat({ renewProcessing }, 'req-1', heldSince)
+    expect(() => lease.assertHeld()).not.toThrow()
     await jest.advanceTimersByTimeAsync(PROVISIONING_LEASE_HEARTBEAT_MS * 4)
-    await stop()
 
+    expect(() => lease.assertHeld()).toThrow(ProvisioningLeaseLostError)
+    expect(await lease.release()).toBeNull()
     expect(renewProcessing).toHaveBeenCalledTimes(1)
   })
 
   it('waits for an in-flight renewal when stopped and never overlaps renewals', async () => {
     let finishRenewal: (renewed: boolean) => void = () => {}
     const renewProcessing = jest.fn(
-      () => new Promise<boolean>((resolve) => {
+      (_requestId: string, _heldSince: Date, _renewedAt: Date) => new Promise<boolean>((resolve) => {
         finishRenewal = resolve
       }),
     )
 
-    const stop = startProvisioningLeaseHeartbeat({ renewProcessing }, 'req-1')
+    const lease = startProvisioningLeaseHeartbeat({ renewProcessing }, 'req-1', heldSince)
     await jest.advanceTimersByTimeAsync(PROVISIONING_LEASE_HEARTBEAT_MS * 3)
     let stopped = false
-    const stopping = stop().then(() => {
+    const stopping = lease.release().then((releasedHeldSince) => {
       stopped = true
+      return releasedHeldSince
     })
     await Promise.resolve()
 
     expect(renewProcessing).toHaveBeenCalledTimes(1)
     expect(stopped).toBe(false)
 
-    finishRenewal(true)
-    await stopping
+    finishRenewal(false)
 
+    expect(await stopping).toBeNull()
     expect(stopped).toBe(true)
   })
 })
