@@ -1249,6 +1249,7 @@ function renderSplashHtml(req) {
     pl: 'Polski',
     es: 'Español',
     de: 'Deutsch',
+    pt: 'Português',
   }
   const splashBootstrap = escapeForInlineScript({
     supportedLocales: localeConfig.locales,

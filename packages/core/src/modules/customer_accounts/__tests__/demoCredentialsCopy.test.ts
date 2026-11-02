@@ -6,7 +6,7 @@ import { EXAMPLE_PORTAL_ACCOUNTS } from '@open-mercato/core/modules/customer_acc
 
 type LocaleMap = Record<string, string>
 
-const LOCALES = ['en', 'pl', 'de', 'es', 'ko'] as const
+const LOCALES = ['en', 'pl', 'de', 'es', 'ko', 'pt'] as const
 
 const moduleDir = path.join(__dirname, '..')
 

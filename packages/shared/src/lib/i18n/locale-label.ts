@@ -16,6 +16,7 @@ const SHIPPED_LOCALE_LABELS: Record<string, ShippedLocaleLabel> = {
   es: { key: 'common.languages.spanish', native: 'Español' },
   de: { key: 'common.languages.german', native: 'Deutsch' },
   ko: { key: 'common.languages.korean', native: '한국어' },
+  pt: { key: 'common.languages.portuguese', native: 'Português' },
 }
 
 // `resolveLocaleLabel` is called once per option per render of every language

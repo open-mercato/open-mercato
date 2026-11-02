@@ -13,7 +13,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import path from 'node:path'
 
-const LOCALES = ['en', 'de', 'es', 'ko', 'pl'] as const
+const LOCALES = ['en', 'de', 'es', 'ko', 'pl', 'pt'] as const
 
 const apiDir = path.join(__dirname, '..', 'api')
 const i18nDir = path.join(__dirname, '..', 'i18n')
@@ -50,7 +50,7 @@ describe('storage_s3 route error localization (#4830)', () => {
     expect(usages.length).toBeGreaterThan(0)
   })
 
-  it('ships every key the routes use in all five supported locales', () => {
+  it('ships every key the routes use in all six supported locales', () => {
     const missing = usages.flatMap(({ key }) =>
       LOCALES.filter((locale) => dictionaries[locale][key] === undefined).map((locale) => `${locale}:${key}`),
     )
