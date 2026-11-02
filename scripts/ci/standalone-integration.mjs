@@ -9,6 +9,7 @@ import { listPublishablePackages } from '../registry/publish.mjs'
 import { createStandaloneIntegrationEnvironment } from '../lib/standalone-integration-env.mjs'
 import { assertStandaloneSmokeCoverage, pinStandalonePackages, verifyStandalonePackages } from '../lib/standalone-pr-gate.mjs'
 import { assertProductionBuildArtifacts } from '../lib/standalone-build-artifacts.mjs'
+import { createStandaloneCleanup, registerStandaloneCleanup } from '../lib/standalone-local-cleanup.mjs'
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const { values } = parseArgs({ options: {
@@ -43,6 +44,8 @@ const installEnv = {
 const logPath = `${appDir}.log`
 const selectionPath = path.join(repoRoot, '.ai', 'qa', 'test-results', 'standalone-selection.json')
 let server = null
+const cleanupRuntime = createStandaloneCleanup({ stopServer, stopDatabase: () => {} })
+const removeSignalHandlers = registerStandaloneCleanup(cleanupRuntime)
 
 function run(command, args, { cwd = repoRoot, env = {}, capture = false, retry = false } = {}) {
   const invocation = retry
@@ -152,7 +155,11 @@ try {
   if (fs.existsSync(logPath)) console.error(fs.readFileSync(logPath, 'utf8').split('\n').slice(-200).join('\n'))
   process.exitCode = 1
 } finally {
-  await stopServer()
+  try {
+    await cleanupRuntime()
+  } finally {
+    removeSignalHandlers()
+  }
   console.log(`Standalone app: ${appDir}; server log: ${logPath}; selection report: ${selectionPath}`)
   if (values['app-dir']) fs.rmSync(scratchDir, { recursive: true, force: true })
 }

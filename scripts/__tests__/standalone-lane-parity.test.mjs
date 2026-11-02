@@ -46,3 +46,11 @@ test('local standalone parity runner consumes shared settings instead of an inde
   assert.doesNotMatch(source, /env: \{ \.\.\.integrationEnv, NODE_ENV: 'production' \}/)
   assert.doesNotMatch(source, /ci-standalone-test-jwt-secret|local-standalone-documents-collab|AUTO_SPAWN_WORKERS:/)
 })
+
+test('the shared CI lifecycle also cleans detached app servers on interruption', () => {
+  const source = read('scripts/ci/standalone-integration.mjs')
+  assert.match(source, /createStandaloneCleanup\(\{ stopServer,/)
+  assert.match(source, /registerStandaloneCleanup\(cleanupRuntime\)/)
+  assert.match(source, /await cleanupRuntime\(\)/)
+  assert.match(source, /removeSignalHandlers\(\)/)
+})
