@@ -1,5 +1,31 @@
 # Execution plan — catalog AI product categorization, spec Phase 1
 
+## Tasks
+
+> Authoritative status table. `Status` is `todo` or `done`. On landing a Step, flip `Status` to `done` and fill `Commit`. The first row not `done` is the resume point for `om-auto-continue-pr-loop`. Plan Phases 1-4 are the original Phase 1 work (spec Phase 1). **Plan Phases 5-8 extend this PR to spec Phases 2-4 (owner decision 2026-11-02: everything on PR #18).** Mapping: plan 5 = spec Phase 2, plan 6 = spec Phase 3, plan 7 = spec Phase 4, plan 8 = closing gate.
+
+| Phase | Step | Title | Exec | Status | Commit |
+|-------|------|-------|------|--------|--------|
+| 1 | 1.1 | Settings contract and helper | dispatch | done | cfe0e258b9 |
+| 1 | 1.2 | Port type and categorization service status | dispatch | done | 2ba8aa6ddb |
+| 1 | 1.3 | Settings API and settings UI | dispatch | done | 6faae308c0 |
+| 2 | 2.1 | Product state builder | dispatch | done | 7e49e60e97 |
+| 2 | 2.2 | Tree walk with batched tournament | dispatch | done | c218b15c49 |
+| 2 | 2.3 | Suggestion entity, migration and persistence | dispatch | done | 825fbc6ff6 |
+| 3 | 3.1 | Extract the category assignment helper | dispatch | done | 49b289ade3 |
+| 3 | 3.2 | Accept / reject commands, events and ACL | dispatch | done | 49b289ade3 |
+| 3 | 3.3 | API routes | dispatch | done | 077ab4d29b |
+| 4 | 4.1 | Product page suggestion card | dispatch | done | 8df6b1c6ea |
+| 4 | 4.2 | Integration tests | dispatch | done | c75764134c |
+| 4 | 4.3 | Spec sync and full gate | inline | done | 9becf795c3 |
+| 5 | 5.1 | Bulk worker, queue and progress job (spec step 12) | dispatch | todo | — |
+| 5 | 5.2 | Bulk route and bulk actions (spec step 13) | dispatch | todo | — |
+| 5 | 5.3 | Review page, menu entry and integration test (spec step 14) | dispatch | todo | — |
+| 6 | 6.1 | Auto-apply: settings UI, service logic, tests (spec step 15) | dispatch | todo | — |
+| 7 | 7.1 | On-create subscriber, settings switch, integration test (spec step 16) | dispatch | todo | — |
+| 7 | 7.2 | Docs page in apps/docs (spec step 17) | dispatch | todo | — |
+| 8 | 8.1 | Spec sync, PR body update, full gate | inline | todo | — |
+
 **Source doc:** `.ai/specs/2026-10-28-catalog-ai-product-categorization.md`
 **Spec PR:** adeptofvoltron/open-mercato#17 (design only). This plan's PR is the separate **implementation PR**, so the spec-only guard of `om-auto-continue-pr` does not apply to it.
 **Branch:** `feat/catalog-ai-categorization-phase-1` · stacked on `spec/catalog-ai-categorization`
