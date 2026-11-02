@@ -52,7 +52,9 @@ Bound process-local access-log write backlogs at both asynchronous stages, expos
 
 ## Progress
 
-PR: #5802
+PR: #8472
+Branch: carry/pr-5802-ready-5860
+Last updated: 2026-11-02
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
@@ -94,3 +96,5 @@ The previous GitHub run `38387594406` recorded `merge-coverage` as skipped despi
 Corrected prerequisite #8434 supersedes #5801 and merged as 3db3e49c916dbd0f04e5f7c400aa2270e4117b78. Main at 0ef0f453c62ee98ffe3853c669a3197f7b00f877 is incorporated, preserving its telemetry/pool implementation and prerequisite run record. The remaining production changes are bounded access-log admission/rotation and the inherited QA #8221 bulk-cart snapshot-under-lock correction, which main still lacks. Earlier statements above describe historical gates.
 
 Local source-mapped verification: 101 tests pass across tracker/CRUD (31), audit service/rotation/cart commands (53), telemetry reporting (9), and OpenCode runner fixture (8). Shared and core source-mapped typechecks pass; core validation reuses the generated entity registry and permits the existing TSX-extension import. Initial unconfigured checks exposed linked-workspace/generated-registry resolution limitations, resolved only in temporary validation configuration. No assertions, production config, or workflow limits changed. Lessons catalog and whitespace checks pass. Full current-head CI and affected QA remain separate gates; prior human QA FAIL #6503537681 remains unresolved until a real rerun, especially TC-CART-CONC-06/07/08. No application/database initialization was run.
+
+Carried forward from #5802 by `om-auto-review-pr` autofix to #8472. Next concrete action: real affected QA (including TC-CART-CONC-06/07/08) and full exact-head CI; no QA or merge approval is recorded here.
