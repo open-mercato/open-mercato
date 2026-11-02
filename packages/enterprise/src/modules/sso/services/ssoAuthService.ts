@@ -19,13 +19,14 @@ export class SsoAuthService extends AuthService {
 
   override async verifyPassword(user: User | null, password: string): Promise<boolean> {
     const verified = await super.verifyPassword(user, password)
-    if (!verified || !user) return false
+    if (!user) return false
 
-    return !await isSsoUserDeactivated(this.ssoEm, {
+    const deactivated = await isSsoUserDeactivated(this.ssoEm, {
       userId: user.id,
       tenantId: user.tenantId ?? null,
       organizationId: user.organizationId ?? null,
     })
+    return verified && !deactivated
   }
 
   override async createSession(
