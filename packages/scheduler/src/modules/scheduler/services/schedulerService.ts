@@ -64,10 +64,11 @@ export class SchedulerService {
     // Check if schedule already exists
     let schedule = await em.findOne(ScheduledJob, { id: registration.id })
     const nextTenantId = registration.tenantId || null
-    const nextSourceType = registration.sourceType ?? schedule?.sourceType ?? 'module'
+    const nextSourceType = registration.sourceType ?? 'module'
     const nextIsEnabled = registration.isEnabled !== undefined ? registration.isEnabled : (schedule?.isEnabled ?? true)
     const tenantChanged = schedule ? (schedule.tenantId || null) !== nextTenantId : false
-    if (nextSourceType === 'user' && nextIsEnabled && (schedule?.isEnabled !== true || tenantChanged)) {
+    const changedToUserSource = schedule?.sourceType !== 'user' && nextSourceType === 'user'
+    if (nextSourceType === 'user' && nextIsEnabled && (schedule?.isEnabled !== true || tenantChanged || changedToUserSource)) {
       await enforceTenantActiveScheduleLimit(em, nextTenantId)
     }
     

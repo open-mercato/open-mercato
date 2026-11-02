@@ -248,6 +248,37 @@ describe('SchedulerService', () => {
       }))
       expect(mockForkedEm.flush).toHaveBeenCalled()
     })
+
+    it('applies the user schedule cap when reclassifying an enabled module schedule', async () => {
+      const existingSchedule = {
+        id: 'test-schedule-1',
+        sourceType: 'module',
+        isEnabled: true,
+        tenantId: 'tenant-1',
+      } as ScheduledJob
+      mockForkedEm.findOne.mockResolvedValue(existingSchedule)
+      mockForkedEm.count.mockResolvedValue(100)
+
+      await expect(service.register({
+        ...baseRegistration,
+        scopeType: 'tenant',
+        tenantId: 'tenant-1',
+        sourceType: 'user',
+        scheduleType: 'interval',
+        scheduleValue: '15m',
+      })).rejects.toMatchObject({
+        status: 422,
+        body: { error: 'translated:scheduler.error.active_schedule_limit:max=100' },
+      })
+
+      expect(mockForkedEm.count).toHaveBeenCalledWith(ScheduledJob, {
+        tenantId: 'tenant-1',
+        sourceType: 'user',
+        isEnabled: true,
+        deletedAt: null,
+      })
+      expect(mockForkedEm.flush).not.toHaveBeenCalled()
+    })
   })
 
   describe('unregister', () => {
