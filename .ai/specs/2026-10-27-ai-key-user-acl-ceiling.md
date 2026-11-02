@@ -18,7 +18,7 @@ Intersect each bound key's role-derived features and organization visibility wit
 
 Replay authorization locks include the bound owner's user, membership, ACL, and role rows. A binding changed during lock acquisition returns the existing authorization-state drift conflict. Discovery snapshots the owner ID and a copied role list before any ORM refresh; in-place hydration of a managed entity cannot erase the pre-lock state.
 
-Bound keys also retain the live-role intersection from #8034: an issued role removed from the owner is rejected without relying on cache invalidation. Bound-key projections bypass the key ACL cache while the owner ceiling remains enforced across all three projections. Session markers use the current `sessionTokenHash` field.
+Bound keys also retain the live-role intersection from #8034: an issued role removed from the owner is rejected without relying on cache invalidation. Bound-key projections bypass the key ACL cache while the owner ceiling remains enforced across all three projections. This release retains its existing `sessionToken` marker and `session_token` column.
 
 Key-cache invalidation tags use the resolved tenant and organization, including when a caller leaves the tenant unset and RBAC infers it from the key.
 
@@ -56,6 +56,7 @@ Tenant-bound owner lookups, existing schema, no cross-module ORM relations, shar
 - 2026-10-28: Corrected integration organization checks to exercise customer-data scoping instead of tenant directory options.
 - 2026-10-28: Added owner-dependent invalidation for the optional organization-scope cache, with a regression for a floating delegated principal.
 
-- 2026-10-30: Reconciled the ceiling with live session-role revocation, owner revalidation, and hashed session markers; added combined role-revocation coverage.
+- 2026-10-30: Reconciled the ceiling with live session-role revocation, owner revalidation, and release-compatible session markers; added combined role-revocation coverage.
 
 - 2026-10-30: Preserve replay discovery snapshots across same-instance ORM refresh, with owner-binding and in-place role-array drift regressions.
+- 2026-11-02: Adapted the delegated-key HTTP fixture to the release's existing session-token column without changing runtime behavior or isolation assertions.
