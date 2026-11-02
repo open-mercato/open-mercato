@@ -124,7 +124,7 @@ jobs:
         # Determines which integration tests to run and whether to shard them.
         # Full-suite runs (push OR PR touching shared packages) use 15 shards.
         # Affected-only runs (PR touching specific modules) use a single runner.
-        # CI/docs/scripts-only PRs skip integration entirely.
+        # This workflow runs the full suite; other CI/docs/scripts-only PRs skip integration.
         # Runs in prepare so shards can start the moment the build is ready,
         # without waiting for typecheck or unit tests to complete.
         id: integration-scope
@@ -145,7 +145,7 @@ jobs:
           # `packages/cli/src/lib/testing/` is the ephemeral harness that boots, drives and tears
           # down this very suite. A change there matches no `src/modules/` path, so without this
           # entry the job that would exercise it is the one job it can never trigger.
-          FULL_SUITE_PATTERN='^packages/shared/|^packages/ui/|^packages/events/|^packages/queue/|^packages/cache/|^packages/search/|^packages/onboarding/|^packages/webhooks/|^packages/core/src/lib/|^packages/enterprise/src/lib/|^packages/cli/src/lib/testing/|^apps/mercato/src/(app|lib|components|layout\.|page\.)'
+          FULL_SUITE_PATTERN='^\.github/workflows/ci\.yml$|^packages/shared/|^packages/ui/|^packages/events/|^packages/queue/|^packages/cache/|^packages/search/|^packages/onboarding/|^packages/webhooks/|^packages/core/src/lib/|^packages/enterprise/src/lib/|^packages/cli/src/lib/testing/|^apps/mercato/src/(app|lib|components|layout\.|page\.)'
           if echo "$CHANGED" | grep -qE "$FULL_SUITE_PATTERN"; then
             echo "skip=false" >> "$GITHUB_OUTPUT"
             echo "modules=" >> "$GITHUB_OUTPUT"
@@ -624,14 +624,38 @@ jobs:
     needs: [prepare, audit-scope, audit, lint]
     if: |
       always() &&
+      !cancelled() &&
       needs.prepare.result == 'success' &&
       needs.audit-scope.result == 'success' &&
       (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
       needs.lint.result == 'success'
+    services:
+      # `@open-mercato/queue` translates its `coalesce` option into BullMQ deduplication,
+      # and the rest of its tests — which mock BullMQ — prove only that the right options
+      # reach `queue.add`. The guarantee callers rely on is BullMQ's own behaviour, and a
+      # semantic change behind an unchanged option name would pass both the mock and the
+      # installed-BullMQ name guard. One server makes that suite run for real.
+      #
+      # No other suite reaches for a default localhost Redis (they all mock ioredis,
+      # bullmq or the connection helper), so this changes nothing else in the job.
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        # Without a health gate the first enqueue can beat the server's startup and fail
+        # the job for a reason that has nothing to do with the change under test.
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     env:
       # app typecheck (tsc --noEmit on the full Next.js app) peaks at ~4 GB;
       # raise the heap so it does not OOM on cache-miss runs.
       NODE_OPTIONS: --max-old-space-size=5120
+      # Opts the queue's real-BullMQ coalescing suite in; it skips itself when unset,
+      # which is what keeps it out of every environment that has no Redis.
+      QUEUE_TEST_REDIS_URL: redis://127.0.0.1:6379/0
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -735,25 +759,25 @@ jobs:
         run: yarn agents:check-budget
 
       - name: Checking types
-        # On PRs: scope to packages/app that changed since the base branch.
-        # On pushes to protected branches: full typecheck, no filter.
+        # Workflow edits and protected branch pushes run the full gate.
+        # Other PRs scope to packages/app that changed since the base branch.
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            yarn turbo run typecheck --filter=[origin/${{ github.base_ref }}]...
-          else
+          if [ "${{ github.event_name }}" != "pull_request" ] || ! git diff --quiet HEAD^1 HEAD -- .github/workflows/ci.yml; then
             yarn typecheck
+          else
+            yarn turbo run typecheck --filter=[origin/${{ github.base_ref }}]...
           fi
         env:
           TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
           TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
 
       - name: Test
-        # Same scoping as typecheck — affected packages only on PRs.
+        # Same scoping as typecheck, including full gates for workflow edits.
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            yarn turbo run test --filter=[origin/${{ github.base_ref }}]...
-          else
+          if [ "${{ github.event_name }}" != "pull_request" ] || ! git diff --quiet HEAD^1 HEAD -- .github/workflows/ci.yml; then
             yarn test
+          else
+            yarn turbo run test --filter=[origin/${{ github.base_ref }}]...
           fi
 
       - name: Test scripts
@@ -825,6 +849,7 @@ jobs:
     needs: [prepare, audit-scope, audit, lint]
     if: |
       always() &&
+      !cancelled() &&
       needs.prepare.result == 'success' &&
       needs.audit-scope.result == 'success' &&
       (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
@@ -881,6 +906,7 @@ jobs:
     needs: [prepare, audit-scope, audit, lint]
     if: |
       always() &&
+      !cancelled() &&
       needs.prepare.result == 'success' &&
       needs.audit-scope.result == 'success' &&
       (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
@@ -954,6 +980,7 @@ jobs:
     needs: [prepare, audit-scope, audit, lint]
     if: |
       always() &&
+      !cancelled() &&
       needs.prepare.result == 'success' &&
       needs.audit-scope.result == 'success' &&
       (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
@@ -1181,7 +1208,14 @@ jobs:
   merge-coverage:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: [prepare, test, documents-multi-instance, ephemeral-integration]
-    if: needs.prepare.outputs.shard_matrix != '["none"]'
+    if: |
+      always() &&
+      !cancelled() &&
+      needs.prepare.result == 'success' &&
+      needs.test.result == 'success' &&
+      needs.documents-multi-instance.result == 'success' &&
+      needs.ephemeral-integration.result == 'success' &&
+      needs.prepare.outputs.shard_matrix != '["none"]'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
