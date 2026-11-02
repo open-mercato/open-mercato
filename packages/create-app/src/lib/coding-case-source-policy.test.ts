@@ -1,0 +1,336 @@
+import assert from 'node:assert/strict'
+import { randomUUID } from 'node:crypto'
+import { spawnSync } from 'node:child_process'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import test from 'node:test'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { extractAllModuleFacts } from '../../../cli/src/lib/generators/module-facts.js'
+import { discoverPackageModuleSources } from '../../../cli/src/lib/generators/module-facts-discovery.js'
+import { createResolver } from '../../../cli/src/lib/resolver.js'
+import { generateShared, injectModuleGuides, selectModuleFactSheets, enforceGeneratedRootBudget } from '../setup/tools/shared.js'
+import { generateCodex } from '../setup/tools/codex.js'
+
+type ExampleRoot = { root: string; entrypoints: string[]; allowedCapabilityIds: string[]; maxFiles: number; maxBytes: number }
+type CodingCase = {
+  id: string
+  evaluationKind: string
+  context: { required: string[]; allowedExtra?: string[]; sourceReferenceIds?: string[]; exampleRoots?: ExampleRoot[] }
+  requiredSkills: string[]
+  allowedWrites: string[]
+  maxContextFiles: number
+  maxInitialContextBytes: number
+  maxTotalContextBytes: number
+  frameworkContext?: Array<{ module?: string; package?: string; query: string }>
+}
+type Surface = { capabilityId: string; readStatus: string; sourcePaths: string[] }
+type Reference = { referenceId: string; originAsset: string; resolvedPath: string; readStatus: string }
+type Evaluator = {
+  caseReadAllowlist: (record: CodingCase, writable: boolean, root: string) => string[]
+  evaluateExampleReadPolicy: (input: { caseRecord: CodingCase; appRoot: string; reads: Array<{ path: string }> }) => { firstViolation: string | null }
+  validateExampleReadPolicyDeclaration: (record: CodingCase, root: string) => string[]
+  prepareCaseFrameworkContext: (record: CodingCase, controller: string, target: string, options: { writable: boolean }) => { patterns: string[]; entries: Array<{ manifest: string; searchResult: string; sourceRoot: string; sourceFiles: string[] }> }
+  observedContext: (stdout: string, root: string, record: CodingCase, writable: boolean) => { paths: string[]; violations: string[]; exampleReadPolicy: { reads: Array<{ path: string }>; references: { followed: Array<{ resolvedPath: string }> } } }
+}
+type Reply = { id: number; result: { isError?: boolean; content: Array<{ text: string }> } }
+
+const packageRoot = fileURLToPath(new URL('../../', import.meta.url))
+const repositoryRoot = fileURLToPath(new URL('../../../../', import.meta.url))
+const shared = path.join(packageRoot, 'agentic/shared')
+const evaluatorPath = path.join(shared, 'scripts/evaluate-agent-harness.mjs')
+
+async function loadEvaluator(): Promise<Evaluator> {
+  const source = fs.readFileSync(evaluatorPath, 'utf8')
+  if (/^export function prepareCaseFrameworkContext\(/m.test(source)) return import(pathToFileURL(evaluatorPath).href) as unknown as Promise<Evaluator>
+  const declaration = /^function prepareCaseFrameworkContext\(/m
+  assert.match(source, declaration, 'existing evaluator declaration missing: prepareCaseFrameworkContext')
+  const bridge = path.join(path.dirname(evaluatorPath), `.coding-source-policy-test-${process.pid}-${randomUUID()}.mjs`)
+  try {
+    fs.writeFileSync(bridge, source.replace(declaration, 'export function prepareCaseFrameworkContext('), { flag: 'wx', mode: 0o600 })
+    return await import(pathToFileURL(bridge).href) as unknown as Evaluator
+  } finally {
+    if (fs.existsSync(bridge)) fs.unlinkSync(bridge)
+  }
+}
+
+const evaluator = await loadEvaluator()
+const catalog = JSON.parse(fs.readFileSync(path.join(shared, 'ai/harness/cases.json'), 'utf8')) as CodingCase[]
+const references = (JSON.parse(fs.readFileSync(path.join(shared, 'ai/harness/source-link-inventory.json'), 'utf8')) as { records: Reference[] }).records
+const surfaces = (JSON.parse(fs.readFileSync(path.join(packageRoot, 'template/src/modules/example/references/surface-inventory.json'), 'utf8')) as { capabilities: Surface[] }).capabilities
+const affected = ['OMH-009', 'OMH-011', 'OMH-012', 'OMH-014', 'OMH-026', 'OMH-027', 'OMH-029', 'OMH-031', 'OMH-042', 'OMH-045', 'OMH-049', 'OMH-054', 'OMH-057', 'OMH-060']
+const expectedSources: Record<string, string[]> = {
+  'OMH-009': ['data/entities.ts', 'data/validators.ts', 'migrations/.snapshot-open-mercato.json'],
+  'OMH-011': ['api/todos/route.ts', 'api/openapi.ts'],
+  'OMH-012': ['commands/todos.ts'],
+  'OMH-014': ['components/TodosTable.tsx', 'components/TodoForm.tsx'],
+  'OMH-026': ['data/enrichers.ts', 'data/guards.ts', 'widgets/injection/customer-priority-field/widget.ts'],
+  'OMH-027': ['widgets/injection/customer-priority-column/widget.ts', 'widgets/injection/customer-priority-filter/widget.ts', 'widgets/injection/customer-priority-row-action/widget.ts', 'widgets/injection/customer-priority-bulk-actions/widget.ts'],
+  'OMH-031': ['api/interceptors.ts'],
+  'OMH-042': ['acl.ts', 'setup.ts', 'di.ts'],
+  'OMH-049': ['ai-agents.ts', 'ai-tools.ts'],
+}
+let scaffold: string | undefined
+
+test.after(() => {
+  if (scaffold) fs.rmSync(path.dirname(scaffold), { recursive: true, force: true })
+})
+
+function codingCase(id: string): CodingCase {
+  const record = catalog.find(record => record.id === id)
+  assert.ok(record, `missing ${id}`)
+  return record
+}
+
+function stageApp(): string {
+  if (!scaffold) {
+    const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-coding-source-scaffold-')))
+    scaffold = path.join(parent, 'source-policy-fixture')
+    fs.mkdirSync(path.join(scaffold, 'src'), { recursive: true })
+    fs.copyFileSync(path.join(packageRoot, 'template/src/modules.ts'), path.join(scaffold, 'src/modules.ts'))
+    fs.cpSync(path.join(packageRoot, 'template/src/modules/example'), path.join(scaffold, 'src/modules/example'), { recursive: true })
+    const config = { projectName: 'source-policy-fixture', targetDir: scaffold }
+    generateShared(config)
+    const version = (JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8')) as { version: string }).version
+    const { directoryByModule } = extractAllModuleFacts({ sources: discoverPackageModuleSources(createResolver(repositoryRoot)), coreVersion: version, registryPath: null })
+    const factDirectory = path.join(scaffold, '.ai/guides/modules')
+    for (const [moduleId, directory] of Object.entries(directoryByModule)) {
+      const target = path.join(factDirectory, moduleId)
+      fs.mkdirSync(target, { recursive: true })
+      fs.writeFileSync(path.join(target, 'index.md'), directory.index)
+      for (const section of directory.sections) fs.writeFileSync(path.join(target, `${section.slug}.md`), section.markdown)
+    }
+    const upstream = path.join(scaffold, '.ai/guides/upstream')
+    fs.mkdirSync(upstream, { recursive: true })
+    fs.copyFileSync(path.join(repositoryRoot, 'BACKWARD_COMPATIBILITY.md'), path.join(upstream, 'BACKWARD_COMPATIBILITY.md'))
+    injectModuleGuides(path.join(scaffold, 'AGENTS.md'), selectModuleFactSheets(scaffold, factDirectory))
+    generateCodex(config)
+    enforceGeneratedRootBudget(config)
+  }
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-coding-source-policy-')))
+  fs.cpSync(scaffold, root, { recursive: true })
+  const qaFile = path.join(root, 'src/modules/example/lib/__tests__/mock-gateway-adapter.test.ts')
+  fs.mkdirSync(path.dirname(qaFile), { recursive: true })
+  fs.writeFileSync(qaFile, 'private-qa-marker')
+  fs.writeFileSync(path.join(root, 'src/private.ts'), 'private-source-marker')
+  fs.writeFileSync(path.join(root, '.env'), 'SECRET=private-environment-marker')
+  return root
+}
+
+function toolCalls(root: string, record: CodingCase, calls: Array<{ name: string; arguments: Record<string, string> }>): Reply[] {
+  const requests = calls.map((call, index) => ({ jsonrpc: '2.0', id: index + 1, method: 'tools/call', params: call }))
+  const processResult = spawnSync(process.execPath, [
+    path.join(shared, 'scripts/agent-harness-tool-server.mjs'), root, 'writable',
+    JSON.stringify(evaluator.caseReadAllowlist(record, true, root)), JSON.stringify(record.allowedWrites),
+  ], { encoding: 'utf8', env: {}, input: requests.map(request => JSON.stringify(request)).join('\n') + '\n' })
+  assert.equal(processResult.status, 0, processResult.stderr)
+  return processResult.stdout.trim().split('\n').map(line => JSON.parse(line)) as Reply[]
+}
+
+function initialContext(filename: string): boolean {
+  return !filename.includes('/references/') && !['.ai/framework-context/', '.ai/guides/modules/', '.ai/guides/reference-modules/', '.ai/guides/upstream/', '.agents/skills/', 'src/'].some(prefix => filename.startsWith(prefix))
+}
+
+function mandatoryClosure(root: string, record: CodingCase) {
+  const instructions = new Set(record.context.required)
+  for (const skill of record.requiredSkills) instructions.add(`.ai/skills/${skill}/SKILL.md`)
+  if (record.id === 'OMH-057') instructions.add('.ai/skills/om-module-scaffold/SKILL.md')
+  const sourceFiles = new Set<string>()
+  for (const referenceId of record.context.sourceReferenceIds ?? []) {
+    const reference = references.find(reference => reference.referenceId === referenceId)
+    assert.ok(reference, `${record.id}: unknown source reference ${referenceId}`)
+    instructions.add(reference.originAsset)
+    sourceFiles.add(reference.resolvedPath)
+  }
+  for (const declaration of record.context.exampleRoots ?? []) {
+    for (const filename of declaration.entrypoints) sourceFiles.add(`${declaration.root}/${filename}`)
+    sourceFiles.add(`${declaration.root}/references/surface-inventory.json`)
+    for (const capabilityId of declaration.allowedCapabilityIds) {
+      const capability = surfaces.find(capability => capability.capabilityId === capabilityId)
+      assert.equal(capability?.readStatus, 'readable', `${record.id}: non-readable capability ${capabilityId}`)
+      for (const filename of capability.sourcePaths) sourceFiles.add(filename)
+    }
+  }
+  const size = (filename: string) => fs.statSync(path.join(root, filename)).size
+  const initial = [...instructions].filter(initialContext)
+  const files = new Set([...instructions, ...sourceFiles])
+  const rootMeasurements = (record.context.exampleRoots ?? []).map(declaration => {
+    const rootSources = [...sourceFiles].filter(filename => filename.startsWith(`${declaration.root}/`))
+    return { files: rootSources.length, bytes: rootSources.reduce((total, filename) => total + size(filename), 0), maxFiles: declaration.maxFiles, maxBytes: declaration.maxBytes }
+  })
+  const initialBytes = initial.reduce((total, filename) => total + size(filename), 0)
+  const writable = ['implementation', 'regression'].includes(record.evaluationKind)
+  const routingFiles = writable ? instructions : files
+  return { initialFiles: initial.length, initialBytes, totalBytes: [...routingFiles].reduce((total, filename) => total + size(filename), 0), modelAvailableBytes: [...files].reduce((total, filename) => total + size(filename), 0), sourceFiles: [...sourceFiles], sourceBytes: [...sourceFiles].reduce((total, filename) => total + size(filename), 0), rootMeasurements }
+}
+
+for (const [id, expected] of Object.entries(expectedSources)) {
+  test(`${id} delivers only the task's exact readable canonical source`, () => {
+    const root = stageApp()
+    try {
+      const record = codingCase(id)
+      const allowed = evaluator.caseReadAllowlist(record, true, root)
+      const exact = expected.map(filename => `src/modules/example/${filename}`)
+      for (const filename of exact) assert.ok(allowed.includes(filename), `${id} cannot read ${filename}`)
+      assert.ok(!allowed.includes('src/modules/example/**'))
+      assert.deepEqual(evaluator.validateExampleReadPolicyDeclaration(record, root), [])
+      const owners = (record.context.sourceReferenceIds ?? []).map(referenceId => references.find(reference => reference.referenceId === referenceId)?.originAsset).filter((filename): filename is string => Boolean(filename))
+      const entrypoints = (record.context.exampleRoots ?? []).flatMap(declaration => declaration.entrypoints.map(filename => `${declaration.root}/${filename}`))
+      const maps = ['src/modules/example/references/surface-map.md', 'src/modules/example/references/surface-inventory.json']
+      const trace = evaluator.evaluateExampleReadPolicy({ caseRecord: record, appRoot: root, reads: [...new Set([...owners, ...entrypoints, ...maps, ...exact])].map(filename => ({ path: filename })) })
+      assert.equal(trace.firstViolation, null)
+      const unrelated = id === 'OMH-049' ? 'src/modules/example/commands/todos.ts' : 'src/modules/example/ai-agents.ts'
+      const denied = [unrelated, 'src/modules/example/lib/__tests__/mock-gateway-adapter.test.ts', 'src/private.ts', '../outside.ts', '.env']
+      const readable = [...new Set([...entrypoints, ...maps, ...exact])]
+      const replies = toolCalls(root, record, [...readable, ...denied].map(filename => ({ name: 'read', arguments: { path: filename } })))
+      for (const reply of replies.slice(0, readable.length)) assert.notEqual(reply.result.isError, true)
+      for (const reply of replies.slice(readable.length)) assert.equal(reply.result.isError, true)
+      assert.doesNotMatch(JSON.stringify(replies), /private-source-marker|private-environment-marker|private-qa-marker/)
+    } finally { fs.rmSync(root, { recursive: true, force: true }) }
+  })
+}
+
+test('the page override case can read and edit its exact module registry without broader app access', () => {
+  const root = stageApp()
+  try {
+    const record = codingCase('OMH-029')
+    const replies = toolCalls(root, record, [
+      { name: 'read', arguments: { path: 'src/modules.ts' } },
+      { name: 'write', arguments: { path: 'src/modules.ts', content: "export const enabledModules = []\n" } },
+      { name: 'write', arguments: { path: 'src/app/page.tsx', content: 'unrelated page' } },
+      { name: 'write', arguments: { path: 'src/modules/example/acl.ts', content: 'example mutation' } },
+    ])
+    assert.notEqual(replies[0].result.isError, true)
+    assert.notEqual(replies[1].result.isError, true)
+    assert.equal(replies[2].result.isError, true)
+    assert.equal(replies[3].result.isError, true)
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
+test('successful declared example reads retain separate reference accounting from target self-reads', () => {
+  const root = stageApp()
+  try {
+    const record = codingCase('OMH-009')
+    const source = 'src/modules/example/data/entities.ts'
+    const target = 'src/modules/library/index.ts'
+    fs.mkdirSync(path.dirname(path.join(root, target)), { recursive: true })
+    fs.writeFileSync(path.join(root, target), "export const metadata = { id: 'library' }\n")
+    const paths = ['AGENTS.md', '.ai/skills/om-data-model-design/references/schema-design.md', 'src/modules/example/README.md', source, target]
+    const replies = toolCalls(root, record, paths.map(filename => ({ name: 'read', arguments: { path: filename } })))
+    for (const reply of replies) assert.notEqual(reply.result.isError, true)
+    const events = replies.map((reply, index) => JSON.stringify({ type: 'mcp_tool_call', id: `read-${reply.id}`, name: 'mcp__harness__read', status: 'completed', input: { path: paths[index] } }))
+    const observed = evaluator.observedContext(events.join('\n'), root, record, true)
+    assert.deepEqual(observed.violations, [])
+    assert.ok(!observed.paths.includes(source), 'canonical example source is accounted separately from routing context')
+    assert.ok(observed.exampleReadPolicy.reads.some(read => read.path === source))
+    assert.ok(observed.exampleReadPolicy.references.followed.some(reference => reference.resolvedPath === source))
+    assert.ok(!observed.paths.includes(target), 'writable target self-reads are implementation input')
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
+for (const id of affected) {
+  test(`${id} mandatory instructions and the full declared example closure fit their bounds`, context => {
+    const root = stageApp()
+    try {
+      const record = codingCase(id)
+      const measured = mandatoryClosure(root, record)
+      context.diagnostic(JSON.stringify({ id, initialFiles: measured.initialFiles, initialBytes: measured.initialBytes, routingBytes: measured.totalBytes, modelAvailableBytes: measured.modelAvailableBytes, sourceFiles: measured.sourceFiles.length, sourceBytes: measured.sourceBytes, rootMeasurements: measured.rootMeasurements, limits: [record.maxContextFiles, record.maxInitialContextBytes, record.maxTotalContextBytes] }))
+      assert.ok(measured.initialFiles <= record.maxContextFiles, `${id} initial files ${measured.initialFiles}/${record.maxContextFiles}`)
+      assert.ok(measured.initialBytes <= record.maxInitialContextBytes, `${id} initial bytes ${measured.initialBytes}/${record.maxInitialContextBytes}`)
+      assert.ok(measured.totalBytes <= record.maxTotalContextBytes, `${id} total bytes ${measured.totalBytes}/${record.maxTotalContextBytes}; exact source bytes ${measured.sourceBytes}`)
+      for (const root of measured.rootMeasurements) {
+        assert.ok(root.files <= root.maxFiles, `${id} full declared root files ${root.files}/${root.maxFiles}`)
+        assert.ok(root.bytes <= root.maxBytes, `${id} full declared root bytes ${root.bytes}/${root.maxBytes}`)
+      }
+      assert.ok(record.maxInitialContextBytes <= 98_304 && record.maxTotalContextBytes <= 1_048_576)
+    } finally { fs.rmSync(root, { recursive: true, force: true }) }
+  })
+}
+
+test('prepared workflow context queries name exact production declarations', () => {
+  const requests = codingCase('OMH-054').frameworkContext
+  assert.deepEqual(requests, [
+    { module: 'workflows', query: 'export function registerCodeWorkflows' },
+    { package: '@open-mercato/shared', query: 'interface CodeWorkflowDefinition' },
+  ])
+})
+
+test('OMH-042 prepares its actual installed adapter and descriptor definitions', context => {
+  const record = codingCase('OMH-042')
+  const root = stageApp()
+  try {
+    const write = (filename: string, content: string) => {
+      const target = path.join(root, filename)
+      fs.mkdirSync(path.dirname(target), { recursive: true })
+      fs.writeFileSync(target, content)
+    }
+    const sourceFiles = [
+      ['core', 'src/modules/data_sync/lib/adapter.ts', 'DataSyncAdapter'],
+      ['shared', 'src/modules/integrations/types.ts', 'IntegrationDefinition'],
+    ] as const
+    const dependencies: Record<string, string> = {}
+    for (const [name, filename, symbol] of sourceFiles) {
+      const packageName = `@open-mercato/${name}`
+      const installed = `node_modules/${packageName}`
+      const manifest = JSON.parse(fs.readFileSync(path.join(repositoryRoot, 'packages', name, 'package.json'), 'utf8')) as { name: string; version: string }
+      dependencies[packageName] = manifest.version
+      write(`${installed}/package.json`, JSON.stringify({ name: manifest.name, version: manifest.version, type: 'module' }))
+      write(`${installed}/${filename}`, fs.readFileSync(path.join(repositoryRoot, 'packages', name, filename), 'utf8'))
+      write(`${installed}/${path.posix.dirname(filename)}/consumer.ts`, `import type { ${symbol} } from './types'\n`)
+      write(`${installed}/${path.posix.dirname(filename)}/__tests__/definition.test.ts`, `export interface ${symbol} { privateQaMarker: string }\n`)
+      write(`${installed}/src/.env`, `export interface ${symbol} { privateEnvironmentMarker: string }\n`)
+    }
+    write('package.json', JSON.stringify({ name: 'adapter-source-policy-fixture', private: true, dependencies }))
+    write('scripts/framework-context.mjs', fs.readFileSync(path.join(shared, 'scripts/framework-context.mjs'), 'utf8'))
+    const prepared = evaluator.prepareCaseFrameworkContext(record, root, root, { writable: true })
+    assert.equal(prepared.entries.length, 2)
+    let bytes = mandatoryClosure(root, record).totalBytes
+    for (const [index, entry] of prepared.entries.entries()) {
+      const [name, filename, symbol] = sourceFiles[index]
+      const suffix = name === 'core' ? '/lib/adapter.ts' : '/modules/integrations/types.ts'
+      assert.equal(entry.sourceFiles.length, 1)
+      assert.ok(entry.sourceFiles[0].endsWith(suffix))
+      assert.equal(fs.readFileSync(path.join(root, entry.sourceFiles[0]), 'utf8'), fs.readFileSync(path.join(repositoryRoot, 'packages', name, filename), 'utf8'))
+      assert.match(fs.readFileSync(path.join(root, entry.sourceFiles[0]), 'utf8'), new RegExp(`export interface ${symbol}`))
+      const manifest = JSON.parse(fs.readFileSync(path.join(root, entry.manifest), 'utf8')) as { package: { name: string; version: string } }
+      assert.equal(manifest.package.name, `@open-mercato/${name}`)
+      assert.equal(manifest.package.version, dependencies[manifest.package.name])
+      const search = fs.readFileSync(path.join(root, entry.searchResult), 'utf8')
+      assert.doesNotMatch(search, /consumer\.ts|__tests__|privateQaMarker|privateEnvironmentMarker/)
+      for (const filename of [entry.manifest, entry.searchResult, ...entry.sourceFiles]) {
+        assert.ok(prepared.patterns.includes(filename), `exact prepared source grant missing ${filename}`)
+        bytes += fs.statSync(path.join(root, filename)).size
+      }
+    }
+    assert.ok(prepared.patterns.every(filename => !filename.includes('*') && !filename.includes('?')))
+    assert.ok(bytes <= record.maxTotalContextBytes, `mandatory context plus prepared definitions ${bytes}/${record.maxTotalContextBytes}`)
+    const preparedRecord = { ...record, materializedFrameworkContextPatterns: prepared.patterns }
+    const readable = prepared.entries.flatMap(entry => entry.sourceFiles)
+    const denied = prepared.entries.flatMap(entry => [
+      `${path.posix.dirname(entry.sourceFiles[0])}/consumer.ts`,
+      `${path.posix.dirname(entry.sourceFiles[0])}/__tests__/definition.test.ts`,
+    ])
+    const replies = toolCalls(root, preparedRecord, [...readable, ...denied].map(filename => ({ name: 'read', arguments: { path: filename } })))
+    for (const reply of replies.slice(0, readable.length)) assert.notEqual(reply.result.isError, true)
+    for (const reply of replies.slice(readable.length)) assert.equal(reply.result.isError, true)
+    assert.doesNotMatch(JSON.stringify(replies), /privateQaMarker|privateEnvironmentMarker/)
+    assert.deepEqual(record.frameworkContext, [
+      { module: 'data_sync', query: 'export interface DataSyncAdapter' },
+      { package: '@open-mercato/shared', query: 'export interface IntegrationDefinition' },
+    ])
+    context.diagnostic(JSON.stringify({ id: record.id, mandatoryAndPreparedBytes: bytes, limit: record.maxTotalContextBytes }))
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
+for (const id of ['OMH-026', 'OMH-027', 'OMH-031']) {
+  test(`${id} delivers the named customers host facts before installed extension work`, () => {
+    const root = stageApp()
+    try {
+      const record = codingCase(id)
+      const facts = '.ai/guides/modules/customers/index.md'
+      assert.ok(record.context.required.includes(facts), `${id} must require exact host facts`)
+      const [reply] = toolCalls(root, record, [{ name: 'read', arguments: { path: facts } }])
+      assert.notEqual(reply.result.isError, true)
+    } finally { fs.rmSync(root, { recursive: true, force: true }) }
+  })
+}

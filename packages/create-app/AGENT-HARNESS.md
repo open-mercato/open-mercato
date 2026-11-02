@@ -77,12 +77,10 @@ The release gate wraps this in a larger ordered sequence.
    file and byte ceilings. `exampleReadAllowlist()` expands that declaration to exact
    files — entrypoints, the inventory, and each declared capability's mapped sources —
    and the root is resolved as immutable *before* any writable pattern, so a
-    `src/modules/**` grant can never reach inside it. Ten cases,
-    `OMH-181`, `OMH-203`…`OMH-226` and `OMH-238`, declare it today; every other case is byte-identical to
-    before. Eight are read-only. `OMH-181` and `OMH-223` are the two writable declarers:
-    the former adapts the canonical DataTable bulk-action and operation-progress seams while
-    proving their shared `progressJobId`; the latter writes only `.ai/specs/**`. Immutability
-    refuses either case a write inside the reference root regardless.
+    `src/modules/**` grant can never reach inside it. 19 cases declare it today: eight read-only and 11 writable.
+    Example-root declaring cases (19): `OMH-009`, `OMH-011`, `OMH-012`, `OMH-014`, `OMH-026`, `OMH-027`, `OMH-031`, `OMH-042`, `OMH-049`, `OMH-181`, `OMH-203`, `OMH-219`, `OMH-220`, `OMH-221`, `OMH-222`, `OMH-223`, `OMH-225`, `OMH-226`, `OMH-238`.
+    Writable example-root declarers (11): `OMH-009`, `OMH-011`, `OMH-012`, `OMH-014`, `OMH-026`, `OMH-027`, `OMH-031`, `OMH-042`, `OMH-049`, `OMH-181`, `OMH-223`.
+    Their declared example roots remain immutable regardless of app write patterns.
     `OMH-225` selects the operation-progress sources and `OMH-226` the AI tool-pack and
     agent sources, both separately from the DataTable injection seams `OMH-220` selects.
    `OMH-228` does not declare the example root; it follows four explicit source-reference IDs

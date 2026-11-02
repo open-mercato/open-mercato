@@ -1,0 +1,74 @@
+{
+  "baseline": "0395f6246d13fac742fdd72df59aa22f3d8bdd49",
+  "executions": [
+    {
+      "side": "before",
+      "exitCode": 1,
+      "durationMs": 1496,
+      "stdoutSha256": "11b079a5966fa9f20990d8e7ec29a8c72d07d0e571eb768d84c5361c3929824c"
+    },
+    {
+      "side": "head",
+      "exitCode": 0,
+      "durationMs": 1580,
+      "stdoutSha256": "70a822965a46701b45129c63da6104f206ad281bae36e4a8b18a1e6d811605fd"
+    }
+  ],
+  "scope": "Actual MCP server and supported runner configuration; no model or generated-target validation; broader gates pending",
+  "schemaVersion": 1,
+  "testFile": "packages/create-app/src/lib/canonical-read-prerequisites.test.ts",
+  "before": {
+    "tests": 18,
+    "pass": 2,
+    "fail": 16,
+    "classification": "assertion failures; no setup/import failures"
+  },
+  "candidate": {
+    "tests": 18,
+    "pass": 18,
+    "fail": 0
+  },
+  "limitations": [
+    "Counterfactual is frozen Round5 source0395, not the original PR base; controller-owned true-base knowledge validation is pending.",
+    "These bounded server/configuration unit checks ran during the timed model batch; no throughput-isolation claim.",
+    "Two named observer/integration regressions pass; the complete observer suite, true-base knowledge validation, repository/scaffold gates and fresh model evidence are pending."
+  ],
+  "observerNamed": {
+    "baseline": "0395f6246d13fac742fdd72df59aa22f3d8bdd49",
+    "executions": [
+      {
+        "side": "before",
+        "exitCode": 1,
+        "durationMs": 623,
+        "stdoutSha256": "2aeff374549187475a80370a424b0445547bd36cabb623a2871713a2cc6058dc"
+      },
+      {
+        "side": "head",
+        "exitCode": 0,
+        "durationMs": 619,
+        "stdoutSha256": "b2364c08f9c14320abab9ed455b90a9e2552bee5a035f36ea79d5df0cef44207"
+      }
+    ],
+    "pattern": "^claude: a real refused source followed by owner and successful retry preserves the unchanged source policy$",
+    "scope": "One bounded actual MCP response/observer unit regression; broader gates pending"
+  },
+  "integrationNamed": {
+    "baseline": "0395f6246d13fac742fdd72df59aa22f3d8bdd49",
+    "executions": [
+      {
+        "side": "before",
+        "exitCode": 1,
+        "durationMs": 400,
+        "stdoutSha256": "5babe076140cd7dd0fbb8e4a0b0ec96c434c0b91039f1ec4bd169d8ef83398e1"
+      },
+      {
+        "side": "head",
+        "exitCode": 0,
+        "durationMs": 415,
+        "stdoutSha256": "4bda87ce7f6b6a4c398ea46b58b3440e4a2c698bc28f704a30668bd0f8adfafb"
+      }
+    ],
+    "pattern": "^actual canonical precondition responses recover through the paired trace and unchanged read policy$",
+    "scope": "One bounded real MCP prerequisite\u2192paired observer\u2192unchanged policy regression, both trace adapters; broader gates pending"
+  }
+}

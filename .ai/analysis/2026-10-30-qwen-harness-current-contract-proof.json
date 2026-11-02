@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "baselineSource": "0395f6246d13fac742fdd72df59aa22f3d8bdd49",
+  "scope": "AST recognition and read-only context arithmetic only; actual SDK typechecking, full suites, app validation and fresh model runs pending.",
+  "namedBeforeAfter": [
+    {
+      "check": "modern-guard",
+      "side": "before",
+      "exitCode": 1,
+      "durationMs": 311,
+      "stdoutSha256": "7fa291ed36f5110924f76ca0b5d0e4926be4313391e0a101f211af11d2095746"
+    },
+    {
+      "check": "modern-guard",
+      "side": "head",
+      "exitCode": 0,
+      "durationMs": 309,
+      "stdoutSha256": "33908a61263f62c89fe65942e71752fb990601575f972d79464824823e473be7"
+    },
+    {
+      "check": "table-perspective",
+      "side": "before",
+      "exitCode": 1,
+      "durationMs": 298,
+      "stdoutSha256": "d7fed1698e067bb381181dbce9726805354dafde118c93b8dae8bcaea314d177"
+    },
+    {
+      "check": "table-perspective",
+      "side": "head",
+      "exitCode": 0,
+      "durationMs": 294,
+      "stdoutSha256": "d76a21807f56058eb6cf3b1e5ec49d5b372bfb81840ea54c0ef5e151bec90664"
+    }
+  ],
+  "candidateAstControls": {
+    "guardTests": 30,
+    "tableTests": 22,
+    "pass": 52,
+    "fail": 0,
+    "executions": [
+      {
+        "check": "guard-ast",
+        "exitCode": 0,
+        "durationMs": 341,
+        "stdoutSha256": "d49e894c30f46609f9212c687538ce52bb09672a2771c2264b1ee39de53f78bc"
+      },
+      {
+        "check": "table-ast",
+        "exitCode": 0,
+        "durationMs": 311,
+        "stdoutSha256": "1cb616c8ed32d5ad7349632ff72d0e8b6e9cc27c7f8321fc3f1a7d5a7cc7cd5f"
+      }
+    ]
+  },
+  "initialCandidateRecognizerFailure": {
+    "failed": 3,
+    "passed": 27,
+    "cause": "No-request-parameter checkout handlers triggered a recognizer TypeError; an existence check now returns failed recognition. Initial log retained locally."
+  },
+  "guidance": [
+    {
+      "path": "packages/create-app/agentic/guides/backend-ui.md",
+      "bytes": 8982,
+      "sha256": "81938a7abf17ce43350e1e7a859b55e852ba71cc20fd866691c5b48161d1ae6f"
+    },
+    {
+      "path": "packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+      "bytes": 7509,
+      "sha256": "04113459f46fc580c6c4f6ad52fe10523509b3c94812b6e40e122f8386254720"
+    }
+  ],
+  "guidanceArithmetic": {
+    "backendGuideDeltaBytes": -1,
+    "crudReferenceDeltaBytes": 46,
+    "newRequiredOrDeclaredDeficits": 0,
+    "newMaximumRootDeficits": 0,
+    "newCaps": 0,
+    "remainingBaselineCaseIds": [
+      "OMH-008",
+      "OMH-082",
+      "OMH-153",
+      "OMH-155"
+    ]
+  },
+  "preservedContracts": [
+    "Legacy low-level guard and atomic predicates unchanged",
+    "Actual typecheck remains mandatory",
+    "Historical model outputs and scores unchanged",
+    "Metadata resolution remains inside case module and existing64-file/512KiB bounds"
+  ],
+  "limitations": [
+    "Named guard test title mentions typed API, but this bounded subset executes AST checks only; compiler controls were not run.",
+    "Static context arithmetic is not fresh-scaffold or deterministic-catalog execution.",
+    "No current failed model result is converted to pass."
+  ]
+}

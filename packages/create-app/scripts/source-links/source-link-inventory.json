@@ -9,9 +9,9 @@
   },
   "derived": {
     "ownerCount": 32,
-    "recordCount": 150,
-    "sourceRequiredCount": 125,
-    "renderedLinkCount": 127,
+    "recordCount": 151,
+    "sourceRequiredCount": 126,
+    "renderedLinkCount": 128,
     "baselineSha": "f7c941570003f3abe920b1765995cbef98dcad0b"
   },
   "notCovered": [
@@ -2939,6 +2939,7 @@
         "OMH-023",
         "OMH-024",
         "OMH-026",
+        "OMH-027",
         "OMH-028",
         "OMH-036",
         "OMH-055",
@@ -3171,6 +3172,7 @@
       ],
       "integrationTestPaths": [],
       "affectedCaseIds": [
+        "OMH-009",
         "OMH-188"
       ],
       "replacesBaselineBlockIds": [],
@@ -3204,6 +3206,7 @@
       ],
       "integrationTestPaths": [],
       "affectedCaseIds": [
+        "OMH-009",
         "OMH-188"
       ],
       "replacesBaselineBlockIds": [],
@@ -3237,6 +3240,7 @@
       ],
       "integrationTestPaths": [],
       "affectedCaseIds": [
+        "OMH-009",
         "OMH-188"
       ],
       "replacesBaselineBlockIds": [],
@@ -3273,6 +3277,7 @@
         "src/modules/example/__integration__/todo-priority-validation.spec.ts"
       ],
       "affectedCaseIds": [
+        "OMH-009",
         "OMH-188",
         "OMH-219"
       ],
@@ -3316,6 +3321,7 @@
         "src/modules/example/commands/__tests__/todos.notes-encryption.test.ts"
       ],
       "affectedCaseIds": [
+        "OMH-009",
         "OMH-188",
         "OMH-219"
       ],
@@ -3380,6 +3386,7 @@
         "src/modules/example/__integration__/todo-priority-validation.spec.ts"
       ],
       "affectedCaseIds": [
+        "OMH-009",
         "OMH-188",
         "OMH-219"
       ],
@@ -3419,6 +3426,8 @@
         "OMH-009",
         "OMH-010",
         "OMH-024",
+        "OMH-042",
+        "OMH-060",
         "OMH-071",
         "OMH-072",
         "OMH-073",
@@ -3939,6 +3948,8 @@
       "capabilityIds": [],
       "integrationTestPaths": [],
       "affectedCaseIds": [
+        "OMH-011",
+        "OMH-012",
         "OMH-185",
         "OMH-188",
         "OMH-192",
@@ -3980,6 +3991,8 @@
         "src/modules/example/api/__tests__/tags.tenant-scope.test.ts"
       ],
       "affectedCaseIds": [
+        "OMH-011",
+        "OMH-012",
         "OMH-185",
         "OMH-188",
         "OMH-192",
@@ -4022,6 +4035,8 @@
         "src/modules/example/__integration__/TC-UMES-021.spec.ts"
       ],
       "affectedCaseIds": [
+        "OMH-011",
+        "OMH-012",
         "OMH-185",
         "OMH-188",
         "OMH-192",
@@ -4061,6 +4076,8 @@
       ],
       "integrationTestPaths": [],
       "affectedCaseIds": [
+        "OMH-011",
+        "OMH-012",
         "OMH-185",
         "OMH-188",
         "OMH-192",
@@ -4104,8 +4121,13 @@
       "capabilityIds": [
         "api.custom-route"
       ],
-      "integrationTestPaths": [],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-003-todo-bulk-progress.spec.ts",
+        "src/modules/example/api/__tests__/todos.bulk-complete.test.ts"
+      ],
       "affectedCaseIds": [
+        "OMH-011",
+        "OMH-012",
         "OMH-185",
         "OMH-188",
         "OMH-192",
@@ -4147,6 +4169,8 @@
         "src/modules/example/api/__tests__/tags.tenant-scope.test.ts"
       ],
       "affectedCaseIds": [
+        "OMH-011",
+        "OMH-012",
         "OMH-185",
         "OMH-188",
         "OMH-192",
@@ -4158,6 +4182,54 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../../src/modules/example/api/tags/route.ts",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "topicId": "om-module-scaffold/api-and-domain:api/todos/bulk-complete/route.ts",
+      "referenceId": "om-module-scaffold/api-and-domain:api/todos/bulk-complete/route.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/api/todos/bulk-complete/route.ts",
+      "targetAuthoringPath": "template/src/modules/example/api/todos/bulk-complete/route.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "api.custom-route",
+        "runtime.bulk-operation-progress"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-003-todo-bulk-progress.spec.ts",
+        "src/modules/example/api/__tests__/todos.bulk-complete.test.ts",
+        "src/modules/example/lib/__tests__/todoBulkComplete.loop.test.ts",
+        "src/modules/example/lib/__tests__/todoBulkComplete.test.ts",
+        "src/modules/example/widgets/__tests__/todo-bulk-complete.test.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-011",
+        "OMH-012",
+        "OMH-185",
+        "OMH-188",
+        "OMH-192",
+        "OMH-193",
+        "OMH-219",
+        "OMH-222",
+        "OMH-223"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/modules/example/api/todos/bulk-complete/route.ts",
       "renderedLinkCount": 1,
       "presets": [
         "classic",
@@ -4193,6 +4265,8 @@
         "src/modules/example/api/__tests__/todos.request-scope.test.ts"
       ],
       "affectedCaseIds": [
+        "OMH-011",
+        "OMH-012",
         "OMH-185",
         "OMH-188",
         "OMH-192",
@@ -4250,6 +4324,8 @@
         "src/modules/example/commands/__tests__/todos.update.test.ts"
       ],
       "affectedCaseIds": [
+        "OMH-011",
+        "OMH-012",
         "OMH-185",
         "OMH-188",
         "OMH-192",
@@ -4474,6 +4550,7 @@
         "src/modules/example/__tests__/acl-dependencies.test.ts"
       ],
       "affectedCaseIds": [
+        "OMH-042",
         "OMH-185",
         "OMH-193",
         "OMH-222"
@@ -4518,6 +4595,7 @@
         "src/modules/example/__integration__/todo-priority-validation.spec.ts"
       ],
       "affectedCaseIds": [
+        "OMH-042",
         "OMH-185",
         "OMH-193",
         "OMH-222"
@@ -4555,6 +4633,7 @@
         "src/modules/example/__integration__/TC-UMES-011.spec.ts"
       ],
       "affectedCaseIds": [
+        "OMH-042",
         "OMH-185",
         "OMH-193",
         "OMH-222"
@@ -4609,6 +4688,7 @@
         "src/modules/example/widgets/__tests__/visit-availability-widget.test.ts"
       ],
       "affectedCaseIds": [
+        "OMH-042",
         "OMH-185",
         "OMH-193",
         "OMH-222"
@@ -4653,6 +4733,7 @@
         "src/modules/example/__tests__/announce-todo-to-portal.test.ts"
       ],
       "affectedCaseIds": [
+        "OMH-042",
         "OMH-185",
         "OMH-193",
         "OMH-222"
@@ -4697,6 +4778,7 @@
         "src/modules/example/__tests__/extension-points.test.ts"
       ],
       "affectedCaseIds": [
+        "OMH-042",
         "OMH-185",
         "OMH-193",
         "OMH-222"
@@ -4734,6 +4816,7 @@
         "src/modules/example/__integration__/TC-APP-001-metadata.spec.ts"
       ],
       "affectedCaseIds": [
+        "OMH-042",
         "OMH-185",
         "OMH-193",
         "OMH-222"
@@ -4775,6 +4858,7 @@
       ],
       "integrationTestPaths": [],
       "affectedCaseIds": [
+        "OMH-042",
         "OMH-185",
         "OMH-193",
         "OMH-222"
@@ -4819,6 +4903,7 @@
         "src/modules/example/__tests__/notifications.client.test.tsx"
       ],
       "affectedCaseIds": [
+        "OMH-042",
         "OMH-185",
         "OMH-193",
         "OMH-222"
@@ -4856,6 +4941,7 @@
         "src/modules/example/__integration__/TC-UMES-008.spec.ts"
       ],
       "affectedCaseIds": [
+        "OMH-042",
         "OMH-185",
         "OMH-193",
         "OMH-222"
@@ -4894,6 +4980,7 @@
         "src/modules/example/__integration__/TC-UMES-008.spec.ts"
       ],
       "affectedCaseIds": [
+        "OMH-042",
         "OMH-185",
         "OMH-193",
         "OMH-222"
@@ -4927,6 +5014,7 @@
       "capabilityIds": [],
       "integrationTestPaths": [],
       "affectedCaseIds": [
+        "OMH-042",
         "OMH-185",
         "OMH-193",
         "OMH-222"
@@ -4973,6 +5061,7 @@
         "src/modules/example/__tests__/setup-seeding.test.ts"
       ],
       "affectedCaseIds": [
+        "OMH-042",
         "OMH-185",
         "OMH-193",
         "OMH-222"
@@ -5017,6 +5106,7 @@
         "src/modules/example/__tests__/translations.test.ts"
       ],
       "affectedCaseIds": [
+        "OMH-042",
         "OMH-185",
         "OMH-193",
         "OMH-222"
@@ -5066,7 +5156,9 @@
         "OMH-020",
         "OMH-021",
         "OMH-022",
+        "OMH-042",
         "OMH-055",
+        "OMH-057",
         "OMH-063",
         "OMH-068",
         "OMH-071",
@@ -5181,7 +5273,9 @@
         "OMH-020",
         "OMH-021",
         "OMH-022",
+        "OMH-042",
         "OMH-055",
+        "OMH-057",
         "OMH-063",
         "OMH-068",
         "OMH-071",
@@ -5285,6 +5379,9 @@
       ],
       "affectedCaseIds": [
         "OMH-025",
+        "OMH-026",
+        "OMH-027",
+        "OMH-031",
         "OMH-088",
         "OMH-177",
         "OMH-190",
@@ -5339,6 +5436,9 @@
       ],
       "affectedCaseIds": [
         "OMH-025",
+        "OMH-026",
+        "OMH-027",
+        "OMH-031",
         "OMH-088",
         "OMH-177",
         "OMH-190",
@@ -5379,6 +5479,9 @@
       ],
       "affectedCaseIds": [
         "OMH-025",
+        "OMH-026",
+        "OMH-027",
+        "OMH-031",
         "OMH-088",
         "OMH-177",
         "OMH-190",
@@ -5434,6 +5537,9 @@
       ],
       "affectedCaseIds": [
         "OMH-025",
+        "OMH-026",
+        "OMH-027",
+        "OMH-031",
         "OMH-088",
         "OMH-177",
         "OMH-190",
@@ -5478,6 +5584,9 @@
       ],
       "affectedCaseIds": [
         "OMH-025",
+        "OMH-026",
+        "OMH-027",
+        "OMH-031",
         "OMH-088",
         "OMH-177",
         "OMH-190",
@@ -5518,6 +5627,9 @@
       ],
       "affectedCaseIds": [
         "OMH-025",
+        "OMH-026",
+        "OMH-027",
+        "OMH-031",
         "OMH-088",
         "OMH-177",
         "OMH-190",
@@ -5557,6 +5669,9 @@
       ],
       "affectedCaseIds": [
         "OMH-025",
+        "OMH-026",
+        "OMH-027",
+        "OMH-031",
         "OMH-088",
         "OMH-177",
         "OMH-190",
@@ -5596,6 +5711,9 @@
       ],
       "affectedCaseIds": [
         "OMH-025",
+        "OMH-026",
+        "OMH-027",
+        "OMH-031",
         "OMH-088",
         "OMH-177",
         "OMH-190",
@@ -5639,6 +5757,9 @@
       ],
       "affectedCaseIds": [
         "OMH-025",
+        "OMH-026",
+        "OMH-027",
+        "OMH-031",
         "OMH-088",
         "OMH-177",
         "OMH-190",
@@ -5680,6 +5801,9 @@
       "integrationTestPaths": [],
       "affectedCaseIds": [
         "OMH-025",
+        "OMH-026",
+        "OMH-027",
+        "OMH-031",
         "OMH-088",
         "OMH-177",
         "OMH-190",
@@ -5719,6 +5843,9 @@
       ],
       "affectedCaseIds": [
         "OMH-025",
+        "OMH-026",
+        "OMH-027",
+        "OMH-031",
         "OMH-088",
         "OMH-177",
         "OMH-190",
@@ -5765,6 +5892,9 @@
       ],
       "affectedCaseIds": [
         "OMH-025",
+        "OMH-026",
+        "OMH-027",
+        "OMH-031",
         "OMH-088",
         "OMH-177",
         "OMH-190",
@@ -5816,6 +5946,9 @@
       ],
       "affectedCaseIds": [
         "OMH-025",
+        "OMH-026",
+        "OMH-027",
+        "OMH-031",
         "OMH-088",
         "OMH-177",
         "OMH-190",
@@ -5863,6 +5996,9 @@
       ],
       "affectedCaseIds": [
         "OMH-025",
+        "OMH-026",
+        "OMH-027",
+        "OMH-031",
         "OMH-088",
         "OMH-177",
         "OMH-190",
@@ -5906,6 +6042,9 @@
       ],
       "affectedCaseIds": [
         "OMH-025",
+        "OMH-026",
+        "OMH-027",
+        "OMH-031",
         "OMH-088",
         "OMH-177",
         "OMH-190",
@@ -5949,6 +6088,9 @@
       ],
       "affectedCaseIds": [
         "OMH-025",
+        "OMH-026",
+        "OMH-027",
+        "OMH-031",
         "OMH-088",
         "OMH-177",
         "OMH-190",
@@ -5994,6 +6136,9 @@
       ],
       "affectedCaseIds": [
         "OMH-025",
+        "OMH-026",
+        "OMH-027",
+        "OMH-031",
         "OMH-088",
         "OMH-177",
         "OMH-190",
@@ -6045,6 +6190,9 @@
       ],
       "affectedCaseIds": [
         "OMH-025",
+        "OMH-026",
+        "OMH-027",
+        "OMH-031",
         "OMH-088",
         "OMH-177",
         "OMH-190",
@@ -6090,6 +6238,9 @@
       ],
       "affectedCaseIds": [
         "OMH-025",
+        "OMH-026",
+        "OMH-027",
+        "OMH-031",
         "OMH-088",
         "OMH-177",
         "OMH-190",
@@ -6134,6 +6285,9 @@
       ],
       "affectedCaseIds": [
         "OMH-025",
+        "OMH-026",
+        "OMH-027",
+        "OMH-031",
         "OMH-088",
         "OMH-177",
         "OMH-190",
@@ -6178,6 +6332,9 @@
       ],
       "affectedCaseIds": [
         "OMH-025",
+        "OMH-026",
+        "OMH-027",
+        "OMH-031",
         "OMH-088",
         "OMH-177",
         "OMH-190",
@@ -6216,6 +6373,7 @@
         "src/modules/example/__integration__/TC-UMES-022-overrides.spec.ts"
       ],
       "affectedCaseIds": [
+        "OMH-029",
         "OMH-089"
       ],
       "replacesBaselineBlockIds": [
@@ -6903,6 +7061,7 @@
       "capabilityIds": [],
       "integrationTestPaths": [],
       "affectedCaseIds": [
+        "OMH-009",
         "OMH-188"
       ],
       "replacesBaselineBlockIds": [],
@@ -7282,6 +7441,7 @@
       "capabilityIds": [],
       "integrationTestPaths": [],
       "affectedCaseIds": [
+        "OMH-042",
         "OMH-185",
         "OMH-193",
         "OMH-222"

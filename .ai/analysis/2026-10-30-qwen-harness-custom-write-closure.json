@@ -1,0 +1,162 @@
+{
+  "schemaVersion": 1,
+  "baselineSource": "0395f6246d13fac742fdd72df59aa22f3d8bdd49",
+  "method": "Read-only current emitted-asset projection; unchanged frozen root/facts/external skills plus current authoritative source. Not a fresh scaffold or model trace.",
+  "authorityByteDeltas": [
+    {
+      "path": "src/modules/example/api/todos/bulk-complete/route.ts",
+      "beforeBytes": 5245,
+      "afterBytes": 5567,
+      "deltaBytes": 322,
+      "sha256": "738a7375d8ea841ebd43d695ee807f92d0c6f97f9fd13547d83f27b2fe362bd1"
+    },
+    {
+      "path": "src/modules/example/references/surface-map.md",
+      "beforeBytes": 47378,
+      "afterBytes": 47536,
+      "deltaBytes": 158,
+      "sha256": "6feeb5de841c0727bf8f6dab0f42b15b95d37144bac6bd293619c939aec3ed9e"
+    },
+    {
+      "path": "src/modules/example/references/surface-inventory.json",
+      "beforeBytes": 124790,
+      "afterBytes": 125184,
+      "deltaBytes": 394,
+      "sha256": "1a2b4dd0bc849e22bf787b1fec98a46d1bcfaeb00c04115cb453a53749c9450a"
+    },
+    {
+      "path": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "beforeBytes": 6415,
+      "afterBytes": 7044,
+      "deltaBytes": 629,
+      "sha256": "116e4bed16f83b5d3fe3cd87bc058a7950c964a69fdd4915704f5f48c3f7ce36"
+    }
+  ],
+  "capUpdates": [
+    {
+      "caseId": "OMH-009",
+      "maxFiles": 9,
+      "maxBytes": 209920
+    },
+    {
+      "caseId": "OMH-012",
+      "maxFiles": 6,
+      "maxBytes": 214016
+    },
+    {
+      "caseId": "OMH-027",
+      "maxFiles": 8,
+      "maxBytes": 189440
+    },
+    {
+      "caseId": "OMH-042",
+      "maxFiles": 8,
+      "maxBytes": 199680
+    }
+  ],
+  "measuredCanonicalUnions": {
+    "OMH-009": {
+      "files": 9,
+      "bytes": 209408,
+      "missing": [],
+      "paths": [
+        "src/modules/example/README.md",
+        "src/modules/example/data/entities.ts",
+        "src/modules/example/data/validators.ts",
+        "src/modules/example/migrations/.snapshot-open-mercato.json",
+        "src/modules/example/migrations/Migration20251030150038.ts",
+        "src/modules/example/migrations/Migration20260226161000_example.ts",
+        "src/modules/example/migrations/Migration20260804120546_example.ts",
+        "src/modules/example/references/surface-inventory.json",
+        "src/modules/example/references/surface-map.md"
+      ],
+      "outsideCanonicalReferences": []
+    },
+    "OMH-012": {
+      "files": 6,
+      "bytes": 213762,
+      "missing": [],
+      "paths": [
+        "src/modules/example/README.md",
+        "src/modules/example/api/organizations/route.ts",
+        "src/modules/example/api/todos/bulk-complete/route.ts",
+        "src/modules/example/commands/todos.ts",
+        "src/modules/example/references/surface-inventory.json",
+        "src/modules/example/references/surface-map.md"
+      ],
+      "outsideCanonicalReferences": []
+    },
+    "OMH-027": {
+      "files": 8,
+      "bytes": 188813,
+      "missing": [],
+      "paths": [
+        "src/modules/example/README.md",
+        "src/modules/example/references/surface-inventory.json",
+        "src/modules/example/references/surface-map.md",
+        "src/modules/example/widgets/injection-table.ts",
+        "src/modules/example/widgets/injection/customer-priority-bulk-actions/widget.ts",
+        "src/modules/example/widgets/injection/customer-priority-column/widget.ts",
+        "src/modules/example/widgets/injection/customer-priority-filter/widget.ts",
+        "src/modules/example/widgets/injection/customer-priority-row-action/widget.ts"
+      ],
+      "outsideCanonicalReferences": []
+    },
+    "OMH-042": {
+      "files": 8,
+      "bytes": 198817,
+      "missing": [],
+      "paths": [
+        "src/modules/example/README.md",
+        "src/modules/example/acl.ts",
+        "src/modules/example/di.ts",
+        "src/modules/example/lib/exampleSeeds.ts",
+        "src/modules/example/lib/todoSummaryService.ts",
+        "src/modules/example/references/surface-inventory.json",
+        "src/modules/example/references/surface-map.md",
+        "src/modules/example/setup.ts"
+      ],
+      "outsideCanonicalReferences": []
+    }
+  },
+  "ordinaryClosure": {
+    "OMH-012": {
+      "files": 5,
+      "bytes": 115993,
+      "bytesAtMaximumRoot": 116135,
+      "maxBytes": 118784,
+      "initialFiles": 3,
+      "initialBytes": 25744,
+      "initialMaxBytes": 40960
+    },
+    "allAffectedCasesFitExistingBounds": true
+  },
+  "preservedInitialAndOrdinaryCaps": true,
+  "preExistingOptionalDeficitsNotRelaxed": [
+    "OMH-181",
+    "OMH-203",
+    "OMH-219",
+    "OMH-220",
+    "OMH-221",
+    "OMH-222",
+    "OMH-223",
+    "OMH-225",
+    "OMH-226",
+    "OMH-238"
+  ],
+  "sourceLinkCounts": {
+    "records": 151,
+    "sourceRequired": 126,
+    "owners": 32,
+    "renderedLinks": 128,
+    "capabilities": 71
+  },
+  "validation": {
+    "nativeTemplateSync": "pass, three intended mirrors",
+    "nativeSourceLinkGeneration": "pass",
+    "realRouteJestRegression": "authored, execution pending",
+    "integrationTCEX003": "not run",
+    "freshScaffoldAndKnowledge": "pending",
+    "modelEvidence": "Frozen Round5 remains0395; candidate not used for inference"
+  }
+}

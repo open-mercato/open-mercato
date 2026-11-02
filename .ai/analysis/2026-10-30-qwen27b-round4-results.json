@@ -1,0 +1,274 @@
+{
+  "schemaVersion": 1,
+  "sourceRevision": "b478b301e4ee3af3e78380a6e4df0c398ee95617",
+  "runId": "06e4d9e8-e10f-4744-87f9-10da249c1eb1",
+  "startedAt": "2026-10-30T17:34:54.761Z",
+  "updatedAt": "2026-10-30T18:33:59.164Z",
+  "status": "stopped",
+  "cases": [
+    {
+      "caseId": "OMH-009",
+      "status": "fail",
+      "implementationOracle": "fail",
+      "attempts": 1,
+      "corrections": 0,
+      "durationMs": 521595,
+      "finishedAt": "2026-10-30T17:44:40.658Z",
+      "evaluatorSha256": "873fe99e05e76e841d556d3378f8af3d47740a6afffcfba7abbf9cd977197a4c",
+      "generatedSha256": "651062632843746484f79ecfea265dac8575c27e8e6c841be0798ec262343606",
+      "captureSha256": [
+        "4f830cee44fd61f431a16b45514fa92b443a18cfd1365f8b5243b28739a0dd3b"
+      ],
+      "shortCause": "Generated Jest test globals missing; extra UMES ambiguity and undisclosed example-read boundary also affect full-case failure.",
+      "deliveryCounts": {
+        "successfulReads": 19,
+        "attestedReads": 19,
+        "missingMetadata": 0,
+        "immutableCompared": 12,
+        "immutableMatches": 12,
+        "immutableMismatches": 0
+      }
+    },
+    {
+      "caseId": "OMH-011",
+      "status": "fail",
+      "implementationOracle": "pass",
+      "attempts": 1,
+      "corrections": 0,
+      "durationMs": 258432,
+      "finishedAt": "2026-10-30T17:50:01.534Z",
+      "evaluatorSha256": "faa1b57a990952dd53da75930ffcbdf05b930a895002d6858a55380bcf748698",
+      "generatedSha256": "8b8c9edde98c5d9bff7b0c75cb48df9fe924a19686d4c5a70ea843b168c880b0",
+      "captureSha256": [
+        "12c4e06b44454985b6b3632d86900df978fbb3be16e4dc077e5e9d56804a9186"
+      ],
+      "shortCause": "Implementation oracle passed; undeclared example read caused full failure across an undisclosed per-case boundary.",
+      "deliveryCounts": {
+        "successfulReads": 14,
+        "attestedReads": 14,
+        "missingMetadata": 0,
+        "immutableCompared": 9,
+        "immutableMatches": 9,
+        "immutableMismatches": 0
+      }
+    },
+    {
+      "caseId": "OMH-012",
+      "status": "fail",
+      "implementationOracle": "fail",
+      "attempts": 1,
+      "corrections": 0,
+      "durationMs": 600013,
+      "finishedAt": "2026-10-30T18:01:00.041Z",
+      "evaluatorSha256": "ab9dd25cc938605c1d4e342720c1a0d969fbbdcbc50614340a9409087caf555b",
+      "generatedSha256": "7766ecc1d3104820360c51296d9f9d2318551413098255eb1a47dfe57d63753b",
+      "captureSha256": [
+        "8659371a7f947ad3df301ee3ef60dceb0041d2ca99da51cf9661b3d6b4691365"
+      ],
+      "shortCause": "Timed out; mutation-guard/atomic calls absent and entity typecheck fails; example boundary was undisclosed.",
+      "deliveryCounts": {
+        "successfulReads": 11,
+        "attestedReads": 11,
+        "missingMetadata": 0,
+        "immutableCompared": 10,
+        "immutableMatches": 10,
+        "immutableMismatches": 0
+      }
+    },
+    {
+      "caseId": "OMH-014",
+      "status": "fail",
+      "implementationOracle": "fail",
+      "attempts": 1,
+      "corrections": 0,
+      "durationMs": 600019,
+      "finishedAt": "2026-10-30T18:11:54.541Z",
+      "evaluatorSha256": "6e8747bf6f5f2f77497be2c28612502782ef13099e3edb9e53bdd6179314c26d",
+      "generatedSha256": "10f65dae24b73929214f02222b05074179b723c0f90eeb7f3fbd9a9b3da3b442",
+      "captureSha256": [
+        "05228182da863301aa3fc540c2c26144b3a7bd93ae6819546e0d894782a24732"
+      ],
+      "shortCause": "Timed out; generated CRUD PATCH metadata/handler fails typecheck, with unsafe and undeclared reads also rejected.",
+      "deliveryCounts": {
+        "successfulReads": 22,
+        "attestedReads": 22,
+        "missingMetadata": 0,
+        "immutableCompared": 21,
+        "immutableMatches": 21,
+        "immutableMismatches": 0
+      }
+    },
+    {
+      "caseId": "OMH-026",
+      "status": "fail",
+      "implementationOracle": "fail",
+      "attempts": 1,
+      "corrections": 0,
+      "durationMs": 468734,
+      "finishedAt": "2026-10-30T18:20:47.560Z",
+      "evaluatorSha256": "54ea42f7e5229adb3071ac1c33c6604cf50f46fc6f55c61f037474897cf5942a",
+      "generatedSha256": "ac914cf1b8888e146d39879068ea4a0ca3770c12adc6becb27d6179244e241cc",
+      "captureSha256": [
+        "b199f71b29465f693cdf52dd82ec7ee059669a26fb58ed16101ee72d987af9e5"
+      ],
+      "shortCause": "Missing interceptor/write roundtrip and unsupported widget clearable property; required sources read before their owner.",
+      "deliveryCounts": {
+        "successfulReads": 31,
+        "attestedReads": 31,
+        "missingMetadata": 0,
+        "immutableCompared": 17,
+        "immutableMatches": 17,
+        "immutableMismatches": 0
+      }
+    },
+    {
+      "caseId": "OMH-027",
+      "status": "fail",
+      "implementationOracle": "fail",
+      "attempts": 1,
+      "corrections": 0,
+      "durationMs": 600022,
+      "finishedAt": "2026-10-30T18:31:54.125Z",
+      "evaluatorSha256": "de273f0a4600ebc17952822d1a96debe558791408aa8704119a415f0dba67680",
+      "generatedSha256": "0edb0e5b24c2ca7b4c9a978ae32201991432200e4710652bf611d0b5e5328c34",
+      "captureSha256": [
+        "1f89f9e5723d1c58d61286adc090f6cdd66a06b539be0060cc68d50d11df351f"
+      ],
+      "shortCause": "Timed out after required reference reads; no implementation artifact or final routing response retained.",
+      "deliveryCounts": {
+        "successfulReads": 22,
+        "attestedReads": 22,
+        "missingMetadata": 0,
+        "immutableCompared": 17,
+        "immutableMatches": 17,
+        "immutableMismatches": 0
+      }
+    },
+    {
+      "caseId": "OMH-029",
+      "status": "pending",
+      "implementationOracle": "pending",
+      "attempts": null,
+      "corrections": null,
+      "durationMs": null,
+      "finishedAt": null,
+      "evaluatorSha256": null,
+      "generatedSha256": null,
+      "captureSha256": [],
+      "shortCause": null,
+      "deliveryCounts": null
+    },
+    {
+      "caseId": "OMH-031",
+      "status": "pending",
+      "implementationOracle": "pending",
+      "attempts": null,
+      "corrections": null,
+      "durationMs": null,
+      "finishedAt": null,
+      "evaluatorSha256": null,
+      "generatedSha256": null,
+      "captureSha256": [],
+      "shortCause": null,
+      "deliveryCounts": null
+    },
+    {
+      "caseId": "OMH-042",
+      "status": "pending",
+      "implementationOracle": "pending",
+      "attempts": null,
+      "corrections": null,
+      "durationMs": null,
+      "finishedAt": null,
+      "evaluatorSha256": null,
+      "generatedSha256": null,
+      "captureSha256": [],
+      "shortCause": null,
+      "deliveryCounts": null
+    },
+    {
+      "caseId": "OMH-045",
+      "status": "pending",
+      "implementationOracle": "pending",
+      "attempts": null,
+      "corrections": null,
+      "durationMs": null,
+      "finishedAt": null,
+      "evaluatorSha256": null,
+      "generatedSha256": null,
+      "captureSha256": [],
+      "shortCause": null,
+      "deliveryCounts": null
+    },
+    {
+      "caseId": "OMH-049",
+      "status": "pending",
+      "implementationOracle": "pending",
+      "attempts": null,
+      "corrections": null,
+      "durationMs": null,
+      "finishedAt": null,
+      "evaluatorSha256": null,
+      "generatedSha256": null,
+      "captureSha256": [],
+      "shortCause": null,
+      "deliveryCounts": null
+    },
+    {
+      "caseId": "OMH-054",
+      "status": "pending",
+      "implementationOracle": "pending",
+      "attempts": null,
+      "corrections": null,
+      "durationMs": null,
+      "finishedAt": null,
+      "evaluatorSha256": null,
+      "generatedSha256": null,
+      "captureSha256": [],
+      "shortCause": null,
+      "deliveryCounts": null
+    },
+    {
+      "caseId": "OMH-057",
+      "status": "pending",
+      "implementationOracle": "pending",
+      "attempts": null,
+      "corrections": null,
+      "durationMs": null,
+      "finishedAt": null,
+      "evaluatorSha256": null,
+      "generatedSha256": null,
+      "captureSha256": [],
+      "shortCause": null,
+      "deliveryCounts": null
+    },
+    {
+      "caseId": "OMH-060",
+      "status": "pending",
+      "implementationOracle": "pending",
+      "attempts": null,
+      "corrections": null,
+      "durationMs": null,
+      "finishedAt": null,
+      "evaluatorSha256": null,
+      "generatedSha256": null,
+      "captureSha256": [],
+      "shortCause": null,
+      "deliveryCounts": null
+    }
+  ],
+  "deliveryTotals": {
+    "successfulReads": 119,
+    "attestedReads": 119,
+    "missingMetadata": 0,
+    "immutableCompared": 86,
+    "immutableMatches": 86,
+    "immutableMismatches": 0
+  },
+  "finishedAt": "2026-10-30T18:31:54.127Z",
+  "completedCases": 6,
+  "notRunCases": 8,
+  "operatorInterruptedCases": 0,
+  "stopReason": "Graceful boundary stop after OMH-027 following reproduction of undisclosed canonical permissions; fresh fixed cohort retains all fourteen cases.",
+  "originalEvidenceUnchanged": true
+}

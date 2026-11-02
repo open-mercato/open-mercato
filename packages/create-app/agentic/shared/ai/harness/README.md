@@ -1,5 +1,9 @@
 # Agent harness evaluations
 
+Example-root declaring cases (19): `OMH-009`, `OMH-011`, `OMH-012`, `OMH-014`, `OMH-026`, `OMH-027`, `OMH-031`, `OMH-042`, `OMH-049`, `OMH-181`, `OMH-203`, `OMH-219`, `OMH-220`, `OMH-221`, `OMH-222`, `OMH-223`, `OMH-225`, `OMH-226`, `OMH-238`.
+
+Writable example-root declarers (11): `OMH-009`, `OMH-011`, `OMH-012`, `OMH-014`, `OMH-026`, `OMH-027`, `OMH-031`, `OMH-042`, `OMH-049`, `OMH-181`, `OMH-223`.
+
 `cases.json` is the 240-case standalone-app contract. Run `yarn harness:validate --all` for the deterministic gate. Live routing uses a fresh read-only process per case:
 
 `OMH-238` routes Customers calendar add/remove/patch requests to `.ai/guides/customers-calendar.md`, exact installed Customers definitions, and the bounded canonical `umes.customers.calendar-event-types` example. It preserves historical records, generic shared components, and warnings when optional staff/resources integrations are unavailable.
@@ -46,6 +50,14 @@ yarn harness:validate --runner codex --judge-writable-result /absolute/controlle
 ```
 
 The source must be a passing one-shot implementation result from the current harness and its final whole-target fingerprint must still match. The controller copies changed regular text files as line-numbered inert snapshots, the local judge skill, its pinned installed `om-code-review` skill, and bounded trusted evidence into a temporary read-only bundle. Target package scripts, dependencies, Git data, tracker state, original source files, and the target's absolute path are not copied or supplied to the judge; trace-verified out-of-bundle, environment, or process inspection and any bundle or target mutation fail closed. A separate sanitized artifact records source-result, target, policy, and skill hashes plus fixed evidence, artifact findings, design-system assessment, the smallest harness-owner findings, strict verdicts, and both reports. The legacy `--review-writable-result` and `--review-validation-result` flags remain read-only compatibility aliases. This supplemental judge uses prior controller evidence and does not claim validation or CI that did not run.
+
+## Optional Pi complete-read delivery
+
+Scaffolds include `scripts/pi-harness-extension.mjs` for experimental Pi integrations. Append `--extension ./scripts/pi-harness-extension.mjs` to the existing Pi CLI invocation. This is an optional client-side adapter; it does not add an evaluator runner or change provider settings, permissions, schemas, or grading.
+
+Pi 1.4.0 truncates direct MCP text results above 20 KiB and points to a temporary file. A harness-only agent cannot use that filesystem recovery path. The extension uses Pi's supported `tool_result` hook to restore the original approved `mcp__harness__read` text from the structured MCP result in memory. It accepts exactly one plain text block within 256 KiB of UTF-8, matching the canonical server's read limit. Unrelated tools and blocked/error reads remain unchanged. A successful exact harness read with missing, malformed, mixed, or oversized original content becomes an explicit delivery error; clipped text is never presented as restored delivery.
+
+Each restored result preserves existing details and adds `details.harnessReadDelivery = { bytes, sha256 }`. Experimental transports can retain this content-free post-hook attestation to compare with canonical read evidence. Pin the Pi version and extension hash and verify the native converter-to-provider path before model execution. This attests the tool text delivered by the adapter, without claiming the model's attention or implementation quality.
 
 ## Live-run security boundary
 

@@ -74,7 +74,7 @@ const WRITABLE_CASES = Object.freeze({
     artifacts: ['src/modules/app_customizations/widgets/**'],
   },
   'OMH-029': {
-    sources: ['src/modules/app_customizations'],
+    sources: ['src/modules/app_customizations', 'src/modules.ts'],
     artifacts: ['src/modules/app_customizations/**'],
   },
   'OMH-031': {
@@ -1073,6 +1073,130 @@ function hasCall(facts, ...names) {
   return names.some((name) => (facts.calls.get(name) ?? 0) > 0)
 }
 
+function lexicalBindingNames(ts, statements, parameters = []) {
+  const names = new Set()
+  const add = (name) => {
+    if (ts.isIdentifier(name)) names.add(name.text)
+    else if (ts.isObjectBindingPattern(name) || ts.isArrayBindingPattern(name)) {
+      for (const element of name.elements) if (ts.isBindingElement(element)) add(element.name)
+    }
+  }
+  for (const parameter of parameters) add(parameter.name)
+  for (const statement of statements) {
+    if (ts.isVariableStatement(statement)) for (const declaration of statement.declarationList.declarations) add(declaration.name)
+    else if ((ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement) || ts.isEnumDeclaration(statement)) && statement.name) add(statement.name)
+  }
+  return names
+}
+
+function checkoutRouteUsesRegistryWrapper(ts, root) {
+  const file = path.join(root, 'src/modules/library/api/books/checkout/route.ts')
+  if (!safeTargetEntry(root, file)?.isFile()) return false
+  const facts = collectFacts(ts, [file])
+  const handler = facts.exportedFunctionNodes.get('POST')
+  if (!handler?.body || !ts.isBlock(handler.body) || !handler.parameters[0] || !ts.isIdentifier(handler.parameters[0].name)) return false
+  const request = handler.parameters[0].name.text
+  const imports = new Map()
+  for (const statement of handler.getSourceFile().statements) {
+    if (!ts.isImportDeclaration(statement) || statement.importClause?.isTypeOnly) continue
+    const bindings = statement.importClause?.namedBindings
+    if (!bindings || !ts.isNamedImports(bindings)) continue
+    for (const binding of bindings.elements) {
+      if (!binding.isTypeOnly) imports.set(binding.name.text, { name: binding.propertyName?.text ?? binding.name.text, source: statement.moduleSpecifier.text })
+    }
+  }
+  const statements = [...handler.body.statements]
+  const localBindings = lexicalBindingNames(ts, [...handler.getSourceFile().statements, ...statements], handler.parameters)
+  const variables = new Map()
+  for (const statement of statements) {
+    if (!ts.isVariableStatement(statement) || !(statement.declarationList.flags & ts.NodeFlags.Const)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name) && declaration.initializer) {
+        if (variables.has(declaration.name.text)) return false
+        variables.set(declaration.name.text, declaration.initializer)
+      }
+    }
+  }
+  const local = { variableExpressions: variables }
+  const importedCall = (node, name, source) => {
+    if (!node || !ts.isCallExpression(node) || !ts.isIdentifier(node.expression)) return false
+    const binding = imports.get(node.expression.text)
+    return binding?.name === name && binding.source === source && !localBindings.has(node.expression.text)
+  }
+  const awaitedCall = (node) => {
+    const value = unwrapExpression(ts, node)
+    return value && ts.isAwaitExpression(value) ? unwrapExpression(ts, value.expression) : undefined
+  }
+  const authNames = new Set([...variables].filter(([, value]) => {
+    const call = awaitedCall(value)
+    return importedCall(call, 'getAuthFromRequest', '@open-mercato/shared/lib/auth/server')
+      && call.arguments.length === 1 && ts.isIdentifier(call.arguments[0]) && call.arguments[0].text === request
+  }).map(([name]) => name))
+  const trustedAuthField = (node, field, seen = new Set()) => {
+    const value = resolveExpression(ts, local, node)
+    if (!value || seen.has(value)) return undefined
+    const nextSeen = new Set([...seen, value])
+    if (ts.isCallExpression(value) && ts.isIdentifier(value.expression) && value.expression.text === 'String' && value.arguments.length === 1
+      && !imports.has('String') && !facts.variableExpressions.has('String') && !facts.functionNodes.has('String')
+      && !localBindings.has('String')) {
+      return trustedAuthField(value.arguments[0], field, nextSeen)
+    }
+    if (!ts.isPropertyAccessExpression(value)) return undefined
+    if (ts.isIdentifier(value.expression) && authNames.has(value.expression.text) && value.name.text === field) return value.expression.text
+    const owner = resolveExpression(ts, local, value.expression)
+    return owner && ts.isObjectLiteralExpression(owner)
+      ? trustedAuthField(propertyExpression(ts, local, owner, value.name.text), field, nextSeen)
+      : undefined
+  }
+  const staticObject = (node) => node && ts.isObjectLiteralExpression(node)
+    && node.properties.every((property) => (ts.isPropertyAssignment(property) || ts.isShorthandPropertyAssignment(property)) && !ts.isComputedPropertyName(property.name))
+    && new Set(node.properties.map((property) => propertyName(ts, property.name))).size === node.properties.length
+  for (const [index, statement] of statements.entries()) {
+    if (!ts.isVariableStatement(statement) || !(statement.declarationList.flags & ts.NodeFlags.Const)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name)) continue
+      const call = awaitedCall(declaration.initializer)
+      if (!importedCall(call, 'runRouteMutationGuards', '@open-mercato/shared/lib/crud/route-mutation-guard') || call.arguments.length !== 1) continue
+      const options = resolveExpression(ts, local, call.arguments[0])
+      const req = propertyExpression(ts, local, options, 'req')
+      const container = awaitedCall(propertyExpression(ts, local, options, 'container'))
+      const auth = propertyExpression(ts, local, options, 'auth')
+      const input = propertyExpression(ts, local, options, 'input')
+      const user = trustedAuthField(propertyExpression(ts, local, auth, 'userId'), 'sub')
+      if (!staticObject(options) || !staticObject(auth) || !staticObject(input)
+        || !user || user !== trustedAuthField(propertyExpression(ts, local, auth, 'tenantId'), 'tenantId')
+        || user !== trustedAuthField(propertyExpression(ts, local, auth, 'organizationId'), 'orgId')
+        || !req || !ts.isIdentifier(req) || req.text !== request
+        || !importedCall(container, 'createRequestContainer', '@open-mercato/shared/lib/di/container')
+        || container.arguments.length !== 0
+        || !/^library[.:]/.test(objectPropertyString(ts, local, input, 'resourceKind') ?? '')
+        || !['custom', 'update'].includes(objectPropertyString(ts, local, input, 'operation'))) continue
+      const guardName = declaration.name.text
+      const blocked = statements[index + 1]
+      if (!blocked || !ts.isIfStatement(blocked)) continue
+      const condition = unwrapExpression(ts, blocked.expression)
+      const checked = condition && ts.isPrefixUnaryExpression(condition) && condition.operator === ts.SyntaxKind.ExclamationToken
+        ? unwrapExpression(ts, condition.operand) : undefined
+      let rejection = blocked.thenStatement
+      if (ts.isBlock(rejection) && rejection.statements.length === 1) rejection = rejection.statements[0]
+      const response = ts.isReturnStatement(rejection) ? unwrapExpression(ts, rejection.expression) : undefined
+      if (!checked || !ts.isPropertyAccessExpression(checked) || checked.name.text !== 'ok'
+        || !ts.isIdentifier(checked.expression) || checked.expression.text !== guardName
+        || !response || !ts.isPropertyAccessExpression(response) || response.name.text !== 'response'
+        || !ts.isIdentifier(response.expression) || response.expression.text !== guardName) continue
+      const priorStatements = statements.slice(0, index)
+      if (priorStatements.some((node) => ts.isReturnStatement(node) || ts.isThrowStatement(node))) continue
+      const priorFacts = priorStatements.map((node) => collectFunctionFact(ts, node, { skipNestedFunctions: true }))
+      if (priorFacts.some((fact) => fact.binaryOperators.has(ts.SyntaxKind.EqualsToken))) continue
+      const prior = priorFacts.flatMap((fact) => [...fact.calls])
+      if (prior.some((name) => ['execute', 'flush', 'persist', 'remove', 'nativeUpdate', 'nativeDelete', 'withAtomicFlush', 'runCrudCommandWrite', 'emitCrudSideEffects'].includes(name))) continue
+      const subsequent = statements.slice(index + 2).flatMap((node) => [...collectFunctionFact(ts, node, { skipNestedFunctions: true }).calls])
+      if (subsequent.includes(`${guardName}.runAfterSuccess`)) return true
+    }
+  }
+  return false
+}
+
 function hasOnlyEnabledTests(facts) {
   return facts.forbiddenTestModifiers.size === 0
 }
@@ -1584,6 +1708,432 @@ function duplicateRouteChecks(ts, root) {
   })
 }
 
+function registeredObjects(ts, facts, name) {
+  return facts.exportedVariables.has(name)
+    ? arrayElements(ts, facts, facts.variableExpressions.get(name)).filter((entry) => ts.isObjectLiteralExpression(entry))
+    : []
+}
+
+function defaultExportExpression(ts, facts, file) {
+  const source = ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true)
+  const assignment = source.statements.find((statement) => ts.isExportAssignment(statement) && !statement.isExportEquals)
+  return assignment ? resolveExpression(ts, facts, assignment.expression) : undefined
+}
+
+function inertUiContext(ts, source, render) {
+  const variables = new Map()
+  const renderStatements = render?.body && ts.isBlock(render.body) ? [...render.body.statements] : []
+  const statements = [...source.statements, ...renderStatements]
+  for (const scope of [source.statements, renderStatements]) {
+    for (const name of lexicalBindingNames(ts, scope)) variables.delete(name)
+    for (const statement of scope) {
+      if (!ts.isVariableStatement(statement) || !(statement.declarationList.flags & ts.NodeFlags.Const)) continue
+      for (const declaration of statement.declarationList.declarations) {
+        if (ts.isIdentifier(declaration.name) && declaration.initializer) variables.set(declaration.name.text, declaration.initializer)
+      }
+    }
+  }
+  const imports = new Map()
+  for (const statement of source.statements) {
+    if (!ts.isImportDeclaration(statement) || statement.importClause?.isTypeOnly) continue
+    const clause = statement.importClause
+    if (clause?.name) imports.set(clause.name.text, { imported: 'default', source: statement.moduleSpecifier.text })
+    if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings)) {
+      for (const binding of clause.namedBindings.elements) {
+        if (!binding.isTypeOnly) imports.set(binding.name.text, { imported: binding.propertyName?.text ?? binding.name.text, source: statement.moduleSpecifier.text })
+      }
+    }
+  }
+  const parameters = lexicalBindingNames(ts, [], render?.parameters ?? [])
+  const localBindings = lexicalBindingNames(ts, statements, render?.parameters ?? [])
+  return { source, variables, imports, parameters, localBindings }
+}
+
+function inertUiValue(ts, node, context, load, seen = new Set()) {
+  const expression = unwrapExpression(ts, node)
+  if (!expression || seen.has(expression) || seen.size > 256) return undefined
+  const nextSeen = new Set([...seen, expression])
+  if (ts.isStringLiteralLike(expression)) return expression.text
+  if (ts.isIdentifier(expression)) {
+    if (context.parameters.has(expression.text)) return undefined
+    const local = context.variables.get(expression.text)
+    if (local) return inertUiValue(ts, local, context, load, nextSeen)
+    if (context.localBindings.has(expression.text)) return undefined
+    const binding = context.imports.get(expression.text)
+    if (!binding?.source.startsWith('.')) return undefined
+    const imported = load(context.source.fileName, binding.source)
+    if (!imported) return undefined
+    if (binding.imported === 'default') {
+      const assignment = imported.source.statements.find((statement) => ts.isExportAssignment(statement) && !statement.isExportEquals)
+      return assignment ? inertUiValue(ts, assignment.expression, imported, load, nextSeen) : undefined
+    }
+    const declaration = imported.source.statements.find((statement) => ts.isVariableStatement(statement)
+      && statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)
+      && statement.declarationList.declarations.some((entry) => ts.isIdentifier(entry.name) && entry.name.text === binding.imported))
+    return declaration ? inertUiValue(ts, imported.variables.get(binding.imported), imported, load, nextSeen) : undefined
+  }
+  if (ts.isPropertyAccessExpression(expression)) {
+    const owner = inertUiValue(ts, expression.expression, context, load, nextSeen)
+    return owner instanceof Map ? owner.get(expression.name.text) : undefined
+  }
+  if (ts.isCallExpression(expression) && ts.isIdentifier(expression.expression) && expression.arguments.length === 1) {
+    const name = expression.expression.text
+    const binding = context.imports.get(name)
+    return binding?.source === '@open-mercato/shared/modules/widgets/extension-points'
+      && ['defineModuleExtensionPoints', 'dataTableExtensionHost'].includes(binding.imported)
+      && !context.localBindings.has(name)
+      ? inertUiValue(ts, expression.arguments[0], context, load, nextSeen) : undefined
+  }
+  if (!ts.isObjectLiteralExpression(expression)) return undefined
+  const result = new Map()
+  for (const property of expression.properties) {
+    if (!(ts.isPropertyAssignment(property) || ts.isShorthandPropertyAssignment(property)) || ts.isComputedPropertyName(property.name)) return undefined
+    const name = propertyName(ts, property.name)
+    if (!name || result.has(name)) return undefined
+    result.set(name, inertUiValue(ts, ts.isPropertyAssignment(property) ? property.initializer : property.name, context, load, nextSeen))
+  }
+  return result
+}
+
+function renderedUiContract(ts, root, backendFiles) {
+  const moduleRoot = path.join(root, 'src/modules/library')
+  const pending = backendFiles.filter((file) => file.endsWith('/page.tsx')).map((file) => ({ file, name: 'default' }))
+  const visited = new Set()
+  const result = { jsxTags: new Set(), jsxAttributes: new Set(), calls: new Set(), tablePerspectiveId: false, failure: null }
+  let bytes = 0
+  const valueSources = new Map()
+  const loadValueSource = (from, specifier) => {
+    const base = path.resolve(path.dirname(from), specifier)
+    const relative = path.relative(moduleRoot, base)
+    if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+      result.failure = 'rendered table metadata import escapes the case module'
+      return undefined
+    }
+    const file = ['', '.ts', '.tsx', '/index.ts', '/index.tsx'].map((suffix) => base + suffix)
+      .find((candidate) => isTypeScriptSource(candidate) && safeTargetEntry(root, candidate)?.isFile())
+    if (!file) return undefined
+    if (!valueSources.has(file)) {
+      const stat = safeTargetEntry(root, file)
+      bytes += stat.size
+      if (visited.size + valueSources.size + 1 > 64 || bytes > 512 * 1024) {
+        result.failure = 'rendered component source budget exceeded'
+        return undefined
+      }
+      valueSources.set(file, inertUiContext(ts, ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true), undefined))
+    }
+    return valueSources.get(file)
+  }
+  while (pending.length) {
+    const { file, name } = pending.pop()
+    const key = `${file}:${name}`
+    if (visited.has(key)) continue
+    visited.add(key)
+    const relative = path.relative(moduleRoot, file)
+    if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return { ...result, failure: 'rendered component escapes the case module' }
+    const stat = safeTargetEntry(root, file)
+    if (!stat?.isFile()) return { ...result, failure: 'rendered component source is missing' }
+    bytes += stat.size
+    if (visited.size + valueSources.size > 64 || bytes > 512 * 1024) return { ...result, failure: 'rendered component source budget exceeded' }
+    const source = ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+    const local = collectFacts(ts, [file])
+    let render = name === 'default'
+      ? source.statements.find((statement) => ts.isFunctionDeclaration(statement) && statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword))
+      : local.exportedFunctionNodes.get(name)
+    if (!render && name === 'default') {
+      const exported = defaultExportExpression(ts, local, file)
+      render = exported && ts.isIdentifier(exported) ? local.functionNodes.get(exported.text) : exported
+    }
+    if (!render || !ts.isFunctionLike(render)) return { ...result, failure: 'rendered import does not resolve to an exported component' }
+    const inert = inertUiContext(ts, source, render)
+    const reached = functionContractFacts(ts, local, render, { skipNestedFunctions: true })
+    const callbackImports = new Set()
+    const reactImports = new Set()
+    for (const statement of source.statements.filter((statement) => ts.isImportDeclaration(statement) && statement.moduleSpecifier.text === 'react')) {
+      const clause = statement.importClause
+      if (clause?.isTypeOnly) continue
+      if (clause?.name) reactImports.add(clause.name.text)
+      if (clause?.namedBindings && ts.isNamespaceImport(clause.namedBindings)) reactImports.add(clause.namedBindings.name.text)
+      if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings)) {
+        for (const binding of clause.namedBindings.elements) {
+          if (!binding.isTypeOnly && (binding.propertyName?.text ?? binding.name.text) === 'useCallback') callbackImports.add(binding.name.text)
+        }
+      }
+    }
+    const parameterBindings = new Set()
+    const collectParameterBindings = (node) => {
+      if (ts.isIdentifier(node)) parameterBindings.add(node.text)
+      ts.forEachChild(node, collectParameterBindings)
+    }
+    for (const parameter of render.parameters) collectParameterBindings(parameter.name)
+    const isUnshadowedImport = (name) => !parameterBindings.has(name) && !local.variableExpressions.has(name) && !local.functionNodes.has(name)
+    const visitBindings = (node) => {
+      if (node !== render && ts.isFunctionLike(node)) return
+      if ((ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) && ts.isIdentifier(node.tagName)) {
+        const name = node.tagName.text
+        const binding = inert.imports.get(name)
+        const perspectives = node.attributes.properties.filter((attribute) => ts.isJsxAttribute(attribute) && attribute.name.text === 'perspective')
+        if (binding?.imported === 'DataTable' && binding.source === '@open-mercato/ui/backend/DataTable' && isUnshadowedImport(name)
+          && perspectives.length === 1 && !node.attributes.properties.some((attribute) => ts.isJsxSpreadAttribute(attribute))) {
+          const initializer = perspectives[0].initializer
+          const perspective = initializer && ts.isJsxExpression(initializer) ? inertUiValue(ts, initializer.expression, inert, loadValueSource) : undefined
+          const tableId = perspective instanceof Map ? perspective.get('tableId') : undefined
+          if (typeof tableId === 'string' && tableId.trim()) result.tablePerspectiveId = true
+        }
+      }
+      if (ts.isJsxAttribute(node) && node.initializer && ts.isJsxExpression(node.initializer)) {
+        const expression = node.initializer.expression
+        let handler = expression && ts.isIdentifier(expression) ? local.functionNodes.get(expression.text) : expression
+        if (!handler && expression && ts.isIdentifier(expression)) {
+          const initializer = local.variableExpressions.get(expression.text)
+          if (initializer && ts.isCallExpression(initializer)) {
+            const factory = initializer.expression
+            const isReactCallback = ts.isIdentifier(factory)
+              ? callbackImports.has(factory.text) && isUnshadowedImport(factory.text)
+              : ts.isPropertyAccessExpression(factory) && factory.name.text === 'useCallback' && ts.isIdentifier(factory.expression)
+                && reactImports.has(factory.expression.text) && isUnshadowedImport(factory.expression.text)
+            if (isReactCallback) handler = unwrapExpression(ts, initializer.arguments[0])
+          }
+        }
+        if (handler && ts.isFunctionLike(handler)) reached.push(...functionContractFacts(ts, local, handler))
+      }
+      ts.forEachChild(node, visitBindings)
+    }
+    visitBindings(render)
+    if (result.failure) return result
+    for (const fact of reached) {
+      for (const tag of fact.jsxTags) result.jsxTags.add(tag)
+      for (const attribute of fact.jsxAttributes) result.jsxAttributes.add(attribute)
+      for (const call of fact.calls) result.calls.add(call)
+    }
+    const renderedTags = new Set(reached.flatMap((fact) => [...fact.jsxTags]))
+    for (const statement of source.statements.filter((statement) => ts.isImportDeclaration(statement))) {
+      const specifier = statement.moduleSpecifier.text
+      if (!specifier.startsWith('.') && !specifier.startsWith('@/')) continue
+      const clause = statement.importClause
+      const bindings = [
+        ...(clause?.name ? [{ local: clause.name.text, imported: 'default' }] : []),
+        ...(clause?.namedBindings && ts.isNamedImports(clause.namedBindings)
+          ? clause.namedBindings.elements.map((element) => ({ local: element.name.text, imported: element.propertyName?.text ?? element.name.text })) : []),
+      ].filter((binding) => renderedTags.has(binding.local))
+      if (!bindings.length) continue
+      const base = specifier.startsWith('@/') ? path.join(root, 'src', specifier.slice(2)) : path.resolve(path.dirname(file), specifier)
+      const relativeBase = path.relative(moduleRoot, base)
+      if (relativeBase === '..' || relativeBase.startsWith(`..${path.sep}`) || path.isAbsolute(relativeBase)) return { ...result, failure: 'rendered component import escapes the case module' }
+      const target = ['', '.tsx', '.ts', '/index.tsx', '/index.ts'].map((suffix) => base + suffix)
+        .find((candidate) => safeTargetEntry(root, candidate)?.isFile())
+      if (!target) return { ...result, failure: 'rendered component import cannot be resolved' }
+      for (const binding of bindings) pending.push({ file: target, name: binding.imported })
+    }
+  }
+  return result
+}
+
+function tableContributionMatches(ts, root, sourceFiles) {
+  const tableFile = path.join(root, 'src/modules/app_customizations/widgets/injection-table.ts')
+  if (!safeTargetEntry(root, tableFile)?.isFile()) return false
+  const tableFacts = collectFacts(ts, [tableFile])
+  const table = tableFacts.exportedVariables.has('injectionTable') ? resolveExpression(ts, tableFacts, tableFacts.variableExpressions.get('injectionTable')) : undefined
+  if (!table || !ts.isObjectLiteralExpression(table)) return false
+  const families = { columns: 'columns', filters: 'filters', 'row-actions': 'rowActions', 'bulk-actions': 'bulkActions', toolbar: 'Widget' }
+  return table.properties.some((binding) => {
+    const spot = propertyName(ts, binding.name)
+    const match = /^data-table:([^:]+):(columns|filters|row-actions|bulk-actions|toolbar)$/.exec(spot ?? '')
+    if (!match || !ts.isPropertyAssignment(binding)) return false
+    const slots = arrayElements(ts, tableFacts, binding.initializer)
+    const values = slots.length ? slots : [resolveExpression(ts, tableFacts, binding.initializer)]
+    const ids = values.map((value) => stringValue(ts, tableFacts, value) ?? objectPropertyString(ts, tableFacts, value, 'widgetId'))
+    return sourceFiles.filter((file) => file.endsWith('/widget.ts') || file.endsWith('/widget.tsx')).some((file) => {
+      const widgetFacts = collectFacts(ts, [file])
+      const widget = defaultExportExpression(ts, widgetFacts, file)
+      if (!widget || !ts.isObjectLiteralExpression(widget)) return false
+      const metadata = objectPropertyObject(ts, widgetFacts, widget, 'metadata')
+      if (!ids.includes(objectPropertyString(ts, widgetFacts, metadata, 'id'))) return false
+      const contract = { columns: 'InjectionColumnWidget', filters: 'InjectionFilterWidget', 'row-actions': 'InjectionRowActionWidget', 'bulk-actions': 'InjectionBulkActionWidget', toolbar: 'InjectionWidgetModule' }[match[2]]
+      if (widgetFacts.importedBindings.get(contract) !== '@open-mercato/shared/modules/widgets/injection' || !usesContractType(ts, widget, contract)) return false
+      const payload = propertyExpression(ts, widgetFacts, widget, families[match[2]])
+      return match[2] === 'toolbar' ? Boolean(payload) : arrayElements(ts, widgetFacts, payload).length > 0
+    })
+  })
+}
+
+function activePageOverride(ts, root) {
+  const registry = path.join(root, 'src/modules.ts')
+  const moduleRoot = path.join(root, 'src/modules/app_customizations')
+  const cache = new Map()
+  let bytes = 0
+  const load = (file) => {
+    if (file !== registry && !file.startsWith(moduleRoot + path.sep)) return undefined
+    if (!cache.has(file)) {
+      const stat = safeTargetEntry(root, file)
+      if (!stat?.isFile()) return undefined
+      bytes += stat.size
+      if (cache.size >= 16 || bytes > 128 * 1024) throw new Error('page override source budget exceeded')
+      cache.set(file, collectFacts(ts, [file]))
+    }
+    return cache.get(file)
+  }
+  const reference = (file, expression, seen = new Set()) => {
+    const local = load(file)
+    if (!local) return undefined
+    const value = resolveExpression(ts, local, expression)
+    if (!value || !ts.isIdentifier(value)) return value ? { value, local } : undefined
+    const key = `${file}:${value.text}`
+    if (seen.has(key)) return undefined
+    const nextSeen = new Set([...seen, key])
+    const source = value.getSourceFile()
+    for (const declaration of source.statements.filter((node) => ts.isImportDeclaration(node))) {
+      const bindings = declaration.importClause?.namedBindings
+      const binding = bindings && ts.isNamedImports(bindings) ? bindings.elements.find((entry) => entry.name.text === value.text) : undefined
+      if (!binding) continue
+      const specifier = declaration.moduleSpecifier.text
+      if (!specifier.startsWith('.') && !specifier.startsWith('@/')) return undefined
+      const base = specifier.startsWith('@/') ? path.join(root, 'src', specifier.slice(2)) : path.resolve(path.dirname(file), specifier)
+      if (!base.startsWith(moduleRoot + path.sep)) return undefined
+      const target = ['', '.ts', '.tsx', '/index.ts', '/index.tsx'].map((suffix) => base + suffix).find((candidate) => safeTargetEntry(root, candidate)?.isFile())
+      if (!target) return undefined
+      const imported = binding.propertyName?.text ?? binding.name.text
+      const targetFacts = load(target)
+      if (!targetFacts?.exportedVariables.has(imported)) return undefined
+      return reference(target, targetFacts.variableExpressions.get(imported), nextSeen)
+    }
+    return { value, local }
+  }
+  const property = (owner, name) => {
+    if (!owner) return undefined
+    const node = objectProperty(ts, owner.value, name)
+    const expression = node && ts.isPropertyAssignment(node) ? node.initializer : node && ts.isShorthandPropertyAssignment(node) ? node.name : undefined
+    return expression ? reference(expression.getSourceFile().fileName, expression) : undefined
+  }
+  if (!safeTargetEntry(root, registry)?.isFile()) return false
+  const registryFacts = collectFacts(ts, [registry])
+  if (!registryFacts.exportedVariables.has('enabledModules')) return false
+  const modules = reference(registry, registryFacts.variableExpressions.get('enabledModules'))
+  if (!modules || !ts.isArrayLiteralExpression(modules.value)) return false
+  return modules.value.elements.some((element) => {
+    const entry = reference(registry, element)
+    const id = property(entry, 'id')
+    const from = property(entry, 'from')
+    if (id?.value.text !== 'app_customizations' || from?.value.text !== '@app') return false
+    const pages = property(property(property(entry, 'overrides'), 'routes'), 'pages')
+    if (!pages || !ts.isObjectLiteralExpression(pages.value) || !pages.value.properties.length) return false
+    return pages.value.properties.every((node) => {
+      if (!ts.isPropertyAssignment(node) || !/^\/(backend|frontend)\/.+/.test(propertyName(ts, node.name) ?? '')) return false
+      const resolved = reference(node.getSourceFile().fileName, node.initializer)
+      if (resolved?.value.kind === ts.SyntaxKind.NullKeyword) return true
+      if (!resolved || !ts.isObjectLiteralExpression(resolved.value) || resolved.value.properties.some((option) => !['load', 'Component', 'metadata'].includes(propertyName(ts, option.name)))) return false
+      const { value, local } = resolved
+      const component = propertyExpression(ts, local, value, 'Component')
+      return Boolean(propertyFunction(ts, local, value, 'load') || propertyFunction(ts, local, value, 'Component')
+        || (component && ts.isIdentifier(component) && (local.importedBindings.has(component.text) || local.functionNodes.has(component.text)))
+        || objectPropertyObject(ts, local, value, 'metadata'))
+    })
+  })
+}
+
+function hookUsesContextScope(ts, hook, contextIndex) {
+  const context = hook?.parameters[contextIndex]?.name
+  if (!context) return false
+  const fields = new Set()
+  const visit = (node) => {
+    if (node !== hook && ts.isFunctionLike(node)) return
+    if (ts.isIdentifier(context) && ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === context.text) fields.add(node.name.text)
+    if (ts.isIdentifier(context) && ts.isVariableDeclaration(node) && ts.isObjectBindingPattern(node.name) && node.initializer && ts.isIdentifier(node.initializer) && node.initializer.text === context.text) {
+      for (const element of node.name.elements) fields.add(element.propertyName?.text ?? element.name.text)
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(hook)
+  if (ts.isObjectBindingPattern(context)) for (const element of context.elements) fields.add(element.propertyName?.text ?? element.name.text)
+  return ['tenantId', 'organizationId'].every((field) => fields.has(field))
+}
+
+function usesContractType(ts, expression, typeName) {
+  let node = expression
+  while (node && !ts.isStatement(node)) {
+    if (node.type) {
+      let matched = false
+      const visit = (type) => {
+        if (ts.isTypeReferenceNode(type) && expressionName(ts, type.typeName) === typeName) matched = true
+        ts.forEachChild(type, visit)
+      }
+      visit(node.type)
+      if (matched) return true
+    }
+    node = node.parent
+  }
+  return false
+}
+
+function hookReadsContextMetadata(ts, hook) {
+  const context = hook?.parameters[2]?.name
+  if (!context || !ts.isIdentifier(context)) return false
+  let found = false
+  const visit = (node) => {
+    if (node !== hook && ts.isFunctionLike(node)) return
+    if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === context.text && node.name.text === 'metadata') found = true
+    ts.forEachChild(node, visit)
+  }
+  visit(hook)
+  return found
+}
+
+function interceptorContract(ts, facts) {
+  if (facts.importedBindings.get('ApiInterceptor') !== '@open-mercato/shared/lib/crud/api-interceptor') return false
+  return registeredObjects(ts, facts, 'interceptors').some((entry) => {
+    if (!usesContractType(ts, facts.variableExpressions.get('interceptors'), 'ApiInterceptor') && !usesContractType(ts, entry, 'ApiInterceptor')) return false
+    const before = propertyFunction(ts, facts, entry, 'before')
+    const after = propertyFunction(ts, facts, entry, 'after')
+    const methods = objectPropertyArray(ts, facts, entry, 'methods').map((value) => stringValue(ts, facts, value))
+    const valid = objectPropertyString(ts, facts, entry, 'id') && objectPropertyString(ts, facts, entry, 'targetRoute')
+      && methods.length > 0 && methods.every((method) => ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(method))
+      && !objectProperty(ts, entry, 'match') && Boolean(before || after)
+    if (!valid || !(hookUsesContextScope(ts, before, 1) || hookUsesContextScope(ts, after, 2))) return false
+    const afterUsesMetadata = hookReadsContextMetadata(ts, after)
+    return !afterUsesMetadata || Boolean(before && functionContractMatches(ts, facts, before, (fact) => fact.objectProperties.has('metadata')))
+  })
+}
+
+function agentRegistration(ts, facts) {
+  if (facts.importedBindings.get('defineAiAgent') !== '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-agent-definition' || !facts.exportedVariables.has('aiAgents')) return false
+  return arrayElements(ts, facts, facts.variableExpressions.get('aiAgents')).some((entry) => {
+    if (!ts.isCallExpression(entry) || expressionName(ts, entry.expression) !== 'defineAiAgent') return false
+    const options = resolveExpression(ts, facts, entry.arguments[0])
+    return ['defaultProvider', 'defaultModel', 'allowedTools', 'requiredFeatures'].every((name) => Boolean(objectProperty(ts, options, name)))
+  })
+}
+
+function activityEffectsContract(ts, facts) {
+  const activity = facts.exportedFunctionNodes.get('callApiActivity')
+  const input = activity?.parameters[0]?.name
+  const effects = activity?.parameters[1]?.name
+  if (!activity || !input || !effects || !ts.isIdentifier(input) || !ts.isIdentifier(effects)) return false
+  const reserved = new Set()
+  const posts = []
+  let transaction = false
+  const visit = (node) => {
+    if (node !== activity && ts.isFunctionDeclaration(node)) return
+    if (ts.isVariableDeclaration(node) && node.initializer && ts.isFunctionLike(unwrapExpression(ts, node.initializer))) return
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
+      const call = node.initializer && ts.isAwaitExpression(node.initializer) ? node.initializer.expression : node.initializer
+      if (call && ts.isCallExpression(call) && fullExpressionName(ts, call.expression) === `${effects.text}.reserveIdempotency`
+        && fullExpressionName(ts, call.arguments[0]) === `${input.text}.idempotencyKey`) reserved.add(node.name.text)
+    }
+    if (ts.isCallExpression(node)) {
+      const name = fullExpressionName(ts, node.expression)
+      if (name === `${effects.text}.transaction`) transaction = true
+      if (name === `${effects.text}.post`) posts.push(node)
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(activity)
+  return transaction && posts.some((post) => {
+    const options = resolveExpression(ts, facts, post.arguments[1])
+    const option = objectProperty(ts, options, 'idempotencyKey')
+    const key = option && ts.isPropertyAssignment(option) ? unwrapExpression(ts, option.initializer) : undefined
+    return fullExpressionName(ts, post.arguments[0]) === `${input.text}.url` && key && ts.isIdentifier(key) && reserved.has(key.text)
+  })
+}
+
 function caseChecks(ts, caseId, facts, root, sourceFiles) {
   const definition = WRITABLE_CASES[caseId]
   if (definition.family === 'complete-module') {
@@ -1962,34 +2512,40 @@ function caseChecks(ts, caseId, facts, root, sourceFiles) {
       ]
     case 'OMH-012':
       return [
-        check('command.guards', hasCall(facts, 'runMutationGuards'), 'a runMutationGuards call'),
+        check('command.guards', hasCall(facts, 'runMutationGuards') || checkoutRouteUsesRegistryWrapper(ts, root), 'a runMutationGuards call or a connected scoped runRouteMutationGuards checkout handler'),
         check('command.atomic', hasCall(facts, 'withAtomicFlush'), 'a withAtomicFlush call'),
         check('command.effects', hasCall(facts, 'emitCrudSideEffects'), 'an emitCrudSideEffects call'),
       ]
-    case 'OMH-014':
+    case 'OMH-014': {
+      const rendered = renderedUiContract(ts, root, sourceFiles)
       return [
-        check('ui.table', facts.jsxTags.has('DataTable') && (facts.jsxAttributes.has('extensionTableId') || facts.objectProperties.has('extensionTableId')), 'a DataTable JSX use with extensionTableId'),
-        check('ui.form', facts.jsxTags.has('CrudForm') && facts.jsxAttributes.has('initialValues'), 'a CrudForm JSX use with initialValues'),
-        check('ui.conflict', hasCall(facts, 'surfaceRecordConflict'), 'a surfaceRecordConflict call'),
+        check('ui.rendered-source', rendered.failure === null, rendered.failure ?? 'rendered component sources resolve within case bounds'),
+        check('ui.table', rendered.tablePerspectiveId || (rendered.jsxTags.has('DataTable') && rendered.jsxAttributes.has('extensionTableId')), 'a rendered DataTable uses perspective.tableId or extensionTableId'),
+        check('ui.form', rendered.jsxTags.has('CrudForm') && rendered.jsxAttributes.has('initialValues'), 'a rendered CrudForm uses initialValues'),
+        check('ui.conflict', rendered.calls.has('surfaceRecordConflict'), 'a rendered UI handler reaches surfaceRecordConflict'),
       ]
-    case 'OMH-026':
+    }
+    case 'OMH-026': {
+      const enricher = registeredObjects(ts, facts, 'enrichers').find((entry) => propertyFunction(ts, facts, entry, 'enrichMany'))
+      const batch = enricher ? propertyFunction(ts, facts, enricher, 'enrichMany') : undefined
       return [
         check('umes.form-spot', hasStringPrefix(facts, 'crud-form:'), 'a concrete crud-form:* spot ID literal'),
-        check('umes.enricher', hasCall(facts, 'enrichMany'), 'an enrichMany call'),
-        check('umes.interceptor', hasObjectVariable(facts, 'interceptors', []) || facts.declarations.has('interceptors'), 'an interceptors declaration'),
+        check('umes.enricher', facts.importedBindings.get('ResponseEnricher') === '@open-mercato/shared/lib/crud/response-enricher' && Boolean(batch) && functionContractFacts(ts, facts, batch).some((fact) => fact.calls.size > 0), 'an exported enricher implements its connected enrichMany method'),
+        check('umes.interceptor', facts.exportedVariables.has('interceptors'), 'an exported interceptors declaration'),
       ]
+    }
     case 'OMH-027':
       return [
         check('umes.table-spot', hasStringPrefix(facts, 'data-table:'), 'a concrete data-table:* spot ID literal'),
-        check('umes.table-id', facts.objectProperties.has('extensionTableId') || facts.jsxAttributes.has('extensionTableId'), 'an extensionTableId option or JSX attribute'),
+        check('umes.table-id', tableContributionMatches(ts, root, sourceFiles), 'a table spot maps to a matching default-exported contribution payload'),
       ]
     case 'OMH-029':
-      return [check('umes.page-override', facts.declarations.has('overrides') && facts.objectProperties.has('page'), 'an overrides declaration containing a page option')]
+      return [check('umes.page-override', activePageOverride(ts, root), 'src/modules.ts activates an app entry with supported overrides.routes.pages')]
     case 'OMH-031':
       return [
-        check('umes.interceptors', facts.declarations.has('interceptors'), 'an interceptors declaration'),
-        check('umes.interceptor-scope', ['metadata', 'organizationId', 'tenantId'].every((name) => facts.propertyAccesses.has(name) || facts.objectProperties.has(name)), 'metadata, organizationId, and tenantId used in executable AST'),
-        check('umes.interceptor-hook', facts.objectProperties.has('before') || facts.objectProperties.has('after'), 'a before or after interceptor hook'),
+        check('umes.interceptors', facts.exportedVariables.has('interceptors'), 'an exported interceptors declaration'),
+        check('umes.interceptor-scope', interceptorContract(ts, facts), 'current ApiInterceptor route/method/hooks use trusted hook context scope'),
+        check('umes.interceptor-hook', registeredObjects(ts, facts, 'interceptors').some((entry) => propertyFunction(ts, facts, entry, 'before') || propertyFunction(ts, facts, entry, 'after')), 'a registered before or after interceptor hook'),
       ]
     case 'OMH-042':
       return [
@@ -2003,12 +2559,12 @@ function caseChecks(ts, caseId, facts, root, sourceFiles) {
         check('rest.cursor', facts.assignments.has('cursor') && (facts.awaitedCalls.has('fetch') || facts.awaitedCalls.has('fetchImpl') || facts.awaitedCalls.has('fetchPage')), 'cursor assignment and an awaited fetch call'),
       ]
     case 'OMH-049':
-      return [check('ai.agent', hasCallOptions(facts, 'defineAiAgent', ['provider', 'model', 'allowedTools', 'requiredFeatures']), 'defineAiAgent called with provider, model, allowedTools, and requiredFeatures options')]
+      return [check('ai.agent', agentRegistration(ts, facts), 'aiAgents registers defineAiAgent with defaultProvider/defaultModel, allowedTools and requiredFeatures')]
     case 'OMH-054':
       return [
-        check('workflow.activity', facts.functions.has('callApiActivity') && hasExactString(facts, 'CALL_API'), 'a callApiActivity declaration and CALL_API literal'),
-        check('workflow.transaction', hasCall(facts, 'transaction', 'transactional'), 'a transaction/transactional call'),
-        check('workflow.idempotency', (hasCall(facts, 'fetch', 'fetchImpl') && facts.objectProperties.has('headers') && hasExactString(facts, 'Idempotency-Key')), 'a fetch call with headers and an Idempotency-Key literal'),
+        check('workflow.activity', facts.exportedFunctions.has('callApiActivity'), 'the seeded callApiActivity function is exported'),
+        check('workflow.transaction', exportedFunctionCalls(facts, 'callApiActivity', ['transaction']), 'callApiActivity reaches its transaction effect'),
+        check('workflow.idempotency', activityEffectsContract(ts, facts), 'callApiActivity forwards the reserved key to effects.post(input.url, options)'),
       ]
     case 'OMH-057':
     case 'OMH-171':

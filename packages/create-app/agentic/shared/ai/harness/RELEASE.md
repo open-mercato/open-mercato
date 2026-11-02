@@ -1,5 +1,9 @@
 # Harness release gate
 
+Example-root declaring cases (19): `OMH-009`, `OMH-011`, `OMH-012`, `OMH-014`, `OMH-026`, `OMH-027`, `OMH-031`, `OMH-042`, `OMH-049`, `OMH-181`, `OMH-203`, `OMH-219`, `OMH-220`, `OMH-221`, `OMH-222`, `OMH-223`, `OMH-225`, `OMH-226`, `OMH-238`.
+
+Writable example-root declarers (11): `OMH-009`, `OMH-011`, `OMH-012`, `OMH-014`, `OMH-026`, `OMH-027`, `OMH-031`, `OMH-042`, `OMH-049`, `OMH-181`, `OMH-223`.
+
 Run the complete per-release gate from a generated standalone app with one command:
 
 ```text

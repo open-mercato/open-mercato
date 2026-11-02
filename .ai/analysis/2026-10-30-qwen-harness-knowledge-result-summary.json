@@ -1,0 +1,132 @@
+{
+  "artifactType": "sanitized-controller-result-summary",
+  "version": 3,
+  "note": "Summary only; original controller-owned completed manifest, including absolute command paths, remains in ignored local evidence.",
+  "status": "pass",
+  "baseSha": "fd7c06569bd5fa282716b28e1375d2ddb2cc1eea",
+  "headSha": "0692dbed268fe2b11d435ba1802d78e8bb2b6005",
+  "changeClass": "knowledge-contract",
+  "changedContracts": [
+    "source-link",
+    "context-read",
+    "evaluator",
+    "oracle"
+  ],
+  "affectedCaseCount": 240,
+  "catalogCount": 240,
+  "authoritativeFiles": [
+    {
+      "path": "packages/create-app/agentic/shared/scripts/evaluate-agent-harness.mjs",
+      "sha256": "5c1b57db99e90c5b37886a719b6bdf71406bdf840e03cbeeeb3968a01f80f64f"
+    },
+    {
+      "path": "packages/create-app/agentic/shared/ai/harness/cases.json",
+      "sha256": "df83e12470785ba702d1c9e509f6ccade37800647fce002d08da93e0488f139b"
+    },
+    {
+      "path": "packages/create-app/agentic/shared/ai/harness/writable-ast-oracles.mjs",
+      "sha256": "969f9ad5bd46c3647fbdb5e1fd27da3af1cc1a45e2b81456feb48cf2557664b6"
+    },
+    {
+      "path": "packages/create-app/agentic/shared/ai/harness/fixtures/seeds.json",
+      "sha256": "da2499b5f21230f5c72c3479fe4b60cfcb4fcbbfe5c30cb835e6756d4cad5528"
+    },
+    {
+      "path": "turbo.json",
+      "sha256": "391f6413b060f761bfc18ab55382c2d24ac016fd033869778513be5f13117e25"
+    }
+  ],
+  "focusedExecutions": [
+    {
+      "testFile": "packages/create-app/src/lib/coding-case-source-policy.test.ts",
+      "baseWithTestOnly": {
+        "exitCode": 1,
+        "stdoutSha256": "ece8e755064f37559abe69ee75d880d9023b413459dcf6811739e76cc5d1bdda",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "exitCode": 0,
+        "stdoutSha256": "ff74707d69a350e8b3a194b394ea9be8f4ca1b0ee08d285c592866f772908752",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "testFile": "packages/create-app/src/lib/coding-context-delivery.test.ts",
+      "baseWithTestOnly": {
+        "exitCode": 1,
+        "stdoutSha256": "520fac67f092c71da33aef62ae513ccdbd08271d6032d0adc47aefa9cee317a1",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "exitCode": 0,
+        "stdoutSha256": "d8ea7848b128ed7ccd01218c98474c16077fe43a6f3a6d785dffffecf0cd07b4",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "testFile": "packages/create-app/src/lib/coding-fixture-contracts.test.ts",
+      "baseWithTestOnly": {
+        "exitCode": 1,
+        "stdoutSha256": "50f9673772b48ea03fc97bf9a68d542a37d3b99f5950e551763a5e27cdfec8d7",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "exitCode": 0,
+        "stdoutSha256": "e13cedbd68303b89186547b030d7e3c756c18ff6736008a970bfb9e16ac31dda",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "testFile": "packages/create-app/src/lib/writable-ast-oracles.test.ts",
+      "baseWithTestOnly": {
+        "exitCode": 1,
+        "stdoutSha256": "e1323d396ce6ce97aa7401955f986c3e51d326f099df01d89d01ab872ac20421",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "exitCode": 0,
+        "stdoutSha256": "ab647e6c4ac66909a017b19589a1e0040089b3b5a5e80a105837939de643721f",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "testFile": "packages/create-app/src/lib/harness-build-cache.test.ts",
+      "baseWithTestOnly": {
+        "exitCode": 1,
+        "stdoutSha256": "eef7a714b4cdfd04ad70a81b9b315d1d4807dde4b6a16008a3dd545c8ece8e68",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "exitCode": 0,
+        "stdoutSha256": "2f7a56c40387e8e55ac8b88645542d0b8a9339f0ff7774eb92703ef1e2dfe6a2",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    }
+  ],
+  "authoredManifestsEqual": true,
+  "authoredMatchesCompletedManifest": true,
+  "priorResult": {
+    "status": "pass",
+    "headSha": "f40d9e798a3a05990048d3e0ff5fdc0bc4b755dc",
+    "path": ".ai/reports/qwen-harness-recovery/knowledge-change.result.v2.json"
+  },
+  "changedAuthoredFields": [
+    "authoritativeFiles"
+  ],
+  "evidence": [
+    {
+      "path": ".ai/reports/qwen-harness-recovery/knowledge-change.result.v3.json",
+      "sha256": "7652382a3172526f9e5bc9962842a9f0a850342a139c85857457dd762930b946"
+    },
+    {
+      "path": ".ai/reports/qwen-harness-recovery/knowledge-change.json",
+      "sha256": "330e0c70b5164986447859084526dc82508c2ec5868b709aaf4ae00aee462ca7"
+    },
+    {
+      "path": ".ai/analysis/2026-10-30-qwen-harness-knowledge-change.json",
+      "sha256": "330e0c70b5164986447859084526dc82508c2ec5868b709aaf4ae00aee462ca7"
+    }
+  ],
+  "noModelsInvoked": true,
+  "errors": []
+}

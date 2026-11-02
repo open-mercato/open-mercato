@@ -1,0 +1,42 @@
+{
+  "artifactType": "bc-required-context-semantic-regression",
+  "failureFirstCommit": "31fa61c98",
+  "caseCount": 240,
+  "affectedCases": [
+    "OMH-011",
+    "OMH-012",
+    "OMH-018"
+  ],
+  "changes": "Exact BC file required; total context calibrated only. Initial bytes/files, exampleRoots, write grants, expectedRouter, skills and graders unchanged.",
+  "before": {
+    "tests": 7,
+    "passed": 1,
+    "failed": 6,
+    "logSha256": "309f3a8ff12966e8865969d2dbc8563f7e965a6cdab3b85c5e62f8fd184d4016"
+  },
+  "after": {
+    "tests": 7,
+    "passed": 7,
+    "failed": 0,
+    "logSha256": "a41cd1fa88436ac10fa8e3a3aaf9360809e655a558aaa2d19fcb6577d3de305f"
+  },
+  "authorityFiles": [
+    {
+      "path": "packages/create-app/agentic/shared/ai/harness/cases.json",
+      "sha256": "61d656acf44207ccc3c9dc88847a7aee35954dc29bd382185a00b1ce69e609bf"
+    },
+    {
+      "path": "packages/create-app/agentic/shared/ai/harness/validators.json",
+      "sha256": "869ef1268b6c60acbf37c2b533f378e223b749018305d12361fd2a1bceb9b8e8"
+    }
+  ],
+  "testFile": {
+    "path": "packages/create-app/src/lib/bc-contract-delivery.test.ts",
+    "sha256": "70e4b8508038d0f24a26fd598b5c20b1d93a0b73e77b61ce7de49d44a1e201bd"
+  },
+  "initialAndExampleBoundsUnchanged": true,
+  "unrelatedCasesUnchanged": true,
+  "requiredCaseCount": 23,
+  "excludedCaseCount": 9,
+  "noModelsOrHeavyBuilds": true
+}

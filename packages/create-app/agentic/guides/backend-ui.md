@@ -30,7 +30,7 @@ When a form field or table column references another record — in this module o
 
 ## DataTable
 
-- Use `DataTable` with a stable colon-form `entityId`, explicit typed data/pagination loaded through shared API helpers, and `extensionTableId`. These are host contracts, not cosmetic props; `DataTable` has no `apiPath` prop.
+- Use `DataTable` with stable colon-form `entityId`, explicit typed data/pagination via shared API helpers, and stable `extensionTableId` or `perspective.tableId`. These are host contracts; `DataTable` has no `apiPath` prop.
 - Use shared column helpers, `RowActions` with stable action IDs, built-in filter/search/export/column controls, and DataTable bulk-action surfaces.
 - When owning pagination, wire page, page size, total count, and change handlers together. Do not slice a server page again in the client.
 - Use the table's empty state and shared loading/error components. A successful empty result is not an error.

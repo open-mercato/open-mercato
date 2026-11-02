@@ -26,7 +26,7 @@
       "src/modules/app_customizations/index.ts": "export const metadata = { id: 'app_customizations', title: 'App customizations' }\n"
     },
     "umes-api-interceptor": {
-      "src/modules/app_customizations/api/interceptors.ts": "export const interceptors = [{\n  id: 'unsafe-placeholder',\n  match: { path: '/api/customers' },\n  async before() { return { query: {} } },\n}]\n"
+      "src/modules/app_customizations/api/interceptors.ts": "import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-interceptor'\n\nexport const interceptors: ApiInterceptor[] = [{\n  id: 'unsafe-placeholder',\n  targetRoute: 'customers/people',\n  methods: ['GET'],\n  async before(request) { return { ok: true, query: request.query ?? {} } },\n}]\n"
     },
     "integration-data-sync": {
       "src/modules/magento/index.ts": "export const metadata = { id: 'magento', title: 'Magento integration' }\n"

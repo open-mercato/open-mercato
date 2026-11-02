@@ -1,0 +1,96 @@
+{
+  "runner": "local",
+  "sourceHead": "0395f6246d13fac742fdd72df59aa22f3d8bdd49",
+  "status": "pass",
+  "commands": [
+    {
+      "command": "yarn build:packages",
+      "status": "pass",
+      "startedAt": "2026-10-30T18:55:55.464047+00:00",
+      "log": ".ai/reports/qwen-harness-recovery/ordered-gate-public-scope-final/01.log",
+      "exitCode": 0,
+      "durationSeconds": 76.7,
+      "logSha256": "777ec9109cd733baf7dcea396608e477945884e57a2907b36152696ef4ebc896"
+    },
+    {
+      "command": "yarn generate",
+      "status": "pass",
+      "startedAt": "2026-10-30T18:57:12.165288+00:00",
+      "log": ".ai/reports/qwen-harness-recovery/ordered-gate-public-scope-final/02.log",
+      "exitCode": 0,
+      "durationSeconds": 21.3,
+      "logSha256": "09f9a3f4e4e5f47df8815717c9a1ab1a7e774707aacbaafc07af45de1611833f"
+    },
+    {
+      "command": "yarn build:packages",
+      "status": "pass",
+      "startedAt": "2026-10-30T18:57:33.464544+00:00",
+      "log": ".ai/reports/qwen-harness-recovery/ordered-gate-public-scope-final/03.log",
+      "exitCode": 0,
+      "durationSeconds": 1.21,
+      "logSha256": "609e10c280d986248b96ba94cef54461e79f064e87aa413bf01a7920315f92dc"
+    },
+    {
+      "command": "yarn i18n:check-sync",
+      "status": "pass",
+      "startedAt": "2026-10-30T18:59:05.075417+00:00",
+      "log": ".ai/reports/qwen-harness-recovery/ordered-gate-public-scope-final/04.log",
+      "exitCode": 0,
+      "durationSeconds": 1.13,
+      "logSha256": "161df4356616d4930b396904b6e059a903daad74098b20e8355f9b7a0ded2299"
+    },
+    {
+      "command": "yarn i18n:check-usage",
+      "status": "pass",
+      "startedAt": "2026-10-30T18:59:06.209909+00:00",
+      "log": ".ai/reports/qwen-harness-recovery/ordered-gate-public-scope-final/05.log",
+      "exitCode": 0,
+      "durationSeconds": 174.13,
+      "logSha256": "aa472099efda4907e44860796db16c09f8d5f206a558d09a47486ffa8669465b"
+    },
+    {
+      "command": "yarn typecheck",
+      "status": "pass",
+      "startedAt": "2026-10-30T19:02:00.337920+00:00",
+      "log": ".ai/reports/qwen-harness-recovery/ordered-gate-public-scope-final/06.log",
+      "exitCode": 0,
+      "durationSeconds": 1.76,
+      "logSha256": "7d57f9a8e20fc4dc5bafc55f7a28426ff0857842f424bff8cf4b5d19298c7f14"
+    },
+    {
+      "command": "yarn test",
+      "status": "pass",
+      "startedAt": "2026-10-30T19:02:02.098640+00:00",
+      "log": ".ai/reports/qwen-harness-recovery/ordered-gate-public-scope-final/07.log",
+      "exitCode": 0,
+      "durationSeconds": 407.34,
+      "logSha256": "81b7ad504461c97bca8910a0cd8816435cbc4f632c4c7e336a49d62317058a67"
+    },
+    {
+      "command": "yarn build:app",
+      "status": "pass",
+      "startedAt": "2026-10-30T19:08:49.444674+00:00",
+      "log": ".ai/reports/qwen-harness-recovery/ordered-gate-public-scope-final/08.log",
+      "exitCode": 0,
+      "durationSeconds": 25.49,
+      "logSha256": "138ec8ad0f67457c4fdfdf641f33c73c3b3743663d0f453c52b99c25e68d8f62"
+    }
+  ],
+  "packWindow": "closed",
+  "artifactType": "sanitized-ordered-repository-validation",
+  "workspaceTasks": {
+    "passed": 51,
+    "total": 51,
+    "cached": 5
+  },
+  "createAppTests": {
+    "passed": 1116,
+    "failed": 0,
+    "skipped": 5
+  },
+  "coreTests": {
+    "passed": 25731,
+    "skipped": 222
+  },
+  "modelOutcomeEstablished": false
+}

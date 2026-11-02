@@ -1,0 +1,33 @@
+{
+  "artifactType": "root-budget-and-static-ownership-regression",
+  "beforeSource": "9af38b20402d5d4956e62a5ce4a8e0b9ccc52b04",
+  "beforeFullGate": "fail at yarn test; final app build not executed",
+  "beforeFailures": {
+    "generatedRootBytes": [
+      12308,
+      12308,
+      12309
+    ],
+    "maximumRootBytes": 12288,
+    "legacyOwnershipAssertions": 2
+  },
+  "correction": {
+    "rootAndFallbackByteDelta": -49,
+    "budgetLimitChanged": false,
+    "ownershipMeaningChanged": false,
+    "jestAndModuleLocaleInstructionsRetained": true,
+    "staticAssertionsRejectOldUnqualifiedShortcut": true
+  },
+  "focusedAfter": {
+    "instructionBudgetTests": {
+      "passed": 8,
+      "failed": 0
+    },
+    "contextGuidanceTests": {
+      "passed": 30,
+      "failed": 0
+    }
+  },
+  "modelEfficacy": "not established; fresh corrected full cohort pending",
+  "rawGateLogSha256": "5956e5c1fd932842191d0cb0dc7dce1e35faa586eb7a439fe5847fbe4b5473bd"
+}
