@@ -1,12 +1,20 @@
 import { z } from 'zod'
 import { dictionaryEntrySortModeSchema } from '../lib/entrySort'
 
+// Modules own their system dictionaries under a namespace segment (`resources.capacity_unit`,
+// `sales.shipment_status`, `planner.unavailability-reasons.staff`) and seed those rows straight
+// through the EntityManager, so the API has to accept the same shape its own modules emit.
+// Each dot-separated segment still obeys the slug rule, which keeps leading/trailing/repeated
+// dots out. Nothing downstream splits or escapes a key — dictionaries are addressed by id in
+// every route — so the extra separator carries no meaning beyond grouping.
+export const DICTIONARY_KEY_PATTERN = /^[a-z0-9][a-z0-9_-]*(?:\.[a-z0-9][a-z0-9_-]*)*$/
+
 export const dictionaryKeySchema = z
   .string()
   .trim()
   .min(1)
   .max(100)
-  .regex(/^[a-z0-9][a-z0-9_-]*$/, 'Use lowercase letters, numbers, hyphen, or underscore.')
+  .regex(DICTIONARY_KEY_PATTERN, 'Use lowercase letters, numbers, hyphen, underscore, or a dot between segments.')
 
 const hexColorSchema = z
   .string()

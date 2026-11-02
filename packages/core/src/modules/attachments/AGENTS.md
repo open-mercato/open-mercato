@@ -46,6 +46,10 @@ write time.
   an ambient transaction pass `{ flush: false }`, commit the returned database
   removal first, and invoke the returned provider cleanup only after commit;
   never delete provider bytes before a transaction can still roll back.
+- Rows MAY share a stored object (`partition_code` + `storage_path`). Any other
+  code deleting a row with its bytes MUST use `removeAttachmentRecord`
+  (`lib/storageReferences.ts`, outside a transaction) and delete the bytes only
+  when it returns `releaseStorage: true`.
 - **MUST call `assertAttachmentScopeInvariant({ tenantId, organizationId })` from
   `lib/access.ts` before persisting any new `Attachment` row.** It throws on a
   partial-null scope and accepts both fully-scoped and fully-global rows. The
@@ -85,6 +89,10 @@ both-or-neither invariant (audited for #2109):
   one path that can construct a partial-null row; copy the **source attachment's**
   scope pair when wiring new callers, and apply the creation guard if this path is
   refactored.
+- `packages/sync-akeneo/src/modules/sync_akeneo/lib/catalog-importer.ts` (`upsertAsset`)
+  — product media go through `attachmentScopedUploadService` with the importer's scope
+  (both set) and the public `productsMedia` partition, so it cannot use
+  `attachmentService.createScoped` (private partitions only). Safe.
 
 ## Validation Commands
 

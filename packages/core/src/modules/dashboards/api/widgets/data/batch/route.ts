@@ -5,6 +5,7 @@ import type { CacheStrategy } from '@open-mercato/cache'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import {
   createWidgetDataService,
   type WidgetDataRequest,
@@ -96,13 +97,7 @@ export async function POST(req: Request) {
 
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
 
-  const organizationIds = (() => {
-    if (scope?.selectedId) return [scope.selectedId]
-    if (Array.isArray(scope?.filterIds) && scope.filterIds.length > 0) return scope.filterIds
-    if (scope?.allowedIds === null) return undefined
-    if (auth.orgId) return [auth.orgId]
-    return undefined
-  })()
+  const { organizationIds, rbacOrganizationId } = resolveOrganizationScopeFilter(scope, auth)
 
   const cache = container.resolve<CacheStrategy>('cache')
   const service = createWidgetDataService(
@@ -128,7 +123,7 @@ export async function POST(req: Request) {
         if (features.length === 0) return Promise.resolve(true)
         return rbacService.userHasAllFeatures(auth.sub, features, {
           tenantId,
-          organizationId: auth.orgId,
+          organizationId: rbacOrganizationId,
         })
       },
       fetchOne: (request) => service.fetchWidgetData(request),

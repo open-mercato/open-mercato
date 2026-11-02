@@ -21,7 +21,7 @@ export function useIntegrationCredentialsFeatureAccess() {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
-            features: ['integrations.credentials.manage'],
+            features: ['integrations.credentials.manage', 'integrations.manage'],
           }),
         })
 
@@ -46,5 +46,6 @@ export function useIntegrationCredentialsFeatureAccess() {
     isLoading,
     granted,
     canManageCredentials: hasFeature(granted, 'integrations.credentials.manage'),
+    canManageIntegration: hasFeature(granted, 'integrations.manage'),
   }
 }

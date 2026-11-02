@@ -27,7 +27,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 }))
 
 const mockContainer = {
-  resolve: jest.fn((token: string) => {
+  resolve: jest.fn((token: string): unknown => {
     if (token === 'em') return mockEm
     return null
   }),
@@ -325,11 +325,7 @@ describe('POST /api/inbox_ops/webhook/inbound', () => {
     expect(response.headers.get('Retry-After')).toBe('30')
   })
 
-  it('keys the pre-DB global bucket on the secret, not the per-request signature (issue #2698)', async () => {
-    // Regression: keying the global bucket on the mutable per-request signature
-    // would mint a fresh bucket for every request (different body/timestamp), so
-    // the throttle could never accumulate. The key must be request-invariant for
-    // a fixed signing secret so a flood with a rotating body is still capped.
+  it('keys the verified global bucket on the secret, not the per-request signature (issue #2698)', async () => {
     const { checkRateLimit } = jest.requireMock('@open-mercato/core/modules/inbox_ops/lib/rateLimiter') as {
       checkRateLimit: jest.Mock
     }
@@ -340,7 +336,7 @@ describe('POST /api/inbox_ops/webhook/inbound', () => {
 
     const customGlobalKeys = checkRateLimit.mock.calls
       .map((call) => call[1] as string)
-      .filter((key) => key.startsWith('webhook:secret:'))
+      .filter((key) => key.startsWith('webhook:verified:custom:'))
 
     expect(customGlobalKeys.length).toBe(2)
     expect(customGlobalKeys[0]).toBe(customGlobalKeys[1])
@@ -411,6 +407,137 @@ describe('POST /api/inbox_ops/webhook/inbound', () => {
       expect(response.status).toBe(400)
       expect(result.error).toContain('Invalid signature')
       expect(mockEm.create).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('admission and verified quota isolation (issue #7600)', () => {
+    const realLimiter = jest.requireActual<typeof import('../../../lib/rateLimiter')>(
+      '@open-mercato/core/modules/inbox_ops/lib/rateLimiter',
+    )
+    const { checkRateLimit } = jest.requireMock('@open-mercato/core/modules/inbox_ops/lib/rateLimiter') as {
+      checkRateLimit: jest.Mock
+    }
+    const tenantSecret = 'tenant-specific-webhook-secret'
+    const anotherSettings = {
+      ...mockSettings,
+      tenantId: 'tenant-2',
+      organizationId: 'org-2',
+      inboxAddress: 'ops-other@inbox.mercato.local',
+    }
+    const cacheEntries = new Map<string, unknown>()
+    const cache = {
+      get: jest.fn(async (key: string) => cacheEntries.get(key) ?? null),
+      set: jest.fn(async (key: string, value: unknown) => { cacheEntries.set(key, value) }),
+    }
+
+    beforeEach(() => {
+      realLimiter.__resetRateLimiterFallback()
+      cacheEntries.clear()
+      checkRateLimit.mockImplementation(realLimiter.checkRateLimit)
+      mockContainer.resolve.mockImplementation((token: string): unknown => {
+        if (token === 'em') return mockEm
+        if (token === 'cache') return cache
+        return null
+      })
+      mockFindOneWithDecryption.mockReset()
+      mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown, where: Record<string, unknown>) => {
+        if (entity !== InboxSettings) return null
+        if (where.inboxAddress === anotherSettings.inboxAddress) return anotherSettings
+        if (where.inboxAddress === mockSettings.inboxAddress) return { ...mockSettings, webhookSecret: tenantSecret }
+        return null
+      })
+    })
+
+    afterEach(() => {
+      realLimiter.__resetRateLimiterFallback()
+      checkRateLimit.mockImplementation(() => ({ allowed: true }))
+      mockContainer.resolve.mockImplementation((token: string): unknown => token === 'em' ? mockEm : null)
+    })
+
+    it.each(['shared cache', 'missing cache', 'cache read error', 'cache write error'])(
+      'bounds rotating invalid requests without exhausting verified traffic with %s',
+      async (cacheMode) => {
+        if (cacheMode !== 'shared cache') {
+          mockContainer.resolve.mockImplementation((token: string): unknown => {
+            if (token === 'em') return mockEm
+            if (token !== 'cache') return null
+            if (cacheMode === 'missing cache') throw new Error('[internal] cache unavailable')
+            return {
+              get: async () => {
+                if (cacheMode === 'cache read error') throw new Error('[internal] cache read failed')
+                return null
+              },
+              set: async () => { throw new Error('[internal] cache write failed') },
+            }
+          })
+        }
+
+        for (let requestIndex = 0; requestIndex < 10; requestIndex += 1) {
+          const response = await POST(makeSignedRequestWith(`invalid-secret-${requestIndex}`, {
+            ...validPayload,
+            to: `rotating-${requestIndex}@inbox.mercato.local`,
+            subject: `forged-${requestIndex}`,
+          }))
+          expect(response.status).toBe(400)
+        }
+        expect(mockFindOneWithDecryption).toHaveBeenCalledTimes(10)
+
+        const rejected = await POST(makeSignedRequestWith('another-invalid-secret', validPayload))
+        expect(rejected.status).toBe(429)
+        expect(rejected.headers.get('Retry-After')).toBeTruthy()
+        expect(mockFindOneWithDecryption).toHaveBeenCalledTimes(10)
+        const admissionKeys = checkRateLimit.mock.calls.map((call) => call[1])
+
+        const accepted = await POST(makeSignedRequest({ ...validPayload, to: anotherSettings.inboxAddress }))
+        expect(accepted.status).toBe(200)
+        expect(mockEm.create).toHaveBeenCalledWith(InboxEmail, expect.objectContaining({
+          tenantId: anotherSettings.tenantId,
+          organizationId: anotherSettings.organizationId,
+        }))
+        expect(admissionKeys.every((key) => key === 'webhook:admission:custom:unverified')).toBe(true)
+      },
+    )
+
+    it('shares the verified quota across global and dedicated secrets after authentication', async () => {
+      for (let requestIndex = 0; requestIndex < 10; requestIndex += 1) {
+        const request = requestIndex % 2 === 0
+          ? makeSignedRequestWith(tenantSecret, validPayload)
+          : makeSignedRequest({ ...validPayload, to: anotherSettings.inboxAddress })
+        expect((await POST(request)).status).toBe(200)
+      }
+
+      const response = await POST(makeSignedRequestWith(tenantSecret, validPayload))
+      expect(response.status).toBe(429)
+      expect(response.headers.get('Retry-After')).toBeTruthy()
+      expect(mockEm.create).toHaveBeenCalledTimes(10)
+      expect(checkRateLimit.mock.calls.at(-1)?.[1]).toMatch(/^webhook:verified:custom:/)
+    })
+
+    it('does not charge dedicated-secret traffic for prior invalid signatures', async () => {
+      for (let requestIndex = 0; requestIndex < 9; requestIndex += 1) {
+        expect((await POST(makeSignedRequestWith('invalid-secret', validPayload))).status).toBe(400)
+      }
+
+      const response = await POST(makeSignedRequestWith(tenantSecret, validPayload))
+      expect(response.status).toBe(200)
+      expect(checkRateLimit.mock.calls.filter((call) => call[1].startsWith('webhook:verified:custom:'))).toHaveLength(1)
+      expect(checkRateLimit.mock.calls.filter((call) => call[1] === `webhook:tenant:${mockSettings.tenantId}`)).toHaveLength(1)
+    })
+
+    it('charges no verified quota when the global secret targets a dedicated-secret inbox', async () => {
+      expect((await POST(makeSignedRequest(validPayload))).status).toBe(400)
+      expect(checkRateLimit.mock.calls.map((call) => call[1])).toEqual([
+        expect.stringMatching(/^webhook:admission:custom:global:/),
+      ])
+      expect(mockEm.create).not.toHaveBeenCalled()
+    })
+
+    it('still bounds globally signed database lookups targeting a dedicated-secret inbox', async () => {
+      for (let requestIndex = 0; requestIndex < 10; requestIndex += 1) {
+        expect((await POST(makeSignedRequest(validPayload))).status).toBe(400)
+      }
+      expect((await POST(makeSignedRequest(validPayload))).status).toBe(429)
+      expect(mockFindOneWithDecryption).toHaveBeenCalledTimes(10)
     })
   })
 })

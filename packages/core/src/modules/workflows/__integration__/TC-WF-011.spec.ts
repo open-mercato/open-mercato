@@ -4,6 +4,7 @@ import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__inte
 import { readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
 import { deleteWorkflowDefinitionIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/workflowsFixtures'
 import {
+  WORKFLOW_NODE_TITLE_SELECTOR,
   WORKFLOW_RESET_TO_CODE_MENU_ITEM_LABEL,
   expectWorkflowHeaderAction,
   invokeWorkflowHeaderAction,
@@ -309,8 +310,9 @@ test.describe('TC-WF-011: Code workflows — Customize / Reset matrix', () => {
       // surface whichever layout it renders in.
       const firstNode = workflowStepNodes(page).first()
       await expect(firstNode).toBeVisible({ timeout: 10_000 })
-      await firstNode.click()
+      await firstNode.locator(WORKFLOW_NODE_TITLE_SELECTOR).click()
       await expect(workflowInspector(page)).toHaveCount(0)
+      await expect(page.getByRole('dialog', { name: 'Triggers', exact: true })).toBeHidden()
 
       // Click Customize → POST /customize → redirect back to the visual editor
       // pointed at the new override UUID.

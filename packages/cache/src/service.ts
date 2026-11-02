@@ -7,6 +7,8 @@ import { getCurrentCacheTenant } from './tenantContext'
 import { createHash } from 'node:crypto'
 import { CacheDependencyUnavailableError } from './errors'
 import { matchCacheKeyPattern } from './patterns'
+import { parseCacheCompression, parseCacheCompressionMinBytes } from './codec'
+import type { CacheCodecOptions } from './codec'
 
 function normalizeTenantKey(raw: string | null | undefined): string {
   const value = typeof raw === 'string' ? raw.trim() : ''
@@ -260,7 +262,12 @@ function createConfiguredTenantAwareStrategy(options?: CacheServiceOptions): Ten
   const parsedEnvMaxEntries = envMaxEntries ? Number.parseInt(envMaxEntries, 10) : undefined
   const maxEntries = options?.maxEntries ?? (typeof parsedEnvMaxEntries === 'number' && Number.isFinite(parsedEnvMaxEntries) ? parsedEnvMaxEntries : undefined)
 
-  const baseStrategy = createStrategyForType(strategyType, options, defaultTtl, maxEntries)
+  const codecOptions: CacheCodecOptions = {
+    compression: options?.compression ?? parseCacheCompression(process.env.CACHE_COMPRESSION),
+    compressionMinBytes: options?.compressionMinBytes ?? parseCacheCompressionMinBytes(process.env.CACHE_COMPRESSION_MIN_BYTES),
+  }
+
+  const baseStrategy = createStrategyForType(strategyType, options, defaultTtl, maxEntries, codecOptions)
   const resilientStrategy = withDependencyFallback(baseStrategy, strategyType, defaultTtl, maxEntries)
   const reportsBoundedCounters = strategyType === 'memory'
 
@@ -276,6 +283,8 @@ function createConfiguredTenantAwareStrategy(options?: CacheServiceOptions): Ten
  * - CACHE_REDIS_URL: Redis connection URL (for redis strategy)
  * - CACHE_SQLITE_PATH: SQLite database file path (for sqlite strategy)
  * - CACHE_JSON_FILE_PATH: JSON file path (for jsonfile strategy)
+ * - CACHE_COMPRESSION: 'off' | 'zstd' | 'gzip' value compression for redis/sqlite (default: 'off')
+ * - CACHE_COMPRESSION_MIN_BYTES: smallest serialized entry that gets compressed (default: 1024)
  *
  * @example
  * const cache = createCacheService({ strategy: 'memory', defaultTtl: 60000 })
@@ -373,12 +382,12 @@ export class CacheService implements CacheStrategy {
   }
 }
 
-function createStrategyForType(strategyType: CacheStrategyName, options?: CacheServiceOptions, defaultTtl?: number, maxEntries?: number): CacheStrategy {
+function createStrategyForType(strategyType: CacheStrategyName, options?: CacheServiceOptions, defaultTtl?: number, maxEntries?: number, codecOptions?: CacheCodecOptions): CacheStrategy {
   switch (strategyType) {
     case 'redis':
-      return createRedisStrategy(options?.redisUrl, { defaultTtl })
+      return createRedisStrategy(options?.redisUrl, { defaultTtl, ...codecOptions })
     case 'sqlite':
-      return createSqliteStrategy(options?.sqlitePath, { defaultTtl })
+      return createSqliteStrategy(options?.sqlitePath, { defaultTtl, ...codecOptions })
     case 'jsonfile':
       return createJsonFileStrategy(options?.jsonFilePath, { defaultTtl })
     case 'memory':

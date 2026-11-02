@@ -48,10 +48,10 @@ test('buildSnapshotVersion includes the workflow attempt when provided', () => {
   assert.equal(version, '0.6.1-canary.3130.2.g7277430535')
 })
 
-test('resolveSnapshotPublishConfig maps develop pushes to the develop tag', () => {
+test('resolveSnapshotPublishConfig maps main pushes to the develop tag', () => {
   const config = resolveSnapshotPublishConfig({
     eventName: 'push',
-    refName: 'develop',
+    refName: 'main',
   })
 
   assert.deepEqual(config, {
@@ -76,13 +76,8 @@ test('resolveSnapshotPublishConfig keeps pull requests on canary previews', () =
   })
 })
 
-test('resolveSnapshotPublishConfig rejects unsupported push branches', () => {
-  assert.throws(
-    () =>
-      resolveSnapshotPublishConfig({
-        eventName: 'push',
-        refName: 'main',
-      }),
-    /Unsupported snapshot release context: push:main/,
-  )
+test('resolveSnapshotPublishConfig rejects unsupported push branches, the retired develop included', () => {
+  for (const refName of ['develop', 'release/v0.9.x', 'feature/x']) {
+    assert.throws(() => resolveSnapshotPublishConfig({ eventName: 'push', refName }), /Unsupported snapshot release context/)
+  }
 })
