@@ -10,7 +10,6 @@ import { E } from '#generated/entities.ids.generated'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { crudFormExtensionSpotId } from '@open-mercato/shared/modules/widgets/extension-points'
 import { extensionPoints } from '../../../../extension-points'
 import {
   buildPersonPayload,
@@ -19,8 +18,6 @@ import {
   createPersonFormSchema,
   type PersonFormValues,
 } from '../../../../components/formConfig'
-
-const PERSON_CREATE_LEGACY_INJECTION_SPOT_ID = crudFormExtensionSpotId('customers.customer_entity')
 
 export default function CreatePersonPage() {
   const t = useT()
@@ -56,9 +53,11 @@ export default function CreatePersonPage() {
           fields={fields}
           groups={groups}
           initialValues={initialValues}
-          entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
           injectionSpotId={extensionPoints.hosts.personForm.spotId}
-          legacyInjectionSpotId={PERSON_CREATE_LEGACY_INJECTION_SPOT_ID}
+          legacyInjectionSpotId="crud-form:customers.customer_entity"
+          entityId="customers.person"
+          resourceKind="customers.person"
+          entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
           submitLabel={t('customers.people.form.submit')}
           cancelHref={returnTo ?? '/backend/customers/people'}
           schema={formSchema}
@@ -133,6 +132,10 @@ export default function CreatePersonPage() {
             }
 
             flash(t('customers.people.form.success'), 'success')
+            return newId ? { resourceId: newId } : undefined
+          }}
+          onSubmitSuccess={async (_values, result) => {
+            const newId = result?.resourceId
             if (returnTo) router.push(returnTo)
             else if (newId) router.push(`/backend/customers/people-v2/${newId}`)
             else router.push('/backend/customers/people')

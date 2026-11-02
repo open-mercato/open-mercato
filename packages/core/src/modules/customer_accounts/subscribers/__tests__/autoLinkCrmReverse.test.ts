@@ -219,4 +219,20 @@ describe('reverse CRM auto-link organization isolation (#7852)', () => {
     expect(fixture.user.personEntityId).toBe(key === 'personEntityId' ? value : null)
     expect(fixture.user.customerEntityId).toBe(key === 'customerEntityId' ? value : null)
   })
+
+  it('recovers a company represented by a raw relation ID', async () => {
+    const fixture = setup()
+    fixture.profile.company = fixture.company.id
+    await handle(fixture.payload, fixture.ctx)
+    expect(fixture.user).toMatchObject({ personEntityId: fixture.person.id, customerEntityId: fixture.company.id })
+  })
+
+  it.each(['profile', 'company relation', 'company record'])('links only the person when the %s is missing', async (missing) => {
+    const fixture = setup()
+    if (missing === 'profile') fixture.profiles.length = 0
+    if (missing === 'company relation') fixture.profile.company = null
+    if (missing === 'company record') fixture.entities.splice(fixture.entities.indexOf(fixture.company), 1)
+    await handle(fixture.payload, fixture.ctx)
+    expect(fixture.user).toMatchObject({ personEntityId: fixture.person.id, customerEntityId: null })
+  })
 })

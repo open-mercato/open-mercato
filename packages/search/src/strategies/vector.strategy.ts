@@ -9,6 +9,7 @@ import type {
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { VectorDriver, VectorDriverDocument } from '../vector/types'
 import { searchDebugWarn } from '../lib/debug'
+import { plaintextSearchFields } from '../lib/plaintext-fields'
 
 /**
  * Embedding service interface - minimal subset needed by VectorSearchStrategy.
@@ -138,10 +139,10 @@ export class VectorSearchStrategy implements SearchStrategy {
   async index(record: IndexableRecord): Promise<void> {
     await this.ensureReady()
     // Use text from buildSource if available, otherwise fall back to generic extraction
-    const textContent = record.text
+    const textContent = record.text !== undefined
       ? (Array.isArray(record.text) ? record.text.join('\n') : record.text)
       : this.buildTextContent(record)
-    if (!textContent) return
+    if (!textContent.trim()) return
 
     const embedding = await this.embeddingService.createEmbedding(textContent)
 
@@ -192,7 +193,7 @@ export class VectorSearchStrategy implements SearchStrategy {
     }
 
     // Add string fields from record
-    for (const [, value] of Object.entries(record.fields)) {
+    for (const [, value] of Object.entries(plaintextSearchFields(record))) {
       if (typeof value === 'string' && value.trim()) {
         parts.push(value)
       }

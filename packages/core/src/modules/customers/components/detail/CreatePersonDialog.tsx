@@ -4,7 +4,7 @@ import * as React from 'react'
 import { Building2 } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
+import { CrudForm, type CrudField, type CrudFormSubmitResult } from '@open-mercato/ui/backend/CrudForm'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
@@ -12,7 +12,6 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { E } from '#generated/entities.ids.generated'
-import { crudFormExtensionSpotId } from '@open-mercato/shared/modules/widgets/extension-points'
 import { extensionPoints } from '../../extension-points'
 import {
   buildPersonPayload,
@@ -21,8 +20,6 @@ import {
   createPersonFormSchema,
   type PersonFormValues,
 } from '../formConfig'
-
-const PERSON_CREATE_LEGACY_INJECTION_SPOT_ID = crudFormExtensionSpotId('customers.customer_entity')
 
 type GuardedMutationRunner = <T,>(
   operation: () => Promise<T>,
@@ -138,22 +135,27 @@ export function CreatePersonDialog({
       ? await runGuardedMutation(operation, payload)
       : await operation()
 
+    const newId = response?.result?.id ?? response?.result?.entityId ?? ''
     flash(
       companyId
         ? t('customers.people.createDialog.success', 'Person created and linked to company')
         : t('customers.people.createDialog.successPlain', 'Person created'),
       'success',
     )
-    const newId = response?.result?.id ?? response?.result?.entityId ?? ''
+    return newId ? { resourceId: newId } : undefined
+  }, [companyId, organizationId, runGuardedMutation, t])
+
+  const handleSubmitSuccess = React.useCallback(async (values: PersonFormValues, result: CrudFormSubmitResult | void) => {
+    const payload = buildPersonPayload(values, organizationId)
     const displayNameFromPayload = typeof payload.displayName === 'string' ? payload.displayName : ''
     onPersonCreated?.({
-      id: newId,
+      id: result?.resourceId ?? '',
       displayName: displayNameFromPayload,
       companyId: companyId ?? null,
       companyName: companyName ?? null,
     })
     onClose()
-  }, [companyId, companyName, onClose, onPersonCreated, organizationId, runGuardedMutation, t])
+  }, [companyId, companyName, onClose, onPersonCreated, organizationId])
 
   const handleKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
     if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
@@ -183,15 +185,18 @@ export function CreatePersonDialog({
         <CrudForm<PersonFormValues>
           key={`${companyId ?? 'no-company'}:${formInstanceKey}`}
           embedded
-          entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
           injectionSpotId={extensionPoints.hosts.personForm.spotId}
-          legacyInjectionSpotId={PERSON_CREATE_LEGACY_INJECTION_SPOT_ID}
+          legacyInjectionSpotId="crud-form:customers.customer_entity"
+          entityId="customers.person"
+          resourceKind="customers.person"
+          entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
           fields={fields}
           groups={groups}
           initialValues={initialValues}
           submitLabel={t('customers.people.createDialog.submit', 'Create person')}
           schema={formSchema}
           onSubmit={handleSubmit}
+          onSubmitSuccess={handleSubmitSuccess}
           extraActions={(
             <Button type="button" variant="outline" onClick={onClose}>
               {t('customers.people.createDialog.cancel', 'Cancel')}

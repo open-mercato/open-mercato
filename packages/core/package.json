@@ -8,7 +8,8 @@
     "build": "node build.mjs",
     "watch": "node watch.mjs",
     "test": "jest --config jest.config.cjs",
-    "test:pg-integration": "cross-env OM_PG_INTEGRATION=1 jest --config jest.config.cjs --runInBand 'src/modules/integrations/.+\\.integration\\.test\\.ts$'",
+    "test:pg-integration": "cross-env OM_PG_INTEGRATION=1 jest --config jest.config.cjs --runInBand 'src/modules/(integrations|staff)/.+\\.integration\\.test\\.ts$'",
+    "test:tz": "cross-env TZ=Pacific/Auckland jest --config jest.config.cjs",
     "typecheck": "tsc --noEmit"
   },
   "imports": {
@@ -262,7 +263,7 @@
     "sharp": "^0.35.3",
     "svix": "^1.99.1",
     "ts-pattern": "^5.0.0",
-    "zod": "^4.4.3"
+    "zod": "^4.6.6"
   },
   "peerDependencies": {
     "@open-mercato/ai-assistant": "workspace:*",

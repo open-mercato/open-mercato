@@ -1,16 +1,19 @@
-/**
- * @jest-environment jsdom
- */
-import * as React from 'react'
-import { render } from '@testing-library/react'
-import CreatePersonPage from '../page'
-import { extensionPoints } from '../../../../../extension-points'
+/** @jest-environment jsdom */
 
-const crudFormPropsCapture: { current: Record<string, unknown> | null } = { current: null }
+import * as React from 'react'
+import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
+import type { CrudFormProps } from '@open-mercato/ui/backend/CrudForm'
+import { createCrud } from '@open-mercato/ui/backend/utils/crud'
+import { E } from '#generated/entities.ids.generated'
+import type { PersonFormValues } from '../../../../../components/formConfig'
+import CreatePersonPage from '../page'
+
+const pushMock = jest.fn()
+let capturedProps: CrudFormProps<PersonFormValues>
 
 jest.mock('next/navigation', () => ({
-  useRouter: () => ({ push: jest.fn() }),
-  useSearchParams: () => new URLSearchParams(),
+  useRouter: () => ({ push: pushMock }),
+  useSearchParams: () => ({ get: () => null }),
 }))
 
 jest.mock('@open-mercato/ui/backend/Page', () => ({
@@ -19,57 +22,58 @@ jest.mock('@open-mercato/ui/backend/Page', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
-  CrudForm: (props: Record<string, unknown>) => {
-    crudFormPropsCapture.current = props
-    return <div>form</div>
+  CrudForm: (props: CrudFormProps<PersonFormValues>) => {
+    capturedProps = props
+    return <div />
   },
 }))
 
-jest.mock('@open-mercato/ui/backend/utils/crud', () => ({
-  createCrud: jest.fn(),
-}))
-
-jest.mock('@open-mercato/ui/backend/utils/serverErrors', () => ({
-  createCrudFormError: jest.fn(),
-}))
-
-jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
-  flash: jest.fn(),
-}))
-
-jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
-  useT: () => (key: string, fallback?: string) => fallback ?? key,
-}))
-
+jest.mock('@open-mercato/ui/backend/utils/crud', () => ({ createCrud: jest.fn() }))
+jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({ flash: jest.fn() }))
 jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
   useOrganizationScopeDetail: () => ({ organizationId: 'org-1' }),
+  useOrganizationScopeVersion: () => 0,
 }))
 
-beforeEach(() => {
-  crudFormPropsCapture.current = null
-})
+describe('person create extension flow', () => {
+  beforeEach(() => jest.clearAllMocks())
 
-describe('person create page injection host (#5882)', () => {
-  it('binds the canonical person form spot declared by the module', () => {
-    render(<CreatePersonPage />)
+  it('preserves the legacy host and custom-field identities alongside the semantic person host', () => {
+    renderWithProviders(<CreatePersonPage />)
 
-    expect(crudFormPropsCapture.current?.injectionSpotId).toBe('crud-form:customers.person')
-    expect(crudFormPropsCapture.current?.injectionSpotId).toBe(extensionPoints.hosts.personForm.spotId)
-  })
-
-  it('keeps the legacy derived spot bound as a deprecation bridge', () => {
-    render(<CreatePersonPage />)
-
-    expect(crudFormPropsCapture.current?.injectionSpotId).not.toBe('crud-form:customers.customer_entity')
-    expect(crudFormPropsCapture.current?.legacyInjectionSpotId).toBe('crud-form:customers.customer_entity')
-  })
-
-  it('keeps the existing entityIds so custom-field resolution is unchanged', () => {
-    render(<CreatePersonPage />)
-
-    expect(crudFormPropsCapture.current?.entityIds).toEqual([
-      'customers:customer_entity',
-      'customers:customer_person_profile',
+    expect(capturedProps.injectionSpotId).toBe('crud-form:customers.person')
+    expect(capturedProps.legacyInjectionSpotId).toBe('crud-form:customers.customer_entity')
+    expect(capturedProps.entityId).toBe('customers.person')
+    expect(capturedProps.resourceKind).toBe('customers.person')
+    expect(capturedProps.entityIds).toEqual([
+      E.customers.customer_entity,
+      E.customers.customer_person_profile,
     ])
+  })
+
+  it('returns the new record identity before the post-lifecycle navigation callback', async () => {
+    jest.mocked(createCrud).mockResolvedValue({ result: { id: 'new-person' }, response: {} as Response })
+    renderWithProviders(<CreatePersonPage />)
+    const values: PersonFormValues = {
+      displayName: 'Ada Lovelace',
+      firstName: 'Ada',
+      lastName: 'Lovelace',
+      _example: { priority: 'high' },
+      '_example.priority': 'critical',
+    }
+
+    const result = await capturedProps.onSubmit?.(values)
+
+    expect(result).toEqual({ resourceId: 'new-person' })
+    expect(pushMock).not.toHaveBeenCalled()
+    expect(createCrud).toHaveBeenCalledTimes(1)
+    const nativePayload = jest.mocked(createCrud).mock.calls[0][1]
+    expect(nativePayload).not.toHaveProperty('_example')
+    expect(nativePayload).not.toHaveProperty('_example.priority')
+
+    await capturedProps.onSubmitSuccess?.(values, result)
+
+    expect(pushMock).toHaveBeenCalledWith('/backend/customers/people-v2/new-person')
+    expect(createCrud).toHaveBeenCalledTimes(1)
   })
 })
