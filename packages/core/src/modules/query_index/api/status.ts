@@ -520,21 +520,27 @@ export async function GET(req: Request) {
     } catch {}
   }
 
+  // Scoped callers keep #3887's strict `IN`. The all-organizations view may see every
+  // organization in its tenant, but a tenant-less row that names an organization may name
+  // another tenant's, so it only sees tenant-less rows that are platform-wide.
+  const organizationScoped = Array.isArray(organizationScopeIds) && organizationScopeIds.length > 0
+  const tenantlessRow = (eb: any) => organizationScoped
+    ? eb('tenant_id' as any, 'is', null)
+    : eb.and([eb('tenant_id' as any, 'is', null), eb('organization_id' as any, 'is', null)])
+
   let errorQuery = db
     .selectFrom('indexer_error_logs' as any)
     .selectAll()
   if (tenantId != null) {
     errorQuery = errorQuery.where((eb: any) => eb.or([
       eb('tenant_id' as any, '=', tenantId),
-      eb('tenant_id' as any, 'is', null),
+      tenantlessRow(eb),
     ]))
   } else {
-    errorQuery = errorQuery.where('tenant_id' as any, 'is', null as any)
+    errorQuery = errorQuery.where((eb: any) => tenantlessRow(eb))
   }
-  if (Array.isArray(organizationScopeIds) && organizationScopeIds.length) {
+  if (organizationScoped) {
     errorQuery = errorQuery.where('organization_id' as any, 'in', organizationScopeIds)
-  } else {
-    errorQuery = errorQuery.where('organization_id' as any, 'is', null as any)
   }
   const errorRows = await errorQuery
     .orderBy('occurred_at' as any, 'desc')
@@ -564,15 +570,13 @@ export async function GET(req: Request) {
   if (tenantId != null) {
     logsQuery = logsQuery.where((eb: any) => eb.or([
       eb('tenant_id' as any, '=', tenantId),
-      eb('tenant_id' as any, 'is', null),
+      tenantlessRow(eb),
     ]))
   } else {
-    logsQuery = logsQuery.where('tenant_id' as any, 'is', null as any)
+    logsQuery = logsQuery.where((eb: any) => tenantlessRow(eb))
   }
-  if (Array.isArray(organizationScopeIds) && organizationScopeIds.length) {
+  if (organizationScoped) {
     logsQuery = logsQuery.where('organization_id' as any, 'in', organizationScopeIds)
-  } else {
-    logsQuery = logsQuery.where('organization_id' as any, 'is', null as any)
   }
   const logRows = await logsQuery
     .orderBy('occurred_at' as any, 'desc')
