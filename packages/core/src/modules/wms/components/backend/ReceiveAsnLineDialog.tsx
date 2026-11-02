@@ -72,6 +72,59 @@ async function reloadReceivingLineQty(lineId: string): Promise<number | null> {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+type QcOutcomeSelectProps = {
+  id?: string
+  disabled?: boolean
+  'aria-describedby'?: string
+  'aria-invalid'?: boolean
+  'aria-required'?: boolean
+  value: 'passed' | 'failed'
+  onValueChange: (value: 'passed' | 'failed') => void
+  passedLabel: string
+  failedLabel: string
+}
+
+const QcOutcomeSelect = React.forwardRef<HTMLButtonElement, QcOutcomeSelectProps>(
+  function QcOutcomeSelect(
+    {
+      id,
+      disabled,
+      value,
+      onValueChange,
+      passedLabel,
+      failedLabel,
+      'aria-describedby': ariaDescribedBy,
+      'aria-invalid': ariaInvalid,
+      'aria-required': ariaRequired,
+    },
+    ref,
+  ) {
+    return (
+      <Select
+        value={value}
+        onValueChange={(next) => onValueChange(next as 'passed' | 'failed')}
+        disabled={disabled}
+      >
+        <SelectTrigger
+          ref={ref}
+          id={id}
+          disabled={disabled}
+          aria-describedby={ariaDescribedBy}
+          aria-invalid={ariaInvalid}
+          aria-required={ariaRequired}
+          data-testid="receive-asn-qc"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="passed">{passedLabel}</SelectItem>
+          <SelectItem value="failed">{failedLabel}</SelectItem>
+        </SelectContent>
+      </Select>
+    )
+  },
+)
+
 type ReceiveAsnLineDialogProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -487,23 +540,12 @@ export function ReceiveAsnLineDialog({
               required
               error={fieldErrors.qcStatus}
             >
-              <Select
+              <QcOutcomeSelect
                 value={qcStatus}
-                onValueChange={(value) => setQcStatus(value as 'passed' | 'failed')}
-                disabled={submitting}
-              >
-                <SelectTrigger data-testid="receive-asn-qc">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="passed">
-                    {t('wms.backend.asns.qc.passed', 'Passed')}
-                  </SelectItem>
-                  <SelectItem value="failed">
-                    {t('wms.backend.asns.qc.failed', 'Failed')}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
+                onValueChange={setQcStatus}
+                passedLabel={t('wms.backend.asns.qc.passed', 'Passed')}
+                failedLabel={t('wms.backend.asns.qc.failed', 'Failed')}
+              />
             </FormField>
 
             {qcStatus === 'passed' ? (

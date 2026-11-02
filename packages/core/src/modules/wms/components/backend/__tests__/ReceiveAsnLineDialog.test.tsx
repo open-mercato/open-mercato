@@ -121,6 +121,24 @@ describe('ReceiveAsnLineDialog', () => {
     )
   })
 
+  it('associates the QC outcome label with the select trigger', () => {
+    render(
+      <ReceiveAsnLineDialog
+        open
+        onOpenChange={jest.fn()}
+        access={access}
+        asnId="11111111-1111-1111-1111-111111111111"
+        warehouseId="22222222-2222-2222-2222-222222222222"
+        line={line}
+      />,
+    )
+
+    const qc = screen.getByRole('combobox', { name: 'QC outcome' })
+    expect(qc).toBe(screen.getByTestId('receive-asn-qc'))
+    expect(qc).toHaveAttribute('aria-required', 'true')
+    expect(screen.getByText('QC outcome').closest('label')).toHaveAttribute('for', qc.id)
+  })
+
   it('renders the ASN receive dialog distinctly from ad-hoc receive', () => {
     render(
       <ReceiveAsnLineDialog
