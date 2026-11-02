@@ -36,7 +36,7 @@ function createSeedContainer(
 
 export const metadata = {
   event: 'directory.organization.created',
-  persistent: false,
+  persistent: true,
   id: 'directory:seed-organization-defaults',
 }
 
@@ -49,6 +49,7 @@ export default async function seedOrganizationDefaults(
   if (!tenantId || !organizationId) return
 
   const rootEm = ctx.resolve<EntityManager>('em')
+  const failures: unknown[] = []
   for (const moduleEntry of getModules()) {
     const seedDefaults = moduleEntry.setup?.seedDefaults
     if (!seedDefaults) continue
@@ -62,6 +63,7 @@ export default async function seedOrganizationDefaults(
         container: createSeedContainer(ctx, em),
       })
     } catch (error) {
+      failures.push(error)
       logger.error('Organization defaults provisioning failed', {
         moduleId: moduleEntry.id,
         tenantId,
@@ -74,5 +76,9 @@ export default async function seedOrganizationDefaults(
         attributes: { moduleId: moduleEntry.id, tenantId, organizationId },
       })
     }
+  }
+
+  if (failures.length > 0) {
+    throw new AggregateError(failures, 'One or more organization default hooks failed')
   }
 }

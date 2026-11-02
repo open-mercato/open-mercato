@@ -19,10 +19,10 @@ function makeEntityManager() {
 }
 
 describe('directory seedOrganizationDefaults subscriber', () => {
-  it('runs inline for each organization-created event', () => {
+  it('runs durably for each organization-created event', () => {
     expect(metadata).toEqual({
       event: 'directory.organization.created',
-      persistent: false,
+      persistent: true,
       id: 'directory:seed-organization-defaults',
     })
   })
@@ -86,7 +86,7 @@ describe('directory seedOrganizationDefaults subscriber', () => {
       },
       tenantId: 'tenant-1',
       organizationId: 'organization-2',
-    })).resolves.toBeUndefined()
+    })).rejects.toThrow('One or more organization default hooks failed')
 
     expect(failingSeed).toHaveBeenCalledTimes(1)
     expect(succeedingSeed).toHaveBeenCalledTimes(1)
