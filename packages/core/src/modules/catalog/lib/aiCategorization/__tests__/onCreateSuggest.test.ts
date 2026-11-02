@@ -154,6 +154,27 @@ describe('runOnCreateSuggestion', () => {
     expect(suggester).not.toHaveBeenCalled()
   })
 
+  it('looks the product up only inside the job scope so a foreign-scope product is never read or sent to the provider', async () => {
+    const { container, count } = buildContainer({ productCount: 0 })
+    const suggester: jest.MockedFunction<ProductSuggester> = jest.fn()
+    const foreignScopePayload: CatalogProductAiCategorizeOnCreateJobPayload = {
+      trigger: 'on_create',
+      productId: 'product-in-other-tenant',
+      scope: { organizationId: 'org-1', tenantId: 'tenant-1' },
+    }
+    expect(await runOnCreateSuggestion({ container, payload: foreignScopePayload, suggester })).toEqual({
+      proceed: false,
+      reason: 'product_not_found',
+    })
+    expect(count).toHaveBeenCalledWith(CatalogProduct, {
+      id: 'product-in-other-tenant',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      deletedAt: null,
+    })
+    expect(suggester).not.toHaveBeenCalled()
+  })
+
   it('does not throw when the suggester fails', async () => {
     const { container } = buildContainer()
     const suggester: jest.MockedFunction<ProductSuggester> = jest.fn().mockRejectedValue(new Error('boom'))
