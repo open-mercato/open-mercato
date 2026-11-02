@@ -3,6 +3,10 @@
 import * as React from 'react'
 import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { RadioGroup } from '@open-mercato/ui/primitives/radio'
+import { RadioField } from '@open-mercato/ui/primitives/radio-field'
+import { Input } from '@open-mercato/ui/primitives/input'
+import { Label } from '@open-mercato/ui/primitives/label'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -25,6 +29,15 @@ type AiCategorizationSettingsResponse = {
   available?: boolean
   reason?: string
   effective?: boolean
+}
+
+const THRESHOLD_MIN = 0.5
+const THRESHOLD_MAX = 0.99
+
+function parseThreshold(raw: string): number | null {
+  const parsed = Number(raw.replace(',', '.'))
+  if (!Number.isFinite(parsed) || parsed < THRESHOLD_MIN || parsed > THRESHOLD_MAX) return null
+  return Math.round(parsed * 100) / 100
 }
 
 const DEFAULT_SETTINGS: AiCategorizationSettingsValue = {
@@ -81,6 +94,8 @@ export function AiCategorizationSettings() {
   const [available, setAvailable] = React.useState(false)
   const [reason, setReason] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
+  const [thresholdDraft, setThresholdDraft] = React.useState('')
+  const [thresholdInvalid, setThresholdInvalid] = React.useState(false)
 
   const loadError = t('catalog.settings.aiCategorization.errors.load', 'Failed to load AI categorization settings.')
 
@@ -91,7 +106,9 @@ export function AiCategorizationSettings() {
         undefined,
         { errorMessage: loadError, fallback: { settings: DEFAULT_SETTINGS, available: false } },
       )
-      setSettings(payload.settings ?? DEFAULT_SETTINGS)
+      const loaded = payload.settings ?? DEFAULT_SETTINGS
+      setSettings(loaded)
+      setThresholdDraft(String(loaded.autoApplyThreshold))
       setAvailable(payload.available === true)
       setReason(payload.reason ?? null)
     } catch (err) {
@@ -106,10 +123,9 @@ export function AiCategorizationSettings() {
     load().catch(() => {})
   }, [load, scopeVersion])
 
-  const handleToggle = React.useCallback(async (next: boolean) => {
+  const saveSettings = React.useCallback(async (nextSettings: AiCategorizationSettingsValue) => {
     if (!settings) return
     const previous = settings
-    const nextSettings = { ...settings, enabled: next }
     setSettings(nextSettings)
     setSaving(true)
     try {
@@ -124,6 +140,7 @@ export function AiCategorizationSettings() {
       if (!call.ok) {
         if (call.response.status === 422) {
           setSettings(previous)
+          setThresholdDraft(String(previous.autoApplyThreshold))
           flash(
             t(
               'catalog.settings.aiCategorization.errors.unavailable',
@@ -142,6 +159,7 @@ export function AiCategorizationSettings() {
     } catch (err) {
       logger.error('catalog.ai_categorization.settings.save failed', { err })
       setSettings(previous)
+      setThresholdDraft(String(previous.autoApplyThreshold))
       const message = err instanceof Error
         ? err.message
         : t('catalog.settings.aiCategorization.errors.save', 'Failed to save AI categorization settings.')
@@ -150,6 +168,36 @@ export function AiCategorizationSettings() {
       setSaving(false)
     }
   }, [settings, t])
+
+  const handleToggle = React.useCallback(
+    (next: boolean) => {
+      if (!settings) return
+      void saveSettings({ ...settings, enabled: next })
+    },
+    [saveSettings, settings],
+  )
+
+  const handleApplyModeChange = React.useCallback(
+    (next: string) => {
+      if (!settings || (next !== 'suggest' && next !== 'auto_apply') || next === settings.applyMode) return
+      void saveSettings({ ...settings, applyMode: next })
+    },
+    [saveSettings, settings],
+  )
+
+  const handleThresholdCommit = React.useCallback(() => {
+    if (!settings) return
+    const parsed = parseThreshold(thresholdDraft)
+    if (parsed === null) {
+      setThresholdInvalid(true)
+      return
+    }
+    setThresholdInvalid(false)
+    setThresholdDraft(String(parsed))
+    if (parsed !== settings.autoApplyThreshold) {
+      void saveSettings({ ...settings, autoApplyThreshold: parsed })
+    }
+  }, [saveSettings, settings, thresholdDraft])
 
   return (
     <section className="border bg-card text-card-foreground shadow-sm">
@@ -188,8 +236,69 @@ export function AiCategorizationSettings() {
               )}
               checked={settings.enabled}
               disabled={saving || !available}
-              onCheckedChange={(next) => { void handleToggle(next) }}
+              onCheckedChange={handleToggle}
             />
+            {settings.enabled ? (
+              <div className="space-y-3">
+                <RadioGroup
+                  value={settings.applyMode}
+                  onValueChange={handleApplyModeChange}
+                  disabled={saving}
+                  aria-label={t('catalog.settings.aiCategorization.applyMode.label', 'Apply mode')}
+                >
+                  <RadioField
+                    value="suggest"
+                    label={t('catalog.settings.aiCategorization.applyMode.suggest.label', 'Suggest and review')}
+                    description={t(
+                      'catalog.settings.aiCategorization.applyMode.suggest.description',
+                      'Every suggestion waits for a person to accept or reject it. Recommended.',
+                    )}
+                  />
+                  <RadioField
+                    value="auto_apply"
+                    label={t('catalog.settings.aiCategorization.applyMode.autoApply.label', 'Auto-apply confident suggestions')}
+                    description={t(
+                      'catalog.settings.aiCategorization.applyMode.autoApply.description',
+                      'Writes the category without review, only for runs a person started (single product or bulk), only when confidence reaches the threshold, and only for products that have no category yet. Products that already have a category, and runs triggered automatically on product creation, always stay pending for review. Auto-applied categories can be undone from the action log and filtered on the review page.',
+                    )}
+                  />
+                </RadioGroup>
+                {settings.applyMode === 'auto_apply' ? (
+                  <div className="space-y-1 max-w-xs">
+                    <Label htmlFor="ai-categorization-threshold">
+                      {t('catalog.settings.aiCategorization.threshold.label', 'Auto-apply confidence threshold')}
+                    </Label>
+                    <Input
+                      id="ai-categorization-threshold"
+                      type="number"
+                      inputMode="decimal"
+                      min={THRESHOLD_MIN}
+                      max={THRESHOLD_MAX}
+                      step={0.01}
+                      value={thresholdDraft}
+                      disabled={saving}
+                      aria-invalid={thresholdInvalid}
+                      onChange={(event) => {
+                        setThresholdDraft(event.target.value)
+                        setThresholdInvalid(false)
+                      }}
+                      onBlur={handleThresholdCommit}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') handleThresholdCommit()
+                      }}
+                    />
+                    <p className={thresholdInvalid ? 'text-xs text-status-error-text' : 'text-xs text-muted-foreground'}>
+                      {thresholdInvalid
+                        ? t('catalog.settings.aiCategorization.threshold.invalid', 'Enter a value between 0.50 and 0.99.')
+                        : t(
+                            'catalog.settings.aiCategorization.threshold.hint',
+                            'Between 0.50 and 0.99. Confidence is the joint probability along the whole category path, so it falls with depth; deep categories rarely reach a high threshold. The default is provisional until review data is available.',
+                          )}
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             <div className="rounded-md border border-border bg-muted/30 p-3 text-xs text-muted-foreground space-y-1">
               <p className="font-medium text-foreground">
                 {t('catalog.settings.aiCategorization.disclosureTitle', 'What is sent to the decision model provider')}

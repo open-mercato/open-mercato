@@ -11,6 +11,8 @@ const persistCategorySuggestion = jest.fn()
 const emitCatalogEvent = jest.fn().mockResolvedValue(undefined)
 const decideMock = jest.fn()
 const emFindMock = jest.fn().mockResolvedValue([])
+const emFindOneMock = jest.fn()
+const maybeAutoApplySuggestion = jest.fn()
 
 let authValue: Record<string, unknown> | null = { tenantId, orgId: organizationId, sub: 'user-1' }
 let decisionServiceAvailable = true
@@ -18,7 +20,7 @@ let decisionServiceAvailable = true
 const container = {
   resolve: jest.fn((name: string) => {
     if (name === 'catalogCategorizationService') return { getStatus: getStatusMock }
-    if (name === 'em') return { fork: () => ({ find: emFindMock }) }
+    if (name === 'em') return { fork: () => ({ find: emFindMock, findOne: emFindOneMock }) }
     if (name === 'decisionModelService') {
       if (!decisionServiceAvailable) throw new Error('not installed')
       return { getAvailability: () => ({ available: true, provider: 'openrouter', model: 'jev' }), decide: decideMock }
@@ -40,6 +42,7 @@ jest.mock('../../../../../lib/aiCategorization/treeWalk', () => ({
 }))
 jest.mock('../../../../../lib/aiCategorization/suggestionPersistence', () => ({ persistCategorySuggestion }))
 jest.mock('../../../../../events', () => ({ emitCatalogEvent }))
+jest.mock('../../../../../lib/aiCategorization/autoApply', () => ({ maybeAutoApplySuggestion }))
 
 import { POST } from '../route'
 
@@ -55,6 +58,7 @@ describe('catalog product category-suggestion route', () => {
     getStatusMock.mockResolvedValue({ available: true, enabled: true, effective: true, settings: {} })
     buildProductState.mockResolvedValue({ title: 'Widget' })
     emFindMock.mockResolvedValue([])
+    maybeAutoApplySuggestion.mockResolvedValue({ applied: false, reason: 'mode_suggest' })
   })
 
   it('rejects unauthenticated requests', async () => {
@@ -160,5 +164,77 @@ describe('catalog product category-suggestion route', () => {
       categoryPathIds: [],
       confidence: null,
     }))
+  })
+
+  describe('auto-apply', () => {
+    const suggestionRow = {
+      id: 'suggestion-1',
+      product: productId,
+      organizationId,
+      tenantId,
+      outcome: 'suggested',
+      categoryId: 'cat-1',
+      categoryPathIds: ['cat-1'],
+      confidence: '0.9000',
+      levels: [],
+      status: 'pending',
+      trigger: 'manual',
+      provider: 'openrouter',
+      model: 'jev',
+      promptVersion: 'test-version',
+      costUsd: null,
+      durationMs: 5,
+      requestedByUserId: 'user-1',
+      reviewedByUserId: null,
+      reviewedAt: null,
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      updatedAt: new Date('2026-01-01T00:00:00Z'),
+    }
+
+    beforeEach(() => {
+      walkCategoryTree.mockResolvedValue({
+        outcome: 'suggested',
+        categoryId: 'cat-1',
+        categoryPathIds: ['cat-1'],
+        confidence: 0.9,
+        levels: [],
+      })
+      persistCategorySuggestion.mockResolvedValue(suggestionRow)
+      getStatusMock.mockResolvedValue({
+        available: true,
+        enabled: true,
+        effective: true,
+        settings: { applyMode: 'auto_apply', autoApplyThreshold: 0.85 },
+      })
+    })
+
+    it('runs auto-apply with the manual trigger and returns the auto_applied suggestion and product', async () => {
+      maybeAutoApplySuggestion.mockResolvedValue({
+        applied: true,
+        logEntry: null,
+        product: { id: productId, categoryIds: ['cat-1'], updatedAt: '2026-01-02T00:00:00.000Z' },
+      })
+      emFindOneMock.mockResolvedValue({ ...suggestionRow, status: 'auto_applied' })
+      const response = await POST(makeRequest(), { params: { id: productId } })
+      expect(response.status).toBe(201)
+      expect(maybeAutoApplySuggestion).toHaveBeenCalledWith(
+        expect.objectContaining({
+          trigger: 'manual',
+          settings: { applyMode: 'auto_apply', autoApplyThreshold: 0.85 },
+        }),
+      )
+      const body = await response.json() as { suggestion: { status: string }; product?: { categoryIds: string[] } }
+      expect(body.suggestion.status).toBe('auto_applied')
+      expect(body.product?.categoryIds).toEqual(['cat-1'])
+    })
+
+    it('keeps the pending suggestion and omits the product when auto-apply is skipped', async () => {
+      maybeAutoApplySuggestion.mockResolvedValue({ applied: false, reason: 'already_categorized' })
+      const response = await POST(makeRequest(), { params: { id: productId } })
+      expect(response.status).toBe(201)
+      const body = await response.json() as { suggestion: { status: string }; product?: unknown }
+      expect(body.suggestion.status).toBe('pending')
+      expect(body.product).toBeUndefined()
+    })
   })
 })

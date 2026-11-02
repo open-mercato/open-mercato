@@ -13,7 +13,9 @@ import { buildProductState } from '../../../../lib/aiCategorization/productState
 import { walkCategoryTree, CATEGORIZATION_PROMPT_VERSION, type TreeWalkCategory } from '../../../../lib/aiCategorization/treeWalk'
 import { persistCategorySuggestion } from '../../../../lib/aiCategorization/suggestionPersistence'
 import { serializeCategorySuggestion } from '../../../../lib/aiCategorization/serializeSuggestion'
-import { CatalogProductCategory } from '../../../../data/entities'
+import { maybeAutoApplySuggestion, type AutoAppliedProduct } from '../../../../lib/aiCategorization/autoApply'
+import { attachOperationHeader } from '../../../../lib/aiCategorization/operationHeader'
+import { CatalogProductCategory, CatalogProductCategorySuggestion } from '../../../../data/entities'
 import { computeHierarchyForCategories } from '../../../../lib/categoryHierarchy'
 import { emitCatalogEvent } from '../../../../events'
 
@@ -119,7 +121,7 @@ export async function POST(req: Request, routeContext: RouteContext) {
       requestedByUserId: auth.sub ?? null,
     })
 
-    const serialized = serializeCategorySuggestion(suggestion)
+    let serialized = serializeCategorySuggestion(suggestion)
     await emitCatalogEvent('catalog.category_suggestion.created', {
       id: serialized.id,
       productId: serialized.productId,
@@ -128,7 +130,34 @@ export async function POST(req: Request, routeContext: RouteContext) {
       confidence: serialized.confidence,
     }, { tenantId, organizationId })
 
-    return NextResponse.json({ suggestion: serialized }, { status: 201 })
+    let autoApplyLogEntry: unknown = null
+    let autoAppliedProduct: AutoAppliedProduct | null = null
+    if (walkResult.outcome === 'suggested') {
+      const autoApply = await maybeAutoApplySuggestion({
+        container,
+        em,
+        suggestion,
+        trigger: 'manual',
+        settings: status.settings,
+        commandContext: {
+          container,
+          auth,
+          organizationScope: null,
+          selectedOrganizationId: organizationId,
+          organizationIds: [organizationId],
+        },
+      })
+      if (autoApply.applied) {
+        autoApplyLogEntry = autoApply.logEntry
+        autoAppliedProduct = autoApply.product
+        const refreshed = await (container.resolve('em') as EntityManager)
+          .fork()
+          .findOne(CatalogProductCategorySuggestion, { id: suggestion.id })
+        if (refreshed) serialized = serializeCategorySuggestion(refreshed)
+      }
+    }
+
+    return attachOperationHeader(NextResponse.json({ suggestion: serialized, ...(autoAppliedProduct ? { product: autoAppliedProduct } : {}) }, { status: 201 }), autoApplyLogEntry)
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
@@ -153,7 +182,7 @@ const postDoc: OpenApiMethodDoc = {
   summary: 'Suggest a category for a product via the decision model port',
   tags: ['Catalog'],
   responses: [
-    { status: 201, description: 'Suggestion created', schema: z.object({ suggestion: suggestionSchema }) },
+    { status: 201, description: 'Suggestion created; when applyMode is auto_apply and the suggestion was applied, status is auto_applied and the updated product is included', schema: z.object({ suggestion: suggestionSchema, product: z.object({ id: z.string().uuid(), categoryIds: z.array(z.string().uuid()), updatedAt: z.string() }).optional() }) },
     { status: 200, description: 'Decision model port error', schema: z.object({ outcome: z.literal('error'), code: z.string() }) },
   ],
   errors: [

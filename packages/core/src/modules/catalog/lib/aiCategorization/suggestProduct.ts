@@ -1,9 +1,12 @@
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { CatalogProductCategory } from '../../data/entities'
 import { emitCatalogEvent } from '../../events'
 import { computeHierarchyForCategories } from '../categoryHierarchy'
-import { CATALOG_AI_CATEGORIZATION_MODULE_ID } from './categorizationService'
+import { maybeAutoApplySuggestion } from './autoApply'
+import { CATALOG_AI_CATEGORIZATION_MODULE_ID, type CatalogCategorizationService } from './categorizationService'
 import type { CatalogDecisionModelPort } from './decisionModelPort'
 import { buildProductState } from './productState'
 import { serializeCategorySuggestion } from './serializeSuggestion'
@@ -13,6 +16,8 @@ import {
   walkCategoryTree,
   type TreeWalkCategory,
 } from './treeWalk'
+
+const logger = createLogger('catalog')
 
 export type ProductSuggestionScope = {
   tenantId: string
@@ -44,8 +49,9 @@ function resolvePort(container: AwilixContainer): CatalogDecisionModelPort | nul
 export function createProductSuggester(params: {
   container: AwilixContainer
   scope: ProductSuggestionScope
+  commandContext?: CommandRuntimeContext
 }): ProductSuggester {
-  const { container, scope } = params
+  const { container, scope, commandContext } = params
   const em = (container.resolve('em') as EntityManager).fork()
   let tree: { roots: TreeWalkCategory[]; childrenOf: (categoryId: string) => TreeWalkCategory[] } | null = null
 
@@ -131,6 +137,22 @@ export function createProductSuggester(params: {
       },
       { tenantId: scope.tenantId, organizationId: scope.organizationId },
     )
+    if (commandContext && walkResult.outcome === 'suggested') {
+      try {
+        const categorizationService = container.resolve('catalogCategorizationService') as CatalogCategorizationService
+        const { settings } = await categorizationService.getStatus({ tenantId: scope.tenantId })
+        await maybeAutoApplySuggestion({
+          container,
+          em,
+          suggestion,
+          trigger: 'bulk',
+          settings,
+          commandContext,
+        })
+      } catch (err) {
+        logger.error('catalog.ai_categorization.auto_apply settings lookup failed', { err, suggestionId: suggestion.id })
+      }
+    }
     return { outcome: walkResult.outcome }
   }
 }

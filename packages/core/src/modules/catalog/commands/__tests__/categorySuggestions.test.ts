@@ -119,6 +119,29 @@ describe('catalog.category_suggestions.accept', () => {
       .rejects.toMatchObject({ status: 422, body: { code: 'category_unavailable' } })
   })
 
+  it('marks the suggestion auto_applied and emits the accepted event when autoApplied is set', async () => {
+    findWithDecryption.mockResolvedValueOnce([])
+    const suggestion = buildSuggestion()
+    const em = buildEm([suggestion, buildCategory()])
+    await acceptCategorySuggestionCommand.execute({ id: SUGGESTION, autoApplied: true }, buildCtx(em))
+    expect(suggestion.status).toBe('auto_applied')
+    expect(emitCatalogEvent).toHaveBeenCalledWith(
+      'catalog.category_suggestion.accepted',
+      expect.objectContaining({ id: SUGGESTION, status: 'auto_applied' }),
+      expect.anything(),
+    )
+  })
+
+  it('refuses autoApplied on a product that already has a category and changes nothing', async () => {
+    findWithDecryption.mockResolvedValueOnce([{ position: 0, category: { id: 'existing-1' } }])
+    const suggestion = buildSuggestion()
+    const em = buildEm([suggestion, buildCategory()])
+    await expect(acceptCategorySuggestionCommand.execute({ id: SUGGESTION, autoApplied: true }, buildCtx(em)))
+      .rejects.toMatchObject({ status: 409, body: { code: 'product_already_categorized' } })
+    expect(suggestion.status).toBe('pending')
+    expect(syncCategoryAssignments).not.toHaveBeenCalled()
+  })
+
   it('returns 409 when the suggestion is not pending', async () => {
     const suggestion = buildSuggestion({ status: 'accepted' })
     const em = buildEm([suggestion])

@@ -25,6 +25,7 @@ const acceptSuggestionInputSchema = z.object({
   id: z.string().uuid(),
   categoryId: z.string().uuid().optional(),
   makeMain: z.boolean().default(false),
+  autoApplied: z.boolean().default(false),
 })
 type AcceptSuggestionInput = z.infer<typeof acceptSuggestionInputSchema>
 
@@ -184,11 +185,14 @@ const acceptCategorySuggestionCommand: CommandHandler<AcceptSuggestionInput, Acc
     }
 
     const before = await loadCurrentCategoryIds(em, product)
+    if (parsed.autoApplied && before.length > 0) {
+      throw new CrudHttpError(409, { code: 'product_already_categorized' })
+    }
     const after = mergeAcceptedCategory(before, categoryId, parsed.makeMain)
 
     await syncCategoryAssignments(em, product, after)
     product.updatedAt = new Date()
-    suggestion.status = 'accepted'
+    suggestion.status = parsed.autoApplied ? 'auto_applied' : 'accepted'
     suggestion.reviewedByUserId = ctx.auth?.sub ?? null
     suggestion.reviewedAt = new Date()
     await em.flush()

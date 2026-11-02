@@ -31,7 +31,12 @@ type CategorySuggestion = {
 }
 
 type SettingsResponse = { available?: boolean; effective?: boolean }
-type SuggestResponse = { suggestion?: CategorySuggestion; outcome?: 'error'; code?: string }
+type SuggestResponse = {
+  suggestion?: CategorySuggestion
+  product?: { id: string; categoryIds: string[]; updatedAt: string }
+  outcome?: 'error'
+  code?: string
+}
 type ListResponse = { items?: CategorySuggestion[] }
 type AcceptResponse = { suggestion: CategorySuggestion; product: { id: string; categoryIds: string[]; updatedAt: string } }
 
@@ -125,6 +130,13 @@ export function CategorySuggestionCard({
         flash(t(portErrorMessageKey(payload.code), 'AI category suggestion failed. Please try again.'), 'error')
         return
       }
+      if (payload.suggestion?.status === 'auto_applied' && payload.product) {
+        if (!categoryIdsDirty) setValue('categoryIds', payload.product.categoryIds)
+        setValue('updatedAt', payload.product.updatedAt)
+        setSuggestion(null)
+        flash(t('catalog.products.create.organize.aiSuggestion.autoApplied', 'Category applied automatically. You can undo it from the action log.'), 'success')
+        return
+      }
       setSuggestion(payload.suggestion ?? null)
       if (payload.suggestion?.outcome === 'no_match') {
         flash(t('catalog.products.create.organize.aiSuggestion.noMatch', 'No matching category was found.'), 'success')
@@ -135,7 +147,7 @@ export function CategorySuggestionCard({
     } finally {
       setLoading(false)
     }
-  }, [productId, t])
+  }, [productId, categoryIdsDirty, setValue, t])
 
   const handleAccept = React.useCallback(async (categoryId: string, makeMain: boolean) => {
     if (!suggestion) return

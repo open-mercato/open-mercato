@@ -148,4 +148,31 @@ describe('catalog ai-categorization settings route', () => {
     expect(response.status).toBe(409)
     expect(setValueMock).not.toHaveBeenCalled()
   })
+
+  it('persists auto_apply with a threshold inside the allowed range', async () => {
+    const response = await PUT(
+      makePutRequest({ ...DEFAULT_SETTINGS, applyMode: 'auto_apply', autoApplyThreshold: 0.9 }),
+    )
+    expect(response.status).toBe(200)
+    expect(setValueMock).toHaveBeenCalledWith(
+      'catalog',
+      'ai_categorization',
+      expect.objectContaining({ applyMode: 'auto_apply', autoApplyThreshold: 0.9 }),
+      { tenantId },
+    )
+  })
+
+  it.each([0.49, 1, 0, -1])('rejects the out-of-range threshold %s with 400', async (threshold) => {
+    const response = await PUT(
+      makePutRequest({ ...DEFAULT_SETTINGS, applyMode: 'auto_apply', autoApplyThreshold: threshold }),
+    )
+    expect(response.status).toBe(400)
+    expect(setValueMock).not.toHaveBeenCalled()
+  })
+
+  it('rejects an unknown apply mode with 400', async () => {
+    const response = await PUT(makePutRequest({ ...DEFAULT_SETTINGS, applyMode: 'always' }))
+    expect(response.status).toBe(400)
+    expect(setValueMock).not.toHaveBeenCalled()
+  })
 })

@@ -110,6 +110,7 @@ export async function categorizeProductsWithProgress(params: {
         organizationId: scope.organizationId,
         userId: commandContext.auth?.sub ?? scope.userId ?? '',
       },
+      commandContext,
     })
 
   await progressService.startJob(progressJobId, progressContext)
