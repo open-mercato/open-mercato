@@ -2,7 +2,7 @@ import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { OM_LOG_LEVEL_ENV, resetLogLevelCache } from '@open-mercato/shared/lib/logger'
 import { resetServerLoggerCache } from '@open-mercato/shared/lib/logger'
-import { hash } from 'bcryptjs'
+import { getPasswordHasher } from '@open-mercato/shared/lib/auth/passwordHasher'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { EventBus } from '@open-mercato/events/types'
 import { User, Role, UserRole } from '@open-mercato/core/modules/auth/data/entities'
@@ -64,7 +64,7 @@ const addUser: ModuleCli = {
     if (!org) throw new Error('Organization not found')
     const orgTenantId = org.tenant?.id ? String(org.tenant.id) : null
     const normalizedTenantId = normalizeTenantId(orgTenantId ?? null) ?? null
-    const passwordHash = await hash(password, 10)
+    const passwordHash = await getPasswordHasher().hash(password)
     let createdUserId: string | null = null
     await em.transactional(async (tem: EntityManager) => {
       const user = tem.create(User, {
@@ -798,7 +798,7 @@ const setPassword: ModuleCli = {
       return
     }
 
-    user.passwordHash = await hash(password, 10)
+    user.passwordHash = await getPasswordHasher().hash(password)
     await em.persist(user).flush()
 
     console.log(`✅ Password updated successfully for user: ${email}`)

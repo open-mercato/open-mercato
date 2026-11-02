@@ -1,4 +1,4 @@
-import { hash } from 'bcryptjs'
+import { getPasswordHasher } from '@open-mercato/shared/lib/auth/passwordHasher'
 import { randomBytes } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { Role, RoleAcl, User, UserRole } from '@open-mercato/core/modules/auth/data/entities'
@@ -344,8 +344,8 @@ export async function setupInitialTenant(
       const fallbackEmployeePwd = isProduction ? generateDerivedPassword() : DEMO_DERIVED_PASSWORD
       const adminPasswordPlain = envAdminPwd ?? fallbackAdminPwd
       const employeePasswordPlain = envEmployeePwd ?? fallbackEmployeePwd
-      const adminPasswordHash = await hash(adminPasswordPlain, 10)
-      const employeePasswordHash = await hash(employeePasswordPlain, 10)
+      const adminPasswordHash = await getPasswordHasher().hash(adminPasswordPlain)
+      const employeePasswordHash = await getPasswordHasher().hash(employeePasswordPlain)
       addUniqueBaseUser(baseUsers, {
         email: adminEmail,
         roles: ['admin'],
@@ -585,7 +585,7 @@ function shouldKeepDemoSuperadminDuringInit(): boolean {
 
 async function resolvePasswordHash(input: PrimaryUserInput): Promise<string | null> {
   if (typeof input.hashedPassword === 'string') return input.hashedPassword
-  if (input.password) return hash(input.password, 10)
+  if (input.password) return getPasswordHasher().hash(input.password)
   return null
 }
 

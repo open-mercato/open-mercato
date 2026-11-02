@@ -18,6 +18,7 @@ const authServiceMock = {
   verifyPassword: jest.fn(async () => true),
   getUserRoles: jest.fn(async () => ['admin']),
   updateLastLoginAt: jest.fn(async () => undefined),
+  rehashPasswordIfNeeded: jest.fn(async () => false),
   createSession: jest.fn(async () => ({ session: { id: 'session-1' }, token: 'session-token' })),
 }
 
@@ -74,8 +75,31 @@ describe('POST /api/auth/login with custom route interceptors', () => {
     expect(await response.json()).toEqual({ ok: false, error: 'Invalid email or password' })
     expect(authServiceMock.verifyPassword).toHaveBeenCalledWith(expect.anything(), 'secret')
     expect(authServiceMock.updateLastLoginAt).not.toHaveBeenCalled()
+    expect(authServiceMock.rehashPasswordIfNeeded).not.toHaveBeenCalled()
     expect(authServiceMock.createSession).not.toHaveBeenCalled()
     expect(response.headers.get('set-cookie')).toBeNull()
+  })
+
+  test('offers the password for an opportunistic rehash after a successful login', async () => {
+    const response = await POST(new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      body: makeFormData({ email: 'user@example.com', password: 'secret' }),
+    }))
+    expect(response.status).toBe(200)
+    expect(authServiceMock.rehashPasswordIfNeeded).toHaveBeenCalledWith(
+      expect.objectContaining({ email: 'user@example.com' }),
+      'secret',
+    )
+  })
+
+  test('does not rehash when the password is wrong', async () => {
+    authServiceMock.verifyPassword.mockResolvedValueOnce(false as never)
+    const response = await POST(new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      body: makeFormData({ email: 'user@example.com', password: 'wrongpass' }),
+    }))
+    expect(response.status).toBe(401)
+    expect(authServiceMock.rehashPasswordIfNeeded).not.toHaveBeenCalled()
   })
 
   test('returns the existing generic 401 when session eligibility changes after password verification', async () => {
