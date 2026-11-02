@@ -39,9 +39,7 @@ export function assertAttachmentScopeInvariant(scope: AttachmentScope): void {
 
 export function isSuperAdminAuth(auth: AuthContext | null | undefined): boolean {
   if (!auth) return false
-  if ((auth as any).isSuperAdmin === true) return true
-  const roles = Array.isArray(auth.roles) ? auth.roles : []
-  return roles.some((role) => typeof role === 'string' && role.trim().toLowerCase() === 'superadmin')
+  return auth.isSuperAdmin === true
 }
 
 function isSameScope(auth: AuthContext | null | undefined, attachment: Attachment): boolean {

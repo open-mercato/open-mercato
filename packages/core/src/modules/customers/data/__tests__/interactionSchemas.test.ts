@@ -12,6 +12,18 @@ const userA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const userB = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 
 describe('interaction validators — extended scheduling fields', () => {
+  it.each(['meeting', 'call', 'email', 'note', 'event', 'task', 'visit'])('accepts a timezone independently of event type %s', (interactionType) => {
+    expect(interactionCreateSchema.parse({ tenantId, organizationId: orgId, entityId, interactionType, timezone: 'America/New_York' }).timezone).toBe('America/New_York')
+    expect(interactionUpdateSchema.parse({ id: interactionId, timezone: 'Europe/Warsaw' }).timezone).toBe('Europe/Warsaw')
+  })
+
+  it('rejects invalid timezones and supports legacy omission and explicit reset', () => {
+    expect(interactionUpdateSchema.safeParse({ id: interactionId, timezone: 'Invalid/Zone' }).success).toBe(false)
+    expect(interactionUpdateSchema.safeParse({ id: interactionId, timezone: '' }).success).toBe(false)
+    expect(interactionUpdateSchema.parse({ id: interactionId, timezone: null }).timezone).toBeNull()
+    expect(interactionUpdateSchema.parse({ id: interactionId }).timezone).toBeUndefined()
+  })
+
   const basePayload = {
     tenantId,
     organizationId: orgId,

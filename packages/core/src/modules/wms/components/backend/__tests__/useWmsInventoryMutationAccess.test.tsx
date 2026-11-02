@@ -86,4 +86,21 @@ describe('useWmsInventoryMutationAccess', () => {
     await waitFor(() => expect(result.current.loading).toBe(false))
     expect(result.current.canManageZones).toBe(false)
   })
+
+  it('requests manage_asn and manage_putaway for inbound UI gates', async () => {
+    mockApiCall.mockResolvedValue({
+      ok: true,
+      result: { granted: ['wms.manage_asn', 'wms.manage_putaway'], userId: 'user-1' },
+    })
+    const { result } = renderHook(() => useWmsInventoryMutationAccess())
+
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    const [, options] = mockApiCall.mock.calls[0]
+    const body = JSON.parse(options.body)
+    expect(body.features).toContain('wms.manage_asn')
+    expect(body.features).toContain('wms.manage_putaway')
+    expect(result.current.canManageAsn).toBe(true)
+    expect(result.current.canManagePutaway).toBe(true)
+  })
 })

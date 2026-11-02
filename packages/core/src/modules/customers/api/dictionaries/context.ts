@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer, type AppContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -114,7 +115,7 @@ export async function resolveDictionaryRouteContext(
   })
   const em = (container.resolve('em') as EntityManager)
   const tenantId = scope?.tenantId ?? auth.tenantId
-  const organizationId = scope?.selectedId ?? auth.orgId ?? null
+  const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth) ?? null
 
   const normalizeId = (value: unknown): string | null => {
     if (typeof value !== 'string') return null

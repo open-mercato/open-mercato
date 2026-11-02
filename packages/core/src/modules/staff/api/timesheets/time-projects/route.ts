@@ -10,6 +10,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { isIdsParamProvided, parseIdsParam } from '@open-mercato/shared/lib/crud/ids'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
@@ -46,6 +47,7 @@ const F = {
   budget_kind: 'budget_kind',
   budget_value: 'budget_value',
   budget_warn_at_percent: 'budget_warn_at_percent',
+  default_assignee_staff_member_id: 'default_assignee_staff_member_id',
   created_at: 'created_at',
   updated_at: 'updated_at',
   deleted_at: 'deleted_at',
@@ -337,6 +339,7 @@ export const timeProjectListFields = [
   F.budget_kind,
   F.budget_value,
   F.budget_warn_at_percent,
+  F.default_assignee_staff_member_id,
   F.created_at,
   F.updated_at,
 ] as const
@@ -376,9 +379,13 @@ const crud = makeCrudRoute({
           .filter((value) => value.length > 0)
       }
       if (parseBooleanFlag(query.mine) && ctx.auth) {
+        const tenantId = ctx.auth.tenantId ?? null
+        const organizationId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null
+        if (!tenantId || !organizationId) {
+          filters[F.id] = { $in: [IMPOSSIBLE_PROJECT_ID] }
+          return filters
+        }
         const em = ctx.container.resolve('em') as EntityManager
-        const tenantId = ctx.auth.tenantId ?? ''
-        const organizationId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? ''
         const assigned = await resolveCallerAssignedProjectIds(
           em,
           ctx.auth.sub,
@@ -508,7 +515,7 @@ async function resolveProjectAccessDenial(req: Request): Promise<Response | null
     if (!auth) return null
     const orgScope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
     const tenantId = orgScope?.tenantId ?? auth.tenantId ?? null
-    const organizationId = orgScope?.selectedId ?? auth.orgId ?? null
+    const organizationId = resolveSingleOrganizationIdOrDeny(orgScope, auth) ?? null
     if (!tenantId || !organizationId) return null
 
     const access = await resolveRequestProjectAccess(req, () =>
@@ -562,6 +569,7 @@ export const timeProjectListItemSchema = z.object({
   budget_kind: z.string().nullable().optional(),
   budget_value: z.union([z.string(), z.number()]).nullable().optional(),
   budget_warn_at_percent: z.number().int().nullable().optional(),
+  default_assignee_staff_member_id: z.string().uuid().nullable().optional(),
   created_at: z.string().nullable().optional(),
   updated_at: z.string().nullable().optional(),
   entryCount: z.number().int().optional(),

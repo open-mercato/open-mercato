@@ -1,6 +1,8 @@
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
   type SalesAdjustmentDraft,
+  type SalesAmountsMode,
+  type SalesDocumentAmounts,
   type SalesCalculationContext,
   type CalculateDocumentOptions,
   type CalculateLineOptions,
@@ -115,7 +117,49 @@ function resolveLineDiscountTotal(
   return line.discountAmountBasis === 'line' ? amount : amount * quantity
 }
 
+/** The header fields a caller owns under `external`; the rest stay core-derived. */
+export const EXTERNAL_HEADER_FIELDS = [
+  'subtotalNetAmount',
+  'subtotalGrossAmount',
+  'discountTotalAmount',
+  'taxTotalAmount',
+  'shippingNetAmount',
+  'shippingGrossAmount',
+  'surchargeTotalAmount',
+  'grandTotalNetAmount',
+  'grandTotalGrossAmount',
+] as const
+
+export function isExternalAmountsMode(mode: SalesAmountsMode | null | undefined): boolean {
+  return mode === 'external'
+}
+
+function resolveSuppliedTotals(
+  supplied: Partial<SalesDocumentAmounts> | null | undefined
+): Pick<SalesDocumentAmounts, (typeof EXTERNAL_HEADER_FIELDS)[number]> {
+  const resolved = {} as Record<(typeof EXTERNAL_HEADER_FIELDS)[number], number>
+  for (const field of EXTERNAL_HEADER_FIELDS) {
+    resolved[field] = round(toNumber(supplied?.[field], 0))
+  }
+  return resolved
+}
+
+// The derived discount is signed and unclamped: a markup is a negative discount.
+function buildExternalLineResult(line: SalesLineSnapshot): SalesLineCalculationResult {
+  const quantity = Math.max(toNumber(line.quantity, 0), 0)
+  const netAmount = round(toNumber(line.totalNetAmount, 0))
+  return {
+    line,
+    netAmount,
+    grossAmount: round(toNumber(line.totalGrossAmount, 0)),
+    taxAmount: round(toNumber(line.taxAmount, 0)),
+    discountAmount: round(toNumber(line.unitPriceNet, 0) * quantity - netAmount),
+    adjustments: [],
+  }
+}
+
 function buildBaseLineResult(line: SalesLineSnapshot): SalesLineCalculationResult {
+  if (isExternalAmountsMode(line.amountsMode)) return buildExternalLineResult(line)
   const quantity = Math.max(toNumber(line.quantity, 0), 0)
   const taxRate = toNumber(line.taxRate, 0) / 100
   const unitNet =
@@ -195,6 +239,8 @@ function buildBaseDocumentResult(params: {
   adjustments: SalesAdjustmentDraft[]
   currencyCode: string
   existingTotals?: { paidTotalAmount?: number | null; refundedTotalAmount?: number | null }
+  totalsMode?: SalesAmountsMode | null
+  suppliedTotals?: Partial<SalesDocumentAmounts> | null
 }): SalesDocumentCalculationResult {
   const { documentKind, lines, adjustments, currencyCode } = params
   const orderedAdjustments = [...(adjustments ?? [])].sort(
@@ -313,6 +359,25 @@ function buildBaseDocumentResult(params: {
   const refundedTotalAmount = Math.max(toNumber(params.existingTotals?.refundedTotalAmount, 0), 0)
   const outstandingAmount = Math.max(grandTotalGross - paidTotalAmount + refundedTotalAmount, 0)
 
+  if (isExternalAmountsMode(params.totalsMode)) {
+    const suppliedTotals = resolveSuppliedTotals(params.suppliedTotals)
+    return {
+      kind: documentKind,
+      currencyCode,
+      lines,
+      adjustments: resolvedAdjustments,
+      metadata: {},
+      totals: {
+        ...suppliedTotals,
+        paidTotalAmount,
+        refundedTotalAmount,
+        outstandingAmount: round(
+          Math.max(suppliedTotals.grandTotalGrossAmount - paidTotalAmount + refundedTotalAmount, 0)
+        ),
+      },
+    }
+  }
+
   return {
     kind: documentKind,
     currencyCode,
@@ -389,11 +454,32 @@ class SalesCalculationRegistry {
       })
     }
 
+    // Re-applied after the registry and events, which may otherwise overwrite it.
+    if (isExternalAmountsMode(line.amountsMode)) {
+      const supplied = buildExternalLineResult(line)
+      current = {
+        ...current,
+        netAmount: supplied.netAmount,
+        grossAmount: supplied.grossAmount,
+        taxAmount: supplied.taxAmount,
+        discountAmount: supplied.discountAmount,
+      }
+    }
+
     return current
   }
 
   async calculateDocument(opts: CalculateDocumentOptions): Promise<SalesDocumentCalculationResult> {
-    const { documentKind, lines, adjustments = [], context, eventBus, existingTotals } = opts
+    const {
+      documentKind,
+      lines,
+      adjustments = [],
+      context,
+      eventBus,
+      existingTotals,
+      totalsMode,
+      suppliedTotals,
+    } = opts
     const resolvedLines: SalesLineCalculationResult[] = []
 
     for (const line of lines) {
@@ -407,6 +493,8 @@ class SalesCalculationRegistry {
       adjustments,
       currencyCode: context.currencyCode,
       existingTotals,
+      totalsMode,
+      suppliedTotals,
     })
 
     if (eventBus) {
@@ -430,6 +518,7 @@ class SalesCalculationRegistry {
         context,
         current,
         eventBus,
+        totalsMode,
       })
       if (next) current = next
     }
@@ -453,9 +542,15 @@ class SalesCalculationRegistry {
     // outstanding back to the full grand total), producing a stale paid/
     // outstanding display after a payment. Re-apply the input totals last and
     // recompute outstanding against the post-calculation grand total.
-    if (existingTotals) {
-      const paidTotalAmount = Math.max(toNumber(existingTotals.paidTotalAmount, 0), 0)
-      const refundedTotalAmount = Math.max(toNumber(existingTotals.refundedTotalAmount, 0), 0)
+    // Totals calculators rebuild the header from the lines, and core registers one
+    // itself by module side effect (lib/providers/index.ts) — so this always runs.
+    if (isExternalAmountsMode(totalsMode)) {
+      current.totals = { ...current.totals, ...resolveSuppliedTotals(suppliedTotals) }
+    }
+
+    if (existingTotals || isExternalAmountsMode(totalsMode)) {
+      const paidTotalAmount = Math.max(toNumber(existingTotals?.paidTotalAmount, 0), 0)
+      const refundedTotalAmount = Math.max(toNumber(existingTotals?.refundedTotalAmount, 0), 0)
       current.totals = {
         ...current.totals,
         paidTotalAmount,

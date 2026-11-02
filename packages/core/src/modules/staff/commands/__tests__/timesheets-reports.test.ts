@@ -14,10 +14,14 @@
  *     currencies is refused at create with both currencies and the offending
  *     project names in the body.
  *  4. **Unlock is explicit and audited.** It refuses a draft, demands a reason,
- *     clears the locks, removes the freeze records so those hours stop counting
+ *     clears the locks it alone holds, removes the freeze records so those hours stop counting
  *     as already reported, and appends an `unlocked` event carrying the reason.
+ *  5. **A lock outlives the report that took it while another closed report
+ *     quotes the hour.** Unlocking the report that froze a re-included hour
+ *     first hands the lock to the remaining closed report instead of freeing it.
  */
 import type { AwilixContainer } from 'awilix'
+import { LockMode } from '@mikro-orm/core'
 
 const mockEmitCrudSideEffects = jest.fn()
 const mockFindWithDecryption = jest.fn()
@@ -128,6 +132,11 @@ function makeEm(rows: Rows, options: { onCreate?: () => void } = {}): FakeEm {
 
 function matches(row: Record<string, unknown>, where: Record<string, unknown>): boolean {
   for (const [key, expected] of Object.entries(where ?? {})) {
+    if (key === '$or') {
+      const branches = expected as Array<Record<string, unknown>>
+      if (!branches.some((branch) => matches(row, branch))) return false
+      continue
+    }
     const actual = row[key]
     if (expected && typeof expected === 'object' && !(expected instanceof Date)) {
       const clause = expected as Record<string, unknown>
@@ -682,6 +691,217 @@ describe('staff.timesheets.reports.unlock (US-G3)', () => {
     expect(payload).toMatchObject({ id: REPORT_ID, tenantId: TENANT_ID, unlockedEntryCount: 2 })
     expect(payload).not.toHaveProperty('reason')
     expect(JSON.stringify(payload)).not.toContain('refaktorze')
+  })
+})
+
+describe('staff.timesheets.reports.unlock — an hour another closed report re-included (D-5)', () => {
+  const LATER_REPORT_ID = '77777777-7777-4777-8777-777777777777'
+  const THIRD_REPORT_ID = '88888888-8888-4888-8888-888888888888'
+  const CLOSED_AT = new Date('2026-07-20T16:40:00.000Z')
+  const LATER_CLOSED_AT = new Date('2026-07-25T09:00:00.000Z')
+  const THIRD_CLOSED_AT = new Date('2026-07-28T09:00:00.000Z')
+
+  function freeze(reportId: string, timeEntryId: string) {
+    return { id: `${reportId}:${timeEntryId}`, reportId, timeEntryId, tenantId: TENANT_ID, organizationId: ORG_ID }
+  }
+
+  async function sharedFixture(
+    options: {
+      otherReports?: Array<Record<string, unknown>>
+      otherFreezes?: Array<Record<string, unknown>>
+      entries?: Array<Record<string, unknown>>
+    } = {},
+  ) {
+    const { commands, entities } = await load()
+    const reportRow = report({
+      status: 'closed',
+      totalAmount: '3546.67',
+      totalBillableMinutes: 665,
+      closedAt: CLOSED_AT,
+      closedByUserId: 'user-1',
+    })
+    const entries = options.entries ?? [entry({ id: 'e1', lockedReportId: REPORT_ID, lockedAt: CLOSED_AT })]
+    const ownFreezes = entries.map((row) => freeze(REPORT_ID, row.id as string))
+    const otherReports = options.otherReports ?? [
+      report({ id: LATER_REPORT_ID, reference: 'RAP-2026-0043', status: 'closed', closedAt: LATER_CLOSED_AT }),
+    ]
+    const otherFreezes = options.otherFreezes ?? [freeze(LATER_REPORT_ID, 'e1')]
+    const rows: Rows = new Map([
+      [entities.StaffTimeReport, [reportRow, ...otherReports]],
+      [entities.StaffTimeReportEntry, [...ownFreezes, ...otherFreezes]],
+      [entities.StaffTimeEntry, entries],
+      [entities.StaffTimeReportProject, []],
+    ])
+    return { commands, entities, reportRow, entries, ownFreezes, otherFreezes, ...makeEm(rows) }
+  }
+
+  async function unlock(fixture: Awaited<ReturnType<typeof sharedFixture>>) {
+    return (await fixture.commands['staff.timesheets.reports.unlock'].execute(
+      { id: REPORT_ID, reason: 'Korekta po reklamacji.' },
+      createCtx(fixture.em),
+    )) as { unlockedEntryCount: number; transferredLockCount: number }
+  }
+
+  it('hands the lock to the closed report that still quotes the hour instead of freeing it', async () => {
+    const fixture = await sharedFixture()
+
+    const result = await unlock(fixture)
+
+    const [shared] = fixture.entries
+    expect(shared.lockedReportId).toBe(LATER_REPORT_ID)
+    expect(shared.lockedAt).toEqual(LATER_CLOSED_AT)
+    expect(result).toMatchObject({ unlockedEntryCount: 0, transferredLockCount: 1 })
+
+    // Only this report's own freeze records go; the later report keeps its own.
+    expect(fixture.removed).toEqual(fixture.ownFreezes)
+    expect(fixture.removed).not.toEqual(expect.arrayContaining(fixture.otherFreezes))
+    expect(fixture.reportRow.status).toBe('draft')
+
+    const event = fixture.persisted.map((item) => item.row).find((row) => row.eventType === 'unlocked')
+    expect(event?.metadata).toMatchObject({ unlockedEntryCount: 0, transferredLockCount: 1, frozenEntryCount: 1 })
+
+    expect(broadcastPayload('staff.timesheets.time_report.unlocked')).toMatchObject({ unlockedEntryCount: 0 })
+    // Nothing became editable, so nothing is announced as unlocked.
+    expect(broadcastPayload('staff.timesheets.time_entry.unlocked')).toBeUndefined()
+  })
+
+  it('frees the hours only this report quotes and keeps the shared one locked', async () => {
+    const fixture = await sharedFixture({
+      entries: [
+        entry({ id: 'e1', lockedReportId: REPORT_ID, lockedAt: CLOSED_AT }),
+        entry({ id: 'e2', lockedReportId: REPORT_ID, lockedAt: CLOSED_AT }),
+      ],
+    })
+
+    const result = await unlock(fixture)
+
+    const [shared, own] = fixture.entries
+    expect(shared.lockedReportId).toBe(LATER_REPORT_ID)
+    expect(own.lockedReportId).toBeNull()
+    expect(own.lockedAt).toBeNull()
+    expect(result).toMatchObject({ unlockedEntryCount: 1, transferredLockCount: 1 })
+    expect(broadcastPayload('staff.timesheets.time_entry.unlocked')).toMatchObject({ unlockedEntryCount: 1 })
+  })
+
+  it('picks the report that closed first when several closed reports quote the hour', async () => {
+    const fixture = await sharedFixture({
+      otherReports: [
+        report({ id: THIRD_REPORT_ID, reference: 'RAP-2026-0044', status: 'closed', closedAt: THIRD_CLOSED_AT }),
+        report({ id: LATER_REPORT_ID, reference: 'RAP-2026-0043', status: 'closed', closedAt: LATER_CLOSED_AT }),
+      ],
+      otherFreezes: [freeze(THIRD_REPORT_ID, 'e1'), freeze(LATER_REPORT_ID, 'e1')],
+    })
+
+    await unlock(fixture)
+
+    expect(fixture.entries[0].lockedReportId).toBe(LATER_REPORT_ID)
+    expect(fixture.entries[0].lockedAt).toEqual(LATER_CLOSED_AT)
+  })
+
+  // Guards: these already hold without the transfer, and must keep holding with it.
+  it.each([
+    ['a draft', { status: 'draft', closedAt: null }],
+    ['a deleted', { status: 'closed', closedAt: LATER_CLOSED_AT, deletedAt: new Date('2026-07-26T00:00:00.000Z') }],
+    ['another organization’s', { status: 'closed', closedAt: LATER_CLOSED_AT, organizationId: 'other-org' }],
+  ])('frees the hour when only %s report holds a record for it', async (_label, overrides) => {
+    const fixture = await sharedFixture({
+      otherReports: [report({ id: LATER_REPORT_ID, reference: 'RAP-2026-0043', ...overrides })],
+    })
+
+    const result = await unlock(fixture)
+
+    expect(fixture.entries[0].lockedReportId).toBeNull()
+    expect(fixture.entries[0].lockedAt).toBeNull()
+    expect(result.unlockedEntryCount).toBe(1)
+  })
+
+  it('breaks a tie between reports closed at the same moment by report id', async () => {
+    const fixture = await sharedFixture({
+      otherReports: [
+        report({ id: THIRD_REPORT_ID, reference: 'RAP-2026-0044', status: 'closed', closedAt: LATER_CLOSED_AT }),
+        report({ id: LATER_REPORT_ID, reference: 'RAP-2026-0043', status: 'closed', closedAt: LATER_CLOSED_AT }),
+      ],
+      otherFreezes: [freeze(THIRD_REPORT_ID, 'e1'), freeze(LATER_REPORT_ID, 'e1')],
+    })
+
+    await unlock(fixture)
+
+    expect(fixture.entries[0].lockedReportId).toBe(LATER_REPORT_ID)
+  })
+
+  it('prefers a report with a known close time over one without', async () => {
+    const fixture = await sharedFixture({
+      otherReports: [
+        report({ id: LATER_REPORT_ID, reference: 'RAP-2026-0043', status: 'closed', closedAt: null }),
+        report({ id: THIRD_REPORT_ID, reference: 'RAP-2026-0044', status: 'closed', closedAt: THIRD_CLOSED_AT }),
+      ],
+      otherFreezes: [freeze(LATER_REPORT_ID, 'e1'), freeze(THIRD_REPORT_ID, 'e1')],
+    })
+
+    await unlock(fixture)
+
+    expect(fixture.entries[0].lockedReportId).toBe(THIRD_REPORT_ID)
+    expect(fixture.entries[0].lockedAt).toEqual(THIRD_CLOSED_AT)
+  })
+
+  // Guard: holds without the transfer too — a report never touches a lock it does not own.
+  it('leaves an hour it quotes but another report locked untouched', async () => {
+    const fixture = await sharedFixture({
+      entries: [entry({ id: 'e1', lockedReportId: LATER_REPORT_ID, lockedAt: LATER_CLOSED_AT })],
+    })
+
+    const result = await unlock(fixture)
+
+    expect(fixture.entries[0].lockedReportId).toBe(LATER_REPORT_ID)
+    expect(fixture.entries[0].lockedAt).toEqual(LATER_CLOSED_AT)
+    expect(result.unlockedEntryCount).toBe(0)
+  })
+
+  /**
+   * Wiring guard only — a mocked EntityManager cannot prove serialization. What it
+   * can pin is that every entry the report quotes is requested with a row lock, in
+   * id order, and that the other reports are read after that, not before.
+   */
+  it('row-locks the entries it quotes before it reads the other reports', async () => {
+    const fixture = await sharedFixture()
+
+    await unlock(fixture)
+
+    const findCalls = fixture.em.find.mock.calls.map(([cls, where, findOptions], index) => ({
+      cls,
+      where: where as Record<string, unknown>,
+      findOptions: findOptions as Record<string, unknown> | undefined,
+      order: fixture.em.find.mock.invocationCallOrder[index],
+    }))
+    const entryLock = findCalls.find((call) => call.cls === fixture.entities.StaffTimeEntry)
+    expect(entryLock?.findOptions).toMatchObject({ lockMode: LockMode.PESSIMISTIC_WRITE, orderBy: { id: 'asc' } })
+    expect(entryLock?.where.$or).toEqual([{ id: { $in: ['e1'] } }, { lockedReportId: REPORT_ID }])
+
+    const otherReportsRead = findCalls.find(
+      (call) =>
+        call.cls === fixture.entities.StaffTimeReport &&
+        Array.isArray((call.where.id as { $in?: unknown[] } | undefined)?.$in),
+    )
+    expect(otherReportsRead).toBeDefined()
+    expect(entryLock?.order).toBeLessThan(otherReportsRead?.order ?? 0)
+  })
+
+  it('refuses when the report stopped being closed before the transaction took its lock', async () => {
+    const fixture = await sharedFixture()
+    const originalFind = fixture.em.find.getMockImplementation()
+    fixture.em.find.mockImplementation(async (cls: unknown, where: Record<string, unknown>, findOptions?: unknown) => {
+      // A concurrent unlock of the same report committed between the status check and the lock.
+      if (cls === fixture.entities.StaffTimeReport && where.id === REPORT_ID && where.status === 'closed') return []
+      return originalFind?.(cls, where, findOptions)
+    })
+
+    await expect(unlock(fixture)).rejects.toMatchObject({
+      status: 409,
+      body: expect.objectContaining({ code: 'report_not_closed' }),
+    })
+    expect(fixture.entries[0].lockedReportId).toBe(REPORT_ID)
+    expect(fixture.removed).toHaveLength(0)
+    expect(fixture.em.rollback).toHaveBeenCalledTimes(1)
   })
 })
 

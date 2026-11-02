@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { createSqliteStrategy } from '../strategies/sqlite'
 
-type CacheEntry = { value: string; expires_at: number | null; created_at: number }
+type CacheEntry = { value: string | Buffer; expires_at: number | null; created_at: number }
 
 class MockSqliteDatabase {
   static instances: MockSqliteDatabase[] = []
@@ -90,7 +90,7 @@ class MockSqliteDatabase {
     if (sql.startsWith('INSERT OR REPLACE INTO cache_entries')) {
       const [key, value, expiresAt, createdAt] = args
       this.entries.set(String(key), {
-        value: String(value),
+        value: Buffer.isBuffer(value) ? value : String(value),
         expires_at: expiresAt === null ? null : Number(expiresAt),
         created_at: Number(createdAt),
       })
@@ -159,5 +159,56 @@ describe('SQLite Cache Strategy', () => {
     expect(await cache.get('user:1')).toBeNull()
 
     await cache.close?.()
+  })
+})
+
+describe('SQLite Cache Strategy value compression (better-sqlite3)', () => {
+  const largeValue = {
+    items: Array.from({ length: 100 }, (_, index) => ({ id: `row-${index}`, name: `Contact ${index}`, status: 'active' })),
+  }
+  let tempDir: string
+  let dbPath: string
+
+  beforeEach(() => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'open-mercato-cache-compression-'))
+    dbPath = path.join(tempDir, 'cache.db')
+  })
+
+  afterEach(() => {
+    fs.rmSync(tempDir, { recursive: true, force: true })
+  })
+
+  function storedTypes(): Record<string, string> {
+    const Database = require('better-sqlite3') as typeof import('better-sqlite3')
+    const db = new Database(dbPath, { readonly: true })
+    try {
+      const rows = db.prepare('SELECT key, typeof(value) AS type FROM cache_entries').all() as { key: string; type: string }[]
+      return Object.fromEntries(rows.map((row) => [row.key, row.type]))
+    } finally {
+      db.close()
+    }
+  }
+
+  it.each(['zstd', 'gzip'] as const)('stores large %s entries as BLOBs next to legacy TEXT rows', async (compression) => {
+    const legacy = createSqliteStrategy(dbPath, { compression: 'off' })
+    await legacy.set('legacy', largeValue, { tags: ['customers'] })
+    await legacy.close?.()
+
+    const cache = createSqliteStrategy(dbPath, { compression })
+    await cache.set('compressed', largeValue, { tags: ['customers'] })
+    await cache.set('small', { id: 1 }, { tags: ['customers'] })
+
+    expect(await cache.get('legacy')).toEqual(largeValue)
+    expect(await cache.get('compressed')).toEqual(largeValue)
+    expect(await cache.get('small')).toEqual({ id: 1 })
+    await cache.close?.()
+
+    expect(storedTypes()).toEqual({ legacy: 'text', compressed: 'blob', small: 'text' })
+
+    const off = createSqliteStrategy(dbPath, { compression: 'off' })
+    expect(await off.get('compressed')).toEqual(largeValue)
+    expect(await off.deleteByTags(['customers'])).toBe(3)
+    expect(await off.get('compressed')).toBeNull()
+    await off.close?.()
   })
 })

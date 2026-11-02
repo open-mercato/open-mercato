@@ -1569,6 +1569,10 @@ describe('GET /api/auth/users', () => {
       features: ['auth.users.edit'],
       organizations: null,
     })
+    mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => {
+      if (entity === User) return { id: superAdminUserId, tenantId }
+      return null
+    })
     mockEm.findOne.mockImplementation(async (entity: unknown) => {
       if (entity === UserAcl) return { isSuperAdmin: true }
       return null
@@ -1594,6 +1598,10 @@ describe('GET /api/auth/users', () => {
       isSuperAdmin: false,
       features: ['auth.users.delete'],
       organizations: null,
+    })
+    mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => {
+      if (entity === User) return { id: superAdminUserId, tenantId }
+      return null
     })
     mockEm.findOne.mockImplementation(async (entity: unknown) => {
       if (entity === UserAcl) return { isSuperAdmin: true }

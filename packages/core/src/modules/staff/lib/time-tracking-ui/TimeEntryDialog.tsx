@@ -56,6 +56,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { DurationInput } from './DurationInput'
+import { reportDetailHref } from './reportLinks'
 import { formatDuration } from '../time-tracking/duration'
 import { parseClock } from '../time-tracking/interval'
 import { applicableRate, entryAmount } from '../time-tracking/cost'
@@ -102,7 +103,7 @@ function fieldValueSnapshot(value: unknown): string {
 }
 export const RATES_FEATURE = 'staff.timesheets.rates.view'
 export const ENTRIES_LIST_PATH = '/backend/staff/time-tracking/entries'
-export const REPORTS_PATH = '/backend/staff/time-tracking/reports'
+export { REPORTS_PATH } from './reportLinks'
 
 const DIALOG_QUERY_ROOT = ['staff', 'time-tracking', 'entry-dialog'] as const
 const DIRECTORY_PAGE_SIZE = 100
@@ -1390,7 +1391,7 @@ function DefaultTimeEntryDialog({
                 className="mt-2"
                 data-testid="entry-dialog-locked-report"
                 onClick={() =>
-                  window.open(`${REPORTS_PATH}?id=${encodeURIComponent(lockedReportId)}`, '_blank', 'noopener')
+                  window.open(reportDetailHref(lockedReportId), '_blank', 'noopener')
                 }
               >
                 {t('staff.time_tracking.entryDialog.locked.showReport', 'Show the report')}

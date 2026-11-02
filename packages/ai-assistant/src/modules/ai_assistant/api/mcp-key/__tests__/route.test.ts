@@ -95,6 +95,7 @@ describe('POST /api/ai_assistant/mcp-key', () => {
     expect(input.tenantId).toBe('tenant-1')
     expect(input.organizationId).toBe('org-1')
     expect(input.createdBy).toBe('user-1')
+    expect(input.sessionUserId).toBe('user-1')
   })
 
   it('scopes the role lookup to the caller\'s tenant', async () => {

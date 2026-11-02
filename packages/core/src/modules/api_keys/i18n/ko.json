@@ -35,6 +35,7 @@
   "api_keys.list.error.loadFailed": "API 키를 불러오지 못했습니다",
   "api_keys.list.noDate": "—",
   "api_keys.list.noRoles": "없음",
+  "api_keys.list.success.created": "API 키가 생성되었습니다",
   "api_keys.list.success.deleted": "API 키가 삭제되었습니다",
   "api_keys.list.title": "API 키",
   "api_keys.nav.apiKeys": "API 키",

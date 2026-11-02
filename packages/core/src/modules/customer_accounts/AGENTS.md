@@ -244,6 +244,7 @@ api/
 │   └── portal/notifications/mark-all-read.ts # Portal: mark all read
 └── delete/
     ├── admin/users/[id].ts              # Admin: soft-delete user
+    ├── admin/users/[id]/sessions/[sessionId].ts # Admin: revoke a customer session
     ├── admin/roles/[id].ts              # Admin: delete role
     ├── portal/users/[id].ts             # Portal admin: remove user
     └── portal/sessions/[id].ts          # Portal: revoke session
