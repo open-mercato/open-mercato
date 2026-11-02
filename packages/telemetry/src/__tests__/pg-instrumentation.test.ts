@@ -66,7 +66,7 @@ function runChild(): ProbeSpan[] {
       timeout: 30_000,
     })
     const line = (result.stdout || '').split('\n').find((l) => l.startsWith('SPANS='))
-    if (!line) throw new Error(`child produced no SPANS output.\nstdout: ${result.stdout}\nstderr: ${result.stderr}`)
+    if (!line) throw new Error(`[internal] child produced no SPANS output.\nerror: ${result.error?.message ?? 'none'}\nstatus: ${result.status}\nsignal: ${result.signal}\nstdout: ${result.stdout}\nstderr: ${result.stderr}`)
     return JSON.parse(line.slice('SPANS='.length)) as ProbeSpan[]
   } finally {
     fs.rmSync(scriptFile, { force: true })
