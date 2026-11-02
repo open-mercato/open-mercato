@@ -58,7 +58,7 @@ import {
 import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
 import { buildContainmentPatterns } from '@open-mercato/shared/lib/search/containment'
 import { runBeforeQueryPipeline, runAfterQueryPipeline, type QueryExtensionContext } from '@open-mercato/shared/lib/query/query-extension-runner'
-import { warnOnCiphertextLikeFallback } from '@open-mercato/shared/lib/query/ciphertext-search-warning'
+import { warnOnCiphertextLikeFallback, type CiphertextSearchWarning } from '@open-mercato/shared/lib/query/ciphertext-search-warning'
 import {
   matchEncryptedSortFields,
   resolveEncryptedFieldNames,
@@ -452,12 +452,17 @@ export class HybridQueryEngine implements QueryEngine {
     const applyAfterExtensions = async <R>(queryResult: QueryResult<R>): Promise<QueryResult<R>> => {
       if (!ext || !hybridExtCtx) return queryResult
       const diCtx = ext.resolve ? { resolve: ext.resolve } : noopDi
-      return await runAfterQueryPipeline(
+      const ciphertextSearchWarnings = queryResult.meta?.ciphertextSearchWarnings
+      const result = await runAfterQueryPipeline(
         queryResult as QueryResult<Record<string, unknown>>,
         opts,
         hybridExtCtx,
         diCtx,
       ) as QueryResult<R>
+      if (ciphertextSearchWarnings?.length) {
+        result.meta = { ...result.meta, ciphertextSearchWarnings }
+      }
+      return result
     }
 
     try {
@@ -727,6 +732,7 @@ export class HybridQueryEngine implements QueryEngine {
           searchRuntime.encryptedFields = null
         }
       }
+      const ciphertextSearchWarnings: CiphertextSearchWarning[] = []
       if (searchFilters.length) {
         this.logSearchDebug('search:init', {
           entity,
@@ -768,6 +774,7 @@ export class HybridQueryEngine implements QueryEngine {
               ? 'no-indexable-tokens'
               : searchConfig.enabled ? 'no-search-tokens' : 'search-disabled',
             service: this.getEncryptionService(),
+            onDiagnostic: (warning) => ciphertextSearchWarnings.push(warning),
           })
         }
       }
@@ -791,6 +798,7 @@ export class HybridQueryEngine implements QueryEngine {
             ? 'no-indexable-tokens'
             : searchConfig.enabled ? 'no-search-tokens' : 'search-disabled',
           service: this.getEncryptionService(),
+          onDiagnostic: (warning) => ciphertextSearchWarnings.push(warning),
         })
       }
       const hasNonBaseSearchSource = searchSources.some(
@@ -1597,6 +1605,9 @@ export class HybridQueryEngine implements QueryEngine {
       }
 
       result = await applyAfterExtensions(result)
+      if (ciphertextSearchWarnings.length) {
+        result.meta = { ...result.meta, ciphertextSearchWarnings }
+      }
       finishProfile({
         result: 'ok', total, page, pageSize,
         itemCount: Array.isArray(items) ? items.length : undefined,

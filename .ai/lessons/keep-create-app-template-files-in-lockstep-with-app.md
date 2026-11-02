@@ -17,6 +17,4 @@ topics: ["template-sync","ui-components","testing"]
 
 **Applies to**: Root layout, backend layout, global providers, header/sidebar wiring, and related template-only wrapper components, and every file in the canonical example module, including integration and unit tests.
 
-**Applies to**: Root layout, backend layout, global providers, header/sidebar wiring, related template-only wrapper components, and mirrored example integration tests.
-
 **CI correction (2026-10-27)**: Locator repairs in `apps/mercato/src/modules/example/__integration__/` must also reach `packages/create-app/template/src/modules/example/__integration__/`. Run the existing template example parity test before publishing; a passing Playwright discovery check alone does not verify the scaffold copy.

@@ -79,7 +79,7 @@ PR: #5802
 - [x] 5.1 Merge the current main base and resolve the lesson catalog conflict. — 63cb10f0c
 - [x] 5.2 Route sampler, collector, pool, and tracker callback failures through guarded error reporting with regression coverage. — 59ac59147
 - [x] 5.3 Verify the corrected head, record coverage-job applicability, publish the fixes, and request independent re-review. — d341f009b
-- [ ] 5.4 After corrected prerequisite #5801 is approved and merged, merge main again and confirm the remaining access-log diff.
+- [x] 5.4 After corrected prerequisite #5801 is approved and merged, merge main again and confirm the remaining access-log diff. — prerequisite superseded by merged #8434; main synchronized at 0ef0f453c62ee98ffe3853c669a3197f7b00f877
 
 The final step is an external merge-order gate. This continuation does not authorize merging #5801 or this PR into main. Prerequisite #5801 remains open at `3f5a5e9e5e6de4bc9c7205f9eb8016329cdf9ba9`, with corrected `om.db.pool.*` names and explicit seconds buckets. Incorporate those prerequisite corrections into this branch, retain its run plan, and compare again after #5801 lands.
 
@@ -88,3 +88,9 @@ Prerequisite corrections were incorporated in `c051d24a5`. Its provider, OTLP in
 Verification on the merged source: shared tracker/collector/pool/CRUD tests passed (73 tests); telemetry passed (161 tests, 2 skipped); audit-log service/rotation passed (14 tests); both affected packages typechecked with imports mapped to this checkout's shared source; changed-file lint, lesson catalog, agent budget ratchet, and diff checks passed. Eleven new regression cases failed against the original source and passed after the reporting fix. Fixes were fast-forwarded to the existing branch at `d341f009b`; independent re-review was requested from `adeptofvoltron` and `pkarw`.
 
 The previous GitHub run `38387594406` recorded `merge-coverage` as skipped despite all 15 integration shards succeeding. All 15 of that exact head's artifact summaries were downloaded and merged with `scripts/merge-coverage.mjs`: 445,048 / 710,237 lines, 62.66%. This supplies the missing aggregation evidence without changing CI policy or marking a skipped GitHub check as successful. The new published head still requires its own CI result.
+
+## 2026-11-02 synchronized review
+
+Corrected prerequisite #8434 supersedes #5801 and merged as 3db3e49c916dbd0f04e5f7c400aa2270e4117b78. Main at 0ef0f453c62ee98ffe3853c669a3197f7b00f877 is incorporated, preserving its telemetry/pool implementation and prerequisite run record. The remaining production changes are bounded access-log admission/rotation and the inherited QA #8221 bulk-cart snapshot-under-lock correction, which main still lacks. Earlier statements above describe historical gates.
+
+Local source-mapped verification: 101 tests pass across tracker/CRUD (31), audit service/rotation/cart commands (53), telemetry reporting (9), and OpenCode runner fixture (8). Shared and core source-mapped typechecks pass; core validation reuses the generated entity registry and permits the existing TSX-extension import. Initial unconfigured checks exposed linked-workspace/generated-registry resolution limitations, resolved only in temporary validation configuration. No assertions, production config, or workflow limits changed. Lessons catalog and whitespace checks pass. Full current-head CI and affected QA remain separate gates; prior human QA FAIL #6503537681 remains unresolved until a real rerun, especially TC-CART-CONC-06/07/08. No application/database initialization was run.

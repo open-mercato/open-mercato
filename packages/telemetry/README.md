@@ -310,6 +310,7 @@ Access-log gauges join the process sampler only while a stage has accepted
 pending work and emit a final zero before unregistering. Capacity rejections
 increment `om.audit_logs.dropped` immediately. The two fixed stages are bounded
 independently and metric labels never include request or record data.
+
 Pool acquisition wait is recorded per `pool.connect` call, including failed
 promise and callback acquisitions, and includes opening a new connection when
 the pool grows. Connection-state values are sampled; sum `idle` and `used` for
