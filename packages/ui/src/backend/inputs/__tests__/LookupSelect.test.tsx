@@ -199,12 +199,31 @@ describe('LookupSelect keyboard accessibility', () => {
       />,
     )
 
-    const selected = await view.findByRole('option', { selected: true })
-    expect(selected).toHaveTextContent(ITEMS[0].title)
+    // A value that is there on mount is a finished pick (#5109): the summary carries the
+    // fetched title and the clear control, the list stays shut.
+    const summary = await view.findByTestId('lookup-select-selected')
+    expect(summary).toHaveTextContent(ITEMS[0].title)
+    expect(view.queryByRole('listbox')).toBeNull()
 
     const clear = view.getByRole('button', { name: 'Clear selection' })
     fireEvent.click(clear)
     expect(onChange).toHaveBeenCalledWith(null)
+  })
+
+  it('collapses onto the summary when the host seeds a value after mount', async () => {
+    function SeededHarness() {
+      const [value, setValue] = React.useState<string | null>(null)
+      React.useEffect(() => {
+        setValue('plot-1')
+      }, [])
+      return <LookupSelect value={value} onChange={setValue} fetchItems={async () => ITEMS} minQuery={1} />
+    }
+    const view = render(<SeededHarness />)
+    expect((await view.findByTestId('lookup-select-selected'))).toHaveTextContent(ITEMS[0].title)
+    expect(view.queryByRole('listbox')).toBeNull()
+
+    fireEvent.click(view.getByRole('button', { name: 'Change' }))
+    expect(await view.findAllByRole('option')).toHaveLength(2)
   })
 
   it('stays collapsed at minQuery >= 1 once the selection is cleared', async () => {
@@ -308,6 +327,112 @@ describe('LookupSelect selected value display', () => {
   })
 })
 
+// Picking a result ends the interaction (#6196): the list used to stay open with the
+// typed query still in the box and only a thin border on one of several identical
+// cards, so users clicked the same customer again, unsure whether it registered.
+describe('LookupSelect closes on pick (#6196)', () => {
+  const ITEMS = [
+    { id: 'cust-1', title: 'ExcelMed', subtitle: 'excel@med.test' },
+    { id: 'cust-2', title: 'Fazenda Sul' },
+  ]
+
+  function Harness({ onPick }: { onPick?: (next: string | null) => void }) {
+    const [value, setValue] = React.useState<string | null>(null)
+    return (
+      <LookupSelect
+        value={value}
+        onChange={(next) => {
+          setValue(next)
+          onPick?.(next)
+        }}
+        fetchItems={async () => ITEMS}
+      />
+    )
+  }
+
+  it('closes the list, clears the query and shows the picked item with Change and Clear', async () => {
+    const { container } = render(<Harness />)
+    const input = getInput(container)
+
+    fireEvent.change(input, { target: { value: 'Ex' } })
+    fireEvent.click(await screen.findByRole('option', { name: /ExcelMed/ }))
+
+    expect(screen.queryByRole('listbox')).toBeNull()
+    // The summary row stands in for the search box until Change is clicked.
+    expect(container.querySelector('input')).toBeNull()
+    const summary = screen.getByTestId('lookup-select-selected')
+    expect(summary).toHaveTextContent('ExcelMed')
+    expect(summary).toHaveTextContent('excel@med.test')
+    expect(screen.getByRole('button', { name: 'Change' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Clear selection' })).toBeInTheDocument()
+  })
+
+  it('reopens the list with the selection marked when Change is clicked', async () => {
+    const { container } = render(<Harness />)
+    const input = getInput(container)
+
+    fireEvent.change(input, { target: { value: 'Ex' } })
+    fireEvent.click(await screen.findByRole('option', { name: /ExcelMed/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Change' }))
+
+    const selected = await screen.findByRole('option', { selected: true })
+    expect(selected).toHaveTextContent('ExcelMed')
+    expect(selected).toHaveTextContent('Selected')
+    expect(document.activeElement).toBe(getInput(container))
+  })
+
+  it('commits from the keyboard too', async () => {
+    const onPick = jest.fn()
+    const { container } = render(<Harness onPick={onPick} />)
+    const input = getInput(container)
+
+    fireEvent.change(input, { target: { value: 'Faz' } })
+    await screen.findAllByRole('option')
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(onPick).toHaveBeenCalledWith('cust-2')
+    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(screen.getByTestId('lookup-select-selected')).toHaveTextContent('Fazenda Sul')
+  })
+
+  it('keeps browsing when the parent does not adopt the pick (multi-add pickers)', async () => {
+    const addPlot = jest.fn()
+    const { container } = render(
+      <LookupSelect value={null} onChange={addPlot} fetchItems={async () => ITEMS} minQuery={0} />,
+    )
+
+    fireEvent.click((await screen.findAllByRole('option'))[0])
+    expect(addPlot).toHaveBeenCalledWith('cust-1')
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+    expect(screen.queryByTestId('lookup-select-selected')).toBeNull()
+    expect(getInput(container).value).toBe('')
+  })
+
+  it('never shows a hint that embeds the raw id in the summary', async () => {
+    const RECORD_ID = 'd7f88312-f4b3-44b7-b03a-dc10e561cf8e'
+    function SalesHarness() {
+      const [value, setValue] = React.useState<string | null>(null)
+      return (
+        <LookupSelect
+          value={value}
+          onChange={setValue}
+          fetchItems={async () => [{ id: RECORD_ID, title: 'ExcelMed' }]}
+          selectedHintLabel={(id) => `Selected customer: ${id}`}
+        />
+      )
+    }
+    const { container } = render(<SalesHarness />)
+
+    fireEvent.change(getInput(container), { target: { value: 'Ex' } })
+    fireEvent.click(await screen.findByRole('option'))
+
+    expect(screen.getByTestId('lookup-select-selected')).toHaveTextContent('ExcelMed')
+    expect(container.textContent ?? '').not.toContain(RECORD_ID)
+  })
+})
+
 // A set `value` opens the list and fires a browse fetch with an empty query. Its
 // result used to replace the items outright, so an edit form hydrated with
 // `value={storedId}` + `options={[storedOption]}` lost the stored selection from
@@ -319,6 +444,11 @@ describe('LookupSelect keeps the selection across browse fetches', () => {
     { id: 'contractor-1', title: 'Alpha' },
     { id: 'contractor-2', title: 'Beta' },
   ]
+  // A value present on mount starts on the collapsed summary (#5109); browsing resumes
+  // through its Change control.
+  async function openList() {
+    fireEvent.click(await screen.findByRole('button', { name: 'Change' }))
+  }
 
   it('keeps a hydrated selection that is missing from the first page', async () => {
     const fetchItems = jest.fn(async () => FIRST_PAGE)
@@ -331,6 +461,8 @@ describe('LookupSelect keeps the selection across browse fetches', () => {
       />,
     )
 
+    expect(await screen.findByTestId('lookup-select-selected')).toHaveTextContent(STORED.title)
+    await openList()
     await screen.findByText('Alpha')
     expect(fetchItems).toHaveBeenCalledWith('')
     expect(screen.getByRole('option', { selected: true })).toHaveTextContent(STORED.title)
@@ -351,6 +483,7 @@ describe('LookupSelect keeps the selection across browse fetches', () => {
       />,
     )
 
+    await openList()
     await screen.findByText('Alpha')
     expect(screen.getAllByRole('option')).toHaveLength(3)
     expect(screen.getByRole('option', { selected: true })).toHaveTextContent('Stored Contractor (renamed)')
@@ -366,6 +499,7 @@ describe('LookupSelect keeps the selection across browse fetches', () => {
         fetchItems={fetchItems}
       />,
     )
+    await openList()
     await screen.findByText('Beta')
 
     fireEvent.change(getInput(container), { target: { value: 'Alp' } })
@@ -385,6 +519,7 @@ describe('LookupSelect keeps the selection across browse fetches', () => {
         fetchItems={fetchItems}
       />,
     )
+    await openList()
     const input = getInput(container)
     await screen.findByText('Beta')
 
@@ -407,7 +542,7 @@ describe('LookupSelect keeps the selection across browse fetches', () => {
 
     fireEvent.change(input, { target: { value: 'Stored' } })
     fireEvent.click(await screen.findByRole('option'))
-    fireEvent.change(input, { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Change' }))
 
     await screen.findByText('Alpha')
     expect(screen.getByRole('option', { selected: true })).toHaveTextContent(STORED.title)
@@ -424,7 +559,7 @@ describe('LookupSelect keeps the selection across browse fetches', () => {
 
     fireEvent.change(input, { target: { value: 'Stored' } })
     fireEvent.click(await screen.findByRole('option'))
-    fireEvent.change(input, { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Change' }))
 
     await waitFor(() => expect(fetchItems).toHaveBeenLastCalledWith(''))
     await waitFor(() => expect(screen.queryByText('Searching…')).toBeNull())
@@ -443,6 +578,7 @@ describe('LookupSelect keeps the selection across browse fetches', () => {
         fetchItems={fetchItems}
       />,
     )
+    await openList()
     await screen.findByText('Beta')
 
     view.rerender(
@@ -500,29 +636,16 @@ describe('LookupSelect disabled', () => {
 
   it('still shows the current selection so the value stays readable', () => {
     renderDisabled(() => {})
-    expect(screen.getByRole('option')).toHaveTextContent('Product One')
+    expect(screen.getByTestId('lookup-select-selected')).toHaveTextContent('Product One')
   })
 
-  it('ignores clicks on the option row', () => {
+  it('offers no option row and no Change control while disabled', () => {
     const onChange = jest.fn()
     renderDisabled(onChange)
 
-    fireEvent.click(screen.getByRole('option'))
-
+    expect(screen.queryByRole('option')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Change' })).toBeNull()
     expect(onChange).not.toHaveBeenCalled()
-  })
-
-  it('ignores Enter and Space on the option row and keeps it out of the tab order', () => {
-    const onChange = jest.fn()
-    renderDisabled(onChange)
-    const option = screen.getByRole('option')
-
-    fireEvent.keyDown(option, { key: 'Enter' })
-    fireEvent.keyDown(option, { key: ' ' })
-
-    expect(onChange).not.toHaveBeenCalled()
-    expect(option).toHaveAttribute('tabindex', '-1')
-    expect(option).toHaveAttribute('aria-disabled', 'true')
   })
 
   it('hides the clear-selection button so the value cannot be nulled', () => {
@@ -535,15 +658,12 @@ describe('LookupSelect disabled', () => {
     expect(screen.queryByTestId('quick-create')).toBeNull()
   })
 
-  it('keeps the search box disabled and its keyboard path inert', () => {
+  it('offers no search box at all while disabled with a selection', () => {
     const onChange = jest.fn()
     const { container } = renderDisabled(onChange)
-    const input = getInput(container)
 
-    expect(input.disabled).toBe(true)
-    fireEvent.keyDown(input, { key: 'ArrowDown' })
-    fireEvent.keyDown(input, { key: 'Enter' })
-
+    expect(container.querySelector('input')).toBeNull()
+    expect(screen.getByTestId('lookup-select-selected')).toHaveTextContent('Product One')
     expect(onChange).not.toHaveBeenCalled()
   })
 })
