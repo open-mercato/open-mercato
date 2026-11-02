@@ -1,6 +1,6 @@
 # Standalone integration CI
 
-The pre-merge standalone job installs packages built from the PR into a disposable scaffold. The snapshot job installs the exact published snapshot into the same kind of scaffold. Both production-build and start that app before running repository integration specs against it.
+The existing snapshot job installs the exact published snapshot into a disposable scaffold, production-builds and starts the app, then runs repository integration specs against it. Its push trigger and frequency are unchanged. No standalone integration job runs automatically on pull requests.
 
 ## Shared runtime configuration
 
@@ -26,7 +26,9 @@ Intentional differences:
 
 ## Test selection and evidence
 
-The fixed smoke suite must remain selected and executable. The PR lane adds affected module specs, with the full suite as a conservative fallback for shared or infrastructure changes. The snapshot lane runs the full eligible suite. The runner records selection in `.ai/qa/test-results/standalone-selection.json`; inspect that artifact alongside the Playwright report and app log.
+The snapshot lane runs the full eligible suite and verifies that the fixed smoke tests actually execute. The runner records selection in `.ai/qa/test-results/standalone-selection.json`; inspect that artifact alongside the Playwright report and app log.
+
+The same runner can optionally verify locally packed packages on demand. With a disposable database already provisioned, run `STANDALONE_DATABASE_URL=<disposable-database-url> node scripts/ci/standalone-integration.mjs --source local --suite smoke`. Use `--suite affected --base-ref origin/main` to add changed-module and dependent specs, with a full-suite fallback for shared infrastructure changes. These commands are manual; no pull-request workflow invokes them.
 
 Disabled owning modules are excluded by the CLI discovery rules added in #8452. Dependency and environment prerequisites still apply. Missing app configuration, an empty selection, or missing smoke coverage must fail rather than produce a successful no-op.
 
@@ -38,4 +40,4 @@ Compare the last successful run and the first failing run before assigning a cau
 
 ## Rollout
 
-First exercise the new PR job on representative framework, module, and test changes. Validate its negative paths: mixed package sources, missing prerequisites, invalid module configuration, and zero selected tests must fail clearly. Only after those runs pass should a maintainer add the `Standalone PR Integration Tests` job to branch protection. These PRs do not change repository rulesets, automatically revert commits, or alter snapshot publishing.
+Verify the refactored runner in the existing published snapshot lane. Negative tests cover mixed package sources, missing prerequisites, invalid module configuration, and zero selected tests. Repository rulesets, branch protection, snapshot publishing, and workflow triggers remain unchanged. Shared configuration reduces drift, but standalone regressions are still detected after merge unless someone runs the optional manual check before merging.

@@ -2,11 +2,11 @@
 
 ## Goal
 
-Prevent the snapshot and pre-merge standalone lanes from silently diverging in their app/test configuration after #8452.
+Prevent the existing snapshot and local standalone runners from silently diverging in their app/test configuration after #8452, without adding automatic standalone execution on pull requests.
 
 ## Scope
 
-Stack this PR on the pre-merge standalone gate PR. Reuse its shared environment builder in the published snapshot lane and local standalone runner. Add executable checks for configuration parity and intentional exclusions, and document failure ownership and rollout.
+Deliver one self-contained PR against main. Share environment and lifecycle helpers between the existing published snapshot lane and local runners; retain optional manual package verification, discovery diagnostics, configuration guards, and resource cleanup. Snapshot triggers and frequency remain unchanged.
 
 ## Implementation Plan
 
@@ -20,13 +20,16 @@ Stack this PR on the pre-merge standalone gate PR. Reuse its shared environment 
 2.1 Add regression tests for caller wiring, prerequisites, configuration validation, and intentional server/test differences.
 2.2 Run targeted checks and the configured validation gate, review the final diff, and publish the verified outcome.
 
+### Phase 3: Consolidation
+
+3.1 Remove automatic PR execution, update guards/documentation, and consolidate into one main-targeted PR.
+
 ## Risks
 
-- The follow-up depends on the pre-merge gate PR; keep the PR diff separate by targeting that branch until it merges.
 - Preserve disabled email and browser telemetry rather than quietly broadening snapshot runtime behavior. Their exclusion remains explicit.
 - Full scaffold/build/integration execution requires available database and browser infrastructure. Record actual validation limits.
 - Initial full unit execution hit an SMTP Jest worker SIGSEGV; the affected credentials suites pass alone (23 tests). The full retry completed 47 Turbo tasks before the docs test exhausted its 1 GiB Node heap. The full gate is not green; draft status is retained.
-- PR2 targets the PR1 branch, so main/release-only CI jobs will run after retargeting to main. No branch protection is changed.
+- Normal main-targeted CI must validate the consolidated head. No new standalone PR workflow or branch-protection check is added.
 
 ## Non-goals
 
@@ -47,3 +50,7 @@ PR: #8467
 
 - [x] 2.1 Add regression tests for caller wiring, prerequisites, configuration validation, and intentional server/test differences — ad3f4727c, 180baaba2
 - [ ] 2.2 Run targeted checks and the configured validation gate, review the final diff, and publish the verified outcome
+
+### Phase 3: Consolidation
+
+- [ ] 3.1 Remove automatic PR execution, update guards/documentation, and consolidate into one main-targeted PR

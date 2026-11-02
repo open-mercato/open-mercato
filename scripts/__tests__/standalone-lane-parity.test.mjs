@@ -8,6 +8,7 @@ const read = (relativePath) => fs.readFileSync(new URL(relativePath, repository)
 
 test('the snapshot runs the shared lifecycle against the exact published version', () => {
   const workflow = parse(read('.github/workflows/snapshot.yml'))
+  assert.deepEqual(workflow.on, { push: { branches: ['main'] } })
   const steps = workflow.jobs['standalone-integration'].steps
   const runnerSteps = steps.filter((step) => step.run?.includes('scripts/ci/standalone-integration.mjs'))
   assert.equal(runnerSteps.length, 1)

@@ -3,7 +3,6 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
-import { parse } from 'yaml'
 import { STANDALONE_SMOKE_SPECS, assertStandaloneSmokeCoverage, pinStandalonePackages, selectStandaloneSpecs, verifyStandalonePackages } from '../lib/standalone-pr-gate.mjs'
 import { createStandaloneIntegrationEnvironment } from '../lib/standalone-integration-env.mjs'
 
@@ -89,16 +88,13 @@ test('standalone app and test processes share external stores while collaboratio
   assert.equal(testEnv.SYSTEM_EMAIL_PROVIDER, '')
 })
 
-test('standalone PR workflow executes untrusted code without publication credentials or elevated event privileges', () => {
-  const workflow = parse(fs.readFileSync(new URL('../../.github/workflows/standalone-pr.yml', import.meta.url), 'utf8'))
-  assert.ok(workflow.on.pull_request)
-  assert.equal(workflow.on.pull_request_target, undefined)
-  assert.deepEqual(workflow.permissions, { contents: 'read' })
-  const job = workflow.jobs['standalone-pr']
-  assert.equal(job.name, 'Standalone PR Integration Tests')
-  const text = JSON.stringify(job)
-  assert.ok(!text.includes('secrets.'))
-  assert.match(text, /--source local/)
-  assert.match(text, /--base-ref/)
-  assert.equal(job.steps.find((step) => step.env?.STANDALONE_SUITE).env.STANDALONE_SUITE.includes('affected'), true)
+test('standalone integration remains in the existing snapshot lane without an automatic PR job', () => {
+  const workflowsRoot = new URL('../../.github/workflows/', import.meta.url)
+  assert.equal(fs.existsSync(new URL('standalone-pr.yml', workflowsRoot)), false)
+  const callers = fs.readdirSync(workflowsRoot).filter((name) => /\.ya?ml$/.test(name))
+    .filter((name) => fs.readFileSync(new URL(name, workflowsRoot), 'utf8').includes('scripts/ci/standalone-integration.mjs'))
+  assert.deepEqual(callers, ['snapshot.yml'])
+  const snapshot = fs.readFileSync(new URL('snapshot.yml', workflowsRoot), 'utf8')
+  assert.match(snapshot, /--source published/)
+  assert.match(snapshot, /--suite full/)
 })
