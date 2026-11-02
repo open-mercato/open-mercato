@@ -46,6 +46,20 @@ A regenerated MCP key becomes invalid if its owner's home organization changes,
 including a change from no home organization to a concrete one. Generate a new
 key and update the MCP client secret after such a change.
 
+### Agent search answers honor domain policy (#7234)
+
+When an allow-list or deny-list is configured, agent `web_search` and the settings
+preview's top-level `answer` now return `null` instead of provider-generated prose
+whose sources cannot be verified. Allowed result links and snippets remain available;
+`diagnostics.answerWithheld: 'domain_policy'` explains withheld text. This also applies
+to cached engine output and to answers whose denied sources disappeared during fusion.
+No-policy searches are unchanged. Existing clients already accept nullable answers;
+use the permitted results without disabling domain restrictions. The privileged
+`agents.manage` preview still shows raw per-adapter comparisons, including blocked-hit
+markers; those comparisons never enter agent context. No database migration or cache
+purge is required. Credit to @AHKSammich for the finding/proof of concept in #7323;
+this implementation was written independently for the enterprise module.
+
 ### Scoped attachment bytes no longer advertise shared caching (#7220)
 
 The attachment file and image byte routes now return `Cache-Control: private,
