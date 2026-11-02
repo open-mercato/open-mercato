@@ -22,7 +22,7 @@
 | 5 | 5.2 | Bulk route and bulk actions (spec step 13) | dispatch | done | 839bca9a19 |
 | 5 | 5.3 | Review page, menu entry and integration test (spec step 14) | dispatch | done | 93a225665b |
 | 6 | 6.1 | Auto-apply: settings UI, service logic, tests (spec step 15) | dispatch | done | 22979a00b5 |
-| 7 | 7.1 | On-create subscriber, settings switch, integration test (spec step 16) | dispatch | done | pending |
+| 7 | 7.1 | On-create subscriber, settings switch, integration test (spec step 16) | dispatch | done | ebe798dabe |
 | 7 | 7.2 | Docs page in apps/docs (spec step 17) | dispatch | todo | — |
 | 8 | 8.1 | Spec sync, PR body update, full gate | inline | todo | — |
 
