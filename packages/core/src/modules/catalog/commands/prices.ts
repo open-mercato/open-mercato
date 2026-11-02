@@ -17,6 +17,7 @@ import type { TaxCalculationService } from '@open-mercato/core/modules/sales/ser
 import {
   cloneJson,
   commandActorScope,
+  commandScopeWhere,
   ensureOrganizationScope,
   ensureSameScope,
   ensureSameTenant,
@@ -32,6 +33,12 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import {
+  capturePriceHistoryEntry,
+  hasPriceHistoryRelevantChange,
+  priceHistoryInputFromRecord,
+} from '../lib/omnibus'
+import { resolveOmnibusCache } from '../lib/omnibusCache'
 
 const priceCrudEvents: CrudEventsConfig = {
   module: 'catalog',
@@ -131,11 +138,15 @@ async function resolveSnapshotAssociations(
   return { variant, product, offer }
 }
 
-async function loadPriceSnapshot(em: EntityManager, id: string): Promise<PriceSnapshot | null> {
+async function loadPriceSnapshot(
+  em: EntityManager,
+  id: string,
+  scopeWhere: Record<string, unknown> = {},
+): Promise<PriceSnapshot | null> {
   const record = await findOneWithDecryption(
     em,
     CatalogProductPrice,
-    { id },
+    { id, ...scopeWhere },
     { populate: ['priceKind', 'product', 'variant', 'offer'] },
   )
   if (!record) return null
@@ -274,6 +285,24 @@ function resolveAmountInputFromParsed(
     return { amount: parsed.unitPriceGross, mode: 'gross' }
   }
   return null
+}
+
+function hasAmountChanged(incoming: unknown, current: string | null | undefined): incoming is number {
+  if (typeof incoming !== 'number' || !Number.isFinite(incoming)) return false
+  return numericStringToNumber(current) !== incoming
+}
+
+function resolveAmountInputForUpdate(
+  parsed: Partial<Pick<PriceCreateInput, 'unitPriceNet' | 'unitPriceGross'>>,
+  record: CatalogProductPrice
+): PriceAmountInput | null {
+  if (hasAmountChanged(parsed.unitPriceNet, record.unitPriceNet)) {
+    return { amount: parsed.unitPriceNet, mode: 'net' }
+  }
+  if (hasAmountChanged(parsed.unitPriceGross, record.unitPriceGross)) {
+    return { amount: parsed.unitPriceGross, mode: 'gross' }
+  }
+  return resolveAmountInputFromParsed(parsed)
 }
 
 function resolveAmountInputFromRecord(record: CatalogProductPrice): PriceAmountInput | null {
@@ -417,6 +446,9 @@ const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> 
       },
       events: priceCrudEvents,
     })
+    await capturePriceHistoryEntry(em, priceHistoryInputFromRecord(record), 'create', {
+      cache: resolveOmnibusCache(ctx.container),
+    })
     return { priceId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -452,6 +484,10 @@ const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> 
     ensureOrganizationScope(ctx, record.organizationId)
     em.remove(record)
     await em.flush()
+    await capturePriceHistoryEntry(em, after, 'undo', {
+      metadata: { undoneCommand: 'catalog.prices.create' },
+      cache: resolveOmnibusCache(ctx.container),
+    })
     const resetValues = buildCustomFieldResetMap(undefined, after.custom ?? undefined)
     if (Object.keys(resetValues).length) {
       await setCustomFieldsIfAny({
@@ -470,7 +506,7 @@ const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> 
     seedFromSnapshot: priceSeedFromSnapshot,
     buildResult: (entity) => ({ priceId: entity.id }),
     events: priceCrudEvents,
-    afterRestore: async ({ ctx, entity, snapshot }) => {
+    afterRestore: async ({ em, ctx, entity, snapshot }) => {
       if (snapshot.custom && Object.keys(snapshot.custom).length) {
         await setCustomFieldsIfAny({
           dataEngine: ctx.container.resolve('dataEngine'),
@@ -481,6 +517,10 @@ const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> 
           values: snapshot.custom,
         })
       }
+      await capturePriceHistoryEntry(em, snapshot, 'create', {
+        metadata: { redoneCommand: 'catalog.prices.create' },
+        cache: resolveOmnibusCache(ctx.container),
+      })
     },
   }),
 }
@@ -490,7 +530,7 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
   async prepare(input, ctx) {
     const id = requireId(input, 'Price id is required')
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadPriceSnapshot(em, id)
+    const snapshot = await loadPriceSnapshot(em, id, commandScopeWhere(ctx))
     if (snapshot) {
       ensureTenantScope(ctx, snapshot.tenantId)
       ensureOrganizationScope(ctx, snapshot.organizationId)
@@ -503,7 +543,7 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
     const record = await findOneWithDecryption(
       em,
       CatalogProductPrice,
-      { id: parsed.id },
+      { id: parsed.id, ...commandScopeWhere(ctx) },
       { populate: ['priceKind'] },
       { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
     )
@@ -522,6 +562,11 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
       targetProduct = await requireProduct(em, currentProductRef, recordScope)
     } else if (currentProductRef) {
       targetProduct = currentProductRef
+    }
+    const recordHistoryInput = priceHistoryInputFromRecord(record)
+    const historyBefore = {
+      ...recordHistoryInput,
+      productId: recordHistoryInput.productId ?? targetProduct?.id ?? null,
     }
 
     if (parsed.variantId !== undefined) {
@@ -617,7 +662,7 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
     ensureSameTenant(targetPriceKind, targetProduct.tenantId)
 
     const taxCalculationService = ctx.container.resolve<TaxCalculationService>('taxCalculationService')
-    const amountInput = resolveAmountInputFromParsed(parsed)
+    const amountInput = resolveAmountInputForUpdate(parsed, record)
     const hasNetInput = Object.prototype.hasOwnProperty.call(parsed, 'unitPriceNet')
     const hasGrossInput = Object.prototype.hasOwnProperty.call(parsed, 'unitPriceGross')
     const hasTaxRateInput = Object.prototype.hasOwnProperty.call(parsed, 'taxRate')
@@ -718,6 +763,14 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
       },
       events: priceCrudEvents,
     })
+    const historyAfter = priceHistoryInputFromRecord(record)
+    if (hasPriceHistoryRelevantChange(historyBefore, historyAfter)) {
+      await capturePriceHistoryEntry(em, historyAfter, 'update', {
+        cache: resolveOmnibusCache(ctx.container),
+        invalidatePrices: [historyBefore],
+        previous: historyBefore,
+      })
+    }
     return { priceId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -792,6 +845,12 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
     ensureOrganizationScope(ctx, before.organizationId)
     applyPriceSnapshot(em, record, before)
     await em.flush()
+    await capturePriceHistoryEntry(em, before, 'undo', {
+      metadata: { undoneCommand: 'catalog.prices.update' },
+      cache: resolveOmnibusCache(ctx.container),
+      invalidatePrices: [after],
+      previous: after,
+    })
     const resetValues = buildCustomFieldResetMap(
       before.custom ?? undefined,
       after?.custom ?? undefined
@@ -817,7 +876,7 @@ const deletePriceCommand: CommandHandler<
   async prepare(input, ctx) {
     const id = requireId(input, 'Price id is required')
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadPriceSnapshot(em, id)
+    const snapshot = await loadPriceSnapshot(em, id, commandScopeWhere(ctx))
     if (snapshot) {
       ensureTenantScope(ctx, snapshot.tenantId)
       ensureOrganizationScope(ctx, snapshot.organizationId)
@@ -827,7 +886,7 @@ const deletePriceCommand: CommandHandler<
   async execute(input, ctx) {
     const id = requireId(input, 'Price id is required')
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(CatalogProductPrice, { id })
+    const record = await findOneWithDecryption(em, CatalogProductPrice, { id, ...commandScopeWhere(ctx) })
     if (!record) throw new CrudHttpError(404, { error: 'Catalog price not found' })
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
@@ -836,8 +895,10 @@ const deletePriceCommand: CommandHandler<
     const baseEm = (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadPriceSnapshot(baseEm, id)
 
+    const deletedPrice = snapshot ?? priceHistoryInputFromRecord(record)
     em.remove(record)
     await em.flush()
+    await capturePriceHistoryEntry(em, deletedPrice, 'delete', { cache: resolveOmnibusCache(ctx.container) })
     if (snapshot?.custom && Object.keys(snapshot.custom).length) {
       const resetValues = buildCustomFieldResetMap(snapshot.custom, undefined)
       if (Object.keys(resetValues).length) {
@@ -924,6 +985,10 @@ const deletePriceCommand: CommandHandler<
     ensureOrganizationScope(ctx, before.organizationId)
     applyPriceSnapshot(em, record, before)
     await em.flush()
+    await capturePriceHistoryEntry(em, before, 'undo', {
+      metadata: { undoneCommand: 'catalog.prices.delete' },
+      cache: resolveOmnibusCache(ctx.container),
+    })
     if (before.custom && Object.keys(before.custom).length) {
       await setCustomFieldsIfAny({
         dataEngine: ctx.container.resolve('dataEngine'),

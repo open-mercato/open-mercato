@@ -3409,11 +3409,21 @@ function sourceDeclaresCliCommand(filePath: string, commandName: string): boolea
     })
   }
 
-  return sourceFile.statements.some((statement) => (
-    ts.isExportAssignment(statement)
-    && !statement.isExportEquals
-    && expressionDeclaresCommand(statement.expression)
-  ))
+  return sourceFile.statements.some((statement) => {
+    if (ts.isExportAssignment(statement)) {
+      return !statement.isExportEquals && expressionDeclaresCommand(statement.expression)
+    }
+    if (
+      !ts.isExportDeclaration(statement)
+      || statement.moduleSpecifier
+      || !statement.exportClause
+      || !ts.isNamedExports(statement.exportClause)
+    ) return false
+    return statement.exportClause.elements.some((element) => (
+      element.name.text === 'default'
+      && expressionDeclaresCommand(element.propertyName && ts.isIdentifier(element.propertyName) ? element.propertyName : element.name)
+    ))
+  })
 }
 
 function appDeclaresProgrammaticDevSupervisorOverrides(appDir: string): boolean {
@@ -4624,6 +4634,7 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
           importName: moduleRuntimeImportName,
           members: ['default', 'runtime'],
           fallback: identifier('undefined'),
+          castType: "Module['runtime']",
         }),
       })
     }
@@ -5035,6 +5046,7 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
           importName: moduleRuntimeImportName,
           members: ['default', 'runtime'],
           fallback: identifier('undefined'),
+          castType: "Module['runtime']",
         }),
       })
     }

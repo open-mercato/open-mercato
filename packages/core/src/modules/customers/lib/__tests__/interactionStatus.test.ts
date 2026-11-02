@@ -3,6 +3,7 @@ import {
   INTERACTION_STATUS_COMPLETED,
   INTERACTION_STATUS_PLANNED,
   TERMINAL_INTERACTION_STATUS_LIST,
+  isCanceledInteractionStatus,
   isOpenInteractionStatus,
   isTerminalInteractionStatus,
 } from '../interactionStatus'
@@ -50,5 +51,18 @@ describe('interaction status semantics', () => {
 
   it('lists every terminal status', () => {
     expect([...TERMINAL_INTERACTION_STATUS_LIST].sort()).toEqual(['canceled', 'completed', 'done'])
+  })
+
+  describe('isCanceledInteractionStatus', () => {
+    it('matches only the canceled status', () => {
+      expect(isCanceledInteractionStatus(INTERACTION_STATUS_CANCELED)).toBe(true)
+    })
+
+    it.each(['done', 'completed', 'planned', 'in_progress', 'waiting', null, undefined])(
+      'does not treat %s as canceled',
+      (value) => {
+        expect(isCanceledInteractionStatus(value)).toBe(false)
+      },
+    )
   })
 })

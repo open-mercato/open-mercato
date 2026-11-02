@@ -190,6 +190,14 @@ export async function deleteSyncRunsByIntegration(integrationId: string): Promis
   })
 }
 
+/** Hard-deletes only the named `sync_runs` rows (best-effort cleanup). */
+export async function deleteSyncRunsByIds(runIds: string[]): Promise<void> {
+  if (runIds.length === 0) return
+  await withClient(async (client) => {
+    await client.query('delete from sync_runs where id = any($1::uuid[])', [runIds])
+  })
+}
+
 /** Hard-deletes every `sync_schedules` row for an integration (best-effort cleanup). */
 export async function deleteSyncSchedulesByIntegration(integrationId: string): Promise<void> {
   if (!integrationId) return

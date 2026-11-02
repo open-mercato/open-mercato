@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -35,7 +36,8 @@ export async function GET(req: Request) {
     if (organizationId !== auth.orgId) {
       const hasTargetAccess = await rbacService.userHasAllFeatures(auth.sub, ['customer_accounts.view'], { tenantId: auth.tenantId, organizationId })
       if (!hasTargetAccess) {
-        return NextResponse.json({ ok: false, error: 'Insufficient permissions' }, { status: 403 })
+        const { translate } = await resolveTranslations()
+        return NextResponse.json({ ok: false, error: translate('customer_accounts.admin.errors.insufficientPermissions', 'Insufficient permissions') }, { status: 403 })
       }
     }
   }

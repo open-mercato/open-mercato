@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { AwilixContainer } from 'awilix'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   organizationScopeRequiredResponse,
   resolveActiveOrganizationId,
@@ -14,10 +15,11 @@ export type AdminTargetOrganizationResult =
 
 const organizationIdSchema = z.string().uuid()
 
-function organizationNotFound(): AdminTargetOrganizationResult {
+async function organizationNotFound(): Promise<AdminTargetOrganizationResult> {
+  const { translate } = await resolveTranslations()
   return {
     ok: false,
-    response: NextResponse.json({ ok: false, error: 'Organization not found' }, { status: 400 }),
+    response: NextResponse.json({ ok: false, error: translate('customer_accounts.admin.errors.organizationNotFound', 'Organization not found') }, { status: 400 }),
   }
 }
 

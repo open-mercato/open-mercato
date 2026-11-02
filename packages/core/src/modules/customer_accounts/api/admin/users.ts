@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -7,6 +8,7 @@ import { RbacService } from '@open-mercato/core/modules/auth/services/rbacServic
 import { CustomerUserService } from '@open-mercato/core/modules/customer_accounts/services/customerUserService'
 import { CustomerUser, CustomerUserRole, CustomerRole } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { adminCreateUserSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
@@ -47,10 +49,22 @@ export async function GET(req: Request) {
   const roleId = url.searchParams.get('roleId')
   const search = url.searchParams.get('search')
 
+  const organizationScope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
   const where: Record<string, unknown> = {
     tenantId: auth.tenantId,
-    organizationId: auth.orgId,
     deletedAt: null,
+  }
+  if (Array.isArray(organizationScope.filterIds)) {
+    if (organizationScope.filterIds.length === 0) {
+      return NextResponse.json({
+        ok: true,
+        items: [],
+        total: 0,
+        totalPages: 1,
+        page,
+      })
+    }
+    where.organizationId = { $in: organizationScope.filterIds }
   }
 
   if (status === 'active') {
@@ -259,7 +273,8 @@ export async function POST(req: Request) {
   if (organizationId !== auth.orgId) {
     const hasTargetAccess = await rbacService.userHasAllFeatures(auth.sub, ['customer_accounts.manage'], { tenantId: auth.tenantId, organizationId })
     if (!hasTargetAccess) {
-      return NextResponse.json({ ok: false, error: 'Insufficient permissions' }, { status: 403 })
+      const { translate } = await resolveTranslations()
+      return NextResponse.json({ ok: false, error: translate('customer_accounts.admin.errors.insufficientPermissions', 'Insufficient permissions') }, { status: 403 })
     }
   }
 

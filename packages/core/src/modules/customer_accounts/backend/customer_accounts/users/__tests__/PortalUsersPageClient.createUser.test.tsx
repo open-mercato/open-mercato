@@ -1,7 +1,7 @@
 /**
  * @jest-environment jsdom
  */
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { PortalUsersPageClient } from '../PortalUsersPageClient'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -127,6 +127,36 @@ describe('PortalUsersPageClient — create user organization (#5576)', () => {
       roleIds: ['role-target'],
       organizationId: 'org-target',
     })
+  })
+
+  it('ignores a late role response after the organization changes again', async () => {
+    let finishTargetRequest: () => void = () => undefined
+    apiCallMock.mockImplementation(async (url: string) => {
+      if (url.includes('organizationId=org-target')) {
+        return new Promise((resolve) => {
+          finishTargetRequest = () => resolve({
+            ok: true, status: 200, result: { items: [targetOrgRole] }, response: new Response(),
+          } as never)
+        })
+      }
+      return { ok: true, status: 200, result: { items: [currentOrgRole] }, response: new Response() } as never
+    })
+    render(<PortalUsersPageClient portalOrigin="https://shop.example.com" activeOrganizationId="org-home" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Create User' }))
+    const organizationSelect = await screen.findByLabelText('Organization')
+    await screen.findByRole('option', { name: 'Target Org' })
+    await screen.findByRole('button', { name: 'Current Buyer' })
+
+    fireEvent.change(organizationSelect, { target: { value: 'org-target' } })
+    await waitFor(() => expect(apiCallMock).toHaveBeenCalledWith(
+      '/api/customer_accounts/admin/roles?pageSize=100&organizationId=org-target',
+    ))
+    fireEvent.change(organizationSelect, { target: { value: '' } })
+    await screen.findByRole('button', { name: 'Current Buyer' })
+    await act(async () => { finishTargetRequest() })
+
+    expect(screen.getByRole('button', { name: 'Current Buyer' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Target Buyer' })).not.toBeInTheDocument()
   })
 
   it('omits organizationId when the current organization is kept', async () => {
