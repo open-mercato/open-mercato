@@ -255,7 +255,9 @@ function DefaultPersonDetailTabs({
           }
         }
       }
-      setVisibleIds((current) => (current && current.join('|') === next.join('|') ? current : next))
+      // A measuring pass rendered every tab, so it must end in a new render even when the
+      // inline set is unchanged (a tab that went straight into More), or the strip stays unfolded.
+      setVisibleIds((current) => (!measuring && current && current.join('|') === next.join('|') ? current : next))
     }
 
     compute()
