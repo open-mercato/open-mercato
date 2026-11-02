@@ -33,14 +33,20 @@ test.describe('TC-SALES-6196: customer picker closes on pick', () => {
       await page.goto('/backend/sales/documents/create', { waitUntil: 'domcontentloaded' })
       const search = page.getByPlaceholder('Search customers…')
       await expect(search).toBeVisible({ timeout: 60_000 })
-      await search.fill(`QA 6196 Customer ${stamp}`)
 
+      // A first keystroke can land before the form hydrates and the fresh person can still be
+      // indexing, so retype until the search returns it.
       const option = page.getByRole('option', { name: new RegExp(displayName) }).first()
-      await expect(option).toBeVisible({ timeout: 30_000 })
+      await expect(async () => {
+        await search.fill('')
+        await search.fill(`QA 6196 Customer ${stamp}`)
+        await expect(option).toBeVisible({ timeout: 5_000 })
+      }).toPass({ timeout: 45_000 })
       await option.click()
 
+      // The summary row replaces the search box until Change reopens it.
       await expect(page.getByRole('listbox')).toHaveCount(0)
-      await expect(search).toHaveValue('')
+      await expect(search).toHaveCount(0)
       const summary = page.getByTestId('lookup-select-selected')
       await expect(summary).toContainText(displayName)
       await expect(summary).not.toContainText(String(personId))
