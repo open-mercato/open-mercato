@@ -236,7 +236,7 @@ test.describe('TC-CRM-088 deal linked-people parity', () => {
         page.getByRole('row').filter({ has: page.getByText(name, { exact: true }) }).last()
       const unlinkPerson = async (name: string) => {
         await personRow(name).getByRole('button', { name: 'More', exact: true }).click()
-        await page.getByRole('menuitem', { name: /^Unlink$/i }).click()
+        await page.getByRole('button', { name: /^Unlink$/i }).click()
       }
 
       await expect(personRow(linkedName), 'the People tab should render a row per linked person')
