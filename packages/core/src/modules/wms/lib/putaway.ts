@@ -125,6 +125,21 @@ export function assertPutawayConfirmedQuantity(
   }
 }
 
+/**
+ * Reject a client lot that disagrees with the task lot. An omitted client lot
+ * keeps the task lot. A task with no lot may still receive one.
+ */
+export function assertPutawayLotMatches(
+  taskLotId: string | null | undefined,
+  inputLotId: string | null | undefined,
+): void {
+  if (typeof inputLotId !== 'string' || inputLotId.trim().length === 0) return
+  if (typeof taskLotId !== 'string' || taskLotId.trim().length === 0) return
+  if (inputLotId.trim() !== taskLotId.trim()) {
+    throw new CrudHttpError(422, { error: 'putaway_lot_mismatch' })
+  }
+}
+
 export function putawayResidualQuantity(taskQuantity: number, confirmedQuantity: number): number {
   const residual = taskQuantity - confirmedQuantity
   return residual > 0.000001 ? residual : 0

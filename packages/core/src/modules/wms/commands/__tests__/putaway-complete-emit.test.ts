@@ -240,6 +240,97 @@ describe('wms.putaway-tasks.complete event emit', () => {
     expect(applyInventoryMoveInTransaction).toHaveBeenCalledTimes(1)
   })
 
+  it('rejects a conflicting lot before moving stock or rewriting the task lot', async () => {
+    const em = createEm()
+    const ctx = createCtx(em)
+    const taskLot = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+    const otherLot = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+    const task = openTask({ lotId: taskLot, status: 'open', quantity: '4' })
+
+    findOneWithDecryption.mockImplementation(async (_em, entity) => {
+      if (entity === PutawayTask) return task
+      return null
+    })
+    findPutawayCompleteMovementByReference.mockResolvedValue(null)
+
+    const handler = commandRegistry.get('wms.putaway-tasks.complete')
+    await expect(
+      handler!.execute(
+        {
+          organizationId: ORG,
+          tenantId: TENANT,
+          id: TASK_ID,
+          targetLocationId: TARGET_LOC,
+          confirmedQuantity: 4,
+          lotId: otherLot,
+          performedBy: USER_ID,
+        },
+        ctx as never,
+      ),
+    ).rejects.toMatchObject({ status: 422, body: { error: 'putaway_lot_mismatch' } })
+
+    expect(task.lotId).toBe(taskLot)
+    expect(task.status).toBe('open')
+    expect(applyInventoryMoveInTransaction).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('completes with the task lot when the client omits lotId', async () => {
+    const em = createEm()
+    const ctx = createCtx(em)
+    const taskLot = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+    const task = openTask({ lotId: taskLot, status: 'open', quantity: '4' })
+
+    findOneWithDecryption.mockImplementation(async (_em, entity, where) => {
+      if (entity === PutawayTask) return task
+      if (entity === WarehouseLocation) {
+        const id = String((where as { id?: string }).id)
+        return {
+          id,
+          tenantId: TENANT,
+          organizationId: ORG,
+          warehouse: { id: '55555555-5555-4555-8555-555555555555' },
+          isActive: true,
+          type: id === task.sourceLocationId ? 'staging' : 'bin',
+        }
+      }
+      return null
+    })
+    findPutawayCompleteMovementByReference.mockResolvedValue(null)
+    applyInventoryMoveInTransaction.mockResolvedValue({
+      movementId: MOVEMENT_ID,
+      warehouseId: '55555555-5555-4555-8555-555555555555',
+      catalogVariantId: task.catalogVariantId,
+      quantity: 4,
+      tenantId: TENANT,
+      organizationId: ORG,
+      movementEntity: { id: MOVEMENT_ID, quantity: '4' },
+      balances: [],
+      idempotentReplay: false,
+    })
+
+    const handler = commandRegistry.get('wms.putaway-tasks.complete')
+    await handler!.execute(
+      {
+        organizationId: ORG,
+        tenantId: TENANT,
+        id: TASK_ID,
+        targetLocationId: TARGET_LOC,
+        confirmedQuantity: 4,
+        performedBy: USER_ID,
+      },
+      ctx as never,
+    )
+
+    expect(applyInventoryMoveInTransaction).toHaveBeenCalledWith(
+      em,
+      expect.anything(),
+      expect.objectContaining({ lotId: taskLot, quantity: 4 }),
+    )
+    expect(task.lotId).toBe(taskLot)
+    expect(task.status).toBe('done')
+  })
+
   it('refuses operator complete when task is not assigned to them', async () => {
     const em = createEm()
     const ctx = createCtx(em, ['wms.adjust_inventory'])

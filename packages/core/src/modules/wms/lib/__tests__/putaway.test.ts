@@ -7,6 +7,7 @@ import {
   assertPutawayCompleteAuthorized,
   assertPutawayCompletable,
   assertPutawayConfirmedQuantity,
+  assertPutawayLotMatches,
   assertPutawayDeletable,
   assertPutawayLifecycleFieldsForbidden,
   assertPutawayStartable,
@@ -105,6 +106,22 @@ describe('putaway lifecycle guards', () => {
         assignedTo: null,
       }),
     ).toThrow(CrudHttpError)
+  })
+
+  it('rejects a lot that conflicts with the task and keeps an omitted lot', () => {
+    const taskLot = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const otherLot = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+    expect(() => assertPutawayLotMatches(taskLot, otherLot)).toThrow(CrudHttpError)
+    try {
+      assertPutawayLotMatches(taskLot, otherLot)
+    } catch (error) {
+      expect((error as CrudHttpError).status).toBe(422)
+      expect((error as CrudHttpError).body).toMatchObject({ error: 'putaway_lot_mismatch' })
+    }
+    expect(() => assertPutawayLotMatches(taskLot, undefined)).not.toThrow()
+    expect(() => assertPutawayLotMatches(taskLot, null)).not.toThrow()
+    expect(() => assertPutawayLotMatches(taskLot, ` ${taskLot} `)).not.toThrow()
+    expect(() => assertPutawayLotMatches(null, otherLot)).not.toThrow()
   })
 
   it('rejects over-complete quantities and computes residual for under', () => {
