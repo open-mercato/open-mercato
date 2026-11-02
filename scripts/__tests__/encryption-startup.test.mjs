@@ -475,6 +475,31 @@ for (const layout of ['standalone', 'monorepo']) {
   })
 }
 
+for (const explicitCwd of [false, true]) {
+  test(`production env-only startup retains checkout-bounded cwd fallback (${explicitCwd ? 'explicit' : 'implicit'} cwd)`, async () => {
+    const monorepo = fs.mkdtempSync(path.join(temporaryRoot, 'env-only-checkout-'))
+    fs.writeFileSync(path.join(monorepo, '.git'), 'gitdir: fixture-only\n')
+    fs.mkdirSync(path.join(monorepo, 'apps'))
+    const appDir = path.join(monorepo, 'apps/mercato')
+    fs.renameSync(fixture(null), appDir)
+    const rootContent = 'RECOVERY_CWD_ENV=active\nTELEMETRY_BACKEND=console\n'
+    fs.writeFileSync(path.join(monorepo, '.env'), rootContent)
+    const foreignApp = fixture('RECOVERY_CWD_ENV=foreign\nTELEMETRY_BACKEND=noop\n')
+    const cliUrl = pathToFileURL(path.join(temporaryRoot, 'cli.mjs')).href
+    const result = await run(`
+      import { prepareAppEncryptionEnv, loadAppEnv } from ${JSON.stringify(cliUrl)};
+      ${explicitCwd ? '' : "await prepareAppEncryptionEnv(['node','mercato','server','start']);"}
+      await loadAppEnv(${explicitCwd ? JSON.stringify({ cwd: monorepo }) : ''});
+      if (process.env.RECOVERY_CWD_ENV !== 'active') throw new Error('cwd fallback missing or escaped checkout');
+      if (process.env.TELEMETRY_BACKEND !== 'console') throw new Error('telemetry configuration was not loaded early');
+    `, explicitCwd ? foreignApp : monorepo, { NODE_ENV: 'production', [fallbackName]: privateKey, TELEMETRY_BACKEND: undefined })
+    assert.equal(result.code, 0, result.output)
+    assert.equal(fs.readFileSync(path.join(monorepo, '.env'), 'utf8'), rootContent)
+    assert.ok(!fs.existsSync(path.join(appDir, '.env')))
+    assert.equal(parseEnv(fs.readFileSync(path.join(foreignApp, '.env'), 'utf8')).RECOVERY_CWD_ENV, 'foreign')
+  })
+}
+
 test('help, generation and deployment inspection never provision files', async () => {
   const cwd = process.cwd()
   const appDir = fixture(null)

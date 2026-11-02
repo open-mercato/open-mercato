@@ -1,6 +1,6 @@
 # Startup encryption verification — PR #8377 follow-up
 
-Runner: local. Result: **152 passed, 0 failed, 0 skipped**, including **24 live HTTP
+Runner: local. Result: **160 passed, 0 failed, 0 skipped**, including **24 live HTTP
 startup cases**. Tests use disposable fixtures and never apply application
 migrations or reset a developer database. This is evidence for the local follow-up
 implementation, not certification of the separate production preflight currently
@@ -111,5 +111,15 @@ checkouts failed before this fix and pass afterward, proving that foreign env
 files are neither loaded nor modified.
 
 The non-live startup and Compose run passes 70 cases; 24 opt-in live cases were
-skipped in that run. Focused TypeScript checking passes. The complete live matrix
-is being rerun separately for this follow-up.
+skipped in that initial narrow run. The complete follow-up run then passes all
+160 cases, including all 24 live HTTP starts and the additional checkout-isolation
+and Compose propagation cases. Shared/CLI builds, focused TypeScript checking,
+MDX compilation, lessons validation and template parity checks pass. The template
+check used the equivalent direct Node/tsx script because this worktree has no
+Yarn node_modules state file. No dependency manifests or lockfiles changed.
+
+Independent review identified a missing cwd env fallback for production env-only
+startup. The correction retains that fallback inside the requested checkout;
+explicit cwd loading cannot leak settings from an unrelated process cwd. Both
+new production/telemetry regressions failed before the correction and pass after
+it, alongside the two symlink-isolation regressions (4/4 focused checks).

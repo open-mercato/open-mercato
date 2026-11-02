@@ -19,6 +19,8 @@ root shadowed by empty values prevents competing-root generation and warns.
 CLI env-file lookup uses the active app's filesystem layout and its Git boundary,
 never the target of a borrowed workspace-package symlink. Both env loading and
 provisioning use that same lookup.
+If the discovered app has no env file, early loading retains the requested
+working directory's env-file fallback without reading from another checkout.
 Validate inherited
 keys before dotenv can hide their origin. Externally managed keys may belong to
 an existing deployment, so published external roots and process/file conflicts
@@ -56,7 +58,7 @@ conflicts, dotenv syntax/precedence, read-only environment deployments, failed
 writes, simultaneous launches, and supported startup entrypoints. No API or UI
 paths change. Build the affected packages and check template parity.
 
-Local verification: 152 checks pass, including 24 real Next HTTP fixture starts
+Local verification: 160 checks pass, including 24 real Next HTTP fixture starts
 across monorepo/standalone, Webpack/Turbopack dev and production, with empty,
 saved-default, external-default and unsafe configurations. Shared and CLI builds,
 focused TypeScript checks, MDX compilation, template sync and lessons validation
@@ -68,6 +70,9 @@ command alias coverage and remaining full-app/installation validation limits.
 - 2026-11-02: Isolated CLI env reads/writes to the active checkout when worktrees
   share package symlinks; added standalone and monorepo regressions that failed
   before the fix and verify the foreign checkout is untouched afterward.
+- 2026-11-02: Review caught the missing production env-only cwd fallback; restored
+  it within the requested checkout and added failing-before/passing-after implicit
+  and explicit cwd regressions covering early telemetry configuration.
 
 - 2026-11-01: Drafted startup provisioning and mismatch guard requested for #8377.
 - 2026-11-01: User clarified that no non-empty key may be changed, including dummy

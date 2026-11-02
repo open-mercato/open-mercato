@@ -55,8 +55,10 @@ export async function prepareAppEncryptionEnv(argv: readonly string[]): Promise<
  * load-order guarantee is preserved.
  */
 export async function loadAppEnv(options: { cwd?: string } = {}): Promise<void> {
-  const envPath = path.join(resolveAppEnvDir(options.cwd), '.env')
-  if (fs.existsSync(envPath)) {
+  const cwd = path.resolve(options.cwd ?? process.cwd())
+  const envPath = [path.join(resolveAppEnvDir(cwd), '.env'), path.join(cwd, '.env')]
+    .find((candidate) => fs.existsSync(candidate))
+  if (envPath) {
     const dotenv = await import('dotenv')
     dotenv.config({ path: envPath, quiet: true })
   }
