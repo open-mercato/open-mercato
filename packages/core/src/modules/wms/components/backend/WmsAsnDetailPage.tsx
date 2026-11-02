@@ -45,11 +45,7 @@ import {
 } from './inboundStatusUi'
 import { ReceiveAsnLineDialog, type ReceiveAsnLineTarget } from './ReceiveAsnLineDialog'
 import { useWmsInventoryMutationAccess } from './useWmsInventoryMutationAccess'
-import {
-  resolveCatalogVariantLabel,
-  resolveLocationLabel,
-  resolveWarehouseLabel,
-} from './inventoryMutationLoaders'
+import { useAsnDetailLabelCache } from './useAsnDetailLabelCache'
 
 const asnIdSchema = z.string().uuid()
 
@@ -71,6 +67,8 @@ type AsnRow = {
 }
 
 type ReceivingLineRow = AsnReceivingLineRow
+
+const EMPTY_LABEL_LINES: ReceivingLineRow[] = []
 
 function toNumber(value: string | number | null | undefined): number {
   const parsed = Number(value ?? 0)
@@ -97,7 +95,6 @@ export default function WmsAsnDetailPage({ asnId }: { asnId: string }) {
   const [receiveOpen, setReceiveOpen] = React.useState(false)
   const [activeLine, setActiveLine] = React.useState<ReceiveAsnLineTarget | null>(null)
   const [closeWhenShort, setCloseWhenShort] = React.useState(false)
-  const [labelCache, setLabelCache] = React.useState<Record<string, string>>({})
   const asnCompleteLockRef = React.useRef<string | null>(null)
   // Fresh ASN If-Match across receives — query refetch is async after onSuccess.
   const asnReceiveLockRef = React.useRef<string | null>(null)
@@ -144,7 +141,11 @@ export default function WmsAsnDetailPage({ asnId }: { asnId: string }) {
   })
 
   const asn = asnQuery.data
-  const lines = linesQuery.data ?? []
+  const lines = linesQuery.data ?? EMPTY_LABEL_LINES
+  const labelCache = useAsnDetailLabelCache({
+    warehouseId: asn?.warehouse_id,
+    lines,
+  })
 
   React.useEffect(() => {
     if (typeof asn?.updated_at !== 'string' || !asn.updated_at.trim()) return
@@ -154,40 +155,6 @@ export default function WmsAsnDetailPage({ asnId }: { asnId: string }) {
       asnReceiveLockRef.current = fromQuery
     }
   }, [asn?.updated_at])
-
-  React.useEffect(() => {
-    const ids = new Set<string>()
-    if (asn?.warehouse_id) ids.add(asn.warehouse_id)
-    for (const line of lines) {
-      if (line.catalog_variant_id) ids.add(line.catalog_variant_id)
-      if (line.target_staging_location_id) ids.add(line.target_staging_location_id)
-    }
-    const missing = [...ids].filter((id) => !labelCache[id])
-    if (missing.length === 0) return
-    let cancelled = false
-    void Promise.all(
-      missing.map(async (id) => {
-        const [warehouse, variant, location] = await Promise.all([
-          resolveWarehouseLabel(id),
-          resolveCatalogVariantLabel(id),
-          resolveLocationLabel(id),
-        ])
-        return [id, warehouse || variant || location] as const
-      }),
-    ).then((entries) => {
-      if (cancelled) return
-      setLabelCache((prev) => {
-        const next = { ...prev }
-        for (const [id, label] of entries) {
-          if (label) next[id] = label
-        }
-        return next
-      })
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [asn?.warehouse_id, labelCache, lines])
 
   const discrepancyLines = lines.filter((line) =>
     lineHasDiscrepancy(line.expected_qty, line.received_qty),
