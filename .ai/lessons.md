@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 173 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 174 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -23,6 +23,8 @@ This catalog indexes 173 focused lessons. Route the task first, then read only r
 - [Serialize deprovisioning with final session issuance](lessons/serialize-deprovisioning-with-session-issuance.md) — area:module-data,testing; module:auth,sso; topic:security,concurrency,session-revocation,tenant-isolation
 - [Assert auth redirect responses before following them](lessons/assert-auth-redirects-before-following-them.md) — area:integration,testing; module:auth,sso; topic:testing,api-contracts,redirects,session-revocation
 - [Verify integration fixture cleanup against the actual endpoint](lessons/verify-integration-fixture-cleanup-contracts.md) — area:testing,integration; module:resources,entities,customers,sales,warranty_claims,channel_discord; topic:testing,fixture-cleanup,fixture-setup,api-contracts,schema-validation,proposal-origin
+
+- [Bounded trackers need per-admission identity](lessons/bounded-trackers-need-per-admission-identity.md) — area:architecture,testing; module:shared,audit_logs; topic:concurrency,observability,testing,security,tenant-isolation
 
 ### architecture
 

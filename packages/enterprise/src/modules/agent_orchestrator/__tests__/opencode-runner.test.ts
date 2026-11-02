@@ -20,6 +20,10 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: () => Promise.resolve([{ role: { id: 'role-caller' } }]),
 }))
 jest.mock('@open-mercato/core/modules/auth/data/entities', () => ({ UserRole: class UserRole {} }))
+jest.mock('../lib/sdk/defineAgent', () => ({
+  ...jest.requireActual<typeof import('../lib/sdk/defineAgent')>('../lib/sdk/defineAgent'),
+  ensureAgentsLoaded: jest.fn(async () => undefined),
+}))
 
 import { OpenCodeAgentRunner, type OpenCodeRunnerClient } from '../lib/runtime/openCodeAgentRunner'
 import { AgentRuntimeService } from '../lib/runtime/agentRuntime'

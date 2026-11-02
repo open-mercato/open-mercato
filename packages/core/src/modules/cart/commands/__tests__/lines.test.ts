@@ -761,6 +761,51 @@ describe('cart.lines.remove', () => {
 describe('cart.lines.bulkAdd', () => {
   beforeEach(resetFixtures)
 
+  it.each([0, 1])('uses the committed quantity after waiting for the lock with %i initial units', async (initialQuantity) => {
+    const addHandler = getHandler<CartLinesAddInput, CartLinesAddOutcome>('cart.lines.add')
+    const bulkHandler = getHandler<CartLinesBulkAddInput, CartLinesBulkAddResult>('cart.lines.bulkAdd')
+    const input = { tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, productId: 'product-1', addedByActorType: 'rep' as const }
+    if (initialQuantity) {
+      await addHandler.execute({ ...input, quantity: initialQuantity }, makeCtx({ em: makeEm() }))
+    }
+    const em = makeEm()
+    em.execute.mockImplementationOnce(async () => {
+      seededCartLines = seededCartLines.map((line) => ({ ...line }))
+      await addHandler.execute({ ...input, quantity: 5 }, makeCtx({ em: makeEm() }))
+      return [{ locked: true }]
+    })
+
+    const result = await bulkHandler.execute(
+      { ...input, lines: [{ productId: input.productId, quantity: 2 }] },
+      makeCtx({ em }),
+    )
+
+    expect(result.results[0]).toMatchObject({ status: 'merged', line: { quantity: String(initialQuantity + 7) } })
+    expect(seededCartLines).toHaveLength(1)
+    expect(Number(seededCartLines[0].quantity)).toBe(initialQuantity + 7)
+    expect(seededCarts[0].totals.grandTotalGrossAmount).toBe((initialQuantity + 7) * 12)
+  })
+
+  it('allocates line numbers after a preceding writer commits', async () => {
+    seededProducts.push(makeProductFixture({ id: 'product-2' }))
+    const addHandler = getHandler<CartLinesAddInput, CartLinesAddOutcome>('cart.lines.add')
+    const bulkHandler = getHandler<CartLinesBulkAddInput, CartLinesBulkAddResult>('cart.lines.bulkAdd')
+    const scope = { tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, addedByActorType: 'rep' as const }
+    const em = makeEm()
+    em.execute.mockImplementationOnce(async () => {
+      await addHandler.execute({ ...scope, productId: 'product-2', quantity: 1 }, makeCtx({ em: makeEm() }))
+      return [{ locked: true }]
+    })
+
+    const result = await bulkHandler.execute(
+      { ...scope, lines: [{ productId: 'product-1', quantity: 2 }] },
+      makeCtx({ em }),
+    )
+
+    expect(result.results[0]).toMatchObject({ status: 'added', line: { lineNumber: 2 } })
+    expect(seededCartLines.map((line) => line.lineNumber)).toEqual([1, 2])
+  })
+
   it('partially succeeds with per-entry warnings on a mix of valid and invalid entries', async () => {
     seededProducts = [makeProductFixture({ minOrderQty: 3 })]
     const handler = getHandler<CartLinesBulkAddInput, CartLinesBulkAddResult>('cart.lines.bulkAdd')
