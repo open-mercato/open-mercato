@@ -40,8 +40,19 @@ async function consumeScimRateLimit(req: Request): Promise<Response | null> {
       keyPrefix: 'sso-scim',
     })
     if (limiter) {
-      const key = await resolveScimRateLimitKey(req, getClientIp(req, limiter.trustProxyDepth))
-      limited = await checkRateLimit(limiter, config, key, RATE_LIMIT_ERROR_FALLBACK, { failClosed: true })
+      const clientIp = getClientIp(req, limiter.trustProxyDepth)
+      const admissionConfig = readEndpointRateLimitConfig('SCIM_ADMISSION', {
+        points: 100,
+        duration: 1,
+        keyPrefix: 'sso-scim-admission',
+      })
+      const admissionKey = `admission:${clientIp ?? RATE_LIMIT_FALLBACK_KEY}`
+      const admissionLimited = await checkRateLimit(limiter, admissionConfig, admissionKey, RATE_LIMIT_ERROR_FALLBACK, { failClosed: true })
+      if (admissionLimited) limited = admissionLimited
+      else {
+        const key = await resolveScimRateLimitKey(req, clientIp)
+        limited = await checkRateLimit(limiter, config, key, RATE_LIMIT_ERROR_FALLBACK, { failClosed: true })
+      }
     }
   } catch (error) {
     try {

@@ -55,7 +55,7 @@ function request(method = 'GET', path = 'Users', headers: Record<string, string>
 }
 
 describe('SCIM pre-verification rate limit', () => {
-  const configKeys = ['RATE_LIMIT_SCIM_POINTS', 'RATE_LIMIT_SCIM_DURATION', 'RATE_LIMIT_SCIM_BLOCK_DURATION', 'RATE_LIMIT_ENABLED', 'OM_INTEGRATION_TEST']
+  const configKeys = ['RATE_LIMIT_SCIM_POINTS', 'RATE_LIMIT_SCIM_DURATION', 'RATE_LIMIT_SCIM_BLOCK_DURATION', 'RATE_LIMIT_SCIM_ADMISSION_POINTS', 'RATE_LIMIT_SCIM_ADMISSION_DURATION', 'RATE_LIMIT_SCIM_ADMISSION_BLOCK_DURATION', 'RATE_LIMIT_ENABLED', 'OM_INTEGRATION_TEST']
   const originalConfig = Object.fromEntries(configKeys.map((key) => [key, process.env[key]]))
   let limiter: RateLimiterService
   let cache: CacheStrategy
@@ -193,8 +193,27 @@ describe('SCIM pre-verification rate limit', () => {
     expect(provisioningService.listUsers).toHaveBeenLastCalledWith(null, 1, 100, expect.objectContaining({ tenantId: 'tenant-2', organizationId: 'org-2' }), 'http://localhost')
     const keys = [...new Set(consume.mock.calls.map(([key]) => key))]
     expect(keys).toEqual(expect.arrayContaining([trustProxyDepth ? '198.51.100.1' : 'global', 'token:tenant-1:org-1:token-1', 'token:tenant-2:org-2:token-2']))
-    expect(keys).toHaveLength(3)
+    expect(keys).toContain(`admission:${trustProxyDepth ? '198.51.100.1' : 'global'}`)
+    expect(keys).toHaveLength(4)
     expect(keys.every((key) => !key.includes('omscim_'))).toBe(true)
+  })
+
+  it.each([false, true])('bounds fingerprint lookups before request-container work for concurrent=%s', async (concurrent) => {
+    process.env.RATE_LIMIT_SCIM_ADMISSION_POINTS = '3'
+    const responses: Array<Response | null> = []
+    const calls = Array.from({ length: 12 }, (_, index) => () => checkScimRateLimit(request('GET', 'Users', {
+      authorization: `Bearer omscim_${index.toString(16).padStart(64, '0')}`,
+    })))
+    if (concurrent) responses.push(...await Promise.all(calls.map((call) => call())))
+    else for (const call of calls) responses.push(await call())
+
+    expect(responses.filter((response) => response === null)).toHaveLength(3)
+    expect(responses.filter((response) => response?.status === 429)).toHaveLength(9)
+    expect(createRequestContainer).toHaveBeenCalledTimes(3)
+    expect(findOne).toHaveBeenCalledTimes(3)
+    expect(mockHash).not.toHaveBeenCalled()
+    expect(mockCompare).not.toHaveBeenCalled()
+    expect(responses.find((response) => response?.status === 429)?.headers.get('x-ratelimit-limit')).toBe('3')
   })
 
   it('keeps unverified credentials in a bounded fallback without probing stored prefixes', async () => {
@@ -205,7 +224,7 @@ describe('SCIM pre-verification rate limit', () => {
     }
     expect(findOne).toHaveBeenCalledTimes(12)
     expect(findOne).toHaveBeenCalledWith(ScimToken, { tokenLookupHash: expect.stringMatching(/^[a-f0-9]{64}$/), isActive: true }, { fields: ['id', 'tenantId', 'organizationId'] })
-    expect(new Set(consume.mock.calls.map(([key]) => key))).toEqual(new Set(['global']))
+    expect(new Set(consume.mock.calls.map(([key]) => key))).toEqual(new Set(['admission:global', 'global']))
     expect(mockHash).toHaveBeenCalledTimes(10)
     expect(mockCompare).not.toHaveBeenCalled()
   })
