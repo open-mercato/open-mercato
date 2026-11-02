@@ -130,12 +130,19 @@ test.describe('TC-TT-017: No access to a project', () => {
         await expect(page.getByText('Your request has been sent to the Team Leaders.')).toBeVisible()
         await expect(page.getByRole('button', { name: 'Request sent' })).toBeDisabled()
         if (scenario.delayedScope) {
-          const reloadedProject = page.waitForResponse((response) =>
-            response.url().includes('/api/staff/timesheets/time-projects?')
-            && response.url().includes(project!.id),
+          const scopeBootstrap = page.waitForResponse((response) =>
+            response.url().includes('/api/directory/organization-switcher'),
           )
+          const reloadedProject = scenario.freshSession
+            ? page.waitForResponse((response) =>
+                response.url().includes('/api/staff/timesheets/time-projects?')
+                && response.url().includes(project!.id),
+              )
+            : null
           releaseScope()
-          expect((await reloadedProject).status()).toBe(404)
+          expect((await scopeBootstrap).ok()).toBe(true)
+          await expect(page.getByRole('button', { name: /^Organization:/ })).toBeVisible()
+          if (reloadedProject) expect((await reloadedProject).status()).toBe(404)
           if (scenario.freshSession) {
             await expect
               .poll(async () => (await page.context().cookies()).some((cookie) => cookie.name === 'om_selected_org'))

@@ -635,6 +635,8 @@ Regression coverage: `api/timesheets/reports/[id]/export/__tests__/route.test.ts
 
 `GET /api/staff/timesheets/time-projects?ids=<id>` (also `?id=`) adds optional `x-om-project-scope-tenant-id` and `x-om-project-scope-organization-id` response headers on resolved reads and denials. Values come from the existing directory request-scope resolver used for access decisions, never query parameters or an assumed session default. Unresolved scope omits both. Existing status codes and response bodies are unchanged; older clients can ignore the headers. Without both headers, clients conservatively reset on cookie hydration. No database or operator migration is required.
 
+`POST /api/staff/timesheets/access-requests` resolves the validated request-selected tenant and concrete organization for its feature check, guards, lookups, deduplication and notification event. An explicitly rejected or missing selection returns the existing400 missing-scope error; selected-scope feature denial returns403. Successful request/response shapes, confidentiality and the24h deduplication contract remain unchanged. No client or operator migration is needed.
+
 Reviewed against [`BACKWARD_COMPATIBILITY.md`](../../BACKWARD_COMPATIBILITY.md)'s 13 contract surfaces:
 
 | Surface | Impact |
@@ -712,6 +714,7 @@ Every question the requirements left open — each one traced to the mockup note
 
 | Date | Change |
 |---|---|
+| 2026-11-02 | #8448: bind access-request writes, authorization, deduplication and manager notification to validated request-selected scope; reject rejected/missing scope. Bootstrap integration waits for switcher completion, requiring a project reload only for fresh-cookie hydration, while preserving scope/confidentiality/acknowledgement assertions. |
 | 2026-10-29 | #6821: bind fresh-session access acknowledgement to optional server-resolved request-scope headers; preserve matching hydration and reject first differing tenant/organization cookies, deferred writes and late completions. |
 | 2026-10-26 | #7834: redact monetary group/line values before the export serializer registry and omit money from built-in PDF/CSV/XLSX for callers without `staff.timesheets.rates.view`. Preserve amounts for authorized callers using `showRates: false`; add handler/serializer and scope regressions plus self-contained live CSV/PDF API coverage in TC-TT-026. |
 | 2026-10-07 | D-12 extended with an entry-date bound (#6988, split from #6987): time-entry writes also require the entry date to fall inside the granting assignment window (plus grace), and the grid bulk save (`POST /api/staff/timesheets/time-entries/bulk`), which previously checked no membership at all, now enforces the same rule and refuses the batch with 403. Right to write remains today-based. |
