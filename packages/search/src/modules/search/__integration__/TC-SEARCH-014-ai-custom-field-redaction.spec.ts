@@ -30,7 +30,7 @@ test('TC-SEARCH-014: registered search_get redacts persisted sensitive custom fi
   const entityId = 'customers:customer_person_profile'
   const definitions = [
     { key: 'ssn', kind: 'text' },
-    { key: 'primary_email', kind: 'text' },
+    { key: 'personal_email', kind: 'text' },
     { key: 'integration_safe_text', kind: 'text' },
     { key: 'integration_safe_score', kind: 'integer' },
     { key: 'integration_safe_flag', kind: 'boolean' },
@@ -66,13 +66,18 @@ test('TC-SEARCH-014: registered search_get redacts persisted sensitive custom fi
     expect(definitionResponse.status()).toBe(200)
     const createPerson = await apiRequest(request, 'POST', '/api/customers/people', { token: ownerToken, data: {
       firstName: 'Search', lastName: marker, displayName: `Search ${marker}`,
-      customFields: { ssn: 'private-ssn', primary_email: 'private@example.com', integration_safe_text: marker, integration_safe_score: 0, integration_safe_flag: false },
+      customFields: { ssn: 'private-ssn', personal_email: 'private@example.com', integration_safe_text: marker, integration_safe_score: 0, integration_safe_flag: false },
     } })
     expect(createPerson.status()).toBe(201)
     const person = await readJsonSafe<{ id: string; personId: string }>(createPerson)
     expect(person?.personId).toBeTruthy()
     recordId = person!.id
     profileId = person!.personId
+    const persistedResponse = await apiRequest(request, 'GET', `/api/customers/people?ids=${recordId}`, { token: ownerToken })
+    expect(persistedResponse.status()).toBe(200)
+    const persisted = await readJsonSafe<{ items: Record<string, unknown>[] }>(persistedResponse)
+    expect(persisted?.items).toHaveLength(1)
+    expect(persisted?.items[0]).toMatchObject({ cf_ssn: 'private-ssn', cf_personal_email: 'private@example.com' })
     const execute = (token: string) => apiRequest(request, 'POST', '/api/ai_assistant/tools/execute', {
       token, data: { toolName: 'search_get', args: { entityType: entityId, recordId: profileId } },
     })
@@ -82,7 +87,7 @@ test('TC-SEARCH-014: registered search_get redacts persisted sensitive custom fi
     expect(body?.success).toBe(true)
     expect(body?.result?.found).toBe(true)
     expect(body?.result?.customFields).toMatchObject({ integration_safe_text: marker, integration_safe_score: 0, integration_safe_flag: false })
-    for (const field of ['ssn', 'primary_email']) {
+    for (const field of ['ssn', 'personal_email']) {
       expect(body?.result?.customFields).not.toHaveProperty(field)
       expect(body?.result?.record).not.toHaveProperty(`cf_${field}`)
       expect(body?.result?.record).not.toHaveProperty(`cf:${field}`)
@@ -96,14 +101,14 @@ test('TC-SEARCH-014: registered search_get redacts persisted sensitive custom fi
       expect((await readJsonSafe<ToolResult>(outside))?.result?.found).toBe(false)
     }
   } finally {
-    if (ownerToken && recordId) await apiRequest(request, 'DELETE', `/api/customers/people?id=${recordId}`, { token: ownerToken })
+    if (ownerToken && recordId) await apiRequest(request, 'DELETE', `/api/customers/people?id=${recordId}`, { token: ownerToken }).catch(() => undefined)
     if (ownerToken) {
-      for (const definition of definitions) await apiRequest(request, 'DELETE', '/api/entities/definitions', { token: ownerToken, data: { entityId, key: definition.key } })
+      for (const definition of definitions) await apiRequest(request, 'DELETE', '/api/entities/definitions', { token: ownerToken, data: { entityId, key: definition.key } }).catch(() => undefined)
     }
     const headers = tenantId ? { Cookie: `om_selected_tenant=${tenantId}; om_selected_org=__all__` } : undefined
-    for (const id of users.reverse()) await apiRequest(request, 'DELETE', `/api/auth/users?id=${id}`, { token: superadminToken, headers })
-    for (const id of roles.reverse()) await apiRequest(request, 'DELETE', `/api/auth/roles?id=${id}`, { token: superadminToken, headers })
-    for (const id of organizations.reverse()) await apiRequest(request, 'DELETE', '/api/directory/organizations', { token: superadminToken, headers, data: { id } })
-    if (tenantId) await apiRequest(request, 'DELETE', '/api/directory/tenants', { token: superadminToken, data: { id: tenantId } })
+    for (const id of users.reverse()) await apiRequest(request, 'DELETE', `/api/auth/users?id=${id}`, { token: superadminToken, headers }).catch(() => undefined)
+    for (const id of roles.reverse()) await apiRequest(request, 'DELETE', `/api/auth/roles?id=${id}`, { token: superadminToken, headers }).catch(() => undefined)
+    for (const id of organizations.reverse()) await apiRequest(request, 'DELETE', '/api/directory/organizations', { token: superadminToken, headers, data: { id } }).catch(() => undefined)
+    if (tenantId) await apiRequest(request, 'DELETE', '/api/directory/tenants', { token: superadminToken, data: { id: tenantId } }).catch(() => undefined)
   }
 })
