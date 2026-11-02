@@ -12,6 +12,7 @@ import type { SsoAdminScope } from './ssoConfigService'
 
 const BCRYPT_COST = 10
 const TOKEN_PREFIX = 'omscim_'
+const SCIM_TOKEN_ERROR_MARKER = Symbol.for('@open-mercato/enterprise/ScimTokenError')
 
 export interface ScimTokenPublic {
   id: string
@@ -189,5 +190,10 @@ export class ScimTokenError extends Error {
   ) {
     super(message)
     this.name = 'ScimTokenError'
+    Object.defineProperty(this, SCIM_TOKEN_ERROR_MARKER, { value: true })
   }
+}
+
+export function isScimTokenError(error: unknown): error is ScimTokenError {
+  return !!error && typeof error === 'object' && (error as Record<symbol, unknown>)[SCIM_TOKEN_ERROR_MARKER] === true
 }

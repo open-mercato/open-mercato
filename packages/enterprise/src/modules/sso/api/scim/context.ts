@@ -1,5 +1,5 @@
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { ScimTokenError, ScimTokenService } from '../../services/scimTokenService'
+import { isScimTokenError, type ScimTokenService } from '../../services/scimTokenService'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { RATE_LIMIT_UNAVAILABLE_KEY, RATE_LIMIT_UNAVAILABLE_FALLBACK } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { SsoConfig } from '../../data/entities'
@@ -46,7 +46,7 @@ export async function resolveScimContext(req: Request): Promise<
   try {
     verified = await scimTokenService.verifyToken(rawToken)
   } catch (error) {
-    if (!(error instanceof ScimTokenError) || error.statusCode !== 503) throw error
+    if (!isScimTokenError(error) || error.statusCode !== 503) throw error
     const { translate } = await resolveTranslations()
     return {
       ok: false,
