@@ -18,7 +18,7 @@
 | 4 | 4.1 | Product page suggestion card | dispatch | done | 8df6b1c6ea |
 | 4 | 4.2 | Integration tests | dispatch | done | c75764134c |
 | 4 | 4.3 | Spec sync and full gate | inline | done | 9becf795c3 |
-| 5 | 5.1 | Bulk worker, queue and progress job (spec step 12) | dispatch | todo | — |
+| 5 | 5.1 | Bulk worker, queue and progress job (spec step 12) | dispatch | done | 963824cc59 |
 | 5 | 5.2 | Bulk route and bulk actions (spec step 13) | dispatch | todo | — |
 | 5 | 5.3 | Review page, menu entry and integration test (spec step 14) | dispatch | todo | — |
 | 6 | 6.1 | Auto-apply: settings UI, service logic, tests (spec step 15) | dispatch | todo | — |
