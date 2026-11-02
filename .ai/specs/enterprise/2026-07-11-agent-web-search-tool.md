@@ -310,6 +310,14 @@ Per-feature, self-contained (fixtures created in setup, cleaned in teardown; no 
 - **ACL denial:** agent without `agent_orchestrator.web_search` → tool call rejected mid-run (per-call, not just load-time).
 - **ACL grant:** granted agent → `web_search` returns provider results (SearXNG stubbed).
 - **Guardrail — domain deny:** query/fetch to a denied domain rejected.
+- **Guardrail — redirected inline content (#7548):** `lib/webSearch/__tests__/redirectPolicy.integration.test.ts`
+  drives the real registry, engine, HTTP client and both tools against local socket fixtures.
+  A private adapter endpoint remains reachable for discovery while agent page reads are checked
+  before the initial request and every redirect. Denied destinations receive no request and
+  contribute no inline text; permitted redirects expose their final URL. Cover exclusive
+  allowlists, direct `web_fetch` redirects, and bypassing legacy enriched result caches.
+  Engine/client unit tests cover final-URL rejection with custom clients, retained SSRF checks,
+  fetch-budget accounting, and browser escalation refusing restrictive content policies.
 - **Guardrail — SSRF:** `web_fetch` to `169.254.169.254`, `localhost`, private ranges, and non-http scheme all blocked; DNS-rebinding case (public name → private IP) blocked.
 - **Guardrail — caps:** result count capped; oversized response truncated to limit.
 - **Guardrail — rate limit:** over-ceiling calls rejected within a run.
@@ -353,6 +361,32 @@ MCP tools on the existing `open-mercato` server (zod-validated; types via `z.inf
   → `{ url: string, title?: string, text: string, truncated: boolean }`
 Both `isMutation: false`. Errors return clean tool errors (ACL-denied, guardrail-blocked,
 provider-unhealthy, timeout) — never a crash.
+
+## Migration & Backward Compatibility
+
+The #7548 security fix preserves tool IDs, input schemas and result fields. Inline content now
+uses the final fetched URL in the existing `url` field, and agent domain rules apply before
+page egress as well as to returned results. Adapter service requests retain their separate
+network policy, including the operator's `allowPrivateHosts` allowlist. DNS pinning and SSRF
+validation still run independently on every authorized HTTP hop.
+
+`HttpRequestInit.assertUrlAllowed`, `SearchEngineOptions.isContentUrlAllowed`, and the blocked
+outcome's optional `code: 'domain_blocked'` discriminator are additive. Domain-denied redirects
+retain the existing `web_fetch` error code `domain_blocked`. The adapter contract advances to
+version 2 while still accepting version 1 adapters in both the loader and the shared contract-test
+suite. Existing version 1 descriptors need no source changes. Adapters rebuilt against the current
+`CONTRACT_VERSION` advertise version 2 and require a host supporting version 2; upgrade the host
+before deploying those rebuilt descriptors. A custom HTTP client must await a supplied assertion
+before DNS and transmission for the initial request and every redirect; synchronous and async
+assertions are supported. The engine also checks final URLs defensively.
+
+When either agent domain list is nonempty, page reads use guarded HTTP only: automatic rendering
+does not escalate, and `render: 'always'` returns a blocked outcome. Browser page navigation
+cannot yet authorize every redirect against these rules, so it must fail closed. Browser search
+and deployments with empty domain lists retain their existing behavior. Restricted searches
+bypass result caching so previously enriched pages cannot survive a policy change. No database
+migration or manual cache purge is required. Operators needing rendered content must wait for
+browser domain enforcement; keep the restrictive domain rules in place.
 
 ## Final Compliance Report (to complete at implementation)
 
@@ -401,6 +435,10 @@ Notes: `tsconfig.json` sets `types: ["node"]` — this pure-lib package pulls no
 
 ## Changelog
 
+- 2026-10-29 — Closed redirect policy bypass #7548: authorize inline/direct page reads before
+  each HTTP hop, retain final URL attribution, bypass restricted result caches, and fail closed
+  for browser content navigation with domain restrictions. Added socket-backed tool integration
+  coverage and engine/client regressions; preserved version 1 adapter support.
 - 2026-07-11 — Initial draft. Route B (ACL-gated `defineAiTool` on existing MCP server) chosen over
   native OpenCode `websearch`/Exa/model-built-in. Open Questions resolved: SearXNG-first adapter,
   search + fetch, dedicated package, new ACL feature + permissive (SSRF-always-on) guardrails.
