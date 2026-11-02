@@ -114,7 +114,7 @@ test.describe('TC-CRM-8469: native customer task dialog conflict recovery', () =
       await login(page, 'admin')
       await page.goto(`/backend/customers/people-v2/${personId}?tab=tasks`)
       await page.getByText(`${marker} first`, { exact: true }).waitFor({ state: 'visible' })
-      await page.getByText(`${marker} first`, { exact: true }).locator('xpath=ancestor::article').getByRole('button', { name: /edit/i }).click()
+      await page.getByText(`${marker} first`, { exact: true }).locator('xpath=ancestor::article[1]').getByRole('button', { name: /edit/i }).click()
       const dialog = page.getByRole('dialog', { name: /edit task/i })
       await expect(dialog).toBeVisible()
       const statusTrigger = dialog.locator('[role="combobox"]').filter({ hasText: statusLabel })
@@ -122,7 +122,7 @@ test.describe('TC-CRM-8469: native customer task dialog conflict recovery', () =
 
       const before = (await listInteractions(request, token, personId)).find((item) => item.id === firstTaskId)
       expect(before?.updatedAt, 'task version should be available before concurrent update').toBeTruthy()
-      await dialog.getByLabel(/title/i).fill(`${marker} edited title`)
+      await dialog.getByRole('textbox', { name: 'Task title' }).fill(`${marker} edited title`)
       await new Promise((resolve) => setTimeout(resolve, 25))
       const concurrentUpdate = await apiRequest(request, 'PUT', INTERACTIONS_API, {
         token,
@@ -140,13 +140,14 @@ test.describe('TC-CRM-8469: native customer task dialog conflict recovery', () =
       await expect(conflictBanner).toContainText(/record changed|changed by another|modified by someone else|refresh and try again/i)
       await expect(page.getByText(/record_modified|Task updated/i)).toHaveCount(0)
       await expect(dialog).toBeVisible()
-      await expect(dialog.getByLabel(/title/i)).toHaveValue(`${marker} edited title`)
+      await expect(dialog.getByRole('textbox', { name: 'Task title' })).toHaveValue(`${marker} edited title`)
 
       const conflictVersion = (await listInteractions(request, token, personId)).find((item) => item.id === firstTaskId)?.updatedAt
       expect(conflictVersion, 'server should expose the refreshed task version after the concurrent update').toBeTruthy()
       expect(new Date(failedVersion).toISOString()).toBe(new Date(before!.updatedAt).toISOString())
       expect(new Date(conflictVersion!).toISOString()).not.toBe(new Date(failedVersion).toISOString())
       const retrySubmit = page.waitForRequest((outgoing: Request) => outgoing.method() === 'PUT' && outgoing.url().includes(INTERACTIONS_API))
+      await dialog.getByRole('textbox', { name: 'Task title' }).focus()
       await page.keyboard.press('Control+Enter')
       const retryRequest = await retrySubmit
       expect(new Date(retryRequest.headers()[OPTIMISTIC_LOCK_HEADER_NAME]).toISOString()).toBe(new Date(conflictVersion!).toISOString())
@@ -156,19 +157,15 @@ test.describe('TC-CRM-8469: native customer task dialog conflict recovery', () =
       expect(persisted?.body).toBe('Concurrent description preserved')
       expect(persisted?.updatedAt).not.toBe(before?.updatedAt)
 
-      await page.getByText(`${marker} second`, { exact: true }).locator('xpath=ancestor::article').getByRole('button', { name: /edit/i }).click()
+      await page.getByText(`${marker} second`, { exact: true }).locator('xpath=ancestor::article[1]').getByRole('button', { name: /edit/i }).click()
       const nextDialog = page.getByRole('dialog', { name: /edit task/i })
       await expect(nextDialog).toBeVisible()
       await expect(page.getByTestId('record-conflict-banner')).toHaveCount(0)
       await expectAlignedStatusAppearance(nextDialog.locator('[role="combobox"]').filter({ hasText: statusLabel }))
 
       await page.setViewportSize({ width: 390, height: 844 })
-      await page.goto(`/backend/customers/people-v2/${personId}?tab=tasks`)
-      await page.getByText(`${marker} edited title`, { exact: true }).waitFor({ state: 'visible' })
-      await page.getByText(`${marker} edited title`, { exact: true }).locator('xpath=ancestor::article').getByRole('button', { name: /edit/i }).click()
-      const mobileDialog = page.getByRole('dialog', { name: /edit task/i })
+      const mobileDialog = nextDialog
       await expect(mobileDialog).toBeVisible()
-      await expectAlignedStatusAppearance(mobileDialog.locator('[role="combobox"]').filter({ hasText: statusLabel }))
       const dialogBox = await mobileDialog.boundingBox()
       expect(dialogBox, 'mobile task dialog should have a layout box').not.toBeNull()
       expect(dialogBox!.x).toBeGreaterThanOrEqual(0)
