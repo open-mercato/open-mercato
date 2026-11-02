@@ -710,6 +710,7 @@
   "auth.users.form.loading": "사용자 데이터를 불러오는 중...",
   "auth.users.form.title.create": "사용자 생성",
   "auth.users.form.title.edit": "사용자 편집",
+  "auth.users.list.actions.retry": "다시 시도",
   "auth.users.list.columns.email": "이메일",
   "auth.users.list.columns.name": "표시 이름",
   "auth.users.list.columns.organization": "조직",
