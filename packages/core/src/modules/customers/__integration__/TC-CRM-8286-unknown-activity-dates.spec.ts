@@ -49,12 +49,12 @@ for (const kind of ['person', 'company'] as const) {
       const activitiesTab = page.getByRole('tab', { name: /^Activities$/i })
       if (await activitiesTab.count()) await activitiesTab.click()
       await expect(page.getByText(fixtures[0].title, { exact: true })).toBeVisible()
-      const timeline = page.getByText(fixtures[0].title, { exact: true }).locator('xpath=ancestor::div[@role="button"]/..')
+      const timeline = page.getByRole('heading', { name: 'Interaction history', exact: true }).locator('xpath=../..')
       await expect(timeline.getByText('Unknown date', { exact: true })).toHaveCount(2)
       const expectedUndatedIds = [interactionIds[0], interactionIds[2]].sort().reverse()
       const expectedTitles = [fixtures[3].title, fixtures[1].title, ...expectedUndatedIds.map((id) => fixtures[interactionIds.indexOf(id)].title)]
-      const displayedTitles = (await timeline.getByRole('button').allTextContents()).filter((text) => fixtures.some((fixture) => text.includes(fixture.title)))
-      expect(displayedTitles.map((text) => fixtures.find((fixture) => text.includes(fixture.title))?.title)).toEqual(expectedTitles)
+      const displayedTitles = timeline.getByText(new RegExp(`^(?:Undated A|Undated B|Older|Newer) ${stamp}$`))
+      await expect(displayedTitles).toHaveText(expectedTitles)
       await expect(page.getByText(fixtures[4].title, { exact: true })).toHaveCount(0)
       await page.screenshot({ path: test.info().outputPath(`${kind}-unknown-activity-dates.png`), fullPage: true })
     } finally {
