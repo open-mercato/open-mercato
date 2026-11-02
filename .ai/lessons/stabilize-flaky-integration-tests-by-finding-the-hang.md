@@ -1,8 +1,8 @@
 ---
 title: "Stabilize flaky integration tests by finding the hang, not by raising the timeout"
-modules: ["events","queue","ui","auth","example","record_locks","warranty_claims","customers"]
+modules: ["events","queue","ui","auth","example","record_locks","warranty_claims","customers","customer_accounts"]
 areas: ["integration","testing","backend-ui"]
-topics: ["events","testing","workers","hydration","component-overrides","timers"]
+topics: ["testing","workers","hydration","component-overrides","timers","effect-dependencies"]
 ---
 
 # Stabilize flaky integration tests by finding the hang, not by raising the timeout
@@ -28,6 +28,8 @@ topics: ["events","testing","workers","hydration","component-overrides","timers"
 `TC-CRM-6442-list` repeated the private queue-bootstrap hang on #8148: the retry trace in run `40910332422` records a successful bulk POST and progress ID, then no owner reads until after request teardown. Reuse `drainIntegrationQueue` with the same app root instead of bootstrapping another consumer; managed workers are observed, disabled workers are explicitly drained, and standalone runs use their app process. `TC-CRM-092` must initialize its fixture search in the navigation URL and await the matching GET and rendered source row before opening Duplicate, so debounced filtering cannot unmount the menu. Parse browser-response text with the shared HTTP JSON reader; the API-response fixture reader has a different contract. Keep all data, owner, authorization, and timeout assertions.
 
 `TC-CRM-065` selected ten unfiltered people although its scenario created three fixtures. The matching search response arrived after deletion. An exact response/fixture-row guard prevented that mutation, but a cold local attempt still timed out with an empty search field; the passing retry's trace showed typing overlapping the initial client fetch. Wait for a row populated by the client effect before typing, then verify the filtered response IDs, rendered rows, and selected count before any bulk mutation.
+
+`crmNames.parallel.test.tsx` intermittently stayed on Loading user and logged maximum update depth in release CI. Its translation-hook mock returned a new function every render while the component loading effect depends on that function. Return one stable translator from the mock factory, preserving the real hook identity contract and all concurrent-request and nested-name assertions. An isolated passing run does not disprove this render-loop cause; verify repeated runs and hosted full-suite execution. Evidence: CI41511190206 unit job125508603985 and CI41487583697; five isolated repeats and the137-test affected suite passed after the mock repair, while the original isolated suite also passed.
 
 **Problem**: The secondary "context closed" error is a symptom of the test-level timeout tearing the worker down mid-request — it is not the cause. Two real causes hid behind it: (1) the row-actions dropdown is opened with `actionsButton.press('Enter')` and then the menu item is clicked directly; if the Radix trigger swallows the keypress before hydration, the menu never opens and `.click()` auto-waits on a never-mounting element until the whole test times out; (2) login + navigation + three sequential ≤10s waits + fixture setup/teardown genuinely does not fit a 30s budget under 15-shard parallel load — every other login+nav spec already uses 60–120s, and this one was the lone 30s outlier.
 
