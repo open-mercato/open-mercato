@@ -227,12 +227,7 @@ The interaction command boundary also enforces this privacy policy for updates, 
 
 | Date | Change |
 |---|---|
-<<<<<<< HEAD
-=======
 | 2026-10-25 | Close #7850 at the canonical interaction mutation boundary: check original-row privacy before writes and replay, preserve team-shared content editing, and require the author for author/type/visibility changes. Add command regression coverage and `TC-CRM-EMAIL-VISIBILITY-005` API coverage. |
-| 2026-10-25 | Resolved the main merge while retaining private interaction state, label history and index events, and conversation shares together. Combined command regressions cover repeated undo and rollback without audit metadata exposure. |
-| 2026-10-13 | Fixed #7314: scoped Person deletion and create undo remove active and revoked conversation shares; delete undo restores their complete state from its private payload. Added command regressions and `TC-CRM-EMAIL-SHARE-UNDO-001` API coverage. No schema or visibility-policy change. |
->>>>>>> 59e670c16 (fix(customers): prevent private email exposure through interaction mutations (#8027))
 | 2026-08-25 | Skeleton drafted with the Q1–Q4 Open Questions gate (`om-spec-writing`). |
 | 2026-08-25 | Readiness audit completed — 2 Critical / 6 Warning BC findings, 5 High risks ([`analysis/ANALYSIS-…`](analysis/ANALYSIS-2026-08-25-crm-channel-shared-visibility.md)). |
 | 2026-08-25 | Gate closed (Q1–Q4 decided from the implementation brief + audit safety findings); all deferred sections filled; 16-step Implementation Plan added. Ready for implementation. |
