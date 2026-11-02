@@ -87,6 +87,7 @@ export type SearchEngineOptions = {
   readonly policy: SearchPolicy
   readonly adapters: readonly EngineAdapterEntry[]
   readonly http: HttpClient
+  readonly isContentUrlAllowed?: (url: string) => boolean
   readonly logger?: Logger
   readonly cache?: ResultCache<SearchEngineResult>
   readonly onStep?: StepSink
