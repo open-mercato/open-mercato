@@ -47,6 +47,7 @@ type SuggestionRow = SuggestionItem & {
 type SuggestionListResponse = {
   items?: SuggestionItem[]
   total?: number
+  totalIsCapped?: boolean
 }
 
 type ProductLookupResponse = {
@@ -60,6 +61,7 @@ type CategoryLookupResponse = {
 type SuggestionTable = {
   rows: SuggestionRow[]
   total: number
+  totalIsCapped: boolean
 }
 
 type RowOutcome = { id: string; ok: boolean; skipped: boolean }
@@ -138,7 +140,11 @@ async function fetchSuggestionTable(
         : null,
     }
   })
-  return { rows, total: typeof list.total === 'number' ? list.total : rows.length }
+  return {
+    rows,
+    total: typeof list.total === 'number' ? list.total : rows.length,
+    totalIsCapped: list.totalIsCapped === true,
+  }
 }
 
 export default function CategorySuggestionsDataTable() {
@@ -495,6 +501,7 @@ export default function CategorySuggestionsDataTable() {
         pageSize: PAGE_SIZE,
         total,
         totalPages,
+        totalIsCapped: data?.totalIsCapped === true,
         onPageChange: setPage,
       }}
       isLoading={isLoading}
