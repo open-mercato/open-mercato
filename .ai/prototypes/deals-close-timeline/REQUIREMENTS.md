@@ -62,8 +62,8 @@ row by row. Slipped or bunched-up deals get missed.
     comparable). With more than 3 in a cell, a "+N more" button opens a popover listing all of them
     with dates.
   - AC: clicking a deal, or pressing Enter on it, opens a deal drawer over the timeline (summary,
-    activity, days in stage, stalled flag and the existing actions), with a "Full page" link in its header (managers only) to the existing
-    deal detail page. The open deal is kept in the URL.
+    activity, days in stage, stalled flag and the existing actions), and the deal title, company and person in its header link to their
+    existing CRM pages. The open deal is kept in the URL.
   - AC: columns keep a readable minimum width; on narrow screens the board scrolls horizontally and
     lane names stay visible.
 - **US-A2** As a sales manager, I want to switch columns between weeks, months, and quarters, so

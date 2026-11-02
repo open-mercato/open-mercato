@@ -39,7 +39,6 @@
 <symbol id="ic-briefcase" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/><rect width="20" height="14" x="2" y="6" rx="2"/></symbol>
 <symbol id="ic-calendar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/></symbol>
 <symbol id="ic-calendar-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/><path d="m14 14-4 4"/><path d="m10 14 4 4"/></symbol>
-<symbol id="ic-maximize" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/></symbol>
 <symbol id="ic-arrow-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></symbol>
 <symbol id="ic-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
 </defs></svg>
@@ -61,7 +60,7 @@
     <a href="#s12">12 Loading</a>
     <a href="#s13">13 Error</a>
     <a href="#s14">14 No access</a>
-    <a href="#s15">15 Existing deal page</a>
+    <a href="#s15">15 Existing CRM pages</a>
     <a href="#s16">16 Pipeline filter</a>
     <a href="#s17">17 Deal drawer</a>
   </nav>
@@ -1735,7 +1734,7 @@
     </div>
   </div>
   <div class="notes">
-    <div class="note"><b>1</b><span>No grab cursor and no drag. Enter opens the deal drawer with the summary only: no Change close date, no other actions and no Full page link. "New deal" is hidden.</span></div>
+    <div class="note"><b>1</b><span>No grab cursor and no drag. Enter opens the deal drawer with the summary only: no Change close date, no other actions, and the deal title is not a link. "New deal" is hidden.</span></div>
     <div class="note"><b>2</b><span>The tooltip carries the permission hint, so read-only users understand why dragging does nothing instead of assuming it is broken.</span></div>
     <div class="note"><b>3</b><span>The server enforces customers.deals.manage on the update regardless. The UI gate only avoids a pointless failed request.</span></div>
   </div>
@@ -2411,15 +2410,15 @@
 
 <section class="screen" id="s15">
   <div class="screen-meta">
-    <h2>15. Existing CRM deal page (unchanged)</h2>
-    <p>The drawer's Full page link (or Cmd/Ctrl-click on a card) opens the <b>existing</b> CRM deal page at <code class="t-mono">/backend/customers/deals/{id}</code>. The timeline adds no new detail page, and this prototype doesn't redraw the existing one.</p>
+    <h2>15. Existing CRM pages (unchanged)</h2>
+    <p>The links in the deal drawer header open the <b>existing</b> CRM pages: the deal title opens the deal page, the company opens the company page, and the person opens the person page. Cmd/Ctrl-click on a card also opens the deal page. The timeline adds no new detail pages, and this prototype doesn't redraw the existing ones.</p>
     <div class="screen-refs"><span class="ref">US-A1</span></div>
   </div>
 
   <div class="frame">
     <div class="frame-bar">
       <div class="frame-dots"><i></i><i></i><i></i></div>
-      <span class="frame-url">/backend/customers/deals/2f1c…</span>
+      <span class="frame-url">/backend/customers/deals/{id} · /companies-v2/{id} · /people-v2/{id}</span>
     </div>
     <div class="app  ">
       <aside class="sidebar">
@@ -2440,7 +2439,7 @@
             <div class="crumbs">
               <svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg>
               <span>Deals</span><svg><use href="#ic-chevron-right"/></svg>
-              <span class="here">Deal details</span>
+              <span class="here">Existing detail page</span>
             </div>
           </div>
           <div class="topbar-right">
@@ -2452,8 +2451,11 @@
         <main class="page">
           <div class="tl-existing-page">
             <svg><use href="#ic-briefcase"/></svg>
-            <h1 class="t-section">Existing deal page</h1>
-            <p class="t-hint"><code class="t-mono">packages/core/src/modules/customers/backend/customers/deals/[id]/page.tsx</code>, reused as it is today: deal settings, people and companies, notes and activities, closure actions.</p>
+            <h1 class="t-section">Existing CRM pages</h1>
+            <p class="t-hint">Reused as they are today:</p>
+            <p class="t-hint"><code class="t-mono">/backend/customers/deals/{id}</code> (needs <code class="t-mono">customers.deals.manage</code>)</p>
+            <p class="t-hint"><code class="t-mono">/backend/customers/companies-v2/{id}</code> (needs <code class="t-mono">customers.companies.view</code>)</p>
+            <p class="t-hint"><code class="t-mono">/backend/customers/people-v2/{id}</code> (needs <code class="t-mono">customers.people.view</code>)</p>
           </div>
         </main>
         <footer class="app-foot">
@@ -2465,8 +2467,8 @@
     </div>
   </div>
   <div class="notes">
-    <div class="note"><b>1</b><span>Only users with <code class="t-mono">customers.deals.manage</code> see the link, because the existing page requires that feature. View-only users stay in the drawer.</span></div>
-    <div class="note"><b>2</b><span>The existing page doesn't read <code class="t-mono">returnTo</code> and isn't changed. The timeline keeps its whole state in the URL (window, grouping, filters and <code class="t-mono">?deal=</code>), so the browser's Back returns to the same review with the drawer open.</span></div>
+    <div class="note"><b>1</b><span>Each name in the drawer header is a link only when the user has that page's feature; otherwise it is plain text, so nobody lands on a no-access page.</span></div>
+    <div class="note"><b>2</b><span>The existing pages don't read <code class="t-mono">returnTo</code> and aren't changed. The timeline keeps its whole state in the URL (window, grouping, filters and <code class="t-mono">?deal=</code>), so the browser's Back returns to the same review with the drawer open.</span></div>
     <div class="note"><b>3</b><span>Timeline reschedules write the same audit and activity entry as editing the close date on this page. Nothing is special-cased.</span></div>
   </div>
 </section>
@@ -2871,8 +2873,8 @@
   <div class="notes">
     <div class="note"><b>1</b><span>The drawer is a summary plus existing actions, not the edit form. Field edits stay on the full page, so a closed deal never gets a close-date control here.</span></div>
     <div class="note"><b>2</b><span>Review signals come from the Kanban's pipeline enrichment: open activities, days in the current stage, and the stalled flag. A deal with no open activity is flagged.</span></div>
-    <div class="note"><b>3</b><span>Actions reuse existing dialogs: Change close date (screen 6), Schedule follow-up, Change stage, and Mark won or lost with a reason. Read-only users see the summary only: no actions and no Full page link, because the existing deal page needs the manage-deals permission.</span></div>
-    <div class="note"><b>4</b><span>"Full page" in the drawer header opens the existing CRM deal page (screen 15), for users who can manage deals; the browser's Back returns here. The open deal is in the URL (<code class="t-mono">?deal=</code>), so reload and shared links reopen it and Back closes it. Escape closes it too, and focus returns to the card. Cmd/Ctrl-click on a card opens the full page instead.</span></div>
+    <div class="note"><b>3</b><span>Actions reuse existing dialogs: Change close date (screen 6), Schedule follow-up, Change stage, and Mark won or lost with a reason. Read-only users see the summary only: no actions, and the deal title is plain text because the existing deal page needs the manage-deals permission.</span></div>
+    <div class="note"><b>4</b><span>In the drawer header, the deal title, company and person link to their existing CRM pages (screen 15), each only when the user can open that page; the browser's Back returns here. The status badge sits next to the stage. The open deal is in the URL (<code class="t-mono">?deal=</code>), so reload and shared links reopen it and Back closes it. Escape closes it too, and focus returns to the card. Cmd/Ctrl-click on a card opens the full page instead.</span></div>
   </div>
 </section>
 
