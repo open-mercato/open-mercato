@@ -125,7 +125,8 @@ export async function expireOneAwaitingPayment(
 
     // §12: "otherwise compensate (cancel the order) and fail with `payment_expired`" — the
     // gateway answered failed/cancelled/expired, or never answered at all past the deadline.
-    await compensateByCancellingOrder(container, em, session, scope, session.salesOrderId, 'payment_expired')
+    const cancelled = await compensateByCancellingOrder(container, em, session, scope, session.salesOrderId, 'payment_expired')
+    if (!cancelled) return
     await writeSessionEvent(em, { ...scope, sessionId: session.id, kind: 'payment_result', actor: 'system', payload: { orderId: session.salesOrderId, outcome: 'failed' } })
     await emitCheckoutEvent('checkout.payment.failed', {
       sessionId: session.id,

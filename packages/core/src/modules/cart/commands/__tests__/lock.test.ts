@@ -287,6 +287,7 @@ function makeCtx(opts: {
   // internally, degrading to `requiresApproval: false` exactly as before this Step.
   customerGroupsService?: unknown
   customerPurchaseApprovalService?: unknown
+  customerPurchaseApprovalServiceFactory?: unknown
   // Step 6.1 (K11 gap-fill) — same "undefined degrades via Unexpected DI token" shape as
   // `customerPurchaseApprovalService` above, caught by `tryResolveCartCodeService`.
   promotionCodeService?: unknown
@@ -307,6 +308,10 @@ function makeCtx(opts: {
         if (token === 'catalogScopedProductService') return opts.catalogScopedProductService ?? makeDefaultCatalogScopedProductService()
         if (token === 'customerGroupsService') {
           if (opts.customerGroupsService !== undefined) return opts.customerGroupsService
+          throw new Error(`Unexpected DI token: ${token}`)
+        }
+        if (token === 'customerPurchaseApprovalServiceFactory') {
+          if (opts.customerPurchaseApprovalServiceFactory !== undefined) return opts.customerPurchaseApprovalServiceFactory
           throw new Error(`Unexpected DI token: ${token}`)
         }
         if (token === 'customerPurchaseApprovalService') {
@@ -796,6 +801,32 @@ describe('cart.lock — approval gate (K1-K5, D-R5-4/12/23/29/37)', () => {
       scope: { tenantId: TENANT_ID, organizationId: ORG_ID },
       approvalId: 'approval-1',
     })
+  })
+
+  it('reads the approval through a service bound to the lock transaction, never the request-root singleton', async () => {
+    seededCarts = [makeCartFixture({ customerUserId: 'buyer-1', customerIds: ['buyer-1'], approvalId: 'approval-1' })]
+    const handler = getHandler<CartLockInput, CartLockResult>('cart.lock')
+    const em = makeEm()
+    const customerGroupsService = makeCustomerGroupsServiceStub({ approvalRequiredAbove: 10 })
+    const rootApprovalService = makeApprovalServiceStub({ id: 'approval-1', status: 'rejected', currencyCode: 'USD', amountGross: '24' })
+    const boundApprovalService = makeApprovalServiceStub({ id: 'approval-1', status: 'approved', currencyCode: 'USD', amountGross: '24' })
+    const customerPurchaseApprovalServiceFactory = jest.fn(() => boundApprovalService)
+    const ctx = makeCtx({
+      em,
+      customerGroupsService,
+      customerPurchaseApprovalService: rootApprovalService,
+      customerPurchaseApprovalServiceFactory,
+    })
+
+    const result = await handler.execute(
+      { cartId: CART_ID, tenantId: TENANT_ID, organizationId: ORG_ID, checkoutSessionId: 'checkout-session-1' },
+      ctx,
+    )
+
+    expect(result.cart.status).toBe('locked')
+    expect(customerPurchaseApprovalServiceFactory).toHaveBeenCalledTimes(1)
+    expect(boundApprovalService.getApproval).toHaveBeenCalled()
+    expect(rootApprovalService.getApproval).not.toHaveBeenCalled()
   })
 
   // TC-CART-APR-04 (K1/D-R5-3 "only a higher total invalidates")

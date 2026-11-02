@@ -15,7 +15,7 @@ import { resolveCartLockTimeoutMs } from '../lib/sweepConfig'
 import { assertCartNotLocked } from '../lib/lockGuard'
 import { emitCartEvent } from '../events'
 import { approvalQualifies, computeGoodsGrossAmount } from '../lib/approvalGate'
-import { tryResolveCustomerPurchaseApprovalService, tryResolveCartCodeService } from '../lib/adminCartScope'
+import { tryResolveTransactionBoundApprovalService, tryResolveCustomerPurchaseApprovalService, tryResolveCartCodeService } from '../lib/adminCartScope'
 import { withdrawPendingCartApproval } from '../lib/approvalLifecycle'
 import { releaseCartCodeReservations } from '../lib/sweepers'
 import { repriceCartCommand, toCartSummary } from './cart'
@@ -219,7 +219,7 @@ const lockCartCommand: CommandHandler<CartLockInput, CartLockResult> = {
         })
       }
       const goodsGrossAmount = computeGoodsGrossAmount(cart.totals)
-      const approvalService = tryResolveCustomerPurchaseApprovalService(ctx.container)
+      const approvalService = tryResolveTransactionBoundApprovalService(ctx.container, em)
       const approval = cart.approvalId && approvalService
         ? await approvalService.getApproval({ scope, approvalId: cart.approvalId })
         : null

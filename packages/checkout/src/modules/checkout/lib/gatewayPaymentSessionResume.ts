@@ -97,7 +97,8 @@ export function createGatewayPaymentSessionResumeHandler(outcome: GatewayPayment
         }
 
         const failureCode = outcome === 'cancelled' ? 'payment_cancelled' : 'payment_failed'
-        await compensateByCancellingOrder(runtimeContainer, em, session, scope, session.salesOrderId, failureCode)
+        const cancelled = await compensateByCancellingOrder(runtimeContainer, em, session, scope, session.salesOrderId, failureCode)
+        if (!cancelled) return
         await writeSessionEvent(em, {
           ...scope,
           sessionId: session.id,

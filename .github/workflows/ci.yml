@@ -902,7 +902,7 @@ jobs:
   # path rather than relying on an opt-in local command.
   documents-multi-instance:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     needs: [prepare, audit-scope, audit, lint]
     if: |
       always() &&

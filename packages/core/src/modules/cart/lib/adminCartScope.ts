@@ -1,5 +1,6 @@
 import type { OrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { CustomerPurchaseApprovalService } from '@open-mercato/core/modules/customer_groups/services/customerPurchaseApprovalService'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CartCodeServiceLike } from './sweepers'
 
 // Step 2.10 (K6/§10.2) — the two hand-written admin routes (`/carts/[id]`,
@@ -55,6 +56,21 @@ export function tryResolveCustomerPurchaseApprovalService(container: {
   } catch {
     return null
   }
+}
+
+export function tryResolveTransactionBoundApprovalService(
+  container: { resolve: <T = unknown>(name: string) => T },
+  em: EntityManager,
+): CustomerPurchaseApprovalService | null {
+  try {
+    const factory = container.resolve<((transactionEm: EntityManager) => CustomerPurchaseApprovalService) | undefined>(
+      'customerPurchaseApprovalServiceFactory',
+    )
+    if (factory) return factory(em)
+  } catch {
+    return tryResolveCustomerPurchaseApprovalService(container)
+  }
+  return tryResolveCustomerPurchaseApprovalService(container)
 }
 
 /**

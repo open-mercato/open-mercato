@@ -113,7 +113,7 @@ export const setup: ModuleSetupConfig = {
     await schedulerService.register({
       id: stableUuidFromString(`checkout:expire-checkout-sessions:${ctx.tenantId}:${ctx.organizationId}`),
       name: 'Checkout expire sessions',
-      description: 'Expires open/awaiting_approval checkout sessions past their own TTL and releases any pay-link slot they are still holding (§12).',
+      description: 'Expires open/awaiting_approval checkout sessions past their own TTL (§12).',
       scopeType: 'organization',
       organizationId: ctx.organizationId,
       tenantId: ctx.tenantId,

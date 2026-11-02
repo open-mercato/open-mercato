@@ -52,6 +52,16 @@ Checkout hardening in the same release:
   that sent absolute URLs must send a path instead.
 - **Pay-link slots** are reserved when the buyer submits, not when the session is
   created; abandoned anonymous sessions no longer hold a `maxCompletions` slot.
+- **`CartService.resolveBasketByToken`** (DI-replaceable) now requires the trusted
+  storefront scope (`tenantId`, `organizationId`, `storeId`) alongside `token`, and
+  returns `null` when the scope is missing or contradicts the basket. **Callers and
+  overrides** must pass the resolved scope.
+- **Credit adjustment idempotency keys** are stored namespaced (`adjust:client:<key>`);
+  a client retry of an adjustment made before this release no longer matches its stored
+  row. Amount parsing is strict: exponent, hex and empty strings are rejected with
+  `invalid_amount`.
+- **Rate limiting fails closed** for checkout routes declared fail-closed and for
+  assisted-selling buyer POST routes when no limiter is registered (HTTP 503).
 - **Quote approval** is recorded server-side in `sales_quotes.approval_requirement`;
   `metadata.pendingApproval` is no longer trusted at acceptance. Legacy quotes flagged
   only in metadata are rejected with `quote_requires_approval`.

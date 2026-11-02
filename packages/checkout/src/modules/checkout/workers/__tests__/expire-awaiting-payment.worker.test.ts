@@ -32,7 +32,7 @@ const mockConfirmOrderAndComplete = jest.fn(async () => ({
   salesQuoteId: 'quote-1',
   salesOrderId: 'order-1',
 }))
-const mockCompensateByCancellingOrder = jest.fn(async () => undefined)
+const mockCompensateByCancellingOrder = jest.fn(async (..._args: unknown[]) => true)
 jest.mock('../../commands/submit', () => ({
   confirmOrderAndComplete: (...args: unknown[]) => mockConfirmOrderAndComplete(...args),
   compensateByCancellingOrder: (...args: unknown[]) => mockCompensateByCancellingOrder(...args),
@@ -180,6 +180,21 @@ describe('checkout expire-awaiting-payment worker', () => {
       'payment_expired',
     )
     expect(mockEmitCheckoutEvent).toHaveBeenCalledWith('checkout.payment.failed', expect.objectContaining({ sessionId: session.id, failureCode: 'payment_expired' }))
+  })
+
+  it('emits no failure event when the compensation lost its status CAS', async () => {
+    const session = makeSession()
+    mockFindWithDecryption.mockResolvedValueOnce([session])
+    mockGetPaymentStatus.mockResolvedValueOnce({ status: 'failed' })
+    mockCompensateByCancellingOrder.mockResolvedValueOnce(false)
+    const { default: handle } = await import('../expire-awaiting-payment.worker')
+
+    await handle(
+      { ...baseJob, payload: { tenantId: TENANT_ID, organizationId: ORG_ID } } as unknown as QueuedJob<ExpireAwaitingPaymentJob>,
+      mockContext,
+    )
+
+    expect(mockEmitCheckoutEvent).not.toHaveBeenCalledWith('checkout.payment.failed', expect.anything())
   })
 
   it('no definitive answer (gateway transaction not found) compensates rather than resuming', async () => {

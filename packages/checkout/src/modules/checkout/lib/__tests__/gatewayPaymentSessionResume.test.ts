@@ -5,14 +5,15 @@
 // a paid order stayed unconfirmed until the (much later) expiry sweep.
 
 const mockConfirmOrderAndComplete = jest.fn(async () => undefined)
-const mockCompensateByCancellingOrder = jest.fn(async () => undefined)
+const mockCompensateByCancellingOrder = jest.fn(async (..._args: unknown[]) => true)
 jest.mock('../../commands/submit', () => ({
   confirmOrderAndComplete: (...args: unknown[]) => mockConfirmOrderAndComplete(...args),
   compensateByCancellingOrder: (...args: unknown[]) => mockCompensateByCancellingOrder(...args),
 }))
 
+const mockEmitCheckoutEvent = jest.fn(async (..._args: unknown[]) => undefined)
 jest.mock('../../events', () => ({
-  emitCheckoutEvent: jest.fn(async () => undefined),
+  emitCheckoutEvent: (...args: unknown[]) => mockEmitCheckoutEvent(...args),
 }))
 
 jest.mock('../sessionEvents', () => ({
@@ -105,6 +106,15 @@ describe('createGatewayPaymentSessionResumeHandler', () => {
       'payment_failed',
     )
     expect(mockConfirmOrderAndComplete).not.toHaveBeenCalled()
+  })
+
+  it('failed: emits no payment result when the compensation lost its status CAS', async () => {
+    seededTransaction = makeTransaction({ status: 'failed' })
+    mockCompensateByCancellingOrder.mockResolvedValueOnce(false)
+    const handle = createGatewayPaymentSessionResumeHandler('failed')
+    await handle(PAYLOAD)
+
+    expect(mockEmitCheckoutEvent).not.toHaveBeenCalledWith('checkout.payment.failed', expect.anything())
   })
 
   it('cancelled: compensates with the cancelled failure code', async () => {
