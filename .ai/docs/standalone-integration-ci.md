@@ -8,6 +8,8 @@ The pre-merge standalone job installs packages built from the PR into a disposab
 
 Change the builder and its tests when an integration feature needs another setting. Do not add a separate environment block to a workflow. The app's `.env` must exist before the production build because `NEXT_PUBLIC_*` settings are compiled into browser bundles.
 
+The local parity command retains its Verdaccio package source, arbitrary Playwright arguments, and disabled/activated example build assertions. It starts its own disposable pgvector database on a random loopback port and runs `yarn start` directly. It does not use `mercato test:ephemeral`, whose monorepo-oriented defaults would override the standalone profile. The server and database are stopped even when setup or tests fail; the scaffold is preserved unless `--cleanup` was requested.
+
 The app and queue-drain children share absolute queue, cache, and capture paths. Runtime imports in an in-process spec must resolve through `importFromAppRuntime()` so the command bus and generated loaders use the same installed package instance.
 
 Intentional differences:

@@ -14,8 +14,13 @@ if (suite === 'affected') {
   changedPaths = diff.stdout.split('\0').filter(Boolean)
 }
 const root = process.cwd()
-const discovered = discoverIntegrationSpecFiles(root, path.join(root, '.ai', 'qa', 'tests', '__legacy_disabled__'))
+const discoveryExcluded: { path: string; reason: string; details: string[] }[] = []
+const discovered = discoverIntegrationSpecFiles(root, path.join(root, '.ai', 'qa', 'tests', '__legacy_disabled__'), {
+  onExcluded: (entry) => discoveryExcluded.push(entry),
+})
 const selection = selectStandaloneSpecs(discovered, changedPaths, suite)
+selection.excluded.push(...discoveryExcluded)
+selection.excluded.sort((left, right) => left.path.localeCompare(right.path))
 fs.mkdirSync(path.dirname(outputPath), { recursive: true })
 fs.writeFileSync(outputPath, `${JSON.stringify(selection, null, 2)}\n`)
 console.log(`Standalone tests: ${selection.selected.length} selected; ${selection.excluded.length} excluded; full suite: ${selection.fullSuite}`)
