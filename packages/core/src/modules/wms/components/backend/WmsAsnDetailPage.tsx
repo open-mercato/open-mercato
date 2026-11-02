@@ -428,8 +428,8 @@ export default function WmsAsnDetailPage({ asnId }: { asnId: string }) {
     t('wms.backend.asns.detail.untitled', 'ASN {id}', { id: asn.id.slice(0, 8) })
 
   return (
-    <Page>
-      <PageBody className="space-y-6">
+    <Page className="min-w-0 max-w-full">
+      <PageBody className="min-w-0 max-w-full space-y-6">
         <PageHeader
           title={title}
           description={t(
@@ -542,12 +542,12 @@ export default function WmsAsnDetailPage({ asnId }: { asnId: string }) {
           </Alert>
         ) : null}
 
-        <section className="rounded-lg border bg-card p-5 text-card-foreground shadow-sm">
-          <div className="mb-4 flex items-start gap-3">
+        <section className="min-w-0 max-w-full rounded-lg border bg-card p-5 text-card-foreground shadow-sm">
+          <div className="mb-4 flex min-w-0 items-start gap-3">
             <div className="rounded-md border bg-muted/40 p-2 text-muted-foreground">
               <PackageCheck className="size-5" />
             </div>
-            <div className="space-y-1">
+            <div className="min-w-0 space-y-1">
               <h2 className="text-xl font-semibold">
                 {t('wms.backend.asns.detail.linesTitle', 'Receiving lines')}
               </h2>
@@ -559,6 +559,7 @@ export default function WmsAsnDetailPage({ asnId }: { asnId: string }) {
               </p>
             </div>
           </div>
+          <div className="min-w-0 overflow-x-auto" data-testid="asn-detail-lines">
           <DataTable
             embedded
             columns={columns}
@@ -574,6 +575,7 @@ export default function WmsAsnDetailPage({ asnId }: { asnId: string }) {
               />
             }
           />
+          </div>
         </section>
       </PageBody>
 
