@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import { createLogger } from "@open-mercato/shared/lib/logger";
+import { getTelemetryRuntime } from "@open-mercato/shared/lib/telemetry/runtime";
 import { registerCommand } from "@open-mercato/shared/lib/commands";
 import type {
   CommandHandler,
@@ -13,7 +15,7 @@ import {
   emitCrudSideEffects,
   emitCrudUndoSideEffects,
 } from "@open-mercato/shared/lib/commands/helpers";
-import type { EntityManager } from "@mikro-orm/postgresql";
+import type { EntityManager, FilterQuery } from "@mikro-orm/postgresql";
 import { UniqueConstraintViolationException } from "@mikro-orm/core";
 import { resolveTranslations } from "@open-mercato/shared/lib/i18n/server";
 import { CrudHttpError } from "@open-mercato/shared/lib/crud/errors";
@@ -60,6 +62,7 @@ import type {
 } from "../data/types";
 import {
   cloneJson,
+  commandScopeWhere,
   ensureOrganizationScope,
   ensureSameScope,
   ensureTenantScope,
@@ -88,8 +91,16 @@ import {
 } from "./productDeleteChildren";
 import { canonicalizeUnitCode } from "../lib/unitCodes";
 import {
+  capturePriceHistoryEntries,
+  priceHistoryInputFromRecord,
+  type PriceHistoryPriceInput,
+} from "../lib/omnibus";
+import { resolveOmnibusCache } from "../lib/omnibusCache";
+import {
   resolveCanonicalUnitCode,
 } from "../lib/unitResolution";
+
+const logger = createLogger("catalog");
 
 type ProductSnapshot = {
   id: string;
@@ -275,10 +286,19 @@ type ProductDeleteSnapshots = {
 
 const PRODUCT_DELETE_CACHE_ALIASES: readonly string[] = [
   "catalog.product",
+  "catalog.offer",
   "catalog.variant",
   "catalog.price",
   "catalog.product.unit.conversion",
   "catalog.optionschema",
+];
+
+// Shared by create, update, and delete/undo: all three write catalog_product_offers
+// rows (syncOffers / restoreOffersFromSnapshot), so each must also invalidate the
+// offers list cache alongside the product cache alias (issue #7721).
+const PRODUCT_OFFER_CACHE_ALIASES: readonly string[] = [
+  "catalog.product",
+  "catalog.offer",
 ];
 
 const productCrudEvents: CrudEventsConfig<CatalogProduct> = {
@@ -1049,6 +1069,62 @@ async function removeProductVariants(
   }
 }
 
+async function loadProductPricesForHistory(
+  em: EntityManager,
+  product: CatalogProduct,
+  variants: CatalogProductVariant[],
+): Promise<PriceHistoryPriceInput[]> {
+  const scope = {
+    tenantId: product.tenantId,
+    organizationId: product.organizationId,
+  };
+  const variantIds = variants.map((variant) => variant.id);
+  const ownership: FilterQuery<CatalogProductPrice>[] = [{ product: product.id }];
+  if (variantIds.length) ownership.push({ variant: { $in: variantIds } });
+  const prices = await findWithDecryption(
+    em.fork(),
+    CatalogProductPrice,
+    { ...scope, $or: ownership },
+    { populate: ["priceKind", "variant"] },
+    scope,
+  );
+  return prices.map((price) => priceHistoryInputFromRecord(price));
+}
+
+async function loadRestoredPricesForHistory(
+  em: EntityManager,
+  owner: ProductDeleteOwner,
+  priceIds: string[],
+): Promise<PriceHistoryPriceInput[]> {
+  if (!priceIds.length) return [];
+  const scope = {
+    tenantId: owner.tenantId,
+    organizationId: owner.organizationId,
+  };
+  try {
+    const prices = await findWithDecryption(
+      em.fork(),
+      CatalogProductPrice,
+      { ...scope, id: { $in: priceIds } },
+      { populate: ["priceKind", "variant"] },
+      scope,
+    );
+    return prices.map((price) => priceHistoryInputFromRecord(price));
+  } catch (err) {
+    logger.error("[internal] catalog restored price lookup for history failed", {
+      priceIds,
+      ...scope,
+      err,
+    });
+    getTelemetryRuntime()?.reportError(err, {
+      module: "catalog",
+      code: "catalog.price_history_restore_lookup_failed",
+      attributes: { priceCount: priceIds.length },
+    });
+    return [];
+  }
+}
+
 async function emitProductVariantCleanupSideEffects(opts: {
   dataEngine: DataEngine;
   ctx: CommandRuntimeContext;
@@ -1099,11 +1175,12 @@ async function resolveOptionSchemaTemplateForRemoval(
 async function loadProductSnapshot(
   em: EntityManager,
   id: string,
+  scopeWhere: Record<string, unknown> = {},
 ): Promise<ProductSnapshot | null> {
   const record = await findOneWithDecryption(
     em,
     CatalogProduct,
-    { id, deletedAt: null },
+    { id, deletedAt: null, ...scopeWhere },
     { populate: ["optionSchemaTemplate"] },
   );
   if (!record) return null;
@@ -1589,6 +1666,7 @@ const createProductCommand: CommandHandler<
           after,
         } satisfies ProductUndoPayload,
       },
+      context: { cacheAliases: [...PRODUCT_OFFER_CACHE_ALIASES] },
     };
   },
   undo: async ({ logEntry, ctx }) => {
@@ -1681,7 +1759,7 @@ const updateProductCommand: CommandHandler<
   async prepare(input, ctx) {
     const id = requireId(input, "Product id is required");
     const em = ctx.container.resolve("em") as EntityManager;
-    const snapshot = await loadProductSnapshot(em, id);
+    const snapshot = await loadProductSnapshot(em, id, commandScopeWhere(ctx));
     if (snapshot) {
       ensureTenantScope(ctx, snapshot.tenantId);
       ensureOrganizationScope(ctx, snapshot.organizationId);
@@ -1716,6 +1794,7 @@ const updateProductCommand: CommandHandler<
     const record = await findOneWithDecryption(em, CatalogProduct, {
       id: parsed.id,
       deletedAt: null,
+      ...commandScopeWhere(ctx),
     });
     if (!record)
       throw new CrudHttpError(404, {
@@ -2122,6 +2201,7 @@ const updateProductCommand: CommandHandler<
           after,
         } satisfies ProductUndoPayload,
       },
+      context: { cacheAliases: [...PRODUCT_OFFER_CACHE_ALIASES] },
     };
   },
   undo: async ({ logEntry, ctx }) => {
@@ -2213,7 +2293,7 @@ const deleteProductCommand: CommandHandler<
   async prepare(input, ctx) {
     const id = requireId(input, "Product id is required");
     const em = ctx.container.resolve("em") as EntityManager;
-    const snapshot = await loadProductSnapshot(em, id);
+    const snapshot = await loadProductSnapshot(em, id, commandScopeWhere(ctx));
     if (!snapshot) return {};
     ensureTenantScope(ctx, snapshot.tenantId);
     ensureOrganizationScope(ctx, snapshot.organizationId);
@@ -2229,7 +2309,7 @@ const deleteProductCommand: CommandHandler<
     const record = await findOneWithDecryption(
       em,
       CatalogProduct,
-      { id },
+      { id, ...commandScopeWhere(ctx) },
       { populate: ["optionSchemaTemplate"] },
     );
     if (!record) {
@@ -2249,6 +2329,11 @@ const deleteProductCommand: CommandHandler<
     const { variants, cleanupEntries } = await collectProductVariantCleanup(
       em,
       record,
+    );
+    const deletedPrices = await loadProductPricesForHistory(
+      em,
+      record,
+      variants,
     );
     await withAtomicFlush(
       em,
@@ -2273,6 +2358,9 @@ const deleteProductCommand: CommandHandler<
       ],
       { transaction: true },
     );
+    await capturePriceHistoryEntries(em, deletedPrices, "delete", {
+      cache: resolveOmnibusCache(ctx.container),
+    });
     await emitProductVariantCleanupSideEffects({
       dataEngine,
       ctx,
@@ -2382,17 +2470,30 @@ const deleteProductCommand: CommandHandler<
       em.persist(record);
     }
     applyProductSnapshot(em, record, before);
-    await withAtomicFlush(
+    try {
+      await withAtomicFlush(
+        em,
+        [
+          () => em.flush(),
+          () => restoreOffersFromSnapshot(em, record, before.offers),
+          () => syncCategoryAssignments(em, record, before.categoryIds),
+          () => syncProductTags(em, record, before.tags),
+          ...buildProductDeleteChildrenRestorePhases(em, owner, childrenPlan),
+        ],
+        { transaction: true },
+      );
+    } catch (error) {
+      await rethrowProductUniqueConstraint(error);
+    }
+    const restoredPrices = await loadRestoredPricesForHistory(
       em,
-      [
-        () => em.flush(),
-        () => restoreOffersFromSnapshot(em, record, before.offers),
-        () => syncCategoryAssignments(em, record, before.categoryIds),
-        () => syncProductTags(em, record, before.tags),
-        ...buildProductDeleteChildrenRestorePhases(em, owner, childrenPlan),
-      ],
-      { transaction: true },
+      owner,
+      (childrenPlan?.prices ?? []).map((price) => price.id),
     );
+    await capturePriceHistoryEntries(em, restoredPrices, "undo", {
+      metadata: { undoneCommand: "catalog.products.delete" },
+      cache: resolveOmnibusCache(ctx.container),
+    });
     const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
     if (before.custom && Object.keys(before.custom).length) {
       await setCustomFieldsIfAny({

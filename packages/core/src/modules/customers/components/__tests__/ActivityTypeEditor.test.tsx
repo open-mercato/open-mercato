@@ -12,8 +12,10 @@ const confirmMock = jest.fn()
 const runMutationMock = jest.fn(async ({ operation }: { operation: () => Promise<unknown> }) => operation())
 const headerMock = jest.fn(() => ({}))
 const reportErrorMock = jest.fn()
+const formInitialValuesMock = jest.fn()
+let mockScopeVersion = 0
 
-jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({ useOrganizationScopeVersion: () => 0 }))
+jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({ useOrganizationScopeVersion: () => mockScopeVersion }))
 jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
   getTelemetryRuntime: () => ({ reportError: (...args: unknown[]) => reportErrorMock(...args) }),
 }))
@@ -41,7 +43,7 @@ jest.mock('@open-mercato/ui/backend/RowActions', () => ({
 }))
 jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
   CrudForm: ({ initialValues, onSubmit }: { initialValues: Record<string, unknown>; onSubmit: (values: Record<string, unknown>) => Promise<void> }) =>
-    <button type="button" onClick={() => { void onSubmit(initialValues) }}>submit-activity-type</button>,
+    { formInitialValuesMock(initialValues); return <button type="button" onClick={() => { void onSubmit(initialValues) }}>submit-activity-type</button> },
 }))
 
 const base = calendarEventTypes[0]!
@@ -54,6 +56,7 @@ const inherited = {
 describe('ActivityTypeEditor', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockScopeVersion = 0
     confirmMock.mockResolvedValue(true)
     writeMock.mockResolvedValue({})
     readMock.mockImplementation(async (path: string) => {
@@ -75,6 +78,48 @@ describe('ActivityTypeEditor', () => {
     const payload = JSON.parse(writeMock.mock.calls[0][1].body)
     expect(payload.value).toBe('meeting')
     expect(payload.behavior).toMatchObject({ schemaVersion: 1, baseKind: 'meeting', fields: base.behavior.fields })
+  })
+
+  it('seeds the optimistic-lock version from the stored row when the catalog serves an unchanged built-in without one', async () => {
+    const storedUpdatedAt = '2026-10-09T15:01:35.000Z'
+    readMock.mockImplementation(async (path: string) => {
+      if (path === '/api/customers/activity-types') return { items: [{ ...inherited, isInherited: false, updatedAt: null }] }
+      if (path === '/api/customers/dictionaries/activity-types') return { items: [{ id: 'seeded-id', value: 'meeting', isInherited: false, updatedAt: storedUpdatedAt }] }
+      if (path.startsWith('/api/entities/definitions?')) return { fieldsetsByEntity: { [E.customers.customer_interaction]: [] } }
+      throw new Error(path)
+    })
+    renderWithProviders(<ActivityTypeEditor title="Activity types" description="Manage activity types" />)
+    fireEvent.click(await screen.findByRole('button', { name: 'edit' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'submit-activity-type' }))
+    await waitFor(() => expect(writeMock).toHaveBeenCalledWith(
+      '/api/customers/dictionaries/activity-types/seeded-id',
+      expect.objectContaining({ method: 'PATCH' }),
+    ))
+    expect(formInitialValuesMock).toHaveBeenCalledWith(expect.objectContaining({ updatedAt: storedUpdatedAt }))
+  })
+
+  it('keeps the optimistic-lock version captured when the dialog opened across a reload', async () => {
+    const openedUpdatedAt = '2026-10-09T15:01:35.000Z'
+    let storedUpdatedAt = openedUpdatedAt
+    readMock.mockImplementation(async (path: string) => {
+      if (path === '/api/customers/activity-types') return { items: [{ ...inherited, isInherited: false, updatedAt: null }] }
+      if (path === '/api/customers/dictionaries/activity-types') return { items: [{ id: 'seeded-id', value: 'meeting', isInherited: false, updatedAt: storedUpdatedAt }] }
+      if (path.startsWith('/api/entities/definitions?')) return { fieldsetsByEntity: { [E.customers.customer_interaction]: [] } }
+      throw new Error(path)
+    })
+    const view = renderWithProviders(<ActivityTypeEditor title="Activity types" description="Manage activity types" />)
+    fireEvent.click(await screen.findByRole('button', { name: 'edit' }))
+    await screen.findByRole('button', { name: 'submit-activity-type' })
+    storedUpdatedAt = '2026-10-10T08:00:00.000Z'
+    const dictionaryReads = () => readMock.mock.calls.filter(([path]) => path === '/api/customers/dictionaries/activity-types').length
+    const readsBefore = dictionaryReads()
+    mockScopeVersion = 1
+    view.rerender(<ActivityTypeEditor title="Activity types" description="Manage activity types" />)
+    await waitFor(() => expect(dictionaryReads()).toBeGreaterThan(readsBefore))
+    fireEvent.click(await screen.findByRole('button', { name: 'submit-activity-type' }))
+    await waitFor(() => expect(writeMock).toHaveBeenCalled())
+    expect(formInitialValuesMock.mock.calls.length).toBeGreaterThan(0)
+    formInitialValuesMock.mock.calls.forEach(([values]) => expect(values).toEqual(expect.objectContaining({ updatedAt: openedUpdatedAt })))
   })
 
   it('deletes only the local override with its optimistic-lock version', async () => {

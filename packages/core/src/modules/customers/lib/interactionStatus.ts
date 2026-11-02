@@ -28,3 +28,9 @@ export function isTerminalInteractionStatus(value: string | null | undefined): b
 export function isOpenInteractionStatus(value: string | null | undefined): boolean {
   return !isTerminalInteractionStatus(value)
 }
+
+// Canceled is terminal like `done`, but history views must still tell the two apart
+// (a canceled activity never happened), so renderers label it explicitly.
+export function isCanceledInteractionStatus(value: string | null | undefined): boolean {
+  return value === INTERACTION_STATUS_CANCELED
+}

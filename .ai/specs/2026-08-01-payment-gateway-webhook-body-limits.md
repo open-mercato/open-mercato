@@ -111,7 +111,7 @@ Acceptance requires bounded fixture requests to prove exact-limit acceptance and
 - **Severity:** High
 - **Affected area:** Web process availability.
 - **Mitigation:** Existing rate limit, preflight optimization, enforced streaming limit, immediate cancel, no downstream work.
-- **Residual risk:** Providers that do not opt in retain legacy behavior for compatibility.
+- **Residual risk:** Providers that do not opt in retain legacy behavior for compatibility. Stripe opted in on 2026-10-13 (#7222).
 
 ### Valid provider payload rejection
 
@@ -163,6 +163,10 @@ None identified; architecture review remains required for the public registratio
 Fully compliant — ready for implementation.
 
 ## Changelog
+
+### 2026-10-13
+
+- Stripe now registers `maxBodyBytes` (the 1 MiB framework maximum, or `OM_WEBHOOK_MAX_BODY_BYTES` when that is lower), closing the unbounded unauthenticated read this spec had left as a residual risk (#7222).
 
 ### 2026-10-09 (implementation)
 

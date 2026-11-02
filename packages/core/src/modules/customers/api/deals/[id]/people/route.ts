@@ -220,6 +220,9 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
     if (isCrudHttpError(error)) {
       return NextResponse.json(error.body, { status: error.status })
     }
+    if (error instanceof z.ZodError) {
+      return NextResponse.json({ error: translate('customers.errors.validationFailed', 'Validation failed'), details: error.issues }, { status: 400 })
+    }
     logger.error('customers.deals.people.GET', { err: error })
     return NextResponse.json({ error: translate('customers.errors.deal_people_load_failed', 'Failed to load linked people') }, { status: 500 })
   }

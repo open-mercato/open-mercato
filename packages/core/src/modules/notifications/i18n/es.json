@@ -14,6 +14,8 @@
   "notifications.delivery.settings.invalid": "Configuración de entrega no válida",
   "notifications.empty": "Sin notificaciones",
   "notifications.error.action": "No se pudo ejecutar la acción",
+  "notifications.error.actionCommandNotAllowed": "Las acciones de notificación creadas mediante la API no pueden ejecutar comandos",
+  "notifications.error.actionForbidden": "No tienes permiso para ejecutar esta acción de notificación",
   "notifications.error.load": "No se pudieron cargar las notificaciones",
   "notifications.filters.actionRequired": "Acción requerida",
   "notifications.filters.all": "Todas",

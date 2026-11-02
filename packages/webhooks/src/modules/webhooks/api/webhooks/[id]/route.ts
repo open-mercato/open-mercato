@@ -2,11 +2,20 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { emitWebhooksEvent } from '../../../events'
-import { findScopedWebhook, json, resolveWebhookRequestScope, serializeWebhookDetail } from '../../helpers'
+import {
+  canRevealWebhookCredentialHeaders,
+  findScopedWebhook,
+  json,
+  resolveWebhookRequestScope,
+  serializeWebhookDetail,
+  translateWebhookCustomHeadersRejection,
+} from '../../helpers'
 import { webhookUpdateSchema } from '../../../data/validators'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { invalidateWebhookSubscriptionCacheFor } from '../../../lib/subscription-cache'
+import { applyWebhookActiveState } from '../../../lib/activation'
+import { planWebhookCustomHeadersUpdate } from '../../../lib/custom-headers'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['webhooks.view'] },
@@ -33,7 +42,9 @@ const webhookDetailResponseSchema = z.object({
   lastFailureAt: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
-  customHeaders: z.record(z.string(), z.string()).nullable(),
+  customHeaders: z.record(z.string(), z.string()).nullable().describe(
+    'Credential-like header values are returned as •••••••• unless the caller has webhooks.secrets. Sending •••••••• back on update keeps the stored value.',
+  ),
   strategyConfig: z.record(z.string(), z.unknown()).nullable(),
   timeoutMs: z.number(),
   rateLimitPerMinute: z.number(),
@@ -57,7 +68,8 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
     return json({ error: 'Webhook not found' }, { status: 404 })
   }
 
-  return json(serializeWebhookDetail(webhook))
+  const revealCredentialHeaders = await canRevealWebhookCredentialHeaders(scope.container, scope.auth, webhook)
+  return json(serializeWebhookDetail(webhook, { revealCredentialHeaders }))
 }
 
 export async function PUT(request: Request, context: RouteContext): Promise<Response> {
@@ -90,12 +102,22 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
   }
 
   const input = parsed.data
+  const revealCredentialHeaders = await canRevealWebhookCredentialHeaders(scope.container, scope.auth, webhook)
+  const headersUpdate = planWebhookCustomHeadersUpdate({
+    current: webhook,
+    next: input,
+    canRevealCredentials: revealCredentialHeaders,
+  })
+  if (!headersUpdate.ok) {
+    return json({ error: await translateWebhookCustomHeadersRejection(headersUpdate) }, { status: 400 })
+  }
+
   if (input.name !== undefined) webhook.name = input.name
   if (input.description !== undefined) webhook.description = input.description
   if (input.url !== undefined) webhook.url = input.url
   if (input.subscribedEvents !== undefined) webhook.subscribedEvents = input.subscribedEvents
   if (input.httpMethod !== undefined) webhook.httpMethod = input.httpMethod
-  if (input.customHeaders !== undefined) webhook.customHeaders = input.customHeaders
+  if (headersUpdate.customHeaders !== undefined) webhook.customHeaders = headersUpdate.customHeaders
   if (input.deliveryStrategy !== undefined) webhook.deliveryStrategy = input.deliveryStrategy
   if (input.strategyConfig !== undefined) webhook.strategyConfig = input.strategyConfig
   if (input.maxRetries !== undefined) webhook.maxRetries = input.maxRetries
@@ -103,7 +125,7 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
   if (input.rateLimitPerMinute !== undefined) webhook.rateLimitPerMinute = input.rateLimitPerMinute
   if (input.autoDisableThreshold !== undefined) webhook.autoDisableThreshold = input.autoDisableThreshold
   if (input.integrationId !== undefined) webhook.integrationId = input.integrationId
-  if (input.isActive !== undefined) webhook.isActive = input.isActive
+  if (input.isActive !== undefined) applyWebhookActiveState(webhook, input.isActive)
 
   await em.flush()
 
@@ -115,7 +137,7 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
     tenantId: webhook.tenantId,
   }, { persistent: true })
 
-  return json(serializeWebhookDetail(webhook))
+  return json(serializeWebhookDetail(webhook, { revealCredentialHeaders }))
 }
 
 export async function DELETE(request: Request, context: RouteContext): Promise<Response> {
@@ -182,7 +204,11 @@ export const openApi: OpenApiRouteDoc = {
       },
       responses: [{ status: 200, description: 'Webhook updated', schema: webhookDetailResponseSchema }],
       errors: [
-        { status: 400, description: 'Invalid payload', schema: errorSchema },
+        {
+          status: 400,
+          description: 'Invalid payload, a hidden header value with no stored value, or a URL change that keeps hidden header values for a caller without webhooks.secrets',
+          schema: errorSchema,
+        },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
         { status: 404, description: 'Webhook not found', schema: errorSchema },
       ],

@@ -353,6 +353,7 @@ test('automatic target preparation clones only fresh source inputs and safely sh
   fs.mkdirSync(path.join(controller, 'node_modules', 'example'), { recursive: true })
   fs.mkdirSync(path.join(controller, '.ai', 'harness', 'results'), { recursive: true })
   fs.mkdirSync(path.join(controller, '.ai', 'framework-context'), { recursive: true })
+  fs.mkdirSync(path.join(controller, '.mercato', 'cache'), { recursive: true })
   fs.mkdirSync(path.join(controller, '.mercato', 'generated'), { recursive: true })
   fs.mkdirSync(path.join(controller, '.mercato', 'next'), { recursive: true })
   fs.mkdirSync(path.join(controller, 'build'), { recursive: true })
@@ -364,6 +365,7 @@ test('automatic target preparation clones only fresh source inputs and safely sh
   fs.writeFileSync(path.join(controller, '.ai', 'harness', 'results', 'old.json'), '{}\n')
   fs.writeFileSync(path.join(controller, '.ai', 'framework-context', 'old.txt'), 'context\n')
   fs.writeFileSync(path.join(controller, 'build', 'old.js'), 'build\n')
+  fs.writeFileSync(path.join(controller, '.mercato', 'cache', 'cache.db'), 'disposable cache\n')
   fs.writeFileSync(path.join(controller, '.mercato', 'generated', 'old.ts'), 'generated\n')
   fs.writeFileSync(path.join(controller, '.mercato', 'next', 'BUILD_ID'), 'build\n')
   fs.writeFileSync(path.join(controller, 'next-env.d.ts'), 'generated\n')
@@ -381,6 +383,7 @@ test('automatic target preparation clones only fresh source inputs and safely sh
     assert.equal(fs.existsSync(path.join(target, 'build')), false)
     assert.equal(fs.existsSync(path.join(target, '.ai', 'harness', 'results')), false)
     assert.equal(fs.existsSync(path.join(target, '.ai', 'framework-context')), false)
+    assert.equal(fs.existsSync(path.join(target, '.mercato', 'cache')), false)
     assert.equal(fs.existsSync(path.join(target, '.mercato', 'generated')), false)
     assert.equal(fs.existsSync(path.join(target, '.mercato', 'next')), false)
     assert.equal(fs.existsSync(path.join(target, 'next-env.d.ts')), false)
@@ -689,6 +692,8 @@ test('target validation permits only explicit generated and build outputs inside
 const fs = require('node:fs')
 const command = process.argv[2]
 if (command === 'generate') {
+  fs.mkdirSync('.mercato/cache', { recursive: true })
+  fs.writeFileSync('.mercato/cache/cache.db', 'disposable cache')
   fs.mkdirSync('.mercato/generated', { recursive: true })
   fs.writeFileSync('.mercato/generated/modules.generated.ts', 'export default []\\n')
 }
@@ -710,7 +715,7 @@ if (command === 'build') {
     const results = release.runTargetValidationSteps({ steps, target, timeout: 10_000, roots: [target], yarnCommand: fakeYarn })
     assert.deepEqual(results.map((entry) => entry.status), ['pass', 'pass', 'pass', 'pass'])
     assert.deepEqual(results.map((entry) => entry.resultPaths), [
-      ['.mercato/generated'], ['tsconfig.tsbuildinfo'], [], ['.mercato/next', 'next-env.d.ts'],
+      ['.mercato/cache', '.mercato/generated'], ['tsconfig.tsbuildinfo'], [], ['.mercato/next', 'next-env.d.ts'],
     ])
     assert.equal(fs.existsSync(path.join(target, '.mercato')), false)
     assert.equal(fs.existsSync(path.join(target, 'tsconfig.tsbuildinfo')), false)

@@ -35,6 +35,10 @@ describe('client bootstrap route profiles', () => {
     expect(profileUsesComponentOverrides('checkout')).toBe(true)
   })
 
+  it('loads the injection registry on the login page so auth.login:form widgets render', () => {
+    expect(groupsForProfile('login')).toEqual(['translations', 'injection'])
+  })
+
   it.each(['backend', 'backend-dashboard', 'backend-messages', 'backend-checkout'] as const)(
     'loads message client registrations for the %s profile',
     (profile) => {

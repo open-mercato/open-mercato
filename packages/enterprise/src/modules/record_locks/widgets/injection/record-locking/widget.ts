@@ -1,6 +1,7 @@
 import type { InjectionWidgetModule } from '@open-mercato/shared/modules/widgets/injection'
-import RecordLockingWidget, { validateBeforeSave } from './widget.client'
-import { getRecordLockFormState, setRecordLockFormState } from '@open-mercato/enterprise/modules/record_locks/lib/clientLockStore'
+import RecordLockingWidget, { resolveLockAfterValidate, validateBeforeSave } from './widget.client'
+import { getRecordLockFormState, setRecordLockFormState, type RecordLockFormState } from '@open-mercato/enterprise/modules/record_locks/lib/clientLockStore'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 
 function isUuid(value: string | null | undefined): value is string {
   if (typeof value !== 'string') return false
@@ -18,10 +19,35 @@ type CrudInjectionContext = {
   path?: string
   query?: string
   kind?: string
+  operation?: 'create' | 'update' | 'delete'
   personId?: string
   companyId?: string
   dealId?: string
   retryLastMutation?: () => Promise<boolean | void> | boolean | void
+}
+
+type RecordLockAcquireResponse = Pick<
+  RecordLockFormState,
+  'acquired' | 'allowForceUnlock' | 'currentUserId' | 'heartbeatSeconds' | 'latestActionLogId' | 'lock'
+>
+
+function isSameLockSession(leftLock: RecordLockFormState['lock'], rightLock: RecordLockFormState['lock']): boolean {
+  return leftLock?.id === rightLock?.id
+    && leftLock?.status === rightLock?.status
+    && (leftLock?.token ?? null) === (rightLock?.token ?? null)
+}
+
+function clearSavedRecordLockState(formId: string) {
+  setRecordLockFormState(formId, {
+    recordDeleted: false,
+    acquired: false,
+    lock: null,
+    latestActionLogId: null,
+    conflict: null,
+    pendingConflictId: null,
+    pendingResolution: 'normal',
+    pendingResolutionArmed: false,
+  })
 }
 
 const widget: InjectionWidgetModule<CrudInjectionContext, Record<string, unknown>> = {
@@ -101,7 +127,7 @@ const widget: InjectionWidgetModule<CrudInjectionContext, Record<string, unknown
           pendingConflictId: validation.conflict?.id ?? state?.pendingConflictId ?? null,
           pendingResolution: 'normal',
           pendingResolutionArmed: false,
-          lock: validation.lock ?? state?.lock ?? null,
+          lock: resolveLockAfterValidate(state?.lock, validation.lock),
           latestActionLogId: validation.latestActionLogId ?? state?.latestActionLogId ?? null,
         })
         return {
@@ -148,15 +174,76 @@ const widget: InjectionWidgetModule<CrudInjectionContext, Record<string, unknown
     },
     async onAfterSave(_data, context) {
       if (!context.formId) return
+      const state = getRecordLockFormState(context.formId)
+      if (!state?.resourceKind || !state.resourceId) {
+        clearSavedRecordLockState(context.formId)
+        return
+      }
+      if (context.operation === 'delete') {
+        if (state.lock?.token) {
+          const release = await apiCall('/api/record_locks/release', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              resourceKind: state.resourceKind,
+              resourceId: state.resourceId,
+              token: state.lock.token,
+              reason: 'saved',
+            }),
+          })
+          if (!release.ok) throw new Error('[internal] Failed to release the saved record lock')
+        }
+        const current = getRecordLockFormState(context.formId)
+        if (current?.resourceKind === state.resourceKind && current.resourceId === state.resourceId) {
+          clearSavedRecordLockState(context.formId)
+        }
+        return
+      }
+      const acquire = await apiCall<RecordLockAcquireResponse>('/api/record_locks/acquire', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ resourceKind: state.resourceKind, resourceId: state.resourceId }),
+      })
+      if (!acquire.ok || !acquire.result) throw new Error('[internal] Failed to refresh the saved record lock')
+      const payload = acquire.result
+      const current = getRecordLockFormState(context.formId)
+      if (
+        !current
+        || current.recordDeleted === true
+        || current.resourceKind !== state.resourceKind
+        || current.resourceId !== state.resourceId
+      ) {
+        if (payload.lock?.token) {
+          const cleanup = await apiCall('/api/record_locks/release', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              resourceKind: state.resourceKind,
+              resourceId: state.resourceId,
+              token: payload.lock.token,
+              reason: 'unmount',
+            }),
+          })
+          if (!cleanup.ok) throw new Error('[internal] Failed to release a record lock after navigation')
+        }
+        return
+      }
+      if (!isSameLockSession(current.lock, state.lock) && !isSameLockSession(current.lock, payload.lock)) return
+      const hasIncomingConflict = Boolean(current.conflict && current.conflict !== state.conflict)
       setRecordLockFormState(context.formId, {
-        recordDeleted: false,
-        acquired: false,
-        lock: null,
-        latestActionLogId: null,
-        conflict: null,
-        pendingConflictId: null,
-        pendingResolution: 'normal',
-        pendingResolutionArmed: false,
+        acquired: payload.acquired ?? false,
+        lock: payload.lock ?? null,
+        currentUserId: payload.currentUserId ?? current.currentUserId ?? null,
+        heartbeatSeconds: payload.heartbeatSeconds ?? current.heartbeatSeconds ?? 15,
+        allowForceUnlock: payload.allowForceUnlock ?? current.allowForceUnlock ?? false,
+        ...(hasIncomingConflict ? {} : {
+          recordDeleted: false,
+          latestActionLogId: payload.latestActionLogId ?? payload.lock?.baseActionLogId ?? null,
+          conflict: null,
+          pendingConflictId: null,
+          pendingResolution: 'normal',
+          pendingResolutionArmed: false,
+        }),
       })
     },
     async onBeforeDelete(data, context) {
@@ -165,8 +252,8 @@ const widget: InjectionWidgetModule<CrudInjectionContext, Record<string, unknown
     async onDelete(_data, _context) {
       return
     },
-    async onAfterDelete(data, context) {
-      await widget.eventHandlers?.onAfterSave?.(data, context)
+    async onAfterDelete(_data, context) {
+      if (context.formId) clearSavedRecordLockState(context.formId)
     },
     async onDeleteError(_data, _context, _error) {
       return

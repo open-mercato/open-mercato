@@ -1,4 +1,5 @@
 import {
+  assortmentScopeSchema,
   customerGroupCreateSchema,
   customerGroupTermsCreateSchema,
   customerGroupTermsUpdateSchema,
@@ -92,5 +93,62 @@ describe('customer group column bounds', () => {
   it('still rejects negative terms values', () => {
     expect(customerGroupTermsUpdateSchema.safeParse({ id: GROUP_ID, minOrderValue: -1 }).success).toBe(false)
     expect(customerGroupTermsUpdateSchema.safeParse({ id: GROUP_ID, paymentTermsDays: -1 }).success).toBe(false)
+  })
+})
+
+describe('assortment scope schema', () => {
+  const CATEGORY_ID = '33333333-3333-4333-8333-333333333333'
+  const TAG_ID = '44444444-4444-4444-8444-444444444444'
+  const PRODUCT_ID = '55555555-5555-4555-8555-555555555555'
+
+  it('accepts every authored id list', () => {
+    const scope = {
+      categoryIds: [CATEGORY_ID],
+      tagIds: [TAG_ID],
+      excludeProductIds: [PRODUCT_ID],
+      excludeCategoryIds: [CATEGORY_ID],
+      excludeTagIds: [TAG_ID],
+    }
+
+    expect(assortmentScopeSchema.parse(scope)).toEqual(scope)
+  })
+
+  it('accepts null as unrestricted', () => {
+    expect(assortmentScopeSchema.parse(null)).toBeNull()
+  })
+
+  it('accepts empty id lists', () => {
+    expect(assortmentScopeSchema.parse({ categoryIds: [] })).toEqual({ categoryIds: [] })
+  })
+
+  it('rejects allOf on an authored scope', () => {
+    expect(assortmentScopeSchema.safeParse({ allOf: [{ categoryIds: [CATEGORY_ID] }] }).success).toBe(false)
+  })
+
+  it('rejects unknown keys', () => {
+    expect(assortmentScopeSchema.safeParse({ categoryIds: [CATEGORY_ID], productIds: [PRODUCT_ID] }).success).toBe(false)
+  })
+
+  it('rejects non-uuid ids', () => {
+    expect(assortmentScopeSchema.safeParse({ tagIds: ['not-a-uuid'] }).success).toBe(false)
+    expect(assortmentScopeSchema.safeParse({ excludeProductIds: [42] }).success).toBe(false)
+  })
+
+  it('carries an assortment scope through terms create and update', () => {
+    const scope = { categoryIds: [CATEGORY_ID] }
+
+    expect(customerGroupTermsCreateSchema.parse({ tenantId: TENANT_ID, groupId: GROUP_ID, assortmentScope: scope }).assortmentScope).toEqual(scope)
+    expect(customerGroupTermsUpdateSchema.parse({ id: GROUP_ID, assortmentScope: null }).assortmentScope).toBeNull()
+    expect(Object.prototype.hasOwnProperty.call(customerGroupTermsUpdateSchema.parse({ id: GROUP_ID }), 'assortmentScope')).toBe(false)
+  })
+
+  it('rejects a terms payload whose assortment scope carries allOf', () => {
+    const result = customerGroupTermsCreateSchema.safeParse({
+      tenantId: TENANT_ID,
+      groupId: GROUP_ID,
+      assortmentScope: { allOf: [] },
+    })
+
+    expect(result.success).toBe(false)
   })
 })

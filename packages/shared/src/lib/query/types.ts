@@ -2,7 +2,17 @@ import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { Profiler } from '../profiler'
 import type { ResolvedCustomFieldDefinitions } from '../crud/custom-field-definition-index'
 
-export type FilterOp = 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'in' | 'nin' | 'like' | 'ilike' | 'exists'
+/**
+ * `overlap` (additive, 2026-10-05): "has any of" over a multi-valued field. An index-document
+ * string array compiles to jsonb `?|`, a `cf:*` key to any-value-in-set, and an array-typed base
+ * column to `&&`. An empty value list matches nothing.
+ *
+ * `noverlap` (additive, 2026-10-05): "has none of" — the negation of `overlap` on an index-document
+ * string array or an array-typed base column. Only a present array can match (a missing/null key or
+ * NULL column never does); an empty value list excludes nothing. Unsupported on `cf:*` keys, where
+ * it compiles to `false`.
+ */
+export type FilterOp = 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'in' | 'nin' | 'like' | 'ilike' | 'exists' | 'overlap' | 'noverlap'
 
 export enum SortDir {
   Asc = 'asc',
@@ -34,6 +44,8 @@ export type WhereOps<T> = {
   $like?: T extends string ? string : never
   $ilike?: T extends string ? string : never
   $exists?: boolean
+  $overlap?: T extends readonly (infer Element)[] ? Element[] : T[]
+  $noverlap?: T extends readonly (infer Element)[] ? Element[] : T[]
 }
 
 // A field filter can be a direct value (equals) or ops object
@@ -114,6 +126,21 @@ export type QueryOptions = {
    * not match the standard `organization_id = X AND tenant_id = Y` shape.
    */
   omitAutomaticTenantOrgScope?: boolean
+  /**
+   * When `false`, the engine returns encrypted fields as stored (ciphertext) instead of decrypting
+   * them, and performs no DEK lookup at all. Defaults to `true` — today's behaviour — so existing
+   * callers are unaffected.
+   *
+   * Use it on generic, entity-agnostic surfaces that select every column and do not need plaintext.
+   * Opting in to decline decryption is not an access control: when decryption DOES run it is bound
+   * to the caller's tenant by `resolveDecryptScope`, which refuses any row whose `tenant_id`
+   * contradicts `tenantId`.
+   *
+   * Caveat: declining also disables the plaintext-sort path, so a `sort` on an encrypted field
+   * degrades to SQL `ORDER BY` over ciphertext — a meaningless order. Both engines log one warning
+   * when that combination is requested.
+   */
+  decryptEncryptedFields?: boolean
   // Soft-delete behavior: when false (default), rows with non-null deleted_at
   // are excluded if the base table has that column. Set true to include them.
   withDeleted?: boolean

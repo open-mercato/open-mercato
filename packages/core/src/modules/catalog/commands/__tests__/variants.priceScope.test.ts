@@ -122,7 +122,10 @@ jest.mock('@open-mercato/shared/lib/commands/customFieldSnapshots', () => ({
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption,
-  findOneWithDecryption: jest.fn().mockResolvedValue(null),
+  findOneWithDecryption: jest.fn(
+    (em: { findOne: (...args: unknown[]) => unknown }, entity: unknown, where: unknown, options?: unknown) =>
+      em.findOne(entity, where, options),
+  ),
 }))
 
 jest.mock('#generated/entities.ids.generated', () => ({
@@ -147,6 +150,7 @@ jest.mock('@open-mercato/core/modules/sales/data/entities', () => ({
 
 jest.mock('../shared', () => ({
   cloneJson: (v: unknown) => (v == null ? v : JSON.parse(JSON.stringify(v))),
+  commandScopeWhere: () => ({}),
   ensureOrganizationScope: jest.fn(),
   ensureTenantScope: jest.fn(),
   emitCatalogQueryIndexEvent: jest.fn().mockResolvedValue(undefined),
