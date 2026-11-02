@@ -28,6 +28,33 @@ export function notFoundThreadResponse(): NextResponse {
   return NextResponse.json({ error: '[internal] assisted selling thread not found' }, { status: 404 })
 }
 
+type TrustedStorefrontScope = { tenantId: string; organizationId: string; storeId: string | null }
+
+type StorefrontScopeResolver = {
+  resolve(request: Request): Promise<{ tenantId: string; organizationId: string; store: { id: string } }>
+}
+
+/**
+ * The storefront scope (tenant/organization/store) is resolved from the request host by
+ * `storeContextService` — never from the token or the basket. A guest cart token presented on
+ * another tenant's storefront therefore resolves to nothing. Any failure (service missing,
+ * unknown host) is fail-closed.
+ */
+export async function resolveTrustedStorefrontScope(
+  container: { resolve: <T = unknown>(name: string) => T },
+  request: Request,
+): Promise<TrustedStorefrontScope | null> {
+  try {
+    const service = container.resolve<StorefrontScopeResolver | null>('storeContextService')
+    if (!service) return null
+    const context = await service.resolve(request)
+    if (!context.tenantId || !context.organizationId) return null
+    return { tenantId: context.tenantId, organizationId: context.organizationId, storeId: context.store?.id ?? null }
+  } catch {
+    return null
+  }
+}
+
 export type AssistedSellingBuyerBasket = AssistedSellingResolvedBasket
 
 /**
@@ -46,9 +73,18 @@ export async function resolveIdentifiedBuyerBasket(
   request: Request,
   token: string,
 ): Promise<AssistedSellingBuyerBasket | null> {
+  const trustedScope = await resolveTrustedStorefrontScope(container, request)
+  if (!trustedScope) return null
   const cartService = resolveCartService(container)
-  const basket = await cartService.resolveBasketByToken({ token })
+  const basket = await cartService.resolveBasketByToken({ token, ...trustedScope })
   if (!basket) return null
+  if (
+    basket.tenantId !== trustedScope.tenantId ||
+    basket.organizationId !== trustedScope.organizationId ||
+    (basket.storeId ?? null) !== trustedScope.storeId
+  ) {
+    return null
+  }
   if (basket.customerUserId) {
     const auth = await getCustomerAuthFromRequest(request)
     if (!auth || auth.sub !== basket.customerUserId) return null

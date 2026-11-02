@@ -536,6 +536,163 @@ describe('assisted_selling.proposal.reauthor', () => {
   })
 })
 
+describe('reauthor hardening — replay ordering, atomic transition, compensation', () => {
+  function makeLivePublished(overrides: Row = {}): Row {
+    return {
+      id: 'proposal-old',
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      threadId: THREAD_ID,
+      proposalCartId: PROPOSAL_CART_ID,
+      targetCartId: BUYER_CART_ID,
+      authoredByActorType: 'rep',
+      authoredByActorId: REP_USER_ID,
+      status: 'published',
+      resolvedAt: null,
+      supersededByProposalId: null,
+      idempotencyKey: 'idem-original',
+      requestDigest: 'digest',
+      publishedAt: new Date(),
+      expiresAt: new Date(Date.now() + 3600000),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      __key: 'proposals',
+      ...overrides,
+    }
+  }
+
+  function setup(options: { thread?: Row; old?: Row } = {}) {
+    const old = options.old ?? makeLivePublished()
+    const thread = options.thread ?? makeOpenThread({ liveProposalCount: 1 })
+    const { em, stores, setFlushBehavior } = makeFakeEm({ threads: [thread], proposals: [old] })
+    const commandBus = makeCommandBus()
+    commandBus.setNextProposalCartId('new-proposal-cart-id')
+    const services: Record<string, unknown> = {
+      em,
+      rbacService: makeRbac(['assisted_selling.proposals.author', 'cart.proposals.author']),
+      commandBus,
+      storeContextService: makeStoreContextService(),
+      cartService: {
+        getProposalCartLines: jest.fn(async () => [{ productId: 'prod-1', variantId: null, quantity: '2', configuration: null }]),
+      },
+    }
+    const ctx = {
+      container: { resolve: (name: string) => services[name] },
+      auth: { sub: REP_USER_ID, tenantId: TENANT_ID, orgId: ORG_ID },
+      selectedOrganizationId: ORG_ID,
+      organizationIds: [ORG_ID],
+      organizationScope: null,
+      request: undefined,
+    } as unknown as CommandRuntimeContext
+    const input = { tenantId: TENANT_ID, organizationIds: [ORG_ID], proposalId: old.id, idempotencyKey: 'idem-reauthor' }
+    return { old, thread, em, stores, commandBus, ctx, input, setFlushBehavior }
+  }
+
+  test('a retried successful re-author replays instead of answering 409 proposal_already_superseded', async () => {
+    const { old, ctx, input, thread } = setup()
+    const first = await reauthorProposalCommand.execute(input, ctx)
+    expect(first.replayed).toBe(false)
+    expect(old.supersededByProposalId).toBe(first.proposalId)
+
+    const second = await reauthorProposalCommand.execute(input, ctx)
+
+    expect(second.replayed).toBe(true)
+    expect(second.proposalId).toBe(first.proposalId)
+    expect(thread.liveProposalCount).toBe(1)
+  })
+
+  test('a replay with a different payload under the same key answers 409 idempotency_key_mismatch', async () => {
+    const { ctx, input } = setup()
+    await reauthorProposalCommand.execute(input, ctx)
+
+    const err = await reauthorProposalCommand.execute({ ...input, note: 'different' }, ctx).catch((e: unknown) => e)
+
+    expect(isCrudHttpError(err)).toBe(true)
+    expect((err as { body: { code: string } }).body.code).toBe('idempotency_key_mismatch')
+  })
+
+  test('a failure after the old cart was rejected leaves no live row pointing at a dead cart', async () => {
+    const { old, thread, commandBus, ctx, input } = setup()
+    const original = commandBus.execute.getMockImplementation()!
+    commandBus.execute.mockImplementation(async (id: string, options: { input: Row }) => {
+      if (id === CART_PROPOSAL_CREATE_COMMAND_ID) throw new Error('cart.proposal.create exploded')
+      return original(id, options)
+    })
+
+    await expect(reauthorProposalCommand.execute(input, ctx)).rejects.toThrow('cart.proposal.create exploded')
+
+    expect(commandBus.rejectCalls.some((call: Row) => call.proposalCartId === PROPOSAL_CART_ID)).toBe(true)
+    expect(old.status).toBe('withdrawn')
+    expect(old.supersededByProposalId).toBeNull()
+    expect(thread.liveProposalCount).toBe(0)
+  })
+
+  test('a lost CAS withdraws the just-authored successor row and rejects its cart, with the count undone exactly once', async () => {
+    const { old, thread, em, stores, commandBus, ctx, input } = setup()
+    em.nativeUpdate.mockImplementationOnce(async () => 0)
+
+    const err = await reauthorProposalCommand.execute(input, ctx).catch((e: unknown) => e)
+
+    expect((err as { body: { code: string } }).body.code).toBe('proposal_already_superseded')
+    expect(commandBus.rejectCalls.some((call: Row) => call.proposalCartId === 'new-proposal-cart-id')).toBe(true)
+    const successor = stores.proposals.find((row) => row.id !== old.id)
+    expect(successor?.status).toBe('withdrawn')
+    expect(thread.liveProposalCount).toBe(1)
+  })
+
+  test('the merge-retarget path also withdraws its successor on a lost CAS', async () => {
+    const { old, thread, em, stores, commandBus, ctx } = setup()
+    em.nativeUpdate.mockImplementationOnce(async () => 0)
+
+    const result = await reauthorProposalForMergeRetarget({
+      ctx,
+      oldProposal: old,
+      thread,
+      lines: [{ productId: 'prod-1', variantId: null, quantity: '2', configuration: null }],
+      targetCartId: 'cart-merged-into-1',
+      targetCustomerId: null,
+      targetCustomerUserId: null,
+      idempotencyKey: 'reauthor-on-merge:proposal-old',
+    })
+
+    expect(result.replayed).toBe(false)
+    expect(commandBus.rejectCalls.some((call: Row) => call.proposalCartId === 'new-proposal-cart-id')).toBe(true)
+    expect(stores.proposals.find((row) => row.id === result.proposalId)?.status).toBe('withdrawn')
+    expect(thread.liveProposalCount).toBe(1)
+  })
+
+  test('author: a NON-unique persistence failure after cart.proposal.create rejects the orphaned proposal cart', async () => {
+    const thread = makeOpenThread()
+    const { em, setFlushBehavior } = makeFakeEm({ threads: [thread] })
+    const commandBus = makeCommandBus()
+    commandBus.setNextProposalCartId('orphan-candidate-cart')
+    const ctx = makeCtx({
+      em,
+      rbac: makeRbac(['assisted_selling.proposals.author', 'cart.proposals.author']),
+      commandBus,
+      organizationIds: [ORG_ID],
+    })
+    setFlushBehavior(() => {
+      throw new Error('connection reset by peer')
+    })
+
+    await expect(
+      authorProposalCommand.execute(
+        {
+          tenantId: TENANT_ID,
+          organizationIds: [ORG_ID],
+          threadId: THREAD_ID,
+          lines: [{ productId: 'prod-1', variantId: null, quantity: '1' }],
+          idempotencyKey: 'idem-orphan',
+        },
+        ctx,
+      ),
+    ).rejects.toThrow('connection reset by peer')
+
+    expect(commandBus.rejectCalls.map((call: Row) => call.proposalCartId)).toContain('orphan-candidate-cart')
+  })
+})
+
 describe('reauthorProposalForMergeRetarget — Step 4.4-fix (§8.1/D-R5-14, migrated from cart)', () => {
   function makeOldProposal(overrides: Row = {}): Row {
     return {

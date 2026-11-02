@@ -4,6 +4,7 @@ jest.mock('../../commands/proposals', () => ({ reauthorProposalForMergeRetarget:
 import { emitAssistedSellingEvent } from '../../events'
 import { reauthorProposalForMergeRetarget } from '../../commands/proposals'
 import { AssistedSellingProposal, AssistedSellingThread } from '../../data/entities'
+import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { handleCartMergedForAssistedSellingReauthor } from '../reauthorOnMerge'
 
 type Row = Record<string, any>
@@ -65,20 +66,31 @@ function makeMergedPayload(overrides: Row = {}): Row {
   }
 }
 
-function makeFakeEm(seed: { proposals?: Row[]; threads?: Row[] } = {}) {
+function makeFakeEm(seed: { proposals?: Row[]; threads?: Row[]; users?: Row[] } = {}) {
   const proposals = seed.proposals ? [...seed.proposals] : []
   const threads = seed.threads ? [...seed.threads] : []
+  const users = seed.users ?? [{ id: AUTHOR_USER_ID, tenantId: TENANT_ID, deletedAt: null }]
   const em: Row = {
     find: jest.fn(async (Cls: unknown, where: Row) => {
       const rows = Cls === AssistedSellingProposal ? proposals : []
       return rows.filter((row) => matches(row, where))
     }),
     findOne: jest.fn(async (Cls: unknown, where: Row) => {
-      const rows = Cls === AssistedSellingThread ? threads : Cls === AssistedSellingProposal ? proposals : []
+      const rows = Cls === AssistedSellingThread ? threads : Cls === AssistedSellingProposal ? proposals : Cls === User ? users : []
       return rows.find((row) => matches(row, where)) ?? null
     }),
     persist: jest.fn(),
     flush: jest.fn(async () => undefined),
+    begin: jest.fn(async () => undefined),
+    commit: jest.fn(async () => undefined),
+    rollback: jest.fn(async () => undefined),
+    isInTransaction: jest.fn(() => false),
+    nativeUpdate: jest.fn(async (Cls: unknown, where: Row, data: Row) => {
+      const rows = Cls === AssistedSellingProposal ? proposals : []
+      const matching = rows.filter((row) => matches(row, where))
+      matching.forEach((row) => Object.assign(row, data))
+      return matching.length
+    }),
     // `applyLiveProposalCountDelta` (`lib/liveProposalCount.ts`) — `supersedeOldProposal`'s
     // atomic SQL update (review finding) replacing its former in-memory
     // `thread.liveProposalCount -= 1` read-modify-write. Mirrors the real
@@ -98,8 +110,17 @@ function makeCartService(lines: Row[] = [{ productId: 'product-1', variantId: nu
   return { getProposalCartLines: jest.fn(async () => lines), getForOrganizations: jest.fn() }
 }
 
-function makeContainer(opts: { em: Row; commandBus: { execute: jest.Mock }; cartService: Row }) {
-  const services: Record<string, unknown> = { em: opts.em, commandBus: opts.commandBus, cartService: opts.cartService }
+function makeRbac(allowed = true) {
+  return { userHasAllFeatures: jest.fn(async () => allowed) }
+}
+
+function makeContainer(opts: { em: Row; commandBus: { execute: jest.Mock }; cartService: Row; rbac?: Row }) {
+  const services: Record<string, unknown> = {
+    em: opts.em,
+    commandBus: opts.commandBus,
+    cartService: opts.cartService,
+    rbacService: opts.rbac ?? makeRbac(true),
+  }
   return { resolve: (name: string): any => services[name] }
 }
 
@@ -245,5 +266,68 @@ describe('handleCartMergedForAssistedSellingReauthor — D-R5-14 re-author / sup
     expect(reauthorProposalForMergeRetarget).toHaveBeenCalledTimes(2)
     const proposalIds = (reauthorProposalForMergeRetarget as jest.Mock).mock.calls.map((call) => call[0].oldProposal.id)
     expect(new Set(proposalIds)).toEqual(new Set(['proposal-a', 'proposal-b']))
+  })
+
+  test('supersedes WITHOUT a successor when the author lost an author feature in the target organization', async () => {
+    const proposal = makeProposal()
+    const thread = makeThread({ liveProposalCount: 1 })
+    const { em } = makeFakeEm({ proposals: [proposal], threads: [thread] })
+    const rbac = makeRbac(false)
+    const container = makeContainer({ em, commandBus: makeCommandBus(), cartService: makeCartService(), rbac })
+
+    await handleCartMergedForAssistedSellingReauthor(makeMergedPayload(), { resolve: container.resolve, container })
+
+    expect(reauthorProposalForMergeRetarget).not.toHaveBeenCalled()
+    expect(proposal.status).toBe('superseded')
+    expect(proposal.supersededByProposalId).toBeNull()
+    expect(thread.liveProposalCount).toBe(0)
+    expect(rbac.userHasAllFeatures).toHaveBeenCalledWith(
+      AUTHOR_USER_ID,
+      ['assisted_selling.proposals.author', 'cart.proposals.author'],
+      { tenantId: TENANT_ID, organizationId: ORG_ID },
+    )
+  })
+
+  test('supersedes WITHOUT a successor when the author account no longer exists (deleted)', async () => {
+    const proposal = makeProposal()
+    const thread = makeThread({ liveProposalCount: 1 })
+    const { em } = makeFakeEm({ proposals: [proposal], threads: [thread], users: [] })
+    const container = makeContainer({ em, commandBus: makeCommandBus(), cartService: makeCartService() })
+
+    await handleCartMergedForAssistedSellingReauthor(makeMergedPayload(), { resolve: container.resolve, container })
+
+    expect(reauthorProposalForMergeRetarget).not.toHaveBeenCalled()
+    expect(proposal.status).toBe('superseded')
+    expect(thread.liveProposalCount).toBe(0)
+  })
+
+  test('supersedes when the author belongs to a different tenant (cross-tenant actor id)', async () => {
+    const proposal = makeProposal()
+    const thread = makeThread({ liveProposalCount: 1 })
+    const { em } = makeFakeEm({ proposals: [proposal], threads: [thread], users: [{ id: AUTHOR_USER_ID, tenantId: 'other-tenant', deletedAt: null }] })
+    const container = makeContainer({ em, commandBus: makeCommandBus(), cartService: makeCartService() })
+
+    await handleCartMergedForAssistedSellingReauthor(makeMergedPayload(), { resolve: container.resolve, container })
+
+    expect(reauthorProposalForMergeRetarget).not.toHaveBeenCalled()
+    expect(proposal.status).toBe('superseded')
+  })
+
+  test('the supersede fallback never double-decrements after a half-finished re-author already transitioned the old row', async () => {
+    const proposal = makeProposal()
+    const thread = makeThread({ liveProposalCount: 1 })
+    const { em } = makeFakeEm({ proposals: [proposal], threads: [thread] })
+    const commandBus = makeCommandBus()
+    const container = makeContainer({ em, commandBus, cartService: makeCartService() })
+    // The re-author already won the DB-level transition in ITS own fork: the stale in-memory
+    // row here still reads `published`, but the conditional claim matches zero rows.
+    em.nativeUpdate.mockResolvedValueOnce(0)
+    ;(reauthorProposalForMergeRetarget as jest.Mock).mockRejectedValue(new Error('cart.proposal.reject failed after the CAS'))
+
+    await handleCartMergedForAssistedSellingReauthor(makeMergedPayload(), { resolve: container.resolve, container })
+
+    expect(thread.liveProposalCount).toBe(1)
+    expect(emitAssistedSellingEvent).not.toHaveBeenCalledWith('assisted_selling.proposal.superseded', expect.anything())
+    expect(commandBus.execute).toHaveBeenCalledWith('cart.proposal.reject', expect.anything())
   })
 })

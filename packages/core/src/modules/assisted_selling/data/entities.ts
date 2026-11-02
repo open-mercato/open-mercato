@@ -475,6 +475,14 @@ export type AssistedSellingAttributionActorType = 'buyer' | 'rep' | 'ai_agent' |
   expression:
     'create unique index "assisted_selling_attributions_quote_line_unique_idx" on "assisted_selling_attributions" ("tenant_id", "sales_quote_line_id", "proposal_id") nulls not distinct where "sales_quote_line_id" is not null',
 })
+@Index({
+  // §6.7 degraded, document-level rows carry no line id, so the two line indexes above cannot
+  // protect them: two concurrent `cart.cart.converted` deliveries would each insert the same
+  // per-actor totals and double-credit commission. One row per (cart, outcome document, actor).
+  name: 'assisted_selling_attributions_degraded_unique_idx',
+  expression:
+    'create unique index "assisted_selling_attributions_degraded_unique_idx" on "assisted_selling_attributions" ("tenant_id", "organization_id", "cart_id", coalesce("sales_order_id", "sales_quote_id"), "actor_type", "actor_id") nulls not distinct where "cart_line_id" is null',
+})
 export class AssistedSellingAttribution {
   [OptionalProps]?: 'createdAt'
 

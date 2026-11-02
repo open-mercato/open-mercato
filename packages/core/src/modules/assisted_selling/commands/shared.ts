@@ -2,6 +2,8 @@ import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError, forbidden } from '@open-mercato/shared/lib/crud/errors'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { User } from '@open-mercato/core/modules/auth/data/entities'
+import type { EntityManager } from '@mikro-orm/postgresql'
 
 export { ensureOrganizationScope, ensureSameScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 export { applyLiveProposalCountDelta } from '../lib/liveProposalCount'
@@ -50,6 +52,11 @@ export async function requireAssistedSellingStaffAssignee(
   tenantId: string,
   assigneeActorId: string,
 ): Promise<void> {
+  const em = (ctx.container.resolve('em') as EntityManager).fork()
+  const assignee = await em.findOne(User, { id: assigneeActorId, tenantId, deletedAt: null })
+  if (!assignee) {
+    throw new CrudHttpError(400, { error: '[internal] actorId is not a staff member of this tenant', code: 'invalid_assignee' })
+  }
   const rbac = ctx.container.resolve('rbacService') as RbacService | null
   const granted =
     !!rbac &&

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -8,6 +9,8 @@ import {
   getClientIp,
   RATE_LIMIT_ERROR_FALLBACK,
   RATE_LIMIT_ERROR_KEY,
+  RATE_LIMIT_UNAVAILABLE_FALLBACK,
+  RATE_LIMIT_UNAVAILABLE_KEY,
 } from '@open-mercato/shared/lib/ratelimit/helpers'
 import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
 import type { RateLimitConfig } from '@open-mercato/shared/lib/ratelimit/types'
@@ -64,7 +67,7 @@ function resolveRateLimiter(container: AppContainer): RateLimiterService | null 
   try {
     return (container.resolve('rateLimiterService') as RateLimiterService | null) ?? null
   } catch (error) {
-    logger.warn('Assisted-selling buyer rate limiter unavailable; serving without a limit', { err: error })
+    logger.warn('Assisted-selling buyer rate limiter unavailable', { err: error })
     return null
   }
 }
@@ -78,12 +81,40 @@ async function resolveRateLimitMessage(): Promise<string> {
   }
 }
 
+const FAIL_CLOSED_ENDPOINTS: ReadonlySet<AssistedSellingBuyerRateLimitEndpoint> = new Set(['open', 'message'])
+
+function digestToken(token: string): string {
+  return createHash('sha256').update(`assisted_selling:rate-limit:${token}`).digest('hex')
+}
+
+/** Never contains the raw guest token — the key is shared with the memory/Redis limiter. */
+export function buildAssistedSellingRateLimitKey(clientIp: string | null, token: string | null): string {
+  const tokenPart = token ? `t:${digestToken(token)}` : null
+  if (clientIp && tokenPart) return `${clientIp}:${tokenPart}`
+  return clientIp ?? tokenPart ?? 'anonymous'
+}
+
+async function resolveUnavailableMessage(): Promise<string> {
+  try {
+    const { translate } = await resolveTranslations()
+    return translate(RATE_LIMIT_UNAVAILABLE_KEY, RATE_LIMIT_UNAVAILABLE_FALLBACK)
+  } catch {
+    return RATE_LIMIT_UNAVAILABLE_FALLBACK
+  }
+}
+
+async function unavailableResponse(): Promise<NextResponse> {
+  const response = NextResponse.json({ error: await resolveUnavailableMessage() }, { status: 503 })
+  response.headers.set('Cache-Control', 'no-store')
+  return response
+}
+
 /**
- * §6.2: "Public, cart-token bound, rate limited per IP and per token." Keys by `ip:token`;
- * `token` is `null` only when the caller never presented `X-Cart-Token`, in which case the
- * limit falls back to IP alone — the route itself still answers that request with the
- * unknown-thread `404` either way. Fail-open, mirroring `cart/lib/rateLimit.ts`: an
- * unavailable limiter or an unresolvable client IP serves the request instead of rejecting it.
+ * §6.2: "Public, cart-token bound, rate limited per IP and per token." Keys by
+ * `ip:digest(token)`; when the client IP is unavailable the key degrades to the token digest
+ * alone (never skipping the limit). The POST buckets (`open`, `message`) fail closed — a
+ * missing limiter, a degraded backing store or a limiter error answers `503` — while the
+ * read buckets stay fail-open, mirroring `cart/lib/rateLimit.ts`.
  */
 export async function enforceAssistedSellingBuyerRateLimit(
   container: AppContainer,
@@ -91,19 +122,25 @@ export async function enforceAssistedSellingBuyerRateLimit(
   endpoint: AssistedSellingBuyerRateLimitEndpoint,
   token: string | null,
 ): Promise<NextResponse | null> {
+  const failClosed = FAIL_CLOSED_ENDPOINTS.has(endpoint)
   const limiter = resolveRateLimiter(container)
-  if (!limiter) return null
+  if (!limiter) return failClosed ? unavailableResponse() : null
   try {
     warnOnceWithoutTrustedProxy(limiter.trustProxyDepth)
     const clientIp = getClientIp(req, limiter.trustProxyDepth)
-    if (!clientIp) return null
-    const key = token ? `${clientIp}:${token}` : clientIp
-    const limited = await checkRateLimit(limiter, readAssistedSellingBuyerRateLimitConfig(endpoint), key, await resolveRateLimitMessage())
+    const key = buildAssistedSellingRateLimitKey(clientIp, token)
+    const limited = await checkRateLimit(
+      limiter,
+      readAssistedSellingBuyerRateLimitConfig(endpoint),
+      key,
+      await resolveRateLimitMessage(),
+      failClosed ? { failClosed: true, unavailableMessage: await resolveUnavailableMessage() } : {},
+    )
     limited?.headers.set('Cache-Control', 'no-store')
     return limited
   } catch (error) {
-    logger.warn('Assisted-selling buyer rate limit check failed; serving without a limit', { err: error, endpoint })
+    logger.warn('Assisted-selling buyer rate limit check failed', { err: error, endpoint, failClosed })
     getTelemetryRuntime()?.reportError(error, { module: 'assisted_selling', code: 'assisted_selling.rate_limit_failed' })
-    return null
+    return failClosed ? unavailableResponse() : null
   }
 }

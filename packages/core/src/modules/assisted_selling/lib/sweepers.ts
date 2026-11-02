@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { AssistedSellingThread } from '../data/entities'
 import { resolveEffectiveAssistedSellingSettings } from './settings'
 import { eraseAssistedSellingThread } from './retention'
@@ -36,6 +37,24 @@ const MAX_PAGES_PER_TICK = 1000
 
 export type SweepIdleThreadsResult = { closedCount: number }
 export type SweepRetentionResult = { erasedCount: number }
+
+/**
+ * Thrown by `sweepRetention` AFTER it has processed everything it could, when at least one
+ * thread failed to erase — so the queue worker reports the job as failed and retries it
+ * instead of acknowledging a sweep that left expired personal data behind.
+ */
+export class AssistedSellingRetentionSweepError extends Error {
+  readonly erasedCount: number
+  readonly failedThreadIds: string[]
+
+  constructor(erasedCount: number, failedThreadIds: string[], cause: unknown) {
+    super(`[assisted_selling:retention] failed to erase ${failedThreadIds.length} thread(s)`)
+    this.name = 'AssistedSellingRetentionSweepError'
+    this.erasedCount = erasedCount
+    this.failedThreadIds = failedThreadIds
+    this.cause = cause
+  }
+}
 
 async function distinctStoreIds(
   em: EntityManager,
@@ -138,6 +157,8 @@ export async function sweepRetention(
   now: Date = new Date(),
 ): Promise<SweepRetentionResult> {
   let erasedCount = 0
+  const failedThreadIds: string[] = []
+  let firstFailure: unknown = null
   const storeIds = await distinctStoreIds(em, scope, 'closed')
 
   for (const storeId of storeIds) {
@@ -154,6 +175,7 @@ export async function sweepRetention(
           status: 'closed',
           deletedAt: null,
           closedAt: { $lte: threshold },
+          ...(failedThreadIds.length > 0 ? { id: { $nin: failedThreadIds } } : {}),
         },
         { limit: PAGE_SIZE, orderBy: { id: 'asc' } },
       )
@@ -164,16 +186,21 @@ export async function sweepRetention(
           const erased = await eraseAssistedSellingThread(em, scope, candidate.id)
           if (erased) erasedCount += 1
         } catch (error) {
-          logger.warn('[assisted_selling:retention] failed to erase thread', {
+          failedThreadIds.push(candidate.id)
+          firstFailure ??= error
+          logger.error('[assisted_selling:retention] failed to erase thread', {
             threadId: candidate.id,
             error: error instanceof Error ? error.message : error,
           })
+          getTelemetryRuntime()?.reportError(error, { module: 'assisted_selling', code: 'assisted_selling.retention_erase_failed' })
         }
       }
 
       if (candidates.length < PAGE_SIZE) break
     }
   }
+
+  if (failedThreadIds.length > 0) throw new AssistedSellingRetentionSweepError(erasedCount, failedThreadIds, firstFailure)
 
   return { erasedCount }
 }

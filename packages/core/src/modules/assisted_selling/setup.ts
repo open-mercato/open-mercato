@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('assisted_selling')
 
@@ -47,6 +48,43 @@ function stableRetentionScheduleId(organizationId: string): string {
   return stableScheduleUuid(`assisted_selling:retention:${organizationId}`)
 }
 
+type ScheduleRegistration = Parameters<SchedulerServiceLike['register']>[0]
+
+const SCHEDULE_REGISTER_RETRY_DELAYS_MS = [250, 1000]
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/**
+ * Retention and idle-close are privacy controls: a silently missing schedule leaves buyer
+ * text stored past its retention window. Registration is retried with backoff, every final
+ * failure is logged at error level and reported to telemetry, and the failure is returned so
+ * `seedDefaults` can surface it (re-running `seedDefaults` re-registers by stable id).
+ */
+async function registerScheduleWithRetry(
+  schedulerService: SchedulerServiceLike,
+  registration: ScheduleRegistration,
+): Promise<Error | null> {
+  let lastError: unknown = null
+  for (let attempt = 0; attempt <= SCHEDULE_REGISTER_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      await schedulerService.register(registration)
+      return null
+    } catch (error) {
+      lastError = error
+      const delay = SCHEDULE_REGISTER_RETRY_DELAYS_MS[attempt]
+      if (delay !== undefined) await wait(delay)
+    }
+  }
+  logger.error('[assisted_selling] Failed to register schedule after retries', {
+    scheduleId: registration.id,
+    error: lastError instanceof Error ? lastError.message : lastError,
+  })
+  getTelemetryRuntime()?.reportError(lastError, { module: 'assisted_selling', code: 'assisted_selling.schedule_registration_failed' })
+  return lastError instanceof Error ? lastError : new Error(String(lastError))
+}
+
 export const setup: ModuleSetupConfig = {
   defaultRoleFeatures: {
     admin: ['assisted_selling.*'],
@@ -64,56 +102,55 @@ export const setup: ModuleSetupConfig = {
   async seedDefaults({ tenantId, organizationId, container }) {
     const cradle = container as { hasRegistration?: (name: string) => boolean }
     if (typeof cradle.hasRegistration !== 'function' || !cradle.hasRegistration('schedulerService')) {
+      const unavailable = new Error('[assisted_selling] schedulerService is not registered; retention and idle-close sweeps are NOT scheduled')
+      logger.error(unavailable.message, { tenantId, organizationId })
+      getTelemetryRuntime()?.reportError(unavailable, { module: 'assisted_selling', code: 'assisted_selling.scheduler_unavailable' })
       return
     }
 
     const schedulerService = container.resolve('schedulerService') as SchedulerServiceLike
-    try {
-      await schedulerService.register({
-        id: stableIdleCloseScheduleId(organizationId),
-        name: 'Assisted selling idle-close sweep',
-        description: "Hourly, per organization: close an open thread past its store's idle_close_days with no activity.",
-        scopeType: 'organization',
-        organizationId,
-        tenantId,
-        scheduleType: 'interval',
-        scheduleValue: '3600s',
-        timezone: 'UTC',
-        targetType: 'queue',
-        targetQueue: 'assisted_selling.idle_close',
-        targetPayload: { scope: { tenantId, organizationId } },
-        sourceType: 'module',
-        sourceModule: 'assisted_selling',
-        isEnabled: true,
-      })
-    } catch (error) {
-      logger.warn('[assisted_selling] Failed to register idle-close schedule', {
-        error: error instanceof Error ? error.message : error,
-      })
-    }
+    const failures: Error[] = []
 
-    try {
-      await schedulerService.register({
-        id: stableRetentionScheduleId(organizationId),
-        name: 'Assisted selling retention sweep',
-        description: "Daily, per organization: erase a closed thread past its store's conversation_retention_days.",
-        scopeType: 'organization',
-        organizationId,
-        tenantId,
-        scheduleType: 'cron',
-        scheduleValue: '0 4 * * *',
-        timezone: 'UTC',
-        targetType: 'queue',
-        targetQueue: 'assisted_selling.retention',
-        targetPayload: { scope: { tenantId, organizationId } },
-        sourceType: 'module',
-        sourceModule: 'assisted_selling',
-        isEnabled: true,
-      })
-    } catch (error) {
-      logger.warn('[assisted_selling] Failed to register retention schedule', {
-        error: error instanceof Error ? error.message : error,
-      })
+    const idleClose = await registerScheduleWithRetry(schedulerService, {
+      id: stableIdleCloseScheduleId(organizationId),
+      name: 'Assisted selling idle-close sweep',
+      description: "Hourly, per organization: close an open thread past its store's idle_close_days with no activity.",
+      scopeType: 'organization',
+      organizationId,
+      tenantId,
+      scheduleType: 'interval',
+      scheduleValue: '3600s',
+      timezone: 'UTC',
+      targetType: 'queue',
+      targetQueue: 'assisted_selling.idle_close',
+      targetPayload: { scope: { tenantId, organizationId } },
+      sourceType: 'module',
+      sourceModule: 'assisted_selling',
+      isEnabled: true,
+    })
+    if (idleClose) failures.push(idleClose)
+
+    const retention = await registerScheduleWithRetry(schedulerService, {
+      id: stableRetentionScheduleId(organizationId),
+      name: 'Assisted selling retention sweep',
+      description: "Daily, per organization: erase a closed thread past its store's conversation_retention_days.",
+      scopeType: 'organization',
+      organizationId,
+      tenantId,
+      scheduleType: 'cron',
+      scheduleValue: '0 4 * * *',
+      timezone: 'UTC',
+      targetType: 'queue',
+      targetQueue: 'assisted_selling.retention',
+      targetPayload: { scope: { tenantId, organizationId } },
+      sourceType: 'module',
+      sourceModule: 'assisted_selling',
+      isEnabled: true,
+    })
+    if (retention) failures.push(retention)
+
+    if (failures.length > 0) {
+      throw new AggregateError(failures, `[assisted_selling] ${failures.length} schedule registration(s) failed; re-run seedDefaults to reconcile`)
     }
   },
 }

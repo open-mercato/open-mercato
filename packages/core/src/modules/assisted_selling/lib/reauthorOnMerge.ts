@@ -3,6 +3,9 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { buildTrustedCommandContext } from '@open-mercato/shared/lib/commands/trusted-context'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { User } from '@open-mercato/core/modules/auth/data/entities'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { AssistedSellingProposal, AssistedSellingThread } from '../data/entities'
 import { emitAssistedSellingEvent } from '../events'
 import { resolveCartService } from './cartAccess'
@@ -70,20 +73,32 @@ async function supersedeOldProposal(params: {
   reason: string
 }): Promise<void> {
   const { em, container, commandBus, proposal, thread, scope, reason } = params
-  const wasLive = proposal.status === 'published'
-  if (!wasLive) return
+  if (proposal.status !== 'published') return
 
-  proposal.status = 'superseded'
-  proposal.resolvedAt = new Date()
-  em.persist(proposal)
-  await em.flush()
-  // Atomic SQL update (review finding) instead of the in-memory `thread.liveProposalCount -=
-  // 1` read-modify-write every other author/withdraw/reauthor path already migrated off of —
-  // this fallback path (taken when the author is ineligible, has no lines, the thread is
-  // missing, or `reauthorProposalForMergeRetarget` itself failed) had kept the lost-update
-  // race under concurrent terminal transitions.
-  if (thread) {
-    await applyLiveProposalCountDelta(em, thread, -1)
+  // Atomic claim: only the writer that flips `published -> superseded` applies the
+  // `live_proposal_count` decrement, so a fallback that runs after a half-finished re-author
+  // (which already decremented) can never decrement a second time.
+  let claimed = 0
+  await withAtomicFlush(
+    em,
+    [
+      async () => {
+        const now = new Date()
+        claimed = await em.nativeUpdate(
+          AssistedSellingProposal,
+          { id: proposal.id, tenantId: proposal.tenantId, status: 'published', supersededByProposalId: null },
+          { status: 'superseded' as const, resolvedAt: now, updatedAt: now },
+        )
+      },
+      async () => {
+        if (claimed > 0 && thread) await applyLiveProposalCountDelta(em, thread, -1)
+      },
+    ],
+    { transaction: true, label: 'assisted_selling.proposal.supersede_on_merge' },
+  )
+  if (claimed > 0) {
+    proposal.status = 'superseded'
+    proposal.resolvedAt = new Date()
   }
 
   const { ctx: systemCtx } = buildTrustedCommandContext({
@@ -105,12 +120,46 @@ async function supersedeOldProposal(params: {
     },
   )
 
-  await emitAssistedSellingEvent('assisted_selling.proposal.superseded', {
-    threadId: proposal.threadId,
-    proposalId: proposal.id,
-    tenantId: scope.tenantId,
-    organizationId: scope.organizationId,
-  })
+  if (claimed > 0) {
+    await emitAssistedSellingEvent('assisted_selling.proposal.superseded', {
+      threadId: proposal.threadId,
+      proposalId: proposal.id,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    })
+  }
+}
+
+const REAUTHOR_REQUIRED_FEATURES = ['assisted_selling.proposals.author', 'cart.proposals.author']
+
+/**
+ * The stored `authoredByActorId` is only a historical record. Before the merge automation
+ * publishes a repriced offer on that principal's behalf, reload a LIVE user of this tenant
+ * and re-verify (wildcard-aware, via `rbacService`) BOTH author features in the target
+ * organization — the private reauthor helper bypasses the command-level feature check.
+ */
+async function isAuthorStillEligible(
+  em: EntityManager,
+  container: RetargetContainer,
+  scope: RetargetScope,
+  actorId: string,
+): Promise<boolean> {
+  try {
+    const user = await em.findOne(User, { id: actorId, tenantId: scope.tenantId, deletedAt: null })
+    if (!user) return false
+    const rbac = container.resolve<RbacService | null>('rbacService')
+    if (!rbac) return false
+    return await rbac.userHasAllFeatures(actorId, REAUTHOR_REQUIRED_FEATURES, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    })
+  } catch (error) {
+    logger.warn('[assisted_selling:reauthor-on-merge] author eligibility check failed, treating as ineligible', {
+      actorId,
+      error: error instanceof Error ? error.message : error,
+    })
+    return false
+  }
 }
 
 async function retargetOrSupersedeOneProposal(params: {
@@ -185,6 +234,19 @@ async function retargetOrSupersedeOneProposal(params: {
       thread: null,
       scope,
       reason: 'assisted_selling.proposal.supersede:thread_not_found',
+    })
+    return
+  }
+
+  if (!(await isAuthorStillEligible(em, container, scope, proposal.authoredByActorId))) {
+    await supersedeOldProposal({
+      em,
+      container,
+      commandBus,
+      proposal,
+      thread,
+      scope,
+      reason: 'assisted_selling.proposal.supersede:author_ineligible',
     })
     return
   }

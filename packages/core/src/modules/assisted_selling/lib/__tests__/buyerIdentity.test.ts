@@ -19,8 +19,31 @@ function makeRequest(headers: Record<string, string> = {}) {
   return new Request('https://merchant.example/api/assisted_selling/storefront/thread', { headers })
 }
 
-function makeContainer(resolveBasketByToken: jest.Mock) {
-  return { resolve: (name: string) => (name === 'cartService' ? { resolveBasketByToken } : undefined) }
+const STORE_ID = 'store-1'
+
+function makeContainer(
+  resolveBasketByToken: jest.Mock,
+  storeScope: { tenantId: string; organizationId: string; storeId: string } | null = { tenantId: TENANT_ID, organizationId: ORG_ID, storeId: STORE_ID },
+) {
+  const storeContextService = storeScope
+    ? {
+        resolve: jest.fn(async () => ({
+          tenantId: storeScope.tenantId,
+          organizationId: storeScope.organizationId,
+          store: { id: storeScope.storeId },
+        })),
+      }
+    : null
+  return {
+    resolve: (name: string) => {
+      if (name === 'cartService') return { resolveBasketByToken }
+      if (name === 'storeContextService') {
+        if (!storeContextService) throw new Error('not registered')
+        return storeContextService
+      }
+      return undefined
+    },
+  }
 }
 
 const GUEST_BASKET = {
@@ -110,6 +133,37 @@ describe('resolveIdentifiedBuyerBasket (D-R5-13/D-R5-21)', () => {
     const result = await resolveIdentifiedBuyerBasket(container, makeRequest(), 'stale-token')
 
     expect(result).toBeNull()
-    expect(resolveBasketByToken).toHaveBeenCalledWith({ token: 'stale-token' })
+    expect(resolveBasketByToken).toHaveBeenCalledWith({ token: 'stale-token', tenantId: TENANT_ID, organizationId: ORG_ID, storeId: STORE_ID })
+  })
+
+  describe('cross-tenant guest tokens (trusted storefront scope)', () => {
+    const OTHER_TENANT_ID = '99999999-9999-4999-8999-999999999999'
+
+    it('passes the TRUSTED storefront scope — never the basket\'s own — to the cart service', async () => {
+      const resolveBasketByToken = jest.fn(async () => GUEST_BASKET)
+      const container = makeContainer(resolveBasketByToken, { tenantId: OTHER_TENANT_ID, organizationId: ORG_ID, storeId: STORE_ID })
+
+      const result = await resolveIdentifiedBuyerBasket(container, makeRequest(), 'victim-token')
+
+      expect(resolveBasketByToken).toHaveBeenCalledWith({ token: 'victim-token', tenantId: OTHER_TENANT_ID, organizationId: ORG_ID, storeId: STORE_ID })
+      expect(result).toBeNull()
+    })
+
+    it('rejects a basket whose scope differs from the trusted scope even if the cart service returned it', async () => {
+      const resolveBasketByToken = jest.fn(async () => GUEST_BASKET)
+      const container = makeContainer(resolveBasketByToken, { tenantId: OTHER_TENANT_ID, organizationId: ORG_ID, storeId: STORE_ID })
+      expect(await resolveIdentifiedBuyerBasket(container, makeRequest(), 'victim-token')).toBeNull()
+
+      const otherStore = makeContainer(resolveBasketByToken, { tenantId: TENANT_ID, organizationId: ORG_ID, storeId: 'store-2' })
+      expect(await resolveIdentifiedBuyerBasket(otherStore, makeRequest(), 'victim-token')).toBeNull()
+    })
+
+    it('fails closed without touching the cart when the storefront scope cannot be resolved', async () => {
+      const resolveBasketByToken = jest.fn(async () => GUEST_BASKET)
+      const container = makeContainer(resolveBasketByToken, null)
+
+      expect(await resolveIdentifiedBuyerBasket(container, makeRequest(), 'victim-token')).toBeNull()
+      expect(resolveBasketByToken).not.toHaveBeenCalled()
+    })
   })
 })

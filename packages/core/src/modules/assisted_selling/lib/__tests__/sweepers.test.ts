@@ -7,7 +7,7 @@ import {
   AssistedSellingStoreSettings,
   AssistedSellingThread,
 } from '../../data/entities'
-import { sweepIdleThreads, sweepRetention } from '../sweepers'
+import { AssistedSellingRetentionSweepError, sweepIdleThreads, sweepRetention } from '../sweepers'
 
 const TENANT_ID = 'tenant-1'
 const ORG_ID = 'org-1'
@@ -19,6 +19,9 @@ function matchesWhere(row: Row, where: Row): boolean {
   return Object.entries(where).every(([key, condition]) => {
     const value = row[key]
     if (condition === null) return value === null || value === undefined
+    if (condition && typeof condition === 'object' && '$nin' in (condition as Row)) {
+      return !((condition as Row).$nin as unknown[]).includes(value)
+    }
     if (condition && typeof condition === 'object' && '$lte' in (condition as Row)) {
       const bound = (condition as Row).$lte as Date
       return value instanceof Date && value.getTime() <= bound.getTime()
@@ -220,5 +223,38 @@ describe('sweepRetention (§5.10 retention sweeper, S7 gap-fill)', () => {
     const result = await sweepRetention(em as any, { tenantId: TENANT_ID, organizationId: ORG_ID }, now)
 
     expect(result.erasedCount).toBe(0)
+  })
+})
+
+describe('sweepRetention failure handling', () => {
+  const now = new Date('2026-03-01T00:00:00.000Z')
+
+  it('keeps erasing the remaining threads, then throws so the queue retries the failed ones', async () => {
+    const old = new Date('2024-01-01T00:00:00.000Z')
+    const failing = makeThreadRow({ id: 'thread-bad', status: 'closed', closedAt: old })
+    const healthy = makeThreadRow({ id: 'thread-good', status: 'closed', closedAt: old })
+    const { em, threads } = makeFakeEm({ threads: [failing, healthy], settings: [makeSettingsRow({ conversationRetentionDays: 30 })] })
+    ;(em.nativeDelete as jest.Mock).mockImplementation(async (_entity: unknown, where: Row) => {
+      if (where.threadId === 'thread-bad') throw new Error('deadlock detected')
+      return 0
+    })
+
+    const error = await sweepRetention(em as never, { tenantId: TENANT_ID, organizationId: ORG_ID }, now).catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(AssistedSellingRetentionSweepError)
+    expect((error as AssistedSellingRetentionSweepError).failedThreadIds).toEqual(['thread-bad'])
+    expect((error as AssistedSellingRetentionSweepError).erasedCount).toBe(1)
+    expect(threads.find((row) => row.id === 'thread-good')?.deletedAt).toBeInstanceOf(Date)
+    expect(threads.find((row) => row.id === 'thread-bad')?.deletedAt).toBeNull()
+  })
+
+  it('resolves normally when every erasure succeeds', async () => {
+    const old = new Date('2024-01-01T00:00:00.000Z')
+    const { em } = makeFakeEm({
+      threads: [makeThreadRow({ id: 'thread-ok', status: 'closed', closedAt: old })],
+      settings: [makeSettingsRow({ conversationRetentionDays: 30 })],
+    })
+
+    await expect(sweepRetention(em as never, { tenantId: TENANT_ID, organizationId: ORG_ID }, now)).resolves.toEqual({ erasedCount: 1 })
   })
 })

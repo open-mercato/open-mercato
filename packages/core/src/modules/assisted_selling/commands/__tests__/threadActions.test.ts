@@ -264,7 +264,10 @@ describe('assisted_selling.thread.assign', () => {
   })
 
   test('assigns to a named rep when actorId is given', async () => {
-    const { em } = makeFakeEm({ threads: [makeThreadRow()] })
+    const { em } = makeFakeEm({
+      threads: [makeThreadRow()],
+      users: [{ id: OTHER_REP_USER_ID, tenantId: TENANT_ID, deletedAt: null, email: 'other@example.com' }],
+    })
     const rbac = makeRbac(['assisted_selling.threads.participate'])
     const ctx = makeCtx({ em, rbac, organizationIds: [ORG_ID] })
 
@@ -329,6 +332,24 @@ describe('assisted_selling.thread.assign', () => {
     expect(isCrudHttpError(err)).toBe(true)
     expect(err.status).toBe(400)
     expect(err.body.code).toBe('invalid_assignee')
+  })
+
+  test('rejects a cross-tenant user before evaluating any feature for it (no user oracle)', async () => {
+    const FOREIGN_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+    const { em } = makeFakeEm({
+      threads: [makeThreadRow()],
+      users: [{ id: FOREIGN_ID, tenantId: '88888888-8888-4888-8888-888888888888', deletedAt: null, email: 'x@example.com' }],
+    })
+    const rbac = makeRbac(['*'])
+    const ctx = makeCtx({ em, rbac, organizationIds: [ORG_ID] })
+
+    const err = await assignThreadCommand
+      .execute({ tenantId: TENANT_ID, organizationIds: [ORG_ID], threadId: THREAD_ID, actorId: FOREIGN_ID }, ctx)
+      .catch((e) => e)
+    expect(err.status).toBe(400)
+    expect(err.body.code).toBe('invalid_assignee')
+    const assigneeChecks = rbac.userHasAllFeatures.mock.calls.filter((call) => call[0] === FOREIGN_ID)
+    expect(assigneeChecks).toHaveLength(0)
   })
 
   test('does not re-check staff membership when assigning to self (actorId omitted)', async () => {

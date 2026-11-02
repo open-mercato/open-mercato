@@ -237,6 +237,39 @@ describe('handleCartConvertedForAttribution — §6.7 attribution subscriber', (
     expect(emitAssistedSellingEvent).not.toHaveBeenCalled()
   })
 
+  test('degraded path: a concurrent delivery losing the (cart, outcome, actor) unique index is swallowed and emits no duplicate degraded event', async () => {
+    const { em } = makeFakeEm()
+    em.flush.mockRejectedValueOnce(Object.assign(new Error('duplicate key value violates unique constraint "assisted_selling_attributions_degraded_unique_idx"'), { code: '23505' }))
+    const cartService = makeCartService({
+      currencyCode: 'USD',
+      lines: [{ id: 'line-1', addedByActorType: 'buyer', addedByActorId: 'customer-user-1', netAmount: '10.0000', grossAmount: '12.0000', proposalCartId: null }],
+    })
+
+    await expect(
+      handleCartConvertedForAttribution(
+        { cartId: CART_ID, tenantId: TENANT_ID, organizationId: ORG_ID, salesOrderId: 'order-1', salesQuoteId: null, lineMap: null },
+        { resolve: makeContainer(em, cartService).resolve, container: makeContainer(em, cartService) },
+      ),
+    ).resolves.toBeUndefined()
+    expect(emitAssistedSellingEvent).not.toHaveBeenCalled()
+  })
+
+  test('degraded path: a non-unique persistence failure is rethrown so the persistent subscriber retries', async () => {
+    const { em } = makeFakeEm()
+    em.flush.mockRejectedValueOnce(new Error('connection reset'))
+    const cartService = makeCartService({
+      currencyCode: 'USD',
+      lines: [{ id: 'line-1', addedByActorType: 'buyer', addedByActorId: 'customer-user-1', netAmount: '10.0000', grossAmount: '12.0000', proposalCartId: null }],
+    })
+
+    await expect(
+      handleCartConvertedForAttribution(
+        { cartId: CART_ID, tenantId: TENANT_ID, organizationId: ORG_ID, salesOrderId: 'order-1', salesQuoteId: null, lineMap: null },
+        { resolve: makeContainer(em, cartService).resolve, container: makeContainer(em, cartService) },
+      ),
+    ).rejects.toThrow('connection reset')
+  })
+
   test('neither salesOrderId nor salesQuoteId: no document outcome to attribute — skipped silently, not degraded', async () => {
     const { em, persisted } = makeFakeEm()
     const cartService = makeCartService({ currencyCode: 'USD', lines: [] })

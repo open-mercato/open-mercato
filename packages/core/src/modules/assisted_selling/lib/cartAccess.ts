@@ -103,9 +103,15 @@ export type AssistedSellingCartServiceLike = {
     organizationId: string
     proposalCartId: string
   }): Promise<AssistedSellingProposalCartLine[]>
-  /** Step 4.5. Scope-free `kind: 'basket'` resolution by token — `null` for an unknown
-   * token, collapsing with every other "no match" outcome (no enumeration oracle). */
-  resolveBasketByToken(input: { token: string }): Promise<AssistedSellingResolvedBasket | null>
+  /** Step 4.5. `kind: 'basket'` resolution by token WITHIN the trusted storefront scope —
+   * `null` for an unknown token or a token belonging to another tenant/organization/store,
+   * collapsing with every other "no match" outcome (no enumeration oracle). */
+  resolveBasketByToken(input: {
+    token: string
+    tenantId: string
+    organizationId: string
+    storeId: string | null
+  }): Promise<AssistedSellingResolvedBasket | null>
   /** Step 5.3 (§7.1/§7.2, S22). A `kind: 'proposal'` cart's own priced lines, for the
    * thread detail read and the console's proposal cards. */
   getProposalCartPricedLines(input: {

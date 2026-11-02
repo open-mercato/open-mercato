@@ -24,6 +24,8 @@ import {
 } from '../lib/cartProposalCommands'
 import { emitAssistedSellingEvent } from '../events'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { applyLiveProposalCountDelta } from '../lib/liveProposalCount'
 import {
   enforceAssistedSellingOptimisticLock,
@@ -36,6 +38,8 @@ import {
 // comment). `performAuthorProposal` is the ONE place §6.3's full authoring sequence lives;
 // both `assisted_selling.proposal.author` (fresh authoring) and `.reauthor` (§6.4's "Runs
 // §6.3 in full for the caller") call it — no second, drifting copy of the sequence.
+
+const logger = createLogger('assisted_selling').child({ component: 'proposals' })
 
 function tryResolveStoreContextService(container: { resolve: <T = unknown>(name: string) => T }): StoreContextService | null {
   try {
@@ -115,6 +119,125 @@ function buildReplayResponse(proposal: AssistedSellingProposal): AssistedSelling
   }
 }
 
+async function rejectProposalCartBestEffort(
+  ctx: CommandRuntimeContext,
+  proposalCartId: string,
+  scope: { tenantId: string; organizationId: string },
+): Promise<void> {
+  try {
+    const commandBus = ctx.container.resolve('commandBus') as CommandBus
+    await commandBus.execute<CartProposalRejectCommandInput, CartProposalRejectCommandResult>(
+      CART_PROPOSAL_REJECT_COMMAND_ID,
+      { input: { proposalCartId, tenantId: scope.tenantId, organizationId: scope.organizationId, rejectedBy: 'author' }, ctx },
+    )
+  } catch (error) {
+    logger.error('[assisted_selling:proposal] failed to reject an orphaned proposal cart', { proposalCartId, err: error })
+    getTelemetryRuntime()?.reportError(error, { module: 'assisted_selling', code: 'assisted_selling.proposal_cart_compensation_failed' })
+  }
+}
+
+/**
+ * Atomically (ONE transaction) links `successorProposalId` onto the old proposal — only when
+ * the old row is still exactly where the caller read it (compare-and-swap) — and, for a
+ * previously live proposal, applies the `live_proposal_count` decrement. Returns `false`
+ * when the CAS lost; nothing is written in that case.
+ */
+async function linkSuccessorAtomically(params: {
+  em: EntityManager
+  oldProposal: { id: string; tenantId: string; threadId: string }
+  originalOldStatus: AssistedSellingProposal['status']
+  wasLive: boolean
+  successorProposalId: string
+}): Promise<boolean> {
+  const { em, oldProposal, originalOldStatus, wasLive, successorProposalId } = params
+  let affected = 0
+  await withAtomicFlush(
+    em,
+    [
+      async () => {
+        const now = new Date()
+        affected = await em.nativeUpdate(
+          AssistedSellingProposal,
+          { id: oldProposal.id, tenantId: oldProposal.tenantId, status: originalOldStatus, supersededByProposalId: null },
+          {
+            supersededByProposalId: successorProposalId,
+            updatedAt: now,
+            ...(wasLive ? { status: 'superseded' as const, resolvedAt: now } : {}),
+          },
+        )
+      },
+      async () => {
+        if (affected > 0 && wasLive) await applyLiveProposalCountDelta(em, { id: oldProposal.threadId }, -1)
+      },
+    ],
+    { transaction: true, label: 'assisted_selling.proposal.link_successor' },
+  )
+  return affected > 0
+}
+
+/**
+ * Cleans up a just-authored successor that must not stay live (lost CAS, or a failure while
+ * linking it): rejects its proposal cart and atomically withdraws its local row, undoing its
+ * own `live_proposal_count` bump exactly once.
+ */
+async function discardUnlinkedSuccessor(params: {
+  ctx: CommandRuntimeContext
+  em: EntityManager
+  successor: { proposalId: string; proposalCartId: string }
+  scope: { tenantId: string; organizationId: string; threadId: string }
+}): Promise<void> {
+  const { ctx, em, successor, scope } = params
+  await rejectProposalCartBestEffort(ctx, successor.proposalCartId, scope)
+  let claimed = 0
+  await withAtomicFlush(
+    em,
+    [
+      async () => {
+        const now = new Date()
+        claimed = await em.nativeUpdate(
+          AssistedSellingProposal,
+          { id: successor.proposalId, tenantId: scope.tenantId, status: 'published' },
+          { status: 'withdrawn' as const, resolvedAt: now, updatedAt: now },
+        )
+      },
+      async () => {
+        if (claimed > 0) await applyLiveProposalCountDelta(em, { id: scope.threadId }, -1)
+      },
+    ],
+    { transaction: true, label: 'assisted_selling.proposal.discard_successor' },
+  )
+}
+
+/**
+ * The old proposal's cart was already rejected but no successor could be authored: mirror
+ * that on the local row (`withdrawn`, count decremented once) so no `published` row points
+ * at a dead cart and no live count leaks.
+ */
+async function withdrawRejectedOldProposal(params: {
+  em: EntityManager
+  oldProposal: { id: string; tenantId: string; threadId: string }
+}): Promise<void> {
+  const { em, oldProposal } = params
+  let claimed = 0
+  await withAtomicFlush(
+    em,
+    [
+      async () => {
+        const now = new Date()
+        claimed = await em.nativeUpdate(
+          AssistedSellingProposal,
+          { id: oldProposal.id, tenantId: oldProposal.tenantId, status: 'published', supersededByProposalId: null },
+          { status: 'withdrawn' as const, resolvedAt: now, updatedAt: now },
+        )
+      },
+      async () => {
+        if (claimed > 0) await applyLiveProposalCountDelta(em, { id: oldProposal.threadId }, -1)
+      },
+    ],
+    { transaction: true, label: 'assisted_selling.proposal.withdraw_rejected_old' },
+  )
+}
+
 /**
  * §6.3's full authoring sequence against an ALREADY-RESOLVED thread, shared by
  * `assisted_selling.proposal.author` and `.reauthor`. Resolves the live mode (step 0),
@@ -181,7 +304,7 @@ async function performAuthorProposal(params: {
   // module ALWAYS passes `storeId` (the thread's own), so a missing/failing peer or a
   // missing `assortmentScope` is treated identically: refuse, create nothing.
   const storeContextService = tryResolveStoreContextService(ctx.container)
-  if (!storeContextService) {
+  if (!storeContextService?.resolveForBuyer) {
     throw new CrudHttpError(503, { error: '[internal] assortment_scope_unavailable', code: 'assortment_scope_unavailable' })
   }
   let assortmentScope: EffectiveAssortmentScope
@@ -223,54 +346,53 @@ async function performAuthorProposal(params: {
   const proposalId = randomUUID()
   const messageId = randomUUID()
   const now = new Date()
+  const compensationScope = { tenantId: thread.tenantId, organizationId: thread.organizationId }
 
   const em = (ctx.container.resolve('em') as EntityManager).fork()
-  // §6.3 step 5: `authored_by_actor_*` comes off `ctx.auth`, never the request body. The
-  // opening/note message's own author is the SAME rep, resolved (or created, if this is the
-  // first time this actor writes into the thread — e.g. re-authoring from a different
-  // session than the one that opened it) as a real `AssistedSellingParticipant` row, never a
-  // bare `User.id` (`AssistedSellingMessage.participantId` is a participant id, not an actor
-  // id — `lib/participants.ts` is shared with `commands/threads.ts` for exactly this reason).
-  const { participant } = await resolveOrBuildRepParticipant(
-    em,
-    { tenantId: thread.tenantId, organizationId: thread.organizationId, threadId: thread.id },
-    authorActorId,
-  )
-  const proposal = em.create(AssistedSellingProposal, {
-    id: proposalId,
-    tenantId: thread.tenantId,
-    organizationId: thread.organizationId,
-    threadId: thread.id,
-    proposalCartId: created.proposalCartId,
-    targetCartId,
-    authoredByActorType: 'rep' as const,
-    authoredByActorId: authorActorId,
-    status: 'published' as const,
-    publishedAt: now,
-    expiresAt: new Date(now.getTime() + settings.proposalTtlSeconds * 1000),
-    idempotencyKey,
-    requestDigest,
-    responseSnapshot: { messageId, rejectedLines: created.rejectedLines },
-    createdAt: now,
-    updatedAt: now,
-  })
-  // §6.3 step 7: the opening/note message — `proposalId` links it to the proposal it carries.
-  const message = em.create(AssistedSellingMessage, {
-    id: messageId,
-    tenantId: thread.tenantId,
-    organizationId: thread.organizationId,
-    threadId: thread.id,
-    participantId: participant.id,
-    body: note?.trim() ?? '',
-    bodyFormat: 'text' as const,
-    proposalId,
-    sentAt: now,
-    createdAt: now,
-    updatedAt: now,
-  })
-  thread.lastActivityAt = now
-
+  let proposal: AssistedSellingProposal
+  let message: AssistedSellingMessage
   try {
+    // §6.3 step 5: `authored_by_actor_*` comes off `ctx.auth`, never the request body. The
+    // opening/note message's own author is the SAME rep, resolved (or created) as a real
+    // `AssistedSellingParticipant` row, never a bare `User.id`.
+    const { participant } = await resolveOrBuildRepParticipant(
+      em,
+      { tenantId: thread.tenantId, organizationId: thread.organizationId, threadId: thread.id },
+      authorActorId,
+    )
+    proposal = em.create(AssistedSellingProposal, {
+      id: proposalId,
+      tenantId: thread.tenantId,
+      organizationId: thread.organizationId,
+      threadId: thread.id,
+      proposalCartId: created.proposalCartId,
+      targetCartId,
+      authoredByActorType: 'rep' as const,
+      authoredByActorId: authorActorId,
+      status: 'published' as const,
+      publishedAt: now,
+      expiresAt: new Date(now.getTime() + settings.proposalTtlSeconds * 1000),
+      idempotencyKey,
+      requestDigest,
+      responseSnapshot: { messageId, rejectedLines: created.rejectedLines },
+      createdAt: now,
+      updatedAt: now,
+    })
+    message = em.create(AssistedSellingMessage, {
+      id: messageId,
+      tenantId: thread.tenantId,
+      organizationId: thread.organizationId,
+      threadId: thread.id,
+      participantId: participant.id,
+      body: note?.trim() ?? '',
+      bodyFormat: 'text' as const,
+      proposalId,
+      sentAt: now,
+      createdAt: now,
+      updatedAt: now,
+    })
+    thread.lastActivityAt = now
+
     await withAtomicFlush(
       em,
       [
@@ -280,10 +402,6 @@ async function performAuthorProposal(params: {
           em.persist(message)
           em.persist(thread)
         },
-        // §6.1's own in-memory `thread.liveProposalCount += 1` races every other
-        // author/withdraw/accept/reauthor path doing the same read-modify-write — an
-        // atomic SQL update instead, inside the SAME transaction so a later phase's
-        // failure (e.g. the idempotency-key unique violation below) rolls this back too.
         async () => {
           await applyLiveProposalCountDelta(em, thread, 1)
         },
@@ -291,22 +409,13 @@ async function performAuthorProposal(params: {
       { transaction: true, label: 'assisted_selling.proposal.author' },
     )
   } catch (error) {
+    // `cart.proposal.create` already committed in its own transaction, so ANY failure here
+    // (unique violation, flush error, participant resolution) would leave a buyer-acceptable
+    // proposal cart with no local record. Compensate by rejecting it for every failure kind.
+    await rejectProposalCartBestEffort(ctx, created.proposalCartId, compensationScope)
     if (isUniqueViolation(error)) {
-      // S23's concurrent-race branch: this call lost the `(tenant_id, thread_id,
-      // idempotency_key)` race to another request carrying the SAME key. Its own
-      // `cart.proposal.create` already committed independently (a separate transaction,
-      // §6.3's own "including the proposal cart... rolls back" is simulated here by
-      // explicitly rejecting the orphaned proposal cart, since two separately-committed
-      // commands cannot share one database rollback) — compensate by rejecting it, then
-      // answer as a replay of the WINNER's row.
-      const compensateCtx = ctx
-      await commandBus.execute<CartProposalRejectCommandInput, CartProposalRejectCommandResult>(
-        CART_PROPOSAL_REJECT_COMMAND_ID,
-        {
-          input: { proposalCartId: created.proposalCartId, tenantId: thread.tenantId, organizationId: thread.organizationId, rejectedBy: 'author' },
-          ctx: compensateCtx,
-        },
-      )
+      // S23's concurrent-race branch: lost the `(tenant_id, thread_id, idempotency_key)` race
+      // to another request carrying the SAME key — answer as a replay of the WINNER's row.
       const retryEm = (ctx.container.resolve('em') as EntityManager).fork()
       const winner = await findProposalByIdempotencyKey(retryEm, { tenantId: thread.tenantId, threadId: thread.id }, idempotencyKey)
       if (winner) {
@@ -315,7 +424,6 @@ async function performAuthorProposal(params: {
         }
         return buildReplayResponse(winner)
       }
-      throw error
     }
     throw error
   }
@@ -487,6 +595,32 @@ const reauthorProposalCommand: CommandHandler<AssistedSellingProposalReauthorInp
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const oldProposal = await resolveProposalForCaller(em, { tenantId: input.tenantId, organizationIds: input.organizationIds }, input.proposalId)
 
+    // The thread may legitimately be `closed` by the time a stale proposal is re-authored
+    // (§8.1's own "the proposal was superseded with no successor" fallback can run long
+    // after the conversation itself closed) — read it directly rather than through
+    // `resolveOpenThreadForCaller`, which only accepts `status: 'open'`.
+    const thread = await em.findOne(AssistedSellingThread, {
+      id: oldProposal.threadId,
+      tenantId: input.tenantId,
+      organizationId: oldProposal.organizationId,
+      deletedAt: null,
+    })
+    if (!thread) throw notFound('[internal] thread not found')
+
+    // Replay lookup FIRST: a retried successful re-author finds its old proposal already
+    // `superseded` (with a successor), which must answer as a replay, never `409`.
+    const priorResult = await findProposalByIdempotencyKey(
+      em,
+      { tenantId: thread.tenantId, threadId: thread.id },
+      input.idempotencyKey,
+    )
+    if (priorResult) {
+      if (priorResult.requestDigest !== computeAssistedSellingRequestDigest({ reauthorOf: oldProposal.id, note: input.note ?? null })) {
+        throw new CrudHttpError(409, { error: '[internal] idempotency_key_mismatch', code: 'idempotency_key_mismatch' })
+      }
+      return buildReplayResponse(priorResult)
+    }
+
     // §6.4: "An `accepted` proposal answers `409 proposal_already_accepted`: its lines are
     // in the buyer's basket and cannot come back out through this module (D-R5-25)."
     if (oldProposal.status === 'accepted') {
@@ -502,17 +636,6 @@ const reauthorProposalCommand: CommandHandler<AssistedSellingProposalReauthorInp
       throw new CrudHttpError(409, { error: '[internal] proposal_already_superseded', code: 'proposal_already_superseded' })
     }
 
-    // The thread may legitimately be `closed` by the time a stale proposal is re-authored
-    // (§8.1's own "the proposal was superseded with no successor" fallback can run long
-    // after the conversation itself closed) — read it directly rather than through
-    // `resolveOpenThreadForCaller`, which only accepts `status: 'open'`.
-    const thread = await em.findOne(AssistedSellingThread, {
-      id: oldProposal.threadId,
-      tenantId: input.tenantId,
-      organizationId: oldProposal.organizationId,
-      deletedAt: null,
-    })
-    if (!thread) throw notFound('[internal] thread not found')
 
     const cartService = resolveCartService(ctx.container)
     const oldLines = await cartService.getProposalCartLines({
@@ -550,44 +673,58 @@ const reauthorProposalCommand: CommandHandler<AssistedSellingProposalReauthorInp
       }
     }
 
-    const result = await performAuthorProposal({
-      ctx,
-      thread,
-      lines,
-      note: input.note,
-      idempotencyKey: input.idempotencyKey,
-      requestDigestPayload: { reauthorOf: oldProposal.id, note: input.note ?? null },
-      authorActorId,
-    })
+    let result: AssistedSellingProposalAuthorResponse
+    try {
+      result = await performAuthorProposal({
+        ctx,
+        thread,
+        lines,
+        note: input.note,
+        idempotencyKey: input.idempotencyKey,
+        requestDigestPayload: { reauthorOf: oldProposal.id, note: input.note ?? null },
+        authorActorId,
+      })
+    } catch (error) {
+      if (wasLive) {
+        await withdrawRejectedOldProposal({ em, oldProposal }).catch((compensationError) => {
+          logger.error('[assisted_selling:proposal] failed to withdraw a rejected proposal after a failed re-author', {
+            proposalId: oldProposal.id,
+            err: compensationError,
+          })
+        })
+      }
+      throw error
+    }
 
     if (!result.replayed) {
-      const now = new Date()
-      // Conditional update (review finding): only link the successor and transition status
-      // when the old row is STILL exactly where this call read it — closes the race against
-      // a second concurrent reauthor (or a merge-retarget supersede) landing on the SAME
-      // stale proposal between our read above and this write.
-      const affected = await em.nativeUpdate(
-        AssistedSellingProposal,
-        { id: oldProposal.id, tenantId: oldProposal.tenantId, status: originalOldStatus, supersededByProposalId: null },
-        {
-          supersededByProposalId: result.proposalId,
-          updatedAt: now,
-          ...(wasLive ? { status: 'superseded' as const, resolvedAt: now } : {}),
-        },
-      )
-      if (affected === 0) {
-        // Lost the race: something else already linked a successor onto this old proposal.
-        // Our own just-authored proposal would otherwise sit live and orphaned (no backlink,
-        // but still counted) — reject its cart and undo the count bump before refusing.
-        await commandBus.execute<CartProposalRejectCommandInput, CartProposalRejectCommandResult>(
-          CART_PROPOSAL_REJECT_COMMAND_ID,
-          { input: { proposalCartId: result.proposalCartId, tenantId: oldProposal.tenantId, organizationId: oldProposal.organizationId, rejectedBy: 'author' }, ctx },
-        )
-        await applyLiveProposalCountDelta(em, thread, -1)
+      let linked: boolean
+      try {
+        linked = await linkSuccessorAtomically({
+          em,
+          oldProposal,
+          originalOldStatus,
+          wasLive,
+          successorProposalId: result.proposalId,
+        })
+      } catch (error) {
+        await discardUnlinkedSuccessor({
+          ctx,
+          em,
+          successor: result,
+          scope: { tenantId: oldProposal.tenantId, organizationId: oldProposal.organizationId, threadId: thread.id },
+        })
+        throw error
+      }
+      if (!linked) {
+        await discardUnlinkedSuccessor({
+          ctx,
+          em,
+          successor: result,
+          scope: { tenantId: oldProposal.tenantId, organizationId: oldProposal.organizationId, threadId: thread.id },
+        })
         throw new CrudHttpError(409, { error: '[internal] proposal_already_superseded', code: 'proposal_already_superseded' })
       }
       if (wasLive) {
-        await applyLiveProposalCountDelta(em, thread, -1)
         await emitAssistedSellingEvent('assisted_selling.proposal.superseded', {
           threadId: oldProposal.threadId,
           proposalId: oldProposal.id,
@@ -657,52 +794,28 @@ export async function reauthorProposalForMergeRetarget(params: {
   })
 
   if (!result.replayed) {
-    const now = new Date()
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    // §6.4/§8.1's own supersede bookkeeping — the SAME conditional `nativeUpdate` CAS
-    // `.reauthor`'s own HTTP command applies, shared here instead of duplicated (review
-    // finding): only link the successor and transition status when the old row is STILL
-    // exactly where this call read it. Without this, a blind `oldProposal.supersededByProposalId
-    // = result.proposalId` + flush would stomp a concurrent staff reauthor's (or a second
-    // merge-retarget's) own successor link back to THIS call's successor — reproducing the
-    // double-live-successor bug via this other writer.
-    const affected = await em.nativeUpdate(
-      AssistedSellingProposal,
-      { id: oldProposal.id, tenantId: oldProposal.tenantId, status: originalOldStatus, supersededByProposalId: null },
-      {
-        supersededByProposalId: result.proposalId,
-        updatedAt: now,
-        ...(wasLive ? { status: 'superseded' as const, resolvedAt: now } : {}),
-      },
-    )
-    if (affected === 0) {
-      // Lost the race: a concurrent writer (a staff reauthor, or another merge-retarget
-      // delivery) already linked its own successor onto this old proposal. Our own
-      // just-authored proposal would otherwise sit live and orphaned — reject its cart and
-      // undo the count bump, same as the staff-path CAS does on a lost race. Deliberately
-      // does NOT re-supersede `oldProposal` or throw: the winner already owns that
-      // transition and already applied its own count decrement, so redoing either here
-      // would double-count or overwrite the winner's successor link.
-      const commandBus = ctx.container.resolve('commandBus') as CommandBus
-      await commandBus.execute<CartProposalRejectCommandInput, CartProposalRejectCommandResult>(
-        CART_PROPOSAL_REJECT_COMMAND_ID,
-        {
-          input: {
-            proposalCartId: result.proposalCartId,
-            tenantId: oldProposal.tenantId,
-            organizationId: oldProposal.organizationId,
-            rejectedBy: 'author',
-          },
-          ctx,
-        },
-      )
-      await applyLiveProposalCountDelta(em, thread, -1)
+    const successorScope = { tenantId: oldProposal.tenantId, organizationId: oldProposal.organizationId, threadId: thread.id }
+    let linked: boolean
+    try {
+      linked = await linkSuccessorAtomically({
+        em,
+        oldProposal,
+        originalOldStatus,
+        wasLive,
+        successorProposalId: result.proposalId,
+      })
+    } catch (error) {
+      await discardUnlinkedSuccessor({ ctx, em, successor: result, scope: successorScope })
+      throw error
+    }
+    if (!linked) {
+      // Lost the CAS: a concurrent writer already linked its own successor. The winner owns
+      // the old row's transition and its count decrement — only OUR successor is cleaned up.
+      await discardUnlinkedSuccessor({ ctx, em, successor: result, scope: successorScope })
       return result
     }
-    // Atomic SQL update (review finding) instead of the in-memory `thread.liveProposalCount
-    // -= 1` read-modify-write every other author/withdraw/accept/reauthor path used to do.
     if (wasLive) {
-      await applyLiveProposalCountDelta(em, thread, -1)
       const commandBus = ctx.container.resolve('commandBus') as CommandBus
       await commandBus.execute<CartProposalRejectCommandInput, CartProposalRejectCommandResult>(
         CART_PROPOSAL_REJECT_COMMAND_ID,
