@@ -190,7 +190,7 @@ export async function POST(request: Request) {
         direction: 'import',
         cursor: createCursor(upload.id, 0),
         triggeredBy: auth.sub,
-        batchSize: input.batchSize ?? 100,
+        batchSize: input.batchSize,
         progressJob: {
           jobType: 'sync_excel:import',
           name: `CSV import — ${input.entityType}`,

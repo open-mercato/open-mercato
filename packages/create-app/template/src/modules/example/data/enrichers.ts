@@ -21,7 +21,7 @@
  */
 
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { ResponseEnricher, EnricherContext } from '@open-mercato/shared/lib/crud/response-enricher'
 import { ExampleCustomerPriority, Todo } from './entities'
 
@@ -32,6 +32,8 @@ type TodoEnrichment = {
     todoCount: number
     openTodoCount: number
     priority: 'low' | 'normal' | 'high' | 'critical'
+    priorityId?: string | null
+    priorityUpdatedAt?: string | null
   }
 }
 
@@ -76,6 +78,7 @@ function forkEnricherEntityManager(context: EnricherContext): EntityManager {
 const customerTodoCountEnricher: ResponseEnricher<CustomerRecord, TodoEnrichment> = {
   id: 'example.customer-todo-count',
   targetEntity: 'customers.person',
+  features: ['example.view'],
   priority: 10,
   timeout: 2000,
   cacheableOnListHit: false,
@@ -92,19 +95,19 @@ const customerTodoCountEnricher: ResponseEnricher<CustomerRecord, TodoEnrichment
     }, undefined, { tenantId: context.tenantId, organizationId: context.organizationId })
     const statsByBucket = buildBucketStats(todos)
     const scoped = statsByBucket.get(getPersonBucket(record.id)) ?? { todoCount: 0, openTodoCount: 0 }
-    const priority = await em.findOne(ExampleCustomerPriority, {
+    const priority = await findOneWithDecryption(em, ExampleCustomerPriority, {
       customerId: record.id,
       organizationId: context.organizationId,
       tenantId: context.tenantId,
       deletedAt: null,
-    }, { orderBy: { updatedAt: 'desc', createdAt: 'desc' } })
+    }, { orderBy: { updatedAt: 'desc', createdAt: 'desc' } }, { tenantId: context.tenantId, organizationId: context.organizationId })
 
     return {
       ...record,
       _example: {
         todoCount: scoped.todoCount,
         openTodoCount: scoped.openTodoCount,
-        priority: (priority?.priority as TodoEnrichment['_example']['priority']) ?? 'normal',
+        ...priorityNamespace(priority),
       },
     }
   },
@@ -119,27 +122,72 @@ const customerTodoCountEnricher: ResponseEnricher<CustomerRecord, TodoEnrichment
     const statsByBucket = buildBucketStats(todos)
     const customerIds = records.map((record) => record.id)
     const priorities: ExampleCustomerPriority[] = customerIds.length > 0
-      ? await em.find(ExampleCustomerPriority, {
+      ? await findWithDecryption(em, ExampleCustomerPriority, {
           customerId: { $in: customerIds },
           organizationId: context.organizationId,
           tenantId: context.tenantId,
           deletedAt: null,
-        }, { orderBy: { updatedAt: 'desc', createdAt: 'desc' } })
+        }, { orderBy: { updatedAt: 'desc', createdAt: 'desc' } }, { tenantId: context.tenantId, organizationId: context.organizationId })
       : []
-    const priorityByCustomerId = new Map<string, ExampleCustomerPriority['priority']>()
+    const priorityByCustomerId = new Map<string, ExampleCustomerPriority>()
     for (const entry of priorities) {
       if (priorityByCustomerId.has(entry.customerId)) continue
-      priorityByCustomerId.set(entry.customerId, entry.priority)
+      priorityByCustomerId.set(entry.customerId, entry)
     }
 
     return records.map((record) => ({
       ...record,
       _example: {
         ...(statsByBucket.get(getPersonBucket(record.id)) ?? { todoCount: 0, openTodoCount: 0 }),
-        priority: (priorityByCustomerId.get(record.id) as TodoEnrichment['_example']['priority'] | undefined) ?? 'normal',
+        ...priorityNamespace(priorityByCustomerId.get(record.id) ?? null),
       },
     }))
   },
 }
 
-export const enrichers: ResponseEnricher[] = [customerTodoCountEnricher]
+function priorityNamespace(priority: ExampleCustomerPriority | null) {
+  return {
+    priority: priority?.priority ?? 'normal',
+    priorityId: priority?.id ?? null,
+    priorityUpdatedAt: priority?.updatedAt.toISOString() ?? null,
+  }
+}
+
+function createPriorityEnricher(targetEntity: 'customers.company' | 'customers.deal'): ResponseEnricher<CustomerRecord> {
+  return {
+    id: `example.${targetEntity.split('.')[1]}-priority`,
+    targetEntity,
+    features: ['example.view'],
+    cacheableOnListHit: false,
+    async enrichOne(record, context) {
+      const em = forkEnricherEntityManager(context)
+      const priority = await findOneWithDecryption(em, ExampleCustomerPriority, {
+        customerId: record.id,
+        organizationId: context.organizationId,
+        tenantId: context.tenantId,
+        deletedAt: null,
+      }, { orderBy: { updatedAt: 'desc', createdAt: 'desc' } }, { tenantId: context.tenantId, organizationId: context.organizationId })
+      return { ...record, _example: priorityNamespace(priority) }
+    },
+    async enrichMany(records, context) {
+      const em = forkEnricherEntityManager(context)
+      const priorities = records.length ? await findWithDecryption(em, ExampleCustomerPriority, {
+        customerId: { $in: records.map((record) => record.id) },
+        organizationId: context.organizationId,
+        tenantId: context.tenantId,
+        deletedAt: null,
+      }, { orderBy: { updatedAt: 'desc', createdAt: 'desc' } }, { tenantId: context.tenantId, organizationId: context.organizationId }) : []
+      const byCustomer = new Map<string, ExampleCustomerPriority>()
+      for (const priority of priorities) {
+        if (!byCustomer.has(priority.customerId)) byCustomer.set(priority.customerId, priority)
+      }
+      return records.map((record) => ({ ...record, _example: priorityNamespace(byCustomer.get(record.id) ?? null) }))
+    },
+  }
+}
+
+export const enrichers: ResponseEnricher[] = [
+  customerTodoCountEnricher,
+  createPriorityEnricher('customers.company'),
+  createPriorityEnricher('customers.deal'),
+]
