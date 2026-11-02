@@ -85,10 +85,20 @@ function fileDigest(filePath) {
 }
 
 function assertPackageFiles(sourceDir, installedDir) {
+  for (const entry of fs.readdirSync(installedDir)) {
+    if (entry !== 'node_modules' && !fs.existsSync(path.join(sourceDir, entry))) {
+      throw new Error(`Installed first-party package contains a file absent from the PR tarball: ${path.join(installedDir, entry)}`)
+    }
+  }
   for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
     const sourcePath = path.join(sourceDir, entry.name)
     const installedPath = path.join(installedDir, entry.name)
-    if (entry.isDirectory()) assertPackageFiles(sourcePath, installedPath)
+    if (entry.isDirectory()) {
+      if (!fs.existsSync(installedPath) || !fs.statSync(installedPath).isDirectory()) {
+        throw new Error(`Installed first-party package is missing a PR tarball directory: ${installedPath}`)
+      }
+      assertPackageFiles(sourcePath, installedPath)
+    }
     else if (entry.isFile() && (!fs.existsSync(installedPath) || fileDigest(sourcePath) !== fileDigest(installedPath))) {
       throw new Error(`Installed first-party package differs from the PR tarball: ${installedPath}`)
     }
