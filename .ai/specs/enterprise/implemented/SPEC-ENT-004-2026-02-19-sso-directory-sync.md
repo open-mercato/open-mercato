@@ -414,7 +414,6 @@ The optional `beforeAuth` route export and `ApiRouteBeforeAuth` type are additiv
 | 2026-10-27 | Bound public SCIM requests before bcrypt verification; documented trusted-IP budget, configurable defaults, additive errors, benchmark, and regression coverage (#7829). |
 | 2026-02-19 | Initial draft — high-level SSO & Directory Sync specification |
 | 2026-02-19 | Added V1 targeted IdPs: Microsoft Entra ID, Google Workspace, Keycloak |
-
 | 2026-11-02 | Added a fail-closed outer client/global SCIM admission budget before cache and fingerprint resolution, with sequential/concurrent lookup-count regressions and operator limits. |
 | 2026-11-02 | Added PostgreSQL temporary-table migration up/down coverage and live permission/wrong-organization token-management boundary checks during release-line re-review. |
 | 2026-11-02 | Moved dispatcher admission before lifecycle container fallback; failure-first sequential/concurrent cold-start regressions cap initialization work before credential resolution. |

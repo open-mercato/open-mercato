@@ -296,6 +296,20 @@ describe('SCIM admission through the API dispatcher', () => {
     expect(handler).not.toHaveBeenCalled()
   })
 
+  it('preserves received and rate-limited lifecycle events on a ready bus without container work', async () => {
+    const emit = jest.fn(async (_event: string, _payload: unknown) => undefined)
+    jest.mocked(getGlobalEventBus).mockReturnValue({ emit })
+    const handler = jest.fn(async () => Response.json({ ok: true }))
+    const beforeAuth = async () => new Response(null, { status: 429 })
+
+    expect((await dispatch(operations[0], 1, { beforeAuth, GET: handler })).status).toBe(429)
+
+    expect(emit.mock.calls.map(([event]) => event)).toEqual(['application.request.received', 'application.request.rate_limited'])
+    expect(createRequestContainer).not.toHaveBeenCalled()
+    expect(handler).not.toHaveBeenCalled()
+    expect(mockCompare).not.toHaveBeenCalled()
+  })
+
   it('preserves an early legacy-route response without authenticating or invoking its handler', async () => {
     const handler = jest.fn(async () => Response.json({ ok: true }))
     const beforeAuth = async () => new Response('denied', { status: 403, headers: { 'x-admission': 'closed' } })
