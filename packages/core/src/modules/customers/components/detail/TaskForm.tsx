@@ -109,6 +109,8 @@ export function TaskForm({
         form?.requestSubmit()
       }
       if (event.key === 'Escape') {
+        if (event.defaultPrevented) return
+        if (event.target instanceof Node && !event.currentTarget.contains(event.target)) return
         event.preventDefault()
         onCancel()
       }
