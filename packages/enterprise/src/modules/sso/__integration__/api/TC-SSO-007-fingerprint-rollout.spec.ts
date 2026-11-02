@@ -97,4 +97,3 @@ test('TC-SSO-007: fingerprints persist, legacy credentials enroll, and revoked c
     await cleanupConfig()
   }
 })
-
