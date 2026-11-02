@@ -1906,6 +1906,10 @@ None.
 
 ## Changelog
 
+### 2026-11-02 — Target-organization domain management regression coverage
+
+`TC-CACC-DOMAIN-SCOPE-001` exercises persisted role ACLs and mappings through HTTP: organization A grants management while B remains visible; unfiltered and filtered lists isolate A; B create/delete/verify/health-check attempts leave rows unchanged; foreign-tenant IDs return not found; authorized A operations succeed. A cross-organization replacement ID is never persisted as a replacement relationship, and the existing B mapping survives the new mapping's deletion. Fixtures are created and cleaned within the scenario. Domain-route permission denials use the shared localized `api.errors.forbidden` message.
+
 ### 2026-04-30 (rev 5) — Pre-implementation audit fixes
 
 Resolves the 3 critical findings + 6 important gaps from `.ai/specs/analysis/ANALYSIS-2026-04-08-portal-custom-domain-routing.md`:
