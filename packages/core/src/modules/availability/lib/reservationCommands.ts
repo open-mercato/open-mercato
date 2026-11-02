@@ -110,6 +110,7 @@ export type WmsReservationRowLike = {
   tenantId: string
   organizationId: string
   sourceType: string
+  sourceId?: string
   status: string
 }
 
@@ -127,6 +128,29 @@ type GateShortfallLine = { key: string; requested: number; sellable: number }
 type ReserveLinesForCheckoutResultLike =
   | { ok: true; lines: GateLineResult[]; sideEffects: WmsSideEffectsLike }
   | { ok: false; lines: GateShortfallLine[] }
+
+export type WmsConvertResultLike = {
+  reservationId: string
+  reservationEntity: unknown
+  outcome?: 'converted' | 'already_converted' | 'covered_released' | 'not_convertible'
+  reason?: string
+  touchedBalances?: unknown[]
+}
+
+export class HoldNotConvertibleSignal extends Error {
+  readonly code = 'availability.hold_not_convertible'
+  constructor(readonly reservationId: string) {
+    super('[internal] availability hold has a non-convertible wms row')
+  }
+}
+
+export function isHoldNotConvertibleSignal(error: unknown): error is HoldNotConvertibleSignal {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { code?: unknown }).code === 'availability.hold_not_convertible'
+  )
+}
 
 export type WmsReservationServiceLike = {
   reserveLinesForCheckout(
@@ -149,8 +173,15 @@ export type WmsReservationServiceLike = {
   convertInTransaction(
     trx: EntityManager,
     ctx: CommandRuntimeContext,
-    input: { tenantId: string; organizationId: string; reservationId: string; sourceType: 'order'; sourceId: string },
-  ): Promise<{ reservationId: string; reservationEntity: unknown }>
+    input: {
+      tenantId: string
+      organizationId: string
+      reservationId: string
+      sourceType: 'order'
+      sourceId: string
+      expectedSourceId?: string
+    },
+  ): Promise<WmsConvertResultLike>
   emitSideEffects(ctx: CommandRuntimeContext, sideEffects: WmsSideEffectsLike): Promise<void>
   // Step 2.3 (A12). Scoped-by-id read, used by the reconciliation job to check whether a
   // hold's own `wmsReservationIds` rows are still `active`/`checkout` (drift a/c) — never a
@@ -748,29 +779,41 @@ export async function commitAvailability(
   if (reservation.status === 'active') {
     let won = false
     let sideEffects: WmsSideEffectsLike = {}
-    await em.transactional(async (trx) => {
-      const affected = await trx.nativeUpdate(
-        AvailabilityReservation,
-        { id: reservation.id, status: 'active' },
-        { status: 'committed', orderId: input.orderId, updatedAt: new Date() },
-      )
-      if (affected === 0) return
-      won = true
-      if (wmsService) {
-        for (const wmsReservationId of reservation.wmsReservationIds) {
-          const result = await wmsService.convertInTransaction(trx, ctx, {
-            tenantId: scope.tenantId,
-            organizationId: scope.organizationId,
-            reservationId: wmsReservationId,
-            sourceType: 'order',
-            sourceId: input.orderId,
-          })
-          sideEffects = mergeSideEffects(sideEffects, {
-            reservations: [{ entity: result.reservationEntity, action: 'updated' }],
-          })
+    try {
+      await em.transactional(async (trx) => {
+        const affected = await trx.nativeUpdate(
+          AvailabilityReservation,
+          { id: reservation.id, status: 'active' },
+          { status: 'committed', orderId: input.orderId, updatedAt: new Date() },
+        )
+        if (affected === 0) return
+        won = true
+        if (wmsService) {
+          for (const wmsReservationId of reservation.wmsReservationIds) {
+            const result = await wmsService.convertInTransaction(trx, ctx, {
+              tenantId: scope.tenantId,
+              organizationId: scope.organizationId,
+              reservationId: wmsReservationId,
+              sourceType: 'order',
+              sourceId: input.orderId,
+              expectedSourceId: reservation.sourceId,
+            })
+            if (result.outcome === 'not_convertible') throw new HoldNotConvertibleSignal(wmsReservationId)
+            sideEffects = mergeSideEffects(sideEffects, {
+              reservations: result.reservationEntity
+                ? [{ entity: result.reservationEntity, action: 'updated' }]
+                : [],
+              balances: (result.touchedBalances ?? []).map((entity) => ({ entity, action: 'updated' as const })),
+            })
+          }
         }
-      }
-    })
+      })
+    } catch (error) {
+      if (!isHoldNotConvertibleSignal(error)) throw error
+      const fresh = await em.findOne(AvailabilityReservation, { id: reservation.id })
+      if (!fresh) throw error
+      return commitRecovery(container, em, ctx, wmsService, scope, fresh, input.orderId)
+    }
 
     if (won) {
       if (wmsService) await wmsService.emitSideEffects(ctx, sideEffects)
@@ -829,7 +872,28 @@ async function commitRecovery(
     }))
     .filter((line) => line.quantity > 0)
 
+  let recoverySideEffects: WmsSideEffectsLike = {}
   const gateOutcome: ReserveLinesForCheckoutResultLike = await em.transactional(async (trx) => {
+    if (wmsService && reservation.wmsReservationIds.length > 0) {
+      const ownedRows = await wmsService.findReservationsByIds(trx, ctx, {
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        ids: reservation.wmsReservationIds,
+      })
+      for (const row of ownedRows) {
+        if (row.status !== 'active' || row.sourceType !== 'checkout' || row.sourceId !== reservation.sourceId) continue
+        const released = await wmsService.releaseInTransaction(trx, ctx, {
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+          reservationId: row.id,
+          reason: 'commit_recovery',
+        })
+        recoverySideEffects = mergeSideEffects(recoverySideEffects, {
+          reservations: [{ entity: released.reservationEntity, action: 'updated' }],
+          balances: released.touchedBalances.map((entity) => ({ entity, action: 'updated' as const })),
+        })
+      }
+    }
     if (gateLines.length > 0 && wmsService) {
       const result = await wmsService.reserveLinesForCheckout(trx, ctx, {
         scope,
@@ -862,6 +926,8 @@ async function commitRecovery(
     }
     return { ok: true, lines: [], sideEffects: {} }
   })
+
+  if (wmsService) await wmsService.emitSideEffects(ctx, recoverySideEffects)
 
   if (!gateOutcome.ok) {
     const shortfall: AvailabilityShortfallLine[] = gateOutcome.lines.map((line) => {

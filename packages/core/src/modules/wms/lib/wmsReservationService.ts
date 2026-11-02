@@ -56,6 +56,7 @@ import {
   type InventoryStrategyBucket,
 } from './inventoryPolicy'
 import { buildReservationIdempotencyKey } from './inventoryIdempotency'
+import { buildSqlInClause } from './sqlInClause'
 import { computeSellableQuantities } from './availabilityCalculation'
 import {
   resolvePrimaryWarehouseId,
@@ -143,11 +144,18 @@ export type ConvertInTransactionInput = {
   /** Only `'order'` is a real caller today — `availability.commit` (A1/A5/§4.4). */
   sourceType: 'order'
   sourceId: string
+  /** The hold's own `sourceId`; a row owned by anything else is `not_convertible`. */
+  expectedSourceId?: string
 }
+
+export type ConvertNotConvertibleReason = 'missing' | 'not_active' | 'not_checkout' | 'source_mismatch'
 
 export type ConvertInTransactionResult = {
   reservationId: string
-  reservationEntity: InventoryReservation
+  reservationEntity: InventoryReservation | null
+  outcome: 'converted' | 'already_converted' | 'covered_released' | 'not_convertible'
+  reason?: ConvertNotConvertibleReason
+  touchedBalances: InventoryBalance[]
 }
 
 // =============================================================================
@@ -208,10 +216,9 @@ export type ReserveLinesForCheckoutResult =
 // would silently run outside this method's own transaction and see a stale, pre-lock
 // snapshot under real concurrency. `em.find`/`findWithDecryption` do not have this problem:
 // every ORM-level query is already transaction-bound by `wms`'s own proven lock path
-// (`reserveInTransaction`'s `listCandidateBalances`). Product-pool expansion (locking every
-// OTHER active variant of a pooled product) is deferred — see this Step's "Decisions taken
-// without the owner" note; per-variant correctness (the parallel last-unit guarantee) holds
-// either way.
+// (`reserveInTransaction`'s `listCandidateBalances`). The caller passes the line variants
+// UNION every active variant of each product that has a product-level safety-stock pool row,
+// so a pooled product's whole shared budget is locked in the same id-ordered statement.
 async function lockCandidateBalances(
   em: EntityManager,
   ctx: CommandRuntimeContext,
@@ -279,6 +286,48 @@ async function loadVariantSafetyStockRows(
   }))
 }
 
+async function loadProductPoolRows(
+  em: EntityManager,
+  scope: Scope,
+  productIds: string[],
+): Promise<SafetyStockProfileRow[]> {
+  if (productIds.length === 0) return []
+  const rows = await findWithDecryption(
+    em,
+    ProductInventoryProfile,
+    { catalogProductId: { $in: productIds }, catalogVariantId: null, deletedAt: null },
+    undefined,
+    scope,
+  )
+  return rows.map((row) => ({
+    catalog_product_id: row.catalogProductId,
+    catalog_variant_id: null,
+    safety_stock: row.safetyStock,
+    reorder_point: row.reorderPoint,
+  }))
+}
+
+async function loadActiveVariantIdsByProduct(
+  em: EntityManager,
+  scope: Scope,
+  productIds: string[],
+): Promise<Map<string, string[]>> {
+  const result = new Map<string, string[]>()
+  if (productIds.length === 0) return result
+  const productClause = buildSqlInClause('product_id', productIds)
+  const rows = await em.execute<Array<{ id: string; product_id: string }>>(
+    `select id, product_id from catalog_product_variants
+     where organization_id = ? and tenant_id = ? and ${productClause.sql} and is_active = true and deleted_at is null`,
+    [scope.organizationId, scope.tenantId, ...productClause.params],
+  )
+  for (const row of rows) {
+    const list = result.get(row.product_id) ?? []
+    list.push(row.id)
+    result.set(row.product_id, list)
+  }
+  return result
+}
+
 // Sums the ALREADY-LOCKED balance rows (§4.2: eligible lots only), client-side — the SQL
 // half of the shared sellable builder (`availabilityCalculation.ts#loadBalanceAggregates`)
 // cannot be reused here for the reason `lockCandidateBalances` explains above; this is the
@@ -310,6 +359,39 @@ function warehouseAvailabilityForVariant(
   return Array.from(byWarehouse.entries())
     .map(([warehouseId, available]) => ({ warehouseId, available }))
     .filter((bucket) => bucket.available > 0)
+}
+
+async function shrinkReservationBuckets(
+  em: EntityManager,
+  scope: Scope,
+  reservation: InventoryReservation,
+  delta: number,
+): Promise<InventoryBalance[]> {
+  const metadata = extractReservationMetadata(reservation)
+  const buckets = Array.isArray(metadata.allocatedBuckets) ? (metadata.allocatedBuckets as AllocationBucket[]) : []
+  const field = (metadata.allocationState ?? 'reserved') === 'allocated' ? 'quantityAllocated' : 'quantityReserved'
+  const touched: InventoryBalance[] = []
+  const nextBuckets: AllocationBucket[] = []
+  let remaining = delta
+  for (const bucket of [...buckets].reverse()) {
+    if (remaining <= 0.000001) {
+      nextBuckets.unshift(bucket)
+      continue
+    }
+    const take = Math.min(bucket.quantity, remaining)
+    const balance = await findReservationBucketBalance(em, scope, reservation, bucket)
+    if (balance) {
+      enforceNonNegativeBalance(balance, field, toNumber(balance[field]) - take, reservation.id, scope)
+      touched.push(balance)
+    }
+    remaining -= take
+    const left = bucket.quantity - take
+    if (left > 0.000001) nextBuckets.unshift({ ...bucket, quantity: left })
+  }
+  reservation.quantity = toNumericString(toNumber(reservation.quantity) - delta)
+  reservation.metadata = { ...metadata, allocatedBuckets: nextBuckets }
+  await em.flush()
+  return touched
 }
 
 export function extractReservationMetadata(reservation: InventoryReservation): ReservationMetadata {
@@ -833,19 +915,21 @@ export class WmsReservationService {
   }
 
   /**
-   * Converts an active reservation's `sourceType`/`sourceId` in place — a checkout hold
-   * becoming an `order` hold at `availability.commit` (§4.1/§4.4, A1/A5/A16) — without
-   * releasing and re-reserving, so no window exists in which the stock is unheld. Rebuilds
-   * the row's `wms` idempotency key, since that key is derived from
-   * `sourceType|sourceId|variant|warehouse|quantity` (`buildReservationIdempotencyKey`) and
-   * goes stale the moment the first two change; `expires_at` is cleared, because nothing
-   * expires an `order` row.
+   * Converts an ACTIVE `checkout` reservation row's `sourceType`/`sourceId` in place — a
+   * checkout hold becoming an `order` hold at `availability.commit` (§4.1/§4.4, A1/A5/A16) —
+   * without releasing and re-reserving. Only rows that are `active`, `sourceType: 'checkout'`
+   * and (when `expectedSourceId` is given) owned by the calling hold are converted; a
+   * released, missing, foreign-source or foreign-owner row is reported as
+   * `outcome: 'not_convertible'` and left untouched, so the caller can recover with a fresh
+   * gated order reservation or surface `stock_lost` instead of relabeling a row that no
+   * longer holds stock. A row already converted to this same order is an idempotent no-op.
    *
-   * §4.4's "confirmed-first" collision case (the `sales.order.confirmed` automation having
-   * already created an `order` row with the SAME rebuilt key before `commit` runs) is
-   * deliberately NOT handled here — checkout always commits before any status that emits
-   * `sales.order.confirmed` (D-R5-8), so it never takes that path; this method is kept for
-   * `availability.commit`'s own caller, which is the only caller today.
+   * Confirmed-first case (§4.4): when `sales.order.confirmed` automation already holds active
+   * `order` rows for the same order/variant/warehouse, those rows are locked and counted as
+   * covering. A fully covered checkout row is released (`covered_released`); a partly covered
+   * one is shrunk to the uncovered quantity before conversion. The rebuilt idempotency key
+   * gets a deterministic suffix when another active row already owns it, so the active-key
+   * unique index can never reject the conversion.
    */
   async convertInTransaction(
     trx: EntityManager,
@@ -854,21 +938,108 @@ export class WmsReservationService {
   ): Promise<ConvertInTransactionResult> {
     return runInTransaction(trx, async (innerTrx) => {
       const scope = resolveScope(ctx, input)
-      const reservation = await requireReservation(innerTrx, ctx, input.reservationId, scope, true)
+      const reservation = await findOneWithDecryption(
+        innerTrx,
+        InventoryReservation,
+        { id: input.reservationId, deletedAt: null },
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
+        scope,
+      )
+      if (!reservation) {
+        return {
+          reservationId: input.reservationId,
+          reservationEntity: null,
+          outcome: 'not_convertible' as const,
+          reason: 'missing' as const,
+          touchedBalances: [],
+        }
+      }
+      ensureTenantScope(ctx, reservation.tenantId)
+      ensureOrganizationScope(ctx, reservation.organizationId)
+      const notConvertible = (reason: ConvertNotConvertibleReason): ConvertInTransactionResult => ({
+        reservationId: reservation.id,
+        reservationEntity: reservation,
+        outcome: 'not_convertible',
+        reason,
+        touchedBalances: [],
+      })
+      if (
+        reservation.status === 'active' &&
+        reservation.sourceType === input.sourceType &&
+        reservation.sourceId === input.sourceId
+      ) {
+        return {
+          reservationId: reservation.id,
+          reservationEntity: reservation,
+          outcome: 'already_converted',
+          touchedBalances: [],
+        }
+      }
+      if (reservation.status !== 'active') return notConvertible('not_active')
+      if (reservation.sourceType !== 'checkout') return notConvertible('not_checkout')
+      if (input.expectedSourceId && reservation.sourceId !== input.expectedSourceId) {
+        return notConvertible('source_mismatch')
+      }
+
       const warehouseId =
         typeof reservation.warehouse === 'string' ? reservation.warehouse : reservation.warehouse.id
-      reservation.sourceType = input.sourceType
-      reservation.sourceId = input.sourceId
-      reservation.expiresAt = null
-      reservation.idempotencyKey = buildReservationIdempotencyKey({
+      const covering = await findWithDecryption(
+        innerTrx,
+        InventoryReservation,
+        {
+          organizationId: scope.organizationId,
+          sourceType: input.sourceType,
+          sourceId: input.sourceId,
+          catalogVariantId: reservation.catalogVariantId,
+          warehouse: warehouseId,
+          status: 'active',
+          deletedAt: null,
+          id: { $ne: reservation.id },
+        },
+        { lockMode: LockMode.PESSIMISTIC_WRITE, orderBy: { id: 'asc' } },
+        scope,
+      )
+      const coveredQuantity = covering.reduce((sum, row) => sum + toNumber(row.quantity), 0)
+      const heldQuantity = toNumber(reservation.quantity)
+      const touchedBalances: InventoryBalance[] = []
+
+      if (coveredQuantity >= heldQuantity - 0.000001 && coveredQuantity > 0) {
+        const released = await this.releaseInTransaction(innerTrx, ctx, {
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+          reservationId: reservation.id,
+          reason: 'covered_by_order_reservation',
+        } as InventoryReservationReleaseInput)
+        return {
+          reservationId: reservation.id,
+          reservationEntity: released.reservationEntity,
+          outcome: 'covered_released',
+          touchedBalances: released.touchedBalances,
+        }
+      }
+      if (coveredQuantity > 0.000001) {
+        touchedBalances.push(...(await shrinkReservationBuckets(innerTrx, scope, reservation, coveredQuantity)))
+      }
+
+      const baseKey = buildReservationIdempotencyKey({
         sourceType: input.sourceType,
         sourceId: input.sourceId,
         catalogVariantId: reservation.catalogVariantId,
         warehouseId,
         quantity: toNumber(reservation.quantity),
       })
+      const keyOwner = await findExistingActiveReservationByIdempotencyKey(innerTrx, scope, baseKey)
+      reservation.sourceType = input.sourceType
+      reservation.sourceId = input.sourceId
+      reservation.expiresAt = null
+      reservation.idempotencyKey = keyOwner && keyOwner.id !== reservation.id ? `${baseKey}|converted|${reservation.id}` : baseKey
       await innerTrx.flush()
-      return { reservationId: reservation.id, reservationEntity: reservation }
+      return {
+        reservationId: reservation.id,
+        reservationEntity: reservation,
+        outcome: 'converted',
+        touchedBalances,
+      }
     })
   }
 
@@ -898,21 +1069,42 @@ export class WmsReservationService {
       if (lines.length === 0) {
         return { ok: true as const, lines: [], sideEffects: {} }
       }
-      const variantIds = Array.from(new Set(lines.map((line) => line.catalogVariantId)))
+      const lineVariantIds = Array.from(new Set(lines.map((line) => line.catalogVariantId)))
+      const productIds = Array.from(new Set(lines.map((line) => line.catalogProductId)))
       const now = new Date()
 
-      const lockedBalances = await lockCandidateBalances(innerTrx, ctx, scope, variantIds, warehouseIds)
+      const poolRows = await loadProductPoolRows(innerTrx, scope, productIds)
+      const pooledProductIds = Array.from(new Set(poolRows.map((row) => row.catalog_product_id)))
+      const activeVariantsByProduct = await loadActiveVariantIdsByProduct(innerTrx, scope, pooledProductIds)
+      const rollups = pooledProductIds.map((productId) => ({
+        productId,
+        variantIds: Array.from(
+          new Set([
+            ...(activeVariantsByProduct.get(productId) ?? []),
+            ...lines.filter((line) => line.catalogProductId === productId).map((line) => line.catalogVariantId),
+          ]),
+        ).sort(),
+      }))
+      const lockVariantIds = Array.from(
+        new Set([...lineVariantIds, ...rollups.flatMap((rollup) => rollup.variantIds)]),
+      ).sort()
+
+      const lockedBalances = await lockCandidateBalances(innerTrx, ctx, scope, lockVariantIds, warehouseIds)
       const aggregates = aggregateAvailableByVariant(lockedBalances, now)
-      const profileRows = await loadVariantSafetyStockRows(innerTrx, scope, variantIds)
-      const sellableByVariant = computeSellableQuantities(
-        { balances: aggregates, profiles: profileRows },
-        { variantIds, productRollups: [] },
-      ).perVariant
+      const variantProfileRows = await loadVariantSafetyStockRows(innerTrx, scope, lockVariantIds)
+      const sellable = computeSellableQuantities(
+        { balances: aggregates, profiles: [...variantProfileRows, ...poolRows] },
+        { variantIds: lineVariantIds, productRollups: rollups },
+      )
+      const sellableByVariant = sellable.perVariant
+      const remainingProductBudget = new Map(sellable.perProductRollup)
 
       const shortfalls: ReserveLinesForCheckoutShortfallLine[] = []
       const toHold: Array<{ line: ReserveLinesForCheckoutLineInput; heldQuantity: number; sellableForLine: number }> = []
       for (const line of lines) {
-        const sellableForLine = sellableByVariant.get(line.catalogVariantId) ?? 0
+        const variantSellable = sellableByVariant.get(line.catalogVariantId) ?? 0
+        const productBudget = remainingProductBudget.get(line.catalogProductId)
+        const sellableForLine = productBudget === undefined ? variantSellable : Math.min(variantSellable, productBudget)
         if (line.mode === 'exact') {
           if (line.quantity > sellableForLine + 0.000001) {
             shortfalls.push({ key: line.key, requested: line.quantity, sellable: sellableForLine })
@@ -921,6 +1113,10 @@ export class WmsReservationService {
           toHold.push({ line, heldQuantity: line.quantity, sellableForLine })
         } else {
           toHold.push({ line, heldQuantity: Math.min(line.quantity, sellableForLine), sellableForLine })
+        }
+        if (productBudget !== undefined) {
+          const held = line.mode === 'exact' ? line.quantity : Math.min(line.quantity, sellableForLine)
+          remainingProductBudget.set(line.catalogProductId, Math.max(0, productBudget - held))
         }
       }
       if (shortfalls.length > 0) {

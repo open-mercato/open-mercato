@@ -259,27 +259,55 @@ export async function reconcileAvailabilityReservations(
       }
 
       // hold.status === 'committed'
-      const stillCheckout = hold.wmsReservationIds.filter((id) => wmsById.get(id)?.sourceType === 'checkout')
-      if (stillCheckout.length === 0 || !hold.orderId) continue
+      const orderId = hold.orderId
+      if (!orderId) continue
+      const stillCheckout = hold.wmsReservationIds.filter((id) => {
+        const row = wmsById.get(id)
+        return row?.sourceType === 'checkout' && row.status === 'active'
+      })
+      const lostCheckout = hold.wmsReservationIds.filter((id) => {
+        const row = wmsById.get(id)
+        return !row || (row.sourceType === 'checkout' && row.status !== 'active')
+      })
+
+      if (lostCheckout.length > 0) {
+        await reportDrift('hold_committed_wms_released_or_missing', {
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+          holdId: hold.id,
+          orderId,
+        })
+      }
+      if (stillCheckout.length === 0) continue
 
       await reportDrift('hold_committed_wms_still_checkout', {
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
         holdId: hold.id,
-        orderId: hold.orderId,
+        orderId,
       })
 
+      let convertSideEffects: WmsSideEffectsLike = {}
       await em.transactional(async (trx) => {
         for (const id of stillCheckout) {
-          await wmsService.convertInTransaction(trx, ctx, {
+          const converted = await wmsService.convertInTransaction(trx, ctx, {
             tenantId: scope.tenantId,
             organizationId: scope.organizationId,
             reservationId: id,
             sourceType: 'order',
-            sourceId: hold.orderId as string,
+            sourceId: orderId,
+            expectedSourceId: hold.sourceId,
+          })
+          if (converted.outcome === 'not_convertible') continue
+          convertSideEffects = mergeSideEffects(convertSideEffects, {
+            reservations: converted.reservationEntity
+              ? [{ entity: converted.reservationEntity, action: 'updated' }]
+              : [],
+            balances: (converted.touchedBalances ?? []).map((entity) => ({ entity, action: 'updated' as const })),
           })
         }
       })
+      await wmsService.emitSideEffects(ctx, convertSideEffects)
       result.convertedHolds += 1
     }
 

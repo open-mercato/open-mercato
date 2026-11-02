@@ -320,6 +320,8 @@ describe('WmsReservationService.convertInTransaction', () => {
     const service = new WmsReservationService()
     const em = createEm()
     const reservation = makeReservation({ sourceType: 'checkout', sourceId: 'checkout-session-1', expiresAt: new Date('2024-01-01') })
+    findWithDecryption.mockReset()
+    findWithDecryption.mockReturnValue([])
 
     findOneWithDecryption.mockImplementation((_em: unknown, entity: unknown) => {
       if (entity === InventoryReservation) return reservation
@@ -342,5 +344,207 @@ describe('WmsReservationService.convertInTransaction', () => {
       `reservation|order|${ORDER_ID}|${VARIANT_ID}|${WAREHOUSE_ID}|8`,
     )
     expect(em.flush).toHaveBeenCalled()
+  })
+
+  const convertInput = {
+    reservationId: RESERVATION_ID,
+    tenantId: TENANT,
+    organizationId: ORG,
+    sourceType: 'order' as const,
+    sourceId: ORDER_ID,
+  }
+
+  function mockReservationLookup(reservation: Record<string, unknown> | null, keyOwner: Record<string, unknown> | null = null) {
+    findOneWithDecryption.mockImplementation((_em: unknown, entity: unknown, where: Record<string, unknown>) => {
+      if (entity === InventoryReservation) return where?.idempotencyKey ? keyOwner : reservation
+      return null
+    })
+  }
+
+  it('does not convert a released checkout row and leaves it untouched', async () => {
+    const service = new WmsReservationService()
+    const em = createEm()
+    const reservation = makeReservation({ sourceType: 'checkout', sourceId: 'checkout-session-1', status: 'released' })
+    mockReservationLookup(reservation)
+    findWithDecryption.mockReturnValue([])
+
+    const result = await service.convertInTransaction(em, createCtx(em), convertInput)
+
+    expect(result.outcome).toBe('not_convertible')
+    expect(result.reason).toBe('not_active')
+    expect(reservation.sourceType).toBe('checkout')
+    expect(reservation.sourceId).toBe('checkout-session-1')
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('reports a missing row as not convertible', async () => {
+    const service = new WmsReservationService()
+    const em = createEm()
+    mockReservationLookup(null)
+
+    const result = await service.convertInTransaction(em, createCtx(em), convertInput)
+
+    expect(result).toMatchObject({ outcome: 'not_convertible', reason: 'missing', reservationEntity: null })
+  })
+
+  it('does not convert a row owned by another source or another hold', async () => {
+    const service = new WmsReservationService()
+    const em = createEm()
+    const foreignType = makeReservation({ sourceType: 'manual', sourceId: 'x' })
+    mockReservationLookup(foreignType)
+    expect((await service.convertInTransaction(em, createCtx(em), convertInput)).reason).toBe('not_checkout')
+
+    const foreignOwner = makeReservation({ sourceType: 'checkout', sourceId: 'other-session' })
+    mockReservationLookup(foreignOwner)
+    const result = await service.convertInTransaction(em, createCtx(em), {
+      ...convertInput,
+      expectedSourceId: 'checkout-session-1',
+    })
+    expect(result.reason).toBe('source_mismatch')
+    expect(foreignOwner.sourceType).toBe('checkout')
+  })
+
+  it('is an idempotent no-op for a row already converted to the same order', async () => {
+    const service = new WmsReservationService()
+    const em = createEm()
+    mockReservationLookup(makeReservation({ sourceType: 'order', sourceId: ORDER_ID }))
+
+    const result = await service.convertInTransaction(em, createCtx(em), convertInput)
+
+    expect(result.outcome).toBe('already_converted')
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('releases the checkout row when an active order reservation already covers the whole quantity', async () => {
+    const service = new WmsReservationService()
+    const em = createEm()
+    const reservation = makeReservation({ sourceType: 'checkout', sourceId: 'checkout-session-1' })
+    const covering = makeReservation({ id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', sourceType: 'order', sourceId: ORDER_ID, quantity: '8' })
+    const balanceA = makeBalance({ id: BALANCE_ID_A, location: { id: LOCATION_A }, quantityReserved: '5' })
+    const balanceB = makeBalance({ id: BALANCE_ID_B, location: { id: LOCATION_B }, quantityReserved: '3' })
+    findOneWithDecryption.mockImplementation((_em: unknown, entity: unknown, where: Record<string, unknown>) => {
+      if (entity === InventoryReservation) return reservation
+      if (entity === InventoryBalance) return where?.id === BALANCE_ID_A ? balanceA : balanceB
+      return null
+    })
+    findWithDecryption.mockImplementation((_em: unknown, entity: unknown) => (entity === InventoryReservation ? [covering] : []))
+
+    const result = await service.convertInTransaction(em, createCtx(em), convertInput)
+
+    expect(result.outcome).toBe('covered_released')
+    expect(reservation.status).toBe('released')
+    expect(reservation.sourceType).toBe('checkout')
+    expect(Number(balanceA.quantityReserved)).toBe(0)
+    expect(Number(balanceB.quantityReserved)).toBe(0)
+  })
+
+  it('shrinks the checkout row to the uncovered quantity and avoids the active idempotency-key collision', async () => {
+    const service = new WmsReservationService()
+    const em = createEm()
+    const reservation = makeReservation({ sourceType: 'checkout', sourceId: 'checkout-session-1' })
+    const covering = makeReservation({ id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', sourceType: 'order', sourceId: ORDER_ID, quantity: '3' })
+    const balanceA = makeBalance({ id: BALANCE_ID_A, location: { id: LOCATION_A }, quantityReserved: '5' })
+    const balanceB = makeBalance({ id: BALANCE_ID_B, location: { id: LOCATION_B }, quantityReserved: '3' })
+    findOneWithDecryption.mockImplementation((_em: unknown, entity: unknown, where: Record<string, unknown>) => {
+      if (entity === InventoryReservation) {
+        return where?.idempotencyKey ? { id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd' } : reservation
+      }
+      if (entity === InventoryBalance) return where?.id === BALANCE_ID_A ? balanceA : balanceB
+      return null
+    })
+    findWithDecryption.mockImplementation((_em: unknown, entity: unknown) => (entity === InventoryReservation ? [covering] : []))
+
+    const result = await service.convertInTransaction(em, createCtx(em), convertInput)
+
+    expect(result.outcome).toBe('converted')
+    expect(reservation.quantity).toBe('5')
+    expect(Number(balanceB.quantityReserved)).toBe(0)
+    expect(Number(balanceA.quantityReserved)).toBe(5)
+    expect((reservation.metadata as { allocatedBuckets: unknown[] }).allocatedBuckets).toHaveLength(1)
+    expect(reservation.sourceType).toBe('order')
+    expect(reservation.idempotencyKey).toBe(
+      `reservation|order|${ORDER_ID}|${VARIANT_ID}|${WAREHOUSE_ID}|5|converted|${RESERVATION_ID}`,
+    )
+  })
+})
+
+describe('WmsReservationService.reserveLinesForCheckout product-level safety-stock pool', () => {
+  const PRODUCT_ID = '88888888-8888-4888-8888-888888888888'
+  const VARIANT_TWO = '77777777-7777-4777-8777-777777777778'
+
+  beforeEach(() => {
+    findOneWithDecryption.mockReset()
+    findWithDecryption.mockReset()
+  })
+
+  function mockPool(options: { balances: Array<Record<string, unknown>>; poolSafetyStock: string }) {
+    findWithDecryption.mockImplementation((_em: unknown, entity: unknown, where: Record<string, unknown>) => {
+      if (entity === ProductInventoryProfile) {
+        if (where?.catalogVariantId === null) {
+          return [{ catalogProductId: PRODUCT_ID, catalogVariantId: null, safetyStock: options.poolSafetyStock, reorderPoint: '0' }]
+        }
+        return []
+      }
+      if (entity === InventoryBalance) return options.balances
+      return []
+    })
+  }
+
+  it('locks every active variant of a pooled product and enforces the shared budget across variants', async () => {
+    const service = new WmsReservationService()
+    const em = createEm() as unknown as Record<string, unknown>
+    em.execute = jest.fn(async () => [
+      { id: VARIANT_ID, product_id: PRODUCT_ID },
+      { id: VARIANT_TWO, product_id: PRODUCT_ID },
+    ])
+    mockPool({
+      poolSafetyStock: '4',
+      balances: [
+        makeBalance({ id: BALANCE_ID_A, catalogVariantId: VARIANT_ID, quantityOnHand: '5' }),
+        makeBalance({ id: BALANCE_ID_B, catalogVariantId: VARIANT_TWO, quantityOnHand: '5' }),
+      ],
+    })
+
+    const result = await service.reserveLinesForCheckout(em as never, createCtx(em as never), {
+      scope: { tenantId: TENANT, organizationId: ORG },
+      sourceType: 'checkout',
+      sourceId: 'checkout-session-1',
+      expiresAt: null,
+      lines: [
+        { key: 'a', catalogProductId: PRODUCT_ID, catalogVariantId: VARIANT_ID, quantity: 4, mode: 'exact' },
+        { key: 'b', catalogProductId: PRODUCT_ID, catalogVariantId: VARIANT_TWO, quantity: 4, mode: 'exact' },
+      ],
+    })
+
+    expect(result).toEqual({ ok: false, lines: [{ key: 'b', requested: 4, sellable: 2 }] })
+  })
+
+  it('locks sibling variants that are not part of the request', async () => {
+    const service = new WmsReservationService()
+    const em = createEm() as unknown as Record<string, unknown>
+    em.execute = jest.fn(async () => [
+      { id: VARIANT_ID, product_id: PRODUCT_ID },
+      { id: VARIANT_TWO, product_id: PRODUCT_ID },
+    ])
+    mockPool({
+      poolSafetyStock: '4',
+      balances: [
+        makeBalance({ id: BALANCE_ID_A, catalogVariantId: VARIANT_ID, quantityOnHand: '5' }),
+        makeBalance({ id: BALANCE_ID_B, catalogVariantId: VARIANT_TWO, quantityOnHand: '1' }),
+      ],
+    })
+
+    const result = await service.reserveLinesForCheckout(em as never, createCtx(em as never), {
+      scope: { tenantId: TENANT, organizationId: ORG },
+      sourceType: 'checkout',
+      sourceId: 'checkout-session-1',
+      expiresAt: null,
+      lines: [{ key: 'a', catalogProductId: PRODUCT_ID, catalogVariantId: VARIANT_ID, quantity: 5, mode: 'exact' }],
+    })
+
+    const balanceLock = findWithDecryption.mock.calls.find(([, entity]) => entity === InventoryBalance)
+    expect(balanceLock?.[2].catalogVariantId.$in).toEqual([VARIANT_ID, VARIANT_TWO].sort())
+    expect(balanceLock?.[3]).toMatchObject({ lockMode: LockMode.PESSIMISTIC_WRITE, orderBy: { id: 'asc' } })
+    expect(result).toEqual({ ok: false, lines: [{ key: 'a', requested: 5, sellable: 2 }] })
   })
 })

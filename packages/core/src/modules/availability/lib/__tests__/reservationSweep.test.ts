@@ -314,6 +314,30 @@ describe('reconcileAvailabilityReservations (A12)', () => {
     expect(reportedErrors.some((e) => e.meta.code === 'availability.reconciliation.hold_committed_wms_still_checkout')).toBe(true)
   })
 
+  it('drift (c) is status-aware: a committed hold with a released or missing checkout row is reported, never relabeled to order', async () => {
+    const hold = buildHold({
+      id: 'hold-c-lost',
+      status: 'committed',
+      orderId: 'order-2',
+      wmsReservationIds: ['wms-c-released', 'wms-c-missing'],
+    })
+    const wmsRows: WmsRow[] = [
+      { id: 'wms-c-released', tenantId: TENANT, organizationId: ORG, sourceType: 'checkout', status: 'released', createdAt: now },
+    ]
+    const em = createFakeAvailabilityEm([hold])
+    const wmsService = createFakeWmsService(wmsRows)
+    const container = buildContainer(em, wmsService)
+
+    const result = await reconcileAvailabilityReservations(container, { tenantId: TENANT }, now)
+
+    expect(result.convertedHolds).toBe(0)
+    expect(wmsService.convertCalls).toEqual([])
+    expect(wmsRows.find((r) => r.id === 'wms-c-released')!.sourceType).toBe('checkout')
+    expect(
+      reportedErrors.some((e) => e.meta.code === 'availability.reconciliation.hold_committed_wms_released_or_missing'),
+    ).toBe(true)
+  })
+
   it('is a no-op (no repair, no report, no event) when nothing has drifted', async () => {
     const hold = buildHold({ id: 'hold-clean', status: 'active', wmsReservationIds: ['wms-clean'] })
     const wmsRows: WmsRow[] = [
