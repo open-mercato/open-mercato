@@ -6,6 +6,7 @@ import * as React from 'react'
 import { act, screen, waitFor, within } from '@testing-library/react'
 import { AppShell, ApplyBreadcrumb } from '../AppShell'
 import { saveBrandStyle } from '../../theme/brand-style'
+import { clearNavBadge, setNavBadge } from '../nav/navBadges'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 
 const mockInjectionSpot = jest.fn()
@@ -657,6 +658,55 @@ describe('AppShell', () => {
       window.fetch = previousWindowFetch
       ;(window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch = previousOriginalFetch
     }
+  })
+
+  describe('main sidebar nav badges', () => {
+    const badgeGroups = [
+      {
+        id: 'sales',
+        name: 'Sales',
+        items: [
+          {
+            href: '/backend/sales',
+            title: 'Sales',
+            children: [{ href: '/backend/sales/pending', title: 'Pending orders' }],
+          },
+          { href: '/backend/roles', title: 'Roles' },
+        ],
+      },
+    ]
+
+    afterEach(() => {
+      act(() => {
+        clearNavBadge('/backend/sales')
+        clearNavBadge('/backend/sales/pending')
+      })
+    })
+
+    it('renders item count badges on main menu items and their children', () => {
+      mockPathname = '/backend/sales'
+      const { container } = renderWithProviders(
+        <AppShell email="demo@example.com" groups={badgeGroups}>
+          <div>Body</div>
+        </AppShell>,
+        { dict },
+      )
+
+      const sidebar = within(screen.getByTestId('sidebar'))
+      expect(sidebar.queryByLabelText('7 pending')).not.toBeInTheDocument()
+
+      act(() => {
+        setNavBadge('/backend/sales', { count: 7, label: '7 pending' })
+        setNavBadge('/backend/sales/pending', { count: 120 })
+      })
+
+      const parentLink = container.querySelector('[data-menu-item-id="/backend/sales"]') as HTMLElement
+      expect(within(parentLink).getByLabelText('7 pending')).toHaveTextContent('7')
+      const childLink = container.querySelector('[data-menu-item-id="/backend/sales/pending"]') as HTMLElement
+      expect(within(childLink).getByLabelText('99+')).toHaveTextContent('99+')
+      const rolesLink = container.querySelector('[data-menu-item-id="/backend/roles"]') as HTMLElement
+      expect(rolesLink.querySelectorAll('[aria-label]')).toHaveLength(0)
+    })
   })
 
   describe('sidebar layout', () => {
