@@ -1,5 +1,5 @@
 import { randomBytes, createHash } from 'node:crypto'
-import { hash } from 'bcryptjs'
+import { getPasswordHasher } from '@open-mercato/shared/lib/auth/passwordHasher'
 import { EntityManager } from '@mikro-orm/postgresql'
 import { hashForLookup, lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -19,7 +19,7 @@ export class OnboardingService {
     const tokenHash = hashToken(token)
     const expiresAt = new Date(Date.now() + expiresInHours * 60 * 60 * 1000)
     const now = new Date()
-    const passwordHash = await hash(input.password, 10)
+    const passwordHash = await getPasswordHasher().hash(input.password)
     const emailHash = hashForLookup(input.email)
 
     const existing = await findOneWithDecryption(this.em, OnboardingRequest, {
