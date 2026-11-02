@@ -1,6 +1,8 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import type { ModuleEncryptionFieldRule } from '@open-mercato/shared/modules/encryption'
+import type { ModuleEncryptionFieldRule, ModuleEncryptionMap } from '@open-mercato/shared/modules/encryption'
 import { forgetEncryptionPolicyMemo } from '@open-mercato/shared/lib/encryption/policyMemo'
+import { getDefaultEncryptionMaps, type Module } from '@open-mercato/shared/modules/registry'
+import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 
 export type EncryptionMapLike = {
   id: string
@@ -161,4 +163,74 @@ async function readLiveEncryptionMapVersion(
   )
   const current = rows[0]?.updated_at
   return current ? toDate(current) : null
+}
+
+// Idempotently upsert a specific set of encryption-map specs for one (tenant, org) scope. Exported so
+// upgrade actions can backfill a newly-added encrypted entity for pre-existing tenants (whose maps were
+// seeded once at tenant creation and never re-run) without depending on the full CLI module registry.
+export async function upsertEncryptionMapSpecs(
+  em: EntityManager,
+  tenantId: string,
+  organizationId: string | null,
+  specs: ModuleEncryptionMap[],
+  logger: (msg: string) => void = () => {},
+  onMaterializedScope?: (scope: { entityId: string; tenantId: string; organizationId: string | null }) => void | Promise<void>,
+): Promise<Array<{ entityId: string; tenantId: string; organizationId: string | null }>> {
+  const materializedScopes: Array<{ entityId: string; tenantId: string; organizationId: string | null }> = []
+  for (const spec of specs) {
+    if (spec.keyScope === 'system') {
+      logger(`Skipping ${spec.entityId}: system-scoped map, resolved from module code rather than a tenant row.`)
+      continue
+    }
+    await upsertCanonicalEncryptionMap(em, {
+      entityId: spec.entityId,
+      tenantId,
+      organizationId,
+      fields: spec.fields,
+      isActive: true,
+    })
+    const materializedScope = { entityId: spec.entityId, tenantId, organizationId }
+    materializedScopes.push(materializedScope)
+    await onMaterializedScope?.(materializedScope)
+    logger(`🔒 Seeded encryption map for ${spec.entityId} ✨`)
+  }
+  return materializedScopes
+}
+
+// Exported so other modules (e.g. the directory subscribers that seed maps for a
+// newly-created organization) can seed the default module encryption maps for one
+// (tenant, org) scope. Callers resolve their own module list: a CLI command uses
+// `getCliModules()`/`getModules()` (cli.ts is an allowed CLI-registry entrypoint), a runtime
+// subscriber MUST use the app registry (`getModules()`) directly — this lib never reads the
+// CLI-only registry itself (`cli-registry-boundary.test.ts` in @open-mercato/shared enforces
+// that only `packages/cli/**` or a file literally named `cli.ts` may call `getCliModules()`).
+export async function upsertEncryptionMaps(
+  em: EntityManager,
+  tenantId: string,
+  organizationId: string | null,
+  modules: Module[],
+  logger: (msg: string) => void,
+  onMaterializedScope?: (scope: { entityId: string; tenantId: string; organizationId: string | null }) => void | Promise<void>,
+) {
+  return upsertEncryptionMapSpecs(
+    em,
+    tenantId,
+    organizationId,
+    getDefaultEncryptionMaps(modules),
+    logger,
+    onMaterializedScope,
+  )
+}
+
+export async function invalidateEncryptionMapScopes(
+  encryptionService: Pick<TenantDataEncryptionService, 'invalidateMap'>,
+  scopes: ReadonlyArray<{ entityId: string; tenantId: string | null; organizationId: string | null }>,
+): Promise<void> {
+  const seen = new Set<string>()
+  for (const scope of scopes) {
+    const key = `${scope.entityId}\u0000${scope.tenantId ?? ''}\u0000${scope.organizationId ?? ''}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    await encryptionService.invalidateMap(scope.entityId, scope.tenantId, scope.organizationId)
+  }
 }
