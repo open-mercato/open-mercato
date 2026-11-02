@@ -82,7 +82,16 @@ for (const kind of ['company', 'person', 'deal'] as const) {
       const main = page.getByRole('main')
       const high = main.getByRole('tab', { name: 'QA High', exact: true })
       await expect(high).toBeVisible()
-      const labels = await main.getByRole('tab').allTextContents()
+      // The rail folds overflowing tabs into a More menu (#7487): the order spans both lists.
+      const inlineLabels = await main.getByRole('tab').allTextContents()
+      const moreTrigger = main.getByTestId('detail-tabs-more')
+      let foldedLabels: string[] = []
+      if (await moreTrigger.count()) {
+        await moreTrigger.click()
+        foldedLabels = await page.getByRole('menuitem').allTextContents()
+        await page.keyboard.press('Escape')
+      }
+      const labels = [...inlineLabels, ...foldedLabels]
       const position = (label: string) => labels.findIndex((entry) => entry.trim() === label)
       const builtIn = main.getByRole('tab', { name: kind === 'company' ? /^People/ : 'Activities', exact: kind !== 'company' })
       await expect(builtIn).toHaveAttribute('aria-selected', 'true')
