@@ -26,11 +26,12 @@ if (source === 'published' && !/^\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(values.versio
   throw new Error('Published source requires an exact --version')
 }
 if (suite === 'affected' && !values['base-ref']) throw new Error('Affected suite requires --base-ref')
+const databaseUrl = process.env.STANDALONE_DATABASE_URL
+if (!databaseUrl) throw new Error('STANDALONE_DATABASE_URL must explicitly identify a disposable integration database')
 const scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-standalone-gate-'))
 const appDir = path.resolve(values['app-dir'] ?? path.join(scratchDir, 'app'))
 if (fs.existsSync(appDir)) throw new Error(`Standalone app directory already exists: ${appDir}`)
 const appUrl = 'http://localhost:3001'
-const databaseUrl = process.env.DATABASE_URL ?? 'postgres://mercato:secret@localhost:5432/mercato_test'
 const { appEnv, testEnv } = createStandaloneIntegrationEnvironment({ appDir, repoRoot, baseUrl: appUrl, databaseUrl })
 const installEnv = {
   YARN_ENABLE_HARDENED_MODE: '0',
