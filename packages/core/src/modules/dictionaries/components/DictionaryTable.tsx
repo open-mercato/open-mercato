@@ -143,62 +143,69 @@ export function DictionaryTable({
     : undefined
 
   return (
-    <DataTable<DictionaryTableEntry>
-      title={translations.title}
-      titleHeadingLevel={2}
-      actions={actions}
-      columns={columns}
-      data={paginated}
-      embedded
-      sortable
-      sorting={sorting}
-      onSortingChange={setSorting}
-      searchValue={search}
-      onSearchChange={(value) => {
-        setSearch(value)
-        setPage(1)
-      }}
-      searchPlaceholder={translations.searchPlaceholder}
-      isLoading={loading}
-      emptyState={<p className="py-10 text-center text-sm text-muted-foreground">{translations.emptyLabel}</p>}
-      pagination={{
-        page,
-        pageSize,
-        total: filtered.length,
-        totalPages,
-        onPageChange: setPage,
-      }}
-      refreshButton={onRefresh ? {
-        label: translations.refreshLabel,
-        onRefresh,
-        isRefreshing: loading,
-      } : undefined}
-      onRowClick={handleRowClick}
-      rowActions={
-        canManage
-          ? (entry) => {
-              if (!entry) return null
-              if (entry.isInherited) return null
-              const items: RowActionItem[] = []
-              if (onEdit) {
-                items.push({
-                  id: 'edit',
-                  label: translations.editLabel,
-                  onSelect: () => onEdit(entry),
-                })
+    <div
+      role="region"
+      aria-label={translations.title}
+      tabIndex={0}
+      className="w-full min-w-0 max-w-full overflow-x-auto focus-visible:outline-none focus-visible:shadow-focus"
+    >
+      <DataTable<DictionaryTableEntry>
+        title={translations.title}
+        titleHeadingLevel={2}
+        actions={actions}
+        columns={columns}
+        data={paginated}
+        embedded
+        sortable
+        sorting={sorting}
+        onSortingChange={setSorting}
+        searchValue={search}
+        onSearchChange={(value) => {
+          setSearch(value)
+          setPage(1)
+        }}
+        searchPlaceholder={translations.searchPlaceholder}
+        isLoading={loading}
+        emptyState={<p className="py-10 text-center text-sm text-muted-foreground">{translations.emptyLabel}</p>}
+        pagination={{
+          page,
+          pageSize,
+          total: filtered.length,
+          totalPages,
+          onPageChange: setPage,
+        }}
+        refreshButton={onRefresh ? {
+          label: translations.refreshLabel,
+          onRefresh,
+          isRefreshing: loading,
+        } : undefined}
+        onRowClick={handleRowClick}
+        rowActions={
+          canManage
+            ? (entry) => {
+                if (!entry) return null
+                if (entry.isInherited) return null
+                const items: RowActionItem[] = []
+                if (onEdit) {
+                  items.push({
+                    id: 'edit',
+                    label: translations.editLabel,
+                    onSelect: () => onEdit(entry),
+                  })
+                }
+                if (onDelete) {
+                  items.push({
+                    id: 'delete',
+                    label: translations.deleteLabel,
+                    onSelect: () => onDelete(entry),
+                    destructive: true,
+                  })
+                }
+                return items.length ? <RowActions items={items} /> : null
               }
-              if (onDelete) {
-                items.push({
-                  id: 'delete',
-                  label: translations.deleteLabel,
-                  onSelect: () => onDelete(entry),
-                  destructive: true,
-                })
-              }
-              return items.length ? <RowActions items={items} /> : null
-            }
-          : undefined
-      }
-    />
+            : undefined
+        }
+      />
+    </div>
   )
 }

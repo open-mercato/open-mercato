@@ -17,6 +17,7 @@ const NOTES_HANDLE = ComponentReplacementHandles.section('ui.detail', 'NotesSect
 const CHECKOUT_SUMMARY_HANDLE = ComponentReplacementHandles.section('checkout.pay-page', 'summary')
 const CHECKOUT_HELP_HANDLE = ComponentReplacementHandles.section('checkout.pay-page', 'help')
 const SHOWCASE_HANDLE = ComponentReplacementHandles.section('example.overrides', 'showcase')
+const VISIT_PANEL_HANDLE = ComponentReplacementHandles.section('customers.calendar-event-editor', 'type-panel')
 
 const PaySummary = (props: unknown) =>
   React.createElement('section', { 'data-testid': 'pay-summary' }, String((props as { total?: string }).total ?? ''))
@@ -60,6 +61,7 @@ describe('example component overrides', () => {
 
   it('registers every handle unconditionally, in both flag states', async () => {
     const expectedHandles = [
+      VISIT_PANEL_HANDLE,
       NOTES_HANDLE,
       CHECKOUT_SUMMARY_HANDLE,
       CHECKOUT_HELP_HANDLE,
@@ -146,11 +148,11 @@ describe('example component overrides', () => {
   it('is read by the real fact extractor, with every declared mode resolved', () => {
     const facts = readComponentOverrideFacts()
 
-    expect(facts).toHaveLength(5)
+    expect(facts).toHaveLength(6)
     expect(facts.map((fact) => (fact as { details: { handle: string } }).details.handle))
-      .toEqual([NOTES_HANDLE, CHECKOUT_SUMMARY_HANDLE, CHECKOUT_HELP_HANDLE, SHOWCASE_HANDLE, SHOWCASE_HANDLE])
+      .toEqual([VISIT_PANEL_HANDLE, NOTES_HANDLE, CHECKOUT_SUMMARY_HANDLE, CHECKOUT_HELP_HANDLE, SHOWCASE_HANDLE, SHOWCASE_HANDLE])
     expect(facts.map((fact) => (fact as { details: { mode: string } }).details.mode))
-      .toEqual(['wrapper', 'wrapper', 'wrapper', 'replace', 'props'])
+      .toEqual(['wrapper', 'wrapper', 'wrapper', 'wrapper', 'replace', 'props'])
     for (const fact of facts) {
       expect(fact.kind).toBe('component-override')
     }

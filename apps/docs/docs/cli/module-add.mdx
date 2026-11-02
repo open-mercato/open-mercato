@@ -1,10 +1,14 @@
 ---
 title: mercato module add
 sidebar_label: module add
-description: Installs and registers an official Open Mercato module package into your app.
+description: Installs and registers an Open Mercato module package, official or from the modules catalog, into your app.
 ---
 
 `yarn mercato module add` fetches a module package from npm, auto-discovers the module it contains, registers it in your app's `src/modules.ts`, and runs the code generators. It is the primary command for adding pre-built modules published under the `@open-mercato/*` scope. Third-party packages that follow the same module conventions can be installed too by passing `--allow-third-party`. If the package is already installed, [`mercato module enable`](./module-enable) supports the same optional `--eject` flow without reinstalling dependencies.
+
+To find a module package, search [modules.openmercato.com](https://modules.openmercato.com): every module page shows the exact install command for the version the catalog recommends (libraries and adapters install with `yarn add` and `yarn generate`, not `module add`). See [Modules catalog](/framework/modules/official-modules).
+
+To create and publish a reusable package from your own standalone app, see [Publishing Custom Modules](/framework/modules/publishing-custom-modules). That guide also covers installing a module directly from GitHub with Yarn followed by `module enable`.
 
 ## Usage
 
@@ -22,7 +26,7 @@ yarn mercato module add <packageSpec> --module <moduleId> --eject
 yarn mercato module add <packageSpec> --allow-third-party
 ```
 
-`<packageSpec>` follows the standard npm package specifier format: `<name>`, `<name>@<version>`, or `<name>@<tag>` (e.g., `@open-mercato/test-package@preview`, `@fast-white-cat/integration-ksef-direct@0.1.0`). Packages outside the `@open-mercato/*` scope require `--allow-third-party`.
+`<packageSpec>` follows the standard npm package specifier format: `<name>`, `<name>@<version>`, or `<name>@<tag>` (e.g., `@open-mercato/test-package@preview`, `@fastwhitecat/integration-ksef-direct@0.1.8`). Packages outside the `@open-mercato/*` scope require `--allow-third-party`.
 
 ## Options
 
@@ -41,6 +45,10 @@ Only packages that satisfy all of the following criteria can be installed with t
 - Contain at least one module directory under `src/modules/<moduleId>/` and `dist/modules/<moduleId>/`.
 
 Module identity and ejectability are read directly from each module's `src/modules/<moduleId>/index.ts` — no extra fields in `package.json` are required. The `@open-mercato/*` scope is **not** a hard requirement for the module to work; it only gates the implicit-trust default, which `--allow-third-party` overrides.
+
+## Fresh Releases and the 5-Day Age Gate
+
+Apps created with `create-mercato-app` set `npmMinimalAgeGate: 5d` in `.yarnrc.yml`, so Yarn refuses third-party versions published less than 5 days ago. The `@open-mercato/*` scope is preapproved and installs immediately. The [module page](https://modules.openmercato.com) shows the date a fresh release becomes installable as **Installable from**, and its install command keeps the previous version until then. Pass that exact version in `<packageSpec>`.
 
 ## What the Command Does
 
@@ -83,7 +91,7 @@ yarn mercato module add @open-mercato/test-package --eject
 Install a third-party module package published under a different scope:
 
 ```bash
-yarn mercato module add @fast-white-cat/integration-ksef-direct@0.1.0 --allow-third-party
+yarn mercato module add @fastwhitecat/integration-ksef-direct@0.1.8 --allow-third-party
 ```
 
 ## Post-Install Steps
@@ -100,6 +108,7 @@ If you ran the command with **`--eject`**, the module source is now in `src/modu
 
 ## Troubleshooting
 
+- **`YN0016` quarantined**: the requested version is younger than 5 days. Install the version shown on the module page or wait for its **Installable from** date. See [Troubleshooting](/appendix/troubleshooting#yn0016-quarantined).
 - **Package not found** — verify the package name and tag against the npm registry. Ensure your npm authentication is configured if the package is private.
 - **No modules found** — the package has no `src/modules/` or `dist/modules/` directory. Only packages that expose at least one module directory are supported.
 - **Package is outside the @open-mercato/\* scope** — the package belongs to a different npm scope. Rerun with `--allow-third-party` to opt in to installing third-party module packages.

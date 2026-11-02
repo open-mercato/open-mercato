@@ -27,6 +27,14 @@ export type BulkImportSuppression = {
   skipEvents?: boolean
   /** Advisory: handlers that fan out per-record notifications SHOULD honor this and skip them. */
   skipNotifications?: boolean
+  /**
+   * Skip a command's own full-collection derived-data rebuild (e.g. category tree
+   * `parentId`/`treePath`/`depth`/ancestor-descendant rewrite). The caller MUST run that rebuild
+   * itself exactly once after the batch, in a `finally` that covers the completed, cancelled and
+   * failed paths — otherwise every record written under this context is left with a stale
+   * derived shape.
+   */
+  skipDerivedRebuild?: boolean
 }
 
 export type CommandRuntimeContext = {
@@ -59,6 +67,14 @@ export type CommandRuntimeContext = {
    * surrounding work as a single atomic, single-locked operation.
    */
   transactionalEm?: EntityManager
+  /**
+   * Optional server-side guard that supported command handlers invoke after
+   * opening their write transaction and before reading or mutating records.
+   * The guard receives that same transaction-bound EntityManager and, when the
+   * handler provides it, the final input after command interceptors. The input
+   * stays optional so existing handlers and callers remain source-compatible.
+   */
+  beforeTransactionalWrite?: (em: EntityManager, input?: unknown) => Promise<void>
   /**
    * Identifies the owner of an already-active {@link transactionalEm} lifetime.
    * Atomic replay accepts an ambient EntityManager only when this is the exact
@@ -235,6 +251,12 @@ export interface CommandHandler<TInput = unknown, TResult = unknown> {
    */
   readonly outputSchema?: ZodTypeAny
   prepare?(input: TInput, ctx: CommandRuntimeContext): Promise<{ before?: unknown } | null> | { before?: unknown } | null
+  /**
+   * Opt in to taking the undo snapshot inside the write transaction. The bus
+   * defers `prepare()` into `ctx.beforeTransactionalWrite`, after the handler's
+   * transaction guard and before its first read or mutation.
+   */
+  readonly prepareSnapshotInsideTransaction?: boolean
   execute(input: TInput, ctx: CommandRuntimeContext): Promise<TResult> | TResult
   buildLog?(args: CommandLogBuilderArgs<TInput, TResult>): Promise<CommandLogMetadata | null | undefined> | CommandLogMetadata | null | undefined
   captureAfter?(input: TInput, result: TResult, ctx: CommandRuntimeContext): Promise<unknown> | unknown

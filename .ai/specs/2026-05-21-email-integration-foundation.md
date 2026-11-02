@@ -769,8 +769,8 @@ Routes that mutate (everything except the OAuth callback, which is GET-with-side
 ### `GET /api/communication_channels/oauth/[provider]/callback`
 - No auth feature (state cookie carries identity)
 - Query: `code`, `state` (Google)
-- Response: 302 to `returnUrl` (default `/backend/profile/communication-channels?flash=connected`) or `?flash=error&code=...`
-- Errors: invalid state, expired state, userId mismatch, exchange failure — all redirect with `flash=error`.
+- Response: 302 to `returnUrl` (default `/backend/profile/communication-channels?oauth=connected`) or `?oauth=error&code=...`
+- Errors: invalid state, expired state, userId mismatch, exchange failure — all redirect with `oauth=error`.
 
 ### `POST /api/communication_channels/channels/connect/credentials`
 - Features: `communication_channels.connect_user_channel`
@@ -949,7 +949,7 @@ If any line above fails, return to the hub-foundation PR before continuing.
 17. Module-local integration tests (`packages/core/src/modules/communication_channels/__integration__/`):
     - `TC-CHANNEL-EMAIL-HUB-001` per-user channel isolation: User A cannot list User B's channels via API
     - `TC-CHANNEL-EMAIL-HUB-002` polling scheduler enqueues `poll-channel` jobs at correct cadence (uses time-mocking to advance the scheduler)
-    - `TC-CHANNEL-EMAIL-HUB-003` OAuth state-cookie userId mismatch rejected at callback (302 to flash=error)
+    - `TC-CHANNEL-EMAIL-HUB-003` OAuth state-cookie userId mismatch rejected at callback (302 to oauth=error)
     - `TC-CHANNEL-EMAIL-HUB-004` `send-as-user` requires `user_id` ownership (cannot send via someone else's channel)
     - `TC-CHANNEL-EMAIL-HUB-005` `messages.message.sent` subscriber re-fetches by ID, no payload-shape coupling (simulate by emitting with a minimal payload and asserting routing still works)
     - `TC-CHANNEL-EMAIL-HUB-006` `channel_requires_reauth` notification raised when `markRequiresReauth` command runs; UMES `useNotificationEffect` handler triggers reconnect dialog (rendered, not OAuth-completed)
@@ -1248,6 +1248,14 @@ None.
 - **Fully compliant with hub + UMES + AGENTS.md**. Approved for implementation.
 
 ## Changelog
+
+### 2026-09-27 — OAuth connect result travels in `?oauth=`, not `?flash=` (#6402)
+
+- The callback redirected with `?flash=<connected|error>`, but the global `<FlashMessages>` host reads `?flash=` as the message text (the `ui/backend/utils/flash.ts` convention), so users saw a green toast reading `error`/`connected`, or nothing after a cross-origin return from the provider. The outcome now travels in `?oauth=` (plus the unchanged `code` / `provider` / `channelId`), and the profile page maps it to its translated message.
+- The page's `flash()` call runs from a mount effect. On a full page load hydration is split across Suspense boundaries, so that effect could commit before any `<FlashMessages>` host attached its listener, and the event was dropped. `flash()` now keeps the latest undelivered message for up to 5 s and the hosts that start listening in the same commit show it.
+- The page strips `oauth` / `code` / `provider` / `channelId` from the URL once it has shown the toast, so a reload or Back navigation does not show it again.
+- The toast never echoes `?code=` or `?provider=`: a link from another site can set both, and this toast is not behind the `?flash=` referrer check. Codes with a dedicated message (`oauth_client_not_configured`, `mailbox_already_connected`, `replay`, `state_store_unavailable`) keep it; every other code shows the generic "Failed to connect channel." The provider is shown only through its `communication_channels.channel.providers.<key>` label; an unknown key shows "Channel connected." (QA S1 on #6521, #7103).
+- A custom `returnUrl` page that parsed `flash=connected|error` must read `oauth` instead; no such consumer exists in the repository.
 
 ### 2026-09-17 — The per-user channel owner is the default assignee at ingest (#6106)
 

@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/ai-assistant",
-  "version": "0.8.0",
+  "version": "0.10.0",
   "license": "MIT",
   "type": "module",
   "engines": {
@@ -90,7 +90,7 @@
     "@ai-sdk/azure": "^4.0.0",
     "@ai-sdk/google": "^4.0.56",
     "@ai-sdk/openai": "^4.0.50",
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/sdk": "^1.32.0",
     "ai": "^7.0.83",
     "cmdk": "^1.0.0",
     "framer-motion": "^13.1.1",
@@ -115,7 +115,7 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "tsx": "^4.23.12",
-    "zod": "^4.4.3"
+    "zod": "^4.6.6"
   },
   "publishConfig": {
     "access": "public"

@@ -6,10 +6,14 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
   ChannelThreadMapping,
   CommunicationChannel,
   ExternalConversation,
+  ExternalMessage,
   MessageChannelLink,
 } from '../../../data/entities'
 import { ChannelAccessDeniedError, assertCanManageChannel } from '../../../lib/access-control'
@@ -24,6 +28,7 @@ import {
   TEST_SEED_PROVIDER_KEY,
   clearTestSeedCapturedMessages,
   createTestSeedPlatformMessage,
+  deleteTestSeedPlatformMessage,
   ensureTestSeedAdapterRegistered,
   isTestEmailCaptureAccessAuthorized,
   isTestChannelSeedingEnabled,
@@ -42,7 +47,7 @@ import {
  * production default) every request returns 404, so this route is invisible and
  * inert in production. See `lib/test-seed.ts` for the full rationale.
  *
- * Three actions, all scoped to the caller's tenant/org:
+ * Actions, all scoped to the caller's tenant/org:
  *   - `connect-channel`: connect a network-free stub channel owned by the caller
  *     (delegates to the real connect-credential command so the channel persists
  *     credentials + lands in `status='connected'`). Enables the outbound
@@ -60,6 +65,8 @@ import {
  *     the inbound auto-link tests (TC-CRM-EMAIL-002..005). NOTE: this action
  *     deliberately bypasses `messages.messages.compose` — it can never prove that
  *     the hub accepts a message, only that downstream subscribers fire.
+ *   - `purge-inbound`: hard-delete the rows one test-seeded or test-ingested
+ *     inbound message created, for integration teardown.
  */
 type RbacServiceLike = {
   loadAcl: (
@@ -131,9 +138,15 @@ const connectChannelSchema = z.object({
 const ingestInboundSchema = z.object({
   action: z.literal('ingest-inbound'),
   channelId: z.string().uuid(),
-  /** Opaque sender handle — a Discord snowflake, a Slack member id, etc. */
+  /**
+   * Opaque sender handle — a Discord snowflake, a Slack member id, etc. For a
+   * channel connected with the default `email` flavor this is the sender's
+   * address, and the email stub normalizes it into an email-shaped frame.
+   */
   senderIdentifier: z.string().min(1).max(255),
   senderDisplayName: z.string().max(255).optional(),
+  /** Honored by the email stub only; chat frames carry no subject. */
+  subject: z.string().max(500).optional(),
   body: z.string().max(50_000).optional(),
   externalMessageId: z.string().min(1).max(255),
   externalConversationId: z.string().min(1).max(255),
@@ -191,6 +204,21 @@ const emitInboundSchema = z.object({
 })
 
 /**
+ * Teardown for test-seeded or test-ingested inbound records: hard-delete the
+ * thread mapping, channel link, external message, synthetic conversation and
+ * platform message, scoped to the caller's channel. Disconnecting a channel
+ * deliberately retains these records, so without this every test leaks into the
+ * shared integration database.
+ */
+const purgeInboundSchema = z.object({
+  action: z.literal('purge-inbound'),
+  channelId: z.string().uuid(),
+  channelLinkId: z.string().uuid(),
+  messageId: z.string().uuid(),
+  conversationId: z.string().uuid(),
+})
+
+/**
  * Read-only: report the channel-side rows a platform message carries.
  *
  * The threading contract lives in rows no API exposes — an integration test
@@ -207,10 +235,29 @@ const bodySchema = z.discriminatedUnion('action', [
   inspectMessageLinksSchema,
   ingestInboundSchema,
   emitInboundSchema,
+  purgeInboundSchema,
   seedSystemChannelSchema,
   clearCaptureSchema,
   listCaptureSchema,
 ])
+
+const logger = createLogger('communication_channels').child({ component: 'test-seed' })
+
+const TEST_SEED_CONVERSATION_PREFIX = 'inbound-seed:'
+
+function ingestFailureResponse(err: unknown): Response {
+  if (err instanceof z.ZodError) {
+    return NextResponse.json({ error: err.message, issues: err.issues }, { status: 422 })
+  }
+  if (isCrudHttpError(err)) {
+    return NextResponse.json(err.body, { status: err.status })
+  }
+  logger.error('ingest-inbound failed', { err })
+  return NextResponse.json(
+    { error: err instanceof Error ? err.message : '[internal] ingest-inbound failed' },
+    { status: 500 },
+  )
+}
 
 export async function POST(req: Request): Promise<Response> {
   // Fail-closed: invisible in production. Mirrors an unknown route (404) rather
@@ -431,7 +478,7 @@ export async function POST(req: Request): Promise<Response> {
     )
   }
 
-  // action === 'ingest-inbound' | 'emit-inbound' — both address an existing channel.
+  // action === 'ingest-inbound' | 'emit-inbound' | 'purge-inbound' — all address an existing channel.
   const em = (container.resolve('em') as EntityManager).fork()
   // Only the `emit-inbound` branch stamps a caller-chosen provider key onto the
   // rows it seeds; `ingest-inbound` takes the channel's own (see below).
@@ -487,6 +534,54 @@ export async function POST(req: Request): Promise<Response> {
     )
   }
 
+  if (body.action === 'purge-inbound') {
+    const rowScope = { tenantId, organizationId }
+    // Only rows hanging off a test-prefixed conversation are purgeable, so a
+    // caller cannot use this action to hard-delete real channel traffic.
+    const seededConversation = await findOneWithDecryption(
+      em,
+      ExternalConversation,
+      {
+        id: body.conversationId,
+        channelId: body.channelId,
+        externalConversationId: { $like: `${TEST_SEED_CONVERSATION_PREFIX}%` },
+        ...rowScope,
+      },
+      undefined,
+      rowScope,
+    )
+    if (!seededConversation) {
+      return NextResponse.json({ error: 'seeded inbound conversation not found' }, { status: 404 })
+    }
+    await em.nativeDelete(ChannelThreadMapping, {
+      externalConversationId: body.conversationId,
+      channelId: body.channelId,
+      ...rowScope,
+    })
+    await em.nativeDelete(MessageChannelLink, {
+      id: body.channelLinkId,
+      externalConversationId: body.conversationId,
+      ...rowScope,
+    })
+    await em.nativeDelete(ExternalMessage, {
+      conversationId: body.conversationId,
+      channelId: body.channelId,
+      ...rowScope,
+    })
+    await em.nativeDelete(ExternalConversation, {
+      id: body.conversationId,
+      channelId: body.channelId,
+      ...rowScope,
+    })
+    await deleteTestSeedPlatformMessage(em, {
+      messageId: body.messageId,
+      channelId: body.channelId,
+      conversationId: body.conversationId,
+      ...rowScope,
+    })
+    return NextResponse.json({ ok: true })
+  }
+
   if (body.action === 'ingest-inbound') {
     // Everything below this point is the real path: the adapter normalizes the
     // frame and `ingest_inbound_message` composes the platform message through
@@ -497,11 +592,14 @@ export async function POST(req: Request): Promise<Response> {
     // check that `providerKey` matches the channel it names, so passing a
     // different one would silently stamp the wrong provider onto the link.
     const channelProviderKey = ownedChannel.providerKey
-    if (channelProviderKey !== TEST_SEED_CHAT_PROVIDER_KEY) {
+    if (
+      channelProviderKey !== TEST_SEED_CHAT_PROVIDER_KEY
+      && channelProviderKey !== TEST_SEED_PROVIDER_KEY
+    ) {
       return NextResponse.json(
         {
           error:
-            'ingest-inbound requires a channel connected with providerFlavor: "chat"; ' +
+            'ingest-inbound requires a channel connected through the test-seed stub; ' +
             `channel ${body.channelId} is '${channelProviderKey}'`,
         },
         { status: 422 },
@@ -520,17 +618,26 @@ export async function POST(req: Request): Promise<Response> {
       )
     }
 
-    const normalized = await adapter.normalizeInbound({
-      raw: {
-        externalMessageId: body.externalMessageId,
-        externalConversationId: body.externalConversationId,
-        senderIdentifier: body.senderIdentifier,
-        senderDisplayName: body.senderDisplayName,
-        body: body.body ?? '',
-      },
-      eventType: 'message',
-      metadata: {},
-    })
+    let normalized: unknown
+    try {
+      normalized = await adapter.normalizeInbound({
+        raw: {
+          externalMessageId: body.externalMessageId,
+          externalConversationId: body.externalConversationId,
+          senderIdentifier: body.senderIdentifier,
+          senderDisplayName: body.senderDisplayName,
+          ...(body.subject !== undefined ? { subject: body.subject } : {}),
+          body: body.body ?? '',
+        },
+        eventType: 'message',
+        metadata: {},
+      })
+    } catch (err) {
+      return NextResponse.json(
+        { error: err instanceof Error ? err.message : '[internal] adapter rejected the inbound frame' },
+        { status: 422 },
+      )
+    }
 
     const ingestInput = {
       channelId: body.channelId,
@@ -540,19 +647,29 @@ export async function POST(req: Request): Promise<Response> {
       message: normalized,
     } as IngestInboundMessageInput
 
-    const { result } = await commandBus.execute<
-      IngestInboundMessageInput,
-      IngestInboundMessageResult
-    >(COMMUNICATION_CHANNELS_INGEST_INBOUND_COMMAND_ID, {
-      input: ingestInput,
-      ctx: {
-        container,
-        auth: auth as never,
-        organizationScope: null,
-        selectedOrganizationId: organizationId,
-        organizationIds: organizationId ? [organizationId] : null,
-      },
-    })
+    let result: IngestInboundMessageResult
+    try {
+      const execution = await commandBus.execute<
+        IngestInboundMessageInput,
+        IngestInboundMessageResult
+      >(COMMUNICATION_CHANNELS_INGEST_INBOUND_COMMAND_ID, {
+        input: ingestInput,
+        ctx: {
+          container,
+          auth: auth as never,
+          organizationScope: null,
+          selectedOrganizationId: organizationId,
+          organizationIds: organizationId ? [organizationId] : null,
+        },
+      })
+      result = execution.result
+    } catch (err) {
+      const interceptorRejection = getCommandInterceptorHttpRejection(err)
+      if (interceptorRejection) {
+        return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+      }
+      return ingestFailureResponse(err)
+    }
 
     return NextResponse.json(
       {
@@ -571,7 +688,7 @@ export async function POST(req: Request): Promise<Response> {
   // so the link is shaped like a real inbound row the subscriber can consume.
   const conversation = em.create(ExternalConversation, {
     channelId: body.channelId,
-    externalConversationId: `inbound-seed:${Date.now()}:${Math.random().toString(16).slice(2, 8)}`,
+    externalConversationId: `${TEST_SEED_CONVERSATION_PREFIX}${Date.now()}:${Math.random().toString(16).slice(2, 8)}`,
     subject: body.subject ?? null,
     tenantId,
     organizationId,
@@ -665,7 +782,7 @@ export const openApi = {
   methods: {
     POST: {
       summary:
-        'Test-only: seed a connected channel, ingest a real inbound message, or emit a seeded inbound link (env-gated)',
+        'Test-only: seed a connected channel, ingest a real inbound message, emit a seeded inbound link, or purge one (env-gated)',
       tags: ['CommunicationChannels'],
       responses: [
         { status: 201, description: 'Channel seeded / inbound message emitted' },
