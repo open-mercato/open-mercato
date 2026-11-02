@@ -21,7 +21,7 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn(async () => authValue),
 }))
 
-import { GET } from '../route'
+import { GET, metadata } from '../route'
 
 function suggestionRow(overrides: Record<string, unknown> = {}) {
   return {
@@ -48,6 +48,11 @@ describe('catalog category-suggestions list route', () => {
     authValue = { tenantId, orgId: organizationId, sub: 'user-1' }
     findMock.mockResolvedValue([])
     countMock.mockResolvedValue(0)
+  })
+
+  it('requires authentication and the ai_categorization.use feature, not just product view', () => {
+    expect(metadata.GET.requireAuth).toBe(true)
+    expect(metadata.GET.requireFeatures).toEqual(['catalog.ai_categorization.use'])
   })
 
   it('rejects unauthenticated requests', async () => {

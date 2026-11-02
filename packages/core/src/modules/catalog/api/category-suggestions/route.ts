@@ -14,7 +14,7 @@ import { serializeCategorySuggestion } from '../../lib/aiCategorization/serializ
 const logger = createLogger('catalog')
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['catalog.products.view'] },
+  GET: { requireAuth: true, requireFeatures: ['catalog.ai_categorization.use'] },
 }
 
 export async function GET(req: Request) {
@@ -96,7 +96,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'List category suggestions (read-only)',
-      description: 'Filters: status, productId, ids, minConfidence. pageSize capped at 100. Hides suggestions of soft-deleted products and returns categoryLive computed from the category\'s deletedAt/isActive.',
+      description: 'Requires the catalog.ai_categorization.use feature. Filters: status, productId, ids, minConfidence. pageSize capped at 100. Hides suggestions of soft-deleted products and returns categoryLive computed from the category\'s deletedAt/isActive.',
       query: categorySuggestionListQuerySchema,
       responses: [
         {
