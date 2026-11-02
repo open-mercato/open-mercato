@@ -172,6 +172,54 @@ describe('quote send + accept flow', () => {
     expect(sendEmail).toHaveBeenCalledWith(expect.objectContaining({ to: 'accounting@example.com' }))
   })
 
+  test('sends CC recipients without the primary address and remembers them on the quote (#8460)', async () => {
+    const quote = {
+      id: '22222222-2222-4222-8222-222222222224',
+      tenantId: '00000000-0000-4000-8000-000000000000',
+      organizationId: '11111111-1111-4111-8111-111111111111',
+      quoteNumber: 'SQ-3',
+      currencyCode: 'USD',
+      grandTotalGrossAmount: '10',
+      status: 'draft',
+      statusEntryId: null,
+      customerSnapshot: { customer: { primaryEmail: 'buyer@example.com' } },
+      metadata: { customerEmail: 'buyer@example.com', note: 'keep me' } as Record<string, unknown>,
+      updatedAt: new Date(),
+      validUntil: null,
+      sentAt: null,
+      acceptanceToken: null,
+    }
+
+    mockEm.findOne.mockImplementation(async (cls: any, where: any) => {
+      if (cls === SalesQuote) return where?.id === quote.id ? quote : null
+      if (cls === Dictionary) return { id: 'dict-1' }
+      if (cls === DictionaryEntry) return { id: 'entry-sent' }
+      return null
+    })
+
+    const res = await sendQuote(makeRequest({
+      quoteId: quote.id,
+      validForDays: 14,
+      cc: ['purchasing@example.com', 'Buyer@example.com', 'purchasing@example.com', 'accounting@example.com'],
+    }))
+    expect(res.status).toBe(200)
+    const { sendEmail } = await import('@open-mercato/shared/lib/email/send')
+    expect(sendEmail).toHaveBeenCalledWith(expect.objectContaining({
+      to: 'buyer@example.com',
+      cc: ['purchasing@example.com', 'accounting@example.com'],
+    }))
+    expect(quote.metadata).toEqual({
+      customerEmail: 'buyer@example.com',
+      note: 'keep me',
+      recipients: { cc: ['purchasing@example.com', 'accounting@example.com'] },
+    })
+  })
+
+  test('rejects an invalid CC address', async () => {
+    const res = await sendQuote(makeRequest({ quoteId: '22222222-2222-4222-8222-222222222222', validForDays: 14, cc: ['not-an-email'] }))
+    expect(res.status).toBe(400)
+  })
+
   test('accept never matches a raw (unhashed) stored token — hashed lookup only (#2929)', async () => {
     const RAW_STORED_TOKEN = '77777777-7777-4777-8777-777777777777'
     const rawStoredQuote = {

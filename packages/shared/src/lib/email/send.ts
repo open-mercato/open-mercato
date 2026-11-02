@@ -17,6 +17,8 @@ export type EmailAttachment = {
 
 export type SendEmailOptions = {
   to: string
+  /** Optional carbon-copy recipients; transports that cannot address several recipients ignore it. */
+  cc?: string[]
   subject: string
   react?: React.ReactElement
   html?: string
@@ -30,6 +32,7 @@ export type SendEmailOptions = {
 
 export type ResolvedEmailPayload = {
   to: string
+  cc?: string[]
   subject: string
   react?: React.ReactElement
   html?: string
@@ -50,6 +53,7 @@ export type ResolvedEmailPayload = {
 
 type CapturedEmail = {
   to: string
+  cc: string[]
   subject: string
   from: string | null
   replyTo: string | null
@@ -109,6 +113,7 @@ async function captureEmailForTests(options: SendEmailOptions): Promise<void> {
   const capturePath = resolveTestEmailCapturePath()
   const record: CapturedEmail = {
     to: options.to,
+    cc: options.cc ?? [],
     subject: options.subject,
     from: options.from ?? resolveDefaultEmailFromAddress() ?? null,
     replyTo: options.replyTo ?? null,
@@ -137,6 +142,7 @@ export async function sendEmail(options: SendEmailOptions): Promise<void> {
 
   await transport.send({
     to: options.to,
+    cc: options.cc?.length ? options.cc : undefined,
     subject: options.subject,
     react: options.react,
     html: options.html,
