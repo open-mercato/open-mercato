@@ -1271,6 +1271,37 @@ describe('HybridQueryEngine', () => {
     })
   })
 
+  test('does not join historical tenant-stamped documents for a tenantless source', async () => {
+    const db = createFakeKysely({
+      baseTable: 'feature_toggles', hasIndexAny: true, baseCount: 1, indexCount: 1,
+      customFieldKeys: { 'feature_toggles:feature_toggle': ['name'] },
+      columns: [{ table_name: 'feature_toggles', column_name: 'id' }, { table_name: 'feature_toggles', column_name: 'name' }],
+    })
+    const conditions: unknown[][] = []
+    const selectFrom = db.selectFrom.bind(db)
+    db.selectFrom = (table: string) => {
+      const chain = selectFrom(table)
+      const leftJoin = chain.leftJoin.bind(chain)
+      chain.leftJoin = (target: unknown, on: unknown) => {
+        if (target === 'entity_indexes as ei' && typeof on === 'function') {
+          const join = {
+            on: (...args: unknown[]) => { conditions.push(args); return join },
+            onRef: () => join,
+          }
+          on(join)
+        }
+        return leftJoin(target, on)
+      }
+      return chain
+    }
+    const em = buildEmWithOrmMetadata(db, { FeatureToggle: 'feature_toggles' })
+    const fallback = { query: jest.fn() }
+    const engine = new HybridQueryEngine(em, fallback as never)
+    await engine.query('feature_toggles:feature_toggle', { tenantId: 'victim-tenant', fields: ['id', 'cf:name'], includeCustomFields: ['name'] })
+    expect(fallback.query).not.toHaveBeenCalled()
+    expect(conditions).toContainEqual(['ei.tenant_id', 'is', null])
+  })
+
   test('joins entity index aliases for customFieldSources', async () => {
     const db = createFakeKysely({ baseTable: 'customer_entities', hasIndexAny: true, baseCount: 5, indexCount: 5 })
     const em = buildEm(db)
