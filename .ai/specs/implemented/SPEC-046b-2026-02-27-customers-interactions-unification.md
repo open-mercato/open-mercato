@@ -654,3 +654,7 @@ Large tenants may face expensive initial recompute. Mitigation: batch recompute 
 - **Commands**: Passed
 - **Risks**: Passed
 - **Verdict**: Approved
+
+### 2026-11-02 — Release privacy prerequisite
+
+The author/owner scope backport integrates the existing #8037 private-email mutation repair because the inherited email-privacy regressions exercise that prerequisite. Both privacy and scoped-user assertions remain intact; obsolete calendar mocks for the absent main-only calendar resolver are removed. Local evidence: 119 interaction/privacy/undo tests passed.

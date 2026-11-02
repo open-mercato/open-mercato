@@ -48,7 +48,8 @@ import {
   INTERACTION_STATUS_COMPLETED,
   INTERACTION_STATUS_PLANNED,
 } from '../lib/interactionStatus'
-import { canChangeEmailVisibility } from '../lib/visibilityFilter'
+import { canChangeEmailVisibility, isEmailHiddenFrom } from '../lib/visibilityFilter'
+import { listGrantsForViewerOnPerson, listSharedChannelIds } from '../lib/conversationShares'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 import { User } from '@open-mercato/core/modules/auth/data/entities'
@@ -148,9 +149,77 @@ async function ensureRestoredInteractionUsers(em: EntityManager, restored: Inter
   }
 }
 
-async function loadInteractionSnapshot(em: EntityManager, id: string): Promise<InteractionSnapshot | null> {
+async function ensureInteractionMutationAccess(
+  ctx: CommandRuntimeContext,
+  em: EntityManager,
+  interaction: CustomerInteraction | (InteractionSnapshot['interaction'] & { channelId?: string | null }),
+): Promise<void> {
+  ensureTenantScope(ctx, interaction.tenantId)
+  ensureOrganizationScope(ctx, interaction.organizationId)
+  const currentUserId = ctx.auth?.isApiKey ? null : ctx.auth?.sub ?? null
+  const personEntityId = 'entityId' in interaction
+    ? interaction.entityId
+    : typeof interaction.entity === 'string' ? interaction.entity : interaction.entity.id
+  const visibility = {
+    interactionType: interaction.interactionType,
+    visibility: interaction.visibility,
+    authorUserId: interaction.authorUserId,
+    currentUserId,
+    personEntityId,
+    channelId: interaction.channelId,
+  }
+  if (!isEmailHiddenFrom(visibility)) return
+  const scope = { tenantId: interaction.tenantId, organizationId: interaction.organizationId }
+  const sharedConversations = await listGrantsForViewerOnPerson(em, scope, currentUserId, personEntityId)
+  const sharedChannelIds = await listSharedChannelIds(em, scope, currentUserId)
+  if (isEmailHiddenFrom({ ...visibility, sharedConversations, sharedChannelIds })) {
+    const { translate } = await resolveTranslations()
+    throw notFound(translate('customers.errors.entity_not_found', 'Entity not found'))
+  }
+}
+
+async function ensureInteractionPrivacyChangeAccess(
+  ctx: CommandRuntimeContext,
+  interaction: CustomerInteraction,
+  next: { interactionType?: string; authorUserId?: string | null; visibility?: string | null },
+): Promise<void> {
+  if (interaction.interactionType !== 'email') return
+  const actorUserId = ctx.auth?.isApiKey ? null : ctx.auth?.sub ?? null
+  const changesOwnership = next.authorUserId !== undefined && (next.authorUserId ?? null) !== (interaction.authorUserId ?? null)
+  const changesType = next.interactionType !== undefined && next.interactionType !== interaction.interactionType
+  if (
+    ((changesOwnership || changesType) && (!actorUserId || actorUserId !== interaction.authorUserId)) ||
+    (next.visibility !== undefined && !canChangeEmailVisibility({
+      interactionType: interaction.interactionType,
+      currentVisibility: interaction.visibility,
+      nextVisibility: next.visibility,
+      authorUserId: interaction.authorUserId,
+      actorUserId,
+      userFeatures: undefined,
+    }))
+  ) {
+    const { translate } = await resolveTranslations()
+    throw notFound(translate('customers.errors.entity_not_found', 'Entity not found'))
+  }
+}
+
+async function ensureInteractionRestoreAccess(
+  ctx: CommandRuntimeContext,
+  em: EntityManager,
+  current: CustomerInteraction | null,
+  restored: InteractionSnapshot['interaction'],
+): Promise<void> {
+  if (current) {
+    await ensureInteractionMutationAccess(ctx, em, current)
+    await ensureInteractionPrivacyChangeAccess(ctx, current, { ...restored, visibility: restored.visibility ?? null })
+  }
+  await ensureInteractionMutationAccess(ctx, em, { ...restored, channelId: current?.channelId })
+}
+
+async function loadInteractionSnapshot(em: EntityManager, id: string, ctx?: CommandRuntimeContext): Promise<InteractionSnapshot | null> {
   const interaction = await findOneWithDecryption(em, CustomerInteraction, { id }, { populate: ['entity'] })
   if (!interaction) return null
+  if (ctx) await ensureInteractionMutationAccess(ctx, em, interaction)
   const custom = await loadCustomFieldSnapshot(em, {
     entityId: INTERACTION_ENTITY_ID,
     recordId: interaction.id,
@@ -524,6 +593,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
     const result = await runInTransaction(em, async (trx) => {
       const record = await findOneWithDecryption(trx, CustomerInteraction, { id: interactionId })
       if (!record) return null
+      await ensureInteractionMutationAccess(ctx, trx, record)
       const entityId = typeof record.entity === 'string' ? record.entity : record.entity.id
       trx.remove(record)
       await trx.flush()
@@ -554,6 +624,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
       const entity = await requireTimelineParentEntity(trx, after.interaction.entityId, { tenantId: after.interaction.tenantId, organizationId: after.interaction.organizationId })
       await ensureRestoredInteractionUsers(trx, after.interaction)
       let interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: after.interaction.id })
+      await ensureInteractionRestoreAccess(ctx, trx, interaction, after.interaction)
       if (!interaction) {
         interaction = buildInteractionGraph(trx, {
           id: after.interaction.id,
@@ -666,7 +737,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(interactionUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadInteractionSnapshot(em, parsed.id)
+    const snapshot = await loadInteractionSnapshot(em, parsed.id, ctx)
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
@@ -680,6 +751,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
       }
       ensureTenantScope(ctx, interaction.tenantId)
       ensureOrganizationScope(ctx, interaction.organizationId)
+      await ensureInteractionMutationAccess(ctx, trx, interaction)
 
       // Concurrent-edit guard for command-driven callers (e.g. the legacy
       // /api/customers/todos route, which bypasses the makeCrudRoute lock guard):
@@ -693,34 +765,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
         request: ctx.request ?? null,
       })
 
-      // Email visibility is an access-controlled field: only the interaction's
-      // author may change a
-      // private email's visibility (mirrors the dedicated PATCH .../visibility
-      // route). Enforce it here — the single persistence path — so the generic
-      // update route (PUT /api/interactions) cannot bypass the gate. Evaluated
-      // against the row's pre-mutation author/type. 404 (not 403) keeps the
-      // existence-masking consistent with the dedicated route.
-      if (
-        parsed.visibility !== undefined &&
-        interaction.interactionType === 'email' &&
-        (parsed.visibility ?? null) !== (interaction.visibility ?? null)
-      ) {
-        const actorUserId = (ctx.auth as { sub?: string | null } | null)?.sub ?? null
-        if (
-          !canChangeEmailVisibility({
-            interactionType: interaction.interactionType,
-            currentVisibility: interaction.visibility,
-            nextVisibility: parsed.visibility,
-            authorUserId: interaction.authorUserId,
-            actorUserId,
-            // v1 strict owner-only: only the author may flip visibility; no admin
-            // bypass (canChangeEmailVisibility ignores caller features in v1).
-            userFeatures: undefined,
-          })
-        ) {
-          throw notFound('Email not found')
-        }
-      }
+      await ensureInteractionPrivacyChangeAccess(ctx, interaction, parsed)
 
       await requireInteractionUsersInScope(trx, interaction, parsed, interaction)
 
@@ -852,6 +897,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { interaction, projections } = await runInTransaction(em, async (trx) => {
       let interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: before.interaction.id })
+      await ensureInteractionRestoreAccess(ctx, trx, interaction, before.interaction)
       const entity = await requireTimelineParentEntity(trx, before.interaction.entityId, { tenantId: before.interaction.tenantId, organizationId: before.interaction.organizationId })
       await ensureRestoredInteractionUsers(trx, before.interaction)
 
@@ -978,7 +1024,7 @@ const completeInteractionCommand: CommandHandler<InteractionCompleteInput, { int
   async prepare(rawInput, ctx) {
     const parsed = interactionCompleteSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadInteractionSnapshot(em, parsed.id)
+    const snapshot = await loadInteractionSnapshot(em, parsed.id, ctx)
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
@@ -992,6 +1038,7 @@ const completeInteractionCommand: CommandHandler<InteractionCompleteInput, { int
       }
       ensureTenantScope(ctx, interaction.tenantId)
       ensureOrganizationScope(ctx, interaction.organizationId)
+      await ensureInteractionMutationAccess(ctx, trx, interaction)
 
       await enforceCommandOptimisticLockWithGuards(ctx.container, {
         resourceKind: 'customers.interaction',
@@ -1072,6 +1119,7 @@ const completeInteractionCommand: CommandHandler<InteractionCompleteInput, { int
     const result = await runInTransaction(em, async (trx) => {
       const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: before.interaction.id })
       if (!interaction) return null
+      await ensureInteractionMutationAccess(ctx, trx, interaction)
 
       interaction.status = before.interaction.status
       interaction.occurredAt = before.interaction.occurredAt
@@ -1118,7 +1166,7 @@ const cancelInteractionCommand: CommandHandler<InteractionCancelInput, { interac
   async prepare(rawInput, ctx) {
     const parsed = interactionCancelSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadInteractionSnapshot(em, parsed.id)
+    const snapshot = await loadInteractionSnapshot(em, parsed.id, ctx)
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
@@ -1132,6 +1180,7 @@ const cancelInteractionCommand: CommandHandler<InteractionCancelInput, { interac
       }
       ensureTenantScope(ctx, interaction.tenantId)
       ensureOrganizationScope(ctx, interaction.organizationId)
+      await ensureInteractionMutationAccess(ctx, trx, interaction)
 
       await enforceCommandOptimisticLockWithGuards(ctx.container, {
         resourceKind: 'customers.interaction',
@@ -1210,6 +1259,7 @@ const cancelInteractionCommand: CommandHandler<InteractionCancelInput, { interac
     const result = await runInTransaction(em, async (trx) => {
       const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: before.interaction.id })
       if (!interaction) return null
+      await ensureInteractionMutationAccess(ctx, trx, interaction)
 
       interaction.status = before.interaction.status
       await trx.flush()
@@ -1256,7 +1306,7 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
     async prepare(input, ctx) {
       const id = requireId(input, 'Interaction id required')
       const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const snapshot = await loadInteractionSnapshot(em, id)
+      const snapshot = await loadInteractionSnapshot(em, id, ctx)
       return snapshot ? { before: snapshot } : {}
     },
     async execute(input, ctx) {
@@ -1270,6 +1320,7 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
         }
         ensureTenantScope(ctx, interaction.tenantId)
         ensureOrganizationScope(ctx, interaction.organizationId)
+        await ensureInteractionMutationAccess(ctx, trx, interaction)
 
         await enforceCommandOptimisticLockWithGuards(ctx.container, {
           resourceKind: 'customers.interaction',
@@ -1336,6 +1387,7 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
         const entity = await requireTimelineParentEntity(trx, before.interaction.entityId, { tenantId: before.interaction.tenantId, organizationId: before.interaction.organizationId })
       await ensureRestoredInteractionUsers(trx, before.interaction)
         let interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: before.interaction.id })
+        await ensureInteractionRestoreAccess(ctx, trx, interaction, before.interaction)
         if (!interaction) {
           interaction = trx.create(CustomerInteraction, {
             id: before.interaction.id,
