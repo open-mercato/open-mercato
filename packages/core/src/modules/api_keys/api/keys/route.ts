@@ -193,10 +193,16 @@ const crud = makeCrudRoute<
       const qb = em.createQueryBuilder(ApiKey, 'k')
       qb.where({ deletedAt: null })
       qb.andWhere({ tenantId: auth.tenantId })
-      if (organizationIds && organizationIds.length > 0) {
-        qb.andWhere({ organizationId: { $in: organizationIds } })
-      } else if (auth.orgId) {
-        qb.andWhere({ organizationId: auth.orgId })
+      const organizationConstraint = organizationIds?.length
+        ? { organizationId: { $in: organizationIds } }
+        : auth.orgId ? { organizationId: auth.orgId } : null
+      if (organizationConstraint) {
+        const isSuperAdmin = await resolveIsSuperAdmin(ctx)
+        const tenantWideAccess = isSuperAdmin || (await (ctx.container.resolve('rbacService') as RbacService)
+          .resolveFeatureOrganizationAccess(auth.sub, ['api_keys.view'], { tenantId: auth.tenantId })).unrestricted
+        qb.andWhere(tenantWideAccess
+          ? { $or: [{ organizationId: null }, organizationConstraint] }
+          : organizationConstraint)
       }
       if (search) {
         const pattern = `%${escapeLikePattern(search)}%`

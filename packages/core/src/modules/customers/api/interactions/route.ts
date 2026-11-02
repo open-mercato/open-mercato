@@ -18,7 +18,7 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CustomerDeal, CustomerInteraction } from '../../data/entities'
-import { User } from '@open-mercato/core/modules/auth/data/entities'
+import { interactionUserKey, loadInteractionAuthors } from '../../lib/interactionUsers'
 import { interactionCreateSchema, interactionUpdateSchema } from '../../data/validators'
 import { parseScopedCommandInput } from '../utils'
 import {
@@ -612,13 +612,6 @@ export async function GET(req: Request) {
       hasMore = rows.length > query.limit
     }
 
-    const authorIds = Array.from(
-      new Set(
-        pageRows
-          .map((row) => (typeof row.author_user_id === 'string' ? row.author_user_id : null))
-          .filter((value): value is string => !!value),
-      ),
-    )
     const dealIds = Array.from(
       new Set(
         pageRows
@@ -642,8 +635,12 @@ export async function GET(req: Request) {
       new Set(pageRows.map((row) => row.organization_id).filter((value): value is string => !!value)),
     )
 
-    const [users, deals, customFieldValues, interactionRecords, encryptedFieldsByOrganization] = await Promise.all([
-      authorIds.length > 0 ? findWithDecryption(em, User, { id: { $in: authorIds } }, undefined, { tenantId: auth.tenantId, organizationId: selectedOrganizationId }) : Promise.resolve([]),
+    const [userMap, deals, customFieldValues, interactionRecords, encryptedFieldsByOrganization] = await Promise.all([
+      loadInteractionAuthors(em, pageRows.map((row) => ({
+        tenantId: row.tenant_id,
+        organizationId: row.organization_id,
+        authorUserId: row.author_user_id,
+      }))),
       dealIds.length > 0 ? findWithDecryption(em, CustomerDeal, { id: { $in: dealIds } }, undefined, { tenantId: auth.tenantId, organizationId: selectedOrganizationId }) : Promise.resolve([]),
       interactionIds.length > 0
         ? loadCustomFieldValues({
@@ -671,15 +668,6 @@ export async function GET(req: Request) {
       })(),
     ])
 
-    const userMap = new Map(
-      users.map((user) => [
-        user.id,
-        {
-          name: user.name ?? null,
-          email: user.email ?? null,
-        },
-      ]),
-    )
     const dealMap = new Map(
       deals.map((deal) => [deal.id, deal.title]),
     )
@@ -728,8 +716,8 @@ export async function GET(req: Request) {
       tenantId: row.tenant_id,
       createdAt: toIsoString(row.created_at) ?? new Date().toISOString(),
       updatedAt: toIsoString(row.updated_at) ?? new Date().toISOString(),
-      authorName: row.author_user_id ? userMap.get(row.author_user_id)?.name ?? null : null,
-      authorEmail: row.author_user_id ? userMap.get(row.author_user_id)?.email ?? null : null,
+      authorName: row.author_user_id ? userMap.get(interactionUserKey({ tenantId: row.tenant_id, organizationId: row.organization_id }, row.author_user_id))?.name ?? null : null,
+      authorEmail: row.author_user_id ? userMap.get(interactionUserKey({ tenantId: row.tenant_id, organizationId: row.organization_id }, row.author_user_id))?.email ?? null : null,
       dealTitle: row.deal_id ? dealMap.get(row.deal_id) ?? null : null,
       customValues: normalizeCustomFieldResponse(customFieldValues[row.id]) ?? null,
     }, interactionRecordMap.get(row.id), encryptedFieldsByOrganization.get(row.organization_id) ?? []))
