@@ -4,7 +4,7 @@ When working on search functionality, use this guide. It covers indexing, queryi
 
 ## Always
 
-1. **MUST** resolve `SearchIndexer` from DI; direct constructors pass its encrypted-field resolver. Never register the legacy `VectorIndexService` callback path.
+1. **MUST** resolve `SearchIndexer` from DI; direct `SearchIndexer` or `VectorIndexService` constructors pass `encryptedCustomFieldKeysResolver` and fail closed without it.
 2. **MUST** create a `search.ts` file for every module with searchable entities.
 3. **MUST** define `fieldPolicy.excluded` for any sensitive fields (passwords, tokens, SSNs, bank accounts) -- never allow them into any index.
 4. **MUST** define `formatResult` for every entity that uses the tokens strategy -- without it, users see raw UUIDs instead of names.
