@@ -48,16 +48,26 @@ describe('CustomerUserService password hashing', () => {
     await expect(svc.verifyPassword(user as any, 'wrong')).resolves.toBe(false)
   })
 
-  it('upgrades a bcrypt hash to Argon2id with a compare-and-swap scoped to the tenant', async () => {
+  it('upgrades a bcrypt hash to Argon2id with a tenant- and organization-scoped compare-and-swap', async () => {
     useHasher('argon2id')
     const { svc, em } = makeService()
     const oldHash = await bcryptHash('Secret#1', 4)
     const user = { id: 'u1', ...scope, passwordHash: oldHash }
     await expect(svc.rehashPasswordIfNeeded(user as any, 'Secret#1')).resolves.toBe(true)
     const [, where, data] = em.nativeUpdate.mock.calls[0] as unknown as [unknown, Record<string, unknown>, Record<string, string>]
-    expect(where).toEqual({ id: 'u1', tenantId: 't1', passwordHash: oldHash })
+    expect(where).toEqual({
+      id: 'u1',
+      tenantId: 't1',
+      organizationId: 'o1',
+      passwordHash: oldHash,
+    })
     expect(data.passwordHash).toMatch(/^\$argon2id\$/)
-    expect(user.passwordHash).toBe(data.passwordHash)
+    expect(user.passwordHash).toBe(oldHash)
+    await expect(createPasswordHasher({
+      algorithm: 'argon2id',
+      bcryptCost: 4,
+      argon2id: { ...FAST_ARGON2 },
+    }).verify('Secret#1', data.passwordHash)).resolves.toBe(true)
     await expect(svc.verifyPassword(user as any, 'Secret#1')).resolves.toBe(true)
   })
 

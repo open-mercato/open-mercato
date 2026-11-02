@@ -12,8 +12,8 @@ import { createLogger } from '../logger'
  * opportunistic upgrade after a successful login.
  *
  * The default stays `bcrypt` (cost 10) so existing installs behave exactly as
- * before. `argon2id` is opt-in and loads `@node-rs/argon2` lazily, only when a
- * process actually hashes or verifies an Argon2id password.
+ * before. `argon2id` is opt-in and loads `@node-rs/argon2` lazily, when a
+ * process first hashes with Argon2id or runs the mixed-algorithm failure profile.
  */
 
 export type PasswordHashAlgorithm = 'bcrypt' | 'argon2id'
@@ -38,12 +38,12 @@ export interface PasswordHasher {
   readonly algorithm: PasswordHashAlgorithm
   /** Hash a password with the configured algorithm. */
   hash(password: string): Promise<string>
-  /** Verify a password against a stored Argon2id hash, or (anything else) bcrypt as before. Non-hash values never match. */
+  /** Verify a password against a supported stored hash. Failed checks run one bcrypt and one Argon2id verification. */
   verify(password: string, storedHash: string): Promise<boolean>
   /** True when the stored hash should be replaced by a fresh hash with the current configuration. */
   needsRehash(storedHash: string): boolean
   /**
-   * Spend the same CPU time as a real verification without any account data.
+   * Spend the same algorithm-independent work as a failed verification without any account data.
    * Login flows call it on every branch that has no stored hash to compare
    * against, so response latency does not reveal whether an account exists.
    */
@@ -70,8 +70,12 @@ export const DEFAULT_ARGON2ID_PARAMS: Readonly<Argon2idParams> = Object.freeze({
 const BCRYPT_TIMING_EQUALIZER_HASH = '$2b$10$OcZrhmZpIzJOjkfwUrk7d.Nl0eHNzOvalBcBlt5Ran.4lj8R3HZg6'
 
 const BCRYPT_PREFIX = /^\$2[aby]\$(\d{2})\$/
-const ARGON2ID_PHC = /^\$argon2id\$v=(\d+)\$m=(\d+),t=(\d+),p=(\d+)\$[^$]+\$[^$]+$/
 const ARGON2_VERSION = 19
+const ARGON2_SALT_MIN_BYTES = 16
+const ARGON2_OUTPUT_BYTES = 32
+const ARGON2_MEMORY_MAX_KIB = 4 * 1024 * 1024
+const ARGON2_TIME_COST_MAX = 100
+const ARGON2_PARALLELISM_MAX = 255
 
 const logger = createLogger('auth').child({ component: 'password-hasher' })
 
@@ -82,11 +86,13 @@ export function detectPasswordHashAlgorithm(storedHash: string | null | undefine
   return null
 }
 
-function parsePositiveInt(raw: string | undefined, fallback: number, min: number, max: number): number {
+function parseIntegerInRange(raw: string | undefined, fallback: number, min: number, max: number): number {
   if (typeof raw !== 'string' || raw.trim().length === 0) return fallback
-  const parsed = Number.parseInt(raw.trim(), 10)
-  if (!Number.isFinite(parsed)) return fallback
-  return Math.min(max, Math.max(min, parsed))
+  const normalized = raw.trim()
+  if (!/^[1-9]\d*$/.test(normalized)) return fallback
+  const parsed = Number(normalized)
+  if (!Number.isSafeInteger(parsed) || parsed < min || parsed > max) return fallback
+  return parsed
 }
 
 export function resolvePasswordHasherConfig(env: NodeJS.ProcessEnv = process.env): PasswordHasherConfig {
@@ -97,15 +103,24 @@ export function resolvePasswordHasherConfig(env: NodeJS.ProcessEnv = process.env
   } else if (rawAlgorithm.length > 0 && rawAlgorithm !== 'bcrypt') {
     logger.warn('Unsupported OM_PASSWORD_HASH value, falling back to bcrypt', { value: rawAlgorithm })
   }
-  const parallelism = parsePositiveInt(env[PASSWORD_ARGON2_PARALLELISM_ENV], DEFAULT_ARGON2ID_PARAMS.parallelism, 1, 255)
-  // Argon2 requires at least 8 KiB of memory per lane.
-  const memoryCost = parsePositiveInt(
+  const parallelism = parseIntegerInRange(
+    env[PASSWORD_ARGON2_PARALLELISM_ENV],
+    DEFAULT_ARGON2ID_PARAMS.parallelism,
+    DEFAULT_ARGON2ID_PARAMS.parallelism,
+    ARGON2_PARALLELISM_MAX,
+  )
+  const memoryCost = parseIntegerInRange(
     env[PASSWORD_ARGON2_MEMORY_KIB_ENV],
     DEFAULT_ARGON2ID_PARAMS.memoryCost,
-    8 * parallelism,
-    4 * 1024 * 1024,
+    DEFAULT_ARGON2ID_PARAMS.memoryCost,
+    ARGON2_MEMORY_MAX_KIB,
   )
-  const timeCost = parsePositiveInt(env[PASSWORD_ARGON2_TIME_COST_ENV], DEFAULT_ARGON2ID_PARAMS.timeCost, 1, 100)
+  const timeCost = parseIntegerInRange(
+    env[PASSWORD_ARGON2_TIME_COST_ENV],
+    DEFAULT_ARGON2ID_PARAMS.timeCost,
+    DEFAULT_ARGON2ID_PARAMS.timeCost,
+    ARGON2_TIME_COST_MAX,
+  )
   return {
     algorithm,
     bcryptCost: DEFAULT_BCRYPT_COST,
@@ -131,29 +146,77 @@ function loadDefaultArgon2(): Promise<Argon2Module> {
       .then((mod) => {
         const candidate = ((mod as { default?: unknown }).default ?? mod) as Partial<Argon2Module>
         if (typeof candidate.hash !== 'function' || typeof candidate.verify !== 'function') {
-          throw new Error('@node-rs/argon2 does not expose hash/verify')
+          throw new Error('[internal] @node-rs/argon2 does not expose hash/verify')
         }
         return candidate as Argon2Module
       })
       .catch((error: unknown) => {
         argon2ModulePromise = null
-        const reason = error instanceof Error ? error.message : String(error)
         throw new Error(
-          `Argon2id password hashing needs the "@node-rs/argon2" package, which could not be loaded on this platform: ${reason}`,
+          '[internal] Argon2id password hashing needs the "@node-rs/argon2" package, which could not be loaded on this platform',
+          { cause: error },
         )
       })
   }
   return argon2ModulePromise
 }
 
-function parseArgon2idParams(storedHash: string): (Argon2idParams & { version: number }) | null {
-  const match = ARGON2ID_PHC.exec(storedHash)
-  if (!match) return null
+type ParsedArgon2idHash = Argon2idParams & {
+  version: number
+  saltLength: number
+  outputLength: number
+}
+
+function parsePhcBase64Length(value: string): number | null {
+  if (!/^[A-Za-z0-9+/]+$/.test(value) || value.length % 4 === 1) return null
+  const decoded = Buffer.from(value, 'base64')
+  if (decoded.toString('base64').replace(/=+$/u, '') !== value) return null
+  return decoded.length
+}
+
+function parseArgon2idHash(storedHash: string): ParsedArgon2idHash | null {
+  const segments = storedHash.split('$')
+  if (
+    segments.length !== 6
+    || segments[0] !== ''
+    || segments[1] !== 'argon2id'
+    || !segments[2].startsWith('v=')
+  ) return null
+
+  const version = parseIntegerInRange(segments[2].slice(2), -1, 1, Number.MAX_SAFE_INTEGER)
+  const rawParams = segments[3].split(',')
+  if (rawParams.length !== 3) return null
+  const params = new Map<string, string>()
+  for (const rawParam of rawParams) {
+    const separator = rawParam.indexOf('=')
+    if (separator <= 0 || separator === rawParam.length - 1) return null
+    const key = rawParam.slice(0, separator)
+    if (params.has(key)) return null
+    params.set(key, rawParam.slice(separator + 1))
+  }
+  if (params.size !== 3 || !params.has('m') || !params.has('t') || !params.has('p')) return null
+
+  const memoryCost = parseIntegerInRange(params.get('m'), -1, 1, Number.MAX_SAFE_INTEGER)
+  const timeCost = parseIntegerInRange(params.get('t'), -1, 1, Number.MAX_SAFE_INTEGER)
+  const parallelism = parseIntegerInRange(params.get('p'), -1, 1, Number.MAX_SAFE_INTEGER)
+  const saltLength = parsePhcBase64Length(segments[4])
+  const outputLength = parsePhcBase64Length(segments[5])
+  if (
+    version < 0
+    || memoryCost < 0
+    || timeCost < 0
+    || parallelism < 0
+    || saltLength === null
+    || outputLength === null
+  ) return null
+
   return {
-    version: Number(match[1]),
-    memoryCost: Number(match[2]),
-    timeCost: Number(match[3]),
-    parallelism: Number(match[4]),
+    version,
+    memoryCost,
+    timeCost,
+    parallelism,
+    saltLength,
+    outputLength,
   }
 }
 
@@ -163,11 +226,39 @@ export function createPasswordHasher(
 ): PasswordHasher {
   const loadArgon2 = deps.loadArgon2 ?? loadDefaultArgon2
   const argon2Params: Argon2idParams = { ...config.argon2id }
+  let loadedArgon2: Promise<Argon2Module> | null = null
   let argon2TimingHash: Promise<string> | null = null
+
+  const getArgon2 = (): Promise<Argon2Module> => {
+    if (!loadedArgon2) {
+      loadedArgon2 = loadArgon2().catch((error: unknown) => {
+        loadedArgon2 = null
+        throw error
+      })
+    }
+    return loadedArgon2
+  }
+
+  const getArgon2TimingHash = (): Promise<string> => {
+    if (!argon2TimingHash) {
+      argon2TimingHash = getArgon2()
+        .then((argon2) => argon2.hash(randomBytes(32).toString('hex'), argon2Params))
+        .catch((error: unknown) => {
+          argon2TimingHash = null
+          throw error
+        })
+    }
+    return argon2TimingHash
+  }
+
+  const verifyArgon2TimingHash = async (password: string): Promise<void> => {
+    const argon2 = await getArgon2()
+    await argon2.verify(await getArgon2TimingHash(), password)
+  }
 
   const hash = async (password: string): Promise<string> => {
     if (config.algorithm === 'argon2id') {
-      const argon2 = await loadArgon2()
+      const argon2 = await getArgon2()
       return argon2.hash(password, argon2Params)
     }
     return bcryptHash(password, config.bcryptCost)
@@ -178,16 +269,20 @@ export function createPasswordHasher(
     if (algorithm === 'argon2id') {
       // A missing Argon2 implementation is an operator error and must surface,
       // not masquerade as a wrong password.
-      const argon2 = await loadArgon2()
+      const argon2 = await getArgon2()
       try {
-        return await argon2.verify(storedHash, password)
+        if (await argon2.verify(storedHash, password)) return true
       } catch {
-        return false
+        // Malformed Argon2id hashes still receive the complete failed-auth work profile.
       }
+      await bcryptCompare(password, BCRYPT_TIMING_EQUALIZER_HASH)
+      return false
     }
-    // Everything else goes to bcrypt exactly as before this service existed:
-    // bcryptjs rejects anything that is not a valid bcrypt hash (returns false).
-    return bcryptCompare(password, storedHash)
+    // bcryptjs rejects values that are not valid bcrypt hashes. A failed or
+    // unknown hash then pays the Argon2id side of the same mixed-algorithm profile.
+    if (await bcryptCompare(password, storedHash)) return true
+    await verifyArgon2TimingHash(password)
+    return false
   }
 
   const needsRehash = (storedHash: string): boolean => {
@@ -195,13 +290,15 @@ export function createPasswordHasher(
     if (algorithm === null) return false
     if (algorithm !== config.algorithm) return true
     if (algorithm === 'argon2id') {
-      const params = parseArgon2idParams(storedHash)
-      if (!params) return false
+      const params = parseArgon2idHash(storedHash)
+      if (!params) return true
       return (
         params.version !== ARGON2_VERSION
         || params.memoryCost !== argon2Params.memoryCost
         || params.timeCost !== argon2Params.timeCost
         || params.parallelism !== argon2Params.parallelism
+        || params.saltLength < ARGON2_SALT_MIN_BYTES
+        || params.outputLength !== ARGON2_OUTPUT_BYTES
       )
     }
     // bcrypt → bcrypt: never rehash, so the default configuration writes nothing.
@@ -209,19 +306,8 @@ export function createPasswordHasher(
   }
 
   const equalizeTiming = async (password: string): Promise<void> => {
-    if (config.algorithm === 'argon2id') {
-      if (!argon2TimingHash) {
-        // Hash a random throwaway value once with the configured parameters, so
-        // the dummy verification costs the same as verifying a real new hash.
-        argon2TimingHash = hash(randomBytes(32).toString('hex')).catch((error: unknown) => {
-          argon2TimingHash = null
-          throw error
-        })
-      }
-      await verify(password, await argon2TimingHash)
-      return
-    }
     await bcryptCompare(password, BCRYPT_TIMING_EQUALIZER_HASH)
+    await verifyArgon2TimingHash(password)
   }
 
   return {

@@ -94,11 +94,15 @@ export class CustomerUserService {
       const nextHash = await hasher.hash(password)
       const affected = await this.em.nativeUpdate(
         CustomerUser,
-        { id: user.id, tenantId: user.tenantId, passwordHash: storedHash },
+        {
+          id: user.id,
+          tenantId: user.tenantId,
+          organizationId: user.organizationId,
+          passwordHash: storedHash,
+        },
         { passwordHash: nextHash },
       )
       if (affected === 0) return false
-      user.passwordHash = nextHash
       return true
     } catch (error) {
       logger.warn('Password rehash after login failed', { userId: user.id, err: error })

@@ -14,6 +14,18 @@ import {
 // Cheap Argon2id parameters keep the suite fast; production defaults are asserted separately.
 const FAST_ARGON2 = { memoryCost: 1024, timeCost: 1, parallelism: 1 }
 
+function phcBase64(byteLength: number, fill: number): string {
+  return Buffer.alloc(byteLength, fill).toString('base64').replace(/=+$/u, '')
+}
+
+function argon2Hash(
+  params = FAST_ARGON2,
+  salt = phcBase64(16, 1),
+  output = phcBase64(32, 2),
+): string {
+  return `$argon2id$v=19$m=${params.memoryCost},t=${params.timeCost},p=${params.parallelism}$${salt}$${output}`
+}
+
 function config(overrides: Partial<PasswordHasherConfig> = {}): PasswordHasherConfig {
   return {
     algorithm: 'bcrypt',
@@ -44,23 +56,36 @@ describe('resolvePasswordHasherConfig', () => {
     expect(resolved.argon2id).toEqual({ memoryCost: 65536, timeCost: 3, parallelism: 4 })
   })
 
-  it('falls back to bcrypt for an unsupported algorithm and to defaults for invalid numbers', () => {
+  it('accepts the documented Argon2id minima explicitly', () => {
+    const resolved = resolvePasswordHasherConfig({
+      OM_PASSWORD_ARGON2_MEMORY_KIB: '19456',
+      OM_PASSWORD_ARGON2_TIME_COST: '2',
+      OM_PASSWORD_ARGON2_PARALLELISM: '1',
+    } as NodeJS.ProcessEnv)
+    expect(resolved.argon2id).toEqual(DEFAULT_ARGON2ID_PARAMS)
+  })
+
+  it('falls back to bcrypt for an unsupported algorithm and to defaults for malformed numbers', () => {
     const resolved = resolvePasswordHasherConfig({
       OM_PASSWORD_HASH: 'md5',
       OM_PASSWORD_ARGON2_MEMORY_KIB: 'lots',
-      OM_PASSWORD_ARGON2_TIME_COST: '0',
+      OM_PASSWORD_ARGON2_TIME_COST: '2iterations',
+      OM_PASSWORD_ARGON2_PARALLELISM: '1.5',
     } as NodeJS.ProcessEnv)
     expect(resolved.algorithm).toBe('bcrypt')
-    expect(resolved.argon2id.memoryCost).toBe(19456)
-    expect(resolved.argon2id.timeCost).toBe(1)
+    expect(resolved.argon2id).toEqual(DEFAULT_ARGON2ID_PARAMS)
   })
 
-  it('keeps Argon2id memory at the 8 KiB-per-lane minimum', () => {
-    const resolved = resolvePasswordHasherConfig({
-      OM_PASSWORD_ARGON2_MEMORY_KIB: '1',
-      OM_PASSWORD_ARGON2_PARALLELISM: '2',
-    } as NodeJS.ProcessEnv)
-    expect(resolved.argon2id.memoryCost).toBe(16)
+  it.each([
+    ['memory below the minimum', { OM_PASSWORD_ARGON2_MEMORY_KIB: '19455' }],
+    ['memory above the maximum', { OM_PASSWORD_ARGON2_MEMORY_KIB: '4194305' }],
+    ['time below the minimum', { OM_PASSWORD_ARGON2_TIME_COST: '1' }],
+    ['time above the maximum', { OM_PASSWORD_ARGON2_TIME_COST: '101' }],
+    ['parallelism below the minimum', { OM_PASSWORD_ARGON2_PARALLELISM: '0' }],
+    ['parallelism above the maximum', { OM_PASSWORD_ARGON2_PARALLELISM: '256' }],
+    ['an unsafe integer', { OM_PASSWORD_ARGON2_MEMORY_KIB: '9007199254740992' }],
+  ])('falls back to the safe defaults for %s instead of clamping it', (_label, env) => {
+    expect(resolvePasswordHasherConfig(env as NodeJS.ProcessEnv).argon2id).toEqual(DEFAULT_ARGON2ID_PARAMS)
   })
 })
 
@@ -92,6 +117,7 @@ describe('createPasswordHasher', () => {
     const hasher = createPasswordHasher(config({ algorithm: 'argon2id' }))
     const stored = await hasher.hash('Secret#1')
     expect(stored).toMatch(/^\$argon2id\$v=19\$m=1024,t=1,p=1\$/)
+    expect(hasher.needsRehash(stored)).toBe(false)
     await expect(hasher.verify('Secret#1', stored)).resolves.toBe(true)
     await expect(hasher.verify('wrong', stored)).resolves.toBe(false)
   })
@@ -122,7 +148,7 @@ describe('createPasswordHasher', () => {
   })
 
   describe('needsRehash', () => {
-    const argonDefault = '$argon2id$v=19$m=1024,t=1,p=1$c2FsdHNhbHQ$aGFzaGhhc2g'
+    const argonDefault = argon2Hash()
 
     it('never flags bcrypt hashes under the default bcrypt configuration', () => {
       const hasher = createPasswordHasher(config())
@@ -142,27 +168,100 @@ describe('createPasswordHasher', () => {
     it('flags Argon2id hashes whose parameters differ from the configuration', () => {
       const hasher = createPasswordHasher(config({ algorithm: 'argon2id' }))
       expect(hasher.needsRehash(argonDefault)).toBe(false)
-      expect(hasher.needsRehash('$argon2id$v=19$m=2048,t=1,p=1$c2FsdHNhbHQ$aGFzaGhhc2g')).toBe(true)
-      expect(hasher.needsRehash('$argon2id$v=19$m=1024,t=2,p=1$c2FsdHNhbHQ$aGFzaGhhc2g')).toBe(true)
-      expect(hasher.needsRehash('$argon2id$v=16$m=1024,t=1,p=1$c2FsdHNhbHQ$aGFzaGhhc2g')).toBe(true)
+      expect(hasher.needsRehash(argon2Hash({ ...FAST_ARGON2, memoryCost: 2048 }))).toBe(true)
+      expect(hasher.needsRehash(argon2Hash({ ...FAST_ARGON2, timeCost: 2 }))).toBe(true)
+      expect(hasher.needsRehash(argonDefault.replace('$v=19$', '$v=16$'))).toBe(true)
     })
 
-    it('does not flag hashes it cannot recognise', () => {
+    it('accepts valid package hash dimensions and parameter ordering', () => {
+      const hasher = createPasswordHasher(config({ algorithm: 'argon2id' }))
+      const reordered = argonDefault.replace('m=1024,t=1,p=1', 'p=1,m=1024,t=1')
+      expect(hasher.needsRehash(argonDefault)).toBe(false)
+      expect(hasher.needsRehash(reordered)).toBe(false)
+      expect(hasher.needsRehash(argon2Hash(FAST_ARGON2, phcBase64(32, 3)))).toBe(false)
+    })
+
+    it.each([
+      ['a salt shorter than 16 bytes', argon2Hash(FAST_ARGON2, phcBase64(15, 1))],
+      ['an output shorter than 32 bytes', argon2Hash(FAST_ARGON2, phcBase64(16, 1), phcBase64(31, 2))],
+      ['an output longer than 32 bytes', argon2Hash(FAST_ARGON2, phcBase64(16, 1), phcBase64(33, 2))],
+      ['non-canonical salt base64', argon2Hash(FAST_ARGON2, 'AB')],
+      ['non-base64 output', argon2Hash(FAST_ARGON2, phcBase64(16, 1), 'not_base64')],
+      ['duplicate parameters', argonDefault.replace('m=1024,t=1,p=1', 'm=1024,m=1024,p=1')],
+      ['missing parameters', argonDefault.replace('m=1024,t=1,p=1', 'm=1024,p=1')],
+    ])('flags an Argon2id hash with %s', (_label, storedHash) => {
+      const hasher = createPasswordHasher(config({ algorithm: 'argon2id' }))
+      expect(hasher.needsRehash(storedHash)).toBe(true)
+    })
+
+    it('does not flag unknown hashes but flags malformed Argon2id hashes', () => {
       const hasher = createPasswordHasher(config({ algorithm: 'argon2id' }))
       expect(hasher.needsRehash('plaintext')).toBe(false)
-      expect(hasher.needsRehash('$argon2id$garbage')).toBe(false)
+      expect(hasher.needsRehash('$argon2id$garbage')).toBe(true)
     })
   })
 
-  it('does not load Argon2 for bcrypt-only work', async () => {
+  it('does not load Argon2 for successful bcrypt-only work', async () => {
     const loadArgon2 = jest.fn()
     const hasher = createPasswordHasher(config(), { loadArgon2 })
     const stored = await hasher.hash('Secret#1')
     await hasher.verify('Secret#1', stored)
-    await hasher.equalizeTiming('Secret#1')
     hasher.needsRehash(stored)
     expect(loadArgon2).not.toHaveBeenCalled()
   })
+
+  it.each(['bcrypt', 'argon2id'] as const)(
+    'adds an Argon2id dummy verification to failed bcrypt checks under %s configuration',
+    async (algorithm) => {
+      const timingHash = argon2Hash()
+      const argon2 = {
+        hash: jest.fn(async () => timingHash),
+        verify: jest.fn(async () => false),
+      }
+      const hasher = createPasswordHasher(config({ algorithm }), { loadArgon2: async () => argon2 })
+      const stored = await bcryptHash('Secret#1', 4)
+
+      await expect(hasher.verify('wrong', stored)).resolves.toBe(false)
+
+      expect(argon2.hash).toHaveBeenCalledTimes(1)
+      expect(argon2.verify).toHaveBeenCalledWith(timingHash, 'wrong')
+    },
+  )
+
+  it.each(['bcrypt', 'argon2id'] as const)(
+    'preserves successful Argon2id verification and adds no Argon2id dummy under %s configuration',
+    async (algorithm) => {
+      const stored = argon2Hash()
+      const argon2 = {
+        hash: jest.fn(async () => argon2Hash()),
+        verify: jest.fn(async (candidate: string) => candidate === stored),
+      }
+      const hasher = createPasswordHasher(config({ algorithm }), { loadArgon2: async () => argon2 })
+
+      await expect(hasher.verify('Secret#1', stored)).resolves.toBe(true)
+
+      expect(argon2.verify).toHaveBeenCalledTimes(1)
+      expect(argon2.hash).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(['bcrypt', 'argon2id'] as const)(
+    'runs one real Argon2id check plus the bcrypt failure work under %s configuration',
+    async (algorithm) => {
+      const stored = argon2Hash()
+      const argon2 = {
+        hash: jest.fn(async () => argon2Hash()),
+        verify: jest.fn(async () => false),
+      }
+      const hasher = createPasswordHasher(config({ algorithm }), { loadArgon2: async () => argon2 })
+
+      await expect(hasher.verify('wrong', stored)).resolves.toBe(false)
+
+      expect(argon2.verify).toHaveBeenCalledTimes(1)
+      expect(argon2.verify).toHaveBeenCalledWith(stored, 'wrong')
+      expect(argon2.hash).not.toHaveBeenCalled()
+    },
+  )
 
   it('surfaces a missing Argon2 implementation instead of reporting a wrong password', async () => {
     const loadArgon2 = jest.fn(async () => {
@@ -173,15 +272,19 @@ describe('createPasswordHasher', () => {
     await expect(hasher.verify('Secret#1', '$argon2id$v=19$m=1024,t=1,p=1$c2FsdA$aGFzaA')).rejects.toThrow('@node-rs/argon2')
   })
 
-  it('equalizes timing with a dummy verification of the configured algorithm', async () => {
-    const argon2 = { hash: jest.fn(async () => '$argon2id$v=19$m=1024,t=1,p=1$c2FsdA$aGFzaA'), verify: jest.fn(async () => false) }
-    const hasher = createPasswordHasher(config({ algorithm: 'argon2id' }), { loadArgon2: async () => argon2 })
-    await hasher.equalizeTiming('Secret#1')
-    await hasher.equalizeTiming('Other#2')
-    expect(argon2.hash).toHaveBeenCalledTimes(1)
-    expect(argon2.verify).toHaveBeenCalledTimes(2)
-    expect(argon2.verify.mock.calls[1]).toEqual(['$argon2id$v=19$m=1024,t=1,p=1$c2FsdA$aGFzaA', 'Other#2'])
-  })
+  it.each(['bcrypt', 'argon2id'] as const)(
+    'equalizes timing with cached Argon2id work as well as bcrypt under %s configuration',
+    async (algorithm) => {
+      const timingHash = argon2Hash()
+      const argon2 = { hash: jest.fn(async () => timingHash), verify: jest.fn(async () => false) }
+      const hasher = createPasswordHasher(config({ algorithm }), { loadArgon2: async () => argon2 })
+      await hasher.equalizeTiming('Secret#1')
+      await hasher.equalizeTiming('Other#2')
+      expect(argon2.hash).toHaveBeenCalledTimes(1)
+      expect(argon2.verify).toHaveBeenCalledTimes(2)
+      expect(argon2.verify.mock.calls[1]).toEqual([timingHash, 'Other#2'])
+    },
+  )
 })
 
 describe('getPasswordHasher / setPasswordHasher', () => {

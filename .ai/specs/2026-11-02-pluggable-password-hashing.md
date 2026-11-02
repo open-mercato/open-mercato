@@ -23,9 +23,9 @@ Staff (`auth`) and customer-portal (`customer_accounts`) passwords are hashed wi
 | Method | Behaviour |
 |---|---|
 | `hash(password)` | Hashes with the configured algorithm (`bcrypt` cost 10, or Argon2id with the configured parameters). |
-| `verify(password, storedHash)` | Detects the algorithm from the stored hash prefix — `$argon2id$` Argon2id, anything else goes to bcrypt exactly as before (`$2a$`/`$2b$`/`$2y$`; bcryptjs rejects non-hash values) — so both kinds verify under either configuration. |
-| `needsRehash(storedHash)` | `true` when the stored algorithm differs from the configured one, or an Argon2id hash has other parameters than configured. bcrypt hashes are never flagged while the algorithm is `bcrypt`, so the default writes nothing. |
-| `equalizeTiming(password)` | Runs one dummy verification with the configured algorithm. Login branches without a stored hash call it instead of a hard-coded bcrypt compare. |
+| `verify(password, storedHash)` | Detects the algorithm from the stored hash prefix — `$argon2id$` Argon2id, anything else goes to bcrypt exactly as before (`$2a$`/`$2b$`/`$2y$`; bcryptjs rejects non-hash values) — so both kinds verify under either configuration. Failed verification always performs both bcrypt and Argon2id work, independent of the stored algorithm. |
+| `needsRehash(storedHash)` | `true` when the stored algorithm differs from the configured one, or an Argon2id hash has another version, cost, salt length or output length. bcrypt hashes are never flagged while the algorithm is `bcrypt`, so the default writes nothing. |
+| `equalizeTiming(password)` | Runs the same bcrypt-plus-Argon2id failure profile without account data. Login branches without a stored hash call it instead of a hard-coded bcrypt compare. |
 
 Configuration (read once per process):
 
@@ -38,7 +38,7 @@ Configuration (read once per process):
 
 Rehash on login: after a fully successful staff login (`POST /api/auth/login`) or customer-portal login (`customer_accounts` `api/login.ts`), when `needsRehash` is true the password is hashed again and stored with a compare-and-swap update (`WHERE id = ? AND password_hash = <old hash>`), so a concurrent password change is never overwritten. The rehash is best effort: an error is logged and reported (`auth.password_rehash_failed`, `customer_accounts.password_rehash_failed`) and the login still succeeds. The update does not touch `updated_at`, so it never causes an optimistic-lock conflict for an admin editing the same user.
 
-Dependency: `@node-rs/argon2` (napi-rs, Rust `argon2` crate). Prebuilt binaries for linux gnu/musl x64/arm64 (the `node:24-alpine` image), macOS and Windows ship as per-platform optional dependencies — no `node-gyp`, no install scripts. Next.js externalizes it by default (`server-external-packages`). It is imported lazily, only when a process hashes or verifies an Argon2id password, so bcrypt-only installs never load it. Considered: `argon2` (node-gyp-build prebuilds, heavier install surface, same speed) and `hash-wasm` (pure WASM, portable, but slower per hash at the same parameters, which costs login latency or forces weaker parameters).
+Dependency: `@node-rs/argon2` (napi-rs, Rust `argon2` crate). Prebuilt binaries for linux gnu/musl x64/arm64 (the `node:24-alpine` image), macOS and Windows ship as per-platform optional dependencies — no `node-gyp`, no install scripts. Next.js externalizes it by default (`server-external-packages`). It is imported lazily on the first Argon2id hash or failed/dummy password verification. Considered: `argon2` (node-gyp-build prebuilds, heavier install surface, same speed) and `hash-wasm` (pure WASM, portable, but slower per hash at the same parameters, which costs login latency or forces weaker parameters).
 
 Pluggability: `getPasswordHasher()` returns the process-wide instance built from env; `setPasswordHasher(custom)` replaces it (for example from an app's `di.ts`), and the `passwordHasher` DI registration always resolves the current instance.
 
@@ -70,28 +70,28 @@ No route, request or response change. New public helpers in `@open-mercato/share
 - Turning `argon2id` on: new and changed passwords use Argon2id; bcrypt hashes upgrade on the next successful login.
 - Turning it back off: Argon2id hashes keep verifying and are re-hashed to bcrypt on the next login, so a rollback path exists.
 - Downgrading Open Mercato to a version without this service after users were migrated breaks their login (old code only understands bcrypt). Switch back to `bcrypt` and let users log in first, or reset their passwords.
-- Enterprise: `packages/enterprise` `security/services/PasswordService.ts` (change password, sudo re-auth) verifies `User.passwordHash` with `bcryptjs` directly and is outside the scope of external contributions. Until it uses `getPasswordHasher()`, those enterprise flows reject Argon2id hashes; do not enable `argon2id` together with the enterprise security module.
+- Enterprise change-password and sudo re-authentication resolve the same shared hasher, so both bcrypt and Argon2id hashes work and password changes use the configured algorithm.
 - No contract surface in `BACKWARD_COMPATIBILITY.md` is removed, renamed or narrowed.
 
 ## Integration Coverage
 
-No API or UI path changes shape. Unit tests cover the new behaviour: hasher (both algorithms verify, wrong password fails, unknown formats, `needsRehash`, default config, env parsing, lazy load failure), `AuthService` and `CustomerUserService` rehash (success, compare-and-swap, failure never throws), and the updated timing-equalizer tests.
+No API or UI path changes shape. Unit tests cover the hasher (both algorithms verify, algorithm-independent failed-auth work, unknown formats, complete `needsRehash` policy, safe config parsing, lazy load failure), `AuthService` and `CustomerUserService` rehash (success, tenant/organization-scoped compare-and-swap, failure never throws), enterprise change-password and sudo verification, and the updated timing-equalizer paths. A PostgreSQL integration test covers both staff and portal login rehash followed by a session flush while a concurrent password reset wins.
 
 ## Risks & Impact Review
 
 | Risk | Severity | Area | Mitigation | Residual |
 |---|---|---|---|---|
-| Timing side channel during migration: under `argon2id`, accounts still on bcrypt verify at bcrypt cost while absent accounts pay Argon2id cost | Medium | login enumeration | Default unchanged; the window closes as users log in; documented | Low, opt-in only |
+| Timing side channel during mixed-algorithm migration | Medium | login enumeration | Failed and absent-account checks both perform bcrypt and Argon2id verification work, independent of stored/configured algorithm | Low; infrastructure jitter and stored historical cost parameters can still vary |
 | Native binary missing on an exotic platform | Medium | argon2id installs | Lazy load with a clear error naming the package; bcrypt installs never load it | Operator must stay on bcrypt there |
 | Argon2id memory use under login bursts (19 MiB per concurrent hash) | Low | server memory | Rate limits already bound login concurrency; parameters configurable | Low |
-| Enterprise PasswordService rejects Argon2id hashes | Medium | enterprise change-password / sudo | Documented; enterprise maintainers to switch to `getPasswordHasher()` | Until then, do not combine |
 
 ## Final Compliance Report
 
-- Tenant scoping: rehash updates by primary key plus old hash on the already-resolved user; no new query surface.
+- Tenant scoping: rehash updates include primary key, tenant ID, organization ID and old hash from the already-resolved user; no new query surface.
 - No generated files, migrations, ACL features or events changed.
 - Errors in the best-effort rehash are logged and reported through `getTelemetryRuntime()?.reportError`.
 
 ## Changelog
 
 - 2026-11-02: Spec created with the implementation (opt-in Argon2id, transparent rehash, default bcrypt).
+- 2026-11-02: Review hardening added scoped CAS updates, managed-entity flush safety, mixed-algorithm timing work, enterprise compatibility, safe Argon2 bounds, complete PHC policy checks and PostgreSQL race coverage.
