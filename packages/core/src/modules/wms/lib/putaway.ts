@@ -126,6 +126,21 @@ export function assertPutawayConfirmedQuantity(
 }
 
 /**
+ * A serial-specific task is one physical unit identity. Fractional completion
+ * would split that serial across two balances and a residual task.
+ */
+export function assertPutawaySerialConfirmedQuantity(
+  serialNumber: string | null | undefined,
+  confirmedQuantity: number,
+): void {
+  if (typeof serialNumber !== 'string' || serialNumber.trim().length === 0) return
+  const nearest = Math.round(confirmedQuantity)
+  if (Math.abs(confirmedQuantity - nearest) > 0.000001) {
+    throw new CrudHttpError(422, { error: 'invalid_putaway_quantity' })
+  }
+}
+
+/**
  * Reject a client lot that disagrees with the task lot. An omitted client lot
  * keeps the task lot. A task with no lot may still receive one.
  */

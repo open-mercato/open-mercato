@@ -2,7 +2,7 @@
 
 import { LockMode } from '@mikro-orm/core'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
-import { PutawayTask, WarehouseLocation } from '../../data/entities'
+import { PutawayTask, Warehouse, WarehouseLocation } from '../../data/entities'
 import { emitWmsEvent } from '../../events'
 import { buildPutawayCompleteReferenceId } from '../../lib/putaway'
 
@@ -56,7 +56,7 @@ function createEm() {
       id: 'generated-id',
       ...payload,
     })),
-    persist: jest.fn(),
+    persist: jest.fn(() => ({ flush: jest.fn(async () => undefined) })),
     flush: jest.fn(async () => undefined),
     getReference: jest.fn((_entity: unknown, id: string) => ({ id })),
     fork: jest.fn(),
@@ -273,6 +273,106 @@ describe('wms.putaway-tasks.complete event emit', () => {
     expect(task.status).toBe('open')
     expect(applyInventoryMoveInTransaction).not.toHaveBeenCalled()
     expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('rejects fractional completion of a serial task before moving stock', async () => {
+    const em = createEm()
+    const ctx = createCtx(em)
+    const task = openTask({ quantity: '1', serialNumber: 'SN-1', status: 'open' })
+
+    findOneWithDecryption.mockImplementation(async (_em, entity) => {
+      if (entity === PutawayTask) return task
+      return null
+    })
+    findPutawayCompleteMovementByReference.mockResolvedValue(null)
+
+    const handler = commandRegistry.get('wms.putaway-tasks.complete')
+    await expect(
+      handler!.execute(
+        {
+          organizationId: ORG,
+          tenantId: TENANT,
+          id: TASK_ID,
+          targetLocationId: TARGET_LOC,
+          confirmedQuantity: 0.5,
+          performedBy: USER_ID,
+        },
+        ctx as never,
+      ),
+    ).rejects.toMatchObject({ status: 422, body: { error: 'invalid_putaway_quantity' } })
+
+    expect(task.status).toBe('open')
+    expect(task.quantity).toBe('1')
+    expect(applyInventoryMoveInTransaction).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(em.create).not.toHaveBeenCalled()
+  })
+
+  it('still allows a whole-unit partial completion when the task has no serial', async () => {
+    const em = createEm()
+    const ctx = createCtx(em)
+    const task = openTask({ quantity: '5', serialNumber: null, status: 'open' })
+
+    findOneWithDecryption.mockImplementation(async (_em, entity, where) => {
+      if (entity === PutawayTask) {
+        if ((where as { putawayKey?: string }).putawayKey) return null
+        return task
+      }
+      if (entity === Warehouse) {
+        return {
+          id: '55555555-5555-4555-8555-555555555555',
+          tenantId: TENANT,
+          organizationId: ORG,
+        }
+      }
+      if (entity === WarehouseLocation) {
+        const id = String((where as { id?: string }).id)
+        return {
+          id,
+          tenantId: TENANT,
+          organizationId: ORG,
+          warehouse: { id: '55555555-5555-4555-8555-555555555555' },
+          isActive: true,
+          type: id === task.sourceLocationId ? 'staging' : 'bin',
+        }
+      }
+      return null
+    })
+    findWithDecryption.mockResolvedValue([])
+    findPutawayCompleteMovementByReference.mockResolvedValue(null)
+    applyInventoryMoveInTransaction.mockResolvedValue({
+      movementId: MOVEMENT_ID,
+      warehouseId: '55555555-5555-4555-8555-555555555555',
+      catalogVariantId: task.catalogVariantId,
+      quantity: 4,
+      tenantId: TENANT,
+      organizationId: ORG,
+      movementEntity: { id: MOVEMENT_ID, quantity: '4' },
+      balances: [],
+      idempotentReplay: false,
+    })
+
+    const handler = commandRegistry.get('wms.putaway-tasks.complete')
+    await handler!.execute(
+      {
+        organizationId: ORG,
+        tenantId: TENANT,
+        id: TASK_ID,
+        targetLocationId: TARGET_LOC,
+        confirmedQuantity: 4,
+        performedBy: USER_ID,
+      },
+      ctx as never,
+    )
+
+    expect(applyInventoryMoveInTransaction).toHaveBeenCalledWith(
+      em,
+      expect.anything(),
+      expect.objectContaining({ quantity: 4, serialNumber: undefined }),
+    )
+    expect(task.status).toBe('done')
+    expect(task.quantity).toBe('4')
+    expect(em.create).toHaveBeenCalled()
   })
 
   it('completes with the task lot when the client omits lotId', async () => {

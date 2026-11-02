@@ -8,6 +8,7 @@ import {
   assertPutawayCompletable,
   assertPutawayConfirmedQuantity,
   assertPutawayLotMatches,
+  assertPutawaySerialConfirmedQuantity,
   assertPutawayDeletable,
   assertPutawayLifecycleFieldsForbidden,
   assertPutawayStartable,
@@ -122,6 +123,20 @@ describe('putaway lifecycle guards', () => {
     expect(() => assertPutawayLotMatches(taskLot, null)).not.toThrow()
     expect(() => assertPutawayLotMatches(taskLot, ` ${taskLot} `)).not.toThrow()
     expect(() => assertPutawayLotMatches(null, otherLot)).not.toThrow()
+  })
+
+  it('rejects fractional completion only for serial-specific tasks', () => {
+    expect(() => assertPutawaySerialConfirmedQuantity('SN-1', 0.5)).toThrow(CrudHttpError)
+    try {
+      assertPutawaySerialConfirmedQuantity(' SN-1 ', 0.5)
+    } catch (error) {
+      expect((error as CrudHttpError).status).toBe(422)
+      expect((error as CrudHttpError).body).toMatchObject({ error: 'invalid_putaway_quantity' })
+    }
+    expect(() => assertPutawaySerialConfirmedQuantity('SN-1', 1)).not.toThrow()
+    expect(() => assertPutawaySerialConfirmedQuantity(null, 0.5)).not.toThrow()
+    expect(() => assertPutawaySerialConfirmedQuantity('  ', 0.5)).not.toThrow()
+    expect(putawayResidualQuantity(5, 4)).toBe(1)
   })
 
   it('rejects over-complete quantities and computes residual for under', () => {

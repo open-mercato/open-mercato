@@ -44,6 +44,7 @@ import {
   assertPutawayCompletable,
   assertPutawayConfirmedQuantity,
   assertPutawayLotMatches,
+  assertPutawaySerialConfirmedQuantity,
   assertPutawayDeletable,
   assertPutawayLifecycleFieldsForbidden,
   assertPutawayStartable,
@@ -990,6 +991,7 @@ const completePutawayTaskCommand: CommandHandler<
 
       assertPutawayCompletable(task.status)
       assertPutawayConfirmedQuantity(taskQuantity, input.confirmedQuantity)
+      assertPutawaySerialConfirmedQuantity(task.serialNumber, input.confirmedQuantity)
       // Reject before any task or inventory write. Omitted lotId keeps task.lotId.
       assertPutawayLotMatches(task.lotId, input.lotId)
 
