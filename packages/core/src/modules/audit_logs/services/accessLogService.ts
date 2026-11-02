@@ -79,13 +79,15 @@ function accessLogRotationStore(): AccessLogRotationStore {
 
 function getAccessLogWriteTracker(): BoundedPendingOperationTracker {
   const current = accessLogWriteTrackerStore()
-  const capacity = parsePendingOperationCapacity(process.env.AUDIT_LOGS_MAX_PENDING)
+  const configuredCapacity = parsePendingOperationCapacity(process.env.AUDIT_LOGS_MAX_PENDING)
+  const capacity = configuredCapacity >= 2 ? configuredCapacity : parsePendingOperationCapacity(undefined)
   if (current.tracker && (current.tracker.capacity === capacity || current.tracker.pending > 0)) {
     return current.tracker
   }
   current.tracker?.dispose()
   current.tracker = createBoundedPendingOperationTracker({
     capacity,
+    scopeCapacity: Math.floor(capacity / 2),
     stage: 'service_write',
     onDrop: ({ dropped, totalDropped, backlogDrained }) => {
       logger.warn('Dropped access-log writes because pending capacity was full', {
@@ -105,6 +107,9 @@ function getAccessLogWriteTracker(): BoundedPendingOperationTracker {
 
 export async function flushAccessLog(): Promise<void> {
   await accessLogWriteTrackerStore().tracker?.flush()
+  while (accessLogRotationStore().inFlight) {
+    await accessLogRotationStore().inFlight
+  }
 }
 
 /** Test-only: dispose the write tracker and clear retention-rotation state. */
@@ -148,14 +153,20 @@ export class AccessLogService {
   constructor(private readonly em: EntityManager) {}
 
   async log(input: AccessLogCreateInput): Promise<AccessLog | null> {
-    const admission = getAccessLogWriteTracker().tryStart(() => this.logInternal(input))
+    const admission = getAccessLogWriteTracker().tryStart(() => this.logInternal(input), [this.admissionScope(input)])
     return admission.accepted ? admission.promise : null
   }
 
   async logMany(inputs: AccessLogCreateInput[]): Promise<number> {
     if (!Array.isArray(inputs) || inputs.length === 0) return 0
-    const admission = getAccessLogWriteTracker().tryStart(() => this.logManyInternal(inputs))
+    const admission = getAccessLogWriteTracker().tryStart(() => this.logManyInternal(inputs), inputs.map((input) => this.admissionScope(input)))
     return admission.accepted ? admission.promise : 0
+  }
+
+  private admissionScope(input: AccessLogCreateInput): string {
+    return typeof input?.tenantId === 'string' && UUID_REGEX.test(input.tenantId)
+      ? input.tenantId.toLowerCase()
+      : ''
   }
 
   flush(): Promise<void> {
@@ -437,7 +448,7 @@ export class AccessLogService {
 
   private async rotate(fork: EntityManager): Promise<void> {
     const rotationState = accessLogRotationStore()
-    if (rotationState.inFlight) return rotationState.inFlight
+    if (rotationState.inFlight) return
     const now = Date.now()
     if (
       ROTATE_INTERVAL_MS > 0

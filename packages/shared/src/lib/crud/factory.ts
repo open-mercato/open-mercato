@@ -864,13 +864,15 @@ function crudAccessLogTrackerStore(): CrudAccessLogTrackerStore {
 
 function getCrudAccessLogTracker(): BoundedPendingOperationTracker {
   const current = crudAccessLogTrackerStore()
-  const capacity = parsePendingOperationCapacity(process.env.AUDIT_LOGS_MAX_PENDING)
+  const configuredCapacity = parsePendingOperationCapacity(process.env.AUDIT_LOGS_MAX_PENDING)
+  const capacity = configuredCapacity >= 2 ? configuredCapacity : parsePendingOperationCapacity(undefined)
   if (current.tracker && (current.tracker.capacity === capacity || current.tracker.pending > 0)) {
     return current.tracker
   }
   current.tracker?.dispose()
   current.tracker = createBoundedPendingOperationTracker({
     capacity,
+    scopeCapacity: Math.floor(capacity / 2),
     stage: 'crud_dispatch',
     onDrop: ({ dropped, totalDropped, backlogDrained }) => {
       logger.warn('Dropped access-log dispatches because pending capacity was full', {
@@ -1031,7 +1033,7 @@ export async function logCrudAccess(options: LogCrudAccessOptions): Promise<LogC
         logger.error('Failed to record access logs (batch)', { err, count: payloads.length })
       } catch {}
     }
-  })
+  }, [tenantId?.toLowerCase() ?? ''])
   if (!admission.accepted) {
     return { mode: 'skipped', count: 0, pending: admission.pending, dropped: true }
   }

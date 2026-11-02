@@ -67,16 +67,18 @@ Tracker metric and notification failures also reach the existing error-reporting
 
 ### Apply finite admission at both access-log boundaries
 
-Both stages read `AUDIT_LOGS_MAX_PENDING`, default `256`. Only positive integers are accepted; missing, invalid, zero, or negative values fall back to 256. Each stage has its own capacity and fixed label:
+Both stages read `AUDIT_LOGS_MAX_PENDING`, default `256`. Only integers of at least 2 are accepted; missing, invalid, one, zero, or negative values fall back to 256. Each stage has its own capacity and fixed label:
 
 - `crud_dispatch`: bounds fire-and-forget dispatch initiated by CRUD route helpers.
 - `service_write`: bounds direct and batched parsing/encryption/insert work in the access-log service.
 
-When full, reject the newest write before its async body starts. The CRUD path returns its existing `skipped` result with `count: 0` plus the additive `dropped: true` flag, so a capacity rejection is distinguishable from "nothing to log"; direct service calls preserve their `null`/`0` result shapes. No access-log overload error escapes into the domain mutation path.
+Each tenant may occupy at most half the configured capacity (rounded down), reserving capacity for another tenant. Admission keys come from trusted server tenant scope, are case-normalized, and are never emitted as metric labels. All organizations in a tenant share its allocation; unscoped/invalid identities share one fallback allocation. Mixed-tenant batches charge every distinct tenant without splitting or changing the batch. Scope counters exist only while admitted tasks are active and are removed on settlement. A one-slot configuration falls back to 256 because it cannot reserve capacity across tenants. The global cap still applies: several saturated tenants or a stalled shared database can exhaust total capacity; this best-effort mechanism does not promise lossless audit delivery.
+
+When either the global or tenant allocation is full, reject the newest write before its async body starts. The CRUD path returns its existing `skipped` result with `count: 0` plus the additive `dropped: true` flag, so a capacity rejection is distinguishable from "nothing to log"; direct service calls preserve their `null`/`0` result shapes. No access-log overload error escapes into the domain mutation path.
 
 ### Make retention rotation explicitly single-flight
 
-Maintain one module-level `rotationInFlight` promise. Interval gating and the `lastRotatedAt` claim happen synchronously. A concurrent caller awaits the same sweep; `finally` clears the slot only when it still owns that promise. Interval `0` means one sweep after each sequential write, never overlapping concurrent sweeps.
+Maintain one module-level `rotationInFlight` promise. Interval gating and the `lastRotatedAt` claim happen synchronously. A concurrent caller does not wait for an already-running sweep; shutdown flush still tracks that sweep; `finally` clears the slot only when it still owns that promise. Interval `0` means one sweep after each sequential write, never overlapping concurrent sweeps.
 
 ## User Stories / Use Cases
 
@@ -103,7 +105,7 @@ request → logCrudAccess()
 
 ## Data Models
 
-No database schema or persisted data changes. The tracker keeps only an admission token, promise, and monotonic start time for each pending operation in memory. Metric labels contain no tenant, organization, user, route, resource-kind, record, or payload values.
+No database schema or persisted data changes. The tracker keeps only an admission token, promise, monotonic start time, and transient normalized scope keys for each pending operation in memory. Metric labels contain no tenant, organization, user, route, resource-kind, record, or payload values.
 
 ## API Contracts
 
@@ -111,7 +113,7 @@ No database schema or persisted data changes. The tracker keeps only an admissio
 
 | Variable | Default | Contract |
 |---|---:|---|
-| `AUDIT_LOGS_MAX_PENDING` | `256` | Positive integer maximum for each pending registry. Missing, invalid, zero, or negative values fall back to 256. |
+| `AUDIT_LOGS_MAX_PENDING` | `256` | Integer maximum of at least 2 for each pending registry. Missing or invalid values, including 1, zero, or negative values, fall back to 256. A tenant may occupy at most half the global capacity. |
 
 The variable is mirrored in `apps/mercato/.env.example` and `packages/create-app/template/.env.example`.
 
@@ -121,7 +123,7 @@ The variable is mirrored in `apps/mercato/.env.example` and `packages/create-app
 |---|---|---:|---|---|
 | `om.audit_logs.pending_writes` | gauge | `{task}` | stage=`crud_dispatch` or `service_write` | Accepted writes currently in flight. |
 | `om.audit_logs.oldest_pending_age` | gauge | `s` | stage=`crud_dispatch` or `service_write` | Oldest accepted write age; zero when empty. |
-| `om.audit_logs.dropped` | counter | `{task}` | stage, reason=`capacity` | Writes not started because the stage is full. |
+| `om.audit_logs.dropped` | counter | `{task}` | stage, reason=`capacity` | Writes not started because global or tenant admission capacity is full. |
 
 ### Existing return contracts
 
@@ -132,10 +134,12 @@ The variable is mirrored in `apps/mercato/.env.example` and `packages/create-app
 
 There are no endpoint, response schema, UI route, or user-facing i18n changes. Manual UI QA is not applicable.
 
-## Migration & Compatibility
+## Migration & Backward Compatibility
 
 - No migration, backfill, entity, route, event, ACL, or discovery change.
-- Normal behavior below the configured cap is unchanged.
+- Normal behavior below both the global cap and tenant allocation is unchanged.
+- `AUDIT_LOGS_MAX_PENDING` and the pending-tracker utility are introduced in this unmerged change and are absent from target main `0ef0f453`. Tightening this new configuration to a minimum of 2 corrects the proposed feature before release; it removes no previously shipped configuration contract and needs no emergency-security exception. The generic capacity parser and unscoped tracker still accept 1; only access-log integration enforces the safe minimum.
+- The tracker adds only optional `scopeCapacity` and optional trailing `scopes`; existing factory-only calls and public return shapes remain valid.
 - Overload behavior intentionally changes from unbounded accepted work to bounded, observable best-effort loss, as requested by issue #5784.
 - Raising the finite cap reduces drop sensitivity. Full rollback is a code revert; no stored state requires reversal.
 - The implementation depends only on the additive, optional metric bridge; admission still works if telemetry is disabled or an older host supplies no metric method.
@@ -204,7 +208,7 @@ There are no endpoint, response schema, UI route, or user-facing i18n changes. M
 - **Severity**: Medium
 - **Affected area**: Audit-log retention deletion work.
 - **Mitigation**: Capture the owned promise and clear only when the slot identity still matches; test concurrent interval-zero calls.
-- **Residual risk**: A permanently hung DB deletion keeps callers awaiting one sweep; acquisition timeouts and operational metrics expose the underlying DB fault.
+- **Residual risk**: A permanently hung DB deletion keeps its initiating writer and shutdown flush awaiting one sweep; unrelated writers can finish; acquisition timeouts and operational metrics expose the underlying DB fault.
 
 #### Labels leak data or create cardinality growth
 - **Scenario**: Tenant or record values are added to backlog metric attributes.
@@ -258,6 +262,11 @@ None.
 **Fully compliant: Approved — ready for implementation.**
 
 ## Changelog
+
+### 2026-11-02
+
+- Reconcile security review #8472: bound each trusted tenant to half the process cap at both dispatch and persistence boundaries, charge mixed batches atomically, normalize keys, release scoped counts on settlement, and keep identifiers out of metrics. Treat the unreleased one-slot access-log setting as invalid.
+- Complete writes without awaiting an existing retention sweep while shutdown flush continues to track the single flight. Add two-tenant saturation, mixed-batch, cleanup and rotation-drain regressions.
 
 ### 2026-10-25
 

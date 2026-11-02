@@ -176,8 +176,42 @@ describe('AccessLogService.logMany', () => {
     expect(inflight.peak).toBeGreaterThan(1)
   })
 
-  it('rejects service writes before parsing or database work when capacity is full', async () => {
+  it('reserves write capacity across tenants and charges every tenant in mixed batches', async () => {
+    process.env.AUDIT_LOGS_MAX_PENDING = '4'
+    let releaseWrites!: () => void
+    const gate = new Promise<void>((resolve) => { releaseWrites = resolve })
+    const { em, fork } = makeFakeEm()
+    const execute = jest.fn(async () => { await gate; return [{ id: payload(0).resourceId }] })
+    fork.getConnection = () => ({ execute })
+    const service = new AccessLogService(em as never)
+    const otherTenant = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const mixed = service.logMany([payload(0), { ...payload(1), tenantId: otherTenant }])
+    const firstTenant = service.log(payload(2))
+    try {
+      expect(await service.log(payload(3))).toBeNull()
+      const otherWrite = service.log({ ...payload(4), tenantId: otherTenant })
+      expect(await service.log({ ...payload(5), tenantId: otherTenant.toUpperCase() })).toBeNull()
+      await Promise.resolve()
+      releaseWrites()
+      await Promise.all([mixed, firstTenant, otherWrite])
+      expect(execute).toHaveBeenCalledTimes(3)
+    } finally {
+      releaseWrites()
+      await flushAccessLog()
+    }
+    expect(await service.log(payload(6))).not.toBeNull()
+  })
+
+  it('falls back from a one-slot configuration so another tenant has reserved capacity', async () => {
     process.env.AUDIT_LOGS_MAX_PENDING = '1'
+    const { em } = makeFakeEm()
+    const service = new AccessLogService(em as never)
+    const writes = Array.from({ length: 2 }, (_, index) => service.log(payload(index)))
+    expect((await Promise.all(writes)).every((record) => record !== null)).toBe(true)
+  })
+
+  it('rejects service writes before parsing or database work when capacity is full', async () => {
+    process.env.AUDIT_LOGS_MAX_PENDING = '2'
     let releaseWrite: () => void = () => {}
     const pendingWrite = new Promise<void>((resolve) => {
       releaseWrite = resolve
@@ -206,7 +240,7 @@ describe('AccessLogService.logMany', () => {
         fields: {
           component: 'access-log-service',
           backlogDrained: false,
-          capacity: 1,
+          capacity: 2,
           stage: 'service_write',
           dropped: 1,
           totalDropped: 1,
@@ -226,7 +260,7 @@ describe('AccessLogService.logMany', () => {
       fields: {
         component: 'access-log-service',
         backlogDrained: true,
-        capacity: 1,
+        capacity: 2,
         stage: 'service_write',
         dropped: 1,
         totalDropped: 2,

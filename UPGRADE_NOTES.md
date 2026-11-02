@@ -5030,3 +5030,7 @@ When opening a PR that bumps a dependency across a major boundary, add an entry 
 the same PR. The `auto-upgrade-...` skill for the window picks up entries from this file;
 keep the headings stable (exactly `#### \`<package>\` \`^<from>\` → \`^<to>\``) so the
 skill can parse them.
+
+### Access-log overload admission
+
+The new access-log backlog cap reserves capacity across tenants: one tenant can occupy at most half of `AUDIT_LOGS_MAX_PENDING` (rounded down), shared across its organizations. Values below 2 fall back to 256. Global saturation can still drop best-effort audit writes. Existing retention sweeps no longer hold unrelated writers open; `flushAccessLog()` still drains rotation during shutdown.

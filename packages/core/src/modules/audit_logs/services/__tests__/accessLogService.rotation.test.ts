@@ -102,7 +102,7 @@ describe('access log rotation throttling', () => {
   })
 
   it('coalesces concurrent interval-zero rotations but rotates again sequentially', async () => {
-    const { AccessLogService } = loadServiceModule('0')
+    const { AccessLogService, flushAccessLog } = loadServiceModule('0')
     let releaseRotation: () => void = () => {}
     let signalRotationStarted: () => void = () => {}
     const rotationStarted = new Promise<void>((resolve) => {
@@ -130,11 +130,16 @@ describe('access log rotation throttling', () => {
     const first = service.log(payload(0))
     await rotationStarted
     const second = service.log(payload(1))
-    await Promise.resolve()
+    await second
     expect(fork.nativeDelete).toHaveBeenCalledTimes(1)
+    let flushed = false
+    const flushing = flushAccessLog().then(() => { flushed = true })
+    await Promise.resolve()
+    expect(flushed).toBe(false)
 
     releaseRotation()
-    await Promise.all([first, second])
+    await Promise.all([first, second, flushing])
+    expect(flushed).toBe(true)
     expect(fork.nativeDelete).toHaveBeenCalledTimes(2)
 
     await service.log(payload(2))

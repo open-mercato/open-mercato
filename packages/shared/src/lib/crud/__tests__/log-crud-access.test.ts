@@ -134,7 +134,7 @@ describe('logCrudAccess', () => {
   })
 
   it.each(['0', '1'])('rejects newest work before dispatch when blocking mode is %s', async (blocking) => {
-    process.env.AUDIT_LOGS_MAX_PENDING = '1'
+    process.env.AUDIT_LOGS_MAX_PENDING = '2'
     process.env.OM_CRUD_ACCESS_LOG_BLOCKING = '0'
     let releaseFirst: () => void = () => {}
     const firstWrite = new Promise<void>((resolve) => {
@@ -168,7 +168,7 @@ describe('logCrudAccess', () => {
   })
 
   it('does not flag skipped results that had nothing to log as dropped', async () => {
-    process.env.AUDIT_LOGS_MAX_PENDING = '1'
+    process.env.AUDIT_LOGS_MAX_PENDING = '2'
     process.env.OM_CRUD_ACCESS_LOG_BLOCKING = '0'
     let releaseFirst: () => void = () => {}
     const firstWrite = new Promise<void>((resolve) => {
@@ -204,8 +204,35 @@ describe('logCrudAccess', () => {
     }
   })
 
-  it('reports counted capacity warnings without a telemetry provider', async () => {
+  it('keeps dispatch capacity for another tenant when one tenant saturates its allocation', async () => {
     process.env.AUDIT_LOGS_MAX_PENDING = '2'
+    process.env.OM_CRUD_ACCESS_LOG_BLOCKING = '0'
+    let releaseWrites!: () => void
+    const gate = new Promise<void>((resolve) => { releaseWrites = resolve })
+    const service = { log: jest.fn(() => gate) }
+    const options = {
+      container: makeContainer(service), auth, items: makeItems(1),
+      idField: 'id', resourceKind: 'example.todo',
+    }
+    try {
+      expect((await logCrudAccess(options)).dropped).toBeUndefined()
+      expect((await logCrudAccess(options)).dropped).toBe(true)
+      const other = await logCrudAccess({ ...options, auth: { ...auth, tenantId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' } })
+      expect(other.dropped).toBeUndefined()
+      expect(other.pending).toBe(2)
+      expect(service.log).toHaveBeenCalledTimes(2)
+      expect(service.log).toHaveBeenLastCalledWith(expect.objectContaining({ tenantId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }))
+      expect((await logCrudAccess({ ...options, auth: { ...auth, tenantId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' } })).dropped).toBe(true)
+    } finally {
+      releaseWrites()
+      await flushPendingCrudAccessLogs()
+    }
+    expect((await logCrudAccess(options)).dropped).toBeUndefined()
+    await flushPendingCrudAccessLogs()
+  })
+
+  it('reports counted capacity warnings without a telemetry provider', async () => {
+    process.env.AUDIT_LOGS_MAX_PENDING = '4'
     process.env.OM_CRUD_ACCESS_LOG_BLOCKING = '0'
     const emit = jest.fn()
     const dispose = registerLoggerExtension({ emit })
@@ -228,7 +255,7 @@ describe('logCrudAccess', () => {
         fields: {
           component: 'crud',
           backlogDrained: false,
-          capacity: 2,
+          capacity: 4,
           stage: 'crud_dispatch',
           dropped: 1,
           totalDropped: 1,
@@ -246,7 +273,7 @@ describe('logCrudAccess', () => {
       fields: {
         component: 'crud',
         backlogDrained: true,
-        capacity: 2,
+        capacity: 4,
         stage: 'crud_dispatch',
         dropped: 1,
         totalDropped: 2,

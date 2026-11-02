@@ -19,6 +19,7 @@ export type PendingOperationDropNotification = {
 
 export type BoundedPendingOperationTrackerOptions = {
   capacity: number
+  scopeCapacity?: number
   stage: string
   now?: () => number
   onDrop?: (notification: PendingOperationDropNotification) => void
@@ -30,7 +31,7 @@ export type BoundedPendingOperationTracker = {
   readonly capacity: number
   readonly dropped: number
   readonly pending: number
-  tryStart<T>(factory: () => Promise<T> | T): PendingOperationAdmission<T>
+  tryStart<T>(factory: () => Promise<T> | T, scopes?: readonly string[]): PendingOperationAdmission<T>
   flush(): Promise<void>
   dispose(): void
 }
@@ -62,7 +63,8 @@ export function createBoundedPendingOperationTracker(
   const now = options.now ?? defaultNow
   const dropNotificationIntervalMs = options.dropNotificationIntervalMs
     ?? DEFAULT_DROP_NOTIFICATION_INTERVAL_MS
-  const pendingOperations = new Map<number, { promise: Promise<unknown>; startedAt: number }>()
+  const pendingOperations = new Map<number, { promise: Promise<unknown>; startedAt: number; scopes: readonly string[] }>()
+  const pendingByScope = new Map<string, number>()
   let nextOperationToken = 0
   let droppedCount = 0
   let droppedSinceLastNotification = 0
@@ -166,7 +168,13 @@ export function createBoundedPendingOperationTracker(
   }
 
   const finish = (token: number) => {
-    if (!pendingOperations.delete(token)) return
+    const operation = pendingOperations.get(token)
+    if (!operation || !pendingOperations.delete(token)) return
+    for (const scope of operation.scopes) {
+      const remaining = (pendingByScope.get(scope) ?? 1) - 1
+      if (remaining === 0) pendingByScope.delete(scope)
+      else pendingByScope.set(scope, remaining)
+    }
     if (pendingOperations.size === 0) {
       if (!disposed) collect()
       stopCollector()
@@ -182,11 +190,17 @@ export function createBoundedPendingOperationTracker(
     get pending() {
       return pendingOperations.size
     },
-    tryStart<T>(factory: () => Promise<T> | T): PendingOperationAdmission<T> {
+    tryStart<T>(factory: () => Promise<T> | T, scopes?: readonly string[]): PendingOperationAdmission<T> {
       if (disposed) {
         throw new Error('[internal] cannot start work on a disposed pending operation tracker')
       }
-      if (pendingOperations.size >= options.capacity) {
+      const operationScopes = options.scopeCapacity === undefined
+        ? []
+        : Array.from(new Set(scopes?.length ? scopes : ['']))
+      const scopeCapacity = options.scopeCapacity
+      const scopeFull = scopeCapacity !== undefined
+        && operationScopes.some((scope) => (pendingByScope.get(scope) ?? 0) >= scopeCapacity)
+      if (pendingOperations.size >= options.capacity || scopeFull) {
         droppedCount += 1
         droppedSinceLastNotification += 1
         recordMetric({
@@ -207,7 +221,10 @@ export function createBoundedPendingOperationTracker(
         resolveOperation = resolve
         rejectOperation = reject
       })
-      pendingOperations.set(token, { promise, startedAt: now() })
+      pendingOperations.set(token, { promise, startedAt: now(), scopes: operationScopes })
+      for (const scope of operationScopes) {
+        pendingByScope.set(scope, (pendingByScope.get(scope) ?? 0) + 1)
+      }
       ensureCollector()
       void promise.then(
         () => finish(token),
