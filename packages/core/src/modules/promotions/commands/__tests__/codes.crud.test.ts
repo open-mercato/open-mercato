@@ -6,6 +6,7 @@
 // by that suite's `useCode` coverage.
 
 import { randomUUID } from 'crypto'
+import { LockMode } from '@mikro-orm/core'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
@@ -434,6 +435,27 @@ describe('promotions.code.update command', () => {
     expect(code.active).toBe(false)
     await undoDeactivation()
     expect(code.active).toBe(false)
+  })
+
+  it('undo reads the code under a scoped row lock inside its transaction', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { usage: 'single', used: 0, active: true })
+    const undo = await runLoggedUpdate(em, code, { usage: 'unlimited' })
+    const baseFindOne = em.findOne
+    const codeReads: Array<{ where: Row; options: unknown; inTransaction: boolean }> = []
+    em.findOne = (async (entity: Function, where: Row, options?: unknown) => {
+      if (entity === Code) codeReads.push({ where, options, inTransaction: em.isInTransaction() })
+      return baseFindOne(entity, where)
+    }) as FakeEm['findOne']
+
+    await undo()
+    expect(codeReads).toEqual([
+      {
+        where: { id: code.id, tenantId: TENANT, organizationId: ORG },
+        options: { lockMode: LockMode.PESSIMISTIC_WRITE },
+        inTransaction: true,
+      },
+    ])
   })
 })
 

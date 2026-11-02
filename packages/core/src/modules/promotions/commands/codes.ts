@@ -11,6 +11,7 @@ import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { E } from '#generated/entities.ids.generated'
 import {
@@ -398,13 +399,20 @@ const updateCodeCommand: CommandHandler<PromotionCodeUpdateInput, { codeId: stri
     if (!before) return
     const after = payload?.after
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const code = await em.findOne(Code, { id: before.id })
-    if (!code) return
+    let code = null as Code | null
 
     await withAtomicFlush(
       em,
       [
+        async () => {
+          code = await em.findOne(
+            Code,
+            { id: before.id, tenantId: before.tenantId, organizationId: before.organizationId },
+            { lockMode: LockMode.PESSIMISTIC_WRITE },
+          )
+        },
         () => {
+          if (!code) return
           code.name = before.name
           code.type = before.type
           code.code = before.code
@@ -420,6 +428,7 @@ const updateCodeCommand: CommandHandler<PromotionCodeUpdateInput, { codeId: stri
       ],
       { transaction: true, label: 'promotions.code.update.undo' },
     )
+    if (!code) return
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudUndoSideEffects({
