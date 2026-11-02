@@ -6,6 +6,7 @@ import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import '@open-mercato/core/modules/auth/commands/acl'
 import { PUT } from '../route'
+import { createTransactionalEntityManagerDouble } from '../../../../../../test-utils/transactionalEntityManagerDouble'
 
 const TENANT_ID = '123e4567-e89b-12d3-a456-426614174001'
 const ROLE_ID = '123e4567-e89b-12d3-a456-426614174050'
@@ -16,16 +17,22 @@ const STALE_VERSION = '2026-06-01T09:00:00.000Z'
 const mockGetAuthFromRequest = jest.fn()
 const mockResolveIsSuperAdmin = jest.fn()
 
-const mockEm = {
+const mockEm = createTransactionalEntityManagerDouble({
   find: jest.fn(),
   findOne: jest.fn(),
   create: jest.fn(),
   persist: jest.fn().mockReturnThis(),
   flush: jest.fn(),
-  begin: jest.fn(),
-  commit: jest.fn(),
-  rollback: jest.fn(),
-}
+  nativeUpdate: jest.fn(async () => 1),
+})
+const beginTransaction = mockEm.begin
+const commitTransaction = mockEm.commit
+const rollbackTransaction = mockEm.rollback
+const createIsolatedFork = mockEm.fork
+mockEm.begin = jest.fn(() => beginTransaction())
+mockEm.commit = jest.fn(() => commitTransaction())
+mockEm.rollback = jest.fn(() => rollbackTransaction())
+mockEm.fork = jest.fn(() => createIsolatedFork())
 
 const mockRbacService = {
   loadAcl: jest.fn(),
@@ -93,6 +100,7 @@ describe('role ACL optimistic locking', () => {
     delete process.env.OM_OPTIMISTIC_LOCK
     mockGetAuthFromRequest.mockResolvedValue({ sub: 'user-1', tenantId: TENANT_ID, orgId: 'org-1' })
     mockResolveIsSuperAdmin.mockResolvedValue(true)
+    mockEm.find.mockResolvedValue([])
     mockEm.findOne.mockImplementation(async (ctor: unknown) => {
       if (ctor === Role) return { id: ROLE_ID, tenantId: TENANT_ID }
       if (ctor === RoleAcl) {

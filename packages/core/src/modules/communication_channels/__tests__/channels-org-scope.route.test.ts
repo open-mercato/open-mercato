@@ -331,4 +331,27 @@ describe('communication_channels channel reads follow the selected organization 
     expect(body.items).toHaveLength(1)
     expect(body.items[0].id).toBe(CHANNEL_ID)
   })
+
+  test('an explicitly empty organization scope cannot read home-org or tenant-wide channels', async () => {
+    channelStore.push(tenantWideChannel)
+    mockLoadAcl.mockResolvedValue({
+      isSuperAdmin: false,
+      features: ['communication_channels.view', 'communication_channels.admin'],
+      organizations: [],
+    })
+
+    const response = await listChannels(makeRequest('/api/communication_channels/channels'))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.items).toEqual([])
+    expect(body.total).toBe(0)
+    expect(listWhereCalls[0]).toMatchObject({
+      tenantId: TENANT_ID,
+      organizationId: { $in: [] },
+      deletedAt: null,
+      userId: null,
+    })
+    expect(listWhereCalls[0]).not.toHaveProperty('$or')
+  })
 })

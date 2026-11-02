@@ -11,6 +11,8 @@
   "feature_toggles.detail.fields.failMode": "Tryb Awaryjny",
   "feature_toggles.detail.fields.identifier": "Identyfikator",
   "feature_toggles.detail.fields.name": "Nazwa",
+  "feature_toggles.errors.overrideRedoConflict": "Nadpisanie tego przełącznika funkcji już istnieje. Ponowienie zostało odrzucone.",
+  "feature_toggles.errors.overrideUndoConflict": "Ta nadpisana wartość zmieniła się od czasu akcji, którą próbujesz wycofać. Wycofanie zostało odrzucone.",
   "feature_toggles.form.action.save": "Zapisz",
   "feature_toggles.form.errors.load": "Nie udało się załadować nadpisań przełącznika funkcji",
   "feature_toggles.form.fields.category.label": "Kategoria",
