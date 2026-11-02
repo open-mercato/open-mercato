@@ -25,6 +25,8 @@ Stack this PR on the pre-merge standalone gate PR. Reuse its shared environment 
 - The follow-up depends on the pre-merge gate PR; keep the PR diff separate by targeting that branch until it merges.
 - Preserve disabled email and browser telemetry rather than quietly broadening snapshot runtime behavior. Their exclusion remains explicit.
 - Full scaffold/build/integration execution requires available database and browser infrastructure. Record actual validation limits.
+- Initial full unit execution hit an SMTP Jest worker SIGSEGV; the affected credentials suites pass alone (23 tests). A full retry is running. The full gate is not yet green.
+- PR2 targets the PR1 branch, so main/release-only CI jobs will run after retargeting to main. No branch protection is changed.
 
 ## Non-goals
 
@@ -43,5 +45,5 @@ PR: #8467
 
 ### Phase 2: Verification
 
-- [ ] 2.1 Add regression tests for caller wiring, prerequisites, configuration validation, and intentional server/test differences
+- [x] 2.1 Add regression tests for caller wiring, prerequisites, configuration validation, and intentional server/test differences — ad3f4727c, 180baaba2
 - [ ] 2.2 Run targeted checks and the configured validation gate, review the final diff, and publish the verified outcome
