@@ -45,9 +45,8 @@ describe('AuthService.verifyPassword timing-safe (issue #2242)', () => {
   it('compares against the real hash and returns true on a match', async () => {
     mockCompare.mockResolvedValue(true)
     const svc = new AuthService({} as any)
-    const realHash = '$2b$10$abcdefghijklmnopqrstuuJ8m5c2wY2q4Q3f1y0a0b0c0d0e0f0g0'
-    const ok = await svc.verifyPassword({ passwordHash: realHash } as any, 'secret')
+    const ok = await svc.verifyPassword({ passwordHash: 'real-hash' } as any, 'secret')
     expect(ok).toBe(true)
-    expect(mockCompare).toHaveBeenCalledWith('secret', realHash)
+    expect(mockCompare).toHaveBeenCalledWith('secret', 'real-hash')
   })
 })

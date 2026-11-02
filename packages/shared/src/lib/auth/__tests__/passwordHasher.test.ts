@@ -113,11 +113,12 @@ describe('createPasswordHasher', () => {
     await expect(createPasswordHasher(config()).verify('Secret#1', stored)).resolves.toBe(true)
   })
 
-  it('never matches unknown or malformed hashes', async () => {
+  it('never matches unknown or malformed hashes (non-Argon2id values go to bcrypt, as before)', async () => {
     const hasher = createPasswordHasher(config({ algorithm: 'argon2id' }))
     await expect(hasher.verify('Secret#1', 'Secret#1')).resolves.toBe(false)
     await expect(hasher.verify('Secret#1', '$argon2i$v=19$m=1024,t=1,p=1$c2FsdA$aGFzaA')).resolves.toBe(false)
     await expect(hasher.verify('Secret#1', '$argon2id$garbage')).resolves.toBe(false)
+    await expect(hasher.verify('Secret#1', '')).resolves.toBe(false)
   })
 
   describe('needsRehash', () => {

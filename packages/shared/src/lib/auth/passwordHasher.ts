@@ -38,7 +38,7 @@ export interface PasswordHasher {
   readonly algorithm: PasswordHashAlgorithm
   /** Hash a password with the configured algorithm. */
   hash(password: string): Promise<string>
-  /** Verify a password against a stored bcrypt or Argon2id hash. Unknown formats never match. */
+  /** Verify a password against a stored Argon2id hash, or (anything else) bcrypt as before. Non-hash values never match. */
   verify(password: string, storedHash: string): Promise<boolean>
   /** True when the stored hash should be replaced by a fresh hash with the current configuration. */
   needsRehash(storedHash: string): boolean
@@ -175,7 +175,6 @@ export function createPasswordHasher(
 
   const verify = async (password: string, storedHash: string): Promise<boolean> => {
     const algorithm = detectPasswordHashAlgorithm(storedHash)
-    if (algorithm === 'bcrypt') return bcryptCompare(password, storedHash)
     if (algorithm === 'argon2id') {
       // A missing Argon2 implementation is an operator error and must surface,
       // not masquerade as a wrong password.
@@ -186,7 +185,9 @@ export function createPasswordHasher(
         return false
       }
     }
-    return false
+    // Everything else goes to bcrypt exactly as before this service existed:
+    // bcryptjs rejects anything that is not a valid bcrypt hash (returns false).
+    return bcryptCompare(password, storedHash)
   }
 
   const needsRehash = (storedHash: string): boolean => {

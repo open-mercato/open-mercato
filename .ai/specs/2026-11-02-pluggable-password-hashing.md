@@ -23,7 +23,7 @@ Staff (`auth`) and customer-portal (`customer_accounts`) passwords are hashed wi
 | Method | Behaviour |
 |---|---|
 | `hash(password)` | Hashes with the configured algorithm (`bcrypt` cost 10, or Argon2id with the configured parameters). |
-| `verify(password, storedHash)` | Detects the algorithm from the stored hash prefix — `$2a$`/`$2b$`/`$2y$` bcrypt, `$argon2id$` Argon2id — so both kinds verify under either configuration. Unknown formats never match. |
+| `verify(password, storedHash)` | Detects the algorithm from the stored hash prefix — `$argon2id$` Argon2id, anything else goes to bcrypt exactly as before (`$2a$`/`$2b$`/`$2y$`; bcryptjs rejects non-hash values) — so both kinds verify under either configuration. |
 | `needsRehash(storedHash)` | `true` when the stored algorithm differs from the configured one, or an Argon2id hash has other parameters than configured. bcrypt hashes are never flagged while the algorithm is `bcrypt`, so the default writes nothing. |
 | `equalizeTiming(password)` | Runs one dummy verification with the configured algorithm. Login branches without a stored hash call it instead of a hard-coded bcrypt compare. |
 
