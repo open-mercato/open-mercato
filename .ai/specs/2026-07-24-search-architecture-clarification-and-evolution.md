@@ -230,17 +230,16 @@ Memoization is per engine instance; engines are constructed per request (`create
 
 `IndexableRecord.plaintextExcludedCustomFields?: readonly string[] | 'all'` is
 additive metadata for fulltext fields and generic vector fallback text. Omission
-preserves direct-client behavior. `SearchIndexer` resolves encrypted custom-field
-keys once per entity within a call; the application DI registration always wires
+excludes every custom field from plaintext strategies. `SearchIndexer` resolves encrypted custom-field
+keys once per entity and trusted tenant/organization scope within a call; the application DI registration always wires
 the resolver and lookup failures exclude every custom field from plaintext fields.
-Definitions are conservatively unioned across scopes, including inactive but
-non-deleted definitions. Original `fields` and hashed-token inputs remain intact.
+Definitions include only applicable global and current-tenant/current-organization policies, including inactive but non-deleted definitions. Original `fields` and hashed-token inputs remain intact.
 
 Filtering runs before any fulltext driver and before fallback embedding creation.
 It does not sanitize explicit `buildSource` text, presenters or links; those
 build-context protections are tracked separately in #7874. Application DI wires
 the resolver automatically; manually constructed `SearchIndexer` instances must
-pass `encryptedCustomFieldKeysResolver`, otherwise their legacy behavior remains.
+pass `encryptedCustomFieldKeysResolver`, otherwise all custom fields are excluded from plaintext strategies.
 Direct `SearchService` clients must provide the optional metadata for their own
 custom-field records.
 No route, database schema, queue payload, strategy ID or existing signature changes.
@@ -269,8 +268,6 @@ writer inputs without external services.
 
 ## Changelog
 
-<<<<<<< HEAD
-=======
 - 2026-10-31 — Integrated #7894 exclusions with shared single/bulk source preparation; source failures still skip vector writes, with by-ID/bulk/reindex boundary regressions preserving fulltext filtering and token inputs.
 
 - 2026-10-27 — Added #7894 plaintext custom-field exclusion metadata and driver/provider boundary protection; preserved token values and documented reindex requirements.
@@ -280,7 +277,6 @@ writer inputs without external services.
 
 - 2026-10-27 — Added the customer vector privacy invariant and #7826 regression/remediation contract: allowlisted sources and presenters, encrypted-field exclusion from embedding text, policy-filtered snapshot fallback, and operator purge/reindex.
 
->>>>>>> 9e0c43fdd (fix(search): exclude encrypted custom fields from plaintext search fields (#8043))
 - 2026-07-24 — Initial draft: current-architecture clarification (Part A) + evolution roadmap (Part B).
 - 2026-07-31 — Added Phase 4 (B.4): unified read-path token-availability resolver shared by both query engines — makes the #4723 probe gate structural, extends it to `BasicQueryEngine`, and gives the future durable probe fix a single landing site. Renumbered the decision matrix to B.5 and added its row.
 - 2026-07-31 — Implemented Phase 4: `createSearchTokenAvailability` + `hasSearchFilter`/`isSearchFilterOp` in `packages/shared/src/lib/search/availability.ts`; both engines adopted it (private `hasSearchTokens`/`searchSourcesHaveTokens`, `BasicQueryEngine.tableExists`/`tableCache`, and both ad-hoc join memo maps deleted). Folds in #4723's gate and tests rather than waiting on that PR (its four probe-count cases are ported verbatim and pass unchanged). One deviation from the plan: implemented before #4723/#4685 merge at the maintainer's direction — #4685 was verified non-overlapping (its `engine.ts` hunks touch only the auto-reindex scheduling region). Deliverable 5 (moving `SearchRuntime`/`SearchTokenSource` types to shared) deferred as specced.

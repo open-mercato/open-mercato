@@ -22,7 +22,7 @@ import type { EncryptedCustomFieldKeysResolver } from '../lib/encrypted-custom-f
  */
 const MAX_PAGES = 10000
 
-type PlaintextExclusionLookup = (entityId: EntityId) => Promise<IndexableRecord['plaintextExcludedCustomFields']>
+type PlaintextExclusionLookup = (entityId: EntityId, scope: { tenantId: string; organizationId?: string | null }) => Promise<IndexableRecord['plaintextExcludedCustomFields']>
 
 /**
  * Parameters for indexing a record.
@@ -160,16 +160,17 @@ export class SearchIndexer {
 
   private createPlaintextExclusionLookup(): PlaintextExclusionLookup {
     const resolver = this.encryptedCustomFieldKeysResolver
-    const cache = new Map<EntityId, Promise<IndexableRecord['plaintextExcludedCustomFields']>>()
-    return (entityId) => {
-      if (!resolver) return Promise.resolve(undefined)
-      let pending = cache.get(entityId)
+    const cache = new Map<string, Promise<IndexableRecord['plaintextExcludedCustomFields']>>()
+    return (entityId, scope) => {
+      if (!resolver) return Promise.resolve('all')
+      const cacheKey = JSON.stringify([entityId, scope.tenantId, scope.organizationId ?? null])
+      let pending = cache.get(cacheKey)
       if (!pending) {
-        pending = Promise.resolve().then(() => resolver(entityId)).then((keys) => Array.from(keys)).catch((error): 'all' => {
+        pending = Promise.resolve().then(() => resolver(entityId, { tenantId: scope.tenantId, organizationId: scope.organizationId ?? null })).then((keys) => Array.from(keys)).catch((error): 'all' => {
           reportSearchError('SearchIndexer', error, 'search.encrypted_custom_fields_unresolved', { entityId })
           return 'all'
         })
-        cache.set(entityId, pending)
+        cache.set(cacheKey, pending)
       }
       return pending
     }
@@ -214,22 +215,17 @@ export class SearchIndexer {
    * Index a record in the search service.
    */
   async indexRecord(params: IndexRecordParams): Promise<void> {
-<<<<<<< HEAD
-=======
-    const indexableRecord = await this.buildIndexableRecord(params)
-    if (indexableRecord) {
-      await this.searchService.index(indexableRecord)
-    }
+    const record = await this.buildIndexableRecord(params)
+    if (record) await this.searchService.index(record)
   }
 
   private async buildIndexableRecord(
     params: IndexRecordParams,
     exclusions = this.createPlaintextExclusionLookup(),
   ): Promise<IndexableRecord | null> {
->>>>>>> 9e0c43fdd (fix(search): exclude encrypted custom fields from plaintext search fields (#8043))
     const config = this.entityConfigMap.get(params.entityId)
     if (!config || config.enabled === false) {
-      return // Entity not configured for search
+      return null
     }
 
     const buildContext: SearchBuildContext = {
@@ -241,7 +237,7 @@ export class SearchIndexer {
     }
 
     // Try buildSource first (provides text, presenter, links, checksumSource)
-    let text: string | string[] | undefined
+    let text: string | string[] | undefined = config.buildSource ? [] : undefined
     let presenter: SearchResultPresenter | undefined
     let url: string | undefined
     let links: SearchResultLink[] | undefined
@@ -314,7 +310,7 @@ export class SearchIndexer {
       tenantId: params.tenantId,
       organizationId: params.organizationId,
       fields: params.record,
-      plaintextExcludedCustomFields: await exclusions(params.entityId),
+      plaintextExcludedCustomFields: await exclusions(params.entityId, params),
       presenter,
       url,
       links,
@@ -322,7 +318,7 @@ export class SearchIndexer {
       checksumSource,
     }
 
-    await this.searchService.index(indexableRecord)
+    return indexableRecord
   }
 
   /**
@@ -631,64 +627,8 @@ export class SearchIndexer {
     const exclusions = this.createPlaintextExclusionLookup()
 
     for (const param of params) {
-<<<<<<< HEAD
-      const config = this.entityConfigMap.get(param.entityId)
-      if (!config || config.enabled === false) {
-        continue
-=======
-      const indexableRecord = await this.buildIndexableRecord(param, exclusions)
-      if (indexableRecord) {
-        indexableRecords.push(indexableRecord)
->>>>>>> 9e0c43fdd (fix(search): exclude encrypted custom fields from plaintext search fields (#8043))
-      }
-
-      const buildContext: SearchBuildContext = {
-        record: param.record,
-        customFields: param.customFields ?? {},
-        organizationId: param.organizationId,
-        tenantId: param.tenantId,
-      }
-
-      let presenter: SearchResultPresenter | undefined
-      if (config.formatResult) {
-        try {
-          const result = await config.formatResult(buildContext)
-          if (result) presenter = result
-        } catch {
-          // Skip presenter on error
-        }
-      }
-
-      let url: string | undefined
-      if (config.resolveUrl) {
-        try {
-          const result = await config.resolveUrl(buildContext)
-          if (result) url = result
-        } catch {
-          // Skip URL on error
-        }
-      }
-
-      let links: SearchResultLink[] | undefined
-      if (config.resolveLinks) {
-        try {
-          const result = await config.resolveLinks(buildContext)
-          if (result) links = result
-        } catch {
-          // Skip links on error
-        }
-      }
-
-      indexableRecords.push({
-        entityId: param.entityId,
-        recordId: param.recordId,
-        tenantId: param.tenantId,
-        organizationId: param.organizationId,
-        fields: param.record,
-        presenter,
-        url,
-        links,
-      })
+      const record = await this.buildIndexableRecord(param, exclusions)
+      if (record) indexableRecords.push(record)
     }
 
     if (indexableRecords.length > 0) {
@@ -1176,7 +1116,7 @@ export class SearchIndexer {
     exclusions = this.createPlaintextExclusionLookup(),
   ): Promise<{ records: IndexableRecord[]; dropped: number }> {
     const records: IndexableRecord[] = []
-    const plaintextExcludedCustomFields = await exclusions(entityId)
+    const plaintextExcludedCustomFields = await exclusions(entityId, { tenantId, organizationId })
     let dropped = 0
 
     // Debug: log first item to see structure
@@ -1219,7 +1159,7 @@ export class SearchIndexer {
       }
 
       // Try buildSource first (provides text, presenter, links, checksumSource)
-      let text: string | string[] | undefined
+      let text: string | string[] | undefined = config.buildSource ? [] : undefined
       let presenter: SearchResultPresenter | undefined
       let url: string | undefined
       let links: SearchResultLink[] | undefined

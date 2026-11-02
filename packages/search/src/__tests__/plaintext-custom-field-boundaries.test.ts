@@ -10,19 +10,6 @@ import type { SearchEntityConfig, IndexableRecord } from '../types'
 import type { QueryEngine, QueryResult } from '@open-mercato/shared/lib/query/types'
 import type { EncryptedCustomFieldKeysResolver } from '../lib/encrypted-custom-field-resolver'
 import { replaceSearchTokensForRecord, replaceSearchTokensForBatch } from '@open-mercato/core/modules/query_index/lib/search-tokens'
-import { resolveQueryIndexSearchScope } from '@open-mercato/core/modules/query_index/lib/search-scope'
-
-jest.mock('@open-mercato/core/modules/query_index/lib/search-scope', () => ({
-  ...jest.requireActual<typeof import('@open-mercato/core/modules/query_index/lib/search-scope')>('@open-mercato/core/modules/query_index/lib/search-scope'),
-  resolveQueryIndexSearchScope: jest.fn(async () => ({
-    searchableEntityTypes: ['example:todo'],
-    registeredSourceTypes: ['example:todo'],
-    blockedEntityTypes: [],
-    tenantGlobalEntityTypes: [],
-    customEntityStorage: false,
-  })),
-}))
-
 jest.mock('@open-mercato/core/modules/query_index/lib/search-tokens', () => ({
   replaceSearchTokensForRecord: jest.fn(async () => {}),
   replaceSearchTokensForBatch: jest.fn(async () => {}),
@@ -119,27 +106,20 @@ beforeEach(() => {
 })
 
 describe('plaintext custom-field boundaries (#7894)', () => {
-  it.each(['single', 'bulk'] as const)('retains the real token source-scope rejection through %s indexing', async (entryPoint) => {
-    jest.mocked(resolveQueryIndexSearchScope).mockResolvedValueOnce({
-      searchableEntityTypes: [],
-      registeredSourceTypes: [entityId],
-      blockedEntityTypes: [entityId],
-      tenantGlobalEntityTypes: [],
-      customEntityStorage: false,
-    })
-    const harness = createHarness()
-    const params = { entityId, recordId: 'record-1', tenantId: 'tenant-1', record: makeFields() }
-
-    if (entryPoint === 'single') {
-      await harness.indexer.indexRecord(params)
-    } else {
-      await harness.indexer.bulkIndexRecords([params])
-    }
-
-    expectPlaintextSafe(harness)
-    expect(resolveQueryIndexSearchScope).toHaveBeenCalledTimes(1)
-    expect(replaceSearchTokensForRecord).not.toHaveBeenCalled()
-    expect(replaceSearchTokensForBatch).not.toHaveBeenCalled()
+  it('isolates exclusion cache entries by trusted tenant and organization', async () => {
+    const resolver = jest.fn(async () => new Set(['secret', 'order-ref', 'order_ref']))
+    const harness = createHarness({ resolver })
+    await harness.indexer.bulkIndexRecords([
+      { entityId, recordId: 'first', tenantId: 'tenant-1', organizationId: 'org-1', record: makeFields('first') },
+      { entityId, recordId: 'second', tenantId: 'tenant-2', organizationId: 'org-1', record: makeFields('second') },
+      { entityId, recordId: 'third', tenantId: 'tenant-1', organizationId: 'org-2', record: makeFields('third') },
+    ])
+    expect(resolver.mock.calls).toEqual([
+      [entityId, { tenantId: 'tenant-1', organizationId: 'org-1' }],
+      [entityId, { tenantId: 'tenant-2', organizationId: 'org-1' }],
+      [entityId, { tenantId: 'tenant-1', organizationId: 'org-2' }],
+    ])
+    expectPlaintextSafe(harness, 3)
   })
 
   it('filters canonical, aliased and sanitized keys before real fulltext/vector strategies, retaining token input and the original record', async () => {
@@ -242,13 +222,21 @@ describe('plaintext custom-field boundaries (#7894)', () => {
     expect(resolver).toHaveBeenCalledTimes(2)
   })
 
-  it('preserves explicit source text and legacy direct clients without metadata', async () => {
+  it('preserves explicit source text but denies custom fields without metadata', async () => {
     const harness = createHarness({ resolver: null, buildSource: async () => ({ text: 'Explicit source text' }) })
 
     await harness.indexer.indexRecord({ entityId, recordId: 'record-1', tenantId: 'tenant-1', record: makeFields() })
 
     expect(harness.embeddings).toEqual(['Explicit source text'])
-    expect(harness.documents[0].fields.cf_secret).toBe('PRIVATE-ALIAS')
+    expect(harness.documents[0].fields).toEqual({ id: 'record-1', title: 'Public title' })
+  })
+
+  it('fails closed for direct service clients without exclusion metadata while preserving token inputs', async () => {
+    const harness = createHarness({ resolver: null })
+    await harness.service.index({ entityId, recordId: 'record-1', tenantId: 'tenant-1', fields: makeFields() })
+    expect(harness.documents[0].fields).toEqual({ id: 'record-1', title: 'Public title' })
+    expect(harness.embeddings).toEqual(['record-1 Public title'])
+    expect(jest.mocked(replaceSearchTokensForRecord).mock.calls[0][1].doc['cf:secret']).toBe('PRIVATE-CANONICAL')
   })
 
   it('keeps exclusion metadata effective after JSON serialization for custom direct clients', async () => {
