@@ -58,6 +58,9 @@ function createEm() {
     })),
     persist: jest.fn(() => ({ flush: jest.fn(async () => undefined) })),
     flush: jest.fn(async () => undefined),
+    getConnection: jest.fn(() => {
+      throw new Error('capacity query was not expected')
+    }),
     getReference: jest.fn((_entity: unknown, id: string) => ({ id })),
     fork: jest.fn(),
     transactional: jest.fn(),
@@ -273,6 +276,99 @@ describe('wms.putaway-tasks.complete event emit', () => {
     expect(task.status).toBe('open')
     expect(applyInventoryMoveInTransaction).not.toHaveBeenCalled()
     expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('rejects putaway that exceeds the destination capacity before moving stock', async () => {
+    const em = createEm()
+    const ctx = createCtx(em)
+    const task = openTask({ quantity: '10', status: 'open' })
+    const execute = jest.fn(async () => [{ total: '0' }])
+    em.getConnection.mockReturnValue({ execute })
+
+    findOneWithDecryption.mockImplementation(async (_em, entity, where) => {
+      if (entity === PutawayTask) return task
+      if (entity === WarehouseLocation) {
+        const id = String((where as { id?: string }).id)
+        return {
+          id,
+          tenantId: TENANT,
+          organizationId: ORG,
+          warehouse: { id: '55555555-5555-4555-8555-555555555555' },
+          isActive: true,
+          type: id === task.sourceLocationId ? 'staging' : 'bin',
+          capacityUnits: id === TARGET_LOC ? '5' : null,
+        }
+      }
+      return null
+    })
+    findPutawayCompleteMovementByReference.mockResolvedValue(null)
+
+    const handler = commandRegistry.get('wms.putaway-tasks.complete')
+    await expect(
+      handler!.execute(
+        {
+          organizationId: ORG,
+          tenantId: TENANT,
+          id: TASK_ID,
+          targetLocationId: TARGET_LOC,
+          confirmedQuantity: 10,
+          performedBy: USER_ID,
+        },
+        ctx as never,
+      ),
+    ).rejects.toMatchObject({ status: 422, body: { error: 'location_capacity_exceeded' } })
+
+    expect(task.status).toBe('open')
+    expect(applyInventoryMoveInTransaction).not.toHaveBeenCalled()
+    expect(String(execute.mock.calls[0]?.[0])).toContain('for update')
+    expect(execute.mock.calls[0]?.[1]).toEqual([
+      ORG,
+      TENANT,
+      TARGET_LOC,
+    ])
+  })
+
+  it('rejects putaway when occupied capacity cannot fit the incoming quantity', async () => {
+    const em = createEm()
+    const ctx = createCtx(em)
+    const task = openTask({ quantity: '3', status: 'open' })
+    em.getConnection.mockReturnValue({ execute: jest.fn(async () => [{ total: '8' }]) })
+
+    findOneWithDecryption.mockImplementation(async (_em, entity, where) => {
+      if (entity === PutawayTask) return task
+      if (entity === WarehouseLocation) {
+        const id = String((where as { id?: string }).id)
+        return {
+          id,
+          tenantId: TENANT,
+          organizationId: ORG,
+          warehouse: { id: '55555555-5555-4555-8555-555555555555' },
+          isActive: true,
+          type: id === task.sourceLocationId ? 'staging' : 'bin',
+          capacityUnits: id === TARGET_LOC ? '10' : null,
+        }
+      }
+      return null
+    })
+    findPutawayCompleteMovementByReference.mockResolvedValue(null)
+
+    const handler = commandRegistry.get('wms.putaway-tasks.complete')
+    await expect(
+      handler!.execute(
+        {
+          organizationId: ORG,
+          tenantId: TENANT,
+          id: TASK_ID,
+          targetLocationId: TARGET_LOC,
+          confirmedQuantity: 3,
+          performedBy: USER_ID,
+        },
+        ctx as never,
+      ),
+    ).rejects.toMatchObject({ status: 422, body: { error: 'location_capacity_exceeded' } })
+
+    expect(applyInventoryMoveInTransaction).not.toHaveBeenCalled()
+    expect(task.status).toBe('open')
   })
 
   it('rejects fractional completion of a serial task before moving stock', async () => {

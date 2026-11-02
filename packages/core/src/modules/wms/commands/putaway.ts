@@ -43,8 +43,10 @@ import {
   assertPutawayCompleteAuthorized,
   assertPutawayCompletable,
   assertPutawayConfirmedQuantity,
+  assertPutawayDestinationCapacity,
   assertPutawayLotMatches,
   assertPutawaySerialConfirmedQuantity,
+  readLocationCapacityUnits,
   assertPutawayDeletable,
   assertPutawayLifecycleFieldsForbidden,
   assertPutawayStartable,
@@ -245,12 +247,13 @@ async function requireActiveLocation(
   locationId: string,
   warehouseId: string,
   scope: Scope,
+  options?: { lock?: boolean },
 ) {
   const location = await findOneWithDecryption(
     em,
     WarehouseLocation,
     { id: locationId, deletedAt: null },
-    undefined,
+    options?.lock ? { lockMode: LockMode.PESSIMISTIC_WRITE } : undefined,
     scope,
   )
   if (!location) throw new CrudHttpError(404, { error: 'Warehouse location not found.' })
@@ -264,6 +267,31 @@ async function requireActiveLocation(
     throw new CrudHttpError(422, { error: 'inactive_location' })
   }
   return location
+}
+
+async function assertDestinationHasRemainingCapacity(
+  em: EntityManager,
+  scope: Scope,
+  location: WarehouseLocation,
+  incomingQuantity: number,
+): Promise<void> {
+  const capacityUnits = readLocationCapacityUnits(location.capacityUnits)
+  if (capacityUnits == null) return
+  const rows = await em.getConnection().execute<Array<{ total: string | number | null }>>(
+    `select coalesce(sum(quantity_on_hand), 0) as total
+     from wms_inventory_balances
+     where organization_id = ?
+       and tenant_id = ?
+       and location_id = ?
+       and deleted_at is null
+     for update`,
+    [scope.organizationId, scope.tenantId, location.id],
+  )
+  assertPutawayDestinationCapacity({
+    capacityUnits,
+    quantityOnHand: toNumber(rows[0]?.total),
+    incomingQuantity,
+  })
 }
 
 function toNumber(value: unknown): number {
@@ -1046,8 +1074,15 @@ const completePutawayTaskCommand: CommandHandler<
         input.targetLocationId,
         warehouseId,
         scope,
+        { lock: true },
       )
       assertPutawayTargetLocationType(targetLocation.type)
+      await assertDestinationHasRemainingCapacity(
+        trx,
+        scope,
+        targetLocation,
+        input.confirmedQuantity,
+      )
 
       const moveInput: InventoryMoveInput = {
         organizationId: scope.organizationId,

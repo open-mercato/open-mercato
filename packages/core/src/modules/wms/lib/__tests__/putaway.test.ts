@@ -7,7 +7,9 @@ import {
   assertPutawayCompleteAuthorized,
   assertPutawayCompletable,
   assertPutawayConfirmedQuantity,
+  assertPutawayDestinationCapacity,
   assertPutawayLotMatches,
+  readLocationCapacityUnits,
   assertPutawaySerialConfirmedQuantity,
   assertPutawayDeletable,
   assertPutawayLifecycleFieldsForbidden,
@@ -137,6 +139,28 @@ describe('putaway lifecycle guards', () => {
     expect(() => assertPutawaySerialConfirmedQuantity(null, 0.5)).not.toThrow()
     expect(() => assertPutawaySerialConfirmedQuantity('  ', 0.5)).not.toThrow()
     expect(putawayResidualQuantity(5, 4)).toBe(1)
+  })
+
+  it('rejects putaway that would exceed a configured location capacity', () => {
+    expect(readLocationCapacityUnits(null)).toBeNull()
+    expect(readLocationCapacityUnits('')).toBeNull()
+    expect(readLocationCapacityUnits('nope')).toBeNull()
+    expect(readLocationCapacityUnits('5')).toBe(5)
+    expect(() =>
+      assertPutawayDestinationCapacity({ capacityUnits: null, quantityOnHand: 100, incomingQuantity: 10 }),
+    ).not.toThrow()
+    expect(() =>
+      assertPutawayDestinationCapacity({ capacityUnits: 5, quantityOnHand: 0, incomingQuantity: 10 }),
+    ).toThrow(CrudHttpError)
+    try {
+      assertPutawayDestinationCapacity({ capacityUnits: 10, quantityOnHand: 8, incomingQuantity: 3 })
+    } catch (error) {
+      expect((error as CrudHttpError).status).toBe(422)
+      expect((error as CrudHttpError).body).toMatchObject({ error: 'location_capacity_exceeded' })
+    }
+    expect(() =>
+      assertPutawayDestinationCapacity({ capacityUnits: 10, quantityOnHand: 8, incomingQuantity: 2 }),
+    ).not.toThrow()
   })
 
   it('rejects over-complete quantities and computes residual for under', () => {

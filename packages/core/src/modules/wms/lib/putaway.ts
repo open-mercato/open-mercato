@@ -155,6 +155,26 @@ export function assertPutawayLotMatches(
   }
 }
 
+/** Null, blank, and non-numeric capacity means the location is unlimited. */
+export function readLocationCapacityUnits(value: string | number | null | undefined): number | null {
+  if (value == null) return null
+  if (typeof value === 'string' && value.trim().length === 0) return null
+  const parsed = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(parsed)) return null
+  return parsed
+}
+
+export function assertPutawayDestinationCapacity(input: {
+  capacityUnits: number | null
+  quantityOnHand: number
+  incomingQuantity: number
+}): void {
+  if (input.capacityUnits == null) return
+  if (input.quantityOnHand + input.incomingQuantity > input.capacityUnits + 0.000001) {
+    throw new CrudHttpError(422, { error: 'location_capacity_exceeded' })
+  }
+}
+
 export function putawayResidualQuantity(taskQuantity: number, confirmedQuantity: number): number {
   const residual = taskQuantity - confirmedQuantity
   return residual > 0.000001 ? residual : 0
