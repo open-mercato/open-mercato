@@ -5,7 +5,7 @@
  * Verifies:
  * - Roles section visible in Zone 1 with collapsible header
  * - Roles CRUD API works (create + list + delete)
- * - "Add role" button visibility
+ * - "Assign role" button visibility
  */
 import { test, expect } from '@playwright/test'
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
@@ -34,9 +34,9 @@ test.describe('TC-UX-003: Multi-Role Assignment', () => {
         await peopleTab.click()
       }
 
-      // Verify "Add role" button is visible (may be disabled if no role types in dictionary).
+      // Verify "Assign role" button is visible (hidden when every role type is already assigned).
       // Fall through gracefully if the tenant has no seeded role types — the API assertion below still exercises the core behavior.
-      const addRoleButton = page.getByRole('button', { name: /add role/i })
+      const addRoleButton = page.getByRole('button', { name: /assign role/i })
       await addRoleButton.isVisible({ timeout: 10_000 }).catch(() => false)
 
       // Test the roles API directly — create a role
