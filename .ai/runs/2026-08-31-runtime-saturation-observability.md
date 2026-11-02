@@ -46,7 +46,7 @@ Add default-unloaded PostgreSQL pool and Node.js runtime saturation metrics thro
 
 ## Progress
 
-PR: #5801
+PR: #8434
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
@@ -68,3 +68,8 @@ PR: #5801
 
 - [x] 4.1 Make pool attachment globally single-owner, coalesce concurrent initialization, isolate collector failures, and add lifecycle regression coverage. — 10e60ba3b5
 - [x] 4.2 Move sampled pool metrics to `om.db.pool.*` (no collision with `PgInstrumentation`), give second-unit histograms second-scaled OTLP buckets, and document the event-loop delay floor. — 8d4862f14d
+
+### Carry-forward review
+
+- 2026-11-02: carried forward from #5801 by `om-auto-review-pr` autofix on `carry/pr-5801-ready-301a`, preserving original commits and credit. Fresh main conflicts were metadata-only; target compatibility-policy text is retained unchanged.
+- Regenerated the two existing SES/SMTP Yarn descriptors to match their manifests; no resolved dependency version changed. Focused source validation passed; current-head CI and required QA sign-off remain separate merge gates.
