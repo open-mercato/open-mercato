@@ -40,10 +40,16 @@ test.describe('TC-CRM-company-tax-id: VAT ID on companies', () => {
       await expect(nameInput).toHaveValue(companyName)
 
       const submit = page.locator('form').getByRole('button', { name: /Create Company/i })
-      await submit.click()
+      // A click can land before the form hydrates, so repeat it until validation answers.
+      const requiredError = page.locator('[data-crud-field-id="taxId"]').getByText(/required/i).first()
+      await expect(async () => {
+        await submit.click()
+        await expect(requiredError).toBeVisible({ timeout: 3_000 })
+      }).toPass({ timeout: 30_000 })
       await expect(page).toHaveURL(/\/backend\/customers\/companies\/create$/i)
-      await expect(page.locator('[data-crud-field-id="taxId"]').getByText(/required/i).first()).toBeVisible()
 
+      await nameInput.fill(companyName)
+      await expect(nameInput).toHaveValue(companyName)
       await taxIdInput.fill(TAX_ID)
       await expect(taxIdInput).toHaveValue(TAX_ID)
       await submit.click()
@@ -51,7 +57,15 @@ test.describe('TC-CRM-company-tax-id: VAT ID on companies', () => {
       companyId = page.url().match(/companies-v2\/([0-9a-f-]{36})/i)?.[1] ?? null
       expect(companyId, 'created company id').toBeTruthy()
 
-      await expect(page.locator('[data-crud-field-id="taxId"] input').first()).toHaveValue(TAX_ID, { timeout: 30_000 })
+      // The detail form can render as a collapsed rail with no inputs until a section is opened.
+      const detailTaxId = page.locator('[data-crud-field-id="taxId"] input').first()
+      await expect(async () => {
+        if (!(await detailTaxId.isVisible().catch(() => false))) {
+          const identitySection = page.getByRole('button', { name: /^identity$/i }).first()
+          if (await identitySection.isVisible().catch(() => false)) await identitySection.click()
+        }
+        await expect(detailTaxId).toHaveValue(TAX_ID, { timeout: 3_000 })
+      }).toPass({ timeout: 30_000 })
 
       const detail = await apiRequest(request, 'GET', `/api/customers/companies/${companyId}`, { token })
       expect(detail.ok(), `GET company returned ${detail.status()}`).toBeTruthy()
