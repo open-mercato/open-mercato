@@ -470,6 +470,11 @@ maybe('availability reservationCommands under real concurrency (A1/A14/A15)', ()
     expect(reserved.reserved).toBe(true)
 
     const sweepEm = orm.em.fork()
+    const wmsReservation = await sweepEm.findOne(InventoryReservation, { catalogVariantId })
+    if (wmsReservation) {
+      wmsReservation.status = 'released'
+      wmsReservation.quantity = '0'
+    }
     await sweepEm.nativeUpdate(InventoryBalance, { catalogVariantId }, { quantityReserved: '0', quantityOnHand: '0' })
     await sweepEm.nativeUpdate(AvailabilityReservation, { idempotencyKey: key }, { status: 'expired' })
     await sweepEm.flush()

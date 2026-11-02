@@ -1083,11 +1083,11 @@ export class WmsReservationService {
             ...(activeVariantsByProduct.get(productId) ?? []),
             ...lines.filter((line) => line.catalogProductId === productId).map((line) => line.catalogVariantId),
           ]),
-        ).sort(),
+        ).sort((left, right) => (left < right ? -1 : left > right ? 1 : 0)),
       }))
       const lockVariantIds = Array.from(
         new Set([...lineVariantIds, ...rollups.flatMap((rollup) => rollup.variantIds)]),
-      ).sort()
+      ).sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
 
       const lockedBalances = await lockCandidateBalances(innerTrx, ctx, scope, lockVariantIds, warehouseIds)
       const aggregates = aggregateAvailableByVariant(lockedBalances, now)
