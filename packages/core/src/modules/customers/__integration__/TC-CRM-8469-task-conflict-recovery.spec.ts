@@ -11,6 +11,7 @@ import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optim
 const INTERACTIONS_API = '/api/customers/interactions'
 const TOGGLES_API = '/api/feature_toggles'
 const UNIFIED_INTERACTIONS_TOGGLE = 'customers.interactions.unified'
+const INTERACTION_STATUSES_API = '/api/customers/dictionaries/interaction-statuses'
 
 type Interaction = {
   id: string
@@ -77,11 +78,22 @@ test.describe('TC-CRM-8469: native customer task dialog conflict recovery', () =
     let personId: string | null = null
     let firstTaskId: string | null = null
     let secondTaskId: string | null = null
+    let statusId: string | null = null
     let toggle: { id: string; override: ToggleOverride } | null = null
+    const statusValue = `qa_8469_${Date.now()}`
+    const statusLabel = `QA 8469 ${Date.now()}`
 
     try {
       toggle = await resolveToggle(request, token)
       await setToggle(request, token, toggle.id, true, true)
+      const statusResponse = await apiRequest(request, 'POST', INTERACTION_STATUSES_API, {
+        token,
+        data: { value: statusValue, label: statusLabel, color: '#a855f7', icon: 'lucide:circle' },
+      })
+      expect(statusResponse.status(), 'custom status fixture should be created').toBe(201)
+      const createdStatus = await readJsonSafe<{ id?: string }>(statusResponse)
+      statusId = createdStatus?.id ?? null
+      expect(statusId, 'custom status fixture should return an id').toBeTruthy()
       personId = await createPersonFixture(request, token, {
         firstName: 'Conflict',
         lastName: `TC-CRM-8469-${stamp}`,
@@ -90,7 +102,7 @@ test.describe('TC-CRM-8469: native customer task dialog conflict recovery', () =
       for (const [title, body] of [[`${marker} first`, 'Original description'], [`${marker} second`, 'Second description']]) {
         const response = await apiRequest(request, 'POST', INTERACTIONS_API, {
           token,
-          data: { entityId: personId, interactionType: 'task', title, body, status: 'planned', occurredAt: new Date().toISOString() },
+          data: { entityId: personId, interactionType: 'task', title, body, status: statusValue, occurredAt: new Date().toISOString() },
         })
         expect(response.status(), 'task fixture should be created').toBe(201)
         const created = await readJsonSafe<{ id?: string }>(response)
@@ -105,7 +117,7 @@ test.describe('TC-CRM-8469: native customer task dialog conflict recovery', () =
       await page.getByText(`${marker} first`, { exact: true }).locator('xpath=ancestor::article').getByRole('button', { name: /edit/i }).click()
       const dialog = page.getByRole('dialog', { name: /edit task/i })
       await expect(dialog).toBeVisible()
-      const statusTrigger = dialog.getByRole('combobox', { name: /status/i })
+      const statusTrigger = dialog.locator('[role="combobox"]').filter({ hasText: statusLabel })
       await expectAlignedStatusAppearance(statusTrigger)
 
       const before = (await listInteractions(request, token, personId)).find((item) => item.id === firstTaskId)
@@ -148,7 +160,7 @@ test.describe('TC-CRM-8469: native customer task dialog conflict recovery', () =
       const nextDialog = page.getByRole('dialog', { name: /edit task/i })
       await expect(nextDialog).toBeVisible()
       await expect(page.getByTestId('record-conflict-banner')).toHaveCount(0)
-      await expectAlignedStatusAppearance(nextDialog.getByRole('combobox', { name: /status/i }))
+      await expectAlignedStatusAppearance(nextDialog.locator('[role="combobox"]').filter({ hasText: statusLabel }))
 
       await page.setViewportSize({ width: 390, height: 844 })
       await page.goto(`/backend/customers/people-v2/${personId}?tab=tasks`)
@@ -156,7 +168,7 @@ test.describe('TC-CRM-8469: native customer task dialog conflict recovery', () =
       await page.getByText(`${marker} edited title`, { exact: true }).locator('xpath=ancestor::article').getByRole('button', { name: /edit/i }).click()
       const mobileDialog = page.getByRole('dialog', { name: /edit task/i })
       await expect(mobileDialog).toBeVisible()
-      await expectAlignedStatusAppearance(mobileDialog.getByRole('combobox', { name: /status/i }))
+      await expectAlignedStatusAppearance(mobileDialog.locator('[role="combobox"]').filter({ hasText: statusLabel }))
       const dialogBox = await mobileDialog.boundingBox()
       expect(dialogBox, 'mobile task dialog should have a layout box').not.toBeNull()
       expect(dialogBox!.x).toBeGreaterThanOrEqual(0)
@@ -165,6 +177,7 @@ test.describe('TC-CRM-8469: native customer task dialog conflict recovery', () =
       await deleteEntityIfExists(request, token, INTERACTIONS_API, secondTaskId)
       await deleteEntityIfExists(request, token, INTERACTIONS_API, firstTaskId)
       await deleteEntityIfExists(request, token, '/api/customers/people', personId)
+      if (statusId) await apiRequest(request, 'DELETE', `${INTERACTION_STATUSES_API}/${statusId}`, { token }).catch(() => {})
       if (toggle) await setToggle(request, token, toggle.id, toggle.override.isOverride, toggle.override.value)
     }
   })
