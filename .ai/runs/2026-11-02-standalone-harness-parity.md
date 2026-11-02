@@ -53,4 +53,4 @@ PR: #8467
 
 ### Phase 3: Consolidation
 
-- [ ] 3.1 Remove automatic PR execution, update guards/documentation, and consolidate into one main-targeted PR
+- [x] 3.1 Remove automatic PR execution, update guards/documentation, and consolidate into one main-targeted PR — a28622634
