@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { createUserFixture, deleteUserIfExists } from '@open-mercato/core/helpers/integration/authFixtures'
 import { createCustomerRoleFixture, customerTestPassword, deleteCustomerRoleFixture, uniqueSuffix } from '@open-mercato/core/helpers/integration/customerAccountsFixtures'
@@ -33,7 +34,7 @@ async function runtime() {
   return withNextRuntime(async () => {
     const { bootstrapFromAppRoot } = await importFromAppRuntime<typeof import('@open-mercato/shared/lib/bootstrap/dynamicLoader')>('@open-mercato/shared/lib/bootstrap/dynamicLoader')
     await bootstrapFromAppRoot(resolveAppRoot())
-    const [route, events, bus, telemetry, container, tokens, commandInterceptors] = await Promise.all([
+    const [route, events, bus, telemetry, container, tokens, commandInterceptors, auditEntities, encryption] = await Promise.all([
       importFromAppRuntime<typeof import('../api/admin/users-invite')>('@open-mercato/core/modules/customer_accounts/api/admin/users-invite'),
       importFromAppRuntime<typeof import('@open-mercato/shared/modules/events')>('@open-mercato/shared/modules/events'),
       importFromAppRuntime<typeof import('@open-mercato/events/bus')>('@open-mercato/events/bus'),
@@ -41,9 +42,11 @@ async function runtime() {
       importFromAppRuntime<typeof import('@open-mercato/shared/lib/di/container')>('@open-mercato/shared/lib/di/container'),
       importFromAppRuntime<typeof import('../lib/tokenGenerator')>('@open-mercato/core/modules/customer_accounts/lib/tokenGenerator'),
       importFromAppRuntime<typeof import('@open-mercato/shared/lib/commands/command-interceptor-store')>('@open-mercato/shared/lib/commands/command-interceptor-store'),
+      importFromAppRuntime<typeof import('@open-mercato/core/modules/audit_logs/data/entities')>('@open-mercato/core/modules/audit_logs/data/entities'),
+      importFromAppRuntime<typeof import('@open-mercato/shared/lib/encryption/find')>('@open-mercato/shared/lib/encryption/find'),
     ])
-    await container.createRequestContainer()
-    return { route, events, bus, telemetry, container, tokens, commandInterceptors }
+    const requestContainer = await container.createRequestContainer()
+    return { route, events, bus, telemetry, container, tokens, commandInterceptors, auditEntities, encryption, requestContainer }
   })
 }
 
@@ -191,18 +194,22 @@ test.describe('TC-CACC-INVITE-CANCEL-002: real route, command persistence and li
           }))
           expect(response.status).toBe(200)
           expect(await response.json()).toEqual({ ok: true })
-          const { rows } = await withClient((client) => client.query<Record<string, unknown>>(
-            'select * from action_logs where command_id = $1 and resource_id = $2',
-            ['customer_accounts.invitation.cancel', invitationId],
-          ))
+          const entries = await app.encryption.findWithDecryption(
+            app.requestContainer.resolve<EntityManager>('em').fork(),
+            app.auditEntities.ActionLog,
+            { resourceId: invitationId, tenantId: scope.tenantId, organizationId: scope.organizationId },
+            undefined,
+            scope,
+          )
+          const rows = entries.filter((entry) => entry.commandId === 'customer_accounts.invitation.cancel')
           expect(rows).toHaveLength(1)
           expect(rows[0]).toMatchObject({
-            tenant_id: scope.tenantId, organization_id: scope.organizationId, actor_user_id: scope.userId,
-            resource_kind: 'customer_accounts:customer_user_invitation', resource_id: invitationId,
-            undo_token: null, command_payload: null, snapshot_before: null, snapshot_after: null,
-            execution_state: 'done',
+            tenantId: scope.tenantId, organizationId: scope.organizationId, actorUserId: scope.userId,
+            resourceKind: 'customer_accounts:customer_user_invitation', resourceId: invitationId,
+            undoToken: null, commandPayload: null, snapshotBefore: null, snapshotAfter: null,
+            executionState: 'done',
           })
-          expect(rows[0].action_label).toBeTruthy()
+          expect(rows[0].actionLabel).toBeTruthy()
           expect(attempts).toBe(1)
           expect(reports).toBe(failure === 'none' ? 0 : 1)
           expect(deliveries).toEqual(failure === 'none' ? [{
@@ -224,7 +231,7 @@ test.describe('TC-CACC-INVITE-CANCEL-002: real route, command persistence and li
         if (staffId) await deleteUserAclInDb(staffId)
         await deleteUserIfExists(request, adminToken, staffId)
         if (invitationId) await withClient(async (client) => {
-          await client.query('delete from action_logs where command_id = $1 and resource_id = $2', ['customer_accounts.invitation.cancel', invitationId])
+          await client.query('delete from action_logs where resource_id = $1 and tenant_id = $2 and organization_id = $3', [invitationId, adminScope.tenantId, adminScope.organizationId])
           await client.query('delete from customer_user_invitations where id = $1', [invitationId])
         })
         await deleteCustomerRoleFixture(request, adminToken, roleId)

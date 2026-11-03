@@ -1,6 +1,6 @@
 ---
 title: "Avoid identity-map stale snapshots in command logs"
-modules: ["audit_logs","cache","customers","auth"]
+modules: ["audit_logs","cache","customers","auth","customer_accounts"]
 areas: ["module-data","debugging","testing"]
 topics: ["command-pattern","data-integrity","generated-files","encryption","authorization-locks"]
 ---
@@ -14,6 +14,8 @@ topics: ["command-pattern","data-integrity","generated-files","encryption","auth
 **Rule**: In `buildLog()`, always load snapshots using a forked `EntityManager` (or explicitly `refresh: true`). This guarantees a fresh DB read and avoids identity-map caching in logs.
 
 **Integration readback**: Audit `snapshot_before`, `snapshot_after`, and command payload columns are encrypted JSON, so a raw PostgreSQL row is not a plaintext snapshot contract. Read snapshots through the authenticated audit actions API, which uses `ActionLogService.decryptEntryPayload`, and select the exact operation log ID. Keep raw SQL for unencrypted membership IDs/timestamps and lock observations. A missing snapshot must fail the same exact-value assertion; never disable encryption to make a test pass.
+
+**Encrypted audit selectors**: `command_id` and `action_label` are encrypted too. Internal command tests should select by plaintext record and tenant/organization IDs through `findWithDecryption`, then match `commandId` after decryption. Use the same plaintext IDs for fixture cleanup. Verify with encryption enabled: a plaintext `command_id` predicate can return zero while a valid durable row exists, and ciphertext-only privacy checks miss leaked decrypted payloads.
 
 **Applies to**: Any command that captures `snapshotBefore` in `prepare()` and later loads `snapshotAfter` in `buildLog()`.
 
