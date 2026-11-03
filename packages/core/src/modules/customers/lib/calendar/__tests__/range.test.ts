@@ -1,5 +1,10 @@
+/** @jest-environment jsdom */
 import { differenceInCalendarDays } from 'date-fns/differenceInCalendarDays'
+import { resolveDateLocaleSettings } from '@open-mercato/shared/lib/date-locale/resolve'
+import { setClientDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-store'
 import { getFetchWindow, getVisibleRange, shiftAnchor } from '../range'
+
+const MONDAY = 1
 
 describe('getVisibleRange', () => {
   it('covers exactly the anchor day for the day view', () => {
@@ -17,7 +22,7 @@ describe('getVisibleRange', () => {
 
   it('returns a Monday-start 7-day week containing the anchor', () => {
     const anchorThursday = new Date(2026, 5, 11, 9, 0, 0)
-    const range = getVisibleRange('week', anchorThursday, 7)
+    const range = getVisibleRange('week', anchorThursday, 7, MONDAY)
     expect(range.from.getDay()).toBe(1)
     expect(range.from.getDate()).toBe(8)
     expect(range.to.getDay()).toBe(0)
@@ -27,14 +32,14 @@ describe('getVisibleRange', () => {
 
   it('keeps the week anchored when the anchor itself is a Monday', () => {
     const anchorMonday = new Date(2026, 5, 8, 0, 0, 0)
-    const range = getVisibleRange('week', anchorMonday, 7)
+    const range = getVisibleRange('week', anchorMonday, 7, MONDAY)
     expect(range.from.getDate()).toBe(8)
     expect(range.from.getMonth()).toBe(5)
   })
 
   it('spans month boundaries when the week crosses them', () => {
     const anchorWednesday = new Date(2026, 6, 1, 12, 0, 0)
-    const range = getVisibleRange('week', anchorWednesday, 7)
+    const range = getVisibleRange('week', anchorWednesday, 7, MONDAY)
     expect(range.from.getMonth()).toBe(5)
     expect(range.from.getDate()).toBe(29)
     expect(range.to.getMonth()).toBe(6)
@@ -43,7 +48,7 @@ describe('getVisibleRange', () => {
 
   it('keeps a 7-calendar-day week across a DST transition', () => {
     const dstWeekAnchor = new Date(2026, 2, 25, 12, 0, 0)
-    const range = getVisibleRange('week', dstWeekAnchor, 7)
+    const range = getVisibleRange('week', dstWeekAnchor, 7, MONDAY)
     expect(range.from.getDay()).toBe(1)
     expect(range.from.getDate()).toBe(23)
     expect(range.to.getDay()).toBe(0)
@@ -53,7 +58,7 @@ describe('getVisibleRange', () => {
 
   it('covers the month with full Monday-start weeks', () => {
     const anchor = new Date(2026, 5, 15)
-    const range = getVisibleRange('month', anchor, 7)
+    const range = getVisibleRange('month', anchor, 7, MONDAY)
     expect(range.from.getDay()).toBe(1)
     expect(range.from.getMonth()).toBe(5)
     expect(range.from.getDate()).toBe(1)
@@ -65,7 +70,7 @@ describe('getVisibleRange', () => {
 
   it('extends the month grid backwards when the month starts mid-week', () => {
     const anchor = new Date(2026, 7, 10)
-    const range = getVisibleRange('month', anchor, 7)
+    const range = getVisibleRange('month', anchor, 7, MONDAY)
     expect(range.from.getMonth()).toBe(6)
     expect(range.from.getDate()).toBe(27)
     expect(range.from.getDay()).toBe(1)
@@ -76,7 +81,7 @@ describe('getVisibleRange', () => {
 
   it('covers full weeks for a month containing a DST transition', () => {
     const anchor = new Date(2026, 9, 15)
-    const range = getVisibleRange('month', anchor, 7)
+    const range = getVisibleRange('month', anchor, 7, MONDAY)
     expect(range.from.getDay()).toBe(1)
     expect(range.to.getDay()).toBe(0)
     expect((differenceInCalendarDays(range.to, range.from) + 1) % 7).toBe(0)
@@ -140,5 +145,37 @@ describe('shiftAnchor', () => {
     const shifted = shiftAnchor('day', beforeDst, 1)
     expect(shifted.getDate()).toBe(29)
     expect(shifted.getHours()).toBe(12)
+  })
+})
+
+describe('getVisibleRange week start', () => {
+  const noEnv = { locale: null, dateFormat: null, dateTimeFormat: null, timeFormat: null, timeZone: null, firstDayOfWeek: null }
+
+  afterEach(() => setClientDateLocaleSettings(null))
+
+  it('starts the week on Sunday when asked to', () => {
+    const range = getVisibleRange('week', new Date(2026, 5, 11, 9, 0, 0), 7, 0)
+    expect(range.from.getDay()).toBe(0)
+    expect(range.from.getDate()).toBe(7)
+    expect(range.to.getDay()).toBe(6)
+    expect(range.to.getDate()).toBe(13)
+  })
+
+  it('pads the month grid to Sunday-start weeks when asked to', () => {
+    const range = getVisibleRange('month', new Date(2026, 5, 15), 7, 0)
+    expect(range.from.getDay()).toBe(0)
+    expect(range.from.getMonth()).toBe(4)
+    expect(range.from.getDate()).toBe(31)
+    expect(range.to.getDay()).toBe(6)
+  })
+
+  it('defaults to the configured first day of the week', () => {
+    setClientDateLocaleSettings(resolveDateLocaleSettings({ tenant: { firstDayOfWeek: 3 }, env: noEnv }))
+    expect(getVisibleRange('week', new Date(2026, 5, 11), 7).from.getDay()).toBe(3)
+  })
+
+  it('defaults to the locale week start when nothing is configured', () => {
+    setClientDateLocaleSettings(resolveDateLocaleSettings({ tenant: { locale: 'pl' }, env: noEnv }))
+    expect(getVisibleRange('week', new Date(2026, 5, 11), 7).from.getDay()).toBe(1)
   })
 })

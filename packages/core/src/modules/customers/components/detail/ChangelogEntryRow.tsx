@@ -4,7 +4,8 @@ import * as React from 'react'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Settings2, SquarePen, Plus, Trash2, UserRoundPlus, ArrowRight } from 'lucide-react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayTime } from '@open-mercato/ui/primitives/date-format'
 
 type ChangelogActionType = 'create' | 'edit' | 'delete' | 'assign' | 'system'
 type ChangelogSource = 'ui' | 'api' | 'system' | 'agent'
@@ -44,12 +45,12 @@ function formatFieldLabel(fieldName: string): string {
     .replace(/^\w/, (char) => char.toUpperCase())
 }
 
-function formatRelativeTime(value: string): string {
+function formatRelativeTime(value: string, locale: string): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ''
   const diffMs = date.getTime() - Date.now()
   const diffMinutes = Math.round(diffMs / 60000)
-  const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
+  const formatter = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' })
 
   if (Math.abs(diffMinutes) < 60) return formatter.format(diffMinutes, 'minute')
 
@@ -62,12 +63,10 @@ function formatRelativeTime(value: string): string {
 
 export function ChangelogEntryRow({ entry }: ChangelogEntryRowProps) {
   const t = useT()
+  const locale = useLocale()
   const ActionIcon = ACTION_ICONS[entry.actionType]
-  const createdAt = new Date(entry.createdAt)
-  const timeLabel = Number.isNaN(createdAt.getTime())
-    ? '00:00'
-    : createdAt.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
-  const relativeLabel = formatRelativeTime(entry.createdAt)
+  const timeLabel = formatDisplayTime(entry.createdAt, locale) ?? '00:00'
+  const relativeLabel = formatRelativeTime(entry.createdAt, locale)
   const actorLabel = entry.actorUserName ?? t('customers.changelog.user.system', 'System')
   const actionLabel = t(`customers.changelog.actions.${entry.actionType}`, formatFieldLabel(entry.actionType))
   const sourceLabel = entry.source === 'api'

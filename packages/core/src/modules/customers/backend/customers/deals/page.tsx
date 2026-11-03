@@ -40,7 +40,9 @@ import {
 import { DealsKpiStrip } from '../../../components/DealsKpiStrip'
 import { E } from '#generated/entities.ids.generated'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { format } from 'date-fns/format'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDate, todayInZone, toUtcDateInputValue } from '@open-mercato/ui/primitives/date-format'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import {
   type CustomerDictionaryKind,
@@ -93,8 +95,9 @@ function makeDealsPresets(): FilterPreset[] {
       labelKey: 'customers.deals.presets.closingMonth',
       iconName: 'clock',
       build: ({ now }) => {
-        const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10)
-        const end = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10)
+        const [year, month] = todayInZone(undefined, now).split('-').map(Number)
+        const start = format(new Date(year, month - 1, 1), 'yyyy-MM-dd')
+        const end = format(new Date(year, month, 0), 'yyyy-MM-dd')
         return makeRuleTree({ field: 'expected_close_at', operator: 'between', value: [start, end] })
       },
     },
@@ -106,8 +109,9 @@ function makeDealsPresets(): FilterPreset[] {
       id: 'won-quarter',
       labelKey: 'customers.deals.presets.wonQuarter',
       build: ({ now }) => {
-        const quarter = Math.floor(now.getMonth() / 3)
-        const start = new Date(now.getFullYear(), quarter * 3, 1).toISOString().slice(0, 10)
+        const [year, month] = todayInZone(undefined, now).split('-').map(Number)
+        const quarter = Math.floor((month - 1) / 3)
+        const start = format(new Date(year, quarter * 3, 1), 'yyyy-MM-dd')
         return makeMultiRuleTree([
           { field: 'status', operator: 'is', value: 'win' },
           { field: 'expected_close_at', operator: 'is_after', value: start },
@@ -174,11 +178,9 @@ function extractIdsFromParams(params: URLSearchParams | null | undefined, key: s
   return normalizeIdCandidates(values)
 }
 
-function formatDateValue(value: string | null | undefined, fallback: string): string {
+function formatDateValue(value: string | null | undefined, fallback: string, locale?: string): string {
   if (!value) return fallback
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return fallback
-  return date.toLocaleDateString()
+  return formatDisplayDate(value, locale) ?? fallback
 }
 
 const STATUS_BADGE_VARIANTS: ReadonlySet<StatusBadgeVariant> = new Set([
@@ -840,15 +842,13 @@ export default function CustomersDealsPage() {
     return mapAssignableStaffToFilterOptions(items)
   }, [activeOrgId])
 
-  const startOfToday = React.useMemo(() => {
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    return today
-  }, [])
+  const today = React.useMemo(() => todayInZone(), [])
   const isDealOverdue = React.useCallback(
-    (row: DealRow): boolean =>
-      !!row.expectedCloseAt && new Date(row.expectedCloseAt) < startOfToday && row.status === 'open',
-    [startOfToday],
+    (row: DealRow): boolean => {
+      const expectedCloseDay = toUtcDateInputValue(row.expectedCloseAt)
+      return !!expectedCloseDay && expectedCloseDay < today && row.status === 'open'
+    },
+    [today],
   )
 
   const columns = React.useMemo<ColumnDef<DealRow>[]>(() => {
@@ -1046,7 +1046,7 @@ export default function CustomersDealsPage() {
           return (
             <div className="flex flex-col">
               <span className="text-foreground">
-                {formatDateValue(expectedCloseAt, t('customers.deals.list.noValue'))}
+                {formatDateValue(expectedCloseAt, t('customers.deals.list.noValue'), locale)}
               </span>
               {subtitle}
             </div>
@@ -1158,7 +1158,7 @@ export default function CustomersDealsPage() {
         },
         cell: ({ row }) => (
           <span className="text-sm">
-            {formatDateValue(row.original.updatedAt ?? null, t('customers.deals.list.noValue'))}
+            {formatDateValue(row.original.updatedAt ?? null, t('customers.deals.list.noValue'), locale)}
           </span>
         ),
       },

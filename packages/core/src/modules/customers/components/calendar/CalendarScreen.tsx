@@ -15,6 +15,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { useWeekStartsOn } from '@open-mercato/ui/primitives/date-locale-settings'
 import { countByCategory } from '../../lib/calendar/categories'
 import { findConflicts } from '../../lib/calendar/conflicts'
 import { getVisibleRange } from '../../lib/calendar/range'
@@ -139,9 +140,10 @@ export function CalendarScreen({ resourcesEnabled = false, staffEnabled = true }
   const [hasLoadedOnce, setHasLoadedOnce] = React.useState(false)
   const { preferences, setPreferences, hydrated: preferencesHydrated, userId: currentUserId } = useCalendarPreferences()
 
+  const weekStartsOn = useWeekStartsOn()
   const range = React.useMemo(
-    () => getVisibleRange(view, anchor, agendaHorizonDays),
-    [view, anchor, agendaHorizonDays],
+    () => getVisibleRange(view, anchor, agendaHorizonDays, weekStartsOn),
+    [view, anchor, agendaHorizonDays, weekStartsOn],
   )
   const { items, isLoading, error, truncated, typeLabels, typeColors, typeIcons, refetch } = useCalendarItems(range)
 

@@ -8,10 +8,13 @@ import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayTime } from '@open-mercato/ui/primitives/date-format'
 import { cn } from '@open-mercato/shared/lib/utils'
 import type { InteractionSummary } from './types'
 import { isCanceledInteractionStatus, isOpenInteractionStatus } from '../../lib/interactionStatus'
+import { toLocalZonedDate } from '../../lib/localDay'
+import { formatZonedDateParts } from '../../lib/displayDate'
 import { ActivityAiActions } from './ActivityAiActions'
 import { EmailCardActions, type EmailCardWidgetData } from './EmailCardActions'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -45,22 +48,23 @@ const TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
   task: ListTodo,
 }
 
-function formatDayLabel(value: string, t: ReturnType<typeof useT>): string {
+function formatDayLabel(value: string, t: ReturnType<typeof useT>, locale: string): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ''
-  const now = new Date()
+  const now = toLocalZonedDate(new Date())
+  const zoned = toLocalZonedDate(date)
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
-  const day = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
+  const day = new Date(zoned.getFullYear(), zoned.getMonth(), zoned.getDate()).getTime()
   const diffDays = Math.round((today - day) / 86400000)
   if (diffDays === 0) return t('customers.timeline.date.today', 'today')
   if (diffDays === 1) return t('customers.timeline.date.yesterday', 'yesterday')
-  return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+  return formatZonedDateParts(date, { day: 'numeric', month: 'short' }, locale)
 }
 
-function formatTimeLabel(value: string): string {
+function formatTimeLabel(value: string, locale: string): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  return formatDisplayTime(date, locale) ?? ''
 }
 
 function trimSnippet(value: string | null | undefined): string | null {
@@ -116,6 +120,7 @@ function buildEmailCardWidgetData(activity: InteractionSummary): EmailCardWidget
 
 export function ActivityCard({ activity, onOpen, onChanged, runMutation }: ActivityCardProps) {
   const t = useT()
+  const locale = useLocale()
   const timestamp = activity.occurredAt ?? activity.scheduledAt ?? activity.createdAt
   const TypeIcon = TYPE_ICONS[activity.interactionType] ?? StickyNote
   const titleBase = activity.title ?? activity.body ?? activity.interactionType
@@ -179,8 +184,8 @@ export function ActivityCard({ activity, onOpen, onChanged, runMutation }: Activ
       } : undefined}
     >
       <div className="pt-1 text-xs text-muted-foreground">
-        <div className="font-semibold text-foreground">{formatDayLabel(timestamp, t)}</div>
-        <div>{formatTimeLabel(timestamp)}</div>
+        <div className="font-semibold text-foreground">{formatDayLabel(timestamp, t, locale)}</div>
+        <div>{formatTimeLabel(timestamp, locale)}</div>
       </div>
 
       <div className="flex size-9 items-center justify-center rounded-lg bg-muted/80">

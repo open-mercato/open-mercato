@@ -18,7 +18,8 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { E } from '#generated/entities.ids.generated'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDate, todayInZone } from '@open-mercato/ui/primitives/date-format'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import type { FilterOption } from '@open-mercato/ui/backend/FilterOverlay'
 import type { FilterFieldDef, FilterOption as AdvancedFilterOption } from '@open-mercato/shared/lib/query/advanced-filter'
@@ -59,7 +60,7 @@ import {
 import { CollectionPreviewCell, normalizeCollectionLabels } from '../../../components/list/CollectionPreviewCell'
 import { appendCustomerListSortParams } from '../listSorting'
 import { expandCreatedAtDayRules } from '../../../lib/createdAtDayFilter'
-import { USER_TIMEZONE } from '../../../lib/localDay'
+import { getUserTimeZone } from '../../../lib/localDay'
 
 type DictionaryOptionWithTone = AdvancedFilterOption & FilterOption
 
@@ -70,7 +71,7 @@ function makePeoplePresets(): FilterPreset[] {
       labelKey: 'customers.people.presets.recentlyActive',
       iconName: 'clock',
       build: ({ now }) => {
-        const cutoff = new Date(now.getTime() - 7 * 24 * 3600 * 1000).toISOString().slice(0, 10)
+        const cutoff = todayInZone(undefined, new Date(now.getTime() - 7 * 24 * 3600 * 1000))
         return makeRuleTree({ field: 'next_interaction_at', operator: 'is_after', value: cutoff })
       },
     },
@@ -89,7 +90,7 @@ function makePeoplePresets(): FilterPreset[] {
       id: 'stale-30',
       labelKey: 'customers.people.presets.stale30',
       build: ({ now }) => {
-        const cutoff = new Date(now.getTime() - 30 * 24 * 3600 * 1000).toISOString().slice(0, 10)
+        const cutoff = todayInZone(undefined, new Date(now.getTime() - 30 * 24 * 3600 * 1000))
         return makeRuleTree({ field: 'next_interaction_at', operator: 'is_before', value: cutoff })
       },
     },
@@ -137,11 +138,9 @@ type DictionaryMap = CustomerDictionaryMap
 
 const NO_MATCH_TAG_SENTINEL = '__no_match__'
 
-function formatDate(value: string | null | undefined, fallback: string): string {
+function formatDate(value: string | null | undefined, fallback: string, locale?: string): string {
   if (!value) return fallback
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return fallback
-  return date.toLocaleDateString()
+  return formatDisplayDate(value, locale) ?? fallback
 }
 
 function mapApiItem(item: Record<string, unknown>): PersonRow | null {
@@ -263,6 +262,7 @@ export default function CustomersPeoplePage() {
   const scopeVersion = useOrganizationScopeVersion()
   const queryClient = useQueryClient()
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const handlePageSizeChange = React.useCallback((newSize: number) => {
     setPageSize(newSize)
@@ -380,7 +380,7 @@ export default function CustomersPeoplePage() {
     params.set('pageSize', String(pageSize))
     appendCustomerListSortParams(params, sorting)
     if (search.trim()) params.set('search', search.trim())
-    const advancedParams = serializeTree(expandCreatedAtDayRules(advancedFilterState, USER_TIMEZONE))
+    const advancedParams = serializeTree(expandCreatedAtDayRules(advancedFilterState, getUserTimeZone()))
     for (const [key, val] of Object.entries(advancedParams)) {
       params.set(key, val)
     }
@@ -690,7 +690,7 @@ export default function CustomersPeoplePage() {
           filterIconName: 'calendar',
           tooltipContent: (row: PersonRow) => {
             if (!row.nextInteractionAt) return undefined
-            const date = formatDate(row.nextInteractionAt, '')
+            const date = formatDate(row.nextInteractionAt, '', locale)
             const name = row.nextInteractionName || ''
             return [date, name].filter(Boolean).join(' - ')
           },
@@ -705,7 +705,7 @@ export default function CustomersPeoplePage() {
                   </span>
                 ) : null}
                 <div className="flex flex-col">
-                  <span>{formatDate(row.original.nextInteractionAt, t('customers.people.list.noValue'))}</span>
+                  <span>{formatDate(row.original.nextInteractionAt, t('customers.people.list.noValue'), locale)}</span>
                   {row.original.nextInteractionName ? (
                     <span className="text-xs text-muted-foreground">{row.original.nextInteractionName}</span>
                   ) : null}
@@ -731,7 +731,7 @@ export default function CustomersPeoplePage() {
         },
         cell: ({ row }) => (
           <span className="text-sm">
-            {formatDate(row.original.createdAt, t('customers.people.list.noValue'))}
+            {formatDate(row.original.createdAt, t('customers.people.list.noValue'), locale)}
           </span>
         ),
       },
@@ -891,7 +891,7 @@ export default function CustomersPeoplePage() {
       }))
 
     return [...baseColumns, ...customColumns]
-  }, [customFieldDefs, dictionaryMaps, dictionaryOptions, loadOwnerFilterOptions, resolvedOwnerFilterOptions, t])
+  }, [customFieldDefs, dictionaryMaps, dictionaryOptions, loadOwnerFilterOptions, locale, resolvedOwnerFilterOptions, t])
 
   const { advancedFilterFields } = useAutoDiscoveredFields({ columns, customFieldDefs })
 

@@ -1,3 +1,5 @@
+import { getActiveDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-store'
+
 const formatters = new Map<string, Intl.DateTimeFormat>()
 
 function parseWallTime(date: string, time: string): Date | null {
@@ -38,7 +40,10 @@ export function canonicalCalendarTimezone(value: unknown): string | null {
   return isCalendarTimezone(resolved) ? resolved : value
 }
 
+/** The configured display timezone, else the runtime zone, else `UTC`. */
 export function defaultCalendarTimezone(): string {
+  const configured = getActiveDateLocaleSettings().timeZone
+  if (isCalendarTimezone(configured)) return configured
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
   return isCalendarTimezone(timezone) ? timezone : 'UTC'
 }

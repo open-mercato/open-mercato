@@ -9,7 +9,8 @@ import {
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { X } from 'lucide-react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDate, todayInZone } from '@open-mercato/ui/primitives/date-format'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { CurrencyBreakdownTable, type CurrencyBreakdownRow } from './CurrencyBreakdownTable'
 
@@ -64,6 +65,7 @@ export function LaneCurrencyBreakdown({
   headingCount,
 }: LaneCurrencyBreakdownProps): React.ReactElement {
   const t = useT()
+  const locale = useLocale()
   const [open, setOpen] = React.useState(false)
 
   const closeLabel = translateWithFallback(t, 'customers.deals.kanban.filter.close', 'Close')
@@ -153,7 +155,7 @@ export function LaneCurrencyBreakdown({
                 t,
                 'customers.deals.kanban.currencyBreakdown.footerCredit',
                 'NBP mid rate · {date}',
-                { date: formatToday() },
+                { date: formatToday(locale) },
               )}
             </p>
             {!convertedAll && missingRateCurrencies.length > 0 ? (
@@ -181,12 +183,8 @@ function formatAmount(amount: number): string {
   }).format(Math.round(amount))
 }
 
-function formatToday(): string {
-  return new Intl.DateTimeFormat(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: '2-digit',
-  }).format(new Date())
+function formatToday(locale: string): string {
+  return formatDisplayDate(todayInZone(), locale) ?? ''
 }
 
 export default LaneCurrencyBreakdown

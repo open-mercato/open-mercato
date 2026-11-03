@@ -3,8 +3,9 @@
 import * as React from 'react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
-import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { formatRelativeTime } from '@open-mercato/shared/lib/time'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 
 type TimelineItemHeaderProps = {
   title: React.ReactNode
@@ -39,6 +40,7 @@ export function TimelineItemHeader({
 }: TimelineItemHeaderProps) {
   const wrapperSize = ICON_WRAPPER_SIZES[iconSize]
   const iconSizeClass = ICON_SIZES[iconSize]
+  const locale = useLocale()
   const resolvedTimestamp = React.useMemo(() => {
     if (subtitle) return subtitle
     if (!timestamp) return fallbackTimestampLabel ?? null
@@ -48,8 +50,8 @@ export function TimelineItemHeader({
     const now = Date.now()
     const diff = Math.abs(now - date.getTime())
     const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000
-    const relativeLabel = diff <= THIRTY_DAYS_MS ? formatRelativeTime(value) : null
-    const absoluteLabel = formatDateTime(value)
+    const relativeLabel = diff <= THIRTY_DAYS_MS ? formatRelativeTime(value, { locale }) : null
+    const absoluteLabel = formatDisplayDateTime(value, locale)
     if (relativeLabel) {
       return (
         <span title={absoluteLabel ?? undefined}>
@@ -58,7 +60,7 @@ export function TimelineItemHeader({
       )
     }
     return absoluteLabel ?? fallbackTimestampLabel ?? null
-  }, [fallbackTimestampLabel, subtitle, timestamp])
+  }, [fallbackTimestampLabel, locale, subtitle, timestamp])
 
   return (
     <div className={cn('flex items-start gap-3', className)}>

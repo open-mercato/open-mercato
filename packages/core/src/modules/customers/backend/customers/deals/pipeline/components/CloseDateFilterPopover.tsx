@@ -7,7 +7,8 @@ import {
   PopoverTrigger,
 } from '@open-mercato/ui/primitives/popover'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { todayInZone } from '@open-mercato/ui/primitives/date-format'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { ChipButton } from './ChipButton'
 import { FilterPopoverShell } from './FilterPopoverShell'
@@ -28,9 +29,16 @@ function ymd(date: Date): string {
   return date.toISOString().slice(0, 10)
 }
 
+function todayAsUtcDay(): Date {
+  return new Date(`${todayInZone()}T00:00:00.000Z`)
+}
+
+function formatCalendarDay(value: string, locale: string): string {
+  return new Intl.DateTimeFormat(locale, { month: 'short', day: '2-digit', timeZone: 'UTC' }).format(new Date(value))
+}
+
 function startOfMonth(): Date {
-  const d = new Date()
-  d.setUTCHours(0, 0, 0, 0)
+  const d = todayAsUtcDay()
   d.setUTCDate(1)
   return d
 }
@@ -43,8 +51,7 @@ function endOfMonth(): Date {
 }
 
 function startOfQuarter(): Date {
-  const d = new Date()
-  d.setUTCHours(0, 0, 0, 0)
+  const d = todayAsUtcDay()
   d.setUTCDate(1)
   const m = d.getUTCMonth()
   d.setUTCMonth(m - (m % 3))
@@ -59,8 +66,7 @@ function endOfQuarter(): Date {
 }
 
 function buildPresetRange(key: PresetKey): CloseDateRange {
-  const now = new Date()
-  now.setUTCHours(0, 0, 0, 0)
+  const now = todayAsUtcDay()
   switch (key) {
     case 'next-30': {
       const to = new Date(now)
@@ -88,6 +94,7 @@ function buildPresetRange(key: PresetKey): CloseDateRange {
 
 export function CloseDateFilterPopover({ value, onApply }: CloseDateFilterPopoverProps): React.ReactElement {
   const t = useT()
+  const locale = useLocale()
   const [open, setOpen] = React.useState(false)
   const [draft, setDraft] = React.useState<CloseDateRange>(value)
 
@@ -102,20 +109,20 @@ export function CloseDateFilterPopover({ value, onApply }: CloseDateFilterPopove
     // preset name, which read like the filter was already active and confused operators.
     if (!isActive) return translateWithFallback(t, 'customers.deals.kanban.filter.any', 'Any')
     if (value.from && value.to) {
-      const f = new Date(value.from).toLocaleDateString(undefined, { month: 'short', day: '2-digit' })
-      const tt = new Date(value.to).toLocaleDateString(undefined, { month: 'short', day: '2-digit' })
+      const f = formatCalendarDay(value.from, locale)
+      const tt = formatCalendarDay(value.to, locale)
       return `${f} – ${tt}`
     }
     if (value.from && !value.to)
       return translateWithFallback(t, 'customers.deals.kanban.filter.from', 'From {date}', {
-        date: new Date(value.from).toLocaleDateString(undefined, { month: 'short', day: '2-digit' }),
+        date: formatCalendarDay(value.from, locale),
       })
     if (!value.from && value.to)
       return translateWithFallback(t, 'customers.deals.kanban.filter.until', 'Until {date}', {
-        date: new Date(value.to).toLocaleDateString(undefined, { month: 'short', day: '2-digit' }),
+        date: formatCalendarDay(value.to, locale),
       })
     return ''
-  }, [value.from, value.to, isActive, t])
+  }, [value.from, value.to, isActive, locale, t])
 
   const applyPreset = (key: PresetKey) => setDraft(buildPresetRange(key))
 

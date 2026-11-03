@@ -20,7 +20,8 @@ import {
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayTime } from '@open-mercato/ui/primitives/date-format'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { renderDictionaryIcon } from '../../../dictionaries/components/dictionaryAppearance'
 import type { CustomerDictionaryDisplayEntry, CustomerDictionaryMap } from '../../lib/dictionaries'
@@ -86,13 +87,13 @@ function copyToClipboard(text: string, t: ReturnType<typeof useT>) {
     .catch((err) => logger.warn('clipboard write failed', { component: 'CompanyCard', err }))
 }
 
-function formatRelativeTime(isoDate: string, t: ReturnType<typeof useT>): string {
+function formatRelativeTime(isoDate: string, t: ReturnType<typeof useT>, locale?: string): string {
   const date = new Date(isoDate)
   const now = new Date()
   const diffMs = now.getTime() - date.getTime()
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
   if (diffDays === 0) {
-    return `${t('customers.companies.detail.relativeTime.today', 'today')}, ${date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`
+    return `${t('customers.companies.detail.relativeTime.today', 'today')}, ${formatDisplayTime(date, locale) ?? ''}`
   }
   if (diffDays === 1) return t('customers.companies.detail.relativeTime.oneDayAgo', '1 day ago')
   if (diffDays < 7) return t('customers.companies.detail.relativeTime.daysAgo', '{{days}} days ago', { days: diffDays })
@@ -221,6 +222,7 @@ export function CompanyCard({
   unlinkDisabled,
 }: CompanyCardProps) {
   const t = useT()
+  const locale = useLocale()
   const resolvedUnlinkLabel = unlinkLabel ?? t('customers.people.detail.companies.unlinkAction', 'Unlink')
 
   const hasBillingSection =
@@ -367,7 +369,7 @@ export function CompanyCard({
               {data.lastContactAt ? (
                 <>
                   <Clock className="size-3 shrink-0" />
-                  {formatRelativeTime(data.lastContactAt, t)}
+                  {formatRelativeTime(data.lastContactAt, t, locale)}
                 </>
               ) : (
                 '—'

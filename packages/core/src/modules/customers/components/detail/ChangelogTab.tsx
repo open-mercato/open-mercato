@@ -5,7 +5,8 @@ import { ArrowLeft, ArrowRight, ArrowUpDown, ChevronDown, ChevronUp, Clock3 } fr
 import { extractChangeRows } from '@open-mercato/core/modules/audit_logs/lib/changeRows'
 import type { ActionLogProjectionType, ActionLogSourceKey } from '@open-mercato/core/modules/audit_logs/lib/projections'
 import { deriveActionLogActionType, deriveActionLogSource } from '@open-mercato/core/modules/audit_logs/lib/projections'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { format } from 'date-fns/format'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -15,6 +16,8 @@ import { ChangelogFilters } from './ChangelogFilters'
 import { ChangelogKpiCards } from './ChangelogKpiCards'
 import { ChangelogEntryRow } from './ChangelogEntryRow'
 import { formatChangelogValue } from './changelogValues'
+import { toLocalZonedDate } from '../../lib/localDay'
+import { formatZonedDateParts } from '../../lib/displayDate'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
@@ -222,20 +225,25 @@ function buildExportUrl({
   return `/api/audit_logs/audit-logs/actions/export?${params.toString()}`
 }
 
-function groupEntriesByDay(entries: ChangelogEntry[], t: ReturnType<typeof useT>) {
+function zonedDayKey(date: Date): string {
+  return format(toLocalZonedDate(date), 'yyyy-MM-dd')
+}
+
+function groupEntriesByDay(entries: ChangelogEntry[], t: ReturnType<typeof useT>, locale: string) {
   const groups = new Map<string, ChangelogEntry[]>()
   entries.forEach((entry) => {
     const date = new Date(entry.createdAt)
-    const key = Number.isNaN(date.getTime()) ? entry.createdAt : date.toDateString()
+    const key = Number.isNaN(date.getTime()) ? entry.createdAt : zonedDayKey(date)
     const bucket = groups.get(key) ?? []
     bucket.push(entry)
     groups.set(key, bucket)
   })
 
-  const today = new Date().toDateString()
-  const yesterdayDate = new Date()
+  const todayDate = toLocalZonedDate(new Date())
+  const today = format(todayDate, 'yyyy-MM-dd')
+  const yesterdayDate = new Date(todayDate)
   yesterdayDate.setDate(yesterdayDate.getDate() - 1)
-  const yesterday = yesterdayDate.toDateString()
+  const yesterday = format(yesterdayDate, 'yyyy-MM-dd')
 
   return Array.from(groups.entries()).map(([key, items]) => ({
     key,
@@ -244,12 +252,12 @@ function groupEntriesByDay(entries: ChangelogEntry[], t: ReturnType<typeof useT>
         ? t('customers.changelog.groupLabel.today', 'TODAY')
         : key === yesterday
           ? t('customers.changelog.groupLabel.yesterday', 'YESTERDAY')
-          : new Date(key).toLocaleDateString(undefined, {
+          : formatZonedDateParts(items[0]?.createdAt ?? key, {
             weekday: 'long',
             day: 'numeric',
             month: 'long',
             year: 'numeric',
-          }).toUpperCase(),
+          }, locale).toLocaleUpperCase(locale),
     items,
   }))
 }
@@ -263,6 +271,7 @@ function SortIcon({ active, dir }: { active: boolean; dir: 'asc' | 'desc' }) {
 
 export function ChangelogTab({ entityId, entityType }: ChangelogTabProps) {
   const t = useT()
+  const locale = useLocale()
   const [filters, setFilters] = React.useState<FilterState>({
     fieldNames: [],
     actorUserIds: [],
@@ -391,7 +400,7 @@ export function ChangelogTab({ entityId, entityType }: ChangelogTabProps) {
   }, [loadTab])
 
   const showGroupedEntries = sorting.field === 'createdAt'
-  const groupedEntries = React.useMemo(() => groupEntriesByDay(entries, t), [entries, t])
+  const groupedEntries = React.useMemo(() => groupEntriesByDay(entries, t, locale), [entries, t, locale])
   const uniqueUsers = React.useMemo(
     () => new Set(entries.map((entry) => entry.actorUserId).filter((value): value is string => Boolean(value))).size,
     [entries],
