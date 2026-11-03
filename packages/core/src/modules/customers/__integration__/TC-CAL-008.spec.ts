@@ -47,7 +47,8 @@ import {
  * - Both fixtures are anchored to **this week's Monday at 09:00** (overlapping:
  *   09:00–10:30 and 09:30–11:00). Monday is always inside the visible Mon–Fri
  *   week (weekends default OFF), so the blocks render regardless of the run day,
- *   and they share `ownerUserId` so `findConflicts` pairs them.
+ *   and they share `ownerUserId` so `findConflicts` pairs them. A retry moves two
+ *   hours later so it cannot stack with meetings a timed-out attempt left behind.
  * - A unique run token in both titles keeps seeded/demo interactions from
  *   colliding with the assertions.
  */
@@ -66,8 +67,9 @@ test.describe('TC-CAL-008: Calendar week-view states', () => {
 
     // This week's Monday at 09:00 — always inside the visible Mon–Fri week.
     const monday = mondayWeekRange(new Date()).from;
-    const startA = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate(), 9, 0, 0, 0);
-    const startB = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate(), 9, 30, 0, 0);
+    const slotHour = 9 + test.info().retry * 2;
+    const startA = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate(), slotHour, 0, 0, 0);
+    const startB = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate(), slotHour, 30, 0, 0);
 
     try {
       adminToken = await getAuthToken(request, 'admin');
@@ -100,9 +102,9 @@ test.describe('TC-CAL-008: Calendar week-view states', () => {
       await page.goto('/backend/calendar');
       await waitForCalendarLoaded(page);
 
-      // The block accessible name is `${title}, ${timeRange}`; the 09:00 start
-      // renders a "9:00" token in the range, so anchor on title + "9:00".
-      const blockA = page.getByRole('button', { name: new RegExp(`^${escapeRegExp(titleA)},.*9:00`) });
+      // The block accessible name is `${title}, ${timeRange}`; the start renders
+      // its hour in the range, so anchor on title + start time.
+      const blockA = page.getByRole('button', { name: new RegExp(`^${escapeRegExp(titleA)},.*${slotHour}:00`) });
       await expect(blockA).toBeVisible();
 
       // -- Inline conflict badge (Conflict warnings default ON) ------------------
@@ -115,8 +117,9 @@ test.describe('TC-CAL-008: Calendar week-view states', () => {
       // peek-unique content: the `EEE, MMM d · h:mm` date·time line (the "·"
       // separator does not appear on the grid block) and the Edit button (grid
       // blocks have no Edit affordance).
-      await expect(page.getByText(/·.*9:00/).first()).toBeVisible();
-      const peekEdit = page.getByRole('button', { name: 'Edit', exact: true });
+      const peek = page.locator('[data-slot="popover-content"][data-state="open"]');
+      await expect(peek.getByText(new RegExp(`${slotHour}:00`)).first()).toBeVisible();
+      const peekEdit = peek.getByRole('button', { name: 'Edit', exact: true });
       await expect(peekEdit).toBeVisible();
 
       // -- Edit opens the editor in edit mode with the title prefilled -----------
