@@ -171,15 +171,11 @@
     var activities = info.openActivities === 0
       ? '<span class="tl-drawer-warn"><svg><use href="#ic-warn"/></svg>No open activities</span>'
       : info.openActivities + (info.openActivities === 1 ? ' open activity' : ' open activities');
-    var actions = manage
-      ? '<div class="tl-drawer-actions">'
-        + '<button class="btn btn-outline btn-sm" type="button" data-tl-drawer-action="date"><svg><use href="#ic-calendar"/></svg> Change close date</button>'
-        + '<button class="btn btn-outline btn-sm" type="button" data-tl-drawer-action="follow-up"><svg><use href="#ic-plus"/></svg> Schedule follow-up</button>'
-        + '<button class="btn btn-outline btn-sm" type="button" data-tl-drawer-action="stage"><svg><use href="#ic-arrow-right"/></svg> Change stage</button>'
-        + '<button class="btn btn-outline btn-sm" type="button" data-tl-drawer-action="won"><svg><use href="#ic-check"/></svg> Mark won</button>'
-        + '<button class="btn btn-outline btn-sm" type="button" data-tl-drawer-action="lost"><svg><use href="#ic-x"/></svg> Mark lost</button>'
-        + '</div>'
-      : '<p class="t-hint tl-drawer-note"><svg><use href="#ic-lock"/></svg>You can view this deal. Changing it or opening the deal page needs the manage-deals permission.</p>';
+    var action = function (name, icon, label) {
+      return manage
+        ? '<button class="btn btn-outline btn-sm" type="button" data-tl-drawer-action="' + name + '"><svg><use href="#' + icon + '"/></svg> ' + label + '</button>'
+        : '';
+    };
     var title = manage
       ? '<a class="tl-drawer-link" href="#s15" data-goto="s15" title="Open the existing deal page">' + escapeHtml(info.title) + '</a>'
       : escapeHtml(info.title);
@@ -193,22 +189,30 @@
       + '<button class="icon-btn" type="button" aria-label="Close" data-tl-drawer-close><svg><use href="#ic-x"/></svg></button>'
       + '</div>'
       + '<div class="drawer-body">'
+      + '<section class="tl-drawer-hero">'
+      + '<div><div class="t-label">Expected close</div>'
+      + '<div class="tl-drawer-date tl-drawer-date-lg' + (info.overdue ? ' is-overdue' : '') + '">'
+      + '<svg><use href="' + (info.overdue ? '#ic-warn' : '#ic-calendar') + '"/></svg>' + escapeHtml(info.date) + (info.overdue ? ' · overdue' : '') + '</div></div>'
+      + action('date', 'ic-calendar', 'Change close date')
+      + '</section>'
       + '<dl class="tl-drawer-fields">'
       + '<div><dt>Value</dt><dd class="num strong">' + escapeHtml(info.value) + '</dd></div>'
       + '<div><dt>Probability</dt><dd class="num">' + escapeHtml(info.probability) + '</dd></div>'
-      + '<div><dt>Stage</dt><dd class="row"><i class="tl-stage-dot" style="--stage:var(--' + escapeHtml(info.stageVar) + ')"></i>' + escapeHtml(info.stage)
-      + '<span class="badge badge-info"><span class="dot"></span>Open</span></dd></div>'
-      + '<div><dt>Expected close</dt><dd class="tl-drawer-date' + (info.overdue ? ' is-overdue' : '') + '">'
-      + '<svg><use href="' + (info.overdue ? '#ic-warn' : '#ic-calendar') + '"/></svg>' + escapeHtml(info.date) + (info.overdue ? ' · overdue' : '') + '</dd></div>'
-      + '<div><dt>Owner</dt><dd>' + escapeHtml(info.owner) + '</dd></div>'
+      + '<div class="tl-drawer-wide"><dt>Stage</dt><dd class="tl-drawer-line"><span class="row"><i class="tl-stage-dot" style="--stage:var(--' + escapeHtml(info.stageVar) + ')"></i>' + escapeHtml(info.stage)
+      + '<span class="badge badge-info"><span class="dot"></span>Open</span></span>' + action('stage', 'ic-arrow-right', 'Change stage') + '</dd></div>'
+      + '<div class="tl-drawer-wide"><dt>Owner</dt><dd>' + escapeHtml(info.owner) + '</dd></div>'
       + '</dl>'
-      + '<section class="tl-drawer-section"><div class="t-label">Review signals</div><ul class="tl-drawer-signals">'
+      + '<section class="tl-drawer-section"><div class="tl-drawer-line"><div class="t-label">Activity</div>' + action('follow-up', 'ic-plus', 'Schedule follow-up') + '</div>'
+      + '<ul class="tl-drawer-signals">'
       + '<li>' + activities + '</li>'
       + '<li>In ' + escapeHtml(info.stage) + ' for ' + info.daysInStage + ' days</li>'
       + (info.stalled ? '<li><span class="badge badge-warning"><span class="dot"></span>Stalled</span></li>' : '')
       + '</ul></section>'
-      + '<section class="tl-drawer-section"><div class="t-label">Actions</div>' + actions + '</section>'
-      + '<p class="t-hint">Field edits happen on the existing deal page. The drawer has no edit form, so closed deals never get a close-date control here.</p>'
+      + (manage
+        ? '<section class="tl-drawer-section tl-drawer-closing"><div class="t-label">Close deal</div><div class="tl-drawer-actions">'
+          + action('won', 'ic-check', 'Mark won') + action('lost', 'ic-x', 'Mark lost') + '</div></section>'
+        : '<p class="t-hint tl-drawer-note"><svg><use href="#ic-lock"/></svg>You can view this deal. Changing it or opening the deal page needs the manage-deals permission.</p>')
+      + '<p class="t-hint">Field edits happen on the existing deal page. For a won or lost deal the drawer keeps only Schedule follow-up, so a closed result never moves between reporting periods.</p>'
       + '</div>'
       + '</aside>';
   }
@@ -257,7 +261,7 @@
   }
 
   var ACTION_NOTICES = {
-    'follow-up': 'Opens the existing activity composer (ActivityComposerDialog).',
+    'follow-up': 'Opens the existing scheduling dialog (ScheduleActivityDialog) with a date, linked to this deal.',
     stage: 'Opens the existing Change stage dialog from the Kanban.',
     won: 'Runs the existing closure flow from the deal page.',
     lost: 'Opens the existing lost-reason dialog (ConfirmDealLostDialog).',

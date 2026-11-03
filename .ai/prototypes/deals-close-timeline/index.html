@@ -2971,9 +2971,9 @@
     </div>
   </div>
   <div class="notes">
-    <div class="note"><b>1</b><span>The drawer is a summary plus existing actions, not the edit form. Field edits stay on the existing deal page, so a closed deal never gets a close-date control here.</span></div>
+    <div class="note"><b>1</b><span>The drawer is a summary plus existing actions, not the edit form. It leads with the expected close date and Change close date, then a compact summary with Change stage beside the stage, then activity with Schedule follow-up, and Mark won or lost in their own section at the bottom.</span></div>
     <div class="note"><b>2</b><span>Review signals come from the Kanban's pipeline enrichment: open activities, days in the current stage, and the stalled flag. A deal with no open activity is flagged.</span></div>
-    <div class="note"><b>3</b><span>Actions reuse existing dialogs: Change close date (screen 6), Schedule follow-up, Change stage, and Mark won or lost with a reason. Read-only users see the summary only: no actions, and the deal title is plain text because the existing deal page needs the manage-deals permission.</span></div>
+    <div class="note"><b>3</b><span>Actions reuse existing dialogs: Change close date (screen 6), Schedule follow-up (the deal page's scheduling dialog, with a date), Change stage, and Mark won or lost with a reason. For a won or lost deal only Schedule follow-up remains, so a closed result never moves between reporting periods. Read-only users see the summary only: no actions, and the deal title is plain text because the existing deal page needs the manage-deals permission.</span></div>
     <div class="note"><b>4</b><span>In the drawer header, the deal title, company and person link to their existing CRM pages (screen 15), each only when the user can open that page; the browser's Back returns here. The status badge sits next to the stage. The open deal is in the URL (<code class="t-mono">?deal=</code>), so reload and shared links reopen it and Back closes it. Escape closes it too, and focus returns to the card. Cmd/Ctrl-click on a card opens the existing deal page instead (for users who can manage deals).</span></div>
   </div>
 </section>

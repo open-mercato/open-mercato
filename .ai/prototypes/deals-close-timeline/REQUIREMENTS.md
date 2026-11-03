@@ -55,14 +55,14 @@ row by row. Slipped or bunched-up deals get missed.
 
 - **US-A1** As a sales rep, I want to see my open deals placed on a timeline by expected close
   date, so that I know what I have to close this month.
-  - AC: the Timeline tab loads with week columns starting last week. Search, people, companies, Status, Owner and Pipeline filters carry over from the other views; List filters the timeline can't apply are named in an info alert.
+  - AC: the Timeline tab loads with week columns starting last week. Like the Kanban and Map, it does not inherit the List's filters; it opens from its own URL, saved view or defaults.
   - AC: each deal card shows title, probability, formatted value with currency, close date,
     company and stage colour.
   - AC: cards in one cell are sorted by date, then id (amounts in different currencies aren't
     comparable). With more than 3 in a cell, a "+N more" button opens a popover listing all of them
     with dates.
-  - AC: clicking a deal, or pressing Enter on it, opens a deal drawer over the timeline (summary,
-    activity, days in stage, stalled flag and the existing actions), and the deal title, company and person in its header link to their
+  - AC: clicking a deal, or pressing Enter on it, opens a deal drawer over the timeline (close date first, then a summary,
+    activity, days in stage, stalled flag and the existing actions; only Schedule follow-up for won or lost deals), and the deal title, company and person in its header link to their
     existing CRM pages. The open deal is kept in the URL.
   - AC: columns keep a readable minimum width; on narrow screens the board scrolls horizontally and
     lane names stay visible.
@@ -80,7 +80,7 @@ row by row. Slipped or bunched-up deals get missed.
   shows actionable pipeline.
   - AC: a visible **Hide closed deals / All deals** toggle defaults to Hide closed deals (closed
     as classified by the status vocabulary, not a literal `open`). Under All deals, or when won/lost
-    is chosen in the Status filter, those cards render muted with a status label. Closed deals can't
+    is chosen in the Status filter, those cards render muted with a status label. Choosing won/lost switches the toggle to All deals; switching back to Hide closed deals removes them from the Status filter. Closed deals can't
     be rescheduled from the timeline in v1.
 
 ### Epic B — Organize by who owns it or where it stands

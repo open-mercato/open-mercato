@@ -305,3 +305,9 @@
 }
 .tl-op-banner .btn { border-color: var(--status-warning-border); background: var(--status-warning-bg); color: var(--status-warning-text); }
 .tl-op-banner svg { width: 0.875rem; height: 0.875rem; }
+.tl-drawer-hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border); }
+.tl-drawer-date-lg { font-size: 1.125rem; font-weight: 600; margin-top: 0.25rem; }
+.tl-drawer-date-lg svg { width: 1rem; height: 1rem; }
+.tl-drawer-wide { grid-column: 1 / -1; }
+.tl-drawer-line { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
+.tl-drawer-closing { padding-top: 1rem; border-top: 1px solid var(--border); }
