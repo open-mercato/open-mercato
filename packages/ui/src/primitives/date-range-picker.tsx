@@ -14,7 +14,7 @@ import {
   defaultDateRangePresets,
   type DateRangePresetItem,
 } from './date-picker-helpers'
-import { formatWithPublicDateFormat, resolvePublicDateFormat } from './date-format'
+import { formatLocalDisplayValue } from './date-format'
 import { useDateFnsLocale } from './date-locale'
 
 export type { DateRangePresetItem } from './date-picker-helpers'
@@ -49,8 +49,7 @@ export type DateRangePickerProps = {
 }
 
 function defaultFormatRange(range: DateRange, locale?: Locale): string {
-  const fmt = resolvePublicDateFormat(locale)
-  return `${formatWithPublicDateFormat(range.start, fmt, locale) ?? ''} – ${formatWithPublicDateFormat(range.end, fmt, locale) ?? ''}`
+  return `${formatLocalDisplayValue(range.start, { locale }) ?? ''} – ${formatLocalDisplayValue(range.end, { locale }) ?? ''}`
 }
 
 function toRDPRange(range: DateRange | null | undefined): RDPRange | undefined {

@@ -8,6 +8,8 @@ import { Button } from '../../primitives/button'
 import { useOptionalLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { expandRecurringItems } from './recurrence'
 import { getScheduleItemStyle, getScheduleStatusTone } from './presentation'
+import { formatDisplayTime } from '../../primitives/date-format'
+import { getActiveDateLocaleSettings } from '../../primitives/date-locale-store'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -41,10 +43,10 @@ function formatDayLabel(day: Date, locale: string): string {
 }
 
 function formatTimeRange(item: ScheduleItem, locale: string, timezone?: string): string {
-  const options: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit', hour12: false }
-  if (timezone) options.timeZone = timezone
-  const startLabel = item.startsAt.toLocaleTimeString(locale, options)
-  const endLabel = item.endsAt.toLocaleTimeString(locale, options)
+  const active = getActiveDateLocaleSettings()
+  const settings = timezone ? { ...active, timeZone: timezone } : active
+  const startLabel = formatDisplayTime(item.startsAt, locale, settings) ?? ''
+  const endLabel = formatDisplayTime(item.endsAt, locale, settings) ?? ''
   return `${startLabel}–${endLabel}`
 }
 

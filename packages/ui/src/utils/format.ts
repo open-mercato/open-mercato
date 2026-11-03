@@ -1,3 +1,5 @@
+import { formatDisplayDate } from '../primitives/date-format'
+
 /**
  * Format a monetary value with an optional ISO-4217 currency code.
  *
@@ -39,7 +41,5 @@ export function formatCurrency(
  */
 export function formatDate(value: string | null | undefined, locale?: string): string | null {
   if (!value) return null
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleDateString(locale, { year: 'numeric', month: 'short', day: 'numeric' })
+  return formatDisplayDate(value, locale) ?? value
 }

@@ -7,7 +7,8 @@ import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { format } from 'date-fns/format'
 import type { Locale } from 'date-fns/locale'
 import { cn } from '@open-mercato/shared/lib/utils'
-import { useOptionalT, useT } from '@open-mercato/shared/lib/i18n/context'
+import { useOptionalLocale, useOptionalT, useT } from '@open-mercato/shared/lib/i18n/context'
+import { resolveWeekStartsOn, useDateLocaleSettings } from './date-locale-settings'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { createTranslator } from '@open-mercato/shared/lib/i18n/translate'
 import { CompactButton } from './compact-button'
@@ -309,8 +310,12 @@ export function Calendar({
   defaultMonth,
   onMonthChange,
   labels,
+  weekStartsOn: weekStartsOnProp,
   ...props
 }: CalendarProps) {
+  const appLocale = useOptionalLocale()
+  const dateLocaleSettings = useDateLocaleSettings()
+  const weekStartsOn = weekStartsOnProp ?? resolveWeekStartsOn((locale as Locale | undefined)?.code ?? appLocale, dateLocaleSettings)
   // The month/year grid (fast navigation) is only meaningful for single-month
   // calendars; multi-month layouts (range pickers) keep the static caption.
   const monthGridEnabled = numberOfMonths === 1
@@ -369,6 +374,7 @@ export function Calendar({
             pagedNavigation={pagedNavigation}
             hideNavigation
             locale={locale}
+            weekStartsOn={weekStartsOn}
             labels={labels}
             numberOfMonths={numberOfMonths}
             month={displayMonth}

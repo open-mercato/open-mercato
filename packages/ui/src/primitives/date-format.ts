@@ -288,3 +288,32 @@ export function toUtcDateInputValue(value: string | Date | null | undefined): st
   }
   return Number.isNaN(value.getTime()) ? null : value.toISOString().slice(0, 10)
 }
+
+export type LocalDisplayValueOptions = {
+  withTime?: boolean
+  locale?: Locale
+  /** A caller-pinned pattern (for example a field-level `displayFormat`); wins over the settings. */
+  explicitFormat?: string | null
+  settings?: DisplaySettings
+}
+
+/**
+ * Render a value a user picked on a local calendar (date pickers, range pickers) for display.
+ *
+ * Unlike `formatDisplayDate*` the value is never moved into the configured timezone: a picked day
+ * is a wall-clock choice, not an instant, and shifting it would show a different day than the one
+ * clicked. A configured pattern renders through `date-fns` with the picker's locale; otherwise
+ * `Intl` renders the locale's own style.
+ */
+export function formatLocalDisplayValue(value: Date, options: LocalDisplayValueOptions = {}): string | null {
+  if (Number.isNaN(value.getTime())) return null
+  const { withTime = false, locale, explicitFormat, settings = getActiveDateLocaleSettings() } = options
+  const pattern = normalizeDateFormatPattern(explicitFormat) ?? (withTime ? settings.dateTimeFormat : settings.dateFormat)
+  if (pattern) return formatWithPublicDateFormat(value, pattern, locale)
+  const formatLocale = settings.locale ?? locale?.code
+  try {
+    return getFormatter(formatLocale, withTime ? 'datetime' : 'date').format(value)
+  } catch {
+    return getFormatter(locale?.code, withTime ? 'datetime' : 'date').format(value)
+  }
+}

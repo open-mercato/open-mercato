@@ -20,6 +20,9 @@ import type { ScheduleItem, ScheduleRange, ScheduleSlot, ScheduleViewMode } from
 import { Button } from '../../primitives/button'
 import { expandRecurringItems } from './recurrence'
 import { getScheduleItemStyle } from './presentation'
+import { deriveTimeDisplayFormat } from '../../primitives/date-locale'
+import { getActiveDateLocaleSettings } from '../../primitives/date-locale-store'
+import { resolveWeekStartsOn, useDateLocaleSettings } from '../../primitives/date-locale-settings'
 
 type CalendarEvent = {
   id: string
@@ -30,10 +33,17 @@ type CalendarEvent = {
   allDay: boolean
 }
 
+type StartOfWeekOptions = Parameters<typeof startOfWeek>[1]
+
+function startOfConfiguredWeek(date: Date, options?: StartOfWeekOptions): Date {
+  const configured = getActiveDateLocaleSettings().firstDayOfWeek
+  return startOfWeek(date, configured === null ? options : { ...options, weekStartsOn: configured })
+}
+
 const localizer = dateFnsLocalizer({
   format,
   parse,
-  startOfWeek,
+  startOfWeek: startOfConfiguredWeek,
   getDay,
   locales: scheduleLocales,
 })
@@ -50,7 +60,8 @@ function deriveRange(date: Date, view: ScheduleViewMode, agendaLength: number, l
     return { start: startOfDay(date), end: endOfDay(date) }
   }
   if (view === 'week') {
-    return { start: startOfWeek(date, { locale: getScheduleLocale(locale) }), end: endOfWeek(date, { locale: getScheduleLocale(locale) }) }
+    const weekStartsOn = resolveWeekStartsOn(locale)
+    return { start: startOfWeek(date, { weekStartsOn }), end: endOfWeek(date, { weekStartsOn }) }
   }
   if (view === 'month') {
     return { start: startOfMonth(date), end: endOfMonth(date) }
@@ -203,11 +214,16 @@ export default function ScheduleCalendar({
     [locale, onItemClick, t],
   )
 
-  const formats = React.useMemo(() => ({
-    timeGutterFormat: (date: Date) => format(date, 'HH:mm'),
-    eventTimeRangeFormat: ({ start, end }: { start: Date; end: Date }) => `${format(start, 'HH:mm')}–${format(end, 'HH:mm')}`,
-    agendaTimeRangeFormat: ({ start, end }: { start: Date; end: Date }) => `${format(start, 'HH:mm')}–${format(end, 'HH:mm')}`,
-  }), [])
+  const dateLocaleSettings = useDateLocaleSettings()
+  const formats = React.useMemo(() => {
+    const timePattern = dateLocaleSettings.timeFormat ?? (deriveTimeDisplayFormat(locale) === '24h' ? 'HH:mm' : 'h:mm a')
+    const formatTime = (date: Date) => format(date, timePattern, { locale: getScheduleLocale(locale) })
+    return {
+      timeGutterFormat: formatTime,
+      eventTimeRangeFormat: ({ start, end }: { start: Date; end: Date }) => `${formatTime(start)}–${formatTime(end)}`,
+      agendaTimeRangeFormat: ({ start, end }: { start: Date; end: Date }) => `${formatTime(start)}–${formatTime(end)}`,
+    }
+  }, [dateLocaleSettings.timeFormat, locale])
 
   return (
     <Calendar

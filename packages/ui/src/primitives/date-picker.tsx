@@ -10,7 +10,8 @@ import { Calendar } from './calendar'
 import { Button } from './button'
 import { LinkButton } from './link-button'
 import { TimeInput } from '../backend/inputs/TimeInput'
-import { formatWithPublicDateFormat, resolvePublicDateFormat, resolvePublicDateTimeFormat } from './date-format'
+import { formatLocalDisplayValue } from './date-format'
+import { useDateLocaleSettings } from './date-locale-settings'
 import { useDateFnsLocale } from './date-locale'
 
 export type DatePickerFooter = 'apply-cancel' | 'today-clear' | 'none'
@@ -146,9 +147,7 @@ export function DatePicker({
     if (open) setDraft(value ?? null)
   }, [open, value])
 
-  const resolvedFormat = withTime
-    ? resolvePublicDateTimeFormat(locale, displayFormat)
-    : resolvePublicDateFormat(locale, displayFormat)
+  const dateLocaleSettings = useDateLocaleSettings()
   const placeholderText = placeholder ?? (
     withTime
       ? t('ui.dateTimePicker.placeholder', 'Pick date and time')
@@ -157,8 +156,8 @@ export function DatePicker({
 
   const formattedValue = React.useMemo(() => {
     if (!value) return null
-    return formatWithPublicDateFormat(value, resolvedFormat, locale)
-  }, [value, resolvedFormat, locale])
+    return formatLocalDisplayValue(value, { withTime, locale, explicitFormat: displayFormat, settings: dateLocaleSettings })
+  }, [value, withTime, locale, displayFormat, dateLocaleSettings])
 
   const handleDaySelect = React.useCallback(
     (day: Date | undefined) => {

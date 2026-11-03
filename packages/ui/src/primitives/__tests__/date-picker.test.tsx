@@ -142,7 +142,7 @@ describe('DatePicker primitive', () => {
 
   it('renders the time input when withTime=true', async () => {
     renderWithI18n(<DatePicker value={new Date(2026, 4, 9, 10, 30)} onChange={() => {}} withTime />)
-    expect(screen.getByText('May 9, 2026 10:30')).toBeInTheDocument()
+    expect(screen.getByText('May 9, 2026, 10:30 AM')).toBeInTheDocument()
     await openPopover()
     expect(screen.getByLabelText('Hour')).toBeInTheDocument()
     expect(screen.getByLabelText('Minute')).toBeInTheDocument()
@@ -319,7 +319,7 @@ describe('DatePicker backwards-compat shims', () => {
     renderWithI18n(
       <LegacyDateTimePicker value={new Date(2026, 4, 9, 10, 30)} onChange={() => {}} />,
     )
-    expect(screen.getByText('May 9, 2026 10:30')).toBeInTheDocument()
+    expect(screen.getByText('May 9, 2026, 10:30 AM')).toBeInTheDocument()
     await act(async () => {
       fireEvent.click(getTrigger())
     })
