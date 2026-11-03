@@ -72,6 +72,10 @@ export function withExactOrderTotalsInput<T extends ParsedRecord>(parsed: T, raw
   return { ...parsed, orderTotals: withExactAmounts(totals as ParsedRecord, rawTotals, EXTERNAL_HEADER_FIELDS) }
 }
 
+export function withExactLineBatchInput<T extends ParsedRecord>(parsed: T, raw: unknown): T {
+  return withExactOrderTotalsInput(withExactList(parsed, raw, 'lines', LINE_EXACT_AMOUNT_FIELDS), raw)
+}
+
 export function withExactLineInput<T extends ParsedRecord>(parsed: T, raw: unknown): T {
   return withExactOrderTotalsInput(withExactAmounts(parsed, raw, LINE_EXACT_AMOUNT_FIELDS), raw)
 }

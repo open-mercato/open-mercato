@@ -1,3 +1,4 @@
+import { addDecimals, decimalToNumber, decimalToString, parseDecimal } from '@open-mercato/shared/lib/decimal'
 import type { UnifiedPaymentStatus } from '@open-mercato/shared/modules/payment_gateways/types'
 
 /**
@@ -35,7 +36,11 @@ export interface AutopayStatusInterpretation {
    * model), sourced from the same record as `amountReceived` so the two
    * never describe two different underlying transactions. */
   amount: number
+  /** `amount` as an exact decimal string. */
+  amountExact: string
   amountReceived: number
+  /** `amountReceived` as an exact decimal string. */
+  amountReceivedExact: string
   currencyCode: string
   matchedRemoteId?: string
   anomaly?: 'overpaid'
@@ -47,6 +52,20 @@ export interface AutopayStatusInterpretation {
  * underlying Autopay transactions (e.g. the payer retried with a different
  * channel).
  */
+function exactAmount(value: string | null | undefined): string {
+  const parsed = parseDecimal(value)
+  return parsed ? decimalToString(parsed) : '0'
+}
+
+function amounts(amount: string, amountReceived: string) {
+  return {
+    amount: decimalToNumber(amount),
+    amountExact: amount,
+    amountReceived: decimalToNumber(amountReceived),
+    amountReceivedExact: amountReceived,
+  }
+}
+
 export function interpretAutopayTransactionStatus(
   transactions: AutopayTransactionRecord[],
 ): AutopayStatusInterpretation {
@@ -56,11 +75,10 @@ export function interpretAutopayTransactionStatus(
 
   if (successes.length === 1) {
     const [success] = successes
-    const amount = Number(success.amount)
+    const amount = exactAmount(success.amount)
     return {
       status: 'captured',
-      amount,
-      amountReceived: amount,
+      ...amounts(amount, amount),
       currencyCode: success.currency,
       matchedRemoteId: success.remoteID,
     }
@@ -68,11 +86,13 @@ export function interpretAutopayTransactionStatus(
 
   if (successes.length > 1) {
     const [first] = successes
-    const totalReceived = successes.reduce((sum, transaction) => sum + Number(transaction.amount), 0)
+    const totalReceived = successes.reduce(
+      (sum, transaction) => decimalToString(addDecimals(sum, exactAmount(transaction.amount))),
+      '0',
+    )
     return {
       status: 'captured',
-      amount: Number(first.amount),
-      amountReceived: totalReceived,
+      ...amounts(exactAmount(first.amount), totalReceived),
       currencyCode: first.currency,
       matchedRemoteId: first.remoteID,
       anomaly: 'overpaid',
@@ -83,8 +103,7 @@ export function interpretAutopayTransactionStatus(
     const [pending] = pendings
     return {
       status: 'pending',
-      amount: Number(pending.amount),
-      amountReceived: 0,
+      ...amounts(exactAmount(pending.amount), '0'),
       currencyCode: pending.currency,
       matchedRemoteId: pending.remoteID,
     }
@@ -100,8 +119,7 @@ export function interpretAutopayTransactionStatus(
     const [first] = failures
     return {
       status: 'failed',
-      amount: Number(first.amount),
-      amountReceived: 0,
+      ...amounts(exactAmount(first.amount), '0'),
       currencyCode: first.currency,
       matchedRemoteId: first.remoteID,
     }
@@ -111,8 +129,7 @@ export function interpretAutopayTransactionStatus(
     const [first] = transactions
     return {
       status: 'unknown',
-      amount: Number(first.amount),
-      amountReceived: 0,
+      ...amounts(exactAmount(first.amount), '0'),
       currencyCode: first.currency,
       matchedRemoteId: first.remoteID,
     }
@@ -120,8 +137,7 @@ export function interpretAutopayTransactionStatus(
 
   return {
     status: 'unknown',
-    amount: 0,
-    amountReceived: 0,
+    ...amounts('0', '0'),
     currencyCode: '',
   }
 }
