@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { createStandaloneIntegrationEnvironment } from '../../../../scripts/lib/standalone-integration-env.mjs'
 
 // The standalone integration lanes run the app server and the queue-drain
 // helpers in SEPARATE processes (AUTO_SPAWN_WORKERS=false): mutations applied
@@ -35,6 +36,11 @@ function collectSqlitePaths(source: string): string[] {
 
 function assertWorkflowUsesSharedCache(relativePath: string): void {
   const workflow = readRepoFile(relativePath)
+  if (relativePath === '.github/workflows/snapshot.yml') {
+    assert.match(workflow, /scripts\/ci\/standalone-integration\.mjs/)
+    assertSharedProfileCache()
+    return
+  }
   const values = collectCacheStrategyValues(workflow)
   assert.equal(
     values.length,
@@ -59,6 +65,17 @@ function assertWorkflowUsesSharedCache(relativePath: string): void {
   )
 }
 
+function assertSharedProfileCache(): void {
+  const { appEnv, testEnv } = createStandaloneIntegrationEnvironment({
+    appDir: '/tmp/standalone-app', repoRoot: REPO_ROOT,
+    baseUrl: 'http://localhost:3001', databaseUrl: 'postgres://fixture/fixture',
+  })
+  assert.ok(CROSS_PROCESS_STRATEGIES.has(appEnv.CACHE_STRATEGY))
+  assert.equal(testEnv.CACHE_STRATEGY, appEnv.CACHE_STRATEGY)
+  assert.equal(appEnv.CACHE_SQLITE_PATH, '/tmp/standalone-app/.mercato/cache/cache.db')
+  assert.equal(testEnv.CACHE_SQLITE_PATH, appEnv.CACHE_SQLITE_PATH)
+}
+
 test('published standalone workflows share cache state across server and drain processes', () => {
   for (const relativePath of [
     '.github/workflows/snapshot.yml',
@@ -70,15 +87,8 @@ test('published standalone workflows share cache state across server and drain p
 
 test('local standalone integration script uses a cross-process cache strategy', () => {
   const script = readRepoFile('scripts/test-create-app-integration.ts')
-  const values = collectCacheStrategyValues(script)
-  assert.ok(
-    values.length >= 2,
-    'test-create-app-integration.ts must pin CACHE_STRATEGY for both the standalone app .env and the integration-test process env',
-  )
-  for (const value of values) {
-    assert.ok(
-      CROSS_PROCESS_STRATEGIES.has(value),
-      `test-create-app-integration.ts sets CACHE_STRATEGY=${value}; the standalone lane drains queue jobs in child processes and requires a cross-process strategy (${Array.from(CROSS_PROCESS_STRATEGIES).join(', ')})`,
-    )
-  }
+  assert.match(script, /createStandaloneIntegrationEnvironment\(\{/)
+  assert.match(script, /\.\.\.appEnv/)
+  assert.match(script, /\.\.\.testEnv/)
+  assertSharedProfileCache()
 })
