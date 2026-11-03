@@ -8,6 +8,8 @@ import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import WarrantyClaimDetailPage from '../backend/warranty_claims/[id]/page'
 import enDict from '../i18n/en.json'
 
+const mockGetTelemetryRuntime = jest.fn()
+const mockReportError = jest.fn()
 const mockConfirm = jest.fn()
 const mockApiCall = jest.fn()
 const mockReadApiResult = jest.fn()
@@ -16,6 +18,9 @@ const mockRetry = jest.fn(async () => true)
 const mockRunMutation = jest.fn(async ({ operation }: { operation: () => Promise<unknown> }) => operation())
 
 jest.mock('next/navigation', () => ({ useRouter: () => ({ push: jest.fn() }) }))
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => mockGetTelemetryRuntime(),
+}))
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: (...args: unknown[]) => mockApiCall(...args),
   readApiResultOrThrow: (...args: unknown[]) => mockReadApiResult(...args),
@@ -88,6 +93,7 @@ async function openRemoveAction() {
 
 beforeEach(() => {
   jest.clearAllMocks()
+  mockGetTelemetryRuntime.mockReturnValue(undefined)
   mockConfirm.mockResolvedValue(true)
   jest.mocked(surfaceRecordConflict).mockReturnValue(false)
 })
@@ -128,6 +134,7 @@ describe('claim line deletion from the desk (#8012)', () => {
 
   it('surfaces stale-version conflicts and keeps the line', async () => {
     setup()
+    mockGetTelemetryRuntime.mockReturnValue({ reportError: mockReportError })
     const conflict = new Error('stale line')
     mockDeleteCrud.mockRejectedValueOnce(conflict)
     jest.mocked(surfaceRecordConflict).mockReturnValue(true)
@@ -138,15 +145,28 @@ describe('claim line deletion from the desk (#8012)', () => {
     ))
     expect(screen.getByTestId(line.id)).toBeTruthy()
     expect(flash).not.toHaveBeenCalled()
+    expect(mockReportError).not.toHaveBeenCalled()
   })
 
-  it('shows a failed deletion without removing the line', async () => {
+  it.each([true, false])('reports failed deletion when telemetry is enabled: %s without removing the line', async (telemetryEnabled) => {
     setup()
-    mockDeleteCrud.mockRejectedValueOnce(new Error('Delete failed'))
+    mockGetTelemetryRuntime.mockReturnValue(telemetryEnabled ? { reportError: mockReportError } : undefined)
+    const deletionError = new Error('Delete failed')
+    mockDeleteCrud.mockRejectedValueOnce(deletionError)
     await openRemoveAction()
 
     await waitFor(() => expect(flash).toHaveBeenCalledWith('Delete failed', 'error'))
     expect(screen.getByTestId(line.id)).toBeTruthy()
+    if (telemetryEnabled) {
+      expect(mockReportError).toHaveBeenCalledTimes(1)
+      expect(mockReportError).toHaveBeenCalledWith(deletionError, {
+        module: 'warranty_claims',
+        code: 'warranty_claims.line_delete_failed',
+        attributes: { claimId: claim.id, lineId: line.id },
+      })
+    } else {
+      expect(mockReportError).not.toHaveBeenCalled()
+    }
   })
 
   it('does not delete when a mutation guard blocks the request', async () => {

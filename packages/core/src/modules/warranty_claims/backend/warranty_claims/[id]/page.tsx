@@ -9,6 +9,7 @@ import { hasFeature } from '@open-mercato/shared/security/features'
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
 import type { TranslateFn, TranslateParams } from '@open-mercato/shared/lib/i18n/context'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { formatDateTime, formatRelativeTime } from '@open-mercato/shared/lib/time'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
@@ -67,6 +68,7 @@ import {
 import { AiAssessButtons } from '../../components/AiAssessButtons'
 import { useUserDisplayNames } from '../../components/useUserDisplayNames'
 import { ReceivingPanel } from '../../components/ReceivingPanel'
+import { loadClaimLines } from '../../../lib/claimLines'
 import { ReturnLabelPanel } from '../../components/ReturnLabelPanel'
 import { VendorRecoverySuggestionsPanel } from '../../components/VendorRecoverySuggestionsPanel'
 import { ClaimStageProgress } from '../../components/ClaimStageProgress'
@@ -929,11 +931,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
           undefined,
           { fallback: { items: [] }, errorMessage: t('warranty_claims.detail.error.load') },
         ),
-        readApiResultOrThrow<{ items?: unknown[] }>(
-          `/api/warranty_claims/lines?claimId=${encodeURIComponent(id)}&page=1&pageSize=100`,
-          undefined,
-          { fallback: { items: [] }, errorMessage: t('warranty_claims.detail.error.loadLines') },
-        ),
+        loadClaimLines(id, t('warranty_claims.detail.error.loadLines')),
         readApiResultOrThrow<{ items?: unknown[] }>(
           `/api/warranty_claims/events?claimId=${encodeURIComponent(id)}`,
           undefined,
@@ -1451,6 +1449,11 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
       await loadData()
     } catch (err) {
       if (surfaceRecordConflict(err, t, { onRefresh: loadData })) return
+      getTelemetryRuntime()?.reportError(err, {
+        module: 'warranty_claims',
+        code: 'warranty_claims.line_delete_failed',
+        attributes: { claimId: claim.id, lineId: line.id },
+      })
       flash(translateErrorMessage(err, t, 'warranty_claims.detail.lines.error.delete'), 'error')
     }
   }, [claim, confirm, linesInlineEditable, loadData, mutationContext, runMutation, t])
