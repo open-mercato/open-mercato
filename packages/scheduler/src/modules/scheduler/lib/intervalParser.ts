@@ -1,25 +1,21 @@
+import {
+  MIN_SCHEDULE_INTERVAL_MS,
+  isValidScheduleInterval,
+  matchScheduleInterval,
+  parseScheduleInterval,
+} from '@open-mercato/shared/lib/schedule/interval'
+
 /**
  * Parse simple interval strings like '15m', '2h', '1d' into milliseconds
  */
+export { MIN_SCHEDULE_INTERVAL_MS }
+
 export function parseInterval(interval: string): number {
-  const regex = /^(\d+)(s|m|h|d)$/
-  const match = interval.match(regex)
-  
-  if (!match) {
-    throw new Error(`Invalid interval format: ${interval}. Expected format: <number><unit> (e.g., 15m, 2h, 1d)`)
-  }
-  
-  const value = parseInt(match[1], 10)
-  const unit = match[2]
-  
-  const multipliers: Record<string, number> = {
-    s: 1000,           // seconds
-    m: 60 * 1000,      // minutes
-    h: 60 * 60 * 1000, // hours
-    d: 24 * 60 * 60 * 1000, // days
-  }
-  
-  return value * multipliers[unit]
+  return parseScheduleInterval(interval)
+}
+
+export function resolveScheduleIntervalMs(interval: string): number {
+  return Math.max(parseInterval(interval), MIN_SCHEDULE_INTERVAL_MS)
 }
 
 /**
@@ -29,7 +25,7 @@ export function calculateNextRunFromInterval(
   interval: string,
   fromDate: Date = new Date()
 ): Date {
-  const ms = parseInterval(interval)
+  const ms = resolveScheduleIntervalMs(interval)
   return new Date(fromDate.getTime() + ms)
 }
 
@@ -37,12 +33,7 @@ export function calculateNextRunFromInterval(
  * Validate an interval string
  */
 export function validateInterval(interval: string): boolean {
-  try {
-    parseInterval(interval)
-    return true
-  } catch {
-    return false
-  }
+  return isValidScheduleInterval(interval)
 }
 
 /**
@@ -52,15 +43,14 @@ export function validateInterval(interval: string): boolean {
  */
 export function intervalToHuman(interval: string): string {
   try {
-    const regex = /^(\d+)(s|m|h|d)$/
-    const match = interval.match(regex)
-    
-    if (!match) {
+    const parts = matchScheduleInterval(interval)
+
+    if (!parts) {
       return interval
     }
-    
-    const unit = match[2]
-    
+
+    const unit = parts.unit
+
     const ms = parseInterval(interval)
     const seconds = ms / 1000
     

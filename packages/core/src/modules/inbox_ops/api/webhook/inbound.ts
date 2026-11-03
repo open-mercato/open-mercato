@@ -13,6 +13,11 @@ import { parseInboundEmail } from '../../lib/emailParser'
 import { checkRateLimit } from '../../lib/rateLimiter'
 import { emitInboxOpsEvent } from '../../events'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import {
+  readBoundedRequestBody,
+  resolveWebhookBodyLimitBytes,
+  WebhookBodyTooLargeError,
+} from '@open-mercato/shared/lib/webhooks'
 
 const logger = createLogger('inbox_ops').child({ component: 'webhook' })
 
@@ -20,7 +25,10 @@ export const metadata = {
   POST: { requireAuth: false },
 }
 
-const MAX_PAYLOAD_SIZE = 2 * 1024 * 1024 // 2MB
+const MAX_PAYLOAD_SIZE = resolveWebhookBodyLimitBytes(
+  process.env.INBOX_OPS_WEBHOOK_MAX_BODY_BYTES ?? process.env.OM_WEBHOOK_MAX_BODY_BYTES,
+  2 * 1024 * 1024,
+)
 const REPLAY_WINDOW_MS = 5 * 60 * 1000 // 5 minutes
 
 function isTimestampFresh(timestamp: string): boolean {
@@ -75,10 +83,6 @@ function verifyHmacAgainstAny(
   return false
 }
 
-// Stable, non-reversible identifier for the pre-DB global rate-limit bucket.
-// Keying on the configured signing secret (rather than the attacker-set `to` or
-// the per-request signature) means the bucket is request-invariant for a given
-// secret, so rotating recipients or mutating the body cannot dilute the limit.
 function secretFingerprint(secret: string): string {
   return createHmac('sha256', 'inbox_ops:rate_limit:salt').update(secret).digest('hex').slice(0, 32)
 }
@@ -211,20 +215,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Service unavailable' }, { status: 503 })
   }
 
-  const contentLength = parseInt(req.headers.get('content-length') || '0', 10)
-  if (contentLength > MAX_PAYLOAD_SIZE) {
-    return NextResponse.json({ error: 'Payload too large' }, { status: 413 })
-  }
-
   let rawBody: string
   try {
-    rawBody = await req.text()
-  } catch {
+    rawBody = await readBoundedRequestBody(req, { maxBytes: MAX_PAYLOAD_SIZE })
+  } catch (error) {
+    if (error instanceof WebhookBodyTooLargeError) {
+      return NextResponse.json({ error: 'Payload too large' }, { status: 413 })
+    }
     return NextResponse.json({ error: 'Bad request' }, { status: 400 })
-  }
-
-  if (rawBody.length > MAX_PAYLOAD_SIZE) {
-    return NextResponse.json({ error: 'Payload too large' }, { status: 413 })
   }
 
   const verified = await verifyAndParse(req, rawBody)
@@ -279,19 +277,22 @@ export async function POST(req: Request) {
     // bucket instead of waving the request through.
   }
 
-  // Pre-DB global bucket keyed on the configured signing secret (custom) or the
-  // static Resend path, NOT on the attacker-controllable `to` and NOT on the
-  // per-request signature (which mutates with timestamp/body, so it would mint a
-  // fresh bucket every request and never throttle). The per-tenant secret lives
-  // behind the encrypted-column lookup, so the only secret available here without
-  // a DB hit is the global one — keying on it caps total inbound volume for the
-  // custom path and runs BEFORE the lookup so a flood cannot amplify DB work.
-  const globalBucketKey = verified.data.kind === 'custom'
-    ? `webhook:secret:${secretFingerprint(process.env.INBOX_OPS_WEBHOOK_SECRET || '')}`
-    : 'webhook:resend'
-  const globalRateCheck = await checkRateLimit(cache, globalBucketKey)
-  if (!globalRateCheck.allowed) {
-    return rateLimitedResponse(globalRateCheck.retryAfterSeconds)
+  const globalSecret = process.env.INBOX_OPS_WEBHOOK_SECRET || ''
+  let admissionBucketKey = 'webhook:resend'
+  if (verified.data.kind === 'custom') {
+    const globallySigned = verifyHmacSignature(
+      rawBody,
+      verified.data.signature,
+      verified.data.timestamp,
+      globalSecret,
+    )
+    admissionBucketKey = globallySigned
+      ? `webhook:admission:custom:global:${secretFingerprint(globalSecret)}`
+      : 'webhook:admission:custom:unverified'
+  }
+  const admissionRateCheck = await checkRateLimit(cache, admissionBucketKey)
+  if (!admissionRateCheck.allowed) {
+    return rateLimitedResponse(admissionRateCheck.retryAfterSeconds)
   }
 
   const em = (container.resolve('em') as EntityManager).fork()
@@ -314,7 +315,6 @@ export async function POST(req: Request) {
   // For an unknown `to` we still require the global secret so the endpoint never
   // behaves as an unauthenticated probe oracle.
   if (verified.data.kind === 'custom') {
-    const globalSecret = process.env.INBOX_OPS_WEBHOOK_SECRET || ''
     const inboxSecret = settings?.webhookSecret || ''
     const acceptableSecrets = inboxSecret ? [inboxSecret] : [globalSecret]
     const signatureValid = verifyHmacAgainstAny(
@@ -325,6 +325,14 @@ export async function POST(req: Request) {
     )
     if (!signatureValid) {
       return NextResponse.json({ error: 'Invalid signature' }, { status: 400 })
+    }
+
+    const verifiedRateCheck = await checkRateLimit(
+      cache,
+      `webhook:verified:custom:${secretFingerprint(globalSecret)}`,
+    )
+    if (!verifiedRateCheck.allowed) {
+      return rateLimitedResponse(verifiedRateCheck.retryAfterSeconds)
     }
   }
 
@@ -394,6 +402,10 @@ export async function POST(req: Request) {
       organizationId: settings.organizationId,
       forwardedByAddress: parsed.from.email,
       subject: parsed.subject,
+    }, {
+      persistent: true,
+      tenantId: settings.tenantId,
+      organizationId: settings.organizationId,
     })
   } catch (eventError) {
     logger.error('Failed to emit email.received event', { err: eventError })

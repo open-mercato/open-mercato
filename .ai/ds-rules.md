@@ -12,7 +12,8 @@ Decision tree — ask "what color do I need?":
 | Question | Answer | Token |
 |----------|--------|-------|
 | Is it a status indicator (error/success/warning/info/neutral)? | Yes → | `{property}-status-{status}-{role}` (e.g. `text-status-error-text`, `bg-status-success-bg`, `border-status-warning-border`) |
-| Is it a destructive action button? | Yes → | `text-destructive`, `bg-destructive` |
+| Is it a destructive action (delete/remove/discard trigger or its icon)? | Yes → | `text-destructive`, `bg-destructive` — NOT for error copy, see the row above |
+| Is it the confirm button inside a confirmation dialog? | Yes → | `Button variant="destructive-solid"` (the only filled-red control) |
 | Is it primary text? | Yes → | `text-foreground` |
 | Is it secondary/placeholder text? | Yes → | `text-muted-foreground` |
 | Is it a primary action (button, link)? | Yes → | `bg-primary`, `text-primary-foreground` |
@@ -109,6 +110,7 @@ Pill vs no-pill chips: the shipped primitives (`Badge`, `Tag` pill variant, `Seg
 - NEVER use arbitrary tracking — use `tracking-widest` (0.1em) for uppercase labels
 - USE Tailwind scale: `text-xs` (12px), `text-sm` (14px), `text-base` (16px), `text-lg` (18px), `text-xl` (20px), `text-2xl` (24px)
 - For 11px uppercase labels: use `text-overline` (custom token, 11px / 16px line-height)
+- Source widget typography: `text-compact` is 13px / 20px, `text-ai-body` is 15px / 24px, and `text-title-4` is 32px / 40px. Use these only for the corresponding Figma compositions; ordinary application copy keeps the standard scale.
 - Exception: `text-[9px]` for notification badge count and `Avatar size="sm"` initials (documented exceptions)
 - Font families come from tokens: `--font-geist-sans` (default UI) and `--font-geist-mono` (`font-mono`) — never declare `font-family` inline
 
@@ -131,7 +133,7 @@ Pill vs no-pill chips: the shipped primitives (`Badge`, `Tag` pill variant, `Seg
 - Every list/data page MUST handle empty state via `<EmptyState>` or `emptyState` prop on DataTable
 - Every async page MUST show loading state via `<LoadingMessage>`, `<Spinner>`, or `<DataLoader>`
 - Alert API: `status="information|success|warning|error|feature"` × `style="light|lighter|stroke|filled"` × `size="xs|sm|default"` — see `.ai/ui-components.md` § Alert for the full matrix
-- The Alert `variant` prop (`destructive`/`info`/…) is **deprecated BC** — new code uses `status` + `style`
+- The Alert `variant` prop (`destructive`/`info`/…) is **deprecated BC** — in-repo migration complete (2026-07); the lint rule `om-ds/no-legacy-alert-variant` guards against regressions, the shim in `primitives/alert.tsx` stays for third-party code
 
 ## Spacing
 - NEVER use arbitrary spacing values (`p-[13px]`, `gap-[10px]`, `mt-[7px]`, etc.)
@@ -364,4 +366,3 @@ If you find yourself writing `dark:{something}`, first check whether a semantic 
 
 ## Boy Scout Rule
 When modifying a file that contains hardcoded status colors (`text-red-*`, `bg-green-*`, etc.), arbitrary text sizes (`text-[11px]`), or `dark:` overrides on status colors, you MUST migrate at minimum the lines you touched to semantic tokens.
-

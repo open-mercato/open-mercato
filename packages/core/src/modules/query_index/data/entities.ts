@@ -255,6 +255,13 @@ export class IndexerStatusLog {
 @Index({ name: 'search_tokens_lookup_idx', properties: ['entityType', 'field', 'tokenHash', 'tenantId', 'organizationId'] })
 @Index({ name: 'search_tokens_entity_idx', properties: ['entityType', 'entityId'] })
 @Index({ name: 'search_tokens_tenant_token_hash_idx', properties: ['tenantId', 'tokenHash'] })
+// Serves the availability probe ("does this scope have any tokens?") as a pure
+// B-tree prefix seek, making the MISS as cheap as the hit — neither existing
+// index can (lookup_idx buries tenant_id behind field/token_hash), which is how
+// the probe degraded to a seq scan on large tables (#4723). Requires the
+// index-usable `= / IS NULL` predicates the availability resolver emits; see
+// .ai/specs/2026-07-31-search-token-probe-index.md.
+@Index({ name: 'search_tokens_presence_idx', properties: ['entityType', 'tenantId', 'organizationId'] })
 export class SearchToken {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string

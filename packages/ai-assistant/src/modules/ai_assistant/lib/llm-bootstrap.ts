@@ -17,6 +17,7 @@
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
 import { createAnthropicAdapter } from './llm-adapters/anthropic'
+import { createAzureAdapter } from './llm-adapters/azure'
 import { createGoogleAdapter } from './llm-adapters/google'
 import { createOpenAICompatibleProvider } from './llm-adapters/openai'
 import { OPENAI_COMPATIBLE_PRESETS } from './openai-compatible-presets'
@@ -46,6 +47,12 @@ export function registerBuiltInLlmProviders(): void {
     llmProviderRegistry.register(createGoogleAdapter())
   } catch (error) {
     logger.warn('Failed to register Google adapter', { err: error })
+  }
+
+  try {
+    llmProviderRegistry.register(createAzureAdapter())
+  } catch (error) {
+    logger.warn('Failed to register Azure adapter', { err: error })
   }
 
   // OpenAI-compatible presets — all share one protocol adapter under the

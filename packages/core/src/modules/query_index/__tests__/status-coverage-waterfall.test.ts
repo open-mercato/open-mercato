@@ -403,4 +403,107 @@ describe('query_index status route — coverage waterfall (#3285)', () => {
     const entity = body.items.find((item: { entityId: string }) => item.entityId === ENTITY_A)
     expect(entity.job.status).toBe(expected)
   })
+
+  // A scope-only job (no partition rows, e.g. partitionCount: 1) had nothing in the
+  // `partitions` array for the top-level status/timestamp derivation to see, so it always
+  // reported `status: "idle"` with null startedAt/finishedAt/heartbeatAt even while the
+  // nested `job.scope` correctly showed it running/stalled/failed/completed (#6070).
+  describe('scope-only reindex jobs (#6070)', () => {
+    function scopeOnlyDb(row: Record<string, unknown>) {
+      return makeFakeDb({
+        custom_field_defs: [
+          { entity_id: ENTITY_A, is_active: true, tenant_id: null, organization_id: null },
+        ],
+        entity_index_jobs: [
+          {
+            id: 'job-scope-1',
+            entity_type: ENTITY_A,
+            tenant_id: 'tenant-1',
+            organization_id: null,
+            partition_index: null,
+            partition_count: 1,
+            processed_count: 4,
+            total_count: 10,
+            // Fresh (well within HEARTBEAT_STALE_MS) unless a test overrides it.
+            started_at: new Date(Date.now() - 5 * 60_000),
+            heartbeat_at: new Date(Date.now() - 5_000),
+            finished_at: null,
+            ...row,
+          },
+        ],
+        indexer_error_logs: [],
+        indexer_status_logs: [],
+      })
+    }
+
+    function runWithDb(db: ReturnType<typeof makeFakeDb>) {
+      const em = { getKysely: () => db }
+      mockCreateRequestContainer.mockResolvedValueOnce({
+        resolve: (name: string) => {
+          if (name === 'em') return em
+          if (name === 'eventBus') return { emitEvent }
+          if (name === 'searchModuleConfigs') return []
+          if (name === 'searchStrategies') return []
+          throw new Error(`Unexpected token: ${name}`)
+        },
+      })
+      return GET(makeRequest())
+    }
+
+    it('reports a running scope-only job as reindexing with populated timestamps', async () => {
+      const startedAt = new Date(Date.now() - 5 * 60_000)
+      const heartbeatAt = new Date(Date.now() - 5_000)
+      const res = await runWithDb(scopeOnlyDb({ status: 'reindexing', started_at: startedAt, heartbeat_at: heartbeatAt }))
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      const entity = body.items.find((item: { entityId: string }) => item.entityId === ENTITY_A)
+      expect(entity.job.status).toBe('reindexing')
+      expect(entity.job.scope.status).toBe('reindexing')
+      expect(entity.job.startedAt).toBe(startedAt.toISOString())
+      expect(entity.job.heartbeatAt).toBe(heartbeatAt.toISOString())
+      expect(entity.job.finishedAt).toBeNull()
+    })
+
+    it('reports a purging scope-only job as purging', async () => {
+      const res = await runWithDb(scopeOnlyDb({ status: 'purging' }))
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      const entity = body.items.find((item: { entityId: string }) => item.entityId === ENTITY_A)
+      expect(entity.job.status).toBe('purging')
+      expect(entity.job.scope.status).toBe('purging')
+    })
+
+    it('reports a scope-only job with a stale heartbeat as stalled', async () => {
+      const staleHeartbeat = new Date(Date.now() - 10 * 60_000)
+      const res = await runWithDb(scopeOnlyDb({ status: 'reindexing', heartbeat_at: staleHeartbeat }))
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      const entity = body.items.find((item: { entityId: string }) => item.entityId === ENTITY_A)
+      expect(entity.job.status).toBe('stalled')
+      expect(entity.job.scope.status).toBe('stalled')
+      expect(entity.job.heartbeatAt).toBe(staleHeartbeat.toISOString())
+    })
+
+    it('reports a failed scope-only job with its finishedAt populated', async () => {
+      const finishedAt = new Date('2026-09-01T10:10:00.000Z')
+      const res = await runWithDb(scopeOnlyDb({ status: 'failed', finished_at: finishedAt }))
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      const entity = body.items.find((item: { entityId: string }) => item.entityId === ENTITY_A)
+      expect(entity.job.status).toBe('failed')
+      expect(entity.job.scope.status).toBe('failed')
+      expect(entity.job.finishedAt).toBe(finishedAt.toISOString())
+    })
+
+    it('reports a completed scope-only job as idle with its finishedAt populated', async () => {
+      const finishedAt = new Date('2026-09-01T10:10:00.000Z')
+      const res = await runWithDb(scopeOnlyDb({ status: 'completed', finished_at: finishedAt }))
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      const entity = body.items.find((item: { entityId: string }) => item.entityId === ENTITY_A)
+      expect(entity.job.status).toBe('idle')
+      expect(entity.job.scope.status).toBe('completed')
+      expect(entity.job.finishedAt).toBe(finishedAt.toISOString())
+    })
+  })
 })

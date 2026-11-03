@@ -7,7 +7,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { normalizeCoordinateInput, validateCoordinateInput } from '@open-mercato/shared/lib/location/coordinates'
-import { AddressView, formatAddressString, type AddressFormatStrategy } from './addressFormat'
+import { AddressView, type AddressFormatStrategy } from './addressFormat'
 import AddressEditor, { type AddressTypesAdapter } from './AddressEditor'
 import {
   Dialog,
@@ -176,7 +176,7 @@ export function AddressTiles<C = unknown>({
   t,
   emptyLabel,
   isSubmitting = false,
-  gridClassName = 'grid grid-cols-1 gap-2 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4',
+  gridClassName = 'grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-2 sm:gap-4',
   hideAddButton = false,
   onAddActionChange,
   emptyStateTitle,
@@ -480,7 +480,7 @@ export function AddressTiles<C = unknown>({
             addressTypesAdapter={addressTypesAdapter}
             addressTypesContext={addressTypesContext}
           />
-          {generalError ? <p className="text-xs text-red-600">{generalError}</p> : null}
+          {generalError ? <p className="text-xs text-status-error-text">{generalError}</p> : null}
           <div className="flex flex-wrap justify-end gap-2">
             <Button type="button" variant="outline" onClick={handleCancel} disabled={disableActions}>
               {label('cancel', 'Cancel')}
@@ -569,9 +569,6 @@ export function AddressTiles<C = unknown>({
                       </p>
                     ) : null}
                     <AddressView address={address} format={format} className="text-sm text-foreground" />
-                    <p className="text-xs text-muted-foreground">
-                      {formatAddressString(address, format)}
-                    </p>
                   </div>
                   <div className="flex items-center gap-1 opacity-100 md:opacity-0 transition-opacity md:group-hover:opacity-100 focus-within:opacity-100">
                     <Button

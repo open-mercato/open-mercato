@@ -1156,7 +1156,7 @@ function StatusAlert({
   message: string
 }) {
   return (
-    <Alert variant={variant === 'error' ? 'destructive' : variant}>
+    <Alert status={variant === 'info' ? 'information' : variant}>
       <AlertTitle>{title}</AlertTitle>
       <AlertDescription>{message}</AlertDescription>
     </Alert>

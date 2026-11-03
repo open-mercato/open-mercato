@@ -2,7 +2,8 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import type { SortingState } from '@tanstack/react-table'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import type { FilterOption } from '@open-mercato/ui/backend/FilterOverlay'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -28,6 +29,7 @@ type OffersResponse = {
   items?: Array<Record<string, unknown>>
   total?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 const PAGE_SIZE = 25
@@ -60,6 +62,7 @@ export default function SalesChannelOffersListPage() {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'updatedAt', desc: true }])
   const [search, setSearch] = React.useState('')
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
@@ -270,6 +273,7 @@ export default function SalesChannelOffersListPage() {
       setRows(mapped)
       setTotal(typeof payload.total === 'number' ? payload.total : items.length)
       setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : Math.max(1, Math.ceil(items.length / PAGE_SIZE)))
+      setTotalIsCapped(payload?.totalIsCapped === true)
       const ids = mapped
         .map((row) => row.channelId)
         .filter((value): value is string => typeof value === 'string' && value.length > 0)
@@ -328,10 +332,10 @@ export default function SalesChannelOffersListPage() {
 
   const tableTitle = (
     <div className="flex flex-col gap-1">
-      <span>{t('sales.channels.offers.listTitle', 'Sales channel offers')}</span>
-      <span className="text-sm font-normal text-muted-foreground">
+      <h1>{t('sales.channels.offers.listTitle', 'Sales channel offers')}</h1>
+      <p className="text-sm font-normal text-muted-foreground">
         {t('sales.channels.offers.listSubtitle', 'Review product overrides across every sales channel.')}
-      </span>
+      </p>
     </div>
   )
 
@@ -361,6 +365,7 @@ export default function SalesChannelOffersListPage() {
             pageSize: PAGE_SIZE,
             total,
             totalPages,
+            totalIsCapped,
             onPageChange: setPage,
           }}
           refreshButton={{

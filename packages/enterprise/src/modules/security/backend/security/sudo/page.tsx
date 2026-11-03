@@ -1,8 +1,9 @@
 'use client'
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/enterprise/modules/security/extension-points'
 import Link from 'next/link'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Pencil, Plus, ShieldAlert, Trash2 } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
@@ -243,6 +244,7 @@ function SecuritySudoPageInner() {
 
         <DataTable<SudoConfigRow>
           title={t('security.admin.sudo.title', 'Sudo protection')}
+          titleHeadingLevel={1}
           columns={columns}
           data={rows}
           actions={(
@@ -257,7 +259,7 @@ function SecuritySudoPageInner() {
               </Link>
             </Button>
           )}
-          perspective={{ tableId: 'security.sudo.list' }}
+          perspective={{ tableId: extensionPoints.hosts.sudoTable.tableId }}
           isLoading={loading}
           error={error ? <span>{error}</span> : null}
         />

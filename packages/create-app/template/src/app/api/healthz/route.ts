@@ -1,6 +1,6 @@
 import type { CacheStrategy } from '@open-mercato/cache'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { bootstrap } from '@/bootstrap'
+import { bootstrap } from '@/bootstrap-api'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 
 bootstrap()

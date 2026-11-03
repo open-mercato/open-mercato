@@ -1,5 +1,6 @@
 import {
   clearRegisteredIntegrations,
+  registerBundle,
   registerIntegration,
 } from '@open-mercato/shared/modules/integrations/types'
 import {
@@ -92,6 +93,51 @@ describe('createPaymentGatewayDescriptorService', () => {
       isConfigured: false,
       configurationStatus: 'missing_credentials',
     })
+  })
+
+  it('keeps a credential-free integration available without persisted credentials or state', async () => {
+    registerBundle({
+      id: 'example_bundle',
+      title: 'Example bundle',
+      description: 'Credential-free test bundle',
+      credentials: { fields: [] },
+    })
+    registerIntegration({
+      id: 'example_mock_payment',
+      title: 'Example mock payment',
+      hub: 'payment_gateways',
+      providerKey: 'mock',
+      bundleId: 'example_bundle',
+    })
+    registerPaymentGatewayDescriptor({
+      providerKey: 'mock',
+      label: 'Mock Gateway',
+    })
+
+    const resolveCredentials = jest.fn(async () => null)
+    const resolveState = jest.fn(async () => ({
+      isEnabled: false,
+      apiVersion: null,
+      reauthRequired: false,
+      lastHealthStatus: null,
+      lastHealthCheckedAt: null,
+      lastHealthLatencyMs: null,
+      enabledAt: null,
+    }))
+    const service = createPaymentGatewayDescriptorService({
+      integrationCredentialsService: { resolve: resolveCredentials } as never,
+      integrationStateService: { resolveState } as never,
+    })
+
+    await expect(service.getResolved('mock', scope)).resolves.toMatchObject({
+      providerKey: 'mock',
+      integrationId: 'example_mock_payment',
+      requiresConfiguration: false,
+      isConfigured: true,
+      configurationStatus: 'unmanaged',
+    })
+    expect(resolveCredentials).not.toHaveBeenCalled()
+    expect(resolveState).not.toHaveBeenCalled()
   })
 
   it('marks integration-backed descriptors as disabled until the integration is enabled', async () => {

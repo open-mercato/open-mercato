@@ -7,6 +7,7 @@
 
 import { ReferenceKind, type MikroORM } from '@mikro-orm/core'
 import type { PostgreSqlDriver } from '@mikro-orm/postgresql'
+import { listEntityMetadata } from '@open-mercato/shared/lib/db/entityMetadata'
 
 /**
  * Relationship types mapped from MikroORM reference kinds.
@@ -86,13 +87,12 @@ function getSimpleTypeName(type: string | ((...args: unknown[]) => unknown) | un
  * Extract the entity graph from MikroORM metadata.
  */
 export async function extractEntityGraph(orm: MikroORM<PostgreSqlDriver>): Promise<EntityGraph> {
-  const metadata = orm.getMetadata()
-  const allMetadata = metadata.getAll()
+  const allMetadata = listEntityMetadata(orm)
 
   const nodes: EntityNode[] = []
   const edges: EntityTriple[] = []
 
-  for (const [, entityMeta] of Object.entries(allMetadata)) {
+  for (const entityMeta of allMetadata) {
     // Skip abstract entities and embeddables
     if (entityMeta.abstract || entityMeta.embeddable) continue
 

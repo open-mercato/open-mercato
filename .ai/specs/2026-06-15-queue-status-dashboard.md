@@ -10,12 +10,14 @@
 Add a **two-tier Queue Status** admin surface:
 
 - **Tier 1 — Status (default, payload-free, broad access).** Per registered queue, current
-  job counts by state (waiting / active / completed / failed / delayed) plus a **bounded,
-  payload-free** list of recent failed jobs (id, queue, worker id, error/reason, attempts,
-  failed-at). Safe to open against very large queues — it never enumerates the whole queue
-  and never loads or renders job payloads (`job.data`). Counts come from aggregate APIs
-  (`Queue.getJobCounts()`); the failed-job list is a small bounded window with the payload
-  stripped server-side. Tier 1 also surfaces, all **payload-free** and server-bounded:
+  job counts by state (waiting / active / completed / failed / delayed) plus, when the
+  strategy supports it, a **bounded, payload-free** list of recent failed jobs (id, queue,
+  worker id, error/reason, attempts, failed-at). Safe to open against very large queues —
+  it never enumerates the whole queue and never loads or renders job payloads (`job.data`).
+  Counts come from aggregate APIs (`Queue.getJobCounts()`); the async failed-job list is a
+  small bounded inspection window with the payload stripped server-side, while local queues
+  expose counts only because their exhausted jobs are not retained. Tier 1 also surfaces,
+  all **payload-free** and server-bounded:
   - **Per-queue processing-time metrics** — average and last processing duration (and average
     wait/latency) computed from a bounded sample of recent completed jobs, so an operator can
     see at a glance which queues are slow.
@@ -38,7 +40,7 @@ Add a **two-tier Queue Status** admin surface:
   sessions without the feature the rows are not clickable and no payload path exists.
 
 Both tiers work for `local` (file-based) and `async` (BullMQ/Redis) strategies, degrading
-gracefully where the local strategy cannot supply a state.
+gracefully where the local strategy cannot supply a state or retained failed-job detail.
 
 ## Open Questions
 
@@ -184,7 +186,7 @@ type FailedJobSummary = {
   id: string
   queue: string
   workerId?: string        // best-effort, when derivable
-  failedReason?: string    // BullMQ failedReason / local error message, truncated server-side
+  failedReason?: string    // strategy-provided reason, truncated server-side
   attemptsMade?: number
   failedAt?: number        // epoch ms
 }
@@ -193,9 +195,14 @@ type FailedJobSummary = {
 - **async (BullMQ):** `queue.getJobs(['failed'], 0, limit - 1)` then map **only** the
   allow-listed fields above. `job.data` is never read into the response. `failedReason` is
   truncated to a fixed max length (e.g. 500 chars) server-side to avoid leaking large
-  stack/context blobs.
-- **local:** read the bounded set of failed entries recorded in `state.json` (the local
-  strategy already tracks `failedCount` / attempt data), capped at `limit`.
+  stack/context blobs. BullMQ's `removeOnFail: 1000` makes this an inspection window for the
+  most recent failures, not durable no-loss storage; older failures are removed as new ones
+  arrive. A workflow that must never lose a failed payload still writes its own durable record
+  before enqueueing.
+- **local:** does not implement this optional method. Exhausted jobs are removed from
+  `queue.json`, and `state.json` retains only `failedCount`, not job ids, attempt metadata,
+  reasons, timestamps, or payloads. The snapshot therefore returns counts only and the UI
+  labels failed details unavailable for this strategy.
 - `limit` is hard-capped server-side (e.g. ≤ 50, default 20). The route ignores/clamps any
   client-supplied value above the cap. There is **no "show payload" affordance** anywhere.
 
@@ -401,7 +408,8 @@ queue and the UI shows "payload inspection unavailable for this strategy".
 - The panel reads from the new API route via `apiCall` (never raw `fetch`), shows a per-queue
   card/table with the state counts using **Design System status tokens** (e.g. failed uses
   `text-status-danger-*` / `bg-status-danger-*`, never hardcoded `text-red-*`), and a
-  collapsible bounded failed-jobs table.
+  collapsible bounded failed-jobs table when the strategy supplies details; local queues show
+  the explicit details-unavailable state alongside their aggregate failed count.
 - Each queue card also shows the **processing-time metrics** (avg / last / p95 / avg-wait,
   formatted as human durations; partial-fidelity queues are labelled) and an **in-flight
   table**: active jobs with a live "running for Xs" duration, plus the oldest waiting/delayed
@@ -490,10 +498,12 @@ server-side tenant isolation with fail-closed semantics as the hard, test-gated 
 ## Phasing (stories)
 
 ### Phase 1 — Introspection contract (queue package)
-Additive, payload-free introspection on the `Queue` contract for both strategies: counts
-(`delayed?`), `getFailedJobsSummary?`, **`getProcessingStats?`** (avg/last/p95/wait durations
-from a bounded completed-job sample), and **`getInFlightJobsSummary?`** (active `runningMs`,
-waiting/delayed `ageMs`). All payload-free, all bounded.
+Additive, payload-free introspection on the `Queue` contract: counts (`delayed?`), optional
+`getFailedJobsSummary?`, **`getProcessingStats?`** (avg/last/p95/wait durations from a bounded
+completed-job sample), and **`getInFlightJobsSummary?`** (active `runningMs`, waiting/delayed
+`ageMs`). All returned detail is payload-free and bounded. The local strategy omits
+`getFailedJobsSummary?` because it persists only a failed count; the snapshot uses its
+documented counts-only fallback.
 
 ### Phase 2 — Status API + snapshot builder (configs module)
 `buildQueueStatusSnapshot({ queue?, type? })` + guarded `GET /api/configs/queues-status`
@@ -532,10 +542,12 @@ are not user-editable entities, idempotent, audited). Explicitly **out of scope*
    (`getJobCounts('waiting','active','completed','failed','delayed')`) and omit it from
    `local.ts`. _Test:_ unit test both strategies' `getJobCounts()` shape.
 2. **Queue contract — failed summary.** Add optional `getFailedJobsSummary?(limit, offset?)`
-   to the `Queue` interface + `FailedJobSummary` type (no `data` field). Implement in
-   `async.ts` (BullMQ `getJobs(['failed'],0,limit-1)` → allow-list map + reason truncation)
-   and `local.ts` (bounded read from `state.json`). _Test:_ unit test that the returned
-   objects contain **no payload key**, respect the `limit` cap, and truncate `failedReason`.
+   to the `Queue` interface + `FailedJobSummary` type (no `data` field). Implement it in
+   `async.ts` (BullMQ `getJobs(['failed'],0,limit-1)` → allow-list map + reason truncation).
+   Leave it unimplemented in `local.ts`: `state.json` contains only `failedCount`, so there
+   are no retained failed entries to summarize. _Test:_ unit test that async results contain
+   **no payload key**, respect the `limit` cap, and truncate `failedReason`; separately assert
+   that local uses the counts-only snapshot fallback and reports failed details unavailable.
 3. **Queue contract — processing stats.** Add optional `getProcessingStats?(opts?)` +
    `QueueProcessingStats` type (durations/timestamps only, no `data`) to the `Queue`
    interface. Implement in `async.ts` (bounded `getJobs(['completed'],0,sampleSize-1)` →
@@ -570,7 +582,8 @@ are not user-editable entities, idempotent, audited). Explicitly **out of scope*
    features in `setup.ts`. Run `yarn generate`.
 8. **UI panel.** `QueueStatusPanel` (DS status tokens, no hardcoded colors), `apiCall`,
    `LoadingMessage`/`ErrorMessage`, i18n keys, bounded failed-jobs table with **no payload
-   column**, the **processing-time metrics** block (avg/last/p95/wait as formatted
+   column** when details are available (otherwise the documented unavailable state), the
+   **processing-time metrics** block (avg/last/p95/wait as formatted
    durations), the **in-flight table** (active `runningMs`, waiting/delayed `ageMs`), and a
    **queue/type filter bar** wiring `?queue=`/`?type=` into `apiCall`. _Test:_ component test
    asserts the failed + in-flight tables render only allow-listed fields and that the filter
@@ -623,7 +636,9 @@ are not user-editable entities, idempotent, audited). Explicitly **out of scope*
   filter narrows the snapshot to one queue and `?type=<jobName>` narrows the failed/in-flight
   summaries (assert that a known type returns only matching jobs and an unknown queue returns
   an empty, non-erroring snapshot); active jobs report `runningMs`, waiting/delayed report
-  `ageMs`; works with `QUEUE_STRATEGY=local` and (when Redis configured) `QUEUE_STRATEGY=async`.
+  `ageMs`; with `QUEUE_STRATEGY=local`, returns failed counts plus the explicit
+  details-unavailable fallback; with `QUEUE_STRATEGY=async` (when Redis is configured),
+  returns the bounded recent-failure window.
 - `GET /api/configs/queues-status/jobs` (Tier 2, Job Inspector) — auth required (401); feature
   gate (403 without `configs.queues_status.inspect_payloads`); **tenant isolation (the
   critical case): a tenant-A admin requesting the last-X jobs of a queue that contains
@@ -652,7 +667,9 @@ are not user-editable entities, idempotent, audited). Explicitly **out of scope*
 
 **Strategy coverage**
 - Integration/unit coverage MUST exercise both `local` and `async` strategies for the
-  introspection methods (per `packages/queue/AGENTS.md` "MUST test with both strategies").
+  introspection contract (per `packages/queue/AGENTS.md` "MUST test with both strategies"),
+  including the intentional local omission of `getFailedJobsSummary?` and its counts-only UI
+  fallback.
 
 ## Backward Compatibility
 
@@ -688,8 +705,8 @@ tenants gain the appropriate grants on upgrade — `.view` broadly,
 - **Cross-tenant payload access for non-superadmins** — forbidden by design; only a
   superadmin / platform operator may inspect jobs beyond their own tenant.
 - Enumerating entire queues or paginating across the full job set — only aggregate counts,
-  a small bounded failed window, a bounded processing-stats sample, a bounded in-flight
-  window, and a small bounded last-X / single-id inspector window.
+  an optional small bounded failed window, a bounded processing-stats sample, a bounded
+  in-flight window, and a small bounded last-X / single-id inspector window.
 - **Full historical processing metrics / time-series charts** — processing stats are a
   bounded recent-sample average (avg/last/p95/wait), not a retained metrics history. A
   persisted metrics time-series (or wiring BullMQ's `getMetrics` collection) is a follow-up.
@@ -734,6 +751,10 @@ contracts, Risks & Impact Review, this report, Changelog), which this revision n
 
 ## Changelog
 
+- **2026-08-03** — Corrected failed-job retention assumptions: local queues retain only
+  `failedCount` and therefore use the counts-only details-unavailable fallback; async queues
+  expose a bounded recent-failure inspection window under `removeOnFail: 1000`, not durable
+  no-loss storage. Updated the implementation and strategy-coverage steps accordingly.
 - **2026-06-15** — Spec authored (Draft, deferred). Two-tier design: Tier 1 payload-free
   Queue Status (counts + bounded failed window) and Tier 2 privileged, tenant-safe, audited
   Job Inspector (last-X jobs with redacted payloads). Additive `@open-mercato/queue`

@@ -30,6 +30,8 @@ export type InteractionFixtureInput = {
   allDay?: boolean | null;
   ownerUserId?: string | null;
   priority?: number | null;
+  recurrenceRule?: string | null;
+  recurrenceEnd?: Date | null;
 };
 
 export async function createInteractionFixture(
@@ -51,6 +53,8 @@ export async function createInteractionFixture(
   if (input.allDay !== undefined) data.allDay = input.allDay;
   if (input.ownerUserId !== undefined) data.ownerUserId = input.ownerUserId;
   if (input.priority !== undefined) data.priority = input.priority;
+  if (input.recurrenceRule !== undefined) data.recurrenceRule = input.recurrenceRule;
+  if (input.recurrenceEnd !== undefined) data.recurrenceEnd = input.recurrenceEnd?.toISOString() ?? null;
 
   const response = await apiRequest(request, 'POST', INTERACTIONS_PATH, { token, data });
   const body = await readJsonSafe<{ id?: string | null }>(response);
@@ -70,13 +74,15 @@ export type InteractionListItem = {
   durationMinutes: number | null;
   participants: InteractionParticipant[] | null;
   ownerUserId: string | null;
+  recurrenceRule: string | null;
+  recurrenceEnd: string | null;
   updatedAt: string | null;
 };
 
 export async function listInteractionsInWindow(
   request: APIRequestContext,
   token: string,
-  input: { entityId: string; from: Date; to: Date },
+  input: { entityId: string; from: Date; to: Date; recurrenceMasters?: boolean },
 ): Promise<InteractionListItem[]> {
   const params = new URLSearchParams({
     entityId: input.entityId,
@@ -84,6 +90,7 @@ export async function listInteractionsInWindow(
     to: input.to.toISOString(),
     limit: '100',
   });
+  if (input.recurrenceMasters) params.set('recurrenceMasters', 'true');
   const response = await apiRequest(request, 'GET', `${INTERACTIONS_PATH}?${params.toString()}`, { token });
   expect(response.status(), `GET ${INTERACTIONS_PATH} window read should return 200`).toBe(200);
   const body = await readJsonSafe<{ items?: InteractionListItem[] }>(response);

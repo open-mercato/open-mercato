@@ -10,10 +10,16 @@ import { CustomerRbacService } from '@open-mercato/core/modules/customer_account
 import { CustomerUser } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 import { getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { isCrossSiteBrowserRequest } from '@open-mercato/shared/lib/url'
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
 export async function POST(req: Request) {
+  if (isCrossSiteBrowserRequest(req)) {
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({ ok: false, error: translate('customer_accounts.errors.crossSiteRequest', 'This sign-in request did not come from this application. Open the sign-in page and try again.') }, { status: 403 })
+  }
   let body: unknown
   try {
     body = await req.json()
@@ -52,8 +58,10 @@ export async function POST(req: Request) {
   await customerUserService.resetFailedAttempts(user)
   await customerUserService.updateLastLoginAt(user)
 
-  const acl = await customerRbacService.loadAcl(user.id, { tenantId: user.tenantId, organizationId: user.organizationId })
-  const resolvedFeatures = acl.features
+  const resolvedFeatures = await customerRbacService.getEffectiveFeatures(user.id, {
+    tenantId: user.tenantId,
+    organizationId: user.organizationId,
+  })
 
   const ip = getClientIp(req, 0)
   const userAgent = req.headers.get('user-agent') || null
@@ -122,6 +130,7 @@ const methodDoc: OpenApiMethodDoc = {
   errors: [
     { status: 400, description: 'Invalid or expired token', schema: errorSchema },
     { status: 401, description: 'Account not found', schema: errorSchema },
+    { status: 403, description: 'Request was submitted cross-site', schema: errorSchema },
   ],
 }
 

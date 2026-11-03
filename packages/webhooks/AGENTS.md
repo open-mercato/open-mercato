@@ -12,6 +12,7 @@ Use `@open-mercato/webhooks` for Standard Webhooks delivery, inbound verificatio
 6. **MUST update both canonical and aliased API surfaces carefully** — `/api/webhooks/...` is the contract surface; compatibility aliases must keep working when present
 7. **MUST wire backend UI writes through shared CRUD helpers or guarded mutations** — do not add ad hoc fetch logic for create, update, retry, rotate, or test actions
 8. **MUST treat inbound adapters as provider-owned** — register `WebhookEndpointAdapter` in the provider module; do not hardcode provider behavior in the webhooks package
+9. **MUST invalidate the subscription cache on every webhook write** — `lib/subscription-cache.ts` caches active subscriptions per tenant/organization (`OM_WEBHOOKS_SUBSCRIPTION_CACHE_TTL_MS`, default `60000`); the `webhooks:outbound-dispatch` subscriber also clears it on `webhooks.webhook.*` events, but the TTL is a safety net, not the correctness mechanism
 
 ## Ask First
 

@@ -7,6 +7,7 @@
       "yarn generate",
       "yarn typecheck",
       "yarn lint",
+      "yarn ds:check",
       "yarn test",
       "yarn build"
     ]
@@ -36,6 +37,7 @@
       "qa-approved",
       "qa-self-verified",
       "in-progress",
+      "ci-monitoring",
       "screenshots"
     ],
     "priority": [
@@ -51,6 +53,7 @@
     ]
   },
   "qaGate": false,
+  "reviewChecklist": ".ai/review-checklist.md",
   "paths": {
     "runs": ".ai/runs",
     "analysis": ".ai/analysis",

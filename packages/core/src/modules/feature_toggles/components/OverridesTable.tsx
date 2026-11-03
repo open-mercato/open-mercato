@@ -6,7 +6,8 @@ import { apiCall } from "@open-mercato/ui/backend/utils/apiCall";
 import { raiseCrudError } from "@open-mercato/ui/backend/utils/serverErrors";
 import { useT } from "@open-mercato/shared/lib/i18n/context";
 import { useQueryClient } from "@tanstack/react-query";
-import { ColumnDef, SortingState } from "@tanstack/react-table";
+import type { LegacyColumnDef as ColumnDef } from "@tanstack/react-table/legacy";
+import type { SortingState } from "@tanstack/react-table";
 import * as React from 'react'
 import type { FilterDef, FilterValues } from "@open-mercato/ui/backend/FilterBar"
 import { RowActions } from "@open-mercato/ui/backend/RowActions";
@@ -44,7 +45,7 @@ export default function OverridesTable() {
             const call = await apiCall<{
                 items: OverrideListResponse[];
                 total: number;
-                totalPages: number;
+                totalPages: number; totalIsCapped?: boolean;
                 page: number;
                 pageSize: number;
                 isSuperAdmin?: boolean
@@ -136,7 +137,8 @@ export default function OverridesTable() {
 
     return (
         <DataTable
-            title={t('feature_toggles.overrides.help.title', 'Feature Toggle Overrides')}
+      title={t('feature_toggles.overrides.help.title', 'Feature Toggle Overrides')}
+      titleHeadingLevel={1}
             columns={columns}
             filters={filters}
             filterValues={filterValues}
@@ -152,6 +154,7 @@ export default function OverridesTable() {
                 pageSize: featureTogglesData?.pageSize ?? 25,
                 total: featureTogglesData?.total ?? 0,
                 totalPages: featureTogglesData?.totalPages ?? 0,
+                totalIsCapped: featureTogglesData?.totalIsCapped === true,
                 onPageChange: handlePageChange,
             }}
             refreshButton={{

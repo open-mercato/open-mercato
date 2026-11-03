@@ -9,3 +9,43 @@ export const metadata: ModuleInfo = {
   license: 'MIT',
 }
 
+export {
+  type AttachmentOwner,
+  type AttachmentProviderCleanup,
+  type AttachmentService,
+  type CreatedScopedAttachment,
+  type CreateScopedAttachmentInput,
+  type ReadScopedAttachmentInput,
+  type ReadScopedAttachmentResult,
+  type ReleaseScopedAttachmentInput,
+} from './lib/attachment-service'
+
+export {
+  AttachmentStorageConfigurationError,
+  getAttachmentStoragePolicy,
+  isAttachmentStorageConfigurationError,
+  registerStorageDriverValidator,
+  type AttachmentStoragePolicy,
+  type AttachmentStorageScope,
+  type AttachmentStorageValidationStage,
+  type AttachmentStorageValidationContext,
+  type AttachmentStorageValidator,
+  type AttachmentStorageConfigurationReason,
+} from './lib/drivers/storageValidation'
+export type {
+  AttachmentAccessAction,
+  AttachmentAccessDecision,
+  AttachmentAccessInput,
+  AttachmentAccessPartition,
+  AttachmentAccessRecord,
+  AttachmentAccessRequirement,
+  AttachmentAccessResolver,
+  AttachmentAccessResolverEntry,
+  AttachmentAccessSubject,
+  AttachmentAccessTarget,
+  ProtectedAttachmentTarget,
+} from './lib/access-types'
+export { registerAttachmentAccessResolvers } from './lib/access-registry'
+export { syncAttachmentAccessProtection } from './lib/access-protection'
+export { createAttachmentAccessContext, evaluateAttachmentAccess } from './lib/access-runner'
+export type { AttachmentAccessContext, AttachmentAccessResult } from './lib/access-runner'

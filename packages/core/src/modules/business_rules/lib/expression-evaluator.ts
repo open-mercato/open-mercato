@@ -1,7 +1,7 @@
 import type { ComparisonOperator, LogicalOperator } from '../data/validators'
 import { testLinearRegex } from '@open-mercato/shared/lib/regex/linear'
 import { getNestedValue, resolveSpecialValue } from './value-resolver'
-import { createLogger } from '@open-mercato/shared/lib/logger'
+import { createLogger, isLevelEnabled } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('business_rules').child({ component: 'expression-evaluator' })
 
@@ -86,14 +86,14 @@ function evaluateSimpleCondition(
 
   const result = applyOperator(leftValue, condition.operator, rightValue)
 
-  logger.debug('Simple condition evaluated', {
-    field: condition.field,
-    operator: condition.operator,
-    expectedValue: rightValue,
-    actualValue: leftValue,
-    actualValueType: typeof leftValue,
-    passed: result,
-  })
+  if (isLevelEnabled('debug')) {
+    logger.debug('Simple condition evaluated', {
+      field: condition.field,
+      operator: condition.operator,
+      actualValueType: typeof leftValue,
+      passed: result,
+    })
+  }
 
   return result
 }

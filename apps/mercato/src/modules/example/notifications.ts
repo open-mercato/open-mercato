@@ -1,9 +1,35 @@
 import type { NotificationTypeDefinition } from '@open-mercato/shared/modules/notifications/types'
 
 export const notificationTypes: NotificationTypeDefinition[] = [
+  // --- Push smoke-test fixtures (demo only) ------------------------------------
+  {
+    type: 'demo.silent_ping',
+    module: 'example',
+    channels: ['push'],
+    titleKey: 'example.notifications.demoSilentPing.title',
+    bodyKey: 'example.notifications.demoSilentPing.body',
+    icon: 'bell',
+    severity: 'info',
+    category: 'demo',
+    actions: [],
+    // Delivered as a silent / content-available data-only wake-up (no visible alert).
+    silent: true,
+  },
+  {
+    type: 'demo.push_playground',
+    module: 'example',
+    channels: ['push'],
+    titleKey: 'example.notifications.demoPushPlayground.title',
+    bodyKey: 'example.notifications.demoPushPlayground.body',
+    icon: 'bell',
+    severity: 'info',
+    category: 'demo',
+    actions: [],
+  },
   {
     type: 'example.umes.actionable',
     module: 'example',
+    channels: ['in_app', 'email'],
     titleKey: 'example.notifications.umesActionable.title',
     bodyKey: 'example.notifications.umesActionable.body',
     icon: 'bell',

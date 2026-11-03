@@ -141,3 +141,96 @@ test('buildPrefixIndex groups keys by every dotted prefix', () => {
   assert.deepEqual([...(index.get('x') ?? [])].sort(), ['x.y'])
   assert.equal(index.has('a.b.c'), false, 'leaf keys have no downstream bucket')
 })
+
+test('detects a t() call whose key argument sits on a following line (#4666)', () => {
+  const text = [
+    'const label = t(',
+    "  'module.multiline.key',",
+    "  'Fallback copy',",
+    ')',
+  ].join('\n')
+
+  const { refs } = scanText(text, new Set())
+
+  assert.deepEqual(refs, [
+    { key: 'module.multiline.key', file: '<inline>', line: 2, direct: true },
+  ])
+})
+
+test('reports the line of the key argument, not of the call, for multiline calls', () => {
+  const text = [
+    'const first = t(',
+    '',
+    "    'module.spread.key'",
+    ')',
+    "const second = t('module.inline.key')",
+  ].join('\n')
+
+  const { refs } = scanText(text, new Set())
+
+  assert.deepEqual(refs.map((ref) => [ref.key, ref.line]), [
+    ['module.spread.key', 3],
+    ['module.inline.key', 5],
+  ])
+})
+
+test('marks indirect literal matches as non-direct so they are never reported as missing', () => {
+  const text = [
+    "const config = { labelKey: 'known.key' }",
+    "const direct = t('unknown.key')",
+  ].join('\n')
+
+  const { refs } = scanText(text, new Set(['known.key']))
+
+  assert.equal(refs.find((ref) => ref.key === 'known.key').direct, false)
+  assert.equal(refs.find((ref) => ref.key === 'unknown.key').direct, true)
+})
+
+test('gallery `code:` samples are documentation, not translation usage', () => {
+  const text = [
+    "const entry = {",
+    "  code: `<PageHeader title={t('currencies.list.title')} description={t('currencies.list.description')} />`,",
+    "}",
+    "const real = t('module.entity.title')",
+  ].join('\n')
+
+  const { refs } = scanText(text, new Set(['module.entity.title']))
+
+  assert.deepEqual(refs.filter((ref) => ref.direct).map((ref) => ref.key), ['module.entity.title'])
+})
+
+test('blanking a code sample keeps later line numbers intact', () => {
+  const text = [
+    "const entry = {",
+    "  code: `line one",
+    "  <Section title={t('customers.people.detail.notes.empty')} />",
+    "  line three`,",
+    "}",
+    "const real = t('module.entity.title')",
+  ].join('\n')
+
+  const { refs } = scanText(text, new Set(['module.entity.title']))
+
+  assert.deepEqual(refs.filter((ref) => ref.direct).map((ref) => [ref.key, ref.line]), [['module.entity.title', 6]])
+})
+
+test('interpolations inside a code sample do not end the sample early', () => {
+  const text = [
+    "const entry = {",
+    "  code: `${prefix} {t('documented.only.key')} ${suffix}`,",
+    "}",
+  ].join('\n')
+
+  const { refs } = scanText(text, new Set(['documented.only.key']))
+
+  assert.deepEqual(refs, [])
+})
+
+test('a template-literal t() call outside a code sample is still counted as dynamic', () => {
+  const text = 'const label = t(`module.entity.status.${row.status}`)'
+
+  const { refs, dynamicCount } = scanText(text, new Set(['module.entity.status.active']))
+
+  assert.deepEqual(refs.map((ref) => ref.key), ['module.entity.status.active'])
+  assert.equal(dynamicCount, 1)
+})

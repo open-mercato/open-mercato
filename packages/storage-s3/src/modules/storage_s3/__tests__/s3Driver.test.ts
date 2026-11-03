@@ -99,6 +99,10 @@ describe('S3StorageDriver', () => {
       new S3StorageDriver(BASE_CONFIG)
       const [[arg]] = (S3Client as jest.Mock).mock.calls
       expect(arg.credentials).toBeUndefined()
+      expect(arg.requestHandler).toEqual(expect.objectContaining({
+        connectionTimeout: 10_000,
+        requestTimeout: 120_000,
+      }))
     })
 
     it('applies forcePathStyle and custom endpoint', () => {
@@ -106,6 +110,17 @@ describe('S3StorageDriver', () => {
       const [[arg]] = (S3Client as jest.Mock).mock.calls
       expect(arg.endpoint).toBe('http://minio:9000')
       expect(arg.forcePathStyle).toBe(true)
+    })
+
+    it('rejects link-local custom endpoints before constructing an S3 client', () => {
+      expect(() => {
+        new S3StorageDriver({
+          ...BASE_CONFIG,
+          endpoint: 'http://169.254.169.254/latest/meta-data/',
+          forcePathStyle: true,
+        })
+      }).toThrow(/private or reserved IP range/i)
+      expect(S3Client).not.toHaveBeenCalled()
     })
   })
 
@@ -198,7 +213,7 @@ describe('S3StorageDriver', () => {
 
       await expect(
         driver.read('', 'docs/org_org-victim/tenant_tenant-owned/secret.txt'),
-      ).rejects.toThrow('S3 key is not scoped to the active tenant')
+      ).rejects.toThrow('[internal] S3 key is not scoped to the active tenant')
 
       expect(mockSend).not.toHaveBeenCalled()
     })
@@ -229,7 +244,7 @@ describe('S3StorageDriver', () => {
 
       await expect(
         driver.read('docs', 'exports/org_o/tenant_t/file.txt'),
-      ).rejects.toThrow('S3 key is not scoped to the requested partition')
+      ).rejects.toThrow('[internal] S3 key is not scoped to the requested partition')
 
       expect(mockSend).not.toHaveBeenCalled()
     })
@@ -243,7 +258,7 @@ describe('S3StorageDriver', () => {
 
       await expect(
         driver.read('', 'docs/org_org-victim/tenant_tenant-owned/org_org-owned/tenant_tenant-owned/private.txt'),
-      ).rejects.toThrow('S3 key is not scoped to the active tenant')
+      ).rejects.toThrow('[internal] S3 key is not scoped to the active tenant')
 
       expect(mockSend).not.toHaveBeenCalled()
     })
@@ -259,7 +274,7 @@ describe('S3StorageDriver', () => {
 
       await expect(
         driver.putObject('docs/org_org-victim/tenant_tenant-owned/file.txt', Buffer.from('secret')),
-      ).rejects.toThrow('S3 key is not scoped to the active tenant')
+      ).rejects.toThrow('[internal] S3 key is not scoped to the active tenant')
 
       expect(mockSend).not.toHaveBeenCalled()
     })
@@ -291,7 +306,7 @@ describe('S3StorageDriver', () => {
 
       await expect(
         driver.delete('', 'docs/org_org-owned/tenant_tenant-victim/file.txt'),
-      ).rejects.toThrow('S3 key is not scoped to the active tenant')
+      ).rejects.toThrow('[internal] S3 key is not scoped to the active tenant')
 
       expect(mockSend).not.toHaveBeenCalled()
     })
@@ -314,7 +329,7 @@ describe('S3StorageDriver', () => {
 
       await expect(
         driver.delete('docs', 'exports/org_o/tenant_t/file.txt'),
-      ).rejects.toThrow('S3 key is not scoped to the requested partition')
+      ).rejects.toThrow('[internal] S3 key is not scoped to the requested partition')
 
       expect(mockSend).not.toHaveBeenCalled()
     })
@@ -394,7 +409,7 @@ describe('S3StorageDriver', () => {
 
       await expect(
         driver.getSignedUrl('docs/org_org-victim/tenant_tenant-owned/file.pdf', 'download'),
-      ).rejects.toThrow('S3 key is not scoped to the active tenant')
+      ).rejects.toThrow('[internal] S3 key is not scoped to the active tenant')
 
       expect(mockGetSignedUrl).not.toHaveBeenCalled()
     })
@@ -420,7 +435,7 @@ describe('S3StorageDriver', () => {
 
       await expect(
         driver.getSignedUrl('docs/org_shared/tenant_shared/shared.pdf', 'upload'),
-      ).rejects.toThrow('S3 key is not scoped to the active tenant')
+      ).rejects.toThrow('[internal] S3 key is not scoped to the active tenant')
 
       expect(mockGetSignedUrl).not.toHaveBeenCalled()
     })

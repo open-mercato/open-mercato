@@ -37,7 +37,7 @@ export function WebhookSecretPanel({ secret, onClose }: WebhookSecretPanelProps)
         <p className="mt-2 text-sm text-muted-foreground">{t('webhooks.form.secretVisibleOnce')}</p>
       </div>
       <div className="space-y-4 p-6">
-        <Alert variant="warning">
+        <Alert status="warning">
           <AlertDescription>{t('webhooks.form.secretUsageTip')}</AlertDescription>
         </Alert>
         <div className="flex items-start gap-3 rounded-md border bg-muted/40 p-4">
@@ -57,10 +57,10 @@ export function WebhookSecretPanel({ secret, onClose }: WebhookSecretPanelProps)
           </Button>
         </div>
         <div className="grid gap-3 md:grid-cols-2">
-          <Alert variant="info">
+          <Alert status="information">
             <AlertDescription>{t('webhooks.form.secretVerificationTip')}</AlertDescription>
           </Alert>
-          <Alert variant="info">
+          <Alert status="information">
             <AlertDescription>{t('webhooks.form.secretRotationTip')}</AlertDescription>
           </Alert>
         </div>

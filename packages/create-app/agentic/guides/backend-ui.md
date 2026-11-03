@@ -1,0 +1,90 @@
+# Pages, CRUD UI, Navigation, and i18n
+
+Use shared backend/page primitives and keep UI behavior aligned with API scope, locking, and extension hosts.
+
+## When This Guide Applies
+
+`backend-ui` is additive and rarely the only route: select it with the route owning the code — `umes` for an installed module's surface, `module-data` when the app owns it — whenever the task authors, restyles, or permission-gates a rendered surface this app owns or injected. Not for hiding, toggling, disabling, or rewiring a surface an installed module owns, and not for payload text, pagination, or table IDs.
+
+## Page Selection
+
+Every app page is module-owned and auto-discovered: author it under `src/modules/<id>/{backend,frontend}/**/page.tsx` and run `yarn generate` so it registers into the route registry served by the app's `(backend)`/`(frontend)` catch-all. Never place a `page.tsx`/`page.meta.ts` directly under `src/app/(backend)/**` or `src/app/(frontend)/**` — a page added to the Next.js route group instead of the module renders unregistered, skipping nav injection, ACL feature-gating, and breadcrumbs. The paths below are all relative to the owning `src/modules/<id>/`.
+
+| Page | Location and rules |
+|---|---|
+| Backend list/detail/create/edit | `src/modules/<id>/backend/**/page.tsx` plus sibling `page.meta.ts`; require staff auth/features. |
+| Settings | Backend metadata with `pageContext: 'settings' as const` and `navHidden: true`. |
+| Profile | Backend metadata with `pageContext: 'profile' as const`. |
+| Public frontend | `src/modules/<id>/frontend/**/page.tsx`; explicitly declare auth posture in metadata. |
+| Customer portal | `src/modules/<id>/frontend/[orgSlug]/portal/**/page.tsx`; public login/signup/verify/landing pages are `navHidden` without customer auth, authenticated pages require customer auth/features, and only sidebar destinations add `nav`. |
+
+List destinations need stable `pageGroup`, `pageGroupKey`, and order. A `page.meta.ts` `icon` MUST be a name the installed icon registry already lists — an unlisted Lucide name renders no icon at all, silently — so verify it before use; use `lucide-react` components in page-body UI. Hide create/edit/detail destinations from navigation when they are reached from a list.
+
+## Default CRUD Completeness
+
+For a new editable entity or module, unless the brief explicitly excludes an operation, deliver list, create, view/edit, and delete as one connected slice. The `DataTable` list owns server filter/search controls, a localized add action linking to create, and a stable linked row action to view/edit. `CrudForm` owns create/update/delete, custom-field save/reload/clear, `updatedAt` conflicts, and return navigation. Do not leave a new backend entity reachable only by typing a URL.
+
+## Cross-Record References
+
+When a form field or table column references another record — in this module or an installed one — render display names, never raw IDs. Form references are selection controls (searchable select or picker) backed by a scoped option-source route; reuse the owning module's picker or option source when one exists instead of authoring a new route. Table columns render the referenced record's display name or a stored display snapshot. UUIDs appear only in API payloads: a user never types one into a field and never reads one off a page.
+
+## DataTable
+
+- Use `DataTable` with a stable colon-form `entityId`, explicit typed data/pagination loaded through shared API helpers, and `extensionTableId`. These are host contracts, not cosmetic props; `DataTable` has no `apiPath` prop.
+- Use shared column helpers, `RowActions` with stable action IDs, built-in filter/search/export/column controls, and DataTable bulk-action surfaces.
+- When owning pagination, wire page, page size, total count, and change handlers together. Do not slice a server page again in the client.
+- Use the table's empty state and shared loading/error components. A successful empty result is not an error.
+- Route selected-row and long-running operations through guarded mutations and progress contracts; do not loop direct API writes without cancellation/error reporting.
+
+## CrudForm
+
+- Use `CrudForm`, typed fields/groups, and `createCrud`/`updateCrud`/`deleteCrud`; use the shared server-error adapter.
+- Pass detail data including `updatedAt` as `initialValues`, allowing the form to protect update and delete automatically.
+- Keep field IDs aligned through request validators, commands, response transforms, custom-field widgets, and translations.
+- Support explicit `null` clearing where the field is clearable; avoid truthy fallbacks that resurrect the old value.
+- Use `crud-form:<entityId>:fields` for injected fields and ensure the read/enricher and save/interceptor paths round-trip the same value.
+- Use shared conflict surfacing for non-`CrudForm` writes.
+
+## Data Access and States
+
+- Use `apiCall`/`apiCallOrThrow`; use scoped API headers for versions or other request context. Never call raw `fetch` from app backend UI.
+- Use `LoadingMessage`, `ErrorMessage`, `EmptyState`, `Alert`, flash messages, and the standard page/form scaffolding.
+- Preserve the user's input after validation/server errors. Disable duplicate submissions and expose retry only when the operation is safe.
+- Every dialog supports Cmd/Ctrl+Enter submit and Escape cancel. Every icon-only control has an accessible label.
+- Keep server/client locale, timezone, and environment-derived initial render deterministic to prevent hydration mismatches.
+
+## Navigation and Overrides
+
+- Prefer page metadata for app-owned destinations and menu injection for adding/reordering items owned by another module.
+- Use stable menu item IDs and translation keys. Gate injected items with wildcard-aware ACL checks.
+- Hide or replace installed pages through `src/modules.ts` page overrides; do not delete package code or add a competing route accidentally.
+- If disabling the dashboards module, update the backend landing page to redirect to the first accessible enabled destination, falling back to profile only when necessary.
+
+## Design-System Contract
+
+- For public/portal or visually substantial app work, use `om-backend-ui-design` → `references/frontend-and-design-system.md` for route-shell, product hierarchy, responsive, accessibility, and UX-state coverage.
+- Reuse existing page, section, form, detail, schedule, messages, notification, chart, KPI, and banner component families before building a local variant.
+- Use semantic design tokens and `StatusBadge` for status. Do not hard-code Tailwind status colors or arbitrary text sizes.
+- Use `FormField` for standalone forms; `CrudForm` owns field layout and must not be wrapped in it. Use `SectionHeader`, `CollapsibleSection`, standard buttons/dialogs, and Lucide icons.
+- Portal record lists use `DataTable`. Never use raw buttons/checkboxes, a button-styled raw `Link`, or `window.confirm`; use the exported primitives and `useConfirmDialog`.
+- Keep responsive behavior, keyboard navigation, focus order, contrast, and reduced-motion behavior intact.
+
+## Translation Contract
+
+- Use `useT()` in client components and `resolveTranslations()` on the server.
+- Put app translations in module/app locale files using stable namespaced keys. Translate titles, actions, placeholders, validation, empty/error states, notifications, and navigation.
+- Declare `translations.ts` only for entity fields that use the Translation Manager and run `yarn generate` after changing it.
+- Do not place translated output in stable machine identifiers, API enums, logs, or provider protocol values.
+
+## Verification
+
+1. Exercise permitted and forbidden roles, including wildcard grants.
+2. Exercise loading, empty, validation error, server error, conflict, success, and delete flows.
+3. Save, reload, edit, clear nullable fields, and verify the API payload and rendered state agree.
+4. Check keyboard and narrow-width behavior; run affected integration tests through real API fixtures.
+
+## Canonical example source
+
+This guide stays the rule owner. For one compiling implementation of a table, form, page shell, or rendered injected widget, open the exact row in [`src/modules/example/references/surface-map.md`](../../src/modules/example/references/surface-map.md) — its `Backend UI` section links each file — or go straight to [`components/TodosTable.tsx`](../../src/modules/example/components/TodosTable.tsx) and [`components/TodoForm.tsx`](../../src/modules/example/components/TodoForm.tsx). That module is source-present and runtime-disabled: read one row, never the tree, and rename every `example` identifier.
+
+When you need what the component *accepts*, not how the example uses it, open the installed implementation: [`@open-mercato/ui/src/backend/DataTable.tsx`](../../node_modules/@open-mercato/ui/src/backend/DataTable.tsx). That exact file is what your app installs. Read-only: never edit inside `node_modules`, and take no sibling or import target this guide does not link.

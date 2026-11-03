@@ -1,10 +1,13 @@
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { staffTimeProjectMemberCrudEvents } from '../../../../../lib/crud'
+import { emitStaffEvent } from '../../../../../events'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { StaffTimeProjectMember } from '../../../../../data/entities'
-import { staffTimeProjectMemberAssignSchema } from '../../../../../data/validators'
+import { staffTimeProjectMemberAssignSchema, staffTimeProjectMemberUpdateSchema } from '../../../../../data/validators'
 import { createStaffCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from '../../../../openapi'
 
 function extractProjectIdFromUrl(request?: Request): string | null {
@@ -28,6 +31,7 @@ const F = {
   status: 'status',
   assigned_start_date: 'assigned_start_date',
   assigned_end_date: 'assigned_end_date',
+  is_assigner: 'is_assigner',
   created_at: 'created_at',
   updated_at: 'updated_at',
   deleted_at: 'deleted_at',
@@ -36,6 +40,7 @@ const F = {
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['staff.timesheets.projects.view'] },
   POST: { requireAuth: true, requireFeatures: ['staff.timesheets.projects.manage'] },
+  PUT: { requireAuth: true, requireFeatures: ['staff.timesheets.projects.manage'] },
   DELETE: { requireAuth: true, requireFeatures: ['staff.timesheets.projects.manage'] },
 }
 
@@ -54,6 +59,14 @@ const listSchema = z
   })
   .passthrough()
 
+const logger = createLogger('staff').child({ component: 'api/timesheets/time-projects/employees' })
+
+function readMemberId(result: unknown): string | null {
+  if (!result || typeof result !== 'object') return null
+  const value = (result as { timeProjectMemberId?: unknown }).timeProjectMemberId
+  return typeof value === 'string' && value.length > 0 ? value : null
+}
+
 const crud = makeCrudRoute({
   metadata: routeMetadata,
   orm: {
@@ -63,6 +76,7 @@ const crud = makeCrudRoute({
     tenantField: 'tenantId',
     softDeleteField: 'deletedAt',
   },
+  events: staffTimeProjectMemberCrudEvents,
   indexer: { entityType: 'staff:staff_time_project_member' },
   list: {
     schema: listSchema,
@@ -77,6 +91,7 @@ const crud = makeCrudRoute({
       F.status,
       F.assigned_start_date,
       F.assigned_end_date,
+      F.is_assigner,
       F.created_at,
       F.updated_at,
     ],
@@ -107,8 +122,49 @@ const crud = makeCrudRoute({
         const body = { ...raw, timeProjectId: raw?.timeProjectId ?? projectId }
         return parseScopedCommandInput(staffTimeProjectMemberAssignSchema, body, ctx, translate)
       },
-      response: ({ result }) => ({ id: result?.timeProjectMemberId ?? null }),
+      // The assignment IS the grant: `timeTrackingAccessResolver` reads exactly this
+      // table, so a module wiring an approval workflow onto `access-requests` learns
+      // the outcome here rather than by polling the membership list.
+      response: ({ result, ctx }) => {
+        const timeProjectMemberId = readMemberId(result)
+        if (timeProjectMemberId) {
+          void emitStaffEvent('staff.timesheets.time_project_access.granted', {
+            id: timeProjectMemberId,
+            tenantId: ctx.auth?.tenantId ?? null,
+            organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+          }, { persistent: true }).catch((err) => {
+            logger.error('staff.timesheets emit time_project_access.granted failed', { err })
+          })
+        }
+        return { id: timeProjectMemberId }
+      },
       status: 201,
+    },
+    // Re-dating an assignment (D-12) is an update of the existing row, not a
+    // replacement pair, so the audit trail reads as a change to
+    // `assignedEndDate`. `timeProjectId` comes from the URL, never from the
+    // body: the command uses it to refuse a membership id belonging to another
+    // project. Guard wiring, tenant/org scoping and the optimistic-lock header
+    // come from `makeCrudRoute`'s command path — this route MUST NOT hand-roll
+    // them (see `runRouteMutationGuards` for the non-factory equivalent).
+    update: {
+      commandId: 'staff.timesheets.time_project_members.update',
+      schema: rawBodySchema,
+      mapInput: async ({ raw, ctx }) => {
+        const { translate } = await resolveTranslations()
+        const id =
+          raw?.id ??
+          (ctx.request ? new URL(ctx.request.url).searchParams.get('id') : null)
+        if (!id) {
+          throw new CrudHttpError(400, {
+            error: translate('staff.timesheets.errors.memberRequired', 'Time project member id is required.'),
+          })
+        }
+        const parsed = staffTimeProjectMemberUpdateSchema.parse({ ...raw, id })
+        const projectId = extractProjectIdFromUrl(ctx?.request)
+        return projectId ? { ...parsed, timeProjectId: projectId } : parsed
+      },
+      response: ({ result }) => ({ id: result?.timeProjectMemberId ?? null }),
     },
     delete: {
       commandId: 'staff.timesheets.time_project_members.unassign',
@@ -134,6 +190,7 @@ const crud = makeCrudRoute({
 
 export const GET = crud.GET
 export const POST = crud.POST
+export const PUT = crud.PUT
 export const DELETE = crud.DELETE
 
 const projectMemberListItemSchema = z.object({
@@ -146,6 +203,7 @@ const projectMemberListItemSchema = z.object({
   status: z.string().nullable().optional(),
   assigned_start_date: z.string().nullable().optional(),
   assigned_end_date: z.string().nullable().optional(),
+  is_assigner: z.boolean().nullable().optional(),
   created_at: z.string().nullable().optional(),
   updated_at: z.string().nullable().optional(),
 })
@@ -158,6 +216,11 @@ export const openApi = createStaffCrudOpenApi({
   create: {
     schema: staffTimeProjectMemberAssignSchema,
     description: 'Assigns an employee to a time project.',
+  },
+  update: {
+    schema: staffTimeProjectMemberUpdateSchema,
+    responseSchema: z.object({ id: z.string().uuid().nullable() }),
+    description: 'Updates an existing assignment (role, status, assignment end date) without unassigning the employee.',
   },
   del: {
     schema: z.object({ id: z.string().uuid() }),

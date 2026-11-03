@@ -170,4 +170,23 @@ describe('GET /api/auth/features', () => {
     const body = await res.json()
     expect(body.items).toEqual([{ id: 'auth.users.list', title: 'List users', module: 'auth' }])
   })
+
+  it('labels modules that declare only a name with that name instead of the raw id', async () => {
+    mockGetModules.mockReturnValue([
+      {
+        id: 'channel_resend',
+        info: { name: 'Resend Email Channel' },
+        features: [{ id: 'channel_resend.view', title: 'View Resend channel configuration', module: 'channel_resend' }],
+      },
+      { id: 'bare', features: [{ id: 'bare.view', title: 'View', module: 'bare' }] },
+      { id: 'titled', info: { name: 'titled', title: 'Titled Module' }, features: [] },
+    ])
+    const res = await GET(makeReq())
+    const body = await res.json()
+    expect(body.modules).toEqual([
+      { id: 'channel_resend', title: 'Resend Email Channel' },
+      { id: 'bare', title: 'bare' },
+      { id: 'titled', title: 'Titled Module' },
+    ])
+  })
 })

@@ -6,7 +6,7 @@ import type {
   InterceptorBeforeResult,
 } from './api-interceptor'
 import { getApiInterceptorsForRoute } from './interceptor-registry'
-import { hasAllFeatures } from '../../security/features'
+import { authorizeFeatures } from '../../security/featurePolicy'
 import { logInterceptorActivity } from '../umes/interceptor-activity'
 
 const DEFAULT_TIMEOUT_MS = 5000
@@ -39,7 +39,7 @@ function sanitizeObject(input?: Record<string, unknown>): Record<string, unknown
 }
 
 function hasRequiredFeatures(features: string[] | undefined, userFeatures: string[] | undefined): boolean {
-  return hasAllFeatures(userFeatures, features)
+  return authorizeFeatures(features ?? [], { grantedFeatures: userFeatures ?? [] })
 }
 
 function timeoutPromise(ms: number, interceptorId: string): Promise<never> {

@@ -20,6 +20,7 @@ import {
   type CreateRuleSetInput,
   type CreateRuleSetMemberInput,
 } from '../validators'
+import { validateAction } from '../../components/utils/actionValidation'
 
 describe('Business Rules Validators', () => {
   describe('ruleTypeSchema', () => {
@@ -174,6 +175,57 @@ describe('Business Rules Validators', () => {
       const result = createBusinessRuleSchema.parse(withNulls)
       expect(result.description).toBeNull()
       expect(result.ruleCategory).toBeNull()
+    })
+
+    test('should accept CALL_OPEN_MERCATO action config fields', () => {
+      const result = createBusinessRuleSchema.safeParse({
+        ...validRule,
+        successActions: [
+          {
+            type: 'CALL_OPEN_MERCATO',
+            config: {
+              endpoint: '/api/business_rules/rules',
+              method: 'GET',
+              apiKeyId: '123e4567-e89b-12d3-a456-426614174010',
+              body: { source: 'validator' },
+            },
+          },
+        ],
+      })
+
+      expect(result.success).toBe(true)
+    })
+
+    test('should reject CALL_OPEN_MERCATO when endpoint, method, or apiKeyId is missing', () => {
+      const result = createBusinessRuleSchema.safeParse({
+        ...validRule,
+        successActions: [{ type: 'CALL_OPEN_MERCATO', config: {} }],
+      })
+
+      expect(result.success).toBe(false)
+      const direct = validateAction(
+        { type: 'CALL_OPEN_MERCATO', config: {} },
+        (key, params) => `${key} ${params ? Object.values(params).join(' ') : ''}`,
+      )
+      const message = direct.errors.join(' ')
+      expect(message).toContain('endpoint')
+      expect(message).toContain('method')
+      expect(message).toContain('apiKeyId')
+      expect(message).not.toContain('url')
+    })
+
+    test('should keep CALL_WEBHOOK url validation unchanged', () => {
+      const result = createBusinessRuleSchema.safeParse({
+        ...validRule,
+        successActions: [{ type: 'CALL_WEBHOOK', config: {} }],
+      })
+
+      expect(result.success).toBe(false)
+      const direct = validateAction(
+        { type: 'CALL_WEBHOOK', config: {} },
+        (key, params) => `${key} ${params ? Object.values(params).join(' ') : ''}`,
+      )
+      expect(direct.errors.join(' ')).toContain('url')
     })
 
     describe('effective date range validation (issue #1596)', () => {
@@ -354,6 +406,28 @@ describe('Business Rules Validators', () => {
       }
 
       expect(() => updateBusinessRuleSchema.parse(noId)).toThrow()
+    })
+
+    test('should not apply create defaults to omitted fields (issue #6940)', () => {
+      const id = '123e4567-e89b-12d3-a456-426614174000'
+      const localized = createLocalizedUpdateBusinessRuleSchema((key: string) => key)
+
+      for (const schema of [updateBusinessRuleSchema, localized]) {
+        const disableOnly = schema.parse({ id, enabled: false })
+        expect(disableOnly).toEqual({ id, enabled: false })
+
+        const priorityOnly = schema.parse({ id, priority: 300 })
+        expect(priorityOnly).toEqual({ id, priority: 300 })
+        expect(priorityOnly).not.toHaveProperty('enabled')
+        expect(priorityOnly).not.toHaveProperty('version')
+      }
+    })
+
+    test('should still validate defaulted fields when provided', () => {
+      const id = '123e4567-e89b-12d3-a456-426614174000'
+      expect(updateBusinessRuleSchema.safeParse({ id, priority: 10000 }).success).toBe(false)
+      expect(updateBusinessRuleSchema.safeParse({ id, version: 0 }).success).toBe(false)
+      expect(updateBusinessRuleSchema.safeParse({ id, enabled: 'yes' }).success).toBe(false)
     })
   })
 
@@ -627,6 +701,13 @@ describe('Business Rules Validators', () => {
       }
 
       expect(() => updateRuleSetSchema.parse(noId)).toThrow()
+    })
+
+    test('should not re-enable a rule set when enabled is omitted (issue #6940)', () => {
+      const id = '123e4567-e89b-12d3-a456-426614174000'
+      const result = updateRuleSetSchema.parse({ id, setName: 'Renamed' })
+      expect(result).toEqual({ id, setName: 'Renamed' })
+      expect(result).not.toHaveProperty('enabled')
     })
   })
 

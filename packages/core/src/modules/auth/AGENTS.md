@@ -6,7 +6,7 @@ The auth module handles authentication, authorization, users, roles, and RBAC.
 
 1. Hash passwords with `bcryptjs` using cost >= 10.
 2. Use `findWithDecryption` / `findOneWithDecryption` for user queries.
-3. Prefer `requireFeatures` in page/API metadata for access control.
+3. Use declarative `requireFeatures` in page/API metadata for access control; never add role-name guards such as `requireRoles: ['admin']`.
 4. Declare every module feature in `acl.ts` and seed role grants through `setup.ts`.
 5. Use wildcard-aware helpers such as `matchFeature`, `hasFeature`, and `hasAllFeatures` when inspecting raw granted features.
 
@@ -20,6 +20,7 @@ The auth module handles authentication, authorization, users, roles, and RBAC.
 - Never log credentials, password reset tokens, session tokens, or decrypted user secrets.
 - Never reveal whether an email exists through auth error messages.
 - Never check raw ACL arrays with `includes(...)`, `Set.has(...)`, or ad hoc wildcard logic.
+- Never authorize a new page or API by mutable role name; declare a stable feature and gate with `requireFeatures`.
 
 ## Validation Commands
 
@@ -68,25 +69,28 @@ Features are string-based permissions: `<module>.<action>` (e.g., `users.view`, 
 - Features are assigned to roles and users through ACLs
 - Pages/APIs use `requireFeatures` in metadata for access control
 - Server-side check: `rbacService.userHasAllFeatures(userId, features, { tenantId, organizationId })`
-- Wildcards are first-class ACL grants: `module.*` and `*` must satisfy matching concrete features in every runtime check, not only in page/API guards.
-- When code inspects raw granted feature arrays instead of calling `rbacService`, MUST use shared helpers such as `matchFeature` / `hasFeature` / `hasAllFeatures` rather than `includes(...)`.
+- Wildcards are first-class stored grants, but server decisions MUST flow through `rbacService.userHasAllFeatures` or shared `authorizeFeatures`.
+- Nulled ACL overrides, disabled modules, and organization scope are evaluated before the super-admin bypass.
+- Use `rbacService.getEffectiveFeatures` for chrome/capability payloads; it expands wildcards to concrete active IDs.
+- Keep `matchFeature` / `hasFeature` / `hasAllFeatures` for browser checks over effective projections and isolated matching utilities, not server authorization.
 
 ### Special Flags
 
-- `isSuperAdmin` — bypasses all feature checks (all features granted)
+- `isSuperAdmin` — bypasses stored-grant matching, but not invalid scope, disabled modules, or nulled ACL features
 - Organization visibility list — restricts which organizations a user can access
 
 ### Declarative Guards
 
-Prefer declarative guards in page/API metadata:
+Use declarative feature guards in page/API metadata. API metadata is per HTTP method:
 
 ```typescript
 export const metadata = {
-  requireAuth: true,
-  requireRoles: ['admin'],
-  requireFeatures: ['users.manage'],
+  GET: { requireAuth: true, requireFeatures: ['auth.users.list'] },
+  POST: { requireAuth: true, requireFeatures: ['auth.users.create'] },
 }
 ```
+
+For `page.meta.ts`, export the same `requireAuth: true` and `requireFeatures: [...]` fields at the page metadata top level. `requireRoles` remains a deprecated compatibility field for old registrations; never use it for new authorization.
 
 ## Key Directories
 

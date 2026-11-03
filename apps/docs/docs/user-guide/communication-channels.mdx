@@ -7,12 +7,17 @@ description: Connect your personal Gmail or IMAP+SMTP mailbox so outbound messag
 
 Connect a personal mailbox to Open Mercato so the messages you send through the app go out under **your** real email address and replies land in the unified inbox alongside Slack, WhatsApp, and other channels.
 
-This release ships two providers:
+This release ships three providers:
 
 - **Gmail** (personal + Google Workspace) — administrators: see **[Set up Gmail](communication-channels-gmail.mdx)** for the one-time OAuth (and optional Pub/Sub push) setup
 - **IMAP + SMTP** (Fastmail, iCloud, generic providers, on-prem mail servers) — see **[Set up IMAP + SMTP](communication-channels-imap.mdx)**
+- **Discord** — a bot connected to a Discord server, rather than a mailbox. Everything it posts is attributed to the bot, not to you. See **[Set up Discord](communication-channels-discord.mdx)**.
 
 There is no dedicated Microsoft 365 / Outlook connector; connect those mailboxes through IMAP + SMTP (see below).
+
+The rest of this page describes the email providers. Discord follows the same connect / send /
+receive shape, but its setup and its capability limits are specific enough to live on their own
+page — read [Set up Discord](communication-channels-discord.mdx) instead.
 
 ## When to use this vs Inbox Ops
 
@@ -154,6 +159,7 @@ If you ever want to know exactly which messages have been synced from your accou
 
 ## Related
 
+- [Set up Discord](communication-channels-discord.mdx) — the non-email provider: a bot connected to a Discord server
 - [CRM email integration](customers-email.mdx) — send and receive emails on Person records once your mailbox is connected
 - [Inbox Ops](inbox-ops.mdx) — the *shared* mailbox AI agent for forwarded customer threads
 - [Communications Hub architecture](../framework/modules/communication-channels.mdx) — for administrators setting up Google OAuth apps

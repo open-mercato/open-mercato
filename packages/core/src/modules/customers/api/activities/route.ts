@@ -17,7 +17,7 @@ import {
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerActivity, CustomerDeal, CustomerInteraction } from '../../data/entities'
-import { User } from '@open-mercato/core/modules/auth/data/entities'
+import { interactionUserKey, loadInteractionAuthors } from '../../lib/interactionUsers'
 import { activityCreateSchema, activityUpdateSchema } from '../../data/validators'
 import { createCustomersCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from '../openapi'
 import {
@@ -30,7 +30,10 @@ import { resolveCustomersRequestContext } from '../../lib/interactionRequestCont
 import { hydrateCanonicalInteractions } from '../../lib/interactionReadModel'
 import { resolveCanonicalActivityTargetId } from '../../lib/legacyActivityBridge'
 import { buildEmailVisibilityMikroFilter } from '../../lib/visibilityFilter'
+import { buildInteractionOccurredAtOrderBy } from '../../lib/interactionOrderBy'
+import { listGrantsForViewer, listSharedChannelIds } from '../../lib/conversationShares'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 
 const logger = createLogger('customers')
 
@@ -146,25 +149,25 @@ async function legacyAdaptersDisabledResponse(): Promise<Response> {
 
 function buildLegacyOrderBy(sortField: string | undefined, sortDir: 'asc' | 'desc') {
   if (sortField === 'createdAt') {
-    return { createdAt: sortDir }
+    return { createdAt: sortDir, id: sortDir }
   }
-  return { occurredAt: sortDir, createdAt: sortDir } as const
+  return buildInteractionOccurredAtOrderBy(sortDir)
 }
 
 function buildCanonicalOrderBy(sortField: string | undefined, sortDir: 'asc' | 'desc') {
   if (sortField === 'createdAt') {
-    return { createdAt: sortDir }
+    return { createdAt: sortDir, id: sortDir }
   }
-  return { occurredAt: sortDir, createdAt: sortDir } as const
+  return buildInteractionOccurredAtOrderBy(sortDir)
 }
 
-function resolveActivitySortValue(item: ActivityItem, sortField: string | undefined): number {
+function resolveActivitySortValue(item: ActivityItem, sortField: string | undefined): number | null {
   const raw =
     sortField === 'createdAt'
       ? item.createdAt
-      : item.occurredAt ?? item.createdAt
+      : item.occurredAt
   const timestamp = raw ? new Date(raw).getTime() : Number.NaN
-  return Number.isNaN(timestamp) ? 0 : timestamp
+  return Number.isNaN(timestamp) ? null : timestamp
 }
 
 function sortActivityItems(
@@ -176,10 +179,19 @@ function sortActivityItems(
     const leftValue = resolveActivitySortValue(left, sortField)
     const rightValue = resolveActivitySortValue(right, sortField)
     if (leftValue === rightValue) {
+      const leftCreatedAt = resolveActivitySortValue(left, 'createdAt')
+      const rightCreatedAt = resolveActivitySortValue(right, 'createdAt')
+      if (leftCreatedAt !== rightCreatedAt) {
+        if (leftCreatedAt === null) return 1
+        if (rightCreatedAt === null) return -1
+        return sortDir === 'asc' ? leftCreatedAt - rightCreatedAt : rightCreatedAt - leftCreatedAt
+      }
       return sortDir === 'asc'
         ? left.id.localeCompare(right.id)
         : right.id.localeCompare(left.id)
     }
+    if (leftValue === null) return 1
+    if (rightValue === null) return -1
     return sortDir === 'asc' ? leftValue - rightValue : rightValue - leftValue
   })
 }
@@ -200,16 +212,13 @@ export async function decorateActivityItems(
   em: EntityManager,
   items: ActivityItem[],
   decryptionScope?: { tenantId: string; organizationId: string },
+  authorScopesById?: ReadonlyMap<string, { tenantId: string; organizationId: string }>,
 ): Promise<ActivityItem[]> {
   if (items.length === 0) return items
 
-  const authorIds = Array.from(
-    new Set(
-      items
-        .map((item) => (typeof item.authorUserId === 'string' ? item.authorUserId : null))
-        .filter((value): value is string => !!value),
-    ),
-  )
+  const resolveAuthorScope = (itemId: string) => authorScopesById
+    ? authorScopesById.get(itemId) ?? {}
+    : decryptionScope ?? {}
   const dealIds = Array.from(
     new Set(
       items
@@ -225,8 +234,11 @@ export async function decorateActivityItems(
     })
   }
 
-  const [users, deals] = await Promise.all([
-    authorIds.length > 0 ? em.find(User, { id: { $in: authorIds } }) : Promise.resolve([]),
+  const [userMap, deals] = await Promise.all([
+    loadInteractionAuthors(em, items.map((item) => ({
+      ...resolveAuthorScope(item.id),
+      authorUserId: item.authorUserId,
+    }))),
     dealIds.length > 0 && decryptionScope
       ? findWithDecryption(
           em,
@@ -238,24 +250,20 @@ export async function decorateActivityItems(
       : Promise.resolve([]),
   ])
 
-  const userMap = new Map(
-    users.map((user) => [
-      user.id,
-      {
-        name: user.name ?? null,
-        email: user.email ?? null,
-      },
-    ]),
-  )
   const dealMap = new Map(deals.map((deal) => [deal.id, deal.title]))
 
-  return items.map((item) => ({
-    ...item,
-    activityTypeLabel: item.activityType,
-    authorName: item.authorUserId ? userMap.get(item.authorUserId)?.name ?? null : null,
-    authorEmail: item.authorUserId ? userMap.get(item.authorUserId)?.email ?? null : null,
-    dealTitle: item.dealId ? dealMap.get(item.dealId) ?? null : null,
-  }))
+  return items.map((item) => {
+    const author = item.authorUserId
+      ? userMap.get(interactionUserKey(resolveAuthorScope(item.id), item.authorUserId))
+      : null
+    return {
+      ...item,
+      activityTypeLabel: item.activityType,
+      authorName: author?.name ?? null,
+      authorEmail: author?.email ?? null,
+      dealTitle: item.dealId ? dealMap.get(item.dealId) ?? null : null,
+    }
+  })
 }
 
 function mapLegacyActivity(activity: CustomerActivity): ActivityItem {
@@ -284,7 +292,22 @@ async function listCanonicalActivities(
   organizationIds: string[] | null,
   query: z.infer<typeof listSchema>,
   options?: { includeDeleted?: boolean; source?: string | string[] | null; paginate?: boolean },
+  isUnrestricted?: boolean,
 ): Promise<CanonicalActivityListResult> {
+  if (organizationIds && organizationIds.length === 0 && !isUnrestricted) {
+    return {
+      items: [],
+      total: 0,
+      bridgeIds: new Set(),
+    }
+  }
+  if (organizationIds === null && !isUnrestricted) {
+    return {
+      items: [],
+      total: 0,
+      bridgeIds: new Set(),
+    }
+  }
   const where: Record<string, unknown> = {
     tenantId,
     interactionType: { $ne: 'task' },
@@ -306,11 +329,20 @@ async function listCanonicalActivities(
   // the deprecated /activities surface (mirrors the /interactions Layer-1 filter).
   // v1 strict owner-only — no admin bypass (the filter ignores caller features).
   const activitiesViewerUserId = auth.keyId ? null : (auth.sub ?? auth.userId ?? null)
+  // Conversation shares widen this surface identically to /interactions, so the
+  // deprecated timeline cannot disagree with the canonical one.
+  const activitiesEmailScope = { tenantId, organizationId: selectedOrganizationId }
+  const [activitiesShareGrants, activitiesSharedChannelIds] = await Promise.all([
+    listGrantsForViewer(em, activitiesEmailScope, activitiesViewerUserId),
+    listSharedChannelIds(em, activitiesEmailScope, activitiesViewerUserId),
+  ])
   Object.assign(
     where,
     buildEmailVisibilityMikroFilter({
       currentUserId: activitiesViewerUserId,
       userFeatures: undefined,
+      sharedConversations: activitiesShareGrants,
+      sharedChannelIds: activitiesSharedChannelIds,
     }),
   )
 
@@ -361,7 +393,14 @@ async function listLegacyActivities(
   query: z.infer<typeof listSchema>,
   options?: { paginate?: boolean },
   selectedOrganizationId?: string | null,
+  isUnrestricted?: boolean,
 ): Promise<{ items: ActivityItem[]; total: number }> {
+  if (organizationIds && organizationIds.length === 0 && !isUnrestricted) {
+    return { items: [], total: 0 }
+  }
+  if (organizationIds === null && !isUnrestricted) {
+    return { items: [], total: 0 }
+  }
   const where: Record<string, unknown> = { tenantId }
   if (organizationIds && organizationIds.length > 0) {
     where.organizationId = { $in: organizationIds }
@@ -395,6 +434,7 @@ async function listLegacyActivities(
       em,
       rows.map(mapLegacyActivity),
       selectedOrganizationId ? { tenantId, organizationId: selectedOrganizationId } : undefined,
+      new Map(rows.map((row) => [row.id, { tenantId: row.tenantId, organizationId: row.organizationId }])),
     ),
     total,
   }
@@ -410,10 +450,29 @@ export async function GET(request: Request): Promise<Response> {
       organizationIds,
       container,
       selectedOrganizationId,
+      scope,
     } = await resolveCustomersRequestContext(request)
     const flags = await resolveCustomerInteractionFeatureFlags(container, auth.tenantId)
     if (!flags.legacyAdapters) {
       return await legacyAdaptersDisabledResponse()
+    }
+
+    const isUnrestricted = auth.isSuperAdmin === true || scope?.allowedIds === null
+    if (!isUnrestricted && (!organizationIds || organizationIds.length === 0)) {
+      logger.warn('activities.list collapsed organization scope — returning empty page', {
+        tenantId: auth.tenantId,
+        organizationIds,
+        scope,
+      })
+      return withAdapterHeaders(
+        NextResponse.json({
+          items: [],
+          total: 0,
+          page: query.page,
+          pageSize: query.pageSize,
+          totalPages: 1,
+        }),
+      )
     }
 
     const sortDir = query.sortDir ?? 'desc'
@@ -427,6 +486,8 @@ export async function GET(request: Request): Promise<Response> {
           auth.tenantId,
           organizationIds,
           query,
+          undefined,
+          isUnrestricted,
         )
       : await (async () => {
         const windowSize = Math.min(
@@ -442,6 +503,7 @@ export async function GET(request: Request): Promise<Response> {
             windowedQuery,
             { paginate: true },
             selectedOrganizationId,
+            isUnrestricted,
           ),
           listCanonicalActivities(
             em,
@@ -456,6 +518,7 @@ export async function GET(request: Request): Promise<Response> {
               paginate: true,
               source: CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE,
             },
+            isUnrestricted,
           ),
         ])
         const merged = sortActivityItems(
@@ -575,6 +638,10 @@ export async function POST(request: Request): Promise<Response> {
     if (isCrudHttpError(err)) {
       return withAdapterHeaders(NextResponse.json(err.body, { status: err.status }))
     }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return withAdapterHeaders(NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status }))
+    }
     if (err instanceof z.ZodError) {
       return withAdapterHeaders(
         NextResponse.json({ error: 'Validation failed', details: err.issues }, { status: 400 }),
@@ -658,6 +725,10 @@ export async function PUT(request: Request): Promise<Response> {
     if (isCrudHttpError(err)) {
       return withAdapterHeaders(NextResponse.json(err.body, { status: err.status }))
     }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return withAdapterHeaders(NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status }))
+    }
     if (err instanceof z.ZodError) {
       return withAdapterHeaders(
         NextResponse.json({ error: 'Validation failed', details: err.issues }, { status: 400 }),
@@ -725,6 +796,10 @@ export async function DELETE(request: Request): Promise<Response> {
   } catch (err) {
     if (isCrudHttpError(err)) {
       return withAdapterHeaders(NextResponse.json(err.body, { status: err.status }))
+    }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return withAdapterHeaders(NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status }))
     }
     if (err instanceof z.ZodError) {
       return withAdapterHeaders(

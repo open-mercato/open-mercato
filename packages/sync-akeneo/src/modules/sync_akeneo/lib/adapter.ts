@@ -81,6 +81,10 @@ export const akeneoDataSyncAdapter: DataSyncAdapter = {
         const items: ImportItem[] = []
         const locale = mapping.settings?.categories?.locale ?? 'en_US'
         for (const category of page.items) {
+          // Above the yield, so an abandoned page is never yielded and its cursor never committed.
+          // Returning here also skips the `safeFullSync` reconcile below, which is required: a
+          // partial walk has not seen every category, so reconciling would delete live records.
+          if (input.signal?.aborted) return
           seenCategoryIds.add(category.code)
           const result = await importer.upsertCategory(category, locale)
           items.push({
@@ -143,6 +147,9 @@ export const akeneoDataSyncAdapter: DataSyncAdapter = {
           })
         }
         for (const family of page.items) {
+          // Above the yield — see the categories walk. Returning also skips the reconcile, which a
+          // partial walk must not run.
+          if (input.signal?.aborted) return
           if (familyFilter.length > 0 && !familyFilter.includes(family.code)) continue
           seenFamilyIds.add(family.code)
           const result = await importer.upsertAttributeFamily(
@@ -203,6 +210,9 @@ export const akeneoDataSyncAdapter: DataSyncAdapter = {
 
       const items: ImportItem[] = []
       for (const product of page.items) {
+        // Above the yield — see the categories walk. Returning also skips the reconcile, which a
+        // partial walk must not run.
+        if (input.signal?.aborted) return
         try {
           const imported = await importer.upsertProduct(product, mapping)
           for (const item of imported) {

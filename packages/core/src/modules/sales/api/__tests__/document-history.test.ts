@@ -9,6 +9,7 @@ function makeLog(overrides: Partial<{
   commandId: string
   actorUserId: string | null
   createdAt: Date
+  changedFields: string[] | null
 }> = {}): any {
   return {
     id: 'log-1',
@@ -18,6 +19,7 @@ function makeLog(overrides: Partial<{
     createdAt: new Date('2024-01-01T10:00:00Z'),
     snapshotBefore: null,
     snapshotAfter: null,
+    changedFields: null,
     ...overrides,
   }
 }
@@ -131,6 +133,39 @@ describe('normalizeActionLogToHistoryEntry', () => {
     expect(entry.action).toBe('Update sales order')
   })
 
+  it('derives user-edited order line fields while excluding recalculated totals', () => {
+    const log = makeLog({
+      commandId: 'sales.orders.lines.upsert',
+      actionLabel: 'Update order line',
+      snapshotBefore: {
+        order: { status: 'draft' },
+        lines: [{ id: 'line-1', name: 'Widget', quantity: 1, unitPriceNet: 10, totalNetAmount: 10 }],
+      },
+      snapshotAfter: {
+        order: { status: 'draft' },
+        lines: [{ id: 'line-1', name: 'Widget', quantity: 2, unitPriceNet: 12, totalNetAmount: 24 }],
+      },
+      changedFields: ['lines', 'order.grandTotalNetAmount', 'order.subtotalNetAmount'],
+    })
+
+    const entry = normalizeActionLogToHistoryEntry(log, 'order')
+
+    expect(entry.kind).toBe('action')
+    expect(entry.metadata?.changedFields).toEqual(['quantity', 'unitPriceNet'])
+  })
+
+  it('exposes persisted changed fields for action logs that already provide them', () => {
+    const log = makeLog({
+      snapshotBefore: { order: { status: 'draft', comment: 'Before' } },
+      snapshotAfter: { order: { status: 'draft', comment: 'After' } },
+      changedFields: ['order.comment'],
+    })
+
+    const entry = normalizeActionLogToHistoryEntry(log, 'order')
+
+    expect(entry.metadata?.changedFields).toEqual(['order.comment'])
+  })
+
   it('classifies create as status entry (null snapshotBefore) so it appears in Status changes filter', () => {
     const log = makeLog({
       snapshotBefore: null,
@@ -151,10 +186,18 @@ describe('normalizeActionLogToHistoryEntry', () => {
     expect(entry.actor.id).toBe('user-uuid-1')
   })
 
-  it('falls back to userId string when not in displayUsers map', () => {
+  it('never surfaces the raw actor id when it is not in displayUsers map — falls back to system', () => {
     const log = makeLog({ actorUserId: 'user-uuid-2' })
     const entry = normalizeActionLogToHistoryEntry(log, 'order', {})
-    expect(entry.actor.label).toBe('user-uuid-2')
+    expect(entry.actor.label).toBe('system')
+    expect(entry.actor.id).toBeNull()
+  })
+
+  it('resolves an API-key actor via the shared display map (already formatted by loadAuditLogDisplayMaps)', () => {
+    const log = makeLog({ actorUserId: 'api-key-uuid-1' })
+    const entry = normalizeActionLogToHistoryEntry(log, 'order', { 'api-key-uuid-1': 'API key: import' })
+    expect(entry.actor.label).toBe('API key: import')
+    expect(entry.actor.id).toBe('api-key-uuid-1')
   })
 
   it('uses "system" for null actorUserId', () => {

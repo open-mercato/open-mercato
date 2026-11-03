@@ -19,10 +19,11 @@ import type {
  *
  * Owner-first MVP per spec
  * `2026-05-05-ai-chat-server-side-conversation-storage`. Every read/write
- * goes through `findOneWithDecryption` / `findWithDecryption` so the repo
- * stays consistent with the rest of the module and is GDPR-encryption-ready
- * without a second refactor when `content` / `ui_parts` columns are
- * eventually flagged.
+ * goes through `findOneWithDecryption` / `findWithDecryption` because the
+ * conversation `title` and the message `content` / `ui_parts` /
+ * `files_metadata` / `metadata` columns are declared in the module's
+ * `encryption.ts` and are encrypted at rest when tenant data encryption is
+ * enabled.
  *
  * Tenant + organization scope is required on every method. View-only callers
  * are owner-scoped. Callers with `ai_assistant.conversations.manage` may

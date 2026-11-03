@@ -2,7 +2,6 @@
 
 import * as React from 'react'
 import { Calendar, CalendarClock, Clock, Mail, Phone, StickyNote, Users } from 'lucide-react'
-import { toZonedTime } from 'date-fns-tz'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
@@ -11,6 +10,7 @@ import { ActivitiesDayStrip } from './ActivitiesDayStrip'
 import { ActivitiesAddNewMenu, type ActivityKind } from './ActivitiesAddNewMenu'
 import type { InteractionSummary } from './types'
 import { isOpenInteractionStatus } from '../../lib/interactionStatus'
+import { isSameDay, toLocalZonedDate } from '../../lib/localDay'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
@@ -43,28 +43,10 @@ const TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
   note: StickyNote,
 }
 
-const USER_TIMEZONE = (() => {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
-  } catch {
-    return 'UTC'
-  }
-})()
-
-// Project a UTC instant to the user's local timezone before extracting day/month/year
-// for "same day" comparisons (issue #1809 — E3 timezone drift).
-function toLocalZonedDate(value: string | Date): Date {
-  return toZonedTime(value, USER_TIMEZONE)
-}
-
 function startOfDay(date: Date): Date {
   const next = new Date(date)
   next.setHours(0, 0, 0, 0)
   return next
-}
-
-function isSameDay(a: Date, b: Date): boolean {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
 }
 
 function isOverdue(activity: InteractionSummary, now: Date): boolean {

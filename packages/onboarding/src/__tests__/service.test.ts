@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { OnboardingRequest } from '../modules/onboarding/data/entities'
 import { OnboardingService } from '../modules/onboarding/lib/service'
+import { hashForLookup, lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
 
 jest.mock('bcryptjs', () => ({
   hash: jest.fn().mockResolvedValue('hashed_password'),
@@ -127,6 +128,21 @@ describe('OnboardingService', () => {
       const result = await service.createOrUpdateRequest(makeStartInput())
       const createArgs = em.create.mock.calls[0][1]
       expect(createArgs.status).toBe('pending')
+      expect(createArgs.emailHash).toBe(hashForLookup('user@example.com'))
+    })
+
+    it('looks up encrypted and legacy plaintext emails without querying ciphertext as plaintext', async () => {
+      const em = createMockEm()
+      const service = new OnboardingService(em)
+
+      await service.createOrUpdateRequest(makeStartInput())
+
+      expect(em.findOne).toHaveBeenCalledWith(OnboardingRequest, {
+        $or: [
+          { emailHash: { $in: lookupHashCandidates('user@example.com') } },
+          { email: 'user@example.com', emailHash: null },
+        ],
+      }, undefined)
     })
 
     it('throws PENDING_REQUEST when within cooldown', async () => {

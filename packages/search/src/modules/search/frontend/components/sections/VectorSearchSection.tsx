@@ -79,6 +79,8 @@ type VectorDriverStatus = {
   name: string
   configured: boolean
   implemented: boolean
+  available?: boolean | null
+  unavailableReason?: string | null
   envVars: VectorDriverEnvVar[]
 }
 
@@ -180,6 +182,11 @@ export type VectorSearchSectionProps = {
   onRefreshEmbeddings: () => Promise<void>
 }
 
+function flashRequestError(err: unknown, fallbackMessage: string) {
+  const message = err instanceof Error && err.message.trim() ? err.message : fallbackMessage
+  flash(message, 'error')
+}
+
 export function VectorSearchSection({
   embeddingSettings,
   embeddingLoading,
@@ -198,6 +205,7 @@ export function VectorSearchSection({
   const [selectedModel, setSelectedModel] = React.useState<string | null>(null)
   const [customModelName, setCustomModelName] = React.useState<string>('')
   const [customDimension, setCustomDimension] = React.useState<number>(768)
+  const [ollamaBaseUrlDraft, setOllamaBaseUrlDraft] = React.useState<string | null>(null)
 
   const [pendingEmbeddingConfig, setPendingEmbeddingConfig] = React.useState<EmbeddingProviderConfig | null>(null)
   const [showEmbeddingConfirmDialog, setShowEmbeddingConfirmDialog] = React.useState(false)
@@ -280,7 +288,8 @@ export function VectorSearchSection({
         autoIndexingPreviousRef.current = body.settings.autoIndexingEnabled
       }
       flash(t('search.settings.messages.saved', 'Settings saved'), 'success')
-    } catch {
+    } catch (err) {
+      flashRequestError(err, t('search.settings.errors.saveFailed', 'Failed to save settings'))
       if (embeddingSettings) {
         onEmbeddingSettingsUpdate({ ...embeddingSettings, autoIndexingEnabled: autoIndexingPreviousRef.current })
       }
@@ -295,6 +304,7 @@ export function VectorSearchSection({
     setSelectedModel(null)
     setCustomModelName('')
     setCustomDimension(768)
+    setOllamaBaseUrlDraft(null)
   }
 
   const handleModelChange = (modelId: string) => {
@@ -332,6 +342,10 @@ export function VectorSearchSection({
       dimension,
       updatedAt: new Date().toISOString(),
     }
+    const ollamaBaseUrl = (ollamaBaseUrlDraft ?? savedOllamaBaseUrl).trim()
+    if (newProviderId === 'ollama' && ollamaBaseUrl) {
+      newConfig.baseUrl = ollamaBaseUrl
+    }
 
     if (embeddingSettings?.indexedDimension || embeddingSettings?.embeddingConfig) {
       setPendingEmbeddingConfig(newConfig)
@@ -346,6 +360,7 @@ export function VectorSearchSection({
     setSelectedModel(null)
     setCustomModelName('')
     setCustomDimension(768)
+    setOllamaBaseUrlDraft(null)
   }
 
   const applyEmbeddingConfig = async (config: EmbeddingProviderConfig) => {
@@ -365,10 +380,11 @@ export function VectorSearchSection({
       )
       setSelectedProvider(null)
       setSelectedModel(null)
+      setOllamaBaseUrlDraft(null)
       flash(t('search.settings.messages.providerSaved', 'Embedding provider saved'), 'success')
       await onRefreshEmbeddings()
-    } catch {
-      // Error handled by readApiResultOrThrow
+    } catch (err) {
+      flashRequestError(err, t('search.settings.errors.saveFailed', 'Failed to save settings'))
     } finally {
       setEmbeddingSaving(false)
     }
@@ -405,8 +421,8 @@ export function VectorSearchSection({
       )
       flash(t('search.settings.messages.reindexStarted', 'Reindex started'), 'success')
       await fetchActivityLogs()
-    } catch {
-      // Error handled by readApiResultOrThrow
+    } catch (err) {
+      flashRequestError(err, t('search.settings.errors.reindexFailed', 'Reindex failed'))
     } finally {
       setVectorReindexing(false)
     }
@@ -421,6 +437,7 @@ export function VectorSearchSection({
   const savedProviderInfo = EMBEDDING_PROVIDERS[savedProvider]
   const savedModel = embeddingSettings?.embeddingConfig?.model ?? savedProviderInfo.defaultModel
   const savedDimension = embeddingSettings?.embeddingConfig?.dimension ?? savedProviderInfo.models[0]?.dimension ?? 768
+  const savedOllamaBaseUrl = savedProvider === 'ollama' ? embeddingSettings?.embeddingConfig?.baseUrl ?? '' : ''
 
   const savedModelIsPredefined = savedProviderInfo.models.some((m) => m.id === savedModel)
   const savedCustomModel = !savedModelIsPredefined && savedModel ? { id: savedModel, name: savedModel, dimension: savedDimension } : null
@@ -442,10 +459,36 @@ export function VectorSearchSection({
   const hasUnsavedEmbeddingChanges = (selectedProvider !== null && selectedProvider !== savedProvider) ||
     (selectedModel !== null && selectedModel !== savedModel) ||
     (selectedProvider !== null && selectedModel === null && displayProviderInfo.defaultModel !== savedModel) ||
-    (isCustomModel && (customModelName.trim() !== '' || customDimension !== 768))
+    (isCustomModel && (customModelName.trim() !== '' || customDimension !== 768)) ||
+    (displayProvider === 'ollama' && ollamaBaseUrlDraft !== null && ollamaBaseUrlDraft.trim() !== savedOllamaBaseUrl)
 
   const isEmbeddingConfigured = embeddingSettings?.configuredProviders?.includes(savedProvider)
   const providerOptions: EmbeddingProviderId[] = ['openai', 'google', 'mistral', 'cohere', 'bedrock', 'ollama']
+
+  const activeDriver = vectorStoreConfig?.drivers.find((driver) => driver.id === vectorStoreConfig.currentDriver)
+  const isStoreUnavailable = activeDriver?.available === false
+  const storeUnavailableReason = activeDriver?.unavailableReason ?? null
+
+  const storeUnavailableBanner = isStoreUnavailable ? (
+    <div className="p-4 rounded-md bg-status-warning-bg border border-status-warning-border">
+      <div className="flex items-start gap-3">
+        <svg className="h-5 w-5 text-status-warning-icon flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+        </svg>
+        <div>
+          <p className="text-sm font-medium text-status-warning-text">
+            {t('search.settings.vector.storeUnavailable', 'Vector store is not available')}
+          </p>
+          <p className="text-xs text-status-warning-text mt-1">
+            {t('search.settings.vector.storeUnavailableHint', 'Vector indexing and semantic search are skipped until the store is reachable. Install the pgvector extension on your PostgreSQL server; the status is rechecked about once a minute.')}
+          </p>
+          {storeUnavailableReason ? (
+            <p className="text-xs text-status-warning-text mt-1 font-mono">{storeUnavailableReason}</p>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  ) : null
 
   const autoIndexingChecked = embeddingSettings ? embeddingSettings.autoIndexingEnabled : true
   const autoIndexingDisabled = embeddingLoading || embeddingSaving || Boolean(embeddingSettings?.autoIndexingLocked)
@@ -481,13 +524,14 @@ export function VectorSearchSection({
             </div>
           ) : (
             <div className="space-y-4">
+              {storeUnavailableBanner}
               {/* Vector Store Driver Status */}
               <div>
                 <h3 className="text-sm font-semibold mb-2">{t('search.settings.vector.store', 'Vector Store')}</h3>
                 <div className="grid gap-2 sm:grid-cols-3">
                   {vectorStoreConfig?.drivers.map((driver) => {
                     const isCurrent = driver.id === vectorStoreConfig.currentDriver
-                    const isReady = driver.configured && driver.implemented
+                    const isReady = driver.configured && driver.implemented && driver.available !== false
                     return (
                       <div
                         key={driver.id}
@@ -659,6 +703,27 @@ export function VectorSearchSection({
                               </Select>
                             </div>
 
+                            {providerId === 'ollama' && (
+                              <div className="space-y-1">
+                                <Label htmlFor="ollama-base-url" className="text-xs font-medium">
+                                  {t('search.settings.ollama.baseUrl.label', 'Base URL')}
+                                </Label>
+                                <Input
+                                  id="ollama-base-url"
+                                  type="url"
+                                  size="sm"
+                                  value={ollamaBaseUrlDraft ?? savedOllamaBaseUrl}
+                                  onChange={(e) => setOllamaBaseUrlDraft(e.target.value)}
+                                  placeholder="http://localhost:11434"
+                                  aria-describedby="ollama-base-url-hint"
+                                  disabled={embeddingLoading || embeddingSaving}
+                                />
+                                <p id="ollama-base-url-hint" className="text-xs text-muted-foreground">
+                                  {t('search.settings.ollama.baseUrl.hint', 'Leave empty to use the OLLAMA_BASE_URL environment variable.')}
+                                </p>
+                              </div>
+                            )}
+
                             {isCustomModel && (
                               <div className="space-y-2 rounded border border-input bg-muted/30 p-2">
                                 <div className="space-y-1">
@@ -746,6 +811,8 @@ export function VectorSearchSection({
               <Spinner size="sm" />
               <span>{t('search.settings.loadingLabel', 'Loading settings...')}</span>
             </div>
+          ) : isStoreUnavailable ? (
+            storeUnavailableBanner
           ) : !isEmbeddingConfigured ? (
             <div className="p-4 rounded-md bg-status-warning-bg border border-status-warning-border">
               <div className="flex items-start gap-3">
@@ -979,7 +1046,7 @@ export function VectorSearchSection({
               <Button type="button" variant="outline" onClick={handleEmbeddingCancelChange} disabled={embeddingSaving}>
                 {t('search.settings.actions.cancel', 'Cancel')}
               </Button>
-              <Button type="button" variant="destructive" onClick={handleEmbeddingConfirmChange} disabled={embeddingSaving}>
+              <Button type="button" variant="destructive-solid" onClick={handleEmbeddingConfirmChange} disabled={embeddingSaving}>
                 {embeddingSaving ? <Spinner size="sm" className="mr-2" /> : null}
                 {t('search.settings.actions.confirm', 'Confirm')}
               </Button>

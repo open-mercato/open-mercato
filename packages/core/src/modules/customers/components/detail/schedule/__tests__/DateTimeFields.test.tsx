@@ -1,0 +1,150 @@
+/**
+ * @jest-environment jsdom
+ */
+import * as React from 'react'
+import { act, fireEvent, screen } from '@testing-library/react'
+import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
+import polishTranslations from '../../../../i18n/pl.json'
+import { DateTimeFields } from '../DateTimeFields'
+import { FIELD_VISIBILITY, type ActivityType, type ScheduleFieldId } from '../fieldConfig'
+
+describe('DateTimeFields — per-type date requiredness (#5941)', () => {
+  function renderFields(activityType: ActivityType, date: string) {
+    return renderWithProviders(
+      <DateTimeFields
+        visible={FIELD_VISIBILITY[activityType]}
+        activityType={activityType}
+        date={date}
+        setDate={() => {}}
+        startTime=""
+        setStartTime={() => {}}
+        duration={30}
+        setDuration={() => {}}
+        allDay={false}
+        setAllDay={() => {}}
+        recurrenceEnabled={false}
+        setRecurrenceEnabled={() => {}}
+        recurrenceDays={[false, false, false, false, false, false, false]}
+        toggleRecurrenceDay={() => {}}
+        recurrenceEndType="never"
+        setRecurrenceEndType={() => {}}
+        recurrenceCount={8}
+        setRecurrenceCount={() => {}}
+        recurrenceEndDate=""
+        setRecurrenceEndDate={() => {}}
+      />,
+    )
+  }
+
+  function dateTrigger(container: HTMLElement): HTMLElement {
+    const trigger = container.querySelector('[data-slot="date-picker-trigger"]')
+    if (!trigger) throw new Error('[internal] date picker trigger not rendered')
+    return trigger as HTMLElement
+  }
+
+  it('does not demand a due date from a task, so a backlog item stays valid while blank', () => {
+    const { container } = renderFields('task', '')
+
+    expect(screen.queryByText('Date is required')).not.toBeInTheDocument()
+    expect(screen.queryByText('Time is required')).not.toBeInTheDocument()
+    expect(dateTrigger(container)).not.toHaveAttribute('aria-required')
+  })
+
+  it('still demands a date from a calendar-bound meeting', () => {
+    const { container } = renderFields('meeting', '')
+
+    expect(screen.getByText('Date is required')).toBeInTheDocument()
+    expect(dateTrigger(container)).toHaveAttribute('aria-required', 'true')
+  })
+
+  it('drops the required error once the meeting has a date', () => {
+    renderFields('meeting', '2026-05-15')
+
+    expect(screen.queryByText('Date is required')).not.toBeInTheDocument()
+  })
+})
+
+describe('DateTimeFields — pickers follow the app locale', () => {
+  const scrollDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView')
+  beforeAll(() => {
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: jest.fn() })
+  })
+  afterAll(() => {
+    if (scrollDescriptor) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', scrollDescriptor)
+    else Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView')
+  })
+
+  const VISIBLE_FIELDS: ScheduleFieldId[] = ['date', 'startTime', 'duration']
+
+  function renderFields(locale: string) {
+    return renderWithProviders(
+      <DateTimeFields
+        visible={new Set(VISIBLE_FIELDS)}
+        activityType="meeting"
+        date="2026-01-15"
+        setDate={() => {}}
+        startTime="14:30"
+        setStartTime={() => {}}
+        duration={30}
+        setDuration={() => {}}
+        allDay={false}
+        setAllDay={() => {}}
+        recurrenceEnabled={false}
+        setRecurrenceEnabled={() => {}}
+        recurrenceDays={[false, false, false, false, false, false, false]}
+        toggleRecurrenceDay={() => {}}
+        recurrenceEndType="never"
+        setRecurrenceEndType={() => {}}
+        recurrenceCount={1}
+        setRecurrenceCount={() => {}}
+        recurrenceEndDate=""
+        setRecurrenceEndDate={() => {}}
+      />,
+      { locale, dict: locale === 'pl' ? polishTranslations : {} },
+    )
+  }
+
+  async function openDatePicker() {
+    const trigger = document.querySelector('[data-slot="date-picker-trigger"]')
+    if (!trigger) throw new Error('DatePicker trigger not found')
+    await act(async () => {
+      fireEvent.click(trigger as HTMLElement)
+    })
+  }
+
+  // 2025-12-29 is a Monday and 2025-12-28 the Sunday before it, so the first cell of the
+  // January 2026 grid says which day the calendar treats as the start of the week.
+  it('renders the calendar in the app locale rather than the picker default', async () => {
+    renderFields('pl')
+    await openDatePicker()
+    expect(screen.getByText(/styczeń 2026/)).toBeInTheDocument()
+    expect(screen.getAllByRole('gridcell')[0]).toHaveAttribute('data-day', '2025-12-29')
+  })
+
+  it('renders the calendar in English for an English app', async () => {
+    renderFields('en')
+    await openDatePicker()
+    expect(screen.getByText(/January 2026/)).toBeInTheDocument()
+    expect(screen.getAllByRole('gridcell')[0]).toHaveAttribute('data-day', '2025-12-28')
+  })
+
+  it('shows Polish duration choices without English fallbacks (#8048)', async () => {
+    renderFields('pl')
+    const trigger = screen.getAllByRole('combobox').find((element) => element.textContent === '30 min')
+    expect(trigger).toBeDefined()
+    await act(async () => {
+      fireEvent.click(trigger!)
+    })
+    expect(await screen.findByRole('option', { name: '1 godzina' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: '2 godziny' })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: '1 hour' })).not.toBeInTheDocument()
+  })
+
+  it('shows the start time on the clock the app locale uses', () => {
+    renderFields('pl')
+    expect(screen.getByText('14:30')).toBeInTheDocument()
+
+    renderFields('en')
+    expect(screen.getByText('02:30 PM')).toBeInTheDocument()
+  })
+})

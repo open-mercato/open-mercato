@@ -7,6 +7,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { isOpenDealStatus } from '../../lib/dealStatus'
 import type { DealSummary } from '../formConfig'
 import { formatCurrency } from './utils'
 
@@ -25,7 +26,7 @@ export function ActiveDealCard({ deals, onHide }: ActiveDealCardProps) {
   const [pipelineStages, setPipelineStages] = React.useState<PipelineStageOption[]>([])
 
   const activeDeals = React.useMemo(
-    () => deals.filter((d) => d.status !== 'won' && d.status !== 'lost' && d.status !== 'closed'),
+    () => deals.filter((d) => isOpenDealStatus(d.status)),
     [deals],
   )
 

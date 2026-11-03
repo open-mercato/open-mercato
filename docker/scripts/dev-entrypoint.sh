@@ -19,7 +19,7 @@ seed_prebuilt() {
   PREBUILT=/opt/prebuilt
   [ -d "$PREBUILT/node_modules" ] || return 0
   if ! cmp -s /app/yarn.lock "$PREBUILT/yarn.lock"; then
-    echo "[app] Prebuilt image artifacts are stale (yarn.lock changed) - running the full install instead. Rebuild the image to re-enable fast boots: powershell scripts\windows\start-dev.ps1 -Rebuild"
+    echo "[app] Prebuilt image artifacts are stale (yarn.lock changed) - running the full install instead. Rebuild the image to re-enable fast boots: npx @open-mercato/starter up --mode docker --rebuild"
     return 0
   fi
   if [ ! -f /app/node_modules/.prebuilt-seeded ]; then
@@ -27,7 +27,7 @@ seed_prebuilt() {
     cp -a "$PREBUILT/node_modules/." /app/node_modules/ || return 0
     date > /app/node_modules/.prebuilt-seeded
   fi
-  for pkg in core shared ui cli cache content checkout events onboarding queue search scheduler ai-assistant create-app; do
+  for pkg in core shared ui cli cache content checkout events onboarding queue search scheduler ai-assistant create-app documents; do
     src="$PREBUILT/dist/$pkg"
     dst="/app/packages/$pkg/dist"
     if [ -d "$src" ] && [ -z "$(ls -A "$dst" 2>/dev/null)" ]; then

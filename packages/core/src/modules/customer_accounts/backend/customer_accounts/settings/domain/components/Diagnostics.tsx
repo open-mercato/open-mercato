@@ -13,7 +13,7 @@ export function DnsDiagnostics({ mapping }: DiagnosticsProps) {
   const t = useT()
   if (mapping.status !== 'dns_failed') return null
   return (
-    <Alert variant="destructive">
+    <Alert status="error">
       <AlertTitle>
         {t('customer_accounts.domainMapping.dns.diagnostics.title', 'DNS configuration issue')}
       </AlertTitle>
@@ -38,7 +38,7 @@ export function TlsDiagnostics({ mapping }: DiagnosticsProps) {
   const t = useT()
   if (mapping.status !== 'tls_failed') return null
   return (
-    <Alert variant="warning">
+    <Alert status="warning">
       <AlertTitle>
         {t('customer_accounts.domainMapping.tls.diagnostics.title', 'SSL certificate issue')}
       </AlertTitle>

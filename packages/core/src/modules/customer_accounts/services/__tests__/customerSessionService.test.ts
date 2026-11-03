@@ -94,4 +94,33 @@ describe('CustomerSessionService session lookup and revocation', () => {
 
     await expect(service.findActiveSessionById(sessionId)).resolves.toBeNull()
   })
+
+  it('binds an active session lookup to the JWT subject, tenant, and organization', async () => {
+    const session = {
+      id: sessionId,
+      deletedAt: null,
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+    }
+    const findOne = jest.fn(async () => session)
+    const em = {
+      findOne,
+    } as unknown as EntityManager
+    const service = new CustomerSessionService(em)
+
+    await expect(service.findActiveSessionForClaims({
+      sessionId,
+      userId: 'user-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })).resolves.toMatchObject({ id: sessionId })
+    expect(findOne).toHaveBeenCalledWith(CustomerUserSession, {
+      id: sessionId,
+      user: {
+        id: 'user-1',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      },
+      deletedAt: null,
+    })
+  })
 })

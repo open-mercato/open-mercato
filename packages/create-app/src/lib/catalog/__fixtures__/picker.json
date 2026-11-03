@@ -1,0 +1,306 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-10-23T03:05:00Z",
+  "lines": [
+    "0.9",
+    "0.8",
+    "next"
+  ],
+  "modules": [
+    {
+      "id": "integration_ksef_direct",
+      "from": "@fastwhitecat/integration-ksef-direct",
+      "title": "KSeF Integration",
+      "description": "Sends and receives Polish structured e-invoices through the KSeF API v2.",
+      "requires": [
+        "integrations"
+      ],
+      "source": "third-party",
+      "locator": "npm:@fastwhitecat/integration-ksef-direct",
+      "license": {
+        "spdx": "MIT",
+        "kind": "osi"
+      },
+      "tier": "verified",
+      "verifiedOn": [
+        "0.9",
+        "next"
+      ],
+      "install": "yarn mercato module add @fastwhitecat/integration-ksef-direct@0.1.8 --allow-third-party",
+      "installByLine": {
+        "0.9": "yarn mercato module add @fastwhitecat/integration-ksef-direct@0.1.8 --allow-third-party",
+        "next": "yarn mercato module add @fastwhitecat/integration-ksef-direct@0.1.8 --allow-third-party"
+      }
+    },
+    {
+      "id": "data_sync",
+      "from": "@fullstackhouse/open-mercato-data-sync-durable",
+      "title": "Durable Data Sync",
+      "description": "Drop-in replacement for the built-in data_sync module on leased durable jobs.",
+      "requires": [
+        "@fullstackhouse/open-mercato-durable-work"
+      ],
+      "source": "third-party",
+      "locator": "npm:@fullstackhouse/open-mercato-data-sync-durable",
+      "license": {
+        "spdx": "MIT",
+        "kind": "osi"
+      },
+      "tier": "listed",
+      "verifiedOn": [
+        "0.9",
+        "next"
+      ],
+      "install": "yarn mercato module add @fullstackhouse/open-mercato-data-sync-durable@0.6.0 --allow-third-party",
+      "installByLine": {
+        "0.9": "yarn mercato module add @fullstackhouse/open-mercato-data-sync-durable@0.6.0 --allow-third-party",
+        "next": "yarn mercato module add @fullstackhouse/open-mercato-data-sync-durable@0.6.0 --allow-third-party"
+      }
+    },
+    {
+      "id": "durable_work",
+      "from": "@fullstackhouse/open-mercato-durable-work",
+      "title": "Durable Work",
+      "description": "Durable at-least-once background work on leased job records in Postgres.",
+      "requires": [],
+      "source": "third-party",
+      "locator": "npm:@fullstackhouse/open-mercato-durable-work",
+      "license": {
+        "spdx": "MIT",
+        "kind": "osi"
+      },
+      "tier": "verified",
+      "verifiedOn": [
+        "0.9"
+      ],
+      "install": "yarn mercato module add @fullstackhouse/open-mercato-durable-work@0.6.0 --allow-third-party",
+      "installByLine": {
+        "0.9": "yarn mercato module add @fullstackhouse/open-mercato-durable-work@0.6.0 --allow-third-party"
+      }
+    },
+    {
+      "id": "agent_orchestrator",
+      "from": "@open-mercato/enterprise",
+      "title": "Enterprise",
+      "description": "Commercial Open Mercato modules for SSO, security, record locks and agent orchestration.",
+      "requires": [],
+      "source": "enterprise",
+      "locator": "npm:@open-mercato/enterprise",
+      "license": {
+        "spdx": null,
+        "kind": "enterprise"
+      },
+      "tier": null,
+      "verifiedOn": [],
+      "install": "yarn mercato module add @open-mercato/enterprise@0.9.0 --module agent_orchestrator",
+      "installByLine": {}
+    },
+    {
+      "id": "record_locks",
+      "from": "@open-mercato/enterprise",
+      "title": "Enterprise",
+      "description": "Commercial Open Mercato modules for SSO, security, record locks and agent orchestration.",
+      "requires": [],
+      "source": "enterprise",
+      "locator": "npm:@open-mercato/enterprise",
+      "license": {
+        "spdx": null,
+        "kind": "enterprise"
+      },
+      "tier": null,
+      "verifiedOn": [],
+      "install": "yarn mercato module add @open-mercato/enterprise@0.9.0 --module record_locks",
+      "installByLine": {}
+    },
+    {
+      "id": "security",
+      "from": "@open-mercato/enterprise",
+      "title": "Enterprise",
+      "description": "Commercial Open Mercato modules for SSO, security, record locks and agent orchestration.",
+      "requires": [],
+      "source": "enterprise",
+      "locator": "npm:@open-mercato/enterprise",
+      "license": {
+        "spdx": null,
+        "kind": "enterprise"
+      },
+      "tier": null,
+      "verifiedOn": [],
+      "install": "yarn mercato module add @open-mercato/enterprise@0.9.0 --module security",
+      "installByLine": {}
+    },
+    {
+      "id": "sso",
+      "from": "@open-mercato/enterprise",
+      "title": "Enterprise",
+      "description": "Commercial Open Mercato modules for SSO, security, record locks and agent orchestration.",
+      "requires": [],
+      "source": "enterprise",
+      "locator": "npm:@open-mercato/enterprise",
+      "license": {
+        "spdx": null,
+        "kind": "enterprise"
+      },
+      "tier": null,
+      "verifiedOn": [],
+      "install": "yarn mercato module add @open-mercato/enterprise@0.9.0 --module sso",
+      "installByLine": {}
+    },
+    {
+      "id": "system_status_overlays",
+      "from": "@open-mercato/enterprise",
+      "title": "Enterprise",
+      "description": "Commercial Open Mercato modules for SSO, security, record locks and agent orchestration.",
+      "requires": [],
+      "source": "enterprise",
+      "locator": "npm:@open-mercato/enterprise",
+      "license": {
+        "spdx": null,
+        "kind": "enterprise"
+      },
+      "tier": null,
+      "verifiedOn": [],
+      "install": "yarn mercato module add @open-mercato/enterprise@0.9.0 --module system_status_overlays",
+      "installByLine": {}
+    },
+    {
+      "id": "gateway_stripe",
+      "from": "@open-mercato/gateway-stripe",
+      "title": "Stripe Payment Gateway",
+      "description": "Card payments through Stripe for checkout and sales documents.",
+      "requires": [],
+      "source": "official",
+      "locator": "npm:@open-mercato/gateway-stripe",
+      "license": {
+        "spdx": "MIT",
+        "kind": "osi"
+      },
+      "tier": "verified",
+      "verifiedOn": [
+        "0.9"
+      ],
+      "install": "yarn mercato module add @open-mercato/gateway-stripe@0.9.0",
+      "installByLine": {},
+      "inPresets": [
+        "0.8",
+        "0.9",
+        "next"
+      ],
+      "presetNote": "Nothing to install: a new app already registers gateway_stripe in src/modules.ts."
+    },
+    {
+      "id": "gateway_tpay",
+      "from": "@open-mercato/gateway-tpay",
+      "title": "Tpay Payment Gateway",
+      "description": "PLN payments and BLIK through Tpay for checkout and sales documents.",
+      "requires": [],
+      "source": "official",
+      "locator": "npm:@open-mercato/gateway-tpay",
+      "license": {
+        "spdx": "MIT",
+        "kind": "osi"
+      },
+      "tier": "listed",
+      "verifiedOn": [],
+      "install": "yarn mercato module add @open-mercato/gateway-tpay@0.8.1-develop.7442.1.4c1dbf1f0e",
+      "installByLine": {}
+    },
+    {
+      "id": "marketing_consents",
+      "from": "@piotrkarwatka/marketing-consents",
+      "title": "Marketing Consents",
+      "description": "Records and withdraws marketing consents for customers, with encrypted fields.",
+      "requires": [],
+      "source": "community",
+      "locator": "npm:@piotrkarwatka/marketing-consents",
+      "license": {
+        "spdx": null,
+        "kind": "proprietary"
+      },
+      "tier": "listed",
+      "verifiedOn": [],
+      "install": "yarn mercato module add @piotrkarwatka/marketing-consents@0.1.0 --allow-third-party",
+      "installByLine": {}
+    },
+    {
+      "id": "shipment_tracking",
+      "from": "@freighttech/shipment-tracking",
+      "title": "Shipment Tracking",
+      "description": "Tracks ocean containers through DCSA carrier APIs such as Maersk and MSC, with a ShipsGo fallback and a journey timeline.",
+      "requires": [],
+      "source": "third-party",
+      "locator": "npm:@freighttech/shipment-tracking",
+      "license": {
+        "spdx": "MIT",
+        "kind": "osi"
+      },
+      "tier": "listed",
+      "verifiedOn": [
+        "0.8"
+      ],
+      "install": "yarn mercato module add @freighttech/shipment-tracking@0.7.2 --allow-third-party",
+      "installByLine": {
+        "0.8": "yarn mercato module add @freighttech/shipment-tracking@0.7.2 --allow-third-party"
+      },
+      "conflictsWith": [
+        "webhooks"
+      ],
+      "warning": "Adds the backend route /backend/webhooks, which a new app on 0.8, 0.9 and next already has from the webhooks module (@open-mercato/webhooks). The generate step refuses two modules with one backend route."
+    },
+    {
+      "id": "currencies",
+      "from": "@open-mercato/core",
+      "title": "Currencies",
+      "description": "Currencies and Exchange rate management",
+      "requires": [],
+      "source": "core",
+      "locator": "npm:@open-mercato/core",
+      "license": {
+        "spdx": "MIT",
+        "kind": "osi"
+      },
+      "tier": null,
+      "verifiedOn": [],
+      "install": "yarn mercato module enable @open-mercato/core --module currencies",
+      "installByLine": {}
+    },
+    {
+      "id": "data_sync",
+      "from": "@open-mercato/core",
+      "title": "Data Sync",
+      "description": "Streaming data sync hub for import/export integrations.",
+      "requires": [],
+      "source": "core",
+      "locator": "npm:@open-mercato/core",
+      "license": {
+        "spdx": "MIT",
+        "kind": "osi"
+      },
+      "tier": null,
+      "verifiedOn": [],
+      "install": "yarn mercato module enable @open-mercato/core --module data_sync",
+      "installByLine": {}
+    },
+    {
+      "id": "wms",
+      "from": "@open-mercato/core",
+      "title": "Warehouse Management System",
+      "description": "Warehouse topology, inventory balances, reservations, and movement ledger.",
+      "requires": [
+        "catalog",
+        "sales",
+        "feature_toggles"
+      ],
+      "source": "core",
+      "locator": "npm:@open-mercato/core",
+      "license": {
+        "spdx": "MIT",
+        "kind": "osi"
+      },
+      "tier": null,
+      "verifiedOn": [],
+      "install": "yarn mercato module enable @open-mercato/core --module wms",
+      "installByLine": {}
+    }
+  ]
+}

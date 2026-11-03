@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
-import { signJwt } from '@open-mercato/shared/lib/auth/jwt'
+import { isMfaPendingJwtPayload, signJwt, verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { refreshSessionRequestSchema } from '@open-mercato/core/modules/auth/data/validators'
 import { checkAuthRateLimit } from '@open-mercato/core/modules/auth/lib/rateLimitCheck'
@@ -10,6 +10,7 @@ import { buildSafeRedirectResponse, resolveTrustedRedirectBase } from '@open-mer
 import { sanitizeRedirectPath } from '@open-mercato/core/modules/auth/lib/safeRedirect'
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
+import { isCrossSiteBrowserRequest } from '@open-mercato/shared/lib/url'
 import { z } from 'zod'
 
 const refreshRateLimitConfig = readEndpointRateLimitConfig('REFRESH', {
@@ -22,7 +23,29 @@ const refreshIpRateLimitConfig = readEndpointRateLimitConfig('REFRESH_IP', {
 function parseCookie(req: Request, name: string): string | null {
   const cookie = req.headers.get('cookie') || ''
   const m = cookie.match(new RegExp('(?:^|;\\s*)' + name + '=([^;]+)'))
-  return m ? decodeURIComponent(m[1]) : null
+  if (!m) return null
+  try {
+    return decodeURIComponent(m[1])
+  } catch {
+    return null
+  }
+}
+
+// Both handlers are `requireAuth: false`, so the dispatcher's MFA-pending gate never inspects
+// this route's caller. Minting a full staff JWT for a browser that is still holding a provisional
+// `mfa_pending` token would hand it the access the outstanding second factor is meant to withhold,
+// so the pending credential is checked here directly. `refreshFromSessionToken` itself has no MFA
+// awareness — it validates only the token hash and expiry.
+function carriesMfaPendingToken(req: Request): boolean {
+  const authHeader = (req.headers.get('authorization') || '').trim()
+  const bearer = authHeader.toLowerCase().startsWith('bearer ') ? authHeader.slice(7).trim() : null
+  const token = bearer || parseCookie(req, 'auth_token')
+  if (!token) return false
+  try {
+    return isMfaPendingJwtPayload(verifyJwt(token))
+  } catch {
+    return false
+  }
 }
 
 type RefreshedSession = NonNullable<Awaited<ReturnType<AuthService['refreshFromSessionToken']>>>
@@ -64,6 +87,11 @@ export async function GET(req: Request) {
   const url = new URL(req.url)
   const baseUrl = resolveTrustedRedirectBase(req) ?? url.origin
   const redirectTo = sanitizeRedirectPath(url.searchParams.get('redirect'), baseUrl, '/')
+  if (carriesMfaPendingToken(req)) {
+    return clearStaffAuthCookies(
+      buildSafeRedirectResponse(req, '/login?redirect=' + encodeURIComponent(redirectTo))
+    )
+  }
   const token = parseCookie(req, 'session_token')
   if (!token) {
     return clearStaffAuthCookies(
@@ -86,6 +114,9 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const { translate } = await resolveTranslations()
+  if (isCrossSiteBrowserRequest(req)) {
+    return NextResponse.json({ ok: false, error: translate('auth.login.errors.crossSiteRequest', 'This sign-in request did not come from this application. Open the sign-in page and try again.') }, { status: 403 })
+  }
   let token: string | null = null
 
   try {
@@ -105,6 +136,15 @@ export async function POST(req: Request) {
     compoundIdentifier: token ?? undefined,
   })
   if (rateLimitError) return rateLimitError
+
+  if (carriesMfaPendingToken(req)) {
+    return clearStaffAuthCookies(
+      NextResponse.json({
+        ok: false,
+        error: translate('auth.session.refresh.errors.invalidToken', 'Invalid or expired refresh token'),
+      }, { status: 401 })
+    )
+  }
 
   if (!token) {
     return clearStaffAuthCookies(
@@ -189,6 +229,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Missing refresh token', schema: refreshErrorSchema },
         { status: 401, description: 'Invalid or expired token', schema: refreshErrorSchema },
+        { status: 403, description: 'Request was submitted cross-site', schema: refreshErrorSchema },
         { status: 429, description: 'Too many refresh attempts', schema: rateLimitErrorSchema },
       ],
     },
