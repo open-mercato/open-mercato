@@ -150,7 +150,8 @@ export async function PUT(req: Request) {
       return NextResponse.json(
         {
           error: translate('auth.profile.form.errors.invalid', 'Invalid profile update.'),
-          issues: parsed.error.issues,
+          // Shared schemas (the time zone one) report i18n keys; translate them like the inline ones.
+          issues: parsed.error.issues.map((issue) => ({ ...issue, message: translate(issue.message, issue.message) })),
         },
         { status: 400 },
       )

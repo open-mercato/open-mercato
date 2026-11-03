@@ -19,10 +19,15 @@ describe('normalizeDateFormatPattern', () => {
     expect(normalizeDateFormatPattern('DD.MM.YYYY')).toBe('dd.MM.yyyy')
     expect(normalizeDateFormatPattern('MM/DD/YY')).toBe('MM/dd/yy')
   })
+
+  it('leaves quoted literals untouched while rewriting tokens around them', () => {
+    expect(normalizeDateFormatPattern("'DD-YYYY' DD.MM.YYYY")).toBe("'DD-YYYY' dd.MM.yyyy")
+    expect(normalizeDateFormatPattern("DD 'o''DD' YYYY")).toBe("dd 'o''DD' yyyy")
+  })
 })
 
 describe('validateDateFormatPattern', () => {
-  it.each(['dd.MM.yyyy', 'MMM d, yyyy', 'h:mm a', "d 'de' MMMM yyyy", 'yyyy-MM-dd HH:mm', "HH'h'mm"])(
+  it.each(['dd.MM.yyyy', 'MMM d, yyyy', 'h:mm a', "d 'de' MMMM yyyy", 'yyyy-MM-dd HH:mm', "HH'h'mm", "yyyy-MM-dd HH 'h' 'omtz'"])(
     'accepts %s',
     (pattern) => {
       expect(validateDateFormatPattern(pattern)).toBeNull()

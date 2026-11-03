@@ -15,10 +15,11 @@ export function normalizeDateFormatPattern(value: string | null | undefined): st
   const trimmed = value?.trim()
   if (!trimmed) return null
   if (SYSTEM_FORMAT_VALUES.has(trimmed.toLowerCase())) return null
+  // Quoted literals (`'Day' DD`) are copied as-is; only the tokens outside quotes are rewritten.
   return trimmed
-    .replace(/YYYY/g, 'yyyy')
-    .replace(/YY/g, 'yy')
-    .replace(/DD/g, 'dd')
+    .split(/('(?:[^']|'')*'?)/)
+    .map((part) => (part.startsWith("'") ? part : part.replace(/YYYY/g, 'yyyy').replace(/YY/g, 'yy').replace(/DD/g, 'dd')))
+    .join('')
 }
 
 // `date-fns` format tokens that render without extra options. `Y` (week-numbering year) and
@@ -114,7 +115,10 @@ const patternField = optionalText(DATE_FORMAT_PATTERN_MAX_LENGTH).superRefine((v
 })
 
 /**
- * Tenant settings payload. Messages are i18n keys so `CrudForm` and API clients can translate them.
+ * Tenant settings payload. Messages are i18n keys so `CrudForm` and API clients can translate them;
+ * the keys (`configs.dateLocale.errors.*`, `auth.profile.errors.timeZone`) are translated by the
+ * modules that own these settings, and every route using these schemas must translate the issue
+ * messages before returning them.
  * Stored values are normalized (`auto` / blank → `null`, canonical zone and locale spellings).
  */
 export const dateLocaleSettingsInputSchema = z

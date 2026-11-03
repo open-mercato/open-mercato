@@ -62,6 +62,20 @@ jest.mock('@open-mercato/ui/backend/injection/PageInjectionBoundary', () => ({
   PageInjectionBoundary: ({ children }: { children: React.ReactNode }) => React.createElement(React.Fragment, null, children),
 }))
 
+const backendDateLocaleSettings = { locale: 'pl-PL', timeZone: 'Europe/Warsaw' }
+const resolveDateLocaleSettingsForRequest = jest.fn(async () => backendDateLocaleSettings)
+
+jest.mock('@open-mercato/shared/lib/date-locale/registry', () => ({
+  resolveDateLocaleSettingsForRequest: () => resolveDateLocaleSettingsForRequest(),
+}))
+
+const DateLocaleSettingsProvider = ({ children }: { children: React.ReactNode }) =>
+  React.createElement(React.Fragment, null, children)
+
+jest.mock('@open-mercato/ui/primitives/date-locale-settings', () => ({
+  DateLocaleSettingsProvider: (props: { children: React.ReactNode }) => DateLocaleSettingsProvider(props),
+}))
+
 jest.mock('@/components/DemoFeedbackWidget', () => ({ DemoFeedbackWidget: () => null }))
 jest.mock('@/components/OrganizationSwitcher', () => ({ __esModule: true, default: () => null }))
 jest.mock('@/components/BackendHeaderChrome', () => ({ BackendHeaderChrome: () => null }))
@@ -95,5 +109,15 @@ describe('Backend layout served locale set', () => {
       supportedLocales: ['en', 'pl', 'de'],
       localeLocked: false,
     })
+  })
+
+  it('mounts its own date/locale settings provider so a login redirect picks up the signed-in settings', async () => {
+    resolveDateLocaleSettingsForRequest.mockClear()
+    const layout = await import('../layout')
+    const tree = await layout.default({ children: null, params: Promise.resolve({}) })
+
+    expect(resolveDateLocaleSettingsForRequest).toHaveBeenCalledTimes(1)
+    const nested = tree.props.children
+    expect(nested.props.value).toBe(backendDateLocaleSettings)
   })
 })

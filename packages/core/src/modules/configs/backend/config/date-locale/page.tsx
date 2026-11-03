@@ -108,6 +108,12 @@ export default function DateLocaleSettingsPage() {
       if (!data) return undefined
       const inherited = resolveDateLocaleSettings({ env: data.envDefaults })
       const value = inherited[field]
+      if (field === 'dateTimeFormat' && value === null) {
+        return t(
+          'configs.dateLocale.inherit.dateTimeDerived',
+          'Automatic uses the date format followed by the time format (or the locale’s short time); with no date format set, the locale default.',
+        )
+      }
       const emptyLabel = field === 'timeZone'
         ? t('configs.dateLocale.inherit.viewerDevice', 'each viewer’s device time zone')
         : t('configs.dateLocale.inherit.localeDefault', 'locale default')

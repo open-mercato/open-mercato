@@ -27,7 +27,10 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
-  resolveTranslations: jest.fn(async () => ({ locale: 'en', translate: (_key: string, fallback: string) => fallback })),
+  resolveTranslations: jest.fn(async () => ({
+    locale: 'en',
+    translate: (key: string, fallback: string) => (key === 'auth.profile.errors.timeZone' ? 'Choose a time zone from the list.' : fallback),
+  })),
 }))
 
 jest.mock('@open-mercato/shared/lib/auth/jwt', () => ({
@@ -75,6 +78,8 @@ describe('PUT /api/auth/profile time zone', () => {
 
     expect(response.status).toBe(400)
     expect(mockCommandBusExecute).not.toHaveBeenCalled()
+    const body = await response.json()
+    expect(body.issues).toEqual([expect.objectContaining({ path: ['timezone'], message: 'Choose a time zone from the list.' })])
   })
 
   it('does not send a time zone to the command when the request omits it', async () => {

@@ -88,7 +88,10 @@ describe('resolveDateLocaleSettings', () => {
     expect(resolveDateLocaleSettings({ env: noEnv, tenant: { dateFormat: 'dd.MM.yyyy', timeFormat: 'HH:mm' } }).dateTimeFormat).toBe(
       'dd.MM.yyyy HH:mm',
     )
-    expect(resolveDateLocaleSettings({ env: noEnv, tenant: { dateFormat: 'dd.MM.yyyy' } }).dateTimeFormat).toBe('dd.MM.yyyy')
+    // A tenant date-only pin keeps the time on timestamps, in the locale's own short time (`p`).
+    expect(resolveDateLocaleSettings({ env: noEnv, tenant: { dateFormat: 'dd.MM.yyyy' } }).dateTimeFormat).toBe('dd.MM.yyyy p')
+    // An env-only date pin stays bare, as NEXT_PUBLIC_OM_DATE_FORMAT always rendered.
+    expect(resolveDateLocaleSettings({ env: { ...noEnv, dateFormat: 'dd.MM.yyyy' } }).dateTimeFormat).toBe('dd.MM.yyyy')
   })
 
   it('keeps an explicit date-time pattern over the derived one', () => {

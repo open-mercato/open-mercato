@@ -9,7 +9,9 @@ const DateLocaleSettingsContext = React.createContext<ResolvedDateLocaleSettings
 
 /**
  * Carries the tenant/user date and locale settings resolved on the server (see
- * `resolveDateLocaleSettingsForRequest`). Mounted next to `I18nProvider` in the app layouts.
+ * `resolveDateLocaleSettingsForRequest`). The root layout mounts one for every page; the backend
+ * and portal layouts mount a nested one, because the root layout is not re-rendered by a
+ * client-side navigation (a login redirect would otherwise keep the anonymous defaults).
  */
 export function DateLocaleSettingsProvider({
   value,
@@ -19,9 +21,19 @@ export function DateLocaleSettingsProvider({
   children: React.ReactNode
 }) {
   const settings = value ?? null
+  const parent = React.useContext(DateLocaleSettingsContext)
   // Synchronous, not an effect: the first client render (hydration) must already format with the
   // tenant settings, otherwise every date cell renders once in the env default and then flips.
+  // Writing a module-level value during render is idempotent (same value on every render), so a
+  // StrictMode double render or a discarded concurrent render leaves nothing inconsistent behind.
   setClientDateLocaleSettings(settings)
+  React.useEffect(() => {
+    // Only a nested provider re-asserts and restores: effects run child-first, so the root one
+    // re-asserting here would overwrite the nested value on mount.
+    if (!parent) return
+    setClientDateLocaleSettings(settings)
+    return () => setClientDateLocaleSettings(parent)
+  }, [parent, settings])
   return <DateLocaleSettingsContext.Provider value={settings}>{children}</DateLocaleSettingsContext.Provider>
 }
 

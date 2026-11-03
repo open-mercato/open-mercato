@@ -239,22 +239,26 @@ export function createDefaultFormState(
   now: Date = new Date(),
   range?: { start: Date; end: Date } | null,
 ): EditorFormState {
-  let base: Date
-  let end: Date
-  if (range) {
-    base = new Date(range.start)
-    end = new Date(range.end)
-  } else {
-    base = defaultDate ? new Date(defaultDate) : new Date(now)
-    base.setHours(now.getHours(), 0, 0, 0)
-    base.setHours(base.getHours() + 1)
-    end = new Date(base.getTime() + 90 * 60_000)
-  }
-  // The grid hands over real instants; read them back as wall times in the editor's zone so the
-  // submit path (`calendarWallTimeToInstant` in that zone) saves the slot the user picked.
   const timezone = defaultCalendarTimezone()
-  const startWall = calendarInstantToWallTime(base, timezone)
-  const endWall = calendarInstantToWallTime(end, timezone)
+  let startWall: { date: string; time: string }
+  let endWall: { date: string; time: string }
+  if (range) {
+    // The grid hands over real instants; read them back as wall times in the editor's zone so the
+    // submit path (`calendarWallTimeToInstant` in that zone) saves the slot the user picked.
+    startWall = calendarInstantToWallTime(new Date(range.start), timezone)
+    endWall = calendarInstantToWallTime(new Date(range.end), timezone)
+  } else {
+    // The next whole hour in the editor's zone, placed on the grid day the user opened. Grid days
+    // are browser-local dates, so their day is read with local getters, never shifted into the
+    // editor zone (a far-away zone would otherwise open the editor on a neighbouring day).
+    const nowWall = calendarInstantToWallTime(now, timezone)
+    const hourStart = calendarWallTimeToInstant(nowWall.date, `${nowWall.time.slice(0, 2)}:00`, timezone) ?? now
+    const nextHour = calendarInstantToWallTime(new Date(hourStart.getTime() + 60 * 60_000), timezone)
+    const startDate = defaultDate ? formatLocalDateInput(defaultDate) : nextHour.date
+    startWall = { date: startDate, time: nextHour.time }
+    const startInstant = calendarWallTimeToInstant(startWall.date, startWall.time, timezone) ?? hourStart
+    endWall = calendarInstantToWallTime(new Date(startInstant.getTime() + 90 * 60_000), timezone)
+  }
   return {
     kind: 'meeting',
     timezone,
@@ -268,7 +272,7 @@ export function createDefaultFormState(
     endDate: endWall.date,
     endTime: endWall.time,
     repeatFreq: 'none',
-    repeatDays: defaultRepeatDays(base),
+    repeatDays: defaultRepeatDaysForDateInput(startWall.date),
     repeatEndType: 'never',
     repeatCount: 8,
     repeatUntilDate: '',

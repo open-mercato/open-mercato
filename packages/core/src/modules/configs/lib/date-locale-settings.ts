@@ -1,3 +1,4 @@
+import { cache } from 'react'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -86,9 +87,10 @@ export async function resolveDateLocaleSettingsForScope(
 /**
  * Request resolver registered into `@open-mercato/shared/lib/date-locale/registry`. Never throws:
  * anonymous requests or a container that cannot be built yet return `null`, and the caller falls
- * back to env defaults.
+ * back to env defaults. Memoized per server render (React `cache`), so the root and backend
+ * layouts share one tenant read and one primary-key user lookup per request.
  */
-export async function resolveDateLocaleSettingsFromCookies(): Promise<ResolvedDateLocaleSettings | null> {
+export const resolveDateLocaleSettingsFromCookies = cache(async (): Promise<ResolvedDateLocaleSettings | null> => {
   try {
     const auth = await getAuthFromCookies()
     if (!auth?.tenantId) return null
@@ -99,4 +101,4 @@ export async function resolveDateLocaleSettingsFromCookies(): Promise<ResolvedDa
     logger.debug('Could not resolve tenant date/locale settings', { err })
     return null
   }
-}
+})

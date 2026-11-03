@@ -34,4 +34,25 @@ describe('createDefaultFormState under a configured display time zone', () => {
 
     expect(state).toMatchObject({ date: '2026-06-12', startTime: '14:00', endDate: '2026-06-12', endTime: '15:30' })
   })
+
+  it('opens a whole-day click on the grid day, at the next hour in the configured zone', () => {
+    setClientDateLocaleSettings(resolveDateLocaleSettings({ tenant: { timeZone: 'Pacific/Kiritimati' }, env: noEnv }))
+    const clickedDay = new Date(2026, 5, 20)
+    const now = new Date('2026-06-12T14:12:00.000Z')
+
+    const state = createDefaultFormState(clickedDay, now)
+
+    // 14:12Z is 04:12 next day in Kiritimati (UTC+14): next hour 05:00, kept on the clicked day.
+    expect(state).toMatchObject({ date: '2026-06-20', startTime: '05:00', endDate: '2026-06-20', endTime: '06:30' })
+    // 2026-06-20 is a Saturday: the weekly repeat defaults to the clicked day, not a browser-zone shift.
+    expect(state.repeatDays).toEqual([false, false, false, false, false, true, false])
+  })
+
+  it('rolls the default end over midnight in the configured zone', () => {
+    setClientDateLocaleSettings(resolveDateLocaleSettings({ tenant: { timeZone: 'UTC' }, env: noEnv }))
+
+    const state = createDefaultFormState(null, new Date('2026-06-12T22:40:00.000Z'))
+
+    expect(state).toMatchObject({ date: '2026-06-12', startTime: '23:00', endDate: '2026-06-13', endTime: '00:30' })
+  })
 })

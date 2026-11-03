@@ -52,6 +52,7 @@
   "configs.dateLocale.groups.formats": "Formaty",
   "configs.dateLocale.groups.preview": "Podgląd",
   "configs.dateLocale.groups.regional": "Region",
+  "configs.dateLocale.inherit.dateTimeDerived": "Automatycznie używa formatu daty, a po nim formatu czasu (lub krótkiego czasu z ustawień regionalnych); bez formatu daty – domyślnego formatu regionalnego.",
   "configs.dateLocale.inherit.hint": "Tryb automatyczny używa: {{value}} ({{source}}).",
   "configs.dateLocale.inherit.localeDefault": "domyślne dla języka",
   "configs.dateLocale.inherit.viewerDevice": "strefę czasową urządzenia każdego użytkownika",
