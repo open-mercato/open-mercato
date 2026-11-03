@@ -8,8 +8,10 @@ jest.setTimeout(20000)
 
 const mockApiCall = jest.fn()
 type KindField = { id: string; component?: (props: { value: string; setValue: (next: string) => void }) => React.ReactElement }
+type CapturedCrudFormProps = { fields: KindField[]; hiddenGroupIds?: readonly string[] }
+type WrapperProps = { children?: React.ReactNode }
 let capturedFields: KindField[] | undefined
-let capturedHiddenGroupIds: string[] | undefined
+let capturedHiddenGroupIds: readonly string[] | undefined
 let mockChannelsEnabled = true
 
 jest.mock('../useSalesChannelsEnabled', () => ({
@@ -18,13 +20,13 @@ jest.mock('../useSalesChannelsEnabled', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
-  apiCall: (...args: any[]) => mockApiCall(...args),
+  apiCall: (...args: unknown[]) => mockApiCall(...args),
   apiCallOrThrow: jest.fn().mockResolvedValue({ items: [] }),
   readApiResultOrThrow: jest.fn().mockResolvedValue({ items: [] }),
 }))
 
 jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
-  CrudForm: ({ fields, hiddenGroupIds }: any) => {
+  CrudForm: ({ fields, hiddenGroupIds }: CapturedCrudFormProps) => {
     capturedFields = fields
     capturedHiddenGroupIds = hiddenGroupIds
     return <div data-testid="crud-form" />
@@ -47,11 +49,11 @@ jest.mock('@open-mercato/ui/backend/inputs', () => ({
 }))
 
 jest.mock('@open-mercato/ui/primitives/input', () => ({
-  Input: (props: any) => <input {...props} />,
+  Input: (props: React.ComponentProps<'input'>) => <input {...props} />,
 }))
 
 jest.mock('@open-mercato/ui/primitives/button', () => ({
-  Button: ({ children, ...props }: any) => <button {...props}>{children}</button>,
+  Button: ({ children, ...props }: React.ComponentProps<'button'>) => <button {...props}>{children}</button>,
 }))
 
 jest.mock('@open-mercato/ui/primitives/switch', () => ({
@@ -59,17 +61,17 @@ jest.mock('@open-mercato/ui/primitives/switch', () => ({
 }))
 
 jest.mock('@open-mercato/ui/primitives/dialog', () => ({
-  Dialog: ({ children }: any) => <div>{children}</div>,
-  DialogContent: ({ children }: any) => <div>{children}</div>,
-  DialogDescription: ({ children }: any) => <p>{children}</p>,
-  DialogFooter: ({ children }: any) => <div>{children}</div>,
-  DialogHeader: ({ children }: any) => <div>{children}</div>,
-  DialogTitle: ({ children }: any) => <h3>{children}</h3>,
-  DialogTrigger: ({ children }: any) => <div>{children}</div>,
+  Dialog: ({ children }: WrapperProps) => <div>{children}</div>,
+  DialogContent: ({ children }: WrapperProps) => <div>{children}</div>,
+  DialogDescription: ({ children }: WrapperProps) => <p>{children}</p>,
+  DialogFooter: ({ children }: WrapperProps) => <div>{children}</div>,
+  DialogHeader: ({ children }: WrapperProps) => <div>{children}</div>,
+  DialogTitle: ({ children }: WrapperProps) => <h3>{children}</h3>,
+  DialogTrigger: ({ children }: WrapperProps) => <div>{children}</div>,
 }))
 
 jest.mock('@open-mercato/ui/primitives/badge', () => ({
-  Badge: ({ children }: any) => <span>{children}</span>,
+  Badge: ({ children }: WrapperProps) => <span>{children}</span>,
 }))
 
 jest.mock('@open-mercato/ui/backend/utils/customFieldValues', () => ({
@@ -79,7 +81,7 @@ jest.mock('@open-mercato/ui/backend/utils/customFieldValues', () => ({
 jest.mock('@open-mercato/ui/backend/utils/serverErrors', () => ({
   raiseCrudError: jest.fn(),
   createCrudFormError: (msg: string) => new Error(msg),
-  normalizeCrudServerError: (err: any) => ({ message: err?.message ?? 'error' }),
+  normalizeCrudServerError: (err: unknown) => ({ message: err instanceof Error ? err.message : 'error' }),
 }))
 
 jest.mock('@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect', () => ({
@@ -125,7 +127,7 @@ jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/custom-fields/normalize', () => ({
-  normalizeCustomFieldResponse: (input: any) => input,
+  normalizeCustomFieldResponse: (input: unknown) => input,
 }))
 
 jest.mock('#generated/entities.ids.generated', () => ({
@@ -141,7 +143,7 @@ jest.mock('next/navigation', () => ({
 
 jest.mock('next/link', () => ({
   __esModule: true,
-  default: ({ children, ...props }: any) => <a {...props}>{children}</a>,
+  default: ({ children, ...props }: React.ComponentProps<'a'>) => <a {...props}>{children}</a>,
 }))
 
 jest.mock('lucide-react', () => ({
