@@ -558,7 +558,7 @@ function main() {
   }
 
   const shrunk = result.chains.filter((chain) => chain.grewBy < 0 && chain.overflowBytes > 0)
-  if (shrunk.length > 0) {
+  if (!options.json && shrunk.length > 0) {
     console.log(
       `\n${shrunk.length} chain(s) are now smaller than the baseline. Run ` +
         '`yarn agents:check-budget --update-baseline` to tighten the ratchet.',

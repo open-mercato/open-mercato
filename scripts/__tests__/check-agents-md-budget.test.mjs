@@ -85,6 +85,15 @@ test('fails when the nested part of an already over-budget chain grows beyond it
   fs.rmSync(fixture, { recursive: true, force: true })
 })
 
+test('--json keeps stdout parseable when an over-budget chain has shrunk', () => {
+  const fixture = makeFixture({ rootBytes: 80, nestedBytes: 250, baselineNestedBytes: 300 })
+  const result = runChecker(fixture, ['--json'])
+  assert.equal(result.status, 0, result.stderr)
+  const report = JSON.parse(result.stdout)
+  assert.ok(report.chains.some((chain) => chain.grewBy < 0))
+  fs.rmSync(fixture, { recursive: true, force: true })
+})
+
 test('allows a chain that is still inside the budget to grow', () => {
   const fixture = makeFixture({ rootBytes: 80, nestedBytes: 100, baselineNestedBytes: 50 })
   const result = runChecker(fixture)
