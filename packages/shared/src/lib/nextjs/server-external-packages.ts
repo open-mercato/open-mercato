@@ -4,9 +4,11 @@
  *
  * Turbopack compiles every bundled server dependency once per server layer (route
  * handlers, React Server Components, SSR), so these packages otherwise dominate the
- * dev server's module graph and memory. Only list packages that never touch React
- * and do not need bundler transforms; this config-only entrypoint has no runtime
- * imports and is safe to evaluate from `next.config.ts`.
+ * dev server's module graph and memory. Only list packages that never touch React,
+ * do not need bundler transforms, and are never `require()`d by bundled CommonJS code
+ * when they ship only ES modules (Turbopack cannot externalize those; `happy-dom`,
+ * loaded through `@tiptap/html/server`, is the known case). This config-only
+ * entrypoint has no runtime imports and is safe to evaluate from `next.config.ts`.
  */
 export const openMercatoServerExternalPackages = [
   '@ai-sdk/amazon-bedrock',
@@ -35,7 +37,6 @@ export const openMercatoServerExternalPackages = [
   'encoding-japanese',
   'firebase-admin',
   'gpt-tokenizer',
-  'happy-dom',
   'html-to-text',
   'iconv-lite',
   'imapflow',
