@@ -138,7 +138,7 @@ export function PersonCard({ person, isStarred, onToggleStar, onUnlink, showLink
         </span>
       </TableCell>
       {showLinkedDate ? (
-        <TableCell className="hidden py-2 text-muted-foreground @4xl:table-cell">
+        <TableCell className="hidden py-2 text-muted-foreground @xl:table-cell">
           <span className="block whitespace-nowrap">{linkedDate ?? emptyCell}</span>
         </TableCell>
       ) : null}
