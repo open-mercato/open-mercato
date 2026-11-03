@@ -29,7 +29,7 @@
   "automerge": {
     "humanOnlyLabels": ["feature"],
     "humanOnlyAuthors": ["zielivia"],
-    "complexQa": "needs-qa"
+    "complexQa": "always"
   },
   "paths": {
     "runs": ".ai/runs",

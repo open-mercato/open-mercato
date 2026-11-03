@@ -58,7 +58,7 @@ Recurring risks from manual QA of Open Mercato, grouped by area. `om-auto-qa-pr`
 
 - Check page title, breadcrumb and visual editors as well as the form body.
 - Dictionary entries have two translation paths, and a screen may use only one.
-- PR text quotes English names, while the default local UI is Polish.
+- The product default is English; saved preferences may choose another locale. Select Polish explicitly for decimal-comma checks and record the selected language.
 
 ## Data integrity
 
