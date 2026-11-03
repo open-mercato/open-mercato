@@ -6,6 +6,7 @@ import { ensureInfra } from './infra.mjs'
 import { chooseServiceMode, configureServiceMode, printManualSetup } from './dev-service-modes.mjs'
 
 const argv = process.argv.slice(2)
+const verbose = argv.includes('--verbose')
 let services
 let child
 let shutdownTimer
@@ -39,7 +40,7 @@ try {
     './scripts/dev.mjs', '--setup',
     ...(argv.includes('--reinstall') ? ['--reinstall'] : []),
     ...(argv.includes('--classic') ? ['--classic'] : []),
-    ...(argv.includes('--verbose') ? ['--verbose'] : []),
+    ...(verbose ? ['--verbose'] : []),
     ...(services.noInfra ? [NO_INFRA_FLAG] : []),
     ...collectForwardedSetupFlags(argv),
   ], { stdio: 'inherit', env: services.env })

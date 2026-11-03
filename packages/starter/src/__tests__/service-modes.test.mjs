@@ -177,3 +177,16 @@ test('cleanup restores other files and process settings after a filesystem failu
     assert.equal(mock.stopped.length, 3)
   } finally { if (fs.existsSync(file)) fs.chmodSync(file, 0o600); fs.rmSync(dir, { recursive: true, force: true }) }
 })
+
+test('normalized local database identifiers fit the PostgreSQL identifier limit', async () => {
+  const dir = fixture()
+  try {
+    fs.writeFileSync(path.join(dir, '.env'), 'DATABASE_URL=postgres://user%40remote:password@remote/database%40remote\n')
+    const env = {}; let port = 24000
+    await configureServiceMode({ mode: 'random', projectDir: dir, env, getPort: async () => ++port, log: silent })
+    assert.ok(Buffer.byteLength(env.POSTGRES_USER) <= 63)
+    assert.ok(Buffer.byteLength(env.POSTGRES_DB) <= 63)
+    assert.equal(decodeURIComponent(new URL(env.DATABASE_URL).username), env.POSTGRES_USER)
+    assert.equal(decodeURIComponent(new URL(env.DATABASE_URL).pathname.slice(1)), env.POSTGRES_DB)
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})

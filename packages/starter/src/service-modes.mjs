@@ -76,7 +76,7 @@ function replaceValues(text, values) {
 }
 
 function localCredential(value, scope) {
-  return /[^A-Za-z0-9_.-]/.test(value) ? `local_${crypto.scryptSync(value, path.resolve(scope), 32, { N: 32768, maxmem: 64 * 1024 * 1024 }).toString('hex')}` : value
+  return /[^A-Za-z0-9_.-]/.test(value) ? `local_${crypto.scryptSync(value, path.resolve(scope), 24, { N: 32768, maxmem: 64 * 1024 * 1024 }).toString('hex')}` : value
 }
 
 function localUrl(raw, fallback, host, port) {

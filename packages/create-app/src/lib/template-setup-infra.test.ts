@@ -151,10 +151,10 @@ test('yarn setup keeps a remote DATABASE_URL and says so instead of switching to
 test('classic and reinstall wrappers keep their semantics and forward --no-infra', { skip }, async () => {
   const app = await makeApp()
   try {
-    const run = await runScript(app, 'setup.mjs', ['--reinstall', '--classic', '--no-infra', '--database-name=review_db'])
+    const run = await runScript(app, 'setup.mjs', ['--reinstall', '--classic', '--verbose', '--no-infra', '--database-name=review_db'])
     assert.equal(run.code, 0, run.output)
     assert.deepEqual(run.dockerCalls, [])
-    assert.deepEqual(run.devArgs, ['--setup', '--reinstall', '--classic', '--no-infra', '--database-name=review_db'])
+    assert.deepEqual(run.devArgs, ['--setup', '--reinstall', '--classic', '--verbose', '--no-infra', '--database-name=review_db'])
   } finally {
     fs.rmSync(app.appDir, { recursive: true, force: true })
   }
