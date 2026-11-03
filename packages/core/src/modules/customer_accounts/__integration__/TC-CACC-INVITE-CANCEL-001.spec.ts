@@ -69,6 +69,7 @@ async function invitationState(id: string): Promise<InvitationState> {
 async function deleteInvitations(ids: string[]) {
   if (ids.length === 0) return
   await withClient(async (client) => {
+    await client.query('delete from action_logs where command_id = $1 and resource_id = any($2::text[])', ['customer_accounts.invitation.cancel', ids])
     await client.query('delete from customer_user_invitations where id = any($1::uuid[])', [ids])
   })
 }
@@ -147,6 +148,23 @@ test.describe('TC-CACC-INVITE-CANCEL-001: staff withdrawal of pending invitation
       await expect(dialog).not.toBeVisible()
       expect((await invitationState(invitation.id)).cancelled_at).toBeNull()
 
+      let cancellations = 0
+      await page.route('**/api/customer_accounts/admin/users-invite?**', async (route) => {
+        if (route.request().method() !== 'DELETE') return route.continue()
+        cancellations += 1
+        if (cancellations === 1) {
+          return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ ok: false, error: 'Cancellation temporarily unavailable' }) })
+        }
+        return route.continue()
+      })
+      await page.getByRole('button', { name: 'Cancel invitation', exact: true }).click()
+      await dialog.getByRole('button', { name: 'Cancel invitation', exact: true }).press('ControlOrMeta+Enter')
+      await expect(dialog).not.toBeVisible()
+      await expect(page.getByText('Failed to cancel invitation', { exact: true })).toBeVisible()
+      await expect(page.getByText('Invitation pending', { exact: true })).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Cancel invitation', exact: true })).toBeEnabled()
+      expect((await invitationState(invitation.id)).cancelled_at).toBeNull()
+
       await page.getByRole('button', { name: 'Cancel invitation', exact: true }).click()
       await expect(dialog).toBeVisible()
       await dialog.getByRole('button', { name: 'Cancel invitation', exact: true }).press('ControlOrMeta+Enter')
@@ -154,6 +172,7 @@ test.describe('TC-CACC-INVITE-CANCEL-001: staff withdrawal of pending invitation
       await expect(page.getByText('Invitation pending', { exact: true })).not.toBeVisible()
       await expect(page.getByRole('button', { name: 'Invite to Portal', exact: true })).toBeVisible()
       expect((await invitationState(invitation.id)).cancelled_at).not.toBeNull()
+      expect(cancellations).toBe(2)
       await page.screenshot({ path: testInfo.outputPath('invitation-cancelled.png'), fullPage: true })
     } finally {
       await deleteInvitations(invitationIds)
@@ -161,6 +180,66 @@ test.describe('TC-CACC-INVITE-CANCEL-001: staff withdrawal of pending invitation
       await deleteCustomerRoleFixture(request, adminToken, roleId)
     }
   })
+
+  for (const grant of ['customer_accounts.view', 'customer_accounts.*', '*']) {
+    test(`shows the pending CRM invitation with the ${grant} grant and gates cancellation`, async ({ page, request }) => {
+      test.slow()
+      const adminToken = await getAuthToken(request, 'admin')
+      const scope = getTokenContext(adminToken)
+      let roleId: string | null = null
+      let staffId: string | null = null
+      let personId: string | null = null
+      const invitationIds: string[] = []
+      try {
+        roleId = (await createCustomerRoleFixture(request, adminToken)).id
+        const suffix = uniqueSuffix()
+        const email = `qa-invite-permissions-${suffix}@test.local`
+        personId = await createPersonFixture(request, adminToken, { firstName: 'Permission', lastName: suffix, displayName: `Permission ${suffix}`, primaryEmail: email })
+        const created = await apiRequest(request, 'POST', endpoint, { token: adminToken, data: { email, roleIds: [roleId], personEntityId: personId } })
+        expect(created.status()).toBe(201)
+        const { invitation } = await created.json() as { invitation: { id: string } }
+        invitationIds.push(invitation.id)
+        const staffEmail = `qa-invite-staff-${suffix}@test.local`
+        const password = customerTestPassword()
+        staffId = await createUserFixture(request, adminToken, { email: staffEmail, password, organizationId: scope.organizationId, roles: [] })
+        await setUserAclInDb({ userId: staffId, tenantId: scope.tenantId, features: ['customers.*', grant], organizations: [scope.organizationId] })
+        const staffToken = await getAuthToken(request, staffEmail, password)
+        const baseUrl = process.env.BASE_URL || 'http://localhost:5001'
+        await page.context().addCookies([
+          { name: 'auth_token', value: staffToken, url: baseUrl },
+          { name: 'om_selected_tenant', value: scope.tenantId, url: baseUrl },
+          { name: 'om_selected_org', value: scope.organizationId, url: baseUrl },
+          { name: 'om_demo_notice_ack', value: 'ack', url: baseUrl },
+          { name: 'om_cookie_notice_ack', value: 'ack', url: baseUrl },
+          { name: 'om_feedback_suppress', value: '1', url: baseUrl },
+        ])
+        await page.goto(`/backend/customers/people-v2/${personId}`)
+        await page.getByRole('button', { name: 'Expand form panel', exact: true }).click()
+        await expect(page.getByText('Invitation pending', { exact: true })).toBeVisible()
+        const cancel = page.getByRole('button', { name: 'Cancel invitation', exact: true })
+        if (grant === 'customer_accounts.view') {
+          await expect(cancel).toHaveCount(0)
+          expect((await apiRequest(request, 'DELETE', `${endpoint}?id=${invitation.id}`, { token: staffToken })).status()).toBe(403)
+          expect((await invitationState(invitation.id)).cancelled_at).toBeNull()
+        } else {
+          await expect(cancel).toBeVisible()
+          await cancel.click()
+          const dialog = page.getByRole('alertdialog', { name: 'Cancel invitation?' })
+          await expect(dialog).toBeVisible()
+          await dialog.getByRole('button', { name: 'Cancel invitation', exact: true }).click()
+          await expect(page.getByText('Invitation pending', { exact: true })).not.toBeVisible()
+          expect((await invitationState(invitation.id)).cancelled_at).not.toBeNull()
+        }
+      } finally {
+        await page.context().clearCookies()
+        if (staffId) await deleteUserAclInDb(staffId)
+        await deleteUserIfExists(request, adminToken, staffId)
+        await deleteInvitations(invitationIds)
+        await deleteEntityIfExists(request, adminToken, '/api/customers/people', personId)
+        await deleteCustomerRoleFixture(request, adminToken, roleId)
+      }
+    })
+  }
 
   test('withdraws the link once, removes the pending listing, and never creates an account', async ({ request }) => {
     const adminToken = await getAuthToken(request, 'admin')

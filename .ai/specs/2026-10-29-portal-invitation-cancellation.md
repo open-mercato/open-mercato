@@ -35,6 +35,8 @@ The resend dedupe path must atomically update an existing invitation only while 
 
 An API response remains neutral when cancellation loses a race. The existing token acceptance error contract remains unchanged. Cancellation itself never creates a user or deletes an invitation.
 
+Email-failure compensation must also respect terminal transitions and newer resends. Both staff and portal invite routes pass the hash of the exact emailed token to `rollbackInvitation`. Compensation refreshes and locks the scoped row only when that token is still pending and unexpired, and holds the lock through removal of a new row or encrypted restoration of reused metadata. Cancellation, acceptance, expiry, or a later token rotation makes compensation a no-op; stale request identity-map data cannot restore or delete the newer state.
+
 ## Data Model
 
 Reuse `CustomerUserInvitation.cancelledAt`. Add no columns, entities, migration, PII, or encryption maps. Existing email encryption and hashed-token storage remain intact. This is an atomic lifecycle action on an existing entity rather than a new editable CRUD form; pending-state predicates provide concurrency protection without introducing a version column.
@@ -74,6 +76,7 @@ Ship self-contained tests under the module's `__integration__` directory. Create
 | Concurrent service transitions | cancellation/acceptance compete for one terminal transition; failed acceptance rolls back its claim |
 | Resend/cancel service race | cancellation wins before the locked lookup: the old row retains its token hash and cancellation marker, while resend creates a fresh pending invitation with a usable token; resend obtains the lock first: cancellation waits for its transaction to commit, then revokes the rotated token; prove lookup and flush share the transaction and lock |
 | Command audit and lifecycle event | one successful cancellation produces the non-replayable action log and one scoped lifecycle event; repeats produce neither; logs/events contain no token or email; event/telemetry failure does not fail the committed action |
+| Email delivery compensation | deterministic cancellation during failed delivery preserves the row; reused-row restoration requires the exact emailed token and cannot overwrite a newer resend or terminal transition; real PostgreSQL route/command coverage verifies persisted terminal state |
 
 ## Migration & Backward Compatibility
 
@@ -102,6 +105,7 @@ The design stays within one module, scopes all writes to tenant and organization
 
 ## Changelog
 
+- 2026-11-03: Guarded email compensation with a refreshed scoped pending-token lock, including immutable token attribution from both invitation callers. Extended CRM failure/retry and view/wildcard integration coverage plus real route, command-log persistence, event delivery, and event/reporting failure cases.
 - 2026-10-29: Clarified authenticated organization scope, resend/cancel atomicity, the implemented non-undoable command and audit path, canonical guard entity key, invite-feature visibility, lifecycle-event metadata, and regression coverage after review.
 - 2026-10-29: Specified staff cancellation for issue #7275, neutral terminal responses, coordinated acceptance, and verification requirements.
 
