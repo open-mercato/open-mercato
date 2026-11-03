@@ -78,11 +78,48 @@ export class FullTextSearchStrategy implements SearchStrategy {
     return this.driver.bulkIndex(docs)
   }
 
+  /**
+   * Whether one entity's documents (optionally one organization's) can be removed without
+   * touching the rest of the tenant index: natively through `driver.purge`, or by enumerating
+   * them with `driver.listDocumentIds` and deleting them one by one.
+   */
+  canPurge(): boolean {
+    return typeof this.driver.purge === 'function' || typeof this.driver.listDocumentIds === 'function'
+  }
+
   async purge(entityId: EntityId, tenantId: string, organizationId?: string | null): Promise<void> {
-    if (!this.driver.purge) {
+    if (this.driver.purge) {
+      return this.driver.purge(entityId, tenantId, organizationId)
+    }
+    if (!this.driver.listDocumentIds) {
       return
     }
-    return this.driver.purge(entityId, tenantId, organizationId)
+    const recordIds = await this.listAllDocumentIds(entityId, tenantId, organizationId ?? null)
+    for (const recordId of recordIds) {
+      await this.driver.delete(recordId, tenantId)
+    }
+  }
+
+  private async listAllDocumentIds(
+    entityId: EntityId,
+    tenantId: string,
+    organizationId: string | null,
+  ): Promise<string[]> {
+    const listDocumentIds = this.driver.listDocumentIds
+    if (!listDocumentIds) return []
+    const pageSize = 1000
+    const recordIds = new Set<string>()
+    for (let offset = 0; ; offset += pageSize) {
+      const page = await listDocumentIds.call(this.driver, entityId, tenantId, {
+        offset,
+        limit: pageSize,
+        organizationId,
+      })
+      const knownCount = recordIds.size
+      for (const recordId of page) recordIds.add(recordId)
+      if (page.length < pageSize || recordIds.size === knownCount) break
+    }
+    return [...recordIds]
   }
 
   // Additional methods exposed for enrichment and admin purposes

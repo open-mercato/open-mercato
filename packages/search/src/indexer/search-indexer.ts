@@ -25,6 +25,20 @@ const MAX_PAGES = 10000
 type PlaintextExclusionLookup = (entityId: EntityId) => Promise<IndexableRecord['plaintextExcludedCustomFields']>
 
 /**
+ * Scoped reindexes clear only the reindexed entity's (or organization's) documents. A driver
+ * that can do neither `purge` nor `listDocumentIds` would keep deleted records, and recreating
+ * the whole tenant index instead would drop every other entity and organization, so such a
+ * reindex fails up front.
+ */
+function canScopedPurge(fulltext: FullTextSearchStrategy): boolean {
+  return typeof fulltext.canPurge !== 'function' || fulltext.canPurge()
+}
+
+function scopedPurgeUnsupportedError(fulltext: FullTextSearchStrategy): string {
+  return `Fulltext driver "${fulltext.driverId}" cannot clear documents per entity (implement purge or listDocumentIds); reindex aborted to avoid keeping stale documents`
+}
+
+/**
  * Parameters for indexing a record.
  */
 export type IndexRecordParams = {
@@ -712,6 +726,11 @@ export class SearchIndexer {
       })
 
       if (params.recreateIndex !== false) {
+        if (!canScopedPurge(fulltext)) {
+          result.success = false
+          result.errors.push({ entityId: params.entityId, error: scopedPurgeUnsupportedError(fulltext) })
+          return result
+        }
         await fulltext.purge(params.entityId, params.tenantId, params.organizationId ?? null)
       }
 
@@ -853,6 +872,11 @@ export class SearchIndexer {
     const organizationScoped = typeof params.organizationId === 'string' && params.organizationId.trim().length > 0
     if (clearIndex && !organizationScoped) {
       await fulltext.recreateIndex(params.tenantId)
+    }
+    if (clearIndex && organizationScoped && !canScopedPurge(fulltext)) {
+      result.success = false
+      result.errors.push({ entityId: 'all' as EntityId, error: scopedPurgeUnsupportedError(fulltext) })
+      return result
     }
 
     const entities = this.listEnabledEntities()
