@@ -30,5 +30,12 @@ PR: #8623
 
 ### Phase 2: Verification
 
-- [ ] 2.1 Run validation and full PR CI; repair verified failures
-- [ ] 2.2 Obtain independent final review and finalize green PR
+- [x] 2.1 Run validation and full PR CI; repair verified failures — ad3eed25a8; full CI run 41670095759 succeeded with all 15 shards and coverage aggregation
+- [x] 2.2 Obtain independent final review and finalize green PR — review 5755516508 approved ad3eed25a8; parent verified diff and reran 8 focused tests
+
+## Completion evidence
+Full remote gate: https://github.com/open-mercato/open-mercato/actions/runs/41670095759 (success). All 15 integration shards, build, unit tests, lint, timezone, documents, Docker and coverage aggregation passed. Other PR checks, including CodeQL, passed; conditional audit/mutation jobs skipped as designed.
+
+Shard 12 initially failed TC-STAFF-SUP-016 with a stale optimistic-lock timestamp after pausing a routing rule. The rerun passed without code changes; retained as a timing-flake observation rather than making a speculative product fix.
+
+Independent final review: https://github.com/open-mercato/open-mercato/pull/8623#pullrequestreview-5755516508 (approve verdict, posted as COMMENTED because GitHub prevents self-approval). No code changed after review. This final commit records evidence only; final-head CI must remain green before automerge is applied.
