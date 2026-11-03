@@ -72,6 +72,15 @@ describe('condition-model', () => {
     const stateFalse = evaluateFormLogic(schema, { answers: { smoker: false }, hidden: {}, locale: 'en' })
     expect(stateFalse.visibleFieldKeys.has('cigs')).toBe(false)
   })
+
+  it('round-trips contains predicates without falling back to raw mode', () => {
+    const predicate = { in: ['pollen', { var: 'allergies' }] }
+    const model = parsePredicate(predicate)
+
+    expect(model.raw).toBeNull()
+    expect(model.rows[0]).toMatchObject({ source: 'allergies', operator: 'contains', value: 'pollen' })
+    expect(compilePredicate(model)).toEqual(predicate)
+  })
 })
 
 describe('setFieldVisibilityIf / setSectionVisibilityIf', () => {
