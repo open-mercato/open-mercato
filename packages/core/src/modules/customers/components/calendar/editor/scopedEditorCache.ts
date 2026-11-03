@@ -1,48 +1,44 @@
-import { getCurrentOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/organizationEvents'
+import * as React from 'react'
+import {
+  readRequestOrganizationScope,
+  subscribeOrganizationScopeChanged,
+} from '@open-mercato/shared/lib/frontend/organizationEvents'
+
+const UNRESOLVED_SCOPE_KEY = '?'
+
+function readEditorScopeKey(): string {
+  const scope = readRequestOrganizationScope()
+  return scope ? `${scope.tenantId ?? ''}:${scope.organizationId ?? ''}` : UNRESOLVED_SCOPE_KEY
+}
 
 /**
- * Module-level cache for the editor's scoped reads. The organization scope reads as empty
- * until the switcher reports it on page load, so an entry loaded before that moves to the
- * reported scope instead of emptying the cache and remounting an open form. It stays
- * unconfirmed until a read under that scope succeeds, and a failed read drops it, so a
- * failure can never keep serving data the scope did not confirm. A later switch never
- * inherits anything.
+ * The cache key of the scope the editor's reads are sent under. It comes from the scope cookies
+ * rather than the switcher's report, so a read made before the report and the report naming the
+ * same scope share one key: nothing moves between keys and an open form does not remount.
  */
-export function createScopedEditorCache<T>(unresolvedKeyFor: (key: string) => string) {
-  const entries = new Map<string, T>()
-  const unconfirmed = new Set<string>()
-  const unresolvedVersions = new Map<string, number>()
+export function useEditorScopeKey(): string {
+  return React.useSyncExternalStore(subscribeOrganizationScopeChanged, readEditorScopeKey, readEditorScopeKey)
+}
 
-  const get = (key: string): T | undefined => {
-    const own = entries.get(key)
-    const unresolvedKey = unresolvedKeyFor(key)
-    if (own !== undefined || key === unresolvedKey) return own
-    const early = entries.get(unresolvedKey)
-    const loadedAtVersion = unresolvedVersions.get(unresolvedKey) ?? 0
-    if (early === undefined || getCurrentOrganizationScopeVersion() > loadedAtVersion + 1) return undefined
-    entries.delete(unresolvedKey)
-    entries.set(key, early)
-    unconfirmed.add(key)
-    return early
-  }
+/**
+ * Module-level cache for the editor's scoped reads. An answer is only stored under the key its
+ * request was sent with, and an answer for an unresolved scope is never stored, because nothing
+ * can prove which organization it belongs to.
+ */
+export function createScopedEditorCache<T>() {
+  const entries = new Map<string, T>()
 
   return {
-    get,
-    has: (key: string): boolean => get(key) !== undefined,
+    get: (key: string): T | undefined => entries.get(key),
+    has: (key: string): boolean => entries.has(key),
     set(key: string, value: T): void {
-      entries.set(key, value)
-      unconfirmed.delete(key)
-      if (key === unresolvedKeyFor(key)) unresolvedVersions.set(key, getCurrentOrganizationScopeVersion())
+      if (!key.startsWith(UNRESOLVED_SCOPE_KEY)) entries.set(key, value)
+    },
+    delete(key: string): void {
+      entries.delete(key)
     },
     clear(): void {
       entries.clear()
-      unconfirmed.clear()
-      unresolvedVersions.clear()
-    },
-    dropUnconfirmed(key: string): boolean {
-      if (!unconfirmed.delete(key)) return false
-      entries.delete(key)
-      return true
     },
   }
 }

@@ -243,6 +243,7 @@
   "customers.calendar.editor.close": "Cerrar",
   "customers.calendar.editor.conflictTitle": "Conflicto de calendario",
   "customers.calendar.editor.conflictWarning": "Se solapa con: {items}",
+  "customers.calendar.editor.customFieldsLoadFailed": "No se pudieron cargar los campos personalizados. Vuelve a intentarlo para guardar este evento.",
   "customers.calendar.editor.customerBadge": "Cliente",
   "customers.calendar.editor.dates.due": "Vence",
   "customers.calendar.editor.dates.ends": "Termina",

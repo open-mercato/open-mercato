@@ -196,7 +196,7 @@ Required evidence: `yarn check:client-boundaries`, `yarn build:app`, Playwright 
 
 | Failure | User behavior | System behavior |
 |---|---|---|
-| Catalog/config read fails | localized retry banner; baseline display only, selection/save disabled | report error and fail closed; never reuse another scope's cache |
+| Catalog/config read fails | localized retry banner; baseline display only (an open draft keeps displaying the catalog its own scope already confirmed), selection/save disabled until a retry succeeds | report error and fail closed; never reuse another scope's cache |
 | Stale settings edit | unified conflict bar with reload/retry | standard 409; no partial write |
 | Type switch would discard values | exact confirmation list | typed 409 until explicit confirm |
 | Confirmed clear fails | draft remains; localized error | transaction rolls back core and custom writes; no side effects emitted |
