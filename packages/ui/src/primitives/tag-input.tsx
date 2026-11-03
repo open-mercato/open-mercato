@@ -30,6 +30,12 @@ export type TagInputProps = {
    * localize the action; defaults to the English `Remove {tag}`.
    */
   removeTagLabel?: (tag: string) => string
+  /**
+   * Controls the text typed but not yet committed as a tag, so a caller can act on
+   * it (for example on submit). Uncontrolled when omitted.
+   */
+  inputValue?: string
+  onInputValueChange?: (text: string) => void
 }
 
 function defaultRemoveTagLabel(tag: string): string {
@@ -68,15 +74,23 @@ export const TagInput = React.forwardRef<HTMLInputElement, TagInputProps>(
       'aria-invalid': ariaInvalid,
       rightIcon,
       removeTagLabel = defaultRemoveTagLabel,
+      inputValue,
+      onInputValueChange,
     },
     ref,
   ) => {
     const [internalValue, setInternalValue] = React.useState<string[]>([])
-    const [inputText, setInputText] = React.useState('')
+    const [internalInputText, setInternalInputText] = React.useState('')
     const [error, setError] = React.useState<string | null>(null)
 
     const isControlled = valueProp !== undefined
     const value = isControlled ? (valueProp as string[]) : internalValue
+    const inputText = inputValue ?? internalInputText
+
+    const setInputText = (next: string) => {
+      if (inputValue === undefined) setInternalInputText(next)
+      onInputValueChange?.(next)
+    }
 
     const commitValue = React.useCallback(
       (next: string[]) => {
