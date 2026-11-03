@@ -136,7 +136,7 @@ function stageApp(): string {
       'src/modules/customers/components/calendar/CalendarEventEditor.tsx',
       'src/modules/customers/lib/calendar/eventTypeResolver.ts',
     ],
-    ui: ['src/primitives/button.tsx', 'figma/button.figma.tsx'],
+    ui: ['src/primitives/button.tsx', 'figma/button.figma.tsx', 'src/backend/inputs/MarkdownField.tsx', 'src/backend/markdown/codeBlockLanguages.ts'],
     shared: [
       'src/lib/commands/types.ts',
       'src/lib/commands/registry.ts',

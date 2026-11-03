@@ -17,6 +17,10 @@ Load only the selected branch.
 
 Run `yarn generate` for every discovered branch and verify generated registration selects the intended host exactly once.
 
+## Markdown code-block language choices
+
+For `MarkdownField`, resolve `section:ui.inputs.MarkdownField` from the framework extension catalog and read the exact installed [props and handle](../../../../node_modules/@open-mercato/ui/src/backend/inputs/MarkdownField.tsx) and [language patch contract](../../../../node_modules/@open-mercato/ui/src/backend/markdown/codeBlockLanguages.ts). Prefer `propsTransform` in `widgets/components.ts` for `codeBlockLanguages`; preserve incoming props and merge the caller's existing language patch. A string adds or renames a choice, `null` hides a nonempty tag, and `{ label, labelKey }` supplies a translated label with fallback. Keep the empty-tag choice and existing Markdown content, including hidden or unknown tags, unchanged. A new choice does not install a syntax highlighter. App-level registration uses the existing `widgets.components` domain described in `unified-overrides.md`.
+
 ## Canonical example source
 
 One compiling contributor per branch, plus the callers that consume it. Open only your branch's row.
@@ -28,6 +32,7 @@ One compiling contributor per branch, plus the callers that consume it. Open onl
 | API interceptors: exact-route and wildcard, rejection, timeout, query rewrite, cross-module `?ids=` narrowing, `after` merge | [`api/interceptors.ts`](../../../../src/modules/example/api/interceptors.ts) |
 | Command interceptors: `beforeExecute` → `afterExecute` state hand-off | [`commands/interceptors.ts`](../../../../src/modules/example/commands/interceptors.ts) |
 | Hosts this module exposes (`defineModuleExtensionPoints`) | [`extension-points.ts`](../../../../src/modules/example/extension-points.ts) |
+| Component replacement, wrapper, and props transform with a mounted host | [`widgets/components.ts`](../../../../src/modules/example/widgets/components.ts) |
 | Every supported spot-id shape mapped to widget ids, as one unconditional object literal | [`widgets/injection-table.ts`](../../../../src/modules/example/widgets/injection-table.ts) |
 | CrudForm field contribution with an `onSave` upsert | [`widgets/injection/customer-priority-field/widget.ts`](../../../../src/modules/example/widgets/injection/customer-priority-field/widget.ts) |
 | DataTable column reading an enricher accessor path | [`widgets/injection/customer-priority-column/widget.ts`](../../../../src/modules/example/widgets/injection/customer-priority-column/widget.ts) |
@@ -39,4 +44,4 @@ One compiling contributor per branch, plus the callers that consume it. Open onl
 | Subscribers: before-create rewrite, before-update rejection with status, non-blocking after-delete, ephemeral DI-resolved | [`subscribers/auto-default-priority.ts`](../../../../src/modules/example/subscribers/auto-default-priority.ts), [`subscribers/prevent-uncomplete.ts`](../../../../src/modules/example/subscribers/prevent-uncomplete.ts), [`subscribers/audit-delete.ts`](../../../../src/modules/example/subscribers/audit-delete.ts), [`subscribers/example-event.ts`](../../../../src/modules/example/subscribers/example-event.ts) |
 | Browser reaction: reactive handler + client renderer | [`notifications.handlers.ts`](../../../../src/modules/example/notifications.handlers.ts), [`notifications.client.ts`](../../../../src/modules/example/notifications.client.ts) |
 
-[`widgets/components.ts`](../../../../src/modules/example/widgets/components.ts) is marked `qa-only`: it demonstrates `wrapper` mode only, so `replacement` and `propsTransform` have **no** canonical example — follow the component-override branch text above. The example does ship a `search.ts` (indexed as `search.module-config`), so read that one rather than guessing. It ships no `data/extensions.ts` and no `vector.ts`; do not infer either from an adjacent file. `surface-map.md` is the authority on what is absent — check it before assuming a surface is missing.
+The readable `umes.component-replacement` capability covers all three component modes; use its canonical contributor for registration syntax and installed source for the target's props. The example also ships `search.ts` (indexed as `search.module-config`), so read that one rather than guessing. It ships no `data/extensions.ts` and no `vector.ts`; do not infer either from an adjacent file. `surface-map.md` is the authority on what is absent — check it before assuming a surface is missing.

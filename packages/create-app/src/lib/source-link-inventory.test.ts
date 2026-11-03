@@ -118,6 +118,20 @@ function recordFor(inventory: Inventory, topicId: string): Record_ {
   return found
 }
 
+test('MarkdownField customization resolves exact installed contracts from the component branch', () => {
+  const inventory = checkedInventory()
+  for (const relativePath of ['src/backend/inputs/MarkdownField.tsx', 'src/backend/markdown/codeBlockLanguages.ts']) {
+    const record = recordFor(inventory, `om-system-extension/extension-branches:node_modules/@open-mercato/ui/${relativePath}`)
+    assert.equal(record.originAsset, '.ai/skills/om-system-extension/references/extension-branches.md')
+    assert.equal(record.requirement, 'source-required')
+    assert.equal(record.targetKind, 'installed-package')
+    assert.equal(record.readStatus, 'readable')
+    assert.equal(record.packageName, '@open-mercato/ui')
+    assert.equal(record.packageRelativePath, relativePath)
+    assert.ok(record.affectedCaseIds.includes('OMH-030'))
+  }
+})
+
 test('the checked inventory is byte-identical to a fresh derivation', () => {
   const { errors, inventory } = generator.buildInventory(freshInputs())
   assert.deepEqual(errors, [])
@@ -236,16 +250,15 @@ test('the inventory covers exactly the checked topic registry, in both direction
     assert.equal(record.requirement, topic?.requirement)
   }
   assert.equal(inventory.derived.recordCount, inventory.records.length)
-  // Exact encrypted-search links extend the existing file-shaped source contract.
-  assert.equal(inventory.derived.sourceRequiredCount, 130)
-  assert.equal(inventory.records.length, 155)
-  assert.equal(inventory.derived.renderedLinkCount, 132)
+  assert.equal(inventory.derived.sourceRequiredCount, 132)
+  assert.equal(inventory.records.length, 157)
+  assert.equal(inventory.derived.renderedLinkCount, 134)
 })
 
 test('every source-required record resolves to a file a generated app really contains', () => {
   const inventory = checkedInventory()
   const sourceRequired = inventory.records.filter((record) => record.requirement === 'source-required')
-  assert.equal(sourceRequired.length, 130)
+  assert.equal(sourceRequired.length, 132)
   for (const record of sourceRequired) {
     assert.ok(record.href, `${record.topicId} must record the exact rendered href`)
 
@@ -456,6 +469,8 @@ test('capability joins come from the example surface inventory, not from the top
       'node_modules/@open-mercato/shared/src/modules/events/factory.ts',
       'node_modules/@open-mercato/ui/figma/button.figma.tsx',
       'node_modules/@open-mercato/ui/src/backend/DataTable.tsx',
+      'node_modules/@open-mercato/ui/src/backend/inputs/MarkdownField.tsx',
+      'node_modules/@open-mercato/ui/src/backend/markdown/codeBlockLanguages.ts',
       'node_modules/@open-mercato/ui/src/primitives/button.tsx',
       'src/app/globals.css',
       'src/modules/example/README.md',

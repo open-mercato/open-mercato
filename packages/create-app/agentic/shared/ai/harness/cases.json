@@ -2361,7 +2361,7 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, replace, wrap, or transform props of an installed UI component while preserving its existing public component ID and props signature. Use installed-package contracts, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, customize MarkdownField code-block language choices: add Rust, rename JavaScript with a translated label and fallback, and hide SQL. Prefer the smallest component extension while preserving the existing public handle, caller props and language options, the empty-tag choice, and stored hidden or unknown language tags. Resolve the mounted host from framework facts, read exact installed props and language contracts, and use the canonical component props-transform example. Explain module registration and app-level override registration, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
     "tags": [
       "umes",
       "backend-ui",
@@ -2369,7 +2369,7 @@
     ],
     "owner": {
       "kind": "skill",
-      "path": ".ai/skills/om-system-extension/SKILL.md",
+      "path": ".ai/skills/om-system-extension/references/extension-branches.md",
       "ruleIds": [
         "BC-06"
       ]
@@ -2401,7 +2401,10 @@
         ".ai/guides/extensions.md",
         ".ai/guides/backend-ui.md",
         ".ai/skills/om-system-extension/SKILL.md",
-        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md",
+        ".ai/skills/om-system-extension/references/extension-branches.md",
+        ".ai/guides/framework-extension-points.md",
+        ".ai/skills/om-system-extension/references/unified-overrides.md"
       ],
       "allowedExtra": [
         ".ai/skills/om-framework-context/SKILL.md"
@@ -2409,11 +2412,33 @@
       "forbidden": [
         ".env*",
         ".git/**"
+      ],
+      "exampleRoots": [
+        {
+          "root": "src/modules/example",
+          "entrypoints": [
+            "README.md",
+            "references/surface-map.md"
+          ],
+          "allowedCapabilityIds": [
+            "umes.component-replacement"
+          ],
+          "maxFiles": 8,
+          "maxBytes": 98304
+        }
+      ],
+      "sourceReferenceIds": [
+        "om-system-extension/extension-branches:node_modules/@open-mercato/ui/src/backend/inputs/MarkdownField.tsx",
+        "om-system-extension/extension-branches:node_modules/@open-mercato/ui/src/backend/markdown/codeBlockLanguages.ts"
       ]
     },
     "requiredDecisions": [
       "component-replacement",
-      "props-contract"
+      "props-contract",
+      "markdown-props-transform",
+      "language-patch-composition",
+      "preserve-stored-language-tags",
+      "translated-language-labels"
     ],
     "forbiddenPatterns": [
       "node_modules.{0,40}(?:write|edit|patch)",
@@ -2429,11 +2454,13 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 6,
-    "maxInitialContextBytes": 49152,
-    "maxTotalContextBytes": 126976,
+    "maxContextFiles": 16,
+    "maxInitialContextBytes": 98304,
+    "maxTotalContextBytes": 262144,
     "relatedCases": [
-      "OMH-031"
+      "OMH-031",
+      "OMH-088",
+      "OMH-089"
     ]
   },
   {
