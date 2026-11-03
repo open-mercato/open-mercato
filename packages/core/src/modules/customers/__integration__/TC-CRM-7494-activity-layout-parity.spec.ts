@@ -107,6 +107,11 @@ async function expectSharedActivityLayout(page: Page, plannedActivityTitle: stri
   await expect(page.getByPlaceholder(/^Search/i).first()).toBeVisible()
 }
 
+// The composer's week preview repeats this week's titles, so history rows are read outside it.
+const historyText = (page: Page, text: string | RegExp) =>
+  page.getByText(text, { exact: typeof text === 'string' })
+    .locator('xpath=self::*[not(ancestor::*[@id="inline-activity-composer-week-preview"])]')
+
 test.describe('TC-CRM-7494: shared activity layout on person and company pages', () => {
   test('deal, person and company activity tabs render the same sections scoped to their record', async ({ page, request }) => {
     test.slow()
@@ -279,8 +284,8 @@ test.describe('TC-CRM-7494: shared activity layout on person and company pages',
 
       await login(page, 'admin')
       await page.goto(historyPath(ownerId), { waitUntil: 'domcontentloaded' })
-      await expect(page.getByText(fillerTitle(0), { exact: true })).toBeVisible({ timeout: 30_000 })
-      const match = page.getByText(matchTitle, { exact: true })
+      await expect(historyText(page, fillerTitle(0))).toBeVisible({ timeout: 30_000 })
+      const match = historyText(page, matchTitle)
       await expect(match).toHaveCount(0)
 
       const searched = page.waitForResponse((response) => {
@@ -297,7 +302,7 @@ test.describe('TC-CRM-7494: shared activity layout on person and company pages',
         if (await match.count() === 0 && await loadMore.count() > 0) await loadMore.click()
         await expect(match).toBeVisible({ timeout: 2_000 })
       }).toPass({ timeout: 30_000 })
-      await expect(page.getByText(fillerTitle(0), { exact: true })).toHaveCount(0)
+      await expect(historyText(page, fillerTitle(0))).toHaveCount(0)
     } finally {
       await Promise.all(interactionIds.map((id) => deleteInteraction(request, token, id)))
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
@@ -341,7 +346,7 @@ test.describe('TC-CRM-7494: shared activity layout on person and company pages',
       historyFails = false
       await failure.getByRole('button', { name: /^Retry$/ }).click()
 
-      await expect(page.getByText(rowTitle, { exact: true })).toBeVisible({ timeout: 15_000 })
+      await expect(historyText(page, rowTitle)).toBeVisible({ timeout: 15_000 })
       await expect(failure).toHaveCount(0)
     } finally {
       for (const id of interactionIds) await deleteInteraction(request, token, id)
@@ -373,7 +378,7 @@ test.describe('TC-CRM-7494: shared activity layout on person and company pages',
       await login(page, 'admin')
       await page.goto(historyPath(ownerId), { waitUntil: 'domcontentloaded' })
 
-      const rows = page.getByText(new RegExp(`^QA 7494 sort \\w+ ${stamp}$`))
+      const rows = historyText(page, new RegExp(`^QA 7494 sort \\w+ ${stamp}$`))
       const expectOrder = (names: string[]) => expect.poll(() => rows.allTextContents(), { timeout: 15_000 })
         .toEqual(names.map(titled))
       const chooseSort = async (option: RegExp) => {
