@@ -19,6 +19,17 @@ export const integrationMeta = { dependsOnModules: ['customers'] }
 const visibleInput = (page: Page, fieldId: string) =>
   page.locator(`[data-crud-field-id="${fieldId}"] input:visible`).first()
 
+async function openPersonForm(page: Page, personId: string) {
+  await page.goto(`/backend/customers/people-v2/${encodeURIComponent(personId)}`, { waitUntil: 'domcontentloaded' })
+  const lastName = visibleInput(page, 'lastName')
+  if (!(await lastName.isVisible().catch(() => false))) {
+    const expandPanel = page.getByRole('button', { name: /expand form panel/i })
+    await expect(expandPanel).toBeVisible({ timeout: 30_000 })
+    await expandPanel.click()
+  }
+  await expect(lastName).toBeVisible({ timeout: 30_000 })
+}
+
 async function savePerson(page: Page) {
   const saveButton = page.getByRole('button', { name: /^save$/i }).first()
   await expect(saveButton).toBeEnabled({ timeout: 10_000 })
@@ -53,15 +64,8 @@ test.describe('TC-CRM-8540: person display name', () => {
       })
 
       await login(page, 'admin')
-      await page.goto(`/backend/customers/people-v2/${encodeURIComponent(personId)}`, { waitUntil: 'domcontentloaded' })
-
+      await openPersonForm(page, personId)
       const lastName = visibleInput(page, 'lastName')
-      if (!(await lastName.isVisible().catch(() => false))) {
-        const expandPanel = page.getByRole('button', { name: /expand form panel/i })
-        await expect(expandPanel).toBeVisible({ timeout: 30_000 })
-        await expandPanel.click()
-      }
-      await expect(lastName).toBeVisible({ timeout: 30_000 })
       await expect(visibleInput(page, 'displayName')).toHaveValue(customName)
 
       await lastName.fill(editedLastName)
@@ -70,6 +74,9 @@ test.describe('TC-CRM-8540: person display name', () => {
       await savePerson(page)
       expect(await storedDisplayName(request, token, personId)).toBe(customName)
 
+      // A fresh load, so the record lock's base version includes the save above.
+      await openPersonForm(page, personId)
+      await expect(visibleInput(page, 'displayName'), 'the saved custom name is still custom').toHaveValue(customName)
       await page.getByRole('button', { name: 'Reset to first & last name' }).first().click()
       await expect(visibleInput(page, 'displayName')).toHaveValue(`QA ${editedLastName}`)
       await savePerson(page)
