@@ -1472,6 +1472,54 @@ describe('TimeEntryDialog — project mode (#6989)', () => {
     await waitFor(() => expect(projectSelect().value).toBe(FAR_PROJECT_ID))
   })
 
+  it('keeps an explicit project choice when the entry task resolves only after it', async () => {
+    let releaseTasks: () => void = () => {}
+    const tasksGate = new Promise<void>((resolve) => {
+      releaseTasks = resolve
+    })
+    const scoped = mockApiCall.getMockImplementation()
+    mockApiCall.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes('/timesheets/tasks')) await tasksGate
+      return scoped ? scoped(input, init) : (ok({ items: [], total: 0 }) as never)
+    })
+    entryRows = [
+      {
+        id: ENTRY_ID,
+        date: '2026-07-20',
+        duration_minutes: 60,
+        description: 'Daleki wpis',
+        task_id: FAR_TASK_ID,
+        time_project_id: FAR_PROJECT_ID,
+        is_billable: true,
+        isLocked: false,
+        updated_at: VERSION,
+        tags: [],
+      },
+    ]
+    renderDialog({ entryId: ENTRY_ID, mode: 'project' })
+
+    await waitFor(() => expect(projectSelect().value).toBe(FAR_PROJECT_ID))
+    await pickProject(OTHER_PROJECT_ID)
+    await waitFor(() => expect(projectSelect().value).toBe(OTHER_PROJECT_ID))
+
+    releaseTasks()
+    await waitFor(() =>
+      expect(taskUrls.some((url) => url.includes(`timeProjectId=${OTHER_PROJECT_ID}`))).toBe(true),
+    )
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    })
+
+    expect(projectSelect().value).toBe(OTHER_PROJECT_ID)
+    expect(taskSelect().value).toBe('')
+    fireEvent.click(saveButton())
+
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalled())
+    expect(lastWriteBody()).toEqual(
+      expect.objectContaining({ id: ENTRY_ID, taskId: null, timeProjectId: OTHER_PROJECT_ID }),
+    )
+  })
+
   it('opens an entry without a task in project mode even when the tenant logs against tasks', async () => {
     entryRows = [
       {

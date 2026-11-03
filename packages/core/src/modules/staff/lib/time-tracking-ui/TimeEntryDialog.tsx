@@ -1167,7 +1167,7 @@ function DefaultTimeEntryDialog({
     (next: string) => {
       const nextProjectId = next.trim().length > 0 ? next.trim() : null
       setProjectSelection(nextProjectId)
-      if (selectedTask && selectedTask.timeProjectId !== nextProjectId) setTaskId(null)
+      if (selectedTask?.timeProjectId !== nextProjectId) setTaskId(null)
     },
     [selectedTask],
   )
