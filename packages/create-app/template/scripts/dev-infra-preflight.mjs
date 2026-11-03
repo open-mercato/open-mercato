@@ -295,6 +295,7 @@ export async function startInfraServices({
   spawnSyncImpl = spawnSync,
   portProbe = probeTcpPort,
   containerProbe = findContainerPortOwners,
+  protectExistingServices = false,
   log = console.log,
 }) {
   const runtime = detect()
@@ -309,6 +310,12 @@ export async function startInfraServices({
 
   const listed = listServices()
   const running = runningComposeServices(listed ?? [])
+  if (protectExistingServices && listed !== null) {
+    const existing = findUnhealthyServices(listed, required)
+      .filter((entry) => ['running', 'restarting'].includes(entry.state))
+      .map((entry) => ({ ...services.find((definition) => definition.service === entry.service), ...entry, containerName: listed.find((container) => container.Service === entry.service)?.Name }))
+    if (existing.length > 0) return { ok: false, problem: { code: 'unhealthy', services: existing, existingServices: true } }
+  }
   // Without the project's container list our own running containers would look
   // like foreign port owners, so the port probe is skipped and `compose up`
   // reports the real compose error instead.

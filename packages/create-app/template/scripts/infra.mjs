@@ -97,10 +97,11 @@ export async function ensureInfra({
     services,
     upArgs: profiles.flatMap((profile) => ['--profile', profile]),
     cwd: projectDir,
+    protectExistingServices: allowExistingServices,
     log,
   })
   if (!outcome.ok) {
-    if (allowExistingServices && ['port-conflict', 'unhealthy'].includes(outcome.problem.code) && await confirmExistingServices(outcome.problem, { log })) return { ok: true, existingServices: true }
+    if (allowExistingServices && (outcome.problem.code === 'port-conflict' || (outcome.problem.code === 'unhealthy' && outcome.problem.existingServices)) && await confirmExistingServices(outcome.problem, { log })) return { ok: true, existingServices: true }
     printInfraProblem(outcome.problem, { error })
     return outcome
   }

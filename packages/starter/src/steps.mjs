@@ -560,9 +560,10 @@ export const infraUpStep = {
       profiles: ctx.flags.profiles,
       log: ctx.log,
       beforeUp: () => prepareOpencodeImage(ctx),
+      protectExistingServices: true,
     })
     if (!outcome.ok) {
-      if (['port-conflict', 'unhealthy'].includes(outcome.problem.code)) {
+      if (outcome.problem.code === 'port-conflict' || (outcome.problem.code === 'unhealthy' && outcome.problem.existingServices)) {
         const accepted = await (ctx.confirmExistingServicesImpl ?? requestExistingServicesConsent)(outcome.problem, { nonInteractive: ctx.flags.nonInteractive, log: ctx.log })
         if (accepted) {
           ctx.flags.noInfra = true

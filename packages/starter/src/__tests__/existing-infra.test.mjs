@@ -268,3 +268,66 @@ test('standalone setup does not offer reuse for an unavailable Docker daemon', a
 
   assert.deepEqual(outcome, failure)
 })
+
+for (const state of ['running', 'restarting']) {
+  test(`setup preserves existing ${state} unhealthy project services before consent`, async () => {
+    for (const mode of ['monorepo', 'standalone']) {
+      const calls = []
+      const startImpl = async (options) => startInfraServices({
+        ...options,
+        detect: () => ({ ok: true }),
+        spawnSyncImpl: (_command, args) => {
+          calls.push(args)
+          if (!args.includes('ps')) assert.fail('setup must inspect existing unhealthy services without changing containers')
+          return { status: 0, stdout: JSON.stringify({ Service: 'postgres', Name: 'existing-postgres', State: state, Health: 'unhealthy' }) }
+        },
+        beforeUp: () => assert.fail('image preparation must wait for the existing-service decision'),
+        portProbe: async () => false,
+        containerProbe: () => [],
+      })
+      const confirm = async (problem) => {
+        assert.equal(problem.code, 'unhealthy')
+        assert.equal(problem.existingServices, true)
+        assert.equal(problem.services[0].containerName, 'existing-postgres')
+        return true
+      }
+      if (mode === 'standalone') {
+        const outcome = await ensureInfra({ projectDir: '/missing-standalone-fixture', env: {}, allowExistingServices: true, startImpl, confirmExistingServices: confirm, log: () => {}, error: () => assert.fail('reuse must continue') })
+        assert.deepEqual(outcome, { ok: true, existingServices: true })
+      } else {
+        const ctx = { repoRoot: '/repo', mode: 'hybrid', flags: { noInfra: false, nonInteractive: false, profiles: [] }, log: () => {}, startInfraImpl: async (_root, options) => startImpl({ ...options, services: SERVICES, composeArgs: (extra) => ['compose', ...extra] }), confirmExistingServicesImpl: confirm }
+        await infraUpStep.apply(ctx)
+        assert.equal(ctx.flags.noInfra, true)
+        assert.deepEqual(devRuntimeArgs([], ctx.flags), ['--no-infra'])
+      }
+      assert.equal(calls.length, 1)
+    }
+  })
+}
+
+test('direct infrastructure startup retains its explicit unhealthy-service retry', async () => {
+  let prepared = false
+  const calls = []
+  const outcome = await startInfraServices({
+    services: SERVICES,
+    composeArgs: (extra) => ['compose', ...extra],
+    detect: () => ({ ok: true }),
+    spawnSyncImpl: (_command, args) => {
+      calls.push(args)
+      return { status: 0, stdout: args.includes('ps') ? JSON.stringify({ Service: 'postgres', State: 'running', Health: 'unhealthy' }) : '' }
+    },
+    beforeUp: () => { prepared = true },
+    portProbe: async () => false,
+    containerProbe: () => [],
+    log: () => {},
+  })
+  assert.equal(outcome.ok, true)
+  assert.equal(prepared, true)
+  assert.ok(calls.some((args) => args.includes('up')))
+})
+
+test('a failed new startup cannot claim it left existing services untouched', async () => {
+  const failure = { ok: false, problem: { code: 'unhealthy', services: [{ service: 'postgres', state: 'running', health: 'unhealthy' }] } }
+  const outcome = await ensureInfra({ projectDir: '/missing-standalone-fixture', env: {}, allowExistingServices: true, startImpl: async () => failure, confirmExistingServices: async () => assert.fail('post-startup health failure must remain an error'), log: () => {}, error: () => {} })
+  assert.deepEqual(outcome, failure)
+})
