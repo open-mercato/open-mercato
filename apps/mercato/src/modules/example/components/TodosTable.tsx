@@ -40,6 +40,14 @@ type OrganizationsResponse = {
 }
 
 const EMPTY_CUSTOM_FIELD_DEFS: CustomFieldDefDto[] = []
+const TODO_FIELD_DEFAULT_LABELS: Record<string, { label: string; translationKey: string }> = {
+  priority: { label: 'Priority', translationKey: 'example.todos.table.column.priority' },
+  severity: { label: 'Severity', translationKey: 'example.todos.table.column.severity' },
+  blocked: { label: 'Blocked', translationKey: 'example.todos.table.column.blocked' },
+  labels: { label: 'Labels', translationKey: 'example.todos.table.column.labels' },
+  description: { label: 'Description', translationKey: 'example.todos.table.column.description' },
+  assignee: { label: 'Assignees', translationKey: 'example.todos.table.column.assignees' },
+}
 
 function buildBaseColumns(t: (key: string, params?: Record<string, string | number>) => string, severityPreset: ReturnType<typeof useSeverityPreset>): ColumnDef<TodoRow>[] {
   return [
@@ -141,7 +149,13 @@ export default function TodosTable() {
   const computedColumns = React.useMemo(() => {
     const base = buildBaseColumns(t, severityPreset)
     if (!cfDefs.length) return base
-    return applyCustomFieldVisibility(base, cfDefs)
+    const localizedDefs = cfDefs.map((definition) => {
+      const seeded = TODO_FIELD_DEFAULT_LABELS[definition.key]
+      return seeded && definition.label === seeded.label
+        ? { ...definition, label: t(seeded.translationKey) }
+        : definition
+    })
+    return applyCustomFieldVisibility(base, localizedDefs)
   }, [cfDefs, t])
 
   const viewExportColumns = React.useMemo(() => {

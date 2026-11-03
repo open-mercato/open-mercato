@@ -44,3 +44,11 @@ it('waits for custom fields before showing the final Polish headers', () => {
     'Tytuł', 'Organizacja', 'Zakończone', 'Priorytet', 'Poziom ważności', 'Zablokowane', 'Etykiety', 'Opis', 'Przypisane osoby',
   ])
 })
+
+
+it('preserves an administrator-customized label after definitions load', () => {
+  mockDefinitions = { isLoading: false, data: [{ key: 'priority', kind: 'integer', label: 'Business priority' }] }
+  render(<TodosTable />)
+  expect(screen.getAllByRole('columnheader').map((header) => header.textContent)).toContain('Business priority')
+  expect(screen.queryByRole('columnheader', { name: 'Priorytet' })).toBeNull()
+})
