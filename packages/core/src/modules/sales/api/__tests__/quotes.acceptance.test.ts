@@ -173,7 +173,7 @@ describe('quote send + accept flow', () => {
       acceptanceToken: null,
     }
 
-    mockEm.findOne.mockImplementation(async (cls: any, where: any) => {
+    mockEm.findOne.mockImplementation(async (cls: unknown, where: { id?: string } | null) => {
       if (cls === SalesQuote) return where?.id === quote.id ? quote : null
       if (cls === Dictionary) return { id: 'dict-1' }
       if (cls === DictionaryEntry) return { id: 'entry-sent' }
@@ -288,6 +288,40 @@ describe('quote send + accept flow', () => {
           code: 'sales.quote_cc_copy_failed',
           attributes: { quoteId: ccQuoteId },
         }))
+      } finally {
+        ;(sendEmail as jest.Mock).mockReset()
+        ;(sendEmail as jest.Mock).mockResolvedValue(undefined)
+      }
+    })
+
+    test('a reporter that throws on a failed copy does not fail the send or stop the other copies', async () => {
+      const quote = arrangeCcQuote()
+      const { sendEmail } = await import('@open-mercato/shared/lib/email/send')
+      ;(sendEmail as jest.Mock).mockImplementation(async ({ to }: { to: string }) => {
+        if (to === 'purchasing@example.com') throw new Error('provider rejected the address')
+      })
+      mockReportError.mockImplementationOnce(() => {
+        throw new Error('telemetry backend unavailable')
+      })
+      const afterSuccess = jest.fn(async () => undefined)
+      registeredGuards.push({
+        id: 'test.after-success',
+        targetEntity: '*',
+        operations: ['update'],
+        priority: 10,
+        validate: async () => ({ ok: true, shouldRunAfterSuccess: true }),
+        afterSuccess,
+      } as unknown as MutationGuard)
+
+      try {
+        const res = await sendQuote(makeRequest(requestBody))
+
+        expect(res.status).toBe(200)
+        expect(await res.json()).toEqual({ ok: true })
+        expect(quote.status).toBe('sent')
+        expect(mockReportError).toHaveBeenCalledTimes(1)
+        expect((await sentMails()).map((mail) => mail.to)).toContain('accounting@example.com')
+        expect(afterSuccess).toHaveBeenCalledTimes(1)
       } finally {
         ;(sendEmail as jest.Mock).mockReset()
         ;(sendEmail as jest.Mock).mockResolvedValue(undefined)

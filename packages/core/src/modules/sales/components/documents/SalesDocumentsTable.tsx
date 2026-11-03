@@ -54,7 +54,7 @@ type ApiDocument = {
   status?: string | null
   customerEntityId?: string | null
   customerSnapshot?: Record<string, unknown> | null
-  metadata?: Record<string, unknown> | null
+  contactEmail?: string | null
   channelId?: string | null
   channelName?: string | null
   lineItemCount?: number | null
@@ -531,10 +531,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
         : doc.quoteNumber ?? (item as any)?.quote_number ?? id
       const customerSnapshot = (doc.customerSnapshot ?? null) as CustomerSnapshot | null
       const customerName = resolveCustomerName(customerSnapshot, doc.customerEntityId ?? null)
-      const documentEmail = typeof doc.metadata?.customerEmail === 'string' && doc.metadata.customerEmail.trim()
-        ? doc.metadata.customerEmail.trim()
-        : null
-      const customerEmail = documentEmail ?? resolveCustomerEmail(customerSnapshot)
+      const customerEmail = doc.contactEmail ?? resolveCustomerEmail(customerSnapshot)
       const totalNet = toNumber(doc.grandTotalNetAmount)
       const totalGross = toNumber(doc.grandTotalGrossAmount)
       const placedAt = doc.placedAt ?? null

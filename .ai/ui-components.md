@@ -5086,7 +5086,7 @@ type LookupSelectItem = {
   description?: string | null
   rightLabel?: string | null      // small uppercase tracked label on top right (country code, status badge etc.)
   badge?: string | null
-  icon?: React.ReactNode          // 48×48 leading slot (rounded-lg). Falls back to the first letter of `title`.
+  icon?: React.ReactNode          // 32×32 leading slot (rounded-md). Falls back to the first letter of `title`.
   disabled?: boolean              // disables the row unless it is currently selected
 }
 ```
@@ -5094,12 +5094,12 @@ type LookupSelectItem = {
 ### Visual
 
 - Container: vertical card list, `gap-1.5`, `max-h-80` scroll
-- Card: `rounded-xl border p-4` with `gap-4` between the 48×48 leading slot, the text column, and the trailing checkmark slot
-- Leading slot: **frameless** when `item.icon` is provided (the icon brings its own visual — Avatar circle, lucide icon, etc.). The styled `rounded-lg border bg-muted` box renders ONLY for the fallback first-letter case, so Avatar / icon don't get a redundant square frame around them.
-- Default state: `border-input bg-card` with `hover:border-foreground/20 hover:bg-muted/30 hover:shadow-sm` (subtle elevation)
-- Selected state: `border-accent-indigo bg-accent-indigo/5 shadow-sm` with a `Check` icon (`size-5 text-accent-indigo`) on the right and the leading icon box tinted `bg-accent-indigo/10`
+- Card: `rounded-lg border px-3 py-2` with `gap-3` between the 32×32 leading slot, the text column, and the trailing checkmark slot
+- Leading slot: **frameless** when `item.icon` is provided (the icon brings its own visual — Avatar circle, lucide icon, etc.). The styled `rounded-md border bg-muted` box renders ONLY for the fallback first-letter case, so Avatar / icon don't get a redundant square frame around them.
+- Default state: `border-input bg-card` with `hover:border-foreground/20 hover:bg-muted/30`
+- Selected state: `border-accent-indigo bg-accent-indigo/5` with a `Check` icon (`size-4 text-accent-indigo`) on the right and the leading icon box tinted `bg-accent-indigo/10`
 - The right-hand `Select` / `Selected` button has been **removed** — the entire row is the click target. The resolved labels are still exposed via the row's `title` attribute (browser tooltip + screen-reader hint) for backward compatibility
-- Typography: title `text-sm font-semibold`, subtitle `text-xs text-muted-foreground`, description `text-xs text-muted-foreground/70`, `rightLabel` `text-overline uppercase tracking-wider text-muted-foreground`
+- Typography: title `text-sm font-medium`, subtitle `text-xs text-muted-foreground`, description `text-xs text-muted-foreground/70`, `rightLabel` `text-overline uppercase tracking-wider text-muted-foreground`
 
 ### Props
 

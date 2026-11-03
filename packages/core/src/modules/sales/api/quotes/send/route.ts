@@ -108,11 +108,15 @@ async function sendCcCopies(
       })
     } catch (err) {
       logger.error('sales.quotes.send CC copy failed', { err, quoteId: quote.id })
-      getTelemetryRuntime()?.reportError(err, {
-        module: 'sales',
-        code: 'sales.quote_cc_copy_failed',
-        attributes: { quoteId: quote.id },
-      })
+      try {
+        getTelemetryRuntime()?.reportError(err, {
+          module: 'sales',
+          code: 'sales.quote_cc_copy_failed',
+          attributes: { quoteId: quote.id },
+        })
+      } catch (reportingErr) {
+        logger.warn('sales.quotes.send CC copy failure could not be reported', { err: reportingErr, quoteId: quote.id })
+      }
     }
   }
 }
