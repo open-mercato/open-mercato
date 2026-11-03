@@ -282,7 +282,7 @@ export function readCoverageAllowlist(root) {
   const allowlistPath = path.join(root, COVERAGE_ALLOWLIST_RELATIVE_PATH)
   if (!fs.existsSync(allowlistPath)) return {}
   const parsed = JSON.parse(fs.readFileSync(allowlistPath, 'utf8'))
-  const paths = parsed.paths
+  const paths = parsed?.paths
   if (typeof paths !== 'object' || paths === null || Array.isArray(paths)) {
     throw new Error(`${COVERAGE_ALLOWLIST_RELATIVE_PATH} must define a paths object`)
   }
