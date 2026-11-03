@@ -72,11 +72,12 @@ work on an allowlisted module, write its sheet and delete its entry.
 
 Flipping the CI step from `yarn agents:check-budget` to `yarn agents:check-budget:ci` is a
 one-line change, deliberately deferred so the warnings can be absorbed first. Do it once **both**
-hold on `develop`:
+hold on `main`:
 
 1. `yarn agents:check-budget:ci` exits 0 — no file is over 90% of any limit, which today means
-   splitting `packages/ai-assistant`, `packages/core`, `packages/ui` and `packages/search`, and
-   reclaiming root bytes.
+   splitting every sheet reported as `file-size` (among them `packages/ai-assistant`,
+   `packages/core`, `packages/ui` and the `staff` / `workflows` modules), and reclaiming root
+   bytes.
 2. No `coverage-allowlist-stale` findings, and the allowlist has not grown since the previous
    release — evidence the list is ratcheting down rather than absorbing new gaps.
 
