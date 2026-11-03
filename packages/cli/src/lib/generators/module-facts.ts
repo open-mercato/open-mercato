@@ -1531,6 +1531,10 @@ function extractModuleMetadataContract(
   if (version) facts.version = version
   const requires = readStringArrayPropertyInitializer(metadata, 'requires')
   if (requires && requires.length > 0) facts.requires = requires
+  // Reported separately from `requires`, because "fails without it" and "degrades without it" are different
+  // facts about a module and anything reading these wants to tell them apart.
+  const optionalRequires = readStringArrayPropertyInitializer(metadata, 'optionalRequires')
+  if (optionalRequires && optionalRequires.length > 0) facts.optionalRequires = optionalRequires
   const ejectable = readBooleanPropertyInitializer(metadata, 'ejectable')
   if (ejectable !== undefined) facts.ejectable = ejectable
   return {
