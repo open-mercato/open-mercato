@@ -48,6 +48,8 @@ PR: #8613
 - [x] 2.2 Review and publish the result — 92cfee9fe
 
 ### Phase 3: Security remediation
-- [ ] 3.1 Guard remote database writes with explicit target acknowledgement
-- [ ] 3.2 Secure isolated bindings, images and independent local credentials
-- [ ] 3.3 Verify and publish the security remediation
+- [x] 3.1 Guard remote database writes with explicit target acknowledgement — 53d618867
+- [x] 3.2 Secure isolated bindings, images and independent local credentials — a9fde8bfb
+- [x] 3.3 Verify and publish the security remediation — a9fde8bfb
+
+Security remediation verification: 208 targeted tests pass with no skips; an independent read-only reviewer passed 50 security-focused tests and verified all five multiarch image digests. Real random and ephemeral services were inspected for loopback bindings and digest pins; authenticated connections, negative credential cases, owned-secret random reruns and cleanup passed. Fresh review: https://github.com/open-mercato/open-mercato/pull/8613#issuecomment-6612549442. The original full-gate/CI baseline is green; replacement-head CI remains pending. No further CI watch is claimed.
