@@ -1,0 +1,134 @@
+import { canonicalizeTimeZone } from '../date/timezone'
+import { canonicalizeLocale, isFirstDayOfWeek, normalizeDateFormatPattern, parseFirstDayOfWeek } from './validation'
+import type {
+  DateLocaleEnvDefaults,
+  DateLocaleField,
+  DateLocaleSettingsInput,
+  DateLocaleSource,
+  FirstDayOfWeek,
+  ResolvedDateLocaleSettings,
+} from './types'
+
+export type DateLocaleEnv = {
+  OM_DEFAULT_LOCALE?: string
+  OM_DEFAULT_TIMEZONE?: string
+  OM_FIRST_DAY_OF_WEEK?: string
+  NEXT_PUBLIC_OM_DATE_FORMAT?: string
+  NEXT_PUBLIC_OM_DATE_TIME_FORMAT?: string
+  NEXT_PUBLIC_OM_TIME_FORMAT?: string
+  NEXT_PUBLIC_DATE_FORMAT?: string
+  NEXT_PUBLIC_DATE_TIME_FORMAT?: string
+}
+
+/**
+ * Reads the bootstrap defaults. Invalid values are ignored (treated as unset) rather than thrown:
+ * these feed every page render, and a typo must degrade to the locale default, not an outage.
+ *
+ * `NEXT_PUBLIC_DATE_FORMAT` / `NEXT_PUBLIC_DATE_TIME_FORMAT` are kept as legacy aliases.
+ */
+export function readDateLocaleEnv(env: DateLocaleEnv = process.env as DateLocaleEnv): DateLocaleEnvDefaults {
+  return {
+    locale: canonicalizeLocale(env.OM_DEFAULT_LOCALE),
+    dateFormat:
+      normalizeDateFormatPattern(env.NEXT_PUBLIC_OM_DATE_FORMAT) ?? normalizeDateFormatPattern(env.NEXT_PUBLIC_DATE_FORMAT),
+    dateTimeFormat:
+      normalizeDateFormatPattern(env.NEXT_PUBLIC_OM_DATE_TIME_FORMAT)
+      ?? normalizeDateFormatPattern(env.NEXT_PUBLIC_DATE_TIME_FORMAT),
+    timeFormat: normalizeDateFormatPattern(env.NEXT_PUBLIC_OM_TIME_FORMAT),
+    timeZone: canonicalizeTimeZone(env.OM_DEFAULT_TIMEZONE),
+    firstDayOfWeek: parseFirstDayOfWeek(env.OM_FIRST_DAY_OF_WEEK),
+  }
+}
+
+export type ResolveDateLocaleSettingsInput = {
+  /** The signed-in user's own timezone, if they set one. Only the timezone is user-overridable. */
+  userTimeZone?: string | null
+  tenant?: DateLocaleSettingsInput | null
+  env?: DateLocaleEnvDefaults
+}
+
+type FieldValue<K extends DateLocaleField> = ResolvedDateLocaleSettings[K]
+
+function pick<K extends DateLocaleField>(
+  candidates: Array<[DateLocaleSource, FieldValue<K> | null | undefined]>,
+): [FieldValue<K>, DateLocaleSource] {
+  for (const [source, value] of candidates) {
+    if (value !== null && value !== undefined) return [value as FieldValue<K>, source]
+  }
+  return [null as FieldValue<K>, 'fallback']
+}
+
+function tenantPattern(value: string | null | undefined): string | null {
+  return normalizeDateFormatPattern(value)
+}
+
+/**
+ * Resolves every field as `user → tenant → env → fallback` (tenant overrides env, decided in
+ * `.ai/specs/2026-05-18-date-locale-settings.md` Q1). Only `timeZone` has a user layer (Q2).
+ *
+ * `dateTimeFormat` has one extra step before falling back: when no layer sets it but a date
+ * pattern is in force, the date pattern is used, followed by the time pattern when one is in
+ * force too. A tenant that pinned only `dd.MM.yyyy` therefore keeps timestamps on the same
+ * ordering instead of switching back to `Intl` for one column type.
+ */
+export function resolveDateLocaleSettings({
+  userTimeZone,
+  tenant,
+  env,
+}: ResolveDateLocaleSettingsInput): ResolvedDateLocaleSettings {
+  const defaults = env ?? readDateLocaleEnv()
+  const stored = tenant ?? {}
+
+  const [locale, localeSource] = pick<'locale'>([
+    ['tenant', canonicalizeLocale(stored.locale)],
+    ['env', defaults.locale],
+  ])
+  const [dateFormat, dateFormatSource] = pick<'dateFormat'>([
+    ['tenant', tenantPattern(stored.dateFormat)],
+    ['env', defaults.dateFormat],
+  ])
+  const [timeFormat, timeFormatSource] = pick<'timeFormat'>([
+    ['tenant', tenantPattern(stored.timeFormat)],
+    ['env', defaults.timeFormat],
+  ])
+  let [dateTimeFormat, dateTimeFormatSource] = pick<'dateTimeFormat'>([
+    ['tenant', tenantPattern(stored.dateTimeFormat)],
+    ['env', defaults.dateTimeFormat],
+  ])
+  if (dateTimeFormat === null && dateFormat !== null) {
+    dateTimeFormat = timeFormat ? `${dateFormat} ${timeFormat}` : dateFormat
+    dateTimeFormatSource = dateFormatSource
+  }
+  const [timeZone, timeZoneSource] = pick<'timeZone'>([
+    ['user', canonicalizeTimeZone(userTimeZone)],
+    ['tenant', canonicalizeTimeZone(stored.timeZone)],
+    ['env', defaults.timeZone],
+  ])
+  const storedFirstDay: FirstDayOfWeek | null = isFirstDayOfWeek(stored.firstDayOfWeek) ? stored.firstDayOfWeek : null
+  const [firstDayOfWeek, firstDayOfWeekSource] = pick<'firstDayOfWeek'>([
+    ['tenant', storedFirstDay],
+    ['env', defaults.firstDayOfWeek],
+  ])
+
+  return {
+    locale,
+    dateFormat,
+    dateTimeFormat,
+    timeFormat,
+    timeZone,
+    firstDayOfWeek,
+    sources: {
+      locale: localeSource,
+      dateFormat: dateFormatSource,
+      dateTimeFormat: dateTimeFormatSource,
+      timeFormat: timeFormatSource,
+      timeZone: timeZoneSource,
+      firstDayOfWeek: firstDayOfWeekSource,
+    },
+  }
+}
+
+/** Settings with every field unset: what a page renders before (or without) a resolved value. */
+export function emptyDateLocaleSettings(): ResolvedDateLocaleSettings {
+  return resolveDateLocaleSettings({ env: { locale: null, dateFormat: null, dateTimeFormat: null, timeFormat: null, timeZone: null, firstDayOfWeek: null } })
+}

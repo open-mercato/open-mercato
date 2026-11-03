@@ -1,6 +1,13 @@
 import { asValue } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import { registerDateLocaleSettingsResolver } from '@open-mercato/shared/lib/date-locale/registry'
 import { createModuleConfigService } from './lib/module-config-service'
+import { resolveDateLocaleSettingsFromCookies } from './lib/date-locale-settings'
+
+// Registered at module scope, like the translations supported-locales resolver: the root layout
+// resolves date/locale settings before any request container exists, so a slot filled inside
+// `register()` would be empty on the first render of a fresh process.
+registerDateLocaleSettingsResolver(resolveDateLocaleSettingsFromCookies)
 
 export function register(container: AppContainer) {
   const service = createModuleConfigService(container)
@@ -8,4 +15,3 @@ export function register(container: AppContainer) {
     moduleConfigService: asValue(service),
   })
 }
-

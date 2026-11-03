@@ -1,14 +1,20 @@
 import { format as formatDateFns } from 'date-fns/format'
 import { parseISO } from 'date-fns/parseISO'
 import type { Locale } from 'date-fns/locale'
+import { normalizeDateFormatPattern } from '@open-mercato/shared/lib/date-locale/validation'
+import type { ResolvedDateLocaleSettings } from '@open-mercato/shared/lib/date-locale/types'
+import { getActiveDateLocaleSettings } from './date-locale-store'
 
 type LocaleLike = Locale | string | null | undefined
+
+export type DisplaySettings = Pick<
+  ResolvedDateLocaleSettings,
+  'locale' | 'dateFormat' | 'dateTimeFormat' | 'timeFormat' | 'timeZone'
+>
 
 const DAY_FIRST_LOCALE_CODES = new Set([
   'pl', 'de', 'fr', 'es', 'it', 'pt', 'nl', 'ru', 'cs', 'sk', 'hu', 'ro',
 ])
-
-const SYSTEM_FORMAT_VALUES = new Set(['auto', 'default', 'locale', 'system'])
 
 function getLocaleCode(locale?: LocaleLike): string {
   if (!locale) return ''
@@ -16,15 +22,7 @@ function getLocaleCode(locale?: LocaleLike): string {
   return locale.code?.split('-')[0]?.toLowerCase() ?? ''
 }
 
-export function normalizeDateFormatPattern(value: string | null | undefined): string | null {
-  const trimmed = value?.trim()
-  if (!trimmed) return null
-  if (SYSTEM_FORMAT_VALUES.has(trimmed.toLowerCase())) return null
-  return trimmed
-    .replace(/YYYY/g, 'yyyy')
-    .replace(/YY/g, 'yy')
-    .replace(/DD/g, 'dd')
-}
+export { normalizeDateFormatPattern }
 
 export function deriveDateDisplayFormat(locale?: LocaleLike): string {
   const code = getLocaleCode(locale)
@@ -75,11 +73,8 @@ export function formatWithPublicDateFormat(date: Date, format: string, locale?: 
  * in English on that path — `NEXT_PUBLIC_OM_DATE_FORMAT=d MMM yyyy` gives `1 Jul 2026` to a `pl`
  * tenant, not `1 lip 2026`. Set a numeric pattern, or leave it unset and let `Intl` localize.
  */
-export function resolveDisplayDateFormat(): string | null {
-  return (
-    normalizeDateFormatPattern(process.env.NEXT_PUBLIC_OM_DATE_FORMAT)
-    ?? normalizeDateFormatPattern(process.env.NEXT_PUBLIC_DATE_FORMAT)
-  )
+export function resolveDisplayDateFormat(settings: DisplaySettings = getActiveDateLocaleSettings()): string | null {
+  return settings.dateFormat
 }
 
 /**
@@ -89,13 +84,13 @@ export function resolveDisplayDateFormat(): string | null {
  * said how a date should look and said nothing about time — appending `HH:mm` would invent a
  * requirement. This is the precedence `resolvePublicDateTimeFormat` already uses.
  */
-export function resolveDisplayDateTimeFormat(): string | null {
-  return (
-    normalizeDateFormatPattern(process.env.NEXT_PUBLIC_OM_DATE_TIME_FORMAT)
-    ?? normalizeDateFormatPattern(process.env.NEXT_PUBLIC_DATE_TIME_FORMAT)
-    ?? normalizeDateFormatPattern(process.env.NEXT_PUBLIC_OM_DATE_FORMAT)
-    ?? normalizeDateFormatPattern(process.env.NEXT_PUBLIC_DATE_FORMAT)
-  )
+export function resolveDisplayDateTimeFormat(settings: DisplaySettings = getActiveDateLocaleSettings()): string | null {
+  return settings.dateTimeFormat
+}
+
+/** As `resolveDisplayDateFormat`, for a time of day on its own. */
+export function resolveDisplayTimeFormat(settings: DisplaySettings = getActiveDateLocaleSettings()): string | null {
+  return settings.timeFormat
 }
 
 /**
@@ -123,43 +118,133 @@ function intlLocale(locale?: LocaleLike): string | undefined {
   return typeof locale === 'string' ? locale : locale.code
 }
 
+const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/
+
+/** A bare `yyyy-MM-dd` names a calendar day, not an instant: it must never move between zones. */
+function isCalendarDay(value: string | Date | null | undefined): boolean {
+  return typeof value === 'string' && DATE_ONLY_PATTERN.test(value.trim())
+}
+
 const DISPLAY_STYLES = {
   date: { dateStyle: 'medium' },
   datetime: { dateStyle: 'medium', timeStyle: 'short' },
+  time: { timeStyle: 'short' },
 } as const satisfies Record<string, Intl.DateTimeFormatOptions>
+
+type DisplayStyle = keyof typeof DISPLAY_STYLES
 
 // Constructing an `Intl.DateTimeFormat` costs ~40x using one (Node 24: ~31 µs vs ~0.8 µs), and these
 // helpers render every date cell AND its tooltip in `DataTable` — two constructions per cell, so a
 // 100-row page with two date columns would pay 400 of them on every sort, filter and keystroke.
-// A formatter is immutable and the key space is the locales a deployment ships, so one instance per
-// (locale, style) is kept for the process. The style name is the key, so the two cannot desync.
+// A formatter is immutable and the key space is the locales and zones a deployment ships, so one
+// instance per (locale, zone, style) is kept for the process.
 const formatterCache = new Map<string, Intl.DateTimeFormat>()
 
-function getFormatter(locale: string | undefined, style: keyof typeof DISPLAY_STYLES): Intl.DateTimeFormat {
-  const key = `${locale ?? ''}|${style}`
+function getFormatter(locale: string | undefined, style: DisplayStyle, timeZone?: string | null): Intl.DateTimeFormat {
+  const key = `${locale ?? ''}|${timeZone ?? ''}|${style}`
   const cached = formatterCache.get(key)
   if (cached) return cached
-  const created = new Intl.DateTimeFormat(locale, DISPLAY_STYLES[style])
+  const created = new Intl.DateTimeFormat(locale, timeZone ? { ...DISPLAY_STYLES[style], timeZone } : DISPLAY_STYLES[style])
   formatterCache.set(key, created)
   return created
 }
 
-/** Render a date for display, or `null` when there is nothing valid to show. */
-export function formatDisplayDate(value: string | Date | null | undefined, locale?: LocaleLike): string | null {
+const wallClockFormatterCache = new Map<string, Intl.DateTimeFormat>()
+
+function getWallClockFormatter(timeZone: string): Intl.DateTimeFormat {
+  const cached = wallClockFormatterCache.get(timeZone)
+  if (cached) return cached
+  const created = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  })
+  wallClockFormatterCache.set(timeZone, created)
+  return created
+}
+
+/**
+ * The wall-clock reading of `date` in `timeZone`, as a local `Date` whose getters return that
+ * reading. Lets a `date-fns` pattern render an instant in a zone other than the runtime's, the
+ * same technique `date-fns-tz` `toZonedTime` uses. Returns `date` unchanged when the zone is
+ * unknown.
+ */
+export function toZonedWallClock(date: Date, timeZone: string | null | undefined): Date {
+  if (!timeZone) return date
+  try {
+    const parts = getWallClockFormatter(timeZone).formatToParts(date)
+    const read = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((part) => part.type === type)?.value ?? 0)
+    return new Date(read('year'), read('month') - 1, read('day'), read('hour'), read('minute'), read('second'), date.getMilliseconds())
+  } catch {
+    return date
+  }
+}
+
+function formatDisplay(
+  value: string | Date | null | undefined,
+  locale: LocaleLike,
+  style: DisplayStyle,
+  pattern: string | null,
+  settings: DisplaySettings,
+): string | null {
   const parsed = parseDisplayValue(value)
   if (!parsed) return null
-  const pattern = resolveDisplayDateFormat()
-  if (pattern) return formatWithPublicDateFormat(parsed, pattern)
-  return getFormatter(intlLocale(locale), 'date').format(parsed)
+  const calendarDay = isCalendarDay(value)
+  const timeZone = calendarDay ? null : settings.timeZone
+  if (pattern) return formatWithPublicDateFormat(toZonedWallClock(parsed, timeZone), pattern)
+  const formatLocale = settings.locale ?? intlLocale(locale)
+  try {
+    return getFormatter(formatLocale, style, timeZone).format(parsed)
+  } catch {
+    return getFormatter(intlLocale(locale), style).format(parsed)
+  }
+}
+
+/**
+ * Render a date for display, or `null` when there is nothing valid to show.
+ *
+ * `settings` defaults to the active tenant/user settings (see `DateLocaleSettingsProvider`). A
+ * bare `yyyy-MM-dd` renders as that calendar day in every zone; an instant renders in the
+ * configured timezone.
+ */
+export function formatDisplayDate(
+  value: string | Date | null | undefined,
+  locale?: LocaleLike,
+  settings: DisplaySettings = getActiveDateLocaleSettings(),
+): string | null {
+  return formatDisplay(value, locale, 'date', resolveDisplayDateFormat(settings), settings)
 }
 
 /** Render a timestamp for display, or `null` when there is nothing valid to show. */
-export function formatDisplayDateTime(value: string | Date | null | undefined, locale?: LocaleLike): string | null {
-  const parsed = parseDisplayValue(value)
-  if (!parsed) return null
-  const pattern = resolveDisplayDateTimeFormat()
-  if (pattern) return formatWithPublicDateFormat(parsed, pattern)
-  return getFormatter(intlLocale(locale), 'datetime').format(parsed)
+export function formatDisplayDateTime(
+  value: string | Date | null | undefined,
+  locale?: LocaleLike,
+  settings: DisplaySettings = getActiveDateLocaleSettings(),
+): string | null {
+  return formatDisplay(value, locale, 'datetime', resolveDisplayDateTimeFormat(settings), settings)
+}
+
+/** Render the time of day of a timestamp, or `null` when there is nothing valid to show. */
+export function formatDisplayTime(
+  value: string | Date | null | undefined,
+  locale?: LocaleLike,
+  settings: DisplaySettings = getActiveDateLocaleSettings(),
+): string | null {
+  return formatDisplay(value, locale, 'time', resolveDisplayTimeFormat(settings), settings)
+}
+
+/**
+ * Today's calendar day (`yyyy-MM-dd`) in the configured display timezone, or in the runtime zone
+ * when none is configured. Use instead of `new Date().toISOString().slice(0, 10)`, which names the
+ * UTC day and is wrong near midnight everywhere except UTC.
+ */
+export function todayInZone(timeZone: string | null | undefined = getActiveDateLocaleSettings().timeZone, now: Date = new Date()): string {
+  return formatDateFns(toZonedWallClock(now, timeZone), 'yyyy-MM-dd')
 }
 
 /**

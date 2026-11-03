@@ -7,7 +7,10 @@ export const setup: ModuleSetupConfig = {
       'configs.cache.view',
       'configs.cache.manage',
       'configs.manage',
+      'configs.date_locale.view',
+      'configs.date_locale.manage',
     ],
+    employee: ['configs.date_locale.view'],
   },
 }
 
