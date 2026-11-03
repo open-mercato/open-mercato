@@ -37,6 +37,8 @@
       "om-share-this-session",
       "om-auto-sec-report",
       "om-auto-sec-report-pr",
+      "om-auto-qa-scenarios",
+      "om-figma-design-with-ds",
       "om-pre-implement-spec",
       "om-smart-test",
       "om-create-agents-md",
@@ -59,17 +61,10 @@
         "om-refresh-standalone-harness"
       ]
     },
-    "design": {
-      "description": "Figma-side design workflow skills. Opt-in \u2014 presumes Figma tooling.",
-      "skills": [
-        "om-figma-design-with-ds"
-      ]
-    },
     "automation": {
       "description": "PR/issue automation skills. Opt-in; agent-driven workflows.",
       "skills": [
-        "om-auto-publish-pr",
-        "om-auto-qa-scenarios"
+        "om-auto-publish-pr"
       ]
     },
     "analysis": {

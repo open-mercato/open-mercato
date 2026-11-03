@@ -71,16 +71,17 @@ The default `yarn install-skills` ships the **core** tier plus the entire extern
 | Tier | Default? | Skills | What's inside |
 |------|----------|--------|---------------|
 | `core` | yes | 9 | Daily-driver skills installed by default. |
-| `design` | opt-in | 1 | Figma-side design workflow skills. Opt-in — presumes Figma tooling. |
-| `automation` | opt-in | 2 | PR/issue automation skills. Opt-in; agent-driven workflows. |
+| `automation` | opt-in | 1 | PR/issue automation skills. Opt-in; agent-driven workflows. |
 | `analysis` | opt-in | 1 | Draft accessibility review (WCAG 2.2 AA). Opt-in. |
 | `migration` | opt-in | 5 | One-shot, version-pinned migrations. Install only when needed. |
 | `infra` | opt-in | 2 | Rare, special-case skills. |
-| external | always | 37 | Shared pipeline skills from [open-mercato/skills](https://github.com/open-mercato/skills), installed via `npx skills add` and refreshed via `npx skills update` (skip with `--no-external`). |
+| external | always | 39 | Shared pipeline skills from [open-mercato/skills](https://github.com/open-mercato/skills), installed via `npx skills add` and refreshed via `npx skills update` (skip with `--no-external`). |
 
 Run `yarn install-skills --list` at any time to see tier definitions, current memberships, and which tiers are installed locally.
 
 The security-report skills now install from the external collection on every normal install. The former `security` tier is removed; replace `--with security` or `--tiers core,security` with `yarn install-skills` (or keep only the other tiers you selected). `--no-external` skips these skills.
+
+The QA-report and Figma design workflows now also install from the external collection. The former `design` tier is removed; replace `--with design` or `--tiers core,design` with `yarn install-skills` (or keep only your other selected tiers). Both repo-local overrides remain at `.ai/skills/<name>/SKILL.md`. A fresh offline install with `--no-external` or `OM_SKIP_EXTERNAL_SKILLS=1` does not install these external workflows; existing external copies remain available. Figma tool access still requires the configured provider; the skill supports screenshots, exports, or Prompt mode without one.
 
 The App Spec and gap-analysis skills also install from the external collection on every normal install. The `analysis` tier now contains only the draft WCAG guardian; keep `--with analysis` when you want that skill. `--no-external` skips installing or refreshing the collection copies.
 
@@ -205,24 +206,17 @@ Skills below are grouped by tier in the same order as `.ai/skills/tiers.json`. E
 | `om-create-ai-agent` | Scaffold AI agents (`ai-agents.ts`) and MCP tools (`ai-tools.ts`) for Open Mercato modules. Use when adding a new AI agent definition, configuring tool allowlists, mutation policies, or model selection. Triggers on "add ai agent", "create ai tool", "ai-agents.ts", "ai-tools.ts". |
 | `om-refresh-standalone-harness` | Refresh the standalone-app AI harness from an explicit local Git release range. Use for "refresh standalone harness", "release harness audit", "scan release range", `--from/--to`, "odśwież harness", or when platform work changes a module, UMES extension point, installed public contract, generator surface, or release. |
 
-### design
-
-| Skill | When to use |
-|-------|-------------|
-| `om-figma-design-with-ds` | Two-mode Figma + DS skill (tier `design`). MODE A generates design briefs for new screens that conform to the shipped DS (tokens from `.ai/ds/ds-tokens.json`, primitives, layout patterns); MODE B audits existing Figma designs against the DS and produces a remediation plan. Activates on 'design w figmie', 'figma mockup', 'design brief', 'audit figma', 'figma DS audit', 'make this design DS-compliant'. Output is a copy-pastable prompt for any Figma-capable agent. |
-
 ### automation
 
 | Skill | When to use |
 |-------|-------------|
 | `om-auto-publish-pr` | Publish pkg.pr.new package previews for a same-repository Open Mercato PR by dispatching the Package Previews GitHub Actions workflow with gh. Use when a maintainer asks to publish, republish, or trigger a PR package preview. Does not publish npm snapshots. |
-| `om-auto-qa-scenarios` | Generate a human QA report for a window of merged PRs (date floor, PR-number floor, or default last 7 days) and ship it as a docs-only PR against `main`. Groups work into P0/P1/P2 testing routes with click paths, verification points, and risk callouts. Writes markdown + HTML under `.ai/analysis/`. Hands off to `om-auto-continue-pr` if it cannot finish in one pass. |
 
 ### external (open-mercato/skills)
 
 These skills are installed from [open-mercato/skills](https://github.com/open-mercato/skills) into `.agents/skills/`; their descriptions are maintained upstream. They read `.ai/agentic.config.json`, `.ai/trackers/github.md`, the root docs, and any repo-local override under `.ai/skills/<name>/`.
 
-`om-approve-merge-pr`, `om-auto-continue-pr`, `om-auto-continue-pr-loop`, `om-auto-create-pr`, `om-auto-create-pr-loop`, `om-auto-fix-issue`, `om-auto-review-pr`, `om-auto-update-changelog`, `om-auto-qa-pr`, `om-check-and-commit`, `om-code-review`, `om-fix`, `om-followup-issue-from-pr`, `om-integration-tests`, `om-merge-buddy`, `om-open-pr`, `om-prepare-issue`, `om-prepare-test-env`, `om-review-prs`, `om-root-cause`, `om-setup-agent-pipeline`, `om-spec-writing`, `om-auto-fix-pr`, `om-close-fixed-issues`, `om-verify-in-repo`, `om-pr-autopilot`, `om-create-skill`, `om-help`, `om-judge-agent-session`, `om-share-this-session`, `om-auto-sec-report`, `om-auto-sec-report-pr`, `om-pre-implement-spec`, `om-smart-test`, `om-create-agents-md`, `om-app-spec-writing`, `om-gap-analysis`
+`om-approve-merge-pr`, `om-auto-continue-pr`, `om-auto-continue-pr-loop`, `om-auto-create-pr`, `om-auto-create-pr-loop`, `om-auto-fix-issue`, `om-auto-review-pr`, `om-auto-update-changelog`, `om-auto-qa-pr`, `om-check-and-commit`, `om-code-review`, `om-fix`, `om-followup-issue-from-pr`, `om-integration-tests`, `om-merge-buddy`, `om-open-pr`, `om-prepare-issue`, `om-prepare-test-env`, `om-review-prs`, `om-root-cause`, `om-setup-agent-pipeline`, `om-spec-writing`, `om-auto-fix-pr`, `om-close-fixed-issues`, `om-verify-in-repo`, `om-pr-autopilot`, `om-create-skill`, `om-help`, `om-judge-agent-session`, `om-share-this-session`, `om-auto-sec-report`, `om-auto-sec-report-pr`, `om-auto-qa-scenarios`, `om-figma-design-with-ds`, `om-pre-implement-spec`, `om-smart-test`, `om-create-agents-md`, `om-app-spec-writing`, `om-gap-analysis`
 
 ### analysis
 
