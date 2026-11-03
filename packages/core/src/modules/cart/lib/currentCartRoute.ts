@@ -7,6 +7,8 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
+import type { StorefrontResolutionError } from '@open-mercato/core/modules/ecommerce/lib/storeContext'
+
 import { getCartCommand } from '../commands/cart'
 import type { CartGetByTokenInput, CartSummary } from '../commands/cart'
 import type { CartPriceChange } from './reprice'
@@ -164,6 +166,11 @@ export function notFoundCartResponse(): NextResponse {
 
 const logger = createLogger('cart').child({ component: 'api' })
 
+function isStorefrontResolutionError(error: unknown): error is StorefrontResolutionError {
+  return typeof error === 'object' && error !== null
+    && (error as Record<symbol, unknown>)[Symbol.for('@open-mercato/ecommerce/StorefrontResolutionError')] === true
+}
+
 /**
  * Standard catch-block mapping for every `/current/*` route: a thrown
  * `CrudHttpError` (badRequest/notFound/conflict from a command, or the standardized
@@ -174,6 +181,9 @@ const logger = createLogger('cart').child({ component: 'api' })
  * unexpected 500, logged and reported.
  */
 export async function mapRouteErrorToResponse(error: unknown): Promise<NextResponse> {
+  if (isStorefrontResolutionError(error)) {
+    return NextResponse.json({ error: error.code }, { status: error.status, headers: { 'Cache-Control': 'no-store' } })
+  }
   if (isCartLineMutationLockTimeoutError(error)) {
     const { translate } = await resolveTranslations()
     return NextResponse.json(
