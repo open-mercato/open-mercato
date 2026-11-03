@@ -3,8 +3,9 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
-import { createCustomerRoleFixture, deleteCustomerRoleFixture, uniqueSuffix } from '@open-mercato/core/helpers/integration/customerAccountsFixtures'
-import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
+import { createUserFixture, deleteUserIfExists } from '@open-mercato/core/helpers/integration/authFixtures'
+import { createCustomerRoleFixture, customerTestPassword, deleteCustomerRoleFixture, uniqueSuffix } from '@open-mercato/core/helpers/integration/customerAccountsFixtures'
+import { deleteUserAclInDb, setUserAclInDb, withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { getTokenScope } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { resolveAppRoot } from '@open-mercato/core/helpers/integration/appRoot'
 import { importFromAppRuntime } from '@open-mercato/core/helpers/integration/appRuntime'
@@ -32,16 +33,17 @@ async function runtime() {
   return withNextRuntime(async () => {
     const { bootstrapFromAppRoot } = await importFromAppRuntime<typeof import('@open-mercato/shared/lib/bootstrap/dynamicLoader')>('@open-mercato/shared/lib/bootstrap/dynamicLoader')
     await bootstrapFromAppRoot(resolveAppRoot())
-    const [route, events, bus, telemetry, container, tokens] = await Promise.all([
+    const [route, events, bus, telemetry, container, tokens, commandInterceptors] = await Promise.all([
       importFromAppRuntime<typeof import('../api/admin/users-invite')>('@open-mercato/core/modules/customer_accounts/api/admin/users-invite'),
       importFromAppRuntime<typeof import('@open-mercato/shared/modules/events')>('@open-mercato/shared/modules/events'),
       importFromAppRuntime<typeof import('@open-mercato/events/bus')>('@open-mercato/events/bus'),
       importFromAppRuntime<typeof import('@open-mercato/shared/lib/telemetry/runtime')>('@open-mercato/shared/lib/telemetry/runtime'),
       importFromAppRuntime<typeof import('@open-mercato/shared/lib/di/container')>('@open-mercato/shared/lib/di/container'),
       importFromAppRuntime<typeof import('../lib/tokenGenerator')>('@open-mercato/core/modules/customer_accounts/lib/tokenGenerator'),
+      importFromAppRuntime<typeof import('@open-mercato/shared/lib/commands/command-interceptor-store')>('@open-mercato/shared/lib/commands/command-interceptor-store'),
     ])
     await container.createRequestContainer()
-    return { route, events, bus, telemetry, container, tokens }
+    return { route, events, bus, telemetry, container, tokens, commandInterceptors }
   })
 }
 
@@ -108,12 +110,19 @@ test.describe('TC-CACC-INVITE-CANCEL-002: real route, command persistence and li
     test(`persists one non-replayable audit entry with ${failure} failure`, async ({ request }) => {
       test.slow()
       const adminToken = await getAuthToken(request, 'admin')
-      const scope = getTokenScope(adminToken)
+      const adminScope = getTokenScope(adminToken)
+      let staffId: string | null = null
       let roleId: string | null = null
       let invitationId: string | null = null
       let restoreRuntime: (() => void) | undefined
       let stopTap: (() => void) | undefined
       try {
+        const staffEmail = `qa-invite-audit-staff-${uniqueSuffix()}@test.local`
+        const password = customerTestPassword()
+        staffId = await createUserFixture(request, adminToken, { email: staffEmail, password, organizationId: adminScope.organizationId, roles: [] })
+        await setUserAclInDb({ userId: staffId, tenantId: adminScope.tenantId, features: ['customer_accounts.*'], organizations: [adminScope.organizationId] })
+        const staffToken = await getAuthToken(request, staffEmail, password)
+        const scope = getTokenScope(staffToken)
         roleId = (await createCustomerRoleFixture(request, adminToken)).id
         const email = `qa-invite-audit-${uniqueSuffix()}@test.local`
         const created = await apiRequest(request, 'POST', endpoint, { token: adminToken, data: { email, roleIds: [roleId] } })
@@ -127,6 +136,8 @@ test.describe('TC-CACC-INVITE-CANCEL-002: real route, command persistence and li
         const originalBus = app.events.getGlobalEventBus()
         expect(originalBus).not.toBeNull()
         if (!originalBus) throw new Error('[internal] Bootstrapped event bus is missing')
+        const originalInterceptors = app.commandInterceptors.getAllCommandInterceptors()
+          .map(({ moduleId, interceptor }) => ({ moduleId, interceptors: [interceptor] }))
         const originalTelemetry = app.telemetry.getTelemetryRuntime()
         const deliveries: unknown[] = []
         let attempts = 0
@@ -146,16 +157,29 @@ test.describe('TC-CACC-INVITE-CANCEL-002: real route, command persistence and li
           },
           shutdown: async () => undefined,
         })
-        app.events.setGlobalEventBus({
-          async emit(event, payload, options) {
-            if (event === eventId) {
-              attempts += 1
-              if (failure !== 'none') throw new Error('[internal] Injected event transport failure')
-            }
-            await originalBus.emit(event, payload, options)
+        app.commandInterceptors.registerCommandInterceptors([
+          ...originalInterceptors,
+          {
+            moduleId: 'customer_accounts',
+            interceptors: [{
+              id: 'customer_accounts.test.cancel-event-failure',
+              targetCommand: 'customer_accounts.invitation.cancel',
+              async beforeExecute() {
+                app.events.setGlobalEventBus({
+                  async emit(event, payload, options) {
+                    if (event === eventId) {
+                      attempts += 1
+                      if (failure !== 'none') throw new Error('[internal] Injected event transport failure')
+                    }
+                    await originalBus.emit(event, payload, options)
+                  },
+                })
+              },
+            }],
           },
-        })
+        ])
         restoreRuntime = () => {
+          app.commandInterceptors.registerCommandInterceptors(originalInterceptors)
           app.events.setGlobalEventBus(originalBus)
           unregisterTelemetry()
           if (originalTelemetry) app.telemetry.registerTelemetryRuntime(originalTelemetry)
@@ -163,7 +187,7 @@ test.describe('TC-CACC-INVITE-CANCEL-002: real route, command persistence and li
 
         for (let occurrence = 0; occurrence < 2; occurrence += 1) {
           const response = await app.route.DELETE(new Request(`http://localhost${endpoint}?id=${invitationId}`, {
-            method: 'DELETE', headers: { authorization: `Bearer ${adminToken}`, cookie: `om_selected_org=${randomUUID()}` },
+            method: 'DELETE', headers: { authorization: `Bearer ${staffToken}`, cookie: `om_selected_org=${randomUUID()}` },
           }))
           expect(response.status).toBe(200)
           expect(await response.json()).toEqual({ ok: true })
@@ -197,6 +221,8 @@ test.describe('TC-CACC-INVITE-CANCEL-002: real route, command persistence and li
       } finally {
         restoreRuntime?.()
         stopTap?.()
+        if (staffId) await deleteUserAclInDb(staffId)
+        await deleteUserIfExists(request, adminToken, staffId)
         if (invitationId) await withClient(async (client) => {
           await client.query('delete from action_logs where command_id = $1 and resource_id = $2', ['customer_accounts.invitation.cancel', invitationId])
           await client.query('delete from customer_user_invitations where id = $1', [invitationId])
