@@ -59,5 +59,13 @@ rm -rf "$UPLOAD_CHECK_YARN_DIR"
 A fresh `YARN_GLOBAL_FOLDER` keeps cached tarball URLs from another local
 registry from redirecting the standalone install to an old port.
 
-Restart an existing registry container to load a changed configuration. These
-limits and anonymous local publishing settings are intended for development.
+Recreate an existing Compose registry after upgrading to apply the loopback port
+binding; restarting a container alone retains its previous published ports:
+
+```sh
+docker compose --project-directory . -f starters/docker/compose.infra.yml \
+  --profile registry up -d --force-recreate verdaccio
+```
+
+Recreation also reloads the request-size configuration. These limits and
+anonymous publishing settings are intended for local development.
