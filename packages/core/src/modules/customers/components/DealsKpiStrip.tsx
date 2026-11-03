@@ -189,9 +189,10 @@ function MetricTab({
   tabRef: (node: HTMLButtonElement | null) => void
 }) {
   return (
-    <button
+    <Button
       ref={tabRef}
       type="button"
+      variant="ghost"
       role="tab"
       id={`deals-kpi-tab-${metric.key}`}
       aria-selected={active}
@@ -201,7 +202,7 @@ function MetricTab({
       onClick={onSelect}
       onKeyDown={onKeyDown}
       className={cn(
-        'relative flex min-w-0 flex-col items-start gap-1 bg-card px-4 py-3 text-left outline-none transition-colors',
+        'relative h-auto min-w-0 flex-col items-start justify-start gap-1 whitespace-normal rounded-none bg-card px-4 py-3 text-left font-normal',
         'hover:bg-muted/40 focus-visible:bg-muted/40',
         active ? 'text-foreground' : 'text-muted-foreground',
       )}
@@ -215,7 +216,7 @@ function MetricTab({
         <KpiDeltaBadge {...metric.delta} />
       </span>
       {active && expanded ? <span aria-hidden className="absolute inset-x-0 bottom-0 h-0.5 bg-foreground" /> : null}
-    </button>
+    </Button>
   )
 }
 
