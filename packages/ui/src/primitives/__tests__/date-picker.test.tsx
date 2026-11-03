@@ -278,10 +278,10 @@ describe('DatePicker calendar under a non-English locale', () => {
     expect(screen.getAllByRole('gridcell')[0]).toHaveAttribute('data-day', '2025-12-29')
   })
 
-  it('keeps the picker default week start when no locale is passed', async () => {
+  it('starts the week on Monday when no formatting locale or first day is configured', async () => {
     renderWithI18n(<DatePicker value={new Date(2026, 0, 15)} onChange={() => {}} />)
     await openPopover()
-    expect(screen.getAllByRole('gridcell')[0]).toHaveAttribute('data-day', '2025-12-28')
+    expect(screen.getAllByRole('gridcell')[0]).toHaveAttribute('data-day', '2025-12-29')
   })
 
   // A call site that forgets to thread a `locale` prop is exactly the #5942 bug: without

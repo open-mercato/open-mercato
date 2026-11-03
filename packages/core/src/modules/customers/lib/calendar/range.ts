@@ -15,7 +15,7 @@ export function getVisibleRange(
   view: CalendarView,
   anchor: Date,
   agendaHorizonDays: number,
-  weekStartsOn: FirstDayOfWeek = resolveWeekStartsOn(null),
+  weekStartsOn: FirstDayOfWeek = resolveWeekStartsOn(),
 ): CalendarRange {
   const week = { weekStartsOn }
   switch (view) {

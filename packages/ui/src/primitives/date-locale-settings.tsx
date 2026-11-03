@@ -2,9 +2,8 @@
 
 import * as React from 'react'
 import type { FirstDayOfWeek, ResolvedDateLocaleSettings } from '@open-mercato/shared/lib/date-locale/types'
-import { useOptionalLocale } from '@open-mercato/shared/lib/i18n/context'
+import { resolveFirstDayOfWeek } from '@open-mercato/shared/lib/date-locale/weekStart'
 import { getActiveDateLocaleSettings, setClientDateLocaleSettings } from './date-locale-store'
-import { resolveDateFnsLocale } from './date-locale'
 
 const DateLocaleSettingsContext = React.createContext<ResolvedDateLocaleSettings | null>(null)
 
@@ -47,18 +46,16 @@ export function useDisplayTimeZone(): string {
 }
 
 /**
- * The configured first day of the week, otherwise the locale's own (`pl`/`de`/`es` Monday,
- * `en`/`ko` Sunday). Pass the result as `weekStartsOn` to date-fns and `react-day-picker`.
+ * The first day of the week: the configured day, otherwise the configured formatting locale's own
+ * week start (`en-GB` Monday, `en-US` Sunday), otherwise Monday. Pass the result as `weekStartsOn`
+ * to date-fns and `react-day-picker`.
  */
 export function resolveWeekStartsOn(
-  locale: string | null | undefined,
   settings: Pick<ResolvedDateLocaleSettings, 'firstDayOfWeek' | 'locale'> = getActiveDateLocaleSettings(),
 ): FirstDayOfWeek {
-  if (settings.firstDayOfWeek !== null) return settings.firstDayOfWeek
-  const fromLocale = resolveDateFnsLocale(settings.locale ?? locale)?.options?.weekStartsOn
-  return (typeof fromLocale === 'number' ? fromLocale : 0) as FirstDayOfWeek
+  return resolveFirstDayOfWeek(settings).day
 }
 
 export function useWeekStartsOn(): FirstDayOfWeek {
-  return resolveWeekStartsOn(useOptionalLocale(), useDateLocaleSettings())
+  return resolveWeekStartsOn(useDateLocaleSettings())
 }

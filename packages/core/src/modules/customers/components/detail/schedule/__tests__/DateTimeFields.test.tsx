@@ -125,7 +125,8 @@ describe('DateTimeFields — pickers follow the app locale', () => {
     renderFields('en')
     await openDatePicker()
     expect(screen.getByText(/January 2026/)).toBeInTheDocument()
-    expect(screen.getAllByRole('gridcell')[0]).toHaveAttribute('data-day', '2025-12-28')
+    // No formatting locale or first day configured, so the week starts on the Monday default.
+    expect(screen.getAllByRole('gridcell')[0]).toHaveAttribute('data-day', '2025-12-29')
   })
 
   it('shows Polish duration choices without English fallbacks (#8048)', async () => {

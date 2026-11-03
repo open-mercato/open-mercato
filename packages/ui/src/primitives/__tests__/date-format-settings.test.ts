@@ -89,9 +89,10 @@ describe('zone helpers', () => {
     expect(resolveDisplayTimeZone({ timeZone: null })).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone)
   })
 
-  it('resolves the week start from settings, then the locale', () => {
-    expect(resolveWeekStartsOn('en', { firstDayOfWeek: 1, locale: null })).toBe(1)
-    expect(resolveWeekStartsOn('pl', { firstDayOfWeek: null, locale: null })).toBe(1)
-    expect(resolveWeekStartsOn('en', { firstDayOfWeek: null, locale: null })).toBe(0)
+  it('resolves the week start from settings, then the formatting locale, then Monday', () => {
+    expect(resolveWeekStartsOn({ firstDayOfWeek: 6, locale: 'en-US' })).toBe(6)
+    expect(resolveWeekStartsOn({ firstDayOfWeek: null, locale: 'en-US' })).toBe(0)
+    expect(resolveWeekStartsOn({ firstDayOfWeek: null, locale: 'en-GB' })).toBe(1)
+    expect(resolveWeekStartsOn({ firstDayOfWeek: null, locale: null })).toBe(1)
   })
 })

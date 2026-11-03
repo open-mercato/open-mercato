@@ -218,6 +218,6 @@ describe('DateRangePicker under a non-English app locale', () => {
     )
     expect(getTrigger()).toHaveTextContent('May 1, 2026 – May 9, 2026')
     await openPopover()
-    expect(firstGridDay().getDay()).toBe(0)
+    expect(firstGridDay().getDay()).toBe(1)
   })
 })

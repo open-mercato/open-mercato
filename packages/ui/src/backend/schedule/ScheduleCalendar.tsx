@@ -21,7 +21,6 @@ import { Button } from '../../primitives/button'
 import { expandRecurringItems } from './recurrence'
 import { getScheduleItemStyle } from './presentation'
 import { deriveTimeDisplayFormat } from '../../primitives/date-locale'
-import { getActiveDateLocaleSettings } from '../../primitives/date-locale-store'
 import { resolveWeekStartsOn, useDateLocaleSettings } from '../../primitives/date-locale-settings'
 
 type CalendarEvent = {
@@ -36,8 +35,7 @@ type CalendarEvent = {
 type StartOfWeekOptions = Parameters<typeof startOfWeek>[1]
 
 function startOfConfiguredWeek(date: Date, options?: StartOfWeekOptions): Date {
-  const configured = getActiveDateLocaleSettings().firstDayOfWeek
-  return startOfWeek(date, configured === null ? options : { ...options, weekStartsOn: configured })
+  return startOfWeek(date, { ...options, weekStartsOn: resolveWeekStartsOn() })
 }
 
 const localizer = dateFnsLocalizer({
@@ -60,7 +58,7 @@ function deriveRange(date: Date, view: ScheduleViewMode, agendaLength: number, l
     return { start: startOfDay(date), end: endOfDay(date) }
   }
   if (view === 'week') {
-    const weekStartsOn = resolveWeekStartsOn(locale)
+    const weekStartsOn = resolveWeekStartsOn()
     return { start: startOfWeek(date, { weekStartsOn }), end: endOfWeek(date, { weekStartsOn }) }
   }
   if (view === 'month') {

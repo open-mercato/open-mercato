@@ -12,7 +12,8 @@ import { createCrudFormError, type CrudFormError } from '@open-mercato/ui/backen
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { formatDisplayDate, formatDisplayDateTime, formatDisplayTime } from '@open-mercato/ui/primitives/date-format'
-import { resolveDisplayTimeZone, resolveWeekStartsOn } from '@open-mercato/ui/primitives/date-locale-settings'
+import { resolveDisplayTimeZone } from '@open-mercato/ui/primitives/date-locale-settings'
+import { resolveFirstDayOfWeek, type ResolvedFirstDayOfWeek } from '@open-mercato/shared/lib/date-locale/weekStart'
 import { hasFeature } from '@open-mercato/shared/security/features'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
@@ -56,6 +57,21 @@ function listTimeZones(): string[] {
 function weekdayName(day: number, locale: string): string {
   const reference = new Date(Date.UTC(2026, 0, 4 + day))
   return new Intl.DateTimeFormat(locale, { weekday: 'long', timeZone: 'UTC' }).format(reference)
+}
+
+function describeWeekStart(
+  resolved: ResolvedFirstDayOfWeek,
+  locale: string,
+  t: ReturnType<typeof useT>,
+): string {
+  const day = weekdayName(resolved.day, locale)
+  if (resolved.source === 'locale') {
+    return t('configs.dateLocale.weekStart.fromLocale', '{{day}} (from the {{locale}} formatting locale)', { day, locale: resolved.locale ?? '' })
+  }
+  if (resolved.source === 'default') {
+    return t('configs.dateLocale.weekStart.default', '{{day}} (default — no formatting locale set)', { day })
+  }
+  return day
 }
 
 export default function DateLocaleSettingsPage() {
@@ -176,7 +192,18 @@ export default function DateLocaleSettingsPage() {
         id: 'firstDayOfWeek',
         type: 'select',
         label: t('configs.dateLocale.fields.firstDayOfWeek', 'First day of the week'),
-        description: inheritedHint('firstDayOfWeek', (value) => weekdayName(Number(value), locale)),
+        description: data
+          ? t('configs.dateLocale.weekStart.hint', 'Automatic uses the formatting locale’s week start, or Monday when no locale is set. Currently: {{value}}.', {
+            value: describeWeekStart(
+              resolveFirstDayOfWeek({
+                firstDayOfWeek: null,
+                locale: resolveDateLocaleSettings({ tenant: data.settings, env: data.envDefaults }).locale,
+              }),
+              locale,
+              t,
+            ),
+          })
+          : undefined,
         options: [autoOption, ...[1, 2, 3, 4, 5, 6, 0].map((day) => ({ value: String(day), label: weekdayName(day, locale) }))],
         disabled: !canManage,
         layout: 'half',
@@ -208,13 +235,13 @@ export default function DateLocaleSettingsPage() {
           tenant: buildDateLocalePayload(values as Partial<DateLocaleFormValues>),
           env: data.envDefaults,
         })
-        const weekStart = resolveWeekStartsOn(locale, preview)
+        const weekStart = resolveFirstDayOfWeek(preview)
         const rows: Array<[string, string]> = [
           [t('configs.dateLocale.preview.date', 'Date'), formatDisplayDate(PREVIEW_SAMPLE, locale, preview) ?? '—'],
           [t('configs.dateLocale.preview.dateTime', 'Date and time'), formatDisplayDateTime(PREVIEW_SAMPLE, locale, preview) ?? '—'],
           [t('configs.dateLocale.preview.time', 'Time'), formatDisplayTime(PREVIEW_SAMPLE, locale, preview) ?? '—'],
           [t('configs.dateLocale.preview.timeZone', 'Time zone'), resolveDisplayTimeZone(preview)],
-          [t('configs.dateLocale.preview.weekStart', 'Week starts on'), weekdayName(weekStart, preview.locale ?? locale)],
+          [t('configs.dateLocale.preview.weekStart', 'Week starts on'), describeWeekStart(weekStart, preview.locale ?? locale, t)],
         ]
         return (
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm" data-testid="date-locale-preview">
