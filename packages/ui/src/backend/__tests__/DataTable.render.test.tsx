@@ -49,6 +49,65 @@ describe('DataTable SSR render', () => {
     }
   })
 
+  it('renders a help button beside the title when titleHelp is set, and opens the named card', () => {
+    const columns: ColumnDef<Row>[] = [
+      { accessorKey: 'name', header: 'Name' },
+    ]
+    const queryClient = new QueryClient({ defaultOptions: { queries: { gcTime: 0 } } })
+    try {
+      render(
+        <QueryClientProvider client={queryClient}>
+          <I18nProvider locale="en" dict={{}}>
+            <DataTable
+              columns={columns}
+              data={[]}
+              title="People"
+              titleHelp={{ title: 'People', body: 'Everyone who matches the current filters.' }}
+            />
+          </I18nProvider>
+        </QueryClientProvider>,
+      )
+
+      expect(screen.getByRole('heading', { level: 2, name: 'People' })).toBeInTheDocument()
+      const trigger = screen.getByRole('button', { name: 'What is this?' })
+      expect(screen.queryByText('Everyone who matches the current filters.')).toBeNull()
+
+      fireEvent.click(trigger)
+
+      expect(screen.getByRole('dialog', { name: 'People' })).toBeInTheDocument()
+      expect(screen.getByText('Everyone who matches the current filters.')).toBeInTheDocument()
+    } finally {
+      queryClient.clear()
+    }
+  })
+
+  it('omits the help button and keeps the existing heading and actions when titleHelp is not set', () => {
+    const columns: ColumnDef<Row>[] = [
+      { accessorKey: 'name', header: 'Name' },
+    ]
+    const queryClient = new QueryClient({ defaultOptions: { queries: { gcTime: 0 } } })
+    try {
+      render(
+        <QueryClientProvider client={queryClient}>
+          <I18nProvider locale="en" dict={{}}>
+            <DataTable
+              columns={columns}
+              data={[]}
+              title="People"
+              actions={<button type="button">New person</button>}
+            />
+          </I18nProvider>
+        </QueryClientProvider>,
+      )
+
+      expect(screen.getByRole('heading', { level: 2, name: 'People' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'New person' })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'What is this?' })).toBeNull()
+    } finally {
+      queryClient.clear()
+    }
+  })
+
   it('renders built-in FilterBar when search/filters provided', () => {
     const columns: ColumnDef<Row>[] = [
       { accessorKey: 'name', header: 'Name' },
