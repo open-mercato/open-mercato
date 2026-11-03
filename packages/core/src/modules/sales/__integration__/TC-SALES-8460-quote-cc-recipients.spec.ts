@@ -5,7 +5,8 @@
  * seeding; the e-mail part is skipped otherwise):
  * - `POST /api/sales/quotes/send` accepts `cc`, drops the primary address and
  *   duplicates, and remembers the list on the quote (`metadata.recipients.cc`)
- * - the captured quote e-mail carries the CC list next to the primary recipient
+ * - the main recipient gets the acceptance link; each CC recipient gets their own copy
+ *   of the quote details without it
  * - an invalid CC address is rejected with 400 and the quote stays unsent
  *
  * Fixtures: one person with a primary e-mail and one quote, created through the API
@@ -18,12 +19,20 @@ import { deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integratio
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
   clearCapturedSystemEmails,
+  type CapturedTestSeedEmail,
   isChannelSeedingAvailable,
+  listCapturedSystemEmails,
   seedSystemEmailChannel,
   waitForCapturedSystemEmail,
 } from '@open-mercato/core/helpers/integration/communicationChannelsFixtures'
 
 export const integrationMeta = { dependsOnModules: ['sales', 'customers'] }
+
+const QUOTE_LINK_PATTERN = /\/quote\//
+
+function emailBody(email: CapturedTestSeedEmail): string {
+  return `${email.content.text ?? ''}\n${email.content.html ?? ''}`
+}
 
 type QuoteItem = { metadata?: { recipients?: { cc?: string[] } } | null; status?: string | null }
 
@@ -82,13 +91,29 @@ test.describe('TC-SALES-8460: CC recipients on quote send', () => {
       expect(sent?.metadata?.recipients?.cc, 'CC list stored without the primary address or duplicates').toEqual([ccPurchasing, ccAccounting])
 
       if (seedingAvailable) {
-        const quoteEmail = await waitForCapturedSystemEmail(
+        const isQuoteEmailTo = (email: CapturedTestSeedEmail, recipient: string) =>
+          email.metadata?.to === recipient && String(email.metadata?.subject ?? '').startsWith('Quote ')
+        const mainEmail = await waitForCapturedSystemEmail(
           request,
           token,
-          (email) => email.metadata?.to === primaryEmail && String(email.metadata?.subject ?? '').startsWith('Quote '),
-          { description: 'sales quote email with CC' },
+          (email) => isQuoteEmailTo(email, primaryEmail),
+          { description: 'sales quote email to the main recipient' },
         )
-        expect(quoteEmail.metadata?.cc, 'the e-mail carries the CC list').toEqual([ccPurchasing, ccAccounting])
+        expect(emailBody(mainEmail), 'the main recipient gets the acceptance link').toMatch(QUOTE_LINK_PATTERN)
+        for (const ccRecipient of [ccPurchasing, ccAccounting]) {
+          const ccEmail = await waitForCapturedSystemEmail(
+            request,
+            token,
+            (email) => isQuoteEmailTo(email, ccRecipient),
+            { description: `sales quote copy to ${ccRecipient}` },
+          )
+          expect(emailBody(ccEmail), 'a CC copy never carries the acceptance link').not.toMatch(QUOTE_LINK_PATTERN)
+        }
+        const captured = await listCapturedSystemEmails(request, token)
+        expect(
+          captured.filter((email) => isQuoteEmailTo(email, primaryEmail)),
+          'the main recipient is not mailed twice',
+        ).toHaveLength(1)
       }
     } finally {
       await deleteSalesEntityIfExists(request, token, '/api/sales/quotes', quoteId)

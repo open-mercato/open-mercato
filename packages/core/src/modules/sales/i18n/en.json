@@ -1348,6 +1348,7 @@
   "sales.quotes.create": "Create sales quote",
   "sales.quotes.delete": "Delete sales quote",
   "sales.quotes.detail.title": "Quote details",
+  "sales.quotes.email.ccNotice": "You are receiving this copy for your information. The main recipient can review and accept the quote.",
   "sales.quotes.email.cta": "View quote",
   "sales.quotes.email.footer": "Open Mercato",
   "sales.quotes.email.heading": "Quote {quoteNumber}",

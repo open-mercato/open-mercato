@@ -9,9 +9,12 @@ import { hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
 import { LockMode } from '@mikro-orm/core'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { MutationGuard } from '@open-mercato/shared/lib/crud/mutation-guard-registry'
+import { renderToStaticMarkup } from 'react-dom/server'
+import type { ReactElement } from 'react'
 import { createSalesDocumentLockKyselyFixture } from '../../commands/__tests__/salesDocumentLockFixture'
 
 const registeredGuards: MutationGuard[] = []
+const mockReportError = jest.fn()
 const mockCommandBus = { execute: jest.fn() }
 const mockRateLimiterService = { trustProxyDepth: 1, consume: jest.fn() }
 const mockEm: Record<string, jest.Mock> = {
@@ -59,6 +62,10 @@ jest.mock('@open-mercato/shared/lib/email/send', () => ({
 
 jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
   resolveOrganizationScopeForRequest: jest.fn(),
+}))
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: jest.fn(() => ({ reportError: mockReportError })),
 }))
 
 jest.mock('@open-mercato/shared/lib/crud/mutation-guard-store', () => ({
@@ -179,46 +186,124 @@ describe('quote send + accept flow', () => {
     expect(sendEmail).toHaveBeenCalledWith(expect.objectContaining({ to: 'accounting@example.com' }))
   })
 
-  test('sends CC recipients without the primary address and remembers them on the quote (#8460)', async () => {
-    const quote = {
-      id: '22222222-2222-4222-8222-222222222224',
-      tenantId: '00000000-0000-4000-8000-000000000000',
-      organizationId: '11111111-1111-4111-8111-111111111111',
-      quoteNumber: 'SQ-3',
-      currencyCode: 'USD',
-      grandTotalGrossAmount: '10',
-      status: 'draft',
-      statusEntryId: null,
-      customerSnapshot: { customer: { primaryEmail: 'buyer@example.com' } },
-      metadata: { customerEmail: 'buyer@example.com', note: 'keep me' } as Record<string, unknown>,
-      updatedAt: new Date(),
-      validUntil: null,
-      sentAt: null,
-      acceptanceToken: null,
+  describe('CC recipients (#8460)', () => {
+    const ccQuoteId = '22222222-2222-4222-8222-222222222224'
+    const acceptanceLink = /\/quote\/[0-9a-f-]{36}/i
+
+    function arrangeCcQuote() {
+      const quote = {
+        id: ccQuoteId,
+        tenantId: '00000000-0000-4000-8000-000000000000',
+        organizationId: '11111111-1111-4111-8111-111111111111',
+        quoteNumber: 'SQ-3',
+        currencyCode: 'USD',
+        grandTotalGrossAmount: '10',
+        status: 'draft',
+        statusEntryId: null,
+        customerSnapshot: { customer: { primaryEmail: 'buyer@example.com' } },
+        metadata: { customerEmail: 'buyer@example.com', note: 'keep me' } as Record<string, unknown>,
+        updatedAt: new Date(),
+        validUntil: null,
+        sentAt: null,
+        acceptanceToken: null,
+      }
+      mockEm.findOne.mockImplementation(async (cls: unknown, where: { id?: string }) => {
+        if (cls === SalesQuote) return where?.id === quote.id ? quote : null
+        if (cls === Dictionary) return { id: 'dict-1' }
+        if (cls === DictionaryEntry) return { id: 'entry-sent' }
+        return null
+      })
+      return quote
     }
 
-    mockEm.findOne.mockImplementation(async (cls: any, where: any) => {
-      if (cls === SalesQuote) return where?.id === quote.id ? quote : null
-      if (cls === Dictionary) return { id: 'dict-1' }
-      if (cls === DictionaryEntry) return { id: 'entry-sent' }
-      return null
-    })
+    async function sentMails(): Promise<Array<{ to: string; cc?: string[]; html: string }>> {
+      const { sendEmail } = await import('@open-mercato/shared/lib/email/send')
+      return (sendEmail as jest.Mock).mock.calls.map(([options]: [{ to: string; cc?: string[]; react: ReactElement }]) => ({
+        to: options.to,
+        cc: options.cc,
+        html: renderToStaticMarkup(options.react),
+      }))
+    }
 
-    const res = await sendQuote(makeRequest({
-      quoteId: quote.id,
+    const requestBody = {
+      quoteId: ccQuoteId,
       validForDays: 14,
       cc: ['purchasing@example.com', 'Buyer@example.com', 'purchasing@example.com', 'accounting@example.com'],
-    }))
-    expect(res.status).toBe(200)
-    const { sendEmail } = await import('@open-mercato/shared/lib/email/send')
-    expect(sendEmail).toHaveBeenCalledWith(expect.objectContaining({
-      to: 'buyer@example.com',
-      cc: ['purchasing@example.com', 'accounting@example.com'],
-    }))
-    expect(quote.metadata).toEqual({
-      customerEmail: 'buyer@example.com',
-      note: 'keep me',
-      recipients: { cc: ['purchasing@example.com', 'accounting@example.com'] },
+    }
+
+    test('remembers the list without the primary address or duplicates', async () => {
+      const quote = arrangeCcQuote()
+
+      const res = await sendQuote(makeRequest(requestBody))
+
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ ok: true })
+      expect(quote.metadata).toEqual({
+        customerEmail: 'buyer@example.com',
+        note: 'keep me',
+        recipients: { cc: ['purchasing@example.com', 'accounting@example.com'] },
+      })
+    })
+
+    test('only the main recipient gets the acceptance link', async () => {
+      arrangeCcQuote()
+
+      await sendQuote(makeRequest(requestBody))
+
+      const mails = await sentMails()
+      expect(mails.map((mail) => mail.to)).toEqual(['buyer@example.com', 'purchasing@example.com', 'accounting@example.com'])
+      const [main, ...copies] = mails
+      expect(main.html).toMatch(acceptanceLink)
+      expect(main.html).toContain('View quote')
+      expect(main.html).not.toContain('You are receiving this copy')
+      for (const copy of copies) {
+        expect(copy.cc).toBeUndefined()
+        expect(copy.html).not.toMatch(/\/quote\//)
+        expect(copy.html).not.toContain('<a ')
+        expect(copy.html).not.toContain('View quote')
+        expect(copy.html).toContain('Total:')
+        expect(copy.html).toContain('Valid until:')
+        expect(copy.html).toContain('You are receiving this copy')
+      }
+    })
+
+    test('a failed copy is reported and neither fails the send nor stops the other copies', async () => {
+      const quote = arrangeCcQuote()
+      const { sendEmail } = await import('@open-mercato/shared/lib/email/send')
+      const failure = new Error('provider rejected the address')
+      ;(sendEmail as jest.Mock).mockImplementation(async ({ to }: { to: string }) => {
+        if (to === 'purchasing@example.com') throw failure
+      })
+
+      try {
+        const res = await sendQuote(makeRequest(requestBody))
+
+        expect(res.status).toBe(200)
+        expect(await res.json()).toEqual({ ok: true })
+        expect(quote.status).toBe('sent')
+        expect((await sentMails()).map((mail) => mail.to)).toContain('accounting@example.com')
+        expect(mockReportError).toHaveBeenCalledTimes(1)
+        expect(mockReportError).toHaveBeenCalledWith(failure, expect.objectContaining({
+          module: 'sales',
+          code: 'sales.quote_cc_copy_failed',
+          attributes: { quoteId: ccQuoteId },
+        }))
+      } finally {
+        ;(sendEmail as jest.Mock).mockReset()
+        ;(sendEmail as jest.Mock).mockResolvedValue(undefined)
+      }
+    })
+
+    test('a failed main mail reports the failure and sends no copies', async () => {
+      arrangeCcQuote()
+      const { sendEmail } = await import('@open-mercato/shared/lib/email/send')
+      ;(sendEmail as jest.Mock).mockRejectedValueOnce(new Error('SMTP connection refused'))
+
+      const res = await sendQuote(makeRequest(requestBody))
+
+      expect(res.status).toBe(400)
+      expect(sendEmail).toHaveBeenCalledTimes(1)
+      expect(sendEmail).toHaveBeenCalledWith(expect.objectContaining({ to: 'buyer@example.com' }))
     })
   })
 
@@ -262,10 +347,7 @@ describe('quote send + accept flow', () => {
 
     async function sentRecipients(): Promise<string[]> {
       const { sendEmail } = await import('@open-mercato/shared/lib/email/send')
-      return (sendEmail as jest.Mock).mock.calls.flatMap(([options]: [{ to: string; cc?: string[] }]) => [
-        options.to,
-        ...(options.cc ?? []),
-      ])
+      return (sendEmail as jest.Mock).mock.calls.map(([options]: [{ to: string }]) => options.to)
     }
 
     test.each([

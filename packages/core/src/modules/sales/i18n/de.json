@@ -1348,6 +1348,7 @@
   "sales.quotes.create": "Angebot erstellen",
   "sales.quotes.delete": "Angebot löschen",
   "sales.quotes.detail.title": "Angebotsdetails",
+  "sales.quotes.email.ccNotice": "Sie erhalten diese Kopie zur Information. Der Hauptempfänger kann das Angebot prüfen und annehmen.",
   "sales.quotes.email.cta": "Angebot ansehen",
   "sales.quotes.email.footer": "Open Mercato",
   "sales.quotes.email.heading": "Angebot {quoteNumber}",
