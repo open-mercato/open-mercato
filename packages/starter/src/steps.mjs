@@ -11,6 +11,7 @@ import { checkBuildToolchain, checkContainerRuntime, checkGit, checkNodeVersion,
 import { ensureEnvFiles } from './env-setup.mjs'
 import { addEnvValue, readEnvValue } from './env-file.mjs'
 import { describeInfraProblem, startInfra } from './infra.mjs'
+import { configureServiceMode } from './service-modes.mjs'
 import { findUnhealthyServices } from './infra-preflight.mjs'
 import { ensureLlmProvider } from './providers.mjs'
 import { color, formatDuration, guideBox, statusLine, stepHeader } from './ui.mjs'
@@ -537,6 +538,38 @@ export function ensureOpencodeImage(ctx) {
   }
 }
 
+export const serviceConfigurationStep = {
+  id: 'service-configuration',
+  title: 'Service connections (reuse, ephemeral, or isolated Compose ports)',
+  appliesTo: (ctx) => ctx.mode === 'hybrid',
+  async apply(ctx) {
+    if (ctx.cancelled) throw new Error('Setup interrupted before starting services')
+    const services = [
+      { service: 'postgres', envKey: 'POSTGRES_PORT', defaultPort: 5432 },
+      { service: 'redis', envKey: 'REDIS_PORT', defaultPort: 6379 },
+      { service: 'meilisearch', envKey: 'MEILISEARCH_PORT', defaultPort: 7700 },
+      ...(ctx.flags.serviceMode === 'random' ? [{ service: 'opencode', envKey: 'OPENCODE_PORT', defaultPort: 4096 }] : []),
+    ]
+    const outcome = await (ctx.configureServiceModeImpl ?? configureServiceMode)({
+      mode: ctx.flags.serviceMode ?? 'reuse',
+      projectDir: path.join(ctx.repoRoot, 'apps', 'mercato'),
+      envFiles: [path.join(ctx.repoRoot, '.env')],
+      env: ctx.env,
+      services,
+      log: ctx.log,
+    })
+    if (!outcome.ok) throw new Error(outcome.error ?? 'Could not configure local services')
+    ctx.env = { ...ctx.env, ...outcome.env }
+    ctx.cleanupServices = outcome.cleanup
+    ctx.servicePortsChanged = ctx.flags.serviceMode === 'random'
+    if (ctx.flags.serviceMode === 'random') {
+      for (const envKey of [...services.map((service) => service.envKey), 'MERCATO_STACK', 'COMPOSE_PROJECT_NAME', 'POSTGRES_USER', 'POSTGRES_PASSWORD', 'POSTGRES_DB', 'MEILISEARCH_MASTER_KEY']) {
+        if (ctx.env[envKey]) process.env[envKey] = ctx.env[envKey]
+      }
+    }
+  },
+}
+
 export const infraUpStep = {
   id: 'infra-up',
   expectation: 'first run pulls the OpenCode base image (a few minutes); seconds afterwards',
@@ -555,7 +588,7 @@ export const infraUpStep = {
     const detail = missing.length === 0
       ? 'all infra containers running and healthy'
       : `starting: ${notReady.map(({ service, state, health }) => (state === 'running' && health ? `${service} (${health})` : service)).join(', ')}`
-    return { ok: missing.length === 0 && !ctx.flags.rebuild, detail }
+    return { ok: missing.length === 0 && !ctx.flags.rebuild && !ctx.servicePortsChanged, detail }
   },
   async apply(ctx) {
     const prepareOpencodeImage = ctx.ensureOpencodeImageImpl ?? ensureOpencodeImage
@@ -731,6 +764,7 @@ export function buildUpSteps(ctx) {
     corporateCertsStep,
     envFilesStep,
     workspaceInstallStep,
+    serviceConfigurationStep,
     workspaceBuildStep,
     llmProviderStep,
     hostGatewayStep,
@@ -758,6 +792,7 @@ export async function createStepContext(repoRoot, { mode = 'hybrid', flags = {},
       skipLlmPrompt: false,
       skipDb: false,
       noInfra: false,
+      serviceMode: 'reuse',
       rebuild: false,
       clean: false,
       profiles: [],
@@ -774,7 +809,9 @@ export async function runSteps(steps, ctx) {
     stepHeader(index, active.length, step.title, step.expectation, { log: ctx.log })
     const startedAt = Date.now()
     try {
+      if (ctx.cancelled) throw new Error('Setup interrupted')
       const checked = step.check ? await step.check(ctx) : { ok: false, detail: '' }
+      if (ctx.cancelled) throw new Error('Setup interrupted')
       if (checked.ok) {
         statusLine('ok', `${checked.detail || 'already satisfied'} ${color.dim('(skipped — already done)')}`, { log: ctx.log })
         continue
@@ -782,6 +819,7 @@ export async function runSteps(steps, ctx) {
       if (checked.detail) statusLine('info', checked.detail, { log: ctx.log })
       if (!step.apply) continue
       await step.apply(ctx)
+      if (ctx.cancelled) throw new Error('Setup interrupted')
       statusLine('ok', `done ${color.dim(`in ${formatDuration(Date.now() - startedAt)}`)}`, { log: ctx.log })
     } catch (error) {
       if (error instanceof StepBlocked) {

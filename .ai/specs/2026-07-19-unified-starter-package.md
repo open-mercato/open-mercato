@@ -115,3 +115,34 @@ A first run needed several manual commands. The monorepo had `yarn infra:up` but
 - 2026-07-19 — Initial implementation (package, CLI, steps, doctor, certs, supervision, compose fixes, docs).
 - 2026-10-22 — #7791: `yarn setup` starts and health-checks the infra in generated apps and the monorepo, shared Docker preflight, `--no-infra` with zero Docker calls, `infra:up`/`infra:down` in the template, login box visible in compact setup.
 - 2026-10-23 — #7791 review follow-ups: monorepo `initialize --skip-if-initialized`, health-aware `infra-up` check, WSL and port hints, symlink-safe `infra.mjs` entry, database name in the skip message.
+
+
+## 2026-11-03 — Service choices for setup
+
+Both monorepo and standalone setup default to reusing the configured backing
+services without Docker calls. A TTY prompt offers reuse (Enter), ephemeral
+Testcontainers services, isolated Compose services on random free ports, and
+Compose on configured ports. Explicit flags are `--reuse-services` (legacy
+`--no-infra`), `--ephemeral`, `--random-ports`, and `--infra`; noninteractive runs
+reuse by default. Explicit full-Docker mode keeps its existing Compose behavior.
+
+The shared helper owns port allocation and URL/credential configuration for
+PostgreSQL, all configured Redis consumers, and Meilisearch. Random Compose
+services get a checkout-specific stack/project identity and persist their
+settings. Ephemeral services use Testcontainers mapped hosts/ports, health waits,
+and session-owned cleanup; previous endpoint configuration is restored without
+overwriting subsequent user edits. Failed multi-file configuration rolls back.
+Setup errors include the manual install/generate/migrate/initialize/dev sequence.
+
+### Migration & Backward Compatibility
+
+The user-requested default changes from starting Compose to reusing services.
+Pass `--infra` to retain configured-port Compose startup. Existing `--no-infra`
+continues to work, and direct `infra:up` / `infra:down` retain their behavior.
+No existing command or env key is removed; isolated modes explicitly replace
+service endpoints. Explicit isolated modes normalize credentials containing non-portable characters
+to deterministic local-only values and synchronize the corresponding URLs.
+Remote database connection override/TLS query parameters are removed so they
+cannot redirect local setup to a remote database.
+No production dependency is added: Testcontainers is already
+a CLI dependency. Existing generated apps retain their scripts until refreshed.

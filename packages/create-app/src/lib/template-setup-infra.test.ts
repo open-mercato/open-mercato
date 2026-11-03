@@ -14,7 +14,7 @@ import test from 'node:test'
 // what setup forwarded to it.
 
 const TEMPLATE_SCRIPTS = fileURLToPath(new URL('../../template/scripts/', import.meta.url))
-const SHIPPED_SCRIPTS = ['setup.mjs', 'infra.mjs', 'dev-infra-preflight.mjs', 'dev-database-url.mjs']
+const SHIPPED_SCRIPTS = ['setup.mjs', 'infra.mjs', 'dev-infra-preflight.mjs', 'dev-database-url.mjs', 'dev-service-modes.mjs']
 const skip = process.platform === 'win32' ? 'fake docker shim is a POSIX shell script' : false
 
 const FAKE_DOCKER = `#!/bin/sh
@@ -112,7 +112,7 @@ test('yarn setup --no-infra makes zero docker calls and forwards the opt-out to 
     assert.equal(run.code, 0, run.output)
     assert.deepEqual(run.dockerCalls, [])
     assert.deepEqual(run.devArgs, ['--setup', '--no-infra'])
-    assert.match(run.output, /--no-infra: skipping Docker/)
+    assert.match(run.output, /--no-infra: skipping Docker Compose/)
   } finally {
     fs.rmSync(app.appDir, { recursive: true, force: true })
   }
@@ -139,7 +139,7 @@ test('yarn setup keeps a remote DATABASE_URL and says so instead of switching to
   const app = await makeApp()
   try {
     fs.writeFileSync(path.join(app.appDir, '.env'), 'DATABASE_URL=postgres://me:pw@db.example.com:5432/custom\n')
-    const run = await runScript(app, 'setup.mjs', [])
+    const run = await runScript(app, 'setup.mjs', ['--infra'])
     assert.equal(run.code, 0, run.output)
     assert.match(run.output, /DATABASE_URL points at db\.example\.com; it is kept as is/)
     assert.equal(fs.readFileSync(path.join(app.appDir, '.env'), 'utf8'), 'DATABASE_URL=postgres://me:pw@db.example.com:5432/custom\n')
@@ -163,7 +163,7 @@ test('classic and reinstall wrappers keep their semantics and forward --no-infra
 test('yarn setup starts the infra with a health wait before handing over to the dev runner', { skip }, async () => {
   const app = await makeApp()
   try {
-    const run = await runScript(app, 'setup.mjs', ['--classic'])
+    const run = await runScript(app, 'setup.mjs', ['--classic', '--infra'])
     assert.equal(run.code, 0, run.output)
     const upIndex = run.dockerCalls.findIndex((call) => call === 'compose up -d --wait')
     assert.ok(upIndex > 0, run.dockerCalls.join('\n'))
@@ -187,10 +187,13 @@ for (const failure of FAILURES) {
   test(`yarn setup stops before any database step on ${failure.name}`, { skip }, async () => {
     const app = await makeApp()
     try {
-      const run = await runScript(app, 'setup.mjs', [], failure.options)
+      const run = await runScript(app, 'setup.mjs', ['--infra'], failure.options)
       assert.equal(run.code, 2, run.output)
       assert.match(run.output, failure.message)
       assert.match(run.output, /yarn setup --no-infra/)
+      assert.match(run.output, /Manual setup:/)
+      assert.match(run.output, /yarn install/)
+      assert.match(run.output, /yarn dev --no-infra/)
       assert.equal(run.devArgs, null, 'setup must not continue to install/migrate/initialize')
     } finally {
       fs.rmSync(app.appDir, { recursive: true, force: true })
@@ -203,7 +206,7 @@ test('yarn setup reports a port held by another process and does not run compose
   const blocker = net.createServer()
   await new Promise<void>((resolve) => blocker.listen(app.ports.POSTGRES_PORT, '127.0.0.1', () => resolve()))
   try {
-    const run = await runScript(app, 'setup.mjs', [])
+    const run = await runScript(app, 'setup.mjs', ['--infra'])
     assert.equal(run.code, 2, run.output)
     assert.match(run.output, new RegExp(`Port ${app.ports.POSTGRES_PORT} \\(postgres\\) is already in use`))
     assert.match(run.output, /POSTGRES_PORT in \.env/)
@@ -263,4 +266,43 @@ test('isDirectRun compares real paths and ignores drive-letter case on Windows',
   assert.equal(isDirectRun(undefined, '/app/real/infra.mjs', { platform: 'linux', realpath }), false)
   const identity = (candidate: string) => candidate
   assert.equal(isDirectRun('c:\\app\\scripts\\infra.mjs', 'C:\\app\\scripts\\infra.mjs', { platform: 'win32', realpath: identity }), true)
+})
+
+
+test('plain setup defaults to reusing services without Docker or config rewrites', { skip }, async () => {
+  const app = await makeApp()
+  try {
+    const original = 'DATABASE_URL=postgres://owner:password@db.example.com:6543/custom\n'
+    fs.writeFileSync(path.join(app.appDir, '.env'), original)
+    const run = await runScript(app, 'setup.mjs', [], { withDocker: false })
+    assert.equal(run.code, 0, run.output)
+    assert.deepEqual(run.dockerCalls, [])
+    assert.deepEqual(run.devArgs, ['--setup', '--no-infra'])
+    assert.equal(fs.readFileSync(path.join(app.appDir, '.env'), 'utf8'), original)
+  } finally { fs.rmSync(app.appDir, { recursive: true, force: true }) }
+})
+
+test('random ports setup saves matching service URLs before compose and dev', { skip }, async () => {
+  const app = await makeApp()
+  try {
+    fs.writeFileSync(path.join(app.appDir, '.env'), 'DATABASE_URL=postgres://me:pw@remote:5432/custom\nREDIS_URL=redis://remote:6379/2\n')
+    const run = await runScript(app, 'setup.mjs', ['--random-ports'])
+    assert.equal(run.code, 0, run.output)
+    const { parseEnv } = await import('node:util')
+    const settings = parseEnv(fs.readFileSync(path.join(app.appDir, '.env'), 'utf8'))
+    assert.equal(new URL(settings.DATABASE_URL).port, settings.POSTGRES_PORT)
+    assert.equal(new URL(settings.REDIS_URL).port, settings.REDIS_PORT)
+    assert.equal(new URL(settings.MEILISEARCH_HOST).port, settings.MEILISEARCH_PORT)
+    assert.ok(run.dockerCalls.includes('compose up -d --wait'))
+  } finally { fs.rmSync(app.appDir, { recursive: true, force: true }) }
+})
+
+test('failed dev setup prints the manual fallback and preserves exit status', { skip }, async () => {
+  const app = await makeApp()
+  try {
+    fs.writeFileSync(path.join(app.appDir, 'scripts', 'dev.mjs'), 'process.exit(7)\n')
+    const run = await runScript(app, 'setup.mjs', [])
+    assert.equal(run.code, 7)
+    assert.match(run.output, /Manual setup:[\s\S]*yarn install[\s\S]*yarn generate[\s\S]*yarn dev --no-infra/)
+  } finally { fs.rmSync(app.appDir, { recursive: true, force: true }) }
 })

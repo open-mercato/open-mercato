@@ -78,7 +78,7 @@ cd my-app
 yarn setup
 ```
 
-`yarn setup` creates missing environment files, starts and health-checks PostgreSQL, Redis and Meilisearch, installs dependencies, applies migrations, initializes demo data when needed, and starts the dev runtime. Re-running it reuses existing infrastructure and keeps your data. If you manage those services yourself, configure their URLs in `.env` and run `yarn setup --no-infra`.
+`yarn setup` creates missing environment files and reuses the PostgreSQL, Redis and Meilisearch services configured in `.env` by default. It installs dependencies, applies migrations, initializes demo data when needed, and starts the dev runtime. Interactive terminals offer service choices: `--ephemeral` starts disposable Testcontainers services for the session, `--random-ports` starts an isolated Compose stack on free ports, and `--infra` starts Compose on configured ports. Both isolated options synchronize the service ports and URLs; ephemeral settings are restored when the session exits. `--no-infra` explicitly selects reuse. Setup failures print the manual install, initialization and dev commands.
 
 A plain `npx create-mercato-app my-app` asks these questions plus Git init (its agent default is Claude Code). Without a terminal it silently picks classic, claude-code and no git, so agents always pass the flags and run `yarn setup` in the background. If Docker is unavailable, offer Open Mercato Cloud instead. To keep mise after this terminal closes, add `eval "$(~/.local/bin/mise activate zsh)"` (or `bash`) to your shell profile. Pushing to GitHub is optional and comes later, in [Day 1](#day-1-the-missing-20-as-a-module).
 
