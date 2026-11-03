@@ -631,7 +631,7 @@ export default function DealsKanbanPage(): React.ReactElement {
   )
 
   // Aggregate query — gives accurate per-stage counts + totals (in base currency) across the entire pipeline,
-  // not just the loaded slice. Drives both lane headers and pagination decisions.
+  // not just the loaded slice. Drives lane headers and currency breakdowns.
   const aggregateQuery = useQuery<StageAggregateResponse | null>({
     queryKey: [
       'customers',
@@ -2853,7 +2853,7 @@ export default function DealsKanbanPage(): React.ReactElement {
                 />
               ) : (
                 <>
-                  {lanes.map((stage) => {
+                  {lanes.map((stage, stageIndex) => {
                     const laneDeals = sortedDealsByStage.get(stage.id) ?? EMPTY_DEAL_ARRAY
                     return (
                       <Lane
@@ -2861,6 +2861,7 @@ export default function DealsKanbanPage(): React.ReactElement {
                         stage={stage}
                         deals={laneDeals}
                         aggregate={aggregateByStage.get(stage.id) ?? null}
+                        paginationTotal={laneQueries[stageIndex]?.data?.total ?? 0}
                         selectedDealIds={selectedDealIds}
                         buildMenuItems={buildMenuItems}
                         activeDragDealId={activeDragDealId}
