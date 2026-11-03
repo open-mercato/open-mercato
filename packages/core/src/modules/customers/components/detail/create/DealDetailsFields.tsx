@@ -101,11 +101,13 @@ export function DealDetailsFields({
         <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
           <DealFormField
             fieldId="valueAmount"
+            controlId="valueAmount"
             label={tr('customers.deals.create.fields.valueAmount', 'Deal value')}
             error={errors.valueAmount}
           >
             <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
               <SuffixInput
+                id="valueAmount"
                 suffix={values.valueCurrency}
                 inputMode="decimal"
                 value={values.valueAmount}
@@ -115,6 +117,9 @@ export function DealDetailsFields({
                 disabled={isSubmitting}
               />
               <div data-crud-field-id="valueCurrency" className="w-28">
+                <Label htmlFor="valueCurrency" className="sr-only">
+                  {tr('customers.people.detail.deals.fields.valueCurrency', 'Currency')}
+                </Label>
                 <DealCurrencyField
                   id="valueCurrency"
                   value={values.valueCurrency}
