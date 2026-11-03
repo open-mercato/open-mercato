@@ -267,7 +267,7 @@ SCHEDULER_POLL_INTERVAL_MS=60000 yarn mercato scheduler start
 **Exit Codes:**
 
 - `0` - Success (async: sync complete, local: clean shutdown on Ctrl+C or `SIGTERM`)
-- `1` - Startup failed (scheduler service unavailable or the BullMQ sync failed)
+- `1` - Startup failed (scheduler service unavailable, the local polling engine failed to start, or the BullMQ sync failed)
 
 ---
 
