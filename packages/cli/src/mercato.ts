@@ -252,18 +252,10 @@ const SENSITIVE_MODULE_CLI_OPTIONS_BY_COMMAND = new Map<string, string[]>([
   ['seeds:load', ['--key']],
 ])
 
-function redactSensitiveModuleCliArgs(args: string[], commandKey: string): string[] {
+function getSensitiveModuleCliOptions(commandKey: string): ReadonlySet<string> {
   const sensitive = new Set(SENSITIVE_MODULE_CLI_OPTIONS)
   for (const option of SENSITIVE_MODULE_CLI_OPTIONS_BY_COMMAND.get(commandKey) ?? []) sensitive.add(option)
-  return args.map((argument, index) => {
-    const separatorIndex = argument.indexOf('=')
-    if (separatorIndex > 0) {
-      const option = argument.slice(0, separatorIndex)
-      if (sensitive.has(option)) return `${option}=****`
-    }
-    if (index > 0 && sensitive.has(args[index - 1]!)) return '****'
-    return argument
-  })
+  return sensitive
 }
 
 function formatInitFailureMessage(error: unknown): string {
@@ -2864,7 +2856,9 @@ export async function run(argv = process.argv) {
   const commandArgs = modName === 'deploy' && cmdName === 'railway'
     ? (await import('./lib/deploy/railway/options')).redactRailwayCliArgs(rest)
     : rest
-  const loggedArgs = redactSensitiveModuleCliArgs(redactCliArgs(commandArgs), `${modName}:${cmdName}`)
+  const sensitiveOptions = getSensitiveModuleCliOptions(`${modName}:${cmdName}`)
+  const loggedArgs = redactCliArgs(rest, sensitiveOptions)
+    .map((argument, index) => argument === rest[index] ? commandArgs[index]! : argument)
   console.log(`🚀 Running ${modName}:${cmdName} ${redactCliText(loggedArgs.join(' '), [], {})}`)
   try {
     const commandExitCode = await runWithCapturedExitCode(async () => {
@@ -2876,7 +2870,7 @@ export async function run(argv = process.argv) {
     }
     return commandExitCode
   } catch (error: unknown) {
-    console.error(`💥 Failed: ${redactCliText(formatCliFailureMessage(modName, cmdName, error), rest)}`)
+    console.error(`💥 Failed: ${redactCliText(formatCliFailureMessage(modName, cmdName, error), rest, process.env, sensitiveOptions)}`)
     return 1
   }
 }

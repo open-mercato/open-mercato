@@ -1380,6 +1380,123 @@ describe('module command secret output', () => {
     expect(output).not.toContain('fixture-password')
   })
 
+  describe.each([
+    ['fixture', 'execute', '--old-key'],
+    ['fixture', 'execute', '--oldKey'],
+    ['seeds', 'encrypt', '--key'],
+    ['seeds', 'decrypt', '--key'],
+    ['seeds', 'load', '--key'],
+  ])('command-scoped secrets for %s:%s %s', (moduleId, command, flag) => {
+    it.each([
+      {
+        form: 'split after a missing value',
+        args: ['--password', flag, 'fixture-first-key'],
+        expected: '--password **** ****',
+      },
+      {
+        form: 'equals after a missing value',
+        args: ['--password', `${flag}=fixture-first-key=tail`],
+        expected: '--password ****',
+      },
+      {
+        form: 'repeated with adjacent and trailing missing values',
+        args: ['--password', flag, flag, 'fixture-first-key', `${flag}=fixture-second-key=tail`, '--password'],
+        expected: `--password **** **** **** ${flag}=**** --password`,
+      },
+      {
+        form: 'mixed split and equals with a trailing missing value',
+        args: [flag, 'fixture-first-key', '--password', 'fixture-password', `${flag}=fixture-second-key=tail`, '--password'],
+        expected: `${flag} **** --password **** ${flag}=**** --password`,
+      },
+    ])('unions original argv masks for $form', async ({ args, expected }) => {
+      const originalArgs = [...args]
+      const handler = jest.fn().mockResolvedValue(undefined)
+      const mercato = await import('../mercato')
+      mercato.registerCliModules([{ id: moduleId, cli: [{ command, run: handler }] } as Module])
+
+      expect(await mercato.run(['node', 'mercato', moduleId, command, ...args])).toBe(0)
+      expect(handler).toHaveBeenCalledWith(originalArgs)
+      expect(args).toEqual(originalArgs)
+      const output = [...jest.mocked(console.log).mock.calls, ...jest.mocked(console.error).mock.calls]
+        .map((values) => values.join(' ')).join('\n')
+      expect(output).toContain(`Running ${moduleId}:${command} ${expected}`)
+      for (const secret of ['fixture-first-key', 'fixture-second-key=tail', 'fixture-password']) {
+        expect(output).not.toContain(secret)
+      }
+    })
+
+    it('sanitizes command-scoped key values echoed by a rejecting handler', async () => {
+      const args = [flag, 'fixture-first-key', `${flag}=fixture-second-key=tail`, '--password', 'fixture-password']
+      const handler = jest.fn().mockRejectedValue(new Error('Rejected fixture-first-key fixture-second-key=tail fixture-password'))
+      const mercato = await import('../mercato')
+      mercato.registerCliModules([{ id: moduleId, cli: [{ command, run: handler }] } as Module])
+
+      expect(await mercato.run(['node', 'mercato', moduleId, command, ...args])).toBe(1)
+      expect(handler).toHaveBeenCalledWith(args)
+      const output = [...jest.mocked(console.log).mock.calls, ...jest.mocked(console.error).mock.calls]
+        .map((values) => values.join(' ')).join('\n')
+      expect(output).toContain(`Running ${moduleId}:${command} ${flag} **** ${flag}=**** --password ****`)
+      expect(output).toContain('Rejected **** **** ****')
+      for (const secret of ['fixture-first-key', 'fixture-second-key=tail', 'fixture-password']) {
+        expect(output).not.toContain(secret)
+      }
+    })
+  })
+
+  it('retains ordinary custom-field keys in banners and rejection diagnostics', async () => {
+    const args = ['--key', 'priority_level', '--key=display_order']
+    const handler = jest.fn().mockRejectedValue(new Error('Invalid priority_level display_order'))
+    const mercato = await import('../mercato')
+    mercato.registerCliModules([{ id: 'entities', cli: [{ command: 'add-field', run: handler }] } as Module])
+
+    expect(await mercato.run(['node', 'mercato', 'entities', 'add-field', ...args])).toBe(1)
+    expect(handler).toHaveBeenCalledWith(args)
+    expect(jest.mocked(console.log).mock.calls.flat().join('\n'))
+      .toContain('Running entities:add-field --key priority_level --key=display_order')
+    expect(jest.mocked(console.error).mock.calls.flat().join('\n'))
+      .toContain('Invalid priority_level display_order')
+  })
+
+  it('preserves the Railway prepass and original handler arguments when combining masks', async () => {
+    const args = ['--password', '--old-key', 'fixture-old-key', '--token=fixture-token', '--project', 'keep-project']
+    const handler = jest.fn().mockResolvedValue(undefined)
+    const options = await import('../lib/deploy/railway/options')
+    const railwayRedactor = jest.spyOn(options, 'redactRailwayCliArgs')
+    const mercato = await import('../mercato')
+    mercato.registerCliModules([{ id: 'deploy', cli: [{ command: 'railway', run: handler }] } as Module])
+
+    expect(await mercato.run(['node', 'mercato', 'deploy', 'railway', ...args])).toBe(0)
+    expect(railwayRedactor).toHaveBeenCalledWith(args)
+    expect(handler).toHaveBeenCalledWith(args)
+    const output = jest.mocked(console.log).mock.calls.flat().join('\n')
+    expect(output).toContain('Running deploy:railway --password **** **** --token=**** --project keep-project')
+    expect(output).not.toContain('fixture-old-key')
+    expect(output).not.toContain('fixture-token')
+  })
+
+  it.each(['redis', 'rediss'])('sanitizes empty-user %s URI passwords in the real dispatcher', async (scheme) => {
+    Object.assign(process.env, {
+      REDIS_URL: 'redis://:fixture-other-password@other-cache:6379/0',
+      OM_SEARCH_MAX_TOKENS_PER_FIELD: '5000',
+      OM_SEARCH_TOKEN_PRESENCE_CACHE_MS: '30000',
+      OM_SEARCH_STORE_RAW_TOKENS: 'false',
+    })
+    const uri = `${scheme}://:fixture-uri-password@cache:6379/0`
+    const safeUri = `${scheme}://cache:6379/1`
+    const args = ['--count', '10', uri, `--endpoint=${uri}`, safeUri]
+    const handler = jest.fn().mockRejectedValue(new Error(`connect ${uri} failed; ${safeUri}; 5000 after 30000ms, false`))
+    const mercato = await import('../mercato')
+    mercato.registerCliModules([{ id: 'fixture', cli: [{ command: 'execute', run: handler }] } as Module])
+
+    expect(await mercato.run(['node', 'mercato', 'fixture', 'execute', ...args])).toBe(1)
+    expect(handler).toHaveBeenCalledWith(args)
+    const banner = jest.mocked(console.log).mock.calls.flat().join('\n')
+    const failure = jest.mocked(console.error).mock.calls.flat().join('\n')
+    expect(banner).toContain(`--count 10 ${scheme}://:****@cache:6379/0 --endpoint=${scheme}://:****@cache:6379/0 ${safeUri}`)
+    expect(failure).toContain(`connect ${scheme}://:****@cache:6379/0 failed; ${safeUri}; 5000 after 30000ms, false`)
+    expect(`${banner}\n${failure}`).not.toContain('fixture-uri-password')
+  })
+
   it.each([false, true])('redacts secret options while passing original arguments to the handler (failure: %s)', async (fails) => {
     const args = ['--password', 'fixture-password', '--client-secret=fixture-client-secret', '--apiKey', 'fixture-api-key', '--token=fixture-token', '--tenant', 'tenant-1']
     const handler = fails
