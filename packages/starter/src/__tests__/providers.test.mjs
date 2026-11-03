@@ -148,3 +148,9 @@ test('a user can still configure a provider interactively and synchronize the ap
   assert.match(result.appContents, /OPENAI_API_KEY=fixture-interactive-key/)
   assert.doesNotMatch(result.output, /fixture-interactive-key/)
 })
+
+
+test('optional AI skip output separates its warning with a blank line and wide-glyph spacing', async () => {
+  const result = await runProvider({ step: true })
+  assert.match(result.output, /\n[ \t]*\n[ \t]*⚠️ {2}Continuing without AI/)
+})

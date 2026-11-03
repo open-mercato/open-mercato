@@ -245,6 +245,18 @@ export function readDatabaseNameEnvOverride(env) {
   return trimmed
 }
 
+export function previewDatabaseNameOverride({ argv = [], env = {}, cwd = process.cwd(), envText = '' } = {}) {
+  const parsed = parseDatabaseNameArgs(argv)
+  const envName = readDatabaseNameEnvOverride(env)
+  if (!parsed.provided && envName === null) return null
+  const { name } = resolveDatabaseName({ rawValue: parsed.provided ? parsed.rawValue : envName, cwd })
+  const validation = validateDatabaseName(name)
+  if (!validation.ok) throw new Error(`Invalid database name: ${validation.reason}`)
+  const originalUrl = readEnvDatabaseUrl(envText)
+  if (!originalUrl) throw new Error('The .env file must declare DATABASE_URL before applying --database-name.')
+  return rewriteDatabaseUrl(originalUrl, name)
+}
+
 export async function resolveDatabaseNameOverride(options) {
   const {
     argv = [],

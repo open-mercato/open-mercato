@@ -420,7 +420,7 @@ export const envFilesStep = {
     return { ok: false, detail: 'converging (never overwrites existing values)' }
   },
   async apply(ctx) {
-    ensureEnvFiles(ctx.repoRoot, { log: (line) => ctx.log(`   ${line}`), warn: (line) => ctx.log(`   ⚠️ ${line}`), extraDefaults: ctx.company.env })
+    ensureEnvFiles(ctx.repoRoot, { log: (line) => ctx.log(`   ${line}`), warn: (line) => ctx.log(`   ⚠️  ${line}`), extraDefaults: ctx.company.env })
   },
 }
 
@@ -485,7 +485,7 @@ export const llmProviderStep = {
       skipPrompt: ctx.flags.skipLlmPrompt,
       nonInteractive: ctx.flags.nonInteractive,
       log: (line) => ctx.log(`   ${line}`),
-      warn: (line) => ctx.log(`   ⚠️ ${line}`),
+      warn: (line) => ctx.log(`   ⚠️  ${line}`),
     })
   },
   async check() {
@@ -801,6 +801,7 @@ export async function runSteps(steps, ctx) {
         statusLine('ok', `${checked.detail || 'already satisfied'} ${color.dim('(skipped — already done)')}`, { log: ctx.log })
         continue
       }
+      if (step.id === 'infra-up' && checked.detail?.startsWith('starting:')) ctx.log('')
       if (checked.detail) statusLine('info', checked.detail, { log: ctx.log })
       if (!step.apply) continue
       await step.apply(ctx)

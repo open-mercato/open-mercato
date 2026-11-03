@@ -109,6 +109,7 @@ export async function ensureLlmProvider(rootEnvOrFiles, { skipPrompt = false, no
   }
 
   const skipProvider = () => {
+    log('')
     warn('Continuing without AI. Configure a provider key in .env later and restart the opencode container to enable AI chat.')
     return 'skipped'
   }

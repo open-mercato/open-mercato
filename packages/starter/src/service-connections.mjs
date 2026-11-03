@@ -77,22 +77,34 @@ export async function verifyServiceConnections({ projectDir = process.cwd(), env
   const settings = readSettings(projectDir, envFiles, env)
   const checked = []
   const database = parseTarget(settings.DATABASE_URL, ['postgres:', 'postgresql:'], 'PostgreSQL', 'DATABASE_URL')
-  let postgres
   try {
     const { Client } = await loadModule(projectDir, 'pg')
-    postgres = new Client({ connectionString: database.toString(), connectionTimeoutMillis: timeoutMs, query_timeout: timeoutMs, statement_timeout: timeoutMs })
-    postgres.on?.('error', () => {})
-    await bounded(() => postgres.connect(), timeoutMs)
-    await bounded(() => postgres.query('SELECT 1'), timeoutMs)
+    const probePostgres = async (target) => {
+      const client = new Client({ connectionString: target.toString(), connectionTimeoutMillis: timeoutMs, query_timeout: timeoutMs, statement_timeout: timeoutMs })
+      client.on?.('error', () => {})
+      try {
+        await bounded(() => client.connect(), timeoutMs)
+        await bounded(() => client.query('SELECT 1'), timeoutMs)
+      } finally {
+        try { await bounded(() => client.end(), Math.min(timeoutMs, 1000)) }
+        catch { client.connection?.stream?.destroy() }
+      }
+    }
+    try {
+      await probePostgres(database)
+      log(`[setup] PostgreSQL connection verified at ${endpoint(database)}.`)
+    } catch (error) {
+      if (error.code !== '3D000') throw error
+      const maintenance = new URL(database)
+      maintenance.pathname = '/postgres'
+      maintenance.searchParams.delete('database')
+      maintenance.searchParams.delete('dbname')
+      await probePostgres(maintenance)
+      log(`[setup] PostgreSQL credentials verified at ${endpoint(maintenance)}. The selected database does not exist yet; initialization will handle its creation.`)
+    }
     checked.push('DATABASE_URL')
-    log(`[setup] PostgreSQL connection verified at ${endpoint(database)}.`)
   } catch (error) {
     throw new ServiceConnectionError('PostgreSQL', 'DATABASE_URL', endpoint(database), failureKind(error))
-  } finally {
-    if (postgres) {
-      try { await bounded(() => postgres.end(), Math.min(timeoutMs, 1000)) }
-      catch { postgres.connection?.stream?.destroy() }
-    }
   }
 
   const redisKeys = Object.keys(settings).filter((key) => (key === 'REDIS_URL' || key.endsWith('_REDIS_URL')) && settings[key]?.trim())

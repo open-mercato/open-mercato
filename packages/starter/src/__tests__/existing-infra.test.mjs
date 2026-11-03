@@ -284,6 +284,7 @@ for (const state of ['running', 'restarting']) {
         beforeUp: () => assert.fail('image preparation must wait for the existing-service decision'),
         portProbe: async () => false,
         containerProbe: () => [],
+        processProbe: () => [],
       })
       const confirm = async (problem) => {
         assert.equal(problem.code, 'unhealthy')

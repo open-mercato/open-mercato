@@ -67,7 +67,7 @@ async function makeApp() {
     fs.copyFileSync(path.join(TEMPLATE_SCRIPTS, file), path.join(appDir, 'scripts', file))
   }
   fs.writeFileSync(path.join(appDir, 'scripts', 'dev.mjs'), DEV_STUB)
-  fs.writeFileSync(path.join(appDir, 'scripts', 'dev-service-connections.mjs'), `export async function verifyServiceConnections() { if (process.env.FAKE_CONNECTION_ERROR) throw new Error('[setup] PostgreSQL connection failed (DATABASE_URL at postgres://fixture/db). Check credentials in .env.'); console.log('SERVICE_CONNECTIONS_VERIFIED') }\n`)
+  fs.writeFileSync(path.join(appDir, 'scripts', 'dev-service-connections.mjs'), `export async function verifyServiceConnections(options) { if (process.env.FAKE_EXPECT_DATABASE_URL && options.env.DATABASE_URL !== process.env.FAKE_EXPECT_DATABASE_URL) throw new Error('Verifier received the wrong database URL'); if (process.env.FAKE_CONNECTION_ERROR) throw new Error('[setup] PostgreSQL connection failed (DATABASE_URL at postgres://fixture/db). Check credentials in .env.'); console.log('SERVICE_CONNECTIONS_VERIFIED') }\n`)
   fs.mkdirSync(path.join(appDir, 'node_modules', 'cross-spawn'), { recursive: true })
   const binDir = path.join(appDir, 'fake-bin')
   fs.mkdirSync(binDir)
@@ -107,7 +107,7 @@ async function runScript(app: Awaited<ReturnType<typeof makeApp>>, script: strin
   let answered = false
   child.stdout.on('data', (chunk) => {
     output += chunk
-    if (!answered && options.promptAnswer !== undefined && output.includes('Do you want to continue using these pre-existing services? [y/N]')) {
+    if (!answered && options.promptAnswer !== undefined && output.includes('using these pre-existing services? [y/N]')) {
       answered = true
       child.stdin.write(`${options.promptAnswer}\n`)
     }
@@ -171,6 +171,7 @@ test('yarn setup keeps a remote DATABASE_URL and says so instead of switching to
 
 test('classic and reinstall wrappers keep their semantics and forward --no-infra', { skip }, async () => {
   const app = await makeApp()
+  fs.writeFileSync(path.join(app.appDir, '.env'), 'DATABASE_URL=postgres://fixture:pw@localhost/original\n')
   try {
     const run = await runScript(app, 'setup.mjs', ['--reinstall', '--classic', '--no-infra', '--database-name=review_db'])
     assert.equal(run.code, 0, run.output)
@@ -245,7 +246,7 @@ for (const answer of ['y', 'n']) {
     fs.writeFileSync(path.join(app.appDir, '.env'), originalEnv)
     try {
       const run = await runScript(app, 'setup.mjs', [], { promptAnswer: answer })
-      assert.match(run.output, /Do you want to continue using these pre-existing services\? \[y\/N\]/)
+      assert.match(run.output, /Continue using these pre-existing services\? \[y\/N\]/)
       assert.ok(!run.dockerCalls.some((call) => /\b(up|down|stop|restart)\b/.test(call)), run.dockerCalls.join('\n'))
       assert.equal(fs.readFileSync(path.join(app.appDir, '.env'), 'utf8'), originalEnv)
       if (answer === 'y') {
@@ -324,3 +325,20 @@ test('setup rejects invalid service credentials before invoking the database/dev
   assert.equal(outcome.devArgs, null)
   assert.deepEqual(outcome.dockerCalls, [])
 })
+
+
+for (const selection of ['flag', 'environment']) {
+  test(`standalone setup verifies the effective database-name ${selection} override without writing or prompting`, { skip }, async (t) => {
+    const app = await makeApp()
+    t.after(() => fs.rmSync(app.appDir, { recursive: true, force: true }))
+    const original = 'DATABASE_URL=postgres://fixture:pw@localhost/old\n'
+    fs.writeFileSync(path.join(app.appDir, '.env'), original)
+    const args = ['--no-infra', ...(selection === 'flag' ? ['--database-name=selected', '--no-update-env'] : [])]
+    const result = await runScript(app, 'setup.mjs', args, { env: { FAKE_EXPECT_DATABASE_URL: 'postgres://fixture:pw@localhost/selected', ...(selection === 'environment' ? { OM_DEV_DATABASE_NAME: 'selected' } : {}) } })
+    assert.equal(result.code, 0, result.output)
+    assert.match(result.output, /SERVICE_CONNECTIONS_VERIFIED/)
+    assert.equal(fs.readFileSync(path.join(app.appDir, '.env'), 'utf8'), original)
+    assert.doesNotMatch(result.output, /Update .env to use database/)
+    assert.deepEqual(result.devArgs, ['--setup', ...args])
+  })
+}

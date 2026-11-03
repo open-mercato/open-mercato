@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync } from 'node:fs'
-import { collectForwardedSetupFlags } from './dev-database-url.mjs'
+import { copyFileSync, existsSync, readFileSync } from 'node:fs'
+import { collectForwardedSetupFlags, previewDatabaseNameOverride } from './dev-database-url.mjs'
 import { NO_INFRA_FLAG } from './dev-infra-preflight.mjs'
 import { ensureInfra } from './infra.mjs'
 import { verifyServiceConnections } from './dev-service-connections.mjs'
@@ -39,7 +39,8 @@ if (!existsSync('node_modules/cross-spawn')) {
 }
 
 try {
-  await verifyServiceConnections()
+  const selectedDatabaseUrl = previewDatabaseNameOverride({ argv, env: process.env, envText: existsSync('.env') ? readFileSync('.env', 'utf8') : '' })
+  await verifyServiceConnections({ env: selectedDatabaseUrl ? { ...process.env, DATABASE_URL: selectedDatabaseUrl } : process.env })
 } catch (error) {
   console.error(error.message)
   process.exit(2)

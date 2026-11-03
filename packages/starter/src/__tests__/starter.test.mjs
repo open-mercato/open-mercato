@@ -903,3 +903,12 @@ test('the database step initializes with --skip-if-initialized so a re-run never
   await databaseStep.apply(emptied)
   assert.deepEqual(invocations.map((entry) => entry.args), [['db:migrate'], ['initialize']])
 })
+
+
+test('infrastructure starting detail is separated from its step heading by a blank line', async () => {
+  const messages = []
+  await runSteps([{ id: 'infra-up', title: 'Infrastructure', check: async () => ({ ok: false, detail: 'starting: postgres' }), apply: async () => {} }], quietCtx({ log: (line) => messages.push(line) }))
+  const detail = messages.findIndex((line) => line.includes('starting: postgres'))
+  assert.ok(detail > 0)
+  assert.equal(messages[detail - 1], '')
+})
