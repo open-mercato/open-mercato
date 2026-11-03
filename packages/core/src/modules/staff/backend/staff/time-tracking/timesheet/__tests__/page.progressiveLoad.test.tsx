@@ -12,6 +12,7 @@ import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useSearchParams } from 'next/navigation'
 import { todayIso } from '../../../../../lib/time-tracking-ui/timesheetPeriod'
@@ -36,6 +37,11 @@ jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({ flash: jest.fn() }))
+
+const mockReportError = jest.fn()
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: jest.fn(() => ({ reportError: (...args: unknown[]) => mockReportError(...args) })),
+}))
 
 jest.mock('@open-mercato/ui/backend/BackendChromeProvider', () => ({ useBackendChrome: jest.fn() }))
 
@@ -205,6 +211,7 @@ async function renderPage(): Promise<void> {
 
 beforeEach(() => {
   jest.clearAllMocks()
+  mockReportError.mockReset()
   mockAnchorIndex = 0
   window.localStorage.clear()
   useBackendChromeMock.mockReturnValue({
@@ -430,5 +437,51 @@ describe('timesheet progressive load', () => {
     expect(screen.getByTestId('grid-view')).toBeInTheDocument()
     expect(screen.queryByText(PARTIAL_MESSAGE)).not.toBeInTheDocument()
     expect(screen.queryByText(UNAVAILABLE_MESSAGE)).not.toBeInTheDocument()
+    expect(mockReportError).not.toHaveBeenCalled()
+  })
+
+  describe('read failures reach telemetry', () => {
+    it.each([
+      ['assignments', 'assignments unavailable', 'staff.timesheet_assignments_read_failed'],
+      ['entries', 'entries unavailable', 'staff.timesheet_entries_read_failed'],
+      ['projects', 'projects unavailable', 'staff.timesheet_projects_read_failed'],
+    ] as const)('reports a failing %s read with its own code', async (read, message, code) => {
+      stubReads({ [read]: true })
+
+      await renderPage()
+
+      expect(mockReportError).toHaveBeenCalledTimes(1)
+      expect(mockReportError).toHaveBeenCalledWith(expect.objectContaining({ message }), { module: 'staff', code })
+    })
+
+    it.each(['assignments', 'projects'] as const)('keeps the partial view when reporting a failing %s read throws', async (read) => {
+      mockReportError.mockImplementation(() => {
+        throw new Error('telemetry exporter down')
+      })
+      stubReads({ [read]: true })
+
+      await renderPage()
+
+      expect(mockReportError).toHaveBeenCalledTimes(1)
+      expect(flash).not.toHaveBeenCalled()
+      expect(screen.getByTestId('grid-view')).toBeInTheDocument()
+      expect(screen.getByText(PARTIAL_MESSAGE)).toBeInTheDocument()
+      expect(screen.queryByText(UNAVAILABLE_MESSAGE)).not.toBeInTheDocument()
+    })
+
+    it('keeps the unavailable state when reporting a failing entry read throws', async () => {
+      mockReportError.mockImplementation(() => {
+        throw new Error('telemetry exporter down')
+      })
+      stubReads({ entries: true })
+
+      await renderPage()
+
+      expect(mockReportError).toHaveBeenCalledTimes(1)
+      expect(flash).not.toHaveBeenCalled()
+      expect(screen.getByText(UNAVAILABLE_MESSAGE)).toBeInTheDocument()
+      expect(screen.queryByTestId('grid-view')).not.toBeInTheDocument()
+      expect(screen.queryByText(PARTIAL_MESSAGE)).not.toBeInTheDocument()
+    })
   })
 })

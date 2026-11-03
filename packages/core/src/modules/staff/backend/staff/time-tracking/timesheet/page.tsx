@@ -41,6 +41,7 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 import { hasFeature } from '@open-mercato/shared/security/features'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { TimerBar } from '../../../../lib/timesheets-ui/TimerBar'
 import { readApiResultWithTimeout } from '../../../../lib/timesheets-ui/readApiResultWithTimeout'
 import { CreateProjectDialog } from '../../../../lib/timesheets-ui/CreateProjectDialog'
@@ -95,6 +96,20 @@ import { deriveInterval } from '../../../../lib/time-tracking/interval'
 import { GridView, type GridRowMode } from './GridView'
 
 const logger = createLogger('staff').child({ component: 'time-tracking/timesheet' })
+
+const TIMESHEET_READ_ERROR_CODES = {
+  assignmentsReadFailed: 'staff.timesheet_assignments_read_failed',
+  entriesReadFailed: 'staff.timesheet_entries_read_failed',
+  projectsReadFailed: 'staff.timesheet_projects_read_failed',
+} as const
+
+type TimesheetReadErrorCode = (typeof TIMESHEET_READ_ERROR_CODES)[keyof typeof TIMESHEET_READ_ERROR_CODES]
+
+function reportTimesheetReadError(error: unknown, code: TimesheetReadErrorCode): void {
+  try {
+    getTelemetryRuntime()?.reportError(error, { module: 'staff', code })
+  } catch {}
+}
 
 const PAGE_SIZE = 100
 const MAX_ENTRY_PAGES = 5
@@ -346,6 +361,7 @@ export default function TimesheetPage() {
           .filter((id) => id.length > 0)
       } else {
         logger.error('staff.time_tracking.timesheet assignments load failed', { err: assignmentsResult.reason })
+        reportTimesheetReadError(assignmentsResult.reason, TIMESHEET_READ_ERROR_CODES.assignmentsReadFailed)
         failures.push('assignments')
       }
 
@@ -356,6 +372,7 @@ export default function TimesheetPage() {
         truncated = entriesResult.value.truncated
       } else {
         logger.error('staff.time_tracking.timesheet entries load failed', { err: entriesResult.reason })
+        reportTimesheetReadError(entriesResult.reason, TIMESHEET_READ_ERROR_CODES.entriesReadFailed)
         failures.push('entries')
       }
 
@@ -385,6 +402,7 @@ export default function TimesheetPage() {
               { allowNullResult: true },
             ).catch((error: unknown) => {
               logger.error('staff.time_tracking.timesheet projects load failed', { err: error })
+              reportTimesheetReadError(error, TIMESHEET_READ_ERROR_CODES.projectsReadFailed)
               failures.push('projects')
               return {} as Record<string, unknown>
             })
