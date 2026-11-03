@@ -57,7 +57,12 @@ function readManifest(packageJsonPath: string, fullReasons: Set<string>): Discov
   return { packageName, adapterId, sourceRoot: path.dirname(packageJsonPath) }
 }
 
-function scanDirectory(root: string, manifestPaths: string[], fullReasons: Set<string>): void {
+function scanDirectory(
+  root: string,
+  manifestPaths: string[],
+  scopeDirectories: string[],
+  fullReasons: Set<string>,
+): void {
   let entries: fs.Dirent[]
   try {
     entries = fs.readdirSync(root, { withFileTypes: true })
@@ -71,7 +76,8 @@ function scanDirectory(root: string, manifestPaths: string[], fullReasons: Set<s
     const child = path.join(root, entry.name)
     // Scoped packages nest one level deeper (`@scope/name`).
     if (entry.name.startsWith('@')) {
-      scanDirectory(child, manifestPaths, fullReasons)
+      scopeDirectories.push(child)
+      scanDirectory(child, manifestPaths, scopeDirectories, fullReasons)
       continue
     }
     manifestPaths.push(path.join(child, 'package.json'))
@@ -79,9 +85,12 @@ function scanDirectory(root: string, manifestPaths: string[], fullReasons: Set<s
 }
 
 /**
- * Shares candidate discovery with generation. Directory paths are coarse roots
- * watched recursively; package implementations are not registry inputs. Missing
- * manifests are retained so declaring an adapter in an existing package is seen.
+ * Shares candidate discovery with generation. Directory paths are the scan roots
+ * and their `@scope` folders, watched without recursion: a package appearing or
+ * disappearing adds or removes an entry there, and installs also change the
+ * watched lockfiles. Package implementations are not registry inputs. Missing
+ * manifests are retained so declaring an adapter in an existing package is seen
+ * by the next capture.
  */
 export type WebResearchAdapterWatchInputs = {
   manifestPaths: string[]
@@ -95,16 +104,17 @@ export function getWebResearchAdapterWatchInputs(
   const rootDir = resolver.getRootDir()
   const appDir = resolver.getAppDir()
   const manifestPaths: string[] = []
+  const scopeDirectories: string[] = []
   const fullReasons = new Set<string>()
-  const directoryPaths = [...new Set([
+  const scanRoots = [...new Set([
     path.join(rootDir, 'packages'),
     path.join(rootDir, 'node_modules'),
     path.join(appDir, 'node_modules'),
   ].map((directory) => path.resolve(directory)))]
-  for (const root of directoryPaths) scanDirectory(root, manifestPaths, fullReasons)
+  for (const root of scanRoots) scanDirectory(root, manifestPaths, scopeDirectories, fullReasons)
   return {
     manifestPaths: [...new Set(manifestPaths)],
-    directoryPaths,
+    directoryPaths: [...new Set([...scanRoots, ...scopeDirectories])],
     fullReasons: [...fullReasons].sort((left, right) => left.localeCompare(right)),
   }
 }

@@ -8,7 +8,7 @@
 2. Run `yarn generate` after changing generator discovery or output.
 3. Keep `.snapshot-open-mercato.json` in sync with intended module entity changes.
 4. Keep standalone app generator contracts aligned across `packages/create-app`, template package scripts, and CLI testing paths.
-5. Keep dev generator watchers event-gated and bounded: reuse stat-keyed snapshot caches, preserve originating generator categories through transitive helpers, and watch coarse dependency roots instead of opening one watcher per manifest.
+5. Keep dev generator watchers event-gated and bounded: stat-keyed snapshot caches may keep only the fingerprint and extracted facts (imports, page/plugin/supervisor flags), never source text or ASTs; preserve originating generator categories through transitive helpers; watch module source roots recursively, but package scan roots (`node_modules`, `packages/`, `@scope` folders) only without recursion, never one watcher per manifest.
 
 ## Ask First
 

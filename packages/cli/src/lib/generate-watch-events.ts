@@ -120,7 +120,8 @@ export function resolveGenerateWatchTargets(options: {
   moduleRoots: GenerateWatchModuleTarget[]
   resolveSourceMirrorBase: (packageBase: string) => string | null
   additionalInputs?: readonly string[]
-  additionalDirectories?: readonly string[]
+  /** Watched without recursion; their per-file snapshot records are covered by these entries. */
+  shallowDirectories?: readonly string[]
   appSourceDir?: string
   outputDir?: string
   outputDirectories?: readonly string[]
@@ -132,8 +133,8 @@ export function resolveGenerateWatchTargets(options: {
     fileName: path.basename(filePath),
   }))
   if (options.appSourceDir) targets.push({ directory: options.appSourceDir, recursive: true })
-  for (const directory of options.additionalDirectories ?? []) {
-    targets.push({ directory, recursive: true })
+  for (const directory of options.shallowDirectories ?? []) {
+    targets.push({ directory, recursive: false })
   }
 
   for (const roots of options.moduleRoots) {
@@ -162,7 +163,11 @@ export function resolveGenerateWatchTargets(options: {
     .filter((target) => target.recursive)
     .map((target) => target.directory)
   const snapshotInputs = [...new Set(
-    [...(options.snapshot?.records.values() ?? [])].map((record) => path.resolve(record.path)),
+    [...(options.snapshot?.records.values() ?? [])]
+      // Adapter manifests change through installs (watched lockfiles) or by appearing
+      // in a shallow scan directory; one watcher per installed package would not scale.
+      .filter((record) => !(options.shallowDirectories?.length && record.category === 'web-research-adapters'))
+      .map((record) => path.resolve(record.path)),
   )]
     .filter((input) => !outputRoots.some((outputRoot) => isWithinDirectory(input, outputRoot)))
     .filter((input) => !baseRecursiveRoots.some((root) => isWithinDirectory(input, root)))

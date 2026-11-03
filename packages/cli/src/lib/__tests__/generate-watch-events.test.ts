@@ -407,7 +407,7 @@ describe('createGenerateWatchChangeSignal', () => {
       moduleRoots: [],
       resolveSourceMirrorBase: () => null,
       additionalInputs: [packageManifest, externalHelper],
-      additionalDirectories: [packageRoot],
+      appSourceDir: packageRoot,
       outputDir: appOutput,
       snapshot,
     }
@@ -492,7 +492,7 @@ describe('createGenerateWatchChangeSignal', () => {
     expect(signal.currentVersion()).toBe(0)
   })
 
-  it('bounds thousands of manifest records to deterministic recursive scan roots', () => {
+  it('watches adapter scan roots without recursion and never one watcher per manifest', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mercato-bounded-watch-'))
     const appSource = path.join(root, 'app', 'src')
     const outputDir = path.join(root, 'app', '.mercato', 'generated')
@@ -516,14 +516,18 @@ describe('createGenerateWatchChangeSignal', () => {
       checksum: 'forward',
       fullReasons: [],
       records: new Map(discoveredPaths.map((file, index) => [String(index), {
-        key: String(index), path: file, category: 'unknown', fingerprint: 'fixture',
+        key: String(index), path: file,
+        category: file.endsWith('manifest.json') ? 'web-research-adapters' : 'unknown',
+        fingerprint: 'fixture',
       }])),
     }
     const reversedSnapshot: GenerateWatchSnapshot = {
       checksum: 'reverse',
       fullReasons: [],
       records: new Map([...discoveredPaths].reverse().map((file, index) => [String(index), {
-        key: String(index), path: file, category: 'unknown', fingerprint: 'fixture',
+        key: String(index), path: file,
+        category: file.endsWith('manifest.json') ? 'web-research-adapters' : 'unknown',
+        fingerprint: 'fixture',
       }])),
     }
     const sharedOptions = {
@@ -539,7 +543,7 @@ describe('createGenerateWatchChangeSignal', () => {
       const targets = resolveGenerateWatchTargets({
         ...sharedOptions,
         snapshot,
-        additionalDirectories: [
+        shallowDirectories: [
           path.join(scanRoots[1], 'nested'),
           scanRoots[0],
           scanRoots[1],
@@ -549,7 +553,7 @@ describe('createGenerateWatchChangeSignal', () => {
       const reversedTargets = resolveGenerateWatchTargets({
         ...sharedOptions,
         snapshot: reversedSnapshot,
-        additionalDirectories: [
+        shallowDirectories: [
           scanRoots[1],
           scanRoots[0],
           path.join(scanRoots[1], 'nested'),
@@ -557,12 +561,16 @@ describe('createGenerateWatchChangeSignal', () => {
       })
 
       expect(targets).toEqual(reversedTargets)
-      expect(targets).toHaveLength(6)
+      expect(targets).toHaveLength(7)
       expect(targets.filter((target) => (
         scanRoots.some((scanRoot) => (
           target.directory === scanRoot || target.directory.startsWith(`${scanRoot}${path.sep}`)
         ))
-      ))).toEqual(scanRoots.map((directory) => ({ directory, recursive: true })))
+      ))).toEqual([
+        { directory: scanRoots[0], recursive: false },
+        { directory: scanRoots[1], recursive: false },
+        { directory: path.join(scanRoots[1], 'nested'), recursive: false },
+      ])
       expect(targets).toContainEqual({
         directory: path.dirname(helper),
         recursive: false,
@@ -579,7 +587,7 @@ describe('createGenerateWatchChangeSignal', () => {
     }
   })
 
-  it('observes standalone package-generated entity metadata outside the app output', async () => {
+  it('observes standalone package-generated entity metadata without watching node_modules recursively', async () => {
     const projectRoot = path.resolve('/virtual/standalone-generated-input')
     const nodeModules = path.join(projectRoot, 'node_modules')
     const packageGenerated = path.join(nodeModules, '@open-mercato', 'core', 'generated')
@@ -599,7 +607,7 @@ describe('createGenerateWatchChangeSignal', () => {
       modulesFile: path.join(projectRoot, 'src', 'modules.ts'),
       moduleRoots: [],
       resolveSourceMirrorBase: () => null,
-      additionalDirectories: [nodeModules],
+      shallowDirectories: [nodeModules],
       outputDir: appOutput,
       outputDirectories: [appOutput],
       snapshot,
@@ -607,15 +615,18 @@ describe('createGenerateWatchChangeSignal', () => {
     const { signal, registered } = createWatchHarness(targets)
 
     await signal.refresh()
-    const packageWatcher = registered.find((watcher) => watcher.target.directory === nodeModules)
-    expect(packageWatcher?.target.excludedDirectories).toBeUndefined()
+    expect(registered.some((watcher) => watcher.target.directory === nodeModules && watcher.target.recursive)).toBe(false)
+    const entityWatcher = registered.find((watcher) => (
+      watcher.target.directory === packageGenerated && watcher.target.fileName === path.basename(entityIds)
+    ))
+    expect(entityWatcher).toBeDefined()
     const version = signal.currentVersion()
-    packageWatcher?.onChange(path.relative(nodeModules, entityIds))
+    entityWatcher?.onChange(path.basename(entityIds))
     expect(signal.currentVersion()).toBe(version + 1)
     await signal.close()
   })
 
-  it('subscribes to coarse adapter roots and precise external helpers without watching its own outputs', async () => {
+  it('subscribes to shallow adapter roots and precise external helpers without watching its own outputs', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mercato-discovered-watch-'))
     const appSource = path.join(root, 'app', 'src')
     const outputDir = path.join(root, 'app', '.mercato', 'generated')
@@ -646,7 +657,7 @@ describe('createGenerateWatchChangeSignal', () => {
         appSourceDir: appSource,
         outputDir,
         snapshot,
-        additionalDirectories: [path.dirname(packageRoot)],
+        shallowDirectories: [path.dirname(packageRoot)],
       }),
       watchDirectory: (target) => {
         registered.push(target)
@@ -658,14 +669,18 @@ describe('createGenerateWatchChangeSignal', () => {
       expect(registered).toEqual(expect.arrayContaining([
         { directory: appSource, recursive: true },
         { directory: path.dirname(helper), recursive: false, fileName: 'helper.ts' },
-        { directory: path.dirname(packageRoot), recursive: true },
+        { directory: path.dirname(packageRoot), recursive: false },
+        { directory: packageGenerated, recursive: true },
         { directory: root, recursive: false },
       ]))
       expect(registered.some((target) => target.directory === outputDir)).toBe(false)
       expect(registered.filter((target) => (
         target.directory === path.dirname(packageRoot)
         || target.directory.startsWith(`${path.dirname(packageRoot)}${path.sep}`)
-      ))).toEqual([{ directory: path.dirname(packageRoot), recursive: true }])
+      ))).toEqual([
+        { directory: path.dirname(packageRoot), recursive: false },
+        { directory: packageGenerated, recursive: true },
+      ])
       const version = signal.currentVersion()
       fs.mkdirSync(path.dirname(missingHelper), { recursive: true })
       await signal.refresh()

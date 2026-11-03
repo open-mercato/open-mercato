@@ -31,11 +31,18 @@ export type GenerateWatchStructureOptions = {
   webResearchAdapterFullReasons?: readonly string[]
 }
 
+/**
+ * Facts derived from one stat identity of a tracked file. Source text and parsed
+ * ASTs are capture-local; only these small extracted values outlive a capture.
+ */
 type CachedStructureFile = {
   identity: string
-  source: string
   fingerprint: string
-  parsed?: ts.SourceFile
+  parseFailed?: true
+  pageFingerprint?: string | null
+  imports?: { specifiers: string[]; uncertain: boolean }
+  pluginConventions?: string[] | null
+  supervisorOverride?: boolean
 }
 
 type GenerateWatchStructureCacheState = {
@@ -159,6 +166,91 @@ function pluginConventions(file: ts.SourceFile): string[] | null {
   return conventions
 }
 
+/** `null` when the page exports metadata (content fingerprint applies); otherwise its default-export marker. */
+function pageFingerprint(parsed: ts.SourceFile): string | null {
+  const metadata = parsed.statements.some((statement) => {
+    if (ts.isExportDeclaration(statement)) {
+      return !statement.exportClause || (ts.isNamedExports(statement.exportClause)
+        && statement.exportClause.elements.some((element) => element.name.text === 'metadata'))
+    }
+    if (!ts.canHaveModifiers(statement)
+      || !ts.getModifiers(statement)?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) return false
+    if (ts.isVariableStatement(statement)) {
+      return statement.declarationList.declarations.some((declaration) => /\bmetadata\b/.test(declaration.name.getText(parsed)))
+    }
+    return (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) && statement.name?.text === 'metadata'
+  })
+  if (metadata) return null
+  const hasDefault = parsed.statements.some((statement) =>
+    (ts.isExportAssignment(statement) && !statement.isExportEquals)
+    || (ts.canHaveModifiers(statement) && ts.getModifiers(statement)?.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword))
+    || (ts.isExportDeclaration(statement) && statement.exportClause && ts.isNamedExports(statement.exportClause)
+      && statement.exportClause.elements.some((element) => element.name.text === 'default')),
+  )
+  return `page:default:${hasDefault}`
+}
+
+const SUPERVISOR_OVERRIDE_CALLS = ['applyWorkerOverrides', 'applyCliOverrides']
+
+function declaresSupervisorOverride(parsed: ts.SourceFile): boolean {
+  const direct = new Set<string>()
+  const namespaces = new Set<string>()
+  for (const statement of parsed.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteralLike(statement.moduleSpecifier)
+      || statement.moduleSpecifier.text !== '@open-mercato/shared/modules/overrides') continue
+    const bindings = statement.importClause?.namedBindings
+    if (bindings && ts.isNamespaceImport(bindings)) namespaces.add(bindings.name.text)
+    if (bindings && ts.isNamedImports(bindings)) {
+      for (const element of bindings.elements) {
+        if (SUPERVISOR_OVERRIDE_CALLS.includes(element.propertyName?.text ?? element.name.text)) direct.add(element.name.text)
+      }
+    }
+  }
+  let found = false
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node)) {
+      const expression = node.expression
+      if (ts.isIdentifier(expression) && direct.has(expression.text)) found = true
+      if (ts.isPropertyAccessExpression(expression) && ts.isIdentifier(expression.expression)
+        && namespaces.has(expression.expression.text)
+        && SUPERVISOR_OVERRIDE_CALLS.includes(expression.name.text)) found = true
+    }
+    if (!found) ts.forEachChild(node, visit)
+  }
+  visit(parsed)
+  return found
+}
+
+/** Module specifiers evaluated at load time; `uncertain` marks a non-literal import()/require(). */
+function staticImports(parsed: ts.SourceFile): { specifiers: string[]; uncertain: boolean } {
+  const specifiers: string[] = []
+  let uncertain = false
+  const visit = (node: ts.Node): void => {
+    // Handler/component bodies are not evaluated to discover registrations.
+    // Static imports are still tracked, including imports used by metadata.
+    if (ts.isFunctionLike(node)) return
+    if (ts.isImportDeclaration(node)) {
+      if (node.importClause?.isTypeOnly) return
+      const bindings = node.importClause?.namedBindings
+      if (!node.importClause?.name && bindings && ts.isNamedImports(bindings)
+        && bindings.elements.length > 0 && bindings.elements.every((element) => element.isTypeOnly)) return
+      if (ts.isStringLiteralLike(node.moduleSpecifier)) specifiers.push(node.moduleSpecifier.text)
+      return
+    }
+    if (ts.isExportDeclaration(node) && !node.isTypeOnly && node.moduleSpecifier
+      && ts.isStringLiteralLike(node.moduleSpecifier)) specifiers.push(node.moduleSpecifier.text)
+    if (ts.isCallExpression(node) && (node.expression.kind === ts.SyntaxKind.ImportKeyword
+      || (ts.isIdentifier(node.expression) && node.expression.text === 'require'))) {
+      const argument = node.arguments[0]
+      if (argument && ts.isStringLiteralLike(argument)) specifiers.push(argument.text)
+      else uncertain = true
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(parsed)
+  return { specifiers, uncertain }
+}
+
 class SnapshotCollector {
   readonly records = new Map<string, GenerateWatchRecord>()
   readonly fullReasons = new Set<string>()
@@ -168,6 +260,8 @@ class SnapshotCollector {
   readonly uncertainPluginDescriptors = new Set<string>()
   private readonly dependencySeeds = new Map<string, Map<string, InputKind>>()
   readonly inspectedCachePaths = new Set<string>()
+  private readonly sources = new Map<string, string>()
+  private readonly parsedFiles = new Map<string, ts.SourceFile>()
 
   constructor(private readonly cache: GenerateWatchStructureCacheState) {}
 
@@ -199,7 +293,8 @@ class SnapshotCollector {
     }
   }
 
-  read(file: string): string | null {
+  /** Stat-keyed cache entry for a readable file; unchanged identities are never re-read. */
+  entry(file: string): CachedStructureFile | null {
     const stat = this.stat(file)
     const identity = this.identity(file)
     if (!stat?.isFile() || !identity) {
@@ -208,10 +303,20 @@ class SnapshotCollector {
     }
     this.inspectedCachePaths.add(file)
     const cached = this.cache.files.get(file)
-    if (cached?.identity === identity) return cached.source
+    if (cached?.identity === identity) return cached
+    const source = this.readSource(file)
+    if (source === null) return null
+    const entry: CachedStructureFile = { identity, fingerprint: checksum(source) }
+    this.cache.files.set(file, entry)
+    return entry
+  }
+
+  private readSource(file: string): string | null {
+    const known = this.sources.get(file)
+    if (known !== undefined) return known
     try {
       const source = fs.readFileSync(file, 'utf8')
-      this.cache.files.set(file, { identity, source, fingerprint: checksum(source) })
+      this.sources.set(file, source)
       return source
     } catch {
       this.fullReasons.add(`Cannot read generator input: ${file}`)
@@ -219,10 +324,16 @@ class SnapshotCollector {
     }
   }
 
-  parse(file: string, source: string): ts.SourceFile | null {
-    const identity = this.identity(file)
-    const cached = this.cache.files.get(file)
-    if (identity && cached?.identity === identity && cached.source === source && cached.parsed) return cached.parsed
+  /** Capture-local AST for a file whose cached facts are missing; parse failures are cached per identity. */
+  parsed(file: string, entry: CachedStructureFile): ts.SourceFile | null {
+    if (entry.parseFailed) {
+      this.fullReasons.add(`Cannot parse generator input: ${file}`)
+      return null
+    }
+    const known = this.parsedFiles.get(file)
+    if (known) return known
+    const source = this.readSource(file)
+    if (source === null) return null
     let parsed: ts.SourceFile
     try {
       parsed = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true)
@@ -232,10 +343,11 @@ class SnapshotCollector {
     }
     const diagnostics = (parsed as ts.SourceFile & { parseDiagnostics?: readonly ts.Diagnostic[] }).parseDiagnostics
     if (diagnostics?.length) {
+      entry.parseFailed = true
       this.fullReasons.add(`Cannot parse generator input: ${file}`)
       return null
     }
-    if (identity && cached?.identity === identity && cached.source === source) cached.parsed = parsed
+    this.parsedFiles.set(file, parsed)
     return parsed
   }
 
@@ -253,41 +365,26 @@ class SnapshotCollector {
       this.record(key, file, kind, this.identity(file) ?? 'present')
       return
     }
-    const source = this.read(file)
-    if (source === null) {
+    const entry = this.entry(file)
+    if (!entry) {
       this.record(key, file, kind, 'unreadable')
       return
     }
     if (mode === 'page') {
-      const parsed = this.parse(file, source)
-      if (!parsed) {
-        this.record(key, file, kind, 'unparseable')
-        return
+      if (entry.pageFingerprint === undefined) {
+        const parsed = this.parsed(file, entry)
+        if (!parsed) {
+          this.record(key, file, kind, 'unparseable')
+          return
+        }
+        entry.pageFingerprint = pageFingerprint(parsed)
       }
-      const metadata = parsed.statements.some((statement) => {
-        if (ts.isExportDeclaration(statement)) {
-          return !statement.exportClause || (ts.isNamedExports(statement.exportClause)
-            && statement.exportClause.elements.some((element) => element.name.text === 'metadata'))
-        }
-        if (!ts.canHaveModifiers(statement)
-          || !ts.getModifiers(statement)?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) return false
-        if (ts.isVariableStatement(statement)) {
-          return statement.declarationList.declarations.some((declaration) => /\bmetadata\b/.test(declaration.name.getText(parsed)))
-        }
-        return (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) && statement.name?.text === 'metadata'
-      })
-      if (!metadata) {
-        const hasDefault = parsed.statements.some((statement) =>
-          (ts.isExportAssignment(statement) && !statement.isExportEquals)
-          || (ts.canHaveModifiers(statement) && ts.getModifiers(statement)?.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword))
-          || (ts.isExportDeclaration(statement) && statement.exportClause && ts.isNamedExports(statement.exportClause)
-            && statement.exportClause.elements.some((element) => element.name.text === 'default')),
-        )
-        this.record(key, file, kind, `page:default:${hasDefault}`)
+      if (entry.pageFingerprint !== null) {
+        this.record(key, file, kind, entry.pageFingerprint)
         return
       }
     }
-    this.record(key, file, kind, this.cache.files.get(file)?.fingerprint ?? checksum(source))
+    this.record(key, file, kind, entry.fingerprint)
     if (/\.[cm]?[jt]sx?$/.test(file)) this.seedDependency(file, kind)
   }
 
@@ -361,37 +458,21 @@ class SnapshotCollector {
           continue
         }
         if (!/\.[cm]?tsx?$/.test(entry.name) || /(?:^|\.)test\.[cm]?tsx?$/.test(entry.name)) continue
-        const source = this.read(file)
-        if (!source?.includes('@open-mercato/shared/modules/overrides')) continue
-        const parsed = this.parse(file, source)
-        if (!parsed) continue
-        const direct = new Set<string>()
-        const namespaces = new Set<string>()
-        for (const statement of parsed.statements) {
-          if (!ts.isImportDeclaration(statement) || !ts.isStringLiteralLike(statement.moduleSpecifier)
-            || statement.moduleSpecifier.text !== '@open-mercato/shared/modules/overrides') continue
-          const bindings = statement.importClause?.namedBindings
-          if (bindings && ts.isNamespaceImport(bindings)) namespaces.add(bindings.name.text)
-          if (bindings && ts.isNamedImports(bindings)) {
-            for (const element of bindings.elements) {
-              if (['applyWorkerOverrides', 'applyCliOverrides'].includes(element.propertyName?.text ?? element.name.text)) {
-                direct.add(element.name.text)
-              }
-            }
+        const cached = this.entry(file)
+        if (!cached) continue
+        if (cached.supervisorOverride === undefined) {
+          if (!this.readSource(file)?.includes('@open-mercato/shared/modules/overrides')) {
+            cached.supervisorOverride = false
+            continue
           }
+          const parsed = this.parsed(file, cached)
+          if (!parsed) continue
+          cached.supervisorOverride = declaresSupervisorOverride(parsed)
         }
-        const visit = (node: ts.Node): void => {
-          if (ts.isCallExpression(node)) {
-            const expression = node.expression
-            if (ts.isIdentifier(expression) && direct.has(expression.text)) found = true
-            if (ts.isPropertyAccessExpression(expression) && ts.isIdentifier(expression.expression)
-              && namespaces.has(expression.expression.text)
-              && ['applyWorkerOverrides', 'applyCliOverrides'].includes(expression.name.text)) found = true
-          }
-          if (!found) ts.forEachChild(node, visit)
+        if (cached.supervisorOverride) {
+          found = true
+          break
         }
-        visit(parsed)
-        if (found) break
       }
     }
     this.record('supervisor-overrides', appSource, { category: 'registry-convention', extensionId: 'supervisor' }, String(found))
@@ -407,34 +488,15 @@ class SnapshotCollector {
       const visitKey = `${identity}:${file}`
       if (visited.has(visitKey)) continue
       visited.add(visitKey)
-      const source = this.read(file)
-      if (source === null) continue
-      const parsed = this.parse(file, source)
-      if (!parsed) continue
-      const imports: string[] = []
-      const visit = (node: ts.Node): void => {
-        // Handler/component bodies are not evaluated to discover registrations.
-        // Static imports are still tracked, including imports used by metadata.
-        if (ts.isFunctionLike(node)) return
-        if (ts.isImportDeclaration(node)) {
-          if (node.importClause?.isTypeOnly) return
-          const bindings = node.importClause?.namedBindings
-          if (!node.importClause?.name && bindings && ts.isNamedImports(bindings)
-            && bindings.elements.length > 0 && bindings.elements.every((element) => element.isTypeOnly)) return
-          if (ts.isStringLiteralLike(node.moduleSpecifier)) imports.push(node.moduleSpecifier.text)
-          return
-        }
-        if (ts.isExportDeclaration(node) && !node.isTypeOnly && node.moduleSpecifier
-          && ts.isStringLiteralLike(node.moduleSpecifier)) imports.push(node.moduleSpecifier.text)
-        if (ts.isCallExpression(node) && (node.expression.kind === ts.SyntaxKind.ImportKeyword
-          || (ts.isIdentifier(node.expression) && node.expression.text === 'require'))) {
-          const argument = node.arguments[0]
-          if (argument && ts.isStringLiteralLike(argument)) imports.push(argument.text)
-          else this.uncertainDependencies.add(file)
-        }
-        ts.forEachChild(node, visit)
+      const cached = this.entry(file)
+      if (!cached) continue
+      if (!cached.imports) {
+        const parsed = this.parsed(file, cached)
+        if (!parsed) continue
+        cached.imports = staticImports(parsed)
       }
-      visit(parsed)
+      if (cached.imports.uncertain) this.uncertainDependencies.add(file)
+      const imports = cached.imports.specifiers
       for (const specifier of imports) {
         if (!specifier.startsWith('.') && !specifier.startsWith('@/')) continue
         const target = specifier.startsWith('@/')
@@ -449,10 +511,7 @@ class SnapshotCollector {
         }
         // A generator's own outputs must not feed back into its watcher baseline.
         if (resolved.includes(`${path.sep}.mercato${path.sep}`) || resolved.includes(`${path.sep}generated${path.sep}`)) continue
-        const text = this.read(resolved)
-        const fingerprint = text === null
-          ? 'unreadable'
-          : this.cache.files.get(resolved)?.fingerprint ?? checksum(text)
+        const fingerprint = this.entry(resolved)?.fingerprint ?? 'unreadable'
         this.record(dependencyKey, resolved, kind, `${resolved}:${fingerprint}`)
         if (/\.[cm]?[jt]sx?$/.test(resolved)) pending.push({ file: resolved, identity, kind })
       }
@@ -482,9 +541,12 @@ function addModule(collector: SnapshotCollector, roots: WatchRoots, index: numbe
   for (const category of ['cli', 'di', 'search', 'events'] as const) convention(category, { category })
   convention('widgets/injection-table', { category: 'injection-widgets' })
   for (const descriptor of convention('generators', { category: 'generator-plugin' })) {
-    const source = collector.read(descriptor)
-    const parsed = source === null ? null : collector.parse(descriptor, source)
-    const discovered = parsed ? pluginConventions(parsed) : null
+    const cached = collector.entry(descriptor)
+    if (cached && cached.pluginConventions === undefined) {
+      const parsed = collector.parsed(descriptor, cached)
+      if (parsed) cached.pluginConventions = pluginConventions(parsed)
+    }
+    const discovered = cached?.pluginConventions ?? null
     if (discovered === null) collector.uncertainPluginDescriptors.add(descriptor)
     else for (const file of discovered) plugins.add(file)
   }

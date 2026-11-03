@@ -62,7 +62,7 @@ describe('generateWebResearchAdapters', () => {
     fs.rmSync(root, { recursive: true, force: true })
   })
 
-  it('shares candidate manifests and coarse recursive discovery roots with the watcher', async () => {
+  it('shares candidate manifests and shallow scan roots, including scope folders, with the watcher', async () => {
     const workspaceRoot = path.join(root, 'packages')
     const installedRoot = path.join(root, 'node_modules')
     const appInstalledRoot = path.join(resolver.getAppDir(), 'node_modules')
@@ -83,7 +83,7 @@ describe('generateWebResearchAdapters', () => {
       path.join(missingManifestPackage, 'package.json'),
     ].sort())
     expect(inputs.directoryPaths).toEqual([
-      workspaceRoot, installedRoot, appInstalledRoot,
+      workspaceRoot, installedRoot, appInstalledRoot, path.join(installedRoot, '@third-party'),
     ])
     expect(inputs.fullReasons).toEqual([])
     await generateWebResearchAdapters({ resolver, quiet: true })
@@ -93,7 +93,10 @@ describe('generateWebResearchAdapters', () => {
     writeManifest(appAdapter, '@another-vendor/adapter', 'app')
     const nextInputs = getWebResearchAdapterWatchInputs(resolver)
     expect(nextInputs.manifestPaths).toContain(path.join(appAdapter, 'package.json'))
-    expect(nextInputs.directoryPaths).toEqual([workspaceRoot, installedRoot, appInstalledRoot])
+    expect(nextInputs.directoryPaths).toEqual([
+      workspaceRoot, installedRoot, appInstalledRoot,
+      path.join(installedRoot, '@third-party'), path.join(appInstalledRoot, '@another-vendor'),
+    ])
     expect(nextInputs.fullReasons).toEqual([])
     await generateWebResearchAdapters({ resolver, quiet: true })
     expectRegistryEntries([
@@ -113,6 +116,7 @@ describe('generateWebResearchAdapters', () => {
     expect(inputs.directoryPaths).toEqual([
       path.join(project, 'packages'),
       path.join(project, 'node_modules'),
+      path.join(project, 'node_modules', '@example'),
     ])
     expect(inputs.manifestPaths).toEqual([path.join(installedAdapter, 'package.json')])
     expect(inputs.fullReasons).toEqual([])

@@ -897,8 +897,10 @@ async function createGenerateWatchRuntime(quiet = false) {
       }
       const roots = resolver.getModulePaths(entry)
       const watchPackageBase = entry.from !== '@app' || watchAppPackageFallbacks
+      // Monorepo modules generate from source; their compiled dist trees are build output.
+      const compiledBase = watchAppPackageFallbacks && !roots.pkgBase.includes(`${path.sep}dist${path.sep}`) ? [] : ['dist']
       const additionalModuleBases = watchPackageBase
-        ? ['src', 'dist'].map((folder) => path.join(resolver.getPackageRoot(entry.from), folder, 'modules', entry.id))
+        ? ['src', ...compiledBase].map((folder) => path.join(resolver.getPackageRoot(entry.from), folder, 'modules', entry.id))
         : []
       moduleRoots.push({
         ...roots,
@@ -915,7 +917,7 @@ async function createGenerateWatchRuntime(quiet = false) {
       openapiInputs,
       webResearchAdapterInputs: adapterInputs.manifestPaths,
       webResearchAdapterFullReasons: adapterInputs.fullReasons,
-      additionalDirectories: adapterInputs.directoryPaths,
+      shallowDirectories: adapterInputs.directoryPaths,
       appSourceDir: path.join(resolver.getAppDir(), 'src'),
       outputDir: resolver.getOutputDir(),
       outputDirectories: [...outputDirectories].sort((left, right) => left.localeCompare(right)),
