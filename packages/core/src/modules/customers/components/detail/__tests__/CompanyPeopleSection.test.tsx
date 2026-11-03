@@ -106,6 +106,33 @@ describe('CompanyPeopleSection', () => {
     })
   }
 
+  it('reloads with the recent sort from a Linked header the default zone 2 width shows', async () => {
+    mockCompanyPeopleApi({ linkedPeople: [{ id: 'person-1', displayName: 'Ada Lovelace' }] })
+
+    renderWithProviders(
+      <CompanyPeopleSection
+        companyId="company-123"
+        initialPeople={[]}
+        addActionLabel="Add person"
+        emptyLabel="No linked people yet."
+        emptyState={emptyState}
+      />,
+    )
+
+    const linkedHeader = await screen.findByRole('button', { name: 'Linked' })
+    expect(linkedHeader.closest('th')).toHaveClass('hidden', '@xl:table-cell')
+    expect(readApiResultOrThrowMock.mock.calls.map(([url]) => String(url)).join()).not.toContain('sort=recent')
+
+    fireEvent.click(linkedHeader)
+
+    await waitFor(() => {
+      const peopleUrls = readApiResultOrThrowMock.mock.calls.map(([url]) => String(url))
+      expect(peopleUrls.at(-1)).toContain('/api/customers/companies/company-123/people')
+      expect(peopleUrls.at(-1)).toContain('sort=recent')
+    })
+    expect((await screen.findByRole('button', { name: 'Linked' })).closest('th')).toHaveAttribute('aria-sort', 'descending')
+  })
+
   it('opens the inline create dialog from the empty state', async () => {
     renderWithProviders(
       <CompanyPeopleSection

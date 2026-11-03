@@ -55,6 +55,7 @@ describe('PersonCard', () => {
     renderRow({ onUnlink })
 
     expect(screen.getByText(formatDate(person.linkedAt))).toBeInTheDocument()
+    expect(screen.getByText(formatDate(person.linkedAt)).closest('td')).toHaveClass('hidden', '@xl:table-cell')
     fireEvent.click(screen.getByRole('button', { name: 'More' }))
     expect(screen.getByRole('link', { name: /Open person/ })).toHaveAttribute('href', '/backend/customers/people-v2/person-1')
     fireEvent.click(screen.getByRole('button', { name: 'Unlink' }))
