@@ -183,7 +183,8 @@ function nextButton(dialog: Locator): Locator {
 }
 
 async function openAddRoleDialog(page: Page): Promise<Locator> {
-  await page.getByRole('button', { name: 'Add role', exact: true }).click()
+  // #7490 renames this button to Assign role; the spec has to hold before and after it lands.
+  await page.getByRole('button', { name: /^(Add role|Assign role)$/ }).click()
   const dialog = assignRoleDialog(page)
   await expect(dialog).toBeVisible()
   return dialog
