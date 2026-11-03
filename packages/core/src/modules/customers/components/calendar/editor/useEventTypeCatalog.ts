@@ -2,6 +2,8 @@
 
 import * as React from 'react'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { useOrganizationScopeDetail, useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { getCurrentOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/organizationEvents'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { calendarEventTypes, type EffectiveCalendarEventType } from '../../../calendar-event-types'
 import type { CalendarEventTypeCatalog, ScopedCalendarEventType } from '../../../lib/calendar/eventTypeResolver'
@@ -11,44 +13,55 @@ type CatalogState =
   | { status: 'loading' | 'error'; items: readonly ScopedCalendarEventType[] }
   | { status: 'ready'; items: readonly ScopedCalendarEventType[] }
 
-// Last catalog the session loaded. A reopened editor renders straight from it
-// and revalidates in the background, so the form never mounts twice (once
-// without the selected type's fields, once with them) on every open.
-let cachedCatalogItems: readonly ScopedCalendarEventType[] | null = null
+// Last catalog loaded per tenant and organization. A reopened editor renders straight
+// from it and revalidates in the background, so the form never mounts twice (once
+// without the selected type's fields, once with them) on every open. The catalog is
+// scoped data, so a switch must never serve the previous organization's entry.
+const cachedCatalogs = new Map<string, readonly ScopedCalendarEventType[]>()
 
 export function clearEventTypeCatalogCache(): void {
-  cachedCatalogItems = null
+  cachedCatalogs.clear()
 }
 
 function sameCatalog(left: readonly ScopedCalendarEventType[], right: readonly ScopedCalendarEventType[]): boolean {
   return left === right || JSON.stringify(left) === JSON.stringify(right)
 }
 
-function catalogStateFromCache(): CatalogState {
-  return cachedCatalogItems ? { status: 'ready', items: cachedCatalogItems } : { status: 'loading', items: [] }
+function catalogStateFromCache(scopeKey: string): CatalogState {
+  const cached = cachedCatalogs.get(scopeKey)
+  return cached ? { status: 'ready', items: cached } : { status: 'loading', items: [] }
 }
 
 export function useEventTypeCatalog(open: boolean) {
-  const [state, setState] = React.useState<CatalogState>(catalogStateFromCache)
+  const scope = useOrganizationScopeDetail()
+  const scopeVersion = useOrganizationScopeVersion()
+  const scopeKey = `${scope.tenantId ?? ''}:${scope.organizationId ?? ''}`
+  const [state, setState] = React.useState<CatalogState & { scopeKey: string }>(() => ({ ...catalogStateFromCache(scopeKey), scopeKey }))
   const [attempt, setAttempt] = React.useState(0)
 
   React.useEffect(() => {
     // A closed editor warms the cache once; every open revalidates it.
-    if (!open && cachedCatalogItems) return
+    if (!open && cachedCatalogs.has(scopeKey)) return
     let active = true
+    const requestScopeVersion = getCurrentOrganizationScopeVersion()
     setState((previous) => {
-      if (cachedCatalogItems) {
-        return previous.status === 'ready' && previous.items === cachedCatalogItems ? previous : { status: 'ready', items: cachedCatalogItems }
+      const cached = cachedCatalogs.get(scopeKey)
+      if (previous.scopeKey === scopeKey) {
+        if (cached && previous.status === 'ready' && previous.items === cached) return previous
+        if (!cached && previous.status === 'loading') return previous
       }
-      return previous.status === 'loading' ? previous : { status: 'loading', items: [] }
+      return { ...catalogStateFromCache(scopeKey), scopeKey }
     })
     void readApiResultOrThrow<CalendarEventTypeCatalog>('/api/customers/activity-types')
       .then((catalog) => {
         if (!Array.isArray(catalog.items)) throw new Error('[internal] Invalid activity type catalog')
-        const items = cachedCatalogItems && sameCatalog(cachedCatalogItems, catalog.items) ? cachedCatalogItems : catalog.items
-        cachedCatalogItems = items
+        // The answer belongs to the scope the request left under, not to the current one.
+        if (requestScopeVersion !== getCurrentOrganizationScopeVersion()) return
+        const cached = cachedCatalogs.get(scopeKey)
+        const items = cached && sameCatalog(cached, catalog.items) ? cached : catalog.items
+        cachedCatalogs.set(scopeKey, items)
         if (!active) return
-        setState((previous) => previous.status === 'ready' && previous.items === items ? previous : { status: 'ready', items })
+        setState((previous) => previous.scopeKey === scopeKey && previous.status === 'ready' && previous.items === items ? previous : { status: 'ready', items, scopeKey })
       })
       .catch((error) => {
         if (!active) return
@@ -56,14 +69,15 @@ export function useEventTypeCatalog(open: boolean) {
           module: 'customers',
           code: 'customers.activity_type_catalog_load_failed',
         })
-        setState((previous) => previous.status === 'ready' ? previous : { status: 'error', items: [] })
+        setState((previous) => previous.scopeKey === scopeKey && previous.status === 'ready' ? previous : { status: 'error', items: [], scopeKey })
       })
     return () => { active = false }
-  }, [open, attempt])
+  }, [open, attempt, scopeKey, scopeVersion])
 
   const retry = React.useCallback(() => setAttempt((value) => value + 1), [])
+  const current = state.scopeKey === scopeKey ? state : catalogStateFromCache(scopeKey)
 
-  return { ...state, retry }
+  return { status: current.status, items: current.items, retry }
 }
 
 export function selectedEventType(
