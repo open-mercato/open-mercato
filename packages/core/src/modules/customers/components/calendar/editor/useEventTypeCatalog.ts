@@ -8,6 +8,7 @@ import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { calendarEventTypes, type EffectiveCalendarEventType } from '../../../calendar-event-types'
 import type { CalendarEventTypeCatalog, ScopedCalendarEventType } from '../../../lib/calendar/eventTypeResolver'
 import { KIND_CONFIG, type EditorKindConfig, type EditorTypeOption } from '../../../lib/calendar/editorPayload'
+import { createScopedEditorCache } from './scopedEditorCache'
 
 type CatalogState =
   | { status: 'loading' | 'error'; items: readonly ScopedCalendarEventType[] }
@@ -17,7 +18,7 @@ type CatalogState =
 // from it and revalidates in the background, so the form never mounts twice (once
 // without the selected type's fields, once with them) on every open. The catalog is
 // scoped data, so a switch must never serve the previous organization's entry.
-const cachedCatalogs = new Map<string, readonly ScopedCalendarEventType[]>()
+const cachedCatalogs = createScopedEditorCache<readonly ScopedCalendarEventType[]>(() => ':')
 
 export function clearEventTypeCatalogCache(): void {
   cachedCatalogs.clear()
@@ -64,12 +65,13 @@ export function useEventTypeCatalog(open: boolean) {
         setState((previous) => previous.scopeKey === scopeKey && previous.status === 'ready' && previous.items === items ? previous : { status: 'ready', items, scopeKey })
       })
       .catch((error) => {
+        const unconfirmed = cachedCatalogs.dropUnconfirmed(scopeKey)
         if (!active) return
         getTelemetryRuntime()?.reportError(error, {
           module: 'customers',
           code: 'customers.activity_type_catalog_load_failed',
         })
-        setState((previous) => previous.scopeKey === scopeKey && previous.status === 'ready' ? previous : { status: 'error', items: [], scopeKey })
+        setState((previous) => !unconfirmed && previous.scopeKey === scopeKey && previous.status === 'ready' ? previous : { status: 'error', items: [], scopeKey })
       })
     return () => { active = false }
   }, [open, attempt, scopeKey, scopeVersion])

@@ -6,6 +6,7 @@ import { filterCustomFieldDefs, type CustomFieldDefDto } from '@open-mercato/ui/
 import { validateValuesAgainstDefs } from '@open-mercato/shared/modules/entities/validation'
 import { useOrganizationScopeDetail, useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { getCurrentOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/organizationEvents'
+import { createScopedEditorCache } from './scopedEditorCache'
 
 export function selectCalendarCustomFields(definitions: CustomFieldDefDto[], fieldsetIds: readonly string[]) {
   if (!fieldsetIds.length) return filterCustomFieldDefs(definitions, 'form')
@@ -36,7 +37,7 @@ type CustomFieldsState = { definitions: CustomFieldDefDto[]; status: 'loading' |
 // reopened editor renders from it and revalidates in the background so the custom-field
 // group does not pop into the form after the first paint. Definitions are scoped data,
 // so a switch must never serve the previous organization's entry.
-const cachedDefinitions = new Map<string, CustomFieldDefDto[]>()
+const cachedDefinitions = createScopedEditorCache<CustomFieldDefDto[]>((key) => `::${key.split(':').slice(2).join(':')}`)
 
 export function clearCalendarCustomFieldsCache(): void {
   cachedDefinitions.clear()
@@ -77,8 +78,9 @@ export function useCalendarCustomFields(open: boolean, entityId: string, fieldse
       if (!active) return
       setState((previous) => previous.cacheKey === cacheKey && previous.status === 'ready' && previous.definitions === next ? previous : { definitions: next, status: 'ready', cacheKey })
     }).catch(() => {
+      const unconfirmed = cachedDefinitions.dropUnconfirmed(cacheKey)
       if (!active) return
-      setState((previous) => previous.cacheKey === cacheKey && previous.status === 'ready' ? previous : { definitions: [], status: 'error', cacheKey })
+      setState((previous) => !unconfirmed && previous.cacheKey === cacheKey && previous.status === 'ready' ? previous : { definitions: [], status: 'error', cacheKey })
     })
     return () => { active = false }
   }, [open, entityId, cacheKey, scopeVersion])

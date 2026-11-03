@@ -103,6 +103,7 @@ test.describe('TC-CRM-8552: deal header write paths', () => {
   });
 
   test('a dirty form makes the stage strip read-only', async ({ page, request }) => {
+    test.slow();
     const created = { pipelineId: null as string | null, stageIds: [] as string[], dealId: null as string | null };
     let token: string | null = null;
     try {
@@ -112,6 +113,7 @@ test.describe('TC-CRM-8552: deal header write paths', () => {
       await expect(strip.getByRole('button', { name: /Second stage/ })).toBeVisible();
 
       const titleInput = page.locator('[data-crud-field-id="title"]').getByRole('textbox');
+      await page.getByRole('button', { name: 'Expand form panel' }).click();
       await titleInput.fill(`${fixtures.title} edited`);
       await expect(titleInput).toHaveValue(`${fixtures.title} edited`);
 

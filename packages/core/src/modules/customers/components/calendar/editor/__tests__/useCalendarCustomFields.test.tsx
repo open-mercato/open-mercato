@@ -78,4 +78,43 @@ describe('useCalendarCustomFields', () => {
     await act(async () => { resolveLate({ definitions: [notes] }) })
     expect(result.current.allDefinitions).toEqual([])
   })
+
+  describe('when the organization scope resolves after the first load', () => {
+    const entityId = 'customers:customer_interaction'
+
+    beforeEach(() => {
+      act(() => emitOrganizationScopeChanged({ tenantId: null, organizationId: null }))
+    })
+
+    it('keeps the loaded structure ready instead of remounting an open form, then revalidates', async () => {
+      fetchCustomFieldFormStructureMock.mockResolvedValue({ definitions: [notes] })
+      const statuses: string[] = []
+      const { result } = renderHook(() => {
+        const customFields = useCalendarCustomFields(true, entityId, NO_FIELDSETS)
+        statuses.push(customFields.status)
+        return customFields
+      })
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+      statuses.length = 0
+
+      act(() => emitOrganizationScopeChanged({ tenantId: 'tenant-a', organizationId: 'org-a' }))
+
+      await waitFor(() => expect(fetchCustomFieldFormStructureMock).toHaveBeenCalledTimes(2))
+      await act(async () => {})
+      expect(statuses).not.toContain('loading')
+      expect(result.current.fields.map((field) => field.id)).toEqual(['cf_visit_notes'])
+    })
+
+    it('fails closed when the first read under the reported scope fails', async () => {
+      fetchCustomFieldFormStructureMock.mockResolvedValueOnce({ definitions: [notes] })
+      const { result } = renderHook(() => useCalendarCustomFields(true, entityId, NO_FIELDSETS))
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+
+      fetchCustomFieldFormStructureMock.mockRejectedValueOnce(new Error('offline'))
+      act(() => emitOrganizationScopeChanged({ tenantId: 'tenant-a', organizationId: 'org-a' }))
+
+      await waitFor(() => expect(result.current.status).toBe('error'))
+      expect(result.current.fields).toEqual([])
+    })
+  })
 })
