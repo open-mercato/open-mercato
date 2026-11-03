@@ -3,12 +3,15 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { NotificationItem } from '../NotificationItem'
 import type { NotificationDto } from '@open-mercato/shared/modules/notifications/types'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { flash } from '../../FlashMessages'
 
 const push = jest.fn()
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push }),
 }))
+
+jest.mock('../../FlashMessages', () => ({ flash: jest.fn() }))
 
 const t = ((key: string, fallback?: unknown) =>
   typeof fallback === 'string' ? fallback : key) as TranslateFn
@@ -53,6 +56,7 @@ function renderItem() {
 describe('NotificationItem keyboard activation', () => {
   beforeEach(() => {
     push.mockReset()
+    jest.mocked(flash).mockClear()
   })
 
   describe.each(['Enter', ' '])('%j key', (key) => {
@@ -113,6 +117,25 @@ describe('NotificationItem keyboard activation', () => {
     await waitFor(() => expect(onDismiss).toHaveBeenCalledTimes(1))
     expect(onMarkAsRead).not.toHaveBeenCalled()
     expect(push).not.toHaveBeenCalled()
+  })
+
+  it('shows an action error after a transport rejection and permits a retry', async () => {
+    const { onExecuteAction, onMarkAsRead, onDismiss } = renderItem()
+    onExecuteAction.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    const button = screen.getByRole('button', { name: 'Approve', exact: true })
+
+    fireEvent.click(button)
+
+    await waitFor(() => expect(flash).toHaveBeenCalledWith('Failed to execute action', 'error'))
+    expect(button).not.toBeDisabled()
+    expect(onMarkAsRead).not.toHaveBeenCalled()
+    expect(onDismiss).not.toHaveBeenCalled()
+    expect(push).not.toHaveBeenCalled()
+
+    fireEvent.click(button)
+
+    await waitFor(() => expect(onExecuteAction).toHaveBeenCalledTimes(2))
+    expect(flash).toHaveBeenCalledTimes(1)
   })
 
   it('opens and marks the notification as read on a card click', async () => {
