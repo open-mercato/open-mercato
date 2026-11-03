@@ -5086,3 +5086,9 @@ When opening a PR that bumps a dependency across a major boundary, add an entry 
 the same PR. The `auto-upgrade-...` skill for the window picks up entries from this file;
 keep the headings stable (exactly `#### \`<package>\` \`^<from>\` → \`^<to>\``) so the
 skill can parse them.
+
+## Credential policy enforcement (#3821)
+
+Supplied plaintext setup passwords, explicit derived-account environment overrides, and customer password creation/reset/change now follow the configured shared password policy. Production `auth setup` no longer honors weak-password skip aliases; provide a compliant password instead. Existing hashes and login inputs are unchanged. Explicit development-only demo/skip flows and trusted prehashed imports remain supported.
+
+The isolated integration runner retains its historical disposable fixture credentials. It uses an explicit fixture password policy only in its database-initialization subprocess; the app and test subprocesses retain the configured runtime policy. This does not relax production credential validation or change existing hashes/login behavior.

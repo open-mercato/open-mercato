@@ -45,7 +45,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 
 const setupCommand = cli.find((c: any) => c.command === 'setup')!
 
-const SECRET_PASSWORD = 'sup3r-s3cret-pw'
+const SECRET_PASSWORD = 'Sup3r-s3cret-pw!'
 
 const BASE_ARGS = [
   '--orgName', 'Acme',
