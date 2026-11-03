@@ -35,7 +35,6 @@ import {
   X,
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Alert, AlertDescription, AlertTitle } from '../primitives/alert'
@@ -52,6 +51,7 @@ import { Label } from '../primitives/label'
 import { Textarea } from '../primitives/textarea'
 import { apiCall } from '../backend/utils/apiCall'
 import { parseAiContentSegments } from './AiMessageContent'
+import { AI_MARKDOWN_PLUGINS, withoutAiRecordImages } from './imagePolicy'
 import {
   ModelPicker,
   type ModelPickerProvider,
@@ -406,7 +406,7 @@ function MarkdownChunk({ text }: { text: string }) {
   if (!text.trim()) return null
   return (
     <div className={cn('text-sm', MARKDOWN_TYPOGRAPHY_CLASS)}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
+      <ReactMarkdown remarkPlugins={AI_MARKDOWN_PLUGINS} components={MARKDOWN_COMPONENTS}>
         {text}
       </ReactMarkdown>
     </div>
@@ -428,7 +428,7 @@ function MessageContent({ content, isAssistant }: { content: string; isAssistant
     <div className="space-y-1" data-ai-message-content="">
       {segments.map((segment, index) => {
         if (segment.kind === 'record-card') {
-          return <RecordCard key={`card-${index}`} data={segment.payload} />
+          return <RecordCard key={`card-${index}`} data={withoutAiRecordImages(segment.payload)} />
         }
         if (segment.kind === 'invalid-card') {
           return (
