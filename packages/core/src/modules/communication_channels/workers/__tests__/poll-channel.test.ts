@@ -718,4 +718,32 @@ describe('poll-channel concurrent jobs for the same channel', () => {
     expect(dbRow.lastError).toBe('invalid_grant')
     expect(dbRow.channelState).toEqual({ uidValidity: 7, uidNext: 8 })
   })
+
+  it('discards the page when the channel was deactivated while the page was fetched', async () => {
+    const dbRow = makeRow({ uidValidity: 7, uidNext: 5 })
+    const lastPolledAt = dbRow.lastPolledAt
+    await handler(
+      makeJob(),
+      makeJobCtx(dbRow, async () => {
+        dbRow.isActive = false
+        return { messages: [], nextCursor: encode({ uidValidity: 7, uidNext: 8 }), hasMore: true }
+      }),
+    )
+
+    expect(dbRow.channelState).toEqual({ uidValidity: 7, uidNext: 5 })
+    expect(dbRow.lastPolledAt).toEqual(lastPolledAt)
+    expect(enqueueMock).not.toHaveBeenCalled()
+  })
+
+  it('recovers an error channel to connected and clears its error on a successful poll', async () => {
+    const dbRow = { ...makeRow({ uidValidity: 7, uidNext: 5 }), status: 'error', lastError: 'ETIMEDOUT' }
+    await handler(
+      makeJob(),
+      makeJobCtx(dbRow, async () => ({ messages: [], nextCursor: encode({ uidValidity: 7, uidNext: 8 }), hasMore: false })),
+    )
+
+    expect(dbRow.status).toBe('connected')
+    expect(dbRow.lastError).toBeNull()
+    expect(dbRow.channelState).toEqual({ uidValidity: 7, uidNext: 8 })
+  })
 })
