@@ -23,6 +23,47 @@ import {
  * "Admin CRUD" + §Implementation Plan Phase 1 step 17.
  */
 test.describe('TC-PROM-001: promotion CRUD round-trip', () => {
+  test('normalizes comma budgets and rejects mixed separators without changing the promotion', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin');
+    const name = `QA PROM Decimal ${uniqueStamp()}`;
+    let promotionId: string | null = null;
+
+    try {
+      const fixture = await createPromotionFixture(request, token, {
+        name,
+        maxBudget: '1500,50',
+        budgetCurrency: 'USD',
+      });
+      promotionId = fixture.id;
+      const initial = await getPromotionDetail(request, token, promotionId);
+      expect(initial).toMatchObject({ name, maxBudget: '1500.50', budgetCurrency: 'USD' });
+
+      const rejected = await apiRequest(request, 'PUT', PROMOTIONS_PATH, {
+        token,
+        data: { id: promotionId, name: `${name} rejected`, maxBudget: '1,500.50', budgetCurrency: 'USD' },
+        headers: { [OPTIMISTIC_LOCK_HEADER_NAME]: initial.updatedAt },
+      });
+      expect(rejected.status()).toBe(400);
+      expect(await getPromotionDetail(request, token, promotionId)).toMatchObject({
+        name,
+        maxBudget: '1500.50',
+        updatedAt: initial.updatedAt,
+      });
+
+      const accepted = await apiRequest(request, 'PUT', PROMOTIONS_PATH, {
+        token,
+        data: { id: promotionId, maxBudget: '1750,25', budgetCurrency: 'USD' },
+        headers: { [OPTIMISTIC_LOCK_HEADER_NAME]: initial.updatedAt },
+      });
+      expect(accepted.status()).toBe(200);
+      const updated = await getPromotionDetail(request, token, promotionId);
+      expect(updated).toMatchObject({ name, maxBudget: '1750.25', budgetCurrency: 'USD' });
+      expect(updated.updatedAt).not.toBe(initial.updatedAt);
+    } finally {
+      await deletePromotionIfExists(request, token, promotionId);
+    }
+  });
+
   test('create, read, update, and soft-delete a promotion with optimistic-lock enforcement', async ({ request }) => {
     const token = await getAuthToken(request, 'admin');
     const stamp = uniqueStamp();
