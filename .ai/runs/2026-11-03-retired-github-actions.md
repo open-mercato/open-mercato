@@ -23,7 +23,7 @@ PR: #8614
 ### Phase 2: Administrative retirement and review
 
 - [x] 2.1 Disable the three confirmed stale registrations and verify their state. — f101d52c0
-- [ ] 2.2 Run authoritative review, record evidence and publish the completed PR.
+- [x] 2.2 Run authoritative review, record evidence and publish the completed PR. — 8b616d246 (native COMMENT review 5753458284; no findings; CI pending)
 
 ## Evidence
 
