@@ -251,7 +251,7 @@ Built something other apps need too? [create-mercato-module](https://github.com/
 
 **You decide:** a new module or one you already built? **new** · existing (skip `init`). A dedicated GitHub repository for it? **yes, public** · no.
 
-**Run** in the app folder after `yarn setup` (keep it running to check the module at `/backend/visits`):
+**Run** in the app folder after `yarn setup`. After `init`, stop and start `yarn dev` once: the running dev runtime does not pick up a new module, and `/backend/visits` answers 404 until it restarts.
 
 ```bash
 npx create-mercato-module init visits      # creates src/modules/visits and registers it; skip for an existing module
