@@ -240,6 +240,17 @@ function normalizePriceListItems(value: unknown): PriceListEditorItem[] {
     .filter((item): item is PriceListEditorItem => item !== null)
 }
 
+function hydratePriceListItems(value: unknown, locale?: string): PriceListEditorItem[] {
+  if (!Array.isArray(value)) return []
+  return normalizePriceListItems(
+    value.map((item) => {
+      if (!isRecord(item)) return item
+      const amount = toAmountInputValue(resolveExactDecimal(item.amountExact, item.amount), locale)
+      return amount === null ? item : { ...item, amount }
+    }),
+  )
+}
+
 function normalizeCustomerFields(value: unknown, t?: TranslateFn): CustomerFieldDefinitionInput[] {
   if (!Array.isArray(value)) return cloneDefaultCustomerFields(t)
   return value.reduce<CustomerFieldDefinitionInput[]>((result, field, index) => {
@@ -322,7 +333,7 @@ export function normalizeFormValues(value: FormValues | null | undefined, t?: Tr
     collectCustomerDetails: readBoolean(source.collectCustomerDetails, true),
     customerFieldsSchema: normalizeCustomerFields(source.customerFieldsSchema, t),
     legalDocuments: normalizeLegalDocuments(source.legalDocuments),
-    priceListItems: normalizePriceListItems(source.priceListItems),
+    priceListItems: hydratePriceListItems(source.priceListItems, locale),
     fixedPriceAmount: toAmountInputValue(resolveExactDecimal(source.fixedPriceAmountExact, source.fixedPriceAmount), locale),
     fixedPriceOriginalAmount: toAmountInputValue(
       resolveExactDecimal(source.fixedPriceOriginalAmountExact, source.fixedPriceOriginalAmount),
