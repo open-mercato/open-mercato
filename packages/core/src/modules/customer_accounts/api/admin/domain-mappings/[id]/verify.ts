@@ -22,16 +22,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   const container = await createRequestContainer()
   const rbac = container.resolve('rbacService') as RbacService
-  const allowed = await rbac.userHasAllFeatures(auth.sub, [FEATURE], {
-    tenantId: auth.tenantId,
-    organizationId: auth.orgId,
-  })
-  if (!allowed) return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 })
 
   const { id } = await ctx.params
   const service = container.resolve('domainMappingService') as DomainMappingService
   const record = await service.findById(id, { tenantId: auth.tenantId })
   if (!record) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
+  const allowed = await rbac.userHasAllFeatures(auth.sub, [FEATURE], {
+    tenantId: auth.tenantId,
+    organizationId: record.organizationId,
+  })
+  if (!allowed) return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 })
 
   const guardResult = await validateCrudMutationGuard(container, {
     tenantId: auth.tenantId,
