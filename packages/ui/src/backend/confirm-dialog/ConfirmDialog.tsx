@@ -29,10 +29,11 @@ export type ConfirmDialogProps = {
   cancelText?: string | false;
   /** Visual variant per Figma `Status Modals [1.1]`:
    *  - "default": neutral help badge, primary confirm
-   *  - "warning": amber warning badge, primary confirm — for actions that lose
-   *    work or clear values but delete nothing (discard a draft, change a type)
+   *  - "warning": amber warning badge, primary confirm — for risky actions that
+   *    lose no data
    *  - "destructive": error badge and the `destructive-solid` confirm — the
-   *    point of no return for a real delete */
+   *    point of no return for anything that deletes or discards data, including
+   *    unsaved edits */
   variant?: "default" | "warning" | "destructive";
   /** Whether the confirm button shows a loading spinner.
    *  Useful for async onConfirm handlers (e.g., waiting for API response before closing). */
@@ -286,8 +287,9 @@ export function ConfirmDialog({
           ) : null}
         </DialogHeader>
 
-        {/* Footer per Figma `Modal Footer [1.1]` variant 1: 50/50 confirmation split */}
-        <DialogFooter layout="equal">
+        {/* Footer per Figma `Modal Footer [1.1]` variant 1: 50/50 confirmation split,
+            stacked on phones where long labels would overflow the sheet */}
+        <DialogFooter layout="equal" className="flex-col-reverse sm:flex-row">
           {resolvedCancelText !== false && (
             <Button
               ref={cancelButtonRef}
