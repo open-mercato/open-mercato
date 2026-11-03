@@ -2001,7 +2001,7 @@ export const createPersonPersonalDataGroups = (
       id: 'personalData',
       title: t('customers.people.form.groups.personalData', 'Personal data'),
       column: 1,
-      fields: ['displayName', 'firstName', 'lastName', 'jobTitle', 'primaryEmail', 'primaryPhone'],
+      fields: ['firstName', 'lastName', 'displayName', 'jobTitle', 'primaryEmail', 'primaryPhone'],
     },
     {
       id: 'companyRole',
