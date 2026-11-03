@@ -45,7 +45,7 @@ export function SalesQuoteCreatedRenderer({
   const viewAction = actions.find((action) => action.id === 'view') ?? actions[0] ?? null
 
   const handleView = async () => {
-    if (!viewAction) {
+    if (!viewAction || notification.status === 'actioned') {
       if (notification.linkHref) router.push(notification.linkHref)
       return
     }
@@ -125,7 +125,7 @@ export function SalesQuoteCreatedRenderer({
                 e.stopPropagation()
                 handleView()
               }}
-              disabled={executing || (!viewAction && !notification.linkHref)}
+              disabled={executing || (!viewAction && !notification.linkHref) || (notification.status === 'actioned' && !notification.linkHref)}
               className="gap-1"
             >
               <ExternalLink className="h-3 w-3" />

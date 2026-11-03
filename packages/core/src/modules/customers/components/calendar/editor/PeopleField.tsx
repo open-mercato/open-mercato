@@ -30,6 +30,7 @@ export function PeopleField({
   onChange,
   includeCustomers,
   includeStaff = true,
+  disabled,
 }: {
   mode: 'multi' | 'single'
   placeholder: string
@@ -39,6 +40,7 @@ export function PeopleField({
   includeCustomers: boolean
   /** Pass false when the staff module is not loaded — customer-only options. */
   includeStaff?: boolean
+  disabled?: boolean
 }) {
   const t = useT()
   const activeOrgId = useCurrentOrganization()?.id ?? null
@@ -134,6 +136,7 @@ export function PeopleField({
             badge={participant.isCustomer ? customerBadge : participant.userId ? undefined : guestBadge}
             onRemove={() => onChange(value.filter((_, entryIndex) => entryIndex !== index))}
             removeLabel={t('customers.calendar.editor.removePerson', 'Remove {name}', { name: participant.name })}
+            disabled={disabled}
           />
         ))}
         <Input
@@ -145,6 +148,7 @@ export function PeopleField({
           aria-label={ariaLabel}
           role="combobox"
           aria-expanded={open}
+          disabled={disabled}
           className="min-w-36 flex-1 border-0 bg-transparent px-0 shadow-none hover:bg-transparent focus-within:border-transparent focus-within:shadow-none"
           inputClassName="text-sm text-foreground placeholder:text-muted-foreground"
         />

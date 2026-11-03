@@ -10,6 +10,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { TaskHandlerService } from '../../../../lib/task-handler'
 import { gateTaskAction } from '../../../../lib/task-visibility-request'
 import {
@@ -18,6 +19,7 @@ import {
   workflowErrorSchema,
 } from '../../../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('workflows')
 
@@ -49,7 +51,7 @@ export async function POST(
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
     const tenantId = auth.tenantId
-    const organizationId = scope?.selectedId ?? auth.orgId
+    const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth)
 
     if (!tenantId || !organizationId) {
       return NextResponse.json(
@@ -108,6 +110,7 @@ export async function POST(
       message: 'Task claimed successfully',
     })
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('Error claiming user task', { err: error })
 
     // Keyed on the handler's error CODE rather than on substrings of its

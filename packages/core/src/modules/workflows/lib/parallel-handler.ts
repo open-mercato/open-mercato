@@ -30,9 +30,15 @@ import {
   WorkflowEvent,
 } from '../data/entities'
 import { logWorkflowEvent } from './event-logger'
+import {
+  ASYNC_ACTIVITY_OUTCOME_EVENT_TYPES,
+  readPendingAsyncJobIds,
+  resolveAsyncActivityWait,
+} from './async-activity-wait'
 import * as stepHandler from './step-handler'
 import { branchToken, mergeTokenContext, type ExecutionToken } from './execution-token'
 import { WORKFLOW_ERROR_CONTEXT_KEY, buildErrorContextEntry } from './error-routing'
+import { isSafeMappingTargetPath, safeGetNestedValue } from './safe-mapping-path'
 
 export interface AdvanceBranchesResult {
   outcome: 'joined' | 'waiting' | 'failed'
@@ -105,15 +111,22 @@ interface ParallelContext {
   userId?: string
 }
 
+export function applyParallelJoinOutputMapping(
+  context: Record<string, unknown>,
+  outputMapping: Record<string, string>,
+): void {
+  for (const [topKey, sourcePath] of Object.entries(outputMapping)) {
+    if (topKey === 'branches' || !isSafeMappingTargetPath(topKey)) continue
+    const value = safeGetNestedValue(context, sourcePath)
+    if (value !== undefined) context[topKey] = value
+  }
+}
+
 function normalizeWorkflowUserId(value: unknown): string | null {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
   if (!trimmed || trimmed.startsWith('trigger:')) return null
   return trimmed
-}
-
-function getNestedValue(obj: any, path: string): any {
-  return path.split('.').reduce((current, key) => (current == null ? undefined : current[key]), obj)
 }
 
 /**
@@ -202,25 +215,29 @@ export async function resumeBranchAfterActivities(
   }
 
   const namespace = branch.contextNamespace || {}
-  const pendingJobIds = (namespace._pendingAsyncActivities as any[]) || []
+  const pendingJobIds = readPendingAsyncJobIds(namespace._pendingAsyncActivities)
 
-  const completedEvents = await em.find(WorkflowEvent, {
-    workflowInstanceId: instanceId,
-    branchInstanceId,
-    eventType: 'ACTIVITY_COMPLETED',
-    eventData: { async: true },
-  })
-  const failedCount = await em.count(WorkflowEvent, {
-    workflowInstanceId: instanceId,
-    branchInstanceId,
-    eventType: 'ACTIVITY_FAILED',
-    eventData: { async: true },
-  })
+  const outcomeEvents = pendingJobIds.length === 0
+    ? []
+    : await em.find(
+      WorkflowEvent,
+      {
+        workflowInstanceId: instanceId,
+        branchInstanceId,
+        eventType: { $in: [...ASYNC_ACTIVITY_OUTCOME_EVENT_TYPES] },
+        eventData: { async: true, jobId: { $in: pendingJobIds } },
+      },
+      { orderBy: { occurredAt: 'asc', id: 'asc' } },
+    )
+  const wait = resolveAsyncActivityWait(pendingJobIds, outcomeEvents)
 
-  if (completedEvents.length + failedCount < pendingJobIds.length) {
+  if (!wait.settled) {
     // Still waiting on other branch activities.
     return { continueExecution: false }
   }
+
+  const completedEvents = wait.completed
+  const failedCount = wait.failed.length
 
   const now = new Date()
   if (failedCount > 0) {
@@ -625,11 +642,7 @@ async function fireJoin(
   // mapping cannot clobber the per-branch namespaces.
   const outputMapping: Record<string, string> | undefined = joinStep?.config?.outputMapping
   if (outputMapping) {
-    for (const [topKey, sourcePath] of Object.entries(outputMapping)) {
-      if (topKey === 'branches') continue
-      const value = getNestedValue(nextContext, sourcePath)
-      if (value !== undefined) nextContext[topKey] = value
-    }
+    applyParallelJoinOutputMapping(nextContext, outputMapping)
   }
 
   // Park the root token ON the JOIN step (not its successor) and let the

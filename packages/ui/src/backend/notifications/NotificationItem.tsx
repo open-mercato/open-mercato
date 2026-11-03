@@ -36,6 +36,15 @@ function resolveNotificationText(params: {
   return ''
 }
 
+function translateActionLabel(action: NotificationDto['actions'][number], t: TranslateFn): string {
+  return action.labelKey ? t(action.labelKey, action.label) : t(action.label, action.label)
+}
+
+function resolveActionLabel(actionId: string, actions: NotificationDto['actions'], t: TranslateFn): string {
+  const action = actions.find((candidate) => candidate.id === actionId)
+  return action ? translateActionLabel(action, t) : actionId
+}
+
 const severityIcons = {
   info: Info,
   warning: AlertTriangle,
@@ -108,6 +117,12 @@ export function NotificationItem({
 
   const handleAction = async (actionId: string, event?: React.MouseEvent) => {
     event?.stopPropagation()
+    if (notification.status === 'actioned') {
+      const actionHref = notification.actions.find((action) => action.id === actionId)?.href
+      const fallbackHref = actionHref ?? notification.linkHref
+      if (fallbackHref) router.push(fallbackHref)
+      return
+    }
     setExecuting(actionId)
     try {
       const result = await onExecuteAction(actionId)
@@ -127,6 +142,7 @@ export function NotificationItem({
     labelKey: action.labelKey ?? action.label,
     variant: action.variant as NotificationTypeAction['variant'],
     icon: action.icon,
+    href: action.href,
   }))
 
   if (CustomRenderer) {
@@ -227,7 +243,7 @@ export function NotificationItem({
                   onClick={(event) => handleAction(action.id, event)}
                   disabled={executing !== null}
                 >
-                  {action.labelKey ? t(action.labelKey, action.label) : t(action.label, action.label)}
+                  {translateActionLabel(action, t)}
                   {executing === action.id ? <Loader2 className="ml-1 size-3 animate-spin" /> : null}
                 </Button>
               )
@@ -237,7 +253,9 @@ export function NotificationItem({
 
         {notification.status === 'actioned' && notification.actionTaken ? (
           <p className="mt-1 text-xs italic text-muted-foreground">
-            {t('notifications.actionTaken', 'Action taken: {action}', { action: notification.actionTaken })}
+            {t('notifications.actionTaken', 'Action taken: {action}', {
+              action: resolveActionLabel(notification.actionTaken, notification.actions, t),
+            })}
           </p>
         ) : null}
       </div>

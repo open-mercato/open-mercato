@@ -31,6 +31,9 @@ type Translator = (key: string, fallback?: string, params?: Record<string, strin
 
 const NOTES_PAGE_SIZE = 20
 
+const noteBodyClassName =
+  'break-words text-foreground [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs'
+
 const isTestEnv =
   typeof process !== 'undefined' &&
   (process.env.NODE_ENV === 'test' || typeof process.env.JEST_WORKER_ID !== 'undefined')
@@ -58,6 +61,10 @@ export type CommentSummary = {
   authorEmail?: string | null
   dealId?: string | null
   dealTitle?: string | null
+  /** Generic per-note context (e.g. the child record a note came from), rendered like the linked deal. */
+  contextLabel?: string | null
+  /** Optional link for `contextLabel`; without it the label renders as plain text. */
+  contextHref?: string | null
   appearanceIcon?: string | null
   appearanceColor?: string | null
 }
@@ -221,6 +228,18 @@ export type NotesSectionProps<C = unknown> = {
   hideMarkdownToggle?: boolean
   /** Hide the appearance (icon/color) affordances: the palette buttons and the appearance dialog. */
   disableAppearance?: boolean
+  /**
+   * Per-note edit permission. Returning `false` hides the note's edit and appearance buttons
+   * and disables click-to-edit on its body. Presentational only — the server stays the authority.
+   */
+  canEditNote?: (note: CommentSummary) => boolean
+  /** Per-note delete permission. Returning `false` hides the note's delete button. */
+  canDeleteNote?: (note: CommentSummary) => boolean
+  /**
+   * Hide the composer, the add actions (including the `onActionChange` action) and every
+   * per-note mutation control. Notes and "load more" still render.
+   */
+  readOnly?: boolean
 }
 
 export function sanitizeHexColor(value: string | null): string | null {
@@ -329,6 +348,9 @@ function NotesSectionImpl<C = unknown>({
   forceMarkdown,
   hideMarkdownToggle,
   disableAppearance,
+  canEditNote,
+  canDeleteNote,
+  readOnly = false,
 }: NotesSectionProps<C>) {
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const t = React.useMemo<Translator>(() => translator ?? ((key, fallback) => fallback ?? key), [translator])
@@ -470,7 +492,7 @@ function NotesSectionImpl<C = unknown>({
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
   const formRef = React.useRef<HTMLFormElement | null>(null)
   const focusComposer = React.useCallback(() => {
-    if (!hasEntity) return
+    if (!hasEntity || readOnly) return
     setComposerOpen(true)
     window.requestAnimationFrame(() => {
       if (isMarkdownActive) {
@@ -486,7 +508,7 @@ function NotesSectionImpl<C = unknown>({
       element.focus()
       element.scrollIntoView({ behavior: 'smooth', block: 'center' })
     })
-  }, [formRef, hasEntity, isMarkdownActive])
+  }, [formRef, hasEntity, isMarkdownActive, readOnly])
   const [appearanceDialogState, setAppearanceDialogState] = React.useState<
     | { mode: 'create'; icon: string | null; color: string | null }
     | { mode: 'edit'; noteId: string; icon: string | null; color: string | null }
@@ -582,7 +604,7 @@ function NotesSectionImpl<C = unknown>({
 
   React.useEffect(() => {
     if (!onActionChange) return
-    if (!notes.length) {
+    if (!notes.length || readOnly) {
       onActionChange(null)
       return
     }
@@ -593,7 +615,7 @@ function NotesSectionImpl<C = unknown>({
       icon: <Plus className="mr-2 h-4 w-4" />,
     })
     return () => onActionChange(null)
-  }, [onActionChange, addActionLabel, focusComposer, hasEntity, isLoading, isSubmitting, notes.length])
+  }, [onActionChange, addActionLabel, focusComposer, hasEntity, isLoading, isSubmitting, notes.length, readOnly])
 
   const adjustTextareaSize = React.useCallback((element: HTMLTextAreaElement | null) => {
     if (!element) return
@@ -629,12 +651,12 @@ function NotesSectionImpl<C = unknown>({
   }, [notes.length, pagedMode])
 
   React.useEffect(() => {
-    if (hasEntity) return
+    if (hasEntity && !readOnly) return
     setComposerOpen(false)
     setDraftBody('')
     setDraftIcon(null)
     setDraftColor(null)
-  }, [hasEntity])
+  }, [hasEntity, readOnly])
 
   const visibleNotes = React.useMemo(
     () => (pagedMode ? notes : notes.slice(0, visibleCount)),
@@ -1167,7 +1189,7 @@ function NotesSectionImpl<C = unknown>({
       {loadError ? <ErrorMessage label={loadError} className="mt-3" /> : null}
 
       <div className="space-y-3">
-        {!composerOpen && hasVisibleNotes && !onActionChange ? (
+        {!composerOpen && hasVisibleNotes && !onActionChange && !readOnly ? (
           <div className="flex justify-end">
             <Button
               type="button"
@@ -1190,11 +1212,14 @@ function NotesSectionImpl<C = unknown>({
           visibleNotes.map((note) => {
             const author = noteAuthorLabel(note)
             const isAppearanceSaving = appearanceDialogSaving && editingAppearanceNoteId === note.id
-            const isEditingContent = contentEditor.id === note.id
+            const canEdit = !readOnly && (canEditNote ? canEditNote(note) : true)
+            const canDelete = !readOnly && (canDeleteNote ? canDeleteNote(note) : true)
+            const isEditingContent = canEdit && contentEditor.id === note.id
             const displayIcon = note.appearanceIcon ?? null
             const displayColor = note.appearanceColor ?? null
             const timestampValue = note.createdAt
             const fallbackTimestampLabel = formatDateTime(note.createdAt) ?? emptyLabel
+            const contextLabel = note.contextLabel && note.contextLabel.length ? note.contextLabel : null
             return (
               <div key={note.id} className="group space-y-2 rounded-lg border bg-card p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1221,59 +1246,77 @@ function NotesSectionImpl<C = unknown>({
                         </a>
                       </div>
                     ) : null}
-                  </div>
-                  <div
-                    className={`flex items-center gap-2 transition-opacity ${
-                      isEditingContent ? 'opacity-100' : 'opacity-100 md:opacity-0 md:group-hover:opacity-100 focus-within:opacity-100'
-                    }`}
-                  >
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => setContentEditor({ id: note.id, value: note.body })}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    {showAppearanceControls ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          setAppearanceDialogError(null)
-                          setAppearanceDialogState({
-                            mode: 'edit',
-                            noteId: note.id,
-                            icon: note.appearanceIcon ?? null,
-                            color: note.appearanceColor ?? null,
-                          })
-                        }}
-                        disabled={appearanceDialogSaving && editingAppearanceNoteId === note.id}
-                      >
-                        {isAppearanceSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Palette className="h-4 w-4" />}
-                      </Button>
+                    {contextLabel ? (
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <ArrowUpRightSquare className="h-3.5 w-3.5" />
+                        {note.contextHref ? (
+                          <a href={note.contextHref} className="font-medium text-foreground hover:underline">
+                            {contextLabel}
+                          </a>
+                        ) : (
+                          <span className="font-medium text-foreground">{contextLabel}</span>
+                        )}
+                      </div>
                     ) : null}
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        void handleDeleteNote(note)
-                      }}
-                      disabled={deletingNoteId === note.id}
-                    >
-                      {deletingNoteId === note.id ? (
-                        <span className="relative flex h-4 w-4 items-center justify-center text-destructive">
-                          <span className="absolute h-4 w-4 animate-spin rounded-full border border-destructive border-t-transparent" />
-                        </span>
-                      ) : (
-                        <Trash2 className="h-4 w-4" />
-                      )}
-                    </Button>
                   </div>
+                  {canEdit || canDelete ? (
+                    <div
+                      className={`flex items-center gap-2 transition-opacity ${
+                        isEditingContent ? 'opacity-100' : 'opacity-100 md:opacity-0 md:group-hover:opacity-100 focus-within:opacity-100'
+                      }`}
+                    >
+                      {canEdit ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setContentEditor({ id: note.id, value: note.body })}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                      ) : null}
+                      {showAppearanceControls && canEdit ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            setAppearanceDialogError(null)
+                            setAppearanceDialogState({
+                              mode: 'edit',
+                              noteId: note.id,
+                              icon: note.appearanceIcon ?? null,
+                              color: note.appearanceColor ?? null,
+                            })
+                          }}
+                          disabled={appearanceDialogSaving && editingAppearanceNoteId === note.id}
+                        >
+                          {isAppearanceSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Palette className="h-4 w-4" />}
+                        </Button>
+                      ) : null}
+                      {canDelete ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            void handleDeleteNote(note)
+                          }}
+                          disabled={deletingNoteId === note.id}
+                        >
+                          {deletingNoteId === note.id ? (
+                            <span className="relative flex h-4 w-4 items-center justify-center text-destructive">
+                              <span className="absolute h-4 w-4 animate-spin rounded-full border border-destructive border-t-transparent" />
+                            </span>
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
+                          )}
+                        </Button>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
                 {isEditingContent ? (
                   <div className="space-y-2" onKeyDown={handleContentEditorKeyDown}>
@@ -1325,7 +1368,7 @@ function NotesSectionImpl<C = unknown>({
                       </Button>
                     </div>
                   </div>
-                ) : (
+                ) : canEdit ? (
                   <div
                     role="button"
                     tabIndex={0}
@@ -1335,7 +1378,16 @@ function NotesSectionImpl<C = unknown>({
                   >
                     <MarkdownPreview
                       remarkPlugins={markdownPlugins}
-                      className="break-words text-foreground [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs"
+                      className={noteBodyClassName}
+                    >
+                      {note.body}
+                    </MarkdownPreview>
+                  </div>
+                ) : (
+                  <div className="text-sm">
+                    <MarkdownPreview
+                      remarkPlugins={markdownPlugins}
+                      className={noteBodyClassName}
                     >
                       {note.body}
                     </MarkdownPreview>
@@ -1348,11 +1400,15 @@ function NotesSectionImpl<C = unknown>({
           <TabEmptyState
             title={emptyState.title}
             description={emptyState.description}
-            action={{
-              label: emptyState.actionLabel,
-              onClick: focusComposer,
-              disabled: isSubmitting || !hasEntity,
-            }}
+            action={
+              readOnly
+                ? undefined
+                : {
+                    label: emptyState.actionLabel,
+                    onClick: focusComposer,
+                    disabled: isSubmitting || !hasEntity,
+                  }
+            }
           />
         )}
         {isLoading || (pagedMode ? !hasMore : visibleCount >= notes.length) ? null : (

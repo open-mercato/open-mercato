@@ -3,6 +3,7 @@ import {
   resolveSearchConfig,
   type SearchConfig,
 } from '@open-mercato/shared/lib/search/config'
+import { isIndexDocEnrichedKey } from './doc-enrichers'
 
 export type IndexDocumentScope = {
   organizationId?: string | null
@@ -67,6 +68,7 @@ function collectAggregateSearchValues(
   }
 
   if (isSearchFieldBlocklisted(field, entityType, config)) return []
+  if (isIndexDocEnrichedKey(entityType, field)) return []
 
   if (typeof value === 'string') {
     const trimmed = value.trim()

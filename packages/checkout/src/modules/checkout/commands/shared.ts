@@ -1,4 +1,5 @@
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { ensureOrganizationScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CustomFieldSnapshot } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
@@ -12,6 +13,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export function resolveCommandScope(ctx: CommandRuntimeContext): CheckoutScope {
   return requireCheckoutScope({ auth: ctx.auth })
+}
+
+export function resolveUndoScope(ctx: CommandRuntimeContext, snapshot: CheckoutScope): CheckoutScope {
+  ensureTenantScope(ctx, snapshot.tenantId)
+  ensureOrganizationScope(ctx, snapshot.organizationId)
+  return { organizationId: snapshot.organizationId, tenantId: snapshot.tenantId }
 }
 
 export function readCommandId(input: unknown, message: string): string {
@@ -259,6 +266,11 @@ export function restoreTemplateFromSnapshot(
   Object.assign(target, buildTemplateSnapshotData(snapshot))
 }
 
+/**
+ * Restores configuration onto an existing link. The usage counters and lock flag are
+ * owned by the link's transactions, so the live row keeps them: rewinding them to a
+ * snapshot would drop payments made after it was taken and reopen sold-out links.
+ */
 export function restoreLinkFromSnapshot(
   target: CheckoutLink,
   snapshot: CheckoutLinkSnapshot,
@@ -267,9 +279,6 @@ export function restoreLinkFromSnapshot(
     ...buildTemplateSnapshotData(snapshot),
     slug: snapshot.slug,
     templateId: snapshot.templateId ?? null,
-    completionCount: snapshot.completionCount,
-    activeReservationCount: snapshot.activeReservationCount,
-    isLocked: snapshot.isLocked,
   })
 }
 

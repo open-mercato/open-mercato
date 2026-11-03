@@ -11,6 +11,8 @@
   "feature_toggles.detail.fields.failMode": "Fehlermodus",
   "feature_toggles.detail.fields.identifier": "Kennung",
   "feature_toggles.detail.fields.name": "Name",
+  "feature_toggles.errors.overrideRedoConflict": "Für diesen Funktionsschalter existiert bereits eine Überschreibung. Die Wiederherstellung wurde abgelehnt.",
+  "feature_toggles.errors.overrideUndoConflict": "Diese Überschreibung hat sich seit der Aktion geändert, die Sie rückgängig machen möchten. Das Rückgängigmachen wurde abgelehnt.",
   "feature_toggles.form.action.save": "Speichern",
   "feature_toggles.form.errors.load": "Feature-Schalter-Überschreibungen konnten nicht geladen werden",
   "feature_toggles.form.fields.category.label": "Kategorie",
