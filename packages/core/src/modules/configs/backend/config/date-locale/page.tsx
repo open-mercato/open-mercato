@@ -118,10 +118,15 @@ export default function DateLocaleSettingsPage() {
         ? t('configs.dateLocale.inherit.viewerDevice', 'each viewer’s device time zone')
         : t('configs.dateLocale.inherit.localeDefault', 'locale default')
       const label = value === null ? emptyLabel : render(String(value))
-      return t('configs.dateLocale.inherit.hint', 'Automatic uses {{value}} ({{source}}).', {
+      const hint = t('configs.dateLocale.inherit.hint', 'Automatic uses {{value}} ({{source}}).', {
         value: label,
         source: sourceLabel(inherited.sources[field], field),
       })
+      if (field !== 'dateTimeFormat') return hint
+      return `${hint} ${t(
+        'configs.dateLocale.inherit.dateTimeFollowsDate',
+        'A date format chosen here takes precedence: timestamps then use it followed by the time format (or the locale’s short time).',
+      )}`
     },
     [data, sourceLabel, t],
   )

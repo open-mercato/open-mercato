@@ -94,6 +94,25 @@ describe('resolveDateLocaleSettings', () => {
     expect(resolveDateLocaleSettings({ env: { ...noEnv, dateFormat: 'dd.MM.yyyy' } }).dateTimeFormat).toBe('dd.MM.yyyy')
   })
 
+  it('derives timestamps from a tenant date pin rather than an env date-time pattern', () => {
+    const resolved = resolveDateLocaleSettings({
+      env: { ...noEnv, dateTimeFormat: 'yyyy-MM-dd HH:mm' },
+      tenant: { dateFormat: 'dd.MM.yyyy' },
+    })
+    expect(resolved.dateTimeFormat).toBe('dd.MM.yyyy p')
+    expect(resolved.sources.dateTimeFormat).toBe('tenant')
+    expect(
+      resolveDateLocaleSettings({ env: { ...noEnv, dateTimeFormat: 'yyyy-MM-dd HH:mm' }, tenant: { dateFormat: 'dd.MM.yyyy', timeFormat: 'HH:mm' } })
+        .dateTimeFormat,
+    ).toBe('dd.MM.yyyy HH:mm')
+  })
+
+  it('keeps an env date-time pattern when the date pattern also comes from env', () => {
+    const resolved = resolveDateLocaleSettings({ env: { ...noEnv, dateFormat: 'dd.MM.yyyy', dateTimeFormat: 'yyyy-MM-dd HH:mm' } })
+    expect(resolved.dateTimeFormat).toBe('yyyy-MM-dd HH:mm')
+    expect(resolved.sources.dateTimeFormat).toBe('env')
+  })
+
   it('keeps an explicit date-time pattern over the derived one', () => {
     const resolved = resolveDateLocaleSettings({
       env: noEnv,

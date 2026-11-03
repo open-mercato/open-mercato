@@ -54,6 +54,7 @@ OM_DB_DEFAULT_TIMEZONE=Europe/Warsaw
 - Stored values are not affected: every timestamp column is `timestamptz` and is read and written as UTC.
 - SQL that depends on the session zone is affected: `date_trunc` day and week buckets on dashboards, `CURRENT_DATE` comparisons such as overdue deals, and `::date` casts. Choose the zone your reports should use before enabling it on an existing deployment.
 - An invalid value stops connection setup with an error naming `OM_DB_DEFAULT_TIMEZONE`, instead of PostgreSQL rejecting every connection with `invalid value for parameter "TimeZone"`.
+- An `options=` query parameter in `DATABASE_URL` takes precedence over the session flags the platform sets (this also drops the idle session timeout). If your connection string needs `options`, add `-c TimeZone=<zone>` there instead.
 - Check the effective value with `SHOW TimeZone;` from the application, or set `OM_DB_POOL_DEBUG=1` to log it as `sessionTimeZone` when the pool starts.
 
 ## Dev Memory Usage (`🧠 Memory ... RSS`)

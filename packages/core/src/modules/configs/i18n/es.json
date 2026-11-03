@@ -53,6 +53,7 @@
   "configs.dateLocale.groups.preview": "Vista previa",
   "configs.dateLocale.groups.regional": "Región",
   "configs.dateLocale.inherit.dateTimeDerived": "Automático usa el formato de fecha seguido del formato de hora (o la hora corta de la configuración regional); sin formato de fecha, el predeterminado de la configuración regional.",
+  "configs.dateLocale.inherit.dateTimeFollowsDate": "Un formato de fecha elegido aquí tiene prioridad: las marcas de tiempo lo usan seguido del formato de hora (o la hora corta de la configuración regional).",
   "configs.dateLocale.inherit.hint": "El modo automático usa {{value}} ({{source}}).",
   "configs.dateLocale.inherit.localeDefault": "predeterminado del idioma",
   "configs.dateLocale.inherit.viewerDevice": "la zona horaria del dispositivo de cada usuario",

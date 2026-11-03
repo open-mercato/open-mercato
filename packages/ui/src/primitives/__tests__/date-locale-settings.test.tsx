@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { render } from '@testing-library/react'
 import { resolveDateLocaleSettings } from '@open-mercato/shared/lib/date-locale/resolve'
+import { formatDisplayDate } from '../date-format'
 import { DateLocaleSettingsProvider, useDateLocaleSettings } from '../date-locale-settings'
 import { getActiveDateLocaleSettings, setClientDateLocaleSettings } from '../date-locale-store'
 
@@ -58,5 +59,54 @@ describe('DateLocaleSettingsProvider', () => {
       </DateLocaleSettingsProvider>,
     )
     expect(getActiveDateLocaleSettings().timeZone).toBe('UTC')
+  })
+
+  // Regression: the root provider re-renders on every navigation (AppProviders reads the
+  // pathname) while the backend layout's provider is a cached subtree that does not. The plain
+  // helpers must keep using the nested settings rather than the root's anonymous defaults.
+  it('keeps the nested settings after only the root provider re-renders on navigation', () => {
+    const noEnv = { locale: null, dateFormat: null, dateTimeFormat: null, timeFormat: null, timeZone: null, firstDayOfWeek: null }
+    const anonymous = resolveDateLocaleSettings({ env: noEnv })
+    const signedIn = resolveDateLocaleSettings({ env: noEnv, tenant: { dateFormat: 'dd.MM.yyyy', timeZone: 'Asia/Tokyo' } })
+    const NestedBackend = React.memo(function NestedBackend() {
+      return (
+        <DateLocaleSettingsProvider value={signedIn}>
+          <span>backend</span>
+        </DateLocaleSettingsProvider>
+      )
+    })
+    function Root({ pathname }: { pathname: string }) {
+      return (
+        <DateLocaleSettingsProvider value={anonymous}>
+          <span data-path={pathname} />
+          <NestedBackend />
+        </DateLocaleSettingsProvider>
+      )
+    }
+
+    const view = render(<Root pathname="/backend" />)
+    expect(getActiveDateLocaleSettings().dateFormat).toBe('dd.MM.yyyy')
+    view.rerender(<Root pathname="/backend/customers" />)
+    expect(formatDisplayDate('2026-07-01')).toBe('01.07.2026')
+    expect(getActiveDateLocaleSettings().timeZone).toBe('Asia/Tokyo')
+  })
+
+  it('applies a nested provider value change after a refresh', () => {
+    const { rerender } = render(
+      <DateLocaleSettingsProvider value={rootSettings}>
+        <DateLocaleSettingsProvider value={tenantSettings}>
+          <ZoneProbe />
+        </DateLocaleSettingsProvider>
+      </DateLocaleSettingsProvider>,
+    )
+    const updated = resolveDateLocaleSettings({ tenant: { timeZone: 'Europe/Warsaw' } })
+    rerender(
+      <DateLocaleSettingsProvider value={rootSettings}>
+        <DateLocaleSettingsProvider value={updated}>
+          <ZoneProbe />
+        </DateLocaleSettingsProvider>
+      </DateLocaleSettingsProvider>,
+    )
+    expect(getActiveDateLocaleSettings().timeZone).toBe('Europe/Warsaw')
   })
 })

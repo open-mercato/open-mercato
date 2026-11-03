@@ -79,7 +79,8 @@ function tenantPattern(value: string | null | undefined): string | null {
  * `.ai/specs/2026-05-18-date-locale-settings.md` Q1). Only `timeZone` has a user layer (Q2).
  *
  * `dateTimeFormat` has one extra step before falling back: when no layer sets it but a date
- * pattern is in force, the date pattern is used, followed by the time pattern in force. Without a
+ * pattern is in force, the date pattern is used, followed by the time pattern in force. A tenant
+ * date pin also takes precedence over an env date-time pattern. Without a
  * time pattern, a tenant date pin is followed by date-fns' localized short time (`p`), so pinning
  * only `dd.MM.yyyy` keeps timestamps on that ordering with their time. An env-only date pin stays
  * bare, as `NEXT_PUBLIC_OM_DATE_FORMAT` rendered before tenant settings existed.
@@ -108,7 +109,10 @@ export function resolveDateLocaleSettings({
     ['tenant', tenantPattern(stored.dateTimeFormat)],
     ['env', defaults.dateTimeFormat],
   ])
-  if (dateTimeFormat === null && dateFormat !== null) {
+  // Tenant overrides env (Q1) field by field: an env date-time pattern must not outrank a tenant
+  // date pin, or dates would follow the tenant and timestamps the deployment.
+  const envDateTimeUnderTenantDate = dateTimeFormatSource === 'env' && dateFormatSource === 'tenant'
+  if ((dateTimeFormat === null || envDateTimeUnderTenantDate) && dateFormat !== null) {
     const timePart = timeFormat ?? (dateFormatSource === 'tenant' ? 'p' : null)
     dateTimeFormat = timePart ? `${dateFormat} ${timePart}` : dateFormat
     dateTimeFormatSource = dateFormatSource

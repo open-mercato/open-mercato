@@ -16,6 +16,44 @@ import type { ResolvedDateLocaleSettings } from '@open-mercato/shared/lib/date-l
  */
 let clientSettings: ResolvedDateLocaleSettings | null = null
 
+/**
+ * Providers nest (root layout → backend/portal layout), and the innermost one on screen must win.
+ * A root provider re-renders on every navigation (its parent reads the pathname) while a nested
+ * one usually does not, so "last render wins" would hand the store back to the root's anonymous
+ * defaults after a client-side login. Each provider therefore registers with its nesting depth:
+ * mounted providers in an effect, and the provider rendering right now (hydration, or a nested
+ * layout appearing after a navigation) before its effects have run.
+ */
+type ProviderEntry = { depth: number; settings: ResolvedDateLocaleSettings | null }
+const mountedProviders = new Map<object, ProviderEntry>()
+let renderingProvider: (ProviderEntry & { key: object }) | null = null
+
+function innermostProviderSettings(): ProviderEntry | null {
+  let innermost: ProviderEntry | null = null
+  for (const entry of mountedProviders.values()) {
+    if (!innermost || entry.depth > innermost.depth) innermost = entry
+  }
+  if (renderingProvider && (!innermost || renderingProvider.depth >= innermost.depth)) innermost = renderingProvider
+  return innermost
+}
+
+/** Called by `DateLocaleSettingsProvider` while it renders. Browser only. */
+export function noteRenderingDateLocaleProvider(key: object, depth: number, settings: ResolvedDateLocaleSettings | null): void {
+  if (typeof window === 'undefined') return
+  renderingProvider = { key, depth, settings }
+}
+
+/** Called by `DateLocaleSettingsProvider` once mounted (and when its value changes). Browser only. */
+export function registerDateLocaleProvider(key: object, depth: number, settings: ResolvedDateLocaleSettings | null): void {
+  if (typeof window === 'undefined') return
+  mountedProviders.set(key, { depth, settings })
+}
+
+export function unregisterDateLocaleProvider(key: object): void {
+  mountedProviders.delete(key)
+  if (renderingProvider?.key === key) renderingProvider = null
+}
+
 // `NEXT_PUBLIC_*` reads must stay literal so Next.js can inline them into the client bundle.
 function readPublicEnvSettings(): ResolvedDateLocaleSettings {
   return resolveDateLocaleSettings({
@@ -35,6 +73,9 @@ export function setClientDateLocaleSettings(settings: ResolvedDateLocaleSettings
 }
 
 export function getActiveDateLocaleSettings(): ResolvedDateLocaleSettings {
-  if (typeof window !== 'undefined' && clientSettings) return clientSettings
+  if (typeof window !== 'undefined') {
+    const provided = innermostProviderSettings()?.settings ?? clientSettings
+    if (provided) return provided
+  }
   return readPublicEnvSettings()
 }

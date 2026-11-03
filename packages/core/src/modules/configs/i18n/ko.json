@@ -53,6 +53,7 @@
   "configs.dateLocale.groups.preview": "미리 보기",
   "configs.dateLocale.groups.regional": "지역",
   "configs.dateLocale.inherit.dateTimeDerived": "자동은 날짜 형식 뒤에 시간 형식(또는 로캘의 짧은 시간)을 사용하며, 날짜 형식이 없으면 로캘 기본값을 사용합니다.",
+  "configs.dateLocale.inherit.dateTimeFollowsDate": "여기서 선택한 날짜 형식이 우선합니다. 타임스탬프는 해당 형식 뒤에 시간 형식(또는 로캘의 짧은 시간)을 붙여 사용합니다.",
   "configs.dateLocale.inherit.hint": "자동은 {{value}}을(를) 사용합니다({{source}}).",
   "configs.dateLocale.inherit.localeDefault": "로캘 기본값",
   "configs.dateLocale.inherit.viewerDevice": "각 사용자의 기기 시간대",

@@ -138,6 +138,25 @@ About 400 call sites format dates directly; ten files used the shared helpers. C
 - UI work must use existing backend settings and design-system primitives.
 - Backward compatibility requires keeping `NEXT_PUBLIC_DATE_FORMAT` as an alias for at least one minor release.
 
+## Migration & Backward Compatibility
+
+Required by `BACKWARD_COMPATIBILITY.md` (deprecation protocol step 5). Every surface below is additive or keeps a bridge; the operator-facing notes are in `UPGRADE_NOTES.md`.
+
+| Surface | Category | Change | Bridge / migration |
+|---|---|---|---|
+| `users.timezone` | DB schema (additive) | New nullable column (`Migration20261103120000_auth`) | None needed; `null` keeps the organization default. |
+| `GET/PUT /api/configs/date-locale` | API route (additive) | New route | — |
+| `GET/PUT /api/auth/profile` | API response/request (additive) | Optional `timezone` field; returned on PUT only when sent | Existing clients unaffected. |
+| `GET /api/customers/interactions/conflicts` | API response (value semantics) | `startTime`/`endTime` use the caller's `timezoneOffsetMinutes` (UTC when omitted) instead of the server process zone; ISO `startsAt`/`endsAt` added | Legacy fields kept; new clients should read `startsAt`/`endsAt`. Documented in `UPGRADE_NOTES.md`. |
+| `configs.date_locale.view` / `configs.date_locale.manage` | ACL features (additive) | New features granted in `setup.ts` | Existing tenants: `yarn mercato auth sync-role-acls`. |
+| `customers/lib/localDay.USER_TIMEZONE` | Exported constant | Deprecated | Kept with `@deprecated`, pointing to `getUserTimeZone()`; removal no earlier than the next minor. |
+| `resolveDateFnsLocale`, `TimeDisplayFormat` (`ui/primitives/date-locale`) | Import path | Implementation moved to `date-fns-locales.ts` | Re-exported from the original module. |
+| `formatDisplayDate*`, `resolveDisplay*Format`, `resolveDateRange`, `getVisibleRange` | Function signatures (additive) | Optional trailing `settings` / `weekStartsOn` parameters | Existing calls unchanged. |
+| `WidgetDataScope.weekStartsOn`, `AppProvidersProps.dateLocaleSettings` | Types (additive) | Optional fields | — |
+| `NEXT_PUBLIC_DATE_FORMAT`, `NEXT_PUBLIC_DATE_TIME_FORMAT` | Config (alias) | Superseded by `NEXT_PUBLIC_OM_*` | Kept as legacy aliases. |
+| Default rendering (`DataTable`, pickers, `Calendar`, schedules) | Visible defaults | Intl medium/short instead of `toLocaleString()`; pickers no longer force `HH:mm`; Monday week start unless a locale says otherwise | Pin the old look with `NEXT_PUBLIC_OM_DATE_TIME_FORMAT` / `OM_FIRST_DAY_OF_WEEK`; documented in `UPGRADE_NOTES.md`. |
+| `OM_DB_DEFAULT_TIMEZONE` | Config (additive, opt-in) | Postgres session `TimeZone` | Unset keeps current behavior. |
+
 ## Changelog
 
 - 2026-05-18: Drafted from PR #1963 CI follow-up. Phase 1 is the immediate dependency/env baseline; Phases 2-5 are tracked as follow-up work.
@@ -153,4 +172,5 @@ About 400 call sites format dates directly; ten files used the shared helpers. C
   - **Kept as-is (Group B):** ISO input/filter values, API/AI-tool serialization, CSV/XLSX exports, `workflows/lib/interpolation-pipeline.ts`, `documents/lib/templateFill.ts`, timezone math helpers, AI usage UTC day windows, timesheet Monday-based week periods (aligned with the my-work API).
   - **Deferred:** leave-request notification variables are still formatted server-side; the CRM calendar grid and schedule dialog still lay out in the browser zone; `resolveDateRange` server ranges use the process zone; a per-organization (not per-tenant) setting.
   - **Date-only pin:** when the tenant pins only a date pattern, timestamps use it followed by the time pattern or date-fns' localized short time `p`, so they keep their time. An env-only `NEXT_PUBLIC_OM_DATE_FORMAT` stays bare (unchanged behavior).
+  - **Provider nesting:** the client store resolves the innermost mounted `DateLocaleSettingsProvider`, so the root layout re-rendering on navigation never replaces the backend/portal layout's settings. Plain `formatDisplay*` calls default to that store in the browser and to env defaults during SSR; SSR-rendered dates must pass `useDateLocaleSettings()`.
   - **First day of week:** resolved as configured day → the configured formatting locale's own week start, from the full regional tag via `Intl.Locale` week info (`en-GB` Monday, `en-US` Sunday, `ar-EG` Saturday) → Monday. The app UI language never decides it, so an unconfigured tenant keeps a Monday week. The settings page shows the effective day and its source (`resolveFirstDayOfWeek` in `@open-mercato/shared/lib/date-locale/weekStart`).

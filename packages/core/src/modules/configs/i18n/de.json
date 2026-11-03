@@ -53,6 +53,7 @@
   "configs.dateLocale.groups.preview": "Vorschau",
   "configs.dateLocale.groups.regional": "Region",
   "configs.dateLocale.inherit.dateTimeDerived": "Automatisch wird das Datumsformat gefolgt vom Zeitformat (oder der kurzen Uhrzeit des Gebietsschemas) verwendet; ohne Datumsformat der Standard des Gebietsschemas.",
+  "configs.dateLocale.inherit.dateTimeFollowsDate": "Ein hier gewähltes Datumsformat hat Vorrang: Zeitstempel verwenden es dann gefolgt vom Zeitformat (oder der kurzen Uhrzeit des Gebietsschemas).",
   "configs.dateLocale.inherit.hint": "Automatisch verwendet {{value}} ({{source}}).",
   "configs.dateLocale.inherit.localeDefault": "Standard der Sprache",
   "configs.dateLocale.inherit.viewerDevice": "die Zeitzone des Geräts jedes Betrachters",

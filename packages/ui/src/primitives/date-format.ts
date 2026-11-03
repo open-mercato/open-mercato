@@ -217,6 +217,11 @@ function formatDisplay(
  * `settings` defaults to the active tenant/user settings (see `DateLocaleSettingsProvider`). A
  * bare `yyyy-MM-dd` renders as that calendar day in every zone; an instant renders in the
  * configured timezone.
+ *
+ * The default is browser-only: during SSR it is the public env defaults (a module-level value
+ * would leak between tenants' requests). A component that renders dates on the server MUST pass
+ * `useDateLocaleSettings()` explicitly, as `DataTable` does, or its hydration will not match.
+ * Event handlers, effects and data that loads after mount can rely on the default.
  */
 export function formatDisplayDate(
   value: string | Date | null | undefined,

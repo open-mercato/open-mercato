@@ -53,6 +53,7 @@
   "configs.dateLocale.groups.preview": "Preview",
   "configs.dateLocale.groups.regional": "Region",
   "configs.dateLocale.inherit.dateTimeDerived": "Automatic uses the date format followed by the time format (or the locale’s short time); with no date format set, the locale default.",
+  "configs.dateLocale.inherit.dateTimeFollowsDate": "A date format chosen here takes precedence: timestamps then use it followed by the time format (or the locale’s short time).",
   "configs.dateLocale.inherit.hint": "Automatic uses {{value}} ({{source}}).",
   "configs.dateLocale.inherit.localeDefault": "locale default",
   "configs.dateLocale.inherit.viewerDevice": "each viewer’s device time zone",
