@@ -29,8 +29,8 @@ Another lesson addition can advance the base; recheck the candidate merged tree 
 
 ### Phase 1: Correct and verify
 
-- [ ] 1.1 Reproduce the catalog mismatch, count records, and correct the declaration
-- [ ] 1.2 Run existing checks and inspect the exact diff and current base/merge tree
+- [x] 1.1 Reproduce the catalog mismatch, count records, and correct the declaration — a393169107
+- [x] 1.2 Run existing checks and inspect the exact diff and current base/merge tree
 
 ### Phase 2: Review and handoff
 
