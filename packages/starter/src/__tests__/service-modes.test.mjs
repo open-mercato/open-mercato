@@ -209,3 +209,17 @@ test('ephemeral cleanup restores its endpoints when the dev runner persists a da
     assert.equal(mock.stopped.length, 3)
   } finally { fs.rmSync(dir, { recursive: true, force: true }) }
 })
+
+test('database-name cleanup preserves literal replacement tokens in original credentials', async () => {
+  const dir = fixture(); const mock = containers()
+  try {
+    const file = path.join(dir, '.env')
+    fs.writeFileSync(file, 'DATABASE_URL=postgres://u:p$&@remote.example/old_db\n')
+    const env = {}
+    const result = await configureServiceMode({ mode: 'ephemeral', projectDir: dir, env, loadTestcontainers: mock.loader, log: silent })
+    const selected = new URL(env.DATABASE_URL); selected.pathname = '/chosen_db'
+    fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(/^DATABASE_URL=.*$/m, () => `DATABASE_URL=${selected.toString()}`))
+    await result.cleanup()
+    assert.equal(parseEnv(fs.readFileSync(file, 'utf8')).DATABASE_URL, 'postgres://u:p$&@remote.example/chosen_db')
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})

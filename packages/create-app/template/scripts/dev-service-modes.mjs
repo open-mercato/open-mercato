@@ -144,7 +144,7 @@ export async function configureServiceMode({ mode, projectDir, env = process.env
                     const restoredUrl = new URL(previous)
                     restoredUrl.pathname = active.pathname
                     const raw = (originalText.get(file) ?? '').match(assignmentPattern('DATABASE_URL'))?.join('') ?? ''
-                    persistedDatabaseAssignment = raw.includes(previous) ? raw.replace(previous, restoredUrl.toString()) : raw
+                    persistedDatabaseAssignment = raw.includes(previous) ? raw.replace(previous, () => restoredUrl.toString()) : raw
                   }
                 }
               } catch {}
