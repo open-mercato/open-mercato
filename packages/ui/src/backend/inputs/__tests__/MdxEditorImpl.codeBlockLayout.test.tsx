@@ -32,6 +32,7 @@ describe('code block toolbar layout', () => {
     const editor = container.querySelector('.om-mdx-editor')
     const toolbar = container.querySelector<HTMLElement>('._codeMirrorToolbar_vendor')
     expect(editor).not.toBeNull()
+    expect(editor).toHaveClass('[&.mdxeditor-popup-container]:z-popover!')
     expect(toolbar).not.toBeNull()
 
     const compiler = await compile('@tailwind utilities;', {
