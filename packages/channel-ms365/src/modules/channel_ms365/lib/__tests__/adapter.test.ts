@@ -979,6 +979,32 @@ describe('Ms365ChannelAdapter.importHistory', () => {
     expect(filters).toHaveLength(14)
   })
 
+  it('keeps the same look-back start across sender chunks of a long import', async () => {
+    const filters: string[] = []
+    setGraphMailClient({
+      ...emptyGraph(),
+      listInboxMessages: async (_auth, input) => {
+        filters.push(input.filter)
+        return { value: [{ id: `m${filters.length}` }] }
+      },
+      getMessageMime: async (_auth, id) => buildRawMime(`${id}@example.com`),
+    })
+    const contactEmails = Array.from({ length: 17 }, (_, index) => `person${index}@example.com`)
+    const adapter = getMs365ChannelAdapter()
+    const now = jest.spyOn(Date, 'now')
+    try {
+      now.mockReturnValue(Date.UTC(2026, 8, 1))
+      const first = await adapter.importHistory!({ credentials: userCredentials, scope, sinceDays: 7, contactEmails })
+      now.mockReturnValue(Date.UTC(2026, 8, 1, 2))
+      await adapter.importHistory!({ credentials: userCredentials, scope, sinceDays: 7, contactEmails, cursor: first.nextCursor })
+    } finally {
+      now.mockRestore()
+    }
+    const lookBackStart = (filter: string) => filter.match(/receivedDateTime ge (\S+)/)![1]
+    expect(filters).toHaveLength(2)
+    expect(lookBackStart(filters[1])).toBe(lookBackStart(filters[0]))
+  })
+
   it('clamps the look-back to the hub-wide ceiling instead of a fixed 365 days', async () => {
     const filters: string[] = []
     setGraphMailClient({

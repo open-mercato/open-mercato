@@ -107,6 +107,11 @@ type ImportCursor = {
   /** Unique messages imported so far (never counts a replayed message twice). */
   fetched: number
   /**
+   * Lower `receivedDateTime` bound pinned on the first page, so every page and
+   * sender chunk of a long import covers the same window.
+   */
+  since?: string
+  /**
    * Upper `receivedDateTime` bound pinned on the first page, so mail arriving
    * during the import cannot shift a re-listed first page.
    */
@@ -515,8 +520,7 @@ class Ms365ChannelAdapter implements ChannelAdapter {
       return { messages: [], hasMore: false }
     }
 
-    const sinceDays = clampImportSinceDays(input.sinceDays)
-    const since = new Date(Date.now() - sinceDays * 24 * 60 * 60 * 1000)
+    const since = cursor.since ?? new Date(Date.now() - clampImportSinceDays(input.sinceDays) * 24 * 60 * 60 * 1000).toISOString()
     const until = cursor.until ?? new Date().toISOString()
 
     let page
@@ -525,7 +529,7 @@ class Ms365ChannelAdapter implements ChannelAdapter {
         page = await api.continueList(auth, cursor.nextLink)
       } else {
         page = await api.listInboxMessages(auth, {
-          filter: buildImportFilter(since, senderChunks[cursor.chunkIndex], new Date(until)),
+          filter: buildImportFilter(new Date(since), senderChunks[cursor.chunkIndex], new Date(until)),
           top: pageSize,
           orderBy: 'receivedDateTime desc',
           includeCount: cursor.chunkIndex === 0 && senderChunks.length === 1,
@@ -561,6 +565,7 @@ class Ms365ChannelAdapter implements ChannelAdapter {
           nextLink: cursor.nextLink,
           chunkIndex: cursor.chunkIndex,
           fetched,
+          since,
           until,
           doneKeys,
         } satisfies ImportCursor),
@@ -573,14 +578,14 @@ class Ms365ChannelAdapter implements ChannelAdapter {
     if (page.nextLink && !capped) {
       return {
         messages,
-        nextCursor: encodeCursor({ nextLink: page.nextLink, chunkIndex: cursor.chunkIndex, fetched, until, doneKeys } satisfies ImportCursor),
+        nextCursor: encodeCursor({ nextLink: page.nextLink, chunkIndex: cursor.chunkIndex, fetched, since, until, doneKeys } satisfies ImportCursor),
         hasMore: true,
         totalCandidates: page.count,
       }
     }
     const nextChunk = cursor.chunkIndex + 1
     if (nextChunk < senderChunks.length && !capped) {
-      const nextCursor = encodeCursor({ chunkIndex: nextChunk, fetched, until, doneKeys } satisfies ImportCursor)
+      const nextCursor = encodeCursor({ chunkIndex: nextChunk, fetched, since, until, doneKeys } satisfies ImportCursor)
       // Senders without mail must not count as empty pages: the hub stops after
       // ten in a row, and a re-run would stop at the same chunks.
       if (messages.length === 0) return this.importHistory({ ...input, cursor: nextCursor })
@@ -892,6 +897,7 @@ function decodeImportCursor(value: string | undefined): ImportCursor {
     nextLink: typeof record.nextLink === 'string' && record.nextLink.length > 0 ? record.nextLink : undefined,
     chunkIndex: nonNegativeInt(record.chunkIndex),
     fetched: nonNegativeInt(record.fetched),
+    since: typeof record.since === 'string' && parseIsoDate(record.since) ? record.since : undefined,
     until: typeof record.until === 'string' && parseIsoDate(record.until) ? record.until : undefined,
     doneKeys: Array.isArray(record.doneKeys)
       ? record.doneKeys.filter((key): key is string => typeof key === 'string' && key.length > 0)

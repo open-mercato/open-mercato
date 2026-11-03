@@ -287,8 +287,9 @@ GET /me/mailFolders/inbox/messages
 - `sinceDays` is clamped to the hub-wide ceiling `OM_IMPORT_HISTORY_MAX_SINCE_DAYS`
   (`getImportHistoryMaxSinceDays()`, default 3650 days), not a fixed year.
 - `until` is pinned to the time of the first page and kept in the cursor, so mail arriving while
-  an import runs never shifts a re-listed page (incremental polling covers it).
-- `cursor` = base64 JSON `{ nextLink, chunkIndex, fetched, until, doneKeys }`; `totalCandidates`
+  an import runs never shifts a re-listed page (incremental polling covers it). The look-back start
+  (`since`) is pinned the same way, so every page and sender chunk covers one window.
+- `cursor` = base64 JSON `{ nextLink, chunkIndex, fetched, since, until, doneKeys }`; `totalCandidates`
   from `@odata.count` on the first page when available. The cursor lives only in the hub worker's
   memory for the duration of the import.
 - `doneKeys` holds a short digest (16 characters of SHA-256) of every stub already imported or
@@ -344,6 +345,11 @@ result: { externalMessageId: internetMessageId, conversationId, status: 'sent',
   A 2xx with empty or malformed JSON is a transient `502`.
 - A draft created on the server whose response was lost stays behind as an orphan, because its id
   was never learned. The hub's retry creates a new draft; nothing is sent twice.
+- Known limit: the per-request timeout stops once headers arrive (`fetchWithTimeout`), so a body that
+  stalls is ended by undici's own body timeout rather than ours. That timeout then counts as a
+  transient failure, so a stall costs time (a few minutes per attempt) but no mail. A flat limit on
+  the whole body is deliberately not added, because it could cut off a slow but healthy download of
+  a large message.
 - Attachments: `fileSharing: false` in phase 1 (same as Gmail/IMAP — the shared converter does not
   stitch attachment bytes yet). Re-enable together with the other providers.
 
@@ -765,7 +771,7 @@ None block implementation; defaults apply unless the maintainer objects in revie
 - `importHistory` keeps identity for the whole import: `doneKeys` (digests) replaces the per-page
   `pageDoneIds`, so messages displaced onto a later page are not counted twice. A call with no
   progress throws the real error instead of repeating its cursor, and senders without mail no
-  longer count as the hub's empty pages.
+  longer count as the hub's empty pages. The look-back start is pinned in the cursor next to `until`.
 - `/send`: only a `429` on a draft that still reads as a draft is retried. After a timeout,
   connection loss or `5xx` the send may be in flight, so the draft is kept and nothing is retried.
 - The watermark is described everywhere as a bootstrap / re-sync floor, separate from the Graph
