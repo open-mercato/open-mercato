@@ -226,7 +226,12 @@ class Ms365ChannelAdapter implements ChannelAdapter {
       const state = await api.getMessageState(auth, draftId).catch(() => undefined)
       const alreadySent = state !== undefined && state !== null && state.isDraft === false
       if (!alreadySent) {
+        // `/send` only queues the mail (202), so a draft can still read as a
+        // draft while Exchange processes a request whose response was lost. Only
+        // throttling is a definite rejection; after a timeout or a 5xx the send
+        // may be in flight whatever the draft says.
         const confirmedUnsent = state !== undefined && state !== null && state.isDraft === true
+          && error instanceof GraphApiError && error.status === 429
         const transient = isTransientGraphError(error)
         if (state !== null && (confirmedUnsent || !transient)) {
           // The draft still exists and either the failure is permanent or the
@@ -238,9 +243,9 @@ class Ms365ChannelAdapter implements ChannelAdapter {
             logger.warn('failed to delete orphaned draft after send failure', { err: cleanupError })
           }
         }
-        if (transient && confirmedUnsent) {
-          // Confirmed not sent + transient cause: let the hub retry (structured
-          // error keeps `transient`/`status` for its classifier).
+        if (confirmedUnsent) {
+          // Rejected and not sent: let the hub retry (structured error keeps
+          // `transient`/`status` for its classifier).
           throw error
         }
         // Permanent failure, or ambiguous state (could not confirm whether the

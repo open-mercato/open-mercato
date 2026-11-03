@@ -1208,6 +1208,24 @@ describe('Ms365ChannelAdapter.sendMessage', () => {
     expect(classification).toMatchObject({ transient: true, status: 599 })
   })
 
+  it.each([
+    ['a timeout', new GraphApiError('Microsoft Graph POST /me/messages/draft-1/send timed out', 599, 'request timed out')],
+    ['a 503', new GraphApiError('unavailable', 503, 'unavailable')],
+  ])('neither retries nor deletes a draft that still reads as a draft after %s (the send may be in flight)', async (_label, sendError) => {
+    const deleted: string[] = []
+    const outcome = await deliverViaHub({
+      sendDraft: async () => {
+        throw sendError
+      },
+      getMessageState: async (_auth, id) => ({ id, isDraft: true }),
+      deleteMessage: async (_auth, id) => {
+        deleted.push(id)
+      },
+    })
+    expect(outcome.classification).toMatchObject({ transient: false })
+    expect(deleted).toHaveLength(0)
+  })
+
   it('lets the hub retry a confirmed-unsent draft', async () => {
     const outcome = await deliverViaHub({
       sendDraft: async () => {
