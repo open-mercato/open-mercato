@@ -75,8 +75,8 @@ function replaceValues(text, values) {
   return result
 }
 
-function localCredential(value) {
-  return /[^A-Za-z0-9_.-]/.test(value) ? `local_${crypto.createHash('sha256').update(value).digest('hex').slice(0, 32)}` : value
+function localCredential(value, scope) {
+  return /[^A-Za-z0-9_.-]/.test(value) ? `local_${crypto.scryptSync(value, path.resolve(scope), 32, { N: 32768, maxmem: 64 * 1024 * 1024 }).toString('hex')}` : value
 }
 
 function localUrl(raw, fallback, host, port) {
@@ -160,9 +160,9 @@ export async function configureServiceMode({ mode, projectDir, env = process.env
   try {
     const database = new URL(settings.DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/open-mercato')
     database.search = ''
-    const dbUser = localCredential(decodeURIComponent(database.username || settings.POSTGRES_USER || 'postgres'))
-    const dbPassword = localCredential(decodeURIComponent(database.password || settings.POSTGRES_PASSWORD || 'postgres'))
-    const dbName = localCredential(decodeURIComponent(database.pathname.slice(1) || settings.POSTGRES_DB || 'open-mercato'))
+    const dbUser = localCredential(decodeURIComponent(database.username || settings.POSTGRES_USER || 'postgres'), projectDir)
+    const dbPassword = localCredential(decodeURIComponent(database.password || settings.POSTGRES_PASSWORD || 'postgres'), projectDir)
+    const dbName = localCredential(decodeURIComponent(database.pathname.slice(1) || settings.POSTGRES_DB || 'open-mercato'), projectDir)
     database.username = encodeURIComponent(dbUser)
     database.password = encodeURIComponent(dbPassword)
     database.pathname = `/${encodeURIComponent(dbName)}`
@@ -170,7 +170,7 @@ export async function configureServiceMode({ mode, projectDir, env = process.env
     changes.POSTGRES_USER = dbUser
     changes.POSTGRES_PASSWORD = dbPassword
     changes.POSTGRES_DB = dbName
-    const meiliKey = localCredential(settings.MEILISEARCH_API_KEY || settings.MEILISEARCH_MASTER_KEY || 'meilisearch-dev-key')
+    const meiliKey = localCredential(settings.MEILISEARCH_API_KEY || settings.MEILISEARCH_MASTER_KEY || 'meilisearch-dev-key', projectDir)
     changes.MEILISEARCH_API_KEY = meiliKey
     changes.MEILISEARCH_MASTER_KEY = meiliKey
     const { GenericContainer, Wait } = mode === 'ephemeral' ? await loadTestcontainers() : {}
