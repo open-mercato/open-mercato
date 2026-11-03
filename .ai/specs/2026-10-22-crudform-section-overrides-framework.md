@@ -266,12 +266,12 @@ Rules:
 
 This preserves section-specific Zod transforms and makes full-record invariants explicit instead of pretending they can be derived mechanically.
 
-Runtime descriptors use one additive auto-discovery convention. An owning module exports `crudFormSections` from module-root `form-sections.ts` through `defineCrudFormSections(...)`. That server-safe declaration contains host/contribution ids and serializable facts plus lazy client loaders created with `lazyCrudFormSectionRuntime(() => import('./path/to/runtime.client'))`; it must not statically import React, Zod runtime schemas, or route components. A referenced `*.client.ts`/`*.client.tsx` module exports the concrete renderer/group, validator, projector, and lifecycle descriptor.
+Runtime descriptors use one additive auto-discovery convention. An owning module exports `crudFormSections` from module-root `form-sections.ts` through `defineCrudFormSections(...)`. That server-safe declaration contains host/contribution ids and serializable facts plus lazy client loaders created with `lazyCrudFormSectionRuntime(() => import('./path/to/runtime.client'))`; it must not statically import React or route components. It may hold server-only code (sink schemas and callbacks, leaf defaults, server validators) because only the server facts registry imports it; the browser registry is generated from literals extracted from it and never imports the file. A referenced `*.client.ts`/`*.client.tsx` module exports the concrete renderer/group, validator, projector, and lifecycle descriptor.
 
 `yarn generate` emits two views from the same enabled-module discovery snapshot:
 
 - a server facts registry used for final capability matching, manifest generation, inventory, and diagnostics, without importing client loaders;
-- a browser runtime registry that preserves the lazy loader and maps each exact `contributionId` and host base descriptor id to one enabled runtime descriptor.
+- a browser runtime registry, generated from the extracted literal ids and `import()` paths without importing `form-sections.ts`, that preserves the lazy loader and maps each exact `contributionId` and host base descriptor id to one enabled runtime descriptor.
 
 Duplicate ids, a fact without a loader, a loader without matching facts, non-literal ids/imports, a disabled module still present in either registry, and server/browser id or `roundTripId` divergence are generation failures. Registration order is enabled-module topological order followed by normalized source path and contribution id; overrides apply only after that base order is built. A standalone app uses the same `apps/mercato/src/modules/<module>/form-sections.ts` convention as a package module. The public import path, export name, file convention, generated registry shapes, and loader helper are compatibility surfaces and must be added to the module-development guide and `BACKWARD_COMPATIBILITY.md`.
 
@@ -465,7 +465,7 @@ A sink is not a new persistence mechanism. It is one checkable declaration over 
 
 - **Namespace.** Extension leaves live under `extensions.<ownerModuleId>.*`. Host façade body schemas accept `extensions` as a record whose keys must each match an accepted sink of the resolved policy; any other key or path returns `409 extension_policy_mismatch`. Host command input never receives `extensions`; the façade strips it after sink dispatch.
 - **Capability composition.** Matching stays exact per capability. A replacement that owns base leaves plus extension leaves lists two requirements: the host capability for exactly the base payload paths, and the sink capability (`mode: 'extension-sink'`) for exactly its extension paths.
-- **Sink runtime.** The owning module registers a server-only sink in module-root `form-section-sinks.ts` via `defineCrudFormSectionSink({ id, roundTripId, schema, persist, load, undo?, onHostDeleted? })`. `persist({ values, hostResourceId, hostOperation, em, scope, auth })` validates with its own Zod schema and upserts by `(tenant_id, organization_id, host id)`. `load` is registered automatically as a response enricher on the host detail route under `_extensions.<ownerModuleId>`, so the client descriptor's initial values come from the same server read.
+- **Sink runtime.** The owning module registers a server-only sink in module-root `form-sections.ts` via `defineCrudFormSectionSink({ id, roundTripId, schema, persist, load, undo?, onHostDeleted? })`. `persist({ values, hostResourceId, hostOperation, em, scope, auth })` validates with its own Zod schema and upserts by `(tenant_id, organization_id, host id)`. `load` is registered automatically as a response enricher on the host detail route under `_extensions.<ownerModuleId>`, so the client descriptor's initial values come from the same server read.
 - **Atomicity.** `host-transaction` sinks run inside the delegated provider's transaction after the host row is flushed (so create already has its id) and before commit; any sink error rolls back the host write. A host advertises `extensionSinkSupport: 'host-transaction'` only when its command invokes the framework seam `ctx.afterTransactionalWrite(em, result)`. That seam is a new additive `CommandRuntimeContext` hook alongside the existing `beforeTransactionalWrite`, which today only `customers/commands/interactions.ts` and `customers/commands/tags.ts` honor. `after-commit` sinks run as post-success callbacks with the committed id. A sink failure there is reported, returned as an additive `extensionWarnings` array on the success response, and shown as a non-blocking flash; it is allowed only when the requirement sets `allowAfterCommitSink: true`. A sink whose atomicity exceeds the host's support rejects the policy.
 - **Concurrency.** Changing only extension leaves does not bump the host `updated_at`. A sink with `optimisticLock: 'sink-version'` owns `updated_at` on its own row, receives `extensions.<moduleId>.__updatedAt` from the client, and compares it under the same transaction lock; a mismatch returns the standard `optimistic_lock_conflict`. `none` is allowed only for display-only or append-only data.
 - **Undo, delete, audit.** If the host command is undoable, a `host-transaction` sink declares `undo: 'snapshot'` and returns a before-snapshot that the command bus stores under the host log entry's `logContext.extensions.<moduleId>`; host undo calls the sink's `undo`. Otherwise it declares `unsupported`, and the adopter docs state that host undo leaves extension data unchanged. Host hard delete calls `onHostDeleted` in the same transaction; soft delete leaves extension rows untouched.
@@ -500,6 +500,99 @@ The module still supplies explicit section descriptors (validator, owned paths, 
 
 Ungrouped forms remain out of scope: §3 forbids section addressing without groups. Converting an ungrouped form to groups is an ordinary UI change that preserves the no-policy rendering baseline, owned by that form's adopter spec, and is never implied by inventory completion.
 
+### 11. Single-definition form extensions
+
+Sections 1–10 give exact, checkable primitives, but a module author should not hand-assemble an override key, a contribution fact, a runtime descriptor, a capability requirement, a sink, a leaf default, and a mutation guard to add one field. `defineCrudFormExtension` is the recommended authoring surface: one declaration per host that adds, removes, or modifies sections **and fields**, including their server behavior. It is a compiler over the existing primitives, not a new runtime. Everything it emits is the same fact, descriptor, override, sink, default, and guard that a hand-written adopter would produce, so the resolver, manifest, fingerprint, façade, and tests stay single-path.
+
+#### 11.1 Authoring shape
+
+The declaration lives in the module's existing `form-sections.ts` (§2). No new auto-discovery file is introduced; §8 leaf defaults and §9 sinks are declared in the same file. The builders module `@open-mercato/ui/backend/crud-form-extensions` is server-importable: no `"use client"`, no React runtime import, only types from `CrudForm`.
+
+```ts
+// my_app/form-sections.ts
+import { defineCrudFormExtension, hide, replace, modify, add, field, store } from '@open-mercato/ui/backend/crud-form-extensions'
+
+export default defineCrudFormExtension({
+  id: 'my_app.product_form',
+  host: 'crud-form:catalog.product',
+  targets: [{ formVariant: 'edit', formOperation: 'update' }],
+  sections: {
+    compliance: hide(),
+    details: modify({
+      fields: {
+        title: field.patch({ labelKey: 'my_app.fields.product_name' }),
+        description: field.remove(),
+        brand: field.add({ type: 'text', labelKey: 'my_app.fields.brand', after: 'title', required: true,
+          store: store.table('my_app:product_brand') }),
+        sku: field.patch({ validate: { server: (value) => /^[A-Z0-9-]+$/.test(String(value)) || 'my_app.errors.sku_format' } }),
+      },
+    }),
+    'my_app-erp': add({ after: 'meta', titleKey: 'my_app.erp.title',
+      fields: {
+        erpSupplierRef: field.add({ type: 'text', required: true }),
+        erpCostCenter: field.add({ type: 'text' }),
+      },
+      store: store.external({ integrationId: 'erp_acme', deliver, validateExternal }),
+    }),
+    meta: replace(() => import('./form/ProductMeta.client')),
+  },
+  defaults: { handle: ({ payload }) => slugify(String(payload.title ?? '')) },
+})
+```
+
+Field definitions reuse the existing `InjectionFieldWidget` field shape (`type`, `label`/`labelKey`, `options`, `group` placement) and `CrudField` renderers; the wrapper adds only `after`/`before`, `required`, `validate`, and `store`. Every builder (`hide`, `replace`, `modify`, `add`, `field.*`, `store.*`) returns plain data plus optional server callbacks.
+
+#### 11.2 What each operation compiles to
+
+| Authoring | Compiles to | Server behavior |
+|---|---|---|
+| `hide()` | §1 `hide` override + contribution | §8 required-leaf coverage (preserve-from-record / `defaults`) or bootstrap rejection |
+| `replace(loader)` | §1 `replace` override + lazy runtime descriptor | Replacement must own the same payload paths (§8 obligation) |
+| `add({ fields, store })` | §1 `add` override + derived runtime descriptor from field definitions | `store` decides persistence, see below |
+| `modify({ fields })` | §1 `replace` override whose descriptor is **derived from the base descriptor** plus field patches | Unpatched fields keep the base validator, projector, and payload ownership byte-for-byte |
+| `field.remove()` | Drops the field's renderer, schema, and payload leaf from the derived descriptor | Leaf becomes omitted: §8 coverage applies |
+| `field.patch({ label, options, … })` | Presentation-only patch | None |
+| `field.patch({ validate.client })` | Adds a client refinement on that field | None; client-only rules may only tighten |
+| `field.patch({ validate.server })` | Also emits a mutation guard scoped to this host façade and leaf | Runs in the façade's mandatory guard pass (§6); rejection uses the 422 envelope with a field error |
+| `field.add({ store })` in a base section | Derived descriptor = base + field; leaf under `extensions.<moduleId>.*` | Sink selected by `store` |
+| `defaults: { leaf: fn }` | `server-default` leaf provider (§8) | Runs in the façade before guards and domain validation |
+
+`store` options, from least to most code:
+
+| `store` | Generated server side | Hand-written code |
+|---|---|---|
+| `store.customField(key?)` | Leaf `customFields.<key>`; definition seeded through the module's `ce.ts`; the host already persists custom fields | None |
+| `store.table(entityId)` | Generic `host-transaction` sink: upsert by `(tenant, org, host id)` into the declared extension entity, `_extensions` enricher, sink-version lock from its `updated_at`, snapshot undo, hard-delete cleanup | Entity + migration only |
+| `store.sink({ persist, load, … })` | §9 sink with the author's callbacks | Callbacks |
+| `store.external({ integrationId, deliver, validateExternal? })` | §9 `outbox` sink; the mirror entity is generated from the field list unless `mirror: entityId` is given | `deliver` (+ optional `validateExternal`) |
+
+`store.customField` is the default when `store` is omitted on an added field, because it needs no table, no migration, and no server code.
+
+#### 11.3 Deriving from base descriptors without copying
+
+`modify` must never copy a host's section implementation. It therefore requires the host adopter to publish **field-granular** descriptors for that section:
+
+```ts
+type CrudFormFieldGranularSection<TValues> = CrudFormSectionRuntimeDescriptor<TValues, unknown, unknown> & {
+  fields: readonly CrudField[]
+  fieldSchemas: Readonly<Record<string, ZodTypeAny>>
+  refinements: readonly { id: string; fieldPaths: readonly string[]; check: (values: Readonly<TValues>) => Record<string, string> | null }[]
+  projectField: Readonly<Record<string, (value: unknown, values: Readonly<TValues>) => Readonly<Record<string, unknown>>>>
+}
+```
+
+The derived descriptor is computed by pure functions: drop removed fields and their `fieldSchemas`/`projectField`; drop any refinement whose `fieldPaths` intersect a removed field, unless the refinement is marked `mandatory`, in which case removal is a generation error naming the refinement; append added fields with schemas built from `type`/`required`/`validate`; apply presentation patches. Sections built from bespoke components (for example catalog `builder`, `variants`, `product-uom`) do not publish field-granular descriptors and accept only `hide`/`replace`; `modify` on them is a generation error.
+
+Round-trip ids are derived, not hand-bumped: `<extension id>.<section id>@<base roundTripId>+<sha256 of normalized patch>`. A base revision bump or any patch change produces a new id automatically, satisfying §2 without author bookkeeping.
+
+#### 11.4 Rules
+
+- One extension per `(module, host)`; several modules may extend the same host. Conflicts (two modules modifying the same field, adding the same section id, or claiming the same leaf default) are generation errors listing both modules. `modules.ts` resolves them with the existing `forms.sections` keys, including `null` to drop one module's contribution.
+- Precedence is unchanged: programmatic overrides, then `modules.ts`, then the compiled extension, then base declarations.
+- Server callbacks (`validate.server`, `defaults`, `store.*` hooks) run in the façade/command contexts defined in §§6–9. The wrapper adds no new execution point.
+- The wrapper accepts only i18n keys for labels and error messages, and only design-system field renderers.
+- `yarn generate` prints a compiled summary per extension (sections, fields, leaves, coverage, sinks, guards) so authors see exactly what the server will enforce.
+
 ## Architecture
 
 | Layer | Responsibility |
@@ -513,7 +606,7 @@ Ungrouped forms remain out of scope: §3 forbids section addressing without grou
 | `packages/ui/src/backend/utils/` | Immutable request-bound wrappers; protected-header merge |
 | server/client bootstrap and generated registries | Dispatch `forms.sections` in both runtimes; validate facts/loaders; publish configured-host ledger plus accepted manifest/fingerprint |
 | server policy-façade helper | Enforce auth-adjacent policy/resource facts and the mandatory mutation-guard/legacy-bridge/callback contract; run leaf-default providers; dispatch and strip extension sinks |
-| module-root `form-section-sinks.ts` | Auto-discovered server-only extension sinks and leaf-default providers |
+| module-root `form-sections.ts` | Auto-discovered server-only extension sinks and leaf-default providers |
 | `packages/shared/src/lib/commands` | Additive `CommandRuntimeContext.afterTransactionalWrite(em, result)` seam for `host-transaction` sinks |
 | CLI generators | Validate authored finite alternatives, duplicate ownership, diagnostics, and stable facts |
 | framework test fixture | Non-production host proving generic add/hide/replace and failure behavior |
@@ -612,6 +705,7 @@ Once published, host ids, variants, form operations, section ids, capability ids
 2. Server capability registry, manifest, fingerprint, and guarded façade helpers.
 3. UI runtime descriptors, resolver, readiness, explicit validation/composition, and bound clients.
 4. Framework fixture, documentation, compatibility updates, and exact validation gates.
+5. Single-definition authoring wrapper (`defineCrudFormExtension`) compiling to phases 1–4 outputs.
 
 Each phase leaves the default application working. No host advertises section operations until its separate adopter spec supplies complete domain descriptors and capabilities.
 
@@ -631,7 +725,7 @@ Each phase leaves the default application working. No host advertises section op
 7. Add guarded façade helpers and a shared parser/builder for the eight protected headers. Validate token schema/current client/server fingerprint, reauthorized host assertion, mode, route, request operation, mutation target, mutation surface, exact resource-binding ids, and delegated provider after auth/ACL/scoped-target gates and before domain mutation; reject `target-required` providers without an atomic lock/CAS declaration; then collect/run mutation guards plus the legacy bridge, revalidate modified payloads against the policy/domain contracts, and run post-success callbacks through error reporting. Return the exact `extension_policy_mismatch` 409 body for policy mismatches.
 
 7a. Add `requiredLeaves` facts and the schema-drift contract helper; enforce exact-once required-leaf coverage at bootstrap; add leaf-default provider discovery/runtime; map hidden-leaf validation failures to `crud_form_section_hidden_field_invalid`.
-7b. Add `form-section-sinks.ts` discovery, `defineCrudFormSectionSink`, the `extensions.<moduleId>` façade namespace, the additive `afterTransactionalWrite` command seam, after-commit sink callbacks with `extensionWarnings`, the auto-registered `_extensions` detail enricher, sink-version locking, and undo/delete hooks.
+7b. Add sink and leaf-default discovery from `form-sections.ts`, `defineCrudFormSectionSink`, the `extensions.<moduleId>` façade namespace, the additive `afterTransactionalWrite` command seam, after-commit sink callbacks with `extensionWarnings`, the auto-registered `_extensions` detail enricher, sink-version locking, and undo/delete hooks.
 7c. Add `defineCrudRouteSectionHost` and the generator that derives provider facts, `requiredLeaves`, the thin guarded façade, and lock mode for qualifying `makeCrudRoute` hosts; reject non-qualifying hosts with a diagnostic naming the failed qualifier.
 7d. Add `outbox` sinks: mirror delivery-column helper, post-commit coalesced enqueue, sweeper, `deliver`/`validateExternal` hooks with timeout and abort signal, backoff and terminal `failed` state, `__sync` read-back, `<sinkId>.retry` section-action façade, compensating delete/undo delivery, credentials/host-pinning enforcement.
 
@@ -649,6 +743,15 @@ Each phase leaves the default application working. No host advertises section op
 14. Update `BACKWARD_COMPATIBILITY.md`, module-development/framework docs, package guides, and the unified-overrides status table with the new auto-discovery and generated-registry contracts.
 15. Run `yarn workspace @open-mercato/shared test`, `yarn workspace @open-mercato/shared build`, `yarn workspace @open-mercato/ui test`, `yarn workspace @open-mercato/ui build`, `yarn generate`, `yarn check:client-boundaries`, `yarn template:sync`, `git diff --check`, and the configured validation gate. Record command, exit status, and artifact/diff evidence for every gate.
 
+### Phase 5 — single-definition authoring wrapper
+
+16. Add `@open-mercato/ui/backend/crud-form-extensions` with `defineCrudFormExtension` and the `hide`/`replace`/`modify`/`add`/`field.*`/`store.*` builders. Builders return plain data and server callbacks only; reuse the `InjectionFieldWidget` field shape and `CrudField` renderers.
+17. Add the `CrudFormFieldGranularSection` interface and the pure derivation functions: field removal with refinement pruning, `mandatory` refinement rejection, field addition, presentation patch, and derived round-trip ids. Unit-test that unpatched fields keep byte-identical validation and projection.
+18. Extend the generator to compile each extension into §1 overrides/contributions, §2 derived descriptors, §8 leaf defaults, §6 scoped mutation guards for `validate.server`, and §9 sinks. Extract browser-registry literals without importing the file, report cross-module conflicts, and print the compiled summary.
+19. Implement the generic stores: `store.customField` (definition seeding through `ce.ts`), `store.table` (generic upsert/enricher/lock/undo/delete sink), and `store.external` (generated mirror + outbox sink over §9).
+20. Rebuild the Phase 4 framework fixture as one `defineCrudFormExtension` and prove it compiles to the same manifest fingerprint as the equivalent hand-written declarations.
+21. Document the wrapper as the primary recipe in the module-development guide and the standalone harness (`om-refresh-standalone-harness`), with the hand-written primitives as the advanced path. Add the new import path and builders to `BACKWARD_COMPATIBILITY.md`.
+
 ## Integration Coverage
 
 - Discovery/bootstrap: package/app `form-sections.ts`, lazy runtime load, exact contribution lookup, deterministic order, disabled modules, server/browser parity, ungated/public-gated success, server-only-gated rejection, configured-host ledger, and stale-bundle blocking.
@@ -658,6 +761,7 @@ Each phase leaves the default application working. No host advertises section op
 - Required leaves: create host hiding a required-leaf section is rejected at bootstrap; replacement emitting the leaf is accepted; `server-default` provider fills it on create; update `preserve-from-record` for a wire-required leaf; hidden-leaf validation and uniqueness failures return the label-only form error; schema-drift test fails when a required leaf is added to or removed from the authoritative schema.
 - External sinks: pre-commit validation reject/timeout; host and mirror commit together and roll back together; delivery success writes `external_id`; retry with backoff to terminal `failed` plus notification and retry action; coalescing of rapid edits; idempotent redelivery after a worker crash; sweeper recovery of a lost enqueue; compensating delete; no credentials in browser, job payload, or logs.
 - Extension sinks: added section on create and update persists into the owning module's entity in the host transaction; sink failure rolls back the host; after-commit sink failure returns `extensionWarnings`; unknown extension key rejected; sink-version conflict; host undo and hard delete call the sink; values load back through `_extensions` on the detail response.
+- Wrapper: one extension that hides, replaces, modifies (patch/remove/add field), adds a section, and declares a default compiles to the same manifest fingerprint as the hand-written equivalent; `store.customField`, `store.table`, and `store.external` each round-trip create and update; `validate.server` rejects through the 422 envelope with a field error; removing a field under a `mandatory` refinement fails generation; two modules modifying one field fail generation and `modules.ts` `null` resolves it; `modify` on a component-only section fails generation; derived round-trip ids change when the base revision or the patch changes.
 - Compatibility: no-policy payload, endpoint selection, lifecycle order, `hiddenGroupIds`, and widget-disable behavior unchanged.
 
 ## Acceptance Criteria
@@ -677,7 +781,8 @@ Each phase leaves the default application working. No host advertises section op
 13. No policy is accepted while any server-required leaf of its host operation lacks exactly one declared coverage; hidden-leaf validation failures never reach the user as unreachable field errors.
 14. Extension leaves persist only through declared sinks under `extensions.<ownerModuleId>`, atomically with the host write unless the contribution opts into after-commit, with their own optimistic lock, undo, and delete behavior.
 15. A sink that saves to an external system records its intent in the host transaction, never calls the remote system inside it, delivers idempotently with retries and a visible, retryable sync state, and never exposes credentials outside the server.
-16. The named framework, integration, compatibility, client-boundary, template-parity, and configured validation commands pass with recorded evidence.
+16. A module can add, remove, and modify sections and fields of a host form, including server validation, defaults, and persistence (host, custom field, own table, or external system), in one `defineCrudFormExtension` declaration that compiles to exactly the primitives of §§1–10 with no copied host code.
+17. The named framework, integration, compatibility, client-boundary, template-parity, and configured validation commands pass with recorded evidence.
 
 ## Final Compliance Report — 2026-10-27
 
@@ -722,6 +827,8 @@ None.
 - **Fully compliant**: Approved — ready for implementation.
 
 ## Changelog
+
+- **2026-11-03:** Added §11 single-definition form extensions (`defineCrudFormExtension`) and Phase 5: one declaration per host compiling hide/replace/modify/add of sections and fields, server validation, defaults, and `store.customField`/`table`/`sink`/`external` persistence into the existing §§1–10 primitives; field-granular base descriptors with pure derivation and derived round-trip ids. Sinks and leaf defaults are declared in `form-sections.ts`; the browser registry never imports that file.
 
 - **2026-11-03:** Added external-system sinks (`atomicity: 'outbox'`): optional read-only pre-commit validation, mirror-row outbox written in the host transaction, coalesced idempotent queue delivery with sweeper, backoff and `failed` state, `__sync` read-back and retry action, compensating delete/undo, credential and host-pinning rules. Stated explicitly which existing primitives every sink part is built from.
 - **2026-11-03:** Added §10 derived adapter for plain `makeCrudRoute` hosts and stated that ungrouped forms need an explicit group conversion owned by their adopter spec.
