@@ -4,10 +4,18 @@
 import * as React from 'react'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { RolesSection } from '../RolesSection'
 
 const readApiResultOrThrowMock = jest.fn()
 const apiCallOrThrowMock = jest.fn()
+const reportErrorMock = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({
+    reportError: (...args: unknown[]) => reportErrorMock(...args),
+  }),
+}))
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCallOrThrow: (...args: unknown[]) => apiCallOrThrowMock(...args),
@@ -43,11 +51,13 @@ jest.mock('../AssignRoleDialog', () => ({
     open,
     roleTypes,
     editingAssignment,
+    onAssign,
     onReassign,
   }: {
     open: boolean
     roleTypes: Array<{ value: string; label: string }>
     editingAssignment?: { id: string; roleType: string; userId: string } | null
+    onAssign?: (roleType: string, userId: string) => Promise<void>
     onReassign?: (assignmentId: string, userId: string) => Promise<void>
   }) => {
     if (!open) return null
@@ -57,11 +67,19 @@ jest.mock('../AssignRoleDialog', () => ({
           <div key={roleType.value}>{roleType.label}</div>
         ))}
         {editingAssignment ? (
-          <button type="button" onClick={() => void onReassign?.(editingAssignment.id, 'user-2')}>
+          <button
+            type="button"
+            onClick={() => { onReassign?.(editingAssignment.id, 'user-2').catch(() => undefined) }}
+          >
             {`reassign-${editingAssignment.id}`}
           </button>
         ) : (
-          <div>create-mode</div>
+          <button
+            type="button"
+            onClick={() => { onAssign?.('account_manager', 'user-2').catch(() => undefined) }}
+          >
+            create-mode
+          </button>
         )}
       </div>
     )
@@ -70,6 +88,8 @@ jest.mock('../AssignRoleDialog', () => ({
 
 describe('RolesSection', () => {
   beforeEach(() => {
+    reportErrorMock.mockReset()
+    jest.mocked(flash).mockClear()
     apiCallOrThrowMock.mockReset()
     apiCallOrThrowMock.mockResolvedValue({})
     readApiResultOrThrowMock.mockReset()
@@ -208,5 +228,52 @@ describe('RolesSection', () => {
     renderWithProviders(<RolesSection entityType="company" entityId="company-1" entityName="Acme" />)
     fireEvent.click(await screen.findByRole('button', { name: 'Assign role' }))
     expect(await screen.findByText('create-mode')).toBeInTheDocument()
+  })
+
+  it('reports a failed assignment to telemetry and still surfaces it to the user (#7490)', async () => {
+    const failure = new Error('assign failed')
+    apiCallOrThrowMock.mockRejectedValue(failure)
+    mockRolesAndTypes([])
+    renderWithProviders(<RolesSection entityType="company" entityId="company-1" entityName="Acme" />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Assign role' }))
+    fireEvent.click(await screen.findByText('create-mode'))
+
+    await waitFor(() => {
+      expect(reportErrorMock).toHaveBeenCalledWith(failure, { module: 'customers', code: 'customers.role_assign_failed' })
+    })
+    expect(flash).toHaveBeenCalledWith('Failed to assign role', 'error')
+  })
+
+  it('reports a failed reassignment to telemetry and still surfaces it to the user (#7490)', async () => {
+    const failure = new Error('reassign failed')
+    apiCallOrThrowMock.mockRejectedValue(failure)
+    mockRolesAndTypes([{ id: 'role-1', roleType: 'account_manager', userId: 'user-1' }])
+    renderWithProviders(<RolesSection entityType="company" entityId="company-1" entityName="Acme" />)
+
+    fireEvent.click(await screen.findByText('change-role-1'))
+    fireEvent.click(await screen.findByText('reassign-role-1'))
+
+    await waitFor(() => {
+      expect(reportErrorMock).toHaveBeenCalledWith(failure, { module: 'customers', code: 'customers.role_reassign_failed' })
+    })
+    expect(flash).toHaveBeenCalledWith('Failed to update role assignment.', 'error')
+  })
+
+  it('still flashes the failure when telemetry itself throws (#7490)', async () => {
+    reportErrorMock.mockImplementation(() => {
+      throw new Error('telemetry unavailable')
+    })
+    apiCallOrThrowMock.mockRejectedValue(new Error('assign failed'))
+    mockRolesAndTypes([])
+    renderWithProviders(<RolesSection entityType="company" entityId="company-1" entityName="Acme" />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Assign role' }))
+    fireEvent.click(await screen.findByText('create-mode'))
+
+    await waitFor(() => {
+      expect(flash).toHaveBeenCalledWith('Failed to assign role', 'error')
+    })
+    expect(reportErrorMock).toHaveBeenCalledTimes(1)
   })
 })

@@ -15,8 +15,17 @@ import type { DictionaryEntryOption } from '@open-mercato/core/modules/dictionar
 import { RoleAssignmentRow, type RoleAssignment } from './RoleAssignmentRow'
 import { AssignRoleDialog } from './AssignRoleDialog'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('customers')
+
+function reportRoleMutationError(error: unknown, code: string) {
+  try {
+    getTelemetryRuntime()?.reportError(error, { module: 'customers', code })
+  } catch (reportingError) {
+    logger.warn('Failed to report role mutation error', { err: reportingError })
+  }
+}
 
 interface RolesSectionProps {
   entityType: 'company' | 'person'
@@ -161,6 +170,7 @@ export function RolesSection({ entityType, entityId, entityName }: RolesSectionP
       )
     } catch (error) {
       logger.error('customers.roles.assign failed', { err: error })
+      reportRoleMutationError(error, 'customers.role_assign_failed')
       flash(t('customers.roles.assignError', 'Failed to assign role'), 'error')
       throw error
     }
@@ -182,6 +192,7 @@ export function RolesSection({ entityType, entityId, entityName }: RolesSectionP
       )
     } catch (error) {
       logger.error('customers.roles.update failed', { err: error })
+      reportRoleMutationError(error, 'customers.role_reassign_failed')
       flash(t('customers.roles.updateFailed', 'Failed to update role assignment.'), 'error')
       throw error
     }
