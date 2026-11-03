@@ -6,12 +6,17 @@ import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { flash } from '../../FlashMessages'
 
 const push = jest.fn()
+const mockReportError = jest.fn()
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push }),
 }))
 
 jest.mock('../../FlashMessages', () => ({ flash: jest.fn() }))
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
+}))
 
 const t = ((key: string, fallback?: unknown) =>
   typeof fallback === 'string' ? fallback : key) as TranslateFn
@@ -56,6 +61,7 @@ function renderItem() {
 describe('NotificationItem keyboard activation', () => {
   beforeEach(() => {
     push.mockReset()
+    mockReportError.mockReset()
     jest.mocked(flash).mockClear()
   })
 
@@ -121,12 +127,17 @@ describe('NotificationItem keyboard activation', () => {
 
   it('shows an action error after a transport rejection and permits a retry', async () => {
     const { onExecuteAction, onMarkAsRead, onDismiss } = renderItem()
-    onExecuteAction.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    const failure = new TypeError('Failed to fetch')
+    onExecuteAction.mockRejectedValueOnce(failure)
     const button = screen.getByRole('button', { name: 'Approve', exact: true })
 
     fireEvent.click(button)
 
     await waitFor(() => expect(flash).toHaveBeenCalledWith('Failed to execute action', 'error'))
+    expect(mockReportError).toHaveBeenCalledWith(failure, {
+      module: 'notifications',
+      code: 'notifications.action_failed',
+    })
     expect(button).not.toBeDisabled()
     expect(onMarkAsRead).not.toHaveBeenCalled()
     expect(onDismiss).not.toHaveBeenCalled()
@@ -136,6 +147,27 @@ describe('NotificationItem keyboard activation', () => {
 
     await waitFor(() => expect(onExecuteAction).toHaveBeenCalledTimes(2))
     expect(flash).toHaveBeenCalledTimes(1)
+  })
+
+  it('preserves action feedback and retry when error reporting fails', async () => {
+    const { onExecuteAction, onMarkAsRead } = renderItem()
+    onExecuteAction.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    mockReportError.mockImplementationOnce(() => {
+      throw new Error('Telemetry unavailable')
+    })
+    const button = screen.getByRole('button', { name: 'Approve', exact: true })
+
+    fireEvent.click(button)
+
+    await waitFor(() => expect(flash).toHaveBeenCalledWith('Failed to execute action', 'error'))
+    expect(button).not.toBeDisabled()
+    expect(onMarkAsRead).not.toHaveBeenCalled()
+    expect(push).not.toHaveBeenCalled()
+
+    fireEvent.click(button)
+
+    await waitFor(() => expect(onExecuteAction).toHaveBeenCalledTimes(2))
+    expect(mockReportError).toHaveBeenCalledTimes(1)
   })
 
   it('opens and marks the notification as read on a card click', async () => {

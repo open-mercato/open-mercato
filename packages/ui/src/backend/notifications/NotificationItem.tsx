@@ -7,6 +7,7 @@ import { IconButton } from '../../primitives/icon-button'
 import { flash } from '../FlashMessages'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { formatRelativeTime } from '@open-mercato/shared/lib/time'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { NotificationDto, NotificationRendererProps, NotificationTypeAction } from '@open-mercato/shared/modules/notifications/types'
 import { useOptionalLocale } from '@open-mercato/shared/lib/i18n/context'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
@@ -139,7 +140,13 @@ export function NotificationItem({
   }
 
   const handleActionClick = (actionId: string, event: React.MouseEvent) => {
-    void handleAction(actionId, event).catch(() => {
+    void handleAction(actionId, event).catch((error) => {
+      try {
+        getTelemetryRuntime()?.reportError(error, {
+          module: 'notifications',
+          code: 'notifications.action_failed',
+        })
+      } catch {}
       flash(t('notifications.error.action', 'Failed to execute action'), 'error')
     })
   }
