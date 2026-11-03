@@ -3,7 +3,9 @@
 import * as React from 'react'
 import { Users, Phone, Check, Mail, Calendar, X, StickyNote } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayTime } from '@open-mercato/ui/primitives/date-format'
+import { getActiveDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-store'
 import { validatePhoneNumber } from '@open-mercato/shared/lib/phone'
 import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
@@ -141,6 +143,7 @@ export function ScheduleActivityDialog({
   defaultCountryIso2,
 }: ScheduleActivityDialogProps) {
   const t = useT()
+  const locale = useLocale()
   const state = useScheduleFormState({ open, editData: editData ?? null })
   // `state.activityType` is the raw persisted/selected key — may be a built-in
   // Event, a custom dictionary key, or a historical key outside this dialog's
@@ -352,11 +355,16 @@ export function ScheduleActivityDialog({
         }
         const data = await readApiResultOrThrow<{
           hasConflicts: boolean
-          conflicts: Array<{ id: string; title: string | null; startTime: string; endTime: string; type: string }>
+          conflicts: Array<{ id: string; title: string | null; startTime: string; endTime: string; startsAt?: string; endsAt?: string; type: string }>
         }>(`/api/customers/interactions/conflicts?${params.toString()}`)
         if (data?.hasConflicts && Array.isArray(data.conflicts) && data.conflicts.length > 0) {
           const descriptions = data.conflicts
-            .map((c) => `${c.startTime}–${c.endTime}: ${c.title ?? c.type}`)
+            .map((c) => {
+              const clock = { ...getActiveDateLocaleSettings(), timeZone: null }
+              const start = (c.startsAt ? formatDisplayTime(c.startsAt, locale, clock) : null) ?? c.startTime
+              const end = (c.endsAt ? formatDisplayTime(c.endsAt, locale, clock) : null) ?? c.endTime
+              return `${start}–${end}: ${c.title ?? c.type}`
+            })
             .join(', ')
           state.setConflict(
             t('customers.schedule.conflict.description', 'Overlaps with: {{items}}', { items: descriptions }),
@@ -369,7 +377,7 @@ export function ScheduleActivityDialog({
       }
     }, 500)
     return () => clearTimeout(timer)
-  }, [editData?.id, open, state.date, state.startTime, state.duration, state.allDay, t]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [editData?.id, open, state.date, state.startTime, state.duration, state.allDay, t, locale]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const trimmedDate = state.date.trim()
   const trimmedStartTime = state.startTime.trim()

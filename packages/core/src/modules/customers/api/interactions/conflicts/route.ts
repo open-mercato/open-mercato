@@ -27,11 +27,22 @@ const querySchema = z.object({
   timezoneOffsetMinutes: z.coerce.number().int().min(-900).max(900).optional(),
 })
 
+/**
+ * `HH:mm` of an instant in the caller's offset (the one its window was built in), or UTC when the
+ * caller sent none. Kept for clients that render the string; new clients format `startsAt`/`endsAt`.
+ */
+function formatClock(instant: Date, offsetMinutes: number | undefined): string {
+  const shifted = new Date(instant.getTime() + (offsetMinutes ?? 0) * 60_000)
+  return shifted.toISOString().slice(11, 16)
+}
+
 const conflictItemSchema = z.object({
   id: z.string(),
   title: z.string().nullable(),
   startTime: z.string(),
   endTime: z.string(),
+  startsAt: z.string(),
+  endsAt: z.string(),
   type: z.string(),
 })
 
@@ -198,8 +209,10 @@ export async function GET(req: Request) {
       return {
         id: row.id,
         title: titleById.has(row.id) ? titleById.get(row.id) ?? null : null,
-        startTime: start.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
-        endTime: end.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
+        startTime: formatClock(start, query.timezoneOffsetMinutes),
+        endTime: formatClock(end, query.timezoneOffsetMinutes),
+        startsAt: start.toISOString(),
+        endsAt: end.toISOString(),
         type: row.interaction_type,
       }
     })

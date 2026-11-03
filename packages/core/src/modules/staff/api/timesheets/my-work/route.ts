@@ -57,6 +57,8 @@ import {
   readSearchParamsRecord,
   runTimesheetInterceptors,
 } from '../_shared/withTimesheetInterceptors'
+import { resolveDateLocaleSettingsForScope } from '@open-mercato/shared/lib/date-locale/registry'
+import { calendarDayInTimeZone } from '@open-mercato/shared/lib/date/timezone'
 
 const logger = createLogger('staff').child({ component: 'api/timesheets/my-work' })
 
@@ -174,12 +176,13 @@ export async function GET(req: Request) {
     const { session } = interceptors
 
     const em = container.resolve('em') as EntityManager
-    const now = new Date()
-    const todayDate = toDateOnlyString(now)
-    const weekStart = getMondayUtc(now)
+    const dateLocaleSettings = await resolveDateLocaleSettingsForScope(container, { tenantId, userId: auth.sub })
+    const todayDate = calendarDayInTimeZone(new Date(), dateLocaleSettings.timeZone ?? 'UTC')
+    const today = new Date(`${todayDate}T00:00:00.000Z`)
+    const weekStart = getMondayUtc(today)
     const weekEnd = addUtcDays(weekStart, 6)
-    const monthStart = getFirstDayOfMonthUtc(now)
-    const nextMonthStart = getFirstDayOfNextMonthUtc(now)
+    const monthStart = getFirstDayOfMonthUtc(today)
+    const nextMonthStart = getFirstDayOfNextMonthUtc(today)
     const monthEnd = addUtcDays(nextMonthStart, -1)
 
     let dailyHours: number | null = null

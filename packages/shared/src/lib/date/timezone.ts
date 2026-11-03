@@ -16,3 +16,22 @@ export function canonicalizeTimeZone(value: string | null | undefined): string |
 export function isValidTimeZone(value: string | null | undefined): value is string {
   return canonicalizeTimeZone(value) !== null
 }
+
+const calendarDayFormatterCache = new Map<string, Intl.DateTimeFormat>()
+
+/**
+ * The calendar day (`yyyy-MM-dd`) of `date` in `timeZone`, or in the runtime zone when none is
+ * given or it is unknown. Server code uses it to name "today" for a tenant instead of the UTC day.
+ */
+export function calendarDayInTimeZone(date: Date, timeZone?: string | null): string {
+  const zone = canonicalizeTimeZone(timeZone) ?? undefined
+  const key = zone ?? ''
+  let formatter = calendarDayFormatterCache.get(key)
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit' })
+    calendarDayFormatterCache.set(key, formatter)
+  }
+  const parts = formatter.formatToParts(date)
+  const read = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? ''
+  return `${read('year')}-${read('month')}-${read('day')}`
+}

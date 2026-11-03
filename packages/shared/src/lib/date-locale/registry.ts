@@ -43,3 +43,47 @@ export async function resolveDateLocaleSettingsForRequest(): Promise<ResolvedDat
   }
   return resolveDateLocaleSettings({})
 }
+
+type ContainerLike = { resolve: <T = unknown>(name: string) => T; hasRegistration?: (name: string) => boolean }
+
+/**
+ * Resolves the settings for an explicit scope (server code that already knows the tenant and,
+ * optionally, the user whose view is being rendered — API handlers, workers, email senders).
+ */
+export type DateLocaleSettingsScopeResolver = (
+  container: ContainerLike,
+  scope: { tenantId: string; userId?: string | null },
+) => Promise<ResolvedDateLocaleSettings>
+
+const SCOPE_RESOLVER_GLOBAL_KEY = '__openMercatoDateLocaleSettingsScopeResolver__'
+
+type ScopeResolverGlobalScope = typeof globalThis & {
+  [SCOPE_RESOLVER_GLOBAL_KEY]?: DateLocaleSettingsScopeResolver | null
+}
+
+export function registerDateLocaleSettingsScopeResolver(resolver: DateLocaleSettingsScopeResolver | null): void {
+  const scope = globalThis as ScopeResolverGlobalScope
+  if (resolver && scope[SCOPE_RESOLVER_GLOBAL_KEY]) {
+    logger().warn('Replacing an already-registered date/locale settings scope resolver')
+  }
+  scope[SCOPE_RESOLVER_GLOBAL_KEY] = resolver
+}
+
+/**
+ * The settings for a tenant (and optionally a user). Never throws; falls back to env defaults when
+ * the `configs` module is absent or the lookup fails, so callers can use it unconditionally.
+ */
+export async function resolveDateLocaleSettingsForScope(
+  container: ContainerLike,
+  scope: { tenantId: string | null | undefined; userId?: string | null },
+): Promise<ResolvedDateLocaleSettings> {
+  const resolver = (globalThis as ScopeResolverGlobalScope)[SCOPE_RESOLVER_GLOBAL_KEY]
+  if (resolver && scope.tenantId) {
+    try {
+      return await resolver(container, { tenantId: scope.tenantId, userId: scope.userId ?? null })
+    } catch (err) {
+      logger().debug('Date/locale settings scope resolver failed; using env defaults', { err })
+    }
+  }
+  return resolveDateLocaleSettings({})
+}
