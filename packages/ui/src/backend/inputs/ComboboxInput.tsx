@@ -210,7 +210,7 @@ export function ComboboxInput({
   // to focus the field. Runs once per value when it is not already covered.
   const eagerResolveLabel = typeof resolveLabel === 'function' ? resolveLabel : undefined
   React.useEffect(() => {
-    if (!value || disabled) return
+    if (!value) return
     let cancelled = false
     const apply = (label?: string | null, description?: string | null) => {
       const clean = typeof label === 'string' ? label.trim() : ''
@@ -250,7 +250,7 @@ export function ComboboxInput({
     return () => { cancelled = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- resolveDescription intentionally excluded:
   // including it would re-run the effect on every render when the prop is an inline function
-  }, [value, disabled, knownLabelValues, coveredOptionValues, eagerResolveLabel, loadSuggestions])
+  }, [value, knownLabelValues, coveredOptionValues, eagerResolveLabel, loadSuggestions])
 
   // Sync input with a value that changed outside the component. A focused field is
   // synced too, because `autoFocus` can focus the control before an async default value

@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { findApiRouteManifestMatch, getApiRouteManifests, registerApiRouteManifests, type HttpMethod } from '@open-mercato/shared/modules/registry'
+import { findApiRouteManifestMatch, getApiRouteManifests, registerApiRouteManifests, type ApiRouteBeforeAuth, type HttpMethod } from '@open-mercato/shared/modules/registry'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { apiRouteFacades } from '@/.mercato/generated/api-route-shards.generated'
@@ -371,6 +371,18 @@ async function handleRequest(
   }
   const handler = rawHandler as (req: NextRequest, ctx?: HandlerContext) => Promise<Response> | Response
   const routeMetadata = normalizeLoadedMetadata(loadedRouteModule.metadata, method, match.route.kind)
+  if (typeof loadedRouteModule.beforeAuth === 'function') {
+    const beforeAuth = loadedRouteModule.beforeAuth as ApiRouteBeforeAuth
+    const response = await beforeAuth(req, { method, params: match.params })
+    if (response) {
+      await emitLifecycleEvent(
+        response.status === 429 ? applicationLifecycleEvents.requestRateLimited : applicationLifecycleEvents.requestCompleted,
+        { ...receivedPayload, status: response.status, userId: null, tenantId: null, durationMs: Date.now() - startedAt },
+      )
+      getTelemetryRuntime()?.recordHttpDuration(method, match.route.path, response.status, startedAt)
+      return response
+    }
+  }
   const authResolution = await resolveAuthFromRequestDetailed(req)
   const auth = authResolution.auth
   await emitLifecycleEvent(applicationLifecycleEvents.requestAuthResolved, {
