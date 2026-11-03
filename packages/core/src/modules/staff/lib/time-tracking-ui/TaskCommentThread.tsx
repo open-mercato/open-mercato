@@ -7,7 +7,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Kbd } from '@open-mercato/ui/primitives/kbd'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
-import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { DrawerComment } from './taskDrawerData'
 
@@ -114,7 +114,7 @@ export function TaskCommentThread({
                 <div className="flex min-w-0 flex-1 flex-col gap-1">
                   <div className="flex flex-wrap items-baseline gap-2">
                     <span className="text-sm font-medium text-foreground">{author}</span>
-                    <span className="text-xs text-muted-foreground">{formatDateTime(comment.createdAt) ?? ''}</span>
+                    <span className="text-xs text-muted-foreground">{formatDisplayDateTime(comment.createdAt) ?? ''}</span>
                     {fromCustomer ? (
                       <Badge variant="neutral">
                         {t('staff.time_tracking.taskComments.fromCustomer', 'Customer')}

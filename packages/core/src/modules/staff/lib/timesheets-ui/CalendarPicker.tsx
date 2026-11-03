@@ -5,20 +5,23 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { useOptionalLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react'
+import { todayInZone } from '@open-mercato/ui/primitives/date-format'
 
 type CalendarPickerProps = {
   selectedWeekStart: Date
   onWeekSelect: (weekStart: Date) => void
   /**
    * Reference "now". A function is read at click time; a Date is used as rendered.
-   * Defaults to `new Date()`.
+   * Defaults to today in the configured display timezone.
    */
   today?: Date | (() => Date)
 }
 
 function resolveToday(today: CalendarPickerProps['today']): Date {
   if (typeof today === 'function') return new Date(today())
-  return today ? new Date(today) : new Date()
+  if (today) return new Date(today)
+  const [year, month, day] = todayInZone().split('-').map(Number)
+  return new Date(year, month - 1, day)
 }
 
 function getMonday(date: Date): Date {
@@ -63,12 +66,15 @@ function buildWeeks(year: number, month: number): Date[][] {
   return weeks
 }
 
+// Monday-first on purpose: each row is an ISO week (numbered, selected as its Monday), the same
+// Monday-based week the timesheet period and the `my-work` API use — not a presentational choice.
 function getLocalizedDayHeaders(locale: string | undefined): string[] {
   const baseMonday = new Date(2024, 0, 1) // Known Monday
+  const formatter = new Intl.DateTimeFormat(locale, { weekday: 'narrow' })
   return Array.from({ length: 7 }, (_, idx) => {
     const date = new Date(baseMonday)
     date.setDate(date.getDate() + idx)
-    return date.toLocaleDateString(locale, { weekday: 'narrow' })
+    return formatter.format(date)
   })
 }
 
@@ -100,7 +106,7 @@ export function CalendarPicker({ selectedWeekStart, onWeekSelect, today: todayPr
   const weeks = React.useMemo(() => buildWeeks(viewYear, viewMonth), [viewYear, viewMonth])
 
   const monthLabel = React.useMemo(() => {
-    return new Date(viewYear, viewMonth, 1).toLocaleString(locale, { month: 'long', year: 'numeric' })
+    return new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric' }).format(new Date(viewYear, viewMonth, 1))
   }, [locale, viewYear, viewMonth])
 
   const today = resolveToday(todayProp)

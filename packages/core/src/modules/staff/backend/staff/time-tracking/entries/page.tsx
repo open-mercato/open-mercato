@@ -104,6 +104,7 @@ import {
   toTaskOption,
 } from '../../../../lib/time-tracking-ui/timeEntryDialogState'
 import { formatDuration } from '../../../../lib/time-tracking/duration'
+import { todayInZone } from '@open-mercato/ui/primitives/date-format'
 
 const logger = createLogger('staff').child({ component: 'time-tracking/entries' })
 
@@ -451,7 +452,7 @@ export default function TimeTrackingEntriesPage() {
   )
 
   const presetContext = React.useMemo(
-    () => ({ staffMemberId: selfStaffMemberId, today: new Date().toISOString().slice(0, 10) }),
+    () => ({ staffMemberId: selfStaffMemberId, today: todayInZone() }),
     [selfStaffMemberId],
   )
   const activePresetId = React.useMemo(

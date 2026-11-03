@@ -23,6 +23,8 @@ import type { WidgetDataResponse } from '../../../services/widgetDataService'
 import { createCurrencyFormatters } from '../../../lib/formatters'
 import { UnlabelledAmountNotice } from '../../../components/UnlabelledAmountNotice'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { toZonedWallClock } from '@open-mercato/ui/primitives/date-format'
+import { resolveDisplayTimeZone } from '@open-mercato/ui/primitives/date-locale-settings'
 
 const logger = createLogger('dashboards').child({ component: 'revenue-trend' })
 
@@ -51,20 +53,24 @@ function formatDate(dateStr: string | null, granularity: DateGranularity, locale
   try {
     const date = new Date(dateStr)
     const localeStr = locale ?? undefined
+    const timeZone = resolveDisplayTimeZone()
+    const format = (options: Intl.DateTimeFormatOptions) =>
+      new Intl.DateTimeFormat(localeStr, { ...options, timeZone }).format(date)
     switch (granularity) {
       case 'day':
       case 'week':
-        return date.toLocaleDateString(localeStr, { month: 'short', day: 'numeric' })
+        return format({ month: 'short', day: 'numeric' })
       case 'month':
-        return date.toLocaleDateString(localeStr, { month: 'short', year: 'numeric' })
+        return format({ month: 'short', year: 'numeric' })
       case 'quarter': {
-        const quarter = Math.floor(date.getMonth() / 3) + 1
-        return `Q${quarter} ${date.getFullYear()}`
+        const zoned = toZonedWallClock(date, timeZone)
+        const quarter = Math.floor(zoned.getMonth() / 3) + 1
+        return `Q${quarter} ${zoned.getFullYear()}`
       }
       case 'year':
-        return date.toLocaleDateString(localeStr, { year: 'numeric' })
+        return format({ year: 'numeric' })
       default:
-        return date.toLocaleDateString(localeStr, { month: 'short', day: 'numeric' })
+        return format({ month: 'short', day: 'numeric' })
     }
   } catch {
     return String(dateStr)

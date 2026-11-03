@@ -42,6 +42,7 @@ import {
   selectCustomRuleIdsToDelete,
 } from './availabilityRulesEditorState'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveDisplayTimeZone } from '@open-mercato/ui/primitives/date-locale-settings'
 
 const logger = createLogger('planner').child({ component: 'AvailabilityRulesEditor' })
 
@@ -205,8 +206,7 @@ function buildNextWindow(windows: TimeWindow[]): TimeWindow {
 
 function getTimezoneOptions(): string[] {
   const options = new Set<string>()
-  const resolved = Intl.DateTimeFormat().resolvedOptions().timeZone
-  if (resolved) options.add(resolved)
+  options.add(resolveDisplayTimeZone())
   options.add('UTC')
   const intlWithSupportedValues = Intl as typeof Intl & { supportedValuesOf?: (input: 'timeZone') => string[] }
   if (typeof intlWithSupportedValues.supportedValuesOf === 'function') {
@@ -450,7 +450,7 @@ export function AvailabilityRulesEditor({
     return { start, end }
   })
   const [timezone, setTimezone] = React.useState<string>(
-    () => initialTimezone ?? (Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'),
+    () => initialTimezone ?? resolveDisplayTimeZone(),
   )
   const [timezoneDirty, setTimezoneDirty] = React.useState(false)
   const [editorOpen, setEditorOpen] = React.useState(false)

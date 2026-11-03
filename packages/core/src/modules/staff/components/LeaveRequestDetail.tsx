@@ -4,6 +4,7 @@ import * as React from 'react'
 import type { ObjectDetailProps } from '@open-mercato/shared/modules/messages/types'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { LeaveRequestPreview } from './LeaveRequestPreview'
 
@@ -98,9 +99,7 @@ export function LeaveRequestDetail(props: ObjectDetailProps) {
 
 function formatDateTime(value?: Date | string | null): string {
   if (!value) return ''
-  const date = value instanceof Date ? value : new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleString()
+  return formatDisplayDateTime(value) ?? ''
 }
 
 function extractActionId(actionTaken?: string | null): string | null {

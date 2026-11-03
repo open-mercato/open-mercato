@@ -24,6 +24,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { PlotImportDialog } from '../../../components/PlotImportDialog'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 
 type PlotRow = {
   id: string
@@ -73,9 +74,7 @@ function supplierName(row: PlotRow, unavailableLabel: string): string {
 
 function formatDateTime(value: string | null | undefined, emptyLabel: string, locale: string): string {
   if (!value) return emptyLabel
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return emptyLabel
-  return date.toLocaleString(locale || undefined)
+  return formatDisplayDateTime(value, locale || undefined) ?? emptyLabel
 }
 
 function formatArea(value: number | string | null | undefined, emptyLabel: string): string {

@@ -32,6 +32,8 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
 import { PortalEmptyState } from '@open-mercato/ui/portal/components/PortalEmptyState'
 import { usePortalAppEvent } from '@open-mercato/ui/portal/hooks/usePortalAppEvent'
+import { formatDisplayDate } from '@open-mercato/ui/primitives/date-format'
+import { resolveDisplayTimeZone } from '@open-mercato/ui/primitives/date-locale-settings'
 
 type Props = { params: { orgSlug: string; id: string } }
 
@@ -212,14 +214,12 @@ function formatShortDate(value: string | null, locale: string): string | null {
   if (!value) return null
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return null
-  return date.toLocaleDateString(locale || undefined, { month: 'short', day: 'numeric' })
+  return new Intl.DateTimeFormat(locale || undefined, { month: 'short', day: 'numeric', timeZone: resolveDisplayTimeZone() }).format(date)
 }
 
 function formatLongDate(value: string | null, locale: string): string | null {
   if (!value) return null
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return null
-  return date.toLocaleDateString(locale || undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+  return formatDisplayDate(value, locale || undefined)
 }
 
 function buildTrackerSteps(claim: PortalClaim, t: TranslateFn, locale: string): TrackerStep[] {

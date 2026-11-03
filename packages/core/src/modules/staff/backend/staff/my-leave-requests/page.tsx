@@ -12,6 +12,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDateLabel, formatDateRange } from '../../../lib/leaveRequestHelpers'
 
 const PAGE_SIZE = 50
 
@@ -229,20 +230,6 @@ function mapLeaveRequest(item: Record<string, unknown>): LeaveRequestRow {
     reason,
     updatedAt,
   }, item)
-}
-
-function formatDateRange(start?: string | null, end?: string | null): string {
-  const startLabel = formatDateLabel(start)
-  const endLabel = formatDateLabel(end)
-  if (startLabel && endLabel) return `${startLabel} -> ${endLabel}`
-  return startLabel || endLabel || '-'
-}
-
-function formatDateLabel(value?: string | null): string {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleDateString()
 }
 
 function resolveStatusVariant(status: 'pending' | 'approved' | 'rejected') {

@@ -24,6 +24,7 @@ import {
 import { Download } from 'lucide-react'
 import type { AnnualReport } from '../../lib/annual-report'
 import { translatePlural } from '../../lib/plural'
+import { formatDisplayDate, formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 
 type StatusCounts = Record<string, number>
 
@@ -69,22 +70,17 @@ const STATEMENT_STATUSES = ['draft', 'submitted', 'available', 'withdrawn', 'arc
 const CURRENT_REPORT_YEAR = new Date().getUTCFullYear()
 const REPORT_YEARS = Array.from({ length: 6 }, (_, index) => CURRENT_REPORT_YEAR - index)
 
+/** `value` is a bare `yyyy-MM-dd` calendar day: it renders as that day in every zone. */
 function formatDeadlineDate(value: string, locale: string): string {
-  const date = new Date(`${value}T00:00:00.000Z`)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleDateString(locale || undefined)
+  return formatDisplayDate(value, locale || undefined) ?? value
 }
 
 function formatDate(value: string, locale: string): string {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleDateString(locale || undefined)
+  return formatDisplayDate(value, locale || undefined) ?? value
 }
 
 function formatDateTime(value: string, locale: string): string {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString(locale || undefined)
+  return formatDisplayDateTime(value, locale || undefined) ?? value
 }
 
 function isPastDue(value: string): boolean {

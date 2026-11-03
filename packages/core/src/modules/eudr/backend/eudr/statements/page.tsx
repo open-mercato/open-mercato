@@ -24,6 +24,7 @@ import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import type { EudrActivityType, EudrCommodity, EudrRiskConclusion, EudrRiskTier, EudrStatementStatus } from '../../../data/validators'
 import { commodityOptions, statementStatusOptions, statusBadgeVariant, translateEudrErrorMessage } from '../../../components/formConfig'
 import { canDeleteStatement } from '../../../lib/statement-lifecycle'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import {
   riskConclusionBadgeVariant,
   riskTierBadgeVariant,
@@ -58,9 +59,7 @@ type StatementsResponse = {
 
 function formatDateTime(value: string | null | undefined, emptyLabel: string, locale: string): string {
   if (!value) return emptyLabel
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return emptyLabel
-  return date.toLocaleString(locale || undefined)
+  return formatDisplayDateTime(value, locale || undefined) ?? emptyLabel
 }
 
 function formatQuantityKg(value: number | string | null, emptyLabel: string): string {

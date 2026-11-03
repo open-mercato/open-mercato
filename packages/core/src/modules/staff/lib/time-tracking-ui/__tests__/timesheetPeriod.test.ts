@@ -98,12 +98,26 @@ describe('calendar grid', () => {
     expect(flat.find((cell) => cell.isToday)?.date).toBe('2026-07-20')
     expect(flat.filter((cell) => cell.isWeekend).every((cell) => [0, 6].includes(new Date(cell.date + 'T00:00:00').getDay()))).toBe(true)
   })
+
+  it('starts the grid on the configured first day of the week', () => {
+    const weeks = buildCalendarWeeks('2026-07-15', '2026-07-20', 0)
+    expect(weeks[0][0].date).toBe('2026-06-28')
+    expect(weeks[0][3].date).toBe('2026-07-01')
+    expect(weeks.every((week) => week.length === 7)).toBe(true)
+    expect(weeks.flat().filter((cell) => cell.inPeriod)).toHaveLength(31)
+  })
 })
 
 describe('helpers', () => {
   it('starts weeks on Monday', () => {
     expect(startOfWeekIso('2026-07-19')).toBe('2026-07-13')
     expect(startOfWeekIso('2026-07-20')).toBe('2026-07-20')
+  })
+
+  it('starts weeks on another day when asked', () => {
+    expect(startOfWeekIso('2026-07-19', 0)).toBe('2026-07-19')
+    expect(startOfWeekIso('2026-07-20', 0)).toBe('2026-07-19')
+    expect(startOfWeekIso('2026-07-20', 6)).toBe('2026-07-18')
   })
 
   it('answers the ISO week number the mockup shows', () => {

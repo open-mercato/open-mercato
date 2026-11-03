@@ -79,7 +79,7 @@ describe('strict review follow-up contracts', () => {
     expect(portalSource).toContain('if (isMissingSalesTableError(err)) return new Map()')
     expect(suggestSource).toContain('schema: triageSuggestionSchema')
     expect(suggestSource).not.toContain('schema: z.unknown()')
-    expect(registrationsSource).toContain('date.toLocaleDateString(locale || undefined)')
+    expect(registrationsSource).toContain('formatDisplayDate(value, locale || undefined)')
     expect(settingsSource).toContain('htmlFor={startInputId}')
     expect(settingsSource).toContain('htmlFor={holidayInputId}')
     expect(notificationClientSource).toContain("'message-square-reply'")

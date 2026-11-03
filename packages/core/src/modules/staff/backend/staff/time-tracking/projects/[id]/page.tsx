@@ -38,6 +38,7 @@ import { readResolvedProjectAccessScope } from '../../../../../lib/time-tracking
 import { ProjectBudgetCell } from '../../../../../lib/timesheets-projects-ui/ProjectBudgetCell'
 import { computeBudgetBurn } from '../../../../../lib/timesheets-projects/budgetBurn'
 import { resolveProjectColorHex } from '../../../../../lib/timesheets-ui/colors'
+import { formatDisplayDate, todayInZone } from '@open-mercato/ui/primitives/date-format'
 
 const logger = createLogger('staff')
 
@@ -610,7 +611,7 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
   const openAddDialog = React.useCallback(() => {
     setAddStaffMemberId(null)
     setAddRole('')
-    setAddStartDate(new Date().toISOString().slice(0, 10))
+    setAddStartDate(todayInZone())
     setStaffLookupError(null)
     setAddDialogOpen(true)
   }, [])
@@ -840,8 +841,7 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
     const normalized = value
       .replace(' ', 'T')
       .replace(/(T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)([+-]\d{2})$/, '$1$2:00')
-    const parsed = new Date(normalized)
-    return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString()
+    return formatDisplayDate(normalized) ?? value
   }
   const budgetUsageLabel = budgetBurn
     ? budgetBurn.kind === 'hours'

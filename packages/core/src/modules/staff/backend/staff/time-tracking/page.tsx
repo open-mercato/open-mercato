@@ -37,6 +37,7 @@ import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Progress } from '@open-mercato/ui/primitives/progress'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
+import { formatDisplayTime } from '@open-mercato/ui/primitives/date-format'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import {
   Select,
@@ -168,15 +169,7 @@ const EMPTY_PAYLOAD: MyWorkPayload = {
 
 function formatClockRange(entry: MyWorkEntry, locale?: string): string | null {
   if (!entry.startedAt || !entry.endedAt) return null
-  const format = (iso: string) => {
-    const parsed = new Date(iso)
-    if (Number.isNaN(parsed.getTime())) return ''
-    try {
-      return new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', hour12: false }).format(parsed)
-    } catch {
-      return ''
-    }
-  }
+  const format = (iso: string) => formatDisplayTime(iso, locale) ?? ''
   const start = format(entry.startedAt)
   const end = format(entry.endedAt)
   return start && end ? `${start} – ${end}` : null

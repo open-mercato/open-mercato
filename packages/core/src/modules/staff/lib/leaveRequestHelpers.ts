@@ -1,3 +1,5 @@
+import { formatDisplayDate, toUtcDateInputValue } from '@open-mercato/ui/primitives/date-format'
+
 export type LeaveRequestRecord = {
   id: string
   member?: { id?: string; displayName?: string }
@@ -67,16 +69,24 @@ export function resolveStatusVariant(status: 'pending' | 'approved' | 'rejected'
   return 'secondary'
 }
 
+/** A real instant (`updatedAt`, `decidedAt`), rendered as its day in the configured display zone. */
 export function formatDateLabel(value?: string | null): string {
   if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleDateString()
+  return formatDisplayDate(value) ?? value
+}
+
+/**
+ * A leave day: picked in a date input and stored as UTC midnight, so it is read back in UTC —
+ * reading it in the display zone would name the previous day west of UTC.
+ */
+export function formatLeaveDayLabel(value?: string | null): string {
+  if (!value) return ''
+  return formatDisplayDate(toUtcDateInputValue(value)) ?? value
 }
 
 export function formatDateRange(start?: string | null, end?: string | null): string {
-  const startLabel = formatDateLabel(start)
-  const endLabel = formatDateLabel(end)
+  const startLabel = formatLeaveDayLabel(start)
+  const endLabel = formatLeaveDayLabel(end)
   if (startLabel && endLabel) return `${startLabel} -> ${endLabel}`
   return startLabel || endLabel || '-'
 }

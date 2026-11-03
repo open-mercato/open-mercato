@@ -12,6 +12,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { formatDisplayDate, toUtcDateInputValue } from '@open-mercato/ui/primitives/date-format'
 
 type JobHistoryRecord = {
   id: string
@@ -82,11 +83,6 @@ export function JobHistorySection({ memberId }: { memberId: string | null }) {
     { id: 'endDate', label: labels.fields.endDate, type: 'date', layout: 'half' },
     { id: 'description', label: labels.fields.description, type: 'textarea' },
   ]), [labels.fields])
-
-  const dateFormatter = React.useMemo(
-    () => new Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'short', day: 'numeric' }),
-    [],
-  )
 
   const loadJobHistory = React.useCallback(async () => {
     if (!memberId) return
@@ -225,7 +221,7 @@ export function JobHistorySection({ memberId }: { memberId: string | null }) {
                 <div className="space-y-1">
                   <div className="text-base font-semibold text-foreground">{record.name}</div>
                   <div className="text-sm text-muted-foreground">
-                    {formatDateRange(record, labels.present, labels.unknownDate, dateFormatter)}
+                    {formatDateRange(record, labels.present, labels.unknownDate)}
                   </div>
                   {record.companyName ? (
                     <div className="text-sm text-foreground">{record.companyName}</div>
@@ -334,11 +330,9 @@ function formatDateRange(
   record: JobHistoryRecord,
   presentLabel: string,
   unknownLabel: string,
-  formatter: Intl.DateTimeFormat,
 ): string {
-  const start = record.startDate ? new Date(record.startDate) : null
-  const end = record.endDate ? new Date(record.endDate) : null
-  const startLabel = start && !Number.isNaN(start.getTime()) ? formatter.format(start) : unknownLabel
-  const endLabel = end && !Number.isNaN(end.getTime()) ? formatter.format(end) : presentLabel
+  // Job history days are picked in a date input and stored as UTC midnight, so they are read in UTC.
+  const startLabel = formatDisplayDate(toUtcDateInputValue(record.startDate)) ?? unknownLabel
+  const endLabel = formatDisplayDate(toUtcDateInputValue(record.endDate)) ?? presentLabel
   return `${startLabel} — ${endLabel}`
 }

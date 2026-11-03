@@ -23,6 +23,8 @@ import { ErrorMessage, LoadingMessage, RecordNotFoundState } from '@open-mercato
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDate, formatDisplayTime, toUtcDateInputValue } from '@open-mercato/ui/primitives/date-format'
+import { resolveDisplayTimeZone, useDisplayTimeZone } from '@open-mercato/ui/primitives/date-locale-settings'
 import { downloadInventoryCsv } from '../../lib/inventoryCsvExport'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { LinkButton } from '@open-mercato/ui/primitives/link-button'
@@ -428,7 +430,7 @@ function formatLastMoveLabel(
   const diffDays = Math.floor((Date.now() - date.getTime()) / MS_PER_DAY)
   if (diffDays === 0) {
     return t('wms.backend.lot.distribution.lastMove.today', '{time} today', {
-      time: new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit' }).format(date),
+      time: formatDisplayTime(date, locale) ?? '',
     })
   }
   if (diffDays === 1) {
@@ -437,7 +439,7 @@ function formatLastMoveLabel(
   if (diffDays < 7) {
     return t('wms.backend.lot.distribution.lastMove.daysAgo', '{days} days ago', { days: diffDays })
   }
-  return new Intl.DateTimeFormat(locale, { month: '2-digit', day: '2-digit' }).format(date)
+  return new Intl.DateTimeFormat(locale, { month: '2-digit', day: '2-digit', timeZone: resolveDisplayTimeZone() }).format(date)
 }
 
 type LotKpiCardProps = {
@@ -516,6 +518,7 @@ export default function WmsLotDetailPage({ lotId }: WmsLotDetailPageProps) {
   const lotsHref = '/backend/wms/lots'
   const inventoryHref = '/backend/wms/inventory'
 
+  const displayTimeZone = useDisplayTimeZone()
   const activityTimeFormatter = React.useMemo(
     () =>
       new Intl.DateTimeFormat(locale, {
@@ -523,8 +526,9 @@ export default function WmsLotDetailPage({ lotId }: WmsLotDetailPageProps) {
         day: '2-digit',
         hour: '2-digit',
         minute: '2-digit',
+        timeZone: displayTimeZone,
       }),
-    [locale],
+    [displayTimeZone, locale],
   )
 
   const lotQuery = useQuery({
@@ -825,17 +829,12 @@ export default function WmsLotDetailPage({ lotId }: WmsLotDetailPageProps) {
       ? t('wms.backend.lot.filters.allWarehouses', 'All warehouses')
       : selectedWarehouse?.name || selectedWarehouse?.code || warehouseId
 
-  const dateFormatter = React.useMemo(
-    () => new Intl.DateTimeFormat(locale, { year: 'numeric', month: '2-digit', day: '2-digit' }),
-    [locale],
-  )
-
   const subtitleParts = [
     skuLabel !== '—' ? skuLabel : null,
     variantName || null,
     lotData?.expires_at
       ? t('wms.backend.lot.header.expires', 'Exp {date}', {
-          date: dateFormatter.format(new Date(lotData.expires_at)),
+          date: formatDisplayDate(toUtcDateInputValue(lotData.expires_at), locale) ?? lotData.expires_at,
         })
       : null,
   ].filter(Boolean)
