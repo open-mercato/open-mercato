@@ -56,7 +56,7 @@ export function register(container: AppContainer) {
   container.register({
     [USER_TIME_ZONE_LOOKUP_DI_KEY]: asFunction(function userTimeZoneLookupFactory(cradle: { em: EntityManager }) {
       return createUserTimeZoneLookup(cradle.em)
-    }).scoped(),
+    }).scoped().proxy(),
   })
   container.register({
     rbacService: asFunction(function rbacServiceFactory(cradle: { em: EntityManager }) {
