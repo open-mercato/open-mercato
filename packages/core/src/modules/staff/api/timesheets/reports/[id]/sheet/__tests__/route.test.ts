@@ -136,7 +136,7 @@ describe('GET /api/staff/timesheets/reports/[id]/sheet — report period', () =>
 
 const historyMetadata = [
   { totalAmount: 1203.64, currencyCode: 'PLN', frozenEntryCount: 6, lockedEntryCount: 6, roundingUnitMinutes: 15, roundingDirection: 'up' },
-  { frozenTotalAmount: 1203.64, currencyCode: 'PLN', unlockedEntryCount: 6, transferredLockCount: 0, frozenEntryCount: 6, frozenBillableMinutes: 585, frozenNonbillableMinutes: 0 },
+  { frozenTotalAmount: '1203.64', currencyCode: 'PLN', unlockedEntryCount: 6, transferredLockCount: 0, frozenEntryCount: 6, frozenBillableMinutes: 585, frozenNonbillableMinutes: 0 },
   { format: 'csv', grouping: 'project_task', rowCount: 6 },
   { nested: { hourlyRate: 123.45 }, amount: 1203.64, cost: 1203.64 },
   null,

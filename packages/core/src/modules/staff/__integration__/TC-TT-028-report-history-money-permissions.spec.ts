@@ -159,7 +159,7 @@ test('TC-TT-028: report sheet history enforces money permissions and organizatio
         expect(unlocked?.metadata).toMatchObject({ unlockedEntryCount: 1, frozenEntryCount: 1, frozenBillableMinutes: 120 })
         expect(exportedEvent?.metadata).toMatchObject({ format: 'csv', rowCount: 1 })
         if (canSeeMoney) {
-          expect(unlocked?.metadata).toMatchObject({ frozenTotalAmount: 246.9, currencyCode: 'EUR' })
+          expect(unlocked?.metadata).toMatchObject({ frozenTotalAmount: '246.90', currencyCode: 'EUR' })
           expect(body?.totals.totalAmount).toBe(246.9)
         } else {
           expect(unlocked?.metadata).not.toHaveProperty('frozenTotalAmount')
