@@ -8,8 +8,10 @@ import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictiona
 import { hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
 import { LockMode } from '@mikro-orm/core'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
+import type { MutationGuard } from '@open-mercato/shared/lib/crud/mutation-guard-registry'
 import { createSalesDocumentLockKyselyFixture } from '../../commands/__tests__/salesDocumentLockFixture'
 
+const registeredGuards: MutationGuard[] = []
 const mockCommandBus = { execute: jest.fn() }
 const mockRateLimiterService = { trustProxyDepth: 1, consume: jest.fn() }
 const mockEm: Record<string, jest.Mock> = {
@@ -59,6 +61,10 @@ jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => 
   resolveOrganizationScopeForRequest: jest.fn(),
 }))
 
+jest.mock('@open-mercato/shared/lib/crud/mutation-guard-store', () => ({
+  getAllMutationGuardInstances: jest.fn(() => registeredGuards),
+}))
+
 function makeRequest(body: unknown) {
   return new Request('http://localhost/api/sales/quotes/send', {
     method: 'POST',
@@ -81,6 +87,7 @@ function makeAcceptRequest(body: unknown) {
 describe('quote send + accept flow', () => {
   beforeEach(async () => {
     jest.clearAllMocks()
+    registeredGuards.length = 0
     mockEm.fork.mockReturnValue(mockEm)
     mockRateLimiterService.consume.mockResolvedValue({ allowed: true, remainingPoints: 9, msBeforeNext: 0 })
     const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
@@ -212,6 +219,98 @@ describe('quote send + accept flow', () => {
       customerEmail: 'buyer@example.com',
       note: 'keep me',
       recipients: { cc: ['purchasing@example.com', 'accounting@example.com'] },
+    })
+  })
+
+  describe('mutation guard payload (#8460)', () => {
+    const guardedQuoteId = '22222222-2222-4222-8222-222222222225'
+
+    function arrangeGuardedQuote() {
+      const quote = {
+        id: guardedQuoteId,
+        tenantId: '00000000-0000-4000-8000-000000000000',
+        organizationId: '11111111-1111-4111-8111-111111111111',
+        quoteNumber: 'SQ-4',
+        currencyCode: 'USD',
+        grandTotalGrossAmount: '10',
+        status: 'draft',
+        statusEntryId: null,
+        customerSnapshot: { customer: { primaryEmail: 'buyer@example.com' } },
+        metadata: null as Record<string, unknown> | null,
+        updatedAt: new Date(),
+        validUntil: null as Date | null,
+        sentAt: null,
+        acceptanceToken: null,
+      }
+      mockEm.findOne.mockImplementation(async (cls: unknown, where: { id?: string }) => {
+        if (cls === SalesQuote) return where?.id === quote.id ? quote : null
+        if (cls === Dictionary) return { id: 'dict-1' }
+        if (cls === DictionaryEntry) return { id: 'entry-sent' }
+        return null
+      })
+      return quote
+    }
+
+    function registerCcGuard(modifiedPayload: Record<string, unknown>) {
+      registeredGuards.push({
+        id: 'test.quote-cc-policy',
+        targetEntity: 'sales.quote',
+        operations: ['update'],
+        validate: async () => ({ ok: true, modifiedPayload }),
+      })
+    }
+
+    async function sentRecipients(): Promise<string[]> {
+      const { sendEmail } = await import('@open-mercato/shared/lib/email/send')
+      return (sendEmail as jest.Mock).mock.calls.flatMap(([options]: [{ to: string; cc?: string[] }]) => [
+        options.to,
+        ...(options.cc ?? []),
+      ])
+    }
+
+    test.each([
+      ['removes', [], []],
+      ['rewrites', ['approved@example.com'], ['approved@example.com']],
+    ])('a guard that %s the CC list decides who is stored and who gets mail', async (_label, guardedCc, expectedCc) => {
+      const quote = arrangeGuardedQuote()
+      registerCcGuard({ cc: guardedCc })
+
+      const res = await sendQuote(makeRequest({
+        quoteId: guardedQuoteId,
+        validForDays: 14,
+        cc: ['outsider@example.com'],
+      }))
+
+      expect(res.status).toBe(200)
+      expect(quote.metadata).toEqual({ recipients: { cc: expectedCc } })
+      const recipients = await sentRecipients()
+      expect(recipients).toContain('buyer@example.com')
+      expect(recipients).not.toContain('outsider@example.com')
+      expect(recipients).toEqual(expect.arrayContaining(expectedCc))
+    })
+
+    test('guarded values replace the validated input everywhere', async () => {
+      const quote = arrangeGuardedQuote()
+      registerCcGuard({ validForDays: 3 })
+
+      const res = await sendQuote(makeRequest({ quoteId: guardedQuoteId, validForDays: 14 }))
+
+      expect(res.status).toBe(200)
+      const expected = new Date()
+      expected.setUTCDate(expected.getUTCDate() + 3)
+      expect(quote.validUntil?.toISOString().slice(0, 10)).toBe(expected.toISOString().slice(0, 10))
+    })
+
+    test('a guard rewrite is validated again and an invalid one sends nothing', async () => {
+      const quote = arrangeGuardedQuote()
+      registerCcGuard({ cc: ['not-an-email'] })
+
+      const res = await sendQuote(makeRequest({ quoteId: guardedQuoteId, validForDays: 14 }))
+
+      expect(res.status).toBe(400)
+      expect(quote.status).toBe('draft')
+      const { sendEmail } = await import('@open-mercato/shared/lib/email/send')
+      expect(sendEmail).not.toHaveBeenCalled()
     })
   })
 

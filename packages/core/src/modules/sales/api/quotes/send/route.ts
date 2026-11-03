@@ -109,7 +109,7 @@ export async function POST(req: Request) {
     const { translate } = await resolveTranslations()
     const payload = await req.json().catch(() => ({}))
     const scoped = withScopedPayload(payload ?? {}, ctx, translate)
-    const input = quoteSendSchema.parse(scoped)
+    let input = quoteSendSchema.parse(scoped)
     const guardResult = await runRouteMutationGuards({
       container: ctx.container,
       req,
@@ -127,6 +127,9 @@ export async function POST(req: Request) {
     })
     if (!guardResult.ok) {
       return guardResult.response
+    }
+    if (guardResult.modifiedPayload) {
+      input = quoteSendSchema.parse({ ...input, ...guardResult.modifiedPayload })
     }
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
