@@ -306,7 +306,6 @@ export default async function handle(
   // state (next tick bootstraps from there).
   const decodedCursor =
     typeof nextCursor === 'string' && nextCursor.length > 0 ? decodeChannelStateCursor(nextCursor) : null
-  await em.flush()
   const committed = await commitPollProgress(em, channel.id, scope, startingSyncCursor, decodedCursor)
   if (!committed) {
     logger.info('poll progress not committed (sync cursor moved, or channel inactive or deleted); discarding this page', { channelId: channel.id })
