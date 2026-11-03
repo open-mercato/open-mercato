@@ -226,6 +226,7 @@ export function TimeGrid({
   const [openOverflowKey, setOpenOverflowKey] = React.useState<string | null>(null)
   const [drag, setDrag] = React.useState<DragState | null>(null)
   const [hoverSlot, setHoverSlot] = React.useState<HoverSlot | null>(null)
+  const floatingScrollOriginRef = React.useRef<{ top: number; left: number } | null>(null)
   const measureRef = React.useRef<HTMLDivElement | null>(null)
   const [columnWidthPx, setColumnWidthPx] = React.useState<number | null>(null)
   const dragRef = React.useRef<DragState | null>(null)
@@ -239,6 +240,12 @@ export function TimeGrid({
     const all = Array.from({ length: days }, (_, index) => addDays(rangeStart, index))
     return days === 7 ? applyWeekendVisibility(all, showWeekends, new Date(todayMs)) : all
   }, [days, anchorMs, showWeekends, todayMs])
+
+  React.useEffect(() => {
+    const node = scrollRef.current
+    const floatingOpen = selectedId !== null || openOverflowKey !== null
+    floatingScrollOriginRef.current = node && floatingOpen ? { top: node.scrollTop, left: node.scrollLeft } : null
+  }, [selectedId, openOverflowKey])
 
   React.useEffect(() => {
     const node = measureRef.current
@@ -372,6 +379,16 @@ export function TimeGrid({
     setOpenOverflowKey((current) => (current === null ? current : null))
   }
 
+  // Scroll events are delivered on the next frame, so one can arrive after the click
+  // that followed the scroll. Only movement since the peek opened may close it.
+  const closeFloatingIfScrolled = () => {
+    const node = scrollRef.current
+    const origin = floatingScrollOriginRef.current
+    if (!node || !origin) return
+    if (node.scrollTop === origin.top && node.scrollLeft === origin.left) return
+    closeFloating()
+  }
+
   const endDrag = (dayStart: Date) => {
     const previous = dragRef.current
     updateDrag(null)
@@ -393,7 +410,7 @@ export function TimeGrid({
         ref={scrollRef}
         className="overflow-auto overscroll-contain"
         style={{ maxHeight: GRID_BODY_MAX_HEIGHT_PX }}
-        onScroll={closeFloating}
+        onScroll={closeFloatingIfScrolled}
       >
         <div className="sticky top-0 z-40 min-w-full bg-card max-md:w-max">
           <div className="flex border-b border-border">

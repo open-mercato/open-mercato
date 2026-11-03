@@ -118,8 +118,38 @@ describe('TimeGrid dense overlaps (#7500)', () => {
     fireEvent.click(screen.getByRole('button', { name: /^5 more events, / }))
     expect(screen.getByRole('list')).toBeInTheDocument()
 
-    fireEvent.scroll(container.querySelector('.overflow-auto')!)
+    const scroller = container.querySelector('.overflow-auto')!
+    scroller.scrollTop += 40
+    fireEvent.scroll(scroller)
     expect(screen.queryByRole('list')).not.toBeInTheDocument()
+  })
+
+  it('keeps the overflow list open when a scroll event arrives without any movement since it opened', () => {
+    installColumnWidth(170)
+    const { container } = renderGrid(denseItems())
+
+    fireEvent.click(screen.getByRole('button', { name: /^5 more events, / }))
+    fireEvent.scroll(container.querySelector('.overflow-auto')!)
+    expect(screen.getByRole('list')).toBeInTheDocument()
+  })
+
+  it('keeps a peek open when the scroll that preceded the click is delivered after it', () => {
+    installColumnWidth(600)
+    const { container } = renderGrid([
+      buildCalendarItem({ id: 'solo', title: 'Alpha sync', start: at(7), end: at(8) }),
+    ])
+    const scroller = container.querySelector('.overflow-auto')!
+    scroller.scrollTop = 700
+
+    fireEvent.click(screen.getByRole('button', { name: /^Alpha sync, / }))
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument()
+
+    fireEvent.scroll(scroller)
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument()
+
+    scroller.scrollTop = 760
+    fireEvent.scroll(scroller)
+    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument()
   })
 
   it('closes an open overflow list on a click beside it without creating an event', () => {
