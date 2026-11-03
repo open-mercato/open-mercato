@@ -128,6 +128,7 @@ function DefaultDealDetailTabs({
 
   return (
     <DetailTabRail
+      busy={isLoadingInjectedTabs}
       tabs={allTabs}
       activeTab={activeTab}
       onTabChange={(tab) => onTabChange(tab as DealTabId)}
