@@ -70,7 +70,7 @@ export type EventPeekPopoverProps = {
   item: CalendarItem
   open: boolean
   joinUrl: string | null
-  /** Kept for callers that still pass the setting; the peek shows its meta rows regardless. */
+  /** Shows the platform and attendee rows. Join stays available either way. */
   aiSummaries?: boolean
   canManage?: boolean
   side?: React.ComponentProps<typeof PopoverContent>['side']
@@ -99,6 +99,7 @@ export function EventPeekPopover({
   item,
   open,
   joinUrl,
+  aiSummaries = true,
   canManage = true,
   side = 'right',
   typeIcon,
@@ -129,6 +130,7 @@ export function EventPeekPopover({
   const locationRow = (() => {
     if (!item.location || !item.locationKind) return null
     if (item.locationKind === 'platform' && item.platform) {
+      if (!aiSummaries) return null
       const platform = PLATFORM_FULL_LABELS[item.platform]
       return { icon: Video, label: t(platform.key, platform.fallback) }
     }
@@ -164,18 +166,20 @@ export function EventPeekPopover({
               <StatusBadge variant="success" dot>{t('customers.calendar.peek.done', 'Done')}</StatusBadge>
             ) : null}
           </div>
-          <IconButton
-            type="button"
-            variant="ghost"
-            size="xs"
-            aria-label={t('customers.calendar.peek.open', 'Open event')}
-            onClick={() => {
-              close()
-              onEdit(item)
-            }}
-          >
-            <Maximize2 aria-hidden />
-          </IconButton>
+          {canManage ? (
+            <IconButton
+              type="button"
+              variant="ghost"
+              size="xs"
+              aria-label={t('customers.calendar.peek.open', 'Open event')}
+              onClick={() => {
+                close()
+                onEdit(item)
+              }}
+            >
+              <Maximize2 aria-hidden />
+            </IconButton>
+          ) : null}
         </div>
 
         {showJoin ? (
@@ -203,7 +207,7 @@ export function EventPeekPopover({
               <span className="truncate">{locationRow.label}</span>
             </MetaRow>
           ) : null}
-          {attendeeCount > 0 ? (
+          {aiSummaries && attendeeCount > 0 ? (
             <MetaRow icon={Users}>
               <AvatarStack size="xs" max={MAX_VISIBLE_AVATARS} className="shrink-0 gap-px [&>*:not(:first-child)]:-ml-1">
                 {item.participants.slice(0, MAX_VISIBLE_AVATARS).map((participant, index) => (
