@@ -560,7 +560,7 @@ export function AssignRoleDialog({
                           type="button"
                           variant="ghost"
                           onClick={() => setSelectedUser(user)}
-                          className={`h-auto flex w-full items-center gap-3 rounded-lg border px-4 py-3 text-left transition-colors ${
+                          className={`h-auto flex w-full items-center gap-3 whitespace-normal break-words rounded-lg border px-4 py-3 text-left transition-colors ${
                             isSelected
                               ? 'border-foreground bg-background shadow-sm'
                               : 'border-border/70 bg-background hover:bg-accent/40'

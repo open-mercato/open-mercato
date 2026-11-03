@@ -93,6 +93,50 @@ describe('AssignRoleDialog', () => {
     })
   })
 
+  it('lets a candidate row wrap so a long advisory badge stays inside the card on a narrow screen (#7491)', async () => {
+    renderWithProviders(
+      <AssignRoleDialog
+        open
+        onClose={jest.fn()}
+        onAssign={jest.fn(async () => undefined)}
+        roleTypes={[
+          { id: 'rt-1', value: 'budget_holder', label: 'Budget holder' },
+          { id: 'rt-2', value: 'decision_maker', label: 'Decision maker' },
+          { id: 'rt-3', value: 'end_user', label: 'End user' },
+        ]}
+        entityName="Acme Corp"
+        initialRoleType="end_user"
+        existingRoleTypes={new Set(['budget_holder', 'decision_maker'])}
+        existingAssignments={[
+          {
+            id: 'role-1',
+            roleType: 'budget_holder',
+            userId: 'user-1',
+            userName: 'Ada Lovelace',
+            userEmail: 'ada@example.com',
+            createdAt: '2026-04-10T10:00:00.000Z',
+          },
+          {
+            id: 'role-2',
+            roleType: 'decision_maker',
+            userId: 'user-1',
+            userName: 'Ada Lovelace',
+            userEmail: 'ada@example.com',
+            createdAt: '2026-04-10T10:00:00.000Z',
+          },
+        ]}
+      />,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Already assigned: Budget holder, Decision maker')).toBeInTheDocument()
+    })
+
+    const candidateRow = screen.getByRole('button', { name: /Ada Lovelace/i })
+    expect(candidateRow).toHaveClass('whitespace-normal', 'break-words')
+    expect(candidateRow).not.toHaveClass('whitespace-nowrap')
+  })
+
   it('shows a visible load error instead of an empty results state when staff lookup fails', async () => {
     readApiResultOrThrowMock.mockRejectedValueOnce(new Error('Forbidden'))
 
