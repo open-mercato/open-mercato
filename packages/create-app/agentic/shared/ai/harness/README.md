@@ -1,12 +1,14 @@
 # Agent harness evaluations
 
-`cases.json` is the 240-case standalone-app contract. Run `yarn harness:validate --all` for the deterministic gate. Live routing uses a fresh read-only process per case:
+`cases.json` is the 241-case standalone-app contract. Run `yarn harness:validate --all` for the deterministic gate. Live routing uses a fresh read-only process per case:
 
 `OMH-238` routes Customers calendar add/remove/patch requests to `.ai/guides/customers-calendar.md`, exact installed Customers definitions, and the bounded canonical `umes.customers.calendar-event-types` example. It preserves historical records, generic shared components, and warnings when optional staff/resources integrations are unavailable.
 
 `OMH-239` routes custom-module initialization, packaging, preview, publication, authentication, and continued-development questions to `.ai/guides/module-tool.md`.
 
 `OMH-240` routes production-readiness reviews to `.ai/guides/production-deployment.md`, with TLS-first ordering and no live environment reads or deployment claims.
+
+`OMH-241` routes "is there already a module for this" to `om-find-module`: built-in core first, then catalog modules verified on the app's line, with license, install plan and no install before consent.
 
 UMES routing is fact-first. The additive and unified-override audit evaluations, plus their targeted cases, resolve exact/pattern hosts, outgoing contributions, correlation provenance, round-trip groups, framework-owned targets, and override domain/key/mode from the generated module sheets and `.ai/guides/framework-extension-points.md` before bounded installed source. The repository UMES umbrella spec may appear as optional source-checkout provenance; it is never required in a standalone scaffold.
 
@@ -24,7 +26,7 @@ yarn harness:release --runner codex --prepare-targets /absolute/empty-release-ta
 yarn harness:release --runner codex --portability-runner claude --prepare-targets /absolute/empty-release-targets --acknowledge-writes
 ```
 
-The primary runner owns all 240 routing cases, all 49 writable cases, and all generative-judge runs. No per-case fallback or mixed primary ownership is allowed. Omitting `--portability-runner` is valid and the sanitized report records `portabilityRunner: null`; explicitly requesting an unavailable or failing secondary runner fails that extended run.
+The primary runner owns all 241 routing cases, all 49 writable cases, and all generative-judge runs. No per-case fallback or mixed primary ownership is allowed. Omitting `--portability-runner` is valid and the sanitized report records `portabilityRunner: null`; explicitly requesting an unavailable or failing secondary runner fails that extended run.
 
 Writable evaluation is intentionally opt-in. The expanded catalog has a 49-case writable release target, but only cases registered in `release-matrix.json` and backed by controller-owned fixtures and oracles are executable. Copy or create a fresh standalone app for one registered case, then seed only that case and mark the target disposable:
 

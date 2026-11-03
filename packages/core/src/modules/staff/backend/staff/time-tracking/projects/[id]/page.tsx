@@ -33,6 +33,8 @@ import { formatCurrency } from '@open-mercato/ui/utils/format'
 import { KpiCard, Sparkline } from '@open-mercato/ui/backend/charts'
 import { ProjectTeamDrawer } from '../../../../../lib/time-tracking-ui/ProjectTeamDrawer'
 import { NoProjectAccess } from '../../../../../lib/time-tracking-ui/NoProjectAccess'
+import { useProjectAccessScope } from '../../../../../lib/time-tracking-ui/projectAccessScope'
+import { readResolvedProjectAccessScope } from '../../../../../lib/time-tracking-ui/projectAccessScopeHeaders'
 import { ProjectBudgetCell } from '../../../../../lib/timesheets-projects-ui/ProjectBudgetCell'
 import { computeBudgetBurn } from '../../../../../lib/timesheets-projects/budgetBurn'
 import { resolveProjectColorHex } from '../../../../../lib/timesheets-ui/colors'
@@ -174,7 +176,10 @@ function RailFact({ label, value }: { label: string; value: React.ReactNode }) {
 export default function TimesheetProjectDetailPage({ params }: { params?: { id?: string } }) {
   const projectId = params?.id
   const t = useT()
+  const translateRef = React.useRef(t)
+  React.useEffect(() => { translateRef.current = t }, [t])
   const scopeVersion = useOrganizationScopeVersion()
+  const { scopeKey: projectAccessScopeKey, resolvedScope, resolveScope } = useProjectAccessScope(projectId)
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const router = useRouter()
   const pathname = usePathname()
@@ -184,13 +189,9 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [isNotFound, setIsNotFound] = React.useState(false)
-  // Keyed by project id so a route change to another project never shows the
-  // previous project's guard (with a live request button) while the new one loads.
-  const [accessDeniedProjectId, setAccessDeniedProjectId] = React.useState<string | null>(null)
-  const accessDenied = accessDeniedProjectId !== null && accessDeniedProjectId === projectId
-  // The id the last finished load was for. Until it matches the route, the page
-  // is still loading — never the previous project's error or empty state.
-  const [settledProjectId, setSettledProjectId] = React.useState<string | null>(null)
+  const [accessDeniedScopeKey, setAccessDeniedScopeKey] = React.useState<string | null>(null)
+  const [loadedScopeKey, setLoadedScopeKey] = React.useState<string | null>(null)
+  const accessDenied = accessDeniedScopeKey === projectAccessScopeKey
 
   const [employees, setEmployees] = React.useState<EmployeeAssignment[]>([])
   const [employeesLoading, setEmployeesLoading] = React.useState(false)
@@ -405,15 +406,16 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
         const call = await apiCall<ProjectResponse>(
           `/api/staff/timesheets/time-projects?${queryParams.toString()}`,
         )
+        if (!cancelled) resolveScope(readResolvedProjectAccessScope(call.response))
         // Screen 17: the route answers 404 with this discriminator for a project
         // the caller is not a member of, without naming it.
         if (call.status === 404 && readDenialReason(call.result) === NO_PROJECT_ACCESS_REASON) {
-          if (!cancelled) setAccessDeniedProjectId(projectId ?? null)
+          if (!cancelled) setAccessDeniedScopeKey(projectAccessScopeKey)
           return
         }
-        if (!cancelled) setAccessDeniedProjectId(null)
+        if (!cancelled) setAccessDeniedScopeKey(null)
         if (!call.ok) {
-          throw new Error(t('staff.timesheets.projects.errors.load', 'Failed to load project.'))
+          throw new Error(translateRef.current('staff.timesheets.projects.errors.load', 'Failed to load project.'))
         }
         const payload = call.result
         const record = Array.isArray(payload?.items) ? payload.items[0] : null
@@ -424,18 +426,19 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
         if (!cancelled) setProject(record)
       } catch (loadError) {
         if (!cancelled) {
-          setError(loadError instanceof Error ? loadError.message : t('staff.timesheets.projects.errors.load', 'Failed to load project.'))
+          setAccessDeniedScopeKey(null)
+          setError(loadError instanceof Error ? loadError.message : translateRef.current('staff.timesheets.projects.errors.load', 'Failed to load project.'))
         }
       } finally {
         if (!cancelled) {
+          setLoadedScopeKey(projectAccessScopeKey)
           setLoading(false)
-          setSettledProjectId(projectId ?? null)
         }
       }
     }
     loadProject()
     return () => { cancelled = true }
-  }, [projectId, t, scopeVersion])
+  }, [projectId, scopeVersion, projectAccessScopeKey, resolveScope])
 
   // --- Load employees with name resolution ---
   const loadEmployees = React.useCallback(async () => {
@@ -445,7 +448,7 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
       const payload = await readApiResultOrThrow<EmployeesResponse>(
         `/api/staff/timesheets/time-projects/${projectId}/employees?page=1&pageSize=100`,
         undefined,
-        { errorMessage: t('staff.timesheets.projects.employees.empty', 'No employees assigned yet.'), fallback: { items: [], total: 0 } },
+        { errorMessage: translateRef.current('staff.timesheets.projects.employees.empty', 'No employees assigned yet.'), fallback: { items: [], total: 0 } },
       )
       const items = Array.isArray(payload.items) ? payload.items : []
 
@@ -494,7 +497,7 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
     } finally {
       setEmployeesLoading(false)
     }
-  }, [projectId, accessDenied, t])
+  }, [projectId, accessDenied])
 
   React.useEffect(() => {
     void loadEmployees()
@@ -707,10 +710,10 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
   // resolving late) keeps the guard mounted instead of resetting a request the
   // user has just sent.
   if (accessDenied) {
-    return <NoProjectAccess timeProjectId={projectId} />
+    return <NoProjectAccess timeProjectId={projectId} resolvedScope={resolvedScope} />
   }
 
-  if (loading || settledProjectId !== (projectId ?? null)) {
+  if (loading || loadedScopeKey !== projectAccessScopeKey) {
     return (
       <Page>
         <PageBody>

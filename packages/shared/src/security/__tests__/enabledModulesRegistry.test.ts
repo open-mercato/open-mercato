@@ -48,6 +48,23 @@ describe('enabledModulesRegistry', () => {
     expect(getEnabledModuleIds()).toEqual(['auth', 'customer_accounts'])
   })
 
+  it('keeps nested wildcard grants in their enabled owning module', () => {
+    mockGetModules.mockReturnValue([{ id: 'security' } as Module])
+
+    expect(getOwningModuleId('security.mfa.*')).toBe('security')
+    expect(filterGrantsByEnabledModules(['security.mfa.*', 'search.index.*'])).toEqual(['security.mfa.*'])
+  })
+
+  it('uses declared namespace ownership for nested wildcard grants', () => {
+    mockGetModules.mockReturnValue([{
+      id: 'dashboards',
+      features: [{ id: 'analytics.reports.view', title: 'View reports', module: 'dashboards' }],
+    } as Module])
+
+    expect(getOwningModuleId('analytics.reports.*')).toBe('dashboards')
+    expect(filterGrantsByEnabledModules(['analytics.reports.*'])).toEqual(['analytics.reports.*'])
+  })
+
   it('drops grants whose backing module is disabled', () => {
     mockGetModules.mockReturnValue([
       { id: 'auth' } as Module,
