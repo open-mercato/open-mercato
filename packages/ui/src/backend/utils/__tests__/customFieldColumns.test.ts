@@ -2,21 +2,21 @@ import { applyCustomFieldVisibility } from '../customFieldColumns'
 import type { CustomFieldDefDto } from '../customFieldDefs'
 
 const definitions: CustomFieldDefDto[] = [
-  { key: 'priority', kind: 'integer', label: 'Priority' },
+  { key: 'priority', kind: 'integer', label: 'Business priority' },
   { key: 'description', kind: 'multiline', label: 'Description' },
 ]
 
 describe('custom-field column headers', () => {
-  it('preserves translated headers and column chooser labels', () => {
+  it('keeps tenant-defined labels authoritative over host defaults', () => {
     const columns = applyCustomFieldVisibility([{ accessorKey: 'cf_priority', header: 'Priorytet' }], definitions)
-    expect(columns[0].header).toBe('Priorytet')
-    expect(columns[0].meta).toMatchObject({ label: 'Priorytet' })
+    expect(columns[0].header).toBe('Business priority')
+    expect(columns[0].meta).toMatchObject({ label: 'Business priority' })
     expect(columns[1].header).toBe('Description')
   })
 
   it('uses definition labels when a column has no header', () => {
     const columns = applyCustomFieldVisibility([{ accessorKey: 'cf_priority' }], definitions)
-    expect(columns[0].header).toBe('Priority')
+    expect(columns[0].header).toBe('Business priority')
   })
 
   it('omits hidden fields and preserves custom header renderers', () => {
