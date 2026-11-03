@@ -30,6 +30,7 @@ export type AuthContext = {
   userId?: string
   keyId?: string
   keyName?: string
+  sessionBoundApiKey?: boolean
   [k: string]: unknown
 } | null
 
@@ -188,6 +189,17 @@ function applySuperAdminScope(
   return next
 }
 
+type UserSessionEligibilityScope = { userId: string; tenantId: string | null; organizationId: string | null; apiKeyId?: string }
+type UserSessionEligibilityPolicy = { isUserSessionEligible?: (scope: UserSessionEligibilityScope) => Promise<boolean> }
+
+async function isUserBoundApiKeyEligible(
+  container: Awaited<ReturnType<typeof import('@open-mercato/shared/lib/di/container')['createRequestContainer']>>,
+  scope: UserSessionEligibilityScope,
+): Promise<boolean> {
+  const policy = container.resolve<UserSessionEligibilityPolicy>('authService', { allowUnregistered: true })
+  return policy?.isUserSessionEligible ? policy.isUserSessionEligible(scope) : true
+}
+
 async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
   if (!secret) return null
   const cache = getSharedApiKeyAuthCache()
@@ -319,8 +331,13 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
       }
     }
 
+    if (isSessionBoundKey && actualUserId && !await isUserBoundApiKeyEligible(container, {
+      userId: actualUserId, tenantId: record.tenantId ?? null, organizationId: record.organizationId ?? null, apiKeyId: record.id,
+    })) return null
+
     const auth: Exclude<AuthContext, null> = {
       sub: `api_key:${record.id}`,
+      ...(isSessionBoundKey ? { sessionBoundApiKey: true } : {}),
       tenantId: record.tenantId ?? null,
       orgId: record.organizationId ?? null,
       roles: roleNames,

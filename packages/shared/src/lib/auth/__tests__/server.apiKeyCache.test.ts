@@ -457,6 +457,58 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
     ).resolves.toBeNull()
   })
 
+  it.each([false, true])('checks live session eligibility for a user-bound key with cached=%s', async (cached) => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    const { ApiKey } = await import('@open-mercato/core/modules/api_keys/data/entities')
+    const { User } = await import('@open-mercato/core/modules/auth/data/entities')
+    const { Tenant } = await import('@open-mercato/core/modules/directory/data/entities')
+    const isUserSessionEligible = jest.fn().mockResolvedValue(true)
+    createRequestContainer.mockResolvedValue({
+      resolve: (name: string) => name === 'em' ? em : { isUserSessionEligible },
+    })
+    const record = {
+      id: 'delegated-key', name: 'delegated', tenantId: 'tenant-1', organizationId: 'org-1',
+      rolesJson: [], sessionUserId: 'user-1', expiresAt: null,
+    }
+    findApiKeyBySecret.mockResolvedValue(record)
+    emFindOne.mockImplementation(async (entity: unknown) => {
+      if (entity === ApiKey) return record
+      if (entity === User) return { id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1' }
+      if (entity === Tenant) return { id: 'tenant-1', isActive: true, deletedAt: null }
+      return null
+    })
+    if (cached) {
+      expect(await getAuthFromRequest(buildRequest('delegated-secret'))).not.toBeNull()
+      expect(await getAuthFromRequest(buildRequest('delegated-secret'))).not.toBeNull()
+      expect(isUserSessionEligible).toHaveBeenCalledTimes(2)
+    }
+    isUserSessionEligible.mockResolvedValue(false)
+
+    expect(await getAuthFromRequest(buildRequest('delegated-secret'))).toBeNull()
+    expect(isUserSessionEligible).toHaveBeenCalledTimes(cached ? 3 : 1)
+    expect(isUserSessionEligible).toHaveBeenLastCalledWith({
+      userId: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1', apiKeyId: 'delegated-key',
+    })
+    expect(findApiKeyBySecret).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps independently administered keys outside their creator session policy', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    const isUserSessionEligible = jest.fn().mockResolvedValue(false)
+    createRequestContainer.mockResolvedValue({
+      resolve: (name: string) => name === 'em' ? em : { isUserSessionEligible },
+    })
+    findApiKeyBySecret.mockResolvedValue({
+      id: 'independent-key', name: 'machine', tenantId: 'tenant-1', organizationId: null,
+      rolesJson: [], createdBy: 'user-1', expiresAt: null,
+    })
+    emFindOne.mockResolvedValue({ id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1' })
+
+    expect(await getAuthFromRequest(buildRequest('machine-secret'))).not.toBeNull()
+    expect(await getAuthFromRequest(buildRequest('machine-secret'))).not.toBeNull()
+    expect(isUserSessionEligible).not.toHaveBeenCalled()
+  })
+
   it('keeps session keys strictly bound to their persisted user and scope', async () => {
     const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     findApiKeyBySecret.mockResolvedValue({

@@ -19,8 +19,7 @@ test.describe('TC-SSO-005: JIT/SCIM Mutual Exclusivity', () => {
         data: { ssoConfigId: configId, name: 'Should Fail' },
       })
       expect(response.ok()).toBeFalsy()
-      // ScimTokenError(409) should be caught → 409; if instanceof fails → 500
-      expect([409, 500]).toContain(response.status())
+      expect(response.status()).toBe(409)
     } finally {
       await cleanup()
     }
