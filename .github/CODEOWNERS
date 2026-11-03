@@ -8,10 +8,10 @@
 # CI/CD and publish pipeline — any change requires maintainer sign-off
 .github/workflows/                     @open-mercato/maintainers
 scripts/publish-packages.sh            @open-mercato/maintainers
-scripts/release-patch.sh               @open-mercato/maintainers
-scripts/release-minor.sh               @open-mercato/maintainers
-scripts/release-major.sh               @open-mercato/maintainers
-scripts/release-existing.sh            @open-mercato/maintainers
+scripts/release-line.mts               @open-mercato/maintainers
+scripts/lib/release-line.mts           @open-mercato/maintainers
+scripts/lib/github-api.mts             @open-mercato/maintainers
+.github/release.yml                    @open-mercato/maintainers
 scripts/release-snapshot.sh            @open-mercato/maintainers
 
 # Container and infrastructure definitions

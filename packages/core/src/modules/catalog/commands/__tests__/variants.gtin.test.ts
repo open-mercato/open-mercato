@@ -14,7 +14,10 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn().mockResolvedValue([]),
-  findOneWithDecryption: jest.fn().mockResolvedValue(null),
+  findOneWithDecryption: jest.fn(
+    (em: { findOne: (...args: unknown[]) => unknown }, entity: unknown, where: unknown, options?: unknown) =>
+      em.findOne(entity, where, options),
+  ),
 }))
 
 const requireProduct = jest.fn()

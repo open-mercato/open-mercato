@@ -17,6 +17,14 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('ui')
 
+function resolveServerReason(err: unknown): string | undefined {
+  if (!(err instanceof Error)) return undefined
+  const status = (err as Error & { status?: unknown }).status
+  if (typeof status !== 'number') return undefined
+  const message = err.message?.trim()
+  return message ? message : undefined
+}
+
 export type VersionHistoryPanelProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -58,6 +66,7 @@ export function VersionHistoryPanel({
   const [selectedEntry, setSelectedEntry] = React.useState<VersionHistoryEntry | null>(null)
   const [undoingToken, setUndoingToken] = React.useState<string | null>(null)
   const [redoingId, setRedoingId] = React.useState<string | null>(null)
+  const [actionError, setActionError] = React.useState<string | null>(null)
   const latestUndoableId = React.useMemo(() => {
     const latest = visibleEntries.find((entry) => entry.undoToken && entry.executionState === 'done')
     return latest?.id ?? null
@@ -74,7 +83,10 @@ export function VersionHistoryPanel({
   }, [visibleEntries])
 
   React.useEffect(() => {
-    if (!open) setSelectedEntry(null)
+    if (!open) {
+      setSelectedEntry(null)
+      setActionError(null)
+    }
   }, [open])
 
   React.useEffect(() => {
@@ -99,6 +111,7 @@ export function VersionHistoryPanel({
   const handleUndo = React.useCallback(async (token: string | null) => {
     if (!token) return
     setUndoingToken(token)
+    setActionError(null)
     try {
       await apiCallOrThrow('/api/audit_logs/audit-logs/actions/undo', {
         method: 'POST',
@@ -111,6 +124,7 @@ export function VersionHistoryPanel({
       }
     } catch (err) {
       logger.error('Undo failed', { err })
+      setActionError(resolveServerReason(err) ?? t('audit_logs.error.undo'))
     } finally {
       setUndoingToken(null)
     }
@@ -119,6 +133,7 @@ export function VersionHistoryPanel({
   const handleRedo = React.useCallback(async (logId: string | null) => {
     if (!logId) return
     setRedoingId(logId)
+    setActionError(null)
     try {
       await apiCallOrThrow('/api/audit_logs/audit-logs/actions/redo', {
         method: 'POST',
@@ -131,6 +146,7 @@ export function VersionHistoryPanel({
       }
     } catch (err) {
       logger.error('Redo failed', { err })
+      setActionError(resolveServerReason(err) ?? t('audit_logs.error.redo'))
     } finally {
       setRedoingId(null)
     }
@@ -196,6 +212,12 @@ export function VersionHistoryPanel({
                     <AlertDescription>
                       {t('audit_logs.hint.view_self_only', 'Showing only your own changes. Contact an administrator for broader access.')}
                     </AlertDescription>
+                  </Alert>
+                ) : null}
+
+                {actionError ? (
+                  <Alert status="error">
+                    <AlertDescription>{actionError}</AlertDescription>
                   </Alert>
                 ) : null}
 
@@ -308,7 +330,7 @@ export function VersionHistoryPanel({
                 ) : null}
 
                 {error && visibleEntries.length > 0 ? (
-                  <div className="text-xs text-red-500">{error}</div>
+                  <div className="text-xs text-status-error-text">{error}</div>
                 ) : null}
 
                 {hasMore ? (
