@@ -1,7 +1,8 @@
+import { DEFAULT_CREDENTIALS } from '@open-mercato/core/helpers/integration/auth'
 import { expect, test } from '@playwright/test'
 
 const ADMIN_EMAIL = process.env.TEST_ADMIN_EMAIL || 'admin@acme.com'
-const ADMIN_PASSWORD = process.env.TEST_ADMIN_PASSWORD || 'secret'
+const ADMIN_PASSWORD = process.env.TEST_ADMIN_PASSWORD || DEFAULT_CREDENTIALS.admin.password
 
 function readMultipartField(body: string, field: string): string | null {
   const match = body.match(new RegExp(`name="${field}"\\r?\\n\\r?\\n([^\\r\\n]*)`))

@@ -1,3 +1,4 @@
+import { DEFAULT_CREDENTIALS } from '@open-mercato/core/helpers/integration/auth'
 import { expect, test } from '@playwright/test';
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 
@@ -55,8 +56,8 @@ async function composeActionMessage(
  */
 test.describe('TC-API-MSG-021: Terminal Action Is Concurrency-Safe', () => {
   test('should let only one of two concurrent terminal-action requests succeed', async ({ request }) => {
-    const adminToken = await getAuthToken(request, 'admin@acme.com', 'secret');
-    const employeeToken = await getAuthToken(request, 'employee@acme.com', 'secret');
+    const adminToken = await getAuthToken(request, DEFAULT_CREDENTIALS.admin.email, DEFAULT_CREDENTIALS.admin.password);
+    const employeeToken = await getAuthToken(request, DEFAULT_CREDENTIALS.employee.email, DEFAULT_CREDENTIALS.employee.password);
     const employeeId = decodeJwtSubject(employeeToken);
 
     const subject = `QA TC-API-MSG-021 ${Date.now()}`;

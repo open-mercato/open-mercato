@@ -1,3 +1,4 @@
+import { DEFAULT_CREDENTIALS } from '@open-mercato/core/helpers/integration/auth'
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
 import { apiRequest } from '@open-mercato/core/helpers/integration/api'
 import { createCompanyFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
@@ -32,7 +33,7 @@ async function createEntity(
 async function loginAdmin(page: Page): Promise<string> {
   const response = await page.request.post('/api/auth/login', {
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    data: new URLSearchParams({ email: 'admin@acme.com', password: 'secret' }).toString(),
+    data: new URLSearchParams({ email: 'admin@acme.com', password: DEFAULT_CREDENTIALS.admin.password }).toString(),
   })
   expect(response.ok(), `Admin login failed: ${response.status()}`).toBeTruthy()
   const payload = await readJsonSafe<{ token?: string }>(response)

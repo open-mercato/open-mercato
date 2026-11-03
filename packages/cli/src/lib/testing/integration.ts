@@ -190,6 +190,12 @@ export function ephemeralPostgresInitSql(): string {
   return EPHEMERAL_POSTGRES_INIT_SQL
 }
 
+const DEFAULT_EPHEMERAL_TEST_PASSWORD = 'Integration-Test-1!'
+
+export function resolveEphemeralTestPassword(configured?: string): string {
+  return configured && configured !== 'secret' ? configured : DEFAULT_EPHEMERAL_TEST_PASSWORD
+}
+
 const DEFAULT_EPHEMERAL_JWT_SECRET = 'om-ephemeral-integration-jwt-secret'
 
 export function resolveEphemeralJwtSecret(env: NodeJS.ProcessEnv = process.env): string {
@@ -1483,7 +1489,7 @@ async function probeAuthenticatedApi(baseUrl: string): Promise<AuthenticatedApiP
   try {
     const form = new URLSearchParams()
     form.set('email', 'admin@acme.com')
-    form.set('password', 'secret')
+    form.set('password', resolveEphemeralTestPassword(process.env.OM_INIT_ADMIN_PASSWORD))
     const loginResponse = await probeFetch(`${baseUrl}/api/auth/login`, {
       method: 'POST',
       redirect: 'manual',
@@ -1644,7 +1650,7 @@ async function probeBackendBrowserAuth(baseUrl: string): Promise<BackendBrowserA
     const base = new URL(baseUrl)
     const form = new URLSearchParams()
     form.set('email', 'admin@acme.com')
-    form.set('password', 'secret')
+    form.set('password', resolveEphemeralTestPassword(process.env.OM_INIT_ADMIN_PASSWORD))
     const loginResponse = await probeFetch(`${baseUrl}/api/auth/login`, {
       method: 'POST',
       redirect: 'manual',
@@ -2188,15 +2194,9 @@ function buildReusableEnvironment(
     // keeps working, which is what makes the omission easy to miss.
     FORMS_ENCRYPTION_MASTER_KEY: process.env.FORMS_ENCRYPTION_MASTER_KEY
       ?? '6f6d2d657068656d6572616c2d696e746567726174696f6e2d666f726d732d31',
-    // Integration probe + tests expect `admin@acme.com / secret` and
-    // `employee@acme.com / secret`. NODE_ENV=production routes derived-user
-    // password resolution through the random-fallback branch unless these
-    // env vars are explicitly set; without the override every fresh
-    // ephemeral run would mint random passwords and the login probe would
-    // never converge. This is the documented production contract: set
-    // OM_INIT_*_PASSWORD to fix the seeded credential.
-    OM_INIT_ADMIN_PASSWORD: process.env.OM_INIT_ADMIN_PASSWORD ?? 'secret',
-    OM_INIT_EMPLOYEE_PASSWORD: process.env.OM_INIT_EMPLOYEE_PASSWORD ?? 'secret',
+    OM_INIT_SUPERADMIN_PASSWORD: resolveEphemeralTestPassword(process.env.OM_INIT_SUPERADMIN_PASSWORD),
+    OM_INIT_ADMIN_PASSWORD: resolveEphemeralTestPassword(process.env.OM_INIT_ADMIN_PASSWORD),
+    OM_INIT_EMPLOYEE_PASSWORD: resolveEphemeralTestPassword(process.env.OM_INIT_EMPLOYEE_PASSWORD),
     OM_INTEGRATION_TEST: 'true',
     OM_ENABLE_ENTERPRISE_MODULES: enterpriseModulesFlag,
     OM_ENABLE_ENTERPRISE_MODULES_SSO: process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO ?? enterpriseModulesFlag,
@@ -3580,11 +3580,9 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
     FORMS_ENCRYPTION_MASTER_KEY: process.env.FORMS_ENCRYPTION_MASTER_KEY
       ?? '6f6d2d657068656d6572616c2d696e746567726174696f6e2d666f726d732d31',
       NODE_ENV: 'production',
-      // See the auth-probe block above: pin derived-user passwords to the
-      // documented 'secret' so the ephemeral login probe converges under
-      // NODE_ENV=production.
-      OM_INIT_ADMIN_PASSWORD: process.env.OM_INIT_ADMIN_PASSWORD ?? 'secret',
-      OM_INIT_EMPLOYEE_PASSWORD: process.env.OM_INIT_EMPLOYEE_PASSWORD ?? 'secret',
+      OM_INIT_SUPERADMIN_PASSWORD: resolveEphemeralTestPassword(process.env.OM_INIT_SUPERADMIN_PASSWORD),
+      OM_INIT_ADMIN_PASSWORD: resolveEphemeralTestPassword(process.env.OM_INIT_ADMIN_PASSWORD),
+      OM_INIT_EMPLOYEE_PASSWORD: resolveEphemeralTestPassword(process.env.OM_INIT_EMPLOYEE_PASSWORD),
       // Pool sizing for the ephemeral integration runtime. Defaults were once
       // very aggressive (max=5, idle=1000) which exposed flaky 'timeout exceeded
       // when trying to connect' errors on `progressService.createJob`-backed

@@ -1,3 +1,4 @@
+import { DEFAULT_CREDENTIALS } from '@open-mercato/core/helpers/integration/auth'
 import { expect, test } from '@playwright/test'
 import { postForm } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import {
@@ -19,7 +20,7 @@ test.describe('TC-AUTH-026: Login redirect query parameter', () => {
 
     await page.waitForSelector('form[data-auth-ready="1"]', { state: 'visible', timeout: 5_000 })
     await page.getByLabel('Email').fill('admin@acme.com')
-    await page.getByLabel('Password', { exact: true }).fill('secret')
+    await page.getByLabel('Password', { exact: true }).fill(DEFAULT_CREDENTIALS.admin.password)
     await page.getByLabel('Password', { exact: true }).press('Enter')
 
     await expect(page).toHaveURL(new RegExp(targetPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), { timeout: 10_000 })
@@ -32,7 +33,7 @@ test.describe('TC-AUTH-026: Login redirect query parameter', () => {
 
     await page.waitForSelector('form[data-auth-ready="1"]', { state: 'visible', timeout: 5_000 })
     await page.getByLabel('Email').fill('admin@acme.com')
-    await page.getByLabel('Password', { exact: true }).fill('secret')
+    await page.getByLabel('Password', { exact: true }).fill(DEFAULT_CREDENTIALS.admin.password)
     await page.getByLabel('Password', { exact: true }).press('Enter')
 
     await expect(page).toHaveURL(/\/backend/, { timeout: 10_000 })
@@ -41,7 +42,7 @@ test.describe('TC-AUTH-026: Login redirect query parameter', () => {
   test('API should return sanitized redirect for external URLs', async ({ request }) => {
     const response = await postForm(request, '/api/auth/login', {
       email: 'admin@acme.com',
-      password: 'secret',
+      password: DEFAULT_CREDENTIALS.admin.password,
       redirect: 'https://evil.com/steal',
     })
     expect(response.ok()).toBe(true)
@@ -52,7 +53,7 @@ test.describe('TC-AUTH-026: Login redirect query parameter', () => {
   test('API should honor valid redirect path', async ({ request }) => {
     const response = await postForm(request, '/api/auth/login', {
       email: 'admin@acme.com',
-      password: 'secret',
+      password: DEFAULT_CREDENTIALS.admin.password,
       redirect: '/backend/users',
     })
     expect(response.ok()).toBe(true)

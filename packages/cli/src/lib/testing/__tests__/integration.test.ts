@@ -17,6 +17,7 @@ import {
   resolveAppReadyTimeoutMs,
   resolveEphemeralPostgresImage,
   resolveEphemeralJwtSecret,
+  resolveEphemeralTestPassword,
   ephemeralPostgresInitSql,
   shouldReuseBuildArtifacts,
   acquireEphemeralRuntimeLock,
@@ -1385,4 +1386,17 @@ describeOnPosix('terminateProcessTree against a real detached process tree', () 
       }
     }
   }, 20_000)
+})
+
+describe('ephemeral credential policy', () => {
+  it.each([undefined, '', 'secret'])('replaces the weak fixture placeholder %s with a compliant default', async (configured) => {
+    const { buildPasswordSchema } = await import('@open-mercato/shared/lib/auth/passwordPolicy')
+    const password = resolveEphemeralTestPassword(configured)
+    expect(password).not.toBe('secret')
+    expect(buildPasswordSchema().safeParse(password).success).toBe(true)
+  })
+
+  it('preserves explicit credential overrides', () => {
+    expect(resolveEphemeralTestPassword('Operator-Chosen-9!')).toBe('Operator-Chosen-9!')
+  })
 })
