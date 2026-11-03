@@ -129,7 +129,7 @@ test.describe('TC-SALES-8459: Send to precedence', () => {
 
       await login(page, 'admin')
       await page.goto(`/backend/sales/quotes/${encodeURIComponent(quoteId as string)}`, { waitUntil: 'domcontentloaded' })
-      await page.getByRole('button', { name: 'Edit customer snapshot' }).click()
+      await page.getByRole('button', { name: 'Edit customer snapshot' }).and(page.locator('button')).click()
       const emailInput = page.getByPlaceholder('name@example.com')
       await expect(emailInput).toHaveValue(recordEmail)
       await emailInput.fill(editedEmail)
