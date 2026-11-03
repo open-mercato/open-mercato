@@ -18,7 +18,14 @@ Non-goals: release changes, unrelated refactors, weakening checks, merging into 
 ## Risks
 Latest main CI is running; historical failures may already be fixed. Local full validation depends on available dependencies and infrastructure. Snapshot investigation delegated read-only to cezar task 0d7135f4; final review reserved as second and final subtask.
 
+## Evidence
+- Snapshot root cause: standalone app workers disabled but test process defaults to managed workers; fixed both snapshot lanes in fe718ca53a.
+- Parsed-YAML regression fails before fix and passes after. Eight focused workflow tests pass locally.
+- Full workflow test file locally blocked by existing shared esbuild host 0.28.1/binary 0.28.2 mismatch; no application dependencies changed.
+- Historical CI 41591269753 shard 4 has media-warning flakes and one final failure; investigate current run before altering runtime behavior.
+
 ## Progress
+PR: #8585
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
