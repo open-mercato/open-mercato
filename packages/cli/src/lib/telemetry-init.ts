@@ -23,7 +23,7 @@ import { dirname, join, resolve } from 'node:path'
  * `@open-mercato/cli`'s telemetry dependency once the app updates its packages.
  */
 
-const BULLMQ_OTEL_VERSION = '^1.3.1'
+const BULLMQ_OTEL_VERSION = '^2.0.1'
 
 type StepStatus = 'created' | 'patched' | 'skipped' | 'manual'
 
