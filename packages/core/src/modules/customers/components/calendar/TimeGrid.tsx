@@ -69,7 +69,7 @@ type DayColumnData = {
   overflows: PositionedOverflow[]
 }
 
-type DragState = { dayMs: number; startMin: number; endMin: number; moved: boolean }
+type DragState = { dayMs: number; startMin: number; endMin: number; pressSlotStartMin: number; moved: boolean }
 
 type HoverSlot = { dayMs: number; startMin: number }
 
@@ -226,6 +226,7 @@ export function TimeGrid({
   const [openOverflowKey, setOpenOverflowKey] = React.useState<string | null>(null)
   const [drag, setDrag] = React.useState<DragState | null>(null)
   const [hoverSlot, setHoverSlot] = React.useState<HoverSlot | null>(null)
+  const floatingScrollOriginRef = React.useRef<{ top: number; left: number } | null>(null)
   const measureRef = React.useRef<HTMLDivElement | null>(null)
   const [columnWidthPx, setColumnWidthPx] = React.useState<number | null>(null)
   const dragRef = React.useRef<DragState | null>(null)
@@ -239,6 +240,12 @@ export function TimeGrid({
     const all = Array.from({ length: days }, (_, index) => addDays(rangeStart, index))
     return days === 7 ? applyWeekendVisibility(all, showWeekends, new Date(todayMs)) : all
   }, [days, anchorMs, showWeekends, todayMs])
+
+  React.useEffect(() => {
+    const node = scrollRef.current
+    const floatingOpen = selectedId !== null || openOverflowKey !== null
+    floatingScrollOriginRef.current = node && floatingOpen ? { top: node.scrollTop, left: node.scrollLeft } : null
+  }, [selectedId, openOverflowKey])
 
   React.useEffect(() => {
     const node = measureRef.current
@@ -327,14 +334,21 @@ export function TimeGrid({
     }
     const layer = event.currentTarget
     const rect = layer.getBoundingClientRect()
-    const minute = offsetYToMinutes(event.clientY - rect.top, HOUR_HEIGHT_PX)
+    const offsetY = event.clientY - rect.top
+    const minute = offsetYToMinutes(offsetY, HOUR_HEIGHT_PX)
     try {
       layer.setPointerCapture(event.pointerId)
     } catch {
       // Pointer capture is best-effort; ignore environments that reject it.
     }
     setSelectedId(null)
-    updateDrag({ dayMs: dayStart.getTime(), startMin: minute, endMin: minute, moved: false })
+    updateDrag({
+      dayMs: dayStart.getTime(),
+      startMin: minute,
+      endMin: minute,
+      pressSlotStartMin: slotStartFor(offsetYToMinutes(offsetY, HOUR_HEIGHT_PX, 1)),
+      moved: false,
+    })
   }
 
   const moveDrag = (event: React.PointerEvent<HTMLDivElement>, dayStart: Date) => {
@@ -365,6 +379,16 @@ export function TimeGrid({
     setOpenOverflowKey((current) => (current === null ? current : null))
   }
 
+  // Scroll events are delivered on the next frame, so one can arrive after the click
+  // that followed the scroll. Only movement since the peek opened may close it.
+  const closeFloatingIfScrolled = () => {
+    const node = scrollRef.current
+    const origin = floatingScrollOriginRef.current
+    if (!node || !origin) return
+    if (node.scrollTop === origin.top && node.scrollLeft === origin.left) return
+    closeFloating()
+  }
+
   const endDrag = (dayStart: Date) => {
     const previous = dragRef.current
     updateDrag(null)
@@ -376,8 +400,7 @@ export function TimeGrid({
     }
     // A plain click creates the half-hour slot under the pointer, so the user
     // never has to discover drag-to-create first.
-    const slotStart = slotStartFor(previous.startMin)
-    const range = buildDragRange(dayStart, slotStart, slotStart + SLOT_MINUTES)
+    const range = buildDragRange(dayStart, previous.pressSlotStartMin, previous.pressSlotStartMin + SLOT_MINUTES)
     onCreateRange(range.start, range.end)
   }
 
@@ -387,7 +410,7 @@ export function TimeGrid({
         ref={scrollRef}
         className="overflow-auto overscroll-contain"
         style={{ maxHeight: GRID_BODY_MAX_HEIGHT_PX }}
-        onScroll={closeFloating}
+        onScroll={closeFloatingIfScrolled}
       >
         <div className="sticky top-0 z-40 min-w-full bg-card max-md:w-max">
           <div className="flex border-b border-border">
