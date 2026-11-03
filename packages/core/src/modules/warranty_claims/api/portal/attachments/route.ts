@@ -17,6 +17,7 @@ import { checkAttachmentAccess } from '@open-mercato/core/modules/attachments/li
 import { attachmentCrudEvents, attachmentCrudIndexer } from '@open-mercato/core/modules/attachments/lib/crud'
 import { readAttachmentMetadata } from '@open-mercato/core/modules/attachments/lib/metadata'
 import { clearAttachmentThumbnailCache } from '@open-mercato/core/modules/attachments/lib/thumbnailCache'
+import { removeAttachmentRecord } from '@open-mercato/core/modules/attachments/lib/storageReferences'
 import {
   isMultipartUploadLimitError,
   parseMultipartFormDataWithinUploadLimit,
@@ -202,11 +203,12 @@ async function loadOwnedVisibleAttachment(
 }
 
 async function deletePortalAttachment(context: PortalContext, attachment: Attachment): Promise<void> {
-  await context.em.remove(attachment).flush()
+  const removal = await removeAttachmentRecord(context.em, attachment)
+  if (!removal.removed) return
   await clearAttachmentThumbnailCache(attachment.partitionCode, attachment.id).catch((error) => {
     logger.error('Failed to clean portal attachment thumbnails', { err: error, attachmentId: attachment.id })
   })
-  if (attachment.storagePath) {
+  if (attachment.storagePath && removal.releaseStorage) {
     try {
       const driver = await (await resolveStorageDriverFactory(context)).resolveForPartition(attachment.partitionCode, {
         tenantId: attachment.tenantId ?? context.tenantId,

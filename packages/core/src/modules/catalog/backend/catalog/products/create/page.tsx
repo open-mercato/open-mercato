@@ -98,6 +98,7 @@ import {
   type ProductUnitConversionInput,
 } from "@open-mercato/core/modules/catalog/components/products/productFormUtils";
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { transferDraftMedia } from "@open-mercato/core/modules/catalog/components/products/mediaTransfer";
 
 const logger = createLogger('catalog')
 
@@ -419,9 +420,6 @@ export default function CreateCatalogProductPage() {
             const mediaItems = Array.isArray(formValues.mediaItems)
               ? formValues.mediaItems
               : [];
-            const attachmentIds = mediaItems
-              .map((item) => (typeof item.id === "string" ? item.id : null))
-              .filter((value): value is string => !!value);
             const mediaDraftId =
               typeof formValues.mediaDraftId === "string"
                 ? formValues.mediaDraftId
@@ -768,27 +766,18 @@ export default function CreateCatalogProductPage() {
                 await createCrud("catalog/prices", pricePayload);
               }
 
-              if (mediaDraftId && attachmentIds.length) {
-                const transfer = await apiCall<{
-                  ok?: boolean;
-                  error?: string;
-                }>(
-                  "/api/attachments/transfer",
-                  {
-                    method: "POST",
-                    headers: { "content-type": "application/json" },
-                    body: JSON.stringify({
-                      entityId: E.catalog.catalog_product,
-                      attachmentIds,
-                      fromRecordId: mediaDraftId,
-                      toRecordId: productId,
-                    }),
-                  },
-                  { fallback: null },
-                );
-                if (!transfer.ok) {
-                  logger.error("attachments.transfer.failed", { err: transfer.result?.error });
-                }
+              const mediaTransfer = await transferDraftMedia({
+                entityId: E.catalog.catalog_product,
+                draftId: mediaDraftId,
+                recordId: productId,
+                mediaItems,
+              });
+              if (mediaTransfer.failedCount > 0) {
+                logger.error("attachments.transfer.failed", {
+                  failed: mediaTransfer.failedCount,
+                  requested: mediaTransfer.requestedCount,
+                  errors: mediaTransfer.errors,
+                });
               }
 
               if (inboxDraft) {
@@ -817,10 +806,24 @@ export default function CreateCatalogProductPage() {
                 }
               }
 
-              flash(
-                t("catalog.products.create.success", "Product created."),
-                "success",
-              );
+              if (mediaTransfer.failedCount > 0) {
+                flash(
+                  t(
+                    "catalog.products.create.mediaTransferIncomplete",
+                    "Product created, but {failed} of {total} media files could not be attached.",
+                    {
+                      failed: mediaTransfer.failedCount,
+                      total: mediaTransfer.requestedCount,
+                    },
+                  ),
+                  "warning",
+                );
+              } else {
+                flash(
+                  t("catalog.products.create.success", "Product created."),
+                  "success",
+                );
+              }
               if (inboxDraft) {
                 router.push(
                   `/backend/inbox-ops/proposals/${encodeURIComponent(inboxDraft.proposalId)}`,

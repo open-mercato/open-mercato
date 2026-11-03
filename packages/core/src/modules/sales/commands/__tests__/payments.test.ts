@@ -636,10 +636,11 @@ describe('createPaymentCommand.execute — allocation orderId/invoiceId are tena
     )
 
     const orderLookups = (findOneWithDecryption as jest.Mock).mock.calls.filter(
-      ([_em, _entity, filter]: [unknown, unknown, Record<string, unknown>]) =>
-        filter?.id === TEST_ORDER_ID
+      ([_em, _entity, filter, options]: [unknown, unknown, Record<string, unknown>, Record<string, unknown> | undefined]) =>
+        filter?.id === TEST_ORDER_ID && !options?.lockMode
     )
-    // Exactly one lookup for the main order; the matching allocation reuses it from the cache.
+    // Exactly one validation lookup for the main order; the matching allocation reuses it from the cache.
+    // The separate projection lock on the same order is scope-filtered and counted apart.
     expect(orderLookups.length).toBe(1)
   })
 

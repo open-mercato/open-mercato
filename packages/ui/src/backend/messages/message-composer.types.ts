@@ -22,6 +22,8 @@ export type UserListItem = {
 
 export type AttachmentListResponse = {
   items?: Array<{ id?: string }>
+  total?: number
+  totalPages?: number
 }
 
 export type MessageComposerVariant = 'compose' | 'reply' | 'forward'

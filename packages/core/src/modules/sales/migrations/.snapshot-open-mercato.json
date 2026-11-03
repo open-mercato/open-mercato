@@ -4222,6 +4222,22 @@
       "name": "sales_order_lines",
       "schema": "public",
       "columns": {
+        "amounts_mode": {
+          "name": "amounts_mode",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "'computed'",
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
         "catalog_snapshot": {
           "name": "catalog_snapshot",
           "type": "jsonb",
@@ -5891,6 +5907,22 @@
           "comment": null,
           "enumItems": [],
           "mappedType": "uuid"
+        },
+        "totals_mode": {
+          "name": "totals_mode",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "'computed'",
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "text"
         },
         "totals_snapshot": {
           "name": "totals_snapshot",

@@ -1,0 +1,59 @@
+name: Backport
+
+# Cherry-picks a merged PR onto another line (CONTRIBUTING.md § Releasing): label it
+# `backport release/vX.Y.x` (a fix on main → a release line) or `backport main` (a hotfix that
+# landed on a release line first), before or after the merge. Each label opens one PR; a conflict
+# opens a draft with the conflict committed and instructions on the original PR.
+#
+# `pull_request`, not `pull_request_target`: fork PRs get no secrets, so a merged fork
+# contribution is skipped here and ported by hand.
+
+on:
+  pull_request:
+    types: [closed, labeled]
+
+permissions:
+  contents: read
+
+jobs:
+  backport:
+    name: Backport
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      ((github.event.action == 'closed' && contains(join(github.event.pull_request.labels.*.name, '|'), 'backport ')) ||
+       (github.event.action == 'labeled' && startsWith(github.event.label.name, 'backport ')))
+
+    steps:
+      - name: Mint the release token
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          # The merged-into branch; a merged PR's refs/pull/N/merge may already be gone.
+          ref: ${{ github.event.pull_request.base.ref }}
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      # Pinned by SHA: this action receives a write token.
+      - name: Open backport PRs
+        uses: korthout/backport-action@8560fb503c275d433c56f05a2f64850093baa9f7 # v4.7.0
+        with:
+          # A PR opened with GITHUB_TOKEN runs no CI, so the backport opens it as the release app.
+          github_token: ${{ steps.app-token.outputs.token }}
+          label_pattern: '^backport (main|release/v\d+\.\d+\.x)$'
+          # Generated release notes group PRs by category label (.github/release.yml) and list
+          # their titles, so a backport keeps both. Priority, risk and QA labels carry over so
+          # the backport PR enters the pipeline like the original did; `qa-approved` does not —
+          # it vouched for the change in main's code, not the line's.
+          copy_labels_pattern: '^(bug|feature|security|refactor|dependencies|documentation|enterprise|skip-changelog|priority-(low|medium|high|extreme)|risk-(low|medium|high)|needs-qa|skip-qa)$'
+          pull_title: '${pull_title}'
+          add_labels: 'backport,review'
+          experimental: '{"conflict_resolution": "draft_commit_conflicts"}'
