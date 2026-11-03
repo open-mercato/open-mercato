@@ -17,6 +17,8 @@ import { registerComponent } from '@open-mercato/shared/modules/widgets/componen
 import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
 import { useDealsAccess } from './useDealsAccess'
 
+export const COMPANY_DETAIL_TAB_IDS = ['people', 'deals', 'activity-log', 'changelog', 'files'] as const
+
 export type CompanyTabId =
   | 'people'
   | 'deals'
@@ -30,6 +32,7 @@ type TabDef = {
   label: string
   icon?: React.ReactNode
   count?: React.ReactNode
+  priority?: number
 }
 
 export const COMPANY_DETAIL_TABS_COMPONENT_ID = 'section:customers.companies.detailTabs'
@@ -38,6 +41,7 @@ export type CompanyDetailTabsProps = {
   activeTab: CompanyTabId
   onTabChange: (tab: CompanyTabId) => void
   injectedTabs?: Array<{ id: string; label: string; priority?: number }>
+  isLoadingInjectedTabs?: boolean
   hiddenTabIds?: string[]
   peopleCount?: number
   dealsCount?: number
@@ -57,10 +61,11 @@ const LEGACY_TAB_MAP: Record<string, CompanyTabId> = {
   analysis: 'people',
 }
 
-export function resolveLegacyTab(tab: string | null | undefined): CompanyTabId {
+export function resolveLegacyTab(tab: string | null | undefined, knownTabIds?: Iterable<string>): CompanyTabId {
   if (!tab) return 'people'
   if (LEGACY_TAB_MAP[tab]) return LEGACY_TAB_MAP[tab]
-  return tab as CompanyTabId
+  if ((COMPANY_DETAIL_TAB_IDS as readonly string[]).includes(tab) || (knownTabIds && new Set(knownTabIds).has(tab))) return tab
+  return 'people'
 }
 
 function formatTabCount(count: number): string | number | undefined {
@@ -72,6 +77,7 @@ function DefaultCompanyDetailTabs({
   activeTab,
   onTabChange,
   injectedTabs = [],
+  isLoadingInjectedTabs = false,
   hiddenTabIds = [],
   peopleCount = 0,
   dealsCount = 0,
@@ -81,7 +87,7 @@ function DefaultCompanyDetailTabs({
   children,
 }: CompanyDetailTabsProps) {
   const t = useT()
-  const { canViewDeals } = useDealsAccess()
+  const { canViewDeals, isReady: isDealsAccessReady } = useDealsAccess()
 
   const builtInTabs: TabDef[] = React.useMemo(
     () => [
@@ -127,12 +133,21 @@ function DefaultCompanyDetailTabs({
     const hidden = new Set(hiddenTabIds)
     return [
       ...builtInTabs,
-      ...injectedTabs.map((tab) => ({
+      ...injectedTabs.filter((tab, index) => !builtInTabs.some((native) => native.id === tab.id) && injectedTabs.findIndex((candidate) => candidate.id === tab.id) === index).map((tab) => ({
         id: tab.id as CompanyTabId,
         label: tab.label,
+        priority: tab.priority,
       })),
-    ].filter((tab) => !hidden.has(tab.id))
+    ]
+      .sort((left, right) => (right.priority ?? 0) - (left.priority ?? 0))
+      .filter((tab) => !hidden.has(tab.id))
   }, [builtInTabs, hiddenTabIds, injectedTabs])
+
+  React.useEffect(() => {
+    if (isLoadingInjectedTabs || !isDealsAccessReady || allTabs.some((tab) => tab.id === activeTab)) return
+    const fallback = allTabs[0]?.id
+    if (fallback) onTabChange(fallback)
+  }, [activeTab, allTabs, isLoadingInjectedTabs, onTabChange, isDealsAccessReady])
 
   return (
     <div>

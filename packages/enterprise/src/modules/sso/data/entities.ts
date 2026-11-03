@@ -131,6 +131,10 @@ export class ScimToken {
   @Property({ name: 'token_hash', type: 'text' })
   tokenHash!: string
 
+  @Property({ name: 'token_lookup_hash', type: 'text', nullable: true })
+  @Index({ name: 'scim_tokens_token_lookup_hash_idx' })
+  tokenLookupHash?: string | null
+
   @Property({ name: 'token_prefix', type: 'text' })
   tokenPrefix!: string
 

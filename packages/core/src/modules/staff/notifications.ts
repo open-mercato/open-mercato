@@ -17,6 +17,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
         variant: 'default',
         icon: 'check',
         commandId: 'staff.leave-requests.accept',
+        requiredFeatures: ['staff.leave_requests.manage'],
       },
       {
         id: 'reject',
@@ -24,6 +25,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
         variant: 'destructive',
         icon: 'x',
         commandId: 'staff.leave-requests.reject',
+        requiredFeatures: ['staff.leave_requests.manage'],
       },
     ],
     primaryActionId: 'approve',

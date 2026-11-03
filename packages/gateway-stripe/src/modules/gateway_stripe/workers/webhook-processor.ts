@@ -5,7 +5,7 @@ import { isTrustedWebhookDispatch } from '@open-mercato/shared/lib/queue/dispatc
 import type { IntegrationLogService } from '@open-mercato/core/modules/integrations/lib/log-service'
 import type { PaymentGatewayService } from '@open-mercato/core/modules/payment_gateways/lib/gateway-service'
 import { claimWebhookProcessing, releaseWebhookClaim } from '@open-mercato/core/modules/payment_gateways/lib/webhook-utils'
-import { mapWebhookEventToStatus, mapStripeStatus } from '../lib/status-map'
+import { resolveStripeWebhookStatus } from '../lib/status-map'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('gateway_stripe').child({ component: 'webhook-processor' })
@@ -81,9 +81,7 @@ export default async function handle(job: QueuedJob<WebhookJobPayload>, ctx: Han
       return
     }
 
-    const eventStatus = mapWebhookEventToStatus(event.eventType)
-    const providerStatus = typeof event.data.status === 'string' ? event.data.status : ''
-    const unifiedStatus = eventStatus ?? mapStripeStatus(providerStatus)
+    const unifiedStatus = resolveStripeWebhookStatus(event.eventType, event.data, event.apiVersion)
 
     if (unifiedStatus !== 'unknown') {
       await paymentGatewayService.syncTransactionStatus(transaction.id, {
