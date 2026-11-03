@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import { login } from '@open-mercato/core/helpers/integration/auth';
 import { getAuthToken, apiRequest } from '@open-mercato/core/helpers/integration/api';
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
@@ -8,7 +8,7 @@ import {
   deleteCustomerGroupIfExists,
   deleteCustomerGroupMembershipIfExists,
 } from '@open-mercato/core/helpers/integration/customerGroupsFixtures';
-import { fixturePriority, uniqueStamp } from './helpers';
+import { fixturePriority, openGroupsTab, uniqueStamp } from './helpers';
 
 /**
  * TC-CGRP-018: membership assignment from the customer detail page
@@ -27,32 +27,8 @@ import { fixturePriority, uniqueStamp } from './helpers';
  * widgets injected directly into the CrudForm's own OWN field set
  * (`crud-form:customers.person:fields`, e.g. the customer_accounts "Account
  * status" card), which really do stay unmounted until "Expand form panel" is
- * clicked. Still, this test defensively expands the panel first if the
- * "Groups" tab is not immediately visible, so it stays correct even if that
- * assumption about zone-2 mounting changes later.
+ * clicked.
  */
-async function openGroupsTab(page: Page): Promise<void> {
-  // The person page keeps six tabs inline and folds the rest (including the
-  // injected Groups tab) into a More menu; an already-active Groups tab is
-  // lifted back inline.
-  const groupsTab = page.getByRole('tab', { name: 'Groups' });
-  if (await groupsTab.isVisible().catch(() => false)) {
-    await groupsTab.click();
-    return;
-  }
-  const moreMenu = page.getByTestId('detail-tabs-more');
-  if (await moreMenu.isVisible().catch(() => false)) {
-    await moreMenu.click();
-    await page.getByRole('menuitem', { name: 'Groups' }).click();
-    return;
-  }
-  const expandPanel = page.getByRole('button', { name: /expand form panel/i });
-  if (await expandPanel.isVisible().catch(() => false)) {
-    await expandPanel.click();
-  }
-  await page.getByTestId('detail-tabs-more').click();
-  await page.getByRole('menuitem', { name: 'Groups' }).click();
-}
 
 test.describe('TC-CGRP-018: membership assignment from the customer detail page', () => {
   test('assigning a person to a group via the dialog shows a "current" membership row', async ({ page, request }) => {
