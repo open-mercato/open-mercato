@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { collectForwardedSetupFlags } from './dev-database-url.mjs'
+import { fillGeneratedSecrets } from './dev-env-secrets.mjs'
 import { NO_INFRA_FLAG } from './dev-infra-preflight.mjs'
 import { ensureInfra } from './infra.mjs'
 
@@ -14,8 +15,8 @@ const forwardedDatabaseFlags = collectForwardedSetupFlags(argv)
 // Compose and the port preflight read POSTGRES_PORT & co. from .env, so it has
 // to exist before infra starts. Never overwritten once present.
 if (!existsSync('.env') && existsSync('.env.example')) {
-  copyFileSync('.env.example', '.env')
-  console.log('[setup] Copied .env.example to .env')
+  writeFileSync('.env', fillGeneratedSecrets(readFileSync('.env.example', 'utf8')))
+  console.log('[setup] Copied .env.example to .env (generated JWT_SECRET, AUTH_SECRET, LOOKUP_HASH_PEPPER)')
 }
 
 // Infra comes first so a Docker problem surfaces before minutes of installing,
