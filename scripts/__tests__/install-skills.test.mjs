@@ -332,6 +332,35 @@ describe('install-skills', () => {
     assert.doesNotMatch(logs.join('\n'), /replaces the external collection's copy/)
   })
 
+  it('migrates the shipped analysis skills from local links to collection copies', () => {
+    const manifest = JSON.parse(readFileSync(new URL('../../.ai/skills/tiers.json', import.meta.url), 'utf8'))
+    const analysisSkills = ['om-app-spec-writing', 'om-gap-analysis']
+    for (const skill of analysisSkills) {
+      assert.ok(manifest.external.skills.includes(skill), `${skill} belongs to the collection`)
+      assert.ok(!Object.values(manifest.tiers).some((tier) => tier.skills.includes(skill)), `${skill} has no local tier`)
+    }
+    const localSkills = Object.values(manifest.tiers).flatMap((tier) => tier.skills)
+    const fixtureRoot = makeFixtureRepo({ manifest, skills: [...localSkills, ...analysisSkills] })
+    const canonicalRoot = join(fixtureRoot, '.agents', 'skills')
+    mkdirSync(canonicalRoot, { recursive: true })
+    for (const skill of analysisSkills) {
+      symlinkSync(resolve(fixtureRoot, '.ai', 'skills', skill), join(canonicalRoot, skill), 'junction')
+    }
+    const { installer } = makeInstaller(fixtureRoot, {
+      runNpx: collectionNpx(fixtureRoot, manifest.external.skills),
+    })
+    assert.equal(installer.run([]), 0)
+    assert.equal(installer.run(['--no-external', '--with', 'analysis']), 0)
+    for (const skill of analysisSkills) {
+      const canonical = join(canonicalRoot, skill)
+      assert.ok(!isLink(canonical), `${skill} uses the collection directory`)
+      assert.equal(readFileSync(join(canonical, 'SKILL.md'), 'utf8'), '# external copy\n')
+      assert.equal(realpathSync(join(fixtureRoot, '.claude', 'skills', skill)), realpathSync(canonical))
+      assert.equal(readFileSync(join(fixtureRoot, '.ai', 'skills', skill, 'SKILL.md'), 'utf8'), `# ${skill}\n`)
+    }
+    assert.ok(isLink(join(canonicalRoot, 'om-wcag-guardian')), 'analysis remains a valid opt-in tier')
+  })
+
   it('skips the external step when npx is unavailable', () => {
     const { installer, logs, warnings } = makeInstaller(rootDir, { runNpx: () => null })
     assert.equal(installer.run([]), 0)
@@ -349,5 +378,36 @@ describe('install-skills', () => {
     assert.match(output, /extra\s+\(1 skills, opt-in\)/)
     assert.match(output, /external\s+\(1 skills, from open-mercato\/skills\)/)
     assert.match(output, /Currently installed: core \(2 local skills\)/)
+  })
+})
+
+describe('QA and Figma external skill migration', () => {
+  it('installs shared workflows without linking their repo-local overlays', () => {
+    const manifest = JSON.parse(readFileSync(new URL('../../.ai/skills/tiers.json', import.meta.url), 'utf8'))
+    const migrated = ['om-auto-qa-scenarios', 'om-figma-design-with-ds']
+    const localSkills = Object.values(manifest.tiers).flatMap((tier) => tier.skills)
+    assert.equal(manifest.tiers.design, undefined)
+    for (const skill of migrated) {
+      assert.ok(manifest.external.skills.includes(skill))
+      assert.ok(!localSkills.includes(skill))
+    }
+    const rootDir = makeFixtureRepo({ manifest, skills: [...localSkills, ...migrated] })
+    const { installer } = makeInstaller(rootDir, { runNpx: collectionNpx(rootDir, migrated) })
+    assert.equal(installer.run([]), 0)
+    for (const skill of migrated) {
+      const canonical = join(rootDir, '.agents', 'skills', skill)
+      assert.ok(!isLink(canonical))
+      assert.equal(readFileSync(join(canonical, 'SKILL.md'), 'utf8'), '# external copy\n')
+    }
+    const offlineRoot = makeFixtureRepo({ manifest, skills: [...localSkills, ...migrated] })
+    const { installer: offline } = makeInstaller(offlineRoot)
+    assert.equal(offline.run(['--no-external']), 0)
+    for (const skill of migrated) assert.ok(!existsSync(join(offlineRoot, '.agents', 'skills', skill)))
+    for (const skill of migrated) {
+      symlinkSync(resolve(offlineRoot, '.ai', 'skills', skill), join(offlineRoot, '.agents', 'skills', skill), 'junction')
+    }
+    assert.equal(offline.run(['--no-external']), 0)
+    for (const skill of migrated) assert.ok(!isLink(join(offlineRoot, '.agents', 'skills', skill)))
+    assert.throws(() => offline.run(['--no-external', '--with', 'design']), /unknown tier 'design'/)
   })
 })
