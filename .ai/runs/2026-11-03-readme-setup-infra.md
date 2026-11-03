@@ -12,8 +12,8 @@ Runner: local. Documentation-only gate: whitespace/diff check, shell syntax of t
 
 ### Phase 1: Documentation
 
-- [ ] 1.1 Simplify the quickstart and document setup reuse and --no-infra.
-- [ ] 1.2 Validate the snippet and review the documentation diff.
+- [x] 1.1 Simplify the quickstart and document setup reuse and --no-infra. — 387c7017f
+- [x] 1.2 Validate the snippet and review the documentation diff. — 387c7017f
 
 ### Phase 2: Publish
 
