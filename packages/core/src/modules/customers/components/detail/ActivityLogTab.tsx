@@ -108,6 +108,7 @@ export function ActivityLogTab({
         emptyState={emptyState ?? defaultEmptyState}
         onActionChange={onActionChange}
         onEditActivity={onEditActivity}
+        serverHistoryControls
       />
     </div>
   )
