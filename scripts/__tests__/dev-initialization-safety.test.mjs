@@ -44,12 +44,12 @@ function initializeHarness(runtimePath, functionName, { args = [], setupMode = f
 
 for (const runtimePath of ['../dev.mjs', '../../packages/create-app/template/scripts/dev.mjs']) {
   for (const functionName of ['runGreenfieldDev', 'runClassicGreenfieldDev']) {
-    test(`${runtimePath} ${functionName} refuses existing users without explicit reinstall`, async () => {
+    test(`${runtimePath} ${functionName} retains the established automatic reinstall default`, async () => {
       const fixture = initializeHarness(runtimePath, functionName, { args: ['--greenfield'], greenfield: true })
-      await assert.rejects(fixture.run(), /existing users/)
-      assert.deepEqual(fixture.commands.find((command) => command[0] === 'initialize'), ['initialize'])
-      assert.deepEqual(fixture.data.users, ['existing-user'])
-      assert.deepEqual(fixture.launches, [])
+      await fixture.run()
+      assert.deepEqual(fixture.commands.find((command) => command[0] === 'initialize'), ['initialize', '--', '--reinstall'])
+      assert.deepEqual(fixture.data.users, ['new-user'])
+      assert.deepEqual(fixture.launches, ['watch', 'monorepo-app'])
     })
 
     test(`${runtimePath} ${functionName} forwards explicitly requested reinstall`, async () => {
@@ -60,10 +60,10 @@ for (const runtimePath of ['../dev.mjs', '../../packages/create-app/template/scr
       assert.deepEqual(fixture.launches, ['watch', 'monorepo-app'])
     })
 
-    test(`${runtimePath} ${functionName} initializes an empty database without reset flags`, async () => {
+    test(`${runtimePath} ${functionName} initializes an empty database through the same reinstall path`, async () => {
       const fixture = initializeHarness(runtimePath, functionName, { args: ['--greenfield'], greenfield: true, existingUsers: false })
       await fixture.run()
-      assert.deepEqual(fixture.commands.find((command) => command[0] === 'initialize'), ['initialize'])
+      assert.deepEqual(fixture.commands.find((command) => command[0] === 'initialize'), ['initialize', '--', '--reinstall'])
       assert.deepEqual(fixture.data.users, ['new-user'])
       assert.deepEqual(fixture.launches, ['watch', 'monorepo-app'])
     })

@@ -1,12 +1,12 @@
 # Upgrade Notes
 
-## Starter reuse, optional AI, and explicit greenfield resets
+## Starter reuse and optional AI
 
 `yarn setup` can continue with pre-existing services after an explicit interactive confirmation. It shows port owners and restart/health states and then leaves those containers untouched, using the URLs already configured in `.env`. Declining shows `yarn om stop` guidance for the original checkout. Non-interactive users must explicitly pass `--no-infra` to use external services.
 
 AI provider setup is optional: press Enter or choose `0` to skip. Missing credentials no longer block non-interactive setup; configure them later to enable AI chat.
 
-`yarn dev:greenfield` now refuses an initialized database by default. For the previous destructive reset behavior, explicitly run `yarn dev:greenfield --reinstall`. Ordinary `yarn setup` continues to retain initialized data.
+Reinstall behavior is unchanged: monorepo `yarn dev:greenfield` resets the configured database by default. Standalone `yarn setup` retains initialized data unless `--reinstall` is explicitly supplied.
 
 The development diagnostics banner’s Retry button now invokes runtime recovery; a page reload alone no longer leaves the historical incident as the only outcome. Existing generation/health checks still determine whether recovery succeeded.
 

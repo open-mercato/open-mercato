@@ -38,7 +38,7 @@ cp apps/mercato/.env.example apps/mercato/.env # the defaults work with yarn inf
 yarn dev:greenfield                           # builds, generates, initializes and starts the app
 ```
 
-`yarn dev:greenfield` initializes a fresh database and refuses to continue when users already exist. To explicitly reset the configured database, run `yarn dev:greenfield --reinstall`; this drops all tables before seeding again. Open `http://localhost:3000/backend`; the credentials are printed in the terminal. Windows users: see [Developing on Windows](#developing-on-windows).
+In the monorepo, `yarn dev:greenfield` keeps its established reset behavior: it drops all tables in the configured database and seeds it again before starting development. Standalone `yarn setup` preserves initialized data; `yarn setup --reinstall` explicitly resets it. Open `http://localhost:3000/backend`; the credentials are printed in the terminal. Windows users: see [Developing on Windows](#developing-on-windows).
 
 ### Seed data
 
