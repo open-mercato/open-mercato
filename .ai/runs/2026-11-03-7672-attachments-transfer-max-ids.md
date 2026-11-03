@@ -64,5 +64,5 @@ Merge the 100-id cap on `POST /api/attachments/transfer` now that its prerequisi
 
 ### Phase 5: Verify
 
-- [ ] 5.1 Full validation gate
+- [x] 5.1 Full validation gate — 862c31b9c
 - [ ] 5.2 om-auto-review-pr --autofix pass
