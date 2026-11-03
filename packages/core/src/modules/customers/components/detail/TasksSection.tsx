@@ -9,6 +9,11 @@ import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitive
 import { mapDictionaryColorToTone } from '@open-mercato/shared/lib/query/advanced-filter'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { dismissRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import {
+  extractOptimisticLockConflict,
+  extractRecordLockConflict,
+} from '@open-mercato/ui/backend/utils/optimisticLock'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { cn } from '@open-mercato/shared/lib/utils'
@@ -48,6 +53,10 @@ type TasksSectionProps = {
 }
 
 const RESERVED_TASK_CUSTOM_KEYS = new Set(['priority', 'description', 'due_at', 'dueAt'])
+
+function isRecordConflict(error: unknown): boolean {
+  return Boolean(extractOptimisticLockConflict(error) || extractRecordLockConflict(error))
+}
 
 function toTimestamp(value: string | null | undefined): number | null {
   if (!value) return null
@@ -241,6 +250,13 @@ export function TasksSection({
   }, [])
 
   React.useEffect(() => {
+    if (!dialogOpen || dialogMode !== 'edit' || !editingTask) return
+    const refreshedTask = tasks.find((task) => task.id === editingTask.id)
+    if (!refreshedTask || refreshedTask === editingTask) return
+    setEditingTask(refreshedTask)
+  }, [dialogMode, dialogOpen, editingTask, tasks])
+
+  React.useEffect(() => {
     if (!onActionChange) return
     if (!entityId) {
       onActionChange(null)
@@ -295,8 +311,10 @@ export function TasksSection({
         flash(t('customers.people.detail.tasks.createSuccess', 'Task created'), 'success')
         await Promise.resolve(onDataRefresh?.())
       } catch (err) {
-        const message = err instanceof Error ? err.message : t('customers.people.detail.tasks.error', 'Failed to create task')
-        flash(message, 'error')
+        if (!isRecordConflict(err)) {
+          const message = err instanceof Error ? err.message : t('customers.people.detail.tasks.error', 'Failed to create task')
+          flash(message, 'error')
+        }
         throw err
       }
     },
@@ -315,12 +333,15 @@ export function TasksSection({
             isDone: payload.base.is_done ?? undefined,
           },
         )
+        dismissRecordConflict()
         flash(t('customers.people.detail.tasks.updateSuccess', 'Task updated'), 'success')
         await Promise.resolve(onDataRefresh?.())
       } catch (err) {
-        const message =
-          err instanceof Error ? err.message : t('customers.people.detail.tasks.updateError', 'Failed to update task')
-        flash(message, 'error')
+        if (!isRecordConflict(err)) {
+          const message =
+            err instanceof Error ? err.message : t('customers.people.detail.tasks.updateError', 'Failed to update task')
+          flash(message, 'error')
+        }
         throw err
       }
     },
@@ -338,6 +359,7 @@ export function TasksSection({
             isDone: nextIsDone,
           },
         )
+        dismissRecordConflict()
         flash(
           nextIsDone
             ? t('customers.people.detail.tasks.completeSuccess', 'Task marked as done')
@@ -346,9 +368,11 @@ export function TasksSection({
         )
         await Promise.resolve(onDataRefresh?.())
       } catch (err) {
-        const message =
-          err instanceof Error ? err.message : t('customers.people.detail.tasks.toggleError', 'Failed to update task status')
-        flash(message, 'error')
+        if (!isRecordConflict(err)) {
+          const message =
+            err instanceof Error ? err.message : t('customers.people.detail.tasks.toggleError', 'Failed to update task status')
+          flash(message, 'error')
+        }
       }
     },
     [onDataRefresh, runWriteMutation, t, toggleTask],
@@ -374,13 +398,16 @@ export function TasksSection({
             todoId: task.todoId,
           },
         )
+        dismissRecordConflict()
         flash(t('customers.people.detail.tasks.deleteSuccess', 'Task removed'), 'success')
         await Promise.resolve(onDataRefresh?.())
         await refresh()
       } catch (err) {
-        const message =
-          err instanceof Error ? err.message : t('customers.people.detail.tasks.deleteError', 'Failed to remove task')
-        flash(message, 'error')
+        if (!isRecordConflict(err)) {
+          const message =
+            err instanceof Error ? err.message : t('customers.people.detail.tasks.deleteError', 'Failed to remove task')
+          flash(message, 'error')
+        }
       }
     },
     [confirm, onDataRefresh, refresh, runWriteMutation, t, unlinkTask],
@@ -394,12 +421,15 @@ export function TasksSection({
           () => canonicalResult.cancelInteraction(task.todoId),
           { id: task.todoId },
         )
+        dismissRecordConflict()
         flash(t('customers.people.detail.tasks.cancelSuccess', 'Task canceled'), 'success')
         await Promise.resolve(onDataRefresh?.())
       } catch (err) {
-        const message =
-          err instanceof Error ? err.message : t('customers.people.detail.tasks.cancelError', 'Failed to cancel task')
-        flash(message, 'error')
+        if (!isRecordConflict(err)) {
+          const message =
+            err instanceof Error ? err.message : t('customers.people.detail.tasks.cancelError', 'Failed to cancel task')
+          flash(message, 'error')
+        }
       }
     },
     [canonicalResult, onDataRefresh, runWriteMutation, t, useCanonicalInteractions],

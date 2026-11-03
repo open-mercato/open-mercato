@@ -7,11 +7,11 @@
 | Fact | Value |
 |---|---|
 | repo | open-mercato/open-mercato |
-| integration-branch | develop |
+| integration-branch | main |
 | companion-repo | open-mercato/official-modules |
 | specs-path | .ai/specs:.ai/specs/enterprise |
 
-- `develop` is the integration branch; `main` carries only release-ready code (`CONTRIBUTING.md`), so grounding against it undercounts.
+- `main` is the integration branch (`CONTRIBUTING.md`); ground against its merged code rather than an obsolete branch or an open PR.
 - `open-mercato/official-modules` backs the optional `external/official-modules/` submodule (`.ai/docs/official-modules.md`); a merged module there is real coverage. The preflight uses the platform branch for the companion too; if that fails it degrades to `UNAVAILABLE`. Report it; never switch the platform branch to suit the companion.
 - `.ai/specs/` = open-source specs, `.ai/specs/enterprise/` = commercial (`.ai/specs/AGENTS.md`). Specs under `implemented/` are shipped: never cite them as Upstream pipeline.
 

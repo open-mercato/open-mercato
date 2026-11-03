@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
+import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue'
 import { createShipment, sendWebhook } from '@open-mercato/core/modules/shipping_carriers/__integration__/helpers/fixtures'
 import {
   deleteCarrierShipmentInDb,
@@ -27,6 +28,10 @@ export const integrationMeta = {
  * whose tracking number is the claim's return tracking number. The carrier here
  * reports `delivered` directly after the label was created (no pickup or transit
  * scans), which is how a parcel looks when intermediate scans never arrive.
+ *
+ * The standalone lane runs without managed workers, so the spec drains the
+ * `shipping-carriers-webhook` queue (which emits the delivered event) and then
+ * the `events` queue that carries the persistent subscriber.
  */
 test.describe('TC-WC-035: return shipment delivery receives the warranty claim', () => {
   test('moves an awaiting_return claim to received when the carrier reports the return delivered', async ({ request }) => {
@@ -81,6 +86,8 @@ test.describe('TC-WC-035: return shipment delivery receives the warranty claim',
         data: { status: 'delivered' },
       })
       expect(webhook.status(), 'delivered webhook should be accepted').toBe(202)
+      await drainIntegrationQueue('shipping-carriers-webhook')
+      await drainIntegrationQueue('events')
 
       await expect
         .poll(async () => (await readClaim(request, adminToken, claim.id!)).status, {

@@ -32,4 +32,4 @@ Everything outside that prefix is the open-source tier. An enterprise-tier capab
 
 ## Phase 3 — map to platform: grounding (add)
 
-`platform.repo` is not set in `.ai/agentic.config.json`, so Phase 3 rows default to `docs-only`. When the user wants a decisive mapping grounded, run `om-gap-analysis` in single-capability mode: its repo-local override supplies the Open Mercato platform profile. Record the verdict line in the row's Notes.
+While `platform.repo` is unset in `.ai/agentic.config.json`, Phase 3 rows default to `docs-only`. When the user wants a decisive mapping grounded, run `om-gap-analysis` in single-capability mode: its repo-local override supplies the Open Mercato platform profile. Record the verdict line in the row's Notes.
