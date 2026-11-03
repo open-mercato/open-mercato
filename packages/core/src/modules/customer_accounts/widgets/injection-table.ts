@@ -8,7 +8,6 @@ const accountStatusWidget = {
   kind: 'tab',
   groupId: 'portal-account',
   groupLabel: 'customer_accounts.widgets.portalAccountTab',
-  icon: 'key-round',
   // Negative: after the person's built-in tabs (#8020 ordering contract).
   priority: -50,
 } as const

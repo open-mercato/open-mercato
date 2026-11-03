@@ -52,6 +52,7 @@ describe('customer_accounts injection table', () => {
         kind: 'tab',
         groupId: 'portal-account',
         groupLabel: 'customer_accounts.widgets.portalAccountTab',
+        priority: -50,
       }),
     ])
     expect(injectionTable['customers.person']).toBeUndefined()

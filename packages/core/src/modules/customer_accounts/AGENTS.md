@@ -318,12 +318,11 @@ Both link to `/backend/customer_accounts/{sourceEntityId}` for staff review.
 
 | Spot ID | Widget | Purpose |
 |---------|--------|---------|
-| `customers.person` | `account-status` | Alias for hosts requesting the bare `customers.person` entity spot |
-| `crud-form:customers.person` | `account-status` | Person detail/create, company/sales dialogs; hidden without `recordId` |
+| `detail:customers.person:tabs` | `account-status` | Portal account tab on the person detail page; reads the person id from `resourceId` / `personId` (or `recordId`) and renders nothing without one |
 | `customers.company` | `company-users` | Alias for hosts requesting the bare `customers.company` entity spot |
 | `crud-form:customers.company` | `company-users` | Shows portal users on every company surface that publishes the host — the company v2 detail page (`companies-v2/[id]`), the company create page (`companies/create`), and the sales document "Create company" quick dialog — where it has no `recordId` and renders its empty state |
 
-Both inject as column 2 groups with priority 200, gated by `customer_accounts.view` feature.
+`account-status` registers as a tab (`groupId: portal-account`, priority -50, after the built-in tabs). `company-users` injects as a column 1 group with priority 200. Both are gated by the `customer_accounts.view` feature.
 
 CrudForm derives its spot id as `crud-form:${entityId}` with every `:` normalized to `.`, so a
 registered `crud-form:` key whose entity segment still contains `:` can never be requested by any
