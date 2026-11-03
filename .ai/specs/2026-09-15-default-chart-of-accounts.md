@@ -43,9 +43,12 @@ data file to the `ledger` module `ledger` already owns.
 
 ## Overview
 
-`ledger` (#5663) already seeds `LedgerAccountGroup` (the zespoły 0–8
-classification buckets, system reference data) into every
-organization, but deliberately seeds nothing into `LedgerAccountType`
+`ledger` (#5663) seeds `LedgerAccountGroup` (the zespoły 0–8
+classification buckets, system reference data) through its `seedDefaults`
+hook, so the organizations that exist at initial setup have them; an
+organization created later through Directory has none until this
+document's import provisions them (decision OQ-R1). It deliberately seeds
+nothing into `LedgerAccountType`
 or `LedgerAccount` — "no default chart of accounts
 (`LedgerAccountType`/`LedgerAccount`) is seeded; tenants build their
 own" (#5663, Design decisions). That decision stands: every real
@@ -74,8 +77,8 @@ this project has neither today.
 
 One new command in the existing `ledger` module,
 `importDefaultChartOfAccounts`, that creates a fixed, hardcoded set of
-`LedgerAccountType` rows (each linked to the correct, already-seeded
-`LedgerAccountGroup` for its zespół) and `LedgerAccount` rows (each
+`LedgerAccountType` rows (each linked to the `LedgerAccountGroup` of its
+zespół, which the import provisions first when it is missing, OQ-R1) and `LedgerAccount` rows (each
 linked to the correct `LedgerAccountType`), inside one transaction,
 undoable as a single operation. A new button, "Zaimportuj domyślny
 plan kont," on the existing `backend/ledger/accounts/page.tsx`, gated
@@ -397,8 +400,9 @@ literal" convention (§2) — nothing in this codebase parses or depends
 on any of these specific `number` values; they exist so an imported
 account is recognizable to a Polish bookkeeper, not so other code can
 match against them. Each `LedgerAccountType`'s `accountGroupId` links
-to the `LedgerAccountGroup` row GL core engine already seeded for that
-zespół (`jurisdiction: 'PL'`, `code` matching the zespół number).
+to the `LedgerAccountGroup` row of that zespół (`jurisdiction: 'PL'`,
+`code` matching the zespół number), seeded by GL core engine's
+`seedDefaults` or, when missing, by the import itself (OQ-R1).
 
 **Zespół 0 — Aktywa trwałe:**
 
@@ -1072,8 +1076,11 @@ confirmation was not requested. #6439 does not implement them yet.
 | Real-system comparison present | Compliant — ERPNext, enova365, Symfonia checked; Comarch recorded as inconclusive rather than forced |
 
 **Internal Consistency Check:** Cross-checked against GL core engine
-(#5663) — this document's Entities section correctly treats
-`LedgerAccountGroup` as read-only and already-seeded, and its Design
+(#5663) — this document's Entities section treats `LedgerAccountGroup`
+as ledger-owned reference data: the import never modifies an existing
+group row, and it provisions missing PL groups through the ledger-owned
+`seedPolishAccountGroups` instead of assuming that every organization was
+seeded at setup (OQ-R1). Its Design
 Decisions correctly builds on, rather than reopens, #5663's own
 no-auto-seed decision. Cross-checked against JELD and Posting Rules
 Engine — both are named in this document's own Related header as
@@ -1092,9 +1099,28 @@ no new tagging mechanism, no new control-account pattern, no new
 event declaration (the import raises the existing CRUD events, see Events);
 nothing to add to §2.
 
-**Verdict:** Not yet fully compliant (refreshed 2026-10-29): decisions OQ-R1 (group provisioning for organizations created after setup) and OQ-R2 (undo atomic against posting) are settled, not yet implemented in #6439. The rest is implemented (#6439, OM-16 to OM-20) and updated through three rounds of external review (see Changelog).
+**Verdict:** Not yet fully compliant (refreshed 2026-11-03). The design is complete; #6439 (`a09415a2`) implements only part of it.
+
+- **Implemented in #6439:** the template (42 types, 46 accounts), the `importDefaultChartOfAccounts` command in one transaction with one undo entry, validation of every template row through the Zod schemas of `createLedgerAccountType`/`createLedgerAccount`, the refusal when either total is nonzero, the 409 for a concurrent import (`*_scope_number_unique`), the undo refusals checked one after another, the thin POST route, and the button gated by `ledger.accounts.manage` and shown while the accounts total is zero.
+- **Specified here, not yet in #6439:**
+  - OQ-R1: provisioning missing PL groups inside the import; #6439 still reads groups that `seedDefaults` must have created;
+  - OQ-R2: undo and delete in one locking transaction against posting;
+  - R3: hiding the button when account types exist; the page reads only the accounts total;
+  - runtime PL numbering checks (`checkTypeNumber`, `accountNumberFitsType`) on template rows in the import; the template data satisfies them, but the import calls only the Zod schemas.
+
+Updated through four rounds of external review (see Changelog).
 
 ## Changelog
+
+### 2026-11-03 — PR #6137 re-review (@haxiorz, 2026-10-31): S1
+
+- **S1** (minor). The Final Compliance Report separates what #6439
+  implements from what this document requires on top of it (OQ-R1, OQ-R2,
+  R3 and the runtime PL numbering checks). The Overview, the Proposed
+  Solution summary, the Data Models note and the Internal Consistency
+  Check no longer say that groups are seeded into every organization or
+  that `LedgerAccountGroup` is read-only and already seeded; they point to
+  OQ-R1. No design or behaviour change.
 
 ### 2026-10-29 (cont.) — OQ-R1 and OQ-R2 settled
 
