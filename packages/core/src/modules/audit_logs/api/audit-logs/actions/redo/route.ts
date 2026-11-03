@@ -208,7 +208,8 @@ export async function POST(req: Request) {
       return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
     }
     logger.error('Redo failed', { err })
-    return NextResponse.json({ error: 'Redo failed' }, { status: 400 })
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({ error: translate('audit_logs.error.redo_failed', 'Redo failed') }, { status: 400 })
   }
 }
 
