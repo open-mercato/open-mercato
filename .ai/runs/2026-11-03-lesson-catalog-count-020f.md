@@ -21,9 +21,11 @@ Only `.ai/lessons.md` metadata and this portable execution plan. No lesson recor
 
 ## Risks
 
-Another lesson addition can advance the base; recheck the candidate merged tree before handoff.
+Another lesson addition can advance the base; recheck the candidate merged tree before handoff. Review analysis is clean, but GitHub rejected native self-approval; another reviewer must approve before completing step 2.1.
 
 ## Progress
+
+PR: #8580
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
