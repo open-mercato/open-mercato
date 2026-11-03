@@ -39,6 +39,9 @@
       "om-auto-sec-report-pr",
       "om-auto-qa-scenarios",
       "om-figma-design-with-ds",
+      "om-pre-implement-spec",
+      "om-smart-test",
+      "om-create-agents-md",
       "om-app-spec-writing",
       "om-gap-analysis"
     ]
@@ -51,9 +54,6 @@
         "om-backend-ui-design",
         "om-mockup-prototype",
         "om-implement-spec",
-        "om-pre-implement-spec",
-        "om-smart-test",
-        "om-create-agents-md",
         "om-fix-specs",
         "om-migrate-mikro-orm",
         "om-create-ai-agent",
