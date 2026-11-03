@@ -8,6 +8,7 @@ import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 const mockTranslate = (key: string, fallback?: string) => fallback ?? key
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
+  useLocale: () => 'en',
   useT: () => mockTranslate,
 }))
 

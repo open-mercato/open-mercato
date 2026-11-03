@@ -40,7 +40,8 @@ import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDate } from '@open-mercato/ui/primitives/date-format'
 
 const PAGE_SIZE = 50
 const RESOURCE_KIND = 'promotions.promotion'
@@ -80,10 +81,8 @@ function sameOrder(a: PromotionRow[], b: PromotionRow[]): boolean {
   return a.every((row, index) => row.id === b[index]?.id)
 }
 
-function formatDate(value: string | null): string | null {
-  if (!value) return null
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? null : date.toLocaleDateString()
+function formatDate(value: string | null, locale: string): string | null {
+  return formatDisplayDate(value, locale)
 }
 
 function isFilterValueActive(value: unknown): boolean {
@@ -126,6 +125,7 @@ function PromotionCard({
   onDelete,
 }: PromotionCardProps) {
   const t = useT()
+  const locale = useLocale()
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: row.id,
     disabled: !canDrag,
@@ -134,8 +134,8 @@ function PromotionCard({
     transform: CSS.Transform.toString(transform),
     transition,
   }
-  const startsLabel = formatDate(row.startsAt)
-  const endsLabel = formatDate(row.endsAt)
+  const startsLabel = formatDate(row.startsAt, locale)
+  const endsLabel = formatDate(row.endsAt, locale)
   const windowLabel = startsLabel || endsLabel
     ? [
         startsLabel ? t('promotions.list.card.starts', 'Starts {date}', { date: startsLabel }) : null,

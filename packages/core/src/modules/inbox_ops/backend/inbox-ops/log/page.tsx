@@ -10,7 +10,8 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { ArrowLeft, RefreshCw } from 'lucide-react'
 
 type EmailRow = {
@@ -41,6 +42,7 @@ const STATUS_COLORS: Record<string, string> = {
 
 export default function ProcessingLogPage() {
   const t = useT()
+  const locale = useLocale()
   const [items, setItems] = React.useState<EmailRow[]>([])
   const [total, setTotal] = React.useState(0)
   const [totalIsCapped, setTotalIsCapped] = React.useState(false)
@@ -136,8 +138,7 @@ export default function ProcessingLogPage() {
       accessorKey: 'receivedAt',
       header: t('inbox_ops.received_at', 'Received'),
       cell: ({ row }) => {
-        const d = new Date(row.original.receivedAt)
-        return <span className="text-sm text-muted-foreground">{d.toLocaleDateString()} {d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+        return <span className="text-sm text-muted-foreground">{formatDisplayDateTime(row.original.receivedAt, locale) ?? ''}</span>
       },
     },
     {
@@ -174,7 +175,7 @@ export default function ProcessingLogPage() {
         )
       },
     },
-  ], [handleRetryEmail, retryingEmailId, t])
+  ], [handleRetryEmail, locale, retryingEmailId, t])
 
   const tabs = [
     { label: t('inbox_ops.log.tab_all', 'All'), value: undefined },

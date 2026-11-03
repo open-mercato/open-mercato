@@ -2,9 +2,10 @@
 
 import * as React from "react"
 import { Spinner } from "@open-mercato/ui/primitives/spinner"
-import { useT, type TranslateFn } from "@open-mercato/shared/lib/i18n/context"
+import { useLocale, useT, type TranslateFn } from "@open-mercato/shared/lib/i18n/context"
 import { apiCall } from "@open-mercato/ui/backend/utils/apiCall"
-import { formatRelativeTime, formatDateTime } from "@open-mercato/shared/lib/time"
+import { formatRelativeTime } from "@open-mercato/shared/lib/time"
+import { formatDisplayDateTime } from "@open-mercato/ui/primitives/date-format"
 import { cn } from "@open-mercato/shared/lib/utils"
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import { ArrowRightLeft, Zap, MessageSquare, User, Filter, ChevronDown, Check } from 'lucide-react'
@@ -203,9 +204,10 @@ function TimelineItem({
   isLast: boolean
 }) {
   const t = useT()
+  const locale = useLocale()
   const KindIcon = KIND_ICONS[entry.kind]
-  const relativeTime = formatRelativeTime(entry.occurredAt)
-  const absoluteTime = formatDateTime(entry.occurredAt)
+  const relativeTime = formatRelativeTime(entry.occurredAt, { locale, translate: t })
+  const absoluteTime = formatDisplayDateTime(entry.occurredAt, locale)
 
   const isStatusChange = entry.kind === 'status' && entry.metadata?.statusTo
   const action = translateAction(t, entry)

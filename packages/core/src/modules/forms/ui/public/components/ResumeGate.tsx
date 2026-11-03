@@ -2,7 +2,8 @@
 
 import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import type { RunnerSubmission } from '../types'
 
 export type ResumeGateProps = {
@@ -11,17 +12,15 @@ export type ResumeGateProps = {
   onStartOver: () => void
 }
 
-function formatDate(iso: string | null | undefined): string {
-  if (!iso) return ''
-  const parsed = new Date(iso)
-  if (Number.isNaN(parsed.getTime())) return ''
-  return parsed.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+function formatDate(iso: string | null | undefined, locale: string): string {
+  return formatDisplayDateTime(iso, locale) ?? ''
 }
 
 export function ResumeGate({ candidates, onContinue, onStartOver }: ResumeGateProps) {
   const t = useT()
+  const locale = useLocale()
   const latest = candidates[0]
-  const lastSavedAt = latest ? formatDate(latest.updatedAt ?? latest.firstSavedAt ?? null) : ''
+  const lastSavedAt = latest ? formatDate(latest.updatedAt ?? latest.firstSavedAt ?? null, locale) : ''
   const revisionCount = candidates.length
 
   return (

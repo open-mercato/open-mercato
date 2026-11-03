@@ -33,6 +33,7 @@ import {
   type AiServerConversation,
 } from './conversation-store'
 import { useAiAssistantAvailable } from './useAiAssistantAvailable'
+import { resolveDisplayTimeZone } from '../primitives/date-locale-settings'
 
 const logger = createLogger('ui').child({ component: 'AiChatSessions' })
 
@@ -568,14 +569,15 @@ export function useAiChatSessions(): AiChatSessionsApi {
   }
 }
 
-export function defaultSessionLabel(session: AiChatSession): string {
+export function defaultSessionLabel(session: AiChatSession, locale?: string): string {
   if (session.name && session.name.trim().length > 0) return session.name.trim()
   const date = new Date(session.createdAt)
   if (Number.isNaN(date.getTime())) return 'Session'
-  return date.toLocaleString(undefined, {
+  return date.toLocaleString(locale, {
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+    timeZone: resolveDisplayTimeZone(),
   })
 }

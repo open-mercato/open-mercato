@@ -27,7 +27,7 @@ const runMutationMock = jest.fn()
 jest.mock('@open-mercato/shared/lib/i18n/context', () => {
   const dict = require('../../../../i18n/en.json') as Record<string, string>
   const translate = (key: string, fallback?: string) => dict[key] ?? fallback ?? key
-  return { useT: () => translate }
+  return { useLocale: () => 'en', useT: () => translate }
 })
 
 jest.mock('next/navigation', () => ({

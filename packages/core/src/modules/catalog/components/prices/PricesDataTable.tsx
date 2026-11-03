@@ -13,7 +13,8 @@ import { Tag } from '@open-mercato/ui/primitives/tag'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDate } from '@open-mercato/ui/primitives/date-format'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useBatchLabels } from './useBatchLabels'
 import { normalizePriceRecord, type NormalizedPriceRecord } from './normalizePriceRecord'
@@ -53,6 +54,7 @@ function formatQuantityRange(row: PriceRow, t: TranslateFn): string {
 
 export default function PricesDataTable({ productId }: { productId?: string } = {}) {
   const t = useT()
+  const locale = useLocale()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const queryClient = useQueryClient()
   const scopeVersion = useOrganizationScopeVersion()
@@ -250,8 +252,8 @@ export default function PricesDataTable({ productId }: { productId?: string } = 
         if (!price.startsAt && !price.endsAt) {
           return <span className="text-sm text-muted-foreground">{t('catalog.prices.list.validity.always', 'Always')}</span>
         }
-        const from = price.startsAt ? new Date(price.startsAt).toLocaleDateString() : null
-        const until = price.endsAt ? new Date(price.endsAt).toLocaleDateString() : null
+        const from = formatDisplayDate(price.startsAt, locale)
+        const until = formatDisplayDate(price.endsAt, locale)
         const label = from && until
           ? t('catalog.prices.list.validity.range', '{{from}} – {{until}}', { from, until })
           : from
@@ -265,7 +267,7 @@ export default function PricesDataTable({ productId }: { productId?: string } = 
         )
       },
     },
-  ], [t, variantLabels, productLabels, customerLabels, channelLabels])
+  ], [locale, t, variantLabels, productLabels, customerLabels, channelLabels])
 
   return (
     <>

@@ -14,7 +14,8 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import {
   Drawer,
   DrawerBody,
@@ -79,11 +80,8 @@ const STATUS_VARIANT: Record<InvitationStatus, StatusBadgeVariant> = {
   revoked: 'error',
 }
 
-function formatDate(value: string | null): string {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleString()
+function formatDate(value: string | null, locale: string): string {
+  return formatDisplayDateTime(value, locale) ?? ''
 }
 
 function parseRecipients(raw: string): RecipientInput[] {
@@ -129,6 +127,7 @@ export function RecipientsTable({
   onMutated?: () => void
 }) {
   const t = useT()
+  const locale = useLocale()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const { runMutation } = useGuardedMutation({ contextId: 'forms.invitations' })
 
@@ -313,12 +312,12 @@ export function RecipientsTable({
       {
         header: t('forms.invitation.columns.sent_at', { fallback: 'Sent' }),
         accessorKey: 'sentAt',
-        cell: ({ row }) => formatDate(row.original.sentAt) || '—',
+        cell: ({ row }) => formatDate(row.original.sentAt, locale) || '—',
       },
       {
         header: t('forms.invitation.columns.submitted_at', { fallback: 'Submitted' }),
         accessorKey: 'submittedAt',
-        cell: ({ row }) => formatDate(row.original.submittedAt) || '—',
+        cell: ({ row }) => formatDate(row.original.submittedAt, locale) || '—',
       },
       {
         header: t('forms.invitation.columns.send_count', { fallback: 'Sends' }),
@@ -328,7 +327,7 @@ export function RecipientsTable({
         ),
       },
     ],
-    [t],
+    [locale, t],
   )
 
   const renderRowActions = React.useCallback(

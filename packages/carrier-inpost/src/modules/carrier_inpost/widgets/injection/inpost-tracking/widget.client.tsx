@@ -3,7 +3,8 @@
 import * as React from 'react'
 import { match } from 'ts-pattern'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 
 type CarrierShipmentRef = {
@@ -46,6 +47,7 @@ type FetchState =
 
 export default function InpostTrackingWidget({ context }: InjectionWidgetComponentProps) {
   const t = useT()
+  const locale = useLocale()
   const [fetchState, setFetchState] = React.useState<FetchState>({ kind: 'idle' })
 
   const ctx = context as WidgetContext
@@ -136,7 +138,7 @@ export default function InpostTrackingWidget({ context }: InjectionWidgetCompone
                 {tracking.events.map((event, index) => (
                   <li key={index} className="flex gap-3 text-sm">
                     <span className="shrink-0 text-muted-foreground">
-                      {new Date(event.occurredAt).toLocaleString()}
+                      {formatDisplayDateTime(event.occurredAt, locale) ?? event.occurredAt}
                     </span>
                     <span className="font-medium">{event.status}</span>
                     {event.location ? (

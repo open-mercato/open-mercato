@@ -15,7 +15,8 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDate } from '@open-mercato/ui/primitives/date-format'
 import { mapOfferRow, renderOfferPriceSummary, type OfferRow } from './offerTableUtils'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -34,6 +35,7 @@ const SAVE_CONTEXT_ID = 'sales-channel-offers-panel'
 
 export function SalesChannelOffersPanel({ channelId, channelName }: { channelId: string; channelName?: string }) {
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const { runMutation, retryLastMutation } = useGuardedMutation<{
     formId: string
@@ -105,10 +107,10 @@ export function SalesChannelOffersPanel({ channelId, channelName }: { channelId:
       header: t('sales.channels.offers.table.updated', 'Updated'),
       cell: ({ row }) =>
         row.original.updatedAt
-          ? <span className="text-xs text-muted-foreground">{new Date(row.original.updatedAt).toLocaleDateString()}</span>
+          ? <span className="text-xs text-muted-foreground">{formatDisplayDate(row.original.updatedAt, locale) ?? '—'}</span>
           : <span className="text-xs text-muted-foreground">—</span>,
     },
-  ], [t])
+  ], [locale, t])
 
   const loadOffers = React.useCallback(async () => {
     if (!channelId) return

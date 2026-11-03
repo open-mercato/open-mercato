@@ -16,7 +16,8 @@ import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDate } from '@open-mercato/ui/primitives/date-format'
 import { useSalesChannelsEnabled } from '../../../components/useSalesChannelsEnabled'
 import { SalesChannelsDisabledNotice } from '../../../components/SalesChannelsDisabledNotice'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -46,6 +47,7 @@ const SAVE_CONTEXT_ID = 'sales-channels-list'
 
 export default function SalesChannelsPage() {
   const t = useT()
+  const locale = useLocale()
   const { enabled: channelsEnabled, isLoading: channelsEnabledLoading } = useSalesChannelsEnabled()
   const router = useRouter()
   const { runMutation, retryLastMutation } = useGuardedMutation<{
@@ -115,10 +117,10 @@ export default function SalesChannelsPage() {
       header: t('sales.channels.table.updated', 'Updated'),
       cell: ({ row }) =>
         row.original.updatedAt
-          ? <span className="text-xs text-muted-foreground">{new Date(row.original.updatedAt).toLocaleDateString()}</span>
+          ? <span className="text-xs text-muted-foreground">{formatDisplayDate(row.original.updatedAt, locale) ?? '—'}</span>
           : <span className="text-xs text-muted-foreground">—</span>,
     },
-  ], [t])
+  ], [locale, t])
 
   const loadChannels = React.useCallback(async () => {
     setLoading(true)

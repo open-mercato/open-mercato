@@ -19,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { DOCUMENTS_ENTITY_IDS } from '../../lib/constants'
 import { formatDateTime } from './documentUi'
 import type { DocumentRow } from './documentsListTypes'
@@ -61,6 +61,7 @@ type DocumentsTableProps = {
 
 export function DocumentsTable(props: DocumentsTableProps) {
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const columns = React.useMemo<ColumnDef<DocumentRow>[]>(() => [
     {
@@ -97,9 +98,9 @@ export function DocumentsTable(props: DocumentsTableProps) {
     { accessorKey: 'sharedWithCount', header: t('documents.columns.sharedWith') },
     {
       accessorKey: 'updatedAt', header: t('documents.columns.updatedAt'), meta: { maxWidth: '180px' },
-      cell: ({ row }) => <span className="text-sm">{formatDateTime(row.original.updatedAt, t('documents.list.noValue'))}</span>,
+      cell: ({ row }) => <span className="text-sm">{formatDateTime(row.original.updatedAt, t('documents.list.noValue'), locale)}</span>,
     },
-  ], [t, props.onToggleFavorite])
+  ], [locale, t, props.onToggleFavorite])
   // A fragment, not a nested flex box: the DataTable header owns the wrapping
   // row, so on narrow layouts the refresh control and these buttons wrap as
   // one group instead of a lone refresh icon above a second left-aligned row.

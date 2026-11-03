@@ -6,7 +6,8 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { SearchX } from 'lucide-react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDate } from '@open-mercato/ui/primitives/date-format'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('sales')
@@ -48,6 +49,7 @@ type PublicQuoteResponse = {
 
 export default function QuotePublicPage({ params }: { params: { token: string } }) {
   const t = useT()
+  const locale = useLocale()
   const token = params?.token
   const [loading, setLoading] = React.useState(true)
   const [accepting, setAccepting] = React.useState(false)
@@ -139,7 +141,7 @@ export default function QuotePublicPage({ params }: { params: { token: string } 
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold">{t('sales.quotes.public.pageTitle')} {data.quote.quoteNumber}</h1>
         <p className="text-sm text-muted-foreground">
-          {data.quote.validUntil ? t('sales.quotes.public.validUntil', { date: new Date(data.quote.validUntil).toLocaleDateString() }) : t('sales.quotes.public.noValidityDate')}
+          {data.quote.validUntil ? t('sales.quotes.public.validUntil', { date: formatDisplayDate(data.quote.validUntil, locale) ?? data.quote.validUntil }) : t('sales.quotes.public.noValidityDate')}
         </p>
       </header>
 

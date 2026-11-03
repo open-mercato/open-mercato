@@ -1,6 +1,6 @@
 "use client"
 
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { MarkdownContent } from '@open-mercato/ui/backend/markdown/MarkdownContent'
 import { getMessageUiComponentRegistry } from '../../utils/typeUiRegistry'
 import { getMessageObjectType } from '../../../lib/message-objects-registry'
@@ -10,6 +10,7 @@ import { getMessageParticipantLabel } from '../../messageListLabels'
 
 export function MessageDetailThreadSection({ detail }: { detail: MessageDetail }) {
   const t = useT()
+  const locale = useLocale()
   const messageUiRegistry = getMessageUiComponentRegistry()
 
   if ((detail.thread ?? []).length === 0) return null
@@ -21,7 +22,7 @@ export function MessageDetailThreadSection({ detail }: { detail: MessageDetail }
         {(detail.thread ?? []).map((threadItem) => (
           <article key={threadItem.id} className="rounded border p-3">
             <p className="text-xs text-muted-foreground">
-              {getMessageParticipantLabel(threadItem)} • {formatDateTime(threadItem.sentAt, t('messages.unknownDate', 'Unknown date'))}
+              {getMessageParticipantLabel(threadItem)} • {formatDateTime(threadItem.sentAt, t('messages.unknownDate', 'Unknown date'), locale)}
             </p>
             <div className="mt-2 max-h-[60vh] overflow-y-auto pr-1">
               <MarkdownContent

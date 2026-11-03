@@ -15,6 +15,7 @@ jest.mock('@tiptap/react', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
+  useLocale: () => 'en',
   useT: () => (key: string) => key,
 }))
 

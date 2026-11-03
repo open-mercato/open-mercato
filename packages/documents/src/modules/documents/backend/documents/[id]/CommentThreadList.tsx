@@ -4,7 +4,8 @@ import * as React from 'react'
 import { CheckCircle2, CornerDownRight, RotateCcw } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
-import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import type { DocumentComment } from './commentTypes'
 
 type LabelFor = (userId: string) => string
@@ -20,13 +21,6 @@ type CommentThreadListProps = {
 }
 
 const MENTION_TOKEN_PATTERN = /@\[([0-9a-f-]{36})\]/gi
-
-function formatDateTime(value: string): string {
-  const timestamp = Date.parse(value)
-  return Number.isFinite(timestamp)
-    ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(timestamp))
-    : ''
-}
 
 /**
  * Chips are built from the mention tokens themselves. Rendering display
@@ -63,6 +57,7 @@ function CommentItem({
   onResolve,
   t,
 }: CommentThreadListProps & { comment: DocumentComment }) {
+  const locale = useLocale()
   const resolved = comment.resolvedAt !== null
   const canJump = comment.anchor !== null && comment.anchor !== 'changed'
   const content = (
@@ -70,7 +65,7 @@ function CommentItem({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate text-sm font-medium">{labelFor(comment.authorUserId)}</p>
-          <p className="text-xs text-muted-foreground">{formatDateTime(comment.createdAt)}</p>
+          <p className="text-xs text-muted-foreground">{formatDisplayDateTime(comment.createdAt, locale) ?? ''}</p>
         </div>
         {resolved ? <StatusBadge variant="success" dot>{t('documents.comments.resolved')}</StatusBadge> : null}
       </div>

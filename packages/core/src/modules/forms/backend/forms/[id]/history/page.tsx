@@ -7,7 +7,8 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Tag } from '@open-mercato/ui/primitives/tag'
 import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 
 type FormDetail = {
   id: string
@@ -44,6 +45,7 @@ const statusVariant: Record<'draft' | 'published' | 'archived', 'warning' | 'suc
 
 export default function FormHistoryPage({ params }: { params?: { id?: string } }) {
   const t = useT()
+  const locale = useLocale()
   const formId = params?.id ?? ''
 
   const [form, setForm] = React.useState<FormDetail | null>(null)
@@ -166,7 +168,7 @@ export default function FormHistoryPage({ params }: { params?: { id?: string } }
                   {entry.publishedAt && (
                     <p className="mt-1 text-xs text-muted-foreground">
                       {t('forms.version.history.publishedAt', 'Published {date}', {
-                        date: new Date(entry.publishedAt).toLocaleString(),
+                        date: formatDisplayDateTime(entry.publishedAt, locale) ?? entry.publishedAt,
                       })}
                     </p>
                   )}

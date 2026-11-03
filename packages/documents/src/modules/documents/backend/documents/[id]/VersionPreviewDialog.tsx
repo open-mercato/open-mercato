@@ -15,7 +15,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { getDocumentEditorExtensions } from '../../../lib/editorConfig'
 import { firstSafeDocumentsDisplayLabel } from '../../../lib/displayLabels'
@@ -87,6 +88,7 @@ export function VersionPreviewDialog({
   onRestore,
 }: VersionPreviewDialogProps) {
   const t = useT()
+  const locale = useLocale()
   const [preview, setPreview] = React.useState<VersionPreview | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(false)
@@ -161,7 +163,7 @@ export function VersionPreviewDialog({
             {confirmingRestore
               ? t('documents.versions.restore.confirmBody')
               : preview
-                ? t('documents.versions.preview.description', { creator: preview.creatorLabel, date: new Date(preview.createdAt).toLocaleString() })
+                ? t('documents.versions.preview.description', { creator: preview.creatorLabel, date: formatDisplayDateTime(preview.createdAt, locale) ?? preview.createdAt })
                 : t('documents.versions.preview.loading')}
           </DialogDescription>
         </DialogHeader>

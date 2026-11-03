@@ -16,6 +16,7 @@ jest.mock('next/navigation', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
+  useLocale: () => 'en',
   useT: () => mockTranslate,
 }))
 

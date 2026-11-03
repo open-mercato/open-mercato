@@ -18,6 +18,7 @@ const mockRunMutation = jest.fn(
 )
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
+  useLocale: () => 'en',
   useT: () => (_key: string, fallback: string) => fallback || _key,
 }))
 
