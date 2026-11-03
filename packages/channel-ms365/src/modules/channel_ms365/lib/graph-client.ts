@@ -152,16 +152,36 @@ function readErrorCode(value: unknown): string | undefined {
 }
 
 /**
- * The socket/DNS code of a request that failed before any HTTP response:
- * undici rejects with `TypeError('fetch failed')` and the real cause (e.g.
- * `ECONNRESET`) on `.cause`. Any other `TypeError` (bad header, bad URL) is a
- * programming error and stays unclassified.
+ * The socket/DNS code of a request whose connection failed. Undici rejects with
+ * `TypeError('fetch failed')` before any HTTP response and with
+ * `TypeError('terminated')` when the socket is lost while the body is read; the
+ * real cause (e.g. `ECONNRESET`) sits on `.cause`. Any other `TypeError` (bad
+ * header, bad URL) is a programming error and stays unclassified.
  */
 function transportFailureCode(err: unknown): string | undefined {
   const code = readErrorCode(err) ?? readErrorCode((err as { cause?: unknown } | null)?.cause)
   if (code && TRANSPORT_ERROR_CODES.has(code)) return code
-  if (err instanceof TypeError && err.message === 'fetch failed') return code ?? 'fetch failed'
+  if (err instanceof TypeError && (err.message === 'fetch failed' || err.message === 'terminated')) {
+    return code ?? err.message
+  }
   return undefined
+}
+
+/**
+ * Map a timeout or a dropped connection / DNS failure to a transient
+ * `GraphApiError` (status 599), so the hub retries instead of failing the
+ * delivery permanently. Returns `null` for anything else.
+ */
+function toTransportError(err: unknown, method: string, pathname: string): GraphApiError | null {
+  const errName = (err as { name?: unknown } | null)?.name
+  if (err instanceof FetchTimeoutError || errName === 'TimeoutError' || errName === 'AbortError') {
+    return new GraphApiError(`Microsoft Graph ${method} ${pathname} timed out`, 599, 'request timed out')
+  }
+  const transportCode = transportFailureCode(err)
+  if (!transportCode) return null
+  return new GraphApiError(`Microsoft Graph ${method} ${pathname} network error`, 599, transportCode, {
+    code: GRAPH_NETWORK_ERROR_CODE,
+  })
 }
 
 function resolveGraphRequestTimeoutMs(): number {
@@ -357,10 +377,11 @@ class FetchGraphMailClient implements GraphMailClient {
 
   async moveMessage(auth: GraphAuth, messageId: string, destinationId: string): Promise<void> {
     const url = new URL(`${this.baseUrl()}/me/messages/${encodeURIComponent(messageId)}/move`)
-    await this.requestJson<unknown>(auth, url, {
+    await this.requestJson<undefined>(auth, url, {
       method: 'POST',
       contentType: 'application/json',
       body: JSON.stringify({ destinationId }),
+      responseType: 'none',
     })
   }
 
@@ -393,6 +414,7 @@ class FetchGraphMailClient implements GraphMailClient {
     let lastError: GraphApiError | null = null
     while (attempt <= maxRetries) {
       let res: Response
+      let errorBody: string
       try {
         res = await fetchWithTimeout(url.toString(), {
           method: options.method,
@@ -400,60 +422,24 @@ class FetchGraphMailClient implements GraphMailClient {
           body: options.body,
           timeoutMs: resolveGraphRequestTimeoutMs(),
         })
+        if (res.ok) return await readSuccessBody(res, options, url)
+        errorBody = await readErrorBody(res, options, url)
       } catch (err) {
-        const errName = (err as { name?: unknown } | null)?.name
-        const aborted = err instanceof FetchTimeoutError || errName === 'TimeoutError' || errName === 'AbortError'
-        const transportCode = aborted ? undefined : transportFailureCode(err)
-        if (!aborted && !transportCode) throw err
-        // No HTTP response: a timeout or a dropped connection / DNS failure.
-        // Both are transient (status 599), so the hub retries instead of
-        // failing the delivery permanently; non-idempotent POSTs are still
-        // not retried here (`maxRetries` is 0 for them).
-        const transportError = aborted
-          ? new GraphApiError(`Microsoft Graph ${options.method} ${url.pathname} timed out`, 599, 'request timed out')
-          : new GraphApiError(
-              `Microsoft Graph ${options.method} ${url.pathname} network error`,
-              599,
-              transportCode ?? 'network error',
-              { code: GRAPH_NETWORK_ERROR_CODE },
-            )
-        if (attempt === maxRetries) throw transportError
-        lastError = transportError
+        // The connection failed before the response or while reading its body,
+        // or a 2xx body was unusable. Non-idempotent POSTs are still not retried
+        // here (`maxRetries` is 0 for them).
+        const transient = err instanceof GraphApiError
+          ? (err.transient ? err : null)
+          : toTransportError(err, options.method, url.pathname)
+        if (!transient) throw err
+        if (attempt === maxRetries) throw transient
+        lastError = transient
         await sleep(computeBackoff(attempt))
         attempt += 1
         continue
       }
 
-      if (res.ok) {
-        if (options.responseType === 'buffer') {
-          const cap = resolveGraphMaxMimeBytes()
-          const declared = Number(res.headers.get('content-length'))
-          if (Number.isFinite(declared) && declared > cap) {
-            throw new GraphApiError(
-              `Microsoft Graph ${options.method} ${url.pathname} response too large`,
-              413,
-              `declared ${declared} bytes, cap ${cap}`,
-              { code: GRAPH_MESSAGE_TOO_LARGE_CODE },
-            )
-          }
-          const bytes = Buffer.from(await res.arrayBuffer())
-          if (bytes.byteLength > cap) {
-            throw new GraphApiError(
-              `Microsoft Graph ${options.method} ${url.pathname} response too large`,
-              413,
-              `received ${bytes.byteLength} bytes, cap ${cap}`,
-              { code: GRAPH_MESSAGE_TOO_LARGE_CODE },
-            )
-          }
-          return bytes
-        }
-        const text = await res.text()
-        if (options.responseType === 'none' || !text) return undefined
-        return JSON.parse(text) as unknown
-      }
-
-      const text = await res.text()
-      const parsed = parseGraphError(text)
+      const parsed = parseGraphError(errorBody)
       const detail = parsed.message ?? `${res.status} ${res.statusText}`
       const retryAfterMs = parseRetryAfter(res.headers.get('retry-after'))
       const apiError = new GraphApiError(
@@ -470,6 +456,61 @@ class FetchGraphMailClient implements GraphMailClient {
       attempt += 1
     }
     throw lastError ?? new GraphApiError(`Microsoft Graph ${options.method} ${url.pathname} exhausted retries`, 599, 'retries exhausted')
+  }
+}
+
+async function readSuccessBody(res: Response, options: RequestOptions, url: URL): Promise<unknown> {
+  if (options.responseType === 'buffer') {
+    const cap = resolveGraphMaxMimeBytes()
+    const declared = Number(res.headers.get('content-length'))
+    if (Number.isFinite(declared) && declared > cap) {
+      throw new GraphApiError(
+        `Microsoft Graph ${options.method} ${url.pathname} response too large`,
+        413,
+        `declared ${declared} bytes, cap ${cap}`,
+        { code: GRAPH_MESSAGE_TOO_LARGE_CODE },
+      )
+    }
+    const bytes = Buffer.from(await res.arrayBuffer())
+    if (bytes.byteLength > cap) {
+      throw new GraphApiError(
+        `Microsoft Graph ${options.method} ${url.pathname} response too large`,
+        413,
+        `received ${bytes.byteLength} bytes, cap ${cap}`,
+        { code: GRAPH_MESSAGE_TOO_LARGE_CODE },
+      )
+    }
+    return bytes
+  }
+  if (options.responseType === 'none') {
+    // The 2xx is the outcome (for `/send`: the mail went out), so the unused
+    // body is dropped unread: losing or stalling on it must not change that.
+    await res.body?.cancel().catch(() => undefined)
+    return undefined
+  }
+  const text = await res.text()
+  try {
+    return JSON.parse(text) as unknown
+  } catch {
+    throw new GraphApiError(
+      `Microsoft Graph ${options.method} ${url.pathname} returned malformed JSON`,
+      502,
+      'malformed JSON response',
+    )
+  }
+}
+
+/**
+ * The status line already decides how a failed request is classified, so losing
+ * the connection while reading its error body must not replace a 401 or 403
+ * with a transient network error.
+ */
+async function readErrorBody(res: Response, options: RequestOptions, url: URL): Promise<string> {
+  try {
+    return await res.text()
+  } catch (err) {
+    if (toTransportError(err, options.method, url.pathname)) return ''
+    throw err
   }
 }
 

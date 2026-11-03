@@ -14,6 +14,8 @@ type FakeResponseInit = {
   status: number
   statusText?: string
   body?: string | Buffer
+  /** Rejects `text()` / `arrayBuffer()`: headers arrived, then the body was lost. */
+  bodyError?: unknown
   headers?: Record<string, string>
 }
 
@@ -27,8 +29,12 @@ function fakeResponse(init: FakeResponseInit): Response {
     status: init.status,
     statusText: init.statusText ?? '',
     headers: { get: (name: string) => headerMap.get(name.toLowerCase()) ?? null },
-    text: async () => (Buffer.isBuffer(body) ? body.toString('utf-8') : body),
+    text: async () => {
+      if (init.bodyError) throw init.bodyError
+      return Buffer.isBuffer(body) ? body.toString('utf-8') : body
+    },
     arrayBuffer: async () => {
+      if (init.bodyError) throw init.bodyError
       const buffer = Buffer.isBuffer(body) ? body : Buffer.from(body, 'utf-8')
       return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength)
     },
@@ -58,6 +64,11 @@ function installFetch(responses: Array<FakeResponseInit | FakeRejection>): Recor
 /** What undici rejects with when the socket drops or DNS fails: the real cause sits on `.cause`. */
 function nativeFetchFailure(code: string): TypeError {
   return new TypeError('fetch failed', { cause: Object.assign(new Error(`connect ${code} graph.microsoft.com`), { code }) })
+}
+
+/** What undici rejects a body read with when the socket drops after the headers arrived. */
+function terminatedBody(code = 'UND_ERR_SOCKET'): TypeError {
+  return new TypeError('terminated', { cause: Object.assign(new Error('other side closed'), { code }) })
 }
 
 const originalFetch = globalThis.fetch
@@ -269,6 +280,106 @@ describe('FetchGraphMailClient', () => {
     const programmingError = new TypeError('Headers.append: "bad\nvalue" is an invalid header value.')
     installFetch([{ reject: programmingError }])
     await expect(getGraphMailClient().createDraftFromMime(auth, Buffer.from('Subject: x\r\n\r\nbody'))).rejects.toBe(programmingError)
+  })
+
+  it('retries a GET whose response body was lost and then succeeds', async () => {
+    const recorded = installFetch([
+      { status: 200, bodyError: terminatedBody() },
+      { status: 200, body: JSON.stringify({ value: [], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/d?$deltatoken=3' }) },
+    ])
+    const page = await getGraphMailClient().startInboxDelta(auth, {})
+    expect(recorded).toHaveLength(2)
+    expect(page.deltaLink).toContain('$deltatoken=3')
+  })
+
+  it('retries a $value download whose body was lost and then returns the bytes', async () => {
+    const recorded = installFetch([
+      { status: 200, bodyError: terminatedBody('UND_ERR_BODY_TIMEOUT') },
+      { status: 200, body: 'Subject: x\r\n\r\nbody' },
+    ])
+    const bytes = await getGraphMailClient().getMessageMime(auth, 'm1')
+    expect(recorded).toHaveLength(2)
+    expect(bytes.toString('utf-8')).toContain('Subject: x')
+  })
+
+  it('maps a lost response body on a POST to one transient GraphApiError, never retried', async () => {
+    const recorded = installFetch([
+      { status: 201, bodyError: terminatedBody() },
+      { status: 201, body: JSON.stringify({ id: 'never-reached' }) },
+    ])
+    await expect(getGraphMailClient().createDraftFromMime(auth, Buffer.from('Subject: x\r\n\r\nbody'))).rejects.toMatchObject({
+      status: 599,
+      transient: true,
+      code: GRAPH_NETWORK_ERROR_CODE,
+      detail: 'UND_ERR_SOCKET',
+    })
+    expect(recorded).toHaveLength(1)
+  })
+
+  it('classifies an undici "terminated" without a cause code as transient', async () => {
+    installFetch([{ status: 201, bodyError: new TypeError('terminated') }])
+    await expect(getGraphMailClient().createDraftFromMime(auth, Buffer.from('Subject: x\r\n\r\nbody'))).rejects.toMatchObject({
+      status: 599,
+      transient: true,
+    })
+  })
+
+  it('retries a 429 whose error body was lost, keeping its Retry-After', async () => {
+    const recorded = installFetch([
+      { status: 429, headers: { 'retry-after': '0' }, bodyError: terminatedBody() },
+      { status: 200, body: JSON.stringify({ value: [], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/d?$deltatoken=5' }) },
+    ])
+    const page = await getGraphMailClient().startInboxDelta(auth, {})
+    expect(recorded).toHaveLength(2)
+    expect(page.deltaLink).toContain('$deltatoken=5')
+  })
+
+  it.each([401, 403, 404, 410])('keeps the real status when the body of a %i error response is lost', async (status) => {
+    const recorded = installFetch([{ status, statusText: 'Denied', bodyError: terminatedBody() }])
+    await expect(getGraphMailClient().startInboxDelta(auth, {})).rejects.toMatchObject({ status, transient: false })
+    expect(recorded).toHaveLength(1)
+  })
+
+  it('treats a 2xx without a used body as success and never reads that body', async () => {
+    const recorded = installFetch([
+      { status: 202, bodyError: terminatedBody() },
+      { status: 201, bodyError: terminatedBody() },
+    ])
+    await expect(getGraphMailClient().sendDraft(auth, 'draft-1')).resolves.toBeUndefined()
+    await expect(getGraphMailClient().moveMessage(auth, 'm1', 'deleteditems')).resolves.toBeUndefined()
+    expect(recorded).toHaveLength(2)
+  })
+
+  it('maps a 2xx with a malformed JSON body to a transient error', async () => {
+    const recorded = installFetch([{ status: 201, body: '<html>gateway</html>' }])
+    await expect(getGraphMailClient().createDraftFromMime(auth, Buffer.from('Subject: x\r\n\r\nbody'))).rejects.toMatchObject({
+      status: 502,
+      transient: true,
+    })
+    expect(recorded).toHaveLength(1)
+  })
+
+  it('maps a 2xx with an empty JSON body to a transient error instead of an empty page', async () => {
+    installFetch([{ status: 200 }, { status: 200 }, { status: 200 }, { status: 200 }])
+    await expect(
+      getGraphMailClient().continueList(auth, 'https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$skip=50'),
+    ).rejects.toMatchObject({ status: 502, transient: true })
+  })
+
+  it('retries a GET whose 2xx body is malformed JSON', async () => {
+    const recorded = installFetch([
+      { status: 200, body: '{"value": [' },
+      { status: 200, body: JSON.stringify({ value: [], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/d?$deltatoken=4' }) },
+    ])
+    const page = await getGraphMailClient().startInboxDelta(auth, {})
+    expect(recorded).toHaveLength(2)
+    expect(page.deltaLink).toContain('$deltatoken=4')
+  })
+
+  it('rethrows a programming TypeError from a body read unchanged', async () => {
+    const programmingError = new TypeError('Body is unusable')
+    installFetch([{ status: 200, bodyError: programmingError }])
+    await expect(getGraphMailClient().startInboxDelta(auth, {})).rejects.toBe(programmingError)
   })
 
   it('maps 410 Gone to a resync-required error', async () => {

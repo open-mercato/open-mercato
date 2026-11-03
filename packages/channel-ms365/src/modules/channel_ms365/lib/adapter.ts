@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type {
   BuildOAuthAuthorizeUrlInput,
   BuildOAuthAuthorizeUrlResult,
@@ -84,6 +85,9 @@ const IMPORT_SINCE_DAYS_MIN = 1
 /** Graph `$filter` length is bounded; chunk sender lists into OR groups of this size. */
 const IMPORT_SENDER_CHUNK_SIZE = 15
 
+/** Length of an import cursor's stub digest: 96 bits, no realistic collision within one import. */
+const IMPORT_DONE_KEY_LENGTH = 16
+
 /** Well-known folder id accepted by `POST /me/messages/{id}/move`. */
 const DELETED_ITEMS_FOLDER = 'deleteditems'
 
@@ -108,11 +112,13 @@ type ImportCursor = {
    */
   until?: string
   /**
-   * Graph ids of the current page's stubs already dealt with (imported or
-   * skipped). A replayed page resumes by identity, not by position, so it
-   * stays exact when the listing changed between attempts.
+   * Digests of every stub already dealt with (imported or skipped) in this
+   * import. Kept across pages and sender chunks, so a message displaced onto a
+   * later page or a replay is neither re-fetched nor counted twice. Digests
+   * rather than Graph ids keep the cursor small at the hub's `maxMessages`
+   * ceiling.
    */
-  pageDoneIds: string[]
+  doneKeys: string[]
 }
 
 /** Stable diagnostic code logged when a channel has no mailbox identity. */
@@ -525,15 +531,21 @@ class Ms365ChannelAdapter implements ChannelAdapter {
     }
 
     const remaining = maxMessages - cursor.fetched
-    // `pageDoneIds` resumes a page after a transient failure by identity, so
-    // replayed messages are neither re-fetched nor counted against
-    // `maxMessages` a second time, even if the re-listed page shifted. The cap
+    // `doneKeys` tracks progress by identity, so a message is neither re-fetched
+    // nor counted against `maxMessages` a second time, whether a replayed page
+    // shifted or mail moved into the Inbox pushed it onto a later page. The cap
     // bounds *imported* messages, not candidates: a vanished (404) stub must
     // not use up a slot.
-    const doneIds = new Set(cursor.pageDoneIds)
-    const candidates = page.value.filter((item) => !item.isDraft && !doneIds.has(item.id))
-    const { messages, hardFailed, consumedIds } = await this.fetchAndNormalize(api, auth, candidates, accountIdentifier, remaining)
+    const doneKeySet = new Set(cursor.doneKeys)
+    const candidates = page.value.filter((item) => isIngestCandidate(item, null) && !doneKeySet.has(importDoneKey(item.id)))
+    const { messages, hardFailed, failure, consumedIds } = await this.fetchAndNormalize(api, auth, candidates, accountIdentifier, remaining)
+    if (hardFailed && consumedIds.length === 0) {
+      // No progress: the resume cursor would repeat this call's cursor, which
+      // the hub reports as a stuck adapter. Surface the real cause instead.
+      throw toHubError(failure)
+    }
     const fetched = cursor.fetched + messages.length
+    const doneKeys = [...cursor.doneKeys, ...consumedIds.map(importDoneKey)]
 
     if (hardFailed) {
       // Re-run the same page next time, skipping every stub already dealt
@@ -545,7 +557,7 @@ class Ms365ChannelAdapter implements ChannelAdapter {
           chunkIndex: cursor.chunkIndex,
           fetched,
           until,
-          pageDoneIds: [...cursor.pageDoneIds, ...consumedIds],
+          doneKeys,
         } satisfies ImportCursor),
         hasMore: true,
         totalCandidates: page.count,
@@ -556,16 +568,20 @@ class Ms365ChannelAdapter implements ChannelAdapter {
     if (page.nextLink && !capped) {
       return {
         messages,
-        nextCursor: encodeCursor({ nextLink: page.nextLink, chunkIndex: cursor.chunkIndex, fetched, until, pageDoneIds: [] } satisfies ImportCursor),
+        nextCursor: encodeCursor({ nextLink: page.nextLink, chunkIndex: cursor.chunkIndex, fetched, until, doneKeys } satisfies ImportCursor),
         hasMore: true,
         totalCandidates: page.count,
       }
     }
     const nextChunk = cursor.chunkIndex + 1
     if (nextChunk < senderChunks.length && !capped) {
+      const nextCursor = encodeCursor({ chunkIndex: nextChunk, fetched, until, doneKeys } satisfies ImportCursor)
+      // Senders without mail must not count as empty pages: the hub stops after
+      // ten in a row, and a re-run would stop at the same chunks.
+      if (messages.length === 0) return this.importHistory({ ...input, cursor: nextCursor })
       return {
         messages,
-        nextCursor: encodeCursor({ chunkIndex: nextChunk, fetched, until, pageDoneIds: [] } satisfies ImportCursor),
+        nextCursor,
         hasMore: true,
         totalCandidates: page.count,
       }
@@ -704,7 +720,7 @@ class Ms365ChannelAdapter implements ChannelAdapter {
     stubs: GraphMessageStub[],
     accountIdentifier: string,
     maxMessages: number = Number.POSITIVE_INFINITY,
-  ): Promise<{ messages: NormalizedInboundMessage[]; hardFailed: boolean; consumedIds: string[] }> {
+  ): Promise<{ messages: NormalizedInboundMessage[]; hardFailed: boolean; failure?: unknown; consumedIds: string[] }> {
     const out: NormalizedInboundMessage[] = []
     const consumedIds: string[] = []
     for (const stub of stubs) {
@@ -737,7 +753,7 @@ class Ms365ChannelAdapter implements ChannelAdapter {
           graphMessageId: stub.id,
           err: error,
         })
-        return { messages: out, hardFailed: true, consumedIds }
+        return { messages: out, hardFailed: true, failure: error, consumedIds }
       }
       const normalized = await normalizeInboundMs365Message({
         rawMessage,
@@ -755,6 +771,10 @@ class Ms365ChannelAdapter implements ChannelAdapter {
 }
 
 // ── helpers ──────────────────────────────────────────────────
+
+function importDoneKey(graphMessageId: string): string {
+  return createHash('sha256').update(graphMessageId).digest('base64url').slice(0, IMPORT_DONE_KEY_LENGTH)
+}
 
 function isIngestCandidate(item: GraphMessageStub, floor: Date | null): boolean {
   if (!item || typeof item.id !== 'string' || item.id.length === 0) return false
@@ -859,7 +879,7 @@ export function buildImportFilter(since: Date, senders: string[] | undefined, un
 
 function decodeImportCursor(value: string | undefined): ImportCursor {
   const decoded = decodeCursor(value)
-  if (!decoded || typeof decoded !== 'object') return { chunkIndex: 0, fetched: 0, pageDoneIds: [] }
+  if (!decoded || typeof decoded !== 'object') return { chunkIndex: 0, fetched: 0, doneKeys: [] }
   const record = decoded as Record<string, unknown>
   const nonNegativeInt = (raw: unknown): number =>
     typeof raw === 'number' && Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 0
@@ -868,8 +888,8 @@ function decodeImportCursor(value: string | undefined): ImportCursor {
     chunkIndex: nonNegativeInt(record.chunkIndex),
     fetched: nonNegativeInt(record.fetched),
     until: typeof record.until === 'string' && parseIsoDate(record.until) ? record.until : undefined,
-    pageDoneIds: Array.isArray(record.pageDoneIds)
-      ? record.pageDoneIds.filter((id): id is string => typeof id === 'string' && id.length > 0)
+    doneKeys: Array.isArray(record.doneKeys)
+      ? record.doneKeys.filter((key): key is string => typeof key === 'string' && key.length > 0)
       : [],
   }
 }

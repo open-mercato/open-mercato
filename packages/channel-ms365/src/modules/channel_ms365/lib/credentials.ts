@@ -89,10 +89,11 @@ export type Ms365UserCredentials = z.infer<typeof ms365UserCredentialsSchema>
  *                        cursor, advanced only after a full page drain.
  *   nextLink           — opaque Graph next link, present only while a
  *                        multi-page drain is in progress (mid-drain resume).
- *   receivedWatermark  — ISO `receivedDateTime` floor: delta items older than
- *                        it are flag/move updates on already-known mail and
- *                        are skipped; it is also the re-bootstrap floor after a
- *                        `410 Gone` (expired delta token). Never moves backwards.
+ *   receivedWatermark  — ISO `receivedDateTime` floor for the next bootstrap or
+ *                        re-sync after a `410 Gone` (expired delta token). Not
+ *                        an ingest filter: incremental pages have no cutoff, so
+ *                        mail moved into the Inbox is still ingested. Never
+ *                        moves backwards.
  *   pendingWatermark   — highest `receivedDateTime` seen so far in an
  *                        in-progress multi-page drain; promoted to
  *                        `receivedWatermark` when the drain reaches a deltaLink.

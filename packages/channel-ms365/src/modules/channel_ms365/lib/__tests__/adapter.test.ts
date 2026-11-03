@@ -779,7 +779,9 @@ describe('Ms365ChannelAdapter.importHistory', () => {
     const first = await adapter.importHistory!({ credentials: userCredentials, scope, sinceDays: 7, maxMessages: 2 })
     expect(first.messages.map((m) => m.externalMessageId)).toEqual(['b@example.com'])
     expect(first.hasMore).toBe(true)
-    expect(decodeCursor(first.nextCursor)).toMatchObject({ fetched: 1, pageDoneIds: ['a', 'b'] })
+    const resumeCursor = decodeCursor(first.nextCursor) as { fetched: number; doneKeys: string[] }
+    expect(resumeCursor.fetched).toBe(1)
+    expect(resumeCursor.doneKeys).toHaveLength(2)
     const second = await adapter.importHistory!({ credentials: userCredentials, scope, sinceDays: 7, maxMessages: 2, cursor: first.nextCursor })
     // `b` is neither re-fetched nor counted a second time, so the cap of two still admits `c`.
     expect(second.messages.map((m) => m.externalMessageId)).toEqual(['c@example.com'])
@@ -817,7 +819,9 @@ describe('Ms365ChannelAdapter.importHistory', () => {
     const second = await adapter.importHistory!({ credentials: userCredentials, scope, sinceDays: 7, maxMessages: 3, cursor: first.nextCursor })
     expect(second.messages.map((m) => m.externalMessageId)).toEqual(['x@example.com', 'b@example.com'])
     expect(fetchedIds).toEqual(['a', 'x', 'b'])
-    expect(decodeCursor(first.nextCursor)).toMatchObject({ fetched: 1, pageDoneIds: ['a'] })
+    const resumeCursor = decodeCursor(first.nextCursor) as { fetched: number; doneKeys: string[] }
+    expect(resumeCursor.fetched).toBe(1)
+    expect(resumeCursor.doneKeys).toHaveLength(1)
 
     const until = (decodeCursor(first.nextCursor) as { until: string }).until
     expect(filters[0]).toContain(`receivedDateTime le ${until}`)
@@ -883,6 +887,96 @@ describe('Ms365ChannelAdapter.importHistory', () => {
     listing = [{ id: 'b' }, { id: 'c' }]
     const second = await adapter.importHistory!({ credentials: userCredentials, scope, sinceDays: 7, maxMessages: 3, cursor: first.nextCursor })
     expect(second.messages.map((m) => m.externalMessageId)).toEqual(['b@example.com', 'c@example.com'])
+  })
+
+  it('keeps consumed messages when a replay pushes them onto a later page', async () => {
+    let failOnce = true
+    const fetchedIds: string[] = []
+    // `x` and `y` are older mail moved into the Inbox between attempts: the
+    // pinned `until` does not exclude them, and they displace `a` and `b`.
+    let listing = { value: [{ id: 'a' }, { id: 'b' }] as Array<{ id: string }>, nextLink: undefined as string | undefined }
+    setGraphMailClient({
+      ...emptyGraph(),
+      listInboxMessages: async () => listing,
+      continueList: async () => ({ value: [{ id: 'a' }, { id: 'b' }] }),
+      getMessageMime: async (_auth, id) => {
+        if (id === 'b' && failOnce) {
+          failOnce = false
+          throw new GraphApiError('boom', 503, 'unavailable')
+        }
+        fetchedIds.push(id)
+        return buildRawMime(`${id}@example.com`)
+      },
+    })
+    const adapter = getMs365ChannelAdapter()
+    const input = { credentials: userCredentials, scope, sinceDays: 7, maxMessages: 4 }
+    const first = await adapter.importHistory!(input)
+    expect(first.hasMore).toBe(true)
+    listing = { value: [{ id: 'x' }, { id: 'y' }], nextLink: 'https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$skip=2' }
+    const second = await adapter.importHistory!({ ...input, cursor: first.nextCursor })
+    expect(second.hasMore).toBe(true)
+    const third = await adapter.importHistory!({ ...input, cursor: second.nextCursor })
+    expect(third.messages.map((m) => m.externalMessageId)).toEqual(['b@example.com'])
+    expect(third.hasMore).toBe(false)
+    // Four unique messages fill the cap of four: `a` is neither re-fetched nor counted again.
+    expect(fetchedIds).toEqual(['a', 'x', 'y', 'b'])
+  })
+
+  it('does not double-count a message displaced onto the next page without any failure', async () => {
+    const fetchedIds: string[] = []
+    setGraphMailClient({
+      ...emptyGraph(),
+      listInboxMessages: async () => ({
+        value: [{ id: 'a' }, { id: 'b' }],
+        nextLink: 'https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$skip=2',
+      }),
+      continueList: async () => ({ value: [{ id: 'b' }, { id: 'c' }] }),
+      getMessageMime: async (_auth, id) => {
+        fetchedIds.push(id)
+        return buildRawMime(`${id}@example.com`)
+      },
+    })
+    const adapter = getMs365ChannelAdapter()
+    const first = await adapter.importHistory!({ credentials: userCredentials, scope, sinceDays: 7, maxMessages: 3 })
+    const second = await adapter.importHistory!({ credentials: userCredentials, scope, sinceDays: 7, maxMessages: 3, cursor: first.nextCursor })
+    expect(second.messages.map((m) => m.externalMessageId)).toEqual(['c@example.com'])
+    expect(second.hasMore).toBe(false)
+    expect(fetchedIds).toEqual(['a', 'b', 'c'])
+  })
+
+  it('surfaces the real error when a replay makes no progress, instead of repeating its cursor', async () => {
+    let failing = false
+    setGraphMailClient({
+      ...emptyGraph(),
+      listInboxMessages: async () => ({ value: [{ id: 'a' }, { id: 'b' }] }),
+      getMessageMime: async (_auth, id) => {
+        if (id === 'b') failing = true
+        if (failing) throw new GraphApiError('boom', 503, 'unavailable')
+        return buildRawMime(`${id}@example.com`)
+      },
+    })
+    const adapter = getMs365ChannelAdapter()
+    const input = { credentials: userCredentials, scope, sinceDays: 7, maxMessages: 5 }
+    const first = await adapter.importHistory!(input)
+    expect(first.hasMore).toBe(true)
+    await expect(adapter.importHistory!({ ...input, cursor: first.nextCursor })).rejects.toMatchObject({ status: 503, transient: true })
+  })
+
+  it('moves past senders without mail in one call, so they do not count as empty pages', async () => {
+    const filters: string[] = []
+    setGraphMailClient({
+      ...emptyGraph(),
+      listInboxMessages: async (_auth, input) => {
+        filters.push(input.filter)
+        return { value: input.filter.includes('person195@example.com') ? [{ id: 'late' }] : [] }
+      },
+      getMessageMime: async (_auth, id) => buildRawMime(`${id}@example.com`),
+    })
+    const contactEmails = Array.from({ length: 200 }, (_, index) => `person${index}@example.com`)
+    const page = await getMs365ChannelAdapter().importHistory!({ credentials: userCredentials, scope, sinceDays: 7, contactEmails })
+    expect(page.messages.map((m) => m.externalMessageId)).toEqual(['late@example.com'])
+    expect(page.hasMore).toBe(false)
+    expect(filters).toHaveLength(14)
   })
 
   it('clamps the look-back to the hub-wide ceiling instead of a fixed 365 days', async () => {
@@ -1026,6 +1120,66 @@ describe('Ms365ChannelAdapter.sendMessage', () => {
       }),
     ).rejects.toMatchObject({ status: 429, transient: true })
     expect(deleted).toEqual(['draft-1'])
+  })
+
+  // A response whose headers arrived and whose socket then dropped: what undici
+  // surfaces as `TypeError('terminated')` from the body read.
+  function responseWithLostBody(status: number): Response {
+    const lost = async () => {
+      throw new TypeError('terminated', { cause: Object.assign(new Error('other side closed'), { code: 'UND_ERR_SOCKET' }) })
+    }
+    return { ok: true, status, statusText: '', headers: { get: () => null }, text: lost, arrayBuffer: lost } as unknown as Response
+  }
+
+  it('lets the hub retry a draft creation whose response body was lost, without sending (real Graph client)', async () => {
+    setGraphMailClient(null)
+    const originalFetch = globalThis.fetch
+    const calls: string[] = []
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      calls.push(`${init?.method ?? 'GET'} ${new URL(String(input)).pathname}`)
+      return responseWithLostBody(201)
+    }) as typeof fetch
+    let classification
+    try {
+      await getMs365ChannelAdapter().sendMessage({
+        conversationId: 'thread-1',
+        content: { text: 'Hi' },
+        credentials: userCredentials,
+        scope,
+        metadata: { to: ['bob@example.com'], subject: 'Hello' },
+      })
+    } catch (error) {
+      classification = classifyOutboundError(error)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+    expect(calls).toEqual(['POST /v1.0/me/messages'])
+    expect(classification).toMatchObject({ transient: true, status: 599 })
+  })
+
+  it('reports a send as sent when only the body of the 2xx /send response was lost (real Graph client)', async () => {
+    setGraphMailClient(null)
+    const originalFetch = globalThis.fetch
+    const calls: string[] = []
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const pathname = new URL(String(input)).pathname
+      calls.push(`${init?.method ?? 'GET'} ${pathname}`)
+      if (pathname.endsWith('/send')) return responseWithLostBody(202)
+      return new Response(JSON.stringify({ id: 'draft-1', internetMessageId: '<id-1@example.com>' }), { status: 201 })
+    }) as typeof fetch
+    try {
+      const result = await getMs365ChannelAdapter().sendMessage({
+        conversationId: 'thread-1',
+        content: { text: 'Hi' },
+        credentials: userCredentials,
+        scope,
+        metadata: { to: ['bob@example.com'], subject: 'Hello' },
+      })
+      expect(result.status).toBe('sent')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+    expect(calls).toEqual(['POST /v1.0/me/messages', 'POST /v1.0/me/messages/draft-1/send'])
   })
 
   it('lets the hub retry a native network failure during draft creation (real Graph client)', async () => {
