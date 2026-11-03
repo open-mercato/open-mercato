@@ -9,6 +9,7 @@ import { hasFeature } from '@open-mercato/shared/security/features'
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
 import type { TranslateFn, TranslateParams } from '@open-mercato/shared/lib/i18n/context'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { formatDateTime, formatRelativeTime } from '@open-mercato/shared/lib/time'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
@@ -1424,6 +1425,39 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
     }
   }, [claim, confirm, currentStatus, featureAccess.claimDelete, loadData, mutationContext, router, runMutation, t])
 
+  const deleteLine = React.useCallback(async (line: ClaimLine) => {
+    if (!claim || !linesInlineEditable) return
+    const confirmed = await confirm({
+      title: t('warranty_claims.form.lines.remove'),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
+    const payload = { id: line.id, claimId: claim.id }
+    try {
+      await runMutation({
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(line.updatedAt),
+          () => deleteCrud('warranty_claims/lines', {
+            body: payload,
+            errorMessage: t('warranty_claims.detail.lines.error.delete'),
+          }),
+        ),
+        context: { ...mutationContext, resourceKind: 'warranty_claims.claim_line', resourceId: line.id },
+        mutationPayload: payload,
+      })
+      flash(t('warranty_claims.detail.lines.flash.deleted'), 'success')
+      await loadData()
+    } catch (err) {
+      if (surfaceRecordConflict(err, t, { onRefresh: loadData })) return
+      getTelemetryRuntime()?.reportError(err, {
+        module: 'warranty_claims',
+        code: 'warranty_claims.line_delete_failed',
+        attributes: { claimId: claim.id, lineId: line.id },
+      })
+      flash(translateErrorMessage(err, t, 'warranty_claims.detail.lines.error.delete'), 'error')
+    }
+  }, [claim, confirm, linesInlineEditable, loadData, mutationContext, runMutation, t])
+
   const headerMoreActions = React.useMemo(() => {
     if (!claim) return []
     const items = [
@@ -2087,6 +2121,12 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
                             label: t('warranty_claims.detail.lines.edit'),
                             onSelect: () => setLineDialog({ mode: 'edit', line }),
                           },
+                          {
+                            id: 'delete',
+                            label: t('warranty_claims.form.lines.remove'),
+                            destructive: true,
+                            onSelect: () => { void deleteLine(line) },
+                          },
                         ]}
                       />
                     ) : undefined}
@@ -2530,17 +2570,6 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
               setLineDialog(null)
               await loadData()
             }}
-            onDelete={lineDialog?.mode === 'edit'
-              ? async () => {
-                await deleteCrud('warranty_claims/lines', {
-                  body: { id: lineDialog.line.id, claimId: claim.id },
-                  errorMessage: t('warranty_claims.detail.lines.error.delete'),
-                })
-                flash(t('warranty_claims.detail.lines.flash.deleted'), 'success')
-                setLineDialog(null)
-                await loadData()
-              }
-              : undefined}
           />
         </DialogContent>
       </Dialog>
