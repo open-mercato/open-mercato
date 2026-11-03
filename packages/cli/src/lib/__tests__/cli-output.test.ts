@@ -24,6 +24,27 @@ describe('CLI output redaction', () => {
       .toEqual(['--tenant', 'tenant-1', '--count=10', 'positional'])
   })
 
+  it.each(['--old-key', '--oldKey', '--key'])('collects opt-in %s secrets from original arguments', (flag) => {
+    const args = ['--password', flag, 'fixture-first-key', `${flag}=fixture-second-key=tail`, flag]
+    const originalArgs = [...args]
+    const additionalSecretOptions = new Set([flag])
+
+    expect(redactCliArgs(args, additionalSecretOptions))
+      .toEqual(['--password', '****', '****', `${flag}=****`, flag])
+    expect(redactCliText('Rejected fixture-first-key fixture-second-key=tail', args, {}, additionalSecretOptions))
+      .toBe('Rejected **** ****')
+    expect(args).toEqual(originalArgs)
+    expect([...additionalSecretOptions]).toEqual([flag])
+  })
+
+  it('keeps ordinary key values visible without command-scoped secret options', () => {
+    const args = ['--key', 'priority_level', '--key=display_order']
+
+    expect(redactCliArgs(args)).toEqual(args)
+    expect(redactCliText('Invalid priority_level display_order', args, {}))
+      .toBe('Invalid priority_level display_order')
+  })
+
   it('preserves token counts, presence-cache settings and credential-related configuration', () => {
     const args = ['--max-tokens', '5000', '--token-cache-ms=30000', '--dry-run=false', '--password-mode', 'required']
     const env = {
@@ -72,6 +93,17 @@ describe('CLI output redaction', () => {
   it('redacts connection-string passwords while retaining diagnostic targets', () => {
     expect(redactCliText('connect postgres://owner:fixture-db-password@db:5432/app refused', [], {}))
       .toBe('connect postgres://owner:****@db:5432/app refused')
+  })
+
+  it.each(['redis', 'rediss'])('redacts empty-user %s URI passwords while retaining diagnostic targets', (scheme) => {
+    expect(redactCliText(`connect ${scheme}://:fixture%3Auri%40password@cache:6379/0 refused`, [], {}))
+      .toBe(`connect ${scheme}://:****@cache:6379/0 refused`)
+  })
+
+  it('preserves safe URLs and ordinary counters', () => {
+    const text = 'redis://cache:6379/0 rediss://cache:6380/1 https://owner@example.test/app redis://:@cache:6379 5000/10000 after 30000ms, false'
+
+    expect(redactCliText(text, [], {})).toBe(text)
   })
 
   it('replaces longer secrets first and ignores empty values', () => {
