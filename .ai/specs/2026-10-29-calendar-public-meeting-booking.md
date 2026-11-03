@@ -5,7 +5,7 @@
 - A public, no-login page at **`/calendar/{orgSlug}/{userSlug}/meetings`** where an external person picks a free slot in a CRM user's calendar, enters e-mail, first name and last name, and books a meeting.
 - A confirmed booking creates a scheduled `CustomerInteraction` (a meeting) owned by that user. It appears in the CRM Calendar (`/backend/calendar`, spec `2026-06-11-crm-calendar.md`). The booker receives an e-mail with an `.ics` attachment and a private manage link for cancelling or rescheduling.
 - Each user opts in and configures their own booking profile: slug, slot length, weekly hours, buffers, notice, horizon, daily cap, date overrides, and whether each booking needs their approval (with an approval deadline after which requests expire).
-- The feature lives in the **`customers`** module. It adds two entities plus an idempotency-key table. It also makes four additive changes to existing code: the conflicts route is refactored onto a shared busy-time helper (same contract, including its e-mail visibility filter), the directory module's organization update gets a command interceptor (a behavior change, see Risks → Compatibility), `people.create` gains support for running inside the caller's transaction, and the command runtime gains an opt-in after-commit queue for side effects of nested commands. No existing entity or route contract changes.
+- The feature lives in the **`customers`** module. It adds two entities plus an idempotency-key table. It also makes four additive changes to existing code: the conflicts route is refactored onto a shared busy-time helper (same contract, including its e-mail visibility filter), the directory module's organization update gets a command interceptor (a behavior change, see Risks → Compatibility), `people.create` gains support for running inside the caller's transaction, the command bus lets a nested command join a caller-owned transaction lifetime (the existing `transactionLifetime` mechanism, generalised from atomic replay), and `interactions.cancel` gains the same `transactionalEm` support as `interactions.create`/`update`. No existing entity or route contract changes.
 
 **Scope:** booking profile settings (a backend profile page), public booking page, slot engine, booking requests with an approval and expiry lifecycle, manual matching of the booker to a CRM person, `.ics` e-mails, and booker self-service cancel and reschedule.
 
@@ -164,6 +164,8 @@ The owner can edit, reschedule, cancel or delete the created interaction from th
 
 A cancelled request is never re-opened, even if the interaction is later restored through undo. The restored interaction stays a normal CRM meeting; the owner can re-invite the booker manually. This matches the rule that ended requests are final (the slot may already be re-booked).
 
+**Cancelling joins the booking transaction.** `interactions.cancel` currently forks its own EntityManager (`commands/interactions.ts`), unlike `interactions.create`/`update`, so it cannot be atomic with the request update. Step 13 makes it honour `ctx.transactionalEm` and `ctx.transactionLifetime` the same way (`ctx.transactionalEm ?? fork()`, its effects through the deferral in Architecture → Public request write). Every booking path that cancels a meeting (owner cancel, booker cancel, undo of confirm) cancels the interaction, the request and any pending successor in one transaction.
+
 **Pending reschedule cascade:** whenever a confirmed request is cancelled (by the booker, by the owner, by interaction cancel or delete, or by the person-delete cascade), its pending reschedule successor, if any, is set to `cancelled` (`cancelled_by = 'reschedule'`) **in the same transaction**, and no separate e-mail is sent for it.
 
 **Sequence allocation:** a booking's `SEQUENCE` belongs to its `ics_uid` and is allocated, never copied. Every path that sends a `METHOD:REQUEST` or `METHOD:CANCEL` for a UID (owner-sync subscriber, booker reschedule, accept of a reschedule, cancel) does so in a transaction holding the same per-owner lock as public writes (`pg_advisory_xact_lock(hash(tenantId, userId))`) and allocates the number there with `UPDATE … SET ics_sequence = ics_sequence + 1 WHERE id = :liveRequestId RETURNING ics_sequence` on the request that currently holds the UID's interaction. The e-mail uses the returned value. So owner edits and booking actions on one UID are serialised, each one sends a strictly higher number, and no path sends a value computed earlier (RFC 5546 §2.1.4: a higher SEQUENCE supersedes a lower one).
@@ -203,10 +205,18 @@ All transitions live in `lib/booking/transitions.ts` and run as one conditional 
 |---|---|
 | accept, decline | `status = 'pending' AND expires_at > now()`; the API's `expectedUpdatedAt` is checked as well |
 | expire | `status = 'pending' AND expires_at <= now()` |
-| cancel (booker or owner) | `status IN ('pending','confirmed')`; also cancels a pending successor in the same transaction |
+| cancel (booker or owner) | `status IN ('pending','confirmed')` plus the caller's `expectedUpdatedAt`; also cancels a pending successor in the same transaction |
+| reschedule (booker) | `status = 'confirmed'` plus the caller's `expectedUpdatedAt` |
 | accept of a reschedule successor | the above, **plus** the predecessor still `confirmed` (checked under the owner lock); otherwise `409 original_booking_gone` and the successor is cancelled |
 
 Zero rows updated means the action lost the race: the API returns `409 request_state_changed`, and only the winner's e-mail is sent. This replaces read-then-compare locking for these rows, so accept and expiry can no longer both commit.
+
+**Optimistic locking on every edit or delete.** The status guard alone would accept a stale `confirmed` row after the owner moved the meeting or changed the person, so every write on a request also carries the version the user viewed:
+- every read that feeds an action returns the request's `updatedAt`: the backend list and detail, and the public manage `GET`;
+- every action sends it back as `expectedUpdatedAt`: accept, decline, bulk items, link-person, owner cancel, and the public cancel and reschedule;
+- the command checks it with `enforceCommandOptimisticLockWithGuards` (`resourceKind: 'customers.booking_request'`) on the request row, read under the per-owner lock, before the conditional transition;
+- nested interaction writes are versioned against the **interaction's own** `updatedAt`, read in the same transaction; the request version is never forwarded to them, and they run with `request: null` so they do not pick up the HTTP request's version header;
+- a stale write returns the unified `409` conflict contract. The backend shows the standard conflict dialog; the public manage page shows "This booking was changed. Reload to see the latest details" with a **Reload** button.
 
 ### Reschedule
 - **Busy time for a reschedule excludes the booking being moved:** `findBusyIntervals` in `calendar` mode takes `excludeInteractionIds` and `excludeRequestIds`, and the daily cap ignores the request being moved. So the booker's own meeting does not block overlapping new times or use up the cap.
@@ -246,17 +256,16 @@ The same function is the **write-side gate**: `isOfferedSlot(profile, busy, star
 
 **Side effects run after commit.** `ctx.bulkImport` is **not** enough here: the bus only passes those flags to its queued CRUD flush (`dataEngine.flushOrmEntityChanges`), while the nested commands also emit directly. `people.create` calls `emitQueryIndexUpsertEvents` (`commands/shared.ts`, which emits `query_index.upsert_one` straight to the event bus), and `interactions.create` emits the parent `customers:customer_entity` index upsert and the `customers.next_interaction.updated` lifecycle event (`emitNextInteractionUpdatedEvent`). Each nested `execute` also flushes the CRUD queue as soon as it returns. All of that would escape before the outer transaction commits.
 
-This spec therefore adds a small, opt-in, **transaction-aware deferral** to the command runtime (Step 8, additive):
-- `CommandRuntimeContext.afterCommit?: AfterCommitQueue`, with `defer(effect: () => Promise<void>)`, `flush()` (runs each queued effect once, in order, and reports failures through `reportError` without throwing) and `discard()`;
-- when `ctx.afterCommit` is set, the command bus defers its post-execute `flushCrudSideEffects` into the queue instead of running it, and the data engine gains `discardOrmEntityChanges()` so a rollback can drop the queued CRUD entries of the rolled-back rows;
-- the shared emit helpers consult `ctx.afterCommit` and defer instead of emitting: `emitQueryIndexEvents` (both the upsert and delete paths) in `customers/commands/shared.ts`, and `emitLifecycleEvent` in `customers/commands/interactions.ts`, which carries `customers.next_interaction.updated` and the interaction lifecycle events;
-- without `ctx.afterCommit` (every existing caller) behavior is unchanged.
+The framework already owns this boundary: `withAtomicFlush` begins a **transaction lifetime** (`shared/lib/commands/transaction-lifetime.ts`) and completes it with `committed` or `rolled_back` only after the real commit or rollback, and `onTransactionLifetimeComplete(em, cb)` registers work against it. The command bus already uses it for ambient atomic replay, where it defers the **entire** `runPostCommit()` phase (after-interceptors, cache invalidation and the CRUD flush). This spec reuses that mechanism instead of adding a parallel queue (Step 8, additive):
+- **Bus:** `CommandBus.execute` generalises the ambient-replay branch to ordinary execution. When `ctx.transactionalEm` is inside a transaction **and** `ctx.transactionLifetime` is the token that owns it (`ownsTransactionLifetime`), the bus registers its whole `runPostCommit()` with `onTransactionLifetimeComplete` and runs it only on `committed`; on `rolled_back` it is skipped. Without an owned lifetime token (every existing caller) the bus runs `runPostCommit()` immediately, as today.
+- **Direct emitters:** a shared helper `runAfterTransaction(ctx, effect)` (additive export next to the lifetime helpers) registers `effect` on the owned lifetime for `committed` only, or runs it immediately when there is none. `emitQueryIndexEvents` (upsert and delete paths, `customers/commands/shared.ts`) and `emitLifecycleEvent` (`customers/commands/interactions.ts`, which carries `customers.next_interaction.updated` and the interaction lifecycle events) go through it.
+- **CRUD queue on rollback:** `emitCrudSideEffects` only marks changes on the request container's `dataEngine` queue, and with the deferral above nothing flushes that queue on rollback. **No `DataEngine` contract change** is needed: every booking write runs in its own request-scoped container (`createRequestContainer()`; public and backend routes already get one per request, and the bulk and maintenance workers create one **per item**), so the unflushed entries of a rolled-back write are dropped with their container and can never be flushed by a later write.
 
-The booking command creates the queue, passes it to the nested `people.create` and `interactions.create` together with `transactionalEm` and the booking `syncOrigin`, and then:
-- **on commit:** calls `afterCommit.flush()` exactly once. That restores the complete effect set, each once: the person `created` CRUD event and index entries, the person `customers:customer_entity` index upsert, the interaction `created` CRUD event and index entries, the parent `customers:customer_entity` projection upsert, and `customers.next_interaction.updated`;
-- **on rollback:** calls `afterCommit.discard()` and `dataEngine.discardOrmEntityChanges()`, so nothing is emitted or indexed.
+The booking command opens its transaction with `withAtomicFlush(em, …, { transaction: true })`, reads the token with `getTransactionLifetime(em)`, and passes `transactionalEm`, `transactionLifetime` and the booking `syncOrigin` to the nested `people.create`, `interactions.create`, `interactions.update` and `interactions.cancel`. Then:
+- **on commit:** each nested command's complete tail runs exactly once: after-interceptors, cache invalidation, the CRUD flush (person and interaction `created` events and index entries), the person `customers:customer_entity` index upsert, the parent projection upsert, and `customers.next_interaction.updated`;
+- **on rollback:** none of it runs, and the container is discarded.
 
-If a deferred effect fails after commit, the error is reported through `reportError`, and a maintenance-job pass re-indexes records of `source = 'public_booking'` that are missing from the index.
+A failing completion callback is already reported through `reportError` by `completeTransactionLifetime` (`shared.transaction_completion_callback_failed`), and a maintenance-job pass re-indexes records of `source = 'public_booking'` that are missing from the index.
 
 Booking e-mails and notifications go out from event subscribers after commit, so a mail failure never rolls back a booking. The `Idempotency-Key` header is required on every public write (`requests`, `cancel`, `reschedule`). Keys are stored in `customer_booking_idempotency_keys` (`scope`, `key`, `fingerprint`, `response`, `created_at`; unique `(scope, key)`; purged after 24 h by the maintenance job). The same key and payload returns the stored response; the same key with a different payload returns `422`.
 
@@ -316,14 +325,14 @@ Unique `(organization_id, user_id) where deleted_at is null`: one profile per us
 | `booker_timezone`, `booker_locale` | text | for e-mails; the locale comes from `Accept-Language` |
 | `source` | text | `public` \| `reschedule` |
 | `title_snapshot`, `location_snapshot` | text null | what the booker was last told; used by the sync diff |
-| `email`, `first_name`, `last_name` | text | **encrypted** via the module's encryption defaults (GDPR fields); queried with `findWithDecryption` |
-| `email_hash` | text | HMAC of the normalised e-mail, used for per-e-mail rate caps without decrypting |
+| `email`, `first_name`, `last_name` | text | **encrypted** (map below); read only through `findWithDecryption` / `findOneWithDecryption` with tenant and organization scope |
+| `email_hash` | text | written by the encryption service from `email` (`hashField`), used for per-e-mail caps and exact e-mail search without decrypting |
 | `client_ip_hash` | text null | HMAC of the resolved client IP; null when the IP cannot be determined. Used for per-IP caps |
 | `consent_at`, `consent_policy_version` | timestamptz, text | proof of consent captured at submit |
 | `status` | text | `pending` \| `confirmed` \| `declined` \| `expired` \| `cancelled` |
 | `expires_at` | timestamptz null | pending only |
 | `decided_at`, `decided_by_user_id` | null | |
-| `decline_reason` | text null | optional, shown to the booker |
+| `decline_reason` | text null | optional, written by the owner and shown to the booker. **Not encrypted** by product decision: it is the owner's own message to the booker, not confidential booker data. Cleared by the 90-day anonymisation like the other request texts |
 | `cancelled_by` | text null | `booker` \| `owner` \| `reschedule` |
 | `interaction_id` | uuid null | set on confirm |
 | `customer_entity_id` | uuid null | person the interaction is attached to |
@@ -339,6 +348,21 @@ Indexes:
 - `(organization_id, owner_user_id, status, created_at)`: backend list.
 - `(status, expires_at) where status = 'pending'`: expiry job.
 
+**Encryption map** (`customers/encryption.ts`, added to `defaultEncryptionMaps`):
+
+```ts
+{
+  entityId: 'customers:customer_booking_request',
+  fields: [
+    { field: 'email', hashField: 'email_hash' },
+    { field: 'first_name' },
+    { field: 'last_name' },
+  ],
+},
+```
+
+New organizations get it through the existing seeding subscriber; existing tenants get it with `yarn mercato entities seed-encryption`, noted in UPGRADE_NOTES. The table is new, so there are no plaintext rows to backfill.
+
 Plus a small table, `customer_booking_idempotency_keys`, for public-write idempotency (see Architecture → Public request write).
 
 **Retention and PII placement:** booker PII is kept out of every place the module does not control:
@@ -347,7 +371,7 @@ Plus a small table, `customer_booking_idempotency_keys`, for public-write idempo
 - **audit log:** the platform action log stores command payloads and snapshots. Booking commands therefore use ids-only inputs (a redacted `redoInput` where undo is kept, `replayable: false` where it is not) and ids-only snapshots (Architecture → Command context), so their log entries never hold the e-mail or names. The auto-created person's own creation entry does hold them (standard CRM behavior).
 
 Declined, expired and cancelled requests, and confirmed requests whose meeting ended, are anonymised 90 days later by the maintenance job (Phase 1):
-- e-mail and names are replaced with a fixed marker;
+- e-mail and names are replaced with a fixed marker (written through the encryption service like any other value), and `decline_reason` is cleared;
 - `email_hash`, `client_ip_hash`, `request_fingerprint` and the token hash are cleared.
 
 **Not covered:** the person auto-created on confirmation is a normal CRM record and follows the CRM's retention and GDPR tooling, not this job.
@@ -376,9 +400,9 @@ Every handler exports `openApi`. Public routes declare `requireAuth: false`; all
 | `GET /api/customers/public/booking/{orgSlug}/{userSlug}` | — | `{ ownerName, ownerInitials, organizationName, title, description, location, slotDurationMinutes, timezone, horizonEndDate, firstAvailableAt: ISO \| null, requiresApproval }`. 404 when inactive, unknown or ambiguous (same body for each). |
 | `GET …/slots?from=YYYY-MM-DD&to=YYYY-MM-DD` | range ≤ 44 days (a 6-week month grid plus one day on each side for visitors in far-off timezones) | `{ days: [{ date, slots: [{ startsAt: ISO, endsAt: ISO }] }] }`; dates in the profile timezone, instants in UTC; the client renders them in the visitor's timezone |
 | `POST …/requests` | header `Idempotency-Key`; body `{ startsAt: ISO, email, firstName (1–100), lastName (1–100), timezone: IANA, consent: true }` | `201 { status: 'confirmed' \| 'pending', startsAt, endsAt, expiresAt?, ics?: string }` (`ics` is only present when confirmed; it is the same file as the e-mail attachment, for the **Add to calendar** download). 409 `slot_taken`, 422 `slot_not_offered` or validation, 429 rate or caps. The manage URL is **only** e-mailed. |
-| `GET /api/customers/public/booking/manage/{token}` | — | `{ status, startsAt, endsAt, ownerName, ownerInitials, title, bookerName, bookerEmail, canCancel, canReschedule, changeCutoffAt, pendingReschedule?: { startsAt, expiresAt }, orgSlug, userSlug }` (booker details are returned only to the token holder). 404 for an unknown token (no detail leaked). |
-| `POST …/manage/{token}/cancel` | `Idempotency-Key` | `{ status: 'cancelled' }`; 409 `cutoff_passed` |
-| `POST …/manage/{token}/reschedule` | `Idempotency-Key`, `{ startsAt }` | `{ status: 'confirmed' \| 'pending', startsAt, endsAt }`; 422 `slot_not_offered`; 409 `slot_taken` \| `cutoff_passed` \| `reschedule_pending` |
+| `GET /api/customers/public/booking/manage/{token}` | — | `{ status, updatedAt, startsAt, endsAt, ownerName, ownerInitials, title, bookerName, bookerEmail, canCancel, canReschedule, changeCutoffAt, pendingReschedule?: { startsAt, expiresAt }, orgSlug, userSlug }` (booker details are returned only to the token holder). 404 for an unknown token (no detail leaked). |
+| `POST …/manage/{token}/cancel` | `Idempotency-Key`, `{ expectedUpdatedAt }` | `{ status: 'cancelled' }`; 409 `cutoff_passed` or stale |
+| `POST …/manage/{token}/reschedule` | `Idempotency-Key`, `{ startsAt, expectedUpdatedAt }` | `{ status: 'confirmed' \| 'pending', startsAt, endsAt }`; 422 `slot_not_offered`; 409 `slot_taken` \| `cutoff_passed` \| `reschedule_pending` or stale |
 
 ### Backend (auth)
 | Method & path | Guard | Notes |
@@ -389,12 +413,14 @@ Every handler exports `openApi`. Public routes declare `requireAuth: false`; all
 | `GET /api/customers/booking-requests/counts` | same | `{ pending, pendingExpiringSoon, upcomingConfirmed, nextConfirmedAt, accepted30d, decided30d, expired30d }`, scoped like the list |
 | `POST /api/customers/booking-requests/{id}/accept` | owner or `manage` | `{ expectedUpdatedAt, person: { mode: 'create' } \| { mode: 'link', entityId } }`; 409 if no longer pending, expired, or stale |
 | `POST …/{id}/decline` | same | `{ expectedUpdatedAt, reason?: string ≤ 500 }` |
-| `POST /api/customers/booking-requests/bulk` | same (checked per item) | `{ action: 'accept' \| 'decline', items: [{ id, expectedUpdatedAt }] (≤ 100), reason? }`. Enqueues a **`ProgressJob`** (the `core:progress` pattern) and returns `{ ok: true, progressJobId }`; the top-bar progress shows it. The worker runs the single-item command for each item, and each item succeeds or fails on its own; results are stored on the job (`{ id, ok, error? }[]`). Bulk accept uses `person: { mode: 'create' }` for new bookings and **keeps the existing person** for `Pending · reschedule` rows. |
+| `POST /api/customers/booking-requests/bulk` | same (checked per item) | `{ action: 'accept' \| 'decline', items: [{ id, expectedUpdatedAt }] (≤ 100), reason? }`. Enqueues a **`ProgressJob`** (the `core:progress` pattern) and returns `{ ok: true, progressJobId }`; the top-bar progress shows it. The worker runs the single-item command for each item, and each item succeeds or fails on its own; results are stored on the job (`{ id, ok, error? }[]`). Bulk accept uses `person: { mode: 'create' }` for new bookings and **keeps the existing person** for `Reschedule pending` rows. |
 | `POST …/{id}/link-person` | same | `{ expectedUpdatedAt, entityId }` on a confirmed request. Moves the interaction to the chosen person. The auto-created person is soft-deleted only when `countPersonDependents` returns zero (Architecture → Link to existing person); the person-delete command is never used. Otherwise it is kept and the response returns `autoCreatedEntityKept: true`. Undoable. |
-| `POST …/{id}/cancel` | same | owner-side cancel; soft-cancels the interaction (existing cancel command) and sends `METHOD:CANCEL` |
+| `POST …/{id}/cancel` | same | `{ expectedUpdatedAt }`. Owner-side cancel; soft-cancels the interaction through `interactions.cancel` **inside the booking transaction** (see below), cascades to a pending successor, and sends `METHOD:CANCEL` after commit. 409 when stale |
 
 ### ACL (`acl.ts`, additive)
-- `customers.booking.manage_own`: `dependsOn: ['customers.interactions.manage']`, because owners must be able to edit and cancel the meetings their page creates. It is added to `defaultRoleFeatures` for `admin` (already covered by `customers.*`). `employee` gets it **together with** `customers.interactions.manage`, which `employee` does not have today. This is a deliberate default-role change, called out in UPGRADE_NOTES. Roles without `interactions.manage` cannot enable a booking page.
+- `customers.booking.manage_own`: **no** dependency on `customers.interactions.manage`. It authorises only the caller's own booking profile and the requests and meetings that profile created. It is added to `defaultRoleFeatures` for `admin` (already covered by `customers.*`) and `employee`. The `employee` role does **not** gain `customers.interactions.manage`, so the existing grant boundary is unchanged.
+- **Owner scope is enforced in the booking commands**, not by the feature alone: every backend booking command loads the request under the per-owner lock and requires `request.owner_user_id = auth.sub`, unless the caller has `customers.booking.manage` (then organization scope applies). Otherwise it returns 404, the same as an unknown id. The nested interaction commands are invoked only on the request's own `interaction_id`, so a booking action can never reach another interaction.
+- **Effect for owners without `interactions.manage`:** they handle booking meetings through the booking actions (accept, decline, link person, cancel, from the Meeting requests page or a pending block in the calendar). Editing a booking meeting directly in the CRM Calendar still needs `customers.interactions.manage`, exactly as for any other interaction; when an owner who has it edits the meeting there, the sync subscriber informs the booker.
 - `customers.booking.manage`: `admin` only (via `customers.*`).
 
 Existing tenants pick these up with `yarn mercato auth sync-role-acls`, which is noted in UPGRADE_NOTES.
@@ -416,9 +442,9 @@ Notification texts carry the date and time only; the booker's name is resolved a
 
 ### Public page `/calendar/{orgSlug}/{userSlug}/meetings`
 Chrome-less: no backend menus, headers or portal nav. It uses the same `@open-mercato/ui` primitives and DS tokens as backend pages (Card, Button, Input, Calendar/day-picker, Badge, Spinner).
-- **Header card:** owner initials avatar, owner name · organization name, title, description, a clock icon with "{n} min", the location, and the confirmation mode ("Instant confirmation", or, when approval is on, "{first name} confirms within {deadline} h"). The timezone switcher sits under the calendar and defaults to the browser timezone.
+- **Header card:** owner initials avatar, owner name and organization name on one line, title, description, a clock icon with "{n} min", the location, and the confirmation mode ("Instant confirmation", or, when approval is on, "{first name} confirms within {deadline} h"). The timezone switcher sits under the calendar and defaults to the browser timezone.
 - **Layout:** three columns: header card, then the month calendar, then the slot list.
-- **Calendar and slots:** in the month calendar, available days are marked and unavailable days are disabled; prev/next month is limited to the horizon. The slot column shows the selected day's heading, then the slots stacked vertically as full-width buttons (`09:00`, `09:30`, …). Below 900px the columns stack. A small "Powered by Open Mercato" footer sits under the card.
+- **Calendar and slots:** in the month calendar, available days are marked and unavailable days are disabled; prev/next month is limited to the horizon. The slot column shows the selected day's heading, then the slots stacked vertically as full-width buttons (`09:00`, `09:30`, …). Below the `lg` breakpoint (1024px) the columns stack (mobile-first). A small "Powered by Open Mercato" footer sits under the card.
 - **Initial state:** the day selected is the visitor-local date of `firstAvailableAt`. With no availability at all, an empty state reads "No times available in the next {horizon} days".
 - **Slot picked:** the card switches to a details step. The left column keeps the header with the chosen date, start–end time and timezone, plus a **Back** button. The right column holds the form: e-mail, first name, last name, the consent checkbox (privacy text from `content`), and **Book meeting** (or **Request meeting** when approval is on). Back returns to the slots with the selected day kept.
 - **Result:** a centred card showing one of two outcomes:
@@ -428,7 +454,7 @@ Chrome-less: no backend menus, headers or portal nav. It uses the same `@open-me
 - **Accessibility:** the calendar has full keyboard navigation (arrow keys and Enter), each slot list is a `role="listbox"` per day, labels are tied to inputs, and form errors are announced through `aria-live`.
 
 ### Manage page `/calendar/{orgSlug}/{userSlug}/meetings/manage/{token}`
-A summary card shows the owner initials avatar and name, a status badge, the meeting title, date and time, and "Booked as {name} · {email}". It has two actions:
+A summary card shows the owner initials avatar and name, a status badge, the meeting title, date and time, and "Booked as {name} ({email})". It has two actions:
 - **Cancel meeting:** opens a confirmation dialog.
 - **Reschedule:** opens the same picker with a banner showing the current time ("your current time stays booked until the new one is confirmed"), preselecting the first available day. Picking a slot splits it into [time | **Confirm**]; no form is needed because the booker's details are kept.
 
@@ -454,16 +480,51 @@ The side column has a preview card with the next 5 computed slots (in the profil
   - upcoming confirmed, with the next meeting;
   - accepted in the last 30 days, with the share of decided requests;
   - expired in the last 30 days.
-- **List:** `DataTable` with status tabs (All · Pending · Upcoming · Past · Declined/Expired/Cancelled), search by name or e-mail, a status filter and a meeting-date filter. Sorting puts pending first (soonest deadline on top), then orders by meeting date. A request that expires while the page is open greys out with a "just expired" hint.
+- **List:** `DataTable` with status tabs (All, Pending, Upcoming, Past, Declined/Expired/Cancelled), search by name or e-mail, a status filter and a meeting-date filter. Sorting puts pending first (soonest deadline on top), then orders by meeting date. A request that expires while the page is open greys out with a "just expired" hint.
 - **Bulk actions** (pending rows only): Accept selected (each booker becomes a new person) and Decline selected (one optional reason for all).
-- **Columns:** selection (pending rows only); requested meeting (date, time, and a hint for duration, request time, "instant booking" or "moved from …"); booker (name and e-mail); status badge (Pending, Pending · reschedule, Confirmed, Declined, Expired, Cancelled by booker/owner); respond by or outcome (time left, flagged as an error under 3 h, an overlap hint, the decline reason, "not answered within {deadline} h" (the profile's own deadline), who accepted or cancelled and when); CRM person ("Chosen on accept" while pending, a "New from booking" badge on auto-created persons); actions. Users with `customers.booking.manage` also get an Owner column and filter.
+- **Columns:** selection (pending rows only); requested meeting (date, time, and a hint for duration, request time, "instant booking" or "moved from …"); booker (name and e-mail); status badge (Pending, Reschedule pending, Confirmed, Declined, Expired, Cancelled by booker/owner); respond by or outcome (time left, flagged as an error under 3 h, an overlap hint, the decline reason, "not answered within {deadline} h" (the profile's own deadline), who accepted or cancelled and when); CRM person ("Chosen on accept" while pending, a "New from booking" badge on auto-created persons); actions. Users with `customers.booking.manage` also get an Owner column and filter.
 - **Row actions:**
   - on a pending request: **Accept**, which opens a dialog with "Create new person" (default) or "Link existing person" (a person picker, with a hint listing persons whose e-mail matches, never auto-selected), and **Decline** (optional reason);
   - on a confirmed request: a row menu with **Open in calendar**, **Link to existing person** (the dialog searches people and explains whether the auto-created person will be removed; the success toast offers **Undo**) and **Cancel meeting**;
   - on declined, expired or cancelled requests: **View details** only (they cannot be re-opened, because the booker has already been e-mailed).
 - **Accept dialog:** shows the booker, the slot, the person choice and, when needed, a warning such as "Overlaps with {title} ({time}), added after this request. You can still accept." The button reads **Accept & send invite**.
 
-Dialogs: `Cmd/Ctrl+Enter` submits, `Escape` cancels. The CRM Calendar shows pending requests for the current user as hatched "Pending request" blocks. The calendar data hook `components/calendar/useCalendarItems.ts` fetches them from `GET /api/customers/booking-requests?status=pending&from&to` next to its interactions query, only when the user has `customers.booking.manage_own`, and merges them as a separate item kind. An enricher cannot add rows, so none is used. Pending blocks are visible to the owner and to holders of `customers.booking.manage`, and show "Pending · {booker name}" (the name is resolved for the authorised viewer). Clicking a pending block opens the same Accept/Decline dialog. Confirmed bookings appear as normal meetings titled with the profile title. The calendar's existing conflict badges also cover pending blocks.
+Dialogs: `Cmd/Ctrl+Enter` submits, `Escape` cancels. The CRM Calendar shows pending requests for the current user as hatched "Pending request" blocks. The calendar data hook `components/calendar/useCalendarItems.ts` fetches them from `GET /api/customers/booking-requests?status=pending&from&to` next to its interactions query, only when the user has `customers.booking.manage_own`, and merges them as a separate item kind. An enricher cannot add rows, so none is used. Pending blocks are visible to the owner and to holders of `customers.booking.manage`, and show "Pending: {booker name}" (the name is resolved for the authorised viewer). Clicking a pending block opens the same Accept/Decline dialog. Confirmed bookings appear as normal meetings titled with the profile title. The calendar's existing conflict badges also cover pending blocks.
+
+### Frontend Architecture Contract
+**Server/Client Boundary Map**
+
+| Route / surface | Server root | Client islands | Data owner | Notes |
+| --- | --- | --- | --- | --- |
+| `/calendar/{orgSlug}/{userSlug}/meetings` | `frontend/calendar/[orgSlug]/[userSlug]/meetings/page.tsx` (server: resolves the profile, renders the header card, 404 with no client code) | `BookingPickerClient` (month calendar + slot list), lazy `BookingDetailsFormClient`, `BookingResultClient` | public profile and slots API via `apiCall` | No page-root `"use client"`; no backend shell or providers |
+| `/calendar/…/meetings/manage/{token}` (+ `/reschedule`) | `…/manage/[token]/page.tsx` (server: summary card from the manage `GET`) | `ManageBookingActionsClient` (cancel dialog, conflict reload); the reschedule page reuses `BookingPickerClient` | manage API | Token never placed in client-side logs or analytics |
+| `/backend/profile/meeting-booking` | `backend/profile/meeting-booking/page.tsx` (server: metadata, translations) | `BookingProfileFormClient` (`CrudForm`), `WeeklyHoursEditor`, `SlotPreviewCard` | booking-profile API | Editors are leaves of the form |
+| `/backend/customers/booking-requests` | `backend/customers/booking-requests/page.tsx` (server: metadata, translations, feature gate) | `BookingRequestsTableClient` (`DataTable`), `BookingCountersClient`, lazy `AcceptRequestDialog`, `DeclineRequestDialog`, `LinkPersonDialog` | booking-requests API | Dialogs load with `next/dynamic` |
+| `/backend/calendar` (existing) | unchanged | existing `CalendarScreen`; pending blocks added in `useCalendarItems.ts`; the accept dialog reuses the lazy `AcceptRequestDialog` | booking-requests API | No new provider |
+
+**`"use client"` Ledger**
+
+| File | Reason | Imported by | Heavy deps? | Cleanup / hydration risk | Alternative rejected |
+| --- | --- | --- | --- | --- | --- |
+| `components/booking/BookingPickerClient.tsx` | selected day and month state, keyboard navigation, slot fetching, visitor timezone from the browser (`Intl`) | public page, reschedule page | none (date-fns, `date-fns-tz`, already in tree) | timezone only known on the client: dates render after mount behind a skeleton to avoid a hydration mismatch | RSC: the visitor timezone and day selection are browser state |
+| `components/booking/BookingDetailsFormClient.tsx` | stateful form, submit with `Idempotency-Key`, `aria-live` errors | `BookingPickerClient` (`next/dynamic`) | none | none | server action: still needs client state for the step flow |
+| `components/booking/ManageBookingActionsClient.tsx` | cancel dialog, 409 reload flow | manage page | none | none | plain form post: no confirmation dialog |
+| `components/booking/BookingProfileFormClient.tsx` | `CrudForm` with live slug validation and preview | settings page | none new | debounce timer cleared on unmount | — (`CrudForm` is client) |
+| `components/booking/BookingRequestsTableClient.tsx` | `DataTable`, selection, bulk actions, progress-job polling | requests page | none new | polling stopped on unmount | — (`DataTable` is client) |
+
+Leaves (`WeeklyHoursEditor`, `SlotPreviewCard`, `BookingCountersClient`, the dialogs) are client components by inheritance; each stays at or under ~250 LOC.
+
+**Client blob guardrail and budgets**
+
+| Budget | Default target | Spec value |
+| --- | --- | --- |
+| Generated backend page-root `"use client"` | 0 new unallowlisted | 0 |
+| Touched client page/root files over 300 LOC | 0 unless justified | 0 (picker, form, table and dialogs are split; `CalendarScreen` gains only a small item-kind branch) |
+| Heavy browser libraries at page/provider root | 0 | 0, no new dependencies |
+| Per-route hydration smoke test | required for changed interactive route | Playwright load-and-interact test per route above (Steps 6, 10, 15, 17, 18) |
+| Performance evidence | static check + one runtime/build/bundle/RSS signal | `yarn check:client-boundaries` plus the `yarn build:app` first-load JS of the public route, noted in each implementation PR; target: the public page adds no backend-shell chunks |
+
+**Provider / bootstrap scope:** none touched. The public pages render without the backend providers; no global bootstrap or registry changes.
 
 ## 📝 Edge Cases & Failure Scenarios
 | Scenario | Behavior |
@@ -497,14 +558,16 @@ Dialogs: `Cmd/Ctrl+Enter` submits, `Escape` cancels. The CRM Calendar shows pend
 | Extracting the busy predicate changes conflict-route behavior or its access boundary | Medium | customers API, privacy | Pure refactor; `legacy` mode requires the viewer and applies the e-mail visibility filter before selection; existing conflicts tests stay green; parity tests including private e-mail, conversation share, shared channel and API-key caller | Low |
 | PII in booking requests | Medium | GDPR | Encrypted columns, `findWithDecryption`, 90-day anonymisation; no PII in events, notifications, interaction titles or action-log payloads | The auto-created person follows CRM retention, not this job |
 | The public form used as a mail relay | Medium | abuse | No booker free text in mails; escaped, truncated names; daily mail cap; per-IP and per-e-mail caps | No e-mail confirmation by product decision |
-| Default `employee` role gains `customers.interactions.manage` | Medium | RBAC | Called out in UPGRADE_NOTES; admins can remove it, which also removes booking | — |
+| A booking action reaching interactions it does not own | Medium | RBAC | `manage_own` has no `interactions.manage` dependency; commands require `owner_user_id = auth.sub` (or `booking.manage`) and touch only the request's own `interaction_id`; a regression test (Step 13) | — |
 | Scheduler not installed | Low | expiry | Derived-on-read expiry; the job is only for status and e-mail; CLI for manual runs | The expiry e-mail and anonymisation need the CLI without the scheduler |
 | Org slug not globally unique | Low | routing | Enable-time guard plus exact-one resolution | — |
 
-**Compatibility:** additive, with two behavior changes listed in UPGRADE_NOTES:
-- **Additive:** new tables, routes, ACL features, events, notifications and a frontend route. The conflicts route keeps its contract. `people.create` gains optional `transactionalEm` support, and the command runtime gains the optional `ctx.afterCommit` queue (honoured by the bus flush, `emitQueryIndexEvents`, the interactions `emitLifecycleEvent`, and `dataEngine.discardOrmEntityChanges()`); existing callers pass neither and are unaffected. No change to `CustomerInteraction` or its statuses.
+**Compatibility:** additive, with one behavior change listed in UPGRADE_NOTES:
+- **Additive:** new tables, routes, ACL features, events, notifications and a frontend route. The conflicts route keeps its contract. `people.create` and `interactions.cancel` gain optional `transactionalEm` support; the command bus defers `runPostCommit()` only when the caller passes an owned `transactionLifetime`, and the new `runAfterTransaction` helper is an additive export. Existing callers pass neither and are unaffected. No `DataEngine` interface change. No change to `CustomerInteraction` or its statuses.
 - **Behavior change (directory):** the organization update command can now be **refused** (`org_slug_ambiguous_for_booking`), but only when the new slug would make an active booking page ambiguous across tenants. Organizations without active booking profiles are unaffected. Per BACKWARD_COMPATIBILITY.md this is a new failure mode on an existing command, so it is documented with the error code and the workaround (disable the colliding booking profile first).
-- **Behavior change (RBAC):** the default `employee` role gains `customers.interactions.manage`. **Rollback:** the preferred rollback is to disable profiles. Data stays, public pages return 404, and the CRM interactions already created remain normal meetings. Reverting the code is possible as well. The migration `down` drops both tables and **loses all booking history**, including the link from interactions back to their requests, so it is a last resort only.
+- **RBAC:** the default `employee` role gains only the new `customers.booking.manage_own`; no existing grant changes.
+
+**Rollback:** the preferred rollback is to disable profiles. Data stays, public pages return 404, and the CRM interactions already created remain normal meetings. Reverting the code is possible as well. The migration `down` drops both tables and **loses all booking history**, including the link from interactions back to their requests, so it is a last resort only.
 
 ## 📋 Phasing
 - **Phase 1: Instant booking (MVP).** Profile settings page, public page, slot engine with the write-side offered-slot gate, busy-time extraction, confirmed bookings with an auto-created person (in one real transaction), `.ics` confirmation e-mail, interaction→request sync (owner changes inform the booker, plus the person-delete cascade), abuse controls shipped **together with** the public write (Step 8), the mail cap, the idempotency table, the org-slug interceptor, and the maintenance job **with its system-scoped schedule and CLI**. Ships on its own: no manage tokens are issued (`manage_token_hash` null), and e-mails say "reply to this e-mail to change the meeting" (`replyTo` = owner).
@@ -518,26 +581,28 @@ Dialogs: `Cmd/Ctrl+Enter` submits, `Escape` cancels. The CRM Calendar shows pend
 2. **Busy-time extraction (separate PR):** `lib/booking/busy.ts` with `legacy` (viewer required, e-mail visibility filter applied before selection) and `calendar` modes; the conflicts route moves to `legacy`. Parity tests against existing conflicts fixtures, plus access parity: another user's private scheduled e-mail is neither returned nor title-leaked, a conversation share and a shared channel make it visible, an API-key caller is unchanged; `calendar`-mode tests for participants, recurring, all-day and multi-org.
 3. **Slot engine:** `lib/booking/slots.ts` with unit tests (overrides, buffers, notice, horizon, daily cap, DST, first-available scan).
 4. **ICS builder:** `lib/booking/ics.ts` with snapshot tests (REQUEST/CANCEL, escaping, UTC times, UID/SEQUENCE).
-5. **ACL plus the profile API:** `customers.booking.manage_own`, `GET`/`PUT /api/customers/booking-profile` (slug and org-slug guards, optimistic lock); integration test.
+5. **ACL plus the profile API:** `customers.booking.manage_own` (no `interactions.manage` dependency; added to `admin` and `employee`), `GET`/`PUT /api/customers/booking-profile` (slug and org-slug guards, optimistic lock); integration test.
 6. **Profile settings page:** backend profile page with `CrudForm` and the preview card; i18n; integration test (enable, slug conflict, preview).
 7. **Public read API:** profile resolution, profile and slots routes, rate limit, origin check; integration tests (inactive → 404, range > 44 → 400, `firstAvailableAt` lands on the right visitor-local day for UTC−10 and UTC+13, busy interaction hides slot).
-8. **Public request command plus API, with abuse controls:** checkout-style command context (`organizationScope: null` + `selectedOrganizationId`, `syncOrigin`, `replayable: false` with ids-only input and ids-only snapshots), `people.create` `transactionalEm` support, the `ctx.afterCommit` queue (bus flush deferral, `emitQueryIndexEvents`, interactions `emitLifecycleEvent`, `dataEngine.discardOrmEntityChanges()`), client-IP resolution, fail-closed rate limit, per-e-mail/per-IP/owner caps (with the unknown-IP skip), the verification hook, owner advisory lock, `isOfferedSlot` gate, idempotency table, confirm inline (person plus interaction titled with the profile title); integration tests (double submit → one booking, `slot_taken`, 429 caps, unknown-IP requests not pooled into one bucket, 503 with no rate limiter, a forced rollback after interaction creation leaves no person and no interaction, and spies on `eventBus.emitEvent` and the data-engine flush observe **no** CRUD event, no `query_index.*` event and no `customers.next_interaction.updated`; a successful booking emits each of the person `created` event, the person index upsert, the interaction `created` event, the parent projection upsert and `customers.next_interaction.updated` **exactly once, after commit**; unit tests show the shared emit helpers behave unchanged without `ctx.afterCommit`; off-grid/after-hours/inside-notice/past-horizon → 422 `slot_not_offered`, daily cap, idempotent replay, mismatched replay → 422, interaction visible in `/api/customers/interactions`, no booker name in the interaction title or action log).
+8. **Public request command plus API, with abuse controls:** checkout-style command context (`organizationScope: null` + `selectedOrganizationId`, `syncOrigin`, `replayable: false` with ids-only input and ids-only snapshots), `people.create` `transactionalEm` support, nested execution on the caller-owned transaction lifetime (bus defers the whole `runPostCommit()`, `runAfterTransaction` for `emitQueryIndexEvents` and the interactions `emitLifecycleEvent`, one request container per write), client-IP resolution, fail-closed rate limit, per-e-mail/per-IP/owner caps (with the unknown-IP skip), the verification hook, owner advisory lock, `isOfferedSlot` gate, idempotency table, confirm inline (person plus interaction titled with the profile title); integration tests (double submit → one booking, `slot_taken`, 429 caps, unknown-IP requests not pooled into one bucket, 503 with no rate limiter, a forced rollback after interaction creation leaves no person and no interaction, and spies on `eventBus.emitEvent`, the data-engine flush, a test after-interceptor on `customers.interactions.create` and cache invalidation observe **none** of them; a successful booking runs each of the person `created` event, the person index upsert, the interaction `created` event, the parent projection upsert, `customers.next_interaction.updated`, the after-interceptor and cache invalidation **exactly once, after commit**; a bulk job with a rolled-back item followed by a committed item emits only the committed item's effects; unit tests show the bus and emit helpers behave unchanged without an owned lifetime; off-grid/after-hours/inside-notice/past-horizon → 422 `slot_not_offered`, daily cap, idempotent replay, mismatched replay → 422, interaction visible in `/api/customers/interactions`, no booker name in the interaction title or action log).
 9. **Confirmation e-mail subscriber:** `.ics` attachment with queue retry, `replyTo` = owner, booker locale, escaped and truncated names; unit test with a mocked `sendEmail`.
 10. **Public page UI:** chrome-less frontend page; Playwright test (lands on first available day, picks a slot, books, sees success).
 11. **Interaction→request sync subscribers:** snapshot diff and the person-delete cascade; integration tests (owner cancels → request cancelled and CANCEL sent; owner moves the time → SEQUENCE+1 update; two concurrent owner edits send two distinct, increasing SEQUENCE values; a title change → update; an unrelated field change → no mail; the person deleted → requests cancelled and bookers e-mailed; events with the booking `syncOrigin` ignored; the owner moves the interaction to another person → `customer_entity_id` follows; a person delete followed by undo → requests stay cancelled, no re-invite, and the undo toast warns; a booking-linked person-delete cascade also cancels the pending reschedule successor).
-12. **Mail cap plus maintenance job:** the daily outbound mail cap (queue tests); the maintenance worker (anonymisation including ended confirmed requests and `client_ip_hash`, plus idempotency-key purge) with one system-scoped schedule and the manual CLI; a test reads the anonymised rows and finds no PII; the org-slug interceptor (refuses a colliding resolved slug, guards undo); tests for it.
+12. **Mail cap plus maintenance job:** the daily outbound mail cap (queue tests); the encryption map entry, with a test that reads raw rows and the encryption metadata and finds no plaintext e-mail or names; the maintenance worker (anonymisation including ended confirmed requests, `decline_reason` and `client_ip_hash`, plus idempotency-key purge; one request container per item) with one system-scoped schedule and the manual CLI; a test reads the anonymised rows and finds no PII; the org-slug interceptor (refuses a colliding resolved slug, guards undo); tests for it.
 
 ### Phase 2
-13. **Approval lifecycle commands:** pending create, accept (create/link person), decline via the conditional transitions; events and notifications (no names in texts); accept keeps undo (ids-only `redoInput`, replay enabled, ids-only snapshots); integration tests, including a concurrent accept-vs-expire run where only one wins and one e-mail is sent, and accept → undo: the response carries a usable undo token, undo cancels the interaction and the request and sends exactly one `METHOD:CANCEL`, and the booking command's action-log entry (payload and snapshots) contains no booker e-mail or name.
+13. **Approval lifecycle commands:** pending create, accept (create/link person), decline and owner cancel via the conditional transitions, with `expectedUpdatedAt` enforced by `enforceCommandOptimisticLockWithGuards`; `interactions.cancel` gains `transactionalEm`/`transactionLifetime` support; owner scope enforced in the commands; events and notifications (no names in texts); accept keeps undo (ids-only `redoInput`, replay enabled, ids-only snapshots); integration tests, including a concurrent accept-vs-expire run where only one wins and one e-mail is sent, and accept → undo: the response carries a usable undo token, undo cancels the interaction and the request and sends exactly one `METHOD:CANCEL`, and the booking command's action-log entry (payload and snapshots) contains no booker e-mail or name; a forced failure after the interaction is cancelled rolls back the interaction, the request and the successor together and emits nothing; stale owner cancel → 409; an employee with only `manage_own` can accept and cancel their own booking but gets 403 on `PUT`/cancel of a colleague's ordinary interaction and 404 on a colleague's booking request.
 14. **Expiry in the maintenance job:** derived-on-read expiry; tests (pending past deadline frees slot, job sets `expired` and sends the e-mail, a job racing an accept loses cleanly).
 15. **Meeting requests backend page:** `DataTable` with the All/status tabs, counters (`counts` endpoint), the sidebar pending badge, bulk accept/decline (`bulk` endpoint as a ProgressJob), and the accept/decline/link dialogs; integration tests for `counts` and `bulk` (mixed success, stale `expectedUpdatedAt`, reschedule rows keep their person, job progress), and a Playwright test.
 16. **Link to existing person:** `countPersonDependents` plus the command and API; soft-delete only (the person-delete command is never called); undo restores the person; integration tests for both branches, including a person with a colleague's comment (kept) and an untouched one (soft-deleted).
 17. **Pending blocks in the CRM Calendar:** a same-module fetch in `CalendarScreen` plus rendering; Playwright check.
 
 ### Phase 3
-18. **Manage token API plus page:** token issue on confirm, `Referrer-Policy: no-referrer`, log redaction, booker cancel with cutoff; integration and Playwright tests.
-19. **Reschedule:** instant (same row, same interaction moved) and approval (successor request, token re-pointing on accept, original kept on decline or expiry, `reschedule_pending`); offered-slot gate with the own-booking exclusion (a new time overlapping the current one is offered, and the daily cap ignores the moved booking); the successor has a null `interaction_id` and no reserved sequence; SEQUENCE allocated at acceptance from the live predecessor under the per-owner lock (test: pending reschedule → two owner edits, also run concurrently with the accept → the accept e-mail's SEQUENCE is higher than every edit's); reschedule × cancel cascade (booker or owner cancels the original → the successor is cancelled; accepting a successor whose original is gone → `409 original_booking_gone`); accepting a reschedule is not undoable; integration and Playwright tests.
+18. **Manage token API plus page:** token issue on confirm, `Referrer-Policy: no-referrer`, log redaction, booker cancel with cutoff and `expectedUpdatedAt`; integration and Playwright tests, including a stale cancel after the owner moved the meeting (409, reload shows the new time).
+19. **Reschedule:** instant (same row, same interaction moved) and approval (successor request, token re-pointing on accept, original kept on decline or expiry, `reschedule_pending`); offered-slot gate with the own-booking exclusion (a new time overlapping the current one is offered, and the daily cap ignores the moved booking); the successor has a null `interaction_id` and no reserved sequence; SEQUENCE allocated at acceptance from the live predecessor under the per-owner lock (test: pending reschedule → two owner edits, also run concurrently with the accept → the accept e-mail's SEQUENCE is higher than every edit's); reschedule × cancel cascade (booker or owner cancels the original → the successor is cancelled; accepting a successor whose original is gone → `409 original_booking_gone`); accepting a reschedule is not undoable; a stale reschedule after the owner moved the meeting → 409 with the reload flow; integration and Playwright tests.
 20. **Manage-link e-mails:** the manage link added to confirmation and update e-mails; Phase 1's "reply to change" copy replaced; tests.
+
+Every UI step (6, 10, 15, 17, 18, 19) runs `yarn check:client-boundaries` and records the route's hydration test and first-load JS in its PR (UI/UX → Frontend Architecture Contract).
 
 ### Integration coverage (must ship with the phases above)
 - **API paths:** `booking-profile` GET/PUT; public profile, slots, requests; manage GET, cancel, reschedule; `booking-requests` list, counts, bulk, accept, decline, link-person, cancel.
@@ -546,9 +611,9 @@ Dialogs: `Cmd/Ctrl+Enter` submits, `Escape` cancels. The CRM Calendar shows pend
 ## 📋 Final Compliance Report
 - Tenant and organization scoping on every query; the public resolver derives the organization from the slug pair, never from the request body.
 - No cross-module ORM relations (`userId` and the org are FK ids only).
-- PII is encrypted and read through `findWithDecryption`.
+- Booker e-mail and names are declared in `customers/encryption.ts` (`email` → `email_hash`) and read only through the decryption helpers.
 - All writes go through commands; backend forms use `CrudForm` or `useGuardedMutation`.
-- Optimistic locking on the profile (`CrudForm`), plus conditional state transitions with `expectedUpdatedAt` on request accept, decline and link.
+- Optimistic locking on the profile (`CrudForm`), plus conditional state transitions with `expectedUpdatedAt` on every request write (accept, decline, bulk, link-person, owner cancel, public cancel and reschedule), enforced with `enforceCommandOptimisticLockWithGuards`.
 - Long-running bulk work runs as a `ProgressJob`.
 - No PII in events, notifications, interaction titles or action-log payloads.
 - No hard-coded strings; DS tokens only.
@@ -638,3 +703,12 @@ Dialogs: `Cmd/Ctrl+Enter` submits, `Escape` cancels. The CRM Calendar shows pend
   - **Blocker:** `bulkImport` suppression replaced by an opt-in `ctx.afterCommit` queue that also covers the direct emits (`emitQueryIndexEvents`, `customers.next_interaction.updated`) and the bus CRUD flush, with discard on rollback; the rollback and commit tests observe the real event and index paths;
   - **Major:** SEQUENCE is allocated under the per-owner lock from the live request at send time (accept of a reschedule included), never copied when a successor is created; added the owner-edits-while-pending test;
   - **Major:** `confirm` and `link-person` keep undo through an ids-only `redoInput` with replay enabled and ids-only snapshots; `replayable: false` only for non-undoable commands; added the confirm → undo test.
+- 2026-11-03: Applied the maintainer reviews on PR #8214 (@pkarw, @haxiorz re-review):
+  - **Blocker:** dropped the `ctx.afterCommit` queue and `DataEngine.discardOrmEntityChanges()`; nested commands join the caller-owned transaction lifetime, the bus defers the whole `runPostCommit()` (after-interceptors, cache invalidation, CRUD flush), direct emitters use `runAfterTransaction`, and rollback relies on one request container per write; tests cover every effect on commit and rollback;
+  - **Major:** `manage_own` no longer depends on `interactions.manage` and `employee` does not gain it; owner scope is enforced in the booking commands, with a regression test;
+  - **Major:** explicit encryption map for `email` (→ `email_hash`), `first_name`, `last_name`, plus seeding for existing tenants; `decline_reason` stays unencrypted by product decision (owner-authored, not confidential) and is cleared by the anonymisation;
+  - **Major:** `updatedAt`/`expectedUpdatedAt` on every request write including owner cancel and public cancel/reschedule, enforced with `enforceCommandOptimisticLockWithGuards`; nested interaction writes versioned against the interaction itself;
+  - **Major:** `interactions.cancel` gains `transactionalEm` support so cancellation is atomic with the request and its successor;
+  - **Minor:** added the Frontend Architecture Contract and per-step `check:client-boundaries` evidence;
+  - **Minor:** kept as one spec by the author's decision; the three phases remain independently shippable and are implemented as separate PRs;
+  - **Nit:** removed middot separators and the 900px breakpoint (now `lg`).

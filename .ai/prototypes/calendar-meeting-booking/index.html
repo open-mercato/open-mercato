@@ -47,9 +47,9 @@
   /* Public, chrome-less booking surface. Tokens only. */
   .bk-page { background: color-mix(in oklab, var(--muted) 50%, var(--background)); padding: 2rem 1rem; min-height: 40rem; position: relative; }
   .bk-card { max-width: 64rem; margin: 0 auto; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-xl); box-shadow: var(--shadow-sm); display: grid; grid-template-columns: minmax(0, 1fr); overflow: hidden; }
-  @media (min-width: 900px) { .bk-card { grid-template-columns: 17rem minmax(0, 1fr) 15rem; } .bk-card.bk-two { grid-template-columns: 17rem minmax(0, 1fr); } }
+  @media (min-width: 1024px) { .bk-card { grid-template-columns: 17rem minmax(0, 1fr) 15rem; } .bk-card.bk-two { grid-template-columns: 17rem minmax(0, 1fr); } }
   .bk-info { padding: 1.5rem; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 0.75rem; }
-  @media (min-width: 900px) { .bk-info { border-bottom: 0; border-right: 1px solid var(--border); } }
+  @media (min-width: 1024px) { .bk-info { border-bottom: 0; border-right: 1px solid var(--border); } }
   .bk-info h1 { font-size: 1.25rem; font-weight: 600; line-height: 1.3; margin: 0; }
   .bk-meta { display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; color: var(--muted-foreground); }
   .bk-meta svg { width: 1rem; height: 1rem; flex: none; }
@@ -67,7 +67,7 @@
   .bk-tz { display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; }
   .bk-tz svg { width: 1rem; height: 1rem; color: var(--muted-foreground); }
   .bk-slots-wrap { padding: 1.5rem 1rem; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 0.75rem; }
-  @media (min-width: 900px) { .bk-slots-wrap { border-top: 0; border-left: 1px solid var(--border); } }
+  @media (min-width: 1024px) { .bk-slots-wrap { border-top: 0; border-left: 1px solid var(--border); } }
   .bk-slots-wrap h3 { font-size: 0.875rem; font-weight: 600; margin: 0; }
   .bk-slots { display: flex; flex-direction: column; gap: 0.5rem; max-height: 24rem; overflow-y: auto; padding-right: 0.25rem; }
   .bk-slot { width: 100%; height: 2.75rem; justify-content: center; font-weight: 600; color: var(--primary); border-color: color-mix(in oklab, var(--primary) 35%, transparent); }
@@ -305,7 +305,7 @@
       <div class="bk-card">
         <div class="bk-info">
           <span class="avatar avatar-lg">AK</span>
-          <div class="muted" style="font-size:0.875rem">Anna Kowalska · Northwind Trading</div>
+          <div class="muted" style="font-size:0.875rem">Anna Kowalska — Northwind Trading</div>
           <h1>Meet with Anna</h1>
           <p class="muted" style="font-size:0.875rem;margin:0">Intro call about your project. Pick a time that works for you.</p>
           <div class="bk-meta"><svg><use href="#ic-clock"/></svg><strong>30 min</strong></div>
@@ -348,7 +348,7 @@
   <div class="notes">
     <div class="note"><b>1</b><span>Highlighted days have at least one free slot; weekends, fully booked days, the 11 Nov day-off override and days past the 60-day horizon are disabled. Month navigation stops at the horizon.</span></div>
     <div class="note"><b>2</b><span>Times show in the visitor's browser timezone; the switcher regroups slots by the visitor's local date. Busy reasons are never exposed — only free starts.</span></div>
-    <div class="note"><b>3</b><span>Gaps (10:00, 11:30–12:30, 14:30–15:00) are the owner's CRM interactions, pending requests and buffers. Below 900px the slot list stacks under the calendar.</span></div>
+    <div class="note"><b>3</b><span>Gaps (10:00, 11:30–12:30, 14:30–15:00) are the owner's CRM interactions, pending requests and buffers. Below the lg breakpoint (1024px) the slot list stacks under the calendar.</span></div>
     <div class="note"><b>4</b><span>Not drawn: <em>no availability</em> empty state ("No times available in the next 60 days") and <em>page unavailable</em> 404 (disabled profile, unknown slug).</span></div>
   </div>
 </section>
@@ -369,10 +369,10 @@
         <div class="bk-info">
           <button class="btn btn-ghost btn-sm" style="align-self:flex-start;padding-left:0.25rem" data-goto="s2"><svg><use href="#ic-arrow-left"/></svg> Back</button>
           <span class="avatar avatar-lg">AK</span>
-          <div class="muted" style="font-size:0.875rem">Anna Kowalska · Northwind Trading</div>
+          <div class="muted" style="font-size:0.875rem">Anna Kowalska — Northwind Trading</div>
           <h1>Meet with Anna</h1>
           <div class="bk-meta"><svg><use href="#ic-clock"/></svg><strong>30 min</strong></div>
-          <div class="bk-meta"><svg><use href="#ic-calendar"/></svg><strong>Mon, 2 Nov 2026 · 13:00–13:30</strong></div>
+          <div class="bk-meta"><svg><use href="#ic-calendar"/></svg><strong>Mon, 2 Nov 2026, 13:00–13:30</strong></div>
           <div class="bk-meta"><svg><use href="#ic-globe"/></svg>Europe/Warsaw (GMT+1)</div>
         </div>
         <form class="bk-form" onsubmit="return false">
@@ -430,7 +430,7 @@
         </div>
         <div class="bk-summary">
           <div class="bk-meta"><svg><use href="#ic-calendar"/></svg><strong>Meet with Anna</strong></div>
-          <div class="bk-meta"><svg><use href="#ic-clock"/></svg>Mon, 2 Nov 2026 · 13:00–13:30 (Europe/Warsaw)</div>
+          <div class="bk-meta"><svg><use href="#ic-clock"/></svg>Mon, 2 Nov 2026, 13:00–13:30 (Europe/Warsaw)</div>
           <div class="bk-meta"><svg><use href="#ic-pin"/></svg>Online — link in the invite</div>
         </div>
         <button class="btn btn-outline"><svg><use href="#ic-download"/></svg> Add to calendar (.ics)</button>
@@ -464,7 +464,7 @@
         </div>
         <div class="bk-summary">
           <div class="bk-meta"><svg><use href="#ic-calendar"/></svg><strong>Meet with Anna</strong> <span class="badge badge-warning"><span class="dot"></span>Awaiting confirmation</span></div>
-          <div class="bk-meta"><svg><use href="#ic-clock"/></svg>Mon, 2 Nov 2026 · 13:00–13:30 (Europe/Warsaw)</div>
+          <div class="bk-meta"><svg><use href="#ic-clock"/></svg>Mon, 2 Nov 2026, 13:00–13:30 (Europe/Warsaw)</div>
         </div>
         <div class="alert alert-info" style="text-align:left">
           <svg><use href="#ic-info"/></svg>
@@ -524,9 +524,9 @@
               <table class="table">
                 <thead><tr><th>Requested meeting</th><th>Booker</th><th>Status</th><th>Respond by / outcome</th><th>CRM person</th><th class="right"></th></tr></thead>
                 <tbody>
-                  <tr><td><strong>Mon, 2 Nov · 13:00–13:30</strong><div class="t-hint">30 min · requested Thu, 29 Oct 13:40</div></td><td>Jordan Doe<div class="t-hint">j.doe@example.com</div></td><td><span class="badge badge-warning"><span class="dot"></span>Pending</span></td><td><span class="badge badge-error">2 h 10 min left</span></td><td><span class="muted">Chosen on accept</span></td><td class="right"><div class="row" style="gap:0.25rem;justify-content:flex-end"><button class="btn btn-outline btn-sm">Decline</button><button class="btn btn-primary btn-sm" data-goto="s7">Accept</button></div></td></tr>
-                  <tr><td><strong>Tue, 3 Nov · 09:30–10:00</strong><div class="t-hint">30 min · requested Fri, 30 Oct 05:30</div></td><td>Riley Novak<div class="t-hint">riley@fabrikam.example</div></td><td><span class="badge badge-warning"><span class="dot"></span>Pending</span></td><td>18 h left</td><td><span class="muted">Chosen on accept</span></td><td class="right"><div class="row" style="gap:0.25rem;justify-content:flex-end"><button class="btn btn-outline btn-sm">Decline</button><button class="btn btn-primary btn-sm" data-goto="s7">Accept</button></div></td></tr>
-                  <tr><td><strong>Thu, 5 Nov · 15:00–15:30</strong><div class="t-hint">30 min · requested Fri, 30 Oct 10:30</div></td><td>Sam Ortega<div class="t-hint">sam.ortega@contoso.example</div></td><td><span class="badge badge-warning"><span class="dot"></span>Pending · reschedule</span></td><td>23 h left</td><td>Sam Ortega</td><td class="right"><div class="row" style="gap:0.25rem;justify-content:flex-end"><button class="btn btn-outline btn-sm">Decline</button><button class="btn btn-primary btn-sm" data-goto="s7">Accept</button></div></td></tr>
+                  <tr><td><strong>Mon, 2 Nov, 13:00–13:30</strong><div class="t-hint">30 min — requested Thu, 29 Oct 13:40</div></td><td>Jordan Doe<div class="t-hint">j.doe@example.com</div></td><td><span class="badge badge-warning"><span class="dot"></span>Pending</span></td><td><span class="badge badge-error">2 h 10 min left</span></td><td><span class="muted">Chosen on accept</span></td><td class="right"><div class="row" style="gap:0.25rem;justify-content:flex-end"><button class="btn btn-outline btn-sm">Decline</button><button class="btn btn-primary btn-sm" data-goto="s7">Accept</button></div></td></tr>
+                  <tr><td><strong>Tue, 3 Nov, 09:30–10:00</strong><div class="t-hint">30 min — requested Fri, 30 Oct 05:30</div></td><td>Riley Novak<div class="t-hint">riley@fabrikam.example</div></td><td><span class="badge badge-warning"><span class="dot"></span>Pending</span></td><td>18 h left</td><td><span class="muted">Chosen on accept</span></td><td class="right"><div class="row" style="gap:0.25rem;justify-content:flex-end"><button class="btn btn-outline btn-sm">Decline</button><button class="btn btn-primary btn-sm" data-goto="s7">Accept</button></div></td></tr>
+                  <tr><td><strong>Thu, 5 Nov, 15:00–15:30</strong><div class="t-hint">30 min — requested Fri, 30 Oct 10:30</div></td><td>Sam Ortega<div class="t-hint">sam.ortega@contoso.example</div></td><td><span class="badge badge-warning"><span class="dot"></span>Reschedule pending</span></td><td>23 h left</td><td>Sam Ortega</td><td class="right"><div class="row" style="gap:0.25rem;justify-content:flex-end"><button class="btn btn-outline btn-sm">Decline</button><button class="btn btn-primary btn-sm" data-goto="s7">Accept</button></div></td></tr>
                 </tbody>
               </table>
             </div>
@@ -563,7 +563,7 @@
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="acc-title">
         <div class="modal-head">
           <h2 id="acc-title" class="t-section" style="margin:0">Accept meeting request</h2>
-          <p class="muted" style="margin:0.25rem 0 0;font-size:0.875rem">Jordan Doe · j.doe@example.com · Mon, 2 Nov · 13:00–13:30</p>
+          <p class="muted" style="margin:0.25rem 0 0;font-size:0.875rem">Jordan Doe — j.doe@example.com — Mon, 2 Nov, 13:00–13:30</p>
         </div>
         <div class="modal-body">
           <span class="t-label">Save in CRM as</span>
@@ -577,12 +577,12 @@
               <strong style="font-size:0.875rem">Link to an existing person</strong>
               <div class="input" style="display:flex;align-items:center;gap:0.5rem"><svg width="16" height="16"><use href="#ic-search"/></svg> Search people…</div>
               <div class="t-hint">Possible match by e-mail — please verify it's the same person:</div>
-              <div class="person-opt hl"><span class="avatar avatar-sm">JD</span> Jordan Doe <span class="muted">· j.doe@example.com · Contoso Ltd</span><svg width="16" height="16" style="margin-left:auto;color:var(--accent-indigo)"><use href="#ic-check"/></svg></div>
+              <div class="person-opt hl"><span class="avatar avatar-sm">JD</span> Jordan Doe <span class="muted">— j.doe@example.com — Contoso Ltd</span><svg width="16" height="16" style="margin-left:auto;color:var(--accent-indigo)"><use href="#ic-check"/></svg></div>
             </div>
           </div>
           <div class="alert alert-warning"><svg><use href="#ic-warn"/></svg><div>Overlaps with <strong>Call: Q4 review</strong> (13:15–13:45), added after this request. You can still accept.</div></div>
         </div>
-        <div class="modal-foot"><span class="t-hint">Esc to cancel · ⌘↵ to accept</span><div class="row" style="gap:0.5rem"><button class="btn btn-outline" data-goto="s6">Cancel</button><button class="btn btn-primary" data-goto="s9">Accept &amp; send invite</button></div></div>
+        <div class="modal-foot"><span class="t-hint">Esc to cancel — ⌘↵ to accept</span><div class="row" style="gap:0.5rem"><button class="btn btn-outline" data-goto="s6">Cancel</button><button class="btn btn-primary" data-goto="s9">Accept &amp; send invite</button></div></div>
       </div>
     </div>
   </div>
@@ -608,18 +608,18 @@
       <div class="main">
         <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Calendar</span></div></div></header>
         <main class="page">
-          <div class="page-head"><div><h1 class="t-page-title">2 – 6 November 2026</h1><p>Week · Europe/Warsaw</p></div><div class="page-actions"><div class="segmented"><button>Day</button><button aria-selected="true">Week</button><button>Month</button><button>Agenda</button></div><button class="btn btn-primary"><svg><use href="#ic-plus"/></svg> New event</button></div></div>
+          <div class="page-head"><div><h1 class="t-page-title">2 – 6 November 2026</h1><p>Week — Europe/Warsaw</p></div><div class="page-actions"><div class="segmented"><button>Day</button><button aria-selected="true">Week</button><button>Month</button><button>Agenda</button></div><button class="btn btn-primary"><svg><use href="#ic-plus"/></svg> New event</button></div></div>
           <div class="wk">
             <div class="wk-h"></div><div class="wk-h">Mon 2</div><div class="wk-h">Tue 3</div><div class="wk-h">Wed 4</div><div class="wk-h">Thu 5</div><div class="wk-h">Fri 6</div>
             <div class="wk-times"><span style="top:0">9:00</span><span style="top:5.5rem">11:00</span><span style="top:11rem">13:00</span><span style="top:16.5rem">15:00</span></div>
             <div class="wk-col">
               <div class="ev ev-meeting" style="top:2.75rem;height:2.75rem"><strong>Demo — Woodgrove</strong>10:00–11:00</div>
-              <div class="ev ev-pending" style="top:11rem;height:1.375rem" data-goto="s7" role="button" tabindex="0"><strong>Pending · Jordan Doe</strong></div>
+              <div class="ev ev-pending" style="top:11rem;height:1.375rem" data-goto="s7" role="button" tabindex="0"><strong>Pending — Jordan Doe</strong></div>
               <div class="ev ev-call" style="top:11.6875rem;height:1.375rem;left:50%"><strong>Call: Q4 review</strong></div>
             </div>
-            <div class="wk-col"><div class="ev ev-pending" style="top:1.375rem;height:1.375rem" data-goto="s7" role="button" tabindex="0"><strong>Pending · Riley Novak</strong></div></div>
+            <div class="wk-col"><div class="ev ev-pending" style="top:1.375rem;height:1.375rem" data-goto="s7" role="button" tabindex="0"><strong>Pending — Riley Novak</strong></div></div>
             <div class="wk-col"><div class="ev ev-meeting" style="top:5.5rem;height:4.125rem"><strong>Workshop</strong>11:00–12:30</div></div>
-            <div class="wk-col"><div class="ev ev-meeting" style="top:2.75rem;height:1.375rem"><strong>Meet with Anna</strong></div><div class="ev ev-pending" style="top:16.5rem;height:1.375rem" data-goto="s7" role="button" tabindex="0"><strong>Pending · Sam Ortega</strong></div></div>
+            <div class="wk-col"><div class="ev ev-meeting" style="top:2.75rem;height:1.375rem"><strong>Meet with Anna</strong></div><div class="ev ev-pending" style="top:16.5rem;height:1.375rem" data-goto="s7" role="button" tabindex="0"><strong>Pending — Sam Ortega</strong></div></div>
             <div class="wk-col"><div class="ev ev-meeting" style="top:2.75rem;height:1.375rem"><strong>Meet with Anna</strong>10:00–10:30</div></div>
           </div>
         </main>
@@ -656,24 +656,24 @@
             <table class="table">
               <thead><tr><th>When</th><th>Booker</th><th>Status</th><th>CRM person</th><th class="right"></th></tr></thead>
               <tbody>
-                <tr><td><strong>Fri, 30 Oct · 15:00–15:30</strong></td><td>Alex Rivera<div class="t-hint">alex@tailspin.example</div></td><td><span class="badge badge-success"><span class="dot"></span>Confirmed</span></td><td>Alex Rivera <span class="badge badge-info">New from booking</span></td><td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Actions"><svg><use href="#ic-more"/></svg></button></td></tr>
-                <tr><td><strong>Thu, 5 Nov · 10:00–10:30</strong></td><td>Morgan Lee<div class="t-hint">m.lee@woodgrove.example</div></td><td><span class="badge badge-success"><span class="dot"></span>Confirmed</span></td><td>Morgan Lee</td><td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Actions"><svg><use href="#ic-more"/></svg></button></td></tr>
+                <tr><td><strong>Fri, 30 Oct, 15:00–15:30</strong></td><td>Alex Rivera<div class="t-hint">alex@tailspin.example</div></td><td><span class="badge badge-success"><span class="dot"></span>Confirmed</span></td><td>Alex Rivera <span class="badge badge-info">New from booking</span></td><td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Actions"><svg><use href="#ic-more"/></svg></button></td></tr>
+                <tr><td><strong>Thu, 5 Nov, 10:00–10:30</strong></td><td>Morgan Lee<div class="t-hint">m.lee@woodgrove.example</div></td><td><span class="badge badge-success"><span class="dot"></span>Confirmed</span></td><td>Morgan Lee</td><td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Actions"><svg><use href="#ic-more"/></svg></button></td></tr>
               </tbody>
             </table>
           </div>
         </main>
       </div>
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="lp-title" style="width:32rem">
-        <div class="modal-head"><h2 id="lp-title" class="t-section" style="margin:0">Link to existing person</h2><p class="muted" style="margin:0.25rem 0 0;font-size:0.875rem">The meeting with Alex Rivera (Fri, 30 Oct · 15:00) moves to the selected person.</p></div>
+        <div class="modal-head"><h2 id="lp-title" class="t-section" style="margin:0">Link to existing person</h2><p class="muted" style="margin:0.25rem 0 0;font-size:0.875rem">The meeting with Alex Rivera (Fri, 30 Oct, 15:00) moves to the selected person.</p></div>
         <div class="modal-body">
           <div class="input" style="display:flex;align-items:center;gap:0.5rem"><svg width="16" height="16"><use href="#ic-search"/></svg> alex riv</div>
           <div>
-            <div class="person-opt hl"><span class="avatar avatar-sm">AR</span> Alexandra Rivera <span class="muted">· a.rivera@tailspin.example · Tailspin Toys</span></div>
-            <div class="person-opt"><span class="avatar avatar-sm">AR</span> Alex Rivas <span class="muted">· alex.rivas@example.com</span></div>
+            <div class="person-opt hl"><span class="avatar avatar-sm">AR</span> Alexandra Rivera <span class="muted">— a.rivera@tailspin.example — Tailspin Toys</span></div>
+            <div class="person-opt"><span class="avatar avatar-sm">AR</span> Alex Rivas <span class="muted">— alex.rivas@example.com</span></div>
           </div>
           <div class="alert alert-info"><svg><use href="#ic-info"/></svg><div>The auto-created person "Alex Rivera" is removed if nothing else is attached to it; otherwise it is kept. You can undo this.</div></div>
         </div>
-        <div class="modal-foot"><span class="t-hint">Esc to cancel · ⌘↵ to link</span><div class="row" style="gap:0.5rem"><button class="btn btn-outline">Cancel</button><button class="btn btn-primary" data-goto="s8">Link person</button></div></div>
+        <div class="modal-foot"><span class="t-hint">Esc to cancel — ⌘↵ to link</span><div class="row" style="gap:0.5rem"><button class="btn btn-outline">Cancel</button><button class="btn btn-primary" data-goto="s8">Link person</button></div></div>
       </div>
       <div class="toast" style="z-index:var(--z-index-toast)"><svg style="color:var(--status-success-icon)"><use href="#ic-check"/></svg> Linked to Alexandra Rivera. Auto-created person removed. <button class="btn btn-ghost btn-xs">Undo</button></div>
     </div>
@@ -703,8 +703,8 @@
         </div>
         <div class="bk-summary">
           <div class="bk-meta"><svg><use href="#ic-calendar"/></svg><strong>Meet with Anna</strong></div>
-          <div class="bk-meta"><svg><use href="#ic-clock"/></svg>Mon, 2 Nov 2026 · 13:00–13:30 (Europe/Warsaw)</div>
-          <div class="bk-meta"><svg><use href="#ic-mail"/></svg>Booked as Jordan Doe · j.doe@example.com</div>
+          <div class="bk-meta"><svg><use href="#ic-clock"/></svg>Mon, 2 Nov 2026, 13:00–13:30 (Europe/Warsaw)</div>
+          <div class="bk-meta"><svg><use href="#ic-mail"/></svg>Booked as Jordan Doe (j.doe@example.com)</div>
         </div>
         <div class="row" style="gap:0.5rem;justify-content:center">
           <button class="btn btn-destructive-outline">Cancel meeting</button>
@@ -736,7 +736,7 @@
     <div class="bk-page">
       <div class="alert alert-info bk-banner">
         <svg><use href="#ic-info"/></svg>
-        <div><span class="alert-title">Rescheduling</span> — currently Mon, 2 Nov · 13:00–13:30. Your current time stays booked until the new one is confirmed.</div>
+        <div><span class="alert-title">Rescheduling</span> — currently Mon, 2 Nov, 13:00–13:30. Your current time stays booked until the new one is confirmed.</div>
       </div>
       <div class="bk-card">
         <div class="bk-info">
@@ -811,7 +811,7 @@
         <main class="page">
           <div class="kpis">
             <div class="card kpi"><span class="t-label muted">Waiting for you</span><span class="v">3</span><span class="delta down"><svg><use href="#ic-warn"/></svg> 1 expires in under 3 h</span></div>
-            <div class="card kpi"><span class="t-label muted">Upcoming confirmed</span><span class="v">5</span><span class="delta muted">next: Fri, 30 Oct · 15:00</span></div>
+            <div class="card kpi"><span class="t-label muted">Upcoming confirmed</span><span class="v">5</span><span class="delta muted">next: Fri, 30 Oct, 15:00</span></div>
             <div class="card kpi"><span class="t-label muted">Accepted (30 days)</span><span class="v">14</span><span class="delta up">88% of decided requests</span></div>
             <div class="card kpi"><span class="t-label muted">Expired (30 days)</span><span class="v">2</span><span class="delta muted">not answered in 24 h</span></div>
           </div>
@@ -850,7 +850,7 @@
                 <tbody>
                   <tr>
                     <td><span class="check" role="checkbox" aria-checked="true" aria-label="Select Jordan Doe"><svg><use href="#ic-check"/></svg></span></td>
-                    <td><strong>Mon, 2 Nov · 13:00–13:30</strong><div class="t-hint">30 min · requested Thu, 29 Oct 13:40</div></td>
+                    <td><strong>Mon, 2 Nov, 13:00–13:30</strong><div class="t-hint">30 min — requested Thu, 29 Oct 13:40</div></td>
                     <td>Jordan Doe<div class="t-hint">j.doe@example.com</div></td>
                     <td><span class="badge badge-warning"><span class="dot"></span>Pending</span></td>
                     <td><span class="badge badge-error">2 h 10 min left</span><div class="t-hint">overlaps "Call: Q4 review"</div></td>
@@ -859,7 +859,7 @@
                   </tr>
                   <tr>
                     <td><span class="check" role="checkbox" aria-checked="true" aria-label="Select Riley Novak"><svg><use href="#ic-check"/></svg></span></td>
-                    <td><strong>Tue, 3 Nov · 09:30–10:00</strong><div class="t-hint">30 min · requested Fri, 30 Oct 05:30</div></td>
+                    <td><strong>Tue, 3 Nov, 09:30–10:00</strong><div class="t-hint">30 min — requested Fri, 30 Oct 05:30</div></td>
                     <td>Riley Novak<div class="t-hint">riley@fabrikam.example</div></td>
                     <td><span class="badge badge-warning"><span class="dot"></span>Pending</span></td>
                     <td>18 h left</td>
@@ -868,16 +868,16 @@
                   </tr>
                   <tr>
                     <td><span class="check" role="checkbox" aria-checked="false" aria-label="Select Sam Ortega"><svg><use href="#ic-check"/></svg></span></td>
-                    <td><strong>Thu, 5 Nov · 15:00–15:30</strong><div class="t-hint">moved from Wed, 4 Nov · 11:00</div></td>
+                    <td><strong>Thu, 5 Nov, 15:00–15:30</strong><div class="t-hint">moved from Wed, 4 Nov, 11:00</div></td>
                     <td>Sam Ortega<div class="t-hint">sam.ortega@contoso.example</div></td>
-                    <td><span class="badge badge-warning"><span class="dot"></span>Pending · reschedule</span></td>
+                    <td><span class="badge badge-warning"><span class="dot"></span>Reschedule pending</span></td>
                     <td>23 h left</td>
                     <td>Sam Ortega</td>
                     <td class="right"><div class="row" style="gap:0.25rem;justify-content:flex-end;flex-wrap:nowrap"><button class="btn btn-outline btn-sm">Decline</button><button class="btn btn-primary btn-sm" data-goto="s7">Accept</button></div></td>
                   </tr>
                   <tr>
                     <td></td>
-                    <td><strong>Fri, 30 Oct · 15:00–15:30</strong><div class="t-hint">instant booking</div></td>
+                    <td><strong>Fri, 30 Oct, 15:00–15:30</strong><div class="t-hint">instant booking</div></td>
                     <td>Alex Rivera<div class="t-hint">alex@tailspin.example</div></td>
                     <td><span class="badge badge-success"><span class="dot"></span>Confirmed</span></td>
                     <td class="muted">Booked Wed, 28 Oct</td>
@@ -886,7 +886,7 @@
                   </tr>
                   <tr>
                     <td></td>
-                    <td><strong>Thu, 5 Nov · 10:00–10:30</strong></td>
+                    <td><strong>Thu, 5 Nov, 10:00–10:30</strong></td>
                     <td>Morgan Lee<div class="t-hint">m.lee@woodgrove.example</div></td>
                     <td><span class="badge badge-success"><span class="dot"></span>Confirmed</span></td>
                     <td class="muted">Accepted by you, Tue, 27 Oct</td>
@@ -895,7 +895,7 @@
                   </tr>
                   <tr>
                     <td></td>
-                    <td><strong>Wed, 28 Oct · 14:00–14:30</strong></td>
+                    <td><strong>Wed, 28 Oct, 14:00–14:30</strong></td>
                     <td>Casey Park<div class="t-hint">casey.park@example.net</div></td>
                     <td><span class="badge badge-neutral"><span class="dot"></span>Declined</span></td>
                     <td class="muted">"Please book via our partner team"</td>
@@ -904,7 +904,7 @@
                   </tr>
                   <tr>
                     <td></td>
-                    <td><strong>Tue, 27 Oct · 16:00–16:30</strong></td>
+                    <td><strong>Tue, 27 Oct, 16:00–16:30</strong></td>
                     <td>Drew Santos<div class="t-hint">drew@litware.example</div></td>
                     <td><span class="badge badge-neutral"><span class="dot"></span>Expired</span></td>
                     <td class="muted">Not answered within 24 h</td>
@@ -913,7 +913,7 @@
                   </tr>
                   <tr>
                     <td></td>
-                    <td><strong>Mon, 26 Oct · 11:00–11:30</strong></td>
+                    <td><strong>Mon, 26 Oct, 11:00–11:30</strong></td>
                     <td>Jamie Fox<div class="t-hint">jamie.fox@example.org</div></td>
                     <td><span class="badge badge-error"><span class="dot"></span>Cancelled by booker</span></td>
                     <td class="muted">Cancelled Sun, 25 Oct</td>
@@ -936,7 +936,7 @@
     <div class="note"><b>1</b><span>Only pending rows are selectable. Bulk actions run as a background job with top-bar progress. Bulk <strong>Accept</strong> creates a new CRM person for each new booker (the default) and keeps the existing person for reschedule requests; linking to existing people is done one by one, from the row's Accept dialog or afterwards via Link to existing person. Bulk <strong>Decline</strong> asks for one optional reason that goes to every selected booker.</span></div>
     <div class="note"><b>2</b><span>Rows are sorted pending-first (soonest deadline on top), then by meeting date. A request that expires while the page is open greys out with a "just expired" hint; accepting it returns a 409 conflict and the list refreshes.</span></div>
     <div class="note"><b>3</b><span>The counters come from <code>GET /api/customers/booking-requests/counts</code>. Users with <code>customers.booking.manage</code> also get an Owner column and filter, so a manager can see the whole team's requests.</span></div>
-    <div class="note"><b>4</b><span>Row menu (⋯) on confirmed requests: Open in calendar · Link to existing person · Cancel meeting. On declined, expired or cancelled requests: View details only. Nothing can be re-opened, because the booker has already been e-mailed.</span></div>
+    <div class="note"><b>4</b><span>Row menu (⋯) on confirmed requests: Open in calendar — Link to existing person — Cancel meeting. On declined, expired or cancelled requests: View details only. Nothing can be re-opened, because the booker has already been e-mailed.</span></div>
   </div>
 </section>
 
