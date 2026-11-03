@@ -34,7 +34,11 @@
       "om-create-skill",
       "om-help",
       "om-judge-agent-session",
-      "om-share-this-session"
+      "om-share-this-session",
+      "om-auto-sec-report",
+      "om-auto-sec-report-pr",
+      "om-app-spec-writing",
+      "om-gap-analysis"
     ]
   },
   "tiers": {
@@ -68,13 +72,9 @@
         "om-auto-qa-scenarios"
       ]
     },
-    "security": {
-      "description": "Security audit skills. Opt-in.",
-      "skills": ["om-auto-sec-report", "om-auto-sec-report-pr"]
-    },
     "analysis": {
-      "description": "Business/engagement analysis skills (app specs, platform gap analysis) and the draft accessibility review. Opt-in.",
-      "skills": ["om-app-spec-writing", "om-gap-analysis", "om-wcag-guardian"]
+      "description": "Draft accessibility review (WCAG 2.2 AA). Opt-in.",
+      "skills": ["om-wcag-guardian"]
     },
     "migration": {
       "description": "One-shot, version-pinned migrations. Install only when needed.",
