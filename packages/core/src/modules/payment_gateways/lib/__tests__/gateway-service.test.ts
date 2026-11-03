@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { LockMode } from '@mikro-orm/core'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { setGlobalEventBus } from '@open-mercato/shared/modules/events'
@@ -730,4 +731,116 @@ describe('payment gateway service — refund webhook that overtakes the capture'
       expect(emitted).toEqual([])
     },
   )
+})
+
+describe('payment gateway service — operations recorded before exact amounts', () => {
+  beforeAll(() => {
+    setGlobalEventBus({ emit: async () => {} })
+  })
+
+  beforeEach(() => {
+    clearGatewayAdapters()
+    findOneMock.mockReset()
+  })
+
+  afterEach(() => {
+    clearGatewayAdapters()
+  })
+
+  function legacyDigest(value: unknown): string {
+    return createHash('sha256').update(JSON.stringify(value)).digest('hex')
+  }
+
+  async function seedLegacyOperation(
+    em: ReturnType<typeof buildService>['em'],
+    transaction: GatewayTransaction,
+    action: 'capture' | 'refund',
+    payload: Record<string, unknown>,
+    result: Record<string, unknown>,
+    explicitOperationId?: string,
+  ) {
+    const requestHash = legacyDigest({
+      transactionId: transaction.id,
+      providerKey: PROVIDER_KEY,
+      action,
+      payload,
+    })
+    const operationId = explicitOperationId ?? `auto_${requestHash}`
+    const providerIdempotencyKey = `om-pg-${legacyDigest({
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      transactionId: transaction.id,
+      action,
+      operationId,
+    })}`
+    const record = {
+      id: `legacy_${action}_${operationId}`,
+      operationId,
+      transactionId: transaction.id,
+      operationType: action,
+      providerKey: PROVIDER_KEY,
+      requestHash,
+      providerIdempotencyKey,
+      status: 'succeeded',
+      attemptToken: 'legacy-attempt',
+      attemptCount: 1,
+      result,
+      leaseExpiresAt: null,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+    }
+    await (em.persist as unknown as (entity: typeof record) => { flush: () => Promise<void> })(record).flush()
+    return record
+  }
+
+  it.each([
+    ['an automatic', undefined],
+    ['an explicit', 'legacy-capture'],
+  ])('replays a pre-upgrade partial capture under %s operation id without capturing again', async (_label, operationId) => {
+    const transaction = makeTransaction('partially_captured', '60.0000')
+    const { service, captureFn, em } = buildService(transaction, {})
+    const legacyResult = { status: 'partially_captured', capturedAmount: 60 }
+    await seedLegacyOperation(em, transaction, 'capture', { amount: 60 }, legacyResult, operationId)
+
+    const replayed = await service.capturePayment(transaction.id, '60', scope, operationId)
+
+    expect(replayed).toEqual(legacyResult)
+    expect(captureFn).not.toHaveBeenCalled()
+    expect(em.create).not.toHaveBeenCalled()
+    expect(transaction.capturedAmount).toBe('60.0000')
+  })
+
+  it.each([
+    ['an automatic', undefined],
+    ['an explicit', 'legacy-refund'],
+  ])('replays a pre-upgrade partial refund under %s operation id without refunding again', async (_label, operationId) => {
+    const transaction = makeTransaction('partially_refunded', '100.0000')
+    const { service, refundFn, em } = buildService(transaction, {})
+    const legacyResult = { status: 'partially_refunded', refundedAmount: 10.5, refundId: 're_legacy' }
+    await seedLegacyOperation(em, transaction, 'refund', { amount: 10.5, reason: 'damaged' }, legacyResult, operationId)
+
+    const replayed = await refundWithOperation(
+      service,
+      transaction.id,
+      '10.50' as unknown as number,
+      'damaged',
+      operationId,
+    )
+
+    expect(replayed).toEqual(legacyResult)
+    expect(refundFn).not.toHaveBeenCalled()
+    expect(em.create).not.toHaveBeenCalled()
+  })
+
+  it('keeps an amount with more digits than a number holds a distinct operation', async () => {
+    const transaction = makeTransaction('partially_captured', '60.0000')
+    const { service, captureFn, em } = buildService(transaction, {})
+    captureFn.mockResolvedValue({ status: 'captured', capturedAmount: 10 })
+    await seedLegacyOperation(em, transaction, 'capture', { amount: 10 }, { status: 'partially_captured', capturedAmount: 10 })
+
+    await service.capturePayment(transaction.id, '10.00000000000000000001', scope)
+
+    expect(captureFn).toHaveBeenCalledTimes(1)
+    expect(em.create).toHaveBeenCalledTimes(1)
+  })
 })

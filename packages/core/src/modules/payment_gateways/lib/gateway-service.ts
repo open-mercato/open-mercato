@@ -38,6 +38,7 @@ import {
   completePaymentOperation,
   failPaymentOperation,
   preparePaymentOperation,
+  toOperationIdentityAmount,
 } from './payment-operation-idempotency'
 import {
   buildPaymentSessionOperationKey,
@@ -580,7 +581,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         action: 'capture',
         transactionId,
         operationId,
-        payload: { amount: amount ?? null },
+        payload: { amount: toOperationIdentityAmount(amount) },
         scope,
         assertInitialAllowed: (transaction) => { assertCaptureWithinRemainingExact(transaction, amount) },
         beforeInvoke: async ({ transaction, operation }) => {
@@ -668,7 +669,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         action: 'refund',
         transactionId,
         operationId,
-        payload: { amount: amount ?? null, reason: reason ?? null },
+        payload: { amount: toOperationIdentityAmount(amount), reason: reason ?? null },
         scope,
         invoke: async ({ adapter, credentials, transaction, idempotencyKey }) => {
           const requestedAmountExact = amount === undefined ? undefined : (resolveExactDecimal(amount, null) ?? undefined)
