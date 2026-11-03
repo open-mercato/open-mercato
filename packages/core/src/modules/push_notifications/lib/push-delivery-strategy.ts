@@ -3,6 +3,7 @@ import type { NotificationDeliveryStrategy } from '@open-mercato/core/modules/no
 import { getNotificationType } from '@open-mercato/core/modules/notifications/lib/notification-type-registry'
 import type { PushOptions } from '@open-mercato/core/modules/communication_channels/lib/push-envelope'
 import type { NotificationCopySource } from '@open-mercato/core/modules/notifications/lib/notificationCopy'
+import { toSafeNotificationHref } from '@open-mercato/core/modules/notifications/lib/safeHref'
 import { fanOutPushDeliveries, PUSH_CHANNEL, type PushFanoutPayload } from './push-fanout'
 
 export { PUSH_CHANNEL } from './push-fanout'
@@ -52,7 +53,8 @@ export const mobilePushDeliveryStrategy: NotificationDeliveryStrategy = {
     const data: Record<string, string> = { ...(notification.data ?? {}) }
     data.notificationId = notification.id
     data.type = notification.type
-    if (notification.linkHref) data.linkHref = notification.linkHref
+    const linkHref = toSafeNotificationHref(notification.linkHref)
+    if (linkHref) data.linkHref = linkHref
 
     const payload: PushFanoutPayload = {
       data,

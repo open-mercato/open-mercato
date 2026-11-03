@@ -111,7 +111,8 @@ const agentQuerySchema = z.object({
   model: z.string().optional(),
   /**
    * Per-request base URL override. Must parse as a URL and match
-   * `AI_RUNTIME_BASEURL_ALLOWLIST` (comma-separated host patterns). When the
+   * `AI_RUNTIME_BASEURL_ALLOWLIST` (comma-separated hosts, meaning https on
+   * port 443, or full `scheme://host[:port]` origins). When the
    * env var is unset or empty, any non-empty value is rejected.
    *
    * Phase 4a of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
@@ -622,7 +623,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       if (!isBaseurlAllowlisted(rawBaseUrl.trim(), allowlist)) {
         return jsonError(
           400,
-          `baseUrl "${rawBaseUrl}" is not in the AI_RUNTIME_BASEURL_ALLOWLIST. Set that env var to a comma-separated list of allowed host patterns to enable per-request baseUrl overrides.`,
+          `baseUrl "${rawBaseUrl}" is not in the AI_RUNTIME_BASEURL_ALLOWLIST. Set that env var to a comma-separated list of allowed hosts (https only) or full origins such as http://localhost:11434 to enable per-request baseUrl overrides.`,
           'baseurl_not_allowlisted',
         )
       }

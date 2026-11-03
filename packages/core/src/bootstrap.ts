@@ -10,6 +10,7 @@ import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { registerTenantEncryptionSubscriber } from '@open-mercato/shared/lib/encryption/subscriber'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
+import { warnUnresolvedEncryptionMapEntityIds } from '@open-mercato/shared/lib/encryption/unresolvedMapEntityIds'
 import { getSearchModuleConfigs } from '@open-mercato/shared/modules/search'
 import {
   registerSearchModule,
@@ -201,6 +202,7 @@ export async function bootstrap(container: AwilixContainer) {
       logger.error('Failed to load default encryption maps', { component: 'encryption', err })
       throw err
     }
+    warnUnresolvedEncryptionMapEntityIds(defaultEncryptionMaps)
   }
   try {
     const em = container.resolve('em') as EntityManager

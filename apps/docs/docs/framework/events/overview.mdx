@@ -61,6 +61,48 @@ them (a bare `next start` does not).
   - Redis: online delivery + persistence in Redis sorted set.
 - Offline processing: `yarn mercato events process [--limit=N]` replays unprocessed persistent events.
 
+## Browser event stream authorization
+
+Events declared with `clientBroadcast: true` can reach the browser through the authenticated
+`GET /api/events/stream` Server-Sent Events endpoint. The server filters every frame against the
+connection's tenant, organization, user, and roles. It also re-resolves canonical authorization
+from the original request credentials every 30 seconds. Both the opening request and every periodic
+check pass the authenticated principal plus that request's selection cookies through Directory's
+request-scoped organization resolver. The resolver's normalized tenant must exactly equal the
+normalized canonical authenticated tenant, and its ACL-approved selected organization becomes the
+stream audience. When no organization is selected (the **All organizations** option), the stream
+falls back to the caller's home organization (`auth.orgId`), which must still be in the allowed
+set; it does not widen to every organization the caller can see. A rejected or out-of-scope
+selection cannot open or preserve a stream.
+If the session or user disappears, the lookup fails, or the canonical user, tenant, organization,
+or role set changes, the stream closes and removes its connection, listener, heartbeat, validation,
+and lifetime state before any later event can be delivered.
+
+The browser endpoint accepts staff session cookies and staff Bearer tokens. It rejects `x-api-key`
+and `Authorization: ApiKey` credentials before opening a stream; API clients should consume event
+APIs through bounded requests rather than a browser DOM-event connection. When the active tenant or
+organization changes, the browser closes the current `EventSource` and immediately opens a new one,
+so the request carries the current selection cookies instead of waiting for the lifetime cap.
+
+Every stream also has a server maximum age (five minutes by default, jittered by ±15% per
+connection so clients do not reconnect in synchronized waves). Closing is intentional: the browser
+bridge (`useEventBridge`) treats the close as an error, closes its `EventSource`, and opens a new one
+with its own exponential backoff (1 second doubling up to 30 seconds, reset after a successful
+open). The new request passes through normal authentication again, and once it opens the bridge
+dispatches an `om:bridge:reconnected` app event so components can refetch anything they may have
+missed. Heartbeats still run every 30 seconds, and the browser watchdog still reconnects when one is
+missing for 45 seconds.
+
+| Environment variable | Default | Constraint | Purpose |
+| --- | ---: | ---: | --- |
+| `OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS` | `30000` | `1000`–`2147483647` | How often an open stream re-resolves canonical identity and roles. |
+| `OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS` | `300000` | `1000`–`2147483647` | Base maximum age of one server stream before a forced reconnect; each connection applies ±15% jitter within the same bounds. |
+
+Invalid values and values below the minimum use the default. Larger finite values are capped at
+Node's maximum safe timer delay (`2^31-1` milliseconds), preventing timer overflow from turning a
+long interval into rapid reconnect churn. Keep the revalidation interval below the maximum age when
+periodic revocation detection should happen before the mandatory reconnect.
+
 ## File Structure
 
 Example subscriber file `packages/my-module/src/modules/my_module/subscribers/order-created.ts`:

@@ -57,7 +57,9 @@ test.describe('TC-STAFF-027: Timesheets grid decimal edit save', () => {
         code: projectCode,
       })
       projectId = project.id
-      await assignEmployeeToProjectFixture(request, adminToken, projectId, employeeStaffMemberId)
+      await assignEmployeeToProjectFixture(request, adminToken, projectId, employeeStaffMemberId, {
+        assignedStartDate: entryDate,
+      })
       const showInGridResponse = await apiRequest(
         request,
         'PATCH',
@@ -147,7 +149,9 @@ test.describe('TC-STAFF-027: Timesheets grid decimal edit save', () => {
         code: projectCode,
       })
       projectId = project.id
-      await assignEmployeeToProjectFixture(request, adminToken, projectId, employeeStaffMemberId)
+      await assignEmployeeToProjectFixture(request, adminToken, projectId, employeeStaffMemberId, {
+        assignedStartDate: entryDate,
+      })
       const showInGridResponse = await apiRequest(
         request,
         'PATCH',

@@ -1,4 +1,4 @@
-import type { CommandHandler } from '@open-mercato/shared/lib/commands'
+import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { FeatureToggle, FeatureToggleOverride } from '../data/entities'
@@ -10,7 +10,7 @@ import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/opti
 import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects, requireId } from '@open-mercato/shared/lib/commands/helpers'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
-import { FeatureTogglesService } from '../lib/feature-flag-check'
+import { FeatureTogglesService, isFeatureToggleCacheDisabled } from '../lib/feature-flag-check'
 import { E } from '#generated/entities.ids.generated'
 
 function assertGlobalToggleSuperAdmin(ctx: { auth?: { [key: string]: unknown } | null; systemActor?: boolean }): void {
@@ -51,6 +51,15 @@ type ToggleUndoPayload = {
 const featureToggleCrudIndexer = { entityType: E.feature_toggles.feature_toggle }
 
 const FEATURE_TOGGLE_LOCK_RESOURCE_KIND = 'feature_toggles.feature_toggle'
+
+async function invalidateGlobalToggleCache(
+  ctx: Pick<CommandRuntimeContext, 'container'>,
+  identifier: string,
+): Promise<void> {
+  if (isFeatureToggleCacheDisabled()) return
+  const featureTogglesService = ctx.container.resolve('featureTogglesService') as FeatureTogglesService
+  await featureTogglesService.invalidateIsEnabledCacheByIdentifierTag(identifier)
+}
 
 function featureToggleIdentifiers(toggle: FeatureToggle | ToggleSnapshot) {
   return {
@@ -141,13 +150,9 @@ const createToggleCommand: CommandHandler<ToggleCreateInput, { toggleId: string 
     const toggleId = logEntry?.resourceId ?? null
     if (!toggleId) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const overrides = await em.find(FeatureToggleOverride, { toggle: toggleId })
-    if (overrides.length > 0) {
-      em.remove(overrides)
-    }
     const toggle = await em.findOne(FeatureToggle, { id: toggleId })
     if (toggle) {
-      em.remove(toggle)
+      toggle.deletedAt = new Date()
       await em.flush()
       const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
       await emitCrudUndoSideEffects({
@@ -158,8 +163,7 @@ const createToggleCommand: CommandHandler<ToggleCreateInput, { toggleId: string 
         syncOrigin: ctx.syncOrigin,
         indexer: featureToggleCrudIndexer,
       })
-      const featureTogglesService = ctx.container.resolve('featureTogglesService') as FeatureTogglesService
-      await featureTogglesService.invalidateIsEnabledCacheByIdentifierTag(toggle.identifier)
+      await invalidateGlobalToggleCache(ctx, toggle.identifier)
     }
   },
   redo: async ({ logEntry, ctx }) => {
@@ -197,8 +201,7 @@ const createToggleCommand: CommandHandler<ToggleCreateInput, { toggleId: string 
       syncOrigin: ctx.syncOrigin,
       indexer: featureToggleCrudIndexer,
     })
-    const featureTogglesService = ctx.container.resolve('featureTogglesService') as FeatureTogglesService
-    await featureTogglesService.invalidateIsEnabledCacheByIdentifierTag(toggle.identifier)
+    await invalidateGlobalToggleCache(ctx, toggle.identifier)
     return { toggleId: toggle.id }
   },
 }
@@ -246,11 +249,10 @@ const updateToggleCommand: CommandHandler<ToggleUpdateInput, { toggleId: string 
       syncOrigin: ctx.syncOrigin,
       indexer: featureToggleCrudIndexer,
     })
-    const featureTogglesService = ctx.container.resolve('featureTogglesService') as FeatureTogglesService
     if (previousIdentifier !== toggle.identifier) {
-      await featureTogglesService.invalidateIsEnabledCacheByIdentifierTag(previousIdentifier)
+      await invalidateGlobalToggleCache(ctx, previousIdentifier)
     }
-    await featureTogglesService.invalidateIsEnabledCacheByIdentifierTag(toggle.identifier)
+    await invalidateGlobalToggleCache(ctx, toggle.identifier)
     return { toggleId: toggle.id }
   },
   buildLog: async ({ snapshots, ctx }) => {
@@ -329,8 +331,7 @@ const updateToggleCommand: CommandHandler<ToggleUpdateInput, { toggleId: string 
       syncOrigin: ctx.syncOrigin,
       indexer: featureToggleCrudIndexer,
     })
-    const featureTogglesService = ctx.container.resolve('featureTogglesService') as FeatureTogglesService
-    await featureTogglesService.invalidateIsEnabledCacheByIdentifierTag(toggle.identifier)
+    await invalidateGlobalToggleCache(ctx, toggle.identifier)
   }
 }
 
@@ -356,8 +357,7 @@ const deleteToggleCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       current: toggle.updatedAt ?? null,
       request: ctx.request ?? null,
     })
-    const featureTogglesService = ctx.container.resolve('featureTogglesService') as FeatureTogglesService
-    await featureTogglesService.invalidateIsEnabledCacheByIdentifierTag(toggle.identifier)
+    await invalidateGlobalToggleCache(ctx, toggle.identifier)
 
     toggle.deletedAt = new Date()
     await em.flush()
@@ -432,8 +432,7 @@ const deleteToggleCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       toggle.defaultValue = before.defaultValue
       toggle.deletedAt = null
     }
-    const featureTogglesService = ctx.container.resolve('featureTogglesService') as FeatureTogglesService
-    await featureTogglesService.invalidateIsEnabledCacheByIdentifierTag(toggle.identifier)
+    await invalidateGlobalToggleCache(ctx, toggle.identifier)
     await em.flush()
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudUndoSideEffects({

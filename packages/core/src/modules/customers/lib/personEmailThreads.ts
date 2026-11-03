@@ -3,6 +3,7 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerInteraction } from '../data/entities'
 import { resolveUserNames } from './userNames'
 import { buildEmailVisibilityMikroFilter } from './visibilityFilter'
+import { buildInteractionOccurredAtOrderBy } from './interactionOrderBy'
 import type { ConversationShareGrant } from './conversationShares'
 
 /**
@@ -45,7 +46,7 @@ export type PersonEmailMessage = {
   cc: string[]
   subject: string | null
   bodyText: string | null
-  sentAt: string
+  sentAt: string | null
   providerKey: string | null
 }
 
@@ -54,7 +55,7 @@ export type PersonEmailThread = {
   subject: string | null
   preview: string | null
   participants: string[]
-  lastMessageAt: string
+  lastMessageAt: string | null
   messageCount: number
   providerKey: string | null
   lastDirection: EmailThreadDirection
@@ -195,17 +196,20 @@ export async function buildPersonEmailThreads(
     em,
     CustomerInteraction,
     interactionWhere as never,
-    { orderBy: { occurredAt: 'desc', createdAt: 'desc' }, limit: maxThreads * 20 },
+    {
+      orderBy: buildInteractionOccurredAtOrderBy('desc'),
+      limit: maxThreads * 20,
+    },
     dscope,
   )) as CustomerInteraction[]
 
-  const linkIdByInteraction = new Map<string, { occurredAt: Date; authorUserId: string | null }>()
+  const linkIdByInteraction = new Map<string, { occurredAt: Date | null; authorUserId: string | null }>()
   const linkIds: string[] = []
   for (const interaction of interactions) {
     const linkId = interaction.externalMessageId
     if (!linkId || linkIdByInteraction.has(linkId)) continue
     linkIdByInteraction.set(linkId, {
-      occurredAt: interaction.occurredAt ?? interaction.createdAt,
+      occurredAt: interaction.occurredAt ?? null,
       authorUserId: interaction.authorUserId ?? null,
     })
     linkIds.push(linkId)
@@ -301,14 +305,12 @@ export async function buildPersonEmailThreads(
       typeof message?.body === 'string' ? message.body : null,
     )
 
-    const sentAtRaw =
-      (typeof message?.sentAt === 'string' || message?.sentAt instanceof Date
-        ? message.sentAt
-        : null) ??
-      (link.createdAt instanceof Date || typeof link.createdAt === 'string' ? link.createdAt : null) ??
-      linkIdByInteraction.get(linkId)?.occurredAt ??
-      new Date()
-    const sentAt = (sentAtRaw instanceof Date ? sentAtRaw : new Date(sentAtRaw)).toISOString()
+    const messageSentAt = message?.sentAt instanceof Date || typeof message?.sentAt === 'string'
+      ? new Date(message.sentAt)
+      : null
+    const sentAt = messageSentAt && !Number.isNaN(messageSentAt.getTime())
+      ? messageSentAt.toISOString()
+      : null
 
     const threadKey =
       (typeof message?.threadId === 'string' && message.threadId ? message.threadId : null) ??
@@ -353,11 +355,27 @@ export async function buildPersonEmailThreads(
   // ── (5) Finalize thread summaries ───────────────────────────────────────
   const threads: PersonEmailThread[] = []
   for (const thread of threadsByKey.values()) {
-    thread.messages.sort((a, b) => a.sentAt.localeCompare(b.sentAt))
+    thread.messages.sort((left, right) => compareNullableIsochronological(
+      left.sentAt,
+      right.sentAt,
+      left.id,
+      right.id,
+    ))
+    const datedMessages = thread.messages.filter((message) => message.sentAt !== null)
+    const undatedMessages = thread.messages.filter((message) => message.sentAt === null)
     if (thread.messages.length > maxMessagesPerThread) {
-      thread.messages = thread.messages.slice(thread.messages.length - maxMessagesPerThread)
+      const retainedDatedMessages = maxMessagesPerThread > 0
+        ? datedMessages.slice(-maxMessagesPerThread)
+        : []
+      const remainingSlots = Math.max(0, maxMessagesPerThread - retainedDatedMessages.length)
+      const retainedUndatedMessages = remainingSlots > 0
+        ? undatedMessages.slice(-remainingSlots)
+        : []
+      thread.messages = [...retainedDatedMessages, ...retainedUndatedMessages]
     }
-    const last = thread.messages[thread.messages.length - 1]
+    const retainedDatedMessages = thread.messages.filter((message) => message.sentAt !== null)
+    const latestDatedMessage = retainedDatedMessages[retainedDatedMessages.length - 1]
+    const summaryMessage = latestDatedMessage ?? thread.messages[thread.messages.length - 1]
     const firstWithSubject = thread.messages.find((m) => m.subject)
     const participantSet = new Set<string>()
     for (const message of thread.messages) {
@@ -366,15 +384,100 @@ export async function buildPersonEmailThreads(
       if (message.direction === 'outbound') message.to.forEach((email) => participantSet.add(email))
     }
     thread.subject = firstWithSubject?.subject ?? thread.subject
-    thread.preview = truncate(last?.bodyText ?? null)
+    thread.preview = truncate(summaryMessage?.bodyText ?? null)
     thread.participants = Array.from(participantSet)
-    thread.lastMessageAt = last?.sentAt ?? thread.lastMessageAt
-    thread.lastDirection = last?.direction ?? thread.lastDirection
-    thread.providerKey = last?.providerKey ?? thread.providerKey
+    thread.lastMessageAt = latestDatedMessage?.sentAt ?? null
+    thread.lastDirection = summaryMessage?.direction ?? thread.lastDirection
+    thread.providerKey = summaryMessage?.providerKey ?? thread.providerKey
     thread.messageCount = thread.messages.length
     threads.push(thread)
   }
 
-  threads.sort((a, b) => b.lastMessageAt.localeCompare(a.lastMessageAt))
+  threads.sort((left, right) => compareNullableIsochronological(
+    left.lastMessageAt,
+    right.lastMessageAt,
+    left.threadKey,
+    right.threadKey,
+    'desc',
+  ))
   return threads.slice(0, maxThreads)
+}
+
+function compareNullableIsochronological(
+  leftValue: string | null,
+  rightValue: string | null,
+  leftTieBreaker: string,
+  rightTieBreaker: string,
+  direction: 'asc' | 'desc' = 'asc',
+): number {
+  if (leftValue === rightValue) {
+    const tie = leftTieBreaker.localeCompare(rightTieBreaker)
+    return direction === 'asc' ? tie : -tie
+  }
+  if (leftValue === null) return 1
+  if (rightValue === null) return -1
+  return direction === 'asc'
+    ? leftValue.localeCompare(rightValue)
+    : rightValue.localeCompare(leftValue)
+}
+
+export type PersonEmailMessageAccessOptions = Pick<
+  BuildPersonEmailThreadsOptions,
+  'personId' | 'tenantId' | 'organizationId' | 'viewerUserId' | 'userFeatures' | 'sharedConversations' | 'sharedChannelIds'
+> & {
+  /** Open Mercato `messages.message` id the caller wants to reply to. */
+  messageId: string
+}
+
+/**
+ * Whether `messageId` is on this Person's email history as the viewer sees it —
+ * i.e. whether {@link buildPersonEmailThreads} would show it to them.
+ *
+ * Walks the same anchor (email `CustomerInteraction` → `MessageChannelLink` →
+ * message) with the same scope and the same visibility predicate, so a reply
+ * from the Person page can only name a parent the Emails tab could have shown:
+ * the viewer's own mail, shared or legacy mail, a conversation shared for THIS
+ * Person, or a shared team mailbox. Callers remain responsible for resolving the
+ * Person in scope first.
+ */
+export async function isMessageOnPersonEmailHistory(
+  em: EntityManager,
+  opts: PersonEmailMessageAccessOptions,
+): Promise<boolean> {
+  const { personId, tenantId, organizationId, messageId } = opts
+  const dscope = { tenantId, organizationId: organizationId ?? null }
+
+  const linkWhere: JsonRecord = { messageId, tenantId }
+  if (organizationId) linkWhere.organizationId = organizationId
+  const links = (await findWithDecryption(
+    em,
+    'MessageChannelLink' as never,
+    linkWhere as never,
+    undefined,
+    dscope,
+  )) as JsonRecord[]
+  const linkIds = links
+    .map((link) => (typeof link.id === 'string' ? (link.id as string) : null))
+    .filter((value): value is string => !!value)
+  if (linkIds.length === 0) return false
+
+  const interactionWhere: JsonRecord = {
+    entity: personId,
+    interactionType: 'email',
+    deletedAt: null,
+    tenantId,
+    externalMessageId: { $in: linkIds },
+  }
+  if (organizationId) interactionWhere.organizationId = organizationId
+  Object.assign(
+    interactionWhere,
+    buildEmailVisibilityMikroFilter({
+      currentUserId: opts.viewerUserId,
+      userFeatures: opts.userFeatures,
+      sharedConversations: opts.sharedConversations,
+      sharedChannelIds: opts.sharedChannelIds,
+    }),
+  )
+  const visible = await em.count(CustomerInteraction, interactionWhere as never)
+  return visible > 0
 }

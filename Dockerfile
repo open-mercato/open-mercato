@@ -51,6 +51,7 @@ COPY apps/docs/package.json ./apps/docs/
 COPY apps/mercato/package.json ./apps/mercato/
 COPY packages/ai-assistant/package.json ./packages/ai-assistant/
 COPY packages/cache/package.json ./packages/cache/
+COPY packages/carrier-inpost/package.json ./packages/carrier-inpost/
 COPY packages/channel-apns/package.json ./packages/channel-apns/
 COPY packages/channel-discord/package.json ./packages/channel-discord/
 COPY packages/channel-expo/package.json ./packages/channel-expo/
@@ -59,6 +60,7 @@ COPY packages/channel-gmail/package.json ./packages/channel-gmail/
 COPY packages/channel-imap/package.json ./packages/channel-imap/
 COPY packages/channel-resend/package.json ./packages/channel-resend/
 COPY packages/channel-ses/package.json ./packages/channel-ses/
+COPY packages/channel-smtp/package.json ./packages/channel-smtp/
 COPY packages/checkout/package.json ./packages/checkout/
 COPY packages/cli/package.json ./packages/cli/
 COPY packages/content/package.json ./packages/content/
@@ -68,7 +70,9 @@ COPY packages/documents/package.json ./packages/documents/
 COPY packages/enterprise/package.json ./packages/enterprise/
 COPY packages/eslint-plugin-ds/package.json ./packages/eslint-plugin-ds/
 COPY packages/events/package.json ./packages/events/
+COPY packages/gateway-autopay/package.json ./packages/gateway-autopay/
 COPY packages/gateway-stripe/package.json ./packages/gateway-stripe/
+COPY packages/gateway-tpay/package.json ./packages/gateway-tpay/
 COPY packages/onboarding/package.json ./packages/onboarding/
 COPY packages/queue/package.json ./packages/queue/
 COPY packages/scheduler/package.json ./packages/scheduler/
@@ -163,6 +167,7 @@ COPY apps/docs/package.json ./apps/docs/
 COPY apps/mercato/package.json ./apps/mercato/
 COPY packages/ai-assistant/package.json ./packages/ai-assistant/
 COPY packages/cache/package.json ./packages/cache/
+COPY packages/carrier-inpost/package.json ./packages/carrier-inpost/
 COPY packages/channel-apns/package.json ./packages/channel-apns/
 COPY packages/channel-discord/package.json ./packages/channel-discord/
 COPY packages/channel-expo/package.json ./packages/channel-expo/
@@ -171,6 +176,7 @@ COPY packages/channel-gmail/package.json ./packages/channel-gmail/
 COPY packages/channel-imap/package.json ./packages/channel-imap/
 COPY packages/channel-resend/package.json ./packages/channel-resend/
 COPY packages/channel-ses/package.json ./packages/channel-ses/
+COPY packages/channel-smtp/package.json ./packages/channel-smtp/
 COPY packages/checkout/package.json ./packages/checkout/
 COPY packages/cli/package.json ./packages/cli/
 COPY packages/content/package.json ./packages/content/
@@ -180,7 +186,9 @@ COPY packages/documents/package.json ./packages/documents/
 COPY packages/enterprise/package.json ./packages/enterprise/
 COPY packages/eslint-plugin-ds/package.json ./packages/eslint-plugin-ds/
 COPY packages/events/package.json ./packages/events/
+COPY packages/gateway-autopay/package.json ./packages/gateway-autopay/
 COPY packages/gateway-stripe/package.json ./packages/gateway-stripe/
+COPY packages/gateway-tpay/package.json ./packages/gateway-tpay/
 COPY packages/onboarding/package.json ./packages/onboarding/
 COPY packages/queue/package.json ./packages/queue/
 COPY packages/scheduler/package.json ./packages/scheduler/
@@ -350,6 +358,7 @@ COPY --from=builder /app/.yarn ./.yarn
 COPY --from=builder /app/apps/mercato/package.json ./apps/mercato/
 COPY --from=builder /app/packages/ai-assistant/package.json ./packages/ai-assistant/
 COPY --from=builder /app/packages/cache/package.json ./packages/cache/
+COPY --from=builder /app/packages/carrier-inpost/package.json ./packages/carrier-inpost/
 COPY --from=builder /app/packages/channel-apns/package.json ./packages/channel-apns/
 COPY --from=builder /app/packages/channel-discord/package.json ./packages/channel-discord/
 COPY --from=builder /app/packages/channel-expo/package.json ./packages/channel-expo/
@@ -358,6 +367,7 @@ COPY --from=builder /app/packages/channel-gmail/package.json ./packages/channel-
 COPY --from=builder /app/packages/channel-imap/package.json ./packages/channel-imap/
 COPY --from=builder /app/packages/channel-resend/package.json ./packages/channel-resend/
 COPY --from=builder /app/packages/channel-ses/package.json ./packages/channel-ses/
+COPY --from=builder /app/packages/channel-smtp/package.json ./packages/channel-smtp/
 COPY --from=builder /app/packages/checkout/package.json ./packages/checkout/
 COPY --from=builder /app/packages/cli/package.json ./packages/cli/
 COPY --from=builder /app/packages/content/package.json ./packages/content/
@@ -367,7 +377,9 @@ COPY --from=builder /app/packages/documents/package.json ./packages/documents/
 COPY --from=builder /app/packages/enterprise/package.json ./packages/enterprise/
 COPY --from=builder /app/packages/eslint-plugin-ds/package.json ./packages/eslint-plugin-ds/
 COPY --from=builder /app/packages/events/package.json ./packages/events/
+COPY --from=builder /app/packages/gateway-autopay/package.json ./packages/gateway-autopay/
 COPY --from=builder /app/packages/gateway-stripe/package.json ./packages/gateway-stripe/
+COPY --from=builder /app/packages/gateway-tpay/package.json ./packages/gateway-tpay/
 COPY --from=builder /app/packages/onboarding/package.json ./packages/onboarding/
 COPY --from=builder /app/packages/queue/package.json ./packages/queue/
 COPY --from=builder /app/packages/scheduler/package.json ./packages/scheduler/

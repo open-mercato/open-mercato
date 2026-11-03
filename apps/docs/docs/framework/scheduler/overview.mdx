@@ -387,6 +387,22 @@ const nextRun = calculateNextRun(
 - **Interval:** Adds the interval duration to the current time (or last run time)
 - **Timezone:** All calculations respect the schedule's timezone
 
+### `nextRunAt` after a run
+
+`nextRunAt` is calculated when a schedule is created or its timing is edited. After that, each strategy keeps it current in its own way:
+
+- **Local strategy:** the polling engine recalculates `nextRunAt` after every run, skip or failure.
+- **Async strategy:** BullMQ decides when a schedule fires, so once a run of an enabled schedule is over — completed, skipped, refused or failed, scheduled or manually triggered — the worker copies the Job Scheduler's own next fire time into `nextRunAt`. This is best effort and never changes the outcome of the run. Nothing is written when:
+  - BullMQ has no Job Scheduler for the schedule, the Job Scheduler has no next slot, or the installed BullMQ release does not provide `Queue.getJobScheduler`;
+  - the Job Scheduler's timing differs from the timing the run loaded, or the row's timing changed during the run (an edit is in flight);
+  - the schedule was disabled or deleted during the run;
+  - the time is no longer in the future, or already equals the stored value;
+  - Redis or the database could not be reached (the read is given up after 2 seconds); the failure is logged and reported.
+
+  Where the cause is transient — an edit in flight, an outage, a slot that was already due — the next run corrects the value. The refresh does not change `updatedAt`.
+
+A schedule that has not fired since it was re-enabled, since an edit or delete was undone, or since a cold-start sync re-registered it can still show its previous `nextRunAt` until its next run.
+
 ## Target Types
 
 ### Queue Target

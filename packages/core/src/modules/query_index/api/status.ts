@@ -17,6 +17,7 @@ import {
   SEARCH_AUTO_INDEX_CONFIG_MODULE,
 } from '@open-mercato/shared/lib/search/auto-indexing'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 
 export const metadata = {
@@ -59,7 +60,7 @@ export async function GET(req: Request) {
   const db = (em as any).getKysely()
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
 
-  const organizationId = scope.selectedId ?? auth.orgId ?? null
+  const { organizationIds, rbacOrganizationId: organizationId } = resolveOrganizationScopeFilter(scope, auth)
   const tenantId = typeof scope.tenantId === 'string' && scope.tenantId.trim().length > 0
     ? scope.tenantId.trim()
     : (typeof auth.tenantId === 'string' && auth.tenantId.trim().length > 0 ? auth.tenantId.trim() : null)
@@ -67,14 +68,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Tenant context is required' }, { status: 400 })
   }
 
-  const organizationFilter =
-    scope.filterIds === null
-      ? null
-      : Array.isArray(scope.filterIds) && scope.filterIds.length > 0
-        ? scope.filterIds
-        : organizationId
-          ? [organizationId]
-          : []
+  const organizationFilter = organizationIds ?? null
 
   if (Array.isArray(organizationFilter) && organizationFilter.length === 0) {
     return NextResponse.json({ error: 'Organization access denied' }, { status: 403 })
@@ -637,6 +631,7 @@ const queryIndexStatusDoc: OpenApiMethodDoc = {
   errors: [
     { status: 400, description: 'Tenant or organization context required', schema: queryIndexErrorSchema },
     { status: 401, description: 'Authentication required', schema: queryIndexErrorSchema },
+    { status: 403, description: 'Organization access denied', schema: queryIndexErrorSchema },
   ],
 }
 
