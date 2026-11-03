@@ -25,7 +25,7 @@ describe('DictionaryValue appearances', () => {
   it('leads with the entry colour for dot and pill-dot', () => {
     for (const appearance of ['dot', 'pill-dot'] as const) {
       const { container, unmount } = render(<DictionaryValue value="active" map={map} appearance={appearance} />)
-      expect(dotOf(container)).not.toBeNull()
+      expect(dotOf(container)).toHaveStyle({ backgroundColor: '#16a34a' })
       expect(screen.getByText('Active')).toBeInTheDocument()
       unmount()
     }
@@ -37,9 +37,27 @@ describe('DictionaryValue appearances', () => {
     expect(screen.getByText('Plain')).toBeInTheDocument()
   })
 
-  it('wraps the label in a badge for pill and keeps it colourless', () => {
+  it('leads with the entry icon for icon and shows no disc', () => {
+    const { container } = render(<DictionaryValue value="active" map={map} appearance="icon" />)
+    expect(container.querySelector('svg')).not.toBeNull()
+    expect(dotOf(container)).toBeNull()
+    expect(screen.getByText('Active')).toBeInTheDocument()
+  })
+
+  it('wraps the label in a secondary badge for pill and keeps it colourless', () => {
     const { container } = render(<DictionaryValue value="active" map={map} appearance="pill" />)
-    expect(container.querySelector('[data-slot="badge"]')).not.toBeNull()
+    expect(container.querySelector('[data-slot="badge"]')).toHaveAttribute('data-variant', 'secondary')
+    expect(dotOf(container)).toBeNull()
+    expect(container.querySelector('svg')).toBeNull()
+  })
+
+  it('uses an outline badge with the disc for pill-dot, and a secondary badge without a colour', () => {
+    const { container, rerender } = render(<DictionaryValue value="active" map={map} appearance="pill-dot" />)
+    expect(container.querySelector('[data-slot="badge"]')).toHaveAttribute('data-variant', 'outline')
+    expect(dotOf(container)).not.toBeNull()
+
+    rerender(<DictionaryValue value="plain" map={map} appearance="pill-dot" />)
+    expect(container.querySelector('[data-slot="badge"]')).toHaveAttribute('data-variant', 'secondary')
     expect(dotOf(container)).toBeNull()
   })
 
