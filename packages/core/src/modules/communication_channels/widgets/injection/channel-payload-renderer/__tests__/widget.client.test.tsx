@@ -4,7 +4,10 @@ import * as fs from 'fs'
 import * as path from 'path'
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
-  useT: () => (_key: string, fallback?: string) => fallback ?? _key,
+  useT: () => (key: string, fallback?: string) => {
+    const dictionary = jest.requireActual('../../../../i18n/en.json') as Record<string, string>
+    return dictionary[key] ?? fallback ?? key
+  },
 }))
 
 import ChannelPayloadRendererWidget from '../widget.client'
@@ -40,7 +43,28 @@ describe('ChannelPayloadRendererWidget', () => {
       channelMetadata: null,
     })
 
-    expect(html).not.toContain('Channel payload — email')
+    expect(html).not.toContain('aria-label="Email payload"')
+  })
+
+  it('renders a consent action without activating deferred images during server rendering', () => {
+    const html = renderWidget({
+      channelContentType: 'email/rfc822',
+      sanitizedHtml: '<img data-channel-remote-src="https://sender.example/pixel.gif" />',
+    })
+
+    expect(html).toContain('Load remote images')
+    expect(html).toContain('Remote images are blocked')
+    expect(html).not.toMatch(/\ssrc="https?:/)
+  })
+
+  it('does not show a remote-image action for embedded images only', () => {
+    const html = renderWidget({
+      channelContentType: 'email/rfc822',
+      sanitizedHtml: '<img src="data:image/png;base64,iVBORw0KGgo=" />',
+    })
+
+    expect(html).toContain('src="data:image/png;base64,iVBORw0KGgo="')
+    expect(html).not.toContain('Load remote images')
   })
 
   it('does not import the HTML sanitizer into the client component bundle', () => {

@@ -522,7 +522,8 @@ export async function executeTransitionForToken(
         em,
         container,
         transition.activities as ActivityDefinition[],
-        activityContext
+        activityContext,
+        { queueLongInlineWaits: true }
       )
 
       activityResults.push(...results)

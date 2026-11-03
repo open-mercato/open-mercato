@@ -8,10 +8,15 @@ const apiCallMock = jest.fn()
 const apiCallOrThrowMock = jest.fn()
 const runMutationMock = jest.fn()
 const retryLastMutation = jest.fn(async () => true)
+const flashMock = jest.fn()
 
 jest.mock('../../utils/apiCall', () => ({
   apiCall: (...args: unknown[]) => apiCallMock(...args),
   apiCallOrThrow: (...args: unknown[]) => apiCallOrThrowMock(...args),
+}))
+
+jest.mock('../../FlashMessages', () => ({
+  flash: (...args: unknown[]) => flashMock(...args),
 }))
 
 jest.mock('../../injection/useGuardedMutation', () => ({
@@ -68,6 +73,7 @@ describe('useNotificationActions guarded mutations', () => {
       async ({ operation }: { operation: () => Promise<unknown> }) => operation(),
     )
     retryLastMutation.mockClear()
+    flashMock.mockReset()
   })
 
   it('routes markAsRead through the guarded mutation path', async () => {
@@ -217,6 +223,69 @@ describe('useNotificationActions guarded mutations', () => {
 
     expect(setNotifications).not.toHaveBeenCalled()
     expect(setUnreadCount).not.toHaveBeenCalled()
+  })
+
+  it('flashes the server error when the action is refused', async () => {
+    apiCallMock.mockResolvedValue({
+      ok: false,
+      status: 403,
+      result: { error: 'You are not allowed to run this notification action', code: 'notification_action_forbidden' },
+    })
+    const setNotifications = jest.fn()
+    const setUnreadCount = jest.fn()
+    const { result } = renderHook(() =>
+      useNotificationActions([makeNotification('n1', 'unread')], setNotifications, setUnreadCount),
+    )
+    let returned: { href?: string } = { href: 'unexpected' }
+    await act(async () => {
+      returned = await result.current.executeAction('n1', 'approve')
+    })
+
+    expect(flashMock).toHaveBeenCalledWith('You are not allowed to run this notification action', 'error')
+    expect(apiCallMock).toHaveBeenCalledWith(
+      '/api/notifications/n1/action',
+      expect.objectContaining({
+        headers: expect.objectContaining({ 'x-om-forbidden-redirect': '0' }),
+      }),
+    )
+    expect(setNotifications).not.toHaveBeenCalled()
+    expect(setUnreadCount).not.toHaveBeenCalled()
+    expect(returned.href).toBeUndefined()
+  })
+
+  it('flashes a generic error when a failed action response carries no message', async () => {
+    apiCallMock.mockResolvedValue({ ok: false, status: 500, result: null })
+    const { result } = renderActions([makeNotification('n1')])
+    await act(async () => {
+      await result.current.executeAction('n1', 'approve')
+    })
+
+    expect(flashMock).toHaveBeenCalledWith('Failed to execute action', 'error')
+  })
+
+  it('flashes the generic error instead of an uncoded server message', async () => {
+    apiCallMock.mockResolvedValue({ ok: false, status: 400, result: { error: 'Action not found' } })
+    const { result } = renderActions([makeNotification('n1')])
+    await act(async () => {
+      await result.current.executeAction('n1', 'approve')
+    })
+
+    expect(flashMock).toHaveBeenCalledWith('Failed to execute action', 'error')
+    expect(flashMock).not.toHaveBeenCalledWith('Action not found', 'error')
+  })
+
+  it('does not flash when the server reports the action already ran', async () => {
+    apiCallMock.mockResolvedValue({
+      ok: false,
+      status: 409,
+      result: { error: 'Notification action already executed', code: 'notification_action_already_executed' },
+    })
+    const { result } = renderActions([makeNotification('n1')])
+    await act(async () => {
+      await result.current.executeAction('n1', 'approve')
+    })
+
+    expect(flashMock).not.toHaveBeenCalled()
   })
 
   it('routes markAllRead through the guarded mutation path', async () => {
