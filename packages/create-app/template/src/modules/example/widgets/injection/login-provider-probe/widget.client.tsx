@@ -41,7 +41,7 @@ export default function LoginProviderProbeWidget({ context }: InjectionWidgetCom
       ) : null}
       {submitted ? (
         <span data-testid="example-login-provider-probe-submitted" role="status">
-          {t('example.loginProbe.submitted', 'Probe provider received the sign-in.')}
+          {' '}{t('example.loginProbe.submitted', 'Probe provider received the sign-in.')}
         </span>
       ) : null}
     </div>
