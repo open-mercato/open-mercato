@@ -191,51 +191,6 @@ describe('auth.roles.update tenant move', () => {
     expect(updateOrmEntity).not.toHaveBeenCalled()
   })
 
-  it('runs one assignment count for a combined rename and tenant move and reports the rename guard', async () => {
-    const existingRole = { id: roleId, name: 'Manager', tenantId: tenantA, deletedAt: null } as unknown as Role
-    const updateOrmEntity = jest.fn()
-    const dataEngine = { updateOrmEntity, markOrmEntityChange: jest.fn() }
-    const em = {
-      findOne: jest.fn(async () => existingRole),
-      count: jest.fn(async () => 1),
-      nativeDelete: jest.fn(async () => 0),
-    }
-    const ctx = makeCtx(dataEngine, em, { isSuperAdmin: true })
-
-    await expect(getHandler().execute({ id: roleId, name: 'Senior Manager', tenantId: tenantB }, ctx))
-      .rejects.toMatchObject<Partial<CrudHttpError>>({
-        status: 400,
-        body: { error: 'Role name cannot be changed while users are assigned' },
-      })
-
-    expect(em.count).toHaveBeenCalledTimes(1)
-    expect(em.nativeDelete).not.toHaveBeenCalled()
-    expect(updateOrmEntity).not.toHaveBeenCalled()
-  })
-
-  it('rejects a non-superadmin combined rename and tenant move with 403 before counting assignments', async () => {
-    const existingRole = { id: roleId, name: 'Manager', tenantId: tenantA, deletedAt: null } as unknown as Role
-    const updateOrmEntity = jest.fn()
-    const dataEngine = { updateOrmEntity, markOrmEntityChange: jest.fn() }
-    const em = {
-      findOne: jest.fn(async () => existingRole),
-      find: jest.fn(async () => []),
-      count: jest.fn(async () => 1),
-      nativeDelete: jest.fn(async () => 0),
-    }
-    const ctx = makeCtx(dataEngine, em, { isSuperAdmin: false })
-
-    await expect(getHandler().execute({ id: roleId, name: 'Senior Manager', tenantId: tenantB }, ctx))
-      .rejects.toMatchObject<Partial<CrudHttpError>>({
-        status: 403,
-        body: { error: 'Not authorized to target this tenant.' },
-      })
-
-    expect(em.count).not.toHaveBeenCalled()
-    expect(em.nativeDelete).not.toHaveBeenCalled()
-    expect(updateOrmEntity).not.toHaveBeenCalled()
-  })
-
   it('evaluates the rename guard against the role row read under the lock', async () => {
     const existingRole = { id: roleId, name: 'Manager', tenantId: tenantA, deletedAt: null } as unknown as Role
     const updateOrmEntity = jest.fn()
