@@ -9,6 +9,8 @@ import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration
 import { deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
 import { getTokenScope } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
+import { resolveAppRoot } from '@open-mercato/core/helpers/integration/appRoot'
+import { bootstrapFromAppRoot } from '@open-mercato/shared/lib/bootstrap/dynamicLoader'
 import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue'
 import type { QueryEngine, QueryOptions } from '@open-mercato/shared/lib/query/types'
 import {
@@ -322,20 +324,23 @@ test.describe('TC-EXAMPLE-015: the nine specialized registries have real local c
     const vectorTableName = `vector_search_tc015_${suffix}`
     const vectorMigrationsTableName = `vector_migrations_tc015_${suffix}`
     const observedVectorQueryScopes: string[] = []
+    const vectorPool = createIntegrationPgPool()
+    const embeddingService = new DeterministicEmbeddingService()
     const vectorDriver = createPgVectorDriver({
-      pool: createIntegrationPgPool(),
+      pool: vectorPool,
       tableName: vectorTableName,
       migrationsTable: vectorMigrationsTableName,
       dimension: 1_536,
     })
     const vectorService = new VectorIndexService({
       drivers: [vectorDriver],
-      embeddingService: new DeterministicEmbeddingService(),
+      embeddingService,
       queryEngine: createLiveTodoQueryEngine(observedVectorQueryScopes),
       moduleConfigs: [vectorConfig],
     })
 
     try {
+      await bootstrapFromAppRoot(resolveAppRoot())
       const created = await apiRequest(request, 'POST', TODOS_API, {
         token,
         data: {
@@ -407,6 +412,26 @@ test.describe('TC-EXAMPLE-015: the nine specialized registries have real local c
         reason: 'checksum_match',
       })
 
+      const unregisteredRecordId = randomUUID()
+      const unregisteredEntityId = `example:unregistered_${suffix}`
+      const unregisteredEmbedding = await embeddingService.createEmbedding(`TC-EXAMPLE-015 vector ${suffix}`)
+      await vectorDriver.upsert({
+        entityId: unregisteredEntityId,
+        recordId: unregisteredRecordId,
+        tenantId,
+        organizationId,
+        checksum: suffix,
+        embedding: unregisteredEmbedding,
+        driverId: 'pgvector',
+        resultTitle: `TC-EXAMPLE-015 unregistered ${suffix}`,
+      })
+      expect((await vectorDriver.list!({ tenantId, organizationId, entityId: unregisteredEntityId }))
+        .map((entry) => entry.recordId)).toEqual([unregisteredRecordId])
+      expect(await vectorDriver.query({
+        vector: unregisteredEmbedding,
+        filter: { tenantId, organizationId, entityIds: [unregisteredEntityId] },
+      })).toEqual([])
+
       const homeEntries = await vectorDriver.list!({
         tenantId,
         organizationId,
@@ -450,19 +475,23 @@ test.describe('TC-EXAMPLE-015: the nine specialized registries have real local c
       ]))
 
     } finally {
-      await withClient(async (client) => {
-        await client.query(`DROP TABLE IF EXISTS "${vectorTableName}"`)
-        await client.query(`DROP TABLE IF EXISTS "${vectorMigrationsTableName}"`)
-      }).catch(() => undefined)
-      await deleteEntityIfExists(request, token, TODOS_API, todoId)
-      if (foreignOrgId && foreignTodoId) {
-        await apiRequestWithSelectedOrg(request, 'DELETE', TODOS_API, {
-          token,
-          selectedOrgId: foreignOrgId,
-          data: { id: foreignTodoId },
+      try {
+        await withClient(async (client) => {
+          await client.query(`DROP TABLE IF EXISTS "${vectorTableName}"`)
+          await client.query(`DROP TABLE IF EXISTS "${vectorMigrationsTableName}"`)
         }).catch(() => undefined)
+        await deleteEntityIfExists(request, token, TODOS_API, todoId)
+        if (foreignOrgId && foreignTodoId) {
+          await apiRequestWithSelectedOrg(request, 'DELETE', TODOS_API, {
+            token,
+            selectedOrgId: foreignOrgId,
+            data: { id: foreignTodoId },
+          }).catch(() => undefined)
+        }
+        await deleteOrganizationIfExists(request, token, foreignOrgId)
+      } finally {
+        await vectorPool.end()
       }
-      await deleteOrganizationIfExists(request, token, foreignOrgId)
     }
   })
 
