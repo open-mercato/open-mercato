@@ -167,6 +167,7 @@ export async function requestExistingServicesConsent(problem, {
     log('   Existing services need interactive confirmation. Use --no-infra explicitly to use the services configured in .env.')
     return false
   }
+  log('')
   const prompt = 'The ports are already in use, maybe it is the Open Mercato infrastructure you ran before? Do you want to continue using these pre-existing services? [y/N] '
   const reader = question ? null : readline.createInterface({ input, output })
   try {
