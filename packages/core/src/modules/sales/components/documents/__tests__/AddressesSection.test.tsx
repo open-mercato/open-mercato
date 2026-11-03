@@ -6,6 +6,11 @@ import * as React from 'react'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { SalesDocumentAddressesSection } from '../AddressesSection'
 
+type TabEmptyStateMockProps = Pick<
+  React.ComponentProps<typeof import('@open-mercato/ui/backend/detail').TabEmptyState>,
+  'action'
+>
+
 const mockApiCall = jest.fn()
 const mockApiCallOrThrow = jest.fn()
 const mockTranslate = (_key: string, fallback?: string) => fallback ?? _key
@@ -38,7 +43,7 @@ jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
 jest.mock('@open-mercato/ui/backend/detail', () => ({
   ErrorMessage: () => null,
   LoadingMessage: () => null,
-  TabEmptyState: ({ action }: any) =>
+  TabEmptyState: ({ action }: TabEmptyStateMockProps) =>
     action ? (
       <button type="button" onClick={action.onClick} disabled={action.disabled}>
         {action.label}

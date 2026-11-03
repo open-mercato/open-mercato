@@ -100,7 +100,10 @@ describe('PipelineStepper', () => {
       />,
     )
     expect(screen.queryByRole('button', { name: /Qualification/ })).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /Proposal/ }))
+    const proposalSegment = screen.getByRole('button', { name: /Proposal/ })
+    expect(proposalSegment).toHaveAttribute('data-slot', 'button')
+    expect(proposalSegment).toHaveAttribute('type', 'button')
+    fireEvent.click(proposalSegment)
     expect(onStageChange).toHaveBeenCalledWith('stage-2')
   })
 
@@ -135,6 +138,23 @@ describe('PipelineStepper', () => {
     const items = screen.getAllByRole('listitem')
     expect(items[items.length - 1]).toHaveTextContent('Lost')
     expect(screen.queryByRole('button')).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ['no stages at all', []],
+    ['only terminal stages', [{ id: 'stage-won', label: 'Won', order: 1 }]],
+  ])('still shows the outcome of a closed deal with %s', (_name, stages) => {
+    renderWithProviders(
+      <PipelineStepper stages={stages} transitions={[]} currentStageId={null} closureOutcome="won" />,
+    )
+    expect(screen.getByText('Won')).toBeInTheDocument()
+  })
+
+  it('renders nothing for an open deal without stages', () => {
+    const { container } = renderWithProviders(
+      <PipelineStepper stages={[]} transitions={[]} currentStageId={null} />,
+    )
+    expect(container).toBeEmptyDOMElement()
   })
 
   it('announces the closure outcome in aria-valuetext when the deal is closed', () => {

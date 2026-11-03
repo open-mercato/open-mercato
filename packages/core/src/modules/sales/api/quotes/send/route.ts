@@ -20,8 +20,9 @@ import { SalesQuote } from '../../../data/entities'
 import { quoteSendSchema } from '../../../data/validators'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import { resolveStatusEntryIdByValue } from '../../../lib/statusHelpers'
-import { QuoteSentEmail } from '../../../emails/QuoteSentEmail'
+import { QuoteSentEmail, type QuoteSentEmailCopy } from '../../../emails/QuoteSentEmail'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('sales')
 
@@ -85,6 +86,37 @@ function resolveCcRecipients(requested: string[], primary: string): string[] {
   return result
 }
 
+/**
+ * Mails each CC recipient their own copy of the quote details. The acceptance link is a
+ * bearer capability reserved for the main recipient, so these copies never carry it, and
+ * a copy that fails must not turn a delivered quote into a reported failure.
+ */
+async function sendCcCopies(
+  quote: SalesQuote,
+  recipients: string[],
+  subject: string,
+  copy: QuoteSentEmailCopy,
+): Promise<void> {
+  for (const recipient of recipients) {
+    try {
+      await sendEmail({
+        to: recipient,
+        subject,
+        react: QuoteSentEmail({ copy }),
+        tenantId: quote.tenantId,
+        organizationId: quote.organizationId,
+      })
+    } catch (err) {
+      logger.error('sales.quotes.send CC copy failed', { err, quoteId: quote.id })
+      getTelemetryRuntime()?.reportError(err, {
+        module: 'sales',
+        code: 'sales.quote_cc_copy_failed',
+        attributes: { quoteId: quote.id },
+      })
+    }
+  }
+}
+
 function resolveQuoteEmail(quote: SalesQuote): string | null {
   const snapshot = normalizeRecord(quote.customerSnapshot)
   const metadata = normalizeRecord(quote.metadata)
@@ -109,7 +141,7 @@ export async function POST(req: Request) {
     const { translate } = await resolveTranslations()
     const payload = await req.json().catch(() => ({}))
     const scoped = withScopedPayload(payload ?? {}, ctx, translate)
-    const input = quoteSendSchema.parse(scoped)
+    let input = quoteSendSchema.parse(scoped)
     const guardResult = await runRouteMutationGuards({
       container: ctx.container,
       req,
@@ -127,6 +159,9 @@ export async function POST(req: Request) {
     })
     if (!guardResult.ok) {
       return guardResult.response
+    }
+    if (guardResult.modifiedPayload) {
+      input = quoteSendSchema.parse({ ...input, ...guardResult.modifiedPayload })
     }
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -195,7 +230,7 @@ export async function POST(req: Request) {
       day: 'numeric',
     })
 
-    const copy = {
+    const copy: QuoteSentEmailCopy = {
       preview: translate('sales.quotes.email.preview', 'Quote {quoteNumber} is ready for review', { quoteNumber: quote.quoteNumber }),
       heading: translate('sales.quotes.email.heading', 'Quote {quoteNumber}', { quoteNumber: quote.quoteNumber }),
       total: translate('sales.quotes.email.total', 'Total: {amount} {currency}', {
@@ -207,15 +242,22 @@ export async function POST(req: Request) {
       footer: translate('sales.quotes.email.footer', 'Open Mercato'),
     }
 
+    const subject = translate('sales.quotes.email.subject', 'Quote {quoteNumber}', { quoteNumber: quote.quoteNumber })
+
     // Side effect after commit: an email failure must not roll back the send state.
     await sendEmail({
       to: email,
-      cc,
-      subject: translate('sales.quotes.email.subject', 'Quote {quoteNumber}', { quoteNumber: quote.quoteNumber }),
+      subject,
       react: QuoteSentEmail({ url, copy }),
       tenantId: quote.tenantId,
       organizationId: quote.organizationId,
     })
+
+    const ccNotice = translate(
+      'sales.quotes.email.ccNotice',
+      'You are receiving this copy for your information. The main recipient can review and accept the quote.',
+    )
+    await sendCcCopies(quote, cc, subject, { ...copy, preview: ccNotice, notice: ccNotice })
 
     await guardResult.runAfterSuccess()
 

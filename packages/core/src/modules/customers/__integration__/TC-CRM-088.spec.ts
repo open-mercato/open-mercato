@@ -296,6 +296,10 @@ test.describe('TC-CRM-088 deal linked-people parity', () => {
       await expect(createDialog).toBeVisible({ timeout: 15_000 })
       await createDialog.locator('[data-crud-field-id="firstName"] input').fill('TC088')
       await createDialog.locator('[data-crud-field-id="lastName"] input').fill(`Created ${stamp}`)
+      await expect(
+        createDialog.getByText(newContactName, { exact: true }),
+        'the display name should be derived from first and last name',
+      ).toBeVisible()
       await createDialog.getByRole('button', { name: /Create person/i }).click()
       await expect(createDialog).toBeHidden({ timeout: 30_000 })
       await expect(

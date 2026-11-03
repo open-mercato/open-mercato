@@ -24,6 +24,8 @@ import {
  * - Both meetings are anchored to this week's Wednesday (10:00–11:00 and
  *   10:30–11:30), always inside the visible Mon–Fri week (weekends default OFF).
  * - They share `ownerUserId` (the test user) so `findConflicts` pairs them.
+ * - A timed-out attempt can leave its meetings behind, and a retry at the same slot
+ *   would stack with them and fold into "+N more", so each attempt takes its own slot.
  * - A unique run token keeps seeded/demo interactions out of the assertions.
  */
 test.describe('TC-CAL-009: Calendar editor conflict detection', () => {
@@ -42,8 +44,9 @@ test.describe('TC-CAL-009: Calendar editor conflict detection', () => {
     // This week's Wednesday — always inside the visible Mon–Fri week.
     const monday = mondayWeekRange(new Date()).from;
     const wednesday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 2);
-    const startA = new Date(wednesday.getFullYear(), wednesday.getMonth(), wednesday.getDate(), 10, 0, 0, 0);
-    const startB = new Date(wednesday.getFullYear(), wednesday.getMonth(), wednesday.getDate(), 10, 30, 0, 0);
+    const slotHour = 10 + test.info().retry * 2;
+    const startA = new Date(wednesday.getFullYear(), wednesday.getMonth(), wednesday.getDate(), slotHour, 0, 0, 0);
+    const startB = new Date(wednesday.getFullYear(), wednesday.getMonth(), wednesday.getDate(), slotHour, 30, 0, 0);
 
     try {
       adminToken = await getAuthToken(request, 'admin');
@@ -78,20 +81,12 @@ test.describe('TC-CAL-009: Calendar editor conflict detection', () => {
 
       // Open meeting B from the grid → peek popover → Edit (edit mode passes the
       // item's ownerUserId to the probe).
-      // A slot too narrow for both folds them into one overflow block (#7500), whose rows
-      // open the editor directly instead of going through the peek.
-      const blockB = page.getByRole('button', { name: new RegExp(`^${escapeRegExp(titleB)},.*10:30`) });
-      const overflow = page.getByRole('button', { name: /more events, / }).filter({ hasText: titleB });
-      await expect(blockB.or(overflow).first()).toBeVisible();
-      if (await overflow.count()) {
-        await overflow.first().click();
-        await blockB.click();
-      } else {
-        await blockB.click();
-        const peekEdit = page.getByRole('button', { name: 'Edit', exact: true });
-        await expect(peekEdit).toBeVisible();
-        await peekEdit.click();
-      }
+      const blockB = page.getByRole('button', { name: new RegExp(`^${escapeRegExp(titleB)},.*${slotHour}:30`) });
+      await expect(blockB).toBeVisible();
+      await blockB.click();
+      const peekEdit = page.getByRole('button', { name: 'Edit', exact: true });
+      await expect(peekEdit).toBeVisible();
+      await peekEdit.click();
 
       const editor = page.getByRole('dialog');
       await expect(editor).toBeVisible();

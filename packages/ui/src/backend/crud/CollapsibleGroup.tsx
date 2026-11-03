@@ -12,6 +12,8 @@ export interface CollapsibleGroupProps {
   title?: string
   pageType: string
   defaultExpanded?: boolean
+  /** @deprecated No longer rendered; kept so existing callers keep compiling. */
+  fieldCount?: number
   errorCount?: number
   chevronPosition?: 'left' | 'right'
   icon?: React.ReactNode

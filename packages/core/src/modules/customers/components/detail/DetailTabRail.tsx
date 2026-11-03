@@ -29,6 +29,36 @@ function tabSignature(tab: { label: string; count?: React.ReactNode }): string {
   return `${tab.label}\u0000${tab.count == null ? '' : String(tab.count)}`
 }
 
+function moveMoreMenuFocus(event: React.KeyboardEvent<HTMLDivElement>, close: () => void) {
+  if (event.key === 'Tab') {
+    event.preventDefault()
+    close()
+    return
+  }
+  const items = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+  if (items.length === 0) return
+  const focused = items.indexOf(document.activeElement as HTMLElement)
+  let next: number
+  switch (event.key) {
+    case 'ArrowDown':
+      next = (focused + 1) % items.length
+      break
+    case 'ArrowUp':
+      next = focused <= 0 ? items.length - 1 : focused - 1
+      break
+    case 'Home':
+      next = 0
+      break
+    case 'End':
+      next = items.length - 1
+      break
+    default:
+      return
+  }
+  event.preventDefault()
+  items[next]?.focus()
+}
+
 /** Fallback split when widths cannot be measured (jsdom): this many tabs inline, the rest in More. */
 export const PRIMARY_TAB_LIMIT = 6
 
@@ -52,6 +82,8 @@ export function DetailTabRail({
   const rowRef = React.useRef<HTMLDivElement>(null)
   const listRef = React.useRef<HTMLDivElement>(null)
   const moreRef = React.useRef<HTMLButtonElement>(null)
+  const moreMenuRef = React.useRef<HTMLDivElement>(null)
+  const [moreOpen, setMoreOpen] = React.useState(false)
   // Width per tab id, keyed to the label and count it was measured with: counts arrive after
   // the first paint and widen a tab, so a changed signature triggers a fresh measurement.
   const widthsRef = React.useRef<Map<string, { width: number; signature: string }>>(new Map())
@@ -137,7 +169,7 @@ export function DetailTabRail({
     compute()
     if (typeof ResizeObserver === 'undefined') return
     const observer = new ResizeObserver(() => compute())
-    observer.observe(row)
+    observer.observe(list)
     return () => observer.disconnect()
   }, [activeTab, tabs, measuring])
 
@@ -153,6 +185,10 @@ export function DetailTabRail({
   }, [tabs, measuring, visibleIds])
   const showMore = measuring || overflowTabs.length > 0
 
+  React.useEffect(() => {
+    if (!showMore) setMoreOpen(false)
+  }, [showMore])
+
   return (
     <div>
       <div ref={rowRef} className="flex items-end justify-between gap-2 border-b">
@@ -167,28 +203,48 @@ export function DetailTabRail({
             </TabsList>
           </Tabs>
           {showMore ? (
-            <Popover>
+            <Popover open={moreOpen} onOpenChange={setMoreOpen}>
               <PopoverTrigger asChild>
-                <button
+                <Button
                   data-testid="detail-tabs-more"
                   ref={moreRef}
                   type="button"
+                  variant="ghost"
                   aria-haspopup="menu"
-                  className="group relative -mb-px inline-flex shrink-0 items-center gap-2 rounded-t-md border-b-2 border-transparent px-3 py-2 text-sm font-medium text-muted-foreground outline-none transition-colors hover:bg-accent-indigo/10 hover:text-accent-indigo focus-visible:shadow-focus"
+                  className="group -mb-px h-auto shrink-0 rounded-b-none rounded-t-md border-b-2 border-transparent px-3 py-2 text-muted-foreground hover:bg-accent-indigo/10 hover:text-accent-indigo dark:hover:bg-accent-indigo/10"
+                  onKeyDown={(event) => {
+                    if (event.key !== 'ArrowDown') return
+                    event.preventDefault()
+                    setMoreOpen(true)
+                  }}
                 >
                   <span aria-hidden="true" className="inline-flex size-5 shrink-0 items-center justify-center text-muted-foreground group-hover:text-accent-indigo">
                     <MoreHorizontal className="size-5" />
                   </span>
                   {moreLabel}
-                </button>
+                </Button>
               </PopoverTrigger>
-              <PopoverContent align="start" className="w-52 p-1">
-                <div role="menu" aria-label={moreLabel} className="flex flex-col">
+              <PopoverContent
+                align="start"
+                className="w-52 p-1"
+                onOpenAutoFocus={(event) => {
+                  event.preventDefault()
+                  moreMenuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus()
+                }}
+              >
+                <div
+                  ref={moreMenuRef}
+                  role="menu"
+                  aria-label={moreLabel}
+                  className="flex flex-col"
+                  onKeyDown={(event) => moveMoreMenuFocus(event, () => setMoreOpen(false))}
+                >
                   {overflowTabs.map((tab) => (
                     <PopoverClose key={tab.id} asChild>
                       <Button
                         type="button"
                         role="menuitem"
+                        tabIndex={-1}
                         variant="ghost"
                         size="sm"
                         className="w-full justify-start"

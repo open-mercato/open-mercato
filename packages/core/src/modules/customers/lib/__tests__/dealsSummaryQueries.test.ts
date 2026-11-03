@@ -81,12 +81,16 @@ describe('loadDealsSummaryQueryRows', () => {
     })
 
     expect(executeMock).toHaveBeenCalledTimes(9)
-    for (const queryIndex of [0, 1, 5, 8]) {
+    for (const queryIndex of [0, 1, 8]) {
       expect(normalizedSql(executeMock.mock.calls[queryIndex])).toContain('status IN (?,?) AND closure_outcome IS NULL')
     }
     expect(normalizedSql(executeMock.mock.calls[7])).toContain('status IN (?) AND closure_outcome IS NULL')
     // calls[5] / calls[6] are the monthly inflow and won series behind the metric tabs.
     expect(normalizedSql(executeMock.mock.calls[5])).toContain("date_trunc('month', created_at")
+    // A deal closed later still belongs to the month it was created in.
+    expect(normalizedSql(executeMock.mock.calls[5])).not.toContain('closure_outcome')
+    expect(normalizedSql(executeMock.mock.calls[5])).not.toContain('status')
+    expect(executeMock.mock.calls[5][1]).toEqual([tenantId, organizationId, '2025-09-01T00:00:00.000Z'])
     expect(normalizedSql(executeMock.mock.calls[6])).toContain("status = 'win' OR closure_outcome = 'won'")
     expect(normalizedSql(executeMock.mock.calls[6])).toContain("date_trunc('month', updated_at")
     expect(normalizedSql(executeMock.mock.calls[2])).toContain("status = 'win' OR closure_outcome = 'won'")

@@ -399,13 +399,13 @@ export function LinkedPeopleSection<
                           state={nameSortState}
                           onSort={nameSortable ? () => setSortMode(sortMode === 'name-asc' ? 'name-desc' : 'name-asc') : undefined}
                         />
-                        <TableHead className="hidden w-64 @xl:table-cell">{translate('customers.people.list.columns.email', 'Email')}</TableHead>
+                        <TableHead className="hidden w-48 @xl:table-cell @3xl:w-64">{translate('customers.people.list.columns.email', 'Email')}</TableHead>
                         <TableHead className="hidden w-36 @3xl:table-cell">{translate('customers.linkedPeople.columns.phone', 'Phone')}</TableHead>
                         <TableHead className="hidden w-32 @4xl:table-cell">{translate('customers.people.list.columns.lifecycleStage', 'Lifecycle stage')}</TableHead>
                         <TableHead className="hidden w-40 @5xl:table-cell">{translate('customers.people.list.columns.source', 'Source')}</TableHead>
                         {showLinkedDate ? (
                           <SortableHead
-                            className="hidden w-28 @4xl:table-cell"
+                            className="hidden w-28 @xl:table-cell"
                             label={translate('customers.linkedPeople.columns.linked', 'Linked')}
                             state={sortMode === 'recent' ? 'desc' : null}
                             onSort={recentSortable ? () => setSortMode('recent') : undefined}

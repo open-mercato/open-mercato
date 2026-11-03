@@ -362,7 +362,7 @@ export function CalendarEventEditor({
           description: t('ui.forms.unsavedChangesDescription', 'Your edits will be lost if you leave now.'),
           confirmText: t('customers.deals.detail.unsavedConfirm', 'Discard changes'),
           cancelText: t('customers.deals.detail.unsavedCancel', 'Keep editing'),
-          variant: 'warning',
+          variant: 'destructive',
         })
         if (!confirmed) return
       } finally {
@@ -555,7 +555,7 @@ export function CalendarEventEditor({
             }).join(', ')}`,
             confirmText: t('customers.calendar.editor.discardConfirm'),
             cancelText: t('customers.calendar.editor.cancel'),
-            variant: 'warning',
+            variant: 'destructive',
           })
           if (!approved) return
           await submitInteraction(true)

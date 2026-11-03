@@ -175,6 +175,7 @@ function MetricTab({
   metric,
   active,
   expanded,
+  loading,
   onSelect,
   onKeyDown,
   tabRef,
@@ -182,6 +183,7 @@ function MetricTab({
   metric: MetricView
   active: boolean
   expanded: boolean
+  loading: boolean
   onSelect: () => void
   onKeyDown: (event: React.KeyboardEvent<HTMLButtonElement>) => void
   tabRef: (node: HTMLButtonElement | null) => void
@@ -205,7 +207,7 @@ function MetricTab({
       )}
     >
       <span className="text-xs">{metric.label}</span>
-      <span className="flex w-full min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
+      <span className={cn('flex w-full min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1 transition-opacity', loading && 'opacity-50')}>
         <span className="text-xl font-light tracking-tight text-foreground sm:text-2xl">
           {metric.value}
           {metric.suffix ? <span className="ml-1 text-xs font-normal text-muted-foreground">{metric.suffix}</span> : null}
@@ -312,8 +314,34 @@ export function DealsKpiStrip({
   const wrapperClassName = cn('space-y-2', className)
   // Same horizontal inset as the DataTable container below, so both edges line up.
   const cardClassName = 'mx-1 overflow-hidden rounded-lg border border-border bg-card sm:mx-2'
-  const tabListClassName = cn('grid grid-cols-2 gap-px bg-border xl:grid-cols-4', expanded && 'border-b border-border')
+  const headerClassName = 'flex flex-col xl:flex-row'
+  const tabListClassName = 'grid min-w-0 flex-1 grid-cols-2 gap-px bg-border xl:grid-cols-4'
   const activeChartType = chartTypes[activeMetric]
+  // A failed refetch leaves the previous window's numbers on screen, so the control names that window.
+  const displayedRange = error && data?.range ? data.range : range
+  const selectRange = (next: string) => {
+    if (next === range) {
+      retry()
+      return
+    }
+    setRange(next as DealsSummaryRange)
+  }
+  const periodControl = (
+    <div className="flex shrink-0 items-center justify-end border-t border-border px-3 py-2 xl:border-l xl:border-t-0">
+      <SegmentedControl
+        size="sm"
+        value={displayedRange}
+        onValueChange={selectRange}
+        aria-label={t('customers.deals.list.kpi.rangeLabel')}
+      >
+        {SUMMARY_RANGES.map((option) => (
+          <SegmentedControlItem key={option} value={option}>
+            {t(`customers.deals.list.kpi.range.${option}`)}
+          </SegmentedControlItem>
+        ))}
+      </SegmentedControl>
+    </div>
+  )
   const controls = (
     <div className="flex items-center justify-end gap-2 px-3 pb-1 pt-3">
       <SegmentedControl
@@ -329,18 +357,6 @@ export function DealsKpiStrip({
           <BarChart3 className="size-4" aria-hidden />
         </SegmentedControlItem>
       </SegmentedControl>
-      <SegmentedControl
-        size="sm"
-        value={range}
-        onValueChange={(next) => setRange(next as DealsSummaryRange)}
-        aria-label={t('customers.deals.list.kpi.rangeLabel')}
-      >
-        {SUMMARY_RANGES.map((option) => (
-          <SegmentedControlItem key={option} value={option}>
-            {t(`customers.deals.list.kpi.range.${option}`)}
-          </SegmentedControlItem>
-        ))}
-      </SegmentedControl>
     </div>
   )
   const metricLabels: Record<MetricKey, string> = {
@@ -354,13 +370,16 @@ export function DealsKpiStrip({
     return (
       <div className={wrapperClassName}>
         <div className={cardClassName}>
-          <div className="grid grid-cols-2 gap-px bg-border xl:grid-cols-4">
-            {METRIC_KEYS.map((key) => (
-              <div key={key} className="flex flex-col gap-1.5 bg-card px-4 py-3">
-                <span className="text-xs text-muted-foreground">{metricLabels[key]}</span>
-                <Spinner className="h-5 w-5 text-muted-foreground" />
-              </div>
-            ))}
+          <div className={headerClassName}>
+            <div className={tabListClassName}>
+              {METRIC_KEYS.map((key) => (
+                <div key={key} className="flex flex-col gap-1.5 bg-card px-4 py-3">
+                  <span className="text-xs text-muted-foreground">{metricLabels[key]}</span>
+                  <Spinner className="h-5 w-5 text-muted-foreground" />
+                </div>
+              ))}
+            </div>
+            {periodControl}
           </div>
         </div>
       </div>
@@ -515,19 +534,23 @@ export function DealsKpiStrip({
           </Button>
         </div>
       ) : null}
-      <div className={cardClassName}>
-        <div role="tablist" aria-label={t('customers.deals.list.kpi.metricTabs')} className={tabListClassName}>
-          {METRIC_KEYS.map((key) => (
-            <MetricTab
-              key={key}
-              metric={metrics[key]}
-              active={key === activeMetric}
-              expanded={expanded}
-              onSelect={() => selectMetric(key)}
-              onKeyDown={handleTabKeyDown}
-              tabRef={(node) => { tabRefs.current[key] = node }}
-            />
-          ))}
+      <div className={cardClassName} aria-busy={loading}>
+        <div className={cn(headerClassName, expanded && 'border-b border-border')}>
+          <div role="tablist" aria-label={t('customers.deals.list.kpi.metricTabs')} className={tabListClassName}>
+            {METRIC_KEYS.map((key) => (
+              <MetricTab
+                key={key}
+                metric={metrics[key]}
+                active={key === activeMetric}
+                expanded={expanded}
+                loading={loading}
+                onSelect={() => selectMetric(key)}
+                onKeyDown={handleTabKeyDown}
+                tabRef={(node) => { tabRefs.current[key] = node }}
+              />
+            ))}
+          </div>
+          {periodControl}
         </div>
         {expanded ? (
         <div
@@ -542,6 +565,7 @@ export function DealsKpiStrip({
             {activeChartType === 'bars' ? (
               <BarChart
                 bare
+                loading={loading}
                 showLegend={false}
                 animate={false}
                 accessibilityLayer={false}
@@ -557,6 +581,7 @@ export function DealsKpiStrip({
             ) : (
               <LineChart
                 bare
+                loading={loading}
                 showArea
                 areaOpacity={AREA_OPACITY}
                 showLegend={false}

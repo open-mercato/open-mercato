@@ -56,7 +56,7 @@ async function scrollDialogTo(dialog: Locator, position: 'top' | 'middle' | 'bot
   await dialog.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 }
 
-async function openCreateDealDialog(page: Page, companyId: string) {
+async function openCreateDealDialog(page: Page, companyId: string, companyName: string) {
   await page.goto(`/backend/customers/companies-v2/${companyId}`, { waitUntil: 'commit' });
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 15_000 });
   await page.getByRole('tab', { name: /^deals/i }).click();
@@ -65,6 +65,9 @@ async function openCreateDealDialog(page: Page, companyId: string) {
   await expect(dialog).toBeVisible();
   const saveButton = dialog.getByRole('button', { name: /^Save deal/ });
   await expect(saveButton).toBeVisible();
+  // DealForm resolves the linked company chip after opening, and the body keeps growing until then.
+  await expect(dialog.getByRole('button', { name: companyName })).toBeVisible({ timeout: 15_000 });
+  await expect(dialog.getByPlaceholder(/search companies/i)).toBeVisible();
   return { dialog, footer: saveButton.locator(STICKY_ANCESTOR) };
 }
 
@@ -75,37 +78,47 @@ test.describe('TC-CRM-7497: Create deal modal footer seals the scrolled body', (
     const stamp = Date.now();
     let adminToken: string | null = null;
     let companyId: string | null = null;
+    const companyName = `QA Deal Footer ${stamp}`;
 
     try {
       adminToken = await getAuthToken(request, 'admin');
-      companyId = await createCompanyFixture(request, adminToken, `QA Deal Footer ${stamp}`);
+      companyId = await createCompanyFixture(request, adminToken, companyName);
 
       await login(page, 'admin');
 
       // Short viewport: the modal body must overflow so the footer actually sticks.
       await page.setViewportSize({ width: 1280, height: 620 });
-      const { dialog, footer } = await openCreateDealDialog(page, companyId);
+      const { dialog, footer } = await openCreateDealDialog(page, companyId, companyName);
       await expect(footer).toBeVisible();
-      const scrollable = await dialog.evaluate((node) => node.scrollHeight > node.clientHeight + 40);
-      expect(scrollable, 'the Create deal modal should overflow at a 620px viewport').toBe(true);
+      await expect
+        .poll(
+          () => dialog.evaluate((node) => node.scrollHeight > node.clientHeight + 40),
+          { message: 'the Create deal modal should overflow at a 620px viewport' },
+        )
+        .toBe(true);
 
       for (const position of ['top', 'middle', 'bottom'] as const) {
-        await scrollDialogTo(dialog, position);
-        await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible();
-        await expect(dialog.getByRole('button', { name: /^Save deal/ })).toBeVisible();
-        await expectFooterSealsDialog(page, dialog, footer, `scroll ${position}`);
+        await expect(async () => {
+          await scrollDialogTo(dialog, position);
+          await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible();
+          await expect(dialog.getByRole('button', { name: /^Save deal/ })).toBeVisible();
+          await expectFooterSealsDialog(page, dialog, footer, `scroll ${position}`);
+        }).toPass({ timeout: 10_000 });
       }
 
       // Scrolled to the end, the last association field sits fully above the footer.
+      // Late-loading fields can still grow the body, so scroll again on every attempt.
       const companiesSearch = dialog.getByPlaceholder(/search companies/i);
-      await expect(companiesSearch).toBeVisible();
-      const [searchBox, footerBox] = await Promise.all([boxOf(companiesSearch, 'companies search'), boxOf(footer, 'footer')]);
-      expect(searchBox.y + searchBox.height, 'last association field should clear the footer').toBeLessThanOrEqual(footerBox.y + 1);
+      await expect(async () => {
+        await scrollDialogTo(dialog, 'bottom');
+        const [searchBox, footerTop] = await Promise.all([boxOf(companiesSearch, 'companies search'), boxOf(footer, 'footer')]);
+        expect(searchBox.y + searchBox.height, 'last association field should clear the footer').toBeLessThanOrEqual(footerTop.y + 1);
+      }).toPass({ timeout: 10_000 });
       await companiesSearch.click();
       await expect(companiesSearch).toBeFocused();
 
       // No horizontal overflow and the footer stays inside the rounded dialog.
-      const dialogBox = await boxOf(dialog, 'dialog');
+      const [dialogBox, footerBox] = await Promise.all([boxOf(dialog, 'dialog'), boxOf(footer, 'footer')]);
       expect(footerBox.x, 'footer should not leave the dialog on the left').toBeGreaterThanOrEqual(dialogBox.x - 1);
       expect(footerBox.x + footerBox.width, 'footer should not leave the dialog on the right').toBeLessThanOrEqual(dialogBox.x + dialogBox.width + 1);
       const scrollsHorizontally = await dialog.evaluate((node) => node.scrollWidth > node.clientWidth);
@@ -118,11 +131,13 @@ test.describe('TC-CRM-7497: Create deal modal footer seals the scrolled body', (
       // Tall viewport: when the form fits, the footer still ends at the dialog edge
       // without a blank band below the buttons.
       await page.setViewportSize({ width: 1280, height: 2200 });
-      const fitting = await openCreateDealDialog(page, companyId);
-      const fits = await fitting.dialog.evaluate((node) => node.scrollHeight <= node.clientHeight + 1);
-      expect(fits, 'the Create deal modal should fit a 2200px viewport').toBe(true);
-      const [fitDialogBox, fitFooterBox] = await Promise.all([boxOf(fitting.dialog, 'dialog'), boxOf(fitting.footer, 'footer')]);
-      expect(Math.abs(fitDialogBox.y + fitDialogBox.height - (fitFooterBox.y + fitFooterBox.height)), 'no blank band below the footer').toBeLessThanOrEqual(2);
+      const fitting = await openCreateDealDialog(page, companyId, companyName);
+      await expect(async () => {
+        const fits = await fitting.dialog.evaluate((node) => node.scrollHeight <= node.clientHeight + 1);
+        expect(fits, 'the Create deal modal should fit a 2200px viewport').toBe(true);
+        const [fitDialogBox, fitFooterBox] = await Promise.all([boxOf(fitting.dialog, 'dialog'), boxOf(fitting.footer, 'footer')]);
+        expect(Math.abs(fitDialogBox.y + fitDialogBox.height - (fitFooterBox.y + fitFooterBox.height)), 'no blank band below the footer').toBeLessThanOrEqual(2);
+      }).toPass({ timeout: 10_000 });
       await fitting.dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
       await expect(fitting.dialog).toBeHidden();
     } finally {

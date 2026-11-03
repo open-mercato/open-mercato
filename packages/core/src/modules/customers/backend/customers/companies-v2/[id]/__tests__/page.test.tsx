@@ -303,6 +303,19 @@ describe('CompanyDetailV2Page', () => {
     })
   })
 
+  it('sends no interactions request while a non-activity tab is open (#7494)', async () => {
+    activeTabParam = 'files'
+
+    renderWithProviders(<CompanyDetailV2Page params={{ id: 'company-123' }} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('attachments-section')).toBeInTheDocument()
+    })
+    expect(readApiResultOrThrowMock).not.toHaveBeenCalledWith(
+      expect.stringContaining('/api/customers/interactions'),
+    )
+  })
+
   it('passes injected tab priority through to CompanyDetailTabs', async () => {
     injectedTabWidgets = [{
       widgetId: 'crm.overview',
