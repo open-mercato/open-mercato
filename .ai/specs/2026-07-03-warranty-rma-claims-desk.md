@@ -551,3 +551,10 @@ Number allocation, explicit renumbering, and line undo validation serialize on t
 - Recheck the replacement version under the sales order's transaction-held row lock before deleting, preserving the order and claim link if a concurrent edit lands after audit validation.
 - Replay replacement creation without its stale body version, preserving current request locking; translate audit replay domain refusals at the route boundary.
 - Add command and route regressions plus `TC-WC-040` for the cross-module API flow.
+
+### 2026-11-03 — Portal attachment upload throttle (#6323)
+- Portal attachment POST and PUT consume the existing attachment upload rate limit before multipart parsing or OCR, keyed by tenant and customer-user with a separate `portal:` namespace. Existing `RATE_LIMIT_ATTACHMENTS_UPLOAD_*` settings apply; exhausted buckets return 429 and Retry-After.
+- Reuse the backoffice limiter availability policy: missing registration or a degraded backing store does not block uploads. No ownership, lifecycle, storage, or successful response changes.
+- Handler regression coverage in `portal-attachment-upload-limit.test.ts` checks both write methods, early rejection without reading the body or replacing existing storage, and isolation across tenant/principal keys. `TC-WC-6323-upload-throttle.spec.ts` exercises real shared POST/PUT buckets, 429 Retry-After, and independent customer buckets.
+
+The throttle integration case runs with real counters when the isolated runner receives `OM_TEST_RATE_LIMIT_MODE=enabled`; its normal integration-mode branch also checks the existing disabled-counter policy. The opt-in requires `OM_TEST_MODE=1` and never changes production configuration.
