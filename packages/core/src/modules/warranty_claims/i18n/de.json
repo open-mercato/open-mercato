@@ -1,5 +1,6 @@
 {
   "notifications.categories.warranty_claims": "Garantieclaims",
+  "search.entityType.warranty_claims.warranty_claim": "Garantieclaim",
   "warranty_claims.ai.apply": "Anwenden",
   "warranty_claims.ai.assess.attachment": "Anhang",
   "warranty_claims.ai.assess.attachmentsError": "Positionsanhänge konnten nicht geladen werden.",
