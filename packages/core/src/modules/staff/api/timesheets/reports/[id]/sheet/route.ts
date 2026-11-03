@@ -150,7 +150,7 @@ export async function GET(req: Request) {
         eventType: event.eventType,
         reason: event.reason ?? null,
         actorUserId: event.actorUserId ?? null,
-        metadata: event.metadata ?? null,
+        metadata: canSeeMoney ? event.metadata ?? null : stripMoneyMetadata(event.metadata),
         createdAt: event.createdAt ? event.createdAt.toISOString() : null,
       })),
     })
@@ -165,6 +165,29 @@ export async function GET(req: Request) {
       { status: 500 },
     )
   }
+}
+
+const nonfinancialEventMetadataKeys = [
+  'frozenEntryCount',
+  'lockedEntryCount',
+  'roundingUnitMinutes',
+  'roundingDirection',
+  'unlockedEntryCount',
+  'transferredLockCount',
+  'frozenBillableMinutes',
+  'frozenNonbillableMinutes',
+  'format',
+  'grouping',
+  'rowCount',
+] as const
+
+function stripMoneyMetadata(metadata: Record<string, unknown> | null | undefined): Record<string, unknown> | null {
+  if (!metadata) return null
+  return Object.fromEntries(
+    nonfinancialEventMetadataKeys
+      .filter((key) => Object.prototype.hasOwnProperty.call(metadata, key))
+      .map((key) => [key, metadata[key]]),
+  )
 }
 
 type SheetGroups = Awaited<ReturnType<typeof buildReportSheet>>['totals']['groups']
