@@ -51,16 +51,16 @@ Merge the 100-id cap on `POST /api/attachments/transfer` now that its prerequisi
 
 ### Phase 2: Integrate the prerequisite from main
 
-- [ ] 2.1 Merge upstream main (carries #8571)
+- [x] 2.1 Merge upstream main (carries #8571) — 6e70a6451
 
 ### Phase 3: Use the shared limit
 
-- [ ] 3.1 Read ATTACHMENT_TRANSFER_MAX_IDS in route.ts and openapi.ts
-- [ ] 3.2 Derive test boundaries from ATTACHMENT_TRANSFER_MAX_IDS
+- [x] 3.1 Read ATTACHMENT_TRANSFER_MAX_IDS in route.ts and openapi.ts — e585f61c9
+- [x] 3.2 Derive test boundaries from ATTACHMENT_TRANSFER_MAX_IDS — 8b0b1b7a9
 
 ### Phase 4: Docs follow the landed prerequisite
 
-- [ ] 4.1 Point spec, upgrade note and API docs at #8571
+- [x] 4.1 Point spec, upgrade note and API docs at #8571 — 77f620de7
 
 ### Phase 5: Verify
 
