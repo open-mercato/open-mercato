@@ -27,6 +27,8 @@ PR: #8612
 - [x] 1.3 Resolve port guidance and module-facts warning diagnosis; update docs/spec. — 191f8c57f
 - [x] 1.4 Require an explicit greenfield reset flag and correct Next development environment. — 191f8c57f
 
+- [x] 1.5 Make the diagnostics Retry action recover the runtime instead of reloading stale state. — 1e55286bd
+
 ### Phase 2: Verification and publication
 
 - [x] 2.1 Run relevant validation and real read-only discovery checks. — 191f8c57f
@@ -43,3 +45,5 @@ PR: #8612
 ## Validation evidence
 
 Runner: local. 567 starter/dev-runtime Node tests, 16 standalone setup tests and 75 CLI command tests passed. CLI suite also passed with supported Node 24. Mirrored dev runtime and infra-preflight files are byte-identical; template-sync and diff checks passed. Live read-only Docker discovery identified the existing four Mercato services across checkout identities and returned their actual names/states. No live services were stopped/restarted and no database migrations/resets were run. Full workspace validation is delegated to current-head GitHub CI; no claim of a fully green pipeline before it completes.
+
+Runtime Retry follow-up: two failing click regressions reproduced the reload-only behavior. The new path invokes the existing restart control, retains old errors until a new generation becomes ready, and surfaces denied recovery. Banner tests 33/33 and runtime action/state tests 48/48 pass. Browser QA remains required; no live runtime was restarted during tests.
