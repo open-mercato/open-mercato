@@ -87,11 +87,46 @@ export type CrudFormSectionCapabilityRequirement = {
     | 'merge-server-leaves'
     | 'domain-adapter'
     | 'independent-action'
+    | 'extension-sink'
   )[]
   payloadPaths?: readonly string[]
   customFieldOwnership?: CrudFormCustomFieldOwnershipFact
   mutationSurfaceIds?: readonly string[]
   allowNoopSubmit?: boolean
+  allowAfterCommitSink?: boolean
+}
+
+export type CrudFormRequiredLeafFact = {
+  hostId: string
+  formVariant: string
+  formOperation: 'create' | 'update'
+  payloadPath: string
+  schemaId: string
+  coverage: readonly ('section' | 'preserve-from-record' | 'server-default')[]
+}
+
+export type CrudFormLeafDefaultProviderFact = {
+  id: string
+  roundTripId: string
+  hostId: string
+  formVariant: string
+  formOperation: 'create' | 'update'
+  payloadPath: string
+  readsPayloadPaths: readonly string[]
+}
+
+export type CrudFormExtensionSinkFact = {
+  id: string
+  roundTripId: string
+  ownerModuleId: string
+  hostId: string
+  formVariant: string
+  formOperation: 'create' | 'update'
+  payloadPaths: readonly string[]
+  targetEntityId: string
+  atomicity: 'host-transaction' | 'after-commit'
+  optimisticLock: 'none' | 'sink-version'
+  undo: 'snapshot' | 'unsupported'
 }
 
 export type CrudFormCustomFieldOwnershipFact =
@@ -140,6 +175,8 @@ export type CrudFormSectionCapabilityProviderFact = {
   mutationSurfaces: readonly CrudFormSectionMutationSurfaceFact[]
   providedDataContractIds: readonly string[]
   allowNoopSubmit: boolean
+  requiredLeaves: readonly CrudFormRequiredLeafFact[]
+  extensionSinkSupport: 'none' | 'after-commit' | 'host-transaction'
 }
 
 export type CrudFormSectionSurfaceAlternativeFact = {
@@ -386,6 +423,56 @@ The policy token is not authentication. Every façade uses this precedence: rout
 
 Dependencies are evaluated against the final section and widget registries. A hide/replace that removes a field or data contract required by an active section/widget fails closed unless the consumer is disabled or the replacement provides the same named contract.
 
+### 8. Server-required leaves
+
+Hiding or replacing a section must never move a server-side `required` failure from bootstrap to submit time. Every parent-submit capability therefore publishes `requiredLeaves`: one `CrudFormRequiredLeafFact` per payload path that the delegated command's authoritative schema (`schemaId`, e.g. `catalog.productCreateSchema`, `sales.channelUpdateSchema`) rejects when absent or empty for that exact `(hostId, formVariant, formOperation)`. A provider contract test parses the named Zod schema with each leaf removed and fails when the published list drifts from the schema in either direction.
+
+At bootstrap, after all overrides, the resolver accepts a policy only when each required leaf is covered by exactly one of the mechanisms its fact allows:
+
+| Coverage | Allowed for | How the leaf is satisfied |
+|---|---|---|
+| `section` | create, update | An active base, replacement, or added descriptor owns the exact payload path and its validator requires a non-empty value. A replacement that owns the path inherits the obligation; it may collect the value differently (e.g. derive `code` from `name`) but must emit the leaf. |
+| `preserve-from-record` | update only | The delegated provider merges the omitted leaf from the tenant/organization-scoped locked record before domain validation (the existing `omit-preserves`/`merge-server-leaves` modes, now declared per leaf). A provider whose command requires the leaf on the wire (for example `sales.channelUpdateSchema` requiring `code`) must perform that merge in the façade before schema parsing, not rely on the client resending `initialValues`. |
+| `server-default` | create, update | Exactly one enabled `CrudFormLeafDefaultProviderFact` for that path. Its server runtime `resolve({ payload, lockedRecord, scope, em }) => value` runs inside the façade after section projection and before mutation guards and domain validation. It may read only its declared `readsPayloadPaths` and the locked record; it must be deterministic per request. Uniqueness or domain errors on a defaulted value surface like any other hidden-leaf error below. |
+
+An uncovered or doubly covered required leaf rejects the whole policy with internal reason `required_leaf_uncovered` or `required_leaf_ambiguous`; the configured host renders the blocking failure state. A create host with any `required` leaf and no coverage is therefore rejected at bootstrap, never at submit.
+
+Page-level checks that sit outside the server schema count as host behavior and move into descriptors. Adopter specs must inventory every pre-request check and payload builder that touches a sectioned leaf (for example `throw createCrudFormError('…nameRequired')` before `createCrud`, or a builder that always emits `displayName: ''`). On the policy path these run only inside the owning descriptor's `validate`/`projectPayload`; a page-level check or builder default over a leaf owned by an inactive section is an adopter test failure, because it either blocks an unreachable field or sends an empty value that overwrites the stored one.
+
+When authoritative validation still fails on a leaf the user cannot see (a legacy stored value that no longer validates, a uniqueness conflict on a defaulted `handle`/`sku`/`code`, or a default provider returning an invalid value), the façade returns the standard validation status with a form-level error code `crud_form_section_hidden_field_invalid` carrying the translated field label only, never the value. The diagnostic records host, operation, payload path, and coverage mode. It is never a 500 and never attaches a field error to an absent control.
+
+### 9. Extension-owned leaves and sinks
+
+An added section, or a replacement that collects more than the base section, may write fields the host entity does not own and persist them in the contributing module's own entity (linked by host id through `data/extensions.ts`). The framework supports this only through declared extension sinks, never by smuggling unknown leaves into the host payload.
+
+- **Namespace.** Extension leaves live under `extensions.<ownerModuleId>.*`. Host façade body schemas accept `extensions` as a record whose keys must each match an accepted sink of the resolved policy; any other key or path returns `409 extension_policy_mismatch`. Host command input never receives `extensions`; the façade strips it after sink dispatch.
+- **Capability composition.** Matching stays exact per capability. A replacement that owns base leaves plus extension leaves lists two requirements: the host capability for exactly the base payload paths, and the sink capability (`mode: 'extension-sink'`) for exactly its extension paths.
+- **Sink runtime.** The owning module registers a server-only sink in module-root `form-section-sinks.ts` via `defineCrudFormSectionSink({ id, roundTripId, schema, persist, load, undo?, onHostDeleted? })`. `persist({ values, hostResourceId, hostOperation, em, scope, auth })` validates with its own Zod schema and upserts by `(tenant_id, organization_id, host id)`. `load` is registered automatically as a response enricher on the host detail route under `_extensions.<ownerModuleId>`, so the client descriptor's initial values come from the same server read.
+- **Atomicity.** `host-transaction` sinks run inside the delegated provider's transaction after the host row is flushed (so create already has its id) and before commit; any sink error rolls back the host write. A host advertises `extensionSinkSupport: 'host-transaction'` only when its command invokes the framework seam `ctx.afterTransactionalWrite(em, result)`. That seam is a new additive `CommandRuntimeContext` hook alongside the existing `beforeTransactionalWrite`, which today only `customers/commands/interactions.ts` and `customers/commands/tags.ts` honor. `after-commit` sinks run as post-success callbacks with the committed id. A sink failure there is reported, returned as an additive `extensionWarnings` array on the success response, and shown as a non-blocking flash; it is allowed only when the requirement sets `allowAfterCommitSink: true`. A sink whose atomicity exceeds the host's support rejects the policy.
+- **Concurrency.** Changing only extension leaves does not bump the host `updated_at`. A sink with `optimisticLock: 'sink-version'` owns `updated_at` on its own row, receives `extensions.<moduleId>.__updatedAt` from the client, and compares it under the same transaction lock; a mismatch returns the standard `optimistic_lock_conflict`. `none` is allowed only for display-only or append-only data.
+- **Undo, delete, audit.** If the host command is undoable, a `host-transaction` sink declares `undo: 'snapshot'` and returns a before-snapshot that the command bus stores under the host log entry's `logContext.extensions.<moduleId>`; host undo calls the sink's `undo`. Otherwise it declares `unsupported`, and the adopter docs state that host undo leaves extension data unchanged. Host hard delete calls `onHostDeleted` in the same transaction; soft delete leaves extension rows untouched.
+- **Scope and encryption.** Sink rows carry `tenant_id`/`organization_id`, are read through `findWithDecryption`, and follow the owning module's encryption map. A sink never reads or writes another tenant's host id; `hostResourceId` is the façade-authorized id, not a client value.
+
+### 10. Derived adapter for plain `makeCrudRoute` hosts
+
+Most grouped forms are a plain create or edit page that submits once through `createCrud`/`updateCrud` to a `makeCrudRoute` backed by `<module>.<entity>.create|update|delete` commands, with no secondary writes. Hand-writing a façade, capability, and required-leaf list for each would leave those hosts permanently deferred. A host qualifies for a derived adapter when all of these hold:
+
+- one `makeCrudRoute` and its command ids are the only write targets for parent submit and delete;
+- no component group performs its own writes;
+- the group set is static, or declared through finite alternatives;
+- the update command already merges omitted fields from the locked record (`.partial()` update schema) or the host lists its wire-required update leaves explicitly.
+
+For such a host the module declares `defineCrudRouteSectionHost({ hostId, formVariant, formOperation, route, sections })` in `form-sections.ts`. The generator derives:
+
+- the capability provider fact;
+- `requiredLeaves` from the route's create/update Zod schemas (top-level non-optional, non-defaulted keys);
+- the guarded façade as a thin additive wrapper around the existing route's command;
+- parent optimistic-lock mode from the entity's `updated_at`.
+
+The module still supplies explicit section descriptors (validator, owned paths, projector), because §2 forbids projecting host schemas by field name. Any host that fails a qualifier needs a hand-written adapter. A qualifying host still declares `extensionSinkSupport` explicitly; the derived façade supports `host-transaction` sinks only when its commands call `afterTransactionalWrite`.
+
+Ungrouped forms remain out of scope: §3 forbids section addressing without groups. Converting an ungrouped form to groups is an ordinary UI change that preserves the no-policy rendering baseline, owned by that form's adopter spec, and is never implied by inventory completion.
+
 ## Architecture
 
 | Layer | Responsibility |
@@ -398,7 +485,9 @@ Dependencies are evaluated against the final section and widget registries. A hi
 | `packages/ui/src/backend/injection/` | Resolver, readiness state, runtime descriptor interfaces, component adapter |
 | `packages/ui/src/backend/utils/` | Immutable request-bound wrappers; protected-header merge |
 | server/client bootstrap and generated registries | Dispatch `forms.sections` in both runtimes; validate facts/loaders; publish configured-host ledger plus accepted manifest/fingerprint |
-| server policy-façade helper | Enforce auth-adjacent policy/resource facts and the mandatory mutation-guard/legacy-bridge/callback contract |
+| server policy-façade helper | Enforce auth-adjacent policy/resource facts and the mandatory mutation-guard/legacy-bridge/callback contract; run leaf-default providers; dispatch and strip extension sinks |
+| module-root `form-section-sinks.ts` | Auto-discovered server-only extension sinks and leaf-default providers |
+| `packages/shared/src/lib/commands` | Additive `CommandRuntimeContext.afterTransactionalWrite(em, result)` seam for `host-transaction` sinks |
 | CLI generators | Validate authored finite alternatives, duplicate ownership, diagnostics, and stable facts |
 | framework test fixture | Non-production host proving generic add/hide/replace and failure behavior |
 
@@ -457,6 +546,14 @@ No new user-facing configuration UI or design-system primitive is added. A valid
 | Post-success guard callback fails | Report/log once; preserve the already-committed success response |
 | Client/server manifest skew during resolve | Blocking `failed` before editable UI; a later deploy skew returns `409 extension_policy_mismatch`, no mutation |
 | Bootstrap fails on a configured host | Blocking error, no mutation controls, no partial customization |
+| Hidden/replaced section owns a server-required leaf with no coverage | Policy rejected at bootstrap (`required_leaf_uncovered`); never a submit-time 400 |
+| Update schema requires a leaf on the wire that a hidden section owns (e.g. sales channel `code`) | `preserve-from-record` merges it in the façade before schema parsing; otherwise the policy is rejected |
+| Hidden leaf fails authoritative validation (legacy value, uniqueness clash on a defaulted value) | Form-level `crud_form_section_hidden_field_invalid` with label only; no value echo, no 500 |
+| Page-level pre-check or payload builder touches a hidden leaf | Adopter test failure; the logic must live in the owning descriptor |
+| Unknown `extensions.<module>` key or path in a façade body | `409 extension_policy_mismatch`, no mutation |
+| `host-transaction` sink throws | Whole host write rolls back; standard error response |
+| `after-commit` sink throws | Host write stays committed; `extensionWarnings` entry plus non-blocking flash; only when `allowAfterCommitSink` |
+| Only extension leaves changed concurrently | Sink-version optimistic lock returns `optimistic_lock_conflict` |
 
 ## Risks & Impact Review
 
@@ -501,6 +598,10 @@ Each phase leaves the default application working. No host advertises section op
 6. Dispatch `forms.sections` in server and client bootstrap, reject server-only-gated entries, and publish the configured-host ledger. Build the accepted manifest/fingerprint at server bootstrap and implement the exact authenticated resolve endpoint, strict Zod/body/cardinality/uniqueness bounds, metadata/provider features, OpenAPI/status map, canonical token encoding/limits, blocking failure response, and safe diagnostics.
 7. Add guarded façade helpers and a shared parser/builder for the eight protected headers. Validate token schema/current client/server fingerprint, reauthorized host assertion, mode, route, request operation, mutation target, mutation surface, exact resource-binding ids, and delegated provider after auth/ACL/scoped-target gates and before domain mutation; reject `target-required` providers without an atomic lock/CAS declaration; then collect/run mutation guards plus the legacy bridge, revalidate modified payloads against the policy/domain contracts, and run post-success callbacks through error reporting. Return the exact `extension_policy_mismatch` 409 body for policy mismatches.
 
+7a. Add `requiredLeaves` facts and the schema-drift contract helper; enforce exact-once required-leaf coverage at bootstrap; add leaf-default provider discovery/runtime; map hidden-leaf validation failures to `crud_form_section_hidden_field_invalid`.
+7c. Add `defineCrudRouteSectionHost` and the generator that derives provider facts, `requiredLeaves`, the thin guarded façade, and lock mode for qualifying `makeCrudRoute` hosts; reject non-qualifying hosts with a diagnostic naming the failed qualifier.
+7b. Add `form-section-sinks.ts` discovery, `defineCrudFormSectionSink`, the `extensions.<moduleId>` façade namespace, the additive `afterTransactionalWrite` command seam, after-commit sink callbacks with `extensionWarnings`, the auto-registered `_extensions` detail enricher, sink-version locking, and undo/delete hooks.
+
 ### Phase 3 — UI integration
 
 8. Add optional `formVariant`, `formOperation`, `resourceId`, and runtime descriptor/composition-validator inputs to `CrudForm`; require explicit identity only for policy-enabled surfaces.
@@ -521,6 +622,8 @@ Each phase leaves the default application working. No host advertises section op
 - Resolve API/manifest: exact request/response, accepted and rejected capability/custom-field/no-op combinations, client/runtime/server fingerprint and mandatory round-trip revision skew, final-registry overrides, malformed/oversized/reconstructed token, exact 3072-byte decoded / 4096-character encoded boundaries and aggregate-overflow failed state, stale fingerprint, no-store/redaction, safe diagnostic fields.
 - Guarded façade: client collision rejection; comma-containing resource-id rejection; server missing/duplicate/malformed/recomputed-value rejection; wrong route/operation/host/target/action; auth/ACL/scope precedence; mutation-guard block/modify/legacy bridge/after-success/callback-failure behavior; modified hidden-leaf rejection; ordinary domain plus optimistic-lock header composition; `target-required` provider-declaration rejection and update/update plus update/delete contenders; exact non-leaking 409; delegated provider invoked once.
 - Browser fixture: server render → pending → ready without editable flash; add/hide/replace layout; submit/delete/action bindings; configured-host failure blocks every mutation control.
+- Required leaves: create host hiding a required-leaf section is rejected at bootstrap; replacement emitting the leaf is accepted; `server-default` provider fills it on create; update `preserve-from-record` for a wire-required leaf; hidden-leaf validation and uniqueness failures return the label-only form error; schema-drift test fails when a required leaf is added to or removed from the authoritative schema.
+- Extension sinks: added section on create and update persists into the owning module's entity in the host transaction; sink failure rolls back the host; after-commit sink failure returns `extensionWarnings`; unknown extension key rejected; sink-version conflict; host undo and hard delete call the sink; values load back through `_extensions` on the detail response.
 - Compatibility: no-policy payload, endpoint selection, lifecycle order, `hiddenGroupIds`, and widget-disable behavior unchanged.
 
 ## Acceptance Criteria
@@ -537,7 +640,9 @@ Each phase leaves the default application working. No host advertises section op
 10. No-policy forms retain the same rendered groups, validation result, payload, endpoint, lifecycle order, and mutation headers for pinned fixture inputs.
 11. A configured host never exposes mutation controls until its exact policy is ready; settled failure is a blocking state.
 12. Canonical token payloads above 3072 bytes fail closed without truncation; accepted tokens never exceed 4096 base64url characters.
-13. The named framework, integration, compatibility, client-boundary, template-parity, and configured validation commands pass with recorded evidence.
+13. No policy is accepted while any server-required leaf of its host operation lacks exactly one declared coverage; hidden-leaf validation failures never reach the user as unreachable field errors.
+14. Extension leaves persist only through declared sinks under `extensions.<ownerModuleId>`, atomically with the host write unless the contribution opts into after-commit, with their own optimistic lock, undo, and delete behavior.
+15. The named framework, integration, compatibility, client-boundary, template-parity, and configured validation commands pass with recorded evidence.
 
 ## Final Compliance Report — 2026-10-27
 
@@ -582,6 +687,9 @@ None.
 - **Fully compliant**: Approved — ready for implementation.
 
 ## Changelog
+
+- **2026-11-03:** Added §10 derived adapter for plain `makeCrudRoute` hosts and stated that ungrouped forms need an explicit group conversion owned by their adopter spec.
+- **2026-11-03:** Added §8 server-required leaf coverage (`requiredLeaves`, `section`/`preserve-from-record`/`server-default`, bootstrap rejection, page-level check relocation, hidden-leaf error mapping) and §9 extension sinks (`extensions.<moduleId>` namespace, `extension-sink` mode, `form-section-sinks.ts`, host-transaction vs after-commit atomicity via a new `afterTransactionalWrite` seam, sink-version locking, undo/delete, `_extensions` read-back). Raised from PR #6769 review: hiding a section with server-required fields on create forms, and adding fields stored in another module, were unspecified.
 
 - **2026-10-27:** Made `target-required` an atomic delegated-provider lock/CAS contract with contender coverage, excluded commas from wire resource ids, and completed the route/client-boundary ownership map.
 - **2026-10-27:** Added versioned provider-owned resource-binding ids, the `form-sections.ts` lazy runtime discovery contract, server/browser override-dispatch parity and configured-host ledger, exact resolver/header validation and OpenAPI bounds, and mandatory mutation-guard/legacy-bridge/callback behavior for every policy façade.

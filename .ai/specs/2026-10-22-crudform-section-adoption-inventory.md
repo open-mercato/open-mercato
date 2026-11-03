@@ -85,6 +85,8 @@ Every scanned invocation supplies a globally unique string-literal `inventoryKey
 
 The reviewed merge-head audit dated 2026-10-27 is the baseline reconciliation evidence: the OSS scan contract above finds 140 canonical invocations in 131 files, including 105 grouped invocations in 100 files. Eight invocations in six example/template files are `sample-harness` (six grouped in four files, two ungrouped in two files), leaving 132 production invocations in 125 files, including 99 grouped invocations in 96 files. The enterprise owner lane finds seven production invocations in seven files, two grouped and five ungrouped. The optional official-modules checkout was absent, so this audit makes no count claim for it. These totals are evidence for baseline review, not hand-maintained acceptance thresholds; the generated manifest remains authoritative after implementation.
 
+**Baseline correction (2026-11-03):** a re-scan of the merge head with the same exclusions (`__tests__`, `node_modules`, `dist`, comments) finds 161 invocations: 154 OSS and 7 enterprise. The 2026-10-27 figure misses at least the non-core OSS packages `packages/ui` (4: `ActivitiesSection`, `AttachmentMetadataDialog`, `CustomDataSection`, `MessageComposer`), `checkout`, `scheduler`, `webhooks`, `channel-discord`, and `channel-imap`, plus the later `customers/components/detail/create/CreateDealForm.tsx`. The scanner must cover every `packages/*/src/**` workspace and match generic `<CrudForm<T>` JSX. Baseline reconciliation evidence must be regenerated before this spec is ready.
+
 ## Discovery and Correlation
 
 1. The OSS command scans `apps/*/src/**`, OSS `packages/*/src/**`, and `packages/create-app/template/src/**`, explicitly excluding `packages/enterprise/**` and `external/official-modules/**` even when those paths exist. Do not follow symlinks. Exclude `node_modules`, `.next`, `dist`, `build`, `coverage`, `generated`, `__tests__`, `__integration__`, `test`, `tests`, `fixtures`, `stories`, and files matching `*.test.*`, `*.spec.*`, `*.stories.*`, or `*.generated.*`. `.ai`, docs Markdown/MDX, and `packages/create-app/agentic/**` are outside scanned roots. Authored declarations classify Todo/UMES/app-example and create-app-template invocations as `sample-harness`; every other OSS record is `production`. Classification is path/declaration validated and cannot be inferred ad hoc by the completion query.
@@ -270,6 +272,8 @@ None.
 - **Fully compliant**: Approved — ready for implementation.
 
 ## Changelog
+
+- **2026-11-03:** Recorded the 161/154/7 re-audit, named the missed packages, and required the scanner to cover all `packages/*/src/**` workspaces and generic JSX.
 
 - **2026-10-29:** Align static state and rollout completion with F5 post-merge readiness promotion; forbid self-referential approval commits.
 

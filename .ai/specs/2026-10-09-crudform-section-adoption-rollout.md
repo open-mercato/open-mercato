@@ -92,7 +92,7 @@ The OSS production program is technically complete when:
 
 - the completion query selects only records with `scope: 'oss'` and `participation: 'production'`, while reporting every `sample-harness` record in a separate non-production section;
 - every OSS production grouped alternative work unit is `ready`;
-- every OSS production compatibility-only alternative satisfies the inventory rule;
+- every OSS production compatibility-only alternative satisfies the inventory rule, and the completion report lists ungrouped and `hostId: null` alternatives as a separate count (not folded into "done"), each with its rationale and whether converting it to groups is planned, declined, or blocked;
 - there are zero OSS production `planned` or `deferred` work units;
 - every link-only external coordination entry has a valid repository/owner plus owning spec/issue link;
 - all ready adopter implementation PRs, the static inventory gate, and the tracker-backed link-verification gate are green.
@@ -107,11 +107,13 @@ Enterprise/official implementation status is reported separately and does not bl
 | Static inventory and CI | Per-invocation scanner, structural state/reference validation, deterministic drift report | `.ai/specs/2026-10-22-crudform-section-adoption-inventory.md` — proposed |
 | Link verification | Tracker-backed exact-head/PR/issue/external evidence validation and required network job | `.ai/specs/2026-10-27-crudform-section-adoption-link-verification.md` — proposed |
 | Catalog product edit | One product-edit section-policy adapter | `.ai/specs/2026-09-30-catalog-product-form-section-policy.md` — proposed |
-| Remaining catalog | Category, price, variant, compound product-create families split by runtime dependency | Dedicated adopter specs required before implementation |
-| Simple OSS CRUD | Module-scoped adopters for API keys, currencies, devices, directory, toggles, scheduler, webhooks, etc. | One reviewed spec per module/tightly coupled family |
-| Custom OSS adapters | Attachments, auth, customer accounts, planner, staff, warranty | One reviewed spec per module/tightly coupled family |
+| Remaining catalog | Category and price (plain) separate from variant and compound product-create (multi-write; product create must publish `title` as a `section`-only required leaf) | Dedicated adopter specs required before implementation |
+| Simple OSS CRUD | Module-scoped adopters for API keys, devices, toggles (pages only), scheduler, availability policies, customer groups, promotions; plain single-entity `makeCrudRoute` hosts may use the framework §10 derived adapter | One reviewed spec per module/tightly coupled family |
+| OSS CRUD with secondary writes | `currencies/[id]`, `directory/tenants/[id]/edit`, `webhooks/[id]`, `promotions/codes/[id]`, `feature_toggles` `FeatureToggleOverrideCard`, ecommerce store branding/channel/domain bindings | One reviewed spec per module; not eligible for the §10 derived adapter |
+| Custom OSS adapters | Attachments, auth, customer accounts, planner, staff, resources (`ResourceCrudForm`, `ResourceTypeCrudForm`) | One reviewed spec per module/tightly coupled family |
+| Shared UI renderers | `packages/ui` grouped renderers `backend/detail/ActivitiesSection.tsx` and `backend/detail/AttachmentMetadataDialog.tsx`; renderer descriptors live in `ui`, while each caller module owns its host id, capability, façade, and alternative | One renderer spec defining caller-owned alternatives, plus a work unit per caller in that caller's adopter spec |
 | Customers and sales | Customer page/dialog shapes and sales document/subresource families | Separate customer and sales adopter specs; split further when independently deployable |
-| High-variance editors | Checkout, business rules, entity editors, EUDR, warranty claims, workflows | One reviewed spec per module/tightly coupled family |
+| High-variance editors | Checkout, business rules, entity editors, EUDR, warranty claims (sole owner of all warranty hosts), workflows (Node/Edge dialogs persist only into in-memory graph state and stay `compatibility-only` unless a future local-state surface kind is specified) | One reviewed spec per module/tightly coupled family |
 | Samples/templates/harness | Todo/UMES/app examples, template mirror, agent knowledge/evaluation | Separate non-production/harness spec and PR |
 | Enterprise | Commercial security and later enterprise hosts | `.ai/specs/enterprise/2026-10-22-crudform-section-adoption.md` coordination index plus named adopter specs |
 | Official modules | External-repository adopters | External repository issue/spec/PR; core stores link-only coordination, never source topology |
@@ -228,6 +230,8 @@ None.
 - **Fully compliant**: Approved — valid as a non-implementing rollout index.
 
 ## Changelog
+
+- **2026-11-03:** Re-audit of the merge head found 161 `CrudForm` JSX invocations (154 OSS, 7 enterprise), not 140 OSS; added work units for availability, customer groups, promotions, resources, ecommerce, and shared `packages/ui` renderers; split CRUD hosts with secondary writes from simple CRUD; made warranty single-owner; required ungrouped/compatibility-only alternatives to be reported separately at completion.
 
 - **2026-10-29:** Align static state and rollout completion with F5 post-merge readiness promotion; forbid self-referential approval commits.
 

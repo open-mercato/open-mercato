@@ -198,6 +198,12 @@ The edit page passes explicit operation/resource identity because its current in
 
 Product create receives no section-policy identity or runtime wiring and remains policy-ineligible. Its different two-card builder and compound workflow require a separate adopter spec. Regression tests prove an edit policy cannot resolve on create even though both use the legacy widget spot `crud-form:catalog.product`.
 
+### 7. Required leaves and extension sinks
+
+Per framework §8, capability `catalog.product.edit.update/v1` publishes `requiredLeaves: []` with `schemaId: catalog.productUpdateSchema`, because that schema is `productBaseSchema.partial()`. Hiding `details` therefore omits `title` and the locked-record merge preserves it. The schema-drift test still pins this: if `title` ever becomes required on update, the fact must change to `{ payloadPath: 'title', coverage: ['section', 'preserve-from-record'] }`. The product create form stays ineligible (§6); its future adopter must publish `title` (`productBaseSchema`, `trim().min(1)`) as a `section`-only required leaf, because no server default is meaningful for a title, and must move the client-only `slugify(title)` handle derivation into the `product-meta` descriptor or a `server-default` provider.
+
+`catalog.products.update` advertises `extensionSinkSupport: 'host-transaction'` and calls `ctx.afterTransactionalWrite(em, result)` after the locked product flush and before commit. Contributed sections may then store their fields in their own module's entity, linked by product id, inside the product transaction. The page drops its own client-only `title` pre-check (`products/[id]/page.tsx`) on the policy path; it runs only inside the `details` descriptor.
+
 ## Architecture
 
 | Area | Change |
@@ -394,6 +400,8 @@ None.
 - **Fully compliant**: Approved — ready for implementation after its named prerequisites land.
 
 ## Changelog
+
+- **2026-11-03:** Added §7 required-leaf facts (none on update; create requirements recorded for its future adopter) and `host-transaction` extension-sink support on `catalog.products.update`.
 
 - **2026-10-27:** Aligned option-schema/variant resource kinds with canonical guard contracts, added atomic child-provider prerequisites, and moved catalog policy discovery to the required module-root server-fact/lazy-runtime pair.
 - **2026-10-27:** Split unit-conversion version refresh and generate-missing orchestration into independently deployable prerequisites; pinned the catalog product attachment-owner binding, corrected exact catalog command ids, closed the parent command check/write race, and required feature metadata, OpenAPI, and mutation guards on every policy façade.
