@@ -11,14 +11,20 @@ Do not dispatch deployment, release or publish workflows, delete run history, ch
 
 ## Progress
 
+PR: #8614
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Audit and source cleanup
 
-- [ ] 1.1 Record evidence-based workflow inventory and update the misleading snapshot display name.
-- [ ] 1.2 Validate workflow syntax, snapshot compatibility and source references.
+- [x] 1.1 Record evidence-based workflow inventory and update the misleading snapshot display name. — f101d52c0
+- [x] 1.2 Validate workflow syntax, snapshot compatibility and source references. — f101d52c0
 
 ### Phase 2: Administrative retirement and review
 
-- [ ] 2.1 Disable the three confirmed stale registrations and verify their state.
+- [x] 2.1 Disable the three confirmed stale registrations and verify their state. — f101d52c0
 - [ ] 2.2 Run authoritative review, record evidence and publish the completed PR.
+
+## Evidence
+
+Runner: local. All 17 YAML workflow files parse without errors; an AST comparison proves snapshot config differs only in its display name. Existing preview/release/provenance/snapshot regression suites passed 35/35. No application builds, deployment or release dispatches were needed. Registered workflow IDs238045838,226360510,297198728 were disabled through the authenticated GitHub API and read back as disabled_manually; no other catalog state changed. No run history was deleted.

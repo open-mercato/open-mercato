@@ -12,9 +12,9 @@ Source baseline: `c25d98d408479d1b3ca29ecfc958e5be9039a405` on `main`. The audit
 
 | Workflow | ID / former path | Evidence | Administrative outcome |
 |---|---|---|---|
-| Develop Release | `238045838` / `.github/workflows/develop.yml` | Only two runs, both on deleted `develop`, last on 2026-02-24; absent on both maintained branches. [Last run](https://github.com/open-mercato/open-mercato/actions/runs/22350074182). | Pending verified disable |
-| Canary Release | `226360510` / `.github/workflows/canary.yml` | Deliberately merged into snapshot by commit `e286dd060`; absent on both maintained branches. None of the latest 100 runs' branches still exists. [Last run](https://github.com/open-mercato/open-mercato/actions/runs/22404273916), 2026-02-25. | Pending verified disable |
-| Historical eval workflow | `297198728` / `.github/workflows/evals.yml` | Only three runs, all on deleted `feat/add-evals-harbor-framework`; absent on both maintained branches. [Last run](https://github.com/open-mercato/open-mercato/actions/runs/27687388612), 2026-06-17. | Pending verified disable |
+| Develop Release | `238045838` / `.github/workflows/develop.yml` | Only two runs, both on deleted `develop`, last on 2026-02-24; absent on both maintained branches. [Last run](https://github.com/open-mercato/open-mercato/actions/runs/22350074182). | Verified `disabled_manually` |
+| Canary Release | `226360510` / `.github/workflows/canary.yml` | Deliberately merged into snapshot by commit `e286dd060`; absent on both maintained branches. None of the latest 100 runs' branches still exists. [Last run](https://github.com/open-mercato/open-mercato/actions/runs/22404273916), 2026-02-25. | Verified `disabled_manually` |
+| Historical eval workflow | `297198728` / `.github/workflows/evals.yml` | Only three runs, all on deleted `feat/add-evals-harbor-framework`; absent on both maintained branches. [Last run](https://github.com/open-mercato/open-mercato/actions/runs/27687388612), 2026-06-17. | Verified `disabled_manually` |
 
 Disabling preserves audit logs and prevents these registered workflows from executing if stale copies survive on old topic branches. Do not delete historical runs merely to hide an Actions sidebar entry.
 
@@ -51,3 +51,5 @@ The snapshot's `develop` npm dist-tag and channel are compatibility interfaces, 
 ## Verification
 
 Parse every maintained workflow as YAML, run the existing snapshot/preview/provenance regression suites, and verify after cleanup that only the three specified registration IDs changed to `disabled_manually`. No job, event trigger, permission, runner, concurrency rule, publication channel or QA/approval policy changes in source.
+
+Administrative verification completed on 2026-11-03: all three listed IDs read back as `disabled_manually`; a before/after catalog comparison found no other enabled-state changes. Historical run records were retained.
