@@ -1068,9 +1068,10 @@ so there is no release in which longer arrays keep working.
 **Action for module authors and API clients:** a caller that moves more than 100 attachments at once
 must split the ids into chunks of at most `100` and send one request per chunk. Backend pages can
 call `transferAttachmentsInChunks` from `@open-mercato/core/modules/attachments/lib/transferClient`,
-which chunks by the same limit and returns the ids of any chunk that failed. The built-in callers
-already comply: product and variant create transfer draft media in chunks and warn the user when
-some media stay on the draft (#7728), and the checkout link template sends a single logo id.
+which chunks by the same limit and returns the ids of any chunk that failed plus a count of ids the
+server did not confirm. The built-in callers already comply: product and variant create transfer
+draft media in chunks and warn the user when some media stay on the draft (#8571), and the checkout
+link template sends a single logo id.
 
 **Action for operators:** no data migration is needed and earlier transfers are untouched. After
 upgrading, look for `400` responses on `POST /api/attachments/transfer` in access logs to find

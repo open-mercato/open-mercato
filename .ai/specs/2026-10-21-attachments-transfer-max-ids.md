@@ -5,7 +5,7 @@
 - **Type:** OSS core API input bound (resource-exhaustion hardening)
 - **Module:** `attachments`
 - **Issue:** [#7672](https://github.com/open-mercato/open-mercato/issues/7672) (follow-up from #7590)
-- **Depends on:** [#7728](https://github.com/open-mercato/open-mercato/pull/7728) (built-in callers transfer in chunks of at most 100)
+- **Depends on:** [#8571](https://github.com/open-mercato/open-mercato/pull/8571), merged 2026-11-03 (built-in callers transfer in chunks of at most 100; carries forward [#7728](https://github.com/open-mercato/open-mercato/pull/7728))
 
 ## TLDR
 
@@ -19,7 +19,7 @@ The route lives at `packages/core/src/modules/attachments/api/transfer/route.ts`
 
 Callers in the repository:
 
-| Caller | Ids per request | After #7728 |
+| Caller | Ids per request | After #8571 |
 |--------|-----------------|-------------|
 | `catalog` product create (`products/create/page.tsx`) | every media id uploaded to the draft, unbounded (`ProductMediaManager` has no cap) | `transferDraftMedia` → `transferAttachmentsInChunks`, at most 100 per request, incomplete transfer surfaced as a `warning` flash |
 | `catalog` variant create (`products/[productId]/variants/create/page.tsx`) | same as product create | same as product create |
@@ -36,7 +36,7 @@ The exposure is smaller than an unauthenticated vector because the route require
 
 ## Proposed Solution
 
-1. Use the `ATTACHMENT_TRANSFER_MAX_IDS = 100` constant introduced by #7728 in `packages/core/src/modules/attachments/lib/transferLimits.ts` as the single source of the limit.
+1. Use the `ATTACHMENT_TRANSFER_MAX_IDS = 100` constant introduced by #8571 in `packages/core/src/modules/attachments/lib/transferLimits.ts` as the single source of the limit.
 2. Add `.max(ATTACHMENT_TRANSFER_MAX_IDS)` to `attachmentIds` in both `transferSchema` (`api/transfer/route.ts`) and `transferAttachmentsRequestSchema` (`api/openapi.ts`). Update the OpenAPI description to state the maximum.
 3. Keep the existing failure path: `safeParse` failure answers `400 { error: "Invalid payload" }`. No new error code, no partial processing of the first 100 ids.
 4. Document the limit in `apps/docs/docs/api/attachments.mdx`.
@@ -45,7 +45,7 @@ No change to the transfer semantics for requests of 1 to 100 ids.
 
 ## Architecture
 
-The change is local to the `attachments` route schema. The client helper `transferAttachmentsInChunks` (`attachments/lib/transferClient.ts`, from #7728) already splits by the same constant, so client and server cannot drift. No event, command, subscriber, DI registration or cross-module import is added.
+The change is local to the `attachments` route schema. The client helper `transferAttachmentsInChunks` (`attachments/lib/transferClient.ts`, from #8571) already splits by the same constant, so client and server cannot drift. No event, command, subscriber, DI registration or cross-module import is added.
 
 ## Data Models
 
@@ -65,11 +65,11 @@ None. No entity, column, index or migration change.
 
 ## Internationalization
 
-None. The `400` body is the existing internal `Invalid payload` string. The user-facing message for an incomplete catalog transfer ships with #7728.
+None. The `400` body is the existing internal `Invalid payload` string. The user-facing message for an incomplete catalog transfer ships with #8571.
 
 ## UI/UX
 
-None in this change. #7728 owns the catalog warning flash.
+None in this change. #8571 owns the catalog warning flash.
 
 ## Edge Cases & Failure Scenarios
 
@@ -79,17 +79,17 @@ None in this change. #7728 owns the catalog warning flash.
 | 101 ids | `400 Invalid payload`, no row changed |
 | 101 ids of which some duplicate | Rejected: the limit counts array entries, not distinct ids, matching zod `.max()` |
 | Old third-party client sending > 100 | Rejected; must chunk (see Migration) |
-| Catalog create with > 100 uploaded media | Two or more requests via `transferAttachmentsInChunks`; a failed chunk leaves those media on the draft and shows a warning (#7728) |
+| Catalog create with > 100 uploaded media | Two or more requests via `transferAttachmentsInChunks`; a failed chunk leaves those media on the draft and shows a warning (#8571) |
 
 ## Rollout and Operations
 
-Ships in the next release after #7728. No feature flag, no environment variable and no tenant action. Operators can find affected clients by searching access logs for `POST /api/attachments/transfer` answered `400` after the upgrade.
+Ships in the next release after #8571. No feature flag, no environment variable and no tenant action. Operators can find affected clients by searching access logs for `POST /api/attachments/transfer` answered `400` after the upgrade.
 
 ## Testing Strategy and Acceptance Criteria
 
 - Unit (`attachments/api/__tests__/transfer.route.test.ts`): 100 ids accepted; 101 ids answer `400` and `em.find` is never called; the OpenAPI schema rejects 101 ids.
 - Integration (`TC-ATT-013`): a 101-id request answers `400` and the attachments stay on the source record.
-- Consumer coverage already in #7728: `transferClient.test.ts` (101 ids → two requests of 100 and 1, failed chunk reported), `mediaTransfer.test.ts`, `TC-CAT-042`.
+- Consumer coverage already on `main` from #8571: `transferClient.test.ts` (101 ids → two requests of 100 and 1, failed chunk reported), `mediaTransfer.test.ts`, the variant create `page.mediaTransfer.test.tsx`, `TC-CAT-042`.
 - Acceptance: the full validation gate in `.ai/agentic.config.json` passes on the PR head.
 
 ## Out of Scope and Follow-up Specifications
@@ -109,9 +109,9 @@ Ships in the next release after #7728. No feature flag, no environment variable 
 
 ### Built-in caller regression
 
-- **Scenario:** #7692 merges before #7728, so catalog create sends 101 media ids in one request and every image stays on the draft.
+- **Scenario:** #7692 merges before #8571, so catalog create sends 101 media ids in one request and every image stays on the draft.
 - **Severity:** high. **Affected area:** `catalog` product and variant create.
-- **Mitigation:** implementation step 1 makes #7728 a hard prerequisite; `TC-CAT-042` and `mediaTransfer.test.ts` cover the chunked path.
+- **Mitigation:** implementation step 1 makes #8571 a hard prerequisite (satisfied: merged 2026-11-03); `TC-CAT-042` and `mediaTransfer.test.ts` cover the chunked path.
 - **Residual risk:** none once the merge order holds.
 
 ### Qualifying argument for the exception is rejected
@@ -142,7 +142,7 @@ Ships in the next release after #7728. No feature flag, no environment variable 
 | 4. Dated entry | `BACKWARD_COMPATIBILITY.md` § #7672 (short form, details in `UPGRADE_NOTES.md`) |
 | 5. Maintainer sign-off | PR #7692 carries the `security` label and a named human maintainer approval acknowledging the waiver |
 
-**What stops working, for whom.** Any client of `POST /api/attachments/transfer` that sends more than 100 ids in one request. First-party UIs are unaffected after #7728. No stored data becomes unusable or suspect: rejected requests change nothing, and earlier successful transfers are untouched.
+**What stops working, for whom.** Any client of `POST /api/attachments/transfer` that sends more than 100 ids in one request. First-party UIs are unaffected after #8571. No stored data becomes unusable or suspect: rejected requests change nothing, and earlier successful transfers are untouched.
 
 **Client migration.** Split the ids into chunks of at most 100 and send one request per chunk. Backend pages (monorepo or standalone app) can call `transferAttachmentsInChunks` from `@open-mercato/core/modules/attachments/lib/transferClient`, which uses `apiCall` and reports failed chunks.
 
@@ -159,8 +159,8 @@ Used only if the maintainer declines the waiver. The primary path's rows 1, 2, 4
 
 ## Implementation Plan
 
-1. Wait for #7728 to merge (provides `ATTACHMENT_TRANSFER_MAX_IDS` and the batching callers).
-2. Rebase #7692 onto `develop`; replace the literal `100` with `ATTACHMENT_TRANSFER_MAX_IDS` in `route.ts` and `openapi.ts`.
+1. Wait for #8571 to merge (provides `ATTACHMENT_TRANSFER_MAX_IDS` and the batching callers). Done 2026-11-03.
+2. Merge `main` into #7692; replace the literal `100` with `ATTACHMENT_TRANSFER_MAX_IDS` in `route.ts` and `openapi.ts`.
 3. Rewrite the `UPGRADE_NOTES.md` entry with client and operator actions; point clients at `transferAttachmentsInChunks`.
 4. Add the dated `BACKWARD_COMPATIBILITY.md` entry (primary path) or the bridge code and two upgrade entries (alternative path).
 5. Update `apps/docs/docs/api/attachments.mdx`, unit tests and `TC-ATT-013`.
@@ -187,9 +187,13 @@ Used only if the maintainer declines the waiver. The primary path's rows 1, 2, 4
 
 ### Verdict
 
-Ready to implement once #7728 is merged and the maintainer confirms the compatibility path.
+Implemented on top of #8571. Merge still needs the `security` label and the maintainer confirmation of the compatibility path.
 
 ## Changelog
+
+### 2026-11-03
+
+- #8571 (the credited carry-forward of #7728) merged, so the dependency is met. `route.ts` and `openapi.ts` now read `ATTACHMENT_TRANSFER_MAX_IDS`; unit and integration tests derive their boundaries from it, and a unit test checks that the OpenAPI schema enforces the same limit. References to #7728 point at #8571.
 
 ### 2026-10-31
 
