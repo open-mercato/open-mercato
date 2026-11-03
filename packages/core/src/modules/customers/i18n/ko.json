@@ -1567,7 +1567,7 @@
   "customers.deals.list.kpi.chart.winRate": "월별 성사율",
   "customers.deals.list.kpi.chart.won": "월별 성사 금액",
   "customers.deals.list.kpi.chartBars": "막대",
-  "customers.deals.list.kpi.chartEmpty": "최근 6개월 데이터 없음",
+  "customers.deals.list.kpi.chartEmpty": "이 기간의 데이터 없음",
   "customers.deals.list.kpi.chartLine": "선형",
   "customers.deals.list.kpi.chartTypeLabel": "차트 유형",
   "customers.deals.list.kpi.currencyApproxMissing": "근사치입니다. 환율이 없는 {currencies} 거래는 제외되었습니다.",

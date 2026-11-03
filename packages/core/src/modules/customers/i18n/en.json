@@ -1567,7 +1567,7 @@
   "customers.deals.list.kpi.chart.winRate": "Win rate by month",
   "customers.deals.list.kpi.chart.won": "Won value by month",
   "customers.deals.list.kpi.chartBars": "Bars",
-  "customers.deals.list.kpi.chartEmpty": "No data for the last 6 months",
+  "customers.deals.list.kpi.chartEmpty": "No data for this period",
   "customers.deals.list.kpi.chartLine": "Line",
   "customers.deals.list.kpi.chartTypeLabel": "Chart type",
   "customers.deals.list.kpi.currencyApproxMissing": "Approximate; deals in {currencies} without a rate are excluded.",
