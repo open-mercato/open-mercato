@@ -3,6 +3,7 @@ import type { CalendarItem } from '../../components/calendar/types'
 export const PACKED_COLUMN_GAP_PX = 2
 export const MIN_PACKED_COLUMN_WIDTH_PX = 64
 export const DEFAULT_MAX_PACKED_COLUMNS = 3
+export const MIN_COLLAPSE_LIMIT_COLUMNS = 2
 
 export type PackedCalendarItem = {
   item: CalendarItem
@@ -70,23 +71,25 @@ export function packOverlaps(dayItems: CalendarItem[]): PackedCalendarItem[] {
 /**
  * How many packed columns still leave each event a readable label. Unknown or
  * unmeasured widths fall back to a conservative default; a column never drops
- * below one slot so the overflow disclosure itself always has room.
+ * below two slots, so a pair stays visible and at least one event sits beside
+ * the overflow disclosure, however narrow the column.
  */
 export function resolveMaxPackedColumns(usableWidthPx: number | null): number {
   if (usableWidthPx == null || !Number.isFinite(usableWidthPx) || usableWidthPx <= 0) {
     return DEFAULT_MAX_PACKED_COLUMNS
   }
   const slotWidth = MIN_PACKED_COLUMN_WIDTH_PX + PACKED_COLUMN_GAP_PX
-  return Math.max(1, Math.floor((usableWidthPx + PACKED_COLUMN_GAP_PX) / slotWidth))
+  return Math.max(MIN_COLLAPSE_LIMIT_COLUMNS, Math.floor((usableWidthPx + PACKED_COLUMN_GAP_PX) / slotWidth))
 }
 
 /**
  * Collapses clusters wider than `maxColumns` into the first `maxColumns - 1`
  * regular columns plus one overflow slot that lists every remaining event.
- * Clusters that already fit are returned untouched.
+ * Clusters that already fit are returned untouched. The limit never drops below
+ * two columns: a pair is never folded, and a denser cluster keeps one visible event.
  */
 export function collapseDenseClusters(packed: PackedCalendarItem[], maxColumns: number): DenseLayout {
-  const limit = Math.max(1, Math.floor(maxColumns))
+  const limit = Math.max(MIN_COLLAPSE_LIMIT_COLUMNS, Math.floor(maxColumns))
   const visibleColumns = limit - 1
   const visible: PackedCalendarItem[] = []
   const hiddenByCluster = new Map<number, PackedCalendarItem[]>()
