@@ -4,7 +4,7 @@
 import * as React from 'react'
 import { fireEvent, screen } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
-import { PersonCard } from '../PersonCard'
+import { PersonCard, buildPersonRowActionItems } from '../PersonCard'
 import { formatDate } from '../utils'
 
 const person = {
@@ -46,19 +46,19 @@ describe('PersonCard', () => {
     expect(screen.getByText('Customer')).toBeInTheDocument()
     expect(screen.getByText('Customer referral')).toBeInTheDocument()
     expect(screen.getByLabelText('High Interest')).toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: /Open person/ })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Unlink' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Open person' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Unlink' })).not.toBeInTheDocument()
   })
 
-  it('keeps open and unlink behind the row menu and shows the linked date as a cell', () => {
+  it('keeps open and unlink behind the row menu and shows the linked date as a cell', async () => {
     const onUnlink = jest.fn()
     renderRow({ onUnlink })
 
     expect(screen.getByText(formatDate(person.linkedAt))).toBeInTheDocument()
     expect(screen.getByText(formatDate(person.linkedAt)).closest('td')).toHaveClass('hidden', '@xl:table-cell')
-    fireEvent.click(screen.getByRole('button', { name: 'More' }))
-    expect(screen.getByRole('link', { name: /Open person/ })).toHaveAttribute('href', '/backend/customers/people-v2/person-1')
-    fireEvent.click(screen.getByRole('button', { name: 'Unlink' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Open actions' }))
+    expect(await screen.findByRole('menuitem', { name: 'Open person' })).toHaveAttribute('href', '/backend/customers/people-v2/person-1')
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Unlink' }))
     expect(onUnlink).toHaveBeenCalledWith('person-1')
   })
 
@@ -69,5 +69,11 @@ describe('PersonCard', () => {
     expect(onToggleStar).toHaveBeenCalledWith('person-1')
     rerender(<table><tbody><PersonCard person={person} onUnlink={() => {}} onToggleStar={onToggleStar} isStarred={false} /></tbody></table>)
     expect(screen.getByRole('button', { name: 'Star' })).toBeInTheDocument()
+  })
+
+  it('gives the row actions stable ids and leaves unlink out without a handler', () => {
+    const translate = (_key: string, fallback?: string) => fallback ?? ''
+    expect(buildPersonRowActionItems(person, translate, () => {}).map((item) => item.id)).toEqual(['open', 'unlink'])
+    expect(buildPersonRowActionItems(person, translate).map((item) => item.id)).toEqual(['open'])
   })
 })
