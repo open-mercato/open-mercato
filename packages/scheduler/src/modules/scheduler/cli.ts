@@ -3,6 +3,11 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/core'
 import { ScheduledJob } from './data/entities.js'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { auditSchedulerModuleQueueRows } from './lib/safeQueueTargets'
+import { createQueue } from '@open-mercato/queue'
+import type { Queue } from '@open-mercato/queue'
+import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
+import type { ExecuteSchedulePayload } from './workers/execute-schedule.worker.js'
 
 const writeLine = (text = '') => {
   process.stdout.write(`${text}\n`)
@@ -115,16 +120,17 @@ const runCommand: ModuleCli = {
     const scheduleId = rest[0]
     if (!scheduleId) {
       writeErrorLine('Usage: mercato scheduler run <schedule-id>')
+      process.exitCode = 1
       return
     }
 
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as EntityManager
-    const queueService = resolve('queueService') as { getQueue(name: string): { add(name: string, data: unknown): Promise<unknown> } }
 
     const job = await em.findOne(ScheduledJob, { id: scheduleId, deletedAt: null })
     if (!job) {
       writeErrorLine(`Schedule not found: ${scheduleId}`)
+      process.exitCode = 1
       return
     }
 
@@ -135,17 +141,38 @@ const runCommand: ModuleCli = {
     writeLine(`  Target: ${job.targetType === 'queue' ? job.targetQueue : job.targetCommand}`)
     writeLine('')
 
-    try {
-      // Manually enqueue the job (triggering the scheduler-execution worker)
-      const schedulerQueue = queueService.getQueue('scheduler-execution')
-      await schedulerQueue.add('execute-schedule', { scheduleId: job.id })
+    // Mirrors scheduler.jobs.trigger: under the local strategy nothing consumes scheduler-execution.
+    if ((process.env.QUEUE_STRATEGY || 'local') !== 'async') {
+      throw new Error(
+        'Manual trigger requires QUEUE_STRATEGY=async (with the local strategy due schedules run via `mercato scheduler start`)',
+      )
+    }
 
-      writeLine('✓ Job successfully triggered via scheduler-execution queue')
+    const payload: ExecuteSchedulePayload = {
+      scheduleId: job.id,
+      tenantId: job.tenantId,
+      organizationId: job.organizationId,
+      scopeType: job.scopeType,
+      triggerType: 'manual',
+      triggeredByUserId: null,
+    }
+
+    let executionQueue: Queue<ExecuteSchedulePayload> | null = null
+    try {
+      executionQueue = createQueue<ExecuteSchedulePayload>('scheduler-execution', 'async', {
+        connection: { url: getRedisUrlOrThrow('QUEUE') },
+      })
+      const queueJobId = await executionQueue.enqueue(payload)
+
+      writeLine(`✓ Job successfully triggered via scheduler-execution queue (job ${queueJobId})`)
       writeLine(`  The worker will pick it up and enqueue to: ${job.targetType === 'queue' ? job.targetQueue : job.targetCommand}`)
       writeLine('✓ Manual trigger completed\n')
     } catch (error: unknown) {
-      writeErrorLine(`✗ Failed to trigger job: ${error instanceof Error ? error.message : String(error)}`)
-      process.exit(1)
+      throw new Error(`Failed to trigger job: ${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      await executionQueue?.close().catch((closeError: unknown) => {
+        writeErrorLine(`Failed to close scheduler execution queue: ${closeError instanceof Error ? closeError.message : String(closeError)}`)
+      })
     }
   },
 }
@@ -225,4 +252,46 @@ const startCommand: ModuleCli = {
   },
 }
 
-export default [listCommand, statusCommand, runCommand, startCommand]
+// Lists every persisted module-authored queue-target row with its current
+// dispatch verdict (#5213). Rows authored before the hardening by a
+// non-user-bound API key are indistinguishable from genuine registrations at
+// rest, so operators review the ALLOWED entries against their known integrations.
+const auditQueueTargetsCommand: ModuleCli = {
+  command: 'audit-queue-targets',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const { resolve } = await createRequestContainer()
+    const em = resolve('em') as EntityManager
+
+    const where: Record<string, unknown> = { deletedAt: null, sourceType: 'module' }
+    if (args.tenant || args.tenantId) where.tenantId = args.tenant || args.tenantId
+
+    const rows = await em.find(ScheduledJob, where, {
+      orderBy: { name: 'ASC' },
+    })
+
+    const audits = auditSchedulerModuleQueueRows(rows)
+
+    writeLine(`Module-authored queue-target schedules: ${audits.length}`)
+    let allowedCount = 0
+    for (const audit of audits) {
+      const verdict = audit.dispatchAllowed ? 'ALLOWED' : 'blocked'
+      if (audit.dispatchAllowed) allowedCount += 1
+      writeLine(
+        `[${verdict}] ${audit.scheduleId}${audit.name ? ` — ${audit.name}` : ''}` +
+        ` module=${audit.sourceModule ?? '(none)'} queue=${audit.targetQueue ?? '(none)'}` +
+        ` enabled=${audit.isEnabled ? 'yes' : 'no'}`,
+      )
+    }
+
+    if (allowedCount > 0) {
+      writeLine('')
+      writeLine(`Review the ${allowedCount} ALLOWED row(s) above against your known module integrations.`)
+      writeLine('Pre-upgrade rows created with a non-user-bound API key cannot be distinguished')
+      writeLine('from genuine registrations at rest; disable anything unrecognized:')
+      writeLine('  yarn mercato scheduler list --tenant <tenantId>')
+    }
+  },
+}
+
+export default [listCommand, statusCommand, runCommand, startCommand, auditQueueTargetsCommand]

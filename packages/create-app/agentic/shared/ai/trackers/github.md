@@ -1,8 +1,8 @@
 # Tracker provider: GitHub
 
-This file is the GitHub implementation of the tracker operations contract (see `TEMPLATE.md` for the contract itself). Every skill in the collection performs issue/PR state management through **named tracker operations** — `**get-issue**`, `**comment-pr**`, and so on — and this file defines what each operation means for GitHub, using the `gh` CLI.
+This file is the GitHub implementation of the tracker operations contract (see `TEMPLATE.md` for the contract itself). Skills perform issue/PR state management through **named tracker operations** — `**get-issue**`, `**comment-pr**`, and so on — and this file defines what each operation means for GitHub, using the `gh` CLI.
 
-How it is used at runtime: `om-setup-agent-pipeline` copies this file into the repository at `.ai/trackers/github.md`, and the config's `tracker` field selects it. When a skill says "tracker operation **get-pr**", execute the command documented under that operation heading in the repo's copy. The repo's copy is authoritative: teams extend or override any operation by editing it — add flags, swap a command, append repo-specific conventions — and every skill picks the change up on its next run. An operation not covered by an edit keeps its behavior from this file's text as copied.
+At runtime: `om-setup-agent-pipeline` copies this file into the repository at `.ai/trackers/github.md`, and the config's `tracker` field selects it. When a skill says "tracker operation **get-pr**", execute the command documented under that operation heading in the repo's copy. The repo's copy is authoritative: teams extend or override any operation by editing it, and every skill picks the change up on its next run. An operation not covered by an edit keeps its behavior from this file's text as copied.
 
 ## Prerequisites
 
@@ -14,7 +14,7 @@ How it is used at runtime: `om-setup-agent-pipeline` copies this file into the r
 - Issue and PR identifiers are numbers; in text they are written `#123`.
 - A PR is linked to the issue it resolves with `Fixes #{issueId}` (or `Closes #{issueId}`) in the PR body; GitHub then closes the issue on merge. To reference without auto-closing, use a plain issue link.
 - PRs open as **drafts** when a skill says so; a human (or **mark-pr-ready**) promotes them.
-- Claim/lock signals on an issue or PR are: assignee set to the automation user, the `in-progress` label, and a `🤖`-prefixed claim comment. All three are set on claim; the label is guarded (below).
+- Claim/lock signals on an issue or PR are: assignee set to the automation user, the `in-progress` label, and a `🤖`-prefixed claim comment. All three are set on claim; the label is guarded (below). The `ci-monitoring` label is **not** a claim/lock signal: it marks a PR whose work is finished and already reported while an agent watches CI, so a PR carrying `ci-monitoring` without any of the three signals above MUST be treated as unclaimed and is free to claim.
 - Long, multi-line comment bodies are posted with `--body-file` (or a heredoc via process substitution) so formatting is preserved.
 - CI status truth comes from **get-pr-checks**; the set of *required* checks comes from **get-required-checks** (branch protection). When branch protection is not readable (404), treat every reported check as required.
 
@@ -98,6 +98,84 @@ BASE_BRANCH=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name'
 [ -z "$BASE_BRANCH" ] && BASE_BRANCH="main"
 ```
 
+### Public session-share artifacts
+
+#### publish-session-share
+`{owner}/{repo}`, `{branch}`, `{shareName}`, and a local `{bundleDir}` → atomically publish the four reviewed session-share artifacts on a new public branch and return repository, branch, commit, branch URL, and raw artifact URLs as JSON.
+
+This operation is intentionally strict: the repository must already be public; the branch must be a new slash-free `session-share-…` ref; and the bundle directory must contain regular, non-symlinked `session.json`, `generated-files.zip`, `manifest.json`, and `privacy-report.json` files within the documented size cap. Git blobs, a tree, and a commit are created first; the public ref is created last, so a preparation failure does not expose a partial branch.
+
+```bash
+TARGET_REPO="{owner}/{repo}"
+SHARE_BRANCH="{branch}"
+SHARE_NAME="{shareName}"
+BUNDLE_DIR="{bundleDir}"
+printf '%s' "$TARGET_REPO" | grep -Eq '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' || exit 1
+printf '%s' "$SHARE_NAME" | grep -Eq '^[a-z0-9][a-z0-9-]{1,46}[a-z0-9]$' || exit 1
+[ "$SHARE_BRANCH" = "session-share-$SHARE_NAME" ] || exit 1
+[ "$(gh repo view "$TARGET_REPO" --json visibility --jq .visibility)" = "PUBLIC" ] || exit 1
+gh api "repos/${TARGET_REPO}/git/ref/heads/${SHARE_BRANCH}" >/dev/null 2>&1 && exit 1
+
+SESSION_SHARE_TMP=$(mktemp -d)
+trap 'rm -rf "$SESSION_SHARE_TMP"' EXIT HUP INT TERM
+printf '[]\n' > "$SESSION_SHARE_TMP/tree.json"
+TOTAL_BYTES=0
+for ARTIFACT in session.json generated-files.zip manifest.json privacy-report.json; do
+  ARTIFACT_PATH="$BUNDLE_DIR/$ARTIFACT"
+  [ -f "$ARTIFACT_PATH" ] && [ ! -L "$ARTIFACT_PATH" ] || exit 1
+  ARTIFACT_BYTES=$(wc -c < "$ARTIFACT_PATH" | tr -d ' ')
+  TOTAL_BYTES=$((TOTAL_BYTES + ARTIFACT_BYTES))
+  [ "$ARTIFACT_BYTES" -le 26214400 ] && [ "$TOTAL_BYTES" -le 31457280 ] || exit 1
+done
+
+for ARTIFACT in session.json generated-files.zip manifest.json privacy-report.json; do
+  ARTIFACT_PATH="$BUNDLE_DIR/$ARTIFACT"
+  base64 < "$ARTIFACT_PATH" | tr -d '\n' > "$SESSION_SHARE_TMP/content.b64"
+  BLOB_SHA=$(jq -n --rawfile content "$SESSION_SHARE_TMP/content.b64" '{content:$content,encoding:"base64"}' \
+    | gh api -X POST "repos/${TARGET_REPO}/git/blobs" --input - --jq .sha) || exit 1
+  jq --arg path "$ARTIFACT" --arg sha "$BLOB_SHA" \
+    '. + [{path:$path,mode:"100644",type:"blob",sha:$sha}]' \
+    "$SESSION_SHARE_TMP/tree.json" > "$SESSION_SHARE_TMP/tree.next.json" || exit 1
+  mv "$SESSION_SHARE_TMP/tree.next.json" "$SESSION_SHARE_TMP/tree.json"
+done
+
+DEFAULT_BRANCH=$(gh repo view "$TARGET_REPO" --json defaultBranchRef --jq .defaultBranchRef.name) || exit 1
+BASE_COMMIT=$(gh api "repos/${TARGET_REPO}/git/ref/heads/${DEFAULT_BRANCH}" --jq .object.sha) || exit 1
+BASE_TREE=$(gh api "repos/${TARGET_REPO}/git/commits/${BASE_COMMIT}" --jq .tree.sha) || exit 1
+TREE_SHA=$(jq -n --arg base "$BASE_TREE" --slurpfile entries "$SESSION_SHARE_TMP/tree.json" \
+  '{base_tree:$base,tree:$entries[0]}' \
+  | gh api -X POST "repos/${TARGET_REPO}/git/trees" --input - --jq .sha) || exit 1
+COMMIT_SHA=$(jq -n --arg message "session share ${SHARE_NAME}" --arg tree "$TREE_SHA" --arg parent "$BASE_COMMIT" \
+  '{message:$message,tree:$tree,parents:[$parent]}' \
+  | gh api -X POST "repos/${TARGET_REPO}/git/commits" --input - --jq .sha) || exit 1
+jq -n --arg ref "refs/heads/${SHARE_BRANCH}" --arg sha "$COMMIT_SHA" '{ref:$ref,sha:$sha}' \
+  | gh api -X POST "repos/${TARGET_REPO}/git/refs" --input - >/dev/null || exit 1
+
+jq -n \
+  --arg repository "$TARGET_REPO" \
+  --arg branch "$SHARE_BRANCH" \
+  --arg commit "$COMMIT_SHA" \
+  --arg branchUrl "https://github.com/${TARGET_REPO}/tree/${SHARE_BRANCH}" \
+  --arg sessionUrl "https://raw.githubusercontent.com/${TARGET_REPO}/${SHARE_BRANCH}/session.json" \
+  --arg archiveUrl "https://raw.githubusercontent.com/${TARGET_REPO}/${SHARE_BRANCH}/generated-files.zip" \
+  --arg manifestUrl "https://raw.githubusercontent.com/${TARGET_REPO}/${SHARE_BRANCH}/manifest.json" \
+  --arg privacyUrl "https://raw.githubusercontent.com/${TARGET_REPO}/${SHARE_BRANCH}/privacy-report.json" \
+  '{repository:$repository,branch:$branch,commit:$commit,branchUrl:$branchUrl,artifacts:{session:$sessionUrl,archive:$archiveUrl,manifest:$manifestUrl,privacy:$privacyUrl}}'
+```
+
+#### delete-session-share
+`{owner}/{repo}`, `{branch}`, and `{shareName}` → remove only the exact derived session-share ref after a failed issue creation or an explicit retention cleanup request. Deleting a public ref cannot guarantee erasure from clones, forks, caches, logs, or archives.
+
+```bash
+TARGET_REPO="{owner}/{repo}"
+SHARE_BRANCH="{branch}"
+SHARE_NAME="{shareName}"
+printf '%s' "$TARGET_REPO" | grep -Eq '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' || exit 1
+printf '%s' "$SHARE_NAME" | grep -Eq '^[a-z0-9][a-z0-9-]{1,46}[a-z0-9]$' || exit 1
+[ "$SHARE_BRANCH" = "session-share-$SHARE_NAME" ] || exit 1
+gh api -X DELETE "repos/${TARGET_REPO}/git/refs/heads/${SHARE_BRANCH}"
+```
+
 ### Issues
 
 #### get-issue
@@ -109,7 +187,9 @@ gh issue view {issueId} --repo {owner}/{repo} --json number,title,body,state,aut
 #### search-issues
 Query (text, `in:title,body`, state) → matching issues.
 ```bash
-gh issue list --repo {owner}/{repo} --state open --search "<query> in:title,body" --json number,title,url
+ISSUE_STATE="{state}"
+case "$ISSUE_STATE" in open|closed|all) ;; *) exit 1 ;; esac
+gh issue list --repo {owner}/{repo} --state "$ISSUE_STATE" --search "<query> in:title,body" --json number,title,url
 ```
 
 #### create-issue
@@ -128,6 +208,12 @@ gh issue close {issueId} --repo {owner}/{repo} --reason completed --comment "<co
 `{issueId}`, body (use a heredoc/body-file for multi-line bodies).
 ```bash
 gh issue comment {issueId} --repo {owner}/{repo} --body "<body>"
+```
+
+#### update-issue
+`{issueId}`, new title and/or body (use a body-file for multi-line bodies). Edits the issue's own fields; does not touch labels or assignees (those have their own operations).
+```bash
+gh issue edit {issueId} --repo {owner}/{repo} --title "<title>" --body-file <file>
 ```
 
 #### assign-issue / unassign-issue
@@ -149,6 +235,12 @@ gh api repos/{owner}/{repo}/issues/comments/{commentId} --jq '{body,user:.user.l
 `{issueId or prNumber}` → conversation comments (PR conversation comments are issue comments on GitHub).
 ```bash
 gh api repos/{owner}/{repo}/issues/{number}/comments --jq '.[] | {id,user:.user.login,body}'
+```
+
+#### update-comment
+`{commentId}`, new body → rewrite an existing conversation comment in place (works for issue and PR conversation comments alike). This is how marker-idempotent comments (label rationale, verification, claim take-overs) are updated on re-runs: find your `🤖 …` marker via **list-issue-comments**, then update that comment instead of posting a new one. Use a body file so multi-line bodies survive.
+```bash
+gh api -X PATCH repos/{owner}/{repo}/issues/comments/{commentId} -F body=@<path>
 ```
 
 ### Pull requests
@@ -179,6 +271,17 @@ Base branch, draft flag, title, body → PR.
 gh pr create --repo {owner}/{repo} --base "$BASE_BRANCH" --draft --title "<title>" --body "<body>"
 PR_URL=$(gh pr view --json url --jq .url)
 PR_NUMBER=$(gh pr view --json number --jq .number)
+```
+
+#### update-pr
+`{prNumber}`, new title and/or new body → the PR's own title/body rewritten in place (not a comment), e.g. reframing a doc-originated spec PR that grew a feature implementation. Pass whichever of `--title` / `--body-file` changed; omit the other. Use a body file so multi-line bodies survive.
+```bash
+gh pr edit {prNumber} --title "<title>"
+gh pr edit {prNumber} --body-file <path-or-process-substitution>
+```
+If `gh pr edit` silently no-ops in this repo (some GitHub setups do), fall back to the REST API:
+```bash
+gh api -X PATCH repos/{owner}/{repo}/pulls/{prNumber} -f title="<title>" -f body="$(cat <path>)"
 ```
 
 #### comment-pr
@@ -365,6 +468,7 @@ gh label create skip-qa           --color 0e8a16 --description "Low risk, QA not
 gh label create qa-approved       --color 0e8a16 --description "Manual QA passed"
 gh label create qa-self-verified  --color c5def5 --description "Self-QA exception used"
 gh label create in-progress       --color c5def5 --description "An automated skill is working on this"
+gh label create ci-monitoring     --color 00b8d9 --description "Work complete and reported; agent is watching CI results"
 gh label create do-not-close      --color c5def5 --description "Humans only: never auto-close this issue"
 gh label create priority-low      --color e4e669 --description "Cosmetic or follow-up work"
 gh label create priority-medium   --color fbca04 --description "Ordinary bug or feature"

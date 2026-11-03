@@ -1,7 +1,8 @@
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
+import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveCrudRecordId, parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
@@ -21,6 +22,8 @@ const MANAGE_FEATURE = 'staff.leave_requests.manage'
 const SEND_FEATURE = 'staff.leave_requests.send'
 const MY_VIEW_FEATURE = 'staff.my_leave_requests.view'
 const MY_SEND_FEATURE = 'staff.my_leave_requests.send'
+
+const NIL_UUID = '00000000-0000-0000-0000-000000000000'
 
 const routeMetadata = {
   GET: { requireAuth: true },
@@ -90,7 +93,7 @@ async function resolveLeaveRequestAccess(ctx: any): Promise<LeaveRequestAccess> 
     return { canManage: false, canSend: false, canView: false, memberId: null }
   }
   const tenantId = ctx.organizationScope?.tenantId ?? auth.tenantId ?? null
-  const organizationId = ctx.selectedOrganizationId ?? ctx.organizationScope?.selectedId ?? auth.orgId ?? null
+  const organizationId = ctx.selectedOrganizationId ?? resolveSingleOrganizationIdOrDeny(ctx.organizationScope, auth) ?? null
   const rbac = (ctx.container.resolve('rbacService') as RbacService)
   const [canManage, canSendLegacy, canSendSelf, canViewSelf] = await Promise.all([
     rbac.userHasAllFeatures(auth.sub, [MANAGE_FEATURE], { tenantId, organizationId }),
@@ -111,6 +114,56 @@ async function resolveLeaveRequestAccess(ctx: any): Promise<LeaveRequestAccess> 
     { tenantId, organizationId },
   )
   return { canManage, canSend, canView, memberId: member?.id ?? null }
+}
+
+export async function buildLeaveRequestFilters(
+  query: z.infer<typeof listSchema>,
+  ctx: CrudCtx,
+) {
+  const filters: Record<string, unknown> = {}
+  if (typeof query.ids === 'string' && query.ids.trim().length > 0) {
+    const ids = query.ids
+      .split(',')
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0)
+    if (ids.length > 0) {
+      filters[F.id] = { $in: ids }
+    }
+  }
+  if (query.status) {
+    filters[F.status] = query.status
+  }
+  if (query.memberId) {
+    filters[F.member_id] = query.memberId
+  }
+  const term = sanitizeSearchTerm(query.search)
+  if (term) {
+    const like = `%${escapeLikePattern(term)}%`
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const members = await findWithDecryption(
+      em,
+      StaffTeamMember,
+      { displayName: { $ilike: like }, deletedAt: null },
+      { fields: ['id'] },
+      { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.selectedOrganizationId ?? null },
+    )
+    const memberIds = members.map((member) => member.id)
+    if (!memberIds.length) {
+      filters[F.id] = NIL_UUID
+    } else {
+      filters[F.member_id] = { $in: memberIds }
+    }
+  }
+
+  const access = await resolveLeaveRequestAccess(ctx)
+  if (!access.canManage) {
+    if (!access.canView || !access.memberId) {
+      filters[F.id] = NIL_UUID
+    } else {
+      filters[F.member_id] = access.memberId
+    }
+  }
+  return filters
 }
 
 const crud = makeCrudRoute({
@@ -151,52 +204,7 @@ const crud = makeCrudRoute({
       createdAt: F.created_at,
       updatedAt: F.updated_at,
     },
-    buildFilters: async (query, ctx) => {
-      const filters: Record<string, unknown> = {}
-      if (typeof query.ids === 'string' && query.ids.trim().length > 0) {
-        const ids = query.ids
-          .split(',')
-          .map((value) => value.trim())
-          .filter((value) => value.length > 0)
-        if (ids.length > 0) {
-          filters[F.id] = { $in: ids }
-        }
-      }
-      if (query.status) {
-        filters[F.status] = query.status
-      }
-      if (query.memberId) {
-        filters[F.member_id] = query.memberId
-      }
-      const term = sanitizeSearchTerm(query.search)
-      if (term) {
-        const like = `%${escapeLikePattern(term)}%`
-        const em = (ctx.container.resolve('em') as EntityManager).fork()
-        const members = await findWithDecryption(
-          em,
-          StaffTeamMember,
-          { displayName: { $ilike: like }, deletedAt: null },
-          { fields: ['id'] },
-          { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.selectedOrganizationId ?? null },
-        )
-        const memberIds = members.map((member) => member.id)
-        if (!memberIds.length) {
-          filters[F.id] = '__no_match__'
-        } else {
-          filters[F.member_id] = { $in: memberIds }
-        }
-      }
-
-      const access = await resolveLeaveRequestAccess(ctx)
-      if (!access.canManage) {
-        if (!access.canView || !access.memberId) {
-          filters[F.id] = '__no_access__'
-        } else {
-          filters[F.member_id] = access.memberId
-        }
-      }
-      return filters
-    },
+    buildFilters: buildLeaveRequestFilters,
   },
   hooks: {
     afterList: async (payload, ctx) => {

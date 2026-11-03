@@ -6,8 +6,13 @@ import type {
   SearchResultLink,
   SearchIndexSource,
 } from '@open-mercato/shared/modules/search'
+import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CUSTOMER_INTERACTION_TASK_SOURCE, EXAMPLE_TODO_SOURCE } from './lib/interactionCompatibility'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { defaultEncryptionMaps } from './encryption'
+import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 
 const logger = createLogger('customers')
 
@@ -412,6 +417,61 @@ function appendCustomFieldLines(lines: string[], customFields: Record<string, un
   }
 }
 
+function normalizeSearchFieldKey(key: string): string {
+  return key.replace(/^cf[:_]/, '').replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()
+}
+
+async function resolveProfileEncryptedFields(ctx: SearchContext, kind: CustomerProfileKind, entity: Record<string, unknown> | null): Promise<string[]> {
+  if (!isTenantDataEncryptionEnabled()) {
+    throw new Error('[internal] Customer vector indexing requires available encryption declarations')
+  }
+  const container = ctx.container as { resolve?: (name: string) => unknown } | undefined
+  if (typeof container?.resolve !== 'function') {
+    throw new Error('[internal] Customer search encryption policy container is unavailable')
+  }
+  const service = container.resolve('tenantEncryptionService') as Pick<TenantDataEncryptionService, 'getEncryptedFieldNames'> | undefined
+  if (typeof service?.getEncryptedFieldNames !== 'function') {
+    throw new Error('[internal] Customer search encryption policy service is unavailable')
+  }
+  const organizationIds = new Set([ctx.organizationId])
+  for (const record of [ctx.record, entity]) {
+    const organizationId = record?.organization_id ?? record?.organizationId
+    if (typeof organizationId === 'string' && organizationId) organizationIds.add(organizationId)
+  }
+  const fields = await Promise.all(Array.from(organizationIds).flatMap((organizationId) => [
+    `customers:customer_${kind}_profile`,
+    'customers:customer_entity',
+  ].map((entityId) => service.getEncryptedFieldNames(entityId, ctx.tenantId, organizationId, { ignoreRuntimeHealth: true }))))
+  return fields.flat()
+}
+
+function selectProfileSearchFields(
+  source: Record<string, unknown> | null,
+  kind: CustomerProfileKind,
+  options: { forEmbedding?: boolean; customerEntity?: boolean; encryptedFields?: string[] } = {},
+): Record<string, unknown> {
+  const entityId = `customers:customer_${kind}_profile`
+  const policy = searchConfig.entities.find((entry) => entry.entityId === entityId)?.fieldPolicy
+  const allowed = new Set((options.customerEntity
+    ? ['display_name', 'description', 'status', 'lifecycle_stage']
+    : policy?.searchable ?? []).map(normalizeSearchFieldKey))
+  const excluded = new Set([...(policy?.hashOnly ?? []), ...(policy?.excluded ?? [])].map(normalizeSearchFieldKey))
+  if (options.forEmbedding) {
+    for (const field of options.encryptedFields ?? []) excluded.add(normalizeSearchFieldKey(field))
+    for (const map of defaultEncryptionMaps) {
+      if (map.entityId !== entityId && map.entityId !== 'customers:customer_entity') continue
+      for (const entry of map.fields) excluded.add(normalizeSearchFieldKey(entry.field))
+    }
+  }
+  const fields: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(source ?? {})) {
+    if (value !== null && typeof value === 'object') continue
+    const field = normalizeSearchFieldKey(key)
+    if (allowed.has(field) && !excluded.has(field)) fields[field] = value
+  }
+  return fields
+}
+
 function pickValue(source: Record<string, unknown> | null | undefined, ...keys: string[]): unknown {
   if (!source) return undefined
   for (const key of keys) {
@@ -442,12 +502,8 @@ function pickLabel(...candidates: Array<unknown>): string | null {
 function appendCustomerEntityLines(
   lines: string[],
   entity: Record<string, unknown> | null,
-  contactLabel: 'Customer' | 'Primary' = 'Customer',
 ) {
   if (!entity) return
-  appendLine(lines, 'Customer', pickValue(entity, 'display_name', 'displayName') ?? entity.id)
-  appendLine(lines, `${contactLabel} email`, pickValue(entity, 'primary_email', 'primaryEmail'))
-  appendLine(lines, `${contactLabel} phone`, pickValue(entity, 'primary_phone', 'primaryPhone'))
   appendLine(lines, 'Lifecycle stage', pickValue(entity, 'lifecycle_stage', 'lifecycleStage'))
   appendLine(lines, 'Status', pickValue(entity, 'status'))
 }
@@ -480,11 +536,15 @@ function ensureFallbackLines(lines: string[], record: Record<string, unknown>, o
 // =============================================================================
 
 function resolvePersonPresenter(
+  translate: TranslateFn,
   record: Record<string, unknown>,
   entity: Record<string, unknown> | null,
   customFields: Record<string, unknown>,
 ): SearchResultPresenter {
   const fallbackEntityId = resolveCustomerEntityId(record)
+  record = { id: record.id, ...selectProfileSearchFields(record, 'person') }
+  entity = entity ? { id: entity.id, ...selectProfileSearchFields(entity, 'person', { customerEntity: true }) } : null
+  customFields = selectProfileSearchFields(customFields, 'person')
   const firstName = record.first_name ?? record.firstName ?? customFields.first_name ?? customFields.firstName ?? ''
   const lastName = record.last_name ?? record.lastName ?? customFields.last_name ?? customFields.lastName ?? ''
   const nameParts = [firstName, lastName].filter(Boolean).join(' ')
@@ -495,16 +555,12 @@ function resolvePersonPresenter(
     (nameParts.length ? nameParts : undefined) ??
     fallbackEntityId ??
     (record.id as string | undefined) ??
-    'Person'
+    translate('customers.search.fallback.person', 'Person')
   const subtitlePieces: string[] = []
   const jobTitle = record.job_title ?? record.jobTitle ?? customFields.job_title ?? customFields.jobTitle
   if (jobTitle) subtitlePieces.push(String(jobTitle))
   const department = record.department ?? customFields.department
   if (department) subtitlePieces.push(String(department))
-  const primaryEmail = pickValue(entity, 'primary_email', 'primaryEmail')
-  if (primaryEmail) subtitlePieces.push(String(primaryEmail))
-  const primaryPhone = pickValue(entity, 'primary_phone', 'primaryPhone')
-  if (primaryPhone) subtitlePieces.push(String(primaryPhone))
   const summary = snippet(
     (pickValue(entity, 'description') as string | undefined) ??
       (customFields.summary as string | undefined) ??
@@ -515,16 +571,22 @@ function resolvePersonPresenter(
     title: String(title),
     subtitle: subtitlePieces.length ? subtitlePieces.join(' · ') : undefined,
     icon: 'user',
-    badge: pickValue(entity, 'display_name', 'displayName') ? 'Person' : undefined,
+    badge: pickValue(entity, 'display_name', 'displayName')
+      ? translate('customers.search.badge.person', 'Person')
+      : undefined,
   }
 }
 
 function resolveCompanyPresenter(
+  translate: TranslateFn,
   record: Record<string, unknown>,
   entity: Record<string, unknown> | null,
   customFields: Record<string, unknown>,
 ): SearchResultPresenter {
   const fallbackEntityId = resolveCustomerEntityId(record)
+  record = { id: record.id, ...selectProfileSearchFields(record, 'company') }
+  entity = entity ? { id: entity.id, ...selectProfileSearchFields(entity, 'company', { customerEntity: true }) } : null
+  customFields = selectProfileSearchFields(customFields, 'company')
   const title =
     (pickValue(entity, 'display_name', 'displayName') as string | undefined) ??
     (customFields.display_name as string | undefined) ??
@@ -537,16 +599,12 @@ function resolveCompanyPresenter(
     (entity?.id && entity?.display_name ? entity.display_name as string : undefined) ??
     fallbackEntityId ??
     (record.id as string | undefined) ??
-    'Company'
+    translate('customers.search.fallback.company', 'Company')
   const subtitlePieces: string[] = []
   const industry = record.industry
   if (industry) subtitlePieces.push(String(industry))
   const sizeBucket = record.size_bucket ?? record.sizeBucket
   if (sizeBucket) subtitlePieces.push(String(sizeBucket))
-  if (entity) {
-    const primaryEmail = pickValue(entity, 'primary_email', 'primaryEmail')
-    if (primaryEmail) subtitlePieces.push(String(primaryEmail))
-  }
   const summary = snippet(
     (pickValue(entity, 'description') as string | undefined) ??
       (customFields.summary as string | undefined) ??
@@ -567,7 +625,9 @@ function resolveCompanyPresenter(
     title: String(title),
     subtitle: subtitlePieces.length ? subtitlePieces.join(' · ') : undefined,
     icon: 'building',
-    badge: pickValue(entity, 'display_name', 'displayName') ? 'Company' : undefined,
+    badge: pickValue(entity, 'display_name', 'displayName')
+      ? translate('customers.search.badge.company', 'Company')
+      : undefined,
   }
 }
 
@@ -605,23 +665,17 @@ export const searchConfig: SearchModuleConfig = {
 
       buildSource: async (ctx: SearchBuildContext): Promise<SearchIndexSource | null> => {
         assertTenantContext(ctx)
+        const { t } = await resolveTranslations()
         const lines: string[] = []
         const record = ctx.record
-        appendLine(lines, 'Preferred name', record.preferred_name ?? record.preferredName ?? ctx.customFields.preferred_name)
-        appendLine(lines, 'First name', record.first_name ?? record.firstName ?? ctx.customFields.first_name)
-        appendLine(lines, 'Last name', record.last_name ?? record.lastName ?? ctx.customFields.last_name)
-        appendLine(lines, 'Job title', record.job_title ?? record.jobTitle ?? ctx.customFields.job_title)
-        appendLine(lines, 'Department', record.department ?? record.department_name ?? record.departmentName ?? ctx.customFields.department)
-        appendLine(lines, 'Seniority', record.seniority ?? record.seniority_level ?? record.seniorityLevel ?? ctx.customFields.seniority)
-        appendLine(lines, 'Timezone', record.timezone ?? record.time_zone ?? record.timeZone ?? ctx.customFields.timezone)
-        appendLine(lines, 'LinkedIn', record.linked_in_url ?? record.linkedInUrl ?? ctx.customFields.linked_in_url)
-        appendLine(lines, 'Twitter', record.twitter_url ?? record.twitterUrl ?? ctx.customFields.twitter_url)
 
-        const { entity, entityId, profileCustomFields, entityCustomFields, entityOnlyCustomFields } =
+        const { entity, entityId, profileCustomFields, entityOnlyCustomFields } =
           await hydrateProfileContext(ctx, 'person')
-        appendCustomFieldLines(lines, profileCustomFields, 'Person custom')
+        const embeddingOptions = { forEmbedding: true, encryptedFields: await resolveProfileEncryptedFields(ctx, 'person', entity) }
+        appendCustomFieldLines(lines, selectProfileSearchFields(record, 'person', embeddingOptions), '')
+        appendCustomFieldLines(lines, selectProfileSearchFields(profileCustomFields, 'person', embeddingOptions), 'Person custom')
         if (Object.keys(entityOnlyCustomFields).length) {
-          appendCustomFieldLines(lines, entityOnlyCustomFields, 'Customer custom')
+          appendCustomFieldLines(lines, selectProfileSearchFields(entityOnlyCustomFields, 'person', embeddingOptions), 'Customer custom')
         }
         if (!entity) {
           logger.warn('Failed to load customer entity for person profile', {
@@ -631,8 +685,8 @@ export const searchConfig: SearchModuleConfig = {
             recordKeys: Object.keys(record),
           })
         }
-        appendCustomerEntityLines(lines, entity, 'Customer')
-        ensureFallbackLines(lines, record)
+        appendCustomerEntityLines(lines, selectProfileSearchFields(entity, 'person', { ...embeddingOptions, customerEntity: true }))
+        ensureFallbackLines(lines, { id: record.id ?? entityId ?? 'customers:customer_person_profile' })
         if (!lines.length) return null
 
         if (!entityId) {
@@ -643,9 +697,9 @@ export const searchConfig: SearchModuleConfig = {
           })
         }
 
-        const presenter = resolvePersonPresenter(record, entity, ctx.customFields)
+        const presenter = resolvePersonPresenter(t, record, entity, ctx.customFields)
         logMissingPresenterTitle('person', record, entity, presenter)
-        const presenterLabel = pickLabel(presenter.title) ?? 'Open person'
+        const presenterLabel = pickLabel(presenter.title) ?? t('customers.search.link.openPerson', 'Open person')
         const links: SearchResultLink[] = []
         if (entityId) {
           const href = buildCustomerUrl('person', entityId)
@@ -658,19 +712,15 @@ export const searchConfig: SearchModuleConfig = {
           text: lines,
           presenter,
           links,
-          checksumSource: {
-            record: ctx.record,
-            customFields: profileCustomFields,
-            entity,
-            entityCustomFields,
-          },
+          checksumSource: { text: lines, presenter, links },
         }
       },
 
       formatResult: async (ctx: SearchBuildContext): Promise<SearchResultPresenter | null> => {
         assertTenantContext(ctx)
+        const { t } = await resolveTranslations()
         const entity = await getCustomerEntity(ctx, resolveCustomerEntityId(ctx.record))
-        return resolvePersonPresenter(ctx.record, entity, ctx.customFields)
+        return resolvePersonPresenter(t, ctx.record, entity, ctx.customFields)
       },
 
       resolveUrl: async (ctx: SearchBuildContext): Promise<string | null> => {
@@ -679,11 +729,12 @@ export const searchConfig: SearchModuleConfig = {
       },
 
       resolveLinks: async (ctx: SearchBuildContext): Promise<SearchResultLink[] | null> => {
+        const { t } = await resolveTranslations()
         const entityId = resolveCustomerEntityId(ctx.record)
         if (!entityId) return null
         const href = buildCustomerUrl('person', entityId)
         if (!href) return null
-        return [{ href: `${href}/edit`, label: 'Edit', kind: 'secondary' }]
+        return [{ href: `${href}/edit`, label: t('customers.search.link.edit', 'Edit'), kind: 'secondary' }]
       },
 
       fieldPolicy: {
@@ -714,29 +765,25 @@ export const searchConfig: SearchModuleConfig = {
 
       buildSource: async (ctx: SearchBuildContext): Promise<SearchIndexSource | null> => {
         assertTenantContext(ctx)
+        const { t } = await resolveTranslations()
         const lines: string[] = []
         const record = ctx.record
-        appendLine(lines, 'Legal name', record.legal_name ?? record.legalName ?? ctx.customFields.legal_name)
-        appendLine(lines, 'Brand name', record.brand_name ?? record.brandName ?? ctx.customFields.brand_name)
-        appendLine(lines, 'Domain', record.domain ?? record.website_domain ?? record.websiteDomain ?? ctx.customFields.domain)
-        appendLine(lines, 'Website', record.website_url ?? record.websiteUrl ?? ctx.customFields.website_url)
-        appendLine(lines, 'Industry', record.industry ?? ctx.customFields.industry)
-        appendLine(lines, 'Company size', record.size_bucket ?? record.sizeBucket ?? ctx.customFields.size_bucket)
-        appendLine(lines, 'Annual revenue', record.annual_revenue ?? record.annualRevenue ?? ctx.customFields.annual_revenue)
 
-        const { entity, entityId, profileCustomFields, entityCustomFields, entityOnlyCustomFields } =
+        const { entity, entityId, profileCustomFields, entityOnlyCustomFields } =
           await hydrateProfileContext(ctx, 'company')
-        appendCustomFieldLines(lines, profileCustomFields, 'Company custom')
+        const embeddingOptions = { forEmbedding: true, encryptedFields: await resolveProfileEncryptedFields(ctx, 'company', entity) }
+        appendCustomFieldLines(lines, selectProfileSearchFields(record, 'company', embeddingOptions), '')
+        appendCustomFieldLines(lines, selectProfileSearchFields(profileCustomFields, 'company', embeddingOptions), 'Company custom')
         if (Object.keys(entityOnlyCustomFields).length) {
-          appendCustomFieldLines(lines, entityOnlyCustomFields, 'Customer custom')
+          appendCustomFieldLines(lines, selectProfileSearchFields(entityOnlyCustomFields, 'company', embeddingOptions), 'Customer custom')
         }
-        appendCustomerEntityLines(lines, entity, 'Primary')
-        ensureFallbackLines(lines, record)
+        appendCustomerEntityLines(lines, selectProfileSearchFields(entity, 'company', { ...embeddingOptions, customerEntity: true }))
+        ensureFallbackLines(lines, { id: record.id ?? entityId ?? 'customers:customer_company_profile' })
         if (!lines.length) return null
 
-        const presenter = resolveCompanyPresenter(record, entity, ctx.customFields)
+        const presenter = resolveCompanyPresenter(t, record, entity, ctx.customFields)
         logMissingPresenterTitle('company', record, entity, presenter)
-        const primaryLabel = pickLabel(presenter.title) ?? 'Open company'
+        const primaryLabel = pickLabel(presenter.title) ?? t('customers.search.link.openCompany', 'Open company')
         const links: SearchResultLink[] = []
         if (entityId) {
           const href = buildCustomerUrl('company', entityId)
@@ -749,19 +796,15 @@ export const searchConfig: SearchModuleConfig = {
           text: lines,
           presenter,
           links,
-          checksumSource: {
-            record: ctx.record,
-            customFields: profileCustomFields,
-            entity,
-            entityCustomFields,
-          },
+          checksumSource: { text: lines, presenter, links },
         }
       },
 
       formatResult: async (ctx: SearchBuildContext): Promise<SearchResultPresenter | null> => {
         assertTenantContext(ctx)
+        const { t } = await resolveTranslations()
         const entity = await getCustomerEntity(ctx, resolveCustomerEntityId(ctx.record))
-        return resolveCompanyPresenter(ctx.record, entity, ctx.customFields)
+        return resolveCompanyPresenter(t, ctx.record, entity, ctx.customFields)
       },
 
       resolveUrl: async (ctx: SearchBuildContext): Promise<string | null> => {
@@ -770,11 +813,12 @@ export const searchConfig: SearchModuleConfig = {
       },
 
       resolveLinks: async (ctx: SearchBuildContext): Promise<SearchResultLink[] | null> => {
+        const { t } = await resolveTranslations()
         const entityId = resolveCustomerEntityId(ctx.record)
         if (!entityId) return null
         const href = buildCustomerUrl('company', entityId)
         if (!href) return null
-        return [{ href: `${href}/edit`, label: 'Edit', kind: 'secondary' }]
+        return [{ href: `${href}/edit`, label: t('customers.search.link.edit', 'Edit'), kind: 'secondary' }]
       },
 
       fieldPolicy: {
@@ -832,8 +876,9 @@ export const searchConfig: SearchModuleConfig = {
 
       formatResult: async (ctx: SearchBuildContext): Promise<SearchResultPresenter | null> => {
         assertTenantContext(ctx)
+        const { t } = await resolveTranslations()
         const parent = await getCustomerEntity(ctx, ctx.record.entity_id as string ?? ctx.record.entityId as string)
-        const title = (parent?.display_name as string | undefined) ?? 'Customer note'
+        const title = (parent?.display_name as string | undefined) ?? t('customers.search.fallback.customerNote', 'Customer note')
         return {
           title,
           subtitle: snippet(ctx.record.body),
@@ -850,15 +895,16 @@ export const searchConfig: SearchModuleConfig = {
 
       resolveLinks: async (ctx: SearchBuildContext): Promise<SearchResultLink[] | null> => {
         assertTenantContext(ctx)
+        const { t } = await resolveTranslations()
         const links: SearchResultLink[] = []
         const parent = await getCustomerEntity(ctx, ctx.record.entity_id as string ?? ctx.record.entityId as string)
         const parentUrl = buildCustomerUrl(parent?.kind as string ?? null, (parent?.id ?? ctx.record.entity_id ?? ctx.record.entityId) as string)
         if (parentUrl) {
-          links.push({ href: parentUrl, label: (parent?.display_name as string | undefined) ?? 'View customer', kind: 'primary' })
+          links.push({ href: parentUrl, label: (parent?.display_name as string | undefined) ?? t('customers.search.link.viewCustomer', 'View customer'), kind: 'primary' })
         }
         if (ctx.record.deal_id) {
           const dealUrl = `/backend/customers/deals/${encodeURIComponent(ctx.record.deal_id as string)}`
-          links.push({ href: dealUrl, label: 'Open deal', kind: 'secondary' })
+          links.push({ href: dealUrl, label: t('customers.search.link.openDeal', 'Open deal'), kind: 'secondary' })
         }
         return links.length ? links : null
       },
@@ -880,6 +926,7 @@ export const searchConfig: SearchModuleConfig = {
       priority: 8,
 
       buildSource: async (ctx: SearchBuildContext): Promise<SearchIndexSource | null> => {
+        const { t } = await resolveTranslations()
         const lines: string[] = []
         const record = ctx.record
         appendLine(lines, 'Title', record.title)
@@ -898,10 +945,10 @@ export const searchConfig: SearchModuleConfig = {
         return {
           text: lines,
           presenter: {
-            title: String(record.title ?? 'Deal'),
+            title: String(record.title ?? t('customers.search.fallback.deal', 'Deal')),
             subtitle: subtitleParts.join(' · ') || undefined,
             icon: 'briefcase',
-            badge: 'Deal',
+            badge: t('customers.search.badge.deal', 'Deal'),
           },
           checksumSource: {
             title: record.title,
@@ -913,8 +960,9 @@ export const searchConfig: SearchModuleConfig = {
       },
 
       formatResult: async (ctx: SearchBuildContext): Promise<SearchResultPresenter | null> => {
+        const { t } = await resolveTranslations()
         const { record } = ctx
-        const title = pickString(record.title as string, 'Deal')
+        const title = pickString(record.title as string, t('customers.search.fallback.deal', 'Deal'))
         const subtitleParts: string[] = []
         if (record.pipeline_stage) subtitleParts.push(String(record.pipeline_stage))
         if (record.status) subtitleParts.push(String(record.status))
@@ -925,10 +973,10 @@ export const searchConfig: SearchModuleConfig = {
         }
 
         return {
-          title: title ?? 'Deal',
+          title: title ?? t('customers.search.fallback.deal', 'Deal'),
           subtitle: subtitleParts.length ? subtitleParts.join(' · ') : undefined,
           icon: 'briefcase',
-          badge: 'Deal',
+          badge: t('customers.search.badge.deal', 'Deal'),
         }
       },
 
@@ -939,12 +987,13 @@ export const searchConfig: SearchModuleConfig = {
       },
 
       resolveLinks: async (ctx: SearchBuildContext): Promise<SearchResultLink[] | null> => {
+        const { t } = await resolveTranslations()
         const id = ctx.record.id
         if (!id) return null
         return [
           {
             href: `/backend/customers/deals/${encodeURIComponent(String(id))}/edit`,
-            label: 'Edit',
+            label: t('customers.search.link.edit', 'Edit'),
             kind: 'secondary',
           },
         ]
@@ -968,6 +1017,7 @@ export const searchConfig: SearchModuleConfig = {
 
       buildSource: async (ctx: SearchBuildContext): Promise<SearchIndexSource | null> => {
         assertTenantContext(ctx)
+        const { t } = await resolveTranslations()
         const parent = await getCustomerEntity(ctx, ctx.record.entity_id as string ?? ctx.record.entityId as string)
         const lines: string[] = []
         if (parent?.display_name) lines.push(`Customer: ${parent.display_name}`)
@@ -976,7 +1026,11 @@ export const searchConfig: SearchModuleConfig = {
         if (ctx.record.body) lines.push(`Body: ${ctx.record.body}`)
 
         const presenter: SearchResultPresenter = {
-          title: ctx.record.subject ? String(ctx.record.subject) : `Activity: ${ctx.record.activity_type ?? 'update'}`,
+          title: ctx.record.subject
+            ? String(ctx.record.subject)
+            : t('customers.search.fallback.activity', 'Activity: {{type}}', {
+                type: String(ctx.record.activity_type ?? t('customers.search.fallback.activityUpdate', 'update')),
+              }),
           subtitle: (parent?.display_name as string | undefined) ?? snippet(ctx.record.body),
           icon: 'bolt',
         }
@@ -995,12 +1049,17 @@ export const searchConfig: SearchModuleConfig = {
 
       formatResult: async (ctx: SearchBuildContext): Promise<SearchResultPresenter | null> => {
         assertTenantContext(ctx)
+        const { t } = await resolveTranslations()
         const parent = await getCustomerEntity(ctx, ctx.record.entity_id as string ?? ctx.record.entityId as string)
         return {
-          title: ctx.record.subject ? String(ctx.record.subject) : `Activity: ${ctx.record.activity_type ?? 'update'}`,
+          title: ctx.record.subject
+            ? String(ctx.record.subject)
+            : t('customers.search.fallback.activity', 'Activity: {{type}}', {
+                type: String(ctx.record.activity_type ?? t('customers.search.fallback.activityUpdate', 'update')),
+              }),
           subtitle: (parent?.display_name as string | undefined) ?? snippet(ctx.record.body),
           icon: 'bolt',
-          badge: 'Activity',
+          badge: t('customers.search.badge.activity', 'Activity'),
         }
       },
 
@@ -1012,11 +1071,12 @@ export const searchConfig: SearchModuleConfig = {
       },
 
       resolveLinks: async (ctx: SearchBuildContext): Promise<SearchResultLink[] | null> => {
+        const { t } = await resolveTranslations()
         const links: SearchResultLink[] = []
         if (ctx.record.deal_id) {
           links.push({
             href: `/backend/customers/deals/${encodeURIComponent(ctx.record.deal_id as string)}`,
-            label: 'Open deal',
+            label: t('customers.search.link.openDeal', 'Open deal'),
             kind: 'secondary',
           })
         }
@@ -1064,10 +1124,11 @@ export const searchConfig: SearchModuleConfig = {
 
       formatResult: async (ctx: SearchBuildContext): Promise<SearchResultPresenter | null> => {
         assertTenantContext(ctx)
+        const { t } = await resolveTranslations()
         const todo = await getLinkedTodo(ctx) as Record<string, unknown> | null
         const parent = await getCustomerEntity(ctx, ctx.record.entity_id as string ?? ctx.record.entityId as string)
         return {
-          title: (todo?.title as string | undefined) ?? 'Customer task',
+          title: (todo?.title as string | undefined) ?? t('customers.search.fallback.customerTask', 'Customer task'),
           subtitle: parent?.display_name as string | undefined,
           icon: 'check-square',
         }
@@ -1081,11 +1142,12 @@ export const searchConfig: SearchModuleConfig = {
       },
 
       resolveLinks: async (ctx: SearchBuildContext): Promise<SearchResultLink[] | null> => {
+        const { t } = await resolveTranslations()
         const todoId = ctx.record.todo_id ?? ctx.record.todoId
         if (!todoId) return null
         return [{
           href: `/backend/todos/${encodeURIComponent(todoId as string)}/edit`,
-          label: 'Open todo',
+          label: t('customers.search.link.openTodo', 'Open todo'),
           kind: 'secondary',
         }]
       },

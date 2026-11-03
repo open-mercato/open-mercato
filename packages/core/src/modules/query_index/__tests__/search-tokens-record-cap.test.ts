@@ -1,0 +1,149 @@
+import type { SearchConfig } from '@open-mercato/shared/lib/search/config'
+import { AGGREGATE_SEARCH_FIELD, buildIndexDocument } from '../lib/document'
+import { buildSearchTokenRows } from '../lib/search-tokens'
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const baseConfig: SearchConfig = {
+  enabled: true,
+  minTokenLength: 3,
+  enablePartials: false,
+  hashAlgorithm: 'sha256',
+  storeRawTokens: false,
+  blocklistedFields: [],
+  maxFieldChars: 20_000,
+  maxTokensPerField: 5_000,
+  maxTokensPerRecord: 20_000,
+}
+
+function buildWords(prefix: string, count: number): string {
+  return Array.from({ length: count }, (_, index) => `${prefix}${index}`).join(' ')
+}
+
+describe('buildSearchTokenRows limits', () => {
+  test('caps token rows across all fields in one record', () => {
+    const rows = buildSearchTokenRows({
+      entityType: 'messages:message',
+      recordId: 'record-1',
+      doc: { subject: buildWords('subject', 20), body: buildWords('body', 20) },
+      config: { ...baseConfig, maxTokensPerRecord: 10 },
+    })
+
+    expect(rows).toHaveLength(10)
+  })
+
+  test('shares the per-field budget across array entries', () => {
+    const rows = buildSearchTokenRows({
+      entityType: 'messages:message',
+      recordId: 'record-2',
+      doc: { tags: [buildWords('alpha', 10), buildWords('beta', 10)] },
+      config: { ...baseConfig, maxTokensPerField: 4 },
+    })
+
+    expect(rows).toHaveLength(4)
+  })
+
+  test('continues past duplicate array tokens until the distinct field budget is full', () => {
+    const rows = buildSearchTokenRows({
+      entityType: 'messages:message',
+      recordId: 'record-duplicate-prefix',
+      doc: { tags: ['alpha beta', 'alpha beta gamma delta'] },
+      config: { ...baseConfig, storeRawTokens: true, maxTokensPerField: 4 },
+    })
+
+    expect(rows.map((row) => row.token)).toEqual(['alpha', 'beta', 'gamma', 'delta'])
+  })
+
+  test('spends the record budget in the document key order, not a canonical one', () => {
+    const subject = buildWords('subject', 20)
+    const body = buildWords('body', 20)
+    const config = { ...baseConfig, maxTokensPerRecord: 4 }
+
+    const subjectFirst = buildSearchTokenRows({
+      entityType: 'messages:message',
+      recordId: 'record-key-order',
+      doc: { subject, body },
+      config,
+    })
+    const bodyFirst = buildSearchTokenRows({
+      entityType: 'messages:message',
+      recordId: 'record-key-order',
+      doc: { body, subject },
+      config,
+    })
+
+    expect(new Set(subjectFirst.map((row) => row.field))).toEqual(new Set(['subject']))
+    expect(new Set(bodyFirst.map((row) => row.field))).toEqual(new Set(['body']))
+  })
+
+  test('starves the aggregate search field first, because buildIndexDocument appends it last', () => {
+    const doc = buildIndexDocument(
+      { title: buildWords('title', 20) },
+      [{ key: 'notes', value: buildWords('notes', 20) }],
+      {},
+      { config: baseConfig, entityType: 'messages:message' },
+    )
+
+    expect(Object.keys(doc)).toEqual(['title', 'cf:notes', AGGREGATE_SEARCH_FIELD])
+
+    const rows = buildSearchTokenRows({
+      entityType: 'messages:message',
+      recordId: 'record-aggregate',
+      doc,
+      config: { ...baseConfig, maxTokensPerRecord: 4 },
+    })
+
+    expect(new Set(rows.map((row) => row.field))).toEqual(new Set(['title']))
+  })
+
+  test('starves search_text before l10n fields, matching buildIndexDoc\'s incremental key order', () => {
+    // buildIndexDoc (lib/indexer.ts) inserts `l10n:{locale}:{field}` keys between the `cf:*`
+    // keys and `search_text` — a different order than buildIndexDocument's, which has no l10n
+    // keys at all. Pinned here as plain keys because buildIndexDoc itself needs a live DB read.
+    const doc = {
+      title: 'alpha',
+      'cf:notes': 'bravo',
+      'l10n:en:title': 'charlie',
+      [AGGREGATE_SEARCH_FIELD]: 'delta',
+    }
+
+    const throughCf = buildSearchTokenRows({
+      entityType: 'messages:message',
+      recordId: 'record-incremental-order',
+      doc,
+      config: { ...baseConfig, maxTokensPerRecord: 2 },
+    })
+    expect(new Set(throughCf.map((row) => row.field))).toEqual(new Set(['title', 'cf:notes']))
+
+    const throughL10n = buildSearchTokenRows({
+      entityType: 'messages:message',
+      recordId: 'record-incremental-order',
+      doc,
+      config: { ...baseConfig, maxTokensPerRecord: 3 },
+    })
+    expect(new Set(throughL10n.map((row) => row.field))).toEqual(
+      new Set(['title', 'cf:notes', 'l10n:en:title']),
+    )
+  })
+
+  test('preserves tokens when the document stays within the limits', () => {
+    const rows = buildSearchTokenRows({
+      entityType: 'messages:message',
+      recordId: 'record-3',
+      doc: { subject: 'alpha beta gamma' },
+      config: baseConfig,
+    })
+
+    expect(rows).toHaveLength(3)
+  })
+})

@@ -4,8 +4,53 @@ import * as React from 'react'
 import { render, fireEvent } from '@testing-library/react'
 
 import { Badge } from '../badge'
+import { StatusBadge } from '../status-badge'
 
 describe('Badge (Phase B.8)', () => {
+  it('disables native removal and the badge click handler when disabled', () => {
+    const onRemove = jest.fn()
+    const onClick = jest.fn()
+    const { container, rerender } = render(<Badge appearance="filled" tone="info" removable disabled onRemove={onRemove} onClick={onClick}>Locked</Badge>)
+    const remove = container.querySelector('[data-slot="badge-remove"]') as HTMLButtonElement
+    expect(remove.disabled).toBe(true)
+    expect(container.querySelector('[data-slot="badge"]')).toHaveAttribute('aria-disabled', 'true')
+    fireEvent.click(remove)
+    expect(onRemove).not.toHaveBeenCalled()
+    expect(onClick).not.toHaveBeenCalled()
+    rerender(<Badge appearance="filled" tone="info" removable onRemove={onRemove}>Enabled</Badge>)
+    fireEvent.click(container.querySelector('[data-slot="badge-remove"]') as HTMLButtonElement)
+    expect(onRemove).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps content order and hides decorative icons from the accessible text', () => {
+    const { container } = render(<Badge leadingIcon={<svg />} trailingIcon={<svg />}>Customers</Badge>)
+    const root = container.querySelector('[data-slot="badge"]') as HTMLElement
+    expect(root.firstElementChild).toHaveAttribute('data-slot', 'badge-leading-icon')
+    expect(root.lastElementChild).toHaveAttribute('data-slot', 'badge-trailing-icon')
+    expect(root.firstElementChild).toHaveAttribute('aria-hidden', 'true')
+    expect(root.lastElementChild).toHaveAttribute('aria-hidden', 'true')
+    expect(root.textContent).toBe('Customers')
+  })
+
+  it('uses a contrasting current-color dot for opt-in filled appearances', () => {
+    const { container } = render(<Badge appearance="filled" tone="success" dot>Completed</Badge>)
+    const root = container.querySelector('[data-slot="badge"]') as HTMLElement
+    expect(root.className).toContain('bg-status-success-solid')
+    expect(root.className).toContain('text-status-success-solid-foreground')
+    expect(container.querySelector('[data-slot="badge-dot"]')?.className).toContain('bg-current')
+  })
+
+  it('supports both StatusBadge appearances without losing the semantic dot', () => {
+    const { container, rerender } = render(<StatusBadge variant="success" appearance="light" dot>Completed</StatusBadge>)
+    expect(container.querySelector('[data-slot="badge"]')?.className).toContain('bg-status-success-bg')
+    rerender(<StatusBadge variant="success" appearance="stroke" dot>Completed</StatusBadge>)
+    const root = container.querySelector('[data-slot="badge"]') as HTMLElement
+    expect(root.className).toContain('border-border')
+    expect(root.className).toContain('bg-background')
+    expect(root.querySelector('[aria-hidden="true"]')?.className).toContain('bg-status-success-icon')
+    expect(root.textContent).toBe('Completed')
+  })
+
   it('renders the badge root with data-slot + default variant + default size', () => {
     const { container } = render(<Badge>Active</Badge>)
     const root = container.querySelector('[data-slot="badge"]') as HTMLElement
@@ -185,5 +230,30 @@ describe('Badge (Phase B.8)', () => {
     expect(root.className).toContain('custom-class')
     expect(root.className).toContain('bg-status-success-bg')
     expect(root.className).toContain('text-sm')
+  })
+})
+
+
+describe('Badge measured size and hue additions', () => {
+  it.each(['yellow', 'purple', 'sky', 'teal'] as const)('%s supports every appearance while disabled removal remains inert', (tone) => {
+    const onRemove = jest.fn()
+    for (const appearance of ['filled', 'light', 'lighter', 'stroke'] as const) {
+      const { container, unmount } = render(<Badge tone={tone} appearance={appearance} size={16} disabled removable onRemove={onRemove}>Label</Badge>)
+      expect(container.querySelector('[data-slot="badge"]')).toHaveAttribute('aria-disabled', 'true')
+      const button = container.querySelector('button') as HTMLButtonElement
+      expect(button).toBeDisabled()
+      fireEvent.click(button)
+      unmount()
+    }
+    expect(onRemove).not.toHaveBeenCalled()
+  })
+
+  it('keeps a numeric count readable as content and supports decorative icons at both source sizes', () => {
+    const { container, rerender } = render(<Badge size={16} numeric appearance="filled" tone="purple">125</Badge>)
+    expect(container.querySelector('[data-slot="badge"]')).toHaveTextContent('125')
+    expect(container.querySelector('[data-slot="badge"]')).toHaveAttribute('data-numeric', 'true')
+    rerender(<Badge size={20} tone="sky" leadingIcon={<svg />} trailingIcon={<svg />}>Label</Badge>)
+    expect(container.querySelectorAll('[data-slot$="-icon"][aria-hidden="true"]')).toHaveLength(2)
+    expect(container.querySelector('[data-slot="badge"]')).not.toHaveAttribute('data-numeric')
   })
 })

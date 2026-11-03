@@ -18,15 +18,15 @@ describe('Alert primitive', () => {
     expect(alert).toHaveAttribute('data-status', 'information')
     expect(alert).toHaveAttribute('data-style', 'light')
     expect(alert).toHaveClass('min-h-9')
-    expect(alert).toHaveClass('rounded-lg')
+    expect(alert).toHaveClass('rounded-md')
   })
 
   describe('Figma tokens — status × style matrix', () => {
-    it('error / filled: bg-status-error-icon + text-white', () => {
+    it('error / filled: bg-status-error-solid + text-white', () => {
       const { container } = render(<Alert status="error" style="filled">Oops</Alert>)
       const alert = container.querySelector('[data-slot="alert"]')
-      expect(alert).toHaveClass('bg-status-error-icon')
-      expect(alert).toHaveClass('text-white')
+      expect(alert).toHaveClass('bg-status-error-solid')
+      expect(alert).toHaveClass('text-status-error-solid-foreground')
     })
 
     it('error / light: bg-status-error-border + text-status-error-text (Figma #fecaca)', () => {
@@ -43,12 +43,12 @@ describe('Alert primitive', () => {
       expect(alert).toHaveClass('text-foreground')
     })
 
-    it('stroke style: bg-background + text-foreground + border-border + shadow-lg', () => {
+    it('stroke style: bg-background + text-foreground + ring-border + shadow-lg', () => {
       const { container } = render(<Alert status="warning" style="stroke">Heads up</Alert>)
       const alert = container.querySelector('[data-slot="alert"]')
       expect(alert).toHaveClass('bg-background')
       expect(alert).toHaveClass('text-foreground')
-      expect(alert).toHaveClass('border-border')
+      expect(alert).toHaveClass('ring-border')
       expect(alert).toHaveClass('shadow-lg')
     })
 
@@ -60,35 +60,35 @@ describe('Alert primitive', () => {
       expect(alert).not.toHaveClass('bg-brand-violet')
     })
 
-    it('feature / filled: bg-status-neutral-icon + text-white', () => {
+    it('feature / filled: bg-status-neutral-solid + text-white', () => {
       const { container } = render(<Alert status="feature" style="filled">Hi</Alert>)
       const alert = container.querySelector('[data-slot="alert"]')
-      expect(alert).toHaveClass('bg-status-neutral-icon')
-      expect(alert).toHaveClass('text-white')
+      expect(alert).toHaveClass('bg-status-neutral-solid')
+      expect(alert).toHaveClass('text-status-neutral-solid-foreground')
     })
   })
 
   describe('Sizes', () => {
-    it('size="xs" applies min-h-8 + rounded-lg + text-xs', () => {
+    it('size="xs" applies min-h-8 + rounded-md + text-xs', () => {
       const { container } = render(<Alert size="xs">xs</Alert>)
       const alert = container.querySelector('[data-slot="alert"]')
       expect(alert).toHaveClass('min-h-8')
-      expect(alert).toHaveClass('rounded-lg')
+      expect(alert).toHaveClass('rounded-md')
       expect(alert).toHaveClass('text-xs')
     })
 
-    it('size="sm" applies min-h-9 + rounded-lg + text-sm (Figma Paragraph/Small)', () => {
+    it('size="sm" applies min-h-9 + rounded-md + text-sm (Figma Paragraph/Small)', () => {
       const { container } = render(<Alert size="sm">sm</Alert>)
       const alert = container.querySelector('[data-slot="alert"]')
       expect(alert).toHaveClass('min-h-9')
-      expect(alert).toHaveClass('rounded-lg')
+      expect(alert).toHaveClass('rounded-md')
       expect(alert).toHaveClass('text-sm')
     })
 
-    it('size="default" applies rounded-xl + larger padding + no min height', () => {
+    it('size="default" applies rounded-alert + larger padding + no min height', () => {
       const { container } = render(<Alert size="default">default</Alert>)
       const alert = container.querySelector('[data-slot="alert"]')
-      expect(alert).toHaveClass('rounded-xl')
+      expect(alert).toHaveClass('rounded-alert')
       expect(alert).toHaveClass('text-sm')
     })
   })
@@ -189,7 +189,47 @@ describe('Alert primitive', () => {
       </Alert>,
     )
     expect(screen.getByText('Saved').tagName).toBe('H5')
-    expect(screen.getByText('Your changes were saved.').tagName).toBe('P')
+    expect(screen.getByText('Your changes were saved.').tagName).toBe('DIV')
+  })
+
+  describe('AlertDescription accepts block-level children', () => {
+    it('renders a div so nested paragraphs stay valid HTML', () => {
+      const { container } = render(
+        <Alert status="information">
+          <AlertDescription>
+            <p>First paragraph.</p>
+            <p>Second paragraph.</p>
+          </AlertDescription>
+        </Alert>,
+      )
+      expect(screen.getByText('First paragraph.').parentElement?.tagName).toBe('DIV')
+      expect(container.querySelectorAll('p p')).toHaveLength(0)
+    })
+
+    it('keeps a nested list out of a paragraph', () => {
+      const { container } = render(
+        <Alert status="warning">
+          <AlertDescription>
+            <p>These records changed:</p>
+            <ul>
+              <li>r-1</li>
+            </ul>
+          </AlertDescription>
+        </Alert>,
+      )
+      expect(container.querySelectorAll('p ul')).toHaveLength(0)
+      expect(container.querySelectorAll('p p')).toHaveLength(0)
+    })
+
+    it('forwards a ref to the rendered div', () => {
+      const ref = React.createRef<HTMLDivElement>()
+      render(
+        <Alert>
+          <AlertDescription ref={ref}>Body</AlertDescription>
+        </Alert>,
+      )
+      expect(ref.current).toBeInstanceOf(HTMLDivElement)
+    })
   })
 
   describe('legacy variant prop (BC)', () => {

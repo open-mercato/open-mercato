@@ -352,6 +352,166 @@ describe('Rule Engine (Unit Tests)', () => {
       )
     })
 
+    test('passes the last saver of the rule to the actions as the rule author', async () => {
+      const context: RuleEngineContext = {
+        entityType: 'WorkOrder',
+        entityId: testEntityId,
+        data: { status: 'RELEASED' },
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        dryRun: true,
+      }
+      jest.mocked(actionExecutor.executeActions).mockResolvedValue(allowOutcome)
+
+      for (const [authorFields, expectedAuthor] of [
+        [{ createdBy: 'creator-user', updatedBy: 'editor-user' }, 'editor-user'],
+        [{ createdBy: 'creator-user', updatedBy: null }, 'creator-user'],
+        [{ createdBy: null, updatedBy: null }, null],
+      ] as const) {
+        const rule = { ...mockRule, ...authorFields } as BusinessRule
+        jest.mocked(ruleEvaluator.evaluateSingleRule).mockResolvedValue({
+          rule,
+          conditionsPassed: true,
+          evaluationCompleted: true,
+          evaluationTime: 1,
+        })
+        jest.mocked(actionExecutor.executeActions).mockClear()
+
+        await ruleEngine.executeSingleRule(mockEm, rule, context)
+
+        expect(actionExecutor.executeActions).toHaveBeenCalledWith(
+          mockRule.successActions,
+          expect.objectContaining({ ruleAuthorId: expectedAuthor }),
+        )
+      }
+    })
+
+    test('forwards the caller rbacService to the actions from executeRules and executeRuleById', async () => {
+      const rbacService = { loadAcl: jest.fn() } as any
+      const rule = { ...mockRule, id: testEntityId } as BusinessRule
+      jest.mocked(ruleEvaluator.evaluateSingleRule).mockResolvedValue({
+        rule,
+        conditionsPassed: true,
+        evaluationCompleted: true,
+        evaluationTime: 1,
+      })
+      jest.mocked(actionExecutor.executeActions).mockResolvedValue(allowOutcome)
+      mockEm.find.mockResolvedValue([rule])
+      mockEm.findOne.mockResolvedValue(rule)
+
+      await ruleEngine.executeRules(mockEm, {
+        entityType: 'WorkOrder',
+        data: { status: 'RELEASED' },
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        dryRun: true,
+      }, { rbacService })
+      await ruleEngine.executeRuleById(mockEm, {
+        ruleId: testEntityId,
+        data: { status: 'RELEASED' },
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        dryRun: true,
+      }, { rbacService })
+
+      expect(actionExecutor.executeActions).toHaveBeenCalledTimes(2)
+      for (const [, actionContext] of jest.mocked(actionExecutor.executeActions).mock.calls) {
+        expect(actionContext.rbacService).toBe(rbacService)
+      }
+    })
+
+    test('resolveBusinessRuleRbacService returns undefined when the container cannot resolve it', () => {
+      const rbacService = { loadAcl: jest.fn() }
+      expect(ruleEngine.resolveBusinessRuleRbacService(() => rbacService)).toBe(rbacService)
+      expect(ruleEngine.resolveBusinessRuleRbacService(() => null)).toBeUndefined()
+      expect(ruleEngine.resolveBusinessRuleRbacService(() => {
+        throw new Error('not registered')
+      })).toBeUndefined()
+    })
+
+    // `dryRun` only suppresses the execution LOG — the test above proves it,
+    // because it passes `dryRun: true` and still expects actions to have run.
+    // A caller that must produce no side effects (the workflows dry-run path,
+    // spec section 8.2) therefore needs a separate flag.
+    test('skipActions evaluates the condition but does NOT run the actions', async () => {
+      const context: RuleEngineContext = {
+        entityType: 'WorkOrder',
+        entityId: testEntityId,
+        data: { status: 'RELEASED' },
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        dryRun: true,
+        skipActions: true,
+      }
+
+      jest.mocked(ruleEvaluator.evaluateSingleRule).mockResolvedValue({
+        rule: mockRule as BusinessRule,
+        conditionsPassed: true,
+        evaluationCompleted: true,
+        evaluationTime: 1,
+      })
+      jest.mocked(actionExecutor.executeActions).mockResolvedValue(allowOutcome)
+
+      const result = await ruleEngine.executeSingleRule(mockEm, mockRule as BusinessRule, context)
+
+      expect(actionExecutor.executeActions).not.toHaveBeenCalled()
+      expect(result.actionsExecuted).toBeNull()
+      // The condition still evaluated, so the caller still learns which way the
+      // rule went and takes the route it really would.
+      expect(result.conditionResult).toBe(true)
+      expect(ruleEvaluator.evaluateSingleRule).toHaveBeenCalled()
+    })
+
+    test('skipActions withholds the FAILURE action arm too', async () => {
+      const context: RuleEngineContext = {
+        entityType: 'WorkOrder',
+        entityId: testEntityId,
+        data: { status: 'DRAFT' },
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        dryRun: true,
+        skipActions: true,
+      }
+
+      jest.mocked(ruleEvaluator.evaluateSingleRule).mockResolvedValue({
+        rule: mockRule as BusinessRule,
+        conditionsPassed: false,
+        evaluationCompleted: true,
+        evaluationTime: 1,
+      })
+      jest.mocked(actionExecutor.executeActions).mockResolvedValue(blockOutcome)
+
+      const result = await ruleEngine.executeSingleRule(mockEm, mockRule as BusinessRule, context)
+
+      expect(actionExecutor.executeActions).not.toHaveBeenCalled()
+      expect(result.actionsExecuted).toBeNull()
+      expect(result.conditionResult).toBe(false)
+    })
+
+    test('omitting skipActions leaves the existing behaviour byte-identical', async () => {
+      const context: RuleEngineContext = {
+        entityType: 'WorkOrder',
+        entityId: testEntityId,
+        data: { status: 'RELEASED' },
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        dryRun: true,
+      }
+
+      jest.mocked(ruleEvaluator.evaluateSingleRule).mockResolvedValue({
+        rule: mockRule as BusinessRule,
+        conditionsPassed: true,
+        evaluationCompleted: true,
+        evaluationTime: 1,
+      })
+      jest.mocked(actionExecutor.executeActions).mockResolvedValue(allowOutcome)
+
+      const result = await ruleEngine.executeSingleRule(mockEm, mockRule as BusinessRule, context)
+
+      expect(actionExecutor.executeActions).toHaveBeenCalledTimes(1)
+      expect(result.actionsExecuted).not.toBeNull()
+    })
+
     test('should execute rule with failing condition', async () => {
       const context: RuleEngineContext = {
         entityType: 'WorkOrder',

@@ -68,6 +68,9 @@ function buildEm(record: Record<string, unknown> | null = null) {
     begin: jest.fn().mockResolvedValue(undefined),
     commit: jest.fn().mockResolvedValue(undefined),
     rollback: jest.fn().mockResolvedValue(undefined),
+    find: jest.fn().mockResolvedValue([]),
+    execute: jest.fn().mockResolvedValue([]),
+    isInTransaction: jest.fn(() => em.begin.mock.calls.length > em.commit.mock.calls.length + em.rollback.mock.calls.length),
   }
   em.fork = jest.fn().mockReturnValue(em)
   return em
@@ -177,6 +180,56 @@ describe('currency command tenant and organization scope', () => {
       command.execute(
         {
           organizationId: FOREIGN_ORG,
+          tenantId: ACTOR_TENANT,
+          code: 'USD',
+          name: 'US Dollar',
+        },
+        ctx,
+      ),
+    ).rejects.toMatchObject({ status: 403 })
+    expect(em.create).not.toHaveBeenCalled()
+  })
+
+  it('rejects creating a currency in another tenant\'s organization for an admin with unrestricted org access (#7668)', async () => {
+    const command = loadCommand('currencies', 'currencies.currencies.create')
+    const em = buildEm({ id: FOREIGN_ORG, tenant: { id: FOREIGN_TENANT } })
+    const { ctx } = buildCtx(em)
+    ctx.organizationScope = {
+      tenantId: ACTOR_TENANT,
+      selectedId: ACTOR_ORG,
+      allowedIds: null,
+      filterIds: null,
+    }
+
+    await expect(
+      command.execute(
+        {
+          organizationId: FOREIGN_ORG,
+          tenantId: ACTOR_TENANT,
+          code: 'USD',
+          name: 'US Dollar',
+        },
+        ctx,
+      ),
+    ).rejects.toMatchObject({ status: 403 })
+    expect(em.create).not.toHaveBeenCalled()
+  })
+
+  it('rejects creating a currency in a nonexistent organization for an admin with unrestricted org access (#7668)', async () => {
+    const command = loadCommand('currencies', 'currencies.currencies.create')
+    const em = buildEm()
+    const { ctx } = buildCtx(em)
+    ctx.organizationScope = {
+      tenantId: ACTOR_TENANT,
+      selectedId: ACTOR_ORG,
+      allowedIds: null,
+      filterIds: null,
+    }
+
+    await expect(
+      command.execute(
+        {
+          organizationId: '00000000-0000-4000-8000-000000000002',
           tenantId: ACTOR_TENANT,
           code: 'USD',
           name: 'US Dollar',

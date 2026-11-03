@@ -217,6 +217,19 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 
 Include `indexer: { entityType, cacheAliases }` in `emitCrudSideEffects` for query index refresh.
 
+## Entity Update Safety
+
+When a command mutates entities across multiple phases that include queries, use
+`withAtomicFlush(em, phases, { transaction: true })` from
+`@open-mercato/shared/lib/commands/flush`. Never run `em.find`/`em.findOne`
+between scalar mutations and `em.flush()` without it; MikroORM can silently lose
+pending scalar changes.
+
+Keep `emitCrudSideEffects`, `emitCrudUndoSideEffects`, and cache invalidation
+after the domain write commits, outside the `withAtomicFlush` block. The opt-in
+`OM_CACHE_SAFETY_ALWAYS_CONSISTENT` mode (default OFF) makes the query-index tail
+synchronous and loud after commit; it does not join the domain-write transaction.
+
 ## Customer Accounts
 
 The `customer_accounts` module provides customer-facing authentication, sessions, RBAC, and account management. App modules build on top of it to add portal features.
@@ -274,7 +287,7 @@ export const setup: ModuleSetupConfig = {
 }
 ```
 
-Built-in customer roles: `portal_admin` (full access), `buyer` (order/quote/catalog), `viewer` (read-only). Features merge additively on `seedDefaults`.
+Built-in customer roles: `portal_admin` (full access), `buyer` (order/quote/catalog), `viewer` (read-only). Features merge additively on `seedDefaults`, which reaches **new** tenants only — for tenants that already exist, run `yarn mercato customer_accounts sync-customer-role-acls [--tenant <id>]` (the customer-role counterpart of `auth sync-role-acls`; idempotent, additive, wildcard-aware, never creates roles).
 
 ### Portal Page Auth Metadata
 

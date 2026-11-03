@@ -23,8 +23,9 @@ import {
  * - The save body is `{ credentials: Record<string, string | number | boolean | null> }`
  *   (`saveCredentialsSchema`, ≤200 keys); the route does NOT enforce the provider's declared
  *   schema, so any secret/text/select-shaped keys round-trip.
- * - The GET returns `{ integrationId, schema, credentials }` with `credentials` DECRYPTED
- *   verbatim (no field masking — encryption is at-rest only), so exact-value assertions are valid.
+ * - The GET returns non-secret and undeclared primitive fields verbatim. Provider-declared secret
+ *   fields are masked and reported through `secretFieldsConfigured`, so this generic value-shape
+ *   sweep skips an integration that already has a configured secret it cannot restore.
  * - Both verbs require `integrations.credentials.manage` (the seeded admin has it).
  *
  * Self-contained: the integration provider is discovered at runtime from `GET /api/integrations`
@@ -48,12 +49,23 @@ async function readCredentials(
   request: APIRequestContext,
   token: string,
   integrationId: string,
-): Promise<{ status: number; credentials: CrudRecord }> {
+): Promise<{
+  status: number;
+  credentials: CrudRecord;
+  secretFieldsConfigured: Record<string, boolean>;
+}> {
   const response = await apiRequest(request, 'GET', `/api/integrations/${integrationId}/credentials`, { token });
-  const body = (await readJsonSafe<{ credentials?: CrudRecord }>(response)) ?? {};
+  const body = (await readJsonSafe<{
+    credentials?: CrudRecord;
+    secretFieldsConfigured?: Record<string, boolean>;
+  }>(response)) ?? {};
   const credentials =
     body.credentials && typeof body.credentials === 'object' ? (body.credentials as CrudRecord) : {};
-  return { status: response.status(), credentials };
+  return {
+    status: response.status(),
+    credentials,
+    secretFieldsConfigured: body.secretFieldsConfigured ?? {},
+  };
 }
 
 test.describe('TC-INTEG-CRUDFORM-001: Integration credentials CrudForm persists every field on save + update', () => {
@@ -61,7 +73,7 @@ test.describe('TC-INTEG-CRUDFORM-001: Integration credentials CrudForm persists 
     skipIfCrudFormExtensionTestsDisabled();
   });
 
-  test('round-trips secret/text/select credential fields on save and update', async ({ request }) => {
+  test('round-trips primitive credential values on save and update', async ({ request }) => {
     const token = await getAuthToken(request, 'admin');
 
     const integrationId = await pickIntegrationId(request, token);
@@ -79,18 +91,21 @@ test.describe('TC-INTEG-CRUDFORM-001: Integration credentials CrudForm persists 
       return;
     }
     expect(initial.status, 'credentials GET should be 200 when encryption is available').toBe(200);
+    if (Object.values(initial.secretFieldsConfigured).some(Boolean)) {
+      test.skip(true, 'Configured write-only secrets cannot be restored safely in this shared integration');
+      return;
+    }
     const originalCredentials = initial.credentials;
 
     const stamp = Date.now();
-    // secret / text / select are the headline kinds for this surface; number/boolean/null exercise
-    // the rest of the saveCredentialsSchema value union so "every field value persists" holds here.
+    // Strings plus number/boolean/null exercise the saveCredentialsSchema value union.
     const savedCredentials: CrudRecord = {
-      apiSecret: `sk_crudform_${stamp}`,
+      stringToken: `token_crudform_${stamp}`,
       displayLabel: `QA CRUDFORM Integration ${stamp}`,
       environment: 'sandbox',
       maxConnections: 3,
       verboseLogging: true,
-      legacyToken: `legacy_${stamp}`,
+      nullableToken: `legacy_${stamp}`,
     };
 
     try {
@@ -104,15 +119,13 @@ test.describe('TC-INTEG-CRUDFORM-001: Integration credentials CrudForm persists 
       expect(afterSave.status, 'read-back after save should be 200').toBe(200);
       assertScalarFieldsPersisted(afterSave.credentials, savedCredentials, 'after-save');
 
-      // Update: rotate the secret, edit the text, switch the select, change number/boolean, and
-      // clear a secret with null — proving an edit round-trips and a null clears the stored value.
       const updatedCredentials: CrudRecord = {
-        apiSecret: `sk_crudform_${stamp}_ROTATED`,
+        stringToken: `token_crudform_${stamp}_ROTATED`,
         displayLabel: `QA CRUDFORM Integration ${stamp} EDITED`,
         environment: 'production',
         maxConnections: 5,
         verboseLogging: false,
-        legacyToken: null,
+        nullableToken: null,
       };
       const updateResponse = await apiRequest(request, 'PUT', credentialsPath, {
         token,
@@ -123,7 +136,7 @@ test.describe('TC-INTEG-CRUDFORM-001: Integration credentials CrudForm persists 
       const afterUpdate = await readCredentials(request, token, integrationId);
       expect(afterUpdate.status, 'read-back after update should be 200').toBe(200);
       assertScalarFieldsPersisted(afterUpdate.credentials, updatedCredentials, 'after-update');
-      expect(afterUpdate.credentials.legacyToken, 'a secret cleared to null persists as null').toBeNull();
+      expect(afterUpdate.credentials.nullableToken, 'a nullable value persists as null').toBeNull();
     } finally {
       await apiRequest(request, 'PUT', credentialsPath, {
         token,

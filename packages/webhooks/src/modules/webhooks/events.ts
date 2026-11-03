@@ -10,6 +10,8 @@ const events = [
   { id: 'webhooks.delivery.exhausted', label: 'Webhook Delivery Retries Exhausted', entity: 'delivery', category: 'lifecycle' as const, clientBroadcast: true },
   { id: 'webhooks.webhook.disabled', label: 'Webhook Auto-Disabled', entity: 'webhook', category: 'lifecycle' as const, clientBroadcast: true },
   { id: 'webhooks.inbound.received', label: 'Inbound Webhook Received', entity: 'inbound', category: 'custom' as const },
+  { id: 'webhooks.inbound.processed', label: 'Inbound Webhook Processed', entity: 'inbound', category: 'lifecycle' as const },
+  { id: 'webhooks.inbound.handler_failed', label: 'Inbound Handler Failed', entity: 'inbound', category: 'lifecycle' as const, clientBroadcast: true },
   { id: 'webhooks.secret.rotated', label: 'Webhook Secret Rotated', entity: 'webhook', category: 'lifecycle' as const },
 ] as const
 

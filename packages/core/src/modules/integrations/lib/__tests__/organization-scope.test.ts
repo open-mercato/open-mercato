@@ -20,6 +20,20 @@ describe('integrations organization scope', () => {
     ).toBe(accountOrgId)
   })
 
+  // The shared resolver behind this deprecated alias is tenant-aware: a super-admin who
+  // switched to another tenant with "all organizations" selected must not scope to the
+  // actor organization of their own tenant.
+  it('refuses the fallback when the effective tenant is not the actor tenant', () => {
+    expect(
+      resolveIntegrationsOrganizationId({
+        orgId: null,
+        actorOrgId: accountOrgId,
+        tenantId: '55555555-5555-4555-8555-555555555555',
+        actorTenantId: '44444444-4444-4444-8444-444444444444',
+      }),
+    ).toBeNull()
+  })
+
   it('returns null when the caller has no organization at all', () => {
     expect(resolveIntegrationsOrganizationId({ orgId: null })).toBeNull()
     expect(resolveIntegrationsOrganizationId({ orgId: null, actorOrgId: null })).toBeNull()

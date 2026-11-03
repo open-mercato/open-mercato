@@ -33,3 +33,8 @@ export function setCachedDictionary(locale: Locale, dict: Dict): void {
 export function invalidateDictionaryCache(): void {
   getCache().clear()
 }
+
+export function invalidateDictionaryCacheLocales(locales: readonly Locale[]): void {
+  const cache = getCache()
+  for (const locale of locales) cache.delete(locale)
+}

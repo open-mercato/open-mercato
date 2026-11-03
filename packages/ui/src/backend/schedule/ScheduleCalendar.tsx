@@ -14,10 +14,12 @@ import { parse } from 'date-fns/parse'
 import { startOfDay } from 'date-fns/startOfDay'
 import { startOfMonth } from 'date-fns/startOfMonth'
 import { startOfWeek } from 'date-fns/startOfWeek'
-import { enUS } from 'date-fns/locale/en-US'
+import { useOptionalLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { getScheduleLocale, scheduleLocales } from './localization'
 import type { ScheduleItem, ScheduleRange, ScheduleSlot, ScheduleViewMode } from './types'
 import { Button } from '../../primitives/button'
 import { expandRecurringItems } from './recurrence'
+import { getScheduleItemStyle } from './presentation'
 
 type CalendarEvent = {
   id: string
@@ -25,6 +27,7 @@ type CalendarEvent = {
   start: Date
   end: Date
   resource: ScheduleItem
+  allDay: boolean
 }
 
 const localizer = dateFnsLocalizer({
@@ -32,7 +35,7 @@ const localizer = dateFnsLocalizer({
   parse,
   startOfWeek,
   getDay,
-  locales: { 'en-US': enUS },
+  locales: scheduleLocales,
 })
 
 const VIEW_MAP: Record<ScheduleViewMode, View> = {
@@ -42,12 +45,12 @@ const VIEW_MAP: Record<ScheduleViewMode, View> = {
   agenda: 'agenda',
 }
 
-function deriveRange(date: Date, view: ScheduleViewMode, agendaLength: number): ScheduleRange {
+function deriveRange(date: Date, view: ScheduleViewMode, agendaLength: number, locale: string): ScheduleRange {
   if (view === 'day') {
     return { start: startOfDay(date), end: endOfDay(date) }
   }
   if (view === 'week') {
-    return { start: startOfWeek(date, { locale: enUS }), end: endOfWeek(date, { locale: enUS }) }
+    return { start: startOfWeek(date, { locale: getScheduleLocale(locale) }), end: endOfWeek(date, { locale: getScheduleLocale(locale) }) }
   }
   if (view === 'month') {
     return { start: startOfMonth(date), end: endOfMonth(date) }
@@ -60,6 +63,7 @@ function normalizeRange(
   nextRange: Date[] | { start: Date; end: Date } | null | undefined,
   view: ScheduleViewMode,
   agendaLength: number,
+  locale: string,
 ): ScheduleRange | null {
   if (!nextRange) return null
   if (Array.isArray(nextRange)) {
@@ -67,20 +71,15 @@ function normalizeRange(
     if (view === 'agenda') {
       return { start: nextRange[0], end: nextRange[nextRange.length - 1] }
     }
-    return deriveRange(nextRange[0], view, agendaLength)
+    return deriveRange(nextRange[0], view, agendaLength, locale)
   }
   if (nextRange.start && nextRange.end) return { start: nextRange.start, end: nextRange.end }
-  return deriveRange(new Date(), view, agendaLength)
+  return deriveRange(new Date(), view, agendaLength, locale)
 }
 
-function getEventStyles(item: ScheduleItem): React.CSSProperties {
-  if (item.kind === 'event') {
-    return { backgroundColor: 'rgba(59, 130, 246, 0.15)', border: '1px solid rgba(59, 130, 246, 0.5)', color: '#1e3a8a' }
-  }
-  if (item.kind === 'exception') {
-    return { backgroundColor: 'rgba(148, 163, 184, 0.2)', border: '1px solid rgba(100, 116, 139, 0.6)', color: '#334155' }
-  }
-  return { backgroundColor: 'rgba(16, 185, 129, 0.15)', border: '1px solid rgba(16, 185, 129, 0.5)', color: '#064e3b' }
+function isAllDay(item: ScheduleItem): boolean {
+  return item.startsAt.getTime() === startOfDay(item.startsAt).getTime()
+    && item.endsAt.getTime() >= endOfDay(item.startsAt).getTime() - 60_000
 }
 
 export type ScheduleCalendarProps = {
@@ -102,6 +101,8 @@ export default function ScheduleCalendar({
   onItemClick,
   onSlotClick,
 }: ScheduleCalendarProps) {
+  const locale = useOptionalLocale() ?? 'en'
+  const t = useT()
   const agendaLength = React.useMemo(
     () => Math.max(1, differenceInCalendarDays(range.end, range.start) + 1),
     [range.end, range.start],
@@ -115,28 +116,29 @@ export default function ScheduleCalendar({
       start: item.startsAt,
       end: item.endsAt,
       resource: item,
+      allDay: isAllDay(item),
     })),
     [expandedItems],
   )
 
   const handleNavigate = React.useCallback((date: Date, nextView?: View) => {
     const resolvedView = (nextView ?? currentView) as ScheduleViewMode
-    onRangeChange(deriveRange(date, resolvedView, agendaLength))
-  }, [agendaLength, currentView, onRangeChange])
+    onRangeChange(deriveRange(date, resolvedView, agendaLength, locale))
+  }, [agendaLength, currentView, locale, onRangeChange])
 
   const handleRangeChange = React.useCallback((nextRange: Date[] | { start: Date; end: Date }, nextView?: View) => {
     const resolvedView = (nextView ?? currentView) as ScheduleViewMode
-    const normalized = normalizeRange(nextRange, resolvedView, agendaLength)
+    const normalized = normalizeRange(nextRange, resolvedView, agendaLength, locale)
     if (normalized) onRangeChange(normalized)
-  }, [agendaLength, currentView, onRangeChange])
+  }, [agendaLength, currentView, locale, onRangeChange])
 
   const handleViewChange = React.useCallback((nextView: View) => {
     const resolved = nextView as ScheduleViewMode
     if (resolved !== view) {
       onViewChange(resolved)
-      onRangeChange(deriveRange(new Date(), resolved, agendaLength))
+      onRangeChange(deriveRange(range.start, resolved, agendaLength, locale))
     }
-  }, [agendaLength, onRangeChange, onViewChange, view])
+  }, [agendaLength, locale, onRangeChange, onViewChange, range.start, view])
 
   const handleSelectEvent = React.useCallback(
     (event: CalendarEvent) => onItemClick?.(event.resource),
@@ -152,26 +154,40 @@ export default function ScheduleCalendar({
   )
 
   const eventPropGetter = React.useCallback(
-    (event: CalendarEvent) => ({ style: getEventStyles(event.resource) }),
+    (event: CalendarEvent) => ({ className: `schedule-event schedule-event-${event.resource.kind}`, style: getScheduleItemStyle(event.resource) }),
     [],
   )
 
-  const calendarStyle = React.useMemo<React.CSSProperties>(() => ({ height: 640 }), [])
+  const scrollToTime = React.useMemo(() => new Date(1970, 0, 1, 8), [])
 
   const components = React.useMemo(
     () => ({
+      timeGutterHeader: () => (
+        <div className="flex h-full items-end justify-center pb-3 text-xs text-muted-foreground">{t('schedule.calendar.allDay')}</div>
+      ),
+      month: {
+        header: ({ date }: { date: Date }) => (
+          <span className="block py-2 text-xs font-medium text-muted-foreground">{format(date, 'EEEEEE', { locale: getScheduleLocale(locale) })}</span>
+        ),
+      },
+      header: ({ date }: { date: Date }) => (
+        <time dateTime={format(date, 'yyyy-MM-dd')} className="flex flex-col items-center gap-1 py-2">
+          <span className="text-xs font-medium text-muted-foreground">{format(date, 'EEE', { locale: getScheduleLocale(locale) })}</span>
+          <span className="text-lg font-semibold text-foreground">{format(date, 'd')}</span>
+        </time>
+      ),
       event: ({ event }: { event: CalendarEvent }) => {
         const resource = event.resource
         const hasLink = Boolean(resource.linkLabel) && typeof onItemClick === 'function'
         return (
-          <div className="flex items-center justify-between gap-2">
-            <span className="truncate text-xs font-medium">{resource.title}</span>
+          <div className="flex min-w-0 flex-col items-start gap-1">
+            <span className="line-clamp-2 text-sm font-semibold leading-tight">{resource.title}</span>
             {hasLink ? (
               <Button
                 type="button"
                 variant="link"
                 size="sm"
-                className="h-auto p-0 text-overline"
+                className="h-auto p-0 text-xs text-current"
                 onClick={(clickEvent) => {
                   clickEvent.stopPropagation()
                   onItemClick?.(resource)
@@ -184,14 +200,31 @@ export default function ScheduleCalendar({
         )
       },
     }),
-    [onItemClick],
+    [locale, onItemClick, t],
   )
+
+  const formats = React.useMemo(() => ({
+    timeGutterFormat: (date: Date) => format(date, 'HH:mm'),
+    eventTimeRangeFormat: ({ start, end }: { start: Date; end: Date }) => `${format(start, 'HH:mm')}–${format(end, 'HH:mm')}`,
+    agendaTimeRangeFormat: ({ start, end }: { start: Date; end: Date }) => `${format(start, 'HH:mm')}–${format(end, 'HH:mm')}`,
+  }), [])
 
   return (
     <Calendar
       localizer={localizer}
-      culture="en-US"
+      culture={locale}
+      className="schedule-calendar-surface"
+      formats={formats}
+      messages={{
+        allDay: t('schedule.calendar.allDay'),
+        noEventsInRange: t('schedule.calendar.empty'),
+        showMore: (count: number) => t('schedule.calendar.showMore', undefined, { count }),
+      }}
+      scrollToTime={scrollToTime}
       events={events}
+      tooltipAccessor={(event: CalendarEvent) => event.resource.status
+        ? `${event.title} · ${t(`schedule.item.status.${event.resource.status}`)}`
+        : event.title}
       view={currentView}
       date={range.start}
       toolbar={false}
@@ -205,7 +238,6 @@ export default function ScheduleCalendar({
       onSelectSlot={handleSelectSlot}
       eventPropGetter={eventPropGetter}
       components={components}
-      style={calendarStyle}
     />
   )
 }

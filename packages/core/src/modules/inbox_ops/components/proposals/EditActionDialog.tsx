@@ -9,8 +9,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
-import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
-import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -123,10 +123,10 @@ function ContactPayloadEditor({
                   setLastName(event.target.value)
                   updatePersonName(firstName, event.target.value)
                 }}
-                className={lastNameMissing ? 'border-red-500' : ''}
+                className={lastNameMissing ? 'border-status-error-border' : ''}
               />
               {lastNameMissing && (
-                <p className="text-xs text-red-600 mt-1">{t('inbox_ops.contact.last_name_required', 'Last name is required')}</p>
+                <p className="text-xs text-status-error-text mt-1">{t('inbox_ops.contact.last_name_required', 'Last name is required')}</p>
               )}
             </div>
           </>
@@ -461,25 +461,30 @@ export function EditActionDialog({
     }
 
     setIsSaving(true)
-    const result = await runMutation({
-      // TODO(#2373-D): thread updatedAt — ActionDetail type lives outside this file's edit scope
-      operation: () => withScopedApiRequestHeaders(
-        buildOptimisticLockHeader(undefined),
-        () => apiCall<{ ok: boolean; error?: string }>(
-          `/api/inbox_ops/proposals/${action.proposalId}/actions/${action.id}`,
-          { method: 'PATCH', body: JSON.stringify({ payload: finalPayload }) },
+    try {
+      await runMutation({
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(action.updatedAt),
+          () => apiCallOrThrow<{ ok: boolean; error?: string }>(
+            `/api/inbox_ops/proposals/${action.proposalId}/actions/${action.id}`,
+            { method: 'PATCH', body: JSON.stringify({ payload: finalPayload }) },
+          ),
         ),
-      ),
-      context: {},
-    })
-    if (result?.ok && result.result?.ok) {
+        context: {},
+      })
       flash(t('inbox_ops.edit_dialog.saved', 'Action updated successfully'), 'success')
       onSaved()
       onClose()
-    } else {
-      flash(result?.result?.error || t('inbox_ops.flash.save_failed', 'Failed to save'), 'error')
+    } catch (error) {
+      if (extractOptimisticLockConflict(error)) {
+        onClose()
+        return
+      }
+      const message = error instanceof Error ? error.message.trim() : ''
+      flash(message || t('inbox_ops.flash.save_failed', 'Failed to save'), 'error')
+    } finally {
+      setIsSaving(false)
     }
-    setIsSaving(false)
   }, [action, payload, jsonMode, jsonText, t, onSaved, onClose, runMutation])
 
   React.useEffect(() => {
@@ -546,7 +551,7 @@ export function EditActionDialog({
                   setJsonError(null)
                 }}
               />
-              {jsonError && <p className="text-xs text-red-600">{t('inbox_ops.edit_dialog.invalid_json', 'Invalid JSON')}</p>}
+              {jsonError && <p className="text-xs text-status-error-text">{t('inbox_ops.edit_dialog.invalid_json', 'Invalid JSON')}</p>}
             </div>
           )}
 

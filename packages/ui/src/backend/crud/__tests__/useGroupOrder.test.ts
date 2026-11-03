@@ -1,5 +1,6 @@
 /** @jest-environment jsdom */
-import { act, renderHook } from '@testing-library/react'
+import * as React from 'react'
+import { act, render, renderHook, screen } from '@testing-library/react'
 import { useGroupOrder } from '../useGroupOrder'
 
 describe('useGroupOrder', () => {
@@ -36,6 +37,16 @@ describe('useGroupOrder', () => {
     expect(result.current.orderedIds).toEqual(['a', 'd', 'b', 'c'])
   })
 
+  it('composes two reorder() calls made within a single commit', () => {
+    const { result } = renderHook(() => useGroupOrder('people', ['a', 'b', 'c']))
+    act(() => {
+      result.current.reorder(0, 2)
+      result.current.reorder(0, 1)
+    })
+    expect(result.current.orderedIds).toEqual(['c', 'b', 'a'])
+    expect(JSON.parse(localStorage.getItem('om:group-order:people')!)).toEqual(['c', 'b', 'a'])
+  })
+
   it('updates ordering when defaults change to include a new id', () => {
     const { result, rerender } = renderHook(
       ({ ids }) => useGroupOrder('p', ids),
@@ -59,5 +70,32 @@ describe('useGroupOrder', () => {
     renderHook(() => useGroupOrder('p', ['a', 'b']))
     expect(spy).not.toHaveBeenCalledWith('om:group-order:p', expect.anything())
     spy.mockRestore()
+  })
+
+  it('keeps a stable orderedIds identity when defaults are recreated with equal content', () => {
+    const { result, rerender } = renderHook(
+      ({ ids }) => useGroupOrder('p', ids),
+      { initialProps: { ids: ['a', 'b'] } },
+    )
+    const first = result.current.orderedIds
+    rerender({ ids: ['a', 'b'] })
+    expect(result.current.orderedIds).toBe(first)
+  })
+
+  it('does not loop when the host recreates defaults with different content on every render (#4386)', () => {
+    localStorage.setItem('om:group-order:unstable', JSON.stringify(['b', 'a']))
+    let renders = 0
+    function UnstableHost() {
+      renders += 1
+      if (renders > 50) throw new Error('render loop detected')
+      const defaults = renders % 2 === 1 ? ['a', 'b'] : ['a', 'b', `extra-${renders}`]
+      const { orderedIds } = useGroupOrder('unstable', defaults)
+      return React.createElement('div', { 'data-testid': 'order' }, orderedIds.join(','))
+    }
+
+    render(React.createElement(UnstableHost))
+
+    expect(renders).toBeLessThanOrEqual(6)
+    expect(screen.getByTestId('order').textContent).toContain('b,a')
   })
 })

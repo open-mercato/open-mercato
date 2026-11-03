@@ -621,6 +621,11 @@ export async function syncExampleTodoToCanonicalInteraction(
     mapping = await ensureMappingForLegacyExampleTodo(container, scope, payload.todoId)
   }
   if (!mapping) return
+  if (
+    mapping.tenantId !== scope.tenantId
+    || mapping.organizationId !== scope.organizationId
+    || mapping.todoId !== payload.todoId
+  ) return
 
   try {
     const commandBus = container.resolve('commandBus') as CommandBus

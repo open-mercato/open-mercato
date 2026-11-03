@@ -126,6 +126,7 @@ export async function seedExampleCurrencies(em: EntityManager, scope: CurrencySe
   for (const entry of existingEntries) {
     existingMap.set(entry.code, entry)
   }
+  const hasLiveBase = existingEntries.some((entry) => entry.isBase && !entry.deletedAt)
 
   let touched = false
   for (const curr of SEED_CURRENCIES) {
@@ -143,6 +144,7 @@ export async function seedExampleCurrencies(em: EntityManager, scope: CurrencySe
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
       ...curr,
+      isBase: curr.isBase && !hasLiveBase,
       createdAt: new Date(),
       updatedAt: new Date(),
     })

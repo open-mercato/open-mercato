@@ -85,7 +85,7 @@ const listCompaniesTool = defineApiBackedAiTool<
   name: 'customers.list_companies',
   displayName: 'List companies',
   description:
-    'Search / list companies for the caller tenant + organization. Returns { items, total, limit, offset }.',
+    'Search / list companies for the caller tenant + organization. Returns { items, total, totalIsCapped, limit, offset }. When totalIsCapped is true, total is a floor ("at least N", render it as "N+"), and pagination is exhausted only when a page returns fewer than limit items — never when offset reaches total.',
   inputSchema: listCompaniesInput,
   requiredFeatures: ['customers.companies.view'],
   toOperation: (input, ctx) => {
@@ -122,6 +122,9 @@ const listCompaniesTool = defineApiBackedAiTool<
         sizeBucket: row.size_bucket ?? row.sizeBucket ?? null,
       })),
       total: typeof data.total === 'number' ? data.total : 0,
+      // A capped count reports a floor: phrase the total as "at least N" and
+      // never treat it as proof that pagination is exhausted.
+      totalIsCapped: (data as { totalIsCapped?: boolean }).totalIsCapped === true,
       limit,
       offset,
     }

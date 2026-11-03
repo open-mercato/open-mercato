@@ -83,6 +83,22 @@ test.describe('TC-WEBHOOK-003: Inbound webhook receiver', () => {
     expect(replayWithoutMessageIdDuplicateResponse.status()).toBe(200);
     await expect(replayWithoutMessageIdDuplicateResponse.json()).resolves.toEqual({ ok: true, duplicate: true });
 
+    const staleTimestampResponse = await request.fetch(`${BASE_URL}/api/webhooks/inbound/mock_inbound`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-mock-webhook-signature': validSignature,
+        'webhook-id': `stale-${Date.now()}`,
+        'webhook-timestamp': String(Math.floor(Date.now() / 1000) - 10 * 60),
+        'webhook-signature': 'v1,mock',
+      },
+      data: rawBody,
+    });
+    expect(staleTimestampResponse.status()).toBe(400);
+    await expect(staleTimestampResponse.json()).resolves.toEqual({
+      error: 'Webhook timestamp is outside the allowed replay window',
+    });
+
     const invalidSignatureResponse = await request.fetch(`${BASE_URL}/api/webhooks/inbound/mock_inbound`, {
       method: 'POST',
       headers: {

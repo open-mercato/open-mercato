@@ -156,6 +156,53 @@ export function applyCustomizationDraft(
   return result
 }
 
+/** Every item key a group owns, including nested children. */
+export function collectGroupItemKeys(group: SidebarGroup): string[] {
+  const keys: string[] = []
+  const walk = (items: SidebarItem[]) => {
+    for (const item of items) {
+      keys.push(resolveItemKey(item))
+      if (item.children?.length) walk(item.children)
+    }
+  }
+  walk(group.items)
+  return keys
+}
+
+/**
+ * Whether a group is fully visible, fully hidden, or in between. `AppShell` drops a group once every
+ * one of its items is hidden, so `'hidden'` is the state that removes the group from the sidebar.
+ */
+export function resolveGroupVisibility(
+  group: SidebarGroup,
+  hiddenItemIds: Record<string, boolean>,
+): 'visible' | 'hidden' | 'partial' {
+  const keys = collectGroupItemKeys(group)
+  if (keys.length === 0) return 'visible'
+  const hiddenCount = keys.filter((key) => hiddenItemIds[key]).length
+  if (hiddenCount === 0) return 'visible'
+  if (hiddenCount === keys.length) return 'hidden'
+  return 'partial'
+}
+
+/**
+ * Hides or shows every item in a group at once. Writes the same `hiddenItemIds` keys the per-item
+ * switches use, so the resulting settings are indistinguishable from reaching this state by toggling
+ * each item by hand — no new persisted shape, no migration.
+ */
+export function applyGroupHidden(
+  hiddenItemIds: Record<string, boolean>,
+  group: SidebarGroup,
+  hidden: boolean,
+): Record<string, boolean> {
+  const next = { ...hiddenItemIds }
+  for (const key of collectGroupItemKeys(group)) {
+    if (hidden) next[key] = true
+    else delete next[key]
+  }
+  return next
+}
+
 /**
  * Filters groups to include only main sidebar items.
  * Excludes items with pageContext 'settings' or 'profile' from customization.

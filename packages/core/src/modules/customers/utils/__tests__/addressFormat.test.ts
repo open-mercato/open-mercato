@@ -2,6 +2,7 @@ import {
   formatAddressJson,
   formatAddressLines,
   formatAddressString,
+  resolveTaxIdLabel,
 } from '../addressFormat'
 
 describe('customers utils - address formatting', () => {
@@ -102,4 +103,33 @@ describe('customers utils - address formatting', () => {
     expect(formatAddressString(address, 'street_first')).toBe('Baker Street 10, NW1 London')
     expect(formatAddressString(address, 'line_first', ' | ')).toBe('Baker Street 10 | NW1 London')
   })
+
+  describe('the label a tax id carries, given its type', () => {
+    const BY_TYPE = { plNip: 'NIP', euVat: 'EU VAT', other: 'Tax number' }
+
+    // The distinction the type exists for: `1234567890` and `PL1234567890` are the same business, so
+    // one flat label necessarily misnames one of them.
+    it('names a domestic identifier and an EU VAT number differently', () => {
+      expect(resolveTaxIdLabel(BY_TYPE, 'pl_nip')).toBe('NIP')
+      expect(resolveTaxIdLabel(BY_TYPE, 'eu_vat')).toBe('EU VAT')
+    })
+
+    // The case a flat label gets wrong: naming a foreign number after a domestic scheme renames it.
+    it('falls back to the neutral label for other, unknown and missing types', () => {
+      expect(resolveTaxIdLabel(BY_TYPE, 'other')).toBe('Tax number')
+      expect(resolveTaxIdLabel(BY_TYPE, 'us_ein')).toBe('Tax number')
+      expect(resolveTaxIdLabel(BY_TYPE, null)).toBe('Tax number')
+      expect(resolveTaxIdLabel(BY_TYPE, undefined)).toBe('Tax number')
+    })
+
+    it('accepts a plain string, which names every type the same', () => {
+      expect(resolveTaxIdLabel('Tax ID', 'pl_nip')).toBe('Tax ID')
+      expect(resolveTaxIdLabel('Tax ID', 'eu_vat')).toBe('Tax ID')
+    })
+
+    it('has no label to give when the caller supplies none', () => {
+      expect(resolveTaxIdLabel(undefined, 'pl_nip')).toBeUndefined()
+    })
+  })
+
 })

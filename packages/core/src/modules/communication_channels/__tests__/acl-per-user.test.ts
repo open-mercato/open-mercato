@@ -37,8 +37,35 @@ describe('communication_channels ACL — slice 3a additions', () => {
     expect(setup.defaultRoleFeatures?.employee ?? []).not.toContain('communication_channels.admin')
   })
 
-  it('has exactly eight ACL features after Spec C Phase C1 additions', () => {
-    expect(features).toHaveLength(8)
+  it('has exactly ten ACL features after the own-channel share addition', () => {
+    expect(features).toHaveLength(10)
+  })
+
+  it('exports share_own_channel as an owner-scoped feature, independent of admin', () => {
+    const share = features.find((f) => f.id === 'communication_channels.share_own_channel')
+    expect(share).toBeDefined()
+    // Owner-only is enforced by the command (channel.userId must equal the
+    // caller), so this feature must NOT imply or depend on the inert
+    // `communication_channels.admin` cross-user view.
+    expect((share as { dependsOn?: string[] }).dependsOn).toBeUndefined()
+  })
+
+  it('exports the connect_tenant_channel feature granted only to superadmin + admin', () => {
+    const feat = features.find((f) => f.id === 'communication_channels.connect_tenant_channel')
+    expect(feat).toBeDefined()
+    expect(feat?.module).toBe('communication_channels')
+    expect(setup.defaultRoleFeatures?.superadmin).toContain(
+      'communication_channels.connect_tenant_channel',
+    )
+    expect(setup.defaultRoleFeatures?.admin).toContain(
+      'communication_channels.connect_tenant_channel',
+    )
+    expect(setup.defaultRoleFeatures?.manager ?? []).not.toContain(
+      'communication_channels.connect_tenant_channel',
+    )
+    expect(setup.defaultRoleFeatures?.employee ?? []).not.toContain(
+      'communication_channels.connect_tenant_channel',
+    )
   })
 
   it('exports the channel.push.manage feature (Spec C § Phase C1)', () => {

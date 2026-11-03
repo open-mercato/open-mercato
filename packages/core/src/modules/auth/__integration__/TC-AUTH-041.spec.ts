@@ -85,6 +85,15 @@ async function createUser(
  */
 test.describe('TC-AUTH-041: Superadmin users list context scope', () => {
   test('scopes /backend/users to selected organization and all organizations within selected tenant', async ({ page, request }) => {
+    // This case provisions two tenants, three organizations and three users over the API,
+    // drives a browser flow across three scope selections, then tears all eight fixtures
+    // down again. Tenant creation itself is not a fixed cost: every enabled module's
+    // `onTenantCreated` hook runs inside it, so the work grows with the module set (the
+    // example module installs its custom-entity definitions there). Batching the fixture
+    // calls bought some headroom but not enough — on a loaded CI worker the run still
+    // exceeded the suite's flat 20s budget. Declare the budget the case actually needs
+    // instead of leaving it to how busy the runner happens to be.
+    test.slow()
     const stamp = Date.now()
     const token = await getAuthToken(request, 'superadmin')
     const { tenantId: actorTenantId, organizationId: actorOrganizationId } = getTokenContext(token)
@@ -105,33 +114,39 @@ test.describe('TC-AUTH-041: Superadmin users list context scope', () => {
     const otherEmail = `qa-auth-041-other-${stamp}@example.com`
 
     try {
-      targetTenantId = await createTenant(request, token, `QA AUTH 041 Target Tenant ${stamp}`)
-      otherTenantId = await createTenant(request, token, `QA AUTH 041 Other Tenant ${stamp}`)
-      targetOrganizationId = await createOrganization(
-        request,
-        token,
-        actorCookie,
-        targetTenantId,
-        `QA AUTH 041 Target Org ${stamp}`,
-      )
-      siblingOrganizationId = await createOrganization(
-        request,
-        token,
-        actorCookie,
-        targetTenantId,
-        `QA AUTH 041 Sibling Org ${stamp}`,
-      )
-      otherOrganizationId = await createOrganization(
-        request,
-        token,
-        actorCookie,
-        otherTenantId,
-        `QA AUTH 041 Other Org ${stamp}`,
-      )
+      ;[targetTenantId, otherTenantId] = await Promise.all([
+        createTenant(request, token, `QA AUTH 041 Target Tenant ${stamp}`),
+        createTenant(request, token, `QA AUTH 041 Other Tenant ${stamp}`),
+      ])
+      ;[targetOrganizationId, siblingOrganizationId, otherOrganizationId] = await Promise.all([
+        createOrganization(
+          request,
+          token,
+          actorCookie,
+          targetTenantId,
+          `QA AUTH 041 Target Org ${stamp}`,
+        ),
+        createOrganization(
+          request,
+          token,
+          actorCookie,
+          targetTenantId,
+          `QA AUTH 041 Sibling Org ${stamp}`,
+        ),
+        createOrganization(
+          request,
+          token,
+          actorCookie,
+          otherTenantId,
+          `QA AUTH 041 Other Org ${stamp}`,
+        ),
+      ])
 
-      targetUserId = await createUser(request, token, targetOrganizationId, targetEmail)
-      siblingUserId = await createUser(request, token, siblingOrganizationId, siblingEmail)
-      otherUserId = await createUser(request, token, otherOrganizationId, otherEmail)
+      ;[targetUserId, siblingUserId, otherUserId] = await Promise.all([
+        createUser(request, token, targetOrganizationId, targetEmail),
+        createUser(request, token, siblingOrganizationId, siblingEmail),
+        createUser(request, token, otherOrganizationId, otherEmail),
+      ])
 
       await login(page, 'superadmin')
       await page.context().addCookies([
@@ -173,14 +188,20 @@ test.describe('TC-AUTH-041: Superadmin users list context scope', () => {
       await expect(page.getByText(siblingEmail)).toBeVisible()
       await expect(page.getByText(otherEmail)).toHaveCount(0)
     } finally {
-      await deleteGeneralEntityIfExists(request, token, '/api/auth/users', targetUserId)
-      await deleteGeneralEntityIfExists(request, token, '/api/auth/users', siblingUserId)
-      await deleteGeneralEntityIfExists(request, token, '/api/auth/users', otherUserId)
-      await deleteGeneralEntityIfExists(request, token, '/api/directory/organizations', targetOrganizationId)
-      await deleteGeneralEntityIfExists(request, token, '/api/directory/organizations', siblingOrganizationId)
-      await deleteGeneralEntityIfExists(request, token, '/api/directory/organizations', otherOrganizationId)
-      await deleteGeneralEntityIfExists(request, token, '/api/directory/tenants', targetTenantId)
-      await deleteGeneralEntityIfExists(request, token, '/api/directory/tenants', otherTenantId)
+      await Promise.all([
+        deleteGeneralEntityIfExists(request, token, '/api/auth/users', targetUserId),
+        deleteGeneralEntityIfExists(request, token, '/api/auth/users', siblingUserId),
+        deleteGeneralEntityIfExists(request, token, '/api/auth/users', otherUserId),
+      ])
+      await Promise.all([
+        deleteGeneralEntityIfExists(request, token, '/api/directory/organizations', targetOrganizationId),
+        deleteGeneralEntityIfExists(request, token, '/api/directory/organizations', siblingOrganizationId),
+        deleteGeneralEntityIfExists(request, token, '/api/directory/organizations', otherOrganizationId),
+      ])
+      await Promise.all([
+        deleteGeneralEntityIfExists(request, token, '/api/directory/tenants', targetTenantId),
+        deleteGeneralEntityIfExists(request, token, '/api/directory/tenants', otherTenantId),
+      ])
     }
   })
 })

@@ -48,6 +48,16 @@ export default function ValidationWidget({ context, data, disabled }: InjectionW
       sharedState.subscribe('lastTransformValidation', setLastTransformValidation),
       sharedState.subscribe('lastRecursiveAddonBeforeSave', setLastRecursiveAddonBeforeSave),
     ]
+    setLastFieldChange(sharedState.get?.('lastFieldChange') ?? null)
+    setLastFieldChangeWarning(sharedState.get?.('lastFieldChangeWarning') ?? null)
+    setLastNavigationResult(sharedState.get?.('lastNavigationResult') ?? null)
+    setLastVisibilityChange(sharedState.get?.('lastVisibilityChange') ?? null)
+    setLastAppEvent(sharedState.get?.('lastAppEvent') ?? null)
+    setLastSaveGuard(sharedState.get?.('lastSaveGuard') ?? null)
+    setLastTransformFormData(sharedState.get?.('lastTransformFormData') ?? null)
+    setLastTransformDisplayData(sharedState.get?.('lastTransformDisplayData') ?? null)
+    setLastTransformValidation(sharedState.get?.('lastTransformValidation') ?? null)
+    setLastRecursiveAddonBeforeSave(sharedState.get?.('lastRecursiveAddonBeforeSave') ?? null)
     return () => {
       unsubscribers.forEach((unsubscribe) => unsubscribe())
     }

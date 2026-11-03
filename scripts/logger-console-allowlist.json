@@ -6,7 +6,7 @@
     "cache": "Dependency cycle: @open-mercato/shared depends on @open-mercato/cache, so the logger cannot be imported here; the single fallback warn stays on console"
   },
   "files": {
-    "packages/*/src/**/cli.ts": "Module CLI command output (mercato <module> <cmd>) — user-facing stdout/stderr, same category as @open-mercato/cli",
+    "packages/*/src/**/cli.ts": "Module CLI command output (mercato <module> <cmd>) \u2014 user-facing stdout/stderr, same category as @open-mercato/cli",
     "packages/core/src/modules/api_docs/frontend/docs/api/Explorer.tsx": "console.log appears only inside a generated code sample string shown to API-docs users, not as a call"
   }
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { extensionPoints } from "@open-mercato/core/modules/catalog/extension-points";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Page, PageBody } from "@open-mercato/ui/backend/Page";
@@ -33,6 +34,7 @@ import { TagsInput } from "@open-mercato/ui/backend/inputs/TagsInput";
 import { Textarea } from "@open-mercato/ui/primitives/textarea";
 import { DataLoader } from "@open-mercato/ui/primitives/DataLoader";
 import { cn } from "@open-mercato/shared/lib/utils";
+import { formatLocaleNumberInput } from "@open-mercato/shared/lib/number";
 import { extractCustomFieldEntries } from "@open-mercato/shared/lib/crud/custom-fields-client";
 import { Spinner } from "@open-mercato/ui/primitives/spinner";
 import {
@@ -46,7 +48,7 @@ import {
   buildRecordInjectionContext,
   useSetCurrentRecordInjectionContext,
 } from "@open-mercato/ui/backend/injection/recordContext";
-import { useT } from "@open-mercato/shared/lib/i18n/context";
+import { useT, useLocale } from "@open-mercato/shared/lib/i18n/context";
 import { useConfirmDialog } from "@open-mercato/ui/backend/confirm-dialog";
 import { E } from "#generated/entities.ids.generated";
 import {
@@ -72,6 +74,8 @@ import {
   type ProductUnitPriceReferenceUnit,
   type ProductUnitRoundingMode,
   productFormSchema,
+  withCanonicalUomFields,
+  withLocaleUomFields,
   BASE_INITIAL_VALUES,
   createLocalId,
   slugify,
@@ -118,6 +122,7 @@ import {
   toPositiveNumberOrNull,
   toIntegerInRangeOrDefault,
   normalizeProductConversionInputs,
+  pickEnrichmentNamespaces,
   type ProductUnitConversionInput,
 } from "@open-mercato/core/modules/catalog/components/products/productFormUtils";
 import {
@@ -276,6 +281,7 @@ function normalizeVariantOptionValues(
 
 function readProductConversionRows(
   items: Array<Record<string, unknown>> | undefined,
+  locale?: string,
 ): ProductUnitConversionDraft[] {
   const rows = Array.isArray(items) ? items : [];
   return rows
@@ -301,7 +307,7 @@ function readProductConversionRows(
       return {
         id: id ?? null,
         unitCode,
-        toBaseFactor: String(factor),
+        toBaseFactor: formatLocaleNumberInput(factor, locale),
         sortOrder: String(sortOrderRaw),
         isActive,
         updatedAt:
@@ -322,6 +328,7 @@ export default function EditCatalogProductPage({
 }) {
   const productId = params?.id ? String(params.id) : null;
   const t = useT();
+  const locale = useLocale();
   const pathname = usePathname();
   const productSubpathPrefix = productId
     ? `/backend/catalog/products/${productId}/`
@@ -675,7 +682,7 @@ export default function EditCatalogProductPage({
           optionInputs = readOptionSchema(metadata);
         }
         const conversionRows = conversionsRes.ok
-          ? readProductConversionRows(conversionsRes.result?.items)
+          ? readProductConversionRows(conversionsRes.result?.items, locale)
           : [];
         initialConversionsRef.current = conversionRows;
         const customValues = extractCustomFieldEntries(record);
@@ -738,7 +745,10 @@ export default function EditCatalogProductPage({
           weight: sanitizeProductWeight(weight),
           defaultUnit: defaultUnit ?? null,
           defaultSalesUnit: defaultSalesUnit ?? defaultUnit ?? null,
-          defaultSalesUnitQuantity: String(defaultSalesUnitQuantity ?? 1),
+          defaultSalesUnitQuantity: formatLocaleNumberInput(
+            defaultSalesUnitQuantity ?? 1,
+            locale,
+          ),
           uomRoundingScale: String(roundingScale),
           uomRoundingMode: roundingMode,
           unitPriceEnabled,
@@ -750,7 +760,9 @@ export default function EditCatalogProductPage({
               ? (unitPriceReferenceUnit as ProductUnitPriceReferenceUnit)
               : null,
           unitPriceBaseQuantity:
-            unitPriceBaseQuantity === null ? "" : String(unitPriceBaseQuantity),
+            unitPriceBaseQuantity === null
+              ? ""
+              : formatLocaleNumberInput(unitPriceBaseQuantity, locale),
           unitConversions: conversionRows,
           customFieldsetCode:
             typeof record.custom_fieldset_code === "string"
@@ -770,7 +782,11 @@ export default function EditCatalogProductPage({
                 : null,
         };
         if (!cancelled) {
-          setInitialValues({ ...initial, ...customValues });
+          setInitialValues({
+            ...initial,
+            ...customValues,
+            ...pickEnrichmentNamespaces(record),
+          });
           setCategorizeOptions({
             categories: categoryOptions,
             channels: channelOptionEntries,
@@ -798,7 +814,7 @@ export default function EditCatalogProductPage({
     return () => {
       cancelled = true;
     };
-  }, [fetchAttachments, loadVariants, productId, t]);
+  }, [fetchAttachments, loadVariants, locale, productId, t]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -828,6 +844,26 @@ export default function EditCatalogProductPage({
       cancelled = true;
     };
   }, []);
+
+  // The browser's default `history.scrollRestoration` ("auto") tries to restore the
+  // previous session's pixel scroll offset on a full reload. This page's form sections
+  // (variants, options, unit-of-measure, ...) mount progressively as data loads, so the
+  // restore fires before the page has grown to its final height, then that same pixel
+  // offset lines up with a different, further-down section once loading finishes —
+  // landing the reload mid-page instead of at the top (#6171). Opt this page out of
+  // native scroll restoration and start every load at the top unless a hash target
+  // (handled by the effect below) asks for a specific section.
+  React.useEffect(() => {
+    if (typeof window === "undefined" || !window.history) return
+    const previousScrollRestoration = window.history.scrollRestoration
+    window.history.scrollRestoration = "manual"
+    if (!window.location.hash) {
+      window.scrollTo(0, 0)
+    }
+    return () => {
+      window.history.scrollRestoration = previousScrollRestoration
+    }
+  }, [])
 
   // Next.js client-side navigation does not scroll to hash targets.
   // Runs without a dependency array intentionally: the target element is rendered
@@ -912,6 +948,7 @@ export default function EditCatalogProductPage({
             values={values as ProductFormValues}
             setValue={setValue}
             errors={errors}
+            variantCount={variants.length}
           />
         ),
       },
@@ -1028,7 +1065,9 @@ export default function EditCatalogProductPage({
           ),
         );
       }
-      const parsed = productFormSchema.safeParse(formValues);
+      const parsed = productFormSchema.safeParse(
+        withCanonicalUomFields(formValues, locale),
+      );
       if (!parsed.success) {
         const issues = parsed.error.issues;
         const fieldErrors: Record<string, string> = {};
@@ -1359,7 +1398,43 @@ export default function EditCatalogProductPage({
           );
         }
       }
-      await updateCrud("catalog/products", payload);
+      const updateResult = await updateCrud("catalog/products", payload);
+      // The update route echoes the server-bumped updatedAt, so refresh the
+      // optimistic-lock token from it — without this, a second consecutive save
+      // reuses the stale pre-edit updatedAt and the lock guard falsely reports a
+      // conflict (#5985).
+      const refreshedUpdatedAt =
+        typeof updateResult.result?.updatedAt === "string"
+          ? updateResult.result.updatedAt
+          : null;
+      // The update route does not echo response enrichments (`_wms`, …), so re-read
+      // them when the record carries any — otherwise CrudForm's post-save
+      // `transformDisplayData` resync restores the injected fields' pre-save values
+      // and the next save writes them back (#6142).
+      let refreshedEnrichments: Record<string, unknown> = {};
+      if (Object.keys(pickEnrichmentNamespaces(formValues as Record<string, unknown>)).length > 0) {
+        const refreshedProductRes = await apiCall<ProductResponse>(
+          `/api/catalog/products?id=${encodeURIComponent(productId)}&page=1&pageSize=1&withDeleted=false`,
+        );
+        refreshedEnrichments = pickEnrichmentNamespaces(
+          refreshedProductRes.ok ? refreshedProductRes.result?.items?.[0] : undefined,
+        );
+      }
+      // Merge the just-submitted `values` back into `initialValues` too, not only
+      // `updatedAt` — CrudForm re-syncs its visible fields from `initialValues`
+      // whenever that prop's identity changes, so leaving the other fields at
+      // their stale pre-edit snapshot here made a successful save visually
+      // revert the field the user just changed back to its old value (#6170).
+      setInitialValues((prev) =>
+        prev
+          ? {
+              ...prev,
+              ...withLocaleUomFields(values, locale),
+              ...refreshedEnrichments,
+              updatedAt: refreshedUpdatedAt ?? prev.updatedAt,
+            }
+          : prev,
+      );
       const previousConversionIds = new Set(
         initialConversionsRef.current
           .map((entry) => toTrimmedOrNull(entry.id))
@@ -1458,7 +1533,7 @@ export default function EditCatalogProductPage({
         );
       }
     },
-    [productId, t, taxRates, variants],
+    [locale, productId, t, taxRates, variants],
   );
 
   if (!productId) {
@@ -1505,6 +1580,7 @@ export default function EditCatalogProductPage({
       <PageBody>
         <CrudForm<ProductFormValues>
           title={t("catalog.products.edit.title", "Edit product")}
+          titleHeadingLevel={1}
           backHref="/backend/catalog/products"
           versionHistory={{
             resourceKind: "catalog.product",
@@ -1525,13 +1601,14 @@ export default function EditCatalogProductPage({
           ) : undefined}
           fields={[]}
           groups={groups}
-          injectionSpotId="crud-form:catalog.product"
+          injectionSpotId={extensionPoints.hosts.productForm.spotId}
           entityId={E.catalog.catalog_product}
           customFieldsetBindings={{
             [E.catalog.catalog_product]: { valueKey: "customFieldsetCode" },
           }}
           initialValues={initialValues ?? undefined}
           isLoading={loading}
+          disableInitialFocus
           loadingMessage={t("catalog.products.edit.loading", "Loading product")}
           submitLabel={t("catalog.products.edit.save", "Save changes")}
           cancelHref="/backend/catalog/products"
@@ -1571,6 +1648,10 @@ type ProductVariantsSectionProps = Omit<
 };
 
 type ProductDimensionsSectionProps = ProductFormGroupProps;
+
+type ProductOptionsSectionProps = ProductFormGroupProps & {
+  variantCount?: number;
+};
 
 function ProductDetailsSection({
   values,
@@ -1867,7 +1948,11 @@ function ProductMetadataSection({ values, setValue }: ProductFormGroupProps) {
   );
 }
 
-function ProductOptionsSection({ values, setValue }: ProductFormGroupProps) {
+function ProductOptionsSection({
+  values,
+  setValue,
+  variantCount = 0,
+}: ProductOptionsSectionProps) {
   const t = useT();
   const [schemaDialogOpen, setSchemaDialogOpen] = React.useState(false);
   const [schemaTemplates, setSchemaTemplates] = React.useState<
@@ -2130,10 +2215,15 @@ function ProductOptionsSection({ values, setValue }: ProductFormGroupProps) {
         ))}
         {!values.options?.length ? (
           <p className="text-sm text-muted-foreground">
-            {t(
-              "catalog.products.create.optionsBuilder.empty",
-              "No options yet. Add your first option to generate variants.",
-            )}
+            {variantCount > 0
+              ? t(
+                  "catalog.products.edit.optionsBuilder.emptyWithVariants",
+                  "This product has variants without an option schema. Options are optional.",
+                )
+              : t(
+                  "catalog.products.create.optionsBuilder.empty",
+                  "No options yet. Add your first option to generate variants.",
+                )}
           </p>
         ) : null}
       </div>
@@ -2607,7 +2697,7 @@ function ProductMetaSection({
           )}
         />
         {errors.subtitle ? (
-          <p className="text-xs text-red-600">{errors.subtitle}</p>
+          <p className="text-xs text-status-error-text">{errors.subtitle}</p>
         ) : null}
       </div>
 
@@ -2640,7 +2730,7 @@ function ProductMetaSection({
           )}
         </p>
         {errors.handle ? (
-          <p className="text-xs text-red-600">{errors.handle}</p>
+          <p className="text-xs text-status-error-text">{errors.handle}</p>
         ) : null}
       </div>
 
@@ -2662,7 +2752,7 @@ function ProductMetaSection({
           )}
         </p>
         {errors.sku ? (
-          <p className="text-xs text-red-600">{errors.sku}</p>
+          <p className="text-xs text-status-error-text">{errors.sku}</p>
         ) : null}
       </div>
 
@@ -2699,7 +2789,7 @@ function ProductMetaSection({
           </SelectContent>
         </Select>
         {errors.productType ? (
-          <p className="text-xs text-red-600">
+          <p className="text-xs text-status-error-text">
             {errors.productType}
           </p>
         ) : null}

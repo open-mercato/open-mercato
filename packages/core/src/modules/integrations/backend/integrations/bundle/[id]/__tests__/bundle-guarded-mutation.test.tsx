@@ -71,7 +71,7 @@ const bundleDetail = {
     id: 'payments_bundle',
     title: 'Payments bundle',
     description: 'Shared payment credentials',
-    credentials: { fields: [{ key: 'apiKey', label: 'API Key', type: 'text', required: true }] },
+    credentials: { fields: [{ key: 'apiKey', label: 'API Key', type: 'secret', required: true }] },
   },
   bundleIntegrations: [
     { id: 'gateway_stripe', title: 'Stripe', category: 'payment', isEnabled: false },
@@ -83,7 +83,13 @@ const bundleDetail = {
 function mockLoadResponses() {
   apiCallMock.mockImplementation((url: string) => {
     if (typeof url === 'string' && url.endsWith('/credentials')) {
-      return Promise.resolve({ ok: true, result: { credentials: { apiKey: 'existing' } } })
+      return Promise.resolve({
+        ok: true,
+        result: {
+          credentials: { apiKey: '__om_secret_unchanged__' },
+          secretFieldsConfigured: { apiKey: true },
+        },
+      })
     }
     return Promise.resolve({ ok: true, result: bundleDetail })
   })
@@ -100,7 +106,18 @@ describe('Integrations bundle — guarded mutation wiring', () => {
   it('routes the child integration toggle through runMutation and updates local state on success', async () => {
     runMutationMock.mockResolvedValue({ ok: true, result: null })
 
-    renderWithProviders(<BundleConfigPage params={{ id: 'payments_bundle' }} />)
+    const { container } = renderWithProviders(<BundleConfigPage params={{ id: 'payments_bundle' }} />)
+
+    const secretInput = await screen.findByLabelText(/API Key/)
+    expect(secretInput).toHaveValue('')
+    expect(container).not.toHaveTextContent('__om_secret_unchanged__')
+    expect(screen.getByText('integrations.detail.credentials.secretConfigured')).toBeVisible()
+
+    const revealButton = container.querySelector('button[aria-pressed]')
+    expect(revealButton).not.toBeNull()
+    fireEvent.click(revealButton as HTMLButtonElement)
+    expect(secretInput).toHaveAttribute('type', 'text')
+    expect(secretInput).toHaveValue('')
 
     const toggle = await screen.findByRole('switch')
     expect(toggle).toHaveAttribute('aria-checked', 'false')
@@ -127,9 +144,25 @@ describe('Integrations bundle — guarded mutation wiring', () => {
     await waitFor(() => expect(runMutationMock).toHaveBeenCalled())
     const saveCall = runMutationMock.mock.calls.find((call) => call[0]?.context?.actionId === 'save-credentials')
     expect(saveCall).toBeTruthy()
-    expect(saveCall[0].mutationPayload).toMatchObject({ bundleId: 'payments_bundle' })
+    expect(saveCall[0].mutationPayload).toEqual({
+      bundleId: 'payments_bundle',
+      credentials: {},
+      unchangedSecretFields: ['apiKey'],
+    })
     expect(typeof saveCall[0].operation).toBe('function')
 
     await waitFor(() => expect(flashMock).toHaveBeenCalledWith('integrations.detail.credentials.saved', 'success'))
+
+    fireEvent.change(await screen.findByLabelText(/API Key/), { target: { value: 'rotated-secret' } })
+    fireEvent.click(await screen.findByText('integrations.detail.credentials.save'))
+
+    await waitFor(() => {
+      const saveCalls = runMutationMock.mock.calls.filter((call) => call[0]?.context?.actionId === 'save-credentials')
+      expect(saveCalls).toHaveLength(2)
+      expect(saveCalls[1][0].mutationPayload).toEqual({
+        bundleId: 'payments_bundle',
+        credentials: { apiKey: 'rotated-secret' },
+      })
+    })
   })
 })

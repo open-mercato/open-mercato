@@ -91,4 +91,44 @@ test.describe('TC-CRM-034: Dashboard widgets, address format settings, and check
     const body = await readJsonSafe<{ match: null }>(response)
     expect(body?.match).toBeNull()
   })
+
+  test('should match an existing person by formatted phone digits and return the decrypted display name', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const suffix = Date.now().toString().slice(-9)
+    const displayName = `Check Phone Probe ${suffix}`
+    const phone = `+48 ${suffix.slice(0, 3)} ${suffix.slice(3, 6)} ${suffix.slice(6)}`
+
+    const createResponse = await apiRequest(request, 'POST', '/api/customers/people', {
+      token,
+      data: {
+        firstName: 'Check',
+        lastName: `Phone Probe ${suffix}`,
+        displayName,
+        primaryPhone: phone,
+      },
+    })
+    expect(createResponse.ok(), `Failed to create check-phone person fixture: ${createResponse.status()}`).toBeTruthy()
+    const created = await readJsonSafe<Record<string, unknown>>(createResponse)
+    const personId = typeof created?.id === 'string' ? created.id : null
+    expect(personId, 'person fixture should expose an id').toBeTruthy()
+
+    try {
+      const digits = phone.replace(/\D/g, '')
+      const response = await apiRequest(
+        request,
+        'GET',
+        `/api/customers/people/check-phone?digits=${encodeURIComponent(digits)}`,
+        { token },
+      )
+      expect(response.status(), 'check-phone should return 200 for an existing number').toBe(200)
+      const body = await readJsonSafe<{ match: null | { id: string; displayName: string | null } }>(response)
+      expect(body?.match).toBeTruthy()
+      expect(body?.match?.id).toBe(personId)
+      expect(body?.match?.displayName).toBe(displayName)
+    } finally {
+      if (personId) {
+        await apiRequest(request, 'DELETE', `/api/customers/people?id=${encodeURIComponent(personId)}`, { token })
+      }
+    }
+  })
 })

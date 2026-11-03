@@ -58,7 +58,7 @@ export default function CreateSalesDocumentPage() {
       } catch { /* ignore */ }
 
       // Auto-add line items from the inbox draft
-      const lineItems = Array.isArray(inboxDraft.payload.lineItems)
+      const lineItems = kind === 'quote' && Array.isArray(inboxDraft.payload.lineItems)
         ? (inboxDraft.payload.lineItems as Record<string, unknown>[])
         : []
       const lineEndpoint = kind === 'order' ? '/api/sales/order-lines' : '/api/sales/quote-lines'
@@ -123,9 +123,7 @@ export default function CreateSalesDocumentPage() {
           initialKind={initialKind}
           inboxPreFill={inboxPreFill}
         />
-        <p className="mt-4 text-sm text-muted-foreground">
-          {t('sales.documents.form.nextStep', 'After creation you will add items, prices, and fulfillment details.')}
-        </p>
+
       </PageBody>
     </Page>
   )

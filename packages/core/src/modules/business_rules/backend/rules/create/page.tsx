@@ -71,6 +71,7 @@ export default function CreateBusinessRulePage() {
       <PageBody>
         <CrudForm
           title={t('business_rules.rules.create.title')}
+          titleHeadingLevel={1}
           backHref="/backend/rules"
           schema={businessRuleFormSchema}
           fields={fields}

@@ -1,6 +1,7 @@
 import type { AwilixContainer } from 'awilix'
 import { asValue } from 'awilix'
-import type { ModuleSubscriber } from '@open-mercato/shared/modules/registry'
+import { getDefaultEncryptionMaps, type ModuleSubscriber } from '@open-mercato/shared/modules/registry'
+import type { ModuleEncryptionMap } from '@open-mercato/shared/modules/encryption'
 import { createEventBus } from '@open-mercato/events/index'
 import { setGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { createCacheService } from '@open-mercato/cache'
@@ -9,6 +10,7 @@ import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { registerTenantEncryptionSubscriber } from '@open-mercato/shared/lib/encryption/subscriber'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
+import { warnUnresolvedEncryptionMapEntityIds } from '@open-mercato/shared/lib/encryption/unresolvedMapEntityIds'
 import { getSearchModuleConfigs } from '@open-mercato/shared/modules/search'
 import {
   registerSearchModule,
@@ -135,7 +137,9 @@ export async function bootstrap(container: AwilixContainer) {
     try {
       eventBus = createEventBus({ resolve: container.resolve.bind(container) as any, queueStrategy: 'local' })
     } catch {
-      // In extreme cases, provide a no-op bus to avoid crashes
+      // In extreme cases, provide a no-op bus to avoid crashes. It deliberately
+      // omits `dispatchQueued` so the events worker fails its job loudly instead
+      // of quietly completing it with zero subscribers dispatched.
       eventBus = {
         emit: async () => {},
         on: () => {},
@@ -153,7 +157,12 @@ export async function bootstrap(container: AwilixContainer) {
     try {
       const { getModules } = await import('@open-mercato/shared/lib/i18n/server')
       loadedModules = getModules()
-    } catch {}
+    } catch (err) {
+      // The events worker dispatches persistent subscribers through this bus, so
+      // an empty registry here means queued events silently run nothing. Swallowing
+      // it made that failure invisible; log it.
+      logger.warn('Module registry unavailable; event bus starts with no module subscribers', { err })
+    }
     const subs = loadedModules.flatMap((m) =>
       (m.subscribers || []).map((subscriber: ModuleSubscriber) => ({
         ...subscriber,
@@ -184,21 +193,46 @@ export async function bootstrap(container: AwilixContainer) {
   // KMS + tenant encryption
   const kmsService = createKmsService()
   container.register({ kmsService: asValue(kmsService) })
+  let defaultEncryptionMaps: ModuleEncryptionMap[] = []
+  if (isTenantDataEncryptionEnabled()) {
+    try {
+      const { getModules } = await import('@open-mercato/shared/lib/i18n/server')
+      defaultEncryptionMaps = getDefaultEncryptionMaps(getModules())
+    } catch (err) {
+      logger.error('Failed to load default encryption maps', { component: 'encryption', err })
+      throw err
+    }
+    warnUnresolvedEncryptionMapEntityIds(defaultEncryptionMaps)
+  }
   try {
     const em = container.resolve('em') as EntityManager
     const cacheService = (() => {
       try { return container.resolve('cache') as any } catch { return null }
     })()
-    const tenantEncryptionService = new TenantDataEncryptionService(em, { cache: cacheService, kms: kmsService })
+    const tenantEncryptionService = new TenantDataEncryptionService(em, {
+      cache: cacheService,
+      kms: kmsService,
+      defaultEncryptionMaps,
+    })
     container.register({ tenantEncryptionService: asValue(tenantEncryptionService) })
-    if (isTenantDataEncryptionEnabled() && kmsService.isHealthy()) {
+    // Register on the static config toggle only — never on KMS health. The
+    // subscriber re-checks `service.isEnabled()` (which includes KMS health) on
+    // every read/write, so registering while Vault is down is a no-op that
+    // starts encrypting again the moment KMS recovers. Gating registration on
+    // health instead left a boot-time outage fail-open for the whole process
+    // lifetime, recoverable only by a restart (#5948).
+    if (isTenantDataEncryptionEnabled()) {
       try {
         registerTenantEncryptionSubscriber(em, tenantEncryptionService)
       } catch (err) {
         logger.warn('Failed to register MikroORM encryption subscriber', { component: 'encryption', err })
       }
-    } else if (isTenantDataEncryptionEnabled() && !kmsService.isHealthy()) {
-      logger.warn('Vault/KMS unhealthy - tenant data encryption is disabled until recovery', { component: 'encryption' })
+      if (!kmsService.isHealthy()) {
+        logger.warn(
+          'Vault/KMS unhealthy - tenant data encryption is paused until it recovers; the subscriber is registered and resumes automatically',
+          { component: 'encryption' },
+        )
+      }
     }
   } catch (err) {
     logger.warn('Failed to initialize tenant encryption service', { component: 'encryption', err })

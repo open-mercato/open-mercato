@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/customers/extension-points'
 import Link from 'next/link'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { User, Hash, Users, Building2 } from 'lucide-react'
@@ -22,7 +23,9 @@ import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/us
 import { Button } from '@open-mercato/ui/primitives/button'
 import { AttachmentsSection, ErrorMessage, LoadingMessage, RecordNotFoundState, type SectionAction } from '@open-mercato/ui/backend/detail'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
-import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { useCustomerInjectedTabs } from '../../../../components/detail/useCustomerInjectedTabs'
+import { CustomerDetailSidebar } from '../../../../components/detail/CustomerDetailSidebar'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
@@ -37,7 +40,7 @@ import type { TagSummary } from '../../../../components/detail/types'
 import { ScheduleActivityDialog, type ScheduleActivityEditData } from '../../../../components/detail/ScheduleActivityDialog'
 import { PersonDetailHeader } from '../../../../components/detail/PersonDetailHeader'
 import { ChangelogTab } from '../../../../components/detail/ChangelogTab'
-import { PersonDetailTabs, resolveLegacyTab, type PersonTabId } from '../../../../components/detail/PersonDetailTabs'
+import { PersonDetailTabs, PERSON_DETAIL_TAB_IDS, resolveLegacyTab, type PersonTabId } from '../../../../components/detail/PersonDetailTabs'
 import { AddressesSection } from '../../../../components/detail/AddressesSection'
 import { PersonCompaniesSection } from '../../../../components/detail/PersonCompaniesSection'
 import { MobilePersonDetail } from '../../../../components/detail/MobilePersonDetail'
@@ -52,6 +55,7 @@ import {
   type PersonOverview,
 } from '../../../../components/formConfig'
 import { coerceDisplayName, coerceDisplayNameOrNull } from '../../../../lib/displayName'
+import { isDetailNotFoundStatus } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
@@ -91,10 +95,6 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
   const [isSaving, setIsSaving] = React.useState(false)
   const formWrapperRef = React.useRef<HTMLDivElement>(null)
 
-  const initialTab = React.useMemo(() => {
-    return resolveLegacyTab(searchParams?.get('tab'))
-  }, [searchParams])
-  const [activeTab, setActiveTab] = React.useState<PersonTabId>(initialTab)
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const [scheduleDialogOpen, setScheduleDialogOpen] = React.useState(false)
   const [scheduleEditData, setScheduleEditData] = React.useState<ScheduleActivityEditData | null>(null)
@@ -171,7 +171,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
         : payload
       setData(next as PersonOverview)
     } catch (err) {
-      if ((err as { status?: number }).status === 404) {
+      if (isDetailNotFoundStatus((err as { status?: number }).status)) {
         setIsNotFound(true)
       } else {
         const message = err instanceof Error ? err.message : t('customers.people.detail.error.load', 'Failed to load person.')
@@ -209,9 +209,11 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
       resourceKind: 'customers.person',
       resourceId: currentPersonId ?? (id ?? undefined),
       data,
+      isDirty,
+      isSaving,
       retryLastMutation,
     }),
-    [currentPersonId, data, id, mutationContextId, retryLastMutation],
+    [currentPersonId, data, isDirty, isSaving, id, mutationContextId, retryLastMutation],
   )
   const runMutationWithContext = React.useCallback(
     async <T,>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>): Promise<T> => {
@@ -279,6 +281,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
       scheduledAt: typeof activity.scheduledAt === 'string' ? activity.scheduledAt : null,
       occurredAt: typeof activity.occurredAt === 'string' ? activity.occurredAt : null,
       durationMinutes: durationValue,
+      priority: typeof raw.priority === 'number' ? raw.priority as number : null,
       location: typeof raw.location === 'string' ? raw.location as string : null,
       allDay: typeof raw.allDay === 'boolean' ? raw.allDay as boolean : null,
       recurrenceRule: typeof raw.recurrenceRule === 'string' ? raw.recurrenceRule as string : null,
@@ -299,34 +302,35 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
     setScheduleDialogOpen(true)
   }, [])
 
-  // Injected tabs from UMES
-  const { widgets: injectedTabWidgets } = useInjectionWidgets('detail:customers.person:tabs', {
+  const { injectedTabs, injectedTabMap, loading: injectedTabsLoading } = useCustomerInjectedTabs({
+    spotId: extensionPoints.hosts.personTabs.spotId,
     context: injectionContext,
-    triggerOnLoad: true,
+    data,
+    onDataChange: setData,
+    nativeTabIds: PERSON_DETAIL_TAB_IDS,
   })
 
-  const injectedTabs = React.useMemo(
-    () =>
-      (injectedTabWidgets ?? [])
-        .filter((widget) => (widget.placement?.kind ?? 'tab') === 'tab')
-        .map((widget) => {
-          const tabId = widget.placement?.groupId ?? widget.widgetId
-          const label = widget.placement?.groupLabel ?? widget.module.metadata.title ?? tabId
-          const priority = typeof widget.placement?.priority === 'number' ? widget.placement.priority : 0
-          const render = () => (
-            <widget.module.Widget
-              context={injectionContext}
-              data={data}
-              onDataChange={(next: unknown) => setData(next as PersonOverview)}
-            />
-          )
-          return { id: tabId, label, priority, render }
-        })
-        .sort((a, b) => b.priority - a.priority),
-    [data, injectedTabWidgets, injectionContext],
+  const injectedTabIds = React.useMemo(() => injectedTabs.map((tab) => tab.id), [injectedTabs])
+  const initialTab = React.useMemo(
+    () => resolveLegacyTab(searchParams?.get('tab'), injectedTabIds),
+    [injectedTabIds, searchParams],
   )
+  const [activeTab, setActiveTab] = React.useState<PersonTabId>(initialTab)
 
-  const injectedTabMap = React.useMemo(() => new Map(injectedTabs.map((tab) => [tab.id, tab.render])), [injectedTabs])
+  React.useEffect(() => {
+    setActiveTab(initialTab)
+  }, [initialTab])
+
+  const handleTabChange = React.useCallback(
+    (tab: PersonTabId) => {
+      setActiveTab(tab)
+      if (!pathname) return
+      const nextParams = new URLSearchParams(searchParams?.toString() ?? '')
+      nextParams.set('tab', tab)
+      router.replace(`${pathname}?${nextParams.toString()}`, { scroll: false })
+    },
+    [pathname, router, searchParams],
+  )
 
   // Tags
   const handleTagsChange = React.useCallback((nextTags: TagSummary[]) => {
@@ -502,11 +506,12 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
       <PageBody>
         <div className="space-y-4">
           {/* UMES header injection (third-party extensions) */}
-          <InjectionSpot spotId="detail:customers.person:header" context={injectionContext} data={data} />
-          <InjectionSpot spotId="detail:customers.person:status-badges" context={injectionContext} data={data} />
+          <InjectionSpot spotId={extensionPoints.hosts.personHeader.spotId} context={injectionContext} data={data} />
+          <InjectionSpot spotId={extensionPoints.hosts.personStatusBadges.spotId} context={injectionContext} data={data} />
 
           {/* Persistent person header */}
           <PersonDetailHeader
+            actions={<InjectionSpot spotId={extensionPoints.hosts.personHeaderActions.spotId} context={injectionContext} data={data} disabled={isSaving} />}
             data={data}
             onTagsChange={handleTagsChange}
             tagsSectionControllerRef={tagsSectionControllerRef}
@@ -514,7 +519,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
             onDelete={handleFormDelete}
             isDirty={isDirty}
             isSaving={isSaving}
-            onOpenCompaniesTab={() => setActiveTab('companies')}
+            onOpenCompaniesTab={() => handleTabChange('companies')}
             onDataReload={() => { loadData().catch((err) => logger.warn('onDataReload failed', { component: 'people-v2', err })) }}
             onFocusField={(fieldName) => {
               const selectorMap: Record<string, string> = {
@@ -531,13 +536,18 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
           />
 
           {/* Zone content shared between desktop (CollapsibleZoneLayout) and mobile (MobilePersonDetail). */}
+          <CustomerDetailSidebar spotId={extensionPoints.hosts.personSidebar.spotId} context={injectionContext} data={data} onDataChange={setData} disabled={isSaving}>
           {(() => {
             const zone1Content = (
               <div ref={formWrapperRef}>
                 <CrudForm<PersonEditFormValues>
                   embedded
                   trackDirtyWhenEmbedded
-                  injectionSpotId="crud-form:customers.person"
+                  injectionSpotId={extensionPoints.hosts.personForm.spotId}
+                  entityId="customers.person"
+                  resourceKind="customers.person"
+                  resourceId={personId}
+                  injectionGroupAliases={{ details: 'personalData' }}
                   entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
                   schema={formSchema}
                   fields={fields}
@@ -556,8 +566,9 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
             const zone2Content = (
               <PersonDetailTabs
                 activeTab={activeTab}
-                onTabChange={setActiveTab}
-                injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label }))}
+                onTabChange={handleTabChange}
+                isLoadingInjectedTabs={injectedTabsLoading}
+                injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label, priority: tab.priority }))}
                 activitiesCount={interactionCount}
                 dealsCount={dealCount}
                 companiesCount={companyCount}
@@ -568,8 +579,6 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                 <div className="min-w-0">
                 {(() => {
                   // Injected tab content
-                  const injected = injectedTabMap.get(activeTab)
-                  if (injected) return injected()
 
                   if (activeTab === 'activities') {
                     return (
@@ -696,6 +705,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
 
                   return null
                 })()}
+                {injectedTabMap.get(activeTab)?.()}
                 </div>
               </PersonDetailTabs>
             )
@@ -717,9 +727,10 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
               />
             )
           })()}
+          </CustomerDetailSidebar>
 
           {/* UMES footer injection */}
-          <InjectionSpot spotId="detail:customers.person:footer" context={injectionContext} data={data} />
+          <InjectionSpot spotId={extensionPoints.hosts.personFooter.spotId} context={injectionContext} data={data} />
 
           {/* Schedule Activity Dialog — opened from PlannedActivities "+ Schedule" or other triggers */}
           <ScheduleActivityDialog

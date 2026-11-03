@@ -54,6 +54,16 @@ jest.mock('@open-mercato/shared/lib/ai/llm-provider-registry', () => ({
   },
 }))
 
+// The registry's generated-file fallback loads whatever agents the working tree
+// has generated (e.g. enterprise agent_orchestrator ships real agents), which
+// breaks the empty-registry cases on branches where those modules exist. Stub
+// the fallback so the registry only contains what each test seeds explicitly.
+jest.mock('../../lib/generated-registry-loader', () => ({
+  ...jest.requireActual('../../lib/generated-registry-loader'),
+  findGeneratedFile: jest.fn(() => null),
+  compileAndImportGenerated: jest.fn(async () => null),
+}))
+
 import {
   resetAgentRegistryForTests,
   seedAgentRegistryForTests,
@@ -156,10 +166,15 @@ describe('WS-C integration — tool-pack coverage', () => {
 
     it('propagates tenantId + organizationId to the search service call', async () => {
       const searchMock = jest.fn().mockResolvedValue([])
+      const searchIndexerMock = {
+        getEntityConfig: (entityId: string) => ({ entityId, aclFeatures: ['ai_assistant.view'], enabled: true } as any),
+        getAllEntityConfigs: () => [{ entityId: 'test:entity', aclFeatures: ['ai_assistant.view'], enabled: true } as any],
+      }
       const ctx = makeCtx({
         container: {
           resolve: (name: string) => {
             if (name === 'searchService') return { search: searchMock }
+            if (name === 'searchIndexer') return searchIndexerMock
             throw new Error(`Unknown registration: ${name}`)
           },
         },

@@ -1,8 +1,13 @@
 'use client'
 
 import { Handle, Position, NodeProps } from '@xyflow/react'
+import { DEFAULT_SOURCE_HANDLE_ID } from '../../lib/route-kinds'
+import { NODE_HANDLE_CLASS } from '../../lib/node-geometry'
 import { WorkflowNodeCard } from '../WorkflowNodeCard'
-import { WorkflowStatus } from '../../lib/status-colors'
+import type { StepReason } from '../../lib/step-presentation'
+import { toWorkflowStatus } from '../../lib/status-colors'
+import { buildNodeConfigSummary } from '../../lib/node-config-summary'
+import { ErrorOutputHandle } from './ErrorOutputHandle'
 
 /**
  * AutomatedNode display data.
@@ -29,53 +34,65 @@ export interface AutomatedNodeData {
   badge?: string
   tooltip?: string
   executionStatus?: 'completed' | 'active' | 'pending' | 'failed' | 'skipped'
+  /**
+   * Run presentation (spec Part 2). Set at render time by the run detail
+   * page and the Studio last-run overlay from the SAME resolver, so the two
+   * surfaces can never disagree about what the step is doing.
+   */
+  runReason?: StepReason | null
+  runStartedAt?: Date | null
+  hasError?: boolean
+  hasCompensation?: boolean
+  errorCount?: number
 }
 
 /**
  * AutomatedNode - Automated/system task step in a workflow
  * Uses WorkflowNodeCard for consistent styling
  */
-export function AutomatedNode({ data, isConnectable, selected }: NodeProps) {
+export function AutomatedNode({ id, data, isConnectable, selected }: NodeProps) {
   const nodeData = data as unknown as AutomatedNodeData
 
-  // Map old status values to new WorkflowStatus types
-  const mapStatus = (status?: string): WorkflowStatus => {
-    if (!status || status === 'pending') return 'not_started'
-    if (status === 'running' || status === 'in_progress') return 'in_progress'
-    if (status === 'completed') return 'completed'
-    if (status === 'error') return 'not_started'
-    return 'not_started'
-  }
-
-  const workflowStatus = mapStatus(nodeData.status)
+  const workflowStatus = toWorkflowStatus(nodeData.status)
+  const summary = buildNodeConfigSummary('automated', nodeData as never)
 
   return (
     <div className="automated-node" title={nodeData.tooltip}>
       {/* Target Handle */}
       <Handle
         type="target"
-        position={Position.Top}
+        position={Position.Left}
         id="target"
         isConnectable={isConnectable}
-        className="!w-3 !h-3 !bg-[#0080FE] !border-2 !border-white"
+        className={`${NODE_HANDLE_CLASS} !bg-primary`}
       />
 
       <WorkflowNodeCard
+        summary={summary}
         title={nodeData.label}
         description={nodeData.description}
         status={workflowStatus}
+        runReason={nodeData.runReason}
+        runStartedAt={nodeData.runStartedAt}
         nodeType="automated"
         selected={selected}
+        hasError={nodeData.hasError}
+        hasCompensation={nodeData.hasCompensation}
+        errorCount={nodeData.errorCount}
+        nodeId={id}
+        editable={isConnectable}
       />
 
       {/* Source Handle */}
       <Handle
         type="source"
-        position={Position.Bottom}
-        id="source"
+        position={Position.Right}
+        id={DEFAULT_SOURCE_HANDLE_ID}
         isConnectable={isConnectable}
-        className="!w-3 !h-3 !bg-[#0080FE] !border-2 !border-white"
+        className={`${NODE_HANDLE_CLASS} !bg-primary`}
       />
+
+      <ErrorOutputHandle isConnectable={isConnectable} />
     </div>
   )
 }

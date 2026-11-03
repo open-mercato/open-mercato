@@ -6,6 +6,7 @@ import { resolveUserFeatures, runMessageMutationGuardAfterSuccess, runMessageMut
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import { forwardResponseSchema, forwardMessageSchema as forwardSchema } from '../../openapi'
 import { MessageCommandExecuteResult } from '../../../commands/shared'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['messages.compose'] },
@@ -62,6 +63,10 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       },
     })
   } catch (error) {
+    const interceptorRejection = getCommandInterceptorHttpRejection(error)
+    if (interceptorRejection) {
+      return Response.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
     if (error instanceof Error) {
       if (error.message === 'Message not found') {
         return Response.json({ error: 'Message not found' }, { status: 404 })

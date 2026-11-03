@@ -87,8 +87,11 @@ describe('Issue #1836: portaled overlay primitives sit above modals (z-popover >
       fireEvent.change(input!, { target: { value: 'a' } })
     })
 
-    const suggestions = container.querySelector('[class*="z-popover"]')
+    // The list is portaled to document.body (via the DS Popover) so a Dialog's
+    // overflow cannot clip it -- so look it up on the document, not on `container`.
+    const suggestions = document.body.querySelector('[class*="z-popover"]')
     expect(suggestions).not.toBeNull()
+    expect(container.contains(suggestions)).toBe(false)
     const token = findZIndexToken((suggestions as HTMLElement).className)
     expect(token).toBe('z-popover')
     expect(Z_INDEX_BY_TOKEN[token!]).toBeGreaterThan(Z_INDEX_BY_TOKEN['z-modal'])

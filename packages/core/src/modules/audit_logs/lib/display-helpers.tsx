@@ -33,9 +33,9 @@ export function renderValue(value: unknown, fallback: string) {
   if (typeof value === 'boolean') return <span>{value ? 'true' : 'false'}</span>
   if (typeof value === 'number' || typeof value === 'bigint') return <span>{String(value)}</span>
   if (value instanceof Date) return <span>{value.toISOString()}</span>
-  if (typeof value === 'string') return <span className="break-words">{value}</span>
+  if (typeof value === 'string') return <span className="wrap-anywhere">{value}</span>
   return (
-    <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded-md bg-muted/50 px-2 py-1 text-xs leading-5 text-muted-foreground">
+    <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap wrap-anywhere rounded-md bg-muted/50 px-2 py-1 text-xs leading-5 text-muted-foreground">
       {safeStringify(value)}
     </pre>
   )
@@ -76,43 +76,53 @@ export type ChangedFieldsTableProps = {
 }
 
 export function ChangedFieldsTable({ changeRows, noneLabel, t, beforeLabel, afterLabel }: ChangedFieldsTableProps) {
+  const beforeHeading = beforeLabel ?? t('audit_logs.actions.details.before')
+  const afterHeading = afterLabel ?? t('audit_logs.actions.details.after')
   return (
     <section>
       <h3 className="text-sm font-semibold">
         {t('audit_logs.actions.details.changed_fields')}
       </h3>
       {changeRows.length ? (
-        <div className="mt-2 overflow-x-auto rounded-lg border">
-          <table className="min-w-full divide-y text-sm">
-            <thead className="bg-muted/50">
-              <tr>
-                <th scope="col" className="px-4 py-2 text-left font-medium text-muted-foreground">
-                  {t('audit_logs.actions.details.field')}
-                </th>
-                <th scope="col" className="px-4 py-2 text-left font-medium text-muted-foreground">
-                  {beforeLabel ?? t('audit_logs.actions.details.before')}
-                </th>
-                <th scope="col" className="px-4 py-2 text-left font-medium text-muted-foreground">
-                  {afterLabel ?? t('audit_logs.actions.details.after')}
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {changeRows.map((row) => (
-                <tr key={row.field} className="align-top">
-                  <td className="px-4 py-2 align-top font-medium">
-                    {humanizeField(normalizeChangeField(row.field))}
-                  </td>
-                  <td className="px-4 py-2">
-                    {renderValue(row.from, noneLabel)}
-                  </td>
-                  <td className="px-4 py-2">
-                    {renderValue(row.to, noneLabel)}
-                  </td>
+        <div className="@container/changes mt-2">
+          <div className="overflow-x-auto rounded-lg border">
+            <table className="block w-full divide-y text-sm @lg/changes:table @lg/changes:min-w-full">
+              <thead className="hidden bg-muted/50 @lg/changes:table-header-group">
+                <tr>
+                  <th scope="col" className="px-4 py-2 text-left font-medium text-muted-foreground">
+                    {t('audit_logs.actions.details.field')}
+                  </th>
+                  <th scope="col" className="px-4 py-2 text-left font-medium text-muted-foreground">
+                    {beforeHeading}
+                  </th>
+                  <th scope="col" className="px-4 py-2 text-left font-medium text-muted-foreground">
+                    {afterHeading}
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="block divide-y @lg/changes:table-row-group">
+                {changeRows.map((row) => (
+                  <tr key={row.field} className="block px-4 py-3 align-top @lg/changes:table-row @lg/changes:p-0">
+                    <td className="block font-medium @lg/changes:table-cell @lg/changes:px-4 @lg/changes:py-2 @lg/changes:align-top">
+                      {humanizeField(normalizeChangeField(row.field))}
+                    </td>
+                    <td className="mt-2 block @lg/changes:mt-0 @lg/changes:table-cell @lg/changes:px-4 @lg/changes:py-2">
+                      <span className="mb-0.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground @lg/changes:hidden">
+                        {beforeHeading}
+                      </span>
+                      {renderValue(row.from, noneLabel)}
+                    </td>
+                    <td className="mt-2 block @lg/changes:mt-0 @lg/changes:table-cell @lg/changes:px-4 @lg/changes:py-2">
+                      <span className="mb-0.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground @lg/changes:hidden">
+                        {afterHeading}
+                      </span>
+                      {renderValue(row.to, noneLabel)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       ) : (
         <p className="mt-2 text-sm text-muted-foreground">

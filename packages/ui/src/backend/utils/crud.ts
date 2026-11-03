@@ -6,6 +6,8 @@ export type ListResponse<T> = {
   page: number
   pageSize: number
   totalPages: number
+  /** Present (true) when the server capped the count: `total`/`totalPages` are floors. */
+  totalIsCapped?: boolean
 }
 
 export type CrudExportFormat = 'csv' | 'json' | 'xml' | 'markdown'

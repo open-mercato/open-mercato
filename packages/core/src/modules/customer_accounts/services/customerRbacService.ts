@@ -5,7 +5,10 @@ import {
   CustomerRoleAcl,
   CustomerUserRole,
 } from '@open-mercato/core/modules/customer_accounts/data/entities'
-import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
+import {
+  authorizeFeatures,
+  resolveEffectiveFeatures,
+} from '@open-mercato/shared/security/featurePolicy'
 
 interface CustomerAclData {
   isPortalAdmin: boolean
@@ -129,8 +132,18 @@ export class CustomerRbacService {
   ): Promise<boolean> {
     if (!required.length) return true
     const acl = await this.loadAcl(userId, scope)
-    if (acl.isPortalAdmin) return true
-    return hasAllFeatures(required, acl.features)
+    return authorizeFeatures(required, {
+      grantedFeatures: acl.features,
+      unrestricted: acl.isPortalAdmin,
+    })
+  }
+
+  async getEffectiveFeatures(
+    userId: string,
+    scope: { tenantId: string; organizationId: string },
+  ): Promise<string[]> {
+    const acl = await this.loadAcl(userId, scope)
+    return resolveEffectiveFeatures(acl.isPortalAdmin ? ['portal.*'] : acl.features)
   }
 
   async invalidateUserCache(userId: string): Promise<void> {

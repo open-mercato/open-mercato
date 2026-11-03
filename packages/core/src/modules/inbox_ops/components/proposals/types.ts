@@ -27,6 +27,7 @@ export type ActionDetail = {
   createdEntityType?: string
   executionError?: string
   executedAt?: string
+  updatedAt?: string
 }
 
 export type DiscrepancyDetail = {
