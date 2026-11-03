@@ -73,6 +73,17 @@ describe('admin /api/customer_accounts/admin/users/[id]/reset-password — atomi
     mockEmit.mockResolvedValue(undefined)
   })
 
+  it.each(['longpassword', 'LongPassword1', 'long-password-1!', 'Long-password!'])(
+    'rejects a sub-policy credential before mutation: %s',
+    async (password) => {
+      const response = await POST(makeRequest({ newPassword: password }), { params: { id: userId } })
+      expect(response.status).toBe(400)
+      expect(mockUpdatePassword).not.toHaveBeenCalled()
+      expect(mockTransactional).not.toHaveBeenCalled()
+      expect(mockEmit).not.toHaveBeenCalled()
+    },
+  )
+
   it('runs updatePassword + revokeAllUserSessions inside em.transactional and emits both password.reset and password.changed after commit', async () => {
     const res = await POST(
       makeRequest({ newPassword: 'new-strong-Passw0rd!' }),
