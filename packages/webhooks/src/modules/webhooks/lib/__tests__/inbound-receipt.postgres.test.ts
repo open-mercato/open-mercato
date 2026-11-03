@@ -82,6 +82,30 @@ describePostgres.each([1, 8])('inbound receipt PostgreSQL transactions with pool
     })
   }
 
+  it('enforces the named scoped constraint for tenant, organization, and null scopes', async () => {
+    const scopes = [
+      { tenantId, organizationId },
+      { tenantId: randomUUID(), organizationId },
+      { tenantId, organizationId: randomUUID() },
+      { tenantId: null, organizationId },
+      { tenantId, organizationId: null },
+      { tenantId: null, organizationId: null },
+    ]
+    for (const scope of scopes) {
+      const values = {
+        endpointId: input.endpointId,
+        messageId: input.messageId,
+        providerKey: input.providerKey,
+        createdAt: new Date(),
+        ...scope,
+      }
+      await orm.em.fork().insert(WebhookInboundReceiptEntity, values)
+      await expect(orm.em.fork().insert(WebhookInboundReceiptEntity, values))
+        .rejects.toThrow('webhook_inbound_receipts_endpoint_message_unique')
+    }
+    expect(await orm.em.fork().count(WebhookInboundReceiptEntity, {})).toBe(scopes.length)
+  })
+
   it('commits ingestion before enqueue and preserves it through a rejected enqueue', async () => {
     mockEnqueue.mockRejectedValueOnce(new Error('queue unavailable'))
     const sourceInput = { ...input, sourceKey: input.endpointId }
