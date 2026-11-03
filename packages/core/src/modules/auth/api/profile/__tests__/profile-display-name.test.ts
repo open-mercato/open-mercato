@@ -111,7 +111,7 @@ describe('GET /api/auth/profile display name', () => {
     const response = await GET(profileRequest())
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ name: 'Ada', email: 'ada@example.com', roles: ['restricted-key'] })
+    expect(await response.json()).toEqual({ name: 'Ada', email: 'ada@example.com', roles: ['restricted-key'], timezone: null })
     expect(mockFindOneWithDecryption).toHaveBeenLastCalledWith(mockEm, expect.anything(), {
       id: USER_ID, deletedAt: null, tenantId: TENANT_ID, organizationId: ORG_ID,
     }, undefined, { tenantId: TENANT_ID, organizationId: ORG_ID })
