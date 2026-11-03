@@ -231,12 +231,12 @@ test.describe('TC-CRM-088 deal linked-people parity', () => {
       await login(page, 'admin')
       await page.goto(`/backend/customers/deals/${dealId}?tab=people`, { waitUntil: 'domcontentloaded' })
 
-      // Linked people render as table rows (#7493); Unlink lives in each row's More menu.
+      // Linked people render in a DataTable (#7493); Unlink lives in each row's actions menu.
       const personRow = (name: string) =>
         page.getByRole('row').filter({ has: page.getByText(name, { exact: true }) }).last()
       const unlinkPerson = async (name: string) => {
-        await personRow(name).getByRole('button', { name: 'More', exact: true }).click()
-        await page.getByRole('button', { name: /^Unlink$/i }).click()
+        await personRow(name).getByRole('button', { name: 'Open actions', exact: true }).click()
+        await page.getByRole('menuitem', { name: /^Unlink$/i }).click()
       }
 
       await expect(personRow(linkedName), 'the People tab should render a row per linked person')

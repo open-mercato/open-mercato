@@ -1,5 +1,14 @@
 # Upgrade Notes
 
+## `PersonCard` deprecated in favor of `DataTable` cells (#7493)
+
+`LinkedPeopleSection` now renders linked people through `DataTable` (extension table id
+`customers.linked_people.list`) instead of mapping `PersonCard` rows, and its row actions are
+`RowActions` items with the ids `open` and `unlink`. `PersonCard` stays exported from
+`components/detail/PersonCard` with the same props and is marked `@deprecated`. Custom tables
+should compose the exported `Person*Cell` components and `buildPersonRowActionItems` as `DataTable`
+columns and row actions. No database migration is required.
+
 ## Agent search answers honor domain policy (#7234)
 
 When an allow-list or deny-list is configured, agent `web_search` and the settings
