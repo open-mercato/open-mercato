@@ -155,6 +155,7 @@ function DefaultPersonDetailTabs({
 
   return (
     <DetailTabRail
+      busy={isLoadingInjectedTabs}
       tabs={allTabs}
       activeTab={activeTab}
       onTabChange={(tab) => onTabChange(tab as PersonTabId)}

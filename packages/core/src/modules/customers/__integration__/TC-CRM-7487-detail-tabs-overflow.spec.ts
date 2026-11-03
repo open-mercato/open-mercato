@@ -3,7 +3,8 @@
  *
  * On the three canonical CRM detail pages (people-v2, companies-v2, deals) at a desktop
  * width that used to overflow the strip (1024 x 900) and at a narrow width:
- * - the tab list has no horizontal or vertical scroll range (no native scrollbars)
+ * - once the injected tabs have loaded, the tab list has no horizontal or vertical scroll
+ *   range (no native scrollbars)
  * - the last tab is reachable: through the More menu when the strip folds, otherwise
  *   with the keyboard (End), and it becomes the selected tab
  * - a tab chosen from the More menu is lifted inline, so the selection stays visible
@@ -52,6 +53,10 @@ async function expectNoStripScroll(rail: Locator, label: string): Promise<void> 
   expect(geometry.overflowX, `${label}: tab list does not scroll`).not.toBe('auto')
 }
 
+async function waitForInjectedTabs(page: Page, rail: Locator, label: string): Promise<void> {
+  await expect(page.getByTestId('detail-tabs-row').filter({ has: rail }), `${label}: injected tabs have loaded`).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 })
+}
+
 async function reachLastTab(page: Page, rail: Locator, label: string): Promise<void> {
   await expect(async () => {
     const more = page.getByTestId('detail-tabs-more')
@@ -69,7 +74,7 @@ async function reachLastTab(page: Page, rail: Locator, label: string): Promise<v
     await tabs.first().focus({ timeout: 2_000 })
     await page.keyboard.press('End')
     await expect(tabs.last(), `${label}: End reaches the last tab`).toHaveAttribute('aria-selected', 'true', { timeout: 5_000 })
-  }, `${label}: last tab is reachable once the injected tabs have landed`).toPass({ timeout: 30_000 })
+  }, `${label}: last tab is reachable`).toPass({ timeout: 30_000 })
 }
 
 test.describe('TC-CRM-7487: CRM detail tab strips do not scroll', () => {
@@ -100,6 +105,8 @@ test.describe('TC-CRM-7487: CRM detail tab strips do not scroll', () => {
           const label = `${route} @ ${viewport.width}px`
           await page.goto(onMobileLayout ? `${route}?zone=activity` : route, { waitUntil: 'domcontentloaded' })
           const rail = page.getByRole('tablist', { name: railName })
+          await expect(rail, label).toBeVisible({ timeout: 30_000 })
+          await waitForInjectedTabs(page, rail, label)
           await expectNoStripScroll(rail, label)
           if (onMobileLayout) {
             await expect(page.getByTestId('detail-tabs-more'), `${label}: person tabs fold at this width`).toBeVisible({ timeout: 30_000 })

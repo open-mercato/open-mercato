@@ -22,6 +22,8 @@ export type DetailTabRailProps = {
   moreLabel: string
   sectionAction?: SectionAction | null
   contentClassName?: string
+  /** True while tabs can still arrive, such as injected tabs that are loading. */
+  busy?: boolean
   children: React.ReactNode
 }
 
@@ -77,6 +79,7 @@ export function DetailTabRail({
   moreLabel,
   sectionAction = null,
   contentClassName = 'pt-6',
+  busy = false,
   children,
 }: DetailTabRailProps) {
   const rowRef = React.useRef<HTMLDivElement>(null)
@@ -191,7 +194,7 @@ export function DetailTabRail({
 
   return (
     <div>
-      <div ref={rowRef} className="flex items-end justify-between gap-2 border-b">
+      <div ref={rowRef} data-testid="detail-tabs-row" aria-busy={busy} className="flex items-end justify-between gap-2 border-b">
         <div ref={listRef} className="flex min-w-0 flex-1 flex-nowrap items-end overflow-hidden">
           <Tabs value={activeTab} onValueChange={onTabChange} variant="underline" className="shrink-0">
             <TabsList aria-label={listLabel} className="-mb-px flex-nowrap border-b-0 px-1">
