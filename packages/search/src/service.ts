@@ -70,7 +70,17 @@ function normalizeOrganizationFilter(options: SearchOptions): string[] | null {
   return values
 }
 
-function filterResultsByOrganizationScope(results: SearchResult[], options: SearchOptions): SearchResult[] {
+/**
+ * A result with no organization passes only for an entity type declared through
+ * `registerTenantGlobalEntityTypes()`: a platform-wide catalogue is indexed once with no
+ * organization, so an organization-scoped search would otherwise never return it. Every
+ * other organization-less result is still dropped.
+ */
+function filterResultsByOrganizationScope(
+  results: SearchResult[],
+  options: SearchOptions,
+  isTenantGlobalEntityType: (entityType: string) => boolean,
+): SearchResult[] {
   const organizationIds = normalizeOrganizationFilter(options)
   if (!organizationIds) return results
   if (organizationIds.length === 0) return []
@@ -78,7 +88,8 @@ function filterResultsByOrganizationScope(results: SearchResult[], options: Sear
   const allowed = new Set(organizationIds)
   return results.filter((result) => {
     const organizationId = typeof result.organizationId === 'string' ? result.organizationId.trim() : ''
-    return organizationId.length > 0 && allowed.has(organizationId)
+    if (organizationId.length > 0) return allowed.has(organizationId)
+    return isTenantGlobalEntityType(result.entityId)
   })
 }
 
@@ -149,12 +160,14 @@ export class SearchService {
     }
 
     const strategyIds = options.strategies ?? this.defaultStrategies
-    const activeStrategies = await this.getAvailableStrategies(strategyIds)
+    const honorsFilter = (strategy: SearchStrategy) =>
+      !options.indexDocFilter || strategy.supportsIndexDocFilter === true
+    const activeStrategies = (await this.getAvailableStrategies(strategyIds)).filter(honorsFilter)
 
     if (activeStrategies.length === 0) {
       // Try fallback strategy if defined
       if (this.fallbackStrategy) {
-        const fallback = await this.getAvailableStrategies([this.fallbackStrategy])
+        const fallback = (await this.getAvailableStrategies([this.fallbackStrategy])).filter(honorsFilter)
         if (fallback.length > 0) {
           activeStrategies.push(...fallback)
         }
@@ -163,6 +176,14 @@ export class SearchService {
 
     if (activeStrategies.length === 0) {
       return []
+    }
+
+    const { resolveQueryIndexSearchScope, filterQueryIndexSearchRecords } = await import('@open-mercato/core/modules/query_index/lib/search-scope')
+    const scope = await resolveQueryIndexSearchScope()
+    if (options.entityTypes?.length) {
+      const entityTypes = options.entityTypes.filter((entityType) => !scope.blockedEntityTypes.includes(entityType))
+      if (!entityTypes.length) return []
+      options = { ...options, entityTypes }
     }
 
     // Execute searches in parallel with graceful degradation
@@ -186,11 +207,27 @@ export class SearchService {
     }
 
     // Merge and rank results
-    const merged = mergeAndRankResults(allResults, this.mergeConfig)
-    const scoped = filterResultsByOrganizationScope(merged, options)
+    const globalTypes = new Set(scope.tenantGlobalEntityTypes)
+    const isTenantGlobalEntityType = (entityType: string) => globalTypes.has(entityType)
+    const persistedSources = new Set(['tokens', 'vector', 'fulltext'])
+    const candidates = allResults.filter((result) => persistedSources.has(result.source))
+      .map((result) => ({ entityId: result.entityId, recordId: result.recordId, tenantId: options.tenantId, organizationId: result.organizationId ?? null, result }))
+    const allowed = await filterQueryIndexSearchRecords(undefined, scope, candidates)
+    const allowedResults = new Set(allowed.map((candidate) => candidate.result))
+    const safeResults = allResults.filter((result) => !scope.blockedEntityTypes.includes(result.entityId) && (!persistedSources.has(result.source) || allowedResults.has(result)))
+    const seenCatalogueHits = new Set<string>()
+    const scoped = filterResultsByOrganizationScope(safeResults, options, isTenantGlobalEntityType)
+      .flatMap((result) => {
+        if (!isTenantGlobalEntityType(result.entityId)) return [result]
+        const key = JSON.stringify([result.source, result.entityId, result.recordId])
+        if (seenCatalogueHits.has(key)) return []
+        seenCatalogueHits.add(key)
+        return [{ ...result, organizationId: null }]
+      })
+    const merged = mergeAndRankResults(scoped, this.mergeConfig)
 
     // Enrich results missing presenter or navigation metadata
-    return this.enrichResultsWithPresenter(scoped, options.tenantId, options.organizationId)
+    return this.enrichResultsWithPresenter(merged, options.tenantId, options.organizationId)
   }
 
   /**

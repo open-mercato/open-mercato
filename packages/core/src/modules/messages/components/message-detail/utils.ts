@@ -24,10 +24,10 @@ export function toErrorMessage(payload: unknown): string | null {
   return null
 }
 
-export function formatDateTime(value: string | null | undefined): string {
-  if (!value) return '—'
+export function formatDateTime(value: string | null | undefined, unknownDate = '—'): string {
+  if (!value) return unknownDate
   const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return '—'
+  if (Number.isNaN(date.getTime())) return unknownDate
   return date.toLocaleString()
 }
 

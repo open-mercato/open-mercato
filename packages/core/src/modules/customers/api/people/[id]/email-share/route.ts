@@ -14,6 +14,7 @@ import {
   runCrudMutationGuardAfterSuccess,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
 import { CustomerEntity } from '../../../../data/entities'
 import type { EmailConversationShareSetCommandInput } from '../../../../data/validators'
@@ -76,7 +77,7 @@ async function resolvePerson(
     undefined,
     {
       tenantId: auth.tenantId as string,
-      organizationId: scope?.selectedId ?? (auth as { orgId?: string | null }).orgId ?? null,
+      organizationId: resolveSingleOrganizationIdOrDeny(scope, auth) ?? null,
     },
   )) as { id: string; organizationId?: string | null; tenantId?: string | null } | null
 

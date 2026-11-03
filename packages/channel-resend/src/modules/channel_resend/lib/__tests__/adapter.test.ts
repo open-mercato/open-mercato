@@ -51,6 +51,52 @@ describe('ResendChannelAdapter', () => {
     }))
   })
 
+  it('accepts the raw recipient string a direct sendMessage caller passes', async () => {
+    const adapter = getResendChannelAdapter()
+
+    const result = await adapter.sendMessage({
+      content: { text: 'Test send' },
+      credentials: { apiKey: 'key', fromAddress: 'from@example.com' },
+      scope: { tenantId: 'tenant', organizationId: 'org' },
+      metadata: { to: 'user@example.com', subject: 'Test send', testSend: true },
+    })
+
+    expect(result).toEqual(expect.objectContaining({ status: 'sent', externalMessageId: 'email-1' }))
+    expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({ to: ['user@example.com'] }))
+  })
+
+  it('splits a comma or semicolon separated recipient string', async () => {
+    const adapter = getResendChannelAdapter()
+
+    await adapter.sendMessage({
+      content: { text: 'Hello' },
+      credentials: { apiKey: 'key', fromAddress: 'from@example.com' },
+      scope: { tenantId: 'tenant', organizationId: 'org' },
+      metadata: { to: 'a@example.com, b@example.com;c@example.com', subject: 'Hello' },
+    })
+
+    expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({
+      to: ['a@example.com', 'b@example.com', 'c@example.com'],
+    }))
+  })
+
+  it('rejects an empty recipient string without calling Resend', async () => {
+    const adapter = getResendChannelAdapter()
+
+    const result = await adapter.sendMessage({
+      content: { text: 'Hello' },
+      credentials: { apiKey: 'key', fromAddress: 'from@example.com' },
+      scope: { tenantId: 'tenant', organizationId: 'org' },
+      metadata: { to: '  ', subject: 'Hello' },
+    })
+
+    expect(result).toEqual(expect.objectContaining({
+      status: 'failed',
+      error: '[internal] Email send requires at least one recipient',
+    }))
+    expect(sendMock).not.toHaveBeenCalled()
+  })
+
   it('returns a failed result when Resend reports an error', async () => {
     sendMock.mockResolvedValueOnce({ error: { message: 'bad domain' } })
     const adapter = getResendChannelAdapter()

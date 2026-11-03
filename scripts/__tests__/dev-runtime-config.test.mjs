@@ -13,7 +13,7 @@ import {
   resolveProbeConfig,
   resolveUpstreamPort,
 } from '../dev-runtime-config.mjs'
-import { createRuntimeProbe } from '../dev-runtime-probe.mjs'
+import { createRuntimeProbe, selectRuntimeProbeBaseUrl } from '../dev-runtime-probe.mjs'
 
 test('defaults the runtime mode to direct', () => {
   assert.equal(resolveDevRuntimeMode({}), 'direct')
@@ -182,4 +182,29 @@ test('probe skips a tick when no upstream base url is known', async () => {
   })
   await probe.tick()
   assert.equal(calls, 0)
+})
+
+test('probe base url targets the gateway upstream port in proxy mode', () => {
+  assert.equal(
+    selectRuntimeProbeBaseUrl({ upstreamPort: 4100, runtimeUrl: 'http://localhost:3002', configuredUrl: 'http://localhost:3000' }),
+    'http://127.0.0.1:4100',
+  )
+})
+
+test('probe base url follows the port the runtime actually bound over APP_URL', () => {
+  assert.equal(
+    selectRuntimeProbeBaseUrl({ upstreamPort: null, runtimeUrl: 'http://localhost:3002/', configuredUrl: 'http://localhost:3000' }),
+    'http://localhost:3002',
+  )
+})
+
+test('probe base url falls back to the configured url until the runtime reports one', () => {
+  assert.equal(
+    selectRuntimeProbeBaseUrl({ upstreamPort: null, runtimeUrl: null, configuredUrl: 'http://localhost:3000' }),
+    'http://localhost:3000',
+  )
+  assert.equal(
+    selectRuntimeProbeBaseUrl({ runtimeUrl: 'not a url', configuredUrl: 'http://localhost:3000' }),
+    'http://localhost:3000',
+  )
 })

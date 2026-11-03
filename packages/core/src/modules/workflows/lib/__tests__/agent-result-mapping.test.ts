@@ -1,7 +1,12 @@
+import { afterEach } from '@jest/globals'
 import { mapAgentResultToContext } from '../agent-result-mapping'
 import { invokeAgentConfigSchema } from '../../data/validators'
 
 describe('mapAgentResultToContext', () => {
+  afterEach(() => {
+    delete (Object.prototype as Record<string, unknown>).workflowPolluted
+  })
+
   describe('no mapping declared (legacy fallback)', () => {
     test('returns null when outputMapping is undefined', () => {
       const result = mapAgentResultToContext(
@@ -53,6 +58,46 @@ describe('mapAgentResultToContext', () => {
       expect(result).toEqual({ pid: 'p1' })
       expect(result).not.toHaveProperty('missing')
     })
+
+    test('reads legitimate own constructor and prototype fields from result payloads', () => {
+      const proposalPayload = JSON.parse(
+        '{"constructor":{"value":"ctor"},"prototype":{"value":"proto"}}',
+      )
+      const result = mapAgentResultToContext(
+        { kind: 'auto_approved', proposalPayload },
+        { constructorValue: 'proposalPayload.constructor.value', prototypeValue: 'proposalPayload.prototype.value' },
+      )
+
+      expect(result).toEqual({ constructorValue: 'ctor', prototypeValue: 'proto' })
+    })
+
+    test('ignores prototype-bearing targets without polluting Object.prototype', () => {
+      const outputMapping = JSON.parse(
+        '{"safe":"proposalId","__proto__.workflowPolluted":"proposalId","constructor.prototype.workflowPolluted":"proposalId"}',
+      ) as Record<string, string>
+
+      const result = mapAgentResultToContext(
+        { kind: 'auto_approved', proposalId: 'p1' },
+        outputMapping,
+      )
+
+      expect(result).toEqual({ safe: 'p1' })
+      expect(Object.prototype).not.toHaveProperty('workflowPolluted')
+    })
+
+    test('cannot alias an inherited source and mutate it through a later target', () => {
+      const outputMapping = JSON.parse(
+        '{"alias":"__proto__","alias.workflowPolluted":"proposalId","safe":"proposalId"}',
+      ) as Record<string, string>
+
+      const result = mapAgentResultToContext(
+        { kind: 'auto_approved', proposalId: 'p1' },
+        outputMapping,
+      )
+
+      expect(result).toEqual({ alias: { workflowPolluted: 'p1' }, safe: 'p1' })
+      expect(Object.prototype).not.toHaveProperty('workflowPolluted')
+    })
   })
 })
 
@@ -88,5 +133,19 @@ describe('invokeAgentConfigSchema.outputMapping', () => {
       outputMapping: { dealRisk: 123 },
     })
     expect(parsed.success).toBe(false)
+  })
+
+  test.each([
+    ['unsafe target', { '__proto__.workflowPolluted': 'proposalId' }],
+    ['unsafe nested target', { 'result.constructor.value': 'proposalId' }],
+    ['unsafe source', { result: 'constructor.prototype' }],
+  ])('preserves legacy %s paths at the exported schema boundary', (_label, outputMapping) => {
+    const parsed = invokeAgentConfigSchema.safeParse({
+      agentId: 'deals_health_check',
+      onResult: { alwaysAsk: true },
+      outputMapping,
+    })
+
+    expect(parsed.success).toBe(true)
   })
 })

@@ -19,8 +19,8 @@ import { apiRequest } from '@open-mercato/core/helpers/integration/api'
  *
  * The full end-to-end (connect a Gmail mailbox → POST /import-history →
  * ProgressJob completes → imported messages on the Person timeline) needs a
- * real OAuth grant and stays manual, alongside
- * `.ai/qa/scenarios/TC-CHANNEL-EMAIL-029-import-history.md`.
+ * real OAuth grant and stays manual — see
+ * `.ai/qa/scenarios/TC-CHANNEL-EMAIL-032-gmail-import-history.md`.
  */
 test.describe('TC-CHANNEL-EMAIL-032: gmail import-history route wiring', () => {
   const FAKE_CHANNEL_ID = '00000000-0000-0000-0000-000000000032'

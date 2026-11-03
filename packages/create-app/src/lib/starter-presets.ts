@@ -51,6 +51,11 @@ const EMPTY_MODULES: ModuleEntry[] = [
   // template's package.json, and every `OM_ATTACHMENT_*` / OCR / S3 setting defaults to
   // a working local-filestore configuration.
   { id: 'attachments', from: CORE },
+  // `auth` locks the `ApiKey` rows that reference a role whenever it writes roles or
+  // ACLs — `mercato init` included — so the `ApiKey` entity must be registered or
+  // setup aborts with "Metadata for entity ApiKey not found". Only `api_keys`
+  // registers it, so it belongs in the baseline next to `auth`.
+  { id: 'api_keys', from: CORE },
 ]
 
 export const STARTER_PRESETS: Record<string, StarterPreset> = {
