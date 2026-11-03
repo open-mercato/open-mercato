@@ -133,6 +133,38 @@ describe('TimeGrid dense overlaps (#7500)', () => {
     expect(screen.queryByRole('button', { name: /more events/ })).not.toBeInTheDocument()
   })
 
+  it('keeps two overlapping meetings visible in a narrow seven-day column', () => {
+    installColumnWidth(126)
+    renderGrid([
+      buildCalendarItem({ id: 'pair-1', title: 'Alpha sync', start: at(9), end: at(10, 30) }),
+      buildCalendarItem({ id: 'pair-2', title: 'Bravo review', start: at(9, 30), end: at(11) }),
+    ])
+    expect(gridBlock('Alpha sync')).toBeInTheDocument()
+    expect(gridBlock('Bravo review')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /more events/ })).not.toBeInTheDocument()
+  })
+
+  it('keeps one meeting beside the overflow when a dense cluster lands in a narrow column', () => {
+    installColumnWidth(126)
+    renderGrid(denseItems())
+    expect(gridBlock('Alpha sync')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^5 more events, / })).toHaveTextContent('+5 more')
+  })
+
+  it('tones the overflow per row and keeps the header neutral when the first hidden meeting is canceled', () => {
+    installColumnWidth(170)
+    renderGrid([
+      buildCalendarItem({ id: 'tone-0', title: 'Alpha sync', start: at(10), end: at(12), status: 'planned' }),
+      buildCalendarItem({ id: 'tone-1', title: 'Bravo review', start: at(10), end: at(12), status: 'canceled' }),
+      buildCalendarItem({ id: 'tone-2', title: 'Charlie demo', start: at(10), end: at(12), status: 'planned' }),
+    ])
+    const overflow = screen.getByRole('button', { name: /^2 more events, / })
+    expect(within(overflow).getByText('+2 more').className).not.toContain('line-through')
+    expect(within(overflow).getByText('+2 more').className).toContain('text-foreground')
+    expect(within(overflow).getByText('Bravo review').className).toContain('text-muted-foreground/70')
+    expect(within(overflow).getByText('Charlie demo').className).not.toContain('text-muted-foreground/70')
+  })
+
   it('shows every meeting as its own block once the column is wide enough', () => {
     installColumnWidth(600)
     renderGrid(denseItems())

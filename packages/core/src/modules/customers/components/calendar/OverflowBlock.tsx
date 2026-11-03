@@ -73,7 +73,6 @@ export function OverflowBlock({
   const conflicted = showConflicts && items.some((item) => conflictIds.has(item.id))
   const highlighted = Boolean(highlightItemId) && items.some((item) => item.id === highlightItemId)
   const untitled = t('customers.calendar.grid.untitled', 'Untitled')
-  const tone = resolveEventTone(items[0], nowMs)
   // Rows that fit under the "+N more" header; the rest stays behind the disclosure.
   const visibleRows = Math.max(0, Math.floor((height - HEADER_HEIGHT_PX - STACK_EDGE_HEIGHT_PX) / ROW_HEIGHT_PX))
   const previewItems = items.slice(0, visibleRows)
@@ -98,13 +97,13 @@ export function OverflowBlock({
           )}
           style={{ top, height, insetInlineStart, width }}
         >
-          <span className={cn('w-full truncate text-xs font-semibold leading-4', tone.titleClassName)}>
+          <span className="w-full truncate text-xs font-semibold leading-4 text-foreground">
             {t('customers.calendar.grid.more', '+{count} more', { count })}
           </span>
           {previewItems.map((item) => (
             <span key={item.id} className="flex w-full min-w-0 items-center gap-1.5">
               <ToneDot item={item} />
-              <span className={cn('min-w-0 flex-1 truncate text-overline leading-4', tone.subClassName)}>
+              <span className={cn('min-w-0 flex-1 truncate text-overline leading-4', resolveEventTone(item, nowMs).subClassName)}>
                 {item.title || untitled}
               </span>
             </span>

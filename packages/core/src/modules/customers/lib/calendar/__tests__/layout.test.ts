@@ -127,13 +127,14 @@ describe('resolveMaxPackedColumns', () => {
     expect(resolveMaxPackedColumns(Number.NaN)).toBe(DEFAULT_MAX_PACKED_COLUMNS)
   })
 
-  it('never drops below one slot on very narrow columns', () => {
-    expect(resolveMaxPackedColumns(30)).toBe(1)
+  it('never drops below two slots on very narrow columns', () => {
+    expect(resolveMaxPackedColumns(30)).toBe(2)
+    expect(resolveMaxPackedColumns(112)).toBe(2)
   })
 
   it('grows with the usable width', () => {
-    expect(resolveMaxPackedColumns(104)).toBe(1)
     expect(resolveMaxPackedColumns(154)).toBe(2)
+    expect(resolveMaxPackedColumns(200)).toBe(3)
     expect(resolveMaxPackedColumns(400)).toBe(6)
   })
 })
@@ -168,12 +169,23 @@ describe('collapseDenseClusters', () => {
     expect(overflow[0].end).toEqual(at(11))
   })
 
-  it('moves every event of an overlapping cluster into the overflow when only one slot fits', () => {
+  it('floors the limit at two columns so a dense cluster keeps one event beside the overflow', () => {
     const { visible, overflow } = collapseDenseClusters(sixAtTen(), 1)
-    expect(visible).toEqual([])
+    expect(visible.map((entry) => entry.item.id)).toEqual(['one'])
+    expect(visible[0]).toMatchObject({ column: 0, columns: 2 })
     expect(overflow).toHaveLength(1)
-    expect(overflow[0]).toMatchObject({ column: 0, columns: 1 })
-    expect(overflow[0].items).toHaveLength(6)
+    expect(overflow[0]).toMatchObject({ column: 1, columns: 2 })
+    expect(overflow[0].items).toHaveLength(5)
+  })
+
+  it('never collapses a pair, even when the requested limit is one', () => {
+    const packed = packOverlaps([
+      makeCalendarItem({ id: 'first', start: at(9), end: at(10, 30) }),
+      makeCalendarItem({ id: 'second', start: at(10), end: at(11) }),
+    ])
+    const { visible, overflow } = collapseDenseClusters(packed, 1)
+    expect(visible).toEqual(packed)
+    expect(overflow).toEqual([])
   })
 
   it('spans the overflow slot over the hidden events only for chained intervals', () => {
