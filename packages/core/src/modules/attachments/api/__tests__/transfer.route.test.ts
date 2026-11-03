@@ -1,8 +1,10 @@
 /** @jest-environment node */
-// Regression coverage for #7672: POST /api/attachments/transfer caps attachmentIds at 100.
+// Regression coverage for #7672: POST /api/attachments/transfer caps attachmentIds at ATTACHMENT_TRANSFER_MAX_IDS.
 
 import { randomUUID } from 'crypto'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { ATTACHMENT_TRANSFER_MAX_IDS } from '@open-mercato/core/modules/attachments/lib/transferLimits'
+import { transferAttachmentsRequestSchema } from '@open-mercato/core/modules/attachments/api/openapi'
 
 jest.mock('@open-mercato/core/modules/attachments/data/entities', () => ({
   Attachment: class Attachment {},
@@ -74,18 +76,28 @@ describe('POST /api/attachments/transfer attachmentIds limit', () => {
     jest.clearAllMocks()
   })
 
-  it('rejects more than 100 attachmentIds without loading any attachment', async () => {
+  it('keeps the shared limit at 100, the attachment list pageSize ceiling', () => {
+    expect(ATTACHMENT_TRANSFER_MAX_IDS).toBe(100)
+  })
+
+  it('rejects more than ATTACHMENT_TRANSFER_MAX_IDS attachmentIds without loading any attachment', async () => {
     const { POST } = await import('@open-mercato/core/modules/attachments/api/transfer/route')
-    const response = await POST(buildRequest(buildIds(101)))
+    const response = await POST(buildRequest(buildIds(ATTACHMENT_TRANSFER_MAX_IDS + 1)))
     expect(response.status).toBe(400)
     expect(mockEm.transactional).not.toHaveBeenCalled()
     expect(findWithDecryption).not.toHaveBeenCalled()
   })
 
-  it('transfers exactly 100 attachmentIds', async () => {
+  it('transfers exactly ATTACHMENT_TRANSFER_MAX_IDS attachmentIds', async () => {
     const { POST } = await import('@open-mercato/core/modules/attachments/api/transfer/route')
-    const response = await POST(buildRequest(buildIds(100)))
+    const response = await POST(buildRequest(buildIds(ATTACHMENT_TRANSFER_MAX_IDS)))
     expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toEqual({ ok: true, updated: 100 })
+    await expect(response.json()).resolves.toEqual({ ok: true, updated: ATTACHMENT_TRANSFER_MAX_IDS })
+  })
+
+  it('documents the same limit in the OpenAPI request schema', () => {
+    const payload = (count: number) => ({ entityId: 'catalog:catalog_product', attachmentIds: buildIds(count), toRecordId: 'product-1' })
+    expect(transferAttachmentsRequestSchema.safeParse(payload(ATTACHMENT_TRANSFER_MAX_IDS)).success).toBe(true)
+    expect(transferAttachmentsRequestSchema.safeParse(payload(ATTACHMENT_TRANSFER_MAX_IDS + 1)).success).toBe(false)
   })
 })
