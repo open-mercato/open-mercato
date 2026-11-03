@@ -29,6 +29,8 @@ export function useCoalescedReload(
   return React.useCallback(() => {
     const elapsed = Date.now() - lastRunAtRef.current
     if (elapsed >= minIntervalMs) {
+      if (timerRef.current) clearTimeout(timerRef.current)
+      timerRef.current = null
       lastRunAtRef.current = Date.now()
       reloadRef.current()
       return
