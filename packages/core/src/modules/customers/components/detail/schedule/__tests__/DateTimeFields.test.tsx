@@ -65,6 +65,15 @@ describe('DateTimeFields — per-type date requiredness (#5941)', () => {
 })
 
 describe('DateTimeFields — pickers follow the app locale', () => {
+  const scrollDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView')
+  beforeAll(() => {
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: jest.fn() })
+  })
+  afterAll(() => {
+    if (scrollDescriptor) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', scrollDescriptor)
+    else Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView')
+  })
+
   const VISIBLE_FIELDS: ScheduleFieldId[] = ['date', 'startTime', 'duration']
 
   function renderFields(locale: string) {
