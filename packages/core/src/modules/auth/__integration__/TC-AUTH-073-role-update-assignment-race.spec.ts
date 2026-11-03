@@ -52,7 +52,7 @@ async function waitUntilBlockedCount(
   blockerPid: number,
   expectedCount: number,
 ): Promise<void> {
-  for (let attempt = 0; attempt < 200; attempt += 1) {
+  for (let attempt = 0; attempt < 400; attempt += 1) {
     const result = await client.query<{ blocked_count: string }>(
       `with recursive blocked(pid) as (
          select activity.pid
@@ -85,6 +85,7 @@ async function raceRoleUpdateBehindAssignment(
   return withCredentialIsolatedRequest(async (assignmentRequest) => (
     withCredentialIsolatedRequest(async (updateRequest) => (
       withClient(async (blocker) => {
+        const pending: Promise<APIResponse>[] = []
         await blocker.query('begin')
         try {
           const blockerPid = Number((await blocker.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0]?.pid)
@@ -95,6 +96,7 @@ async function raceRoleUpdateBehindAssignment(
             timeout: RACE_TIMEOUT_MS,
             retryTransport: false,
           })
+          pending.push(pendingAssignment)
           await withClient((observer) => waitUntilBlockedCount(observer, blockerPid, 1))
           const pendingUpdate: Promise<APIResponse> = apiRequest(updateRequest, 'PUT', '/api/auth/roles', {
             token,
@@ -102,6 +104,7 @@ async function raceRoleUpdateBehindAssignment(
             timeout: RACE_TIMEOUT_MS,
             retryTransport: false,
           })
+          pending.push(pendingUpdate)
           await withClient((observer) => waitUntilBlockedCount(observer, blockerPid, 2))
           await blocker.query('commit')
           const [assignmentResponse, updateResponse] = await Promise.all([pendingAssignment, pendingUpdate])
@@ -111,6 +114,7 @@ async function raceRoleUpdateBehindAssignment(
           }
         } catch (error) {
           await blocker.query('rollback').catch(() => undefined)
+          await Promise.allSettled(pending)
           throw error
         }
       })
