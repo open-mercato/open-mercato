@@ -202,11 +202,11 @@ Product create receives no section-policy identity or runtime wiring and remains
 
 Per framework §8, capability `catalog.product.edit.update/v1` publishes `requiredLeaves: []` with `schemaId: catalog.productUpdateSchema`, because that schema is `productBaseSchema.partial()`. Hiding `details` therefore omits `title` and the locked-record merge preserves it. The schema-drift test still pins this: if `title` ever becomes required on update, the fact must change to `{ payloadPath: 'title', coverage: ['section', 'preserve-from-record'] }`. The product create form stays ineligible (§6); its future adopter must publish `title` (`productBaseSchema`, `trim().min(1)`) as a `section`-only required leaf, because no server default is meaningful for a title, and must move the client-only `slugify(title)` handle derivation into the `product-meta` descriptor or a `server-default` provider.
 
-`catalog.products.update` advertises `extensionSinkSupport: 'host-transaction'` and calls `ctx.afterTransactionalWrite(em, result)` after the locked product flush and before commit. Contributed sections may then store their fields in their own module's entity, linked by product id, inside the product transaction. The page drops its own client-only `title` pre-check (`products/[id]/page.tsx`) on the policy path; it runs only inside the `details` descriptor.
+`catalog.products.update` advertises `extensionSinkSupport: 'host-transaction'` because it honors `CommandRuntimeContext.transactionalEm`: the product-policy façade opens the transaction, runs the command inside it, then runs sinks, then commits. A contract test proves that a sink failure leaves the product unchanged. Contributed sections may then store their fields in their own module's entity, linked by product id, inside the product transaction. The page drops its own client-only `title` pre-check (`products/[id]/page.tsx`) on the policy path; it runs only inside the `details` descriptor.
 
 For framework §11 (`defineCrudFormExtension`), the field-based sections `dimensions`, `metadata`, `compliance`, and `meta`, plus the scalar fields of `details` (`title`, `description`), publish field-granular descriptors (`fields`, `fieldSchemas`, `refinements`, `projectField`), so `modify` can patch, remove, or add fields without copying catalog code. The compliance date/quantity ordering rules are refinements over their exact field pairs, and none is `mandatory`. The media controls in `details`, and the `options`, `product-uom`, `variants`, `categorize`, and `custom-fields` sections, are component-based and accept only `hide`/`replace`.
 
-Catalog product edit is the first host in the framework §12 case matrix. This adopter ships the update-side recipes and tests (C1, C3–C12) on `crud-form:catalog.product/edit/update`. C2 (create with server default) waits for the first create-form adopter. The test-only fixture under `.ai/qa/fixtures/crudform-section-policy/` remains for negative cases that must not be demonstrated in the example module.
+For framework §12, this adopter ships a non-discovered reference recipe at `apps/mercato/src/modules/example/references/crud-form-extensions/catalog-product.reference.ts`, covering hide, replace, field modify, `store.table`, and `store.external` on `crud-form:catalog.product/edit/update`. It runs the applicable C1 and C4–C11 assertions against product edit through the `.ai/qa/fixtures/crudform-section-policy/` fixture app. Live, auto-discovered recipes stay on the example-owned showcase host, so the real product form is never altered in the demo app or the shared suite. C2 waits for the first create-form adopter.
 
 ## Architecture
 
@@ -404,6 +404,8 @@ None.
 - **Fully compliant**: Approved — ready for implementation after its named prerequisites land.
 
 ## Changelog
+
+- **2026-11-03 (review fixes):** Sink atomicity now uses `transactionalEm` (the dropped `afterTransactionalWrite` hook is not used). Example coverage moved to a non-discovered reference recipe plus fixture-app assertions.
 
 - **2026-11-03:** Named catalog product edit as the first framework §12 host and assigned it the update-side example/test cases.
 

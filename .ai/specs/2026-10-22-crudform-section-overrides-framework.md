@@ -266,12 +266,12 @@ Rules:
 
 This preserves section-specific Zod transforms and makes full-record invariants explicit instead of pretending they can be derived mechanically.
 
-Runtime descriptors use one additive auto-discovery convention. An owning module exports `crudFormSections` from module-root `form-sections.ts` through `defineCrudFormSections(...)`. That server-safe declaration contains host/contribution ids and serializable facts plus lazy client loaders created with `lazyCrudFormSectionRuntime(() => import('./path/to/runtime.client'))`; it must not statically import React or route components. It may hold server-only code (sink schemas and callbacks, leaf defaults, server validators) because only the server facts registry imports it; the browser registry is generated from literals extracted from it and never imports the file. A referenced `*.client.ts`/`*.client.tsx` module exports the concrete renderer/group, validator, projector, and lifecycle descriptor.
+Runtime descriptors use one additive auto-discovery convention. Module-root `form-sections.ts` is a **server-only** file with up to two named exports: `crudFormSections` (`defineCrudFormSections(...)`, the hand-written primitives) and `crudFormExtensions` (an array of §11 `defineCrudFormExtension(...)` values). It contains host/contribution ids, serializable facts, lazy client loaders created with `lazyCrudFormSectionRuntime(() => import('./path/to/runtime.client'))`, and server-only code (sink schemas and callbacks, leaf defaults, server validators). It must not statically import React or route components. Only the server facts registry imports it. A referenced `*.client.ts`/`*.client.tsx` module exports the concrete renderer/group, validator, projector, and lifecycle descriptor.
 
 `yarn generate` emits two views from the same enabled-module discovery snapshot:
 
 - a server facts registry used for final capability matching, manifest generation, inventory, and diagnostics, without importing client loaders;
-- a browser runtime registry, generated from the extracted literal ids and `import()` paths without importing `form-sections.ts`, that preserves the lazy loader and maps each exact `contributionId` and host base descriptor id to one enabled runtime descriptor.
+- a browser runtime registry that never imports `form-sections.ts`. For hand-written descriptors it carries the extracted literal ids and `import()` paths. For each §11 extension the generator emits one browser module (`<extension id>.client.generated.ts` under the module's generated output) containing only serializable field definitions, declarative rules, and the extension's literal `import()` loaders. The registry maps each exact `contributionId` and host base descriptor id to one enabled runtime descriptor. A function or a non-literal import in a browser-reachable position of an extension is a generation error.
 
 Duplicate ids, a fact without a loader, a loader without matching facts, non-literal ids/imports, a disabled module still present in either registry, and server/browser id or `roundTripId` divergence are generation failures. Registration order is enabled-module topological order followed by normalized source path and contribution id; overrides apply only after that base order is built. A standalone app uses the same `apps/mercato/src/modules/<module>/form-sections.ts` convention as a package module. The public import path, export name, file convention, generated registry shapes, and loader helper are compatibility surfaces and must be added to the module-development guide and `BACKWARD_COMPATIBILITY.md`.
 
@@ -411,7 +411,7 @@ export type CrudFormMutationBinding = {
 
 `target-required` is an end-to-end atomicity contract, not merely a façade header check. The delegated provider must compare the expected target version at the authoritative mutation seam while excluding a competing write until commit: either reload the tenant/organization-scoped target with `PESSIMISTIC_WRITE`, call `enforceCommandOptimisticLockWithGuards` against that locked row inside the same transaction, mutate, flush, and commit through the same transaction manager; or perform a version-qualified atomic update/delete and require exactly one affected row. The façade may perform an earlier check only as defense in depth. `target-optional` uses the same atomic provider seam when a token is supplied and preserves its documented headerless compatibility otherwise. Provider capability registration fails when a required target provider lacks an explicit atomic lock/CAS declaration and contender coverage.
 
-Every policy façade is a custom write route and therefore uses the shared façade helper to enforce the repository mutation-guard contract. After auth/feature/scope/policy checks and initial route-body validation, the helper calls `getAllMutationGuardInstances()`, appends `bridgeLegacyGuard(container)` when present, and runs `runMutationGuards(...)` with the closest `create`/`update`/`delete` operation plus `{ userFeatures }`. Because registered guards can return arbitrary statuses and bodies that static `OpenApiRouteDoc.responses` cannot enumerate, a blocked guard is normalized at this new façade boundary to HTTP `422` with `{ "error": "mutation_guard_rejected", "code": "mutation_guard_rejected", "details": <registered errorBody> }`; the original guard body is preserved under `details`, while `errorStatus` is recorded only in an internal diagnostic and never changes the documented wire status. Every façade declares this bounded response, with `details: z.unknown().optional()`, in OpenAPI. A `modifiedPayload` is merged into the validated projected payload, then rechecked by the route Zod schema, the policy's authorized leaf/resource contract, and the complete domain validator; a guard cannot smuggle an inactive or undeclared leaf into the mutation.
+Every policy façade is a custom write route and therefore uses the shared façade helper to enforce the repository mutation-guard contract. After auth/feature/scope/policy checks and initial route-body validation, the helper calls `getAllMutationGuardInstances()`, appends `bridgeLegacyGuard(container)` when present, and runs `runMutationGuards(...)` with the closest `create`/`update`/`delete` operation plus `{ userFeatures }`. **Façade-scoped field rules.** In addition to registered guards, a façade runs the field rules its accepted policy compiled (§11 `validate.server` functions and declarative rules with `enforce: 'client-and-server'`). Each rule is bound to one `(hostId, formVariant, formOperation, payloadPath)`, runs only when that leaf is in the projected payload, and runs in the same guard pass before `modifiedPayload` revalidation. A failing rule blocks like a guard and contributes `details.fieldErrors[payloadPath] = messageKey` to the 422 envelope below. Registered guards that want field-level errors use the same `details.fieldErrors` shape. Because registered guards can return arbitrary statuses and bodies that static `OpenApiRouteDoc.responses` cannot enumerate, a blocked guard is normalized at this new façade boundary to HTTP `422` with `{ "error": "mutation_guard_rejected", "code": "mutation_guard_rejected", "details": <registered errorBody> }`; the original guard body is preserved under `details`, while `errorStatus` is recorded only in an internal diagnostic and never changes the documented wire status. Every façade declares this bounded response, with `details: z.unknown().optional()`, in OpenAPI. A `modifiedPayload` is merged into the validated projected payload, then rechecked by the route Zod schema, the policy's authorized leaf/resource contract, and the complete domain validator; a guard cannot smuggle an inactive or undeclared leaf into the mutation.
 
 After one successful delegated mutation, every returned `afterSuccessCallbacks` item runs once. The helper accepts a required `resolveCommittedResourceId(result)` extractor for `create`; it must return the persisted non-empty resource id from the successful domain result before callbacks run. Update/delete use the already validated mutation target id. An absent/empty create id is an internal callback-contract failure: report it, skip callbacks rather than invoking them with a placeholder, and preserve the already committed success response. Callback failures are reported through the repository error-reporting/logger path but do not turn a committed write into an HTTP failure. The helper exposes no opt-out, and adapters test blocking plus the stable 422 envelope, payload modification, legacy bridging, callback ordering/failure, and the actual created id received by every create callback.
 
@@ -439,13 +439,13 @@ At bootstrap, after all overrides, the resolver accepts a policy only when each 
 |---|---|---|
 | `section` | create, update | An active base, replacement, or added descriptor owns the exact payload path and its validator requires a non-empty value. A replacement that owns the path inherits the obligation; it may collect the value differently (e.g. derive `code` from `name`) but must emit the leaf. |
 | `preserve-from-record` | update only | The delegated provider merges the omitted leaf from the tenant/organization-scoped locked record before domain validation (the existing `omit-preserves`/`merge-server-leaves` modes, now declared per leaf). A provider whose command requires the leaf on the wire (for example `sales.channelUpdateSchema` requiring `code`) must perform that merge in the façade before schema parsing, not rely on the client resending `initialValues`. |
-| `server-default` | create, update | Exactly one enabled `CrudFormLeafDefaultProviderFact` for that path. Its server runtime `resolve({ payload, lockedRecord, scope, em }) => value` runs inside the façade after section projection and before mutation guards and domain validation. It may read only its declared `readsPayloadPaths` and the locked record; it must be deterministic per request. Uniqueness or domain errors on a defaulted value surface like any other hidden-leaf error below. |
+| `server-default` | create, update | Exactly one enabled `CrudFormLeafDefaultProviderFact` for that path. Its server runtime `resolve({ payload, lockedRecord, scope, readEm }) => value` receives a read-only forked EntityManager and must not flush or write. It runs inside the façade after section projection and before mutation guards and domain validation. It may read only its declared `readsPayloadPaths` and the locked record; it must be deterministic per request. Uniqueness or domain errors on a defaulted value surface like any other hidden-leaf error below. |
 
 An uncovered or doubly covered required leaf rejects the whole policy with internal reason `required_leaf_uncovered` or `required_leaf_ambiguous`; the configured host renders the blocking failure state. A create host with any `required` leaf and no coverage is therefore rejected at bootstrap, never at submit.
 
 Page-level checks that sit outside the server schema count as host behavior and move into descriptors. Adopter specs must inventory every pre-request check and payload builder that touches a sectioned leaf (for example `throw createCrudFormError('…nameRequired')` before `createCrud`, or a builder that always emits `displayName: ''`). On the policy path these run only inside the owning descriptor's `validate`/`projectPayload`; a page-level check or builder default over a leaf owned by an inactive section is an adopter test failure, because it either blocks an unreachable field or sends an empty value that overwrites the stored one.
 
-When authoritative validation still fails on a leaf the user cannot see (a legacy stored value that no longer validates, a uniqueness conflict on a defaulted `handle`/`sku`/`code`, or a default provider returning an invalid value), the façade returns the standard validation status with a form-level error code `crud_form_section_hidden_field_invalid` carrying the translated field label only, never the value. The diagnostic records host, operation, payload path, and coverage mode. It is never a 500 and never attaches a field error to an absent control.
+When authoritative validation still fails on a leaf the user cannot see (a legacy stored value that no longer validates, a uniqueness conflict on a defaulted `handle`/`sku`/`code`, or a default provider returning an invalid value), the façade returns HTTP `422` with a form-level error code `crud_form_section_hidden_field_invalid` (shape in API Contracts) carrying the translated field label only, never the value. The diagnostic records host, operation, payload path, and coverage mode. It is never a 500 and never attaches a field error to an absent control.
 
 ### 9. Extension-owned leaves and sinks
 
@@ -456,27 +456,27 @@ A sink is not a new persistence mechanism. It is one checkable declaration over 
 | Sink part | Existing primitive it is built from |
 |---|---|
 | Storage | Extension entity in the contributing module, linked by host id through `data/extensions.ts` (as `example:example_customer_priority`) |
-| `persist` (`host-transaction`) | Command-bus hook: the new additive `afterTransactionalWrite`, sibling of the existing `beforeTransactionalWrite` |
+| `persist` (`host-transaction`) | Existing `CommandRuntimeContext.transactionalEm`: the façade opens the transaction, runs the host command inside it, then the sink, then commits |
 | `persist` (`after-commit`) | Mutation-guard post-success callback; formalizes today's widget `onAfterSave` + second POST pattern |
 | `load` → `_extensions.<moduleId>` | Response enricher on the host entity |
 | `undo` | Command undo snapshot carried in the host log entry's `logContext` |
 | `onHostDeleted` | Same transaction for hard delete; otherwise a CRUD `deleted` event subscriber |
 | External delivery (`outbox`) | Persistent queue worker (`@open-mercato/queue`) + integrations credentials, operation logs, and `SyncExternalIdMapping` |
 
-- **Namespace.** Extension leaves live under `extensions.<ownerModuleId>.*`. Host façade body schemas accept `extensions` as a record whose keys must each match an accepted sink of the resolved policy; any other key or path returns `409 extension_policy_mismatch`. Host command input never receives `extensions`; the façade strips it after sink dispatch.
+- **Namespace.** Extension leaves live under `extensions.<ownerModuleId>.*`. Host façade body schemas accept `extensions` as a record whose keys must each match an accepted sink of the resolved policy; any other key or path returns `409 extension_policy_mismatch`. Values under an accepted key that fail the sink's Zod schema return `422` with `fieldErrors` keyed by the full `extensions.<moduleId>.<leaf>` path. Host command input never receives `extensions`; the façade strips it after sink dispatch.
 - **Capability composition.** Matching stays exact per capability. A replacement that owns base leaves plus extension leaves lists two requirements: the host capability for exactly the base payload paths, and the sink capability (`mode: 'extension-sink'`) for exactly its extension paths.
 - **Sink runtime.** The owning module registers a server-only sink in module-root `form-sections.ts` via `defineCrudFormSectionSink({ id, roundTripId, schema, persist, load, undo?, onHostDeleted? })`. `persist({ values, hostResourceId, hostOperation, em, scope, auth })` validates with its own Zod schema and upserts by `(tenant_id, organization_id, host id)`. `load` is registered automatically as a response enricher on the host detail route under `_extensions.<ownerModuleId>`, so the client descriptor's initial values come from the same server read.
-- **Atomicity.** `host-transaction` sinks run inside the delegated provider's transaction after the host row is flushed (so create already has its id) and before commit; any sink error rolls back the host write. A host advertises `extensionSinkSupport: 'host-transaction'` only when its command invokes the framework seam `ctx.afterTransactionalWrite(em, result)`. That seam is a new additive `CommandRuntimeContext` hook alongside the existing `beforeTransactionalWrite`, which today only `customers/commands/interactions.ts` and `customers/commands/tags.ts` honor. `after-commit` sinks run as post-success callbacks with the committed id. A sink failure there is reported, returned as an additive `extensionWarnings` array on the success response, and shown as a non-blocking flash; it is allowed only when the requirement sets `allowAfterCommitSink: true`. A sink whose atomicity exceeds the host's support rejects the policy.
-- **Concurrency.** Changing only extension leaves does not bump the host `updated_at`. A sink with `optimisticLock: 'sink-version'` owns `updated_at` on its own row, receives `extensions.<moduleId>.__updatedAt` from the client, and compares it under the same transaction lock; a mismatch returns the standard `optimistic_lock_conflict`. `none` is allowed only for display-only or append-only data.
+- **Atomicity.** `host-transaction` sinks run in the same database transaction as the host write, with no new command hook. The façade opens a transaction and executes the delegated host command with the existing `CommandRuntimeContext.transactionalEm` set to it. That field is documented as letting "a caller compose a command with its own surrounding work as a single atomic, single-locked operation", and 21 core command files already honor it. The façade then calls each sink's `persist` with that same `em` and the committed-to-be host id from the command result, and commits. Any sink error rolls back the host write. A host advertises `extensionSinkSupport: 'host-transaction'` only when its create/update/delete commands honor `transactionalEm`; a provider contract test proves a sink failure leaves no host change. `after-commit` sinks run as post-success callbacks with the committed id. A sink failure there is reported, returned as an additive `extensionWarnings` array on the success response, and shown as a non-blocking flash; it is allowed only when the requirement sets `allowAfterCommitSink: true`. A sink whose atomicity exceeds the host's support rejects the policy.
+- **Concurrency.** Changing only extension leaves does not bump the host `updated_at`. A sink with `optimisticLock: 'sink-version'` owns `updated_at` on its own row, receives `extensions.<moduleId>.__updatedAt` from the client, and loads its row with `PESSIMISTIC_WRITE` in the shared transaction before comparing; a mismatch returns the standard `optimistic_lock_conflict`. `none` is allowed only for display-only or append-only data.
 - **Undo, delete, audit.** If the host command is undoable, a `host-transaction` sink declares `undo: 'snapshot'` and returns a before-snapshot that the command bus stores under the host log entry's `logContext.extensions.<moduleId>`; host undo calls the sink's `undo`. Otherwise it declares `unsupported`, and the adopter docs state that host undo leaves extension data unchanged. Host hard delete calls `onHostDeleted` in the same transaction; soft delete leaves extension rows untouched.
 - **External systems (`outbox`).** A sink whose values must be processed by and saved to an external system (ERP, PIM, CRM, tax or compliance registry) never calls that system inside the host transaction, because a remote side effect cannot roll back. Instead:
-  1. **Validate (optional).** With `preCommitValidation: 'read-only'`, the sink's `validateExternal({ values, scope, credentials, signal })` runs in the façade before the transaction opens, under a hard 3 s timeout. Example: checking that a supplier reference exists in the ERP. It may not cause remote side effects. A rejection becomes a field error on the active section; a timeout or outage returns the form-level error `crud_form_section_external_unavailable` and nothing is written.
-  2. **Record intent atomically.** Inside the host transaction (`afterTransactionalWrite`), `persist` writes the sink's local mirror row: the submitted values plus delivery columns `sync_status` (`pending|synced|failed`), `sync_attempts`, `next_attempt_at`, `last_error_code`, `external_id`, `idempotency_key` (`<sinkId>:<hostId>:<mirror updated_at>`). The mirror row is the outbox. If the host write rolls back, no delivery exists; if it commits, delivery is guaranteed to be attempted. The framework adds no table; the contributing module owns the mirror entity and its migration.
-  3. **Deliver.** After commit, the framework enqueues one job per `(sinkId, hostId)` on the sink's persistent queue with `coalesceBy` on that pair. A periodic sweeper re-enqueues `pending` rows whose `next_attempt_at` has passed, so a lost enqueue is recovered. The worker reloads the mirror row (tenant-scoped, `findWithDecryption`) and sends the latest state, not the job payload, so bursts collapse and out-of-order jobs cannot overwrite newer data. It then calls `deliver({ values, hostResourceId, operation, idempotencyKey, credentials, scope, signal })`. That hook may transform or enrich the values (the "process" step) before the remote call, and must be idempotent for the same key.
-  4. **Record the outcome.** Success sets `synced`, stores `external_id` (also in `SyncExternalIdMapping`), and writes an integrations operation log. A retryable failure schedules `next_attempt_at` via `calculateBackoffDelayMs`. After `maxAttempts` the row becomes `failed`, and the module emits a `<module>.<entity>.sync_failed` event plus an in-app notification to the actor. Raw remote errors are never stored; only a stable `last_error_code` plus a redacted log entry.
-  5. **Show state and allow retry.** `load` reads only the mirror (never the external system on the request path) and returns `_extensions.<moduleId>.__sync: { status, lastAttemptAt, errorCode }`. The section renders that status with design-system status tokens. A failed row offers a retry control bound as a declared `section-action` mutation surface (`<sinkId>.retry`) through a guarded façade that resets `sync_status` to `pending`.
-  6. **Delete and undo.** Host hard delete and command undo enqueue a compensating delivery (`operation: 'delete' | 'restore'`) through the same mirror and idempotency rules. If the external system cannot delete or restore, the sink declares `undo: 'unsupported'` and the adopter docs say so.
-  7. **Security.** Credentials come only from the integrations credentials service for the row's tenant/organization and never reach the browser or the job payload. Outbound hosts are pinned with `@open-mercato/shared/lib/host-pinning`. Mirror values follow the module's encryption map. The job payload carries only `(tenantId, organizationId, sinkId, hostId)`. A provider-specific client belongs in its own integration provider package, not in core.
+  1. **Validate (optional).** With `preCommitValidation: 'read-only'`, the sink's `validateExternal({ values, scope, credentials, signal })` runs in the façade before the transaction opens, under a hard 3 s timeout. Example: checking that a supplier reference exists in the ERP. It may not cause remote side effects. A rejection becomes a field error on the active section; a timeout or outage returns HTTP `503` with code `crud_form_section_external_unavailable` and nothing is written.
+  2. **Record intent atomically.** Inside the shared host transaction (`transactionalEm`), `persist` writes the sink's local mirror row: the submitted values plus delivery columns `sync_status` (`pending|synced|failed`), `sync_attempts`, `next_attempt_at`, `last_error_code`, `external_id`, `idempotency_key` (`<sinkId>:<hostId>:<mirror updated_at>`). It also writes `pending_operation` (`upsert|delete|restore`). The mirror row is the outbox. If the host write rolls back, no delivery exists; if it commits, delivery is guaranteed to be attempted. The framework adds no table. The contributing module owns the mirror entity and its migration, composing the delivery columns from the shared `outboxColumns` mixin; nothing is generated.
+  3. **Deliver.** After commit, the framework enqueues one job per `(sinkId, hostId)` on the sink's persistent queue with `coalesceBy` on that pair (the queue coalescing landed in #6087). A periodic sweeper re-enqueues `pending` rows whose `next_attempt_at` has passed, so a lost enqueue is recovered. The worker reloads the mirror row (tenant-scoped, `findWithDecryption`) and sends the latest state, not the job payload, so bursts collapse and out-of-order jobs cannot overwrite newer data. It then calls `deliver({ values, hostResourceId, operation, idempotencyKey, credentials, scope, signal })`. That hook may transform or enrich the values (the "process" step) before the remote call, and must be idempotent for the same key.
+  4. **Record the outcome.** The outcome is written with a version-qualified update (`… WHERE id = ? AND updated_at = <delivered version>`). If it affects zero rows, the mirror changed during delivery: the worker leaves it `pending` and re-enqueues, so a concurrent edit is never marked `synced` without being sent. Success sets `synced`, stores `external_id` (also in `SyncExternalIdMapping`), and writes an integrations operation log. A retryable failure schedules `next_attempt_at` via `calculateBackoffDelayMs`. After `maxAttempts` the row becomes `failed`, and the module emits a `<module>.<entity>.sync_failed` event plus an in-app notification to the actor. Raw remote errors are never stored; only a stable `last_error_code` plus a redacted log entry.
+  5. **Show state and allow retry.** `load` reads only the mirror (never the external system on the request path) and returns `_extensions.<moduleId>.__sync: { status, lastAttemptAt, errorCode }`. The section renders that status with design-system status tokens. A failed row offers a retry control bound as a declared `section-action` mutation surface (`<sinkId>.retry`) through a guarded façade that sets `sync_status` to `pending`, `sync_attempts` to `0`, and `next_attempt_at` to now, then enqueues.
+  6. **Delete and undo.** For `outbox` sinks, `onHostDeleted` does not remove the mirror. It tombstones it (`pending_operation = 'delete'`, `sync_status = 'pending'`), and the row is purged only after the delete is `synced`. Command undo sets `pending_operation = 'restore'` the same way. Both are delivered through the normal mirror, coalescing, and idempotency rules. If the external system cannot delete or restore, the sink declares `undo: 'unsupported'` and the adopter docs say so.
+  7. **Security.** Credentials come only from the integrations credentials service for the row's tenant/organization and never reach the browser or the job payload. Outbound HTTP calls go through `@open-mercato/shared/lib/url-safety` (`assertStaticallySafeOutboundUrl`, fetch dispatcher pinning); socket transports use `@open-mercato/shared/lib/host-pinning`. Mirror values follow the module's encryption map. The job payload carries only `(tenantId, organizationId, sinkId, hostId)`. A provider-specific client belongs in its own integration provider package, not in core.
   8. **Consistency stance.** The local mirror is the source of truth for the form. Pulling external-side edits back is out of scope; that is the `data_sync` module's job, and it may update the mirror through its own command. A `sink-version` lock protects concurrent form edits of the mirror exactly as for local sinks.
 - **Scope and encryption.** Sink rows carry `tenant_id`/`organization_id`, are read through `findWithDecryption`, and follow the owning module's encryption map. A sink never reads or writes another tenant's host id; `hostResourceId` is the façade-authorized id, not a client value.
 
@@ -492,11 +492,11 @@ Most grouped forms are a plain create or edit page that submits once through `cr
 For such a host the module declares `defineCrudRouteSectionHost({ hostId, formVariant, formOperation, route, sections })` in `form-sections.ts`. The generator derives:
 
 - the capability provider fact;
-- `requiredLeaves` from the route's create/update Zod schemas (top-level non-optional, non-defaulted keys);
-- the guarded façade as a thin additive wrapper around the existing route's command;
+- `requiredLeaves` from the route's create/update Zod schemas, using the same §8 schema-drift helper (so nested required leaves are included);
+- the guarded façade as a thin additive wrapper around the existing route's command, mounted at `<existing route path>/section-policy` with the same methods and features;
 - parent optimistic-lock mode from the entity's `updated_at`.
 
-The module still supplies explicit section descriptors (validator, owned paths, projector), because §2 forbids projecting host schemas by field name. Any host that fails a qualifier needs a hand-written adapter. A qualifying host still declares `extensionSinkSupport` explicitly; the derived façade supports `host-transaction` sinks only when its commands call `afterTransactionalWrite`.
+The module still supplies explicit section descriptors (validator, owned paths, projector), because §2 forbids projecting host schemas by field name. Any host that fails a qualifier needs a hand-written adapter. A qualifying host still declares `extensionSinkSupport` explicitly; the derived façade supports `host-transaction` sinks only when its commands honor `transactionalEm`.
 
 Ungrouped forms remain out of scope: §3 forbids section addressing without groups. Converting an ungrouped form to groups is an ordinary UI change that preserves the no-policy rendering baseline, owned by that form's adopter spec, and is never implied by inventory completion.
 
@@ -512,7 +512,7 @@ The declaration lives in the module's existing `form-sections.ts` (§2). No new 
 // my_app/form-sections.ts
 import { defineCrudFormExtension, hide, replace, modify, add, field, store } from '@open-mercato/ui/backend/crud-form-extensions'
 
-export default defineCrudFormExtension({
+export const crudFormExtensions = [defineCrudFormExtension({
   id: 'my_app.product_form',
   host: 'crud-form:catalog.product',
   targets: [{ formVariant: 'edit', formOperation: 'update' }],
@@ -524,7 +524,7 @@ export default defineCrudFormExtension({
         description: field.remove(),
         brand: field.add({ type: 'text', labelKey: 'my_app.fields.brand', after: 'title', required: true,
           store: store.table('my_app:product_brand') }),
-        sku: field.patch({ validate: { server: (value) => /^[A-Z0-9-]+$/.test(String(value)) || 'my_app.errors.sku_format' } }),
+        sku: field.patch({ validate: { pattern: '^[A-Z0-9-]+$', messageKey: 'my_app.errors.sku_format', enforce: 'client-and-server' } }),
       },
     }),
     'my_app-erp': add({ after: 'meta', titleKey: 'my_app.erp.title',
@@ -532,15 +532,22 @@ export default defineCrudFormExtension({
         erpSupplierRef: field.add({ type: 'text', required: true }),
         erpCostCenter: field.add({ type: 'text' }),
       },
-      store: store.external({ integrationId: 'erp_acme', deliver, validateExternal }),
+      store: store.external({ integrationId: 'erp_acme', mirror: 'my_app:erp_product_link', deliver, validateExternal }),
     }),
     meta: replace(() => import('./form/ProductMeta.client')),
   },
   defaults: { handle: ({ payload }) => slugify(String(payload.title ?? '')) },
-})
+})]
 ```
 
-Field definitions reuse the existing `InjectionFieldWidget` field shape (`type`, `label`/`labelKey`, `options`, `group` placement) and `CrudField` renderers; the wrapper adds only `after`/`before`, `required`, `validate`, and `store`. Every builder (`hide`, `replace`, `modify`, `add`, `field.*`, `store.*`) returns plain data plus optional server callbacks.
+Field definitions reuse the existing `InjectionFieldDefinition` shape from `@open-mercato/shared/modules/widgets/injection` (`type`, `label`/`labelKey`, `options`, `group` placement) and `CrudField` renderers; the wrapper adds only `after`/`before`, `required`, `validate`, and `store`. Every builder (`hide`, `replace`, `modify`, `add`, `field.*`, `store.*`) returns plain data plus optional server callbacks.
+
+The browser/server split is mechanical:
+
+- **Browser-reachable values** must be serializable literals or literal `import()` loaders. These are field definitions, option lists, `replace(...)` loaders, and declarative rules. Option lists must be inline literals or a loader (`options: () => import('./seasons.client')`).
+- **Declarative rules** (`required`, `pattern`, `minLength`, `maxLength`, `min`, `max`, each with a `messageKey`) run on the client and, when `enforce: 'client-and-server'`, also in the façade. One rule definition, two enforcement points, no duplicated code.
+- **Function rules** are server-only: `validate.server: (value, ctx) => true | messageKey`. A client-side function rule is a loader reference (`validate.client: () => import('./rules.client')`).
+- `defaults` and `store.*` callbacks are server-only and never reach the generated browser module.
 
 #### 11.2 What each operation compiles to
 
@@ -552,8 +559,9 @@ Field definitions reuse the existing `InjectionFieldWidget` field shape (`type`,
 | `modify({ fields })` | §1 `replace` override whose descriptor is **derived from the base descriptor** plus field patches | Unpatched fields keep the base validator, projector, and payload ownership byte-for-byte |
 | `field.remove()` | Drops the field's renderer, schema, and payload leaf from the derived descriptor | Leaf becomes omitted: §8 coverage applies |
 | `field.patch({ label, options, … })` | Presentation-only patch | None |
-| `field.patch({ validate.client })` | Adds a client refinement on that field | None; client-only rules may only tighten |
-| `field.patch({ validate.server })` | Also emits a mutation guard scoped to this host façade and leaf | Runs in the façade's mandatory guard pass (§6); rejection uses the 422 envelope with a field error |
+| `field.patch({ validate: { pattern, … } })` | Declarative rule in the generated browser module | With `enforce: 'client-and-server'`, also a façade-scoped field rule (§6 field rules) |
+| `field.patch({ validate.client })` | Client rule loaded through its loader | None; client-only rules may only tighten |
+| `field.patch({ validate.server })` | Façade-scoped field rule (§6 field rules) | Runs in the façade's mandatory guard pass; rejection is the §6 422 envelope with `details.fieldErrors`. |
 | `field.add({ store })` in a base section | Derived descriptor = base + field; leaf under `extensions.<moduleId>.*` | Sink selected by `store` |
 | `defaults: { leaf: fn }` | `server-default` leaf provider (§8) | Runs in the façade before guards and domain validation |
 
@@ -564,7 +572,7 @@ Field definitions reuse the existing `InjectionFieldWidget` field shape (`type`,
 | `store.customField(key?)` | Leaf `customFields.<key>`; definition seeded through the module's `ce.ts`; the host already persists custom fields | None |
 | `store.table(entityId)` | Generic `host-transaction` sink: upsert by `(tenant, org, host id)` into the declared extension entity, `_extensions` enricher, sink-version lock from its `updated_at`, snapshot undo, hard-delete cleanup | Entity + migration only |
 | `store.sink({ persist, load, … })` | §9 sink with the author's callbacks | Callbacks |
-| `store.external({ integrationId, deliver, validateExternal? })` | §9 `outbox` sink; the mirror entity is generated from the field list unless `mirror: entityId` is given | `deliver` (+ optional `validateExternal`) |
+| `store.external({ integrationId, mirror, deliver, validateExternal? })` | §9 `outbox` sink over the named mirror entity | Mirror entity (with the shared `outboxColumns` mixin) + migration, `deliver` (+ optional `validateExternal`) |
 
 `store.customField` is the default when `store` is omitted on an added field, because it needs no table, no migration, and no server code.
 
@@ -583,7 +591,7 @@ type CrudFormFieldGranularSection<TValues> = CrudFormSectionRuntimeDescriptor<TV
 
 The derived descriptor is computed by pure functions: drop removed fields and their `fieldSchemas`/`projectField`; drop any refinement whose `fieldPaths` intersect a removed field, unless the refinement is marked `mandatory`, in which case removal is a generation error naming the refinement; append added fields with schemas built from `type`/`required`/`validate`; apply presentation patches. Sections built from bespoke components (for example catalog `builder`, `variants`, `product-uom`) do not publish field-granular descriptors and accept only `hide`/`replace`; `modify` on them is a generation error.
 
-Round-trip ids are derived, not hand-bumped: `<extension id>.<section id>@<base roundTripId>+<sha256 of normalized patch>`. A base revision bump or any patch change produces a new id automatically, satisfying §2 without author bookkeeping.
+Round-trip ids are derived, not hand-bumped, and keep the §2 grammar: `<extension id>.<section id>@v<n>`. `yarn generate` maintains a committed module-root ledger, `form-sections.revisions.json`, mapping each derived descriptor to `{ n, baseRoundTripId, patchHash }`. When the base `roundTripId` or the normalized patch hash changes, the generator increments `n` and rewrites the ledger. CI's `yarn generate` no-diff check fails if the updated ledger is not committed. The hash lives in the ledger, never in the id, so ids always match `roundTripIdSchema`.
 
 #### 11.4 Rules
 
@@ -601,42 +609,42 @@ Every case this spec defines ships with three artifacts in the same change that 
 
 | # | Case | Example recipe (in `example`) | Integration test |
 |---|---|---|---|
-| C1 | Hide a section whose required leaf is preserved from the record (update) | `compliance: hide()` on catalog product edit | `TC-EXAMPLE-FORM-001` |
-| C2 | Hide a section on create, required leaf filled by a `defaults` server default | create-form host with `defaults` | `TC-EXAMPLE-FORM-002` |
-| C3 | Hide with an uncovered required leaf → blocking failure at load, no mutation controls | gated negative recipe | `TC-EXAMPLE-FORM-003` |
-| C4 | Replace a section; the replacement still emits the required leaf | `meta: replace(...)` | `TC-EXAMPLE-FORM-004` |
-| C5 | Modify fields: relabel, remove (leaf preserved), add a server rule (422 field error) | `details: modify(...)` | `TC-EXAMPLE-FORM-005` |
-| C6 | Add a section stored as custom fields (`store.customField`) | `season` field | `TC-EXAMPLE-FORM-006` |
-| C7 | Add a field stored in the module's own table (`store.table`): create, update, read-back, sink-version conflict, rollback when the sink throws | `brand` → `example_product_brands` | `TC-EXAMPLE-FORM-007` |
+| C1 | Hide a section whose required leaf is preserved from the record (update) | `hide()` on the todo showcase edit host | `TC-EXAMPLE-FORM-001` |
+| C2 | Hide a section on create, required leaf filled by a `defaults` server default | todo showcase create host with `defaults` | `TC-EXAMPLE-FORM-002` |
+| C3 | Hide with an uncovered required leaf → blocking failure at load, no mutation controls | none (negative case lives in the `.ai/qa/fixtures/crudform-section-policy/` fixture app) | `TC-EXAMPLE-FORM-003` against the fixture |
+| C4 | Replace a section; the replacement still emits the required leaf | `replace(...)` on the showcase host | `TC-EXAMPLE-FORM-004` |
+| C5 | Modify fields: relabel, remove (leaf preserved), add a server rule (422 `details.fieldErrors`) | `modify(...)` on the showcase host | `TC-EXAMPLE-FORM-005` |
+| C6 | Add a section stored as custom fields (`store.customField`) | `season` field on the showcase host | `TC-EXAMPLE-FORM-006` |
+| C7 | Add a field stored in the module's own table (`store.table`): create, update, read-back, sink-version conflict, rollback when the sink throws | `brand` → `example_todo_brands` | `TC-EXAMPLE-FORM-007` |
 | C8 | Custom sink (`store.sink`) with `after-commit` atomicity: `extensionWarnings` and flash on failure | after-commit recipe | `TC-EXAMPLE-FORM-008` |
-| C9 | External delivery (`store.external`): pre-commit validation reject and timeout, `pending` → `synced`, failure → backoff → `failed` + notification + Retry, coalesced rapid edits, idempotent redelivery, compensating delete | `erp` section | `TC-EXAMPLE-FORM-009` |
+| C9 | External delivery (`store.external`): pre-commit validation reject and timeout, `pending` → `synced`, failure → backoff → `failed` + notification + Retry, coalesced rapid edits, idempotent redelivery, a mirror edited during delivery stays `pending` and is redelivered, sweeper recovery of a lost enqueue, compensating delete | `erp` section | `TC-EXAMPLE-FORM-009` |
 | C10 | Disabling one piece from `modules.ts` with `forms.sections[...] = null` | documented `modules.ts` snippet | `TC-EXAMPLE-FORM-010` |
 | C11 | Unknown `extensions.<module>` key, stale fingerprint, protected-header tampering → `409 extension_policy_mismatch`, no write | API-only | `TC-EXAMPLE-FORM-011` |
-| C12 | No-policy baseline: example extensions off → host form, payload, and endpoints unchanged | env off | `TC-EXAMPLE-FORM-012` |
+| C12 | No-policy baseline: the regular todo create/edit pages (variant `default`) render, submit, and call the same endpoints as before | regular todo pages | `TC-EXAMPLE-FORM-012` |
 
 Generation-time cases have no runtime recipe and are covered by unit tests in the generator package, not integration tests. They are: cross-module conflict, `modify` on a component-only section, removing a field under a `mandatory` refinement, a required-leaf schema drift, and fingerprint equality of compiled versus hand-written declarations.
 
-As each later adopter (sales, staff, resources, …) lands, its spec adds the C1–C9 rows that apply to its host, using that host in the example module. The matrix grows per host; it is never satisfied by catalog alone.
+Each real adopter (catalog, sales, staff, resources, …) adds a non-discovered reference recipe for its host under `apps/mercato/src/modules/example/references/crud-form-extensions/<host>.reference.ts`, following the existing `module-overrides.reference.ts` pattern. Its own adopter spec runs the applicable C1–C9 assertions against its host through the QA fixture app. Reference recipes are type-checked but never auto-discovered, so they never alter real forms in the demo app or the shared integration suite.
 
 #### 12.2 Example module
 
-- All recipes live in `apps/mercato/src/modules/example/form-sections.ts` as one `defineCrudFormExtension` per host (§11). The rare hand-written primitive recipe is kept as a commented "advanced" variant next to its wrapper equivalent, so readers see both forms.
+- **Showcase host.** The example module owns the demo host. Its grouped `TodoForm` (`components/TodoForm.tsx`) adopts the framework through the §10 derived adapter over the existing `example/todos` route. It publishes two variants: `default` (the current todo create/edit pages, never extended) and `showcase`, rendered only on new pages `/backend/example/form-extensions/todos/create` and `/backend/example/form-extensions/todos/[id]`. All live recipes target `crud-form:example.todo/showcase/...`. Existing todo pages and `TC-EXAMPLE-001…003` are unaffected, and no environment flag is needed.
+- All live recipes live in `apps/mercato/src/modules/example/form-sections.ts` under `crudFormExtensions` (§11). The hand-written primitive equivalent of one recipe is kept as an "advanced" reference file next to it, so readers see both forms.
 - The external case uses a DI-registered `exampleExternalErp` client whose default implementation is an in-process fake store with configurable latency and failure. The demo and the tests therefore need no network or third-party service. A real provider belongs in its own integration package.
-- Recipes change real backend forms, so they activate only when `NEXT_PUBLIC_OM_EXAMPLE_FORM_EXTENSIONS=on`. A `NEXT_PUBLIC_*` gate is allowed by §4; a server-only gate would be rejected. The variable is off in `.env.example`, on in the Playwright environment, and C12 runs with it off.
-- New entities (`example_product_brands`, the ERP mirror) ship with migrations and snapshots. Labels go through the example module's i18n files. Its `references/surface-inventory.json` and `references/surface-map.md` gain one capability id per case (`example.crud-form-extensions.c1` … `c12`), each pointing at its source.
+- New entities (`example_todo_brands`, the ERP mirror `example_todo_erp_links` using `outboxColumns`) ship with migrations and snapshots. Labels go through the example module's i18n files. Its `references/surface-inventory.json` and `references/surface-map.md` gain one capability id per case (`example.crud-form-extensions.c1` … `c12`), each pointing at its source.
 - The example module is mirrored into `packages/create-app/template/src/modules/example/` with `yarn template:sync:fix` in the same change. `yarn template:sync` must pass.
 
 #### 12.3 Integration tests
 
 - Location: `apps/mercato/src/modules/example/__integration__/TC-EXAMPLE-FORM-0NN-*.spec.ts`, following `.ai/qa/AGENTS.md`. Each test has both API and Playwright UI coverage where the case has a UI.
-- Self-contained: fixtures are created through the API (product, team member, …) in setup and removed in teardown/finally. No test relies on seeded or demo data.
+- Self-contained: fixtures (todos, and for C3 the fixture-app records) are created through the API in setup and removed in teardown/finally. No test relies on seeded or demo data.
 - UI assertions cover the visible contract: section present, absent, or replaced; field labels; field errors; the blocking `ErrorMessage` with no save/delete controls; the sync status badge and Retry; the conflict bar.
 - API assertions cover the server contract: the 409/422 bodies, rollback (no extension row and no host change after a sink failure), the `_extensions` read-back, and the absence of credentials in responses and logs.
 - The external case drives the fake client's failure and latency switches. It runs the queue worker synchronously in the test environment to observe `pending` → `synced`/`failed`.
 
 #### 12.4 Standalone harness
 
-- Add one harness case per matrix row to `packages/create-app/agentic/shared/ai/harness/cases.json`. Each case declares `context.exampleRoots` for `src/modules/example`, its entrypoint `src/modules/example/form-sections.ts`, and the exact `example.crud-form-extensions.cN` capability id from `references/surface-inventory.json`. Task prompts are phrased as app-developer goals ("hide the compliance card on product edit", "add a supplier field stored in my own table", "send these fields to our ERP").
+- Add one harness case per matrix row to `packages/create-app/agentic/shared/ai/harness/cases.json`. Each case declares `context.exampleRoots` for `src/modules/example`, its entrypoint `src/modules/example/form-sections.ts`, and the exact `example.crud-form-extensions.cN` capability id from `references/surface-inventory.json`. Task prompts are phrased as app-developer goals ("hide the status section on the todo showcase edit form", "add a supplier field stored in my own table", "send these fields to our ERP").
 - The standalone `AGENTS.md` router and the module-development guide link the "Customize a CrudForm" task to `src/modules/example/form-sections.ts` and the case-matrix capability ids. The module-development guide is the monorepo `.ai/docs/module-development.md` and its template mirror.
 - Produce the harness changes with `om-refresh-standalone-harness` over the implementing release range. Each new case must fail before its owner change and pass after it, per that skill's contract.
 
@@ -647,14 +655,13 @@ As each later adopter (sales, staff, resources, …) lands, its spec adds the C1
 | `packages/shared/src/modules/overrides.ts` | Data-only `forms.sections` shape, composer, dispatcher domain |
 | `packages/shared/src/modules/widgets/extension-points.ts` | Serializable host/contribution/capability/dependency facts |
 | `packages/shared/src/modules/widgets/component-registry.ts` | Existing two-argument section helper plus additive scope builder export |
-| module-root `form-sections.ts` + `*.client.tsx` | Auto-discovered server-safe facts/lazy loaders and concrete browser runtime descriptors |
+| module-root `form-sections.ts` + `*.client.tsx` | Auto-discovered server-only facts, extensions, sinks, leaf defaults, and lazy loaders (never imported by the browser); lazy browser runtime descriptors in `*.client.tsx` |
 | `packages/ui/src/backend/CrudForm.tsx` | Optional explicit surface identity; consume resolved runtime descriptors; active custom-field gate; bound mutation contexts |
 | `packages/ui/src/backend/injection/` | Resolver, readiness state, runtime descriptor interfaces, component adapter |
 | `packages/ui/src/backend/utils/` | Immutable request-bound wrappers; protected-header merge |
 | server/client bootstrap and generated registries | Dispatch `forms.sections` in both runtimes; validate facts/loaders; publish configured-host ledger plus accepted manifest/fingerprint |
 | server policy-façade helper | Enforce auth-adjacent policy/resource facts and the mandatory mutation-guard/legacy-bridge/callback contract; run leaf-default providers; dispatch and strip extension sinks |
-| module-root `form-sections.ts` | Auto-discovered server-only extension sinks and leaf-default providers |
-| `packages/shared/src/lib/commands` | Additive `CommandRuntimeContext.afterTransactionalWrite(em, result)` seam for `host-transaction` sinks |
+| `packages/shared` `outboxColumns` mixin | Typed delivery columns for contributing modules' mirror entities |
 | CLI generators | Validate authored finite alternatives, duplicate ownership, diagnostics, and stable facts |
 | framework test fixture | Non-production host proving generic add/hide/replace and failure behavior |
 
@@ -662,11 +669,22 @@ No route-specific component or domain schema may be imported by a global provide
 
 ## Data Models
 
-No database schema or tenant-owned setting changes. Generated manifests contain identifiers, operation metadata, capability facts, dependencies, and content fingerprints only; they contain no React values, functions, record values, tenant data, credentials, or resource ids. Request-local resolver responses/tokens and headers do contain the authorized host resource id needed for binding. They use `Cache-Control: private, no-store`, are never persisted in generated artifacts or application caches, and are redacted from structured logs, errors, traces, and diagnostics. Only resource kind and a one-way correlation hash may be logged.
+The framework adds no table, column, or tenant-owned setting. Sink storage (§9 extension entities and `outbox` mirrors) is owned by each contributing module, ships with that module's own entities, `yarn db:generate` migrations, and snapshots, and is never generated by `yarn generate`. The framework only ships the shared `outboxColumns` entity mixin (`sync_status`, `sync_attempts`, `next_attempt_at`, `last_error_code`, `external_id`, `idempotency_key`, `pending_operation`) as a typed helper. Generated manifests contain identifiers, operation metadata, capability facts, dependencies, and content fingerprints only; they contain no React values, functions, record values, tenant data, credentials, or resource ids. Request-local resolver responses/tokens and headers do contain the authorized host resource id needed for binding. They use `Cache-Control: private, no-store`, are never persisted in generated artifacts or application caches, and are redacted from structured logs, errors, traces, and diagnostics. Only resource kind and a one-way correlation hash may be logged.
 
 ## API Contracts
 
 Existing routes remain backward compatible. The exact resolve endpoint/request/response and eight protected headers are defined above. Policy-enabled adopters add guarded façade routes or command ids that delegate to existing domain services. A façade returns HTTP `409` `{ "error": "extension_policy_mismatch", "code": "extension_policy_mismatch" }` and performs no mutation for missing, malformed, stale, wrong-mode, wrong-operation, wrong-host, wrong-target, or undeclared-action policy identity. It does not echo tokens, fingerprints, or registry internals.
+
+Additional façade responses, each declared in the façade's OpenAPI:
+
+| Status | Body | When |
+|---|---|---|
+| `422` | `{ "error": "mutation_guard_rejected", "code": "mutation_guard_rejected", "details": { "fieldErrors"?: Record<payloadPath, messageKey>, … } }` | Registered guard or façade-scoped field rule (§6) |
+| `422` | `{ "error": "crud_form_section_hidden_field_invalid", "code": "crud_form_section_hidden_field_invalid", "fieldLabelKey": string }` | Authoritative validation failed on an inactive leaf (§8); no value echoed |
+| `422` | `{ "error": "validation_failed", "code": "validation_failed", "fieldErrors": Record<payloadPath, messageKey> }` | Sink schema or `validateExternal` rejection on an active extension leaf (§9) |
+| `503` | `{ "error": "crud_form_section_external_unavailable", "code": "crud_form_section_external_unavailable" }` | `validateExternal` timeout or outage (§9); nothing written |
+
+Successful parent writes may add `extensionWarnings: { sinkId: string, code: string }[]` (only for `after-commit` sinks). Host detail responses may add `_extensions: Record<moduleId, object>` from sink `load`. Both are additive, optional fields.
 
 Existing auth/permission failures and `optimistic_lock_conflict` responses retain their established shapes. Legacy callers without policy headers retain current behavior on legacy endpoints.
 
@@ -684,7 +702,7 @@ No new user-facing configuration UI or design-system primitive is added. A valid
 | configured form host | unchanged | lazy module-owned `*.client.tsx` descriptors | one bounded resolver request; immutable bound clients own mutations |
 | no-policy form host | unchanged | existing form island | existing calls only; zero resolver request |
 
-- client-boundary ledger: `CrudForm.tsx` remains client because it owns form state/interactions; resolver/hooks are client-only for subscriptions and browser mutation binding; module `*.client.tsx` leaves are lazy because they contain renderers/Zod runtime values; `form-sections.ts`, manifests, and policy facts remain server-safe and never gain `"use client"`;
+- client-boundary ledger: `CrudForm.tsx` remains client because it owns form state/interactions; resolver/hooks are client-only for subscriptions and browser mutation binding; module `*.client.tsx` leaves are lazy because they contain renderers/Zod runtime values; `form-sections.ts` is server-only and never imported by the browser; manifests and policy facts remain serializable; neither gains `"use client"`;
 - zero new page-root client boundaries or route-specific imports in global providers;
 - generic resolver under 200 net LOC and `CrudForm` integration under 80 net LOC by extracting helpers;
 - empty-policy identity path performs no manifest subscription or descriptor cloning beyond current normalization;
@@ -744,6 +762,19 @@ Before the first public release, rollback may remove the optional resolver/manif
 
 All additions are optional. Existing `CrudForm` props, `hiddenGroupIds`, widget spots, component handles, APIs, and override domains retain their behavior. The existing two-argument section helper is not overloaded or reordered.
 
+New contract surfaces introduced by §§8–12, all additive. Each must be added to `BACKWARD_COMPATIBILITY.md` in Phase 4 step 14 or Phase 5 step 21:
+
+| Surface | `BACKWARD_COMPATIBILITY.md` category | Classification |
+|---|---|---|
+| `form-sections.ts` named exports `crudFormSections`, `crudFormExtensions`; `form-sections.revisions.json` ledger | Auto-discovery files / generated files | STABLE once published |
+| `@open-mercato/ui/backend/crud-form-extensions` builders; `defineCrudFormSectionSink`, `defineCrudRouteSectionHost`, `outboxColumns` mixin | Import paths / types | STABLE |
+| `extensions` request key; `_extensions` and `extensionWarnings` response fields | API routes | ADDITIVE-ONLY |
+| Derived façade routes `<route>/section-policy` | API routes | STABLE |
+| Error codes `crud_form_section_hidden_field_invalid`, `crud_form_section_external_unavailable`, `validation_failed`; `details.fieldErrors` | API routes | STABLE |
+| Per-sink `<module>.<entity>.sync_failed` events and notification types; `<sinkId>.retry` surfaces | Event IDs / notification IDs (owned by the contributing module) | STABLE per module |
+
+No existing type, signature, or command hook changes; `CommandRuntimeContext.transactionalEm` is reused as-is.
+
 Once published, host ids, variants, form operations, section ids, capability ids, mutation-surface ids, round-trip ids, and documented imports are stable contract surfaces. Any rename/removal follows `BACKWARD_COMPATIBILITY.md`: deprecated bridge, dual acceptance for at least one minor release, `UPGRADE_NOTES.md`, and a migration section in a follow-up spec.
 
 ## Phasing
@@ -773,9 +804,9 @@ Each phase leaves the default application working. No host advertises section op
 7. Add guarded façade helpers and a shared parser/builder for the eight protected headers. Validate token schema/current client/server fingerprint, reauthorized host assertion, mode, route, request operation, mutation target, mutation surface, exact resource-binding ids, and delegated provider after auth/ACL/scoped-target gates and before domain mutation; reject `target-required` providers without an atomic lock/CAS declaration; then collect/run mutation guards plus the legacy bridge, revalidate modified payloads against the policy/domain contracts, and run post-success callbacks through error reporting. Return the exact `extension_policy_mismatch` 409 body for policy mismatches.
 
 7a. Add `requiredLeaves` facts and the schema-drift contract helper; enforce exact-once required-leaf coverage at bootstrap; add leaf-default provider discovery/runtime; map hidden-leaf validation failures to `crud_form_section_hidden_field_invalid`.
-7b. Add sink and leaf-default discovery from `form-sections.ts`, `defineCrudFormSectionSink`, the `extensions.<moduleId>` façade namespace, the additive `afterTransactionalWrite` command seam, after-commit sink callbacks with `extensionWarnings`, the auto-registered `_extensions` detail enricher, sink-version locking, and undo/delete hooks.
+7b. Add sink and leaf-default discovery from `form-sections.ts`, `defineCrudFormSectionSink`, the `extensions.<moduleId>` façade namespace, façade-owned transactions passing `transactionalEm` to host commands (with a contract test that a sink failure leaves no host change), after-commit sink callbacks with `extensionWarnings`, the auto-registered `_extensions` detail enricher, sink-version locking, and undo/delete hooks.
 7c. Add `defineCrudRouteSectionHost` and the generator that derives provider facts, `requiredLeaves`, the thin guarded façade, and lock mode for qualifying `makeCrudRoute` hosts; reject non-qualifying hosts with a diagnostic naming the failed qualifier.
-7d. Add `outbox` sinks: mirror delivery-column helper, post-commit coalesced enqueue, sweeper, `deliver`/`validateExternal` hooks with timeout and abort signal, backoff and terminal `failed` state, `__sync` read-back, `<sinkId>.retry` section-action façade, compensating delete/undo delivery, credentials/host-pinning enforcement.
+7d. Add `outbox` sinks: the `outboxColumns` mixin, version-qualified outcome writes, tombstoned delete/restore, post-commit coalesced enqueue, sweeper, `deliver`/`validateExternal` hooks with timeout and abort signal, backoff and terminal `failed` state, `__sync` read-back, `<sinkId>.retry` section-action façade, compensating delete/undo delivery, credentials and `url-safety`/`host-pinning` enforcement.
 
 ### Phase 3 — UI integration
 
@@ -796,21 +827,21 @@ Each phase leaves the default application working. No host advertises section op
 16. Add `@open-mercato/ui/backend/crud-form-extensions` with `defineCrudFormExtension` and the `hide`/`replace`/`modify`/`add`/`field.*`/`store.*` builders. Builders return plain data and server callbacks only; reuse the `InjectionFieldWidget` field shape and `CrudField` renderers.
 17. Add the `CrudFormFieldGranularSection` interface and the pure derivation functions: field removal with refinement pruning, `mandatory` refinement rejection, field addition, presentation patch, and derived round-trip ids. Unit-test that unpatched fields keep byte-identical validation and projection.
 18. Extend the generator to compile each extension into §1 overrides/contributions, §2 derived descriptors, §8 leaf defaults, §6 scoped mutation guards for `validate.server`, and §9 sinks. Extract browser-registry literals without importing the file, report cross-module conflicts, and print the compiled summary.
-19. Implement the generic stores: `store.customField` (definition seeding through `ce.ts`), `store.table` (generic upsert/enricher/lock/undo/delete sink), and `store.external` (generated mirror + outbox sink over §9).
+19. Implement the generic stores: `store.customField` (definition seeding through `ce.ts`), `store.table` (generic upsert/enricher/lock/undo/delete sink), and `store.external` (outbox sink over the contributing module's own mirror entity built from the `outboxColumns` mixin; nothing generated).
 20. Rebuild the Phase 4 framework fixture as one `defineCrudFormExtension` and prove it compiles to the same manifest fingerprint as the equivalent hand-written declarations.
 21. Document the wrapper as the primary recipe in the module-development guide and the standalone harness (`om-refresh-standalone-harness`), with the hand-written primitives as the advanced path. Add the new import path and builders to `BACKWARD_COMPATIBILITY.md`.
 
 ### Phase 6 — examples, integration tests, standalone harness
 
-22. Add the gated example recipes C1–C12 (§12.1) to `apps/mercato/src/modules/example/form-sections.ts`, including the in-process fake `exampleExternalErp` client, the new entities with migrations/snapshots, i18n keys, and the `.env.example` flag (off).
-23. Add `TC-EXAMPLE-FORM-001` … `TC-EXAMPLE-FORM-012` under `apps/mercato/src/modules/example/__integration__/`, with self-contained API fixtures and both API and UI assertions; enable the flag in the Playwright environment; add the generator unit tests for the generation-time cases.
+22. Adopt the example `TodoForm` through the §10 derived adapter with variants `default` and `showcase`; add the showcase pages; add the live recipes C1, C2, C4–C11 (§12.1) to `apps/mercato/src/modules/example/form-sections.ts` with the in-process fake `exampleExternalErp` client, the new entities with migrations/snapshots, and i18n keys; add C3 to the QA fixture app. Make `example.todos.create|update|delete` honor `CommandRuntimeContext.transactionalEm` (they do not today): use the provided em and its locks, with no fork or commit of their own. Then declare `extensionSinkSupport: 'host-transaction'` on the todo host and add the provider contract test proving that a sink failure leaves no todo change.
+23. Add `TC-EXAMPLE-FORM-001` … `TC-EXAMPLE-FORM-012` under `apps/mercato/src/modules/example/__integration__/`, with self-contained API fixtures and both API and UI assertions; add the generator unit tests for the generation-time cases.
 24. Register capability ids `example.crud-form-extensions.c1` … `c12` in `references/surface-inventory.json` and `references/surface-map.md`; mirror the example module to the create-app template with `yarn template:sync:fix`.
 25. Run `om-refresh-standalone-harness` over the implementing range to add one harness case per matrix row with `context.exampleRoots`, and link the standalone router plus the module-development guide to the example recipes; each case must fail before and pass after its owner change.
 26. Record `yarn test:integration` (filtered to `TC-EXAMPLE-FORM`), the generator unit tests, `yarn template:sync`, and the harness run as evidence. Phases 1–5 steps that implement a case are not complete until that case's example, test, and harness entry exist.
 
 ## Integration Coverage
 
-All cases below are implemented as the §12 matrix tests (`TC-EXAMPLE-FORM-001` … `012`) plus generator unit tests. The bullets list the assertions each must contain.
+All cases below are implemented as the §12 matrix tests (`TC-EXAMPLE-FORM-001` … `012`), the Phase 4 framework fixture tests (steps 12–13), and generator unit tests. The bullets list the assertions each must contain.
 
 
 - Discovery/bootstrap: package/app `form-sections.ts`, lazy runtime load, exact contribution lookup, deterministic order, disabled modules, server/browser parity, ungated/public-gated success, server-only-gated rejection, configured-host ledger, and stale-bundle blocking.
@@ -818,7 +849,7 @@ All cases below are implemented as the §12 matrix tests (`TC-EXAMPLE-FORM-001` 
 - Guarded façade: client collision rejection; comma-containing resource-id rejection; server missing/duplicate/malformed/recomputed-value rejection; wrong route/operation/host/target/action; auth/ACL/scope precedence; mutation-guard block/modify/legacy bridge/after-success/callback-failure behavior; modified hidden-leaf rejection; ordinary domain plus optimistic-lock header composition; `target-required` provider-declaration rejection and update/update plus update/delete contenders; exact non-leaking 409; delegated provider invoked once.
 - Browser fixture: server render → pending → ready without editable flash; add/hide/replace layout; submit/delete/action bindings; configured-host failure blocks every mutation control.
 - Required leaves: create host hiding a required-leaf section is rejected at bootstrap; replacement emitting the leaf is accepted; `server-default` provider fills it on create; update `preserve-from-record` for a wire-required leaf; hidden-leaf validation and uniqueness failures return the label-only form error; schema-drift test fails when a required leaf is added to or removed from the authoritative schema.
-- External sinks: pre-commit validation reject/timeout; host and mirror commit together and roll back together; delivery success writes `external_id`; retry with backoff to terminal `failed` plus notification and retry action; coalescing of rapid edits; idempotent redelivery after a worker crash; sweeper recovery of a lost enqueue; compensating delete; no credentials in browser, job payload, or logs.
+- External sinks: pre-commit validation reject/timeout; host and mirror commit together and roll back together; delivery success writes `external_id`; retry with backoff to terminal `failed` plus notification and retry action; coalescing of rapid edits; idempotent redelivery after a worker crash; a mirror edited during delivery stays `pending` and is redelivered; sweeper recovery of a lost enqueue; compensating delete; no credentials in browser, job payload, or logs.
 - Extension sinks: added section on create and update persists into the owning module's entity in the host transaction; sink failure rolls back the host; after-commit sink failure returns `extensionWarnings`; unknown extension key rejected; sink-version conflict; host undo and hard delete call the sink; values load back through `_extensions` on the detail response.
 - Wrapper: one extension that hides, replaces, modifies (patch/remove/add field), adds a section, and declares a default compiles to the same manifest fingerprint as the hand-written equivalent; `store.customField`, `store.table`, and `store.external` each round-trip create and update; `validate.server` rejects through the 422 envelope with a field error; removing a field under a `mandatory` refinement fails generation; two modules modifying one field fail generation and `modules.ts` `null` resolves it; `modify` on a component-only section fails generation; derived round-trip ids change when the base revision or the patch changes.
 - Compatibility: no-policy payload, endpoint selection, lifecycle order, `hiddenGroupIds`, and widget-disable behavior unchanged.
@@ -840,8 +871,8 @@ All cases below are implemented as the §12 matrix tests (`TC-EXAMPLE-FORM-001` 
 13. No policy is accepted while any server-required leaf of its host operation lacks exactly one declared coverage; hidden-leaf validation failures never reach the user as unreachable field errors.
 14. Extension leaves persist only through declared sinks under `extensions.<ownerModuleId>`, atomically with the host write unless the contribution opts into after-commit, with their own optimistic lock, undo, and delete behavior.
 15. A sink that saves to an external system records its intent in the host transaction, never calls the remote system inside it, delivers idempotently with retries and a visible, retryable sync state, and never exposes credentials outside the server.
-16. A module can add, remove, and modify sections and fields of a host form, including server validation, defaults, and persistence (host, custom field, own table, or external system), in one `defineCrudFormExtension` declaration that compiles to exactly the primitives of §§1–10 with no copied host code.
-17. Every §12.1 case has a gated example recipe in the `example` module (mirrored to the create-app template), a passing self-contained `TC-EXAMPLE-FORM-*` integration test, and a standalone-harness case that links to the recipe through `context.exampleRoots` and its capability id.
+16. A module can add, remove, and modify sections and fields of a host form, including server validation, defaults, and persistence (host, custom field, own table, or external system), in one `defineCrudFormExtension` declaration that compiles to exactly the primitives of §§1–10 (including §6 façade-scoped field rules) with no copied host code, and whose browser half contains no functions other than literal loaders.
+17. Every §12.1 case has a live recipe on the example showcase host (C3: the QA fixture app) in the `example` module (mirrored to the create-app template), a passing self-contained `TC-EXAMPLE-FORM-*` integration test, and a standalone-harness case that links to the recipe through `context.exampleRoots` and its capability id.
 18. The named framework, integration, compatibility, client-boundary, template-parity, and configured validation commands pass with recorded evidence.
 
 ## Final Compliance Report — 2026-10-27
@@ -887,6 +918,8 @@ None.
 - **Fully compliant**: Approved — ready for implementation.
 
 ## Changelog
+
+- **2026-11-03 (review fixes):** `form-sections.ts` is server-only with named exports `crudFormSections`/`crudFormExtensions`, plus a generated per-extension browser module. Derived round-trip ids use `@v<n>` with a committed `form-sections.revisions.json` ledger. Sinks reuse `CommandRuntimeContext.transactionalEm`; the proposed `afterTransactionalWrite` hook is dropped. Outbox outcomes use version-qualified writes, deletes are tombstoned, and retry resets attempts. HTTP egress uses `url-safety`. Declarative client-and-server rules and §6 façade-scoped field rules added. 422/503 bodies and the additive response fields are pinned in API Contracts, and new surfaces are classified in Migration & BC. Data Models states module-owned sink storage with the `outboxColumns` mixin and no generated entities. Leaf defaults get a read-only `readEm`. §10 reuses the §8 drift helper and mounts façades at `<route>/section-policy`. Example recipes move to an example-owned `crud-form:example.todo` `showcase` variant, with no env flag; C3 lives in the QA fixture, and real-host recipes are non-discovered reference files. This supersedes `form-section-sinks.ts` and `NEXT_PUBLIC_OM_EXAMPLE_FORM_EXTENSIONS` in the entries below.
 
 - **2026-11-03:** Added §12 and Phase 6: a C1–C12 case matrix where each case ships a gated `example` module recipe (`NEXT_PUBLIC_OM_EXAMPLE_FORM_EXTENSIONS`), a self-contained `TC-EXAMPLE-FORM-*` integration test, and a standalone-harness case with `context.exampleRoots`; later adopters extend the matrix per host.
 
