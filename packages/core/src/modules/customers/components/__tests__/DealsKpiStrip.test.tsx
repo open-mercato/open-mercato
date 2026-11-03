@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { fireEvent, screen } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
@@ -147,6 +147,54 @@ describe('DealsKpiStrip', () => {
     fireEvent.click(screen.getByRole('radio', { name: '12M' }))
     await screen.findByRole('tab', { name: /Pipeline value/ })
     expect(mockedApiCall).toHaveBeenLastCalledWith('/api/customers/deals/summary?range=12m')
+  })
+
+  it('shows the period control while the strip is folded', async () => {
+    mockedApiCall.mockResolvedValue({ ok: true, result: { ...validSummary, range: '6m' }, cacheStatus: null } as unknown as ApiResult)
+    renderStrip()
+    const pipelineTab = await screen.findByRole('tab', { name: /Pipeline value/ })
+    expect(pipelineTab).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByRole('radiogroup', { name: 'Period' })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: '6M' })).toBeChecked()
+    expect(screen.queryByRole('radio', { name: 'Bars' })).not.toBeInTheDocument()
+    expect(screen.getByRole('tablist').contains(screen.getByRole('radiogroup', { name: 'Period' }))).toBe(false)
+  })
+
+  it('passes the loading state to the chart while a new period is fetched', async () => {
+    mockedApiCall.mockResolvedValueOnce({ ok: true, result: { ...validSummary, range: '6m' }, cacheStatus: null } as unknown as ApiResult)
+    renderStrip()
+    fireEvent.click(await screen.findByRole('tab', { name: /Pipeline value/ }))
+    expect(lineChartMock.mock.calls.at(-1)?.[0]).toMatchObject({ loading: false })
+
+    let resolveRefetch: (value: ApiResult) => void = () => undefined
+    mockedApiCall.mockReturnValueOnce(new Promise<ApiResult>((resolve) => { resolveRefetch = resolve }))
+    fireEvent.click(screen.getByRole('radio', { name: '12M' }))
+    await waitFor(() => expect(lineChartMock.mock.calls.at(-1)?.[0]).toMatchObject({ loading: true }))
+    expect(screen.getByRole('radio', { name: '12M' })).toBeChecked()
+
+    await act(async () => {
+      resolveRefetch({ ok: true, result: { ...validSummary, range: '12m' }, cacheStatus: null } as unknown as ApiResult)
+    })
+    expect(lineChartMock.mock.calls.at(-1)?.[0]).toMatchObject({ loading: false })
+    expect(screen.getByRole('radio', { name: '12M' })).toBeChecked()
+  })
+
+  it('selects the period of the numbers on screen after a failed refetch and retries the requested one', async () => {
+    mockedApiCall.mockResolvedValueOnce({ ok: true, result: { ...validSummary, range: '6m' }, cacheStatus: null } as unknown as ApiResult)
+    renderStrip()
+    await screen.findByRole('tab', { name: /Pipeline value/ })
+
+    mockedApiCall.mockResolvedValueOnce({ ok: false, result: null, cacheStatus: null } as unknown as ApiResult)
+    fireEvent.click(screen.getByRole('radio', { name: '12M' }))
+    expect(await screen.findByText("Couldn't load deal metrics")).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: '6M' })).toBeChecked()
+    expect(screen.getByRole('radio', { name: '12M' })).not.toBeChecked()
+
+    mockedApiCall.mockResolvedValueOnce({ ok: true, result: { ...validSummary, range: '12m' }, cacheStatus: null } as unknown as ApiResult)
+    fireEvent.click(screen.getByRole('radio', { name: '12M' }))
+    await waitFor(() => expect(screen.queryByText("Couldn't load deal metrics")).not.toBeInTheDocument())
+    expect(mockedApiCall).toHaveBeenLastCalledWith('/api/customers/deals/summary?range=12m')
+    expect(screen.getByRole('radio', { name: '12M' })).toBeChecked()
   })
 
   it('formats the KPI values in the app locale rather than the runtime default', async () => {
