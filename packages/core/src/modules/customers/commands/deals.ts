@@ -19,6 +19,7 @@ import {
   CustomerDealPersonLink,
   CustomerDealCompanyLink,
   CustomerDealStageTransition,
+  CustomerPipeline,
   CustomerPipelineStage,
 } from '../data/entities'
 import { CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
@@ -43,7 +44,7 @@ import {
   buildCustomFieldResetMap,
   type CustomFieldChangeSet,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
-import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, badRequest, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -111,7 +112,13 @@ async function loadPipelineStageSnapshot(
   tenantId: string,
   organizationId: string,
 ): Promise<PipelineStageSnapshot | null> {
-  const stage = await findOneWithDecryption(em, CustomerPipelineStage, { id: pipelineStageId }, {}, { tenantId, organizationId })
+  const stage = await findOneWithDecryption(
+    em,
+    CustomerPipelineStage,
+    { id: pipelineStageId, tenantId, organizationId },
+    {},
+    { tenantId, organizationId },
+  )
   if (!stage) return null
   return {
     id: stage.id,
@@ -149,16 +156,19 @@ async function resolvePipelineStageValue(
   return entry?.value ?? stage.label
 }
 
-function resolvePipelineAssignment(input: {
+async function resolvePipelineAssignment(em: EntityManager, input: {
+  tenantId: string
+  organizationId: string
   pipelineId?: string | null
   pipelineStageId?: string | null
   stageSnapshot: PipelineStageSnapshot | null
-}): { pipelineId: string | null; pipelineStageId: string | null } {
+}): Promise<{ pipelineId: string | null; pipelineStageId: string | null }> {
   const requestedPipelineId = input.pipelineId ?? null
   const requestedPipelineStageId = input.pipelineStageId ?? null
+  const { translate } = await resolveTranslations()
 
   if (requestedPipelineStageId && !input.stageSnapshot) {
-    throw new CrudHttpError(400, { error: 'Pipeline stage not found' })
+    throw badRequest(translate('customers.errors.pipeline_stage_not_found', 'Pipeline stage not found'))
   }
 
   if (
@@ -166,13 +176,25 @@ function resolvePipelineAssignment(input: {
     input.stageSnapshot &&
     input.stageSnapshot.pipelineId !== requestedPipelineId
   ) {
-    throw new CrudHttpError(400, {
-      error: 'Pipeline stage does not belong to the selected pipeline',
-    })
+    throw badRequest(translate('customers.errors.pipeline_stage_mismatch', 'Pipeline stage does not belong to the selected pipeline'))
+  }
+
+  const pipelineId = requestedPipelineId ?? input.stageSnapshot?.pipelineId ?? null
+  if (pipelineId) {
+    const pipeline = await findOneWithDecryption(
+      em,
+      CustomerPipeline,
+      { id: pipelineId, tenantId: input.tenantId, organizationId: input.organizationId },
+      {},
+      { tenantId: input.tenantId, organizationId: input.organizationId },
+    )
+    if (!pipeline) {
+      throw badRequest(translate('customers.errors.pipeline_not_found', 'Pipeline not found'))
+    }
   }
 
   return {
-    pipelineId: requestedPipelineId ?? input.stageSnapshot?.pipelineId ?? null,
+    pipelineId,
     pipelineStageId: requestedPipelineStageId,
   }
 }
@@ -564,7 +586,9 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
         stageSnapshot = parsed.pipelineStageId
           ? await loadPipelineStageSnapshot(em, parsed.pipelineStageId, parsed.tenantId, parsed.organizationId)
           : null
-        pipelineAssignment = resolvePipelineAssignment({
+        pipelineAssignment = await resolvePipelineAssignment(em, {
+          tenantId: parsed.tenantId,
+          organizationId: parsed.organizationId,
           pipelineId: parsed.pipelineId,
           pipelineStageId: parsed.pipelineStageId,
           stageSnapshot,
@@ -826,7 +850,9 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
               : null
           )
           if (pipelineAssignmentChanged) {
-            nextPipelineAssignment = resolvePipelineAssignment({
+            nextPipelineAssignment = await resolvePipelineAssignment(em, {
+              tenantId: record.tenantId,
+              organizationId: record.organizationId,
               pipelineId: requestedPipelineId,
               pipelineStageId: requestedPipelineStageId,
               stageSnapshot: nextStageSnapshot,

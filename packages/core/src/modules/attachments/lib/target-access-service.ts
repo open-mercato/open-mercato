@@ -2,7 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Attachment, AttachmentPartition } from '../data/entities'
-import { checkAttachmentAccess } from './access'
+import { evaluateAttachmentAccess, type AttachmentAccessContext } from './access-runner'
 import { readAttachmentMetadata } from './metadata'
 
 export type AttachmentRecordTarget = {
@@ -19,7 +19,10 @@ export type AttachmentTargetAccessInput = {
 }
 
 export class AttachmentTargetAccessService {
-  constructor(private readonly em: EntityManager) {}
+  constructor(
+    private readonly em: EntityManager,
+    private readonly resolveAccessContext?: (() => AttachmentAccessContext) | null,
+  ) {}
 
   async canAccessLinkedTarget(input: AttachmentTargetAccessInput): Promise<boolean> {
     if (!input.targets.length) return false
@@ -44,7 +47,11 @@ export class AttachmentTargetAccessService {
       ],
     })
     if (!partition) return false
-    if (!checkAttachmentAccess(input.auth, attachment, partition, { requireAuthForPublic: true }).ok) return false
+    const access = await evaluateAttachmentAccess({
+      auth: input.auth, attachment, partition, action: 'read',
+      context: this.resolveAccessContext?.(), requireAuthForPublic: true,
+    })
+    if (!access.ok) return false
 
     const metadata = readAttachmentMetadata(attachment.storageMetadata)
     return input.targets.some((target) => (
