@@ -173,7 +173,7 @@ export function CompanyKpiBar({ data }: CompanyKpiBarProps) {
     <div className="space-y-2">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {visibleTiles.map((tile) => (
-          <div key={tile.id} className="group relative">
+          <div key={tile.id} data-testid="company-kpi-tile" className="group relative flex">
             <KpiCard
               title={tile.title}
               value={tile.value}
@@ -184,6 +184,7 @@ export function CompanyKpiBar({ data }: CompanyKpiBarProps) {
               error={(tile.id === 'activeDeals' || tile.id === 'ltv') && fallbackError
                 ? t('customers.settings.dealStatusVocabulary.errorLoad', 'Failed to load deal status vocabulary.')
                 : null}
+              className="w-full"
             />
             <IconButton
               type="button"
