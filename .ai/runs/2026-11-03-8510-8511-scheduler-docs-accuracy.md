@@ -15,7 +15,7 @@ Make `apps/docs/docs/cli/scheduler.mdx` describe only behavior the CLI actually 
 
 - No new runtime CLI commands (no `queue failed/history/pending/retry/clean`).
 - No change to `packages/cli/src/mercato.ts` or `packages/scheduler/src/modules/scheduler/cli.ts`.
-- Exit-code tables elsewhere in the page are not reworked (separate concern, not requested).
+- `tail -f logs/scheduler.log` and the lock-acquisition troubleshooting entry stay as they are (proposed follow-up).
 
 ## Implementation Plan
 
@@ -31,6 +31,13 @@ Make `apps/docs/docs/cli/scheduler.mdx` describe only behavior the CLI actually 
 ### Phase 3: Validation
 
 - 3.1 Run the configured validation gate.
+
+### Phase 4: Independent review findings
+
+Source: independent `om-code-review` pass on PR #8626 (head `bbbd74c91`).
+
+- 4.1 Align `scheduler run` (arguments, output samples, exit codes) and the Exit Codes Reference with `cli.ts`; add bootstrap failure to `scheduler start` exit code 1; say where the queue-jobs `jobId` comes from.
+- 4.2 Re-run the configured validation gate.
 
 ## Risks
 
@@ -55,3 +62,8 @@ PR: #8626
 ### Phase 3: Validation
 
 - [x] 3.1 Run the configured validation gate — local gate green
+
+### Phase 4: Independent review findings
+
+- [ ] 4.1 Align scheduler run and exit-code docs with source
+- [ ] 4.2 Re-run the configured validation gate
