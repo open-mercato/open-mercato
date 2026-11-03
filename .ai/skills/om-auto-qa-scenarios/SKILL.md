@@ -1,5 +1,9 @@
 > **Repo-local override.** Adds Open Mercato's QA area vocabulary, path-to-area map, route-resolution conventions, label-inference source, and report coexistence with the `TC-*` scenario files to the base `om-auto-qa-scenarios` skill.
 
+## Step 1 — base branches (add)
+
+The configured base is `main`. List merges into `release/v*` separately as backports, linking their `main` originals when available; do not count a backport as another distinct change in the main testing routes.
+
 ## Step 4 — route knowledge (add)
 
 Resolve where-to-click from the module routing conventions (`packages/core/AGENTS.md` → Auto-Discovery / Portal Pages / Page Metadata; `.ai/docs/module-development.md`):
