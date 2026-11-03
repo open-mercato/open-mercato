@@ -1038,6 +1038,34 @@ async function resolveSalesOrderStatusEntryId(
   return row.id
 }
 
+// Same FK-id-and-dictionary-key read as `resolveSalesOrderStatusEntryId` above, against
+// `sales.payment_status` instead — needed so a gateway-captured session can record a
+// `SalesPayment` with a real status (#8423: a gateway-paid order never got a payment row at
+// all, so it showed nothing paid).
+async function resolveSalesPaymentStatusEntryId(
+  em: EntityManager,
+  scope: SubmitScope,
+  value: 'captured',
+): Promise<string | null> {
+  const row = await em
+    .getKysely<{
+      dictionaries: { id: string; tenant_id: string; organization_id: string; key: string; deleted_at: Date | null }
+      dictionary_entries: { id: string; dictionary_id: string; tenant_id: string; organization_id: string; normalized_value: string }
+    }>()
+    .selectFrom('dictionary_entries')
+    .innerJoin('dictionaries', 'dictionaries.id', 'dictionary_entries.dictionary_id')
+    .select(['dictionary_entries.id as id'])
+    .where('dictionaries.tenant_id', '=', scope.tenantId)
+    .where('dictionaries.organization_id', '=', scope.organizationId)
+    .where('dictionaries.key', '=', 'sales.payment_status')
+    .where('dictionaries.deleted_at', 'is', null)
+    .where('dictionary_entries.tenant_id', '=', scope.tenantId)
+    .where('dictionary_entries.organization_id', '=', scope.organizationId)
+    .where('dictionary_entries.normalized_value', '=', value)
+    .executeTakeFirst()
+  return row?.id ?? null
+}
+
 async function findCheckoutTransactionBySession(
   em: EntityManager,
   scope: SubmitScope,
@@ -1197,6 +1225,13 @@ export async function confirmOrderAndComplete(
   orderId: string,
   quoteId: string,
   reservationKeys: { stockReservationKey: string | null; creditReservationKey: string | null },
+  // #8423: a gateway-captured session confirmed the order but never recorded a `SalesPayment`
+  // against it, so the order's `paidTotalAmount`/`outstandingAmount` stayed at their
+  // order-creation defaults (0 paid, full amount due) forever. Only the two gateway call
+  // sites (synchronous capture in `continueOrderOutcome`, async capture in
+  // `gatewayPaymentSessionResume.ts`) pass this; the on-account call site never does — there
+  // is no gateway payment to record, and the order is meant to show its full amount due.
+  gatewayPayment?: { amount: string; currencyCode: string; paymentReference?: string | null },
 ): Promise<CheckoutSessionSubmitStageResult> {
   const trustedCtx = buildTrustedCtx(container, scope, `checkout:submit:complete:${session.id}`)
   const commandBus = container.resolve('commandBus') as CommandBus
@@ -1240,6 +1275,28 @@ export async function confirmOrderAndComplete(
 
   if (session.linkId) {
     await releaseCheckoutLinkSlot(em, scope, session.linkId, { completed: true })
+  }
+
+  if (gatewayPayment) {
+    try {
+      const capturedStatusEntryId = await resolveSalesPaymentStatusEntryId(em, scope, 'captured')
+      await commandBus.execute('sales.payments.create', {
+        input: {
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+          orderId,
+          amount: gatewayPayment.amount,
+          currencyCode: gatewayPayment.currencyCode,
+          capturedAmount: gatewayPayment.amount,
+          capturedAt: new Date(),
+          statusEntryId: capturedStatusEntryId ?? undefined,
+          paymentReference: gatewayPayment.paymentReference ?? undefined,
+        },
+        ctx: trustedCtx,
+      })
+    } catch (err) {
+      logger.error('[internal] checkout submit: failed to record the captured gateway payment against the order', { err, sessionId: session.id, orderId })
+    }
   }
 
   await writeSessionEvent(em, { ...scope, sessionId: session.id, kind: 'payment_result', actor: 'system', payload: { orderId, outcome: 'completed' } })
@@ -1681,6 +1738,10 @@ export async function continueOrderOutcome(
     const result = await confirmOrderAndComplete(container, em, session, scope, orderId, quoteId, {
       stockReservationKey: input.stockReservationKey,
       creditReservationKey: input.creditReservationKey,
+    }, {
+      amount: transaction.amount,
+      currencyCode: transaction.currencyCode,
+      paymentReference: transaction.gatewayTransactionId ?? transaction.id,
     })
     await writeSessionEvent(em, { ...scope, sessionId: session.id, kind: 'payment_result', actor: 'system', payload: { orderId, outcome: 'succeeded' } })
     await emitCheckoutEvent('checkout.payment.succeeded', { sessionId: session.id, tenantId: scope.tenantId, organizationId: scope.organizationId, orderId, transactionId: transaction.id }).catch(() => undefined)

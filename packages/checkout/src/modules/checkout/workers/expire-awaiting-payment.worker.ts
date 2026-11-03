@@ -111,7 +111,18 @@ export async function expireOneAwaitingPayment(
       // §7.2 step 7 success branch, verbatim: confirm the order, build the C18 lineMap,
       // markConverted, complete the session — then the SAME two events the live path emits
       // alongside `confirmOrderAndComplete`'s own `checkout.session.completed`.
-      await confirmOrderAndComplete(container, em, session, scope, session.salesOrderId, session.salesQuoteId, reservationKeys)
+      await confirmOrderAndComplete(
+        container,
+        em,
+        session,
+        scope,
+        session.salesOrderId,
+        session.salesQuoteId,
+        reservationKeys,
+        transaction
+          ? { amount: transaction.amount, currencyCode: transaction.currencyCode, paymentReference: transaction.gatewayTransactionId ?? transaction.id }
+          : undefined,
+      )
       await writeSessionEvent(em, { ...scope, sessionId: session.id, kind: 'payment_result', actor: 'system', payload: { orderId: session.salesOrderId, outcome: 'succeeded' } })
       await emitCheckoutEvent('checkout.payment.succeeded', {
         sessionId: session.id,

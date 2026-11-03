@@ -7,7 +7,7 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
-import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
@@ -178,7 +178,7 @@ export default function CartAdminDetailPage({ params }: { params?: { id?: string
       await runMutation({
         operation: () =>
           withScopedApiRequestHeaders(buildOptimisticLockHeader(data.cart.updatedAt), () =>
-            apiCall<CartAdminDetailResponse>(`/api/cart/carts/${cartId}/reprice`, {
+            apiCallOrThrow<CartAdminDetailResponse>(`/api/cart/carts/${cartId}/reprice`, {
               method: 'POST',
               body: JSON.stringify({}),
             }),

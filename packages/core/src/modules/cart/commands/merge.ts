@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandBus, CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
@@ -376,7 +377,13 @@ function buildMergeOutcome(
     const matched = targetByKey.get(key)
 
     if (!matched) {
+      // `targetLineId` below must be known before flush so `getAttributionLines` can key a
+      // `CartMergeLog` entry to this line (#8554: a `null` targetLineId made new-product
+      // proposal lines invisible to proposal-contribution attribution) — same client-side-id
+      // precedent as `cart/commands/proposal.ts`'s own pre-assigned cart id.
+      const newLineId = randomUUID()
       const newLine = em.create(CartLine, {
+        id: newLineId,
         organizationId: survivorCart.organizationId,
         tenantId: survivorCart.tenantId,
         cartId: survivorCart.id,
@@ -413,7 +420,7 @@ function buildMergeOutcome(
       })
       nextLineNumber += 1
       newLines.push(newLine)
-      outcome.push({ sourceLineId: sourceLine.id, targetLineId: null, disposition: 'merged' })
+      outcome.push({ sourceLineId: sourceLine.id, targetLineId: newLineId, disposition: 'merged' })
       continue
     }
 

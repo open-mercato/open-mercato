@@ -78,6 +78,11 @@ export function createGatewayPaymentSessionResumeHandler(outcome: GatewayPayment
             session.salesOrderId,
             session.salesQuoteId,
             reservationKeys,
+            {
+              amount: transaction.amount,
+              currencyCode: transaction.currencyCode,
+              paymentReference: transaction.gatewayTransactionId ?? transaction.id,
+            },
           )
           await writeSessionEvent(em, {
             ...scope,

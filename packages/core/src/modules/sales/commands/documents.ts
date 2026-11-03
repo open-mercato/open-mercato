@@ -4718,6 +4718,7 @@ async function undoOrderGraph(
 ): Promise<void> {
   ensureOrderScope(ctx, before.order.organizationId, before.order.tenantId);
   let restored: SalesOrder | undefined;
+  let previousStatus: string | null = null;
   await withVerifiedOrderGraph(
     ctx,
     after,
@@ -4728,7 +4729,9 @@ async function undoOrderGraph(
     },
     async (tx, exists) => {
       if (!exists && after) await throwDocumentUndoStale("order");
-      restored = await restoreOrderGraph(tx, before, exists ? after : null);
+      const result = await restoreOrderGraph(tx, before, exists ? after : null);
+      restored = result.order;
+      previousStatus = result.previousStatus;
       await tx.flush();
     },
   );
@@ -4745,13 +4748,18 @@ async function undoOrderGraph(
     },
     indexer: { entityType: E.sales.sales_order },
   });
+  // #8404: undo only restored the row — it never re-emitted the lifecycle events `execute()`
+  // fires for the same transition (`sales.order.confirmed`/`.cancelled`), so an undone
+  // cancellation left a live, confirmed order with no re-reserved stock or credit. Mirrors
+  // `execute()`'s own call to the SAME function right after its own status write.
+  emitOrderLifecycleEventsForTransition({ order: restored, previousStatus });
 }
 
 async function restoreOrderGraph(
   em: EntityManager,
   snapshot: OrderGraphSnapshot,
   verified: OrderGraphSnapshot | null = null,
-): Promise<SalesOrder> {
+): Promise<{ order: SalesOrder; previousStatus: string | null }> {
   let order = await findOneWithDecryption(
     em,
     SalesOrder,
@@ -4859,6 +4867,13 @@ async function restoreOrderGraph(
     });
     em.persist(order);
   }
+  // Captured BEFORE `applyOrderSnapshot` overwrites `order.status` below — the status the
+  // order actually had right before this restore (e.g. `canceled`, being undone back to
+  // `confirmed`). For a from-scratch recreate (order didn't exist), `order.status` here
+  // already equals the snapshot's own status (set by `em.create` above), so this correctly
+  // comes out equal to the restored status and no lifecycle event fires below (#8404: there
+  // is no real prior live order to resume stock/credit reservations for).
+  const previousStatus = order.status ?? null;
   applyOrderSnapshot(order, snapshot.order);
   await em.flush();
   const existingAdjustments = await em.find(
@@ -5111,7 +5126,7 @@ async function restoreOrderGraph(
     await restorePaymentSnapshot(em, payment);
   }
 
-  return order;
+  return { order, previousStatus };
 }
 
 const createQuoteCommand: CommandHandler<

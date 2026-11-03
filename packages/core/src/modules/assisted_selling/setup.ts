@@ -11,7 +11,10 @@ const logger = createLogger('assisted_selling')
 // stay with `admin` or [are] granted by hand to the reps who sell — the least-privilege line."
 // `messages.post` now exists (`acl.ts`, this Step's own `POST /threads/:id/messages`), so the
 // employee grant gains it: a staff member can see, open and converse in threads, but
-// authoring a priced proposal stays an admin-or-hand-granted capability. Existing tenants need
+// authoring a priced proposal stays an admin-or-hand-granted capability. The thread-detail
+// route/page additionally gates on `cart.proposals.view` (priced proposal data rendered
+// alongside the thread) — the list route doesn't, so without this grant `employee` could see
+// rows in the thread list but got refused opening any of them (#8405). Existing tenants need
 // `yarn mercato auth sync-role-acls` (S20) to pick up this additive grant.
 
 // Same registration shape as `customer_groups/setup.ts`'s own scheduler registration.
@@ -88,7 +91,7 @@ async function registerScheduleWithRetry(
 export const setup: ModuleSetupConfig = {
   defaultRoleFeatures: {
     admin: ['assisted_selling.*'],
-    employee: ['assisted_selling.threads.view', 'assisted_selling.threads.participate', 'assisted_selling.messages.post'],
+    employee: ['assisted_selling.threads.view', 'assisted_selling.threads.participate', 'assisted_selling.messages.post', 'cart.proposals.view'],
   },
 
   // Step 6.1 (§5.10, S7 gap-fill). "Release 5 ships all of §5.10 together with the first
