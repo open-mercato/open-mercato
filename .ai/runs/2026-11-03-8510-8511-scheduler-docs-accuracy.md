@@ -52,4 +52,4 @@ Make `apps/docs/docs/cli/scheduler.mdx` describe only behavior the CLI actually 
 
 ### Phase 3: Validation
 
-- [ ] 3.1 Run the configured validation gate
+- [x] 3.1 Run the configured validation gate — local gate green
