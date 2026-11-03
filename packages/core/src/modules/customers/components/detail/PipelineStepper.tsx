@@ -4,6 +4,7 @@ import * as React from 'react'
 import { Check } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { isTerminalPipelineOutcomeLabel } from './pipelineStageUtils'
 
 type PipelineStageInfo = {
@@ -130,7 +131,7 @@ export function PipelineStepper({
     </div>
   ) : null
 
-  if (!sortedStages.length) return null
+  if (!sortedStages.length) return outcomeSegment
 
   return (
     <div>
@@ -184,10 +185,7 @@ export function PipelineStepper({
               ? currentIndex >= 0 && index <= currentIndex
               : !isCurrent && (transition !== null || (currentIndex >= 0 && index < currentIndex))
             const selectable = canSelectStages && !isCurrent
-            const segmentClassName = cn(
-              'flex w-full min-w-0 flex-col gap-2.5 rounded-sm text-left',
-              selectable && 'cursor-pointer focus-visible:outline-none focus-visible:shadow-focus',
-            )
+            const segmentClassName = 'flex w-full min-w-0 flex-col gap-2.5 rounded-sm text-left'
             const content = (
               <>
                 <span
@@ -214,15 +212,19 @@ export function PipelineStepper({
             return (
               <li key={stage.id} className="min-w-0 flex-1" aria-current={isCurrent ? 'step' : undefined}>
                 {selectable ? (
-                  <button
+                  <Button
                     type="button"
-                    className={cn(segmentClassName, 'group')}
+                    variant="ghost"
+                    className={cn(
+                      segmentClassName,
+                      'group h-auto items-stretch justify-start whitespace-normal p-0 font-normal hover:bg-transparent dark:hover:bg-transparent',
+                    )}
                     onClick={() => {
                       void onStageChange?.(stage.id)
                     }}
                   >
                     {content}
-                  </button>
+                  </Button>
                 ) : (
                   <div className={segmentClassName}>{content}</div>
                 )}
