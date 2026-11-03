@@ -958,6 +958,7 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
       profile.websiteUrl = before.profile.websiteUrl
       profile.industry = before.profile.industry
       profile.sizeBucket = before.profile.sizeBucket
+      profile.taxId = before.profile.taxId
       profile.annualRevenue = before.profile.annualRevenue
     }
 
@@ -1279,6 +1280,7 @@ const deleteCompanyCommand: CommandHandler<
           websiteUrl: before.profile.websiteUrl,
           industry: before.profile.industry,
           sizeBucket: before.profile.sizeBucket,
+          taxId: before.profile.taxId,
           annualRevenue: before.profile.annualRevenue,
         })
         em.persist(profile)
@@ -1289,6 +1291,7 @@ const deleteCompanyCommand: CommandHandler<
         profile.websiteUrl = before.profile.websiteUrl
         profile.industry = before.profile.industry
         profile.sizeBucket = before.profile.sizeBucket
+        profile.taxId = before.profile.taxId
         profile.annualRevenue = before.profile.annualRevenue
       }
 
