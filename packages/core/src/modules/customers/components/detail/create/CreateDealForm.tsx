@@ -20,6 +20,7 @@ import { dealFormSchema } from '../DealForm'
 import { DictionarySelectField } from '../../formConfig'
 import { createDictionarySelectLabels } from '../utils'
 import { DealDetailsFields } from './DealDetailsFields'
+import { selectableDealStages } from './DealStagePath'
 import { DealAssociationsSection } from './DealAssociationsSection'
 import { DealMoreDetails } from './DealMoreDetails'
 import { DealFormField } from './DealFormField'
@@ -87,7 +88,7 @@ type PipelineDefaultsProps = {
  * not the select, because an injected field widget can change the pipeline through
  * `sideEffects`. The previous pipeline's stage is cleared as soon as the pipeline changes,
  * unless the same change also set a stage, and once the new stages load a stage that is not
- * on them is replaced by the first one.
+ * on them is replaced by the first one the picker offers.
  */
 function PipelineDefaults({ pipelineId, pipelineStageId, pipelines, stages, stagesPipelineId, loadStages, setValue }: PipelineDefaultsProps) {
   const pipelineDefaulted = React.useRef(false)
@@ -114,7 +115,7 @@ function PipelineDefaults({ pipelineId, pipelineStageId, pipelines, stages, stag
   React.useEffect(() => {
     if (!pipelineId || stagesPipelineId !== pipelineId) return
     if (stages.some((stage) => stage.id === pipelineStageId)) return
-    const nextStageId = stages[0]?.id ?? ''
+    const nextStageId = selectableDealStages(stages)[0]?.id ?? ''
     if (nextStageId !== pipelineStageId) setValue('pipelineStageId', nextStageId)
   }, [pipelineId, pipelineStageId, setValue, stages, stagesPipelineId])
   return null

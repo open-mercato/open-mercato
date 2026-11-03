@@ -210,6 +210,63 @@ describe('CreateDealForm pipeline defaults', () => {
     )
   })
 
+  describe('terminal stages', () => {
+    const WON = { id: 'stage-won', label: 'Won', order: 0 }
+    const LOST = { id: 'stage-lost', label: 'Lost', order: 1 }
+    const LEAD = { id: 'stage-lead', label: 'Lead', order: 2 }
+
+    function serveDefaultPipelineStages(items: Array<{ id: string; label: string; order: number }>) {
+      const serve = mockApiCall.getMockImplementation() as (url: string) => Promise<unknown>
+      mockApiCall.mockImplementation((url: string) =>
+        url.includes('pipelineId=pipe-default') ? Promise.resolve({ ok: true, result: { items } }) : serve(url),
+      )
+    }
+
+    async function submitWhenReady() {
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Create deal' })).toBeEnabled())
+      submitDeal()
+      await waitFor(() => expect(mockCreateCrud).toHaveBeenCalledTimes(1))
+      return mockCreateCrud.mock.calls[0][1] as Record<string, unknown>
+    }
+
+    it('keeps and submits a seeded terminal stage', async () => {
+      serveDefaultPipelineStages([WON, LOST, LEAD])
+      render(
+        <CreateDealForm
+          returnTo="/backend/customers/deals"
+          initialValues={{ pipelineId: 'pipe-default', pipelineStageId: LOST.id }}
+        />,
+      )
+      await waitFor(() => expect(screen.getByLabelText('Offered stages')).toHaveTextContent('Won,Lost,Lead'))
+
+      expect(screen.getByLabelText('Stage')).toHaveTextContent(LOST.id)
+      expect(await submitWhenReady()).toEqual(
+        expect.objectContaining({ pipelineId: 'pipe-default', pipelineStageId: LOST.id }),
+      )
+    })
+
+    it('defaults to the first stage the picker offers when a terminal stage sorts first', async () => {
+      serveDefaultPipelineStages([WON, LOST, LEAD])
+      render(<CreateDealForm returnTo="/backend/customers/deals" />)
+
+      await waitFor(() => expect(screen.getByLabelText('Stage')).toHaveTextContent(LEAD.id))
+      expect(await submitWhenReady()).toEqual(
+        expect.objectContaining({ pipelineId: 'pipe-default', pipelineStageId: LEAD.id }),
+      )
+    })
+
+    it('submits no stage for a pipeline of terminal stages', async () => {
+      serveDefaultPipelineStages([WON, LOST])
+      render(<CreateDealForm returnTo="/backend/customers/deals" />)
+      await waitFor(() => expect(screen.getByLabelText('Offered stages')).toHaveTextContent('Won,Lost'))
+
+      expect(screen.getByLabelText('Stage')).toBeEmptyDOMElement()
+      const payload = await submitWhenReady()
+      expect(payload.pipelineId).toBe('pipe-default')
+      expect(payload.pipelineStageId).toBeUndefined()
+    })
+  })
+
   it('reloads stages and replaces the stale stage when pipelineId changes without the select', async () => {
     render(<CreateDealForm returnTo="/backend/customers/deals" />)
     await waitFor(() => expect(screen.getByLabelText('Stage')).toHaveTextContent('default-first'))

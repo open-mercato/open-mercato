@@ -17,18 +17,22 @@ export type DealStagePathProps = {
 }
 
 /**
+ * The stages a new deal can sit on, in pipeline order. Won, Lost and Stalled are outcomes rather
+ * than steps, so they are left out, unless one is already selected: a submitted stage is always shown.
+ */
+export function selectableDealStages(stages: PipelineStageOption[], selectedId?: string | null): PipelineStageOption[] {
+  return [...stages]
+    .sort((left, right) => left.order - right.order)
+    .filter((stage) => stage.id === selectedId || !isTerminalPipelineOutcomeLabel(stage.label))
+}
+
+/**
  * Stage picker for a new deal: one numbered pill per stage in pipeline order. Stages before
  * the picked one read as done (check), the picked one is filled, the rest wait in muted
  * outline. Pills wrap instead of truncating so long stage names stay whole.
  */
 export function DealStagePath({ stages, value, onChange, disabled = false, label }: DealStagePathProps) {
-  const orderedStages = React.useMemo(
-    () =>
-      [...stages]
-        .sort((left, right) => left.order - right.order)
-        .filter((stage) => !isTerminalPipelineOutcomeLabel(stage.label)),
-    [stages],
-  )
+  const orderedStages = React.useMemo(() => selectableDealStages(stages, value), [stages, value])
   const currentIndex = orderedStages.findIndex((stage) => stage.id === value)
   if (!orderedStages.length) return null
 

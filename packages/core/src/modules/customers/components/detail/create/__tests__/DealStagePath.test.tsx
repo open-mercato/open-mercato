@@ -21,6 +21,20 @@ describe('DealStagePath', () => {
     expect(screen.queryByRole('button', { name: 'Won' })).toBeNull()
   })
 
+  it('shows a selected terminal stage so a submitted stage is never hidden', () => {
+    render(<DealStagePath stages={stages} value="won" onChange={jest.fn()} label="Sales" />)
+
+    expect(screen.getAllByRole('listitem').map((item) => item.textContent)).toEqual(['Lead', 'Qualified', 'Offering', '4Won'])
+    expect(screen.getByRole('button', { name: /Won/ })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('renders nothing for a pipeline of terminal stages with none selected', () => {
+    const { container } = render(
+      <DealStagePath stages={[{ id: 'won', label: 'Won', order: 0 }, { id: 'lost', label: 'Lost', order: 1 }]} value="" onChange={jest.fn()} label="Sales" />,
+    )
+    expect(container).toBeEmptyDOMElement()
+  })
+
   it('marks the picked stage as current and the earlier ones as done', () => {
     render(<DealStagePath stages={stages} value="qualified" onChange={jest.fn()} label="Sales" />)
 
