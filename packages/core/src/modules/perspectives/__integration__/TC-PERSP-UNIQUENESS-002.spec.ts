@@ -1,0 +1,148 @@
+import { expect, test } from '@playwright/test';
+import type { APIRequestContext } from '@playwright/test';
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
+import { login } from '@open-mercato/core/helpers/integration/auth';
+import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
+import { isStandaloneIntegration } from '@open-mercato/core/helpers/integration/standaloneEnv';
+
+export const integrationMeta = {
+  dependsOnModules: ['perspectives', 'customers'],
+};
+
+type SavedPerspective = { id?: string; name?: string; settings?: Record<string, unknown> };
+type SaveResponse = { perspective?: SavedPerspective; code?: string };
+type StateResponse = { perspectives?: SavedPerspective[] };
+
+async function createView(
+  request: APIRequestContext,
+  token: string,
+  tableId: string,
+  name: string,
+  settings: Record<string, unknown>,
+): Promise<string> {
+  const res = await apiRequest(request, 'POST', `/api/perspectives/${encodeURIComponent(tableId)}`, {
+    token,
+    data: { name, settings },
+  });
+  expect(res.status(), 'fixture view create').toBe(200);
+  const body = await readJsonSafe<SaveResponse>(res);
+  const id = body?.perspective?.id ?? null;
+  expect(typeof id, 'fixture view id').toBe('string');
+  return id as string;
+}
+
+async function listViews(
+  request: APIRequestContext,
+  token: string,
+  tableId: string,
+  name: string,
+): Promise<SavedPerspective[]> {
+  const res = await apiRequest(request, 'GET', `/api/perspectives/${encodeURIComponent(tableId)}`, { token });
+  expect(res.status(), 'load views').toBe(200);
+  const body = await readJsonSafe<StateResponse>(res);
+  return (body?.perspectives ?? []).filter((view) => view.name === name);
+}
+
+async function deleteViews(request: APIRequestContext, token: string, tableId: string, ids: string[]) {
+  for (const id of ids) {
+    await apiRequest(request, 'DELETE', `/api/perspectives/${encodeURIComponent(tableId)}/${encodeURIComponent(id)}`, { token }).catch(() => {});
+  }
+}
+
+/**
+ * TC-PERSP-UNIQUENESS-002: saving a NEW view under the name of an existing
+ * personal view must not overwrite that view.
+ *
+ * Without `perspectiveId` the save endpoint upserts by name. The Views panel's
+ * "New" form and the imperative save-as-new path send `createOnly: true`, so a
+ * name collision is rejected with 409 `duplicate_name` instead of silently
+ * replacing the existing view's settings. Callers that omit the flag keep the
+ * upsert-by-name behaviour.
+ */
+test.describe('TC-PERSP-UNIQUENESS-002: save-as-new does not overwrite a same-named view', () => {
+  test('API: createOnly rejects a taken name and leaves the view intact; upsert without the flag is unchanged', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin');
+    const stamp = Date.now();
+    const tableId = `qa-persp-unique-002-${stamp}`;
+    const name = `QA Save New ${stamp}`;
+    const createdIds: string[] = [];
+
+    try {
+      const existingId = await createView(request, token, tableId, name, { pageSize: 20 });
+      createdIds.push(existingId);
+
+      const collide = await apiRequest(request, 'POST', `/api/perspectives/${encodeURIComponent(tableId)}`, {
+        token,
+        data: { name, settings: { pageSize: 50 }, createOnly: true },
+      });
+      expect(collide.status(), 'create-only with a taken name').toBe(409);
+      const collideBody = await readJsonSafe<SaveResponse>(collide);
+      expect(collideBody?.code).toBe('duplicate_name');
+
+      const afterCollide = await listViews(request, token, tableId, name);
+      expect(afterCollide, 'still exactly one view with that name').toHaveLength(1);
+      expect(afterCollide[0].id).toBe(existingId);
+      expect(afterCollide[0].settings?.pageSize, 'existing settings untouched').toBe(20);
+
+      const upsert = await apiRequest(request, 'POST', `/api/perspectives/${encodeURIComponent(tableId)}`, {
+        token,
+        data: { name, settings: { pageSize: 30 } },
+      });
+      expect(upsert.status(), 'upsert by name without createOnly').toBe(200);
+      const upsertBody = await readJsonSafe<SaveResponse>(upsert);
+      expect(upsertBody?.perspective?.id, 'upsert keeps updating the same row').toBe(existingId);
+      expect(upsertBody?.perspective?.settings?.pageSize).toBe(30);
+
+      const freshName = `${name} fresh`;
+      const fresh = await apiRequest(request, 'POST', `/api/perspectives/${encodeURIComponent(tableId)}`, {
+        token,
+        data: { name: freshName, settings: { pageSize: 40 }, createOnly: true },
+      });
+      expect(fresh.status(), 'create-only with a free name').toBe(200);
+      const freshBody = await readJsonSafe<SaveResponse>(fresh);
+      const freshId = freshBody?.perspective?.id ?? null;
+      expect(typeof freshId).toBe('string');
+      expect(freshId).not.toBe(existingId);
+      createdIds.push(freshId as string);
+    } finally {
+      await deleteViews(request, token, tableId, createdIds);
+    }
+  });
+
+  test('UI: the Views panel New form shows a duplicate-name error instead of overwriting', async ({ page, request }) => {
+    test.skip(isStandaloneIntegration(), 'Standalone smoke runs omit this monorepo-only Views panel check.');
+
+    const token = await getAuthToken(request, 'admin');
+    const stamp = Date.now();
+    const tableId = 'customers.people.list';
+    const name = `QA TC-PERSP-UNIQUENESS-002 ${stamp}`;
+    const createdIds: string[] = [];
+
+    try {
+      const existingId = await createView(request, token, tableId, name, { pageSize: 20, searchValue: `keep-${stamp}` });
+      createdIds.push(existingId);
+
+      await login(page, 'admin');
+      await page.goto('/backend/customers/people', { waitUntil: 'domcontentloaded' });
+      await page.getByText('Loading table', { exact: false }).waitFor({ state: 'hidden', timeout: 10_000 }).catch(() => {});
+
+      await page.getByTestId('data-table-open-views-sidebar').first().click();
+      await expect(page.getByRole('button', { name: 'Close', exact: true })).toBeVisible();
+      await page.getByRole('button', { name: 'New', exact: true }).click();
+      const nameInput = page.getByPlaceholder('View name...');
+      await nameInput.fill(name);
+      await page.getByRole('button', { name: 'Create view' }).click();
+
+      await expect(page.getByText('View with this name already exists')).toBeVisible();
+      await expect(nameInput).toHaveValue(name);
+
+      const views = await listViews(request, token, tableId, name);
+      expect(views, 'no second view and no overwrite').toHaveLength(1);
+      expect(views[0].id).toBe(existingId);
+      expect(views[0].settings?.searchValue, 'existing view settings untouched').toBe(`keep-${stamp}`);
+      expect(views[0].settings?.pageSize).toBe(20);
+    } finally {
+      await deleteViews(request, token, tableId, createdIds);
+    }
+  });
+});

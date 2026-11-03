@@ -177,6 +177,62 @@ describe('saveUserPerspective optimistic locking (#2055 saved views)', () => {
   })
 })
 
+describe('saveUserPerspective without perspectiveId when the name is already taken', () => {
+  beforeEach(() => {
+    delete process.env.OM_OPTIMISTIC_LOCK
+  })
+
+  it('rejects a create-only save with 409 duplicate_name and leaves the existing view untouched', async () => {
+    const entity = { ...existingEntity(), settingsJson: { original: true } }
+    const em = makeEm(entity)
+    let caught: unknown
+    try {
+      await saveUserPerspective(em as never, null, {
+        scope,
+        tableId: 'customers',
+        input: { name: 'My View', settings: { pageSize: 50 }, createOnly: true },
+        request: requestWithHeader(),
+      })
+    } catch (err) {
+      caught = err
+    }
+    expectConflict(caught)
+    expect((caught as { body: { code?: string } }).body.code).toBe('duplicate_name')
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(em.create).not.toHaveBeenCalled()
+    expect(entity.settingsJson).toEqual({ original: true })
+    expect(entity.updatedAt).toEqual(new Date(CURRENT_VERSION))
+  })
+
+  it('creates a new view on a create-only save when no active view has that name', async () => {
+    const em = makeEm(null)
+    const saved = await saveUserPerspective(em as never, null, {
+      scope,
+      tableId: 'customers',
+      input: { name: 'My View', settings: { pageSize: 50 }, createOnly: true },
+      request: requestWithHeader(),
+    })
+    expect(em.create).toHaveBeenCalledTimes(1)
+    expect(em.flush).toHaveBeenCalled()
+    expect(saved.name).toBe('My View')
+  })
+
+  it('keeps updating a name-matched view in place when createOnly is not set', async () => {
+    const entity = { ...existingEntity(), settingsJson: { original: true } }
+    const em = makeEm(entity)
+    const saved = await saveUserPerspective(em as never, null, {
+      scope,
+      tableId: 'customers',
+      input: { name: 'My View', settings: { pageSize: 50 } },
+      request: requestWithHeader(),
+    })
+    expect(em.create).not.toHaveBeenCalled()
+    expect(em.flush).toHaveBeenCalled()
+    expect(saved.id).toBe(PERSPECTIVE_ID)
+    expect(entity.settingsJson).toEqual({ pageSize: 50 })
+  })
+})
+
 describe('perspectives delete and role defaults optimistic locking (#3275)', () => {
   beforeEach(() => {
     delete process.env.OM_OPTIMISTIC_LOCK

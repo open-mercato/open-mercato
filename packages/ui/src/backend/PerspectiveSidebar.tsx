@@ -33,7 +33,7 @@ export type PerspectiveSidebarProps = {
   onActivatePerspective: (perspective: PerspectiveDto | RolePerspectiveDto, source: 'personal' | 'role') => void
   onDeletePerspective: (perspectiveId: string) => Promise<void>
   onClearRole: (perspective: RolePerspectiveDto) => Promise<void>
-  onSave: (input: { name: string; isDefault: boolean; applyToRoles: string[]; setRoleDefault: boolean; perspectiveId?: string | null; settings?: PerspectiveSettings }) => Promise<void>
+  onSave: (input: { name: string; isDefault: boolean; applyToRoles: string[]; setRoleDefault: boolean; perspectiveId?: string | null; settings?: PerspectiveSettings; createOnly?: boolean }) => Promise<void>
   canApplyToRoles: boolean
   availableColumns: ColumnChooserField[]
   visibleColumnKeys: string[]
@@ -44,6 +44,10 @@ export type PerspectiveSidebarProps = {
   deletingIds: string[]
   roleClearingIds: string[]
   apiWarning?: string | null
+}
+
+function isDuplicateNameError(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { code?: unknown }).code === 'duplicate_name'
 }
 
 const emptyArray: any[] = []
@@ -251,10 +255,14 @@ export function PerspectiveSidebar({
   const handleSaveNew = async () => {
     setError(null)
     try {
-      await onSave({ name: name.trim(), isDefault, applyToRoles: [], setRoleDefault: false, perspectiveId: null })
+      await onSave({ name: name.trim(), isDefault, applyToRoles: [], setRoleDefault: false, perspectiveId: null, createOnly: true })
       resetMode()
     } catch (err: unknown) {
       if (surfaceRecordConflict(err, t)) return
+      if (isDuplicateNameError(err)) {
+        setError(t('ui.perspectives.error.nameExists', 'View with this name already exists'))
+        return
+      }
       setError(err instanceof Error ? err.message : 'Failed to save view')
     }
   }
@@ -331,13 +339,14 @@ export function PerspectiveSidebar({
           setRoleDefault: false,
           perspectiveId: null,
           settings: clonedSettings,
+          createOnly: true,
         })
         setPendingCloneBaselineIds(baseline)
         return
       } catch (err: unknown) {
         const errMessage = err instanceof Error ? err.message : ''
         const msg = errMessage.toLowerCase()
-        const isDuplicate = msg.includes('duplicate key') || msg.includes('unique constraint')
+        const isDuplicate = isDuplicateNameError(err) || msg.includes('duplicate key') || msg.includes('unique constraint')
         if (!isDuplicate) {
           if (surfaceRecordConflict(err, t)) return
           setError(errMessage || 'Failed to clone view')

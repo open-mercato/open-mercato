@@ -2320,6 +2320,7 @@ function DataTableImpl<T extends RowData>({
     setRoleDefault: boolean
     perspectiveId?: string | null
     settings?: PerspectiveSettings
+    createOnly?: boolean
   }
 
   const perspectiveQueryKey: [string, string | null] = ['table-perspectives', perspectiveTableId]
@@ -2373,6 +2374,7 @@ function DataTableImpl<T extends RowData>({
         isDefault: input.isDefault,
         applyToRoles: input.applyToRoles,
         setRoleDefault: input.setRoleDefault,
+        ...(input.createOnly ? { createOnly: true } : {}),
         ...(Object.keys(roleExpectedUpdatedAtByRoleId).length > 0
           ? { roleExpectedUpdatedAtByRoleId }
           : {}),
@@ -2568,7 +2570,7 @@ function DataTableImpl<T extends RowData>({
     applyPerspectiveSettings(item.settings, item.id)
   }, [applyPerspectiveSettings])
 
-  const handlePerspectiveSave = React.useCallback(async (input: { name: string; isDefault: boolean; applyToRoles: string[]; setRoleDefault: boolean; perspectiveId?: string | null; settings?: PerspectiveSettings }) => {
+  const handlePerspectiveSave = React.useCallback(async (input: { name: string; isDefault: boolean; applyToRoles: string[]; setRoleDefault: boolean; perspectiveId?: string | null; settings?: PerspectiveSettings; createOnly?: boolean }) => {
     const normalizedRoles = Array.from(new Set(input.applyToRoles))
     await savePerspectiveMutation.mutateAsync({
       name: input.name.trim(),
@@ -2577,6 +2579,7 @@ function DataTableImpl<T extends RowData>({
       setRoleDefault: normalizedRoles.length > 0 ? input.setRoleDefault : false,
       perspectiveId: input.perspectiveId !== undefined ? input.perspectiveId : activePersonalPerspectiveId,
       settings: input.settings,
+      createOnly: input.createOnly,
     })
   }, [savePerspectiveMutation, activePersonalPerspectiveId])
 
@@ -2690,6 +2693,7 @@ function DataTableImpl<T extends RowData>({
         applyToRoles: [],
         setRoleDefault: false,
         perspectiveId: targetId ?? null,
+        createOnly: input?.perspectiveId === null,
       })
       return { ok: true, perspectiveId: saved?.perspective?.id ?? null }
     } catch (error) {
