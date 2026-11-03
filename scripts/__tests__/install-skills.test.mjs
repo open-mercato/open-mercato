@@ -332,6 +332,35 @@ describe('install-skills', () => {
     assert.doesNotMatch(logs.join('\n'), /replaces the external collection's copy/)
   })
 
+  it('migrates the shipped analysis skills from local links to collection copies', () => {
+    const manifest = JSON.parse(readFileSync(new URL('../../.ai/skills/tiers.json', import.meta.url), 'utf8'))
+    const analysisSkills = ['om-app-spec-writing', 'om-gap-analysis']
+    for (const skill of analysisSkills) {
+      assert.ok(manifest.external.skills.includes(skill), `${skill} belongs to the collection`)
+      assert.ok(!Object.values(manifest.tiers).some((tier) => tier.skills.includes(skill)), `${skill} has no local tier`)
+    }
+    const localSkills = Object.values(manifest.tiers).flatMap((tier) => tier.skills)
+    const fixtureRoot = makeFixtureRepo({ manifest, skills: [...localSkills, ...analysisSkills] })
+    const canonicalRoot = join(fixtureRoot, '.agents', 'skills')
+    mkdirSync(canonicalRoot, { recursive: true })
+    for (const skill of analysisSkills) {
+      symlinkSync(resolve(fixtureRoot, '.ai', 'skills', skill), join(canonicalRoot, skill), 'junction')
+    }
+    const { installer } = makeInstaller(fixtureRoot, {
+      runNpx: collectionNpx(fixtureRoot, manifest.external.skills),
+    })
+    assert.equal(installer.run([]), 0)
+    assert.equal(installer.run(['--no-external', '--with', 'analysis']), 0)
+    for (const skill of analysisSkills) {
+      const canonical = join(canonicalRoot, skill)
+      assert.ok(!isLink(canonical), `${skill} uses the collection directory`)
+      assert.equal(readFileSync(join(canonical, 'SKILL.md'), 'utf8'), '# external copy\n')
+      assert.equal(realpathSync(join(fixtureRoot, '.claude', 'skills', skill)), realpathSync(canonical))
+      assert.equal(readFileSync(join(fixtureRoot, '.ai', 'skills', skill, 'SKILL.md'), 'utf8'), `# ${skill}\n`)
+    }
+    assert.ok(isLink(join(canonicalRoot, 'om-wcag-guardian')), 'analysis remains a valid opt-in tier')
+  })
+
   it('skips the external step when npx is unavailable', () => {
     const { installer, logs, warnings } = makeInstaller(rootDir, { runNpx: () => null })
     assert.equal(installer.run([]), 0)
