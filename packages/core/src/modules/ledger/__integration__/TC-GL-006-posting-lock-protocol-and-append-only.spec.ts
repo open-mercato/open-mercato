@@ -45,6 +45,11 @@ import {
  *      not contain the in-flight lines, and so changed the number of an
  *      account that had posted lines (200).
  *
+ * The third test plays the other direction for a create: a second connection
+ * renumbers the type (402 -> 411) and keeps its transaction open; the create
+ * of account 402-05 through the API waits on the type's `for share` lock,
+ * then re-reads the committed number and is refused (400).
+ *
  * The last two tests check the append-only trigger on `journal_entries` and
  * `journal_entry_lines` against the real database, including its one
  * exception: an UPDATE of a line that changes only `contractor_snapshot`
@@ -204,6 +209,50 @@ test.describe('TC-GL-006: posting lock protocol and append-only entries', () => 
       });
       const body = (await accounts.json()) as { items?: Array<{ number?: string }> };
       expect(body.items?.[0]?.number, 'no account was renumbered by the rejected update').toBe('402-01');
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  test('an account create waits for an in-flight type renumber and is checked against the new number', async ({ request }) => {
+    const fx = await createFixture(request, 'TC-GL-006 create');
+    try {
+      let pending: ReturnType<typeof apiRequest> | null = null;
+      let settled = false;
+      await withClient(async (client) => {
+        await client.query('begin');
+        try {
+          await client.query(`update ledger_account_types set number = '411' where id = $1`, [fx.typeId]);
+          await client.query(
+            `update ledger_accounts set number = '411' || substring(number from 4) where account_type_id = $1`,
+            [fx.typeId],
+          );
+          pending = apiRequest(request, 'POST', '/api/ledger/accounts', {
+            token: fx.token,
+            headers: fx.headers,
+            data: { organizationId: fx.organizationId, tenantId: fx.tenantId, number: '402-05', accountTypeId: fx.typeId },
+          });
+          pending.then(
+            () => { settled = true; },
+            () => { settled = true; },
+          );
+          await new Promise((resolve) => setTimeout(resolve, WAIT_MS));
+          expect(settled, 'the create is blocked while the type renumber is uncommitted').toBe(false);
+          await client.query('commit');
+        } catch (error) {
+          await client.query('rollback');
+          throw error;
+        }
+      });
+      const response = await (pending as unknown as ReturnType<typeof apiRequest>);
+      expect(response.status(), 'the create re-reads the committed type number 411 and refuses 402-05 (400)').toBe(400);
+
+      const after = await apiRequest(request, 'GET', `/api/ledger/accounts?accountTypeId=${encodeURIComponent(fx.typeId)}`, {
+        token: fx.token,
+        headers: fx.headers,
+      });
+      const body = (await after.json()) as { items?: Array<{ number?: string }> };
+      expect(body.items?.map((item) => item.number).sort(), 'only the renumbered accounts exist').toEqual(['411-01', '411-03']);
     } finally {
       await fx.cleanup();
     }
