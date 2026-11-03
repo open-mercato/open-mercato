@@ -75,6 +75,32 @@ CACHE_SQLITE_PATH=./.mercato/cache/cache.db
 CACHE_JSON_FILE_PATH=./.mercato/cache/cache.json
 ```
 
+### `CACHE_COMPRESSION`
+
+**Description:** Compresses cache values stored by the `redis` and `sqlite` strategies. Reads always detect the stored format, so entries written under any setting stay readable. Enable it only once every instance runs a version that supports it, and switch it back to `off` before rolling back.
+
+**Values:** `off` | `zstd` | `gzip`
+
+**Default:** `off`
+
+**Example:**
+```bash
+CACHE_COMPRESSION=zstd
+```
+
+### `CACHE_COMPRESSION_MIN_BYTES`
+
+**Description:** Smallest serialized entry, in bytes, that gets compressed. Smaller entries stay plain JSON.
+
+**Type:** Number (bytes)
+
+**Default:** `1024`
+
+**Example:**
+```bash
+CACHE_COMPRESSION_MIN_BYTES=1024
+```
+
 ## Example Configurations
 
 ### Development (In-Memory)

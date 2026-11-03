@@ -1,5 +1,6 @@
 import { Pool } from 'pg'
 import { searchDebugWarn, searchWarn } from '../../../lib/debug'
+import { compileIndexDocFilterExists, compileSearchScopePredicate } from '../../../lib/index-doc-filter'
 
 type PgPoolQueryResult<T> = { rows: T[]; rowCount?: number }
 type PgPoolClient = {
@@ -412,6 +413,8 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
     if (normalizedOrganizationIds && normalizedOrganizationIds.length === 0) {
       return []
     }
+    const { resolveQueryIndexSearchScope, buildQueryIndexSearchScopePredicate } = await import('@open-mercato/core/modules/query_index/lib/search-scope')
+    const scope = await resolveQueryIndexSearchScope()
     const params: any[] = [
       vectorLiteral,
       DRIVER_ID,
@@ -420,6 +423,21 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
       Array.isArray(filter.entityIds) && filter.entityIds.length ? filter.entityIds : null,
       input.limit ?? 20,
     ]
+    const sourceScopeClause = compileSearchScopePredicate(buildQueryIndexSearchScopePredicate(scope, { entityTypeRef: `${tableName}.entity_id`, recordIdRef: `${tableName}.record_id`, organizationIdRef: `${tableName}.organization_id` }, filter.tenantId), params.length + 1)
+    params.push(...sourceScopeClause.parameters)
+    const indexDocClause = filter.indexDocFilter
+      ? compileIndexDocFilterExists(
+          filter.indexDocFilter,
+          {
+            entityTypeRef: `${tableName}.entity_id`,
+            recordIdRef: `${tableName}.record_id`,
+            tenantIdRef: `${tableName}.tenant_id`,
+            tenantGlobalEntityTypes: scope.tenantGlobalEntityTypes,
+          },
+          params.length + 1,
+        )
+      : null
+    if (indexDocClause) params.push(...indexDocClause.parameters)
     const res = await pool.query<{
       entity_id: string
       record_id: string
@@ -463,6 +481,8 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
           AND (
             $5::text[] IS NULL OR entity_id = ANY($5::text[])
           )
+          AND ${sourceScopeClause.sql}
+          ${indexDocClause ? `AND ${indexDocClause.sql}` : ''}
         ORDER BY embedding <=> $1::vector
         LIMIT $6
       `,
@@ -706,6 +726,7 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
 
   return {
     id: 'pgvector',
+    supportsIndexDocFilter: true,
     ensureReady,
     isHealthy,
     getStatus,

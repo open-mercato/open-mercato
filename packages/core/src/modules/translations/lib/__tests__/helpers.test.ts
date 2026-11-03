@@ -5,6 +5,7 @@ import {
   getRecordLabel,
   resolveBaseValue,
 } from '../helpers'
+import { registerTranslatableEntityListPath } from '@open-mercato/shared/lib/localization/translatable-fields'
 
 describe('translation helpers', () => {
   describe('formatFieldLabel', () => {
@@ -134,6 +135,17 @@ describe('translation helpers', () => {
 
     it('handles entity with underscores and plural exception', () => {
       expect(buildEntityListUrl('dictionaries:dictionary_entry')).toBe('/api/dictionaries/dictionary-entries')
+    })
+
+    it('honors a registered list path override over the derived URL', () => {
+      registerTranslatableEntityListPath('test:override_entity', '/api/test/custom-route')
+      expect(buildEntityListUrl('test:override_entity')).toBe('/api/test/custom-route')
+    })
+
+    it('keeps deriving the URL for entity types without an override', () => {
+      registerTranslatableEntityListPath('test:override_entity', '/api/test/custom-route')
+      expect(buildEntityListUrl('test:other_entity')).toBe('/api/test/other-entities')
+      expect(buildEntityListUrl('catalog:catalog_product')).toBe('/api/catalog/products')
     })
   })
 

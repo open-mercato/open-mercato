@@ -2,16 +2,24 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
-import type { IntegrationScope } from '@open-mercato/shared/modules/integrations/types'
+import {
+  clearRegisteredIntegrations,
+  registerIntegration,
+  type IntegrationScope,
+} from '@open-mercato/shared/modules/integrations/types'
 import { decryptWithAesGcm, encryptWithAesGcm, generateDek } from '@open-mercato/shared/lib/encryption/aes'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { IntegrationCredentials } from '../../data/entities'
 import {
   buildCredentialsFilter,
+  bundleFallthroughId,
   createCredentialsService,
   CredentialsEncryptionUnavailableError,
   ensureCredentialsEncryptionMap,
+  eraseIntegrationCredentials,
+  isReservedOAuthGrantId,
+  readCredentialRowLayered,
 } from '../credentials-service'
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
@@ -396,5 +404,370 @@ describe('getRaw per-user → tenant-wide fallback', () => {
 
     await expect(service.getRaw('sync_excel', scope)).resolves.toBeNull()
     expect(mockFindOneWithDecryption).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('createCredentialsService kms option', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  function optionKms(dek: string) {
+    return {
+      isHealthy: () => true,
+      getTenantDek: jest.fn(async (tenantId: string) => ({ tenantId, key: dek, fetchedAt: Date.now() })),
+      createTenantDek: jest.fn(async () => null),
+    }
+  }
+
+  it('seals with the option KMS while the second parameter stays the map invalidator', async () => {
+    const optionDek = generateDek()
+    mockKms(generateDek())
+    mockFindOneWithDecryption.mockResolvedValue(null)
+    const kms = optionKms(optionDek)
+    const invalidateMap = jest.fn(async () => undefined)
+    const { em, persisted } = createMockEntityManager()
+    const service = createCredentialsService(em as never, { invalidateMap }, { kms })
+
+    await service.save('gateway_test', { apiKey: 'sk_test_secret' }, scope)
+
+    const row = persisted[0] as { credentials: Record<string, unknown> }
+    const decrypted = decryptWithAesGcm(String(row.credentials[encryptedBlobKey]), optionDek)
+    expect(JSON.parse(String(decrypted))).toEqual({ apiKey: 'sk_test_secret' })
+    expect(mockCreateKmsService).not.toHaveBeenCalled()
+    expect(kms.getTenantDek).toHaveBeenCalledWith(scope.tenantId)
+    expect(invalidateMap).toHaveBeenCalledWith('integrations:integration_credentials', scope.tenantId, scope.organizationId)
+  })
+
+  it('opens the envelope on getRaw with the option KMS', async () => {
+    const optionDek = generateDek()
+    const encrypted = encryptWithAesGcm(JSON.stringify({ apiKey: 'sk_test_secret' }), optionDek).value
+    mockFindOneWithDecryption.mockResolvedValue({ credentials: { [encryptedBlobKey]: encrypted } } as never)
+    const { em } = createMockEntityManager()
+    const service = createCredentialsService(em as never, null, { kms: optionKms(optionDek) })
+
+    await expect(service.getRaw('gateway_test', scope)).resolves.toEqual({ apiKey: 'sk_test_secret' })
+    expect(mockCreateKmsService).not.toHaveBeenCalled()
+  })
+})
+
+describe('ensureCredentialsEncryptionMap when-not-canonical', () => {
+  it('reads the live map and skips the upsert and the invalidation when it is canonical', async () => {
+    const execute = jest.fn(async () => [{ id: 'canonical-map' }])
+    const invalidateMap = jest.fn(async () => undefined)
+    const deferred: Array<() => void | Promise<void>> = []
+
+    await ensureCredentialsEncryptionMap({ execute } as never, scope, { invalidateMap }, {
+      ensureEncryptionMap: 'when-not-canonical',
+      deferAfterCommit: (callback) => deferred.push(callback),
+    })
+
+    expect(execute).toHaveBeenCalledTimes(1)
+    const [sql, params] = execute.mock.calls[0] as unknown as [string, unknown[]]
+    expect(sql).toMatch(/^\s*select/i)
+    expect(sql).not.toContain('on conflict')
+    expect(params).toEqual([
+      'integrations:integration_credentials',
+      scope.tenantId,
+      scope.organizationId,
+      JSON.stringify([{ field: 'credentials' }]),
+    ])
+    expect(deferred).toHaveLength(0)
+    expect(invalidateMap).not.toHaveBeenCalled()
+  })
+
+  it('upserts and defers the invalidation when the live map is missing, inactive or not canonical', async () => {
+    const execute = jest.fn(async (sql: string) => (
+      String(sql).includes('on conflict') ? [{ id: 'canonical-map', updated_at: new Date() }] : []
+    ))
+    const invalidateMap = jest.fn(async () => undefined)
+    const deferred: Array<() => void | Promise<void>> = []
+
+    await ensureCredentialsEncryptionMap({ execute } as never, scope, { invalidateMap }, {
+      ensureEncryptionMap: 'when-not-canonical',
+      deferAfterCommit: (callback) => deferred.push(callback),
+    })
+
+    expect(execute).toHaveBeenCalledTimes(2)
+    expect(String(execute.mock.calls[1]?.[0])).toContain('on conflict')
+    expect(deferred).toHaveLength(1)
+    await deferred[0]?.()
+    expect(invalidateMap).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps upserting without a read by default', async () => {
+    const execute = jest.fn(async () => [{ id: 'canonical-map', updated_at: new Date() }])
+
+    await ensureCredentialsEncryptionMap({ execute } as never, scope, { invalidateMap: jest.fn(async () => undefined) })
+
+    expect(execute).toHaveBeenCalledTimes(1)
+    expect(String((execute.mock.calls[0] as unknown as [string])[0])).toContain('on conflict')
+  })
+})
+
+describe('eraseIntegrationCredentials', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  function createEraseEntityManager(found: { id: string } | null) {
+    const managed = { id: found?.id, credentials: { apiKey: 'sk_test_secret' } as Record<string, unknown>, deletedAt: null as Date | null }
+    const em = {
+      findOne: jest.fn(async () => found),
+      getReference: jest.fn(() => managed),
+      flush: jest.fn(async () => undefined),
+    }
+    return { em, managed }
+  }
+
+  it('blanks and soft-deletes the strict row found by an id-only lookup, without a DEK', async () => {
+    const { em, managed } = createEraseEntityManager({ id: 'row-1' })
+
+    await expect(eraseIntegrationCredentials(em as never, 'gateway_test', scope)).resolves.toBe(true)
+
+    expect(em.findOne).toHaveBeenCalledWith(
+      IntegrationCredentials,
+      buildCredentialsFilter('gateway_test', scope),
+      { fields: ['id', 'tenantId', 'organizationId'] },
+    )
+    expect(em.getReference).toHaveBeenCalledWith(IntegrationCredentials, 'row-1')
+    expect(managed.credentials).toEqual({})
+    expect(managed.deletedAt).toBeInstanceOf(Date)
+    expect(em.flush).toHaveBeenCalledTimes(1)
+    expect(mockFindOneWithDecryption).not.toHaveBeenCalled()
+    expect(mockCreateKmsService).not.toHaveBeenCalled()
+  })
+
+  it('returns false without a flush when no live row exists', async () => {
+    const { em } = createEraseEntityManager(null)
+
+    await expect(eraseIntegrationCredentials(em as never, 'gateway_test', scope)).resolves.toBe(false)
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('keeps the lookup strict for a per-user scope', async () => {
+    const { em } = createEraseEntityManager(null)
+    const userScope = { ...scope, userId: 'user-a' }
+
+    await eraseIntegrationCredentials(em as never, 'gateway_test', userScope)
+
+    expect(em.findOne).toHaveBeenCalledTimes(1)
+    expect((em.findOne.mock.calls[0] as unknown as [unknown, { userId?: unknown }])[1].userId).toBe('user-a')
+  })
+})
+
+describe('readCredentialRowLayered', () => {
+  const previousToggle = process.env.TENANT_DATA_ENCRYPTION
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    process.env.TENANT_DATA_ENCRYPTION = 'yes'
+  })
+
+  afterEach(() => {
+    if (previousToggle === undefined) delete process.env.TENANT_DATA_ENCRYPTION
+    else process.env.TENANT_DATA_ENCRYPTION = previousToggle
+  })
+
+  type Stub = { apiKey: string }
+  const validate = (value: Record<string, unknown>): Stub | null => (
+    typeof value.apiKey === 'string' ? { apiKey: value.apiKey } : null
+  )
+
+  function readKms(dek: string | null) {
+    return {
+      isHealthy: () => true,
+      getTenantDek: jest.fn(async (tenantId: string) => dek ? { tenantId, key: dek, fetchedAt: Date.now() } : null),
+      createTenantDek: jest.fn(async () => null),
+    }
+  }
+
+  function storedRow(credentials: unknown) {
+    mockFindOneWithDecryption.mockResolvedValue({ id: 'row-1', credentials } as never)
+  }
+
+  function sealed(value: unknown, dek: string) {
+    return { [encryptedBlobKey]: encryptWithAesGcm(JSON.stringify(value), dek).value }
+  }
+
+  it('reads the strict row and returns none when it is missing', async () => {
+    mockFindOneWithDecryption.mockResolvedValue(null)
+    const userScope = { ...scope, userId: 'user-a' }
+
+    await expect(readCredentialRowLayered({} as never, 'gateway_test', userScope, { kms: readKms(null), validate }))
+      .resolves.toEqual({ kind: 'none' })
+    expect(mockFindOneWithDecryption).toHaveBeenCalledTimes(1)
+    expect((mockFindOneWithDecryption.mock.calls[0][2] as { userId?: unknown }).userId).toBe('user-a')
+  })
+
+  it('returns field_ciphertext when the field-level layer stayed sealed', async () => {
+    storedRow(encryptWithAesGcm(JSON.stringify({ apiKey: 'x' }), generateDek()).value)
+    const kms = readKms(generateDek())
+
+    await expect(readCredentialRowLayered({} as never, 'gateway_test', scope, { kms, validate }))
+      .resolves.toEqual({ kind: 'field_ciphertext', rowId: 'row-1' })
+    expect(kms.getTenantDek).not.toHaveBeenCalled()
+  })
+
+  it('returns no_dek when the KMS has no key, and sealed-while-disabled with encryption off', async () => {
+    storedRow(sealed({ apiKey: 'x' }, generateDek()))
+
+    const missingKeyKms = readKms(null)
+    await expect(readCredentialRowLayered({} as never, 'gateway_test', scope, { kms: missingKeyKms, validate }))
+      .resolves.toEqual({ kind: 'no_dek', rowId: 'row-1', reason: 'no-dek' })
+    expect(missingKeyKms.createTenantDek).not.toHaveBeenCalled()
+
+    process.env.TENANT_DATA_ENCRYPTION = 'no'
+    await expect(readCredentialRowLayered({} as never, 'gateway_test', scope, { kms: readKms(generateDek()), validate }))
+      .resolves.toEqual({ kind: 'no_dek', rowId: 'row-1', reason: 'sealed-while-disabled' })
+  })
+
+  it('returns envelope_undecryptable when the envelope does not open under the DEK', async () => {
+    storedRow(sealed({ apiKey: 'x' }, generateDek()))
+
+    await expect(readCredentialRowLayered({} as never, 'gateway_test', scope, { kms: readKms(generateDek()), validate }))
+      .resolves.toEqual({ kind: 'envelope_undecryptable', rowId: 'row-1' })
+  })
+
+  it('returns invalid parse for a non-object blob and invalid schema when validate rejects it', async () => {
+    const dek = generateDek()
+    storedRow({ [encryptedBlobKey]: encryptWithAesGcm('not-json', dek).value })
+    await expect(readCredentialRowLayered({} as never, 'gateway_test', scope, { kms: readKms(dek), validate }))
+      .resolves.toEqual({ kind: 'invalid', rowId: 'row-1', cause: 'parse' })
+
+    storedRow(sealed([1, 2], dek))
+    await expect(readCredentialRowLayered({} as never, 'gateway_test', scope, { kms: readKms(dek), validate }))
+      .resolves.toEqual({ kind: 'invalid', rowId: 'row-1', cause: 'parse' })
+
+    storedRow(sealed({}, dek))
+    await expect(readCredentialRowLayered({} as never, 'gateway_test', scope, { kms: readKms(dek), validate }))
+      .resolves.toEqual({ kind: 'invalid', rowId: 'row-1', cause: 'schema' })
+  })
+
+  it('returns ok for a sealed blob and for a plain row without asking the KMS', async () => {
+    const dek = generateDek()
+    storedRow(sealed({ apiKey: 'sealed' }, dek))
+    await expect(readCredentialRowLayered({} as never, 'gateway_test', scope, { kms: readKms(dek), validate }))
+      .resolves.toEqual({ kind: 'ok', rowId: 'row-1', value: { apiKey: 'sealed' } })
+
+    const kms = readKms(null)
+    storedRow({ apiKey: 'plain' })
+    await expect(readCredentialRowLayered({} as never, 'gateway_test', scope, { kms, validate }))
+      .resolves.toEqual({ kind: 'ok', rowId: 'row-1', value: { apiKey: 'plain' } })
+    expect(kms.getTenantDek).not.toHaveBeenCalled()
+    expect(mockCreateKmsService).not.toHaveBeenCalled()
+  })
+})
+
+describe('bundleFallthroughId', () => {
+  beforeEach(() => {
+    clearRegisteredIntegrations()
+  })
+
+  afterAll(() => {
+    clearRegisteredIntegrations()
+  })
+
+  it('returns the bundle of a child integration and null without one', () => {
+    registerIntegration({ id: 'child_plain', title: 'Child', bundleId: 'bundle_plain' })
+    registerIntegration({ id: 'standalone', title: 'Standalone' })
+
+    expect(bundleFallthroughId('child_plain')).toBe('bundle_plain')
+    expect(bundleFallthroughId('standalone')).toBeNull()
+    expect(bundleFallthroughId('not_registered')).toBeNull()
+  })
+
+  it('never falls through to a bundleId ending in the reserved __oauth_grant suffix', () => {
+    registerIntegration({ id: 'child_grant', title: 'Child', bundleId: 'test_oauth_grant__oauth_grant' })
+    registerIntegration({ id: 'child_versioned', title: 'Child', bundleId: 'x__oauth_grant_v2' })
+
+    expect(bundleFallthroughId('child_grant')).toBeNull()
+    expect(bundleFallthroughId('child_versioned')).toBe('x__oauth_grant_v2')
+  })
+})
+
+describe('resolve and resolveUpdatedAt bundle fallthrough', () => {
+  type StoredRow = { id: string; credentials: Record<string, unknown>; updatedAt: Date }
+  const storedRows = new Map<string, StoredRow>()
+  const grantRowId = 'test_oauth_grant__oauth_grant'
+  const grantRow: StoredRow = {
+    id: 'grant-row',
+    credentials: { accessToken: 'fake_at_grant', refreshToken: 'fake_rt_grant' },
+    updatedAt: new Date('2026-10-01T10:00:00.000Z'),
+  }
+
+  function storeRow(integrationId: string, row: StoredRow): void {
+    storedRows.set(integrationId, row)
+  }
+
+  function lookedUpIntegrationIds(): string[] {
+    return mockFindOneWithDecryption.mock.calls.map(([, , where]) => String((where as { integrationId?: unknown }).integrationId))
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    clearRegisteredIntegrations()
+    storedRows.clear()
+    mockKms(null)
+    mockFindOneWithDecryption.mockImplementation(async (_em, _entity, where) => (
+      storedRows.get(String((where as { integrationId?: unknown }).integrationId)) ?? null
+    ) as never)
+  })
+
+  afterAll(() => {
+    clearRegisteredIntegrations()
+  })
+
+  it('still falls through to a regular bundle', async () => {
+    const bundleRow = { id: 'bundle-row', credentials: { apiKey: 'bundle-key' }, updatedAt: new Date('2026-10-02T10:00:00.000Z') }
+    registerIntegration({ id: 'child_plain', title: 'Child', bundleId: 'bundle_plain' })
+    storeRow('bundle_plain', bundleRow)
+    const service = createCredentialsService({} as never)
+
+    await expect(service.resolve('child_plain', scope)).resolves.toEqual({ apiKey: 'bundle-key' })
+    await expect(service.resolveUpdatedAt('child_plain', scope)).resolves.toEqual(bundleRow.updatedAt)
+    expect(lookedUpIntegrationIds()).toEqual(['child_plain', 'bundle_plain', 'child_plain', 'bundle_plain'])
+  })
+
+  it('returns null for a bundleId ending in __oauth_grant, with no read of that id', async () => {
+    registerIntegration({ id: 'child_grant', title: 'Child', bundleId: grantRowId })
+    storeRow(grantRowId, grantRow)
+    const service = createCredentialsService({} as never)
+
+    await expect(service.resolve('child_grant', scope)).resolves.toBeNull()
+    await expect(service.resolveUpdatedAt('child_grant', scope)).resolves.toBeNull()
+    expect(lookedUpIntegrationIds()).toEqual(['child_grant', 'child_grant'])
+    expect(mockCreateKmsService).not.toHaveBeenCalled()
+  })
+
+  it('prefers the integration own row over any bundle', async () => {
+    const ownRow = { id: 'own-row', credentials: { apiKey: 'own-key' }, updatedAt: new Date('2026-10-03T10:00:00.000Z') }
+    registerIntegration({ id: 'child_grant', title: 'Child', bundleId: grantRowId })
+    storeRow('child_grant', ownRow)
+    storeRow(grantRowId, grantRow)
+    const service = createCredentialsService({} as never)
+
+    await expect(service.resolve('child_grant', scope)).resolves.toEqual({ apiKey: 'own-key' })
+    await expect(service.resolveUpdatedAt('child_grant', scope)).resolves.toEqual(ownRow.updatedAt)
+    expect(lookedUpIntegrationIds()).toEqual(['child_grant', 'child_grant'])
+  })
+
+  it('still falls through to a bundleId that only contains the suffix', async () => {
+    const versionedRow = { id: 'versioned-row', credentials: { apiKey: 'versioned-key' }, updatedAt: new Date('2026-10-04T10:00:00.000Z') }
+    registerIntegration({ id: 'child_versioned', title: 'Child', bundleId: 'x__oauth_grant_v2' })
+    storeRow('x__oauth_grant_v2', versionedRow)
+    const service = createCredentialsService({} as never)
+
+    await expect(service.resolve('child_versioned', scope)).resolves.toEqual({ apiKey: 'versioned-key' })
+    await expect(service.resolveUpdatedAt('child_versioned', scope)).resolves.toEqual(versionedRow.updatedAt)
+  })
+})
+
+describe('isReservedOAuthGrantId', () => {
+  it('matches only ids ending in the __oauth_grant suffix', () => {
+    expect(isReservedOAuthGrantId('test_oauth_grant__oauth_grant')).toBe(true)
+    expect(isReservedOAuthGrantId('__oauth_grant')).toBe(true)
+    expect(isReservedOAuthGrantId('x__oauth_grant_v2')).toBe(false)
+    expect(isReservedOAuthGrantId('test_oauth_grant')).toBe(false)
   })
 })
