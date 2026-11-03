@@ -22,6 +22,8 @@ import { Spinner } from '../primitives/spinner'
 import { EmptyState } from '../primitives/empty-state'
 import { TooltipProvider } from '../primitives/tooltip'
 import { TruncatedCell } from './TruncatedCell'
+import { LoadingMessage } from './detail/LoadingMessage'
+import { ErrorMessage } from './detail/ErrorMessage'
 import { FilterBar, type FilterDef, type FilterValues } from './FilterBar'
 import { FilteredEmptyResults } from './filters/FilteredEmptyResults'
 import { SearchEmptyResults } from './filters/SearchEmptyResults'
@@ -834,6 +836,10 @@ type ColumnTruncateMeta = {
   maxWidth?: string
 }
 
+function hasExplicitCellRenderer(columnDef: unknown): boolean {
+  return Boolean((columnDef as { cell?: unknown } | undefined)?.cell)
+}
+
 function getColumnTruncateConfig(columnId: string, accessorKey?: string, columnMeta?: ColumnTruncateMeta): ColumnTruncateConfig {
   const key = accessorKey || columnId
   const metaMaxWidth = typeof columnMeta?.maxWidth === 'string' ? columnMeta.maxWidth.trim() : ''
@@ -1474,7 +1480,24 @@ function DataTableImpl<T extends RowData>({
   const [isPerspectiveOpen, setPerspectiveOpen] = React.useState(false)
   const [isAdvancedFilterOpen, setAdvancedFilterOpen] = React.useState(false)
   const [activePerspectiveId, setActivePerspectiveId] = React.useState<string | null>(initialActiveId)
-  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>(() => mergedInitialSettings?.columnVisibility ?? {})
+  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>(() => {
+    const defaults: VisibilityState = {}
+    const collectDefaults = (definitions: readonly ColumnDef<T, unknown>[]) => {
+      for (const definition of definitions) {
+        if ('columns' in definition && definition.columns) {
+          collectDefaults(definition.columns)
+          continue
+        }
+        if (!(definition.meta as { hidden?: boolean } | undefined)?.hidden) continue
+        const columnId = definition.id
+          ?? ('accessorKey' in definition ? String(definition.accessorKey).replaceAll('.', '_') : undefined)
+          ?? (typeof definition.header === 'string' ? definition.header : undefined)
+        if (columnId) defaults[columnId] = false
+      }
+    }
+    collectDefaults(columns)
+    return { ...defaults, ...mergedInitialSettings?.columnVisibility }
+  })
   const [columnOrder, setColumnOrder] = React.useState<string[]>(() => mergedInitialSettings?.columnOrder ?? [])
   const [columnSizing, setColumnSizing] = React.useState<Record<string, number>>(() => mergedInitialSettings?.columnSizing ?? {})
   // Mirror of columnSizing so the resize commit (fired from a pointerup handler
@@ -1488,7 +1511,9 @@ function DataTableImpl<T extends RowData>({
   // perspective activation, "No view" clear, successful save). The public
   // dirty state is measured against this, so a table only reports unsaved
   // changes once the user actually changes something after that point.
-  const [viewBaseline, setViewBaselineState] = React.useState<PerspectiveSettings>(() => mergedInitialSettings ?? {})
+  const [viewBaseline, setViewBaselineState] = React.useState<PerspectiveSettings>(() => mergedInitialSettings
+    ? { ...mergedInitialSettings, columnVisibility }
+    : {})
   const viewBaselineInitializedRef = React.useRef(Boolean(mergedInitialSettings))
   // What the `meta.hidden` pass below hid on its own, since a declared default is not a
   // user edit and must reach the baseline too. `normalizeVisibility` keeps every `false`,
@@ -1676,9 +1701,15 @@ function DataTableImpl<T extends RowData>({
     () => (resolvedInjectionSpotId ? extensionSpotChildId(resolvedInjectionSpotId, 'footer') : null),
     [resolvedInjectionSpotId]
   )
-  const { widgets: columnWidgets } = useInjectionDataWidgets(
+  const { widgets: columnWidgets, isLoading: injectedColumnsLoading, error: injectedColumnsError } = useInjectionDataWidgets(
     extensionTableId ? dataTableExtensionSpotId(extensionTableId, 'columns') : '__disabled__:columns',
   )
+  const [hasInitializedColumns, setHasInitializedColumns] = React.useState(false)
+  const columnsPending = Boolean(isLoading || (extensionTableId && injectedColumnsLoading))
+  const isInitializingColumns = !hasInitializedColumns && columnsPending
+  React.useEffect(() => {
+    if (!columnsPending) setHasInitializedColumns(true)
+  }, [columnsPending])
   const { widgets: rowActionWidgets } = useInjectionDataWidgets(
     extensionTableId ? dataTableExtensionSpotId(extensionTableId, 'row-actions') : '__disabled__:row-actions',
   )
@@ -1848,14 +1879,15 @@ function DataTableImpl<T extends RowData>({
     const accessors = mergedColumns.map((c) => {
       const key = (c as any).accessorKey as string | undefined
       const id = (c as any).id as string | undefined
-      return { id: id || key || '', key }
+      const hasCustomCell = hasExplicitCellRenderer(c)
+      return { id: id || key || '', key, hasCustomCell }
     })
     const guessed = new Set<string>()
     accessors.forEach((a) => {
       if (!a.id) return
       const name = a.id
       // Name-based guess: snake_case '_at' suffix
-      if (name.endsWith('_at')) {
+      if (name.endsWith('_at') && !a.hasCustomCell) {
         guessed.add(name)
         return
       }
@@ -1978,7 +2010,7 @@ function DataTableImpl<T extends RowData>({
     },
     [baseInjectionContext, hasInjectedBulkActions, rowSelection],
   )
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     // `getAllLeafColumns()` is already sorted by `columnOrder`, which would hide where a new
     // column sits in the definitions; flattening `getAllColumns()` keeps definition order.
     const ids = table.getAllColumns().flatMap((column) => column.getLeafColumns()).map((column) => column.id)
@@ -2014,7 +2046,7 @@ function DataTableImpl<T extends RowData>({
   // instead of waiting for the next wave of columns; the record itself is a ref, written
   // from inside the pass, and so cannot trigger it.
   const [visibilityDefaultsPass, setVisibilityDefaultsPass] = React.useState(0)
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     const hidden: VisibilityState = {}
     table.getAllLeafColumns().forEach((column) => {
       if (visibilityDecidedColumnIds.current.has(column.id)) return
@@ -3759,6 +3791,9 @@ function DataTableImpl<T extends RowData>({
         </div>
       ) : null}
       {activeFilterChips}
+      {injectedColumnsError ? (
+        <ErrorMessage label={t('ui.dataTable.extensions.error', 'Some table extensions could not load. Reload the page to retry.')} />
+      ) : null}
       <HeaderDndWrapper
         enabled={enableHeaderDnd}
         contextId={`${stableDndContextId}-headers`}
@@ -3767,6 +3802,9 @@ function DataTableImpl<T extends RowData>({
         onDragEnd={handleHeaderDragEnd}
       >
       <div ref={setTableScrollWrapperRef} className={tableScrollWrapperClassName} style={virtualMaxHeightStyle}>
+        {isInitializingColumns ? (
+          <LoadingMessage label={t('ui.dataTable.loading', 'Loading data...')} className="h-24 justify-center border-0 bg-transparent" />
+        ) : (
         <Table className="min-w-[640px] md:min-w-0">
           <TableHeader>
             {table.getHeaderGroups().map((hg) => (
@@ -3958,7 +3996,7 @@ function DataTableImpl<T extends RowData>({
                       let tooltipText: string | undefined
                       if (metaTooltipContent) {
                         tooltipText = metaTooltipContent(row.original)
-                      } else if (isDateCol && cellValue != null) {
+                      } else if ((isDateCol || columnId.endsWith('_at')) && cellValue != null) {
                         const parsedDate = tryParseDate(cellValue)
                         tooltipText = parsedDate ? (formatDisplayDateTime(parsedDate, dateLocale) ?? String(cellValue)) : String(cellValue)
                       } else {
@@ -4089,6 +4127,7 @@ function DataTableImpl<T extends RowData>({
             )}
           </TableBody>
         </Table>
+        )}
       </div>
       </HeaderDndWrapper>
       {footerInjectionSpotId ? (

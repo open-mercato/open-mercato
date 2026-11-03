@@ -20,7 +20,9 @@ With [Node.js](https://nodejs.org/en/download) installed, one command does every
 npx @open-mercato/starter
 ```
 
-It clones the repo if needed, audits your machine (`doctor`, which expects Node 24), handles corporate proxies and TLS interception, generates `.env` and secrets, starts the infra containers, initializes the database and boots the supervised dev runtime. Re-running it resumes where it stopped. Inside a clone use `yarn om`. No Node at all? Use the no-admin bootstraps in [`packages/starter/platform/`](packages/starter/platform/) (`start.cmd` on Windows, `start.sh` on macOS and Linux). A container runtime ([Docker Desktop](https://www.docker.com/products/docker-desktop/) or [Rancher Desktop](https://rancherdesktop.io)) is detected and guided, never installed for you. See [`packages/starter/README.md`](packages/starter/README.md); the first run needs about 20 GB of free disk.
+Already inside a clone? Run `yarn setup` (the same starter as `yarn om up`). It checks Docker first, starts PostgreSQL, Redis, Meilisearch and OpenCode, waits until they are healthy, and only then initializes the database and starts the app. If Docker is missing, stopped or a port is taken, it stops and tells you what to fix. Using your own services instead of Docker? Point `.env` at them and run `yarn setup --no-infra`; it makes no Docker calls.
+
+The starter clones the repo if needed, audits your machine (`doctor`, which expects Node 24), handles corporate proxies and TLS interception, generates `.env` and secrets, starts the infra containers, initializes the database and boots the supervised dev runtime. Re-running it resumes where it stopped. Inside a clone use `yarn om`. No Node at all? Use the no-admin bootstraps in [`packages/starter/platform/`](packages/starter/platform/) (`start.cmd` on Windows, `start.sh` on macOS and Linux). A container runtime ([Docker Desktop](https://www.docker.com/products/docker-desktop/) or [Rancher Desktop](https://rancherdesktop.io)) is detected and guided, never installed for you. See [`packages/starter/README.md`](packages/starter/README.md); the first run needs about 20 GB of free disk.
 
 ### Manual steps (macOS and Linux)
 
@@ -48,7 +50,7 @@ Working with an AI coding agent in this repository? Run `yarn install-skills` af
 
 ### Running multiple persistent local instances
 
-To keep two long-lived local instances on the same PostgreSQL server, pass an optional database-name override to `yarn dev`, `yarn dev:greenfield` or `yarn setup`:
+To keep two long-lived local instances on the same PostgreSQL server, pass an optional database-name override to `yarn dev` or `yarn dev:greenfield` (in a generated app also `yarn setup`):
 
 ```bash
 yarn dev:greenfield --database-name=my_db     # explicit name; a .env update is offered (default yes)
@@ -167,7 +169,7 @@ release/v0.10.x                                     └─ 0.10.0 ─ 0.10.1 …
 
 Two channels ship packages to npm:
 
-- **Snapshots** — every push to `main` runs `Develop Snapshot Release`, publishing under the `develop` dist-tag (the name survives from the retired `develop` branch). Install them with `yarn add @open-mercato/core@develop` or `npx create-mercato-app@develop my-app`; all `@open-mercato/*` packages must use the same tag. Exact snapshot versions stay installable for debugging or rollback.
+- **Snapshots** — every push to `main` runs `Main Snapshot Release`, publishing under the `develop` dist-tag (the name survives from the retired `develop` branch). Install them with `yarn add @open-mercato/core@develop` or `npx create-mercato-app@develop my-app`; all `@open-mercato/*` packages must use the same tag. Exact snapshot versions stay installable for debugging or rollback.
 - **Stable releases** — the maintainer-run workflows below. Only maintainers run them; agents never do.
 
 ### The workflows

@@ -1,5 +1,6 @@
 "use client"
 
+import { extractResponseEnricherNamespaces } from '@open-mercato/shared/lib/crud/response-enricher-namespaces'
 import * as React from 'react'
 import { z } from 'zod'
 import Link from 'next/link'
@@ -2201,6 +2202,7 @@ export function mapCompanyOverviewToFormValues(overview: CompanyOverview): Parti
   const rawPhone = overview.company.primaryPhone
   const phoneValue = rawPhone == null ? '' : String(rawPhone)
   return {
+    ...extractResponseEnricherNamespaces(overview.company),
     id: overview.company.id,
     organizationId: overview.company.organizationId ?? null,
     displayName: coerceDisplayName(overview.company.displayName),
@@ -2225,6 +2227,7 @@ export function mapPersonOverviewToFormValues(overview: PersonOverview): Partial
   const rawPhone = overview.person.primaryPhone
   const phoneValue = rawPhone == null ? '' : String(rawPhone)
   return {
+    ...extractResponseEnricherNamespaces(overview.person),
     id: overview.person.id,
     organizationId: overview.person.organizationId ?? null,
     displayName: coerceDisplayName(overview.person.displayName),

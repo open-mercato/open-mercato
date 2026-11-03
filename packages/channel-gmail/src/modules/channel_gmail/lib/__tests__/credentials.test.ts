@@ -41,6 +41,27 @@ describe('gmailUserCredentialsSchema', () => {
     expect(() => gmailUserCredentialsSchema.parse({ refreshToken: 'r' })).toThrow(/Access token/i)
   })
 
+  it.each([
+    { accessToken: 'a' },
+    {
+      accessToken: 'a',
+      refreshToken: 'r',
+      expiresAt: '2026-05-26T10:00:00.000Z',
+      scopes: ['https://www.googleapis.com/auth/gmail.modify'],
+      email: 'alice@gmail.com',
+    },
+  ])('discards unknown stored fields while retaining known credentials: %j', (credentials) => {
+    const extraFields = {
+      _client: { clientId: 'untrusted-client', clientSecret: 'untrusted-secret' },
+      clientSecret: 'unexpected-secret',
+      metadata: { arbitrary: true },
+    }
+    const storedCredentials = { ...credentials, ...extraFields }
+
+    expect(gmailUserCredentialsSchema.parse(storedCredentials)).toEqual(credentials)
+    expect(storedCredentials).toEqual({ ...credentials, ...extraFields })
+  })
+
   it('rejects invalid expiresAt format', () => {
     expect(() => gmailUserCredentialsSchema.parse({ accessToken: 'a', expiresAt: 'soon' })).toThrow()
   })

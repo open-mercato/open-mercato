@@ -13,6 +13,8 @@ import {
   linkDialogPlugin,
   imagePlugin,
   tablePlugin,
+  codeBlockPlugin,
+  codeMirrorPlugin,
   markdownShortcutPlugin,
   diffSourcePlugin,
   toolbarPlugin,
@@ -30,8 +32,27 @@ import {
   DiffSourceToggleWrapper,
 } from '@mdxeditor/editor'
 import '@mdxeditor/editor/style.css'
+import { EditorView } from '@codemirror/view'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useTheme } from '../../theme'
+import { useContentSecurityPolicyNonce } from '../../theme/ContentSecurityPolicyProvider'
+
+const CODE_BLOCK_LANGUAGES: Record<string, string> = {
+  js: 'JavaScript',
+  jsx: 'JavaScript (React)',
+  ts: 'TypeScript',
+  tsx: 'TypeScript (React)',
+  json: 'JSON',
+  html: 'HTML',
+  css: 'CSS',
+  sql: 'SQL',
+  python: 'Python',
+  bash: 'Bash',
+  sh: 'Shell',
+  yaml: 'YAML',
+  markdown: 'Markdown',
+}
 
 type MdxEditorImplProps = {
   id?: string
@@ -40,20 +61,16 @@ type MdxEditorImplProps = {
   onChange: (markdown: string) => void
 }
 
-// WYSIWYG Markdown editor (MDXEditor / Lexical) wired to the CrudForm value/onChange
-// contract. Markdown is the source of truth. Edits are buffered locally and committed
-// on blur to avoid re-rendering the whole form on every keystroke.
 export default function MdxEditorImpl({ id, ariaLabelledBy, value = '', onChange }: MdxEditorImplProps) {
   const editorRef = React.useRef<MDXEditorMethods>(null)
-  const wrapperRef = React.useRef<HTMLDivElement | null>(null)
+  const [container, setContainer] = React.useState<HTMLDivElement | null>(null)
   const latestRef = React.useRef<string>(value)
-  const typingRef = React.useRef(false)
   const { resolvedTheme } = useTheme()
+  const t = useT()
+  const nonce = useContentSecurityPolicyNonce()
+  const codeMirrorExtensions = React.useMemo(() => nonce ? [EditorView.cspNonce.of(nonce)] : [], [nonce])
 
-  // External value changes (form reset / async initial load) are pushed into the editor,
-  // but never while the user is actively typing (would reset the caret).
   React.useEffect(() => {
-    if (typingRef.current) return
     if (value !== latestRef.current) {
       latestRef.current = value
       editorRef.current?.setMarkdown(value ?? '')
@@ -61,12 +78,10 @@ export default function MdxEditorImpl({ id, ariaLabelledBy, value = '', onChange
   }, [value])
 
   React.useEffect(() => {
-    if (!ariaLabelledBy || typeof document === 'undefined') return
-    const wrapper = wrapperRef.current
-    if (!wrapper) return
+    if (!ariaLabelledBy || !container) return
 
     const applyLabelAttributes = () => {
-      const contentEditable = wrapper.querySelector<HTMLElement>('[contenteditable="true"]')
+      const contentEditable = container.querySelector<HTMLElement>('[contenteditable="true"]')
       if (!contentEditable) return
       if (id && contentEditable.getAttribute('id') !== id) {
         contentEditable.setAttribute('id', id)
@@ -78,11 +93,11 @@ export default function MdxEditorImpl({ id, ariaLabelledBy, value = '', onChange
 
     applyLabelAttributes()
     const observer = new MutationObserver(applyLabelAttributes)
-    observer.observe(wrapper, { childList: true, subtree: true })
+    observer.observe(container, { childList: true, subtree: true })
 
     return () => {
       observer.disconnect()
-      const contentEditable = wrapper.querySelector<HTMLElement>('[contenteditable="true"]')
+      const contentEditable = container.querySelector<HTMLElement>('[contenteditable="true"]')
       if (!contentEditable) return
       if (id && contentEditable.getAttribute('id') === id) {
         contentEditable.removeAttribute('id')
@@ -91,28 +106,27 @@ export default function MdxEditorImpl({ id, ariaLabelledBy, value = '', onChange
         contentEditable.removeAttribute('aria-labelledby')
       }
     }
-  }, [ariaLabelledBy, id])
-
-  const commit = React.useCallback(() => {
-    if (!typingRef.current) return
-    typingRef.current = false
-    onChange(latestRef.current)
-  }, [onChange])
+  }, [ariaLabelledBy, container, id])
 
   return (
     <div
-      ref={wrapperRef}
+      ref={setContainer}
+      data-testid="mdx-editor-container"
       className="w-full overflow-hidden rounded-md border border-input bg-background"
-      onBlur={commit}
     >
-      <MDXEditor
+      {container && <MDXEditor
         ref={editorRef}
+        overlayContainer={container.closest<HTMLElement>('[role="dialog"]') ?? undefined}
         markdown={value ?? ''}
-        onChange={(markdown) => {
-          typingRef.current = true
+        onChange={(markdown, initialMarkdownNormalize) => {
+          if (initialMarkdownNormalize || markdown === latestRef.current) return
           latestRef.current = markdown
+          onChange(markdown)
         }}
-        className={cn('om-mdx-editor', resolvedTheme === 'dark' && 'dark-theme')}
+        className={cn(
+          'om-mdx-editor [&.mdxeditor-popup-container]:z-popover! [&_[class*=codeMirrorToolbar]]:static! [&_[class*=codeMirrorToolbar]]:flex-wrap [&_[class*=codeMirrorToolbar]]:justify-end',
+          resolvedTheme === 'dark' && 'dark-theme',
+        )}
         contentEditableClassName="om-mdx-prose"
         plugins={[
           headingsPlugin(),
@@ -123,8 +137,16 @@ export default function MdxEditorImpl({ id, ariaLabelledBy, value = '', onChange
           linkDialogPlugin(),
           imagePlugin(),
           tablePlugin(),
+          codeBlockPlugin({ defaultCodeBlockLanguage: '' }),
+          codeMirrorPlugin({
+            codeMirrorExtensions,
+            codeBlockLanguages: {
+              '': t('ui.forms.richtext.plainText', 'Plain text'),
+              ...CODE_BLOCK_LANGUAGES,
+            },
+          }),
           markdownShortcutPlugin(),
-          diffSourcePlugin({ viewMode: 'rich-text' }),
+          diffSourcePlugin({ viewMode: 'rich-text', codeMirrorExtensions }),
           toolbarPlugin({
             toolbarContents: () => (
               <DiffSourceToggleWrapper>
@@ -147,7 +169,7 @@ export default function MdxEditorImpl({ id, ariaLabelledBy, value = '', onChange
             ),
           }),
         ]}
-      />
+      />}
     </div>
   )
 }

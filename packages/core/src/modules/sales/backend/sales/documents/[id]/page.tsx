@@ -52,6 +52,7 @@ import type { AdjustmentRowData } from '@open-mercato/core/modules/sales/compone
 import { SalesShipmentsSection } from '@open-mercato/core/modules/sales/components/documents/ShipmentsSection'
 import { SalesReturnsSection } from '@open-mercato/core/modules/sales/components/documents/ReturnsSection'
 import { DocumentTotals } from '@open-mercato/core/modules/sales/components/documents/DocumentTotals'
+import { SalesDocumentExtensionSpot, type SalesDocumentExtensionContext } from '@open-mercato/core/modules/sales/components/documents/SalesDocumentExtensionSpot'
 import { E } from '#generated/entities.ids.generated'
 import type { DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { useCurrencyDictionary } from '@open-mercato/core/modules/customers/components/detail/hooks/useCurrencyDictionary'
@@ -77,6 +78,7 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { useSalesChannelsEnabled } from '@open-mercato/core/modules/sales/components/useSalesChannelsEnabled'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('sales')
 
@@ -861,6 +863,8 @@ type StatusOption = {
 
 type DocumentRecord = {
   id: string
+  organizationId?: string | null
+  tenantId?: string | null
   orderNumber?: string | null
   quoteNumber?: string | null
   status?: string | null
@@ -899,6 +903,7 @@ type DocumentRecord = {
   paidTotalAmount?: number | null
   refundedTotalAmount?: number | null
   outstandingAmount?: number | null
+  totalsMode?: 'computed' | 'external' | null
   createdAt?: string
   updatedAt?: string
   metadata?: Record<string, unknown> | null
@@ -1478,6 +1483,7 @@ function MethodInlineEditor({
   emptyResultsLabel,
   selectedHint,
   icon,
+  note,
   allowClear = true,
 }: {
   label: string
@@ -1494,6 +1500,7 @@ function MethodInlineEditor({
   emptyResultsLabel: string
   selectedHint: (id: string) => string
   icon: React.ReactNode
+  note?: string | null
   allowClear?: boolean
 }) {
   const t = useT()
@@ -1607,6 +1614,7 @@ function MethodInlineEditor({
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
           <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
+          {note ? <p className="mt-1 text-xs text-muted-foreground">{note}</p> : null}
           {editing ? (
             <div
               className="mt-2 space-y-2"
@@ -1937,6 +1945,7 @@ export default function SalesDocumentDetailPage({
   const [generating, setGenerating] = React.useState(false)
   const [converting, setConverting] = React.useState(false)
   const [deleting, setDeleting] = React.useState(false)
+  const [switchingToComputedAmounts, setSwitchingToComputedAmounts] = React.useState(false)
   const [sending, setSending] = React.useState(false)
   const [sendOpen, setSendOpen] = React.useState(false)
   const [validForDays, setValidForDays] = React.useState(DEFAULT_QUOTE_VALID_FOR_DAYS)
@@ -1986,14 +1995,17 @@ export default function SalesDocumentDetailPage({
     contextId: mutationContextId,
     blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
   })
-  const detailInjectionContext = React.useMemo(
+  const detailInjectionContext = React.useMemo<SalesDocumentExtensionContext<DocumentRecord>>(
     () => ({
       kind,
+      documentId: record?.id ?? null,
       record,
       formId: mutationContextId,
       resourceKind: `sales.${kind}`,
       resourceId: record?.id ?? undefined,
       retryLastMutation,
+      organizationId: record?.organizationId ?? null,
+      tenantId: record?.tenantId ?? null,
     }),
     [kind, mutationContextId, record, retryLastMutation],
   )
@@ -2844,6 +2856,8 @@ export default function SalesDocumentDetailPage({
     },
     [t]
   )
+  const amountsAreExternal = kind === 'order' && record?.totalsMode === 'external'
+
   const totalsItems = React.useMemo(() => {
     if (!record) return []
     const items: { key: string; label: string; amount: number | null | undefined; emphasize?: boolean }[] = [
@@ -3791,6 +3805,48 @@ export default function SalesDocumentDetailPage({
     }
   }, [fetchDocumentByKind, kind, record, runMutationWithContext, t, validForDays])
 
+  const handleSwitchToComputedAmounts = React.useCallback(async () => {
+    if (!record || kind !== 'order') return
+    const ok = await confirm({
+      title: t(
+        'sales.documents.amountsSwitchConfirm',
+        'Recompute this order\u2019s amounts from its lines? The totals supplied by the source system will be replaced and cannot be restored from here.',
+      ),
+      variant: 'default',
+    })
+    if (!ok) return
+    setSwitchingToComputedAmounts(true)
+    try {
+      await runMutationWithContext(async () => {
+        await withScopedApiRequestHeaders(buildOptimisticLockHeader(record.updatedAt), () =>
+          apiCallOrThrow('/api/sales/orders', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: record.id, totalsMode: 'computed' }),
+          }),
+        )
+      }, { id: record.id, totalsMode: 'computed' })
+      flash(t('sales.documents.amountsSwitchDone', 'Amounts are now computed from the lines.'), 'success')
+      await refreshDocumentTotals()
+    } catch (err) {
+      logger.error('sales.documents.amounts.switchToComputed', { err })
+      try {
+        getTelemetryRuntime()?.reportError(err, {
+          module: 'sales',
+          code: 'sales.amounts_switch_to_computed_failed',
+          attributes: { orderId: record.id },
+        })
+      } catch (reportFailure) {
+        logger.warn('sales.documents.amounts.switchToComputed.reportFailed', { err: reportFailure })
+      }
+      if (!handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) {
+        flash(t('sales.documents.amountsSwitchFailed', 'Could not switch to computed amounts.'), 'error')
+      }
+    } finally {
+      setSwitchingToComputedAmounts(false)
+    }
+  }, [confirm, kind, record, refreshDocumentTotals, runMutationWithContext, t])
+
   const handleDelete = React.useCallback(async () => {
     if (!record) return
     const ok = await confirm({
@@ -3851,6 +3907,14 @@ export default function SalesDocumentDetailPage({
               t('sales.documents.detail.shippingMethod.selected', 'Selected shipping method: {{id}}', { id })
             }
             icon={<Truck className="h-5 w-5 text-muted-foreground" />}
+            note={
+              amountsAreExternal
+                ? t(
+                    'sales.documents.amountsExternalMethodNote',
+                    'The method is recorded, but no charge is added \u2014 this order\u2019s totals come from the source system.',
+                  )
+                : null
+            }
           />
         ),
       },
@@ -3877,6 +3941,14 @@ export default function SalesDocumentDetailPage({
               t('sales.documents.detail.paymentMethod.selected', 'Selected payment method: {{id}}', { id })
             }
             icon={<CreditCard className="h-5 w-5 text-muted-foreground" />}
+            note={
+              amountsAreExternal
+                ? t(
+                    'sales.documents.amountsExternalMethodNote',
+                    'The method is recorded, but no charge is added \u2014 this order\u2019s totals come from the source system.',
+                  )
+                : null
+            }
           />
         ),
       },
@@ -3949,6 +4021,7 @@ export default function SalesDocumentDetailPage({
     )
     return fields
   }, [
+    amountsAreExternal,
     handleUpdateComment,
     handleUpdateCustomerReference,
     handleUpdateExpectedDeliveryAt,
@@ -4266,6 +4339,9 @@ export default function SalesDocumentDetailPage({
     if (activeTab === 'items') {
       return (
         <SalesDocumentItemsSection
+          // Remount on a mode flip: the switch rewrites every line server-side, and the
+          // section loads its lines only once per `documentId`, which does not change.
+          key={`items:${amountsAreExternal ? 'external' : 'computed'}`}
           documentId={record.id}
           kind={kind}
           currencyCode={record.currencyCode ?? null}
@@ -4274,6 +4350,7 @@ export default function SalesDocumentDetailPage({
           tenantId={(record as any)?.tenantId ?? (record as any)?.tenant_id ?? null}
           onActionChange={handleSectionActionChange}
           onItemsChange={(items) => setHasItems(items.length > 0)}
+          amountsReadOnly={amountsAreExternal}
         />
       )
     }
@@ -4332,6 +4409,7 @@ export default function SalesDocumentDetailPage({
           tenantId={(record as any)?.tenantId ?? (record as any)?.tenant_id ?? null}
           onActionChange={handleSectionActionChange}
           onRowsChange={setAdjustmentRows}
+          amountsReadOnly={amountsAreExternal}
         />
       )
     }
@@ -4707,6 +4785,12 @@ export default function SalesDocumentDetailPage({
           isDeleting={deleting}
           deleteLabel={t('sales.documents.detail.delete', 'Delete')}
         />
+        <SalesDocumentExtensionSpot
+          surface="stage-bar"
+          context={detailInjectionContext}
+          data={record}
+          onDataChange={setRecord}
+        />
         <div className="grid gap-4 md:grid-cols-4">
           <div className="md:col-span-3">
             <CustomerInlineEditor
@@ -4914,6 +4998,30 @@ export default function SalesDocumentDetailPage({
           title={t('sales.documents.detail.totals.title', 'Totals')}
           currency={record.currencyCode ?? null}
           items={totalsItems}
+          sourceBadge={
+            amountsAreExternal
+              ? {
+                  label: t('sales.documents.amountsExternal', 'Amounts from source'),
+                  hint: t(
+                    'sales.documents.amountsExternalHint',
+                    'Totals on this document come from an external system and are stored as supplied.',
+                  ),
+                }
+              : null
+          }
+          footerAction={
+            amountsAreExternal ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={switchingToComputedAmounts}
+                onClick={handleSwitchToComputedAmounts}
+              >
+                {t('sales.documents.amountsSwitchToComputed', 'Switch to computed amounts')}
+              </Button>
+            ) : null
+          }
         />
 
         <div className="space-y-4" ref={detailSectionRef}>
@@ -4927,6 +5035,12 @@ export default function SalesDocumentDetailPage({
           />
         </div>
 
+        <SalesDocumentExtensionSpot
+          surface="closure"
+          context={detailInjectionContext}
+          data={record}
+          onDataChange={setRecord}
+        />
         <div className="space-y-4">
           <CustomDataSection
             title={t('sales.documents.detail.customData', 'Custom data')}

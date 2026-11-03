@@ -45,6 +45,8 @@ jest.mock('@mdxeditor/editor', () => {
     linkDialogPlugin: plugin,
     imagePlugin: plugin,
     tablePlugin: plugin,
+    codeBlockPlugin: plugin,
+    codeMirrorPlugin: plugin,
     markdownShortcutPlugin: plugin,
     diffSourcePlugin: plugin,
     toolbarPlugin: plugin,
@@ -64,6 +66,10 @@ jest.mock('@mdxeditor/editor', () => {
 })
 
 jest.mock('@mdxeditor/editor/style.css', () => ({}), { virtual: true })
+
+jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
+  useT: () => (_key: string, fallback: string) => fallback,
+}))
 
 jest.mock('../../../theme', () => ({
   useTheme: () => ({ theme: 'light', resolvedTheme: 'light', setTheme: jest.fn() }),

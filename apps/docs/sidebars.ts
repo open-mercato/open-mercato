@@ -145,6 +145,7 @@ const sidebars: SidebarsConfig = {
             "user-guide/akeneo-pim",
             "user-guide/checkout",
             "user-guide/stripe-payments",
+            "user-guide/autopay-payments",
             "user-guide/tpay-payments",
             "user-guide/payment-transactions",
           ],
@@ -346,8 +347,8 @@ const sidebars: SidebarsConfig = {
         "cli/scheduler",
         {
           type: "category",
-          label: "Official Modules",
-          items: ["cli/module-add", "cli/module-enable", "cli/eject"],
+          label: "Module commands",
+          items: ["cli/module-search", "cli/module-add", "cli/module-enable", "cli/eject"],
         },
       ],
     },
