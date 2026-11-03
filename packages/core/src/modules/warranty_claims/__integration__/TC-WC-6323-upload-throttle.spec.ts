@@ -12,6 +12,7 @@ import {
 
 test('TC-WC-6323: portal upload and replacement share a customer-scoped throttle', async ({ request }) => {
   test.setTimeout(120_000)
+  const rateLimitsEnabled = process.env.OM_TEST_RATE_LIMIT_MODE === 'enabled'
   const token = await getAuthToken(request, 'admin')
   const { tenantId } = getTokenContext(token)
   const companyId = await createCustomerCompanyFixture(request, token)
@@ -37,8 +38,8 @@ test('TC-WC-6323: portal upload and replacement share a customer-scoped throttle
         headers: portalCookieHeaders(ownerSession),
         data: {},
       })
-      expect(response.status()).toBe(429)
-      expect(Number(response.headers()['retry-after'])).toBeGreaterThan(0)
+      expect(response.status()).toBe(rateLimitsEnabled ? 429 : 400)
+      if (rateLimitsEnabled) expect(Number(response.headers()['retry-after'])).toBeGreaterThan(0)
     }
     const peerResponse = await request.post('/api/warranty_claims/portal/attachments', {
       headers: portalCookieHeaders(peerSession),

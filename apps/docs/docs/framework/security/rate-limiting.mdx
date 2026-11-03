@@ -450,3 +450,5 @@ packages/core/src/modules/auth/lib/
 ```
 
 The service singleton and DI registration live in `packages/core/src/bootstrap.ts`.
+
+For isolated integration tests that verify real counters, set `OM_TEST_MODE=1` and `OM_TEST_RATE_LIMIT_MODE=enabled`. Integration runs otherwise keep rate limiting disabled. This switch has no effect outside `OM_INTEGRATION_TEST`; production continues to use `RATE_LIMIT_ENABLED`.
