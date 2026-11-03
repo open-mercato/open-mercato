@@ -54,6 +54,10 @@ function normalizeCsvValue(value: unknown): string {
   return neutralizeSpreadsheetFormula(normalized)
 }
 
+export function formatCsvCell(value: unknown): string {
+  return escapeCsv(normalizeCsvValue(value))
+}
+
 function escapeMarkdown(value: string): string {
   const escaped = value
     .replace(/\\/g, '\\\\')
@@ -81,13 +85,10 @@ function escapeXmlValue(value: string): string {
 }
 
 function serializeCsv(prepared: PreparedExport): SerializedExport {
-  const headers = prepared.columns.map((col) => col.header)
+  const headers = prepared.columns.map((col) => escapeCsv(neutralizeSpreadsheetFormula(col.header)))
   const lines = [headers.join(',')]
   for (const row of prepared.rows) {
-    const values = prepared.columns.map((col) => {
-      const raw = normalizeCsvValue(row[col.field])
-      return escapeCsv(raw)
-    })
+    const values = prepared.columns.map((col) => formatCsvCell(row[col.field]))
     lines.push(values.join(','))
   }
   return {

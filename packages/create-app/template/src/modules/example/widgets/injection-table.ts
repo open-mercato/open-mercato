@@ -41,6 +41,13 @@ export const injectionTable: ModuleInjectionTable = {
     { widgetId: 'example.injection.override-probe', priority: 10 },
     { widgetId: 'example.injection.override-probe-control', priority: 20 },
   ],
+  // Public login-form extension point. The widget only claims the flow for the
+  // `@login-probe.example` domain, so ordinary password login is untouched; TC-AUTH-072
+  // uses it to prove the `login` bootstrap profile loads the injection registry.
+  'auth.login:form': {
+    widgetId: 'example.injection.login-provider-probe',
+    priority: 50,
+  },
   // Selected-row bulk action on the module's own Todo table. The spot id is
   // `data-table:<tableId>:bulk-actions` where `<tableId>` is the host's
   // `extensionTableId`, which DataTable derives from `perspective.tableId`.
@@ -60,6 +67,14 @@ export const injectionTable: ModuleInjectionTable = {
   // Customer page injections.
   // Backward-compatible aliasing: support both legacy and current customer form spot ids.
   'crud-form:customers.person:fields': {
+    widgetId: 'example.injection.customer-priority-field',
+    priority: 40,
+  },
+  'crud-form:customers.company:fields': {
+    widgetId: 'example.injection.customer-priority-field',
+    priority: 40,
+  },
+  'crud-form:customers.deal:fields': {
     widgetId: 'example.injection.customer-priority-field',
     priority: 40,
   },

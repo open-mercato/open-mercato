@@ -279,4 +279,163 @@ describe('LinkEntityDialog', () => {
     const call = onConfirm.mock.calls[0][0] as Parameters<typeof onConfirm>[0]
     expect(call.linkSettings).toEqual({ role: 'decision_maker', isPrimary: true })
   })
+
+  it('restores the empty preview hint after a zero-to-one-to-zero selection', async () => {
+    const adapter = buildAdapter()
+    renderWithProviders(
+      <LinkEntityDialog
+        open
+        onOpenChange={() => undefined}
+        adapter={adapter}
+        initialSelectedIds={[]}
+        onConfirm={async () => undefined}
+      />,
+    )
+
+    await waitFor(() => expect(getSearchResultRow('Acme Corp')).toBeInTheDocument())
+    expect(
+      screen.getByText('Select an entry on the left to see details here.'),
+    ).toBeInTheDocument()
+
+    await act(async () => {
+      fireEvent.click(getSearchResultRow('Acme Corp'))
+    })
+    await waitFor(() =>
+      expect(
+        screen.queryByText('Select an entry on the left to see details here.'),
+      ).not.toBeInTheDocument(),
+    )
+
+    await act(async () => {
+      fireEvent.click(getSearchResultRow('Acme Corp'))
+    })
+    await waitFor(() =>
+      expect(
+        screen.getByText('Select an entry on the left to see details here.'),
+      ).toBeInTheDocument(),
+    )
+  })
+
+  it('restores the empty preview hint when the last entry is deselected via keyboard', async () => {
+    const adapter = buildAdapter()
+    renderWithProviders(
+      <LinkEntityDialog
+        open
+        onOpenChange={() => undefined}
+        adapter={adapter}
+        initialSelectedIds={[]}
+        onConfirm={async () => undefined}
+      />,
+    )
+
+    await waitFor(() => expect(getSearchResultRow('Acme Corp')).toBeInTheDocument())
+    const row = getSearchResultRow('Acme Corp')
+
+    await act(async () => {
+      fireEvent.keyDown(row, { key: 'Enter' })
+    })
+    await waitFor(() =>
+      expect(
+        screen.queryByText('Select an entry on the left to see details here.'),
+      ).not.toBeInTheDocument(),
+    )
+
+    await act(async () => {
+      fireEvent.keyDown(row, { key: ' ' })
+    })
+    await waitFor(() =>
+      expect(
+        screen.getByText('Select an entry on the left to see details here.'),
+      ).toBeInTheDocument(),
+    )
+  })
+
+  it('moves focus to a remaining selection when the focused entry is deselected', async () => {
+    const adapter = buildAdapter({
+      renderPreview: (option) => <div data-testid="preview-card">{option.label}</div>,
+    })
+    renderWithProviders(
+      <LinkEntityDialog
+        open
+        onOpenChange={() => undefined}
+        adapter={adapter}
+        initialSelectedIds={['a', 'b']}
+        onConfirm={async () => undefined}
+      />,
+    )
+
+    await waitFor(() => expect(getSearchResultRow('Globex')).toBeInTheDocument())
+
+    const selectedGlobexButton = screen
+      .getAllByRole('button')
+      .find(
+        (button) =>
+          button.getAttribute('aria-pressed') === null && button.textContent?.includes('Globex'),
+      )!
+    await act(async () => {
+      fireEvent.click(selectedGlobexButton)
+    })
+    await waitFor(() => expect(screen.getByTestId('preview-card')).toHaveTextContent('Globex'))
+
+    await act(async () => {
+      fireEvent.click(getSearchResultRow('Globex'))
+    })
+
+    await waitFor(() => expect(screen.getByTestId('preview-card')).toHaveTextContent('Acme Corp'))
+  })
+
+  it('ignores a delayed fetchDetails response for an entry that is no longer focused', async () => {
+    let resolveDetails: ((value: { note: string }) => void) | null = null
+    const adapter = buildAdapter({
+      fetchDetails: jest.fn(
+        () =>
+          new Promise<{ note: string }>((resolve) => {
+            resolveDetails = resolve
+          }),
+      ),
+      renderPreview: (option, details) => (
+        <div data-testid="preview-card">
+          {option.label}
+          {details ? (
+            <span data-testid="preview-details">{(details as { note: string }).note}</span>
+          ) : null}
+        </div>
+      ),
+    })
+    renderWithProviders(
+      <LinkEntityDialog
+        open
+        onOpenChange={() => undefined}
+        adapter={adapter}
+        initialSelectedIds={[]}
+        onConfirm={async () => undefined}
+      />,
+    )
+
+    await waitFor(() => expect(getSearchResultRow('Acme Corp')).toBeInTheDocument())
+
+    await act(async () => {
+      fireEvent.click(getSearchResultRow('Acme Corp'))
+    })
+    await waitFor(() => expect(screen.getByTestId('preview-card')).toBeInTheDocument())
+
+    await act(async () => {
+      fireEvent.click(getSearchResultRow('Acme Corp'))
+    })
+    await waitFor(() =>
+      expect(
+        screen.getByText('Select an entry on the left to see details here.'),
+      ).toBeInTheDocument(),
+    )
+
+    await act(async () => {
+      resolveDetails?.({ note: 'late details' })
+    })
+
+    expect(screen.queryByTestId('preview-details')).not.toBeInTheDocument()
+    expect(screen.queryByText('late details')).not.toBeInTheDocument()
+    expect(
+      screen.getByText('Select an entry on the left to see details here.'),
+    ).toBeInTheDocument()
+  })
 })
