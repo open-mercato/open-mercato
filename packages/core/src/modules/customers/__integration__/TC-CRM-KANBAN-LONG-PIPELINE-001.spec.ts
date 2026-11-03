@@ -35,13 +35,19 @@ test('a long selected pipeline name fits a narrow viewport and retains its acces
     await expect(page.getByRole('button', { name: `Pipeline: ${name}`, exact: true })).toBeVisible()
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
   } finally {
+    const cleanupErrors: unknown[] = []
     for (const [path, entityId] of [
       ['/api/customers/pipeline-stages', stageId],
       ['/api/customers/pipelines', pipelineId],
     ] as const) {
       if (!entityId) continue
-      const response = await apiRequest(request, 'DELETE', `${path}?id=${encodeURIComponent(entityId)}`, { token })
-      expect([200, 404]).toContain(response.status())
+      try {
+        const response = await apiRequest(request, 'DELETE', path, { token, data: { id: entityId } })
+        expect([200, 404]).toContain(response.status())
+      } catch (error) {
+        cleanupErrors.push(error)
+      }
     }
+    expect(cleanupErrors).toEqual([])
   }
 })
