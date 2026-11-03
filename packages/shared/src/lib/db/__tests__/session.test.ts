@@ -21,6 +21,10 @@ describe('resolveDbSessionTimeZone', () => {
     expect(resolveDbSessionTimeZone(env('europe/warsaw'))).toBe('Europe/Warsaw')
   })
 
+  it('rejects a UTC offset string, which Postgres would read with the opposite sign', () => {
+    expect(() => resolveDbSessionTimeZone(env('+01:00'))).toThrow(/OM_DB_DEFAULT_TIMEZONE/)
+  })
+
   it('throws a message naming the variable for an invalid zone', () => {
     expect(() => resolveDbSessionTimeZone(env('Mars/Olympus'))).toThrow(/OM_DB_DEFAULT_TIMEZONE="Mars\/Olympus"/)
   })

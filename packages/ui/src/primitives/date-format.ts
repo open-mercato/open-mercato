@@ -4,6 +4,7 @@ import type { Locale } from 'date-fns/locale'
 import { normalizeDateFormatPattern } from '@open-mercato/shared/lib/date-locale/validation'
 import type { ResolvedDateLocaleSettings } from '@open-mercato/shared/lib/date-locale/types'
 import { getActiveDateLocaleSettings } from './date-locale-store'
+import { resolveDateFnsLocale } from './date-fns-locales'
 
 type LocaleLike = Locale | string | null | undefined
 
@@ -69,9 +70,10 @@ export function formatWithPublicDateFormat(date: Date, format: string, locale?: 
  * ISO stays the contract for machine-facing values — `toDateInputValue`, storage, serialization —
  * never for a label.
  *
- * A pattern is a deliberate operator pin: it wins over the locale entirely, and month tokens render
- * in English on that path — `NEXT_PUBLIC_OM_DATE_FORMAT=d MMM yyyy` gives `1 Jul 2026` to a `pl`
- * tenant, not `1 lip 2026`. Set a numeric pattern, or leave it unset and let `Intl` localize.
+ * A pattern is a deliberate operator pin: it wins over the locale's ordering, while month and
+ * weekday tokens render in the formatting locale (the configured one, else the app locale) for
+ * the locales with a bundled date-fns locale — `d MMM yyyy` gives `1 lip 2026` to a `pl` tenant.
+ * Other locales fall back to English names on that path.
  */
 export function resolveDisplayDateFormat(settings: DisplaySettings = getActiveDateLocaleSettings()): string | null {
   return settings.dateFormat
@@ -200,8 +202,8 @@ function formatDisplay(
   if (!parsed) return null
   const calendarDay = isCalendarDay(value)
   const timeZone = calendarDay ? null : settings.timeZone
-  if (pattern) return formatWithPublicDateFormat(toZonedWallClock(parsed, timeZone), pattern)
   const formatLocale = settings.locale ?? intlLocale(locale)
+  if (pattern) return formatWithPublicDateFormat(toZonedWallClock(parsed, timeZone), pattern, resolveDateFnsLocale(formatLocale))
   try {
     return getFormatter(formatLocale, style, timeZone).format(parsed)
   } catch {

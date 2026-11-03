@@ -12,6 +12,7 @@ import { todayInZone } from '@open-mercato/ui/primitives/date-format'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { ChipButton } from './ChipButton'
 import { FilterPopoverShell } from './FilterPopoverShell'
+import { getActiveDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-store'
 
 export type CloseDateRange = {
   from: string | null
@@ -34,7 +35,8 @@ function todayAsUtcDay(): Date {
 }
 
 function formatCalendarDay(value: string, locale: string): string {
-  return new Intl.DateTimeFormat(locale, { month: 'short', day: '2-digit', timeZone: 'UTC' }).format(new Date(value))
+  const formatLocale = getActiveDateLocaleSettings().locale ?? locale
+  return new Intl.DateTimeFormat(formatLocale, { month: 'short', day: '2-digit', timeZone: 'UTC' }).format(new Date(value))
 }
 
 function startOfMonth(): Date {

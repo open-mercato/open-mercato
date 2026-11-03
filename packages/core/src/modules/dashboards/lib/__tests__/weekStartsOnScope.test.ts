@@ -17,8 +17,8 @@ describe('resolveWeekStartsOnScope', () => {
 
   it('is empty under the Monday default so widget cache keys stay unchanged', async () => {
     resolveForScopeMock.mockResolvedValue(settings({}))
-    await expect(resolveWeekStartsOnScope(container, 'tenant-1', 'user-1')).resolves.toEqual({})
-    expect(resolveForScopeMock).toHaveBeenCalledWith(container, { tenantId: 'tenant-1', userId: 'user-1' })
+    await expect(resolveWeekStartsOnScope(container, 'tenant-1')).resolves.toEqual({})
+    expect(resolveForScopeMock).toHaveBeenCalledWith(container, { tenantId: 'tenant-1' })
   })
 
   it('carries the configured first day of week', async () => {

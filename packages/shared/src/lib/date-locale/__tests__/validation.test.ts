@@ -99,6 +99,10 @@ describe('dateLocaleSettingsInputSchema', () => {
     )
   })
 
+  it('rejects a UTC offset as a tenant time zone', () => {
+    expect(dateLocaleSettingsInputSchema.safeParse({ timeZone: '+01:00' }).success).toBe(false)
+  })
+
   it('rejects unknown keys and out-of-range week starts', () => {
     expect(dateLocaleSettingsInputSchema.safeParse({ unknown: true }).success).toBe(false)
     expect(dateLocaleSettingsInputSchema.safeParse({ firstDayOfWeek: 7 }).success).toBe(false)

@@ -168,7 +168,11 @@ export default function DateLocaleSettingsPage() {
         type: 'select',
         label: t('configs.dateLocale.fields.locale', 'Formatting locale'),
         description: inheritedHint('locale'),
-        options: [autoOption, ...LOCALE_OPTIONS.map((code) => ({ value: code, label: code }))],
+        options: [
+          autoOption,
+          ...[...LOCALE_OPTIONS, ...(data?.settings.locale && !LOCALE_OPTIONS.includes(data.settings.locale) ? [data.settings.locale] : [])]
+            .map((code) => ({ value: code, label: code })),
+        ],
         disabled: !canManage,
         layout: 'half',
       },
@@ -207,7 +211,7 @@ export default function DateLocaleSettingsPage() {
       },
       ...patternFields,
     ]
-  }, [canManage, inheritedHint, locale, t])
+  }, [canManage, data, inheritedHint, locale, t])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => [
     {

@@ -6,6 +6,7 @@ import { formatDisplayDateTime, formatDisplayTime, todayInZone } from '@open-mer
 import { resolveDisplayTimeZone } from '@open-mercato/ui/primitives/date-locale-settings'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { CheckCircle2, FileText, Paperclip, Zap } from 'lucide-react'
+import { getActiveDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-store'
 
 function formatDateTime(value: Date | null, unknownDate: string, locale: string): string {
   return formatDisplayDateTime(value, locale) ?? unknownDate
@@ -24,10 +25,10 @@ function formatSentTime(value: Date | null, unknownDate: string, locale: string)
 
   const isSameYear = today.slice(0, 4) === sentDay.slice(0, 4)
   if (isSameYear) {
-    return value.toLocaleDateString(locale, { month: 'short', day: 'numeric', timeZone })
+    return value.toLocaleDateString(getActiveDateLocaleSettings().locale ?? locale, { month: 'short', day: 'numeric', timeZone })
   }
 
-  return value.toLocaleDateString(locale, { year: 'numeric', month: 'short', day: 'numeric', timeZone })
+  return value.toLocaleDateString(getActiveDateLocaleSettings().locale ?? locale, { year: 'numeric', month: 'short', day: 'numeric', timeZone })
 }
 
 function truncateWords(value: string, maxWords: number): string {

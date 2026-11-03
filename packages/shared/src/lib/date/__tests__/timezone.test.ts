@@ -43,3 +43,16 @@ describe('listSupportedTimeZones', () => {
     expect(zones).toEqual(expect.arrayContaining(['Europe/Warsaw', 'America/New_York']))
   })
 })
+
+describe('time zone edge cases', () => {
+  it('always offers UTC, which the V8 canonical list omits', () => {
+    expect(listSupportedTimeZones()[0]).toBe('UTC')
+    expect(listSupportedTimeZones().filter((zone) => zone === 'UTC')).toHaveLength(1)
+  })
+
+  it('rejects UTC offset strings that Postgres would read with the opposite sign', () => {
+    expect(canonicalizeTimeZone('+01:00')).toBeNull()
+    expect(canonicalizeTimeZone('-05:30')).toBeNull()
+    expect(isValidTimeZone('+01:00')).toBe(false)
+  })
+})

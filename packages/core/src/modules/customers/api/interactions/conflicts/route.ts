@@ -31,10 +31,10 @@ const querySchema = z.object({
 const conflictItemSchema = z.object({
   id: z.string(),
   title: z.string().nullable(),
-  startTime: z.string(),
-  endTime: z.string(),
-  startsAt: z.string(),
-  endsAt: z.string(),
+  startTime: z.string().describe('Legacy `HH:mm` in the caller `timezoneOffsetMinutes` (UTC when omitted). Prefer `startsAt`.'),
+  endTime: z.string().describe('Legacy `HH:mm` in the caller `timezoneOffsetMinutes` (UTC when omitted). Prefer `endsAt`.'),
+  startsAt: z.string().describe('Conflict start as an ISO 8601 instant.'),
+  endsAt: z.string().describe('Conflict end as an ISO 8601 instant.'),
   type: z.string(),
 })
 

@@ -42,6 +42,12 @@ describe('settings-aware display helpers', () => {
     expect(formatDisplayDate(INSTANT, 'en-US', settings({ timeZone: 'UTC', locale: 'en-GB' }))).toBe('31 Dec 2026')
   })
 
+  it('renders month names of a pattern in the configured formatting locale', () => {
+    expect(formatDisplayDate(INSTANT, 'en-US', settings({ timeZone: 'UTC', locale: 'pl-PL', dateFormat: 'd MMM yyyy' }))).toBe('31 gru 2026')
+    expect(formatDisplayDate(INSTANT, 'pl', settings({ timeZone: 'UTC', dateFormat: 'd MMM yyyy' }))).toBe('31 gru 2026')
+    expect(formatDisplayDate(INSTANT, 'en-US', settings({ timeZone: 'UTC', dateFormat: 'd MMM yyyy' }))).toBe('31 Dec 2026')
+  })
+
   it('formats a time with the configured pattern or the locale clock', () => {
     expect(formatDisplayTime(INSTANT, 'en-US', settings({ timeZone: 'UTC', timeFormat: 'HH:mm' }))).toBe('23:30')
     expect(formatDisplayTime(INSTANT, 'en-US', settings({ timeZone: 'UTC' }))).toBe('11:30 PM')

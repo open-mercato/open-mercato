@@ -1,13 +1,18 @@
 /**
  * Returns the canonical IANA spelling of `value` (for example `europe/warsaw` → `Europe/Warsaw`),
- * or `null` when the runtime cannot resolve it as a time zone.
+ * or `null` when the runtime cannot resolve it as a named time zone.
+ *
+ * Offset strings such as `+01:00` are rejected even though recent `Intl` accepts them: Postgres
+ * reads `TimeZone=+01:00` as a POSIX spec where positive means WEST of Greenwich, so the same value
+ * would mean opposite offsets in the browser and in the database session.
  */
 export function canonicalizeTimeZone(value: string | null | undefined): string | null {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
-  if (!trimmed) return null
+  if (!/^[A-Za-z]/.test(trimmed)) return null
   try {
-    return new Intl.DateTimeFormat('en-US', { timeZone: trimmed }).resolvedOptions().timeZone
+    const resolved = new Intl.DateTimeFormat('en-US', { timeZone: trimmed }).resolvedOptions().timeZone
+    return /^[A-Za-z]/.test(resolved) ? resolved : null
   } catch {
     return null
   }
@@ -47,11 +52,16 @@ const FALLBACK_TIME_ZONES = [
   'Asia/Seoul',
 ]
 
-/** Every IANA zone the runtime supports, or a short common list on runtimes without `supportedValuesOf`. */
+/**
+ * Every IANA zone the runtime supports (or a short common list on runtimes without
+ * `supportedValuesOf`), always starting with `UTC`: V8's canonical list omits `UTC` and `Etc/UTC`,
+ * and pickers that only accept listed values would otherwise make it unselectable.
+ */
 export function listSupportedTimeZones(): string[] {
+  let zones: string[] = [...FALLBACK_TIME_ZONES]
   try {
     const supported = (Intl as unknown as { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf
-    if (typeof supported === 'function') return supported('timeZone')
+    if (typeof supported === 'function') zones = supported('timeZone')
   } catch {}
-  return [...FALLBACK_TIME_ZONES]
+  return zones.includes('UTC') ? zones : ['UTC', ...zones]
 }

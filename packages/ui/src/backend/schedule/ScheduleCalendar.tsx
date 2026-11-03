@@ -214,14 +214,14 @@ export default function ScheduleCalendar({
 
   const dateLocaleSettings = useDateLocaleSettings()
   const formats = React.useMemo(() => {
-    const timePattern = dateLocaleSettings.timeFormat ?? (deriveTimeDisplayFormat(locale) === '24h' ? 'HH:mm' : 'h:mm a')
+    const timePattern = dateLocaleSettings.timeFormat ?? (deriveTimeDisplayFormat(dateLocaleSettings.locale ?? locale) === '24h' ? 'HH:mm' : 'h:mm a')
     const formatTime = (date: Date) => format(date, timePattern, { locale: getScheduleLocale(locale) })
     return {
       timeGutterFormat: formatTime,
       eventTimeRangeFormat: ({ start, end }: { start: Date; end: Date }) => `${formatTime(start)}–${formatTime(end)}`,
       agendaTimeRangeFormat: ({ start, end }: { start: Date; end: Date }) => `${formatTime(start)}–${formatTime(end)}`,
     }
-  }, [dateLocaleSettings.timeFormat, locale])
+  }, [dateLocaleSettings.locale, dateLocaleSettings.timeFormat, locale])
 
   return (
     <Calendar

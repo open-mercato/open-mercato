@@ -5,6 +5,7 @@ import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatDisplayTime, todayInZone } from '@open-mercato/ui/primitives/date-format'
 import { resolveDisplayTimeZone } from '@open-mercato/ui/primitives/date-locale-settings'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { getActiveDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-store'
 
 function formatSentTime(value: Date | null, unknownDate: string, locale: string): string {
   if (!value || Number.isNaN(value.getTime())) return unknownDate
@@ -14,7 +15,7 @@ function formatSentTime(value: Date | null, unknownDate: string, locale: string)
     return formatDisplayTime(value, locale) ?? unknownDate
   }
 
-  return value.toLocaleDateString(locale, { month: 'short', day: 'numeric', timeZone })
+  return value.toLocaleDateString(getActiveDateLocaleSettings().locale ?? locale, { month: 'short', day: 'numeric', timeZone })
 }
 
 function normalizeBody(value: string | null): string {

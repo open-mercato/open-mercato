@@ -103,7 +103,7 @@ export async function POST(req: Request) {
   const cache = container.resolve<CacheStrategy>('cache')
   const service = createWidgetDataService(
     em,
-    { tenantId, organizationIds, ...(await resolveWeekStartsOnScope(container, tenantId, auth.sub)) },
+    { tenantId, organizationIds, ...(await resolveWeekStartsOnScope(container, tenantId)) },
     analyticsRegistry,
     cache,
     resolveOptionalBaseCurrencyResolver(container),

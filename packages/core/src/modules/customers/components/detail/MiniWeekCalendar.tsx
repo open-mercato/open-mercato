@@ -10,7 +10,7 @@ import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { formatDisplayTime } from '@open-mercato/ui/primitives/date-format'
-import { useDisplayTimeZone, useWeekStartsOn } from '@open-mercato/ui/primitives/date-locale-settings'
+import { useDateLocaleSettings, useDisplayTimeZone, useWeekStartsOn } from '@open-mercato/ui/primitives/date-locale-settings'
 import type { InteractionSummary } from './types'
 import { loadLegacyActivitiesInRange } from './legacyActivities'
 import { isSameDay, toLocalZonedDate } from '../../lib/localDay'
@@ -65,6 +65,7 @@ function dotColorForType(type: string, isToday: boolean): string {
 export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, refreshRef }: MiniWeekCalendarProps) {
   const t = useT()
   const locale = useLocale()
+  const formatLocale = useDateLocaleSettings().locale ?? locale
   const timeZone = useDisplayTimeZone()
   const weekStartsOn = useWeekStartsOn()
   const today = React.useMemo(() => toLocalZonedDate(new Date()), [])
@@ -82,11 +83,11 @@ export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, re
   const weekEnd = weekDays[6]
 
   const monthLabel = React.useMemo(() => {
-    const month = new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric' }).format(baseDate)
+    const month = new Intl.DateTimeFormat(formatLocale, { month: 'long', year: 'numeric' }).format(baseDate)
     return weekOffset === 0
       ? t('customers.calendar.thisWeek', 'This week') + ' — ' + month
       : month
-  }, [baseDate, locale, t, weekOffset])
+  }, [baseDate, formatLocale, t, weekOffset])
 
   const [refreshKey, setRefreshKey] = React.useState(0)
   const refresh = React.useCallback(() => setRefreshKey((k) => k + 1), [])
@@ -196,14 +197,14 @@ export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, re
         ? ''
         : offset === 1
           ? t('customers.calendar.tomorrow', 'Tomorrow') + ' '
-          : new Intl.DateTimeFormat(locale, { weekday: 'short' }).format(d) + ' '
+          : new Intl.DateTimeFormat(formatLocale, { weekday: 'short' }).format(d) + ' '
       for (const ev of dayEvents) {
         if (result.length >= 3) break
         result.push({ event: ev, dayLabel: label, isToday: isActiveDay })
       }
     }
     return result
-  }, [eventsByDay, activeDay, locale, t])
+  }, [eventsByDay, activeDay, formatLocale, t])
 
   const dayLabelsByWeekday = getDayLabelsByWeekday(t)
   const dayLabels = weekDays.map((day) => dayLabelsByWeekday[day.getDay()])

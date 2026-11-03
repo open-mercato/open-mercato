@@ -11,9 +11,10 @@ type ContainerLike = Parameters<typeof resolveDateLocaleSettingsForScope>[0]
 export async function resolveWeekStartsOnScope(
   container: ContainerLike,
   tenantId: string,
-  userId?: string | null,
 ): Promise<Pick<WidgetDataScope, 'weekStartsOn'>> {
-  const settings = await resolveDateLocaleSettingsForScope(container, { tenantId, userId: userId ?? null })
+  // Tenant-only: the first day of week and formatting locale have no user layer, so skip the
+  // per-user time zone lookup on every widget data request.
+  const settings = await resolveDateLocaleSettingsForScope(container, { tenantId })
   const resolved = resolveFirstDayOfWeek(settings)
   return resolved.source === 'default' ? {} : { weekStartsOn: resolved.day }
 }
