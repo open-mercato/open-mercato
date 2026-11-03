@@ -26,6 +26,9 @@ export const TIME_TRACKING_DEFAULTS_GROUP = 'defaults'
 export const TIME_TRACKING_TARGETS_GROUP = 'targets'
 export const TIME_TRACKING_WARNINGS_GROUP = 'warnings'
 export const TIME_TRACKING_ACCESS_GROUP = 'access'
+export const TIME_TRACKING_SUPPORT_GROUP = 'support'
+export const DEFAULT_SUPPORT_REFERENCE_PREFIX = 'SUP'
+export const supportReferencePrefixSchema = z.string().regex(/^[A-Z][A-Z0-9]{1,9}$/)
 
 /**
  * Days past `assigned_end_date` that project access survives (spec D-12). The
@@ -196,6 +199,14 @@ const BUILT_IN_SETTING_KEYS: readonly TimeTrackingSettingKeyInput[] = [
     schema: z.number().int().min(0).max(MAX_ASSIGNMENT_GRACE_DAYS),
     default: DEFAULT_ASSIGNMENT_GRACE_DAYS,
     labelKey: 'staff.time_tracking.settings.access.graceDays',
+    priority: BUILT_IN_STRATEGY_PRIORITY,
+  },
+  {
+    group: TIME_TRACKING_SUPPORT_GROUP,
+    key: 'referencePrefix',
+    schema: supportReferencePrefixSchema,
+    default: DEFAULT_SUPPORT_REFERENCE_PREFIX,
+    labelKey: 'staff.support.settings.referencePrefix',
     priority: BUILT_IN_STRATEGY_PRIORITY,
   },
 ]
