@@ -7,7 +7,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { formatRelativeTime } from '@open-mercato/shared/lib/time'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import type { NotificationRendererProps } from '@open-mercato/shared/modules/notifications/types'
 
 export function WmsReservationShortfallRenderer({
@@ -17,6 +17,7 @@ export function WmsReservationShortfallRenderer({
   actions = [],
 }: NotificationRendererProps) {
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const [executing, setExecuting] = React.useState<string | null>(null)
   const isUnread = notification.status === 'unread'
@@ -41,11 +42,12 @@ export function WmsReservationShortfallRenderer({
         : actionId === 'view-inventory'
           ? inventoryAction
           : null
-    if (!action && fallbackHref) {
+    const alreadyActioned = notification.status === 'actioned'
+    if ((!action || alreadyActioned) && fallbackHref) {
       router.push(fallbackHref)
       return
     }
-    if (!action) return
+    if (!action || alreadyActioned) return
     setExecuting(actionId)
     try {
       await onAction(action.id)
@@ -54,7 +56,7 @@ export function WmsReservationShortfallRenderer({
     }
   }
 
-  const timeAgo = formatRelativeTime(notification.createdAt, { translate: t }) ?? ''
+  const timeAgo = formatRelativeTime(notification.createdAt, { locale, translate: t }) ?? ''
 
   return (
     <div
@@ -138,7 +140,7 @@ export function WmsReservationShortfallRenderer({
               event.stopPropagation()
               void handleAction('view-order', notification.linkHref ?? undefined)
             }}
-            disabled={executing !== null}
+            disabled={executing !== null || (notification.status === 'actioned' && !notification.linkHref)}
           >
             <ExternalLink className="size-3.5" aria-hidden="true" />
             {t('wms.notifications.reservationShortfall.renderer.viewOrder', 'View order')}

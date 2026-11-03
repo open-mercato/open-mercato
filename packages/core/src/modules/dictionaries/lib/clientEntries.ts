@@ -1,6 +1,7 @@
 "use client"
 
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { fetchAllDictionaryEntries } from './fetchAllEntries'
 
 type DictionarySummary = {
   id: string
@@ -59,8 +60,8 @@ export async function loadDictionaryEntriesByKey(key: string): Promise<Dictionar
   const dictionary = normalizeDictionaryList(dictionariesCall.result?.items).find((item) => item.key === key)
   if (!dictionary) return []
 
-  const entriesCall = await apiCall<{ items?: unknown[] }>(`/api/dictionaries/${dictionary.id}/entries`)
-  if (!entriesCall.ok) return []
+  const entries = await fetchAllDictionaryEntries(dictionary.id)
+  if (!entries.ok) return []
 
-  return normalizeDictionaryEntries(entriesCall.result?.items)
+  return normalizeDictionaryEntries(entries.items)
 }

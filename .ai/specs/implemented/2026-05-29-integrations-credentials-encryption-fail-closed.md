@@ -84,6 +84,35 @@ The public credentials service type and API routes remain stable. The new typed 
 - Sensitive data remains encrypted through AES-GCM and tenant DEKs.
 - The insecure local AES/KMS fallback is removed from integrations credentials.
 
+## Amendment 2026-09-10 — fail closed on outage, not on opt-out
+
+The original rule ("no DEK, no write") was implemented against `getTenantDek()` returning null,
+which conflates two situations that need opposite handling:
+
+- **Vault is down / no fallback secret configured.** Writing a third-party API key in the clear
+  here is exactly the downgrade this spec exists to prevent. Unchanged: still fails closed, still
+  HTTP 503.
+- **The operator set `TENANT_DATA_ENCRYPTION=no`.** Plaintext at rest is the whole point of that
+  setting — emails, the search index and the query index are already stored that way. Failing
+  closed here made integration credentials unsavable on a deployment that had deliberately opted
+  out, with a 503 that pointed at Vault configuration the operator had chosen not to have.
+
+`resolveEncryptionMode(kms)` (`@open-mercato/shared/lib/encryption/kms`) now names the three
+states, and only `unavailable` fails closed. The threat model is unchanged: no local DEK
+derivation, no auth-secret reuse, no hardcoded fallback constant. `disabled` writes the credentials
+object as-is with no `__om_encrypted_credentials_blob_v1` marker, so the on-disk shape stays
+self-describing and re-enabling the toggle re-seals on the next write.
+
+Reads of a blob sealed *before* the toggle was flipped still raise, now with
+`reason: 'sealed-while-disabled'`. The previous message pointed at Vault, which is not the remedy
+for that case — and neither is `mercato entities decrypt-database`, which decrypts the columns an
+encryption map covers while this envelope sits *inside* the decrypted `credentials` value. The only
+remedy is re-entering the credentials, so `GET`/`PUT /api/integrations/:id/credentials` catch this
+one reason and degrade to an empty form instead of 503, letting the operator do exactly that. Every
+other unavailable reason still fails closed on both verbs, and adapters reading through the service
+still get the error rather than a silently empty credential set.
+
 ## Changelog
 
 - 2026-05-29 - Initial security hardening spec for issue #2251.
+- 2026-09-10 - Amended: `TENANT_DATA_ENCRYPTION=no` degrades to plaintext instead of failing closed; KMS outages are unchanged.

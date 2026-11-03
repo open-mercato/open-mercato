@@ -1,5 +1,11 @@
 import { RateLimiterService } from '../service'
-import { checkRateLimit, getClientIp, RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK } from '../helpers'
+import {
+  checkRateLimit,
+  getClientIp,
+  RATE_LIMIT_ERROR_KEY,
+  RATE_LIMIT_ERROR_FALLBACK,
+  RATE_LIMIT_UNAVAILABLE_FALLBACK,
+} from '../helpers'
 import { readEndpointRateLimitConfig } from '../config'
 import type { RateLimitConfig, RateLimitGlobalConfig } from '../types'
 
@@ -83,6 +89,45 @@ describe('checkRateLimit', () => {
       const result = await checkRateLimit(service, limitConfig, 'ip6', 'Rate limited')
       expect(result).toBeNull()
     }
+  })
+
+  describe('degraded limiter', () => {
+    function createDegradedService(): RateLimiterService {
+      const degraded = createService()
+      jest.spyOn(degraded, 'consume').mockResolvedValue({
+        allowed: true,
+        remainingPoints: limitConfig.points,
+        msBeforeNext: 0,
+        consumedPoints: 0,
+        degraded: true,
+      })
+      return degraded
+    }
+
+    it('returns 503 when failClosed is set', async () => {
+      service = createDegradedService()
+      const response = await checkRateLimit(service, limitConfig, 'ip7', 'Rate limited', {
+        failClosed: true,
+      })
+      expect(response).not.toBeNull()
+      expect(response!.status).toBe(503)
+      expect(await response!.json()).toEqual({ error: RATE_LIMIT_UNAVAILABLE_FALLBACK })
+    })
+
+    it('uses the supplied unavailableMessage in the 503 body', async () => {
+      service = createDegradedService()
+      const response = await checkRateLimit(service, limitConfig, 'ip8', 'Rate limited', {
+        failClosed: true,
+        unavailableMessage: 'Payments are briefly unavailable.',
+      })
+      expect(await response!.json()).toEqual({ error: 'Payments are briefly unavailable.' })
+    })
+
+    it('keeps failing open when failClosed is not set', async () => {
+      service = createDegradedService()
+      const response = await checkRateLimit(service, limitConfig, 'ip9', 'Rate limited')
+      expect(response).toBeNull()
+    })
   })
 })
 

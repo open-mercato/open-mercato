@@ -255,6 +255,94 @@ describe('SearchService', () => {
       expect(results.map((result) => result.recordId)).toEqual(['rec-a', 'rec-b'])
     })
 
+    it('fuses only declared catalogue hits across tokens, vectors and fulltext after scope filtering', async () => {
+      const entityId = 'feature_toggles:feature_toggle'
+      const strategy = (id: string, organizationId: string | null, title: string) => createMockStrategy({
+        id,
+        search: jest.fn().mockResolvedValue([createMockResult({ entityId, source: id, organizationId, presenter: { title } })]),
+      })
+      const service = new SearchService({ strategies: [
+        strategy('tokens', null, 'Canonical'),
+        strategy('vector', 'org-456', 'Vector'),
+        strategy('fulltext', 'org-456', 'Fulltext'),
+        strategy('foreign', 'org-foreign', 'Forbidden'),
+      ], defaultStrategies: ['tokens', 'vector', 'fulltext', 'foreign'] })
+
+      const results = await service.search('catalogue', { tenantId: 'tenant-123', organizationId: 'org-456' })
+      expect(results).toHaveLength(1)
+      expect(results[0].organizationId).toBeNull()
+      expect(new Set(results[0].metadata?._sources as string[])).toEqual(new Set(['tokens', 'vector', 'fulltext']))
+      expect(results[0].presenter?.title).not.toBe('Forbidden')
+    })
+
+    it('counts one catalogue contribution per strategy when several organizations hold a vector', async () => {
+      const entityId = 'feature_toggles:feature_toggle'
+      const strategy = createMockStrategy({ id: 'vector', search: jest.fn().mockResolvedValue([
+        createMockResult({ entityId, source: 'vector', organizationId: 'org-456' }),
+        createMockResult({ entityId, source: 'vector', organizationId: 'org-789' }),
+      ]) })
+      const service = new SearchService({ strategies: [strategy], defaultStrategies: ['vector'] })
+      const results = await service.search('catalogue', { tenantId: 'tenant-123' })
+      expect(results).toHaveLength(1)
+      expect(results[0].score).toBeCloseTo(1 / 61)
+      expect(results[0].metadata?._sources).toEqual(['vector'])
+    })
+
+    it('keeps ordinary organization identities separate when searching all organizations', async () => {
+      const strategy = createMockStrategy({ search: jest.fn().mockResolvedValue([
+        createMockResult({ organizationId: 'org-456' }),
+        createMockResult({ organizationId: 'org-789' }),
+      ]) })
+      const service = new SearchService({ strategies: [strategy], defaultStrategies: ['mock'] })
+      const results = await service.search('ordinary', { tenantId: 'tenant-123' })
+      expect(results.map((result) => result.organizationId).sort()).toEqual(['org-456', 'org-789'])
+    })
+
+    it('quarantines private artifacts before provider ranking and enrichment while keeping scoped synthetic inputs', async () => {
+      const scopeModule = await import('@open-mercato/core/modules/query_index/lib/search-scope')
+      const resolveScope = jest.mocked(scopeModule.resolveQueryIndexSearchScope).mockResolvedValueOnce({
+        searchableEntityTypes: ['feature_toggles:feature_toggle'],
+        blockedEntityTypes: ['directory:tenant'], tenantGlobalEntityTypes: ['feature_toggles:feature_toggle'],
+      })
+      try {
+        const strategy = createMockStrategy({ id: 'test', search: jest.fn().mockResolvedValue([
+          createMockResult({ entityId: 'directory:tenant', recordId: 'private', organizationId: 'org-A' }),
+          createMockResult({ entityId: 'provider:remote_record', recordId: 'remote', organizationId: 'org-A' }),
+        ]) })
+        const presenterEnricher = jest.fn(async (results: SearchResult[]) => results)
+        const service = new SearchService({ strategies: [strategy], defaultStrategies: ['test'], presenterEnricher })
+        const results = await service.search('secret', { tenantId: 'victim-tenant', organizationId: 'org-A', entityTypes: ['directory:tenant', 'provider:remote_record'], limit: 1 })
+        expect(strategy.search).toHaveBeenCalledWith('secret', expect.objectContaining({ entityTypes: ['provider:remote_record'], limit: 1 }))
+        expect(results.map((result) => result.recordId)).toEqual(['remote'])
+        expect(presenterEnricher).toHaveBeenCalledWith([expect.objectContaining({ recordId: 'remote' })], 'victim-tenant', 'org-A')
+      } finally {
+        resolveScope.mockClear()
+      }
+    })
+
+    it('keeps an organization-less hit only for a declared platform-wide catalogue', async () => {
+      const strategy = createMockStrategy({
+        id: 'test',
+        search: jest.fn().mockResolvedValue([
+          createMockResult({ entityId: 'feature_toggles:feature_toggle', recordId: 'toggle-1', organizationId: null }),
+          createMockResult({ entityId: 'directory:tenant', recordId: 'tenant-row', organizationId: null }),
+          createMockResult({ recordId: 'rec-a', organizationId: 'org-A' }),
+          createMockResult({ recordId: 'rec-b', organizationId: 'org-B' }),
+        ]),
+      })
+      const service = new SearchService({
+        strategies: [strategy],
+        defaultStrategies: ['test'],
+      })
+
+      const results = await service.search('test', {
+        tenantId: 'tenant-123',
+        organizationId: 'org-A',
+      })
+
+      expect(results.map((result) => result.recordId).sort()).toEqual(['rec-a', 'toggle-1'])
+    })
+
     it('should fail closed for an empty organization allowlist', async () => {
       const strategy = createMockStrategy({
         id: 'test',
@@ -431,6 +519,30 @@ describe('SearchService', () => {
       expect(strategy.index).toHaveBeenCalledTimes(2)
     })
 
+    it('should bound in-flight writes when falling back to individual indexing', async () => {
+      let inFlight = 0
+      let peakInFlight = 0
+      const strategy = createMockStrategy({
+        id: 'test',
+        bulkIndex: undefined,
+        index: jest.fn(async () => {
+          inFlight++
+          peakInFlight = Math.max(peakInFlight, inFlight)
+          await new Promise<void>((resolve) => setTimeout(resolve, 0))
+          inFlight--
+        }),
+      })
+      const service = new SearchService({ strategies: [strategy] })
+      const records = Array.from({ length: 50 }, (_, index) =>
+        createMockRecord({ recordId: `rec-${index}` }),
+      )
+
+      await service.bulkIndex(records)
+
+      expect(strategy.index).toHaveBeenCalledTimes(50)
+      expect(peakInFlight).toBeLessThanOrEqual(4)
+    })
+
     it('should do nothing when records array is empty', async () => {
       const strategy = createMockStrategy({ id: 'test' })
       const service = new SearchService({ strategies: [strategy] })
@@ -558,21 +670,26 @@ describe('SearchService', () => {
         availabilityCacheTtlMs: 0,
       })
 
-      const start = Date.now()
-      await service.search('q', { tenantId: 't-1' })
-      const elapsed = Date.now() - start
-      const timings = Object.values(probeTimings)
-      const latestStart = Math.max(...timings.map((timing) => timing.start))
-      const earliestEnd = Math.min(...timings.map((timing) => timing.end))
+      jest.useFakeTimers({ now: 0 })
+      try {
+        const start = Date.now()
+        const search = service.search('q', { tenantId: 't-1' })
+        await jest.runAllTimersAsync()
+        await search
+        const elapsed = Date.now() - start
+        const timings = Object.values(probeTimings)
+        const latestStart = Math.max(...timings.map((timing) => timing.start))
+        const earliestEnd = Math.min(...timings.map((timing) => timing.end))
 
-      // Sequential probes would not overlap. Parallel probes must overlap in time,
-      // and total elapsed time should stay well below a fully sequential run.
-      expect(timings).toHaveLength(3)
-      expect(latestStart).toBeLessThan(earliestEnd)
-      expect(elapsed).toBeLessThan(450)
-      expect(slowA.isAvailable).toHaveBeenCalledTimes(1)
-      expect(slowB.isAvailable).toHaveBeenCalledTimes(1)
-      expect(slowC.isAvailable).toHaveBeenCalledTimes(1)
+        expect(timings).toHaveLength(3)
+        expect(latestStart).toBeLessThan(earliestEnd)
+        expect(elapsed).toBeLessThan(120)
+        expect(slowA.isAvailable).toHaveBeenCalledTimes(1)
+        expect(slowB.isAvailable).toHaveBeenCalledTimes(1)
+        expect(slowC.isAvailable).toHaveBeenCalledTimes(1)
+      } finally {
+        jest.useRealTimers()
+      }
     })
 
     it('caches positive availability checks within the TTL window', async () => {
@@ -703,3 +820,12 @@ describe('SearchService', () => {
     })
   })
 })
+
+jest.mock('@open-mercato/core/modules/query_index/lib/search-scope', () => ({
+  buildQueryIndexSearchScopePredicate: () => jest.requireActual('kysely').sql`true`,
+  filterQueryIndexSearchRecords: async (_database: unknown, _scope: unknown, records: unknown[]) => records,
+  resolveQueryIndexSearchScope: jest.fn(async () => ({
+    blockedEntityTypes: [],
+    tenantGlobalEntityTypes: jest.requireActual('@open-mercato/core/modules/query_index/lib/tenant-global').listTenantGlobalEntityTypes(),
+  })),
+}))

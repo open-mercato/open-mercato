@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/customers/extension-points'
 import Link from 'next/link'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -14,7 +15,9 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { AttachmentsSection, ErrorMessage, LoadingMessage, RecordNotFoundState, type SectionAction } from '@open-mercato/ui/backend/detail'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
-import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { useCustomerInjectedTabs } from '../../../../components/detail/useCustomerInjectedTabs'
+import { CustomerDetailSidebar } from '../../../../components/detail/CustomerDetailSidebar'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
@@ -29,8 +32,9 @@ import { CompanyPeopleSection, type CompanyPersonSummary } from '../../../../com
 import type { TagSummary } from '../../../../components/detail/types'
 import type { TagsSectionController } from '@open-mercato/ui/backend/detail'
 import { coerceDisplayName } from '../../../../lib/displayName'
+import { isDetailNotFoundStatus } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 import { CompanyDetailHeader } from '../../../../components/detail/CompanyDetailHeader'
-import { CompanyDetailTabs, resolveLegacyTab, type CompanyTabId } from '../../../../components/detail/CompanyDetailTabs'
+import { CompanyDetailTabs, COMPANY_DETAIL_TAB_IDS, resolveLegacyTab, type CompanyTabId } from '../../../../components/detail/CompanyDetailTabs'
 import { useDealsAccess } from '../../../../components/detail/useDealsAccess'
 import { CompanyKpiBar } from '../../../../components/detail/CompanyKpiBar'
 import { ScheduleActivityDialog, type ScheduleActivityEditData } from '../../../../components/detail/ScheduleActivityDialog'
@@ -69,6 +73,17 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     return resolveLegacyTab(searchParams?.get('tab'))
   }, [searchParams])
   const [activeTab, setActiveTab] = React.useState<CompanyTabId>(initialTab)
+
+  const handleTabChange = React.useCallback(
+    (tab: CompanyTabId) => {
+      setActiveTab(tab)
+      if (!pathname) return
+      const nextParams = new URLSearchParams(searchParams?.toString() ?? '')
+      nextParams.set('tab', tab)
+      router.replace(`${pathname}?${nextParams.toString()}`, { scroll: false })
+    },
+    [pathname, router, searchParams],
+  )
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const { canViewDeals, isReady: isDealsAccessReady } = useDealsAccess()
 
@@ -140,7 +155,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
       )
       setData(payload as CompanyOverview)
     } catch (err) {
-      if ((err as { status?: number }).status === 404) {
+      if (isDetailNotFoundStatus((err as { status?: number }).status)) {
         setIsNotFound(true)
       } else {
         const message = err instanceof Error ? err.message : t('customers.companies.detail.error.load', 'Failed to load company.')
@@ -179,9 +194,11 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
       resourceKind: 'customers.company',
       resourceId: currentCompanyId ?? (id ?? undefined),
       data,
+      isDirty,
+      isSaving,
       retryLastMutation,
     }),
-    [currentCompanyId, data, id, mutationContextId, retryLastMutation],
+    [currentCompanyId, data, isDirty, isSaving, id, mutationContextId, retryLastMutation],
   )
   const runMutationWithContext = React.useCallback(
     async <T,>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>): Promise<T> => {
@@ -235,6 +252,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
       scheduledAt: typeof activity.scheduledAt === 'string' ? activity.scheduledAt : null,
       occurredAt: typeof activity.occurredAt === 'string' ? activity.occurredAt : null,
       durationMinutes: durationValue,
+      priority: typeof raw.priority === 'number' ? raw.priority as number : null,
       location: typeof raw.location === 'string' ? raw.location as string : null,
       allDay: typeof raw.allDay === 'boolean' ? raw.allDay as boolean : null,
       recurrenceRule: typeof raw.recurrenceRule === 'string' ? raw.recurrenceRule as string : null,
@@ -281,34 +299,19 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     setScheduleDialogOpen(true)
   }, [])
 
-  // Injected tabs from UMES
-  const { widgets: injectedTabWidgets } = useInjectionWidgets('detail:customers.company:tabs', {
+  const { injectedTabs, injectedTabMap, loading: injectedTabsLoading } = useCustomerInjectedTabs({
+    spotId: extensionPoints.hosts.companyTabs.spotId,
     context: injectionContext,
-    triggerOnLoad: true,
+    data,
+    onDataChange: setData,
+    nativeTabIds: COMPANY_DETAIL_TAB_IDS,
   })
 
-  const injectedTabs = React.useMemo(
-    () =>
-      (injectedTabWidgets ?? [])
-        .filter((widget) => (widget.placement?.kind ?? 'tab') === 'tab')
-        .map((widget) => {
-          const tabId = widget.placement?.groupId ?? widget.widgetId
-          const label = widget.placement?.groupLabel ?? widget.module.metadata.title ?? tabId
-          const priority = typeof widget.placement?.priority === 'number' ? widget.placement.priority : 0
-          const render = () => (
-            <widget.module.Widget
-              context={injectionContext}
-              data={data}
-              onDataChange={(next: unknown) => setData(next as CompanyOverview)}
-            />
-          )
-          return { id: tabId, label, priority, render }
-        })
-        .sort((a, b) => b.priority - a.priority),
-    [data, injectedTabWidgets, injectionContext],
-  )
-
-  const injectedTabMap = React.useMemo(() => new Map(injectedTabs.map((tab) => [tab.id, tab.render])), [injectedTabs])
+  const injectedTabIds = React.useMemo(() => injectedTabs.map((tab) => tab.id), [injectedTabs])
+  React.useEffect(() => {
+    const requested = resolveLegacyTab(searchParams?.get('tab'), injectedTabIds)
+    setActiveTab(requested === 'deals' && isDealsAccessReady && !canViewDeals ? 'people' : requested)
+  }, [searchParams, injectedTabIds, isDealsAccessReady, canViewDeals])
 
   // Tags
   const handleTagsChange = React.useCallback((nextTags: TagSummary[]) => {
@@ -471,11 +474,12 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
       <PageBody>
         <div className="space-y-4">
           {/* UMES header injection */}
-          <InjectionSpot spotId="detail:customers.company:header" context={injectionContext} data={data} />
-          <InjectionSpot spotId="detail:customers.company:status-badges" context={injectionContext} data={data} />
+          <InjectionSpot spotId={extensionPoints.hosts.companyHeader.spotId} context={injectionContext} data={data} />
+          <InjectionSpot spotId={extensionPoints.hosts.companyStatusBadges.spotId} context={injectionContext} data={data} />
 
           {/* Persistent company header */}
           <CompanyDetailHeader
+            actions={<InjectionSpot spotId={extensionPoints.hosts.companyHeaderActions.spotId} context={injectionContext} data={data} disabled={isSaving} />}
             data={data}
             onTagsChange={handleTagsChange}
             tagsSectionControllerRef={tagsSectionControllerRef}
@@ -490,6 +494,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
           <CompanyKpiBar data={data} />
 
           {/* Two-zone layout: zone1 = form, zone2 = tabs */}
+          <CustomerDetailSidebar spotId={extensionPoints.hosts.companySidebar.spotId} context={injectionContext} data={data} onDataChange={setData} disabled={isSaving}>
           <CollapsibleZoneLayout
             pageType="company-v2"
             entityName={companyName}
@@ -500,7 +505,11 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                 <CrudForm<CompanyEditFormValues>
                   embedded
                   trackDirtyWhenEmbedded
-                  injectionSpotId="crud-form:customers.company"
+                  injectionSpotId={extensionPoints.hosts.companyForm.spotId}
+                  entityId="customers.company"
+                  resourceKind="customers.company"
+                  resourceId={companyId}
+                  injectionGroupAliases={{ details: 'identity', profile: 'businessProfile' }}
                   entityIds={[E.customers.customer_entity, E.customers.customer_company_profile]}
                   schema={formSchema}
                   fields={formFields}
@@ -519,8 +528,9 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
             zone2={
               <CompanyDetailTabs
                 activeTab={activeTab}
-                onTabChange={setActiveTab}
-                injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label }))}
+                onTabChange={handleTabChange}
+                isLoadingInjectedTabs={injectedTabsLoading}
+                injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label, priority: tab.priority }))}
                 peopleCount={data.counts?.people ?? 0}
                 dealsCount={dealCount}
                 activitiesCount={data.counts?.activities ?? 0}
@@ -605,8 +615,11 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
             }
           />
 
+          </CustomerDetailSidebar>
+
           {/* UMES footer injection */}
-          <InjectionSpot spotId="detail:customers.company:footer" context={injectionContext} data={data} />
+
+          <InjectionSpot spotId={extensionPoints.hosts.companyFooter.spotId} context={injectionContext} data={data} />
 
           {/* Schedule Activity Dialog */}
           <ScheduleActivityDialog

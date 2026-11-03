@@ -150,6 +150,38 @@ describe('pushUnregister', () => {
     )
   })
 
+  it('finds a tenant-wide (null-org) channel null-aware and decrypts it at the row org, not the credentials org', async () => {
+    // A tenant-wide push channel is stored with `organization_id = NULL` but its credentials are
+    // pinned at `organization_id = tenantId`, so admin-delete passes `organizationId = tenantId` as
+    // the credentials/delivery org. The row lookup must stay null-aware (an exact `= tenantId` filter
+    // never matches a null-org row) and decrypt at the row's own org (null), not the credentials org.
+    const channel = buildActiveGmailChannel({ providerKey: 'fcm', userId: null, organizationId: null })
+    ;(findOneWithDecryption as jest.Mock).mockResolvedValue(channel)
+    ;(getChannelAdapterRegistry as jest.Mock).mockReturnValue({
+      get: jest.fn().mockReturnValue({ providerKey: 'fcm', unregisterPush: jest.fn().mockResolvedValue(undefined) }),
+    })
+    const { container } = buildContainer()
+
+    const result = await pushUnregister({
+      container,
+      scope: { tenantId: TENANT, organizationId: TENANT, userId: null },
+      input: { channelId: CHANNEL },
+    })
+
+    expect(result.status).toBe('unregistered')
+    expect(findOneWithDecryption).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        id: CHANNEL,
+        tenantId: TENANT,
+        $or: [{ organizationId: TENANT }, { organizationId: null }],
+      }),
+      undefined,
+      { tenantId: TENANT, organizationId: null },
+    )
+  })
+
   it('returns failed (best-effort) when the adapter throws — does not propagate', async () => {
     const channel = buildActiveGmailChannel()
     ;(findOneWithDecryption as jest.Mock).mockResolvedValue(channel)

@@ -10,7 +10,6 @@ import type {
 } from './types'
 import { mergeAndRankResults } from './lib/merger'
 import { searchError } from './lib/debug'
-import { needsSearchResultEnrichment } from './lib/search-result-enrichment'
 
 /**
  * Default merge configuration.
@@ -26,6 +25,38 @@ const DEFAULT_MERGE_CONFIG: ResultMergeConfig = {
  */
 const STRATEGY_AVAILABILITY_CACHE_TTL_MS = 2_000
 
+/**
+ * Maximum records indexed at once when bulkIndex falls back to per-record writes
+ * for a strategy that has no bulkIndex implementation (currently the vector
+ * strategy, whose index() performs an embedding-provider round trip per record).
+ * A whole reindex page arrives in one bulkIndex call, so an unbounded fan-out
+ * would burst hundreds of concurrent provider requests from a single job.
+ */
+const BULK_INDEX_FALLBACK_CONCURRENCY = 4
+
+/**
+ * Map items through an async worker with a fixed number of in-flight calls.
+ * Rejects with the first error, matching Promise.all semantics.
+ */
+async function mapWithConcurrency<T>(
+  items: T[],
+  limit: number,
+  worker: (item: T) => Promise<void>,
+): Promise<void> {
+  if (items.length === 0) return
+
+  let nextIndex = 0
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    for (;;) {
+      const currentIndex = nextIndex++
+      if (currentIndex >= items.length) return
+      await worker(items[currentIndex])
+    }
+  })
+
+  await Promise.all(runners)
+}
+
 function normalizeOrganizationFilter(options: SearchOptions): string[] | null {
   const single = typeof options.organizationId === 'string' ? options.organizationId.trim() : ''
   if (single) return [single]
@@ -39,7 +70,17 @@ function normalizeOrganizationFilter(options: SearchOptions): string[] | null {
   return values
 }
 
-function filterResultsByOrganizationScope(results: SearchResult[], options: SearchOptions): SearchResult[] {
+/**
+ * A result with no organization passes only for an entity type declared through
+ * `registerTenantGlobalEntityTypes()`: a platform-wide catalogue is indexed once with no
+ * organization, so an organization-scoped search would otherwise never return it. Every
+ * other organization-less result is still dropped.
+ */
+function filterResultsByOrganizationScope(
+  results: SearchResult[],
+  options: SearchOptions,
+  isTenantGlobalEntityType: (entityType: string) => boolean,
+): SearchResult[] {
   const organizationIds = normalizeOrganizationFilter(options)
   if (!organizationIds) return results
   if (organizationIds.length === 0) return []
@@ -47,7 +88,8 @@ function filterResultsByOrganizationScope(results: SearchResult[], options: Sear
   const allowed = new Set(organizationIds)
   return results.filter((result) => {
     const organizationId = typeof result.organizationId === 'string' ? result.organizationId.trim() : ''
-    return organizationId.length > 0 && allowed.has(organizationId)
+    if (organizationId.length > 0) return allowed.has(organizationId)
+    return isTenantGlobalEntityType(result.entityId)
   })
 }
 
@@ -118,12 +160,14 @@ export class SearchService {
     }
 
     const strategyIds = options.strategies ?? this.defaultStrategies
-    const activeStrategies = await this.getAvailableStrategies(strategyIds)
+    const honorsFilter = (strategy: SearchStrategy) =>
+      !options.indexDocFilter || strategy.supportsIndexDocFilter === true
+    const activeStrategies = (await this.getAvailableStrategies(strategyIds)).filter(honorsFilter)
 
     if (activeStrategies.length === 0) {
       // Try fallback strategy if defined
       if (this.fallbackStrategy) {
-        const fallback = await this.getAvailableStrategies([this.fallbackStrategy])
+        const fallback = (await this.getAvailableStrategies([this.fallbackStrategy])).filter(honorsFilter)
         if (fallback.length > 0) {
           activeStrategies.push(...fallback)
         }
@@ -132,6 +176,14 @@ export class SearchService {
 
     if (activeStrategies.length === 0) {
       return []
+    }
+
+    const { resolveQueryIndexSearchScope, filterQueryIndexSearchRecords } = await import('@open-mercato/core/modules/query_index/lib/search-scope')
+    const scope = await resolveQueryIndexSearchScope()
+    if (options.entityTypes?.length) {
+      const entityTypes = options.entityTypes.filter((entityType) => !scope.blockedEntityTypes.includes(entityType))
+      if (!entityTypes.length) return []
+      options = { ...options, entityTypes }
     }
 
     // Execute searches in parallel with graceful degradation
@@ -155,16 +207,32 @@ export class SearchService {
     }
 
     // Merge and rank results
-    const merged = mergeAndRankResults(allResults, this.mergeConfig)
-    const scoped = filterResultsByOrganizationScope(merged, options)
+    const globalTypes = new Set(scope.tenantGlobalEntityTypes)
+    const isTenantGlobalEntityType = (entityType: string) => globalTypes.has(entityType)
+    const persistedSources = new Set(['tokens', 'vector', 'fulltext'])
+    const candidates = allResults.filter((result) => persistedSources.has(result.source))
+      .map((result) => ({ entityId: result.entityId, recordId: result.recordId, tenantId: options.tenantId, organizationId: result.organizationId ?? null, result }))
+    const allowed = await filterQueryIndexSearchRecords(undefined, scope, candidates)
+    const allowedResults = new Set(allowed.map((candidate) => candidate.result))
+    const safeResults = allResults.filter((result) => !scope.blockedEntityTypes.includes(result.entityId) && (!persistedSources.has(result.source) || allowedResults.has(result)))
+    const seenCatalogueHits = new Set<string>()
+    const scoped = filterResultsByOrganizationScope(safeResults, options, isTenantGlobalEntityType)
+      .flatMap((result) => {
+        if (!isTenantGlobalEntityType(result.entityId)) return [result]
+        const key = JSON.stringify([result.source, result.entityId, result.recordId])
+        if (seenCatalogueHits.has(key)) return []
+        seenCatalogueHits.add(key)
+        return [{ ...result, organizationId: null }]
+      })
+    const merged = mergeAndRankResults(scoped, this.mergeConfig)
 
     // Enrich results missing presenter or navigation metadata
-    return this.enrichResultsWithPresenter(scoped, options.tenantId, options.organizationId)
+    return this.enrichResultsWithPresenter(merged, options.tenantId, options.organizationId)
   }
 
   /**
-   * Enrich results that are missing presenter data using the configured enricher.
-   * This ensures token-only results get proper titles/subtitles for display.
+   * Recompute configured presenters at request time and fill missing presenter
+   * or navigation data for unconfigured results.
    */
   private async enrichResultsWithPresenter(
     results: SearchResult[],
@@ -174,10 +242,6 @@ export class SearchService {
     // If no enricher configured, return as-is
     if (!this.presenterEnricher) return results
 
-    const hasMissing = results.some(needsSearchResultEnrichment)
-    if (!hasMissing) return results
-
-    // Use the configured presenter enricher
     try {
       return await this.presenterEnricher(results, tenantId, organizationId)
     } catch {
@@ -240,8 +304,11 @@ export class SearchService {
         if (strategy.bulkIndex) {
           return strategy.bulkIndex(records)
         }
-        // Fallback to individual indexing
-        return Promise.all(records.map((record) => this.executeStrategyIndex(strategy, record)))
+        // Fallback to individual indexing, bounded so a strategy without a batch
+        // implementation cannot turn one batch job into hundreds of concurrent writes.
+        return mapWithConcurrency(records, BULK_INDEX_FALLBACK_CONCURRENCY, (record) =>
+          this.executeStrategyIndex(strategy, record),
+        )
       }),
     )
 

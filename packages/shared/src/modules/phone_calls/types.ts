@@ -1,0 +1,93 @@
+export type PhoneCallDirection = 'inbound' | 'outbound' | 'internal' | 'unknown'
+
+export type PhoneCallStatus =
+  | 'new'
+  | 'ringing'
+  | 'answered'
+  | 'missed'
+  | 'failed'
+  | 'completed'
+  | 'unknown'
+
+export type PhoneCallParticipantRole = 'caller' | 'callee' | 'agent' | 'unknown'
+
+export interface NormalizedPhoneCallParticipant {
+  role: PhoneCallParticipantRole
+  providerParticipantId?: string | null
+  phoneNumber?: string | null
+  displayName?: string | null
+  email?: string | null
+  metadata?: Record<string, unknown>
+}
+
+export interface NormalizedPhoneCallRecording {
+  url?: string | null
+  providerRecordingId?: string | null
+  mimeType?: string | null
+  durationSeconds?: number | null
+  metadata?: Record<string, unknown>
+}
+
+export interface NormalizedPhoneCall {
+  externalCallId: string
+  externalConversationId?: string | null
+  direction: PhoneCallDirection
+  status: PhoneCallStatus
+  participants: NormalizedPhoneCallParticipant[]
+  recording?: NormalizedPhoneCallRecording | null
+  startedAt?: Date | null
+  answeredAt?: Date | null
+  endedAt?: Date | null
+  durationSeconds?: number | null
+  providerFacts?: Record<string, unknown>
+  rawPayload: Record<string, unknown>
+}
+
+export interface PhoneCallProviderScope {
+  tenantId: string
+  organizationId: string
+}
+
+// Declared here rather than next to the ingest command so client surfaces can read it without
+// pulling the command module (and MikroORM with it) into the browser bundle.
+export const PHONE_CALL_RESOURCE_KIND = 'phone_calls.phone_call'
+
+export type PhoneCallProviderCredentials = Record<string, unknown>
+
+export interface ValidatePhoneCallProviderInput {
+  credentials: PhoneCallProviderCredentials
+  scope: PhoneCallProviderScope
+  integrationId?: string | null
+}
+
+export interface ProviderValidationResult {
+  ok: boolean
+  message?: string
+  details?: Record<string, unknown>
+}
+
+export interface FetchPhoneCallsInput {
+  credentials: PhoneCallProviderCredentials
+  scope: PhoneCallProviderScope
+  integrationId?: string | null
+  from?: Date | null
+  to?: Date | null
+  cursor?: string | null
+  limit?: number | null
+}
+
+/**
+ * Why a provider stopped walking its pages before the range was exhausted. Without this an
+ * adapter that gave up on a broken response is indistinguishable from one that reached the
+ * end, and the caller reports a partial sweep as a complete one.
+ */
+export type PhoneCallBatchAnomaly = 'page_not_echoed' | 'invalid_page_count' | 'empty_page'
+
+export interface NormalizedPhoneCallBatch {
+  calls: NormalizedPhoneCall[]
+  nextCursor?: string | null
+  /** Present only when the walk stopped on a response the adapter could not trust. */
+  anomaly?: PhoneCallBatchAnomaly | null
+  /** The cursor the anomalous page was requested with, so a retry can resume from it. */
+  anomalyCursor?: string | null
+}

@@ -3,6 +3,8 @@
 import * as React from 'react'
 import { createContext, useContext } from 'react'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { BrandStyleRuntime } from './BrandStyleRuntime'
+import { THEME_STORAGE_KEY } from './theme-init-script'
 
 const logger = createLogger('ui').child({ component: 'ThemeProvider' })
 
@@ -15,8 +17,6 @@ type ThemeContextValue = {
 }
 
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined)
-
-const THEME_STORAGE_KEY = 'om-theme'
 
 function getSystemTheme(): 'light' | 'dark' {
   if (typeof window === 'undefined') return 'light'
@@ -52,7 +52,6 @@ function applyTheme(resolvedTheme: 'light' | 'dark') {
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setThemeState] = React.useState<Theme>('system')
   const [resolvedTheme, setResolvedTheme] = React.useState<'light' | 'dark'>('light')
-  const [mounted, setMounted] = React.useState(false)
 
   // Initialize theme from localStorage on mount
   React.useEffect(() => {
@@ -61,7 +60,6 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     const resolved = stored === 'system' ? getSystemTheme() : stored
     setResolvedTheme(resolved)
     applyTheme(resolved)
-    setMounted(true)
   }, [])
 
   // Listen for system theme changes
@@ -101,12 +99,12 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     [theme, resolvedTheme, setTheme]
   )
 
-  // Prevent flash of wrong theme during hydration
-  if (!mounted) {
-    return <>{children}</>
-  }
-
-  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
+  // The element type rendered here must not depend on `mounted`. Swapping a
+  // Fragment for the Provider once the first effect runs makes React unmount and
+  // remount everything below this point, discarding the whole page's component
+  // state. Flash of the wrong theme is prevented before first paint by
+  // THEME_INIT_SCRIPT in the root layout, not by this branch.
+  return <ThemeContext.Provider value={value}><BrandStyleRuntime />{children}</ThemeContext.Provider>
 }
 
 export function useTheme(): ThemeContextValue {

@@ -94,6 +94,9 @@ export type MessageDetail = {
     senderUserId: string
     senderName?: string | null
     senderEmail?: string | null
+    externalName?: string | null
+    externalEmail?: string | null
+    sourceEntityType?: string | null
     body: string
     bodyFormat?: 'text' | 'markdown'
     sentAt?: string | null

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
-import { readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
+import { getTokenScope, readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
 import {
   cancelWorkflowInstanceIfExists,
   createWorkflowDefinitionFixture,
@@ -16,6 +16,7 @@ import {
 test.describe('TC-WF-015: parallel branch with a user task', () => {
   test('one branch pauses on a user task; completing it resumes and joins', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
+    const callerUserId = getTokenScope(token).userId
     const timestamp = Date.now()
     const workflowId = `qa-wf-015-${timestamp}`
 
@@ -33,7 +34,11 @@ test.describe('TC-WF-015: parallel branch with a user task', () => {
             stepId: 'task_branch',
             stepName: 'Approve',
             stepType: 'USER_TASK',
-            userTaskConfig: { assignedTo: 'admin' },
+            // Addressed to the CALLER's real user id, not the literal 'admin'.
+            // Spec §6.4 made a task addressed to one person that person's to
+            // finish (`completeUserTask` → TASK_ASSIGNED_TO_ANOTHER_USER, 409),
+            // so a non-id placeholder now produces a task nobody can complete.
+            userTaskConfig: { assignedTo: callerUserId },
           },
           { stepId: 'join', stepName: 'Join', stepType: 'PARALLEL_JOIN', config: { forkStepId: 'fork' } },
           { stepId: 'end', stepName: 'End', stepType: 'END' },

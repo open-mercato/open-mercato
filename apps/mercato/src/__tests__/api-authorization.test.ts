@@ -4,7 +4,7 @@ import type { ApiRouteManifestEntry, HttpMethod } from '@open-mercato/shared/mod
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 // Mock bootstrap to prevent it from running during tests
-jest.mock('@/bootstrap', () => ({
+jest.mock('@/bootstrap-api', () => ({
   bootstrap: jest.fn(),
   isBootstrapped: jest.fn(() => true),
 }))
@@ -139,8 +139,8 @@ function getMockedApiRoutes(): ApiRouteManifestEntry[] {
 }
 
 // Mock manifest-based API routing
-jest.mock('@/.mercato/generated/api-routes.generated', () => ({
-  apiRoutes: getMockedApiRoutes(),
+jest.mock('@/.mercato/generated/api-route-shards.generated', () => ({
+  apiRouteFacades: getMockedApiRoutes(),
 }))
 
 jest.mock('@/.mercato/generated/backend-routes.generated', () => ({

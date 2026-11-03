@@ -354,6 +354,7 @@ export function useResourcesResourceFormConfig(options: {
 
 export type ResourcesResourceFormProps = {
   title: string
+  titleHeadingLevel?: 1 | 2
   submitLabel?: string
   backHref: string
   cancelHref: string
@@ -371,6 +372,7 @@ export type ResourcesResourceFormProps = {
 export function ResourcesResourceForm(props: ResourcesResourceFormProps) {
   const {
     title,
+    titleHeadingLevel = 2,
     submitLabel,
     backHref,
     cancelHref,
@@ -406,6 +408,7 @@ export function ResourcesResourceForm(props: ResourcesResourceFormProps) {
     <CrudForm
       embedded={embedded}
       title={title}
+      titleHeadingLevel={titleHeadingLevel}
       backHref={backHref}
       versionHistory={recordId ? { resourceKind: 'resources.resource', resourceId: recordId } : undefined}
       cancelHref={cancelHref}

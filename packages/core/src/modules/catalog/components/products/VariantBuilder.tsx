@@ -15,6 +15,7 @@ import {
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { ProductMediaManager } from './ProductMediaManager'
 import { MetadataEditor } from './MetadataEditor'
+import { PriceEditorOmnibusRow } from '../PriceEditorOmnibusRow'
 import type { PriceKindSummary, TaxRateSummary } from './productForm'
 import { formatTaxRateLabel } from './productForm'
 import type { OptionDefinition, VariantFormValues, VariantPriceDraft } from './variantForm'
@@ -98,14 +99,14 @@ export function VariantBasicsSection({ values, setValue, errors }: VariantSectio
       <div className="space-y-2">
         <Label className="flex items-center gap-1">
           {t('catalog.variants.form.nameLabel', 'Name')}
-          <span className="text-red-600">*</span>
+          <span className="text-status-error-text">*</span>
         </Label>
         <Input
           value={values.name}
           onChange={(event) => setValue('name', event.target.value)}
           placeholder={t('catalog.variants.form.namePlaceholder', 'e.g., Blue / Small')}
         />
-        {errors.name ? <p className="text-xs text-red-600">{errors.name}</p> : null}
+        {errors.name ? <p className="text-xs text-status-error-text">{errors.name}</p> : null}
       </div>
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2">
@@ -123,7 +124,7 @@ export function VariantBasicsSection({ values, setValue, errors }: VariantSectio
             onChange={(event) => setValue('barcode', event.target.value)}
             placeholder={t('catalog.variants.form.barcodePlaceholder', 'EAN, UPC, etc.')}
           />
-          {errors.barcode ? <p className="text-xs text-destructive">{errors.barcode}</p> : null}
+          {errors.barcode ? <p className="text-xs text-status-error-text">{errors.barcode}</p> : null}
         </div>
       </div>
       <div className="grid gap-4 md:grid-cols-2">
@@ -153,7 +154,7 @@ export function VariantBasicsSection({ values, setValue, errors }: VariantSectio
               'Typed barcodes are validated and kept unique per organization.',
             )}
           </p>
-          {errors.gtinType ? <p className="text-xs text-destructive">{errors.gtinType}</p> : null}
+          {errors.gtinType ? <p className="text-xs text-status-error-text">{errors.gtinType}</p> : null}
         </div>
         <div className="space-y-2">
           <Label htmlFor="catalog-variant-hs-code">
@@ -164,7 +165,7 @@ export function VariantBasicsSection({ values, setValue, errors }: VariantSectio
             value={values.hsCode}
             onChange={(event) => setValue('hsCode', event.target.value)}
           />
-          {errors.hsCode ? <p className="text-xs text-destructive">{errors.hsCode}</p> : null}
+          {errors.hsCode ? <p className="text-xs text-status-error-text">{errors.hsCode}</p> : null}
         </div>
       </div>
       <div className="grid gap-4 md:grid-cols-2">
@@ -444,6 +445,14 @@ export function VariantPricesSection({
                   onChange={(event) => updatePrice(kind.id, { amount: event.target.value })}
                   placeholder="0.00"
                 />
+                {values.id && draft?.priceId ? (
+                  <PriceEditorOmnibusRow
+                    variantId={values.id}
+                    priceKindId={kind.id}
+                    currencyCode={draft.currencyCode ?? kind.currencyCode}
+                    channelSelectable={false}
+                  />
+                ) : null}
               </div>
             )
           })

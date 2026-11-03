@@ -408,4 +408,50 @@ describe('gmail-history-sync worker behaviour', () => {
     expect(channel.channelState).toEqual({ pushStatus: 'active' })
     expect(channel.lastPolledAt).toBeNull()
   })
+
+  describe('adapter scope (#6634)', () => {
+    const tenantId = '22222222-2222-2222-2222-222222222222'
+    const organizationId = '33333333-3333-3333-3333-333333333333'
+
+    function makeScopedCtx(channelOrganizationId: string | null) {
+      const applyPushNotification = jest.fn(async () => ({ messages: [] }))
+      const credentialsResolve = jest.fn(async () => ({}))
+      const channel = baseChannel({ organizationId: channelOrganizationId, credentialsRef: 'cred-ref' })
+      const { ctx, em } = makeCtx(channel, { providerKey: 'gmail', applyPushNotification })
+      const baseResolve = ctx.resolve
+      ctx.resolve = (<T>(name: string): T =>
+        name === 'integrationCredentialsService'
+          ? ({ resolve: credentialsResolve } as T)
+          : baseResolve<T>(name)) as typeof ctx.resolve
+      return { ctx, em, applyPushNotification, credentialsResolve }
+    }
+
+    it('passes organizationId: null to applyPushNotification for a channel with no organization', async () => {
+      const { ctx, em, applyPushNotification } = makeScopedCtx(null)
+      await handler(makeJob({ scope: { tenantId, organizationId: null } }), ctx)
+      expect(em.findOne.mock.calls[0][1]).toMatchObject({ tenantId, organizationId: null })
+      expect(applyPushNotification).toHaveBeenCalledTimes(1)
+      expect(applyPushNotification.mock.calls[0][0]).toMatchObject({
+        scope: { tenantId, organizationId: null },
+      })
+    })
+
+    it("passes the channel's organization to applyPushNotification for an organization-scoped channel", async () => {
+      const { ctx, applyPushNotification } = makeScopedCtx(organizationId)
+      await handler(makeJob({ scope: { tenantId, organizationId } }), ctx)
+      expect(applyPushNotification.mock.calls[0][0]).toMatchObject({
+        scope: { tenantId, organizationId },
+      })
+    })
+
+    it('keeps resolving credentials of an organization-less channel under the tenant key they are written with', async () => {
+      const { ctx, credentialsResolve } = makeScopedCtx(null)
+      await handler(makeJob({ scope: { tenantId, organizationId: null } }), ctx)
+      expect(credentialsResolve).toHaveBeenCalledWith('channel_gmail', {
+        tenantId,
+        organizationId: tenantId,
+        userId: null,
+      })
+    })
+  })
 })

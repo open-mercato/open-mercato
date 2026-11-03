@@ -9,7 +9,9 @@ function readSource(relativeUrl: string): string {
 test('standalone and monorepo bootstraps explicitly wire the app DI registrar', () => {
   const sources = [
     readSource('../../template/src/bootstrap.ts'),
+    readSource('../../template/src/bootstrap-api.ts'),
     readSource('../../../../apps/mercato/src/bootstrap.ts'),
+    readSource('../../../../apps/mercato/src/bootstrap-api.ts'),
   ]
 
   for (const source of sources) {

@@ -2,6 +2,7 @@
 
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { extensionPoints } from '@open-mercato/enterprise/modules/security/extension-points'
 import MfaSettingsRedirect from '../../../components/MfaSettingsRedirect'
 import PasswordChangeForm from '../../../components/PasswordChangeForm'
 
@@ -15,7 +16,7 @@ export default function SecurityProfilePage() {
           <div className="space-y-4">
             <MfaSettingsRedirect />
             <InjectionSpot
-              spotId="security.profile.sidebar"
+              spotId={extensionPoints.hosts.profileSidebar.spotId}
               context={{ section: 'sidebar' }}
             />
           </div>
@@ -23,7 +24,7 @@ export default function SecurityProfilePage() {
 
         <div className="mt-6">
           <InjectionSpot
-            spotId="security.profile.sections"
+            spotId={extensionPoints.hosts.profileSections.spotId}
             context={{ section: 'profile-sections' }}
           />
         </div>

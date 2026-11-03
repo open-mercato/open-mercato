@@ -1,12 +1,13 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { UniqueConstraintViolationException } from '@mikro-orm/core'
+import { UniqueConstraintViolationException, type FilterQuery } from '@mikro-orm/core'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   validateCrudMutationGuard,
   runCrudMutationGuardAfterSuccess,
@@ -14,9 +15,11 @@ import {
 import { registerDomainSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 import {
   DomainMappingService,
+  DomainMappingOrgScopeError,
   type ResolveResult,
 } from '@open-mercato/core/modules/customer_accounts/services/domainMappingService'
 import { DomainMapping } from '@open-mercato/core/modules/customer_accounts/data/entities'
+import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 
 const FEATURE = 'customer_accounts.domain.manage'
 
@@ -58,7 +61,7 @@ function serializeRecord(record: DomainMapping) {
 
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+  if (!auth || !auth.tenantId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
 
   const container = await createRequestContainer()
   const rbac = container.resolve('rbacService') as RbacService
@@ -70,11 +73,31 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url)
   const orgFilter = url.searchParams.get('organizationId')
+  if (orgFilter && !await rbac.userHasAllFeatures(auth.sub, [FEATURE], {
+    tenantId: auth.tenantId,
+    organizationId: orgFilter,
+  })) {
+    return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 })
+  }
 
   const em = container.resolve('em') as EntityManager
-  const where: Record<string, unknown> = { tenantId: auth.tenantId }
-  if (orgFilter) where.organizationId = orgFilter
-  const records = await em.find(DomainMapping, where as never, { orderBy: { createdAt: 'desc' } })
+  const where: FilterQuery<DomainMapping> = { tenantId: auth.tenantId }
+  if (orgFilter) {
+    where.organizationId = orgFilter
+  } else {
+    const featureAccess = await rbac.resolveFeatureOrganizationAccess(auth.sub, [FEATURE], { tenantId: auth.tenantId })
+    if (!featureAccess.unrestricted) {
+      const organizations = await findWithDecryption(em, Organization, {
+        tenant: auth.tenantId,
+        deletedAt: null,
+      }, { fields: ['id', 'ancestorIds'] }, { tenantId: auth.tenantId })
+      where.organizationId = { $in: featureAccess.filterOrganizationIds(organizations) }
+    }
+  }
+  const records = await findWithDecryption(em, DomainMapping, where, { orderBy: { createdAt: 'desc' } }, {
+    tenantId: auth.tenantId,
+    organizationId: orgFilter,
+  })
 
   return NextResponse.json({
     ok: true,
@@ -92,11 +115,6 @@ export async function POST(req: Request) {
 
   const container = await createRequestContainer()
   const rbac = container.resolve('rbacService') as RbacService
-  const allowed = await rbac.userHasAllFeatures(auth.sub, [FEATURE], {
-    tenantId: auth.tenantId,
-    organizationId: auth.orgId,
-  })
-  if (!allowed) return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 })
 
   const body = await readJsonSafe(req, {})
   const parsed = registerDomainSchema.safeParse(body)
@@ -106,6 +124,11 @@ export async function POST(req: Request) {
       { status: 400 },
     )
   }
+  const allowed = await rbac.userHasAllFeatures(auth.sub, [FEATURE], {
+    tenantId: auth.tenantId,
+    organizationId: parsed.data.organizationId,
+  })
+  if (!allowed) return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 })
 
   const guardResult = await validateCrudMutationGuard(container, {
     tenantId: auth.tenantId,
@@ -142,6 +165,12 @@ export async function POST(req: Request) {
         { status: 409 },
       )
     }
+    if (err instanceof DomainMappingOrgScopeError) {
+      return NextResponse.json(
+        { ok: false, error: 'Organization was not found in the current tenant.' },
+        { status: 400 },
+      )
+    }
     const message = err instanceof Error ? err.message : 'Failed to register domain'
     return NextResponse.json({ ok: false, error: message }, { status: 500 })
   }
@@ -169,11 +198,6 @@ export async function DELETE(req: Request) {
 
   const container = await createRequestContainer()
   const rbac = container.resolve('rbacService') as RbacService
-  const allowed = await rbac.userHasAllFeatures(auth.sub, [FEATURE], {
-    tenantId: auth.tenantId,
-    organizationId: auth.orgId,
-  })
-  if (!allowed) return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 })
 
   const url = new URL(req.url)
   const id = url.searchParams.get('id')
@@ -182,6 +206,11 @@ export async function DELETE(req: Request) {
   const service = container.resolve('domainMappingService') as DomainMappingService
   const existing = await service.findById(id, { tenantId: auth.tenantId })
   if (!existing) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
+  const allowed = await rbac.userHasAllFeatures(auth.sub, [FEATURE], {
+    tenantId: auth.tenantId,
+    organizationId: existing.organizationId,
+  })
+  if (!allowed) return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 })
 
   const guardResult = await validateCrudMutationGuard(container, {
     tenantId: auth.tenantId,
@@ -241,7 +270,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'List domain mappings',
-      description: 'Returns all custom-domain mappings for the current tenant, optionally filtered by organization.',
+      description: 'Returns custom-domain mappings for authorized organizations in the current tenant, optionally filtered by organization.',
       responses: [
         {
           status: 200,

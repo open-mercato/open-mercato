@@ -113,7 +113,7 @@ export function assertS3KeyScopedToTenant(
   pathPrefix?: string,
 ): void {
   if (!isS3KeyScopedToTenant(storagePath, scope, pathPrefix)) {
-    throw new Error('S3 key is not scoped to the active tenant')
+    throw new Error('[internal] S3 key is not scoped to the active tenant')
   }
 }
 
@@ -123,7 +123,7 @@ export function assertS3KeyAddressableByTenantScope(
   pathPrefix?: string,
 ): void {
   if (!isS3KeyAddressableByTenantScope(storagePath, scope, pathPrefix)) {
-    throw new Error('S3 key is not scoped to the active tenant')
+    throw new Error('[internal] S3 key is not scoped to the active tenant')
   }
 }
 
@@ -140,7 +140,7 @@ export function assertS3ListPrefixScopedToTenant(
 
   if (parts[0]?.startsWith('org_') || parts[1]?.startsWith('tenant_')) {
     if (parts[0] !== segments.orgSegment || parts[1] !== segments.tenantSegment) {
-      throw new Error('S3 prefix is not scoped to the active tenant')
+      throw new Error('[internal] S3 prefix is not scoped to the active tenant')
     }
     return
   }
@@ -149,7 +149,7 @@ export function assertS3ListPrefixScopedToTenant(
     (parts[1]?.startsWith('org_') && parts[1] !== segments.orgSegment)
     || (parts[2]?.startsWith('tenant_') && parts[2] !== segments.tenantSegment)
   ) {
-    throw new Error('S3 prefix is not scoped to the active tenant')
+    throw new Error('[internal] S3 prefix is not scoped to the active tenant')
   }
 }
 

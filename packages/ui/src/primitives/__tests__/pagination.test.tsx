@@ -9,12 +9,10 @@ import { Pagination, buildPaginationItems } from '../pagination'
 // empty-dict I18nProvider so the primitive falls back to its English
 // hardcoded defaults ("First page", "Previous page", ...).
 const render: typeof rtlRender = (ui: React.ReactElement, options?: Parameters<typeof rtlRender>[1]) =>
-  rtlRender(
-    <I18nProvider locale="en" dict={{}}>
-      {ui}
-    </I18nProvider>,
-    options,
-  )
+  rtlRender(ui, {
+    wrapper: ({ children }) => <I18nProvider locale="en" dict={{}}>{children}</I18nProvider>,
+    ...options,
+  })
 
 describe('buildPaginationItems', () => {
   it('returns every page when totalPages <= total slots', () => {
@@ -295,5 +293,74 @@ describe('Pagination', () => {
       <Pagination ref={ref} page={1} pageSize={10} total={100} onPageChange={() => {}} />,
     )
     expect(ref.current?.getAttribute('data-slot')).toBe('pagination')
+  })
+})
+
+describe('Pagination with a capped total (totalIsCapped)', () => {
+  // 100 rows / pageSize 10 → a floor of 10 pages; the real set is larger.
+  const capped = { page: 1, pageSize: 10, total: 100, totalIsCapped: true, onPageChange: () => {} }
+
+  it('renders the capped page info with a trailing plus', () => {
+    const { container } = render(<Pagination {...capped} />)
+    const info = container.querySelector('[data-slot="pagination-info"]')
+    expect(info?.textContent).toBe('Page 1 of 10+')
+  })
+
+  it('suppresses the last-page jump — it would present the floor as the end of the data', () => {
+    const { container } = render(<Pagination {...capped} />)
+    expect(container.querySelector('[data-slot="pagination-last"]')).toBeNull()
+    expect(container.querySelector('[data-slot="pagination-first"]')).not.toBeNull()
+  })
+
+  it('keeps Next enabled past the floor while hasNextPage is true', () => {
+    const onPageChange = jest.fn()
+    const { container } = render(
+      <Pagination {...capped} page={10} hasNextPage onPageChange={onPageChange} />,
+    )
+    const next = container.querySelector('[data-slot="pagination-next"]') as HTMLButtonElement
+    expect(next.disabled).toBe(false)
+    fireEvent.click(next)
+    expect(onPageChange).toHaveBeenCalledWith(11)
+  })
+
+  it('disables Next at the floor when hasNextPage reports a short page', () => {
+    const { container } = render(<Pagination {...capped} page={10} hasNextPage={false} />)
+    const next = container.querySelector('[data-slot="pagination-next"]') as HTMLButtonElement
+    expect(next.disabled).toBe(true)
+  })
+
+  it('never clamps a deep-linked page down to the floor', () => {
+    const { container } = render(<Pagination {...capped} page={37} hasNextPage />)
+    const current = container.querySelector('[data-slot="pagination-page"][data-state="on"]')
+    expect(current?.textContent).toBe('37')
+    const info = container.querySelector('[data-slot="pagination-info"]')
+    expect(info?.textContent).toBe('Page 37 of 37+')
+  })
+
+  it('keeps exact-total behavior byte-identical when the flag is absent', () => {
+    const onPageChange = jest.fn()
+    const { container } = render(
+      <Pagination page={10} pageSize={10} total={100} onPageChange={onPageChange} />,
+    )
+    const next = container.querySelector('[data-slot="pagination-next"]') as HTMLButtonElement
+    expect(next.disabled).toBe(true)
+    expect(container.querySelector('[data-slot="pagination-last"]')).not.toBeNull()
+    const info = container.querySelector('[data-slot="pagination-info"]')
+    expect(info?.textContent).toBe('Page 10 of 10')
+  })
+})
+
+describe('Pagination source appearances', () => {
+  it.each(['basic', 'circle', 'group'] as const)('%s preserves page selection and native disabled semantics', (appearance) => {
+    const onPageChange = jest.fn()
+    const { getByRole, rerender } = render(<Pagination appearance={appearance} page={2} pageSize={25} total={400} onPageChange={onPageChange} />)
+    expect(getByRole('button', { name: 'Page 2, current page' })).toHaveAttribute('aria-current', 'page')
+    fireEvent.click(getByRole('button', { name: 'Next page' }))
+    expect(onPageChange).toHaveBeenCalledWith(3)
+    onPageChange.mockClear()
+    rerender(<Pagination appearance={appearance} page={2} pageSize={25} total={400} onPageChange={onPageChange} disabled />)
+    expect(getByRole('button', { name: 'Next page' })).toBeDisabled()
+    fireEvent.click(getByRole('button', { name: 'Next page' }))
+    expect(onPageChange).not.toHaveBeenCalled()
   })
 })

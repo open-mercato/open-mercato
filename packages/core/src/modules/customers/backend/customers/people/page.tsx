@@ -1,11 +1,13 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/customers/extension-points'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, type DataTableExportFormat, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
-import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import type { SortingState } from '@tanstack/react-table'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -24,6 +26,7 @@ import type { AdvancedFilterTree } from '@open-mercato/shared/lib/query/advanced
 import { createEmptyTree, makeRuleTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
 import { deserializeAdvancedFilter, deserializeTree, flatToTree, mapDictionaryColorToTone, serializeTree } from '@open-mercato/shared/lib/query/advanced-filter'
 import { useCurrentUserId } from '@open-mercato/ui/backend/utils/useCurrentUserId'
+import { useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromeProvider'
 import {
   DictionaryValue,
   createEmptyCustomerDictionaryMaps,
@@ -55,6 +58,8 @@ import {
 } from '../../../components/detail/assignableStaff'
 import { CollectionPreviewCell, normalizeCollectionLabels } from '../../../components/list/CollectionPreviewCell'
 import { appendCustomerListSortParams } from '../listSorting'
+import { expandCreatedAtDayRules } from '../../../lib/createdAtDayFilter'
+import { USER_TIMEZONE } from '../../../lib/localDay'
 
 type DictionaryOptionWithTone = AdvancedFilterOption & FilterOption
 
@@ -116,6 +121,7 @@ type PersonRow = {
   organizationId?: string | null
   source?: string | null
   ownerUserId?: string | null
+  createdAt?: string | null
 } & Record<string, unknown>
 
 type PeopleResponse = {
@@ -123,6 +129,7 @@ type PeopleResponse = {
   total?: number
   page?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 type DictionaryKindKey = CustomerDictionaryKind
@@ -162,6 +169,7 @@ function mapApiItem(item: Record<string, unknown>): PersonRow | null {
   const nextInteractionColor = typeof item.next_interaction_color === 'string' ? item.next_interaction_color : null
   const organizationId = typeof item.organization_id === 'string' ? item.organization_id : null
   const source = typeof item.source === 'string' ? item.source : null
+  const createdAt = typeof item.created_at === 'string' ? item.created_at : null
   const customFields: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(item)) {
     if (key.startsWith('cf_')) {
@@ -192,6 +200,7 @@ function mapApiItem(item: Record<string, unknown>): PersonRow | null {
     nextInteractionColor,
     organizationId,
     source,
+    createdAt,
     ...customFields,
   }, item)
 }
@@ -204,9 +213,10 @@ export default function CustomersPeoplePage() {
   const [sorting, setSorting] = React.useState<SortingState>([])
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
-  const [search, setSearch] = React.useState('')
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const pathname = usePathname()
   const searchParams = useSearchParams()
+  const [search, setSearch] = React.useState(() => searchParams?.get('search')?.trim() ?? '')
   // One-shot URL hydration used as the hook's initial value. The hook is the
   // single source of truth from this point on — the page MUST NOT keep a
   // parallel `useState<AdvancedFilterTree>` (see spec "Migration & Backward
@@ -329,16 +339,17 @@ export default function CustomersPeoplePage() {
     }
   }, [fetchDictionaryEntries, scopeVersion, reloadToken])
 
-  const { data: customFieldDefs = [] } = useCustomFieldDefs(
+  const { data: customFieldDefs = [], isLoading: customFieldDefsLoading, refetch: refetchCustomFieldDefs } = useCustomFieldDefs(
     [E.customers.customer_entity, E.customers.customer_person_profile],
-    { keyExtras: [scopeVersion, reloadToken] },
+    { keyExtras: [scopeVersion] },
   )
   const currentUserId = useCurrentUserId()
+  const activeOrgId = useCurrentOrganization()?.id ?? null
   const [ownerFilterOptions, setOwnerFilterOptions] = React.useState<AdvancedFilterOption[]>([])
   React.useEffect(() => {
     const controller = new AbortController()
     let cancelled = false
-    void fetchAssignableStaffMembers('', { pageSize: 100, signal: controller.signal })
+    void fetchAssignableStaffMembers('', { pageSize: 100, activeOrgId, signal: controller.signal })
       .then((items) => {
         if (!cancelled) setOwnerFilterOptions(mapAssignableStaffToFilterOptions(items))
       })
@@ -349,7 +360,7 @@ export default function CustomersPeoplePage() {
       cancelled = true
       controller.abort()
     }
-  }, [scopeVersion])
+  }, [activeOrgId, scopeVersion])
   const resolvedOwnerFilterOptions = React.useMemo(
     () => ensureCurrentUserFilterOption(
       ownerFilterOptions,
@@ -359,9 +370,9 @@ export default function CustomersPeoplePage() {
     [currentUserId, ownerFilterOptions, t],
   )
   const loadOwnerFilterOptions = React.useCallback(async (query?: string): Promise<AdvancedFilterOption[]> => {
-    const items = await fetchAssignableStaffMembers(query ?? '', { pageSize: 100 })
+    const items = await fetchAssignableStaffMembers(query ?? '', { pageSize: 100, activeOrgId })
     return mapAssignableStaffToFilterOptions(items)
-  }, [])
+  }, [activeOrgId])
 
   const queryParams = React.useMemo(() => {
     const params = new URLSearchParams()
@@ -369,7 +380,7 @@ export default function CustomersPeoplePage() {
     params.set('pageSize', String(pageSize))
     appendCustomerListSortParams(params, sorting)
     if (search.trim()) params.set('search', search.trim())
-    const advancedParams = serializeTree(advancedFilterState)
+    const advancedParams = serializeTree(expandCreatedAtDayRules(advancedFilterState, USER_TIMEZONE))
     for (const [key, val] of Object.entries(advancedParams)) {
       params.set(key, val)
     }
@@ -433,6 +444,7 @@ export default function CustomersPeoplePage() {
         setRows(items.map((item) => mapApiItem(item as Record<string, unknown>)).filter((row): row is PersonRow => !!row))
         setTotal(typeof payload.total === 'number' ? payload.total : items.length)
         setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : 1)
+        setTotalIsCapped(payload?.totalIsCapped === true)
       } catch (err) {
         if (!cancelled) {
           setCacheStatus(null)
@@ -448,8 +460,9 @@ export default function CustomersPeoplePage() {
   }, [queryParams, reloadToken, scopeVersion, t])
 
   const handleRefresh = React.useCallback(() => {
+    void refetchCustomFieldDefs()
     setReloadToken((token) => token + 1)
-  }, [])
+  }, [refetchCustomFieldDefs])
 
   const handleDelete = React.useCallback(async (person: PersonRow) => {
     if (!person?.id) return
@@ -621,9 +634,9 @@ export default function CustomersPeoplePage() {
         header: t('customers.people.list.columns.name'),
         meta: {
           alwaysVisible: true,
-          columnChooserGroup: 'Basic Info',
+          columnChooserGroup: t('customers.columnGroups.basicInfo', 'Basic Info'),
           filterKey: 'display_name',
-          filterGroup: 'CRM',
+          filterGroup: t('customers.columnGroups.crm', 'CRM'),
           maxWidth: '240px',
         },
         cell: ({ row }) => (
@@ -636,9 +649,9 @@ export default function CustomersPeoplePage() {
         accessorKey: 'email',
         header: t('customers.people.list.columns.email'),
         meta: {
-          columnChooserGroup: 'Contact',
+          columnChooserGroup: t('customers.columnGroups.contact', 'Contact'),
           filterKey: 'primary_email',
-          filterGroup: 'Contact',
+          filterGroup: t('customers.columnGroups.contact', 'Contact'),
           filterIconName: 'mail',
           maxWidth: '220px',
         },
@@ -650,8 +663,8 @@ export default function CustomersPeoplePage() {
         meta: {
           filterType: 'select' as const,
           filterOptions: dictionaryOptions.statuses,
-          columnChooserGroup: 'Basic Info',
-          filterGroup: 'CRM',
+          columnChooserGroup: t('customers.columnGroups.basicInfo', 'Basic Info'),
+          filterGroup: t('customers.columnGroups.crm', 'CRM'),
         },
         cell: ({ row }) => renderDictionaryCell('statuses', row.original.status),
       },
@@ -661,9 +674,9 @@ export default function CustomersPeoplePage() {
         meta: {
           filterType: 'select' as const,
           filterOptions: dictionaryOptions.lifecycleStages,
-          columnChooserGroup: 'Basic Info',
+          columnChooserGroup: t('customers.columnGroups.basicInfo', 'Basic Info'),
           filterKey: 'lifecycle_stage',
-          filterGroup: 'CRM',
+          filterGroup: t('customers.columnGroups.crm', 'CRM'),
         },
         cell: ({ row }) => renderDictionaryCell('lifecycle-stages', row.original.lifecycleStage),
       },
@@ -671,9 +684,9 @@ export default function CustomersPeoplePage() {
         accessorKey: 'nextInteractionAt',
         header: t('customers.people.list.columns.nextInteraction'),
         meta: {
-          columnChooserGroup: 'Dates',
+          columnChooserGroup: t('customers.columnGroups.dates', 'Dates'),
           filterKey: 'next_interaction_at',
-          filterGroup: 'Activity',
+          filterGroup: t('customers.columnGroups.activity', 'Activity'),
           filterIconName: 'calendar',
           tooltipContent: (row: PersonRow) => {
             if (!row.nextInteractionAt) return undefined
@@ -707,13 +720,29 @@ export default function CustomersPeoplePage() {
             : <span className="text-muted-foreground text-sm">{t('customers.people.list.noValue')}</span>,
       },
       {
+        accessorKey: 'createdAt',
+        header: t('customers.people.list.columns.createdAt', 'Created'),
+        meta: {
+          columnChooserGroup: t('customers.columnGroups.dates', 'Dates'),
+          filterKey: 'created_at',
+          filterType: 'date' as const,
+          filterGroup: t('customers.columnGroups.activity', 'Activity'),
+          filterIconName: 'calendar',
+        },
+        cell: ({ row }) => (
+          <span className="text-sm">
+            {formatDate(row.original.createdAt, t('customers.people.list.noValue'))}
+          </span>
+        ),
+      },
+      {
         accessorKey: 'source',
         header: t('customers.people.list.columns.source'),
         meta: {
           filterType: 'select' as const,
           filterOptions: dictionaryOptions.sources,
-          columnChooserGroup: 'Basic Info',
-          filterGroup: 'CRM',
+          columnChooserGroup: t('customers.columnGroups.basicInfo', 'Basic Info'),
+          filterGroup: t('customers.columnGroups.crm', 'CRM'),
         },
         cell: ({ row }) => renderDictionaryCell('sources', row.original.source),
       },
@@ -721,11 +750,11 @@ export default function CustomersPeoplePage() {
         accessorKey: 'ownerUserId',
         header: t('customers.people.list.columns.owner', 'Owner'),
         meta: {
-          columnChooserGroup: 'CRM',
+          columnChooserGroup: t('customers.columnGroups.crm', 'CRM'),
           filterType: 'select',
           filterOptions: resolvedOwnerFilterOptions,
           filterLoadOptions: loadOwnerFilterOptions,
-          filterGroup: 'CRM',
+          filterGroup: t('customers.columnGroups.crm', 'CRM'),
           filterIconName: 'user-round',
           filterKey: 'owner_user_id',
           hidden: true,
@@ -736,10 +765,10 @@ export default function CustomersPeoplePage() {
         accessorKey: 'firstName',
         header: t('customers.people.form.firstName', 'First name'),
         meta: {
-          columnChooserGroup: 'Profile',
+          columnChooserGroup: t('customers.columnGroups.profile', 'Profile'),
           hidden: true,
           filterKey: 'person_profile.first_name',
-          filterGroup: 'Profile',
+          filterGroup: t('customers.columnGroups.profile', 'Profile'),
         },
         cell: ({ row }) => row.original.firstName || noValue,
       },
@@ -747,10 +776,10 @@ export default function CustomersPeoplePage() {
         accessorKey: 'lastName',
         header: t('customers.people.form.lastName', 'Last name'),
         meta: {
-          columnChooserGroup: 'Profile',
+          columnChooserGroup: t('customers.columnGroups.profile', 'Profile'),
           hidden: true,
           filterKey: 'person_profile.last_name',
-          filterGroup: 'Profile',
+          filterGroup: t('customers.columnGroups.profile', 'Profile'),
         },
         cell: ({ row }) => row.original.lastName || noValue,
       },
@@ -758,10 +787,10 @@ export default function CustomersPeoplePage() {
         accessorKey: 'preferredName',
         header: t('customers.people.form.preferredName', 'Preferred name'),
         meta: {
-          columnChooserGroup: 'Profile',
+          columnChooserGroup: t('customers.columnGroups.profile', 'Profile'),
           hidden: true,
           filterKey: 'person_profile.preferred_name',
-          filterGroup: 'Profile',
+          filterGroup: t('customers.columnGroups.profile', 'Profile'),
         },
         cell: ({ row }) => row.original.preferredName || noValue,
       },
@@ -769,10 +798,10 @@ export default function CustomersPeoplePage() {
         accessorKey: 'jobTitle',
         header: t('customers.people.form.jobTitle', 'Job title'),
         meta: {
-          columnChooserGroup: 'Profile',
+          columnChooserGroup: t('customers.columnGroups.profile', 'Profile'),
           hidden: true,
           filterKey: 'person_profile.job_title',
-          filterGroup: 'Profile',
+          filterGroup: t('customers.columnGroups.profile', 'Profile'),
         },
         cell: ({ row }) => row.original.jobTitle || noValue,
       },
@@ -780,10 +809,10 @@ export default function CustomersPeoplePage() {
         accessorKey: 'department',
         header: t('customers.people.detail.fields.department', 'Department'),
         meta: {
-          columnChooserGroup: 'Profile',
+          columnChooserGroup: t('customers.columnGroups.profile', 'Profile'),
           hidden: true,
           filterKey: 'person_profile.department',
-          filterGroup: 'Profile',
+          filterGroup: t('customers.columnGroups.profile', 'Profile'),
         },
         cell: ({ row }) => row.original.department || noValue,
       },
@@ -791,10 +820,10 @@ export default function CustomersPeoplePage() {
         accessorKey: 'seniority',
         header: t('customers.people.detail.fields.seniority', 'Seniority'),
         meta: {
-          columnChooserGroup: 'Profile',
+          columnChooserGroup: t('customers.columnGroups.profile', 'Profile'),
           hidden: true,
           filterKey: 'person_profile.seniority',
-          filterGroup: 'Profile',
+          filterGroup: t('customers.columnGroups.profile', 'Profile'),
         },
         cell: ({ row }) => row.original.seniority || noValue,
       },
@@ -802,10 +831,10 @@ export default function CustomersPeoplePage() {
         accessorKey: 'timezone',
         header: t('customers.people.detail.fields.timezone', 'Timezone'),
         meta: {
-          columnChooserGroup: 'Profile',
+          columnChooserGroup: t('customers.columnGroups.profile', 'Profile'),
           hidden: true,
           filterKey: 'person_profile.timezone',
-          filterGroup: 'Profile',
+          filterGroup: t('customers.columnGroups.profile', 'Profile'),
         },
         cell: ({ row }) => row.original.timezone || noValue,
       },
@@ -813,10 +842,10 @@ export default function CustomersPeoplePage() {
         accessorKey: 'linkedInUrl',
         header: t('customers.people.detail.fields.linkedIn', 'LinkedIn'),
         meta: {
-          columnChooserGroup: 'Socials',
+          columnChooserGroup: t('customers.columnGroups.socials', 'Socials'),
           hidden: true,
           filterKey: 'person_profile.linked_in_url',
-          filterGroup: 'Socials',
+          filterGroup: t('customers.columnGroups.socials', 'Socials'),
         },
         cell: ({ row }) => row.original.linkedInUrl || noValue,
       },
@@ -824,10 +853,10 @@ export default function CustomersPeoplePage() {
         accessorKey: 'twitterUrl',
         header: t('customers.people.detail.fields.twitter', 'Twitter'),
         meta: {
-          columnChooserGroup: 'Socials',
+          columnChooserGroup: t('customers.columnGroups.socials', 'Socials'),
           hidden: true,
           filterKey: 'person_profile.twitter_url',
-          filterGroup: 'Socials',
+          filterGroup: t('customers.columnGroups.socials', 'Socials'),
         },
         cell: ({ row }) => row.original.twitterUrl || noValue,
       },
@@ -835,10 +864,10 @@ export default function CustomersPeoplePage() {
         accessorKey: 'description',
         header: t('customers.people.form.description', 'Description'),
         meta: {
-          columnChooserGroup: 'Notes',
+          columnChooserGroup: t('customers.columnGroups.notes', 'Notes'),
           hidden: true,
           filterKey: 'description',
-          filterGroup: 'Notes',
+          filterGroup: t('customers.columnGroups.notes', 'Notes'),
         },
         cell: ({ row }) => row.original.description || noValue,
       },
@@ -851,8 +880,8 @@ export default function CustomersPeoplePage() {
         header: def.label || def.key,
         enableSorting: true,
         meta: {
-          columnChooserGroup: def.group?.title ?? 'Custom Fields',
-          filterGroup: def.group?.title ?? 'Custom Fields',
+          columnChooserGroup: def.group?.title ?? t('ui.columnChooser.customFieldsGroup', 'Custom Fields'),
+          filterGroup: def.group?.title ?? t('ui.columnChooser.customFieldsGroup', 'Custom Fields'),
           filterType: mapCustomFieldKindToFilterType(def.kind),
           filterOptions: normalizeCustomFieldFilterOptions(def.options),
           hidden: def.listVisible === false,
@@ -895,6 +924,7 @@ export default function CustomersPeoplePage() {
           stickyFirstColumn
           stickyActionsColumn
           title={t('customers.people.list.title')}
+          titleHeadingLevel={1}
           refreshButton={{
             label: t('customers.people.list.actions.refresh'),
             onRefresh: () => { setSearch(''); setPage(1); handleRefresh() },
@@ -914,7 +944,7 @@ export default function CustomersPeoplePage() {
           onSearchChange={(value) => { setSearch(value); setPage(1) }}
           searchPlaceholder={t('customers.people.list.searchPlaceholder')}
           entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
-          perspective={{ tableId: 'customers.people.list' }}
+          perspective={{ tableId: extensionPoints.hosts.peopleTable.tableId }}
           onRowClick={(row) => router.push(`/backend/customers/people-v2/${row.id}`)}
           sortable
           manualSorting
@@ -988,8 +1018,8 @@ export default function CustomersPeoplePage() {
             />
           )}
           virtualized
-          pagination={{ page, pageSize, total, totalPages, onPageChange: setPage, cacheStatus, pageSizeOptions: [10, 25, 50, 100], onPageSizeChange: handlePageSizeChange }}
-          isLoading={isLoading}
+          pagination={{ page, pageSize, total, totalPages, totalIsCapped, onPageChange: setPage, cacheStatus, pageSizeOptions: [10, 25, 50, 100], onPageSizeChange: handlePageSizeChange }}
+          isLoading={isLoading || customFieldDefsLoading}
         />
         <AdvancedFilterPanel
           fields={advancedFilterFields}

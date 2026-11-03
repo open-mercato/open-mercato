@@ -118,7 +118,7 @@ export function FormFieldArrayEditor({
           <p className="text-xs text-muted-foreground mt-0.5">
             {t('workflows.fieldEditors.formFields.description')}
           </p>
-          {error && <p className="text-xs text-red-600 mt-1">{error}</p>}
+          {error && <p className="text-xs text-status-error-text mt-1">{error}</p>}
         </div>
         <Button
           type="button"
@@ -134,7 +134,7 @@ export function FormFieldArrayEditor({
 
       {/* JSON Schema Format Notice */}
       {isJsonSchemaFormat && (
-        <Alert variant="info">
+        <Alert status="information">
           <AlertDescription className="text-xs">
             {t('workflows.fieldEditors.formFields.jsonSchemaNotice')}
           </AlertDescription>
@@ -326,10 +326,10 @@ export function FormFieldArrayEditor({
                     </div>
 
                     {/* Delete Button */}
-                    <div className="border-t border-gray-200 pt-3">
+                    <div className="border-t border-border pt-3">
                       <Button
                         type="button"
-                        variant="destructive"
+                        variant="destructive-outline"
                         size="sm"
                         onClick={() => removeFormField(index)}
                         disabled={disabled}

@@ -20,6 +20,21 @@ export type EntityExtension = {
     baseKey: string // column name on base (e.g., 'id')
     extensionKey: string // column name on extension (e.g., 'user_id')
   }
+  /**
+   * Physical table backing the extension entity.
+   *
+   * Optional. When omitted the query engine derives the table from the entity
+   * segment of `extension` with the same regular pluralizer it uses for every
+   * other table-name fallback, so `y` → `ies` is handled:
+   * `example:example_customer_priority` derives `example_customer_priorities`.
+   * Declare this for the plurals no guesser can win (`person` → `people`) and
+   * for any entity whose `@Entity({ tableName })` simply does not match the
+   * derived name.
+   *
+   * MUST be a plain identifier (`[A-Za-z_][A-Za-z0-9_]*`); the engine ignores
+   * any other value and falls back to the derived name.
+   */
+  table?: string
   cardinality?: 'one-to-one' | 'one-to-many' | 'many-to-one' | 'many-to-many'
   required?: boolean
   description?: string
@@ -51,6 +66,11 @@ export type CustomFieldDefinition = {
   formEditable?: boolean
   indexed?: boolean
   listVisible?: boolean
+  // Store the value encrypted with the tenant key. Declaring it here keeps the
+  // flag idempotent across `entities install` runs; an admin-enabled flag is
+  // never downgraded by an install that omits it (turn it off explicitly with
+  // `encrypted: false`).
+  encrypted?: boolean
   // Display order within a form/card; lower renders first. When omitted, the
   // installer derives it from the declaration order of the field set.
   priority?: number

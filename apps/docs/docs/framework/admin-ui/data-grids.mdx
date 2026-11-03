@@ -54,12 +54,14 @@ On the server, map these filters to query engine constraints:
 
 ```ts title="api/get/inventory/items.ts"
 const filters = parseFilters(request); // your helper
-const result = await queryEngine.list({
-  entity: 'inventory:item',
+const result = await queryEngine.query('inventory:item', {
   filters,
-  select: ['sku', 'name', 'cf:priority'],
+  fields: ['sku', 'name', 'cf:priority'],
+  page: { page, pageSize },
+  tenantId, // required — the engine throws without a tenant scope
   organizationId,
 });
+// result: { items, page, pageSize, total }
 ```
 
 ## Performance tips

@@ -1,6 +1,7 @@
 "use client"
 
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { fetchAllDictionaryEntries } from '@open-mercato/core/modules/dictionaries/lib/fetchAllEntries'
 import {
   resolveUnavailabilityReasonDictionary,
   type UnavailabilityReasonSubjectType,
@@ -45,10 +46,9 @@ export async function loadUnavailabilityReasonEntries(
   const dictionary = resolveUnavailabilityReasonDictionary(subjectType)
   const resolved = await ensureDictionary(dictionary.key, dictionary.name)
   if (!resolved) return []
-  const entriesCall = await apiCall<{ items?: Record<string, unknown>[] }>(`/api/dictionaries/${resolved.id}/entries`)
+  const entriesCall = await fetchAllDictionaryEntries(resolved.id)
   if (!entriesCall.ok) return []
-  const items = Array.isArray(entriesCall.result?.items) ? entriesCall.result?.items ?? [] : []
-  return items
+  return entriesCall.items
     .map((entry) => {
       if (!entry || typeof entry !== 'object') return null
       const record = entry as Record<string, unknown>

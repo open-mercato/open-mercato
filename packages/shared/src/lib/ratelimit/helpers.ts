@@ -6,22 +6,46 @@ import type { RateLimiterService } from './service'
 export const RATE_LIMIT_ERROR_KEY = 'api.errors.rateLimit'
 export const RATE_LIMIT_ERROR_FALLBACK = 'Too many requests. Please try again later.'
 export const RATE_LIMIT_FALLBACK_KEY = 'global'
+export const RATE_LIMIT_UNAVAILABLE_KEY = 'api.errors.rateLimitUnavailable'
+export const RATE_LIMIT_UNAVAILABLE_FALLBACK = 'Service temporarily unavailable. Please try again later.'
 
 export const rateLimitErrorSchema = z.object({
   error: z.string().describe('Rate limit exceeded message'),
 })
 
+export type CheckRateLimitOptions = {
+  /**
+   * Reject with 503 when the limiter could not reach its backing store, instead of
+   * letting the request through uncounted. Use on state-mutating endpoints, where an
+   * unenforced limit is worse than a rejected request.
+   */
+  failClosed?: boolean
+  /** Body message for the 503 emitted by `failClosed`. */
+  unavailableMessage?: string
+}
+
 /**
  * Check rate limit for a request. Returns a 429 NextResponse if rate limited, or null if allowed.
  * Rate limit headers (X-RateLimit-*, Retry-After) are only included on 429 responses.
+ *
+ * With `options.failClosed`, a degraded limiter (backing store unreachable) yields a 503
+ * instead of an allowed request. Without it the call behaves exactly as before and fails open.
  */
 export async function checkRateLimit(
   rateLimiterService: RateLimiterService,
   config: RateLimitConfig,
   key: string,
   errorMessage: string,
+  options: CheckRateLimitOptions = {},
 ): Promise<NextResponse | null> {
   const result = await rateLimiterService.consume(key, config)
+
+  if (result.degraded && options.failClosed) {
+    return NextResponse.json(
+      { error: options.unavailableMessage ?? RATE_LIMIT_UNAVAILABLE_FALLBACK },
+      { status: 503 },
+    )
+  }
 
   if (!result.allowed) {
     const retryAfterSec = Math.ceil(result.msBeforeNext / 1000)

@@ -2,7 +2,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 
 const logger = createLogger('ai_assistant')
 
@@ -137,20 +137,11 @@ export function hasRequiredFeatures(
   isSuperAdmin: boolean,
   rbacService?: RbacService
 ): boolean {
-  if (isSuperAdmin) return true
-  if (!requiredFeatures?.length) return true
-
-  // Delegate to RbacService if provided
-  if (rbacService) {
-    return rbacService.hasAllFeatures(requiredFeatures, userFeatures)
-  }
-
-  // Fallback for cases without rbacService: delegate to the canonical
-  // wildcard-aware matcher so this path stays consistent with
-  // RbacService.hasAllFeatures (which uses the same helper). The previous
-  // bespoke loop rejected a bare-segment requirement (e.g. 'entities')
-  // against an 'entities.*' grant, diverging from the canonical matcher.
-  return hasAllFeatures(requiredFeatures, userFeatures)
+  void rbacService
+  return authorizeFeatures(requiredFeatures ?? [], {
+    grantedFeatures: userFeatures,
+    unrestricted: isSuperAdmin,
+  })
 }
 
 /**

@@ -707,25 +707,32 @@ export async function seedResourcesResourceExamples(
   const resourceByName = new Map(existingResources.map((resource) => [resource.name.toLowerCase(), resource]))
   const resourceByKey = new Map<string, ResourcesResource>()
   for (const seed of RESOURCE_SEEDS) {
+    const seedType = seed.typeKey ? typeByKey.get(seed.typeKey) ?? null : null
+    const seedFieldsetCode = resolveResourcesResourceFieldsetCode(seedType?.name ?? seed.name)
     const existing = resourceByName.get(seed.name.toLowerCase())
     if (existing) {
-      if (!existing.resourceTypeId && seed.typeKey) {
-        const typeId = typeByKey.get(seed.typeKey)?.id ?? null
-        if (typeId) {
-          existing.resourceTypeId = typeId
-          existing.updatedAt = now
-          em.persist(existing)
-        }
+      let touched = false
+      if (!existing.resourceTypeId && seedType?.id) {
+        existing.resourceTypeId = seedType.id
+        touched = true
+      }
+      if (!existing.customFieldsetCode) {
+        existing.customFieldsetCode = seedFieldsetCode
+        touched = true
+      }
+      if (touched) {
+        existing.updatedAt = now
+        em.persist(existing)
       }
       resourceByKey.set(seed.key, existing)
       continue
     }
-    const resourceTypeId = seed.typeKey ? typeByKey.get(seed.typeKey)?.id ?? null : null
     const resource = em.create(ResourcesResource, {
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
       name: seed.name,
-      resourceTypeId,
+      resourceTypeId: seedType?.id ?? null,
+      customFieldsetCode: seedFieldsetCode,
       isActive: true,
       createdAt: now,
       updatedAt: now,

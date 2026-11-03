@@ -1,22 +1,27 @@
 import type { CacheStrategy, CacheEntry, CacheGetOptions, CacheSetOptions, CacheValue } from '../types'
 import { CacheDependencyUnavailableError } from '../errors'
-import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
+import { getRedisUrlOrThrow, REDIS_WIRE_PROTOCOL } from '@open-mercato/shared/lib/redis/connection'
+import type { RedisProtocolVersion } from '@open-mercato/shared/lib/redis/connection'
 import { matchCacheKeyPattern } from '../patterns'
+import { decodeCacheText, encodeCacheText, resolveCacheCodecConfig } from '../codec'
+import type { CacheCodecOptions } from '../codec'
 
 type RedisPipeline = {
-  set(key: string, value: string): RedisPipeline
-  setex(key: string, ttlSeconds: number, value: string): RedisPipeline
+  set(key: string, value: string | Buffer): RedisPipeline
+  setex(key: string, ttlSeconds: number, value: string | Buffer): RedisPipeline
   sadd(key: string, value: string): RedisPipeline
   srem(key: string, member: string): RedisPipeline
   del(key: string): RedisPipeline
+  eval(script: string, numKeys: number, ...args: (string | number)[]): RedisPipeline
   exec(): Promise<unknown>
 }
 
 type RedisClient = {
   ping(): Promise<string>
   get(key: string): Promise<string | null>
-  set(key: string, value: string): Promise<unknown>
-  setex(key: string, ttlSeconds: number, value: string): Promise<unknown>
+  getBuffer(key: string): Promise<Buffer | null>
+  set(key: string, value: string | Buffer): Promise<unknown>
+  setex(key: string, ttlSeconds: number, value: string | Buffer): Promise<unknown>
   del(key: string): Promise<unknown>
   exists(key: string): Promise<number>
   keys(pattern: string): Promise<string[]>
@@ -26,10 +31,41 @@ type RedisClient = {
   once?(event: 'end', listener: () => void): void
 }
 
-type RedisConstructor = new (url?: string) => RedisClient
+type RedisConstructor = new (url?: string, options?: { protocol?: RedisProtocolVersion }) => RedisClient
 type PossibleRedisModule = unknown
 
 type RequireFn = (id: string) => unknown
+
+/**
+ * Reaps orphaned members from ONE tag set atomically.
+ *
+ * `KEYS[1]` is the tag key and `KEYS[2..]` are the candidate value keys, with
+ * `ARGV[1..]` the member names aligned to them. Every key the script touches is
+ * declared in `KEYS` so it stays valid against a slot-aware deployment.
+ *
+ * The `EXISTS` check and the `SREM` run in one atomic step, which is the whole
+ * point: a member may only be dropped while its value key is genuinely absent.
+ * A concurrent `set()` either lands first (`EXISTS` is 1, so the member is left
+ * alone) or lands after (its own `sadd` re-adds the member). Either ordering
+ * leaves a live key indexed.
+ *
+ * Deliberately single-tag. Pairing every orphan with every requested tag would
+ * make the work quadratic in the tag count — and because a script blocks the
+ * server for its whole run, that lands as a stall rather than as throughput.
+ * Callers reap per tag using the membership each `smembers` actually returned.
+ */
+const REAP_ORPHANED_TAG_MEMBERS = `
+local removed = 0
+for i = 2, #KEYS do
+  if redis.call('EXISTS', KEYS[i]) == 0 then
+    removed = removed + redis.call('SREM', KEYS[1], ARGV[i - 1])
+  end
+end
+return removed
+`
+
+/** Bounds a single script's blocking time on the server, and the request size. */
+const REAP_CHUNK_SIZE = 256
 
 /**
  * Redis cache strategy with tag support
@@ -69,8 +105,18 @@ function loadRedisModuleViaRequire(): PossibleRedisModule | null {
   }
 }
 
-function pickRedisConstructor(mod: PossibleRedisModule): RedisConstructor | null {
-  const queue: unknown[] = [mod]
+export function pickRedisConstructor(mod: PossibleRedisModule): RedisConstructor | null {
+  // `mod` goes last: a bundler-wrapped ESM namespace for a CJS module (e.g.
+  // Turbopack's `createNS`) can itself be a callable-but-not-constructible
+  // wrapper around the real class, while `.default`/`.Redis` still point at
+  // the real class. Checking them first costs nothing for a plain CJS
+  // `require()` or a real Node ESM namespace, where they already agree with
+  // `mod`.
+  const queue: unknown[] = [
+    (mod as { default?: unknown } | null | undefined)?.default,
+    (mod as { Redis?: unknown } | null | undefined)?.Redis,
+    mod,
+  ]
   const seen = new Set<unknown>()
   while (queue.length) {
     const current = queue.shift()
@@ -119,7 +165,7 @@ async function acquireRedisClient(key: string, entry: RedisRegistryEntry): Promi
       if (!ctor) {
         throw new CacheDependencyUnavailableError('redis', 'ioredis', new Error('No usable Redis constructor'))
       }
-      const client = new ctor(key)
+      const client = new ctor(key, { protocol: REDIS_WIRE_PROTOCOL })
       entry.client = client
       entry.creating = undefined
       client.once?.('end', () => {
@@ -153,8 +199,9 @@ async function releaseRedisEntry(key: string, entry: RedisRegistryEntry): Promis
   }
 }
 
-export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: number }): CacheStrategy {
+export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: number } & CacheCodecOptions): CacheStrategy {
   const defaultTtl = options?.defaultTtl
+  const codec = resolveCacheCodecConfig(options)
   const keyPrefix = 'cache:'
   const tagPrefix = 'tag:'
   const connectionUrl = redisUrl || getRedisUrlOrThrow('CACHE')
@@ -184,12 +231,12 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
   const get = async (key: string, options?: CacheGetOptions): Promise<CacheValue | null> => {
     const client = await getRedisClient()
     const cacheKey = getCacheKey(key)
-    const data = await client.get(cacheKey)
+    const data = await client.getBuffer(cacheKey)
 
     if (!data) return null
 
     try {
-      const entry: CacheEntry = JSON.parse(data)
+      const entry: CacheEntry = JSON.parse(decodeCacheText(data))
 
       if (isExpired(entry)) {
         if (options?.returnExpired) {
@@ -213,10 +260,10 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
     const cacheKey = getCacheKey(key)
 
     // Remove old entry from tag index if it exists
-    const oldData = await client.get(cacheKey)
+    const oldData = await client.getBuffer(cacheKey)
     if (oldData) {
       try {
-        const oldEntry: CacheEntry = JSON.parse(oldData)
+        const oldEntry: CacheEntry = JSON.parse(decodeCacheText(oldData))
         // Remove from old tags
         const pipeline = client.pipeline()
         for (const tag of oldEntry.tags) {
@@ -243,7 +290,7 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
     const pipeline = client.pipeline()
 
     // Store the entry
-    const serialized = JSON.stringify(entry)
+    const serialized = encodeCacheText(JSON.stringify(entry), codec)
     if (ttl) {
       pipeline.setex(cacheKey, Math.ceil(ttl / 1000), serialized)
     } else {
@@ -266,11 +313,11 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
     if (!exists) return false
 
     // Check if expired
-    const data = await client.get(cacheKey)
+    const data = await client.getBuffer(cacheKey)
     if (!data) return false
 
     try {
-      const entry: CacheEntry = JSON.parse(data)
+      const entry: CacheEntry = JSON.parse(decodeCacheText(data))
       if (isExpired(entry)) {
         await deleteKey(key)
         return false
@@ -286,11 +333,11 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
     const cacheKey = getCacheKey(key)
 
     // Get entry to remove from tag index
-    const data = await client.get(cacheKey)
+    const data = await client.getBuffer(cacheKey)
     if (!data) return false
 
     try {
-      const entry: CacheEntry = JSON.parse(data)
+      const entry: CacheEntry = JSON.parse(decodeCacheText(data))
       const pipeline = client.pipeline()
 
       // Remove from tag index
@@ -313,11 +360,15 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
   const deleteByTags = async (tags: string[]): Promise<number> => {
     const client = await getRedisClient()
     const keysToDelete = new Set<string>()
+    // Keep which tag each key came from. Reaping needs it to stay linear in the
+    // memberships that actually exist rather than in tags x keys.
+    const membersByTagKey = new Map<string, string[]>()
 
     // Collect all keys that have any of the specified tags
     for (const tag of tags) {
       const tagKey = getTagKey(tag)
       const keys = await client.smembers(tagKey)
+      membersByTagKey.set(tagKey, keys)
       for (const key of keys) {
         keysToDelete.add(key)
       }
@@ -325,9 +376,45 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
 
     // Delete all collected keys
     let deleted = 0
+    const orphans = new Set<string>()
     for (const key of keysToDelete) {
       const success = await deleteKey(key)
       if (success) deleted++
+      else orphans.add(key)
+    }
+
+    // A key whose value has already expired leaves its name behind in every tag
+    // set it was added to: `set()` only prunes tags when it overwrites a live
+    // key, `deleteKey` only prunes when it finds one, and `cleanup()` scans
+    // value keys rather than tag sets. Nothing else reaps them, so the sets grow
+    // without bound whenever TTL'd entries also rotate their key names — and
+    // every later invalidation pays a GET per orphan. Reap what we just walked.
+    //
+    // `deleteKey` reported these missing some time ago — the walk above is one
+    // round trip per member — so a concurrent request may have rebuilt any of
+    // them since. Re-check each value key atomically with the removal rather
+    // than trusting that stale read: dropping a live key from the index would
+    // silently exempt it from every future invalidation of this tag.
+    //
+    // Reap per tag, over that tag's own members, so the work stays linear in the
+    // memberships `smembers` actually returned. Each script is capped at
+    // REAP_CHUNK_SIZE members, so no single atomic call can stall the server for
+    // longer than a fixed bound however many tags were requested. The calls are
+    // pipelined into one round trip, but stay separate scripts so Redis can
+    // serve other clients between them.
+    if (orphans.size > 0) {
+      const pipeline = client.pipeline()
+      let queued = 0
+      for (const [tagKey, members] of membersByTagKey) {
+        const tagOrphans = members.filter((member) => orphans.has(member))
+        for (let offset = 0; offset < tagOrphans.length; offset += REAP_CHUNK_SIZE) {
+          const chunk = tagOrphans.slice(offset, offset + REAP_CHUNK_SIZE)
+          const keys = [tagKey, ...chunk.map(getCacheKey)]
+          pipeline.eval(REAP_ORPHANED_TAG_MEMBERS, keys.length, ...keys, ...chunk)
+          queued++
+        }
+      }
+      if (queued > 0) await pipeline.exec()
     }
 
     return deleted
@@ -374,10 +461,10 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
     
     let expired = 0
     for (const cacheKey of cacheKeys) {
-      const data = await client.get(cacheKey)
+      const data = await client.getBuffer(cacheKey)
       if (data) {
         try {
-          const entry: CacheEntry = JSON.parse(data)
+          const entry: CacheEntry = JSON.parse(decodeCacheText(data))
           if (isExpired(entry)) {
             expired++
           }
@@ -396,10 +483,10 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
     
     let removed = 0
     for (const cacheKey of cacheKeys) {
-      const data = await client.get(cacheKey)
+      const data = await client.getBuffer(cacheKey)
       if (data) {
         try {
-          const entry: CacheEntry = JSON.parse(data)
+          const entry: CacheEntry = JSON.parse(decodeCacheText(data))
           if (isExpired(entry)) {
             const key = cacheKey.substring(keyPrefix.length)
             await deleteKey(key)

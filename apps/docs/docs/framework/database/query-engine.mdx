@@ -7,7 +7,7 @@ description: Fetch base entities, extensions, and custom fields through a single
 
 The query layer provides a consistent API to fetch data across base entities, module extensions, and custom fields. It is available via DI as `queryEngine`.
 
-When the optional hybrid JSONB index is enabled and populated for a given entity, queries are routed through the index automatically; otherwise the engine falls back to a join-based plan. See [JSONB indexing layer](./query-index) for the index design, backfill CLI, and performance tips.
+The implementation registered behind that key is `HybridQueryEngine`, which reads through the shared `entity_indexes` JSONB index and delegates to the join-based `BasicQueryEngine` under four specific conditions. See [Hybrid query engine](./hybrid-query-engine) for the routing and fallback rules, and [JSONB indexing layer](./query-index) for the index design, backfill CLI, and performance tips.
 
 ## Why
 - Build generic list/detail APIs and UI that work for any entity.

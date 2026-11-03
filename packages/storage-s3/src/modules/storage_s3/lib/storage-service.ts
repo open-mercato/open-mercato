@@ -1,5 +1,8 @@
-import { randomUUID } from 'crypto'
+import { createHash, randomBytes } from 'crypto'
 import { S3StorageDriver } from './s3-driver'
+import type { AttachmentQuotaService } from '@open-mercato/core/modules/attachments/lib/quota-service'
+import { resolveAttachmentMaxBytes } from '@open-mercato/core/modules/attachments/lib/upload-limits'
+import { reconcileTenantS3Objects } from './quota-accounting'
 import {
   assertS3KeyAddressableByTenantScope,
   assertS3KeyScopedToTenant,
@@ -34,6 +37,7 @@ type SignedUrlInput = {
   operation: 'upload' | 'download'
   expiresIn?: number
   contentType?: string
+  size?: number
   scope: TenantScope
 }
 type ListInput = {
@@ -53,6 +57,11 @@ type S3Config = {
   accessKeyId?: string
   secretAccessKey?: string
   sessionToken?: string
+  quotaService?: AttachmentQuotaService
+  quotaRecoveryScheduler?: (
+    payload: { reservationId: string; tenantId: string; organizationId: string },
+    delayMs: number,
+  ) => Promise<void>
   pathPrefix?: string
   organizationId?: string | null
   tenantId?: string | null
@@ -62,19 +71,11 @@ function sanitizeSegment(value: string): string {
   return value.replace(/[^a-zA-Z0-9._-]/g, '_')
 }
 
-function buildKey(namespace: string, scope: TenantScope, fileName: string): string {
-  const orgSeg = scope.organizationId ? `org_${scope.organizationId}` : 'org_shared'
-  const tenantSeg = scope.tenantId ? `tenant_${scope.tenantId}` : 'tenant_shared'
-  const uniqueSuffix = randomUUID().replace(/-/g, '').slice(0, 12)
-  const safeName = sanitizeSegment(fileName || 'file')
-  return `${sanitizeSegment(namespace)}/${orgSeg}/${tenantSeg}/${Date.now()}_${uniqueSuffix}_${safeName}`
-}
-
 export interface StorageService {
   upload(input: UploadInput): Promise<StorageResult>
   download(input: DownloadInput): Promise<{ buffer: Buffer; contentType?: string }>
   delete(input: DeleteInput): Promise<void>
-  getSignedUrl(input: SignedUrlInput): Promise<{ url: string; expiresAt: Date }>
+  getSignedUrl(input: SignedUrlInput): Promise<{ url: string; expiresAt: Date; reservationId?: string }>
   list(input: ListInput): Promise<{
     files: Array<{ key: string; size: number; lastModified: Date }>
     truncated: boolean
@@ -85,23 +86,86 @@ export interface StorageService {
 
 export function createStorageService(config: S3Config): StorageService {
   const driver = new S3StorageDriver(config as Record<string, unknown>)
+  const quotaService = config.quotaService
+  const quotaRecoveryScheduler = config.quotaRecoveryScheduler
   const pathPrefix = config.pathPrefix
 
   return {
     async upload({ namespace, fileName, buffer, contentType, scope }): Promise<StorageResult> {
-      const stored = await driver.store({
-        partitionCode: namespace,
+      const storagePath = driver.prepareStoragePath({
+        partitionCode: sanitizeSegment(namespace),
         orgId: scope.organizationId,
         tenantId: scope.tenantId,
         fileName,
-        buffer,
       })
-      return {
-        key: stored.storagePath,
-        namespace,
-        fileName,
-        size: buffer.length,
-        contentType,
+      assertS3KeyScopedToTenant(storagePath, scope, pathPrefix)
+      let reservation = null as Awaited<ReturnType<AttachmentQuotaService['reserve']>> | null
+      let storageStarted = false
+      let objectStored = false
+      try {
+        if (quotaService && scope.tenantId && scope.organizationId) {
+          await reconcileTenantS3Objects({
+            driver,
+            quotaService,
+            tenantId: scope.tenantId,
+            organizationId: scope.organizationId,
+          })
+          reservation = await quotaService.reserve({
+            tenantId: scope.tenantId,
+            organizationId: scope.organizationId,
+            bytes: buffer.length,
+            source: 'storage_service',
+            storageDriver: 's3',
+            storagePath,
+            partitionCode: namespace,
+          })
+        }
+        if (reservation) {
+          if (!quotaRecoveryScheduler) throw new Error('Storage quota recovery is unavailable.')
+          await quotaRecoveryScheduler({
+            reservationId: reservation.id,
+            tenantId: scope.tenantId!,
+            organizationId: scope.organizationId!,
+          },
+            Math.max(1_000, reservation.expiresAt.getTime() - Date.now()),
+          )
+          await quotaService!.beginStorage(reservation.id, reservation.leaseToken)
+          storageStarted = true
+        }
+        const stored = await driver.store({
+          partitionCode: namespace,
+          orgId: scope.organizationId,
+          tenantId: scope.tenantId,
+          fileName,
+          buffer,
+          storagePath,
+        })
+        objectStored = true
+        if (reservation) {
+          await quotaService!.markStored(reservation.id, reservation.leaseToken)
+          await quotaService!.completeStandalone(reservation.id, reservation.leaseToken, buffer.length)
+        }
+        return {
+          key: stored.storagePath,
+          namespace,
+          fileName,
+          size: buffer.length,
+          contentType,
+        }
+      } catch (error) {
+        if (reservation) {
+          if (objectStored) {
+            try {
+              await driver.deleteStrict('', storagePath)
+              await quotaService!.release(reservation.id, reservation.leaseToken)
+            } catch {
+              // Keep the reservation counted for recovery when absence is ambiguous.
+            }
+          } else if (!storageStarted) {
+            await quotaService!.release(reservation.id, reservation.leaseToken).catch(() => {})
+          }
+        }
+        throw error
       }
     },
 
@@ -112,17 +176,62 @@ export function createStorageService(config: S3Config): StorageService {
 
     async delete({ key, scope }): Promise<void> {
       assertS3KeyAddressableByTenantScope(key, scope, pathPrefix)
-      return driver.delete('', key)
+      return driver.deleteStrict('', key)
+        .then(async () => {
+          if (quotaService && scope.tenantId) {
+            await quotaService.releaseCommittedByPath({
+              tenantId: scope.tenantId,
+              storageDriver: 's3',
+              storagePath: key,
+            })
+          }
+        })
     },
 
-    async getSignedUrl({ key, operation, expiresIn = 3600, contentType, scope }): Promise<{ url: string; expiresAt: Date }> {
+    async getSignedUrl({ key, operation, expiresIn = 3600, contentType, size, scope }) {
       if (operation === 'upload') {
         assertS3KeyScopedToTenant(key, scope, pathPrefix)
       } else {
         assertS3KeyAddressableByTenantScope(key, scope, pathPrefix)
       }
+      const expiresAt = new Date(Date.now() + expiresIn * 1000)
+      if (operation === 'upload' && quotaService && scope.tenantId && scope.organizationId) {
+        const compatibilityToken = randomBytes(32).toString('base64url')
+        let reservation: Awaited<ReturnType<AttachmentQuotaService['reserve']>> | null = null
+        try {
+          await reconcileTenantS3Objects({
+            driver,
+            quotaService,
+            tenantId: scope.tenantId,
+            organizationId: scope.organizationId,
+          })
+          reservation = await quotaService.reserve({
+            tenantId: scope.tenantId,
+            organizationId: scope.organizationId,
+            bytes: size ?? resolveAttachmentMaxBytes(),
+            source: 'storage_s3_signed',
+            storageDriver: 's3',
+            storagePath: key,
+            uploadTokenHash: createHash('sha256').update(compatibilityToken).digest('hex'),
+            ttlMs: expiresIn * 1000,
+          })
+          if (!quotaRecoveryScheduler) throw new Error('Storage quota recovery is unavailable.')
+          await quotaRecoveryScheduler({
+            reservationId: reservation.id,
+            tenantId: scope.tenantId!,
+            organizationId: scope.organizationId!,
+          }, Math.max(1_000, reservation.expiresAt.getTime() - Date.now()))
+          const url = `/api/storage-providers/s3/signed-upload/${compatibilityToken}`
+          return { url, expiresAt, reservationId: reservation.id }
+        } catch (error) {
+          if (reservation) {
+            await quotaService.release(reservation.id, reservation.leaseToken).catch(() => {})
+          }
+          throw error
+        }
+      }
       const url = await driver.getSignedUrl(key, operation, expiresIn, contentType, scope)
-      return { url, expiresAt: new Date(Date.now() + expiresIn * 1000) }
+      return { url, expiresAt }
     },
 
     async list({ prefix, maxKeys = 100, continuationToken, scope }): Promise<{

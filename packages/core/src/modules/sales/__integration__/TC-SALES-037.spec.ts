@@ -123,7 +123,7 @@ test.describe('TC-SALES-037 sales RBAC / feature gating', () => {
 
       const createResponse = await apiRequest(request, 'POST', '/api/sales/orders', {
         token: viewerToken,
-        data: { currencyCode: 'USD' },
+        data: { currencyCode: 'USD' , lines: [{ currencyCode: 'USD', quantity: 1, name: 'QA seed line', unitPriceNet: 0, unitPriceGross: 0 }] },
       })
       expect(createResponse.status(), 'view-only role POST /api/sales/orders should be 403').toBe(403)
       expect(requiredFeatures(await readJson(createResponse)), '403 should require the manage feature').toContain('sales.orders.manage')

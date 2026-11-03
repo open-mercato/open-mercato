@@ -1452,12 +1452,12 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
             <h3 className="text-sm font-semibold">
               {t('sync_akeneo.setup.heading', 'Akeneo API setup')}
             </h3>
-        <Alert variant="info">
+        <Alert status="information">
           <AlertDescription>
             {t('sync_akeneo.setup.scheduleTab', 'Run once and recurring schedules now live in the dedicated Sync schedules tab, shared by all data sync integrations.')}
           </AlertDescription>
         </Alert>
-        <Alert variant="info">
+        <Alert status="information">
           <AlertTitle>{t('sync_akeneo.setup.order.title', 'Recommended sync order')}</AlertTitle>
           <AlertDescription>
             {t(
@@ -1614,7 +1614,7 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
         ) : null}
 
         {discovery?.message ? (
-          <Alert variant={discovery.ok ? 'info' : 'warning'}>
+          <Alert status={discovery.ok ? 'information' : 'warning'}>
             <AlertDescription>{discovery.message}</AlertDescription>
           </Alert>
         ) : null}
@@ -1831,7 +1831,7 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
                     </table>
                   </div>
                 ) : (
-                  <Alert variant="info">
+                  <Alert status="information">
                     <AlertDescription>
                       {t('sync_akeneo.customFields.empty', 'No Akeneo custom fields are shown yet. They are discovered and mapped automatically after credentials are saved or when you use Refresh discovery. Use the editor only if you want to review or override the automatic mapping.')}
                     </AlertDescription>
