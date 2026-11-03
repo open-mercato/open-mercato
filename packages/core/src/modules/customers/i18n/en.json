@@ -243,6 +243,7 @@
   "customers.calendar.editor.close": "Close",
   "customers.calendar.editor.conflictTitle": "Calendar conflict",
   "customers.calendar.editor.conflictWarning": "Overlaps with: {items}",
+  "customers.calendar.editor.customFieldsLoadFailed": "Custom fields could not be loaded. Retry to save this event.",
   "customers.calendar.editor.customerBadge": "Customer",
   "customers.calendar.editor.dates.due": "Due",
   "customers.calendar.editor.dates.ends": "Ends",

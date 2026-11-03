@@ -13,7 +13,8 @@ jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
   getTelemetryRuntime: () => ({ reportError: (...args: unknown[]) => reportErrorMock(...args) }),
 }))
 
-import { emitOrganizationScopeChanged } from '@open-mercato/shared/lib/frontend/organizationEvents'
+import { emitOrganizationScopeChanged, type OrganizationScopeChangedDetail } from '@open-mercato/shared/lib/frontend/organizationEvents'
+import { clearScopeCookies, orgA, orgB, queueReads, writeScopeCookies } from './scopeFixtures'
 import { clearEventTypeCatalogCache, eventTypeConfig, eventTypeOptions, isSelectableEventType, selectedEventType, useEventTypeCatalog } from '../useEventTypeCatalog'
 
 function scopedType(key: string, order: number, selectable = true): ScopedCalendarEventType {
@@ -34,11 +35,45 @@ function scopedType(key: string, order: number, selectable = true): ScopedCalend
   }
 }
 
+function switchScope(scope: OrganizationScopeChangedDetail): void {
+  writeScopeCookies(scope)
+  act(() => emitOrganizationScopeChanged(scope))
+}
+
+type ScopeEvents = typeof import('@open-mercato/shared/lib/frontend/organizationEvents')
+type CatalogModule = typeof import('../useEventTypeCatalog')
+
+// The scope module keeps its first-report state for the whole page, so each case loads a new
+// copy after the cookies are in place, exactly as a page load does.
+function loadPage(cookies: OrganizationScopeChangedDetail | null) {
+  clearScopeCookies()
+  if (cookies) writeScopeCookies(cookies)
+  const react = jest.requireActual('react')
+  let events!: ScopeEvents
+  let catalog!: CatalogModule
+  jest.isolateModules(() => {
+    jest.doMock('react', () => react)
+    events = require('@open-mercato/shared/lib/frontend/organizationEvents') as ScopeEvents
+    catalog = require('../useEventTypeCatalog') as CatalogModule
+  })
+  return {
+    useEventTypeCatalog: catalog.useEventTypeCatalog,
+    version: () => events.getCurrentOrganizationScopeVersion(),
+    reportOnly: (scope: OrganizationScopeChangedDetail) => { act(() => events.emitOrganizationScopeChanged(scope)) },
+    switchTo: (scope: OrganizationScopeChangedDetail) => {
+      writeScopeCookies(scope)
+      act(() => events.emitOrganizationScopeChanged(scope))
+    },
+  }
+}
+
 describe('calendar editor scoped type catalog', () => {
   beforeEach(() => {
     readApiResultOrThrowMock.mockReset()
     reportErrorMock.mockReset()
     clearEventTypeCatalogCache()
+    clearScopeCookies()
+    switchScope(orgA)
   })
 
   it('orders selectable types and keeps an unavailable historical selection out of later choices', () => {
@@ -145,13 +180,6 @@ describe('calendar editor scoped type catalog', () => {
   })
 
   describe('organization scope isolation', () => {
-    const orgA = { tenantId: 'tenant-1', organizationId: 'org-a' }
-    const orgB = { tenantId: 'tenant-1', organizationId: 'org-b' }
-
-    beforeEach(() => {
-      act(() => emitOrganizationScopeChanged(orgA))
-    })
-
     it('never serves the previous organization catalog after a switch', async () => {
       readApiResultOrThrowMock.mockResolvedValueOnce({ items: [scopedType('org-a-type', 1)] })
       const { result } = renderHook(() => useEventTypeCatalog(true))
@@ -160,7 +188,7 @@ describe('calendar editor scoped type catalog', () => {
 
       let resolveB: (value: unknown) => void = () => {}
       readApiResultOrThrowMock.mockReturnValueOnce(new Promise((resolve) => { resolveB = resolve }))
-      act(() => emitOrganizationScopeChanged(orgB))
+      switchScope(orgB)
 
       expect(result.current.status).toBe('loading')
       expect(result.current.items).toEqual([])
@@ -175,14 +203,14 @@ describe('calendar editor scoped type catalog', () => {
       const { result } = renderHook(() => useEventTypeCatalog(true))
 
       readApiResultOrThrowMock.mockResolvedValueOnce({ items: [scopedType('org-b-type', 1)] })
-      act(() => emitOrganizationScopeChanged(orgB))
+      switchScope(orgB)
       await waitFor(() => expect(result.current.items.map((item) => item.key)).toEqual(['org-b-type']))
 
       await act(async () => { resolveA({ items: [scopedType('org-a-late', 1)] }) })
       expect(result.current.items.map((item) => item.key)).toEqual(['org-b-type'])
 
       readApiResultOrThrowMock.mockReturnValueOnce(new Promise(() => {}))
-      act(() => emitOrganizationScopeChanged(orgA))
+      switchScope(orgA)
       expect(result.current.status).toBe('loading')
       expect(result.current.items).toEqual([])
     })
@@ -193,24 +221,23 @@ describe('calendar editor scoped type catalog', () => {
       await waitFor(() => expect(result.current.status).toBe('ready'))
 
       readApiResultOrThrowMock.mockRejectedValueOnce(new Error('boom'))
-      act(() => emitOrganizationScopeChanged(orgB))
+      switchScope(orgB)
       await waitFor(() => expect(result.current.status).toBe('error'))
       expect(result.current.items).toEqual([])
     })
   })
 
-  describe('when the organization scope resolves after the first load', () => {
-    const items = [scopedType('meeting', 0)]
+  describe('on a page load, before and after the switcher reports the scope', () => {
+    const typeA = scopedType('org-a-type', 1)
+    const typeB = scopedType('org-b-type', 1)
+    const keys = (items: readonly ScopedCalendarEventType[]) => items.map((item) => item.key)
 
-    beforeEach(() => {
-      act(() => emitOrganizationScopeChanged({ tenantId: null, organizationId: null }))
-    })
-
-    it('keeps the loaded catalog ready instead of remounting an open form, then revalidates', async () => {
-      readApiResultOrThrowMock.mockResolvedValue({ items })
+    it('keeps the form mounted and does not refetch when the report names the scope the read went out under', async () => {
+      const page = loadPage(orgA)
+      readApiResultOrThrowMock.mockResolvedValue({ items: [typeA] })
       const statuses: string[] = []
       const { result } = renderHook(() => {
-        const catalog = useEventTypeCatalog(true)
+        const catalog = page.useEventTypeCatalog(true)
         statuses.push(catalog.status)
         return catalog
       })
@@ -218,37 +245,184 @@ describe('calendar editor scoped type catalog', () => {
       const loaded = result.current.items
       statuses.length = 0
 
-      act(() => emitOrganizationScopeChanged({ tenantId: 'tenant-a', organizationId: 'org-a' }))
-
-      await waitFor(() => expect(readApiResultOrThrowMock).toHaveBeenCalledTimes(2))
+      page.reportOnly(orgA)
       await act(async () => {})
+
+      expect(page.version()).toBe(0)
       expect(statuses).not.toContain('loading')
       expect(result.current.status).toBe('ready')
       expect(result.current.items).toBe(loaded)
     })
 
-    it('fails closed when the first read under the reported scope fails', async () => {
-      readApiResultOrThrowMock.mockResolvedValueOnce({ items })
-      const { result } = renderHook(() => useEventTypeCatalog(true))
+    it('keeps the form mounted when an all-organizations selection is reported', async () => {
+      const allOrganizations = { tenantId: 'tenant-1', organizationId: null }
+      const page = loadPage(allOrganizations)
+      readApiResultOrThrowMock.mockResolvedValue({ items: [typeA] })
+      const statuses: string[] = []
+      const { result } = renderHook(() => {
+        const catalog = page.useEventTypeCatalog(true)
+        statuses.push(catalog.status)
+        return catalog
+      })
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+      statuses.length = 0
+
+      page.reportOnly(allOrganizations)
+      await act(async () => {})
+
+      expect(statuses).not.toContain('loading')
+      expect(result.current.status).toBe('ready')
+    })
+
+    it('does not give the next organization a late answer when the first report left the version unchanged', async () => {
+      const page = loadPage(orgA)
+      const pending = queueReads(readApiResultOrThrowMock)
+      const { result } = renderHook(() => page.useEventTypeCatalog(true))
+
+      page.reportOnly(orgA)
+      expect(page.version()).toBe(0)
+      const earlyReads = [...pending].reverse()
+      pending.length = 0
+      await act(async () => { earlyReads.forEach((read) => read.resolve({ items: [typeA] })) })
+      expect(keys(result.current.items)).toEqual(['org-a-type'])
+
+      page.switchTo(orgB)
+      expect(page.version()).toBe(1)
+      expect(result.current.status).toBe('loading')
+      expect(result.current.items).toEqual([])
+
+      await act(async () => { pending.forEach((read) => read.resolve({ items: [typeB] })) })
+      expect(keys(result.current.items)).toEqual(['org-b-type'])
+    })
+
+    it('does not give the next organization an entry loaded before the editor unmounted', async () => {
+      const page = loadPage(orgA)
+      readApiResultOrThrowMock.mockResolvedValueOnce({ items: [typeA] })
+      const first = renderHook(() => page.useEventTypeCatalog(true))
+      await waitFor(() => expect(first.result.current.status).toBe('ready'))
+      first.unmount()
+
+      page.reportOnly(orgA)
+      page.switchTo(orgB)
+
+      readApiResultOrThrowMock.mockReturnValueOnce(new Promise(() => {}))
+      const second = renderHook(() => page.useEventTypeCatalog(true))
+      expect(second.result.current.status).toBe('loading')
+      expect(second.result.current.items).toEqual([])
+    })
+
+    it('does not give the next organization an answer that arrived after the editor unmounted', async () => {
+      const page = loadPage(orgA)
+      const pending = queueReads(readApiResultOrThrowMock)
+      const first = renderHook(() => page.useEventTypeCatalog(true))
+      first.unmount()
+
+      page.reportOnly(orgA)
+      await act(async () => { pending.forEach((read) => read.resolve({ items: [typeA] })) })
+      page.switchTo(orgB)
+
+      const second = renderHook(() => page.useEventTypeCatalog(true))
+      expect(second.result.current.status).toBe('loading')
+      expect(second.result.current.items).toEqual([])
+    })
+
+    it('does not reuse a read made before any scope cookie existed', async () => {
+      const page = loadPage(null)
+      readApiResultOrThrowMock.mockResolvedValueOnce({ items: [typeA] })
+      const { result } = renderHook(() => page.useEventTypeCatalog(true))
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+
+      readApiResultOrThrowMock.mockReturnValueOnce(new Promise(() => {}))
+      page.switchTo(orgA)
+
+      expect(result.current.status).toBe('loading')
+      expect(result.current.items).toEqual([])
+    })
+
+    it('reports an error when the first read under a named scope fails after a read without one', async () => {
+      const page = loadPage(null)
+      readApiResultOrThrowMock.mockResolvedValueOnce({ items: [typeA] })
+      const { result } = renderHook(() => page.useEventTypeCatalog(true))
       await waitFor(() => expect(result.current.status).toBe('ready'))
 
       readApiResultOrThrowMock.mockRejectedValueOnce(new Error('offline'))
-      act(() => emitOrganizationScopeChanged({ tenantId: 'tenant-a', organizationId: 'org-a' }))
+      page.switchTo(orgA)
 
       await waitFor(() => expect(result.current.status).toBe('error'))
       expect(result.current.items).toEqual([])
     })
 
-    it('never carries a catalog across a later organization switch', async () => {
-      readApiResultOrThrowMock.mockResolvedValue({ items })
-      const { result } = renderHook(() => useEventTypeCatalog(true))
+    it('does not serve the persisted scope when the report names another one', async () => {
+      const page = loadPage(orgA)
+      readApiResultOrThrowMock.mockResolvedValueOnce({ items: [typeA] })
+      const { result } = renderHook(() => page.useEventTypeCatalog(true))
       await waitFor(() => expect(result.current.status).toBe('ready'))
-      act(() => emitOrganizationScopeChanged({ tenantId: 'tenant-a', organizationId: 'org-a' }))
-      await waitFor(() => expect(readApiResultOrThrowMock).toHaveBeenCalledTimes(2))
-      await act(async () => {})
 
-      readApiResultOrThrowMock.mockReturnValue(new Promise(() => {}))
-      act(() => emitOrganizationScopeChanged({ tenantId: 'tenant-a', organizationId: 'org-b' }))
+      readApiResultOrThrowMock.mockReturnValueOnce(new Promise(() => {}))
+      page.switchTo(orgB)
+
+      expect(result.current.status).toBe('loading')
+      expect(result.current.items).toEqual([])
+    })
+  })
+
+  describe('when a refresh of a confirmed catalog is rejected', () => {
+    const visit = scopedType('visit', 10)
+
+    async function reopenWithPendingRead() {
+      readApiResultOrThrowMock.mockResolvedValueOnce({ items: [visit] })
+      const view = renderHook(({ open }) => useEventTypeCatalog(open), { initialProps: { open: true } })
+      await waitFor(() => expect(view.result.current.status).toBe('ready'))
+      view.rerender({ open: false })
+      await act(async () => {})
+      const pending = queueReads(readApiResultOrThrowMock)
+      view.rerender({ open: true })
+      expect(view.result.current.status).toBe('ready')
+      return { ...view, pending }
+    }
+
+    it('fails closed, keeps the items for the open draft and recovers only on a successful retry', async () => {
+      const { result, pending } = await reopenWithPendingRead()
+      const error = Object.assign(new Error('forbidden'), { status: 403 })
+      await act(async () => { pending.shift()?.reject(error) })
+
+      expect(result.current.status).toBe('stale')
+      expect(result.current.items).toEqual([visit])
+      expect(reportErrorMock).toHaveBeenCalledWith(error, {
+        module: 'customers',
+        code: 'customers.activity_type_catalog_load_failed',
+      })
+
+      await act(async () => { result.current.retry() })
+      expect(result.current.status).toBe('stale')
+      await act(async () => { pending.shift()?.reject(new Error('offline')) })
+      expect(result.current.status).toBe('stale')
+      expect(result.current.items).toEqual([visit])
+
+      await act(async () => { result.current.retry() })
+      expect(result.current.status).toBe('stale')
+      await act(async () => { pending.shift()?.resolve({ items: [visit, scopedType('call', 20)] }) })
+      expect(result.current.status).toBe('ready')
+      expect(result.current.items.map((item) => item.key)).toEqual(['visit', 'call'])
+    })
+
+    it('does not start a later editor from the catalog that failed to refresh', async () => {
+      const { result, pending, unmount } = await reopenWithPendingRead()
+      await act(async () => { pending.shift()?.reject(new Error('offline')) })
+      expect(result.current.status).toBe('stale')
+      unmount()
+
+      const next = renderHook(() => useEventTypeCatalog(true))
+      expect(next.result.current.status).toBe('loading')
+      expect(next.result.current.items).toEqual([])
+    })
+
+    it('never carries the kept items into another organization', async () => {
+      const { result, pending } = await reopenWithPendingRead()
+      await act(async () => { pending.shift()?.reject(new Error('offline')) })
+      expect(result.current.status).toBe('stale')
+
+      switchScope(orgB)
 
       expect(result.current.status).toBe('loading')
       expect(result.current.items).toEqual([])
