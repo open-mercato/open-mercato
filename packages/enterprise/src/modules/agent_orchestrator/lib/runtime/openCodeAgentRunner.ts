@@ -308,13 +308,14 @@ export class OpenCodeAgentRunner {
             inDir: workspace.inDir,
             tenantId: ctx.tenantId,
             organizationId: ctx.organizationId,
+            userId: ctx.userId,
           })
         } catch (err) {
           if (isAttachmentStorageConfigurationError(err)) {
             await failRun(this.commandBus, commandCtx, { runId, errorMessage: `${err.code}: ${err.reason}` })
             throw err
           }
-          const detail = err instanceof Error ? err.message : String(err)
+          const detail = 'attachment input unavailable'
           await failRun(this.commandBus, commandCtx, { runId, errorMessage: `attachment staging failed: ${detail}` })
           throw new OpenCodeRunFailedError(agentId, `attachment staging failed: ${detail}`)
         }

@@ -21,11 +21,13 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: async (em: { findOne: (...args: unknown[]) => unknown }, ...args: unknown[]) => em.findOne(...args),
 }))
 jest.mock('@open-mercato/core/modules/auth/data/entities', () => ({ UserRole: class UserRole {} }))
+jest.mock('#generated/entities.ids.generated', () => jest.requireActual('../../../../../core/jest.mocks/entities.ids.generated.js'), { virtual: true })
 
 import { OpenCodeAgentRunner, type OpenCodeRunnerClient } from '../lib/runtime/openCodeAgentRunner'
 import { AttachmentStorageConfigurationError, isAttachmentStorageConfigurationError } from '@open-mercato/core/modules/attachments'
 import { StorageDriverFactory } from '@open-mercato/core/modules/attachments/lib/drivers'
 import { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
+import { DefaultAttachmentService } from '@open-mercato/core/modules/attachments/lib/attachment-service'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { AgentRuntimeService } from '../lib/runtime/agentRuntime'
 import { registerFileAgent, getAgentEntry, type AgentRegistryEntry } from '../lib/sdk/defineAgent'
@@ -211,20 +213,23 @@ describe('OpenCodeAgentRunner (integration, fake client)', () => {
     const priorFiles = process.env.OM_OPENCODE_FILES_ENABLED
     process.env.OM_ATTACHMENT_STORAGE_POLICY = 'strict'
     process.env.OM_OPENCODE_FILES_ENABLED = 'true'
-    const entry = { ...registerExampleFileAgent(), files: { enabled: true } }
+    const entry: AgentRegistryEntry = { ...registerExampleFileAgent(), files: { enabled: true } }
     const { calls, commandBus, container, registrations } = makeHarness()
     const attachmentId = '123e4567-e89b-42d3-a456-426614174001'
     const em = {
       fork: () => em,
       findOne: jest.fn(async (entity: unknown, where: Record<string, unknown>) => {
-        if (entity !== Attachment) return partition
+        if (entity !== Attachment) return partition && { ...partition, code: 'privateAttachments', isPublic: false }
         if (where.tenantId !== runCtx.tenantId || where.organizationId !== runCtx.organizationId) return null
-        return { id: attachmentId, partitionCode: 'privateAttachments', storagePath: 'secret-sentinel', fileName: 'file.txt' }
+        return { id: attachmentId, tenantId: runCtx.tenantId, organizationId: runCtx.organizationId,
+          entityId: 'example:record', recordId: 'record-1',
+          partitionCode: 'privateAttachments', storagePath: 'secret-sentinel', fileName: 'file.txt' }
       }),
     }
     const release = jest.fn(async () => undefined)
     registrations.em = em
     registrations.storageDriverFactory = new StorageDriverFactory(em as unknown as EntityManager)
+    registrations.attachmentService = new DefaultAttachmentService(em as unknown as EntityManager, registrations.storageDriverFactory as StorageDriverFactory)
     registrations.agentWorkspaceManager = { acquire: async () => ({ inDir: '/unused/in', outDir: '/unused/out', release }) }
     const client = makeFakeClient({ outcome: validOutcome, sessionTokenRef: { value: '' }, agentSentRef: { value: undefined }, container })
     const sendMessage = jest.spyOn(client, 'sendMessage')
