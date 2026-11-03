@@ -43,12 +43,12 @@ Make `apps/docs/docs/cli/scheduler.mdx` describe only behavior the CLI actually 
 
 ### Phase 1: #8510 — scheduler start output
 
-- [ ] 1.1 Replace scheduler start transcripts and options with actual CLI behavior
+- [x] 1.1 Replace scheduler start transcripts and options with actual CLI behavior — fcb195cce
 
 ### Phase 2: #8511 — queue inspection commands
 
-- [ ] 2.1 Replace unsupported queue subcommands with supported inspection paths
-- [ ] 2.2 Add documented-queue-subcommand guard test
+- [x] 2.1 Replace unsupported queue subcommands with supported inspection paths — 72b7d3892
+- [x] 2.2 Add documented-queue-subcommand guard test — 6c62e4e3f
 
 ### Phase 3: Validation
 
