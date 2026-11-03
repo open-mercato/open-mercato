@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { registerComponentOverrides } from '@open-mercato/shared/modules/widgets/component-registry'
 import {
   PERSON_DETAIL_TABS_COMPONENT_ID,
@@ -135,6 +135,132 @@ describe('PersonDetailTabs', () => {
       widthSpy.mockRestore()
       if (clientWidth) Object.defineProperty(Element.prototype, 'clientWidth', clientWidth)
     }
+  })
+
+  describe('when the rail narrows without the row resizing', () => {
+    type ObservedCallback = () => void
+    const observed = new Map<Element, ObservedCallback[]>()
+    let listWidth = 450
+    let widthSpy: jest.SpyInstance
+    let clientWidth: PropertyDescriptor | undefined
+    const originalResizeObserver = global.ResizeObserver
+
+    beforeEach(() => {
+      observed.clear()
+      listWidth = 450
+      widthSpy = jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 100 } as DOMRect)
+      clientWidth = Object.getOwnPropertyDescriptor(Element.prototype, 'clientWidth')
+      Object.defineProperty(Element.prototype, 'clientWidth', { configurable: true, get: () => listWidth })
+      global.ResizeObserver = class {
+        constructor(private readonly callback: ObservedCallback) {}
+        observe(element: Element) {
+          observed.set(element, [...(observed.get(element) ?? []), this.callback])
+        }
+        unobserve() {}
+        disconnect() {
+          for (const [element, callbacks] of observed) {
+            observed.set(element, callbacks.filter((callback) => callback !== this.callback))
+          }
+        }
+      } as unknown as typeof ResizeObserver
+    })
+
+    afterEach(() => {
+      widthSpy.mockRestore()
+      if (clientWidth) Object.defineProperty(Element.prototype, 'clientWidth', clientWidth)
+      global.ResizeObserver = originalResizeObserver
+    })
+
+    function resizeTabStrip(width: number) {
+      listWidth = width
+      const strip = screen.getByRole('tablist').parentElement?.parentElement as Element
+      act(() => {
+        for (const callback of observed.get(strip) ?? []) callback()
+      })
+    }
+
+    it('folds tabs when a late section action takes room from the strip, and restores them when it goes', () => {
+      const sectionAction = { label: 'Add address', onClick: () => {} }
+      const { rerender } = render(
+        <PersonDetailTabs activeTab="activities" onTabChange={() => {}}>
+          <div>content</div>
+        </PersonDetailTabs>,
+      )
+      expect(screen.getAllByRole('tab')).toHaveLength(3)
+
+      rerender(
+        <PersonDetailTabs activeTab="activities" onTabChange={() => {}} sectionAction={sectionAction}>
+          <div>content</div>
+        </PersonDetailTabs>,
+      )
+      resizeTabStrip(250)
+      expect(screen.getAllByRole('tab')).toHaveLength(1)
+      expect(screen.getByTestId('detail-tabs-more')).toBeInTheDocument()
+
+      rerender(
+        <PersonDetailTabs activeTab="activities" onTabChange={() => {}}>
+          <div>content</div>
+        </PersonDetailTabs>,
+      )
+      resizeTabStrip(450)
+      expect(screen.getAllByRole('tab')).toHaveLength(3)
+    })
+  })
+
+  describe('More menu keyboard', () => {
+    function openMenu() {
+      render(
+        <PersonDetailTabs
+          activeTab="activities"
+          onTabChange={() => {}}
+          injectedTabs={[
+            { id: 'crm.first', label: 'First', priority: -1 },
+            { id: 'crm.second', label: 'Second', priority: -2 },
+          ]}
+        >
+          <div>content</div>
+        </PersonDetailTabs>,
+      )
+      const trigger = screen.getByTestId('detail-tabs-more')
+      fireEvent.keyDown(trigger, { key: 'ArrowDown' })
+      return { trigger, menu: screen.getByRole('menu'), items: screen.getAllByRole('menuitem') }
+    }
+
+    it('exposes the trigger as an expanded menu button', () => {
+      const { trigger } = openMenu()
+      expect(trigger).toHaveAttribute('aria-haspopup', 'menu')
+      expect(trigger).toHaveAttribute('aria-expanded', 'true')
+    })
+
+    it('opens on ArrowDown with the first item focused and every item out of the tab order', () => {
+      const { items } = openMenu()
+      expect(items.length).toBeGreaterThan(2)
+      expect(items[0]).toHaveFocus()
+      expect(items.every((item) => item.getAttribute('tabindex') === '-1')).toBe(true)
+    })
+
+    it('moves focus with the arrow keys, wraps at both ends, and honours Home and End', () => {
+      const { menu, items } = openMenu()
+      const last = items[items.length - 1]
+      fireEvent.keyDown(menu, { key: 'ArrowDown' })
+      expect(items[1]).toHaveFocus()
+      fireEvent.keyDown(menu, { key: 'ArrowUp' })
+      expect(items[0]).toHaveFocus()
+      fireEvent.keyDown(menu, { key: 'ArrowUp' })
+      expect(last).toHaveFocus()
+      fireEvent.keyDown(menu, { key: 'ArrowDown' })
+      expect(items[0]).toHaveFocus()
+      fireEvent.keyDown(menu, { key: 'End' })
+      expect(last).toHaveFocus()
+      fireEvent.keyDown(menu, { key: 'Home' })
+      expect(items[0]).toHaveFocus()
+    })
+
+    it('closes on Tab', () => {
+      const { menu } = openMenu()
+      fireEvent.keyDown(menu, { key: 'Tab' })
+      expect(screen.queryByRole('menu')).toBeNull()
+    })
   })
 
   it('hides built-in and injected tabs listed in hiddenTabIds (#4379)', () => {
