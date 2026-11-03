@@ -288,7 +288,7 @@ cd open-mercato
 yarn install-skills          # optional: this repo's local skills plus the shared collection
 ```
 
-Already have a clone or a fork? Run `yarn om` inside it instead; manual steps are in [CONTRIBUTING.md](CONTRIBUTING.md).
+Already have a clone or a fork? Run `node packages/starter/bin/om-start.mjs` inside it instead (until its first run installs dependencies, Yarn cannot run `yarn om` or `yarn setup` there); manual steps are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 **Done when**
 
