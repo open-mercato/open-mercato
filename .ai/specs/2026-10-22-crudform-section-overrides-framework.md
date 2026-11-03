@@ -593,6 +593,53 @@ Round-trip ids are derived, not hand-bumped: `<extension id>.<section id>@<base 
 - The wrapper accepts only i18n keys for labels and error messages, and only design-system field renderers.
 - `yarn generate` prints a compiled summary per extension (sections, fields, leaves, coverage, sinks, guards) so authors see exactly what the server will enforce.
 
+### 12. Reference examples, integration tests, and standalone harness
+
+Every case this spec defines ships with three artifacts in the same change that implements it: a working recipe in the `example` module, an executable integration test, and a standalone-harness entry pointing at that recipe. No case counts as implemented when one of the three is missing.
+
+#### 12.1 Case matrix
+
+| # | Case | Example recipe (in `example`) | Integration test |
+|---|---|---|---|
+| C1 | Hide a section whose required leaf is preserved from the record (update) | `compliance: hide()` on catalog product edit | `TC-EXAMPLE-FORM-001` |
+| C2 | Hide a section on create, required leaf filled by a `defaults` server default | create-form host with `defaults` | `TC-EXAMPLE-FORM-002` |
+| C3 | Hide with an uncovered required leaf → blocking failure at load, no mutation controls | gated negative recipe | `TC-EXAMPLE-FORM-003` |
+| C4 | Replace a section; the replacement still emits the required leaf | `meta: replace(...)` | `TC-EXAMPLE-FORM-004` |
+| C5 | Modify fields: relabel, remove (leaf preserved), add a server rule (422 field error) | `details: modify(...)` | `TC-EXAMPLE-FORM-005` |
+| C6 | Add a section stored as custom fields (`store.customField`) | `season` field | `TC-EXAMPLE-FORM-006` |
+| C7 | Add a field stored in the module's own table (`store.table`): create, update, read-back, sink-version conflict, rollback when the sink throws | `brand` → `example_product_brands` | `TC-EXAMPLE-FORM-007` |
+| C8 | Custom sink (`store.sink`) with `after-commit` atomicity: `extensionWarnings` and flash on failure | after-commit recipe | `TC-EXAMPLE-FORM-008` |
+| C9 | External delivery (`store.external`): pre-commit validation reject and timeout, `pending` → `synced`, failure → backoff → `failed` + notification + Retry, coalesced rapid edits, idempotent redelivery, compensating delete | `erp` section | `TC-EXAMPLE-FORM-009` |
+| C10 | Disabling one piece from `modules.ts` with `forms.sections[...] = null` | documented `modules.ts` snippet | `TC-EXAMPLE-FORM-010` |
+| C11 | Unknown `extensions.<module>` key, stale fingerprint, protected-header tampering → `409 extension_policy_mismatch`, no write | API-only | `TC-EXAMPLE-FORM-011` |
+| C12 | No-policy baseline: example extensions off → host form, payload, and endpoints unchanged | env off | `TC-EXAMPLE-FORM-012` |
+
+Generation-time cases have no runtime recipe and are covered by unit tests in the generator package, not integration tests. They are: cross-module conflict, `modify` on a component-only section, removing a field under a `mandatory` refinement, a required-leaf schema drift, and fingerprint equality of compiled versus hand-written declarations.
+
+As each later adopter (sales, staff, resources, …) lands, its spec adds the C1–C9 rows that apply to its host, using that host in the example module. The matrix grows per host; it is never satisfied by catalog alone.
+
+#### 12.2 Example module
+
+- All recipes live in `apps/mercato/src/modules/example/form-sections.ts` as one `defineCrudFormExtension` per host (§11). The rare hand-written primitive recipe is kept as a commented "advanced" variant next to its wrapper equivalent, so readers see both forms.
+- The external case uses a DI-registered `exampleExternalErp` client whose default implementation is an in-process fake store with configurable latency and failure. The demo and the tests therefore need no network or third-party service. A real provider belongs in its own integration package.
+- Recipes change real backend forms, so they activate only when `NEXT_PUBLIC_OM_EXAMPLE_FORM_EXTENSIONS=on`. A `NEXT_PUBLIC_*` gate is allowed by §4; a server-only gate would be rejected. The variable is off in `.env.example`, on in the Playwright environment, and C12 runs with it off.
+- New entities (`example_product_brands`, the ERP mirror) ship with migrations and snapshots. Labels go through the example module's i18n files. Its `references/surface-inventory.json` and `references/surface-map.md` gain one capability id per case (`example.crud-form-extensions.c1` … `c12`), each pointing at its source.
+- The example module is mirrored into `packages/create-app/template/src/modules/example/` with `yarn template:sync:fix` in the same change. `yarn template:sync` must pass.
+
+#### 12.3 Integration tests
+
+- Location: `apps/mercato/src/modules/example/__integration__/TC-EXAMPLE-FORM-0NN-*.spec.ts`, following `.ai/qa/AGENTS.md`. Each test has both API and Playwright UI coverage where the case has a UI.
+- Self-contained: fixtures are created through the API (product, team member, …) in setup and removed in teardown/finally. No test relies on seeded or demo data.
+- UI assertions cover the visible contract: section present, absent, or replaced; field labels; field errors; the blocking `ErrorMessage` with no save/delete controls; the sync status badge and Retry; the conflict bar.
+- API assertions cover the server contract: the 409/422 bodies, rollback (no extension row and no host change after a sink failure), the `_extensions` read-back, and the absence of credentials in responses and logs.
+- The external case drives the fake client's failure and latency switches. It runs the queue worker synchronously in the test environment to observe `pending` → `synced`/`failed`.
+
+#### 12.4 Standalone harness
+
+- Add one harness case per matrix row to `packages/create-app/agentic/shared/ai/harness/cases.json`. Each case declares `context.exampleRoots` for `src/modules/example`, its entrypoint `src/modules/example/form-sections.ts`, and the exact `example.crud-form-extensions.cN` capability id from `references/surface-inventory.json`. Task prompts are phrased as app-developer goals ("hide the compliance card on product edit", "add a supplier field stored in my own table", "send these fields to our ERP").
+- The standalone `AGENTS.md` router and the module-development guide link the "Customize a CrudForm" task to `src/modules/example/form-sections.ts` and the case-matrix capability ids. The module-development guide is the monorepo `.ai/docs/module-development.md` and its template mirror.
+- Produce the harness changes with `om-refresh-standalone-harness` over the implementing release range. Each new case must fail before its owner change and pass after it, per that skill's contract.
+
 ## Architecture
 
 | Layer | Responsibility |
@@ -706,6 +753,7 @@ Once published, host ids, variants, form operations, section ids, capability ids
 3. UI runtime descriptors, resolver, readiness, explicit validation/composition, and bound clients.
 4. Framework fixture, documentation, compatibility updates, and exact validation gates.
 5. Single-definition authoring wrapper (`defineCrudFormExtension`) compiling to phases 1–4 outputs.
+6. Reference examples, integration tests, and standalone-harness coverage for every case (§12).
 
 Each phase leaves the default application working. No host advertises section operations until its separate adopter spec supplies complete domain descriptors and capabilities.
 
@@ -752,7 +800,18 @@ Each phase leaves the default application working. No host advertises section op
 20. Rebuild the Phase 4 framework fixture as one `defineCrudFormExtension` and prove it compiles to the same manifest fingerprint as the equivalent hand-written declarations.
 21. Document the wrapper as the primary recipe in the module-development guide and the standalone harness (`om-refresh-standalone-harness`), with the hand-written primitives as the advanced path. Add the new import path and builders to `BACKWARD_COMPATIBILITY.md`.
 
+### Phase 6 — examples, integration tests, standalone harness
+
+22. Add the gated example recipes C1–C12 (§12.1) to `apps/mercato/src/modules/example/form-sections.ts`, including the in-process fake `exampleExternalErp` client, the new entities with migrations/snapshots, i18n keys, and the `.env.example` flag (off).
+23. Add `TC-EXAMPLE-FORM-001` … `TC-EXAMPLE-FORM-012` under `apps/mercato/src/modules/example/__integration__/`, with self-contained API fixtures and both API and UI assertions; enable the flag in the Playwright environment; add the generator unit tests for the generation-time cases.
+24. Register capability ids `example.crud-form-extensions.c1` … `c12` in `references/surface-inventory.json` and `references/surface-map.md`; mirror the example module to the create-app template with `yarn template:sync:fix`.
+25. Run `om-refresh-standalone-harness` over the implementing range to add one harness case per matrix row with `context.exampleRoots`, and link the standalone router plus the module-development guide to the example recipes; each case must fail before and pass after its owner change.
+26. Record `yarn test:integration` (filtered to `TC-EXAMPLE-FORM`), the generator unit tests, `yarn template:sync`, and the harness run as evidence. Phases 1–5 steps that implement a case are not complete until that case's example, test, and harness entry exist.
+
 ## Integration Coverage
+
+All cases below are implemented as the §12 matrix tests (`TC-EXAMPLE-FORM-001` … `012`) plus generator unit tests. The bullets list the assertions each must contain.
+
 
 - Discovery/bootstrap: package/app `form-sections.ts`, lazy runtime load, exact contribution lookup, deterministic order, disabled modules, server/browser parity, ungated/public-gated success, server-only-gated rejection, configured-host ledger, and stale-bundle blocking.
 - Resolve API/manifest: exact request/response, accepted and rejected capability/custom-field/no-op combinations, client/runtime/server fingerprint and mandatory round-trip revision skew, final-registry overrides, malformed/oversized/reconstructed token, exact 3072-byte decoded / 4096-character encoded boundaries and aggregate-overflow failed state, stale fingerprint, no-store/redaction, safe diagnostic fields.
@@ -782,7 +841,8 @@ Each phase leaves the default application working. No host advertises section op
 14. Extension leaves persist only through declared sinks under `extensions.<ownerModuleId>`, atomically with the host write unless the contribution opts into after-commit, with their own optimistic lock, undo, and delete behavior.
 15. A sink that saves to an external system records its intent in the host transaction, never calls the remote system inside it, delivers idempotently with retries and a visible, retryable sync state, and never exposes credentials outside the server.
 16. A module can add, remove, and modify sections and fields of a host form, including server validation, defaults, and persistence (host, custom field, own table, or external system), in one `defineCrudFormExtension` declaration that compiles to exactly the primitives of §§1–10 with no copied host code.
-17. The named framework, integration, compatibility, client-boundary, template-parity, and configured validation commands pass with recorded evidence.
+17. Every §12.1 case has a gated example recipe in the `example` module (mirrored to the create-app template), a passing self-contained `TC-EXAMPLE-FORM-*` integration test, and a standalone-harness case that links to the recipe through `context.exampleRoots` and its capability id.
+18. The named framework, integration, compatibility, client-boundary, template-parity, and configured validation commands pass with recorded evidence.
 
 ## Final Compliance Report — 2026-10-27
 
@@ -827,6 +887,8 @@ None.
 - **Fully compliant**: Approved — ready for implementation.
 
 ## Changelog
+
+- **2026-11-03:** Added §12 and Phase 6: a C1–C12 case matrix where each case ships a gated `example` module recipe (`NEXT_PUBLIC_OM_EXAMPLE_FORM_EXTENSIONS`), a self-contained `TC-EXAMPLE-FORM-*` integration test, and a standalone-harness case with `context.exampleRoots`; later adopters extend the matrix per host.
 
 - **2026-11-03:** Added §11 single-definition form extensions (`defineCrudFormExtension`) and Phase 5: one declaration per host compiling hide/replace/modify/add of sections and fields, server validation, defaults, and `store.customField`/`table`/`sink`/`external` persistence into the existing §§1–10 primitives; field-granular base descriptors with pure derivation and derived round-trip ids. Sinks and leaf defaults are declared in `form-sections.ts`; the browser registry never imports that file.
 

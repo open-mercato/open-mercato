@@ -84,7 +84,7 @@ Committed `ready` records reference only implementation PRs already merged to th
 
 ### Deployable-unit rule
 
-A dedicated adopter spec may cover multiple alternatives/invocations only when they share one runtime/domain capability and must ship together. Sharing a package, wave, renderer primitive, JSX invocation, or inventory batch is not sufficient. Different alternatives of one reusable renderer must have separate work units when their routes, prerequisites, or rollback can ship independently. Every adopter spec must list its exact hosts, alternatives, API/command paths, key UI test names, stable ids, dependencies, security/locking behavior, no-policy baseline, and per-host rollback.
+A dedicated adopter spec may cover multiple alternatives/invocations only when they share one runtime/domain capability and must ship together. Sharing a package, wave, renderer primitive, JSX invocation, or inventory batch is not sufficient. Different alternatives of one reusable renderer must have separate work units when their routes, prerequisites, or rollback can ship independently. Every adopter spec must list its exact hosts, alternatives, API/command paths, key UI test names, stable ids, dependencies, security/locking behavior, no-policy baseline, and per-host rollback. It must also add, for its host, the applicable framework §12.1 cases: example-module recipes, `TC-EXAMPLE-FORM-*` integration tests, and standalone-harness cases. A work unit cannot be `ready` without them.
 
 ### OSS technical completion
 
@@ -230,6 +230,8 @@ None.
 - **Fully compliant**: Approved — valid as a non-implementing rollout index.
 
 ## Changelog
+
+- **2026-11-03:** Required every adopter to ship its host's framework §12 example recipes, integration tests, and harness cases before `ready`.
 
 - **2026-11-03:** Re-audit of the merge head found 161 `CrudForm` JSX invocations (154 OSS, 7 enterprise), not 140 OSS; added work units for availability, customer groups, promotions, resources, ecommerce, and shared `packages/ui` renderers; split CRUD hosts with secondary writes from simple CRUD; made warranty single-owner; required ungrouped/compatibility-only alternatives to be reported separately at completion.
 

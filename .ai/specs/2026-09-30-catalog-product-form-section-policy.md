@@ -206,6 +206,8 @@ Per framework §8, capability `catalog.product.edit.update/v1` publishes `requir
 
 For framework §11 (`defineCrudFormExtension`), the field-based sections `dimensions`, `metadata`, `compliance`, and `meta`, plus the scalar fields of `details` (`title`, `description`), publish field-granular descriptors (`fields`, `fieldSchemas`, `refinements`, `projectField`), so `modify` can patch, remove, or add fields without copying catalog code. The compliance date/quantity ordering rules are refinements over their exact field pairs, and none is `mandatory`. The media controls in `details`, and the `options`, `product-uom`, `variants`, `categorize`, and `custom-fields` sections, are component-based and accept only `hide`/`replace`.
 
+Catalog product edit is the first host in the framework §12 case matrix. This adopter ships the update-side recipes and tests (C1, C3–C12) on `crud-form:catalog.product/edit/update`. C2 (create with server default) waits for the first create-form adopter. The test-only fixture under `.ai/qa/fixtures/crudform-section-policy/` remains for negative cases that must not be demonstrated in the example module.
+
 ## Architecture
 
 | Area | Change |
@@ -402,6 +404,8 @@ None.
 - **Fully compliant**: Approved — ready for implementation after its named prerequisites land.
 
 ## Changelog
+
+- **2026-11-03:** Named catalog product edit as the first framework §12 host and assigned it the update-side example/test cases.
 
 - **2026-11-03:** Declared which edit sections publish field-granular descriptors for the framework §11 single-definition wrapper.
 
