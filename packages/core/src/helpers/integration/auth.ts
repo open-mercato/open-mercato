@@ -57,7 +57,7 @@ function decodeJwtClaims(token: string): { tenantId?: string; orgId?: string | n
   }
 }
 
-async function acknowledgeGlobalNotices(page: Page): Promise<void> {
+export async function acknowledgeGlobalNotices(page: Page): Promise<void> {
   const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
   await page.context().addCookies([
     {

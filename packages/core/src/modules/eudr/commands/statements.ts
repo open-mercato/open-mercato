@@ -450,12 +450,12 @@ export async function loadLatestAssessmentForGate(
   }
 }
 
-async function assertNoDownstreamReferences(
+async function hasDownstreamReferences(
   em: EntityManager,
   record: EudrDueDiligenceStatement,
-): Promise<void> {
+): Promise<boolean> {
   const referenceNumber = record.referenceNumber?.trim().toUpperCase() ?? ''
-  if (!referenceNumber) return
+  if (!referenceNumber) return false
   const db = em.getKysely<{
     eudr_due_diligence_statements: {
       id: string
@@ -475,9 +475,46 @@ async function assertNoDownstreamReferences(
     .where('id', '!=', record.id)
     .where(sql<boolean>`referenced_statements @> ${containment}::jsonb`)
     .executeTakeFirst()
-  if (Number(downstreamRow?.total ?? 0) > 0) {
+  return Number(downstreamRow?.total ?? 0) > 0
+}
+
+async function assertNoDownstreamReferences(
+  em: EntityManager,
+  record: EudrDueDiligenceStatement,
+): Promise<void> {
+  if (await hasDownstreamReferences(em, record)) {
     throw new CrudHttpError(400, { error: 'eudr.errors.referencedDownstream' })
   }
+}
+
+type StatementDeleteBlocker = {
+  key: string
+  fallback: string
+}
+
+async function resolveStatementDeleteBlocker(
+  em: EntityManager,
+  record: EudrDueDiligenceStatement,
+): Promise<StatementDeleteBlocker | null> {
+  if (isStatementStatus(record.status) && !canDeleteStatement(record.status)) {
+    return { key: 'eudr.errors.archivedReadOnly', fallback: 'Archived statements are read-only.' }
+  }
+  if (record.status !== 'available') return null
+  if (!isAmendWindowOpen(record.referenceIssuedAt ?? null)) {
+    return { key: 'eudr.errors.amendWindowElapsed', fallback: 'The amendment window has elapsed.' }
+  }
+  if (await hasDownstreamReferences(em, record)) {
+    return {
+      key: 'eudr.errors.referencedDownstream',
+      fallback: 'This statement is referenced by a downstream statement.',
+    }
+  }
+  return null
+}
+
+async function throwStatementUndoRefusal(key: string, fallback: string): Promise<never> {
+  const { translate } = await resolveTranslations()
+  throw new CrudHttpError(409, { error: translate(key, fallback), code: key })
 }
 
 async function validateStatementUpdate(
@@ -660,6 +697,8 @@ const createStatementCommand: CommandHandler<ScopedStatementCreateInput, Stateme
     if (!record) return
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
+    const blocker = await resolveStatementDeleteBlocker(entityManager, record)
+    if (blocker) await throwStatementUndoRefusal(blocker.key, blocker.fallback)
     record.deletedAt = new Date()
     await entityManager.flush()
 
@@ -802,6 +841,10 @@ const updateStatementCommand: CommandHandler<ScopedStatementUpdateInput, Stateme
     } else {
       ensureTenantScope(ctx, before.tenantId)
       ensureOrganizationScope(ctx, before.organizationId)
+      if (record.status !== before.status) {
+        const blocker = await resolveStatementDeleteBlocker(entityManager, record)
+        if (blocker) await throwStatementUndoRefusal(blocker.key, blocker.fallback)
+      }
       restoreStatement(record, before)
     }
     await entityManager.flush()
@@ -843,15 +886,8 @@ const deleteStatementCommand: CommandHandler<{ body?: Record<string, unknown>; q
     if (!record) throw new CrudHttpError(404, { error: 'EUDR due diligence statement not found' })
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
-    if (isStatementStatus(record.status) && !canDeleteStatement(record.status)) {
-      throw new CrudHttpError(400, { error: 'eudr.errors.archivedReadOnly' })
-    }
-    if (record.status === 'available') {
-      if (!isAmendWindowOpen(record.referenceIssuedAt ?? null)) {
-        throw new CrudHttpError(400, { error: 'eudr.errors.amendWindowElapsed' })
-      }
-      await assertNoDownstreamReferences(entityManager, record)
-    }
+    const blocker = await resolveStatementDeleteBlocker(entityManager, record)
+    if (blocker) throw new CrudHttpError(400, { error: blocker.key })
 
     const snapshot = await loadStatementSnapshot(entityManager, entityId)
     record.deletedAt = new Date()

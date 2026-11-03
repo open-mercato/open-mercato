@@ -79,8 +79,14 @@ function buildClaim(overrides: Record<string, unknown> = {}) {
   }
 }
 
-function mockClaimResponses(claim: Record<string, unknown>) {
+function mockClaimResponses(
+  claim: Record<string, unknown>,
+  reasons: Array<{ value: string; label: string }> | null = null,
+) {
   apiCallMock.mockImplementation(async (url: string, options?: { method?: string }) => {
+    if (url === '/api/warranty_claims/portal/options' && reasons) {
+      return { ok: true, status: 200, result: { ok: true, result: { reasons, faultCodes: [] } } }
+    }
     if (url.startsWith('/api/warranty_claims/portal/claims/')) {
       return { ok: true, status: 200, result: { item: claim } }
     }
@@ -175,6 +181,48 @@ describe('WarrantyClaimPortalDetailPage (portal claim tracker)', () => {
 
     expect(view.queryByText('Withdraw claim')).toBeNull()
     expect(view.queryByText('Submit claim')).toBeNull()
+  })
+
+  it('titles the claim with the dictionary label of a tenant-defined reason code', async () => {
+    mockClaimResponses(
+      buildClaim({ reasonCode: 'defect' }),
+      [{ value: 'defect', label: 'Manufacturing defect' }],
+    )
+
+    const view = renderWithProviders(
+      <WarrantyClaimPortalDetailPage params={{ orgSlug: 'acme-corp', id: 'claim-1' }} />,
+      { dict: enDict },
+    )
+
+    await waitFor(() => expect(view.getByRole('heading', { level: 1 }).textContent).toBe('Manufacturing defect, Warranty claim'))
+    expect(apiCallMock).toHaveBeenCalledWith('/api/warranty_claims/portal/options')
+  })
+
+  it('prefers the translated label over the dictionary label for a seeded reason code', async () => {
+    mockClaimResponses(
+      buildClaim({ reasonCode: 'warranty-defect' }),
+      [{ value: 'warranty-defect', label: 'Tenant defect label' }],
+    )
+
+    const view = renderWithProviders(
+      <WarrantyClaimPortalDetailPage params={{ orgSlug: 'acme-corp', id: 'claim-1' }} />,
+      { dict: enDict },
+    )
+
+    await waitFor(() => expect(apiCallMock).toHaveBeenCalledWith('/api/warranty_claims/portal/options'))
+    await waitFor(() => expect(view.getByRole('heading', { level: 1 }).textContent).toBe('Warranty defect, Warranty claim'))
+  })
+
+  it('falls back to the raw reason code when the dictionary options cannot be loaded', async () => {
+    mockClaimResponses(buildClaim({ reasonCode: 'defect' }))
+
+    const view = renderWithProviders(
+      <WarrantyClaimPortalDetailPage params={{ orgSlug: 'acme-corp', id: 'claim-1' }} />,
+      { dict: enDict },
+    )
+
+    await waitFor(() => expect(view.getByText('WTY-000042')).toBeTruthy())
+    expect(view.getByRole('heading', { level: 1 }).textContent).toBe('defect, Warranty claim')
   })
 
   it('deletes a persisted portal attachment after confirmation', async () => {

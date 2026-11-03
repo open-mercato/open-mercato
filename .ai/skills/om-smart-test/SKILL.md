@@ -6,7 +6,7 @@ Suites are `smartTest.suites` in `.ai/agentic.config.json`: `unit` (Jest; `relat
 
 ## Step 3 — collect the changed files (add)
 
-The base branch is `develop` (config `baseBranch`). Never diff a develop-based branch against `main`: it pulls in unrelated `packages/shared/` history and forces a needless full run.
+The default base branch is `main` (config `baseBranch`); the actual PR target is authoritative. For a release-line branch, use its upstream or `SMART_TEST_BASE_REF=origin/release/vX.Y.x` rather than comparing against `main`, which can pull in unrelated `packages/shared/` history and force a needless full run.
 
 ## Step 4 — map changes to affected units (add)
 

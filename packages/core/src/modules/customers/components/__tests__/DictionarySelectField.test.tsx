@@ -6,7 +6,11 @@ import { DictionaryOptionsUnavailableError } from '@open-mercato/core/modules/di
 import {
   CUSTOMER_DICTIONARIES_MANAGE_HREF,
   DictionarySelectField,
+  createCompanyEditFields,
+  createPersonEditFields,
   getCustomerDictionaryManageHref,
+  mapCompanyOverviewToFormValues,
+  mapPersonOverviewToFormValues,
 } from '../formConfig'
 import { DealFormField } from '../detail/create/DealFormField'
 import { CUSTOMER_DICTIONARY_ORGANIZATION_REQUIRED_CODE } from '../../lib/dictionaries'
@@ -202,4 +206,76 @@ describe('DictionarySelectField', () => {
 
     expect(screen.getByLabelText('Status')).toBe(screen.getByRole('combobox'))
   })
+
+  it('loads the dictionary of the record organization when one is given (issue #3593)', async () => {
+    mockEnsureCustomerDictionary.mockResolvedValue({ entries: [] })
+    render(
+      <DictionarySelectField
+        kind="statuses"
+        value={undefined}
+        onChange={() => {}}
+        labels={labels}
+        organizationId="org-of-record"
+      />,
+    )
+
+    await capturedFetchOptions?.()
+    expect(mockEnsureCustomerDictionary).toHaveBeenCalledWith(expect.anything(), 'statuses', 'test-scope', 'org-of-record')
+  })
+
+  it('keeps the scope default when no record organization is given', async () => {
+    mockEnsureCustomerDictionary.mockResolvedValue({ entries: [] })
+    render(
+      <DictionarySelectField kind="statuses" value={undefined} onChange={() => {}} labels={labels} />,
+    )
+
+    await capturedFetchOptions?.()
+    expect(mockEnsureCustomerDictionary).toHaveBeenCalledWith(expect.anything(), 'statuses', 'test-scope', null)
+  })
 })
+
+describe('edit forms pass the record organization to dictionary selects (issue #3593)', () => {
+  const t = ((key: string, fallback?: string) => fallback ?? key) as never
+
+  beforeEach(() => {
+    capturedFetchOptions = undefined
+    mockEnsureCustomerDictionary.mockReset()
+    mockEnsureCustomerDictionary.mockResolvedValue({ entries: [] })
+  })
+
+  it.each([
+    ['company', () => createCompanyEditFields(t)],
+    ['person', () => createPersonEditFields(t)],
+  ])('the %s status field loads the dictionary of the record organization', async (_label, buildFields) => {
+    const statusField = buildFields().find((field) => field.id === 'status')
+    expect(statusField?.type).toBe('custom')
+    const component = (statusField as { component: (props: Record<string, unknown>) => React.ReactNode }).component
+    render(
+      <>
+        {component({
+          id: 'status',
+          value: '',
+          setValue: () => {},
+          values: { organizationId: 'org-of-record' },
+        })}
+      </>,
+    )
+
+    await capturedFetchOptions?.()
+    expect(mockEnsureCustomerDictionary).toHaveBeenCalledWith(expect.anything(), 'statuses', 'test-scope', 'org-of-record')
+  })
+
+  it('maps the record organization into the edit form values', () => {
+    const company = mapCompanyOverviewToFormValues({
+      company: { id: 'company-1', displayName: 'Acme', organizationId: 'org-of-record' },
+      profile: null,
+    } as never)
+    const person = mapPersonOverviewToFormValues({
+      person: { id: 'person-1', displayName: 'Ada', organizationId: 'org-of-record' },
+      profile: null,
+    } as never)
+    expect(company.organizationId).toBe('org-of-record')
+    expect(person.organizationId).toBe('org-of-record')
+  })
+})
+

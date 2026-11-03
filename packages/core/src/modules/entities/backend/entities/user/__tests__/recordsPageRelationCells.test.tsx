@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import { registerEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 
 const mockReadApiResultOrThrow = jest.fn()
@@ -147,11 +147,28 @@ describe('user entity records page — relation cells', () => {
 
     await screen.findByRole('link', { name: 'Order #1001' })
     const recordCallsAfterResolve = countCalls('/api/entities/records')
-    await new Promise((resolve) => setTimeout(resolve, 250))
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 250))
+    })
 
     expect(countCalls('/api/entities/records')).toBe(recordCallsAfterResolve)
     expect(countCalls('/api/entities/records')).toBeLessThanOrEqual(2)
     expect(countCalls('/api/entities/relations/options')).toBeLessThanOrEqual(2)
+  })
+
+  it('keeps unresolved custom field definitions from retriggering record requests', async () => {
+    mockUseCustomFieldDefs.mockReturnValue({ data: undefined })
+
+    render(<RecordsPage params={{ entityId: 'custom%3Astock_in' }} />)
+
+    await waitFor(() => {
+      expect(countCalls('/api/entities/records')).toBe(1)
+    })
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 250))
+    })
+
+    expect(countCalls('/api/entities/records')).toBe(1)
   })
 
   it('falls back to the raw relation id when the lookup returns nothing', async () => {

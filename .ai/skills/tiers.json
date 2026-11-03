@@ -31,6 +31,12 @@
       "om-close-fixed-issues",
       "om-verify-in-repo",
       "om-pr-autopilot",
+      "om-create-skill",
+      "om-help",
+      "om-judge-agent-session",
+      "om-share-this-session",
+      "om-auto-sec-report",
+      "om-auto-sec-report-pr",
       "om-pre-implement-spec",
       "om-smart-test",
       "om-create-agents-md"
@@ -44,15 +50,11 @@
         "om-backend-ui-design",
         "om-mockup-prototype",
         "om-implement-spec",
-        "om-skill-creator",
         "om-fix-specs",
         "om-migrate-mikro-orm",
         "om-create-ai-agent",
         "om-create-web-research-adapter",
-        "om-help",
-        "om-refresh-standalone-harness",
-        "om-judge-agent-session",
-        "om-share-this-session"
+        "om-refresh-standalone-harness"
       ]
     },
     "design": {
@@ -67,10 +69,6 @@
         "om-auto-publish-pr",
         "om-auto-qa-scenarios"
       ]
-    },
-    "security": {
-      "description": "Security audit skills. Opt-in.",
-      "skills": ["om-auto-sec-report", "om-auto-sec-report-pr"]
     },
     "analysis": {
       "description": "Business/engagement analysis skills (app specs, platform gap analysis) and the draft accessibility review. Opt-in.",
