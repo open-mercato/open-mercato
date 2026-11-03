@@ -128,7 +128,7 @@ test('MarkdownField customization resolves exact installed contracts from the co
     assert.equal(record.readStatus, 'readable')
     assert.equal(record.packageName, '@open-mercato/ui')
     assert.equal(record.packageRelativePath, relativePath)
-    assert.ok(record.affectedCaseIds.includes('OMH-030'))
+    assert.ok(record.affectedCaseIds.includes('OMH-242'))
   }
 })
 
