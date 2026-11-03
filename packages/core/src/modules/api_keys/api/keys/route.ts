@@ -4,7 +4,7 @@ import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import { Role } from '@open-mercato/core/modules/auth/data/entities'
+import { Role, User } from '@open-mercato/core/modules/auth/data/entities'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { ApiKey } from '../../data/entities'
 import { createApiKeySchema } from '../../data/validators'
@@ -13,6 +13,7 @@ import { enforceTenantSelection, resolveIsSuperAdmin } from '@open-mercato/core/
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { assertActorCanGrantRoles } from '@open-mercato/core/modules/auth/lib/grantChecks'
 import { isOrganizationAccessAllowed } from '@open-mercato/shared/lib/auth/organizationAccess'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { CreateApiKeyCommandInput } from '../../commands/keys'
 
 const listQuerySchema = z.object({
@@ -137,6 +138,19 @@ async function prepareCreateCommandInput(
     targetOrganizationId: organizationId,
   })) {
     throw json({ error: translate('api_keys.errors.organizationOutOfScope', 'Organization out of scope') }, { status: 403 })
+  }
+  if (organizationId) {
+    const creator = await findOneWithDecryption(
+      em,
+      User,
+      { id: auth.sub, tenantId: targetTenantId, deletedAt: null },
+      { fields: ['organizationId'] },
+      { tenantId: targetTenantId, organizationId: null },
+    )
+    if (creator?.organizationId?.toLowerCase() !== organizationId.toLowerCase()) {
+      const message = translate('api_keys.errors.organizationMustMatchCreator')
+      throw json({ error: message, fieldErrors: { organizationId: message } }, { status: 400 })
+    }
   }
 
   return {
