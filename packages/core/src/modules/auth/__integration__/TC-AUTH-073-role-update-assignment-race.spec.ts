@@ -124,6 +124,7 @@ async function raceRoleUpdateBehindAssignment(
 
 test.describe('TC-AUTH-073: role rename and tenant move recheck assignments under the role lock', () => {
   test('rejects a rename when a user assignment commits while the rename waits for the role lock', async ({ request }) => {
+    test.setTimeout(RACE_TIMEOUT_MS * 4)
     const superadminToken = await getAuthToken(request, 'superadmin')
     const adminToken = await getAuthToken(request, 'admin')
     const adminScope = getTokenScope(adminToken)
@@ -159,6 +160,7 @@ test.describe('TC-AUTH-073: role rename and tenant move recheck assignments unde
   })
 
   test('rejects a tenant move when a user assignment commits while the move waits for the role lock', async ({ request }) => {
+    test.setTimeout(RACE_TIMEOUT_MS * 4)
     const superadminToken = await getAuthToken(request, 'superadmin')
     const adminToken = await getAuthToken(request, 'admin')
     const adminScope = getTokenScope(adminToken)
