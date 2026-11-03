@@ -1,7 +1,9 @@
 /**
  * @jest-environment jsdom
  */
-import { act, renderHook } from '@testing-library/react'
+import type { KeyboardEventHandler, MouseEventHandler } from 'react'
+import { act, fireEvent, render, renderHook, screen } from '@testing-library/react'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { useScheduleDialog } from '../useScheduleDialog'
 import { useScheduleFormState } from '../../../../../../components/detail/schedule/useScheduleFormState'
 
@@ -21,6 +23,26 @@ describe('useScheduleDialog selected-day form seeding (#7478)', () => {
 
   afterEach(() => {
     jest.useRealTimers()
+  })
+
+  it('keeps direct React event handlers compatible with default scheduling', () => {
+    function ScheduleButton() {
+      const { dialog, form } = useScheduleHarness()
+      const onClick: MouseEventHandler<HTMLButtonElement> = dialog.openSchedule
+      const onKeyDown: KeyboardEventHandler<HTMLButtonElement> = dialog.openSchedule
+      return <>
+        <Button type="button" onClick={onClick} onKeyDown={onKeyDown}>Schedule activity</Button>
+        <output data-testid="dialog-state">{dialog.scheduleDialogOpen ? 'open' : 'closed'}</output>
+        <output data-testid="scheduled-date">{form.date} {form.startTime}</output>
+      </>
+    }
+
+    render(<ScheduleButton />)
+    expect(screen.getByTestId('dialog-state')).toHaveTextContent('closed')
+    fireEvent.click(screen.getByRole('button', { name: 'Schedule activity' }))
+    expect(screen.getByTestId('dialog-state')).toHaveTextContent('open')
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Schedule activity' }), { key: 'Enter' })
+    expect(screen.getByTestId('scheduled-date')).toHaveTextContent('2026-09-30 14:30')
   })
 
   it('seeds the selected local day and replaces it with the next selection on reopen', () => {

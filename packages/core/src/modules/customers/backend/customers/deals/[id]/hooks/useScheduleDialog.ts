@@ -5,7 +5,10 @@ import { resolveActivityStartOnDay } from '../../../../../components/detail/sche
 type UseScheduleDialogResult = {
   scheduleDialogOpen: boolean
   scheduleEditData: ScheduleActivityEditData | null
-  openSchedule: (selectedDate?: Date) => void
+  openSchedule: {
+    (): void
+    (selectedDate: Date): void
+  }
   openEdit: (data: ScheduleActivityEditData) => void
   closeSchedule: () => void
 }
@@ -14,8 +17,8 @@ export function useScheduleDialog(): UseScheduleDialogResult {
   const [scheduleDialogOpen, setScheduleDialogOpen] = React.useState(false)
   const [scheduleEditData, setScheduleEditData] = React.useState<ScheduleActivityEditData | null>(null)
 
-  const openSchedule = React.useCallback((selectedDate?: Date) => {
-    setScheduleEditData(selectedDate ? {
+  const openSchedule = React.useCallback((selectedDate?: unknown) => {
+    setScheduleEditData(selectedDate instanceof Date ? {
       id: '',
       scheduledAt: resolveActivityStartOnDay('meeting', selectedDate).toISOString(),
     } : null)
