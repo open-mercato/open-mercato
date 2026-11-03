@@ -4,6 +4,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { isCrudHttpError, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
@@ -305,14 +306,15 @@ export async function POST(req: Request, ctx: { params: { tableId: string } }) {
       },
     ], { transaction: true })
   } catch (err) {
-    if (isCrudHttpError(err)) {
-      return NextResponse.json(err.body, { status: err.status })
-    }
-    if (isUniqueViolation(err)) {
+    if (isUniqueViolation(err) || (isCrudHttpError(err) && err.body.code === 'duplicate_name')) {
+      const { translate } = await resolveTranslations()
       return NextResponse.json({
-        error: 'A view with this name already exists.',
+        error: translate('ui.perspectives.error.nameExists', 'A view with this name already exists.'),
         code: 'duplicate_name',
       }, { status: 409 })
+    }
+    if (isCrudHttpError(err)) {
+      return NextResponse.json(err.body, { status: err.status })
     }
     throw err
   }
