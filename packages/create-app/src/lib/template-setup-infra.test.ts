@@ -14,7 +14,7 @@ import test from 'node:test'
 // what setup forwarded to it.
 
 const TEMPLATE_SCRIPTS = fileURLToPath(new URL('../../template/scripts/', import.meta.url))
-const SHIPPED_SCRIPTS = ['setup.mjs', 'infra.mjs', 'dev-infra-preflight.mjs', 'dev-database-url.mjs', 'dev-service-modes.mjs', 'dev-service-connections.mjs']
+const SHIPPED_SCRIPTS = ['setup.mjs', 'infra.mjs', 'dev-infra-preflight.mjs', 'dev-database-url.mjs', 'dev-service-modes.mjs', 'dev-service-connections.mjs', 'dev-database-write-guard.mjs']
 const skip = process.platform === 'win32' ? 'fake docker shim is a POSIX shell script' : false
 
 const FAKE_DOCKER = `#!/bin/sh
@@ -67,6 +67,7 @@ async function makeApp() {
     fs.copyFileSync(path.join(TEMPLATE_SCRIPTS, file), path.join(appDir, 'scripts', file))
   }
   fs.writeFileSync(path.join(appDir, 'scripts', 'dev.mjs'), DEV_STUB)
+  fs.writeFileSync(path.join(appDir, 'scripts', 'dev-database-write-guard.mjs'), `export async function assertDatabaseWriteAllowed({ env = {} } = {}) { if (process.env.FAKE_REMOTE_REJECTION) throw new Error('Remote database writes are blocked for remote.example:5432/app. Pass --allow-remote-database=remote.example:5432/app.'); return { remote: false, connectionEnv: env } }\n`)
   fs.writeFileSync(path.join(appDir, 'scripts', 'dev-service-connections.mjs'), `import fs from 'node:fs'; export async function verifyServiceConnections({ env = {} } = {}) { if (process.env.FAKE_VERIFY_DATABASE_LOG) fs.writeFileSync(process.env.FAKE_VERIFY_DATABASE_LOG, env.DATABASE_URL || ''); if (process.env.FAKE_CONNECTION_INTERRUPT) process.emit('SIGTERM'); if (process.env.FAKE_CONNECTION_FAILURE) throw new Error('[setup] PostgreSQL connection failed (DATABASE_URL at postgres://localhost:5432/example). The service rejected the configured credentials. Check .env.'); return { ok: true } }\n`)
   fs.mkdirSync(path.join(appDir, 'node_modules', 'cross-spawn'), { recursive: true })
   const binDir = path.join(appDir, 'fake-bin')
@@ -319,6 +320,7 @@ test('ephemeral cleanup failures print manual recovery instructions and fail set
       class GenericContainer {
         withEnvironment() { return this }
         withExposedPorts(port) { this.port = port; return this }
+        withCommand() { return this }
         withHealthCheck() { return this }
         withWaitStrategy() { return this }
         async start() { return this }
@@ -373,5 +375,16 @@ test('database-name verification previews the selected database without rewritin
     assert.equal(new URL(fs.readFileSync(log, 'utf8')).pathname, '/selected_db')
     assert.equal(fs.readFileSync(path.join(app.appDir, '.env'), 'utf8'), original)
     assert.deepEqual(run.devArgs, ['--setup', '--no-infra', '--database-name=selected_db', '--no-update-env'])
+  } finally { fs.rmSync(app.appDir, { recursive: true, force: true }) }
+})
+
+test('remote database write rejection happens before verification or database/dev startup', { skip }, async () => {
+  const app = await makeApp()
+  try {
+    const run = await runScript(app, 'setup.mjs', [], { env: { FAKE_REMOTE_REJECTION: '1' } })
+    assert.equal(run.code, 2, run.output)
+    assert.equal(run.devArgs, null)
+    assert.match(run.output, /Remote database writes are blocked.*allow-remote-database/)
+    assert.deepEqual(run.dockerCalls, [])
   } finally { fs.rmSync(app.appDir, { recursive: true, force: true }) }
 })

@@ -56,6 +56,7 @@ function parseArgs(argv) {
     skipDb: false,
     noInfra: false,
     serviceArgs: [],
+    remoteDatabaseArgs: [],
     rebuild: false,
     clean: false,
     volumes: false,
@@ -99,6 +100,10 @@ function parseArgs(argv) {
       case '--infra':
         flags.serviceArgs.push(arg)
         break
+      case '--allow-remote-database':
+        flags.remoteDatabaseArgs.push(arg)
+        if (args[0] && !args[0].startsWith('-')) flags.remoteDatabaseArgs.push(args.shift())
+        break
       case '--rebuild':
         flags.rebuild = true
         break
@@ -122,6 +127,7 @@ function parseArgs(argv) {
         if (command === 'infra') flags.infraAction = arg
         break
       default:
+        if (arg.startsWith('--allow-remote-database=')) { flags.remoteDatabaseArgs.push(arg); break }
         console.error(`Unknown option: ${arg} (see starters/README.md)`)
         process.exit(1)
     }
@@ -241,7 +247,7 @@ async function commandUp(flags) {
     : flags.serviceMode === 'reuse' ? '  Stop: Ctrl+C (your existing services are left running)' : '  Stop: Ctrl+C (Compose containers keep running; `stop` shuts them down)'))
   console.log('')
 
-  const devArgs = devRuntimeArgs(flags.passthrough, { noInfra: flags.noInfra })
+  const devArgs = devRuntimeArgs([...flags.passthrough, ...(ctx.remoteDatabaseArgument ? [ctx.remoteDatabaseArgument] : flags.remoteDatabaseArgs)], { noInfra: flags.noInfra })
   if (flags.detach) {
     startDetached(repoRoot, devArgs, { env: ctx.env })
     console.log('Manage it with the status / logs / stop subcommands.')

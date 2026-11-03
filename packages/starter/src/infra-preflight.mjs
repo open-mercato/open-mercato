@@ -6,6 +6,8 @@
 // `packages/starter` directory exists.
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
+import path from 'node:path'
+import { parseEnv } from 'node:util'
 import net from 'node:net'
 import readline from 'node:readline'
 
@@ -292,6 +294,12 @@ function remediationFor(problem, platform, { wsl = false, databaseUrlFile = '.en
       return [
         'Your user may not talk to the Docker engine. Add it to the docker group (sudo usermod -aG docker "$USER"), log out and back in, then re-run.',
       ]
+    case 'unsafe-binding':
+      return [
+        problem.detail,
+        'Set INFRA_BIND_HOST=127.0.0.1, or set a nonempty REDIS_PASSWORD before exposing infrastructure beyond this machine.',
+        'Keep the Redis password synchronized with REDIS_URL and every *_REDIS_URL used by the app.',
+      ]
     case 'port-conflict':
       return [
         ...problem.ports.flatMap((entry) => [
@@ -328,6 +336,7 @@ const PROBLEM_TITLES = {
   'daemon-unresponsive': 'The Docker engine is not responding.',
   'daemon-permission': 'No permission to use the Docker engine.',
   'port-conflict': 'Infrastructure ports are already in use.',
+  'unsafe-binding': 'Refusing an unsafe infrastructure host binding.',
   unhealthy: 'Infrastructure services did not become healthy.',
   'compose-failed': 'Starting the infrastructure containers failed.',
 }
@@ -382,6 +391,7 @@ export async function startInfraServices({
   services,
   upArgs = [],
   cwd,
+  env = process.env,
   beforeUp,
   detect = detectDockerRuntime,
   spawnSyncImpl = spawnSync,
@@ -391,6 +401,22 @@ export async function startInfraServices({
   protectExistingServices = false,
   log = console.log,
 }) {
+  if (services.some((entry) => entry.service === 'redis')) {
+    let settings
+    try {
+      let dotEnv = {}
+      try { dotEnv = parseEnv(fs.readFileSync(path.join(cwd ?? process.cwd(), '.env'), 'utf8')) }
+      catch (error) { if (error.code !== 'ENOENT') throw error }
+      settings = { ...dotEnv, ...env }
+    } catch {
+      return { ok: false, problem: { code: 'unsafe-binding', detail: 'Cannot read infrastructure configuration before checking Redis exposure.' } }
+    }
+    const host = String(settings.INFRA_BIND_HOST ?? '').trim().toLowerCase().replace(/^\[|\]$/g, '') || '127.0.0.1'
+    const loopback = host === 'localhost' || host === '::1' || (net.isIP(host) === 4 && host.split('.')[0] === '127')
+    if (!loopback && !String(settings.REDIS_PASSWORD ?? '').trim()) {
+      return { ok: false, problem: { code: 'unsafe-binding', detail: 'Redis would be reachable beyond loopback without a configured password. No Docker command was run.' } }
+    }
+  }
   const runtime = detect()
   if (!runtime.ok) return { ok: false, problem: { code: runtime.code, detail: runtime.detail } }
 

@@ -140,8 +140,8 @@ The user-requested default changes from starting Compose to reusing services.
 Pass `--infra` to retain configured-port Compose startup. Existing `--no-infra`
 continues to work, and direct `infra:up` / `infra:down` retain their behavior.
 No existing command or env key is removed; isolated modes explicitly replace
-service endpoints. Explicit isolated modes normalize credentials containing non-portable characters
-to deterministic local-only values and synchronize the corresponding URLs.
+service endpoints. Explicit isolated modes generate independent random local-only credentials
+and synchronize the corresponding URLs.
 Remote database connection override/TLS query parameters are removed so they
 cannot redirect local setup to a remote database.
 No production dependency is added: Testcontainers is already
@@ -160,3 +160,36 @@ existing data and do not print passwords, API keys or URL query values. The
 Meilisearch check uses the application's API-key setting, not the Compose
 master-key setting as a substitute. Public health checks do not establish
 credential validity.
+
+
+### 2026-11-03 security review remediation
+
+Default reuse is intentional for interactive and noninteractive runs. Fresh
+machines must explicitly choose `--infra`, `--random-ports` or `--ephemeral`;
+there is no automatic fallback that can start or mutate unexpected services.
+
+Remote PostgreSQL writes now require `--allow-remote-database=host:port/database`
+matching the actual pg client parameters. A bare flag can request exact target
+confirmation only in a terminal. The guard snapshots the accepted connection
+into each mutation child; changing `.env` during a prompt cannot redirect it.
+This applies to startup migrations, initialization and recovery launchers.
+Local loopback targets retain default reuse without an acknowledgement.
+
+The isolated modes generate independent random credentials for PostgreSQL,
+Redis and Meilisearch. Owned random-stack credentials live only in ignored `.env`
+files and survive reruns despite ambient remote connection settings. The
+`mercato-local-v2-*` identity avoids applying fresh credentials to an older
+volume; earlier random stacks and data are retained, never deleted or migrated.
+Setup service images, OpenCode base defaults and the Testcontainers reaper are
+pinned to verified multiarch digests. Development port bindings default to
+loopback; nonlocal Redis bindings without a password fail before Docker calls.
+Full-Docker application deployment configurations keep their existing behavior.
+
+#### Migration & Backward Compatibility
+
+A configured non-loopback target that previously accepted implicit setup writes
+now requires the exact-target acknowledgement. Existing local reuse and explicit
+`--no-infra` flags remain supported. Operators intentionally writing remotely
+must add the acknowledgement shown by the guard. Isolated v1 data is preserved
+under its former namespace; v2 starts a separate local stack with independent
+credentials. Optional non-setup profiles retain their existing image policy.

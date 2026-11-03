@@ -75,8 +75,27 @@ function replaceValues(text, values) {
   return result
 }
 
-function localCredential(value, scope) {
-  return /[^A-Za-z0-9_.-]/.test(value) ? `local_${crypto.scryptSync(value, path.resolve(scope), 24, { N: 32768, maxmem: 64 * 1024 * 1024 }).toString('hex')}` : value
+export const SETUP_SERVICE_IMAGES = {
+  postgres: 'pgvector/pgvector:pg17-trixie@sha256:7a7e9f22015b67edb4bef5c59daeebcd7e74bfa570df6ce60ae01237c8648a84',
+  redis: 'redis:7-alpine@sha256:892022f9f18c26c92c30e15194d132f90044af87b94a491a75429bbc3982eab1',
+  meilisearch: 'getmeili/meilisearch:v1.11@sha256:6f8f1fc29d1ff67b4d8d503bb4e0a69b55c8d42600decafde951344218193a27',
+  ryuk: 'testcontainers/ryuk:0.14.0@sha256:7c1a8a9a47c780ed0f983770a662f80deb115d95cce3e2daa3d12115b8cd28f0',
+}
+
+function localCredentials(mode, projectDir, stored) {
+  const identity = `mercato-local-v2-${crypto.createHash('sha256').update(path.resolve(projectDir)).digest('hex').slice(0, 10)}`
+  const keys = ['OM_SETUP_LOCAL_POSTGRES_PASSWORD', 'OM_SETUP_LOCAL_REDIS_PASSWORD', 'OM_SETUP_LOCAL_MEILISEARCH_KEY']
+  if (mode === 'random' && stored.OM_SETUP_LOCAL_STACK === identity) {
+    if (!keys.every((key) => /^[a-f0-9]{48}$/.test(stored[key] ?? ''))) throw new Error('Owned local service credentials are incomplete. Restore the OM_SETUP_LOCAL_* values before reusing this stack; no services were changed.')
+    let database = 'open_mercato_local'
+    try {
+      const previous = new URL(stored.DATABASE_URL)
+      const selected = decodeURIComponent(previous.pathname.slice(1))
+      if (previous.hostname === '127.0.0.1' && previous.username === 'mercato' && previous.password === stored[keys[0]] && /^[A-Za-z_][A-Za-z0-9_-]{0,62}$/.test(selected)) database = selected
+    } catch {}
+    return { identity, postgres: stored[keys[0]], redis: stored[keys[1]], meilisearch: stored[keys[2]], database }
+  }
+  return { identity, postgres: crypto.randomBytes(24).toString('hex'), redis: crypto.randomBytes(24).toString('hex'), meilisearch: crypto.randomBytes(24).toString('hex') }
 }
 
 function localUrl(raw, fallback, host, port) {
@@ -118,6 +137,7 @@ export async function configureServiceMode({ mode, projectDir, env = process.env
   }
   let restored = false
   const restoreEnv = {}
+  const previousRyuk = process.env.RYUK_CONTAINER_IMAGE
   let containersStopped = false
   const cleanup = async () => {
     if (restored) return
@@ -173,26 +193,38 @@ export async function configureServiceMode({ mode, projectDir, env = process.env
       containersStopped = results.every((result) => result.status === 'fulfilled')
       if (!containersStopped) failures.push(new Error('Some ephemeral services could not be stopped; inspect Docker before retrying cleanup.'))
     }
+    if (mode === 'ephemeral') {
+      if (previousRyuk === undefined) delete process.env.RYUK_CONTAINER_IMAGE
+      else process.env.RYUK_CONTAINER_IMAGE = previousRyuk
+    }
     restored = failures.length === 0
     if (failures.length) throw new AggregateError(failures, 'Could not fully restore service configuration or stop ephemeral services; retry cleanup after resolving the filesystem or Docker error.')
   }
 
   try {
-    const database = new URL(settings.DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/open-mercato')
-    database.search = ''
-    const dbUser = localCredential(decodeURIComponent(database.username || settings.POSTGRES_USER || 'postgres'), projectDir)
-    const dbPassword = localCredential(decodeURIComponent(database.password || settings.POSTGRES_PASSWORD || 'postgres'), projectDir)
-    const dbName = localCredential(decodeURIComponent(database.pathname.slice(1) || settings.POSTGRES_DB || 'open-mercato'), projectDir)
-    database.username = encodeURIComponent(dbUser)
-    database.password = encodeURIComponent(dbPassword)
-    database.pathname = `/${encodeURIComponent(dbName)}`
-    database.hash = ''
+    const credentials = localCredentials(mode, projectDir, before.get(files[0]))
+    const dbUser = 'mercato'
+    const dbPassword = credentials.postgres
+    const dbName = credentials.database ?? 'open_mercato_local'
+    const database = new URL(`postgres://${dbUser}:${dbPassword}@127.0.0.1:5432/${dbName}`)
     changes.POSTGRES_USER = dbUser
     changes.POSTGRES_PASSWORD = dbPassword
     changes.POSTGRES_DB = dbName
-    const meiliKey = localCredential(settings.MEILISEARCH_API_KEY || settings.MEILISEARCH_MASTER_KEY || 'meilisearch-dev-key', projectDir)
-    changes.MEILISEARCH_API_KEY = meiliKey
-    changes.MEILISEARCH_MASTER_KEY = meiliKey
+    changes.REDIS_PASSWORD = credentials.redis
+    changes.MEILISEARCH_API_KEY = credentials.meilisearch
+    changes.MEILISEARCH_MASTER_KEY = credentials.meilisearch
+    changes.INFRA_BIND_HOST = '127.0.0.1'
+    if (mode === 'random') {
+      changes.OM_SETUP_LOCAL_STACK = credentials.identity
+      changes.OM_SETUP_LOCAL_POSTGRES_PASSWORD = credentials.postgres
+      changes.OM_SETUP_LOCAL_REDIS_PASSWORD = credentials.redis
+      changes.OM_SETUP_LOCAL_MEILISEARCH_KEY = credentials.meilisearch
+    }
+    const meiliKey = credentials.meilisearch
+    if (mode === 'ephemeral') {
+      if (previousRyuk && !/@sha256:[a-f0-9]{64}$/.test(previousRyuk)) throw new Error('RYUK_CONTAINER_IMAGE must use an immutable sha256 digest for ephemeral setup.')
+      process.env.RYUK_CONTAINER_IMAGE = previousRyuk || SETUP_SERVICE_IMAGES.ryuk
+    }
     const { GenericContainer, Wait } = mode === 'ephemeral' ? await loadTestcontainers() : {}
     for (const definition of services) {
       const { service, envKey, defaultPort } = definition
@@ -202,13 +234,22 @@ export async function configureServiceMode({ mode, projectDir, env = process.env
         do { port = await getPort() } while (Object.values(changes).includes(String(port)))
       } else {
         const definitions = {
-          postgres: ['pgvector/pgvector:pg17-trixie', { POSTGRES_USER: dbUser, POSTGRES_PASSWORD: dbPassword, POSTGRES_DB: dbName }, ['pg_isready', '-U', dbUser, '-d', dbName]],
-          redis: ['redis:7-alpine', {}, ['redis-cli', 'ping']],
-          meilisearch: ['getmeili/meilisearch:v1.11', { MEILI_ENV: 'development', MEILI_MASTER_KEY: meiliKey, MEILI_NO_ANALYTICS: 'true' }, ['curl', '-fsS', 'http://127.0.0.1:7700/health']],
+          postgres: [SETUP_SERVICE_IMAGES.postgres, { POSTGRES_USER: dbUser, POSTGRES_PASSWORD: dbPassword, POSTGRES_DB: dbName }, ['pg_isready', '-U', dbUser, '-d', dbName]],
+          redis: [SETUP_SERVICE_IMAGES.redis, { REDISCLI_AUTH: credentials.redis }, ['redis-cli', 'ping']],
+          meilisearch: [SETUP_SERVICE_IMAGES.meilisearch, { MEILI_ENV: 'development', MEILI_MASTER_KEY: meiliKey, MEILI_NO_ANALYTICS: 'true' }, ['curl', '-fsS', 'http://127.0.0.1:7700/health']],
         }
         if (!definitions[service]) continue
         const [image, environment, healthCommand] = definitions[service]
-        const container = await new GenericContainer(image).withEnvironment(environment).withExposedPorts(defaultPort).withHealthCheck({ test: ['CMD', ...healthCommand], interval: 1000, timeout: 3000, retries: 60, startPeriod: 1000 }).withWaitStrategy(Wait.forHealthCheck()).start()
+        class LoopbackContainer extends GenericContainer {
+          async beforeContainerCreated() {
+            for (const bindings of Object.values(this.hostConfig?.PortBindings ?? {})) {
+              for (const binding of bindings) binding.HostIp = '127.0.0.1'
+            }
+          }
+        }
+        const builder = new LoopbackContainer(image).withEnvironment(environment).withExposedPorts(defaultPort)
+        if (service === 'redis') builder.withCommand(['redis-server', '--requirepass', credentials.redis])
+        const container = await builder.withHealthCheck({ test: ['CMD', ...healthCommand], interval: 1000, timeout: 3000, retries: 60, startPeriod: 1000 }).withWaitStrategy(Wait.forHealthCheck()).start()
         containers.push(container)
         if (interrupted) throw new Error('Ephemeral service startup interrupted; started services were cleaned up.')
         host = container.getHost()
@@ -224,7 +265,7 @@ export async function configureServiceMode({ mode, projectDir, env = process.env
           endpoint.search = ''
           endpoint.hash = ''
           endpoint.username = ''
-          endpoint.password = ''
+          endpoint.password = credentials.redis
           changes[key] = endpoint.toString()
         }
       }
@@ -240,9 +281,8 @@ export async function configureServiceMode({ mode, projectDir, env = process.env
       }
     }
     if (mode === 'random') {
-      const identity = `mercato-${crypto.createHash('sha256').update(path.resolve(projectDir)).digest('hex').slice(0, 10)}`
-      changes.MERCATO_STACK = identity
-      changes.COMPOSE_PROJECT_NAME = identity
+      changes.MERCATO_STACK = credentials.identity
+      changes.COMPOSE_PROJECT_NAME = credentials.identity
     }
     for (const file of files) {
       fs.mkdirSync(path.dirname(file), { recursive: true })

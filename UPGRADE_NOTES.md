@@ -5094,3 +5094,22 @@ When opening a PR that bumps a dependency across a major boundary, add an entry 
 the same PR. The `auto-upgrade-...` skill for the window picks up entries from this file;
 keep the headings stable (exactly `#### \`<package>\` \`^<from>\` → \`^<to>\``) so the
 skill can parse them.
+
+
+## Setup service isolation and remote database acknowledgement
+
+Local `yarn setup` continues to reuse configured services by default. Fresh
+unattended machines should explicitly choose `yarn setup --infra`,
+`--random-ports`, or `--ephemeral`; reuse failures never start Docker implicitly.
+
+Before migrations or initialization against a non-loopback PostgreSQL target,
+provide `--allow-remote-database=host:port/database` matching the target printed
+by the guard. A bare flag prompts only in a terminal. Actual driver connection
+parameters and the authorized connection snapshot determine the child target.
+
+Isolated services use independent generated credentials and pinned images.
+Random-stack v2 credentials are saved in ignored `.env` values and reused on
+reruns. The `mercato-local-v2-*` namespace starts separate volumes; old random
+stacks/data remain available and are not deleted or migrated. Development
+bindings default to loopback. Explicit nonlocal Redis bindings require a Redis
+password and matching URLs. Full-Docker deployment bindings are unchanged.

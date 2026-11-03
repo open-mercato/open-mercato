@@ -12,6 +12,7 @@ import { ensureEnvFiles } from './env-setup.mjs'
 import { addEnvValue, readEnvValue } from './env-file.mjs'
 import { describeInfraProblem, startInfra } from './infra.mjs'
 import { configureServiceMode } from './service-modes.mjs'
+import { assertDatabaseWriteAllowed } from './database-write-guard.mjs'
 import { verifyServiceConnections } from './service-connections.mjs'
 import { findUnhealthyServices } from './infra-preflight.mjs'
 import { ensureLlmProvider } from './providers.mjs'
@@ -564,7 +565,7 @@ export const serviceConfigurationStep = {
     ctx.cleanupServices = outcome.cleanup
     ctx.servicePortsChanged = ctx.flags.serviceMode === 'random'
     if (ctx.flags.serviceMode === 'random') {
-      for (const envKey of [...services.map((service) => service.envKey), 'MERCATO_STACK', 'COMPOSE_PROJECT_NAME', 'POSTGRES_USER', 'POSTGRES_PASSWORD', 'POSTGRES_DB', 'MEILISEARCH_MASTER_KEY']) {
+      for (const envKey of [...services.map((service) => service.envKey), 'MERCATO_STACK', 'COMPOSE_PROJECT_NAME', 'POSTGRES_USER', 'POSTGRES_PASSWORD', 'POSTGRES_DB', 'REDIS_PASSWORD', 'MEILISEARCH_MASTER_KEY', 'INFRA_BIND_HOST']) {
         if (ctx.env[envKey]) process.env[envKey] = ctx.env[envKey]
       }
     }
@@ -673,6 +674,17 @@ export const databaseStep = {
     return { ok: false, detail: initialized ? 'new migration files — applying pending migrations' : 'first run — migrate + initialize' }
   },
   async apply(ctx) {
+    const authorizeWrites = async () => {
+      const result = await (ctx.assertDatabaseWriteAllowedImpl ?? assertDatabaseWriteAllowed)({
+        projectDir: path.join(ctx.repoRoot, 'apps', 'mercato'),
+        envFiles: [path.join(ctx.repoRoot, '.env')],
+        env: ctx.env,
+        argv: ctx.remoteDatabaseArgument ? [ctx.remoteDatabaseArgument] : (ctx.flags.remoteDatabaseArgs ?? []),
+      })
+      if (result?.connectionEnv) ctx.env = { ...ctx.env, ...result.connectionEnv }
+      if (result?.argument) ctx.remoteDatabaseArgument = result.argument
+    }
+    await authorizeWrites()
     if (probePostgresCredentials(ctx) === 'auth-failed') {
       throw new Error([
         'Postgres rejected the credentials from apps/mercato/.env (DATABASE_URL).',
@@ -700,6 +712,7 @@ export const databaseStep = {
         // to run the destructive --reinstall. An emptied volume (dbReinitialize)
         // has no users, so it seeds either way; the flag is left off there.
         const initArgs = ctx.dbReinitialize ? ['initialize'] : ['initialize', '--', '--skip-if-initialized']
+        await authorizeWrites()
         runYarn({ ...ctx, env: { ...ctx.env, OM_INIT_DEV_AUTOSTART: '1' } }, initArgs)
       }
       writeState(ctx.repoRoot, ctx.dbMarker, new Date().toISOString())

@@ -189,6 +189,16 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     rel: 'scripts/dev-service-connections.mjs',
   },
   {
+    sourceFile: path.join(ROOT, 'packages', 'starter', 'src', 'database-write-guard.mjs'),
+    templateFile: path.join(ROOT, 'scripts', 'dev-database-write-guard.mjs'),
+    rel: 'scripts/dev-database-write-guard.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'packages', 'starter', 'src', 'database-write-guard.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-database-write-guard.mjs'),
+    rel: 'scripts/dev-database-write-guard.mjs',
+  },
+  {
     sourceFile: path.join(ROOT, 'docker', 'redis', 'redis.conf'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'docker', 'redis', 'redis.conf'),
     rel: 'docker/redis/redis.conf',

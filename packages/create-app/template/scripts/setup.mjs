@@ -5,6 +5,7 @@ import { NO_INFRA_FLAG } from './dev-infra-preflight.mjs'
 import { ensureInfra } from './infra.mjs'
 import { chooseServiceMode, configureServiceMode, printManualSetup } from './dev-service-modes.mjs'
 import { verifyServiceConnections } from './dev-service-connections.mjs'
+import { assertDatabaseWriteAllowed } from './dev-database-write-guard.mjs'
 
 const argv = process.argv.slice(2)
 const verbose = argv.includes('--verbose')
@@ -45,7 +46,10 @@ try {
     if (!infra.ok) throw new Error('Infrastructure did not become ready.')
   }
   const selectedDatabaseUrl = previewDatabaseNameOverride({ argv, env: services.env, cwd: process.cwd(), envText: existsSync('.env') ? readFileSync('.env', 'utf8') : '' })
-  await verifyServiceConnections({ projectDir: process.cwd(), env: selectedDatabaseUrl ? { ...services.env, DATABASE_URL: selectedDatabaseUrl } : services.env })
+  const selectedEnv = selectedDatabaseUrl ? { ...services.env, DATABASE_URL: selectedDatabaseUrl } : services.env
+  const databaseAuthorization = await assertDatabaseWriteAllowed({ projectDir: process.cwd(), env: selectedEnv, argv })
+  const childEnv = { ...services.env, ...databaseAuthorization?.connectionEnv }
+  await verifyServiceConnections({ projectDir: process.cwd(), env: childEnv })
   if (interrupted) throw new Error('Setup interrupted while verifying service connections.')
   child = spawn(process.execPath, [
     './scripts/dev.mjs', '--setup',
@@ -54,7 +58,8 @@ try {
     ...(verbose ? ['--verbose'] : []),
     ...(services.noInfra ? [NO_INFRA_FLAG] : []),
     ...collectForwardedSetupFlags(argv),
-  ], { stdio: 'inherit', env: services.env })
+    ...(databaseAuthorization?.argument ? [databaseAuthorization.argument] : []),
+  ], { stdio: 'inherit', env: childEnv })
   const status = await new Promise((resolve, reject) => {
     child.once('error', reject)
     child.once('exit', (code, signal) => resolve(code ?? (signal === 'SIGINT' ? 130 : 1)))

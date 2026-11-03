@@ -61,3 +61,33 @@ Alternatively retry `yarn setup --ephemeral`, `yarn setup --random-ports`, or
 use the restored existing-service URLs or start another ephemeral setup session.
 
 Before database setup, the starter verifies PostgreSQL with `SELECT 1`, every configured Redis consumer with an authenticated `PING`, and Meilisearch with its protected indexes API. Invalid credentials or unreachable services stop setup with the relevant configuration key and a redacted endpoint; passwords and API keys are never printed.
+
+
+## Setup security boundaries
+
+Plain and noninteractive setup still default to reusing configured services.
+On a fresh machine choose `yarn setup --infra`, `--random-ports`, or `--ephemeral`
+explicitly; a failed reuse probe never starts containers automatically.
+
+Before any setup/development migration or initialization, the guard resolves the
+actual PostgreSQL target (including connection-string overrides). Non-loopback
+writes require an exact target acknowledgement, for example
+`yarn setup --allow-remote-database=staging.example:5432/app_db`. A bare
+`--allow-remote-database` prompts for that exact target only in a terminal;
+unattended runs must provide it. Connection snapshots prevent a changed `.env`
+from redirecting an already-authorized child command. Local reuse needs no flag.
+
+Isolated modes generate independent random PostgreSQL, Redis and Meilisearch
+credentials, never reuse configured remote credentials, and pin their images
+(including the Testcontainers cleanup image) by verified multiarch digests.
+Random stacks save their owned `OM_SETUP_LOCAL_*` values in ignored `.env` files
+and reuse those values on later runs despite ambient remote URL overrides.
+The new `mercato-local-v2-*` identity creates separate volumes from earlier
+random stacks; old containers/data are retained and are not deleted or migrated.
+
+Development Compose bindings default to `127.0.0.1`. An explicit
+`INFRA_BIND_HOST` outside loopback additionally requires a Redis password and
+matching Redis URLs. Random mode forces loopback regardless of that ambient
+setting. Full application/container deployment Compose files retain their
+existing bindings. Optional profiles not started by setup retain their existing
+image policy; the setup services and OpenCode defaults are pinned.
