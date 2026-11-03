@@ -427,7 +427,7 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
             {pendingInvitation && canCancelInvitation && (
               <Button
                 type="button"
-                variant="destructive-outline"
+                variant="destructive"
                 size="sm"
                 onClick={handleCancelInvitation}
                 disabled={isCancellingInvitation}

@@ -16,6 +16,7 @@ import {
 } from '@open-mercato/core/modules/customer_accounts/lib/rateLimiter'
 import { readNormalizedEmailFromJsonRequest } from '@open-mercato/core/modules/customer_accounts/lib/rateLimitIdentifier'
 import { sendCustomerInvitationEmail } from '@open-mercato/core/modules/customer_accounts/lib/invitationEmail'
+import { hashToken } from '@open-mercato/core/modules/customer_accounts/lib/tokenGenerator'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { CustomerUserInvitation } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { findAndCountWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -222,7 +223,7 @@ export async function POST(req: Request) {
   } catch (error) {
     logger.error('Invitation email failed', { err: error })
     try {
-      await customerInvitationService.rollbackInvitation(invitation, rollbackState)
+      await customerInvitationService.rollbackInvitation(invitation, rollbackState, hashToken(rawToken))
     } catch (rollbackError) {
       logger.error('Invitation rollback failed', { err: rollbackError })
     }

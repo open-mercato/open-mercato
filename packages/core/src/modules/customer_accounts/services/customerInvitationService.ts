@@ -171,22 +171,35 @@ export class CustomerInvitationService {
   async rollbackInvitation(
     invitation: CustomerUserInvitation,
     rollbackState: CustomerInvitationRollbackState | null,
+    expectedToken: string = invitation.token,
   ): Promise<void> {
-    if (!rollbackState) {
-      await this.em.remove(invitation).flush()
-      return
-    }
-
-    invitation.email = rollbackState.email
-    invitation.token = rollbackState.token
-    invitation.customerEntityId = rollbackState.customerEntityId
-    invitation.personEntityId = rollbackState.personEntityId
-    invitation.roleIdsJson = [...rollbackState.roleIdsJson]
-    invitation.invitedByUserId = rollbackState.invitedByUserId
-    invitation.invitedByCustomerUserId = rollbackState.invitedByCustomerUserId
-    invitation.displayName = rollbackState.displayName
-    invitation.expiresAt = new Date(rollbackState.expiresAt)
-    await this.em.flush()
+    if (!invitation.tenantId || !invitation.organizationId || !expectedToken) return
+    await this.em.transactional(async (transactionEm) => {
+      const scope = { tenantId: invitation.tenantId, organizationId: invitation.organizationId }
+      const pending = await findOneWithDecryption(transactionEm, CustomerUserInvitation, {
+        id: invitation.id,
+        ...scope,
+        token: expectedToken,
+        acceptedAt: null,
+        cancelledAt: null,
+        expiresAt: { $gt: new Date() },
+      }, { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true }, scope)
+      if (!pending) return
+      if (!rollbackState) {
+        await transactionEm.remove(pending).flush()
+        return
+      }
+      pending.email = rollbackState.email
+      pending.token = rollbackState.token
+      pending.customerEntityId = rollbackState.customerEntityId
+      pending.personEntityId = rollbackState.personEntityId
+      pending.roleIdsJson = [...rollbackState.roleIdsJson]
+      pending.invitedByUserId = rollbackState.invitedByUserId
+      pending.invitedByCustomerUserId = rollbackState.invitedByCustomerUserId
+      pending.displayName = rollbackState.displayName
+      pending.expiresAt = new Date(rollbackState.expiresAt)
+      await transactionEm.flush()
+    })
   }
 
   async findByToken(token: string): Promise<CustomerUserInvitation | null> {

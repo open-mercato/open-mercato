@@ -1,5 +1,7 @@
 /** @jest-environment node */
 
+import { hashToken } from '../../../lib/tokenGenerator'
+
 const mockCheckAuthRateLimit = jest.fn()
 const mockCreateInvitation = jest.fn()
 const mockRollbackInvitation = jest.fn()
@@ -148,6 +150,7 @@ describe('portal customer account user invite route', () => {
     expect(mockRollbackInvitation).toHaveBeenCalledWith(
       expect.objectContaining({ id: '66666666-6666-4666-8666-666666666666' }),
       null,
+      hashToken('raw-invite-token'),
     )
     consoleErrorSpy.mockRestore()
   })
@@ -174,6 +177,7 @@ describe('portal customer account user invite route', () => {
     expect(mockRollbackInvitation).toHaveBeenCalledWith(
       expect.objectContaining({ id: '66666666-6666-4666-8666-666666666666' }),
       rollbackState,
+      hashToken('raw-invite-token'),
     )
     consoleErrorSpy.mockRestore()
   })

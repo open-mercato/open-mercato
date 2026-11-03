@@ -241,6 +241,15 @@
           "nullable": false,
           "length": 6,
           "mappedType": "datetime"
+        },
+        "token_lookup_hash": {
+          "name": "token_lookup_hash",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
         }
       },
       "name": "scim_tokens",
@@ -275,6 +284,16 @@
           "constraint": true,
           "primary": true,
           "unique": true
+        },
+        {
+          "keyName": "scim_tokens_token_lookup_hash_idx",
+          "columnNames": [
+            "token_lookup_hash"
+          ],
+          "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false
         }
       ],
       "checks": [],
