@@ -205,4 +205,55 @@ describeWithPostgres('poll-channel cursor commit against real Postgres', () => {
     },
     CASE_TIMEOUT_MS,
   )
+
+  it(
+    'rolls back a failed commit without enqueueing and lets a rerun commit',
+    async () => {
+      const seed = await seedChannel({ uidValidity: 7, uidNext: 5 })
+      const connection = orm.em.getConnection()
+      const readLastPolledAt = async () => {
+        const rows = await connection.execute<Array<{ last_polled_at: Date }>>(
+          'select last_polled_at from communication_channels where id = ?',
+          [seed.channelId],
+        )
+        return rows[0]?.last_polled_at
+      }
+      const lastPolledAtBefore = await readLastPolledAt()
+      await connection.execute(
+        `create or replace function poll_channel_race_fail_commit() returns trigger as $$
+         begin
+           if new.channel_state->>'uidNext' = '666' then
+             raise exception 'injected commit failure';
+           end if;
+           return new;
+         end
+         $$ language plpgsql`,
+      )
+      await connection.execute(
+        'create trigger poll_channel_race_fail_commit before update on communication_channels for each row execute function poll_channel_race_fail_commit()',
+      )
+      try {
+        await expect(
+          handler(
+            makeJob(seed),
+            makeCtx(async () => ({ messages: [], nextCursor: encode({ uidValidity: 7, uidNext: 666 }), hasMore: true })),
+          ),
+        ).rejects.toThrow('injected commit failure')
+
+        expect(await readChannelState(seed)).toEqual({ uidValidity: 7, uidNext: 5 })
+        expect(await readLastPolledAt()).toEqual(lastPolledAtBefore)
+        expect(enqueueMock).not.toHaveBeenCalled()
+
+        await handler(
+          makeJob(seed),
+          makeCtx(async () => ({ messages: [], nextCursor: encode({ uidValidity: 7, uidNext: 8 }), hasMore: false })),
+        )
+        expect(await readChannelState(seed)).toEqual({ uidValidity: 7, uidNext: 8 })
+      } finally {
+        await connection.execute('drop trigger if exists poll_channel_race_fail_commit on communication_channels')
+        await connection.execute('drop function if exists poll_channel_race_fail_commit()')
+      }
+    },
+    CASE_TIMEOUT_MS,
+  )
 })
