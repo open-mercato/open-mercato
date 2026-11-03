@@ -17,7 +17,7 @@ import {
   resolveAppReadyTimeoutMs,
   resolveEphemeralPostgresImage,
   resolveEphemeralJwtSecret,
-  resolveEphemeralTestPassword,
+  buildEphemeralInitializationEnvironment,
   ephemeralPostgresInitSql,
   shouldReuseBuildArtifacts,
   acquireEphemeralRuntimeLock,
@@ -1388,15 +1388,28 @@ describeOnPosix('terminateProcessTree against a real detached process tree', () 
   }, 20_000)
 })
 
-describe('ephemeral credential policy', () => {
-  it.each([undefined, '', 'secret'])('replaces the weak fixture placeholder %s with a compliant default', async (configured) => {
-    const { buildPasswordSchema } = await import('@open-mercato/shared/lib/auth/passwordPolicy')
-    const password = resolveEphemeralTestPassword(configured)
-    expect(password).not.toBe('secret')
-    expect(buildPasswordSchema().safeParse(password).success).toBe(true)
+describe('isolated initialization password policy', () => {
+  it('validates historical fixtures against an explicit initialization-only policy', async () => {
+    const { buildPasswordSchema, getPasswordPolicy } = await import('@open-mercato/shared/lib/auth/passwordPolicy')
+    const runtime = {
+      OM_INTEGRATION_TEST: 'true',
+      OM_PASSWORD_MIN_LENGTH: '12',
+      OM_PASSWORD_REQUIRE_DIGIT: 'true',
+      OM_PASSWORD_REQUIRE_UPPERCASE: 'true',
+      OM_PASSWORD_REQUIRE_SPECIAL: 'true',
+    }
+    const initialization = buildEphemeralInitializationEnvironment(runtime)
+    expect(buildPasswordSchema({ policy: getPasswordPolicy(initialization) }).safeParse('secret').success).toBe(true)
+    expect(buildPasswordSchema({ policy: getPasswordPolicy(runtime) }).safeParse('secret').success).toBe(false)
+    expect(runtime.OM_PASSWORD_MIN_LENGTH).toBe('12')
+    expect(runtime.OM_PASSWORD_REQUIRE_DIGIT).toBe('true')
   })
 
-  it('preserves explicit credential overrides', () => {
-    expect(resolveEphemeralTestPassword('Operator-Chosen-9!')).toBe('Operator-Chosen-9!')
+  it('preserves isolated database and credential overrides without mutating runtime configuration', () => {
+    const runtime = { DATABASE_URL: 'isolated-fixture-database', OM_INIT_ADMIN_PASSWORD: 'Custom-Test-1!' }
+    const initialization = buildEphemeralInitializationEnvironment(runtime)
+    expect(initialization.DATABASE_URL).toBe(runtime.DATABASE_URL)
+    expect(initialization.OM_INIT_ADMIN_PASSWORD).toBe(runtime.OM_INIT_ADMIN_PASSWORD)
+    expect(runtime).not.toHaveProperty('OM_PASSWORD_MIN_LENGTH')
   })
 })

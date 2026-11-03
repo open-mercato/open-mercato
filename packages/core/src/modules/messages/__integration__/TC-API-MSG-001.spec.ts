@@ -1,4 +1,3 @@
-import { DEFAULT_CREDENTIALS } from '@open-mercato/core/helpers/integration/auth'
 import { expect, test } from '@playwright/test';
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 
@@ -98,8 +97,8 @@ test.describe('TC-API-MSG-001: Compose Message And Mark Read', () => {
     // Two indexing barriers can each spend up to 8s before failing, which would
     // not fit the config's 20s per-test budget. Same reason TC-RESO-009 is slow.
     test.slow();
-    const adminToken = await getAuthToken(request, DEFAULT_CREDENTIALS.admin.email, DEFAULT_CREDENTIALS.admin.password);
-    const employeeToken = await getAuthToken(request, DEFAULT_CREDENTIALS.employee.email, DEFAULT_CREDENTIALS.employee.password);
+    const adminToken = await getAuthToken(request, 'admin@acme.com', 'secret');
+    const employeeToken = await getAuthToken(request, 'employee@acme.com', 'secret');
     const employeeId = decodeJwtSubject(employeeToken);
 
     const subject = `QA TC-API-MSG-001 ${Date.now()}`;

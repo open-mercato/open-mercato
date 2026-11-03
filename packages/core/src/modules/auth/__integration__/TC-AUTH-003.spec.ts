@@ -1,4 +1,3 @@
-import { DEFAULT_CREDENTIALS } from '@open-mercato/core/helpers/integration/auth'
 import { expect, test } from '@playwright/test';
 
 /**
@@ -19,8 +18,8 @@ test.describe('TC-AUTH-003: Login with Remember Me', () => {
     const passwordInput = page.getByLabel('Password', { exact: true });
     await emailInput.fill('admin@acme.com');
     await expect(emailInput).toHaveValue('admin@acme.com');
-    await passwordInput.fill(DEFAULT_CREDENTIALS.admin.password);
-    await expect(passwordInput).toHaveValue(DEFAULT_CREDENTIALS.admin.password);
+    await passwordInput.fill('secret');
+    await expect(passwordInput).toHaveValue('secret');
     await page.getByRole('checkbox', { name: /remember me/i }).check();
     await passwordInput.press('Enter');
 

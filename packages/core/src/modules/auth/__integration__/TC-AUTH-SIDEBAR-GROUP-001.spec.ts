@@ -1,4 +1,3 @@
-import { DEFAULT_CREDENTIALS } from '@open-mercato/core/helpers/integration/auth'
 import { expect, test, type Page } from '@playwright/test';
 
 /**
@@ -40,7 +39,7 @@ async function login(page: Page): Promise<void> {
   await page.waitForSelector('form[data-auth-ready="1"]', { state: 'visible', timeout: 30_000 });
   await page.getByLabel('Email').fill('admin@acme.com');
   const password = page.getByLabel('Password', { exact: true });
-  await password.fill(DEFAULT_CREDENTIALS.admin.password);
+  await password.fill('secret');
   await password.press('Enter');
   await expect(page).toHaveURL(/\/backend(?:\/.*)?$/);
 }
