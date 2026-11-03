@@ -1145,7 +1145,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
         description: t('ui.forms.unsavedChangesDescription', 'Your edits will be lost if you leave now.'),
         confirmText: t('ui.forms.unsavedChangesDiscard', 'Discard changes'),
         cancelText: t('ui.forms.unsavedChangesKeep', 'Keep editing'),
-        variant: 'warning',
+        variant: 'destructive',
       })
       if (confirmed) allowNextNavigation()
       return confirmed

@@ -55,7 +55,7 @@ it.each(['Outside overlay', 'Close', 'Escape'])('protects a changed draft with t
     description: 'Your edits will be lost if you leave now.',
     confirmText: 'Discard changes',
     cancelText: 'Keep editing',
-    variant: 'warning',
+    variant: 'destructive',
   })
   expect(onOpenChange).not.toHaveBeenCalled()
   confirmMock.mockResolvedValueOnce(true)
