@@ -34,10 +34,19 @@ PR: #8612
 - [x] 2.1 Run relevant validation and real read-only discovery checks. — 191f8c57f
 - [x] 2.2 Run authoritative review and publish the completed PR. — c2d896060 (review 5752901823; current-head CI and manual QA remain merge gates)
 
+## Greenfield clarification
+
+The operator clarified that dev:greenfield must keep its established automatic --reinstall behavior. Remove this PR's default change while retaining ordinary setup's --skip-if-initialized behavior, optional AI, existing-infrastructure reuse, CSP and Retry fixes. Verify command routing in disposable mocked fixtures only; do not run a live database reset or migration.
+
+### Phase 3: Preserve greenfield compatibility
+
+- [x] 3.1 Restore default greenfield reinstall and align regression coverage and docs. — 865b22dde
+- [ ] 3.2 Run focused validation and review, then publish the updated PR scope.
+
 ## Diagnostic findings
 
 - Module-facts: the first package build precedes generation, so no module registry exists yet; the warning is repeated per discovered module and affects AI documentation facts, not runtime authentication. Imported search constants are intentionally reported when static extraction cannot prove their IDs. No metadata warnings were suppressed.
-- Greenfield: automatic --reinstall dates to PR #422 (2026-01-29), later moved from package.json into scripts/dev.mjs by #1141. The user requested explicit reset opt-in despite that history.
+- Greenfield: automatic --reinstall dates to PR #422 (2026-01-29), later moved from package.json into scripts/dev.mjs by #1141. The operator clarified that this main-branch behavior must remain unchanged; the earlier opt-in change is superseded by Phase 3. Standalone setup remains non-destructive unless --reinstall is explicit.
 - Dev CSP: Next dev inherited NODE_ENV=production from the CLI's shared server environment. Set development on the Next child only; production CSP keeps its restrictions.
 - localStorage warning reproduces on host Node 26; supported Node 24 does not emit it in the same native-global probe. No global warning suppression added.
 - Destination-stream error: the supplied log exposes React's generic writable-stream error wrapper without the underlying stream failure. No unproven streaming patch added.
@@ -49,12 +58,3 @@ Runner: local. 568 starter/dev-runtime Node tests, 16 standalone setup tests and
 Runtime Retry follow-up: two failing click regressions reproduced the reload-only behavior. The new path invokes the existing restart control, retains old errors until a new generation becomes ready, and surfaces denied recovery. Banner tests 33/33 and runtime action/state tests 48/48 pass. Browser QA remains required; no live runtime was restarted during tests.
 
 Preview publication: source c2d896060, workflow ref main, run41643337626. The prior source9c9c64d preview published successfully; use final-source URLs for Retry verification.
-
-## Greenfield clarification
-
-The operator clarified that dev:greenfield must keep its established automatic --reinstall behavior. Remove this PR's default change while retaining ordinary setup's --skip-if-initialized behavior, optional AI, existing-infrastructure reuse, CSP and Retry fixes. Verify command routing in disposable mocked fixtures only; do not run a live database reset or migration.
-
-### Phase 3: Preserve greenfield compatibility
-
-- [ ] 3.1 Restore default greenfield reinstall and align regression coverage and docs.
-- [ ] 3.2 Run focused validation and review, then publish the updated PR scope.
