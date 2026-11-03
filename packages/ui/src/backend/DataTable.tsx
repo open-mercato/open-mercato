@@ -3840,7 +3840,7 @@ function DataTableImpl<T extends RowData>({
           <LoadingMessage label={t('ui.dataTable.loading', 'Loading data...')} className="h-24 justify-center border-0 bg-transparent" />
         ) : (
         <Table className="min-w-[640px] md:min-w-0">
-          <TableHeader className={cn('sticky top-0 z-30 bg-linear-to-r from-muted/40 to-muted/40', embedded ? 'bg-background' : 'bg-card')}>
+          <TableHeader className={cn('sticky top-0 z-30 [&_tr]:bg-muted/40', embedded ? 'bg-background' : 'bg-card')}>
             {table.getHeaderGroups().map((hg) => (
               <TableRow key={hg.id}>
                 {hasInjectedBulkActions ? (

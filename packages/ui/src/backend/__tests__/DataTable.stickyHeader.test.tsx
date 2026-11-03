@@ -76,7 +76,7 @@ describe('DataTable sticky column header', () => {
     try {
       expect(container.querySelectorAll('thead')).toHaveLength(1)
       expect(header.className.split(/\s+/)).toEqual(expect.arrayContaining([
-        'sticky', 'top-0', 'z-30', 'bg-card', 'bg-linear-to-r', 'from-muted/40', 'to-muted/40',
+        'sticky', 'top-0', 'z-30', 'bg-card', '[&_tr]:bg-muted/40',
       ]))
       expect(wrapper.classList.contains('isolate')).toBe(true)
       expect(wrapper.style.overflow).toBe('auto')
