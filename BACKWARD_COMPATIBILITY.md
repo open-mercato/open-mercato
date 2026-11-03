@@ -1,6 +1,6 @@
 # Backward Compatibility Contract
 
-Open Mercato modules are developed by third-party developers who depend on stable platform APIs. Every surface listed below is a **public contract**. Changes to these surfaces MUST follow the deprecation protocol or they are **breaking changes** that block merge.
+Every listed surface is a **public contract**. Changes MUST follow the deprecation protocol or block merge as **breaking changes**.
 
 ## Deprecation Protocol
 
@@ -68,7 +68,7 @@ The following file names, their expected export names, and their role in module 
 
 ### 2. Type Definitions & Interfaces (STABLE)
 
-These exported types are consumed by module developers. Required fields MUST NOT be removed or have their types narrowed. Optional fields may be added freely.
+Required fields MUST NOT be removed or narrowed. Optional fields may be added freely.
 
 **Immutable required fields** (removing or renaming any is a breaking change):
 
@@ -99,7 +99,7 @@ These exported types are consumed by module developers. Required fields MUST NOT
 - `AiAgentOverridesMap` / `AiToolOverridesMap`: `Record<string, AiAgentDefinition | null>` and `Record<string, AiToolDefinition | null>` semantics are STABLE; `null` means disable
 - `ModuleOverrides`: `overrides.ai.agents`, `overrides.ai.tools`, and `overrides.ai.extensions` shapes are STABLE; other domain keys are reserved by the unified override contract and may be wired additively. `nav` was wired 2026-07-30 under that clause (see [spec](.ai/specs/2026-07-30-nav-group-order-override-domain.md)): `overrides.nav.groupOrder` **prepends** sidebar nav group ids ahead of the built-in `defaultGroupOrder`, and ids it does not name keep their existing position. It is a default applied *beneath* role and per-user sidebar preferences, so an operator's own arrangement still wins. With no override configured, group ordering is byte-identical to before — that guarantee MUST hold for any future change to this domain.
 - `ModulesRegisteredListener` (`@open-mercato/shared/lib/modules/registry`): added 2026-08-12 as `(modules: Module[]) => void | PromiseLike<void>` (see [spec](.ai/specs/2026-08-12-module-registry-registration-listeners.md)). The listener MUST keep receiving the reconciled module list, and the return type MUST NOT be narrowed back to `void` — a subscriber returning a promise is supported and its rejection is observed and logged rather than escaping into bootstrap.
-- `WorkerMeta`: `queue` — MUST NOT remove
+- `WorkerMeta.queue` STABLE; coalescing OPTIONAL/active-no-drop; BullMQ ≥5.72.
 - `TelemetryProvider` (`@open-mercato/telemetry`): `name`, `supports`, `start`, `shutdown`, `runInSpan`, `activeSpan`, `activeTraceContext`, `inject`, `runInRemoteSpan`, `emitLog`, `recordMetric` — MUST NOT remove. `reportError?()` was added 2026-09-08 as an additive OPTIONAL method (see [spec](.ai/specs/2026-09-08-error-reporting-policy.md)); it **MUST stay optional** — third parties implement this interface and a required method would break every existing provider. The facade calls it as `provider.reportError?.(…)` *in addition to* the span/log/metric path, so a provider that omits it loses nothing.
 - `ReportErrorContext` (`@open-mercato/telemetry`) and the `reportError` context of `TelemetryRuntime` (`@open-mercato/shared/lib/telemetry/runtime`): `module?` and `attributes?` — MUST NOT remove. `code?: string` was added 2026-09-08 as an additive optional field carrying the enumerated `module.reason` fingerprint the backend groups on; it MUST stay optional so existing callers (the API dispatcher, the CRUD factory) keep compiling and keep emitting exactly what they emit today. `om.errors` gains an `error.code` label only when a caller supplies one — the same attribute name the span and the log record use, so one query works against all three.
 - `RefreshCredentialsInput` (communication_channels hub): `channelId`, `credentials`, `scope` — MUST NOT remove. `oauthClient?` was added 2026-05-27 as an additive optional field (see [Spec A](.ai/specs/implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md)). The legacy `credentials._client` read path in the Gmail adapter was **removed** (see #3828 / UPGRADE_NOTES) — OAuth client config MUST be passed via `RefreshCredentialsInput.oauthClient`.
@@ -112,7 +112,7 @@ These exported types are consumed by module developers. Required fields MUST NOT
 
 ### 3. Function Signatures (STABLE)
 
-These functions are called directly by module code. Their signatures MUST NOT change in a breaking way. New optional parameters may be added.
+Signatures MUST NOT change incompatibly. New optional parameters may be added.
 
 |Function|Package|Contract|
 |---|---|---|
@@ -179,8 +179,6 @@ Spot IDs are the addresses where external modules inject UI. Renaming or removin
 - Wildcard spots (`crud-form:*`, `data-table:*`) MUST continue to match as documented
 
 ### 7. API Route URLs (STABLE)
-
-External tools, frontends, and integrations depend on API URL patterns.
 
 - MUST NOT rename or remove an existing API route URL
 - MUST NOT change the HTTP method for an existing operation
@@ -632,3 +630,7 @@ STABLE API §7: `GET /api/checkout/pay/:slug` omits admin fields; retaining them
 ## #3805 2026-10-31
 
 STABLE tools/execute writes bypass approval; no bridge. [Migrate](UPGRADE_NOTES.md#issue-3805)
+
+## SCIM rate limiting (2026-10-27)
+
+SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: ApiRouteBeforeAuth` is additive. See [contract and migration](.ai/specs/enterprise/implemented/SPEC-ENT-004-2026-02-19-sso-directory-sync.md#migration--backward-compatibility).

@@ -26,6 +26,8 @@ const mockRouteEm: MockEntityManager = {
   persist: jest.fn((entity: MockRecord) => {
     if (entity.endpointId && mockPersistedEntities.some((record) => (
       record.endpointId === entity.endpointId && record.messageId === entity.messageId
+      && (record.tenantId ?? null) === (entity.tenantId ?? null)
+      && (record.organizationId ?? null) === (entity.organizationId ?? null)
     ))) {
       throw { code: '23505' }
     }
@@ -456,7 +458,7 @@ describe('POST', () => {
     expect(mockRouteEm.persist).not.toHaveBeenCalled()
   })
 
-  it('rejects a receipt key collision from another verified scope without publishing', async () => {
+  it('accepts the same message in another verified scope without completing its pending receipt', async () => {
     const signed = signedLegacyWebhook()
     mockPersistedEntities.push({
       endpointId: 'mock_inbound',
@@ -470,14 +472,18 @@ describe('POST', () => {
       receivedEventPublished: false,
     })
 
-    await expect(POST(signed.request(), routeContext)).rejects.toThrow('Inbound receipt not found in verified scope')
+    const response = await POST(signed.request(), routeContext)
+    await expect(response.json()).resolves.toEqual({ ok: true })
 
-    expect(mockEmitWebhooksEvent).not.toHaveBeenCalled()
-    expect(mockPersistedEntities).toHaveLength(1)
+    expect(mockEmitWebhooksEvent).toHaveBeenCalledTimes(1)
+    expect(mockPersistedEntities).toHaveLength(2)
     expect(mockPersistedEntities[0]).toEqual(expect.objectContaining({
       tenantId: 'another-tenant',
       receivedEventPublished: false,
     }))
+    const duplicate = await POST(signed.request(), routeContext)
+    await expect(duplicate.json()).resolves.toEqual({ ok: true, duplicate: true })
+    expect(mockEmitWebhooksEvent).toHaveBeenCalledTimes(1)
   })
 })
 

@@ -180,7 +180,7 @@ describePostgres.each([1, 8])('inbound receipt PostgreSQL transactions with pool
     expect(await orm.em.fork().count(WebhookInboundReceiptEntity, {})).toBe(1)
   })
 
-  it('preserves historical completed receipts and rejects collisions from another tenant', async () => {
+  it('preserves historical completed receipts and independently accepts another verified scope', async () => {
     const em = orm.em.fork()
     em.persist(em.create(WebhookInboundReceiptEntity, {
       endpointId: input.endpointId,
@@ -193,11 +193,17 @@ describePostgres.each([1, 8])('inbound receipt PostgreSQL transactions with pool
     await em.flush()
 
     await expect(receiveInboundWebhook(orm.em.fork(), input)).resolves.toBe(true)
-    await expect(receiveInboundWebhook(orm.em.fork(), {
+    const otherScope = {
       ...input, tenantId: randomUUID(), organizationId: randomUUID(),
-    })).rejects.toThrow('Inbound receipt not found in verified scope')
+    }
+    await expect(receiveInboundWebhook(orm.em.fork(), otherScope)).resolves.toBe(false)
+    await expect(receiveInboundWebhook(orm.em.fork(), otherScope)).resolves.toBe(true)
+    expect(await orm.em.fork().count(WebhookInboundReceiptEntity, {})).toBe(2)
     expect(mockEnqueue).not.toHaveBeenCalled()
-    expect(mockEmit).not.toHaveBeenCalled()
+    expect(mockEmit).toHaveBeenCalledTimes(1)
+    expect(mockEmit).toHaveBeenCalledWith('webhooks.inbound.received', expect.objectContaining({
+      tenantId: otherScope.tenantId, organizationId: otherScope.organizationId,
+    }), expect.objectContaining({ persistent: true }))
   })
 
   function deferred() {

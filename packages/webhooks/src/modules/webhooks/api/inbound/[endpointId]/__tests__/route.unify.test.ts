@@ -5,7 +5,7 @@ const enqueueInboundDispatch = jest.fn(async (_job: InboundDispatchJob, _options
 const ensureLocalInboundQueueWorkerStarted = jest.fn(async () => undefined)
 const emitWebhooksEvent = jest.fn(async (..._args: unknown[]) => undefined)
 const findWithDecryption = jest.fn()
-const credentialsResolve = jest.fn(async () => ({ webhookSigningSecret: 'whsec' }))
+const credentialsResolve = jest.fn(async (_integrationId: string, _scope: { tenantId: string; organizationId: string }) => ({ webhookSigningSecret: 'whsec' }))
 
 const flush = jest.fn(async () => undefined)
 type MockRecord = Record<string, unknown>
@@ -23,6 +23,8 @@ let transactionOpen = false
 const persist = jest.fn((entity: MockRecord) => {
   if (entity.endpointId && records.some((record) => (
     record.endpointId === entity.endpointId && record.messageId === entity.messageId
+    && (record.tenantId ?? null) === (entity.tenantId ?? null)
+    && (record.organizationId ?? null) === (entity.organizationId ?? null)
   ))) {
     throw { code: '23505' }
   }
@@ -135,7 +137,8 @@ beforeEach(() => {
   flush.mockResolvedValue(undefined)
   findWithDecryption.mockReset()
   findWithDecryption.mockResolvedValue([{ organizationId: 'o1', tenantId: 't1', sourceKey: 'stripe', isActive: true }])
-  credentialsResolve.mockClear()
+  credentialsResolve.mockReset()
+  credentialsResolve.mockResolvedValue({ webhookSigningSecret: 'whsec' })
 })
 
 it('returns 404 when neither a source nor an adapter matches the segment', async () => {
@@ -316,7 +319,7 @@ it('rolls back receipt and ingestion together if initial persistence fails', asy
   expect(enqueueInboundDispatch).toHaveBeenCalledTimes(1)
 })
 
-it('rejects a source receipt collision from another scope without creating an orphan ingestion', async () => {
+it('accepts the same source message in another scope without completing its pending receipt', async () => {
   const signed = signedSourceWebhook()
   records.push({
     endpointId: 'stripe',
@@ -329,12 +332,17 @@ it('rejects a source receipt collision from another scope without creating an or
     receivedEventPublished: false,
   })
 
-  await expect(signed.post()).rejects.toThrow('Inbound receipt not found in verified scope')
+  const response = await signed.post()
+  await expect(response.json()).resolves.toEqual({ ok: true })
 
-  expect(records).toHaveLength(1)
+  expect(records).toHaveLength(3)
   expect(records[0]).toEqual(expect.objectContaining({ tenantId: 'another-tenant', dispatchQueued: false }))
-  expect(enqueueInboundDispatch).not.toHaveBeenCalled()
-  expect(emitWebhooksEvent).not.toHaveBeenCalled()
+  expect(enqueueInboundDispatch).toHaveBeenCalledTimes(1)
+  expect(emitWebhooksEvent).toHaveBeenCalledTimes(1)
+  const duplicate = await signed.post()
+  await expect(duplicate.json()).resolves.toEqual({ ok: true, duplicate: true })
+  expect(enqueueInboundDispatch).toHaveBeenCalledTimes(1)
+  expect(emitWebhooksEvent).toHaveBeenCalledTimes(1)
 })
 
 
@@ -356,4 +364,32 @@ it('does not retain a receipt transaction while publishing the received event (#
   })
 
   await expect(signed.post()).resolves.toMatchObject({ status: 200 })
+})
+
+it('persists the scope selected by each source delivery own credentials', async () => {
+  const scopes = [
+    { tenantId: 'tenant-1', organizationId: 'org-1' },
+    { tenantId: 'tenant-1', organizationId: 'org-2' },
+    { tenantId: 'tenant-2', organizationId: 'org-1' },
+  ]
+  findWithDecryption.mockResolvedValue(scopes.map((scope) => ({ ...scope, sourceKey: 'stripe', isActive: true })))
+  credentialsResolve.mockImplementation(async (_integrationId: string, scope: { tenantId: string; organizationId: string }) => ({
+    webhookSigningSecret: `${scope.tenantId}:${scope.organizationId}`,
+  }))
+  registerWebhookSource(makeSource({
+    verifier: async (request, credentials) => request.headers['x-test-signature'] === credentials.webhookSigningSecret,
+  }))
+
+  for (const scope of scopes) {
+    const response = await postTo('stripe', undefined, {
+      'x-test-signature': `${scope.tenantId}:${scope.organizationId}`,
+    })
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(persist).toHaveBeenCalledWith(expect.objectContaining({ endpointId: 'stripe', messageId: 'evt_1', ...scope }))
+    expect(enqueueInboundDispatch).toHaveBeenLastCalledWith(
+      expect.objectContaining(scope),
+      expect.objectContaining({ startLocalWorker: false, jobId: expect.any(String), timeoutMs: expect.any(Number) }),
+    )
+  }
+  expect(enqueueInboundDispatch).toHaveBeenCalledTimes(scopes.length)
 })

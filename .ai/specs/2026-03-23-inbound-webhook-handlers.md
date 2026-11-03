@@ -707,7 +707,8 @@ const rateResult = await rateLimiter.consume(rateKey, {
 ### 10.3 Deduplication
 
 The durable deduplication key remains the `webhook_inbound_receipts` unique constraint
-on `(endpointId, messageId)`. Receipt existence alone does not prove successful intake.
+on `(endpointId, messageId, tenantId, organizationId)` with PostgreSQL
+`NULLS NOT DISTINCT`. Receipt existence alone does not prove successful intake.
 New receipts track `dispatchQueued` and `receivedEventPublished`; a source receipt also
 stores its scalar `ingestionId`. Both receipt and source ingestion are created atomically,
 and that transaction commits before enqueueing so independently running workers can read
@@ -741,6 +742,26 @@ previously successful handlers; handlers and subscribers must remain idempotent.
 change does not promise global exactly-once delivery or change inline subscriber defaults.
 An uncertain timeout can repeat inline callbacks on retry; stable queue IDs deduplicate
 persistent queue work and do not deduplicate those inline callbacks.
+
+**Verified scope.** The receiver obtains scope from the configuration whose credentials verified the source
+delivery, or from the legacy adapter's verified result. Sources can share an endpoint across
+scopes, and the source contract does not require message IDs to be globally unique across
+provider accounts. Identical message IDs in different verified scopes must therefore ingest
+independently. A repeated delivery in one scope still raises Postgres `23505`; the receiver resumes
+any unfinished stages and returns `200 { ok: true, duplicate: true }` only when both
+checkpoints are complete.
+
+Explicitly allowed unscoped legacy adapters use the `(null, null)` scope namespace. Null-safe
+uniqueness preserves their replay protection and keeps them separate from scoped receipts.
+Historical partial-scope rows remain deduplicated within their exact nullable scope tuple;
+new partial-scope legacy deliveries remain rejected by the route. Any optional cache fast-path
+must use the same verified scope. No provider message-ID collision was observed in a live
+deployment; the reachable failure follows from the supported source/adapter contracts.
+
+Regression coverage: `data/__tests__/receipt-scope.test.ts` checks the entity/migration
+invariant, `route.unify.test.ts` checks credential-based scope propagation and retry checkpoints, and
+`__integration__/TC-WEBHOOK-014.spec.ts` exercises the real database constraint for different
+organizations, different tenants, same-scope repeats, and unscoped/partial-scope repeats.
 
 ### 10.4 Replay Protection
 
@@ -1091,6 +1112,27 @@ by `WebhookSourceConfig` + the handler convention. They MUST follow the deprecat
 
 ---
 
+### Receipt-scope migration & backward compatibility (#7830)
+
+`Migration20261027193000_receipt_scope` replaces the existing receipt unique constraint
+transactionally while retaining its name, table, columns, stored message IDs, and receipt IDs.
+The old global constraint is stronger than the scoped one, so all data conforming to the old
+constraint already conforms to the replacement; no backfill, deduplication, or deletion is
+needed. The backing index retains the same name. PostgreSQL 15+ is required for null-safe
+uniqueness, consistent with other platform indexes. The HTTP route, response shape, source and
+adapter interfaces, and event IDs/payloads remain unchanged. Repeated delivery behavior within
+each scope is preserved; cross-scope duplicate suppression is the corrected defect.
+
+Operators must apply the migration before resuming inbound traffic; replacing the constraint
+takes a table lock and may require a maintenance window for large receipt tables. No migration
+is automatically applied by this change. Rolling deployment with existing receiver code is
+safe because both ingestion paths already persist verified scope. After legitimate cross-scope
+collisions have been stored, reverting to global uniqueness can fail. There is intentionally no
+automatic destructive rollback: inspect collisions and plan recovery before reverting schema.
+Consumers of `ON CONFLICT ON CONSTRAINT webhook_inbound_receipts_endpoint_message_unique`
+retain the named constraint and should include verified scope in any independent deduplication.
+Receipt-before-durable-dispatch failures are addressed by the retryable checkpoints above (#7601).
+
 ## 15. Risks & Impact Review
 
 | Risk | Severity | Mitigation |
@@ -1131,6 +1173,7 @@ by `WebhookSourceConfig` + the handler convention. They MUST follow the deprecat
 | 2026-06-17 | Applied pre-implement analysis remediation: unify inbound on the existing `[endpointId]` route (resolves BC#1 route collision); add a concrete `WebhookEndpointAdapter` deprecation-bridge subsection (§14); correct the Phase 4 `inbox_ops` baseline (encrypted per-tenant secret + Svix already exist); fix dedup cache TTL to milliseconds and clarify the receipt-table durable dedup source of truth (§10.3); add optional `credentialFields` to `WebhookSourceConfig` for the admin UI; clarify credential encryption reuses the integrations map and `WebhookIngestion.payload`/`headers` are encrypted via the webhooks map (§10.1). Phase 1 implementation started. |
 | 2026-06-17 | Phase 1 progress: shared inbound types; `WebhookIngestion`/`InboundEndpointConfig` entities + migration + encryption map; `inbound.processed`/`handler_failed` events; globalThis-backed source/handler registries + wildcard resolution; queue-backed `webhook-inbound-dispatch` worker. **Auto-discovery convention chosen:** implemented via the sanctioned `generators.ts` plugin mechanism (`webhooks/generators.ts`: `webhooks.sources` + `webhooks.handlers` plugins with `bootstrapRegistration`) rather than forking the two core generators. Consequently handlers are declared in a module-root **`webhook-handlers.ts`** barrel (impl files under `webhook-handlers/`) instead of a pure `webhook-handlers/*.ts` folder scan — lower blast-radius, zero `bootstrap.ts`/template edits (§3.2, §6). |
 | 2026-10-18 | Fixed #7601: atomic receipt/ingestion intake, independent row-locked dispatch/publication checkpoints, retry recovery without repeating completed stages, additive migration preserving historical receipts, and route plus PostgreSQL concurrency regressions. |
+| 2026-10-27 | Corrected receipt identity to include verified tenant/organization scope with null-safe unscoped deduplication (#7830). Preserve the named constraint and all existing receipts; document deployment and rollback constraints and add scope regression coverage. |
 | 2026-10-28 | Removed unrelated carried changes; implemented the user-approved #7979 durability design: committed scoped fenced claims, external publication outside transactions, stable queue IDs and bounded publication deadlines, nullable claim migration, real PostgreSQL pool/fencing and Redis outage/reconnect regressions. Delivery remains at least once; manual async QA and fresh review remain gates. |
 | 2026-10-29 | Added a committed real-service CI gate for both receipt pool sizes and queue strategies, fail-closed executed-count verification, and JSON artifacts; Redis recovery now runs at both pool sizes when enabled. |
 
