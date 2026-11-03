@@ -569,6 +569,7 @@ export function TimeGrid({
                       showConflicts={showConflicts}
                       highlightItemId={highlightItemId}
                       canManage={canManage}
+                      aiSummaries={aiSummaries}
                       nowMs={nowMs}
                       resolveJoinUrl={resolveJoinUrl}
                       onOpenChange={(open) => setOpenOverflowKey(open ? overflow.key : null)}

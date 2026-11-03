@@ -7,6 +7,7 @@ import { Video } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
+import { EventPeekPopover } from './EventPeekPopover'
 import { formatTimeRange, resolveEventTone } from './EventBlock'
 import type { CalendarItem } from './types'
 
@@ -27,11 +28,12 @@ export type OverflowBlockProps = {
   showConflicts: boolean
   highlightItemId?: string | null
   canManage: boolean
+  aiSummaries?: boolean
   nowMs: number
   resolveJoinUrl(location: string | null): string | null
   onOpenChange(open: boolean): void
   onJoin(item: CalendarItem): void
-  /** Opens the event editor for a listed meeting; the row itself is the action, no intermediate peek. */
+  /** Opens the event editor for a listed meeting. A row is that action directly; a viewer's row opens the peek instead. */
   onEdit(item: CalendarItem): void
 }
 
@@ -60,6 +62,7 @@ export function OverflowBlock({
   showConflicts,
   highlightItemId,
   canManage,
+  aiSummaries = false,
   nowMs,
   resolveJoinUrl,
   onOpenChange,
@@ -76,6 +79,11 @@ export function OverflowBlock({
   // Rows that fit under the "+N more" header; the rest stays behind the disclosure.
   const visibleRows = Math.max(0, Math.floor((height - HEADER_HEIGHT_PX - STACK_EDGE_HEIGHT_PX) / ROW_HEIGHT_PX))
   const previewItems = items.slice(0, visibleRows)
+  const [peekItemId, setPeekItemId] = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    if (!open) setPeekItemId(null)
+  }, [open])
 
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
@@ -93,7 +101,7 @@ export function OverflowBlock({
             open && 'z-30 shadow-md ring-2 ring-primary/40',
             highlighted && 'motion-safe:animate-pulse',
             conflicted || highlighted || open ? 'z-30' : 'z-10',
-            'focus-visible:z-30 focus-visible:ring-2 focus-visible:ring-ring',
+            'focus-visible:z-30',
           )}
           style={{ top, height, insetInlineStart, width }}
         >
@@ -156,7 +164,25 @@ export function OverflowBlock({
                     {rowContent}
                   </Button>
                 ) : (
-                  <div className={rowClassName}>{rowContent}</div>
+                  <EventPeekPopover
+                    item={item}
+                    open={peekItemId === item.id}
+                    joinUrl={joinUrl}
+                    aiSummaries={aiSummaries}
+                    canManage={false}
+                    onOpenChange={(next) => setPeekItemId(next ? item.id : null)}
+                    onJoin={onJoin}
+                    onEdit={onEdit}
+                  >
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      aria-label={`${title}, ${timeRange}`}
+                      className={cn('h-auto whitespace-normal', rowClassName)}
+                    >
+                      {rowContent}
+                    </Button>
+                  </EventPeekPopover>
                 )}
                 {joinUrl ? (
                   <IconButton
