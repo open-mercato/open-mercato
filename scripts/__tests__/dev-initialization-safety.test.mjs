@@ -27,6 +27,7 @@ function initializeHarness(runtimePath, functionName, { args = [], setupMode = f
     standaloneLocalRegistryRefresh: false,
     standaloneStageTotal: 5,
     purgeAppBuildCaches() {},
+    purgeGreenfieldCaches() { return true },
     ensureStandaloneEnvFile() {},
     applyDatabaseNameOverrideIfRequested: async () => {},
     runStage: async (_title, commandArgs) => runCommand(commandArgs),
