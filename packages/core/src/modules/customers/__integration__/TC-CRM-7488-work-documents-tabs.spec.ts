@@ -22,16 +22,18 @@ import {
 
 export const integrationMeta = { dependsOnModules: ['workflows', 'documents', 'customers'] }
 
+const ACTIVITY_TAB = /^activit/i
+
 async function openWorkspaceTab(page: Page, label: RegExp): Promise<void> {
-  const tab = page.getByRole('tab', { name: label })
-  if (await tab.isVisible().catch(() => false)) {
-    await tab.click()
-    return
-  }
-  const more = page.getByTestId('detail-tabs-more')
-  await expect(more, 'the tab is reachable inline or through More').toBeVisible({ timeout: 30_000 })
-  await more.click()
-  await page.getByRole('menuitem', { name: label }).click()
+  await expect(async () => {
+    const tab = page.getByRole('tab', { name: label })
+    if (await tab.isVisible()) {
+      await tab.click()
+      return
+    }
+    await page.getByTestId('detail-tabs-more').click({ timeout: 2_000 })
+    await page.getByRole('menuitem', { name: label }).click({ timeout: 2_000 })
+  }).toPass({ timeout: 30_000 })
 }
 
 test.describe('TC-CRM-7488: work and documents inside the CRM detail workspace', () => {
@@ -57,7 +59,7 @@ test.describe('TC-CRM-7488: work and documents inside the CRM detail workspace',
       ]
       for (const route of routes) {
         await page.goto(route, { waitUntil: 'domcontentloaded' })
-        await expect(page.getByRole('tab', { name: /activities/i }), `workspace on ${route}`).toBeVisible({ timeout: 30_000 })
+        await expect(page.getByRole('tab', { name: ACTIVITY_TAB }), `workspace on ${route}`).toBeVisible({ timeout: 30_000 })
 
         await expect(page.getByRole('heading', { name: 'Pending work' }), `no detached Pending work on ${route}`).toHaveCount(0)
         await expect(page.getByRole('heading', { name: 'Related documents' }), `no detached Related documents on ${route}`).toHaveCount(0)
@@ -70,8 +72,8 @@ test.describe('TC-CRM-7488: work and documents inside the CRM detail workspace',
         await expect(page.getByRole('heading', { name: 'Related documents' }), `Related documents tab on ${route}`).toBeVisible({ timeout: 30_000 })
         await expect(page.getByRole('heading', { name: 'Pending work' })).toHaveCount(0)
 
-        await page.getByRole('tab', { name: /activities/i }).click()
-        await expect(page.getByRole('tab', { name: /activities/i })).toHaveAttribute('aria-selected', 'true')
+        await page.getByRole('tab', { name: ACTIVITY_TAB }).click()
+        await expect(page.getByRole('tab', { name: ACTIVITY_TAB })).toHaveAttribute('aria-selected', 'true')
         await expect(page.getByRole('heading', { name: 'Related documents' })).toHaveCount(0)
       }
     } finally {
