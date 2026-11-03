@@ -42,7 +42,7 @@ async function ensureRepo(args) {
     process.exit(2)
   }
   console.log(`No checkout found — cloning open-mercato (${branch}) into ${dir} ...`)
-  const clone = spawnSync('git', ['clone', '--branch', branch, REPO_URL, dir], { stdio: 'inherit' })
+  const clone = spawnSync('git', ['clone', '--filter=blob:none', '--branch', branch, REPO_URL, dir], { stdio: 'inherit' })
   if (clone.status !== 0) {
     console.error('❌ git clone failed. Behind a corporate proxy? Configure git first (ask IT for the proxy address):')
     console.error('     git config --global http.proxy http://proxy.example.com:8080')
