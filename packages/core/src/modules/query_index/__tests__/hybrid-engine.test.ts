@@ -5,6 +5,8 @@ import { SortDir } from '@open-mercato/shared/lib/query/types'
 import { clearSearchTokenPresenceCache } from '@open-mercato/shared/lib/search/availability'
 import { DECRYPT_REFUSAL_LOG_MESSAGE } from '@open-mercato/shared/lib/encryption/decryptScope'
 import { encryptCustomFieldValue } from '@open-mercato/shared/lib/encryption/customFieldValues'
+import { registerSyncSubscribers, type SyncSubscriberEntry } from '@open-mercato/shared/lib/crud/sync-subscriber-store'
+import type { QueryResult } from '@open-mercato/shared/lib/query/types'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 
 // The token-presence and base-table-existence answers are cached process-wide (TTL); without
@@ -2359,6 +2361,111 @@ describe('HybridQueryEngine like/ilike routing default (#5383, #5803)', () => {
     expect(readEncryptedFieldNames).toHaveBeenCalledWith(
       'example:todo', 't1', null, { ignoreRuntimeHealth: true },
     )
+  })
+})
+
+describe('HybridQueryEngine encrypted-search response diagnostics', () => {
+  test.each([
+    ['missing-base', 'development'],
+    ['omit-automatic-scope', 'development'],
+    ['no-index', 'development'],
+    ['partial-index', 'development'],
+    ['no-index', 'production'],
+  ] as const)(
+    'preserves fallback diagnostics after a replacement subscriber (%s, %s)',
+    async (fallbackReason, environment) => {
+      const originalEnvironment = process.env.NODE_ENV
+      process.env.NODE_ENV = environment
+      const db = createFakeKysely({
+        baseTable: 'todos', hasIndexAny: fallbackReason !== 'no-index', baseCount: 2, indexCount: 1,
+      })
+      const em = buildEm(db)
+      const service = { getEncryptedFieldNames: async () => ['notes'] }
+      const basicEngine = new BasicQueryEngine(
+        em, undefined,
+        () => service as unknown as ReturnType<NonNullable<ConstructorParameters<typeof BasicQueryEngine>[2]>>,
+      )
+      const fallbackQuery = jest.spyOn(basicEngine, 'query')
+      const engine = new HybridQueryEngine(em, basicEngine)
+      if (fallbackReason === 'missing-base') {
+        jest.spyOn(engine as unknown as { tableExists: (table: string) => Promise<boolean> }, 'tableExists').mockResolvedValue(false)
+      }
+      const replacement: QueryResult<Record<string, unknown>> = { items: [], page: 2, pageSize: 5, total: 0 }
+      if (fallbackReason === 'missing-base') {
+        replacement.meta = { listCountCapWarning: { entity: 'example:todo', cap: 10 } }
+      }
+      const subscriber = jest.fn(async () => ({ modifiedResult: replacement }))
+      registerSyncSubscribers([{
+        metadata: { event: 'example.todo.queried', sync: true, id: 'diagnostic-result-replacement' },
+        handler: subscriber as unknown as SyncSubscriberEntry['handler'],
+      }])
+      try {
+        const result = await engine.query('example:todo', {
+          tenantId: 'private-fallback-tenant', organizationId: 'private-fallback-org',
+          fields: ['id', 'cf:priority'], filters: { notes: { $ilike: '%private-fallback-search%' } },
+          omitAutomaticTenantOrgScope: fallbackReason === 'omit-automatic-scope',
+          skipAutoReindex: true, extensions: {},
+        })
+        expect(fallbackQuery).toHaveBeenCalledTimes(1)
+        expect(subscriber).toHaveBeenCalledTimes(1)
+        expect(result).toMatchObject({ items: [], page: 2, pageSize: 5, total: 0 })
+        if (fallbackReason === 'missing-base') {
+          expect(result.meta?.listCountCapWarning).toEqual({ entity: 'example:todo', cap: 10 })
+        }
+        if (environment === 'production') {
+          expect(result.meta?.ciphertextSearchWarnings).toBeUndefined()
+        } else {
+          expect(result.meta?.ciphertextSearchWarnings).toEqual([{
+            entity: 'example:todo', field: 'notes', reason: 'no-search-tokens',
+            hint: expect.stringContaining('query_index'),
+          }])
+        }
+        for (const privateValue of ['private-fallback-tenant', 'private-fallback-org', 'private-fallback-search']) {
+          expect(JSON.stringify(result.meta ?? {})).not.toContain(privateValue)
+        }
+      } finally {
+        registerSyncSubscribers([])
+        process.env.NODE_ENV = originalEnvironment
+      }
+    },
+  )
+
+  test.each(['development', 'production'])('reports missing scoped tokens only outside production (%s)', async (environment) => {
+    const originalEnvironment = process.env.NODE_ENV
+    process.env.NODE_ENV = environment
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: true, baseCount: 0, indexCount: 0, customFieldKeys: {} })
+    const em = buildEm(db)
+    const service = { getEncryptedFieldNames: async () => ['notes'] }
+    const engine = new HybridQueryEngine(
+      em, new BasicQueryEngine(em), undefined, undefined,
+      () => service as unknown as ReturnType<NonNullable<ConstructorParameters<typeof HybridQueryEngine>[4]>>,
+    )
+    const availability = engine as unknown as {
+      searchAvailability: () => { staticEnabled: () => Promise<boolean>; hasTokens: () => Promise<boolean>; anySourceHasTokens: () => Promise<boolean> }
+    }
+    jest.spyOn(availability, 'searchAvailability').mockReturnValue({
+      staticEnabled: async () => true, hasTokens: async () => false, anySourceHasTokens: async () => false,
+    })
+    try {
+      for (const tenantId of ['diagnostic-tenant-a', 'diagnostic-tenant-b']) {
+        const result = await engine.query('example:todo', {
+          tenantId, organizationId: 'diagnostic-org', fields: ['id'],
+          filters: { notes: { $ilike: '%private-search-term%' } },
+        })
+        if (environment === 'production') {
+          expect(result.meta?.ciphertextSearchWarnings).toBeUndefined()
+        } else {
+          expect(result.meta?.ciphertextSearchWarnings).toEqual([{
+            entity: 'example:todo', field: 'notes', reason: 'no-search-tokens',
+            hint: expect.stringContaining('query_index'),
+          }])
+          expect(JSON.stringify(result.meta)).not.toContain('private-search-term')
+          expect(JSON.stringify(result.meta)).not.toContain(tenantId)
+        }
+      }
+    } finally {
+      process.env.NODE_ENV = originalEnvironment
+    }
   })
 })
 
