@@ -11,7 +11,7 @@ import { checkBuildToolchain, checkContainerRuntime, checkGit, checkNodeVersion,
 import { ensureEnvFiles } from './env-setup.mjs'
 import { addEnvValue, readEnvValue } from './env-file.mjs'
 import { describeInfraProblem, startInfra } from './infra.mjs'
-import { findUnhealthyServices } from './infra-preflight.mjs'
+import { findUnhealthyServices, requestExistingServicesConsent } from './infra-preflight.mjs'
 import { ensureLlmProvider } from './providers.mjs'
 import { color, formatDuration, guideBox, statusLine, stepHeader } from './ui.mjs'
 
@@ -474,10 +474,10 @@ export const workspaceBuildStep = {
 
 export const llmProviderStep = {
   id: 'llm-provider',
-  expectation: 'waits for your input on first run; have an API key ready',
-  title: 'AI provider (LLM API key)',
+  expectation: 'optional; press Enter to configure AI later',
+  title: 'AI provider (optional)',
   async apply(ctx) {
-    const outcome = await ensureLlmProvider({
+    await ensureLlmProvider({
       rootEnv: path.join(ctx.repoRoot, '.env'),
       appEnv: path.join(ctx.repoRoot, 'apps', 'mercato', '.env'),
     }, {
@@ -486,9 +486,6 @@ export const llmProviderStep = {
       log: (line) => ctx.log(`   ${line}`),
       warn: (line) => ctx.log(`   ⚠️ ${line}`),
     })
-    if (outcome === 'failed') {
-      throw new Error('No LLM provider configured. Pass --skip-llm-prompt to continue without AI, or set a provider key in .env.')
-    }
   },
   async check() {
     return { ok: false, detail: 'checking configured provider' }
@@ -565,6 +562,14 @@ export const infraUpStep = {
       beforeUp: () => prepareOpencodeImage(ctx),
     })
     if (!outcome.ok) {
+      if (['port-conflict', 'unhealthy'].includes(outcome.problem.code)) {
+        const accepted = await (ctx.confirmExistingServicesImpl ?? requestExistingServicesConsent)(outcome.problem, { nonInteractive: ctx.flags.nonInteractive, log: ctx.log })
+        if (accepted) {
+          ctx.flags.noInfra = true
+          ctx.existingInfraAccepted = true
+          return
+        }
+      }
       const lines = describeInfraProblem(outcome.problem)
       if (ctx.tlsProbes?.some((entry) => entry.status === 'intercepted')) {
         lines.push('  TLS/certificate errors from the engine usually mean it does not trust the corporate CA yet: restart Docker Desktop (it re-imports the Windows certificate store) or Rancher Desktop (the starter wrote a provisioning script for it), then re-run.')

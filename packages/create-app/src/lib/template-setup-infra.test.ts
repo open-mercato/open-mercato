@@ -77,14 +77,20 @@ async function makeApp() {
   return { appDir, binDir, emptyBinDir, ports }
 }
 
-type RunOptions = { withDocker?: boolean; mode?: string; env?: Record<string, string>; scriptsDir?: string }
+type RunOptions = { withDocker?: boolean; mode?: string; env?: Record<string, string>; scriptsDir?: string; promptAnswer?: string }
 
 async function runScript(app: Awaited<ReturnType<typeof makeApp>>, script: string, args: string[], options: RunOptions = {}) {
   const dockerLog = path.join(app.appDir, 'docker.log')
   const devArgsLog = path.join(app.appDir, 'dev-args.json')
   const nodeDir = path.dirname(process.execPath)
   const pathEntries = options.withDocker === false ? [app.emptyBinDir] : [app.binDir, nodeDir, '/usr/bin', '/bin']
-  const child = spawn(process.execPath, [path.join(options.scriptsDir ?? 'scripts', script), ...args], {
+  const preloadArgs = []
+  if (options.promptAnswer !== undefined) {
+    const preloadPath = path.join(app.appDir, 'interactive-input.mjs')
+    fs.writeFileSync(preloadPath, "Object.defineProperty(process.stdin, 'isTTY', { value: true })\n")
+    preloadArgs.push('--import', preloadPath)
+  }
+  const child = spawn(process.execPath, [...preloadArgs, path.join(options.scriptsDir ?? 'scripts', script), ...args], {
     cwd: app.appDir,
     env: {
       PATH: pathEntries.join(path.delimiter),
@@ -97,9 +103,23 @@ async function runScript(app: Awaited<ReturnType<typeof makeApp>>, script: strin
     },
   })
   let output = ''
-  child.stdout.on('data', (chunk) => { output += chunk })
+  let answered = false
+  child.stdout.on('data', (chunk) => {
+    output += chunk
+    if (!answered && options.promptAnswer !== undefined && output.includes('Do you want to continue using these pre-existing services? [y/N]')) {
+      answered = true
+      child.stdin.write(`${options.promptAnswer}\n`)
+    }
+  })
   child.stderr.on('data', (chunk) => { output += chunk })
-  const code: number = await new Promise((resolve) => child.on('close', (exitCode) => resolve(exitCode ?? 1)))
+  const code: number = await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      child.kill()
+      reject(new Error(`Setup did not finish within 10 seconds: ${output}`))
+    }, 10_000)
+    child.once('error', (error) => { clearTimeout(timeout); reject(error) })
+    child.once('close', (exitCode) => { clearTimeout(timeout); resolve(exitCode ?? 1) })
+  })
   const dockerCalls = fs.existsSync(dockerLog) ? fs.readFileSync(dockerLog, 'utf8').split('\n').filter(Boolean) : []
   const devArgs: string[] | null = fs.existsSync(devArgsLog) ? JSON.parse(fs.readFileSync(devArgsLog, 'utf8')) : null
   return { code, output, dockerCalls, devArgs }
@@ -214,6 +234,33 @@ test('yarn setup reports a port held by another process and does not run compose
     fs.rmSync(app.appDir, { recursive: true, force: true })
   }
 })
+
+for (const answer of ['y', 'n']) {
+  test(`yarn setup ${answer === 'y' ? 'accepts' : 'declines'} pre-existing services at the real script boundary`, { skip }, async () => {
+    const app = await makeApp()
+    const blocker = net.createServer()
+    await new Promise<void>((resolve) => blocker.listen(app.ports.POSTGRES_PORT, '127.0.0.1', () => resolve()))
+    const originalEnv = `DATABASE_URL=postgres://fixture:fixture@127.0.0.1:${app.ports.POSTGRES_PORT}/existing\nEXISTING_MARKER=keep\n`
+    fs.writeFileSync(path.join(app.appDir, '.env'), originalEnv)
+    try {
+      const run = await runScript(app, 'setup.mjs', [], { promptAnswer: answer })
+      assert.match(run.output, /Do you want to continue using these pre-existing services\? \[y\/N\]/)
+      assert.ok(!run.dockerCalls.some((call) => /\b(up|down|stop|restart)\b/.test(call)), run.dockerCalls.join('\n'))
+      assert.equal(fs.readFileSync(path.join(app.appDir, '.env'), 'utf8'), originalEnv)
+      if (answer === 'y') {
+        assert.equal(run.code, 0, run.output)
+        assert.deepEqual(run.devArgs, ['--setup', '--no-infra'])
+        assert.match(run.output, /Existing containers will not be stopped, restarted or recreated/)
+      } else {
+        assert.equal(run.code, 2, run.output)
+        assert.equal(run.devArgs, null)
+      }
+    } finally {
+      await new Promise<void>((resolve) => blocker.close(() => resolve()))
+      fs.rmSync(app.appDir, { recursive: true, force: true })
+    }
+  })
+}
 
 test('yarn infra:down keeps volumes unless --volumes --yes is given', { skip }, async () => {
   const app = await makeApp()

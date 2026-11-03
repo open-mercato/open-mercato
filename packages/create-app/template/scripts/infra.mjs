@@ -14,7 +14,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseEnv } from 'node:util'
 
-import { detectDockerRuntime, formatInfraProblem, startInfraServices } from './dev-infra-preflight.mjs'
+import { detectDockerRuntime, formatInfraProblem, requestExistingServicesConsent, startInfraServices } from './dev-infra-preflight.mjs'
 
 export const INFRA_SERVICES = [
   { service: 'postgres', envKey: 'POSTGRES_PORT', defaultPort: 5432 },
@@ -83,6 +83,8 @@ export async function ensureInfra({
   log = console.log,
   error = console.error,
   startImpl = startInfraServices,
+  allowExistingServices = false,
+  confirmExistingServices = requestExistingServicesConsent,
 } = {}) {
   const services = resolveInfraServices(projectDir, { env, profiles })
   log(`🐳 Local infrastructure: checking Docker, then starting ${services.map(({ service, port }) => `${service} :${port}`).join(', ')}...`)
@@ -98,6 +100,7 @@ export async function ensureInfra({
     log,
   })
   if (!outcome.ok) {
+    if (allowExistingServices && ['port-conflict', 'unhealthy'].includes(outcome.problem.code) && await confirmExistingServices(outcome.problem, { log })) return { ok: true, existingServices: true }
     printInfraProblem(outcome.problem, { error })
     return outcome
   }

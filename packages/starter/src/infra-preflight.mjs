@@ -7,6 +7,7 @@
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import net from 'node:net'
+import readline from 'node:readline'
 
 export const INFRA_PROBE_TIMEOUT_MS = 20_000
 export const NO_INFRA_FLAG = '--no-infra'
@@ -126,6 +127,58 @@ export async function findPortConflicts(services, { running = new Set(), probe =
   return conflicts
 }
 
+export function findContainerPortOwners(services, { spawnSyncImpl = spawnSync } = {}) {
+  const listed = runDockerProbe(['ps', '--all', '--filter', 'status=running', '--filter', 'status=restarting', '--format', '{{.ID}}'], { spawnSyncImpl })
+  if (listed?.error || listed?.status !== 0) return []
+  const ids = String(listed.stdout ?? '').split(/\s+/).filter((id) => /^[a-f0-9]{12,64}$/.test(id))
+  if (ids.length === 0) return []
+  const format = '{"name":{{json .Name}},"status":{{json .State.Status}},"health":{{if .State.Health}}{{json .State.Health.Status}}{{else}}""{{end}},"ports":{{json .HostConfig.PortBindings}}}'
+  const inspected = runDockerProbe(['inspect', '--format', format, ...ids], { spawnSyncImpl })
+  if (inspected?.error || inspected?.status !== 0) return []
+  const owners = []
+  for (const container of parseComposePsOutput(inspected.stdout)) {
+    if (!['running', 'restarting'].includes(container?.status) || !container.ports || typeof container.ports !== 'object') continue
+    const hostPorts = new Set(Object.entries(container.ports).flatMap(([containerPort, bindings]) =>
+      containerPort.endsWith('/tcp') && Array.isArray(bindings)
+        ? bindings.filter((binding) => ['', '0.0.0.0', '127.0.0.1', '::', '::1'].includes(binding.HostIp ?? '')).map((binding) => Number(binding.HostPort))
+        : []))
+    for (const service of services) {
+      if (hostPorts.has(service.port)) owners.push({ ...service, containerName: String(container.name ?? '').replace(/^\//, ''), state: container.status, health: container.health ?? '' })
+    }
+  }
+  return owners
+}
+
+export async function requestExistingServicesConsent(problem, {
+  nonInteractive = false,
+  input = process.stdin,
+  output = process.stdout,
+  log = console.log,
+  question,
+} = {}) {
+  for (const entry of problem.ports ?? problem.services ?? []) {
+    const identity = entry.containerName || entry.service
+    const state = entry.state || 'unknown'
+    log(`   ⚠️ ${identity}${entry.port ? ` on port ${entry.port}` : ''}: ${state}${entry.health ? ` (${entry.health})` : ''}`)
+    if (entry.containerName && (state === 'restarting' || entry.health === 'unhealthy')) log(`   Inspect the restart/health failure: docker logs ${entry.containerName}`)
+  }
+  log('   Otherwise run `yarn om stop` in the checkout that started the infrastructure, then retry setup.')
+  if (nonInteractive || (!question && !input.isTTY)) {
+    log('   Existing services need interactive confirmation. Use --no-infra explicitly to use the services configured in .env.')
+    return false
+  }
+  const prompt = 'The ports are already in use, maybe it is the Open Mercato infrastructure you ran before? Do you want to continue using these pre-existing services? [y/N] '
+  const reader = question ? null : readline.createInterface({ input, output })
+  try {
+    const answer = await (question ? question(prompt) : new Promise((resolve) => reader.question(prompt, resolve)))
+    if (!/^(y|yes)$/i.test(String(answer).trim())) return false
+    log('   ⚠️ Continuing with the services configured in .env. Existing containers will not be stopped, restarted or recreated. Restarting or unhealthy services may still fail when used.')
+    return true
+  } finally {
+    reader?.close()
+  }
+}
+
 // WSL2 reports platform 'linux', but its usual Docker is Docker Desktop on the
 // Windows side, exposed to the distribution through "WSL integration". Telling
 // a WSL user to install Docker Engine would put a second engine next to it.
@@ -173,7 +226,8 @@ function remediationFor(problem, platform, { wsl = false, databaseUrlFile = '.en
       return [
         ...problem.ports.map(({ service, port, envKey }) => `Port ${port} (${service}) is already in use by another process.${envKey ? ` Stop that process, or pick a free port with ${envKey} in .env.` : ' Stop that process.'}`),
         `If you change POSTGRES_PORT, update the port in DATABASE_URL (${databaseUrlFile}) as well.`,
-        '`docker ps` shows containers of other projects that may hold these ports.',
+        '`docker ps --all` shows existing containers, including restart loops, that may hold these ports.',
+        'If this is an older Open Mercato run, run `yarn om stop` in that checkout before trying again.',
         ...portConflictHints,
       ]
     case 'unhealthy':
@@ -239,6 +293,7 @@ export async function startInfraServices({
   detect = detectDockerRuntime,
   spawnSyncImpl = spawnSync,
   portProbe = probeTcpPort,
+  containerProbe = findContainerPortOwners,
   log = console.log,
 }) {
   const runtime = detect()
@@ -259,7 +314,9 @@ export async function startInfraServices({
   if (listed === null) {
     log('   could not list this project\'s containers (docker compose ps failed); skipping the port check')
   } else {
-    const conflicts = await findPortConflicts(services, { running, probe: portProbe })
+    const owners = containerProbe(services.filter((entry) => !running.has(entry.service)), { spawnSyncImpl }).filter((entry) => !running.has(entry.service))
+    const occupied = await findPortConflicts(services, { running, probe: portProbe })
+    const conflicts = services.filter((entry) => !running.has(entry.service) && (owners.some((owner) => owner.service === entry.service) || occupied.some((port) => port.service === entry.service))).map((entry) => owners.find((owner) => owner.service === entry.service) ?? entry)
     if (conflicts.length > 0) return { ok: false, problem: { code: 'port-conflict', ports: conflicts } }
   }
 

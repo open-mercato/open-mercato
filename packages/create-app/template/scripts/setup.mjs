@@ -8,7 +8,7 @@ const argv = process.argv.slice(2)
 const reinstall = argv.includes('--reinstall')
 const classic = argv.includes('--classic')
 const verbose = argv.includes('--verbose')
-const noInfra = argv.includes(NO_INFRA_FLAG)
+let noInfra = argv.includes(NO_INFRA_FLAG)
 const forwardedDatabaseFlags = collectForwardedSetupFlags(argv)
 
 // Compose and the port preflight read POSTGRES_PORT & co. from .env, so it has
@@ -24,8 +24,9 @@ if (!existsSync('.env') && existsSync('.env.example')) {
 if (noInfra) {
   console.log(`[setup] ${NO_INFRA_FLAG}: skipping Docker, using the services configured in .env`)
 } else {
-  const infra = await ensureInfra()
+  const infra = await ensureInfra({ allowExistingServices: true })
   if (!infra.ok) process.exit(2)
+  if (infra.existingServices) noInfra = true
 }
 
 if (!existsSync('node_modules/cross-spawn')) {

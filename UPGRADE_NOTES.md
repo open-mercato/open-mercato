@@ -1,5 +1,15 @@
 # Upgrade Notes
 
+## Starter reuse, optional AI, and explicit greenfield resets
+
+`yarn setup` can continue with pre-existing services after an explicit interactive confirmation. It shows port owners and restart/health states and then leaves those containers untouched, using the URLs already configured in `.env`. Declining shows `yarn om stop` guidance for the original checkout. Non-interactive users must explicitly pass `--no-infra` to use external services.
+
+AI provider setup is optional: press Enter or choose `0` to skip. Missing credentials no longer block non-interactive setup; configure them later to enable AI chat.
+
+`yarn dev:greenfield` now refuses an initialized database by default. For the previous destructive reset behavior, explicitly run `yarn dev:greenfield --reinstall`. Ordinary `yarn setup` continues to retain initialized data.
+
+The CLI starts Next development processes with `NODE_ENV=development` so development CSP/debugging features work. Production server and background-process environment behavior is unchanged.
+
 ## Agent search answers honor domain policy (#7234)
 
 When an allow-list or deny-list is configured, agent `web_search` and the settings
