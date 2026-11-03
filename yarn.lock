@@ -9657,6 +9657,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@open-mercato/ui@workspace:packages/ui"
   dependencies:
+    "@codemirror/view": "npm:^6.23.0"
     "@dnd-kit/core": "npm:^6.3.1"
     "@dnd-kit/sortable": "npm:^10.0.0"
     "@dnd-kit/utilities": "npm:^3.2.2"
