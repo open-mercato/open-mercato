@@ -854,9 +854,6 @@ const updatePaymentCommand: CommandHandler<
           ? await findOneWithDecryption(em, SalesOrder, { id: input.orderId }, {}, { tenantId: resolvedTenantId, organizationId: resolvedOrganizationId })
           : previousOrder
       const requestedOrderStatus = await resolveDictionaryEntryValue(em, input.documentStatusEntryId, { tenantId: resolvedTenantId })
-      if (targetOrder && requestedOrderStatus !== (targetOrder.status ?? null)) {
-        await assertRecurringOrderStatusAllowed(em, targetOrder, requestedOrderStatus)
-      }
       if (targetOrder && !isCancelledOrderStatus(targetOrder.status) && isCancelledOrderStatus(requestedOrderStatus)) {
         await assertOrderCanBeCancelled(em, targetOrder, {
           payment: {
@@ -929,6 +926,9 @@ const updatePaymentCommand: CommandHandler<
           throw new CrudHttpError(400, {
             error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.'),
           })
+        }
+        if (orderStatus !== (lockedOrders.get(currentOrder.id)?.status ?? currentOrder.status ?? null)) {
+          await assertRecurringOrderStatusAllowed(tx, currentOrder, orderStatus)
         }
         currentOrder.statusEntryId = input.documentStatusEntryId ?? null
         currentOrder.status = orderStatus

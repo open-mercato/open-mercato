@@ -17,6 +17,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { SalesQuote, SalesQuoteLine } from '../../../data/entities'
 import { loadQuoteRecurrenceSnapshot } from '../../../lib/recurrenceStore'
+import { lockSalesDocumentRow } from '../../../commands/shared'
 import { assertRecurringQuoteConvertible } from '../../../lib/recurringOrderGuard'
 import { formatRecurrenceSchedule } from '../../../lib/recurrenceLabel'
 import { quoteSendSchema } from '../../../data/validators'
@@ -134,12 +135,6 @@ export async function POST(req: Request) {
       throw new CrudHttpError(400, { error: translate('sales.quotes.send.missingEmail', 'Customer email is required to send a quote.') })
     }
 
-    const recurrence = await loadQuoteRecurrenceSnapshot(em, quote)
-    if (recurrence) {
-      const lineCount = await em.count(SalesQuoteLine, { quote: quote.id })
-      await assertRecurringQuoteConvertible(recurrence, lineCount)
-    }
-
     const now = new Date()
     const validUntil = new Date(now)
     validUntil.setUTCDate(validUntil.getUTCDate() + input.validForDays)
@@ -149,7 +144,20 @@ export async function POST(req: Request) {
     // Persist the send state (status/token/sentAt) atomically and commit it
     // BEFORE the email goes out, so a customer never receives a link whose
     // acceptance token was not durably stored.
-    await em.transactional(async (tx) => {
+    const recurrence = await em.transactional(async (tx) => {
+      const scope = { tenantId: quote.tenantId, organizationId: quote.organizationId }
+      if (!(await lockSalesDocumentRow(tx, 'sales_quotes', quote.id, scope))) {
+        throw notFound(translate('sales.documents.detail.error', 'Document not found or inaccessible.'))
+      }
+      await findOneWithDecryption(tx, SalesQuote, { id: quote.id, ...scope }, { refresh: true }, scope)
+      if ((quote.status ?? null) === 'canceled') {
+        throw new CrudHttpError(400, { error: translate('sales.quotes.send.canceled', 'Canceled quotes cannot be sent.') })
+      }
+      const recurrence = await loadQuoteRecurrenceSnapshot(tx, quote)
+      if (recurrence) {
+        const lineCount = await tx.count(SalesQuoteLine, { quote: quote.id, ...scope })
+        await assertRecurringQuoteConvertible(recurrence, lineCount)
+      }
       quote.validUntil = validUntil
       quote.acceptanceToken = hashAuthToken(rawAcceptanceToken)
       quote.sentAt = now
@@ -161,6 +169,7 @@ export async function POST(req: Request) {
       })
       quote.updatedAt = now
       tx.persist(quote)
+      return recurrence
     })
 
     const appUrl = process.env.APP_URL || ''

@@ -62,6 +62,46 @@ describe('assertRecurringOrderStatusAllowed', () => {
     await expect(assertRecurringOrderStatusAllowed(em, order, null)).resolves.toBeUndefined()
     expect(mock.findOne).not.toHaveBeenCalled()
   })
+
+  describe('with the recurrence the same write leaves on the order', () => {
+    const schedule = { frequency: 'monthly' as const, startsOn: '2027-01-01' }
+
+    it('refuses a stopping status together with a new recurrence', async () => {
+      const { em } = buildEm({ recurrence: null })
+      await expect(assertRecurringOrderStatusAllowed(em, order, 'on_hold', schedule)).rejects.toMatchObject({
+        status: 409,
+        body: { code: 'recurring_order_use_cancel' },
+      })
+    })
+
+    it('refuses a changed schedule even when the current recurrence is finished', async () => {
+      const { em } = buildEm({ recurrence: { ...schedule, status: 'completed' } })
+      await expect(
+        assertRecurringOrderStatusAllowed(em, order, 'canceled', { ...schedule, frequency: 'yearly' }),
+      ).rejects.toMatchObject({ body: { code: 'recurring_order_use_cancel' } })
+    })
+
+    it('judges an echoed schedule by the current recurrence', async () => {
+      const finished = buildEm({ recurrence: { ...schedule, status: 'completed' } })
+      await expect(assertRecurringOrderStatusAllowed(finished.em, order, 'canceled', schedule)).resolves.toBeUndefined()
+      const unfinished = buildEm({ recurrence: { ...schedule, status: 'active' } })
+      await expect(assertRecurringOrderStatusAllowed(unfinished.em, order, 'canceled', schedule)).rejects.toMatchObject({
+        body: { code: 'recurring_order_use_cancel' },
+      })
+    })
+
+    it('allows stopping an order in the same write that removes its recurrence', async () => {
+      const { em, mock } = buildEm({ recurrence: { ...schedule, status: 'scheduled' } })
+      await expect(assertRecurringOrderStatusAllowed(em, order, 'canceled', null)).resolves.toBeUndefined()
+      expect(mock.findOne).not.toHaveBeenCalled()
+    })
+
+    it('looks up only the live recurrence', async () => {
+      const { em, mock } = buildEm({ recurrence: null })
+      await assertRecurringOrderStatusAllowed(em, order, 'canceled')
+      expect(mock.findOne.mock.calls[0][1]).toEqual({ order: 'order-1', tenantId: 'ten-1', organizationId: 'org-1', deletedAt: null })
+    })
+  })
 })
 
 describe('assertRecurringOrderDeletable', () => {

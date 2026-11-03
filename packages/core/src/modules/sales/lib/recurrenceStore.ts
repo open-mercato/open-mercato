@@ -138,10 +138,38 @@ export function findOrderRecurrence(em: EntityManager, order: DocumentScope) {
   return findOneWithDecryption(
     em,
     SalesOrderRecurrence,
+    { order: order.id, ...scopeOf(order), deletedAt: null },
+    undefined,
+    scopeOf(order),
+  )
+}
+
+/**
+ * The order's recurrence row, including one that was removed. A removed recurrence is only
+ * marked deleted, so its `scheduleVersion` survives and a recurrence added back later keeps
+ * counting from it.
+ */
+function findOrderRecurrenceRow(em: EntityManager, order: DocumentScope) {
+  return findOneWithDecryption(
+    em,
+    SalesOrderRecurrence,
     { order: order.id, ...scopeOf(order) },
     undefined,
     scopeOf(order),
   )
+}
+
+function isLive(entity: SalesOrderRecurrence | null): entity is SalesOrderRecurrence {
+  return !!entity && !entity.deletedAt
+}
+
+const CLEARED_CANCELLATION = {
+  cancelRequestedAt: null,
+  cancelEffectiveOn: null,
+  cancelSettlement: null,
+  cancelledByUserId: null,
+  cancelIdempotencyKey: null,
+  cancelResult: null,
 }
 
 export async function loadQuoteRecurrenceSnapshot(
@@ -203,7 +231,8 @@ export async function writeQuoteRecurrence(
 
 /**
  * Creates, replaces or (with `null`) removes the order's recurrence before its first invoice.
- * A new or changed schedule restarts at period 0 and bumps `scheduleVersion`.
+ * A new or changed schedule restarts at period 0 and bumps `scheduleVersion`; removing it only
+ * marks the row deleted, so adding it back continues from the removed row's version.
  * Call inside a `withAtomicFlush` phase after the lock guard; the caller flushes.
  */
 export async function writeOrderRecurrence(
@@ -212,17 +241,35 @@ export async function writeOrderRecurrence(
   input: RecurrenceSchedule | null | undefined,
 ): Promise<void> {
   if (input === undefined) return
-  const existing = await findOrderRecurrence(em, order)
+  const existing = await findOrderRecurrenceRow(em, order)
   if (input === null) {
-    if (existing) em.remove(existing)
+    if (isLive(existing)) existing.deletedAt = new Date()
     return
   }
-  if (existing && schedulesEqual(existing, input)) return
+  if (isLive(existing) && schedulesEqual(existing, input)) return
   if (existing) {
-    Object.assign(existing, deriveOrderSchedule(input), { scheduleVersion: existing.scheduleVersion + 1 })
+    Object.assign(existing, deriveOrderSchedule(input), CLEARED_CANCELLATION, {
+      scheduleVersion: existing.scheduleVersion + 1,
+      deletedAt: null,
+    })
     return
   }
   persistNewOrderRecurrence(em, order, input)
+}
+
+/**
+ * Whether writing `input` would set, change or remove the order's recurrence. An echoed copy
+ * of the current schedule is not a change.
+ */
+export async function orderRecurrenceChanges(
+  em: EntityManager,
+  order: DocumentScope,
+  input: RecurrenceSchedule | null | undefined,
+): Promise<boolean> {
+  if (input === undefined) return false
+  const existing = await findOrderRecurrence(em, order)
+  if (input === null) return !!existing
+  return !existing || !schedulesEqual(existing, input)
 }
 
 function deriveOrderSchedule(input: RecurrenceSchedule) {
@@ -276,9 +323,9 @@ export async function restoreOrderRecurrence(
   snapshot: OrderRecurrenceSnapshot | null | undefined,
 ): Promise<void> {
   if (snapshot === undefined) return
-  const existing = await findOrderRecurrence(em, order)
+  const existing = await findOrderRecurrenceRow(em, order)
   if (snapshot === null) {
-    if (existing) em.remove(existing)
+    if (isLive(existing)) existing.deletedAt = new Date()
     return
   }
   const fields = {
@@ -294,6 +341,7 @@ export async function restoreOrderRecurrence(
     cancelledByUserId: snapshot.cancelledByUserId,
     cancelIdempotencyKey: snapshot.cancelIdempotencyKey,
     cancelResult: snapshot.cancelResult,
+    deletedAt: null,
   }
   if (existing) {
     Object.assign(existing, fields)

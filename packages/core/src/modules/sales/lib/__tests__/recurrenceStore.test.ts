@@ -9,6 +9,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { SalesOrder, SalesOrderRecurrence } from '../../data/entities'
 import {
+  orderRecurrenceChanges,
   persistNewOrderRecurrence,
   restoreOrderRecurrence,
   sameRecurrenceState,
@@ -24,7 +25,9 @@ function buildEm(existing: Record<string, unknown> | null = null) {
   const persisted: Array<Record<string, unknown>> = []
   const removed: unknown[] = []
   const em = {
-    findOne: jest.fn().mockResolvedValue(existing),
+    findOne: jest.fn(async (_entity: unknown, where: Record<string, unknown>) =>
+      where.deletedAt === null && existing?.deletedAt ? null : existing,
+    ),
     create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data })),
     persist: jest.fn((entity: Record<string, unknown>) => persisted.push(entity)),
     remove: jest.fn((entity: unknown) => removed.push(entity)),
@@ -87,11 +90,49 @@ describe('writeOrderRecurrence', () => {
     expect(existing.scheduleVersion).toBe(3)
   })
 
-  it('removes the recurrence for null', async () => {
-    const existing = { frequency: 'monthly', startsOn: '2027-01-01' }
+  it('marks the recurrence deleted for null, keeping its schedule version', async () => {
+    const existing: Record<string, unknown> = { frequency: 'monthly', startsOn: '2027-01-01', scheduleVersion: 3, deletedAt: null }
     const { em, removed } = buildEm(existing)
     await writeOrderRecurrence(em, order, null)
-    expect(removed).toEqual([existing])
+    expect(removed).toEqual([])
+    expect(existing.deletedAt).toBeInstanceOf(Date)
+    expect(existing.scheduleVersion).toBe(3)
+  })
+
+  it('adds a removed recurrence back on its row with the next schedule version', async () => {
+    const existing: Record<string, unknown> = {
+      frequency: 'monthly',
+      startsOn: '2027-01-01',
+      anchorDay: null,
+      periodCount: null,
+      scheduleVersion: 3,
+      cancelSettlement: 'prorate',
+      deletedAt: new Date('2026-11-01T00:00:00Z'),
+    }
+    const { em, persisted } = buildEm(existing)
+    await writeOrderRecurrence(em, order, { frequency: 'monthly', startsOn: '2027-01-01' })
+    expect(persisted).toHaveLength(0)
+    expect(existing).toMatchObject({ scheduleVersion: 4, deletedAt: null, cancelSettlement: null, status: 'scheduled' })
+  })
+})
+
+describe('orderRecurrenceChanges', () => {
+  const current = { frequency: 'monthly', startsOn: '2027-01-01', anchorDay: null, periodCount: null, deletedAt: null }
+
+  it('treats an echoed schedule as no change', async () => {
+    const { em } = buildEm(current)
+    await expect(orderRecurrenceChanges(em, order, { frequency: 'monthly', startsOn: '2027-01-01' })).resolves.toBe(false)
+  })
+
+  it('reports a set, changed or removed recurrence', async () => {
+    await expect(orderRecurrenceChanges(buildEm(current).em, order, { frequency: 'yearly', startsOn: '2027-01-01' })).resolves.toBe(true)
+    await expect(orderRecurrenceChanges(buildEm(current).em, order, null)).resolves.toBe(true)
+    await expect(orderRecurrenceChanges(buildEm().em, order, { frequency: 'monthly', startsOn: '2027-01-01' })).resolves.toBe(true)
+  })
+
+  it('reports no change when nothing is sent or nothing is removed', async () => {
+    await expect(orderRecurrenceChanges(buildEm(current).em, order, undefined)).resolves.toBe(false)
+    await expect(orderRecurrenceChanges(buildEm().em, order, null)).resolves.toBe(false)
   })
 })
 
@@ -130,10 +171,40 @@ describe('restoreOrderRecurrence', () => {
     expect(existing).toMatchObject({ frequency: 'monthly', startsOn: '2027-01-01', scheduleVersion: 3 })
   })
 
-  it('recreates a removed recurrence with its recorded version', async () => {
+  it('restores a removed recurrence on its row with a version above the removed one', async () => {
+    const existing: Record<string, unknown> = { frequency: 'monthly', scheduleVersion: 4, deletedAt: new Date() }
+    const { em, persisted } = buildEm(existing)
+    await restoreOrderRecurrence(em, order, { ...snapshot, scheduleVersion: 4 })
+    expect(persisted).toHaveLength(0)
+    expect(existing).toMatchObject({ frequency: 'monthly', scheduleVersion: 5, deletedAt: null })
+  })
+
+  it('never reuses a schedule version across remove, undo and redo', async () => {
+    const row: Record<string, unknown> = { ...snapshot, scheduleVersion: 1, deletedAt: null }
+    const { em } = buildEm(row)
+    const seen = [row.scheduleVersion as number]
+    const record = () => {
+      expect(row.scheduleVersion as number).toBeGreaterThan(Math.max(...seen))
+      seen.push(row.scheduleVersion as number)
+    }
+    const removalSnapshot = { ...snapshot, scheduleVersion: row.scheduleVersion as number }
+    await writeOrderRecurrence(em, order, null)
+    await restoreOrderRecurrence(em, order, removalSnapshot)
+    record()
+    const redoSnapshot = { ...snapshot, scheduleVersion: row.scheduleVersion as number }
+    await writeOrderRecurrence(em, order, null)
+    await restoreOrderRecurrence(em, order, redoSnapshot)
+    record()
+    await restoreOrderRecurrence(em, order, null)
+    await writeOrderRecurrence(em, order, { frequency: 'monthly', startsOn: '2027-01-01' })
+    record()
+    expect(row.deletedAt).toBeNull()
+  })
+
+  it('recreates the recurrence of an order that has no recurrence row with its recorded version', async () => {
     const { em, persisted } = buildEm()
     await restoreOrderRecurrence(em, order, { ...snapshot, scheduleVersion: 4 })
-    expect(persisted[0]).toMatchObject({ frequency: 'monthly', scheduleVersion: 4 })
+    expect(persisted[0]).toMatchObject({ frequency: 'monthly', scheduleVersion: 4, deletedAt: null })
   })
 
   it('leaves the recurrence alone for snapshots recorded before recurrence existed', async () => {

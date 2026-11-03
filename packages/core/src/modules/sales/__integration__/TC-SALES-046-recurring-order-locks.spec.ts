@@ -162,6 +162,12 @@ test.describe('TC-SALES-046 recurring order locks and status guards', () => {
       })
       expect(comment.status(), 'fields that do not change what is billed still save').toBe(200)
 
+      const echoed = await apiRequest(request, 'PUT', '/api/sales/orders', {
+        token,
+        data: { id: orderId, comments: 'QA TC-SALES-046 echoed schedule', recurrence: { frequency: 'monthly', startsOn } },
+      })
+      expect(echoed.status(), 'sending the current schedule back with an unlocked edit still saves').toBe(200)
+
       const deletion = await apiRequest(request, 'DELETE', `/api/sales/orders?id=${encodeURIComponent(orderId)}`, { token })
       expectCode(deletion, await readJson(deletion), 409, 'recurring_order_invoiced', 'delete order')
       expect((await readOrder(request, token, orderId)).id).toBe(orderId)

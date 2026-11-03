@@ -334,7 +334,7 @@ export const attachRecurrences = async (
   const byDocument = new Map<string, Record<string, unknown>>()
   if (kind === 'order') {
     const [recurrences, periods] = await Promise.all([
-      findWithDecryption(em, SalesOrderRecurrence, { order: { $in: ids }, ...scoped }, undefined, scope),
+      findWithDecryption(em, SalesOrderRecurrence, { order: { $in: ids }, ...scoped, deletedAt: null }, undefined, scope),
       findWithDecryption(
         em,
         SalesRecurringPeriod,

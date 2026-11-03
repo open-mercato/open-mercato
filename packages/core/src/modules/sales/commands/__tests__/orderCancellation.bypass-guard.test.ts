@@ -69,8 +69,18 @@ function makeOrder() {
   }
 }
 
+function buildRowLockQuery() {
+  const query: Record<string, jest.Mock> = {}
+  for (const method of ['selectFrom', 'select', 'where', 'forNoKeyUpdate']) {
+    query[method] = jest.fn(() => query)
+  }
+  query.executeTakeFirst = jest.fn().mockResolvedValue({ id: ORDER_ID })
+  return query
+}
+
 function buildTx() {
   return {
+    getKysely: jest.fn(() => buildRowLockQuery()),
     findOne: jest.fn().mockResolvedValue(null),
     find: jest.fn().mockResolvedValue([]),
     create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data, id: 'new-id' })),

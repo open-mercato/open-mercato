@@ -4,8 +4,8 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { SalesOrderRecurrence } from '../data/entities'
-import { compareIsoDates, localToday } from './recurrence'
-import { findOrderRecurrence, hasRecurringPeriods } from './recurrenceStore'
+import { compareIsoDates, localToday, type RecurrenceSchedule } from './recurrence'
+import { findOrderRecurrence, hasRecurringPeriods, schedulesEqual } from './recurrenceStore'
 
 export type RecurringErrorCode =
   | 'recurring_quote_started'
@@ -66,20 +66,26 @@ export async function assertOrderRecurrenceUnlocked(em: EntityManager, order: Or
 }
 
 /**
- * Only *Cancel recurring order* stops a recurring order (R10): moving it to a canceled or
- * on-hold status is refused while its recurrence is unfinished.
+ * Only *Cancel recurring order* stops a recurring order (R10): a canceled or on-hold order may
+ * not carry an unfinished recurrence. `nextStatus` and `nextRecurrence` are the values the write
+ * leaves on the order; `nextRecurrence` is `undefined` when the write keeps the current one.
+ * MUST run after the order row lock that recurrence writes take, so a concurrent recurrence
+ * write cannot slip between this check and the status write.
  */
 export async function assertRecurringOrderStatusAllowed(
   em: EntityManager,
   order: OrderScope,
   nextStatus: string | null | undefined,
+  nextRecurrence?: RecurrenceSchedule | null,
 ): Promise<void> {
   const status = typeof nextStatus === 'string' ? nextStatus.trim() : ''
-  if (!STOPPING_ORDER_STATUSES.has(status)) return
+  if (!STOPPING_ORDER_STATUSES.has(status) || nextRecurrence === null) return
   const recurrence = await findOrderRecurrence(em, order)
-  if (recurrence && UNFINISHED_RECURRENCE_STATUSES.has(recurrence.status)) {
-    throw await recurringError('recurring_order_use_cancel')
-  }
+  const keepsCurrent = nextRecurrence === undefined || (!!recurrence && schedulesEqual(recurrence, nextRecurrence))
+  const unfinished = keepsCurrent
+    ? !!recurrence && UNFINISHED_RECURRENCE_STATUSES.has(recurrence.status)
+    : true
+  if (unfinished) throw await recurringError('recurring_order_use_cancel')
 }
 
 /**

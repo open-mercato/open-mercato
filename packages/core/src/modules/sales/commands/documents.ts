@@ -134,6 +134,7 @@ import { resolveConvertedOrderFeeTotals } from "../lib/convertedOrderTotals";
 import {
   loadOrderRecurrenceSnapshot,
   loadQuoteRecurrenceSnapshot,
+  orderRecurrenceChanges,
   persistNewOrderRecurrence,
   restoreOrderRecurrence,
   restoreQuoteRecurrence,
@@ -773,7 +774,6 @@ const RECURRING_LOCKED_ORDER_FIELDS = [
   "paymentMethodId",
   "paymentMethodCode",
   "paymentMethodSnapshot",
-  "recurrence",
 ] as const satisfies ReadonlyArray<keyof DocumentUpdateInput>;
 
 type DocumentLineCreateInput = QuoteLineCreateInput | OrderLineCreateInput;
@@ -6273,26 +6273,32 @@ const updateOrderCommand: CommandHandler<
               ? buildExternalHeaderTotals(parsed)
               : readPersistedHeaderTotals(order)
             : null;
+          const recurrenceChanges = await orderRecurrenceChanges(em, order, parsed.recurrence);
           if (
             totalsModeChanged ||
             externalHeaderSupplied ||
+            recurrenceChanges ||
             RECURRING_LOCKED_ORDER_FIELDS.some((field) => parsed[field] !== undefined)
           ) {
             await assertOrderRecurrenceUnlocked(em, order);
           }
           previousStatus = normalizeStatusValue(order.status);
-          if (parsed.statusEntryId) {
-            const requestedStatus = normalizeStatusValue(
-              await resolveDictionaryEntryValue(em, parsed.statusEntryId, {
-                tenantId: order.tenantId,
-              }),
-            );
-            if (requestedStatus !== previousStatus) {
-              await assertRecurringOrderStatusAllowed(em, order, requestedStatus);
-            }
-            if (!isCancelledOrderStatus(previousStatus) && isCancelledOrderStatus(requestedStatus)) {
-              await assertOrderCanBeCancelled(em, order);
-            }
+          const requestedStatus = parsed.statusEntryId
+            ? normalizeStatusValue(
+                await resolveDictionaryEntryValue(em, parsed.statusEntryId, {
+                  tenantId: order.tenantId,
+                }),
+              )
+            : previousStatus;
+          if (requestedStatus !== previousStatus || recurrenceChanges) {
+            await assertRecurringOrderStatusAllowed(em, order, requestedStatus, parsed.recurrence);
+          }
+          if (
+            parsed.statusEntryId &&
+            !isCancelledOrderStatus(previousStatus) &&
+            isCancelledOrderStatus(requestedStatus)
+          ) {
+            await assertOrderCanBeCancelled(em, order);
           }
           await applyDocumentUpdate({
             kind: "order",
@@ -6569,6 +6575,14 @@ const createOrderCommand: CommandHandler<
     } = await resolveDocumentReferences(em, parsed);
 
     const orderId = randomUUID()
+    if (parsed.recurrence) {
+      await assertRecurringOrderStatusAllowed(
+        em,
+        { id: orderId, tenantId: parsed.tenantId, organizationId: parsed.organizationId },
+        normalizeStatusValue(status),
+        parsed.recurrence,
+      );
+    }
     const order = em.create(SalesOrder, {
       id: orderId,
       organizationId: parsed.organizationId,
