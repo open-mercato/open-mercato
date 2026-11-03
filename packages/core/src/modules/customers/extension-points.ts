@@ -22,7 +22,6 @@ export const extensionPoints = defineModuleExtensionPoints({
     dealsTable: dataTableExtensionHost({ tableId: 'customers.deals.list', source: 'backend/customers/deals/page.tsx' }),
     peopleTable: dataTableExtensionHost({ tableId: 'customers.people.list', source: 'backend/customers/people/page.tsx' }),
     todosTable: dataTableExtensionHost({ tableId: 'customers.todos.list', source: 'components/CustomerTodosTable.tsx' }),
-    linkedPeopleTable: dataTableExtensionHost({ tableId: 'customers.linked_people.list', source: 'components/detail/LinkedPeopleSection.tsx' }),
     companyForm: crudFormExtensionHost({ entityId: 'customers.company', spotId: 'crud-form:customers.company', source: ['backend/customers/companies-v2/[id]/page.tsx', 'backend/customers/companies/create/page.tsx'] }),
     dealForm: crudFormExtensionHost({ entityId: 'customers.deal', spotId: 'crud-form:customers.deal', source: ['backend/customers/deals/[id]/page.tsx', 'components/detail/create/CreateDealForm.tsx', 'backend/customers/deals/pipeline/components/QuickDealDialog.tsx'] }),
     personForm: crudFormExtensionHost({ entityId: 'customers.person', spotId: 'crud-form:customers.person', source: ['backend/customers/people-v2/[id]/page.tsx', 'backend/customers/people/create/page.tsx', 'components/detail/CreatePersonDialog.tsx'] }),

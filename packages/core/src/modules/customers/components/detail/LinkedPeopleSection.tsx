@@ -15,7 +15,6 @@ import {
 } from '@open-mercato/shared/lib/browser/versionedPreference'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
-import { extensionPoints } from '../../extension-points'
 import type { TabEmptyStateConfig, Translator } from './types'
 import {
   PersonEmailCell,
@@ -531,7 +530,7 @@ export function LinkedPeopleSection<
               <StarredPeopleContext.Provider value={starredPeople}>
                 <DataTable<LinkedPersonSummary>
                   embedded
-                  extensionTableId={extensionPoints.hosts.linkedPeopleTable.tableId}
+                  extensionTableId="customers.linked_people.list"
                   columns={columns}
                   data={visiblePeople}
                   isLoading={listLoading}
