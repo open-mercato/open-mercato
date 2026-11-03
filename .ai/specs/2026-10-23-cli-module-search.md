@@ -32,7 +32,7 @@ yarn mercato module info <package-or-module-id> [--json]
 
 - Line of the app: `node_modules/@open-mercato/core/package.json`, else the `@open-mercato/core` range in
   `package.json`; mapped to a catalog line (`0.9`, `next` for develop builds). A version the catalog does not test
-  shows every line with a note.
+  shows every line with a note. Version parsing follows the catalog: no build metadata or leading-zero numeric prerelease identifiers.
 - Default filter: catalog entries verified on that line (`version.recommended[line]`, so a new release in the Yarn
   age gate does not hide a module) plus built-in modules; the rest is counted in `hidden` and named in one closing
   line (`N more modules are listed but not verified on 0.9. Use --all-lines.`). When every match is hidden the
@@ -56,6 +56,8 @@ mercato.ts module search|info (no bootstrap, no DB, no generators)
 
 Network: `OM_MODULES_INDEX_URL` or `https://modules.openmercato.com/modules.json`, `built-in.json` next to it
 (`OM_MODULES_BUILTIN_URL` to override); 4 s timeout, one retry after a network error or a 5xx.
+Both URLs and each redirect must use HTTPS, except HTTP on `localhost`, `127.0.0.1` or `[::1]`.
+Downloads are capped at 10 MiB each using Content-Length and actual streamed bytes; oversized downloads preserve a usable stale cache. Redirect chains stop after five hops. The injected JSON-only fetch seam remains supported, with a serialized-size check.
 
 ## Data Models
 
@@ -167,3 +169,4 @@ Explicit app-root overrides and the resolver's cwd fallback remain supported. No
   `module info --json` warnings use the app line, not the latest one.
 
 - 2026-10-30: Repair inherited default-visibility ranking and app-root findings. Add regressions for hidden AND hits, typo retry, non-module visibility, and both commands from workspace and nested roots, retaining explicit overrides and cwd fallback. Adapt the two scoped fixes from #8190 without changing that stacked PR or its separate version/download work.
+- 2026-10-30 (#8124 follow-up, rebased on main after #8117): Reject non-catalog version forms and bound index downloads by HTTPS, redirect count and size. Regression tests cover both; command names, flags and JSON fields remain unchanged.

@@ -1403,7 +1403,7 @@
     {
       "capabilityId": "data.encryption-map",
       "title": "Tenant data encryption map for a module entity",
-      "description": "`defaultEncryptionMaps` declaring one at-rest-encrypted column (`example:todo.notes`). Shows the choice the declaration forces on every read path: the column is projected only for single-record requests, absent from `sortFieldMap` and from the CSV headers, never filtered with `$ilike`, and written through `TenantDataEncryptionService.encryptEntityPayload` on the `nativeUpdate` path because that path fires no ORM lifecycle hooks. Pre-image reads that feed undo snapshots use `findOneWithDecryption`.",
+      "description": "`defaultEncryptionMaps` declaring one at-rest-encrypted column (`example:todo.notes`). Shows the choice the declaration forces on every read path: the column is projected only for single-record requests, absent from `sortFieldMap` and from the CSV headers, filtered through QueryEngine `$ilike` only with populated scoped tokens, and written through `TenantDataEncryptionService.encryptEntityPayload` on the `nativeUpdate` path because that path fires no ORM lifecycle hooks. Pre-image reads that feed undo snapshots use `findOneWithDecryption`.",
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
@@ -1483,7 +1483,7 @@
     {
       "capabilityId": "search.encrypted-column-list-filter",
       "title": "List filtering over an encrypted column through the token index",
-      "description": "Text search over the encrypted `notes` column uses a plain `$ilike`, the SAME shape as the plaintext `title` filter. The query engine intercepts like/ilike and rewrites it into a hashed `search_tokens` lookup when the column is encrypted and search is active (`packages/shared/src/lib/query/engine.ts` → `applyFilterOp`), applying the tenant/organization scope itself via `applySearchTokens`; the index stores hashes of the DECRYPTED value because the indexer runs `decryptIndexDocForSearch` before tokenizing. The lesson this row teaches is that a module must NOT hand-roll an id narrowing for an encrypted column — that duplicates platform behaviour and re-derives a scope the platform already applies. When search is off the engine warns via `warnOnCiphertextLikeFallback` rather than silently matching nothing.",
+      "description": "Text search over the encrypted `notes` column uses a plain `$ilike`, the SAME shape as the plaintext `title` filter. The query engine intercepts like/ilike and rewrites it into a hashed `search_tokens` lookup when the column is encrypted and search is active (`packages/shared/src/lib/query/engine.ts` → `applyFilterOp`), applying the tenant/organization scope itself via `applySearchTokens`; the index stores hashes of the DECRYPTED value because the indexer runs `decryptIndexDocForSearch` before tokenizing. The lesson this row teaches is that a module must NOT hand-roll an id narrowing for an encrypted column — that duplicates platform behaviour and re-derives a scope the platform already applies. The entity/field/records must already have tokens in the caller scope, with search enabled and a tokenizable query. Adding search.ts alone cannot establish that state. Fallback emits warnOnCiphertextLikeFallback and development meta.ciphertextSearchWarnings; an empty 200 remains possible. Raw ORM consumers still need explicit token lookup.",
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
@@ -1491,7 +1491,8 @@
         "src/modules/example/api/todos/route.ts"
       ],
       "integrationTestPaths": [
-        "src/modules/example/api/__tests__/todos.encrypted-search.test.ts"
+        "src/modules/example/api/__tests__/todos.encrypted-search.test.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-004-encryption.spec.ts"
       ],
       "dependencyModules": [
         "query_index"
