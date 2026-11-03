@@ -42,7 +42,7 @@ The operator clarified that dev:greenfield must keep its established automatic -
 
 - [x] 3.1 Restore default greenfield reinstall and align regression coverage and docs. — 865b22dde
 - [x] 3.2 Protect unhealthy existing services before startup and cover reuse consent. — 078106eb0
-- [ ] 3.3 Verify configured PostgreSQL, Redis and Meilisearch credentials before database setup; provide sanitized actionable errors.
+- [x] 3.3 Verify configured PostgreSQL, Redis and Meilisearch credentials before database setup; provide sanitized actionable errors. — 8f8820874
 - [ ] 3.4 Run focused validation and full PR review, then publish the updated PR scope.
 
 ## Diagnostic findings
