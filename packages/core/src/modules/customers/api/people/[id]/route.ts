@@ -1,3 +1,4 @@
+import { enrichCustomerDetailResponse } from '../../../lib/detailResponseEnrichment'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -33,6 +34,7 @@ import {
   mapInteractionRecordToTodoSummary,
 } from '../../../lib/interactionCompatibility'
 import { resolveCustomerInteractionFeatureFlags } from '../../../lib/interactionFeatureFlags'
+import { countCustomerTodos } from '../../../lib/todoCompatibility'
 import { hydrateCanonicalInteractions } from '../../../lib/interactionReadModel'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
@@ -579,7 +581,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
         statusCode = 200
         profileMeta = { cacheHit: true, include: Array.from(includeTokens), interactionMode }
         profiler.mark('cache_hit')
-        return NextResponse.json(cached)
+        return NextResponse.json(await enrichCustomerDetailResponse(cached as Record<string, unknown>, 'person', { auth, container, em, tenantId: personDetailTenantId, organizationId: personDetailOrganizationId }))
       }
     }
 
@@ -770,7 +772,10 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     if (viewerUserId) authorIds.add(viewerUserId)
 
     if (authorIds.size) {
-      const users = await findWithDecryption(em, User, { id: { $in: Array.from(authorIds) } }, {}, { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null })
+      const users = await findWithDecryption(em, User, {
+        id: { $in: Array.from(authorIds) },
+        tenantId: person.tenantId,
+      }, {}, { tenantId: person.tenantId, organizationId: person.organizationId })
       userMap = new Map(
         users.map((user) => [
           user.id,
@@ -874,19 +879,11 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
         deletedAt: null,
         ...emailVisibilityFilter,
       }),
-      interactionFlags.unified
-        ? em.count(CustomerInteraction, {
-            entity: person.id,
-            organizationId: person.organizationId,
-            tenantId: person.tenantId,
-            deletedAt: null,
-            interactionType: 'task',
-          })
-        : em.count(CustomerTodoLink, {
-            entity: person.id,
-            organizationId: person.organizationId,
-            tenantId: person.tenantId,
-          }),
+      countCustomerTodos(em, {
+        entityId: person.id,
+        organizationId: person.organizationId,
+        tenantId: person.tenantId,
+      }, interactionFlags.unified),
       includeAddresses
         ? Promise.resolve(addresses.length)
         : em.count(CustomerAddress, {
@@ -1134,7 +1131,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       } catch {}
     }
 
-    const response = NextResponse.json(payload)
+    const response = NextResponse.json(await enrichCustomerDetailResponse(payload, 'person', { auth, container, em, tenantId: personDetailTenantId, organizationId: personDetailOrganizationId }))
     statusCode = 200
     profileMeta = {
       include: Array.from(includeTokens),

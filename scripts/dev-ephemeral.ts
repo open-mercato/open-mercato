@@ -14,6 +14,7 @@ import {
 } from '../packages/cli/src/lib/testing/runtime-utils'
 import { createDevSplashCodingFlow } from './dev-splash-coding-flow.mjs'
 import { createEphemeralShutdownController } from './dev-ephemeral-shutdown.mjs'
+import { acquireDevSession } from './dev-session-guard.mjs'
 import { normalizeSplashDisplayState } from './dev-splash-state.mjs'
 import {
   resolveDevBaseUrl,
@@ -147,6 +148,18 @@ const splashState = {
   progressPercent: 0,
   progressLabel: 'Preparing ephemeral environment',
   activities: [] as string[],
+}
+
+let devSession: ReturnType<typeof acquireDevSession>
+try {
+  devSession = acquireDevSession({
+    workspaceRoot: projectRootDirectory,
+    mode: `ephemeral:${classic ? 'classic' : verbose ? 'verbose' : 'compact'}`,
+    role: 'ephemeral-runner',
+  })
+} catch (error) {
+  console.error(`❌ ${error instanceof Error ? error.message : String(error)}`)
+  process.exit(1)
 }
 
 let splashServer: ReturnType<typeof createServer> | null = null
@@ -466,6 +479,10 @@ const shutdownController = createEphemeralShutdownController({
   },
   onInterrupt: () => {
     announceShutdown()
+  },
+  exit: (code: number) => {
+    devSession.release()
+    process.exit(code)
   },
 })
 
@@ -981,6 +998,7 @@ async function startDevServer(port: number, postgres: EphemeralPostgresHandle): 
   const backendUrl = `${baseUrl}/backend`
   const devEnvironment = {
     ...process.env,
+    ...devSession.childEnv,
     PORT: String(port),
     DATABASE_URL: postgres.databaseUrl,
     APP_URL: publicBaseUrl,
@@ -1008,6 +1026,7 @@ async function startDevServer(port: number, postgres: EphemeralPostgresHandle): 
     throw new Error('Failed to start development runtime process.')
   }
 
+  devSession.registerChild(devCommand, 'ephemeral-app-runtime')
   shutdownController.setActiveChild(devCommand)
 
   let resolveExit: (code: number) => void = () => {}

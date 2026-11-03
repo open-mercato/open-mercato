@@ -57,10 +57,12 @@ export async function assignEmployeeToProjectFixture(
   token: string,
   projectId: string,
   staffMemberId: string,
+  options: { assignedStartDate?: string } = {},
 ): Promise<string> {
+  const assignedStartDate = options.assignedStartDate ?? new Date().toISOString().slice(0, 10)
   const response = await apiRequest(request, 'POST', `/api/staff/timesheets/time-projects/${projectId}/employees`, {
     token,
-    data: { staffMemberId, status: 'active', assignedStartDate: new Date().toISOString().slice(0, 10) },
+    data: { staffMemberId, status: 'active', assignedStartDate },
   })
   expect(response.ok(), `Failed to assign employee to project: ${response.status()}`).toBeTruthy()
   const body = (await response.json()) as { id?: string }

@@ -245,6 +245,11 @@ test('generated classic Codex root and representative initial chains fit their b
         routedMarkers: [] as string[],
       },
       {
+        name: 'production deployment readiness',
+        paths: ['AGENTS.md', '.ai/guides/production-deployment.md'],
+        routedMarkers: ['.ai/guides/production-deployment.md'],
+      },
+      {
         name: 'new module with CRUD data model',
         paths: [
           'AGENTS.md',
