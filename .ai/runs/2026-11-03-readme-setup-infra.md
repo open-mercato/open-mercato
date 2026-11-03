@@ -8,6 +8,8 @@ Runner: local. Documentation-only gate: whitespace/diff check, shell syntax of t
 
 ## Progress
 
+PR: #8608
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Documentation
@@ -17,4 +19,4 @@ Runner: local. Documentation-only gate: whitespace/diff check, shell syntax of t
 
 ### Phase 2: Publish
 
-- [ ] 2.1 Record automated review and publish the completed PR.
+- [x] 2.1 Record automated review and publish the completed PR. — 4f03ccc1e (review recorded in the PR conversation)
