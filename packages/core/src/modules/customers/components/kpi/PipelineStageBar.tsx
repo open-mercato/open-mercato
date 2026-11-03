@@ -14,8 +14,10 @@ export type PipelineStageBarProps = {
   stages: PipelineStageDatum[]
   stageDictionary: DictionaryMap
   unassignedLabel: string
-  formatValue: (value: number) => string
-  formatCount: (count: number) => string
+  /** Value shown on each row. Without it rows show no value and bars follow the deal count. */
+  formatValue?: (value: number) => string
+  /** Count shown on each row; defaults to the plain number. */
+  formatCount?: (count: number) => string
   /** Rows shown before the remaining stages collapse into one `otherLabel` row. */
   maxRows?: number
   /** Label for the collapsed row, e.g. "3 other stages". */
@@ -33,6 +35,7 @@ export type StageSegment = {
 
 const DEFAULT_MAX_ROWS = 5
 const MIN_BAR_PERCENT = 2
+const formatPlainCount = (count: number) => String(count)
 
 // One cool ramp, darkest for the largest share, so the rows read as a scale
 // rather than a mix of unrelated dictionary colours.
@@ -113,7 +116,7 @@ export function PipelineStageBar({
   stageDictionary,
   unassignedLabel,
   formatValue,
-  formatCount,
+  formatCount = formatPlainCount,
   maxRows = DEFAULT_MAX_ROWS,
   otherLabel,
 }: PipelineStageBarProps) {
@@ -124,12 +127,13 @@ export function PipelineStageBar({
 
   if (rows.length === 0) return null
 
-  const total = rows.reduce((sum, row) => sum + Math.max(row.value, 0), 0)
+  const measure = (row: StageSegment) => Math.max(formatValue ? row.value : row.count, 0)
+  const total = rows.reduce((sum, row) => sum + measure(row), 0)
 
   return (
     <ul className="space-y-2.5">
       {rows.map((row) => {
-        const share = total > 0 ? (Math.max(row.value, 0) / total) * 100 : 0
+        const share = total > 0 ? (measure(row) / total) * 100 : 0
         const width = share > 0 ? Math.max(share, MIN_BAR_PERCENT) : 0
         return (
           <li key={row.key} className="space-y-1">
@@ -142,7 +146,9 @@ export function PipelineStageBar({
                 />
                 <span className={cn('truncate', row.unassigned ? 'text-muted-foreground' : 'text-foreground')}>{row.label}</span>
               </span>
-              <span className="shrink-0 font-medium tabular-nums text-foreground">{formatValue(row.value)}</span>
+              {formatValue ? (
+                <span className="shrink-0 font-medium tabular-nums text-foreground">{formatValue(row.value)}</span>
+              ) : null}
             </div>
             <div className="flex items-center justify-between gap-3 pl-4">
               <span className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted" aria-hidden>

@@ -73,6 +73,23 @@ describe('PipelineStageBar', () => {
     expect(screen.getByText('4 deals')).toBeInTheDocument()
   })
 
+  it('renders the original three-prop call shape with plain counts, no values and bars by count', () => {
+    const { container } = render(
+      <PipelineStageBar
+        stages={[{ stage: 'a', count: 3, value: 100 }, { stage: 'b', count: 1, value: 900 }]}
+        stageDictionary={{}}
+        unassignedLabel="Unassigned"
+      />,
+    )
+    expect(screen.getByText('A')).toBeInTheDocument()
+    expect(screen.getByText('3')).toBeInTheDocument()
+    expect(screen.getByText('1')).toBeInTheDocument()
+    expect(screen.queryByText('100')).not.toBeInTheDocument()
+    expect(screen.queryByText('900')).not.toBeInTheDocument()
+    const bars = Array.from(container.querySelectorAll('li div span[aria-hidden].flex-1 > span')) as HTMLElement[]
+    expect(bars.map((bar) => bar.style.width)).toEqual(['25%', '75%'])
+  })
+
   it('renders nothing without open deals', () => {
     const { container } = render(
       <PipelineStageBar stages={[{ stage: 'a', count: 0, value: 0 }]} stageDictionary={{}} unassignedLabel="Unassigned" formatValue={formatValue} formatCount={formatCount} />,
