@@ -4,6 +4,7 @@
  * A quote whose metadata carries `customerEmail` (the form's "Send to" field) must
  * report and use that address even when the customer record has its own e-mail:
  * - the documents update response reports it as `contactEmail`
+ * - the documents list reports it too, and the quotes table shows it
  * - the Send quote dialog announces it
  * - the quote e-mail goes to it (needs the test channel seeding; skipped otherwise)
  * - a copy equal to the customer e-mail follows an edit on the customer card
@@ -75,6 +76,17 @@ test.describe('TC-SALES-8459: Send to precedence', () => {
       })
       expect(update.status()).toBe(200)
       expect((await readJsonSafe<{ contactEmail?: string | null }>(update))?.contactEmail, 'Send to wins over the record e-mail').toBe(sendToEmail)
+
+      const list = await apiRequest(request, 'GET', `/api/sales/quotes?customerId=${encodeURIComponent(personId)}&pageSize=10`, { token })
+      expect(list.status()).toBe(200)
+      const listed = (await readJsonSafe<{ items?: Array<{ id?: string; quoteNumber?: string | null; contactEmail?: string | null; metadata?: unknown }> }>(list))?.items?.find((item) => item.id === quoteId)
+      expect(listed?.contactEmail, 'the list reports Send to').toBe(sendToEmail)
+      expect(listed?.metadata ?? null, 'the list still leaves metadata out').toBeNull()
+
+      await login(page, 'admin')
+      await page.goto('/backend/sales/quotes', { waitUntil: 'domcontentloaded' })
+      await page.getByPlaceholder('Search quotes…').fill(String(listed?.quoteNumber))
+      await expect(page.getByRole('row', { name: new RegExp(String(listed?.quoteNumber)) }), 'the table shows Send to').toContainText(sendToEmail, { timeout: 30_000 })
 
       await login(page, 'admin')
       await page.goto(`/backend/sales/quotes/${encodeURIComponent(quoteId as string)}`, { waitUntil: 'domcontentloaded' })

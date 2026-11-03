@@ -173,7 +173,7 @@ describe('quote send + accept flow', () => {
       acceptanceToken: null,
     }
 
-    mockEm.findOne.mockImplementation(async (cls: any, where: any) => {
+    mockEm.findOne.mockImplementation(async (cls: unknown, where: { id?: string } | null) => {
       if (cls === SalesQuote) return where?.id === quote.id ? quote : null
       if (cls === Dictionary) return { id: 'dict-1' }
       if (cls === DictionaryEntry) return { id: 'entry-sent' }
