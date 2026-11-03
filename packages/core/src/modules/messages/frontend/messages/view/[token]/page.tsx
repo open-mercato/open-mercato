@@ -94,10 +94,10 @@ function toErrorMessage(payload: unknown): string | null {
   return null
 }
 
-function formatDateTime(value: string | null | undefined): string {
-  if (!value) return '—'
+function formatDateTime(value: string | null | undefined, unknownDate: string): string {
+  if (!value) return unknownDate
   const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return '—'
+  if (Number.isNaN(date.getTime())) return unknownDate
   return date.toLocaleString()
 }
 
@@ -308,7 +308,8 @@ export default function MessageTokenPage({ params }: { params: { token: string }
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold">{data.subject}</h1>
         <p className="text-sm text-muted-foreground">
-          {t('messages.token.sentAt', 'Sent')}: {formatDateTime(data.sentAt)}
+          {t('messages.token.sentAt', 'Sent')}:{' '}
+          {formatDateTime(data.sentAt, t('messages.unknownDate', 'Unknown date'))}
         </p>
       </header>
 

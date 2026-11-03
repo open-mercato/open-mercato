@@ -10,6 +10,7 @@ jest.mock('@open-mercato/shared/lib/commands/flush', () => ({
 }))
 
 jest.mock('@open-mercato/core/modules/directory/lib/hierarchy', () => ({
+  findOrganizationParentCycle: jest.requireActual('@open-mercato/core/modules/directory/lib/hierarchy').findOrganizationParentCycle,
   lockOrganizationHierarchyForTenant: jest.fn(async () => []),
   rebuildHierarchyForTenant: jest.fn(async () => {}),
 }))

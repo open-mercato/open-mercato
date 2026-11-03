@@ -6,6 +6,7 @@ import { DefaultSalesCalculationService } from '../../services/salesCalculationS
 import { registerSalesTotalsCalculator } from '../../lib/calculations'
 import type { SalesDocumentCalculationResult } from '../../lib/types'
 import { SalesOrder, SalesQuote } from '../../data/entities'
+import { createSalesDocumentLockKyselyFixture } from './salesDocumentLockFixture'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -125,6 +126,7 @@ function makeContext(documentKind: 'order' | 'quote', results: SalesDocumentCalc
     getUnitOfWork: () => ({ getChangeSets: () => [], computeChangeSets: () => {} }),
     getReference: jest.fn((_entity: unknown, id: string) => ({ id })),
     getConnection: () => ({ execute: jest.fn(async () => [{ value: 1 }]) }),
+    getKysely: () => createSalesDocumentLockKyselyFixture(documentId),
   }
   const calculationService = new DefaultSalesCalculationService(null)
   const calculateDocumentTotals = calculationService.calculateDocumentTotals.bind(calculationService)

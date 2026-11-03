@@ -4,6 +4,10 @@ The `staff` module is **optional** and slated for extraction into a standalone `
 
 See [`.ai/specs/implemented/2026-05-08-staff-decouple-from-core.md`](../../../../../.ai/specs/implemented/2026-05-08-staff-decouple-from-core.md) for the decoupling plan, and [`BACKWARD_COMPATIBILITY.md`](../../../../../BACKWARD_COMPATIBILITY.md) for the contract-surface taxonomy referenced below.
 
+## Always
+
+- Preserve unsaved project-team drafts across translation-context updates. Tie data reloads to the project, organization scope, opening the drawer, or an explicit retry; read the current translator for asynchronous error copy without making translator identity a reload trigger.
+
 ## MUST Rules
 
 1. **MUST NOT import staff entities (`StaffTeam`, `StaffTeamMember`, etc.) from non-staff core modules.** Use the public surfaces below.

@@ -4,6 +4,7 @@ import { asValue, createContainer, InjectionMode } from 'awilix'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands/types'
 import { DefaultSalesCalculationService } from '../../services/salesCalculationService'
+import { createSalesDocumentLockKyselyFixture } from './salesDocumentLockFixture'
 
 jest.mock('#generated/entities.ids.generated', () => ({
   E: {
@@ -125,6 +126,7 @@ function buildHarness(options: { orders?: Row[]; lines?: Row[]; adjustments?: Ro
     commit: async () => undefined,
     rollback: async () => undefined,
     getReference: (_entity: unknown, id: unknown) => ({ id }),
+    getKysely: () => createSalesDocumentLockKyselyFixture(String(order?.id ?? ORDER_ID)),
     // Reached only by the undo path that finds the order still present: it drops
     // the old line rows and evicts them from the identity map before writing the
     // snapshot's back.
@@ -764,8 +766,10 @@ describe('undo — the mode and the amounts move together', () => {
       lines: [storedExternalLine(LINE_ONE_ID, 1)],
     })
 
-    const snapshots = (await commandRegistry.get('sales.orders.lines.upsert')!.prepare?.(
-      { body: { orderId: ORDER_ID } } as never,
+    // Line writes capture their before graph under the order lock; the order
+    // update still reads it in prepare through the same snapshot loader.
+    const snapshots = (await commandRegistry.get('sales.orders.update')!.prepare?.(
+      { id: ORDER_ID, totalsMode: 'external' } as never,
       ctx,
     )) as { before?: { order: Record<string, unknown>; lines: Array<Record<string, unknown>> } }
 
@@ -780,8 +784,8 @@ describe('undo — the mode and the amounts move together', () => {
       lines: [storedExternalLine(LINE_ONE_ID, 1)],
     })
 
-    const prepared = (await commandRegistry.get('sales.orders.lines.upsert')!.prepare?.(
-      { body: { orderId: ORDER_ID } } as never,
+    const prepared = (await commandRegistry.get('sales.orders.update')!.prepare?.(
+      { id: ORDER_ID, totalsMode: 'external' } as never,
       ctx,
     )) as { before?: unknown }
 
@@ -1060,20 +1064,21 @@ describe('quotes stay computed', () => {
     expect(rejection.error).toContain('computed amounts')
   })
 
-  it('rejects a quote update that carries the document mode', async () => {
-    const { ctx } = buildHarness({ orders: [storedExternalOrder()] })
+  it('ignores the order-only document mode on an otherwise valid quote update', async () => {
+    const quote = storedExternalOrder({ totalsMode: undefined, comments: null })
+    const { ctx } = buildHarness({ orders: [quote] })
 
-    // `documentUpdateSchema` is shared with orders, so `totalsMode` reaches a
-    // quote command and has to be refused rather than parsed and dropped.
-    const rejection = await expectRejection(
-      commandRegistry.get('sales.quotes.update')!.execute(
-        { id: ORDER_ID, totalsMode: 'external' } as never,
-        ctx,
-      ),
+    await commandRegistry.get('sales.quotes.update')!.execute(
+      {
+        id: ORDER_ID,
+        comments: 'Compatibility update',
+        totalsMode: 'external',
+      } as never,
+      ctx,
     )
 
-    expect(rejection.status).toBe(400)
-    expect(rejection.error).toContain('computed amounts')
+    expect(quote.comments).toBe('Compatibility update')
+    expect(quote.totalsMode).toBeUndefined()
   })
 
   it('keeps a header-only quote update rejected as empty', async () => {

@@ -33,7 +33,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
-import { resolveExactDecimal, withExactAmounts } from '@open-mercato/shared/lib/decimal'
+import { decimalsEqual, parseDecimal, resolveExactDecimal, withExactAmounts } from '@open-mercato/shared/lib/decimal'
 import { resolveCurrencyAmountDecimalPlaces } from '@open-mercato/shared/lib/currencyPrecision'
 import {
   capturePriceHistoryEntry,
@@ -301,6 +301,30 @@ function resolveAmountInputFromParsed(parsed: ExactPriceInput): PriceAmountInput
     }
   }
   return null
+}
+
+function changedAmountInput(
+  incoming: number | null | undefined,
+  incomingExact: string | null | undefined,
+  current: string | null | undefined,
+  mode: PriceAmountInput['mode'],
+): PriceAmountInput | null {
+  if (typeof incoming !== 'number' || !Number.isFinite(incoming)) return null
+  const amountExact = resolveExactDecimal(incomingExact, incoming)
+  const currentExact = parseDecimal(current)
+  if (amountExact !== null && currentExact && decimalsEqual(amountExact, currentExact)) return null
+  return { amount: incoming, amountExact, mode }
+}
+
+function resolveAmountInputForUpdate(
+  parsed: ExactPriceInput,
+  record: CatalogProductPrice
+): PriceAmountInput | null {
+  return (
+    changedAmountInput(parsed.unitPriceNet, parsed.unitPriceNetExact, record.unitPriceNet, 'net') ??
+    changedAmountInput(parsed.unitPriceGross, parsed.unitPriceGrossExact, record.unitPriceGross, 'gross') ??
+    resolveAmountInputFromParsed(parsed)
+  )
 }
 
 function resolveAmountInputFromRecord(record: CatalogProductPrice): PriceAmountInput | null {
@@ -672,7 +696,7 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
     ensureSameTenant(targetPriceKind, targetProduct.tenantId)
 
     const taxCalculationService = ctx.container.resolve<TaxCalculationService>('taxCalculationService')
-    const amountInput = resolveAmountInputFromParsed(parsed)
+    const amountInput = resolveAmountInputForUpdate(parsed, record)
     const hasNetInput = Object.prototype.hasOwnProperty.call(parsed, 'unitPriceNet')
     const hasGrossInput = Object.prototype.hasOwnProperty.call(parsed, 'unitPriceGross')
     const hasTaxRateInput = Object.prototype.hasOwnProperty.call(parsed, 'taxRate')

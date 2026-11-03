@@ -201,7 +201,7 @@ export async function GET(req: Request) {
   }
   let superAdminRoleIds: Set<string> | null = null
   if (!isSuperAdmin && actorTenantId) {
-    const superAdminAcls = await findWithDecryption(em, RoleAcl, { tenantId: actorTenantId, isSuperAdmin: true }, {}, { tenantId: actorTenantId, organizationId: null })
+    const superAdminAcls = await findWithDecryption(em, RoleAcl, { tenantId: actorTenantId, isSuperAdmin: true, deletedAt: null }, {}, { tenantId: actorTenantId, organizationId: null })
     if (superAdminAcls.length) {
       superAdminRoleIds = new Set(
         superAdminAcls

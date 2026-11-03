@@ -21,6 +21,7 @@ import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { registerSalesTotalsCalculator } from '../../lib/calculations'
 import { DefaultSalesCalculationService } from '../../services/salesCalculationService'
 import { SalesOrder, SalesQuote, SalesShipment, SalesShipmentItem } from '../../data/entities'
+import { createSalesDocumentLockKyselyFixture } from './salesDocumentLockFixture'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -126,6 +127,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 function makeEm() {
   const world = () => (globalThis as any).__carriedColumnsWorld
   const em: any = {
+    getKysely: () => createSalesDocumentLockKyselyFixture(ORDER_ID),
     fork: function () {
       return this
     },
