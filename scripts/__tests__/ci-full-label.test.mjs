@@ -36,3 +36,27 @@ test('label events trigger CI only for ci-full and read labels through an enviro
   assert.equal(workflow.jobs.prepare.if, "github.event.action != 'labeled' || github.event.label.name == 'ci-full'")
   assert.equal(scope.env.FORCE_FULL_SUITE, "${{ contains(github.event.pull_request.labels.*.name, 'ci-full') }}")
 })
+
+for (const [changedPath, expectedSkip, expectedModules] of [
+  ['README.md', 'true', ''],
+  ['packages/core/src/modules/customers/api/people.ts', 'false', 'customers'],
+]) {
+  test(`unlabelled PR preserves scope for ${changedPath}`, () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ci-scope-'))
+    try {
+      const output = path.join(directory, 'output')
+      const script = `git() { echo "$CHANGED_PATH"; }\n${scope.run.replaceAll('${{ github.event_name }}', 'pull_request')}`
+      const result = spawnSync('bash', ['-e', '-c', script], {
+        env: { ...process.env, GITHUB_OUTPUT: output, FORCE_FULL_SUITE: 'false', CHANGED_PATH: changedPath },
+        encoding: 'utf8', timeout: 5000,
+      })
+      assert.equal(result.status, 0, result.stderr)
+      const content = fs.readFileSync(output, 'utf8')
+      assert.ok(content.includes(`skip=${expectedSkip}\n`))
+      assert.ok(content.includes(`modules=${expectedModules}\n`))
+      assert.ok(content.includes('shard_matrix=["none"]'))
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true })
+    }
+  })
+}

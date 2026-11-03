@@ -13,6 +13,9 @@ No speculative product fixes, base-branch merges, or unrelated CI redesign.
 Phase 1: Add and test label-driven full integration scope, preserving existing selection.
 Phase 2: Run validation and the full PR suite, fix any verified failures, then obtain one independent final review and apply automerge only after green checks.
 
+## Validation evidence
+Runner: local (no running app container). 34 targeted CI/audit tests passed. Full local gate blocked at yarn build:packages by missing node_modules install state. Broad workflow tests encounter shared esbuild host/binary mismatch; no production change justified by that local installation issue. Remote PR CI is the full-gate evidence source.
+
 ## Risks
 Full CI requires remote runners. Label additions must trigger CI without unrelated label changes cancelling active suites.
 
@@ -23,7 +26,7 @@ PR: #8623
 
 ### Phase 1: Full-suite override
 
-- [ ] 1.1 Add ci-full override and regression tests
+- [x] 1.1 Add ci-full override and regression tests — ff69401d6e
 
 ### Phase 2: Verification
 
