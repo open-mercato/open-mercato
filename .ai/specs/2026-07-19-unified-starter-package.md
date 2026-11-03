@@ -146,3 +146,17 @@ Remote database connection override/TLS query parameters are removed so they
 cannot redirect local setup to a remote database.
 No production dependency is added: Testcontainers is already
 a CLI dependency. Existing generated apps retain their scripts until refreshed.
+
+
+### Credential verification before database setup
+
+Both setup entrypoints verify the actual configured services before running
+migrations or initialization: PostgreSQL executes `SELECT 1`, every configured
+Redis URL authenticates and returns `PONG`, and Meilisearch's protected indexes
+API verifies the application API key. This includes secondary cache/queue/event
+Redis consumers. Timeouts and authentication/authorization failures stop setup
+with the service name, configuration key and sanitized endpoint. They preserve
+existing data and do not print passwords, API keys or URL query values. The
+Meilisearch check uses the application's API-key setting, not the Compose
+master-key setting as a substitute. Public health checks do not establish
+credential validity.

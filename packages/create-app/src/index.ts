@@ -537,7 +537,7 @@ function printTemplateNextSteps(
   console.log(pc.cyan(`  cd ${appName}`))
   console.log(pc.cyan('  yarn setup'))
   console.log(pc.dim('  # Reuses the services configured in .env by default; interactive terminals offer service choices.'))
-  console.log(pc.dim('  # Installs dependencies, migrates and initializes the database, then starts the dev server.'))
+  console.log(pc.dim('  # Installs dependencies, verifies service credentials, migrates and initializes the database, then starts dev.'))
   console.log(pc.dim('  # Needs Node 24 and Yarn 4 (corepack enable). Docker is needed only for the options below.'))
   console.log('')
   console.log('Choose isolated services instead:')

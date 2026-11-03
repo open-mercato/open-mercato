@@ -59,3 +59,5 @@ URLs in `apps/mercato/.env`, then run `yarn install`, `yarn build:packages`,
 Alternatively retry `yarn setup --ephemeral`, `yarn setup --random-ports`, or
 `yarn setup --infra`. Ephemeral URLs are session-scoped; after failure or exit,
 use the restored existing-service URLs or start another ephemeral setup session.
+
+Before database setup, the starter verifies PostgreSQL with `SELECT 1`, every configured Redis consumer with an authenticated `PING`, and Meilisearch with its protected indexes API. Invalid credentials or unreachable services stop setup with the relevant configuration key and a redacted endpoint; passwords and API keys are never printed.

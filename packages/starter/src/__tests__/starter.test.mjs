@@ -11,7 +11,7 @@ import { DEFAULT_OPENCODE_BASE_IMAGE, DEFAULT_PORTS, resolveStackPorts } from '.
 import { addEnvValue, readEnvValue, setEnvValue } from '../env-file.mjs'
 import { ensureLlmProvider, syncProviderConfigToAppEnv } from '../providers.mjs'
 import { ensureWindowsUtf8Console, resolveSpawnCommand } from '../spawn.mjs'
-import { StepBlocked, buildToolchainStep, containerRuntimeStep, databaseStep, hostGatewayStep, infraUpStep, serviceConfigurationStep, buildUpSteps, clearConvergenceState, databaseIsInitialized, listMigrationModules, migrationsFingerprint, probePostgresCredentials, readAppliedMigrationModules, resolveOpencodeBaseImage, runSteps, workspaceBuildStep } from '../steps.mjs'
+import { StepBlocked, buildToolchainStep, containerRuntimeStep, databaseStep, hostGatewayStep, infraUpStep, serviceConfigurationStep, serviceConnectionsStep, buildUpSteps, clearConvergenceState, databaseIsInitialized, listMigrationModules, migrationsFingerprint, probePostgresCredentials, readAppliedMigrationModules, resolveOpencodeBaseImage, runSteps, workspaceBuildStep } from '../steps.mjs'
 import { ensureEnvFiles } from '../env-setup.mjs'
 import { describeInfraProblem, devRuntimeArgs, externalDatabaseHost, removeLeftoverComposeResources, resolveUpMode, startInfra } from '../infra.mjs'
 import { detectDockerRuntime, detectWsl, findPortConflicts, findUnhealthyServices, formatInfraProblem, startInfraServices } from '../infra-preflight.mjs'
@@ -988,4 +988,19 @@ test('random-port reconfiguration reconverges healthy Compose services before da
   const outcome = await runSteps([serviceConfigurationStep, infraUpStep, { id: 'database', title: 'database', async apply() { calls.push('database') } }], ctx)
   assert.equal(outcome.ok, true)
   assert.deepEqual(calls, ['configure', 'converge', 'database'])
+})
+
+
+test('credential verification runs after infrastructure and blocks database setup on rejection', async () => {
+  const ctx = quietCtx({ repoRoot: makeFakeRepo(), mode: 'hybrid', flags: { serviceMode: 'reuse' }, env: {}, company: { steps: { disable: [], extra: [] } },
+    async verifyServiceConnectionsImpl() { throw new Error('PostgreSQL rejected configured credentials; check DATABASE_URL in .env') },
+  })
+  const ids = buildUpSteps(ctx).map((step) => step.id)
+  assert.ok(ids.indexOf('service-connections') > ids.indexOf('infra-up'))
+  assert.ok(ids.indexOf('service-connections') < ids.indexOf('database'))
+  let databaseRan = false
+  const outcome = await runSteps([serviceConnectionsStep, { id: 'database', title: 'database', async apply() { databaseRan = true } }], ctx)
+  assert.equal(outcome.ok, false)
+  assert.equal(outcome.failedStep, 'service-connections')
+  assert.equal(databaseRan, false)
 })

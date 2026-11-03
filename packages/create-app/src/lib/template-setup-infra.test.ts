@@ -14,7 +14,7 @@ import test from 'node:test'
 // what setup forwarded to it.
 
 const TEMPLATE_SCRIPTS = fileURLToPath(new URL('../../template/scripts/', import.meta.url))
-const SHIPPED_SCRIPTS = ['setup.mjs', 'infra.mjs', 'dev-infra-preflight.mjs', 'dev-database-url.mjs', 'dev-service-modes.mjs']
+const SHIPPED_SCRIPTS = ['setup.mjs', 'infra.mjs', 'dev-infra-preflight.mjs', 'dev-database-url.mjs', 'dev-service-modes.mjs', 'dev-service-connections.mjs']
 const skip = process.platform === 'win32' ? 'fake docker shim is a POSIX shell script' : false
 
 const FAKE_DOCKER = `#!/bin/sh
@@ -67,6 +67,7 @@ async function makeApp() {
     fs.copyFileSync(path.join(TEMPLATE_SCRIPTS, file), path.join(appDir, 'scripts', file))
   }
   fs.writeFileSync(path.join(appDir, 'scripts', 'dev.mjs'), DEV_STUB)
+  fs.writeFileSync(path.join(appDir, 'scripts', 'dev-service-connections.mjs'), `export async function verifyServiceConnections() { if (process.env.FAKE_CONNECTION_INTERRUPT) process.emit('SIGTERM'); if (process.env.FAKE_CONNECTION_FAILURE) throw new Error('[setup] PostgreSQL connection failed (DATABASE_URL at postgres://localhost:5432/example). The service rejected the configured credentials. Check .env.'); return { ok: true } }\n`)
   fs.mkdirSync(path.join(appDir, 'node_modules', 'cross-spawn'), { recursive: true })
   const binDir = path.join(appDir, 'fake-bin')
   fs.mkdirSync(binDir)
@@ -331,5 +332,30 @@ test('ephemeral cleanup failures print manual recovery instructions and fail set
     assert.match(run.output, /Could not fully restore/)
     assert.match(run.output, /Manual setup:[\s\S]*yarn dev --no-infra/)
     assert.deepEqual(run.devArgs, ['--setup', '--no-infra'])
+  } finally { fs.rmSync(app.appDir, { recursive: true, force: true }) }
+})
+
+
+test('rejected service credentials stop setup before database/dev and print clear recovery instructions', { skip }, async () => {
+  const app = await makeApp()
+  try {
+    const run = await runScript(app, 'setup.mjs', [], { env: { FAKE_CONNECTION_FAILURE: '1' } })
+    assert.equal(run.code, 2, run.output)
+    assert.equal(run.devArgs, null)
+    assert.match(run.output, /PostgreSQL connection failed[\s\S]*rejected the configured credentials[\s\S]*Check \.env/)
+    assert.match(run.output, /Manual setup:[\s\S]*yarn dev --no-infra/)
+    assert.deepEqual(run.dockerCalls, [])
+  } finally { fs.rmSync(app.appDir, { recursive: true, force: true }) }
+})
+
+
+test('interrupting service verification prevents database/dev startup', { skip }, async () => {
+  const app = await makeApp()
+  try {
+    const run = await runScript(app, 'setup.mjs', [], { env: { FAKE_CONNECTION_INTERRUPT: '1' } })
+    assert.equal(run.code, 143, run.output)
+    assert.equal(run.devArgs, null)
+    assert.match(run.output, /Setup interrupted while verifying service connections/)
+    assert.deepEqual(run.dockerCalls, [])
   } finally { fs.rmSync(app.appDir, { recursive: true, force: true }) }
 })
