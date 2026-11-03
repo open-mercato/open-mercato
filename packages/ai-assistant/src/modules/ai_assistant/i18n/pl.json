@@ -316,6 +316,7 @@
   "ai_assistant.dock.left": "Dokuj po lewej",
   "ai_assistant.dock.minimize": "Minimalizuj",
   "ai_assistant.dock.right": "Dokuj po prawej",
+  "ai_assistant.errors.directMutationDenied": "Narzędzia modyfikujące dane nie mogą być uruchamiane bezpośrednio. Użyj czatu agenta lub żądania run-object z zasadami zatwierdzania zmian.",
   "ai_assistant.errors.moderationBlocked": "Twoja wiadomość została zablokowana przez filtr bezpieczeństwa treści. Przeformułuj ją i spróbuj ponownie.",
   "ai_assistant.errors.moderationUnavailable": "Sprawdzanie bezpieczeństwa treści jest chwilowo niedostępne. Spróbuj ponownie za chwilę.",
   "ai_assistant.errors.pendingAllRecordsStale": "Wszystkie rekordy oczekującej akcji są nieaktualne; asystent musi ponownie zaproponować zmianę.",

@@ -88,9 +88,13 @@ function buildClaim(overrides: Record<string, unknown> = {}) {
 
 function mockClaimResponses(
   claim: Record<string, unknown>,
+  reasons: Array<{ value: string; label: string }> | null = null,
   commentBody = 'Please send a photo of the damaged buckle.',
 ) {
   apiCallMock.mockImplementation(async (url: string, options?: { method?: string }) => {
+    if (url === '/api/warranty_claims/portal/options' && reasons) {
+      return { ok: true, status: 200, result: { ok: true, result: { reasons, faultCodes: [] } } }
+    }
     if (url.startsWith('/api/warranty_claims/portal/claims/')) {
       return { ok: true, status: 200, result: { item: claim } }
     }
@@ -206,6 +210,48 @@ describe('WarrantyClaimPortalDetailPage (portal claim tracker)', () => {
     expect(view.queryByText('Submit claim')).toBeNull()
   })
 
+  it('titles the claim with the dictionary label of a tenant-defined reason code', async () => {
+    mockClaimResponses(
+      buildClaim({ reasonCode: 'defect' }),
+      [{ value: 'defect', label: 'Manufacturing defect' }],
+    )
+
+    const view = renderWithProviders(
+      <WarrantyClaimPortalDetailPage params={{ orgSlug: 'acme-corp', id: 'claim-1' }} />,
+      { dict: enDict },
+    )
+
+    await waitFor(() => expect(view.getByRole('heading', { level: 1 }).textContent).toBe('Manufacturing defect, Warranty claim'))
+    expect(apiCallMock).toHaveBeenCalledWith('/api/warranty_claims/portal/options')
+  })
+
+  it('prefers the translated label over the dictionary label for a seeded reason code', async () => {
+    mockClaimResponses(
+      buildClaim({ reasonCode: 'warranty-defect' }),
+      [{ value: 'warranty-defect', label: 'Tenant defect label' }],
+    )
+
+    const view = renderWithProviders(
+      <WarrantyClaimPortalDetailPage params={{ orgSlug: 'acme-corp', id: 'claim-1' }} />,
+      { dict: enDict },
+    )
+
+    await waitFor(() => expect(apiCallMock).toHaveBeenCalledWith('/api/warranty_claims/portal/options'))
+    await waitFor(() => expect(view.getByRole('heading', { level: 1 }).textContent).toBe('Warranty defect, Warranty claim'))
+  })
+
+  it('falls back to the raw reason code when the dictionary options cannot be loaded', async () => {
+    mockClaimResponses(buildClaim({ reasonCode: 'defect' }))
+
+    const view = renderWithProviders(
+      <WarrantyClaimPortalDetailPage params={{ orgSlug: 'acme-corp', id: 'claim-1' }} />,
+      { dict: enDict },
+    )
+
+    await waitFor(() => expect(view.getByText('WTY-000042')).toBeTruthy())
+    expect(view.getByRole('heading', { level: 1 }).textContent).toBe('defect, Warranty claim')
+  })
+
   it('deletes a persisted portal attachment after confirmation', async () => {
     mockClaimResponses(buildClaim())
 
@@ -240,7 +286,7 @@ describe('WarrantyClaimPortalDetailPage (portal claim tracker)', () => {
       resolvedAt: '2026-07-05T10:00:00.000Z',
       updatedAt: '2026-07-05T10:00:00.000Z',
     })
-    mockClaimResponses(updatedClaim, 'We have completed the review.')
+    mockClaimResponses(updatedClaim, null, 'We have completed the review.')
     const response = { ok: true, status: 200, result: { item: updatedClaim } }
     let finishRefresh: (() => void) | undefined
     const pendingDetail = new Promise<typeof response>((resolve) => {
@@ -276,7 +322,7 @@ describe('WarrantyClaimPortalDetailPage (portal claim tracker)', () => {
     )
     const textarea = await view.findByPlaceholderText('Write a message to our support team…')
     fireEvent.change(textarea, { target: { value: 'Still writing my reply' } })
-    mockClaimResponses(buildClaim(), 'Thank you, we received your photo.')
+    mockClaimResponses(buildClaim(), null, 'Thank you, we received your photo.')
     apiCallMock.mockClear()
 
     dispatchPortalEvent('warranty_claims.claim.comment_added', 'claim-1')
@@ -363,7 +409,7 @@ describe('WarrantyClaimPortalDetailPage (portal claim tracker)', () => {
       ...newestResponse,
       result: { item: buildClaim({ status: 'info_requested' }) },
     }
-    mockClaimResponses(newestResponse.result.item, 'Final review completed.')
+    mockClaimResponses(newestResponse.result.item, null, 'Final review completed.')
     const olderRefresh = deferResponse<typeof olderResponse>()
     const newestRefresh = deferResponse<typeof newestResponse>()
     apiCallMock.mockReturnValueOnce(olderRefresh.promise).mockReturnValueOnce(newestRefresh.promise)
