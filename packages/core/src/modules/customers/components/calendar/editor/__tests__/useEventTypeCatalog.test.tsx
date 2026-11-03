@@ -13,6 +13,7 @@ jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
   getTelemetryRuntime: () => ({ reportError: (...args: unknown[]) => reportErrorMock(...args) }),
 }))
 
+import { emitOrganizationScopeChanged } from '@open-mercato/shared/lib/frontend/organizationEvents'
 import { clearEventTypeCatalogCache, eventTypeConfig, eventTypeOptions, isSelectableEventType, selectedEventType, useEventTypeCatalog } from '../useEventTypeCatalog'
 
 function scopedType(key: string, order: number, selectable = true): ScopedCalendarEventType {
@@ -141,5 +142,60 @@ describe('calendar editor scoped type catalog', () => {
     expect(third.result.current.items.map((item) => item.key)).toEqual(['visit'])
     await waitFor(() => expect(third.result.current.items.map((item) => item.key)).toEqual(['visit', 'call']))
     expect(third.result.current.status).toBe('ready')
+  })
+
+  describe('organization scope isolation', () => {
+    const orgA = { tenantId: 'tenant-1', organizationId: 'org-a' }
+    const orgB = { tenantId: 'tenant-1', organizationId: 'org-b' }
+
+    beforeEach(() => {
+      act(() => emitOrganizationScopeChanged(orgA))
+    })
+
+    it('never serves the previous organization catalog after a switch', async () => {
+      readApiResultOrThrowMock.mockResolvedValueOnce({ items: [scopedType('org-a-type', 1)] })
+      const { result } = renderHook(() => useEventTypeCatalog(true))
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+      expect(result.current.items.map((item) => item.key)).toEqual(['org-a-type'])
+
+      let resolveB: (value: unknown) => void = () => {}
+      readApiResultOrThrowMock.mockReturnValueOnce(new Promise((resolve) => { resolveB = resolve }))
+      act(() => emitOrganizationScopeChanged(orgB))
+
+      expect(result.current.status).toBe('loading')
+      expect(result.current.items).toEqual([])
+
+      await act(async () => { resolveB({ items: [scopedType('org-b-type', 1)] }) })
+      await waitFor(() => expect(result.current.items.map((item) => item.key)).toEqual(['org-b-type']))
+    })
+
+    it('discards a response that was in flight when the organization changed', async () => {
+      let resolveA: (value: unknown) => void = () => {}
+      readApiResultOrThrowMock.mockReturnValueOnce(new Promise((resolve) => { resolveA = resolve }))
+      const { result } = renderHook(() => useEventTypeCatalog(true))
+
+      readApiResultOrThrowMock.mockResolvedValueOnce({ items: [scopedType('org-b-type', 1)] })
+      act(() => emitOrganizationScopeChanged(orgB))
+      await waitFor(() => expect(result.current.items.map((item) => item.key)).toEqual(['org-b-type']))
+
+      await act(async () => { resolveA({ items: [scopedType('org-a-late', 1)] }) })
+      expect(result.current.items.map((item) => item.key)).toEqual(['org-b-type'])
+
+      readApiResultOrThrowMock.mockReturnValueOnce(new Promise(() => {}))
+      act(() => emitOrganizationScopeChanged(orgA))
+      expect(result.current.status).toBe('loading')
+      expect(result.current.items).toEqual([])
+    })
+
+    it('reports an error instead of the old catalog when the new organization fails to load', async () => {
+      readApiResultOrThrowMock.mockResolvedValueOnce({ items: [scopedType('org-a-type', 1)] })
+      const { result } = renderHook(() => useEventTypeCatalog(true))
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+
+      readApiResultOrThrowMock.mockRejectedValueOnce(new Error('boom'))
+      act(() => emitOrganizationScopeChanged(orgB))
+      await waitFor(() => expect(result.current.status).toBe('error'))
+      expect(result.current.items).toEqual([])
+    })
   })
 })

@@ -8,6 +8,7 @@ jest.mock('@open-mercato/ui/backend/utils/customFieldForms', () => ({
   fetchCustomFieldFormStructure: (...args: unknown[]) => fetchCustomFieldFormStructureMock(...args),
 }))
 
+import { emitOrganizationScopeChanged } from '@open-mercato/shared/lib/frontend/organizationEvents'
 import { clearCalendarCustomFieldsCache, useCalendarCustomFields } from '../useCalendarCustomFields'
 
 const NO_FIELDSETS: readonly string[] = []
@@ -53,5 +54,28 @@ describe('useCalendarCustomFields', () => {
     const { result } = renderHook(() => useCalendarCustomFields(true, 'customers:customer_interaction', NO_FIELDSETS))
     await waitFor(() => expect(result.current.status).toBe('error'))
     expect(result.current.fields).toEqual([])
+  })
+
+  it('keeps definitions apart per organization and drops a response from the previous one', async () => {
+    const orgA = { tenantId: 'tenant-1', organizationId: 'org-a' }
+    const orgB = { tenantId: 'tenant-1', organizationId: 'org-b' }
+    act(() => emitOrganizationScopeChanged(orgA))
+
+    fetchCustomFieldFormStructureMock.mockResolvedValueOnce({ definitions: [notes] })
+    const { result } = renderHook(() => useCalendarCustomFields(true, 'customers:customer_interaction', NO_FIELDSETS))
+    await waitFor(() => expect(result.current.status).toBe('ready'))
+    expect(result.current.allDefinitions).toHaveLength(1)
+
+    let resolveLate: (value: unknown) => void = () => {}
+    fetchCustomFieldFormStructureMock.mockReturnValueOnce(new Promise((resolve) => { resolveLate = resolve }))
+    act(() => emitOrganizationScopeChanged(orgB))
+    expect(result.current.status).toBe('loading')
+    expect(result.current.allDefinitions).toEqual([])
+
+    fetchCustomFieldFormStructureMock.mockResolvedValueOnce({ definitions: [] })
+    act(() => emitOrganizationScopeChanged({ tenantId: 'tenant-1', organizationId: 'org-c' }))
+    await waitFor(() => expect(result.current.status).toBe('ready'))
+    await act(async () => { resolveLate({ definitions: [notes] }) })
+    expect(result.current.allDefinitions).toEqual([])
   })
 })
