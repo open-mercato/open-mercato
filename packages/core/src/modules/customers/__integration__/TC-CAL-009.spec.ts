@@ -78,12 +78,20 @@ test.describe('TC-CAL-009: Calendar editor conflict detection', () => {
 
       // Open meeting B from the grid → peek popover → Edit (edit mode passes the
       // item's ownerUserId to the probe).
+      // A slot too narrow for both folds them into one overflow block (#7500), whose rows
+      // open the editor directly instead of going through the peek.
       const blockB = page.getByRole('button', { name: new RegExp(`^${escapeRegExp(titleB)},.*10:30`) });
-      await expect(blockB).toBeVisible();
-      await blockB.click();
-      const peekEdit = page.getByRole('button', { name: 'Edit', exact: true });
-      await expect(peekEdit).toBeVisible();
-      await peekEdit.click();
+      const overflow = page.getByRole('button', { name: /more events, / }).filter({ hasText: titleB });
+      await expect(blockB.or(overflow).first()).toBeVisible();
+      if (await overflow.count()) {
+        await overflow.first().click();
+        await blockB.click();
+      } else {
+        await blockB.click();
+        const peekEdit = page.getByRole('button', { name: 'Edit', exact: true });
+        await expect(peekEdit).toBeVisible();
+        await peekEdit.click();
+      }
 
       const editor = page.getByRole('dialog');
       await expect(editor).toBeVisible();
