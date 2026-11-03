@@ -2,23 +2,21 @@
 
 import * as React from 'react'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
-import { useOrganizationScopeDetail, useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { getCurrentOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/organizationEvents'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { calendarEventTypes, type EffectiveCalendarEventType } from '../../../calendar-event-types'
 import type { CalendarEventTypeCatalog, ScopedCalendarEventType } from '../../../lib/calendar/eventTypeResolver'
 import { KIND_CONFIG, type EditorKindConfig, type EditorTypeOption } from '../../../lib/calendar/editorPayload'
-import { createScopedEditorCache } from './scopedEditorCache'
+import { createScopedEditorCache, useEditorScopeKey } from './scopedEditorCache'
 
-type CatalogState =
-  | { status: 'loading' | 'error'; items: readonly ScopedCalendarEventType[] }
-  | { status: 'ready'; items: readonly ScopedCalendarEventType[] }
+// `stale` is a failed refresh of a catalog this scope already confirmed. The items stay on
+// screen so an open draft survives, but selection and save must treat it like a failure.
+type CatalogState = { status: 'loading' | 'error' | 'stale' | 'ready'; items: readonly ScopedCalendarEventType[] }
 
 // Last catalog loaded per tenant and organization. A reopened editor renders straight
 // from it and revalidates in the background, so the form never mounts twice (once
 // without the selected type's fields, once with them) on every open. The catalog is
 // scoped data, so a switch must never serve the previous organization's entry.
-const cachedCatalogs = createScopedEditorCache<readonly ScopedCalendarEventType[]>(() => ':')
+const cachedCatalogs = createScopedEditorCache<readonly ScopedCalendarEventType[]>()
 
 export function clearEventTypeCatalogCache(): void {
   cachedCatalogs.clear()
@@ -34,9 +32,7 @@ function catalogStateFromCache(scopeKey: string): CatalogState {
 }
 
 export function useEventTypeCatalog(open: boolean) {
-  const scope = useOrganizationScopeDetail()
-  const scopeVersion = useOrganizationScopeVersion()
-  const scopeKey = `${scope.tenantId ?? ''}:${scope.organizationId ?? ''}`
+  const scopeKey = useEditorScopeKey()
   const [state, setState] = React.useState<CatalogState & { scopeKey: string }>(() => ({ ...catalogStateFromCache(scopeKey), scopeKey }))
   const [attempt, setAttempt] = React.useState(0)
 
@@ -44,10 +40,10 @@ export function useEventTypeCatalog(open: boolean) {
     // A closed editor warms the cache once; every open revalidates it.
     if (!open && cachedCatalogs.has(scopeKey)) return
     let active = true
-    const requestScopeVersion = getCurrentOrganizationScopeVersion()
     setState((previous) => {
       const cached = cachedCatalogs.get(scopeKey)
       if (previous.scopeKey === scopeKey) {
+        if (previous.status === 'stale') return previous
         if (cached && previous.status === 'ready' && previous.items === cached) return previous
         if (!cached && previous.status === 'loading') return previous
       }
@@ -55,26 +51,26 @@ export function useEventTypeCatalog(open: boolean) {
     })
     void readApiResultOrThrow<CalendarEventTypeCatalog>('/api/customers/activity-types')
       .then((catalog) => {
+        if (!active) return
         if (!Array.isArray(catalog.items)) throw new Error('[internal] Invalid activity type catalog')
-        // The answer belongs to the scope the request left under, not to the current one.
-        if (requestScopeVersion !== getCurrentOrganizationScopeVersion()) return
         const cached = cachedCatalogs.get(scopeKey)
         const items = cached && sameCatalog(cached, catalog.items) ? cached : catalog.items
         cachedCatalogs.set(scopeKey, items)
-        if (!active) return
         setState((previous) => previous.scopeKey === scopeKey && previous.status === 'ready' && previous.items === items ? previous : { status: 'ready', items, scopeKey })
       })
       .catch((error) => {
-        const unconfirmed = cachedCatalogs.dropUnconfirmed(scopeKey)
         if (!active) return
+        cachedCatalogs.delete(scopeKey)
         getTelemetryRuntime()?.reportError(error, {
           module: 'customers',
           code: 'customers.activity_type_catalog_load_failed',
         })
-        setState((previous) => !unconfirmed && previous.scopeKey === scopeKey && previous.status === 'ready' ? previous : { status: 'error', items: [], scopeKey })
+        setState((previous) => previous.scopeKey === scopeKey && (previous.status === 'ready' || previous.status === 'stale')
+          ? { status: 'stale', items: previous.items, scopeKey }
+          : { status: 'error', items: [], scopeKey })
       })
     return () => { active = false }
-  }, [open, attempt, scopeKey, scopeVersion])
+  }, [open, attempt, scopeKey])
 
   const retry = React.useCallback(() => setAttempt((value) => value + 1), [])
   const current = state.scopeKey === scopeKey ? state : catalogStateFromCache(scopeKey)

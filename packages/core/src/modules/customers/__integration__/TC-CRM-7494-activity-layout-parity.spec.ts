@@ -22,6 +22,12 @@ import {
  *      the timeline and the planned list in place (no navigation).
  *   3. A company without activities shows the composer and the empty history, no
  *      planned section, and keeps the layout inside a phone-width viewport.
+ *   4. Company history search reaches a row whose only match is beyond the first
+ *      page. The API search cannot read encrypted titles, so on tenants with data
+ *      encryption the row appears after "Load more" instead of straight away.
+ *   5. A failed company history load shows an error, not an empty history, and
+ *      recovers on retry.
+ *   6. Company history can be sorted by name in both directions and back to newest.
  */
 
 type InteractionInput = {
@@ -63,6 +69,14 @@ function plannedTitle(page: Page) {
 
 function historyTitle(page: Page) {
   return page.getByText(/Interaction history/).first()
+}
+
+function sortControl(page: Page) {
+  return page.getByRole('combobox', { name: /^Sort order$/ })
+}
+
+function historyPath(companyId: string): string {
+  return `/backend/customers/companies-v2/${companyId}?tab=activity-log`
 }
 
 // A planned row is a button named by its title first; history rows start with
@@ -140,9 +154,11 @@ test.describe('TC-CRM-7494: shared activity layout on person and company pages',
       await page.goto(`/backend/customers/people-v2/${personId}?tab=activities`, { waitUntil: 'domcontentloaded' })
       await expectSharedActivityLayout(page, personPlanned)
       await expect(plannedRow(page, companyPlanned)).toHaveCount(0)
+      await expect(sortControl(page)).toBeVisible()
 
       await page.goto(`/backend/customers/companies-v2/${companyId}?tab=activity-log`, { waitUntil: 'domcontentloaded' })
       await expectSharedActivityLayout(page, companyPlanned)
+      await expect(sortControl(page)).toBeVisible()
       // Entity-wide: the deal-linked call owned by the company is listed too, the person's is not.
       await expect(plannedRow(page, dealPlanned)).toBeVisible()
       await expect(plannedRow(page, personPlanned)).toHaveCount(0)
@@ -231,6 +247,150 @@ test.describe('TC-CRM-7494: shared activity layout on person and company pages',
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
       expect(overflow, 'activity tab must not overflow a phone-width viewport').toBeLessThanOrEqual(1)
     } finally {
+      await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
+    }
+  })
+
+  test('company history search reaches a row whose only match is beyond the first page', async ({ page, request }) => {
+    test.setTimeout(180_000)
+    const stamp = Date.now()
+    let token: string | null = null
+    let companyId: string | null = null
+    const interactionIds: string[] = []
+
+    try {
+      token = await getAuthToken(request, 'admin')
+      const authToken = token
+      companyId = await createCompanyFixture(request, authToken, `QA TC-CRM-7494 Search ${stamp}`)
+      const ownerId = companyId
+      const matchTitle = `QA 7494 needle ${stamp}`
+      const fillerTitle = (index: number) => `QA 7494 filler ${index} ${stamp}`
+      interactionIds.push(await createInteraction(request, authToken, {
+        entityId: ownerId, interactionType: 'note', title: matchTitle, body: 'Oldest', status: 'done',
+        occurredAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+      }))
+      const fillerIndexes = Array.from({ length: 50 }, (_, index) => index)
+      for (let start = 0; start < fillerIndexes.length; start += 10) {
+        const created = await Promise.all(fillerIndexes.slice(start, start + 10).map((index) => createInteraction(request, authToken, {
+          entityId: ownerId, interactionType: 'note', title: fillerTitle(index), body: 'Filler', status: 'done',
+          occurredAt: new Date(Date.now() - (index + 1) * 60 * 60 * 1000).toISOString(),
+        })))
+        interactionIds.push(...created)
+      }
+
+      await login(page, 'admin')
+      await page.goto(historyPath(ownerId), { waitUntil: 'domcontentloaded' })
+      await expect(page.getByText(fillerTitle(0), { exact: true })).toBeVisible({ timeout: 30_000 })
+      const match = page.getByText(matchTitle, { exact: true })
+      await expect(match).toHaveCount(0)
+
+      const searched = page.waitForResponse((response) => {
+        const url = new URL(response.url())
+        return url.pathname === '/api/customers/interactions'
+          && url.searchParams.get('search') === matchTitle
+          && !url.searchParams.has('cursor')
+      })
+      await page.getByRole('searchbox', { name: /Search interaction history/i }).fill(matchTitle)
+      expect((await searched).ok()).toBeTruthy()
+
+      await expect(async () => {
+        const loadMore = page.getByRole('button', { name: /^Load more$/ })
+        if (await match.count() === 0 && await loadMore.count() > 0) await loadMore.click()
+        await expect(match).toBeVisible({ timeout: 2_000 })
+      }).toPass({ timeout: 30_000 })
+      await expect(page.getByText(fillerTitle(0), { exact: true })).toHaveCount(0)
+    } finally {
+      await Promise.all(interactionIds.map((id) => deleteInteraction(request, token, id)))
+      await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
+    }
+  })
+
+  test('a failed company history load shows an error and recovers on retry', async ({ page, request }) => {
+    test.slow()
+    const stamp = Date.now()
+    let token: string | null = null
+    let companyId: string | null = null
+    const interactionIds: string[] = []
+
+    try {
+      token = await getAuthToken(request, 'admin')
+      companyId = await createCompanyFixture(request, token, `QA TC-CRM-7494 Failure ${stamp}`)
+      const rowTitle = `QA 7494 restored ${stamp}`
+      interactionIds.push(await createInteraction(request, token, {
+        entityId: companyId, interactionType: 'note', title: rowTitle, body: 'Restored', status: 'done',
+        occurredAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      }))
+
+      let historyFails = true
+      await page.route((url) => url.pathname === '/api/customers/interactions', async (route) => {
+        const url = new URL(route.request().url())
+        const isHistoryRead = route.request().method() === 'GET' && url.searchParams.get('limit') === '50'
+        if (historyFails && isHistoryRead) {
+          await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Injected failure' }) })
+          return
+        }
+        await route.fallback()
+      })
+
+      await login(page, 'admin')
+      await page.goto(historyPath(companyId), { waitUntil: 'domcontentloaded' })
+
+      const failure = page.getByRole('alert').filter({ hasText: /Failed to load activities/ })
+      await expect(failure).toBeVisible({ timeout: 30_000 })
+      await expect(page.getByText(/No activities match/)).toHaveCount(0)
+
+      historyFails = false
+      await failure.getByRole('button', { name: /^Retry$/ }).click()
+
+      await expect(page.getByText(rowTitle, { exact: true })).toBeVisible({ timeout: 15_000 })
+      await expect(failure).toHaveCount(0)
+    } finally {
+      for (const id of interactionIds) await deleteInteraction(request, token, id)
+      await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
+    }
+  })
+
+  test('company history sorts by name in both directions and back to newest', async ({ page, request }) => {
+    test.slow()
+    const stamp = Date.now()
+    let token: string | null = null
+    let companyId: string | null = null
+    const interactionIds: string[] = []
+
+    try {
+      token = await getAuthToken(request, 'admin')
+      const authToken = token
+      companyId = await createCompanyFixture(request, authToken, `QA TC-CRM-7494 Sort ${stamp}`)
+      const ownerId = companyId
+      const titled = (name: string) => `QA 7494 sort ${name} ${stamp}`
+      const hoursAgo = { Mike: 1, Zulu: 2, Alpha: 3 }
+      for (const [name, hours] of Object.entries(hoursAgo)) {
+        interactionIds.push(await createInteraction(request, authToken, {
+          entityId: ownerId, interactionType: 'note', title: titled(name), body: name, status: 'done',
+          occurredAt: new Date(Date.now() - hours * 60 * 60 * 1000).toISOString(),
+        }))
+      }
+
+      await login(page, 'admin')
+      await page.goto(historyPath(ownerId), { waitUntil: 'domcontentloaded' })
+
+      const rows = page.getByText(new RegExp(`^QA 7494 sort \\w+ ${stamp}$`))
+      const expectOrder = (names: string[]) => expect.poll(() => rows.allTextContents(), { timeout: 15_000 })
+        .toEqual(names.map(titled))
+      const chooseSort = async (option: RegExp) => {
+        await sortControl(page).click()
+        await page.getByRole('option', { name: option }).click()
+      }
+
+      await expectOrder(['Mike', 'Zulu', 'Alpha'])
+      await chooseSort(/Name Z-A/)
+      await expectOrder(['Zulu', 'Mike', 'Alpha'])
+      await chooseSort(/Name A-Z/)
+      await expectOrder(['Alpha', 'Mike', 'Zulu'])
+      await chooseSort(/newest/)
+      await expectOrder(['Mike', 'Zulu', 'Alpha'])
+    } finally {
+      for (const id of interactionIds) await deleteInteraction(request, token, id)
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
     }
   })
