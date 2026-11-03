@@ -6,7 +6,6 @@ import { deleteCatalogProductIfExists } from '@open-mercato/core/helpers/integra
 
 test.describe('TC-CAT-8258: custom Markdown language options', () => {
   test('adds, renames and hides choices through UMES while preserving existing tags', async ({ page, request }) => {
-    test.slow()
     const token = await getAuthToken(request, 'admin')
     const stamp = Date.now()
     let productId: string | null = null
@@ -42,11 +41,19 @@ test.describe('TC-CAT-8258: custom Markdown language options', () => {
           __openMercatoComponentRegistry__?: { overrides: Override[] }
         }).__openMercatoComponentRegistry__
         if (!registry || !Array.isArray(registry.overrides)) throw new Error('[internal] UMES registry unavailable')
-        registry.overrides.push({
+        const languageOverride: Override = {
           target: { componentId: 'section:ui.inputs.MarkdownField' }, priority: 100,
           propsTransform: (props) => ({ ...props, codeBlockLanguages: {
             ...props.codeBlockLanguages, rust: 'Rust', php: 'PHP', js: 'ECMAScript', sql: null,
           } }),
+        }
+        let configuredOverrides = [...registry.overrides, languageOverride]
+        Object.defineProperty(registry, 'overrides', {
+          configurable: true,
+          get: () => configuredOverrides,
+          set: (entries: Override[]) => {
+            configuredOverrides = [...entries.filter((entry) => entry !== languageOverride), languageOverride]
+          },
         })
       })
       await toggle.click()
