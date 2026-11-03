@@ -1,0 +1,1 @@
+export const ATTACHMENT_TRANSFER_MAX_IDS = 100
