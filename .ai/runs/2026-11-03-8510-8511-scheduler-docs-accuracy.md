@@ -39,6 +39,8 @@ Make `apps/docs/docs/cli/scheduler.mdx` describe only behavior the CLI actually 
 
 ## Progress
 
+PR: #8626
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: #8510 — scheduler start output
