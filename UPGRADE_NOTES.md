@@ -6,6 +6,8 @@
 
 AI provider setup is optional: press Enter or choose `0` to skip. Missing credentials no longer block non-interactive setup; configure them later to enable AI chat.
 
+Before database setup, both setup entrypoints verify the configured PostgreSQL connection with a read-only query, every configured Redis consumer with authenticated PING, and Meilisearch through a protected API read. Incorrect credentials, missing access, and unreachable services stop setup with a service-specific error that omits credentials. Accepting existing services does not bypass this verification; pre-existing unhealthy services are offered for reuse before any container preparation or startup. Direct infrastructure startup retains its explicit retry behavior.
+
 Reinstall behavior is unchanged: monorepo `yarn dev:greenfield` resets the configured database by default. Standalone `yarn setup` retains initialized data unless `--reinstall` is explicitly supplied.
 
 The development diagnostics banner’s Retry button now invokes runtime recovery; a page reload alone no longer leaves the historical incident as the only outcome. Existing generation/health checks still determine whether recovery succeeded.

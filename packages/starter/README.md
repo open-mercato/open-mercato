@@ -53,3 +53,11 @@ Useful flags: `--non-interactive`, `--skip-llm-prompt`, `--skip-db`, `--no-infra
 ## Company tailoring
 
 Organizations customize behavior (mirrors, CA bundles, extra checks/steps, env defaults) via `starters/company/config.mjs` in the repo — see `starters/company/README.md`. The package stays generic; the repo carries the policy.
+
+## Service connection verification
+
+Before migrations or initialization, setup checks PostgreSQL with `SELECT 1`,
+each configured Redis URL with authenticated `PING`, and Meilisearch through
+the protected indexes API using `MEILISEARCH_API_KEY`. Invalid credentials or
+unreachable services stop setup and name the relevant setting without printing
+passwords or tokens. Existing-service consent never bypasses these checks.

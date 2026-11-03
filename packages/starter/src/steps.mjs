@@ -13,6 +13,7 @@ import { addEnvValue, readEnvValue } from './env-file.mjs'
 import { describeInfraProblem, startInfra } from './infra.mjs'
 import { findUnhealthyServices, requestExistingServicesConsent } from './infra-preflight.mjs'
 import { ensureLlmProvider } from './providers.mjs'
+import { verifyServiceConnections } from './service-connections.mjs'
 import { color, formatDuration, guideBox, statusLine, stepHeader } from './ui.mjs'
 
 // The idempotent convergence pipeline behind `up`. Every step follows the same
@@ -581,6 +582,20 @@ export const infraUpStep = {
   },
 }
 
+export const serviceConnectionsStep = {
+  id: 'service-connections',
+  title: 'Service credentials and connections',
+  appliesTo: (ctx) => ctx.mode === 'hybrid',
+  async apply(ctx) {
+    await (ctx.verifyServiceConnectionsImpl ?? verifyServiceConnections)({
+      projectDir: path.join(ctx.repoRoot, 'apps', 'mercato'),
+      envFiles: [path.join(ctx.repoRoot, '.env')],
+      env: ctx.env,
+      log: ctx.log,
+    })
+  },
+}
+
 export const databaseStep = {
   id: 'database',
   expectation: 'migrations + seed take a minute or two on first run',
@@ -741,6 +756,7 @@ export function buildUpSteps(ctx) {
     llmProviderStep,
     hostGatewayStep,
     infraUpStep,
+    serviceConnectionsStep,
     databaseStep,
   ]
   const disabled = new Set(ctx.company.steps.disable)

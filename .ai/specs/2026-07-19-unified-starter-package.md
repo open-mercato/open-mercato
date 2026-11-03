@@ -125,3 +125,17 @@ A first run needed several manual commands. The monorepo had `yarn infra:up` but
 - 2026-07-19 — Initial implementation (package, CLI, steps, doctor, certs, supervision, compose fixes, docs).
 - 2026-10-22 — #7791: `yarn setup` starts and health-checks the infra in generated apps and the monorepo, shared Docker preflight, `--no-infra` with zero Docker calls, `infra:up`/`infra:down` in the template, login box visible in compact setup.
 - 2026-10-23 — #7791 review follow-ups: monorepo `initialize --skip-if-initialized`, health-aware `infra-up` check, WSL and port hints, symlink-safe `infra.mjs` entry, database name in the skip message.
+
+## 2026-11-03 — Verify configured service credentials
+
+Both setup entrypoints verify real connections after dependency installation and
+infrastructure readiness, before migrations, initialization, or launching dev.
+Use PostgreSQL `SELECT 1`, authenticated Redis `PING` for every configured URL,
+and the protected Meilisearch indexes API with the application API key. Reject
+invalid credentials, insufficient permissions and unreachable targets with
+bounded, redacted, setting-specific errors. Do not fall back to replacement
+services or suppress a failure after existing-service consent. Pre-existing
+unhealthy services are offered for reuse before any image preparation or
+container startup; direct infrastructure startup retains explicit retry behavior.
+The shared stdlib-bootstrap helper loads already-installed pg/ioredis lazily; no
+production dependency or database schema changes are introduced.

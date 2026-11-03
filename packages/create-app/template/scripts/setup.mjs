@@ -3,6 +3,7 @@ import { copyFileSync, existsSync } from 'node:fs'
 import { collectForwardedSetupFlags } from './dev-database-url.mjs'
 import { NO_INFRA_FLAG } from './dev-infra-preflight.mjs'
 import { ensureInfra } from './infra.mjs'
+import { verifyServiceConnections } from './dev-service-connections.mjs'
 
 const argv = process.argv.slice(2)
 const reinstall = argv.includes('--reinstall')
@@ -35,6 +36,13 @@ if (!existsSync('node_modules/cross-spawn')) {
     shell: process.platform === 'win32',
   })
   if (bootstrap.status !== 0) process.exit(bootstrap.status ?? 1)
+}
+
+try {
+  await verifyServiceConnections()
+} catch (error) {
+  console.error(error.message)
+  process.exit(2)
 }
 
 const result = spawnSync(

@@ -67,6 +67,7 @@ async function makeApp() {
     fs.copyFileSync(path.join(TEMPLATE_SCRIPTS, file), path.join(appDir, 'scripts', file))
   }
   fs.writeFileSync(path.join(appDir, 'scripts', 'dev.mjs'), DEV_STUB)
+  fs.writeFileSync(path.join(appDir, 'scripts', 'dev-service-connections.mjs'), `export async function verifyServiceConnections() { if (process.env.FAKE_CONNECTION_ERROR) throw new Error('[setup] PostgreSQL connection failed (DATABASE_URL at postgres://fixture/db). Check credentials in .env.'); console.log('SERVICE_CONNECTIONS_VERIFIED') }\n`)
   fs.mkdirSync(path.join(appDir, 'node_modules', 'cross-spawn'), { recursive: true })
   const binDir = path.join(appDir, 'fake-bin')
   fs.mkdirSync(binDir)
@@ -310,4 +311,16 @@ test('isDirectRun compares real paths and ignores drive-letter case on Windows',
   assert.equal(isDirectRun(undefined, '/app/real/infra.mjs', { platform: 'linux', realpath }), false)
   const identity = (candidate: string) => candidate
   assert.equal(isDirectRun('c:\\app\\scripts\\infra.mjs', 'C:\\app\\scripts\\infra.mjs', { platform: 'win32', realpath: identity }), true)
+})
+
+
+test('setup rejects invalid service credentials before invoking the database/dev runner', { skip }, async (t) => {
+  const app = await makeApp()
+  t.after(() => fs.rmSync(app.appDir, { recursive: true, force: true }))
+  const outcome = await runScript(app, 'setup.mjs', ['--no-infra'], { env: { FAKE_CONNECTION_ERROR: '1' } })
+  assert.equal(outcome.code, 2)
+  assert.match(outcome.output, /PostgreSQL connection failed/)
+  assert.match(outcome.output, /Check credentials in .env/)
+  assert.equal(outcome.devArgs, null)
+  assert.deepEqual(outcome.dockerCalls, [])
 })
