@@ -46,6 +46,10 @@ write time.
   an ambient transaction pass `{ flush: false }`, commit the returned database
   removal first, and invoke the returned provider cleanup only after commit;
   never delete provider bytes before a transaction can still roll back.
+- Rows MAY share a stored object (`partition_code` + `storage_path`). Any other
+  code deleting a row with its bytes MUST use `removeAttachmentRecord`
+  (`lib/storageReferences.ts`, outside a transaction) and delete the bytes only
+  when it returns `releaseStorage: true`.
 - **MUST call `assertAttachmentScopeInvariant({ tenantId, organizationId })` from
   `lib/access.ts` before persisting any new `Attachment` row.** It throws on a
   partial-null scope and accepts both fully-scoped and fully-global rows. The

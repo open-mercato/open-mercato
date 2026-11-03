@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { buildBrandingPreviewDocument } from './storeBrandingForm'
+import { useContentSecurityPolicyNonce } from '@open-mercato/ui/theme/ContentSecurityPolicyProvider'
 
 export const BRANDING_PREVIEW_DEBOUNCE_MS = 250
 
@@ -36,6 +37,7 @@ function useDebouncedValue<TValue>(value: TValue, delayMs: number): TValue {
 export function StoreBrandingPreview({ values, storeName, currencyCode }: StoreBrandingPreviewProps) {
   const t = useT()
   const locale = useLocale()
+  const nonce = useContentSecurityPolicyNonce()
   const debouncedValues = useDebouncedValue(values, BRANDING_PREVIEW_DEBOUNCE_MS)
   const document = React.useMemo(
     () =>
@@ -52,8 +54,8 @@ export function StoreBrandingPreview({ values, storeName, currencyCode }: StoreB
         heroButton: t('ecommerce.backend.store.branding.preview.heroButton', 'Shop now'),
         productName: t('ecommerce.backend.store.branding.preview.productName', 'Sample product'),
         productPrice: formatPreviewPrice(SAMPLE_PRODUCT_PRICE, currencyCode, locale),
-      }),
-    [currencyCode, debouncedValues, locale, storeName, t],
+      }, nonce),
+    [currencyCode, debouncedValues, locale, storeName, t, nonce],
   )
 
   return (

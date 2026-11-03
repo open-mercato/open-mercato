@@ -4,7 +4,7 @@ import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import { Role } from '@open-mercato/core/modules/auth/data/entities'
+import { Role, User } from '@open-mercato/core/modules/auth/data/entities'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { ApiKey } from '../../data/entities'
 import { createApiKeySchema } from '../../data/validators'
@@ -13,6 +13,7 @@ import { enforceTenantSelection, resolveIsSuperAdmin } from '@open-mercato/core/
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { assertActorCanGrantRoles } from '@open-mercato/core/modules/auth/lib/grantChecks'
 import { isOrganizationAccessAllowed } from '@open-mercato/shared/lib/auth/organizationAccess'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { CreateApiKeyCommandInput } from '../../commands/keys'
 
 const listQuerySchema = z.object({
@@ -138,6 +139,19 @@ async function prepareCreateCommandInput(
   })) {
     throw json({ error: translate('api_keys.errors.organizationOutOfScope', 'Organization out of scope') }, { status: 403 })
   }
+  if (organizationId) {
+    const creator = await findOneWithDecryption(
+      em,
+      User,
+      { id: auth.sub, tenantId: targetTenantId, deletedAt: null },
+      { fields: ['organizationId'] },
+      { tenantId: targetTenantId, organizationId: null },
+    )
+    if (creator?.organizationId?.toLowerCase() !== organizationId.toLowerCase()) {
+      const message = translate('api_keys.errors.organizationMustMatchCreator')
+      throw json({ error: message, fieldErrors: { organizationId: message } }, { status: 400 })
+    }
+  }
 
   return {
     name: input.name,
@@ -193,10 +207,18 @@ const crud = makeCrudRoute<
       const qb = em.createQueryBuilder(ApiKey, 'k')
       qb.where({ deletedAt: null })
       qb.andWhere({ tenantId: auth.tenantId })
-      if (organizationIds && organizationIds.length > 0) {
-        qb.andWhere({ organizationId: { $in: organizationIds } })
-      } else if (auth.orgId) {
-        qb.andWhere({ organizationId: auth.orgId })
+      const organizationConstraint = organizationIds?.length
+        ? { organizationId: { $in: organizationIds } }
+        : auth.orgId ? { organizationId: auth.orgId } : null
+      if (organizationConstraint) {
+        const tenantWideAccess = isOrganizationAccessAllowed({
+          targetOrganizationId: null,
+          allowedOrganizationIds: ctx.organizationScope ? ctx.organizationScope.allowedIds : [],
+          isSuperAdmin: await resolveIsSuperAdmin(ctx),
+        })
+        qb.andWhere(tenantWideAccess
+          ? { $or: [{ organizationId: null }, organizationConstraint] }
+          : organizationConstraint)
       }
       if (search) {
         const pattern = `%${escapeLikePattern(search)}%`
