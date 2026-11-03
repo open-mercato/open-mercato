@@ -65,7 +65,9 @@ export function applyCustomFieldVisibility<T extends RowData = RowData>(columns:
     if (!isDefVisible(def, mode)) return false
     const currentHeader = (c as any).header
     const fallbackHeader = typeof currentHeader === 'string' && currentHeader.trim().length ? currentHeader : key
-    const label = def.label && def.label.trim().length ? def.label : fallbackHeader
+    const label = typeof currentHeader === 'string' && currentHeader.trim().length
+      ? currentHeader
+      : def.label && def.label.trim().length ? def.label : fallbackHeader
     if (currentHeader == null || typeof currentHeader === 'string') {
       (c as any).header = label
     }

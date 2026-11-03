@@ -1434,6 +1434,10 @@ Applies the eComm Release 5 owner decisions that touch `cart` ([decisions](./ana
 - **Risks (§13).** R6 corrected (header only, no cookie read by the platform). New R17–R23: approval bypass, token-only identity strip, lock lapse mid-payment, abandonment while awaiting approval, approval covering unseen lines, trusted-context bypass, proposals never retired.
 - **§16:** Q4 status noted (the seam ships, D-R5-11); Q7–Q9 recorded as closed by D-R5-3/-4, D-R5-12 and D-R5-21. **§16a:** "greenfield" corrected now that Phases 1–3 shipped; Release 5 additions table. **§17:** approval, binding, trusted-context, event-scope and admin-UI rows.
 
+### 2026-11-03 (storefront refusal mapping, #8619)
+
+- Current-cart routes preserve branded storefront resolution status and `{ error: code }` responses instead of reporting expected store or portal-session refusals as unexpected 500s. Error responses are not cached. The boundary recognizes the shared brand without importing the optional ecommerce runtime. Route-matrix tests cover every current-cart handler and all seven refusal codes; the mapper also covers duplicated bundle instances.
+
 ### 2026-10-27 (connection release during cart line contention)
 
 - Keep PostgreSQL serialization and the existing `withAtomicFlush` phases for `cart.lines.add`/`.bulkAdd`, but release top-level contended transactions before waiting. Retry only pre-mutation lock contention, preserve caller-owned ambient transactions, and stop on an unsuccessful rollback. No schema change. The user-approved 15-second top-level lock deadline maps only the private pre-mutation timeout to `503 cart_busy` with `Retry-After: 1`; API documentation and five locales describe the retry response.
