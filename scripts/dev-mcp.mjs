@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto'
 import http from 'node:http'
 import path from 'node:path'
 import { createServer } from 'node:net'
@@ -9,6 +10,12 @@ export const MCP_FAST_CRASH_UPTIME_MS = 60_000
 export const MCP_HEALTH_TIMEOUT_MS = 180_000
 export const MCP_HEALTH_POLL_INTERVAL_MS = 2_000
 export const MCP_MAX_PORT_SELECTION_ATTEMPTS = 5
+export const MCP_LAZY_START_TIMEOUT_MS = 60_000
+export const MCP_LAZY_MAX_PENDING_REQUESTS = 16
+
+// Shape of every secret `generateApiKeySecret` issues (managed, user and
+// session keys alike). Matching it is a format check, not authentication.
+const OPEN_MERCATO_API_KEY_PATTERN = /^omk_[0-9a-f]{8}\.[0-9a-f]{48}$/
 
 const ENABLED_TOKENS = ['1', 'true', 'yes', 'on']
 const DISABLED_TOKENS = ['0', 'false', 'no', 'off']
@@ -161,15 +168,46 @@ export function isManagedMcpReadiness({ childListening, childExitCode, childSign
     && responseOk === true
 }
 
+function matchesKnownKey(candidate, knownKeys) {
+  const provided = Buffer.from(candidate)
+  let matched = false
+  for (const key of knownKeys) {
+    const expected = Buffer.from(key)
+    if (expected.length === provided.length && timingSafeEqual(expected, provided)) matched = true
+  }
+  return matched
+}
+
+/**
+ * True when an `x-api-key` value may wake the lazily started MCP server: a
+ * constant-time match against a key the dev runner knows (the provisioned key
+ * file, MCP_SERVER_API_KEY), or any well-formed Open Mercato API key, because
+ * the real server also accepts user-created keys and verifies them against the
+ * database. Neither branch authenticates the caller; the real server does.
+ */
+export function mayWakeMcpServer(apiKeyHeader, knownKeys = []) {
+  const candidate = Array.isArray(apiKeyHeader) ? apiKeyHeader[0] : apiKeyHeader
+  if (typeof candidate !== 'string' || candidate === '') return false
+  return matchesKnownKey(candidate, knownKeys.filter((key) => typeof key === 'string' && key !== ''))
+    || OPEN_MERCATO_API_KEY_PATTERN.test(candidate)
+}
+
 /**
  * Owns the public MCP port so `yarn dev` does not keep the MCP server resident
  * until a client needs it. While no upstream is published, `/health` is
- * answered in-process (503 until `arm()`, then 200). After `arm()` the first
- * other request resolves `firstUse` and waits for `setUpstream()`; from then on
+ * answered in-process with the real server's shape (`status`, `tools`,
+ * `timestamp`) plus `lazy: true`, reporting `tools: 0` because nothing is
+ * loaded: 503 until `arm()`, then 200. After `arm(knownKeys)` the first request
+ * whose `x-api-key` passes `mayWakeMcpServer` resolves `firstUse` and waits
+ * for `setUpstream()` (at most `maxPendingRequests` at once); from then on
  * every request is streamed to the real server unbuffered.
  */
-export function createLazyMcpProxy({ upstreamTimeoutMs = MCP_HEALTH_TIMEOUT_MS } = {}) {
+export function createLazyMcpProxy({
+  upstreamTimeoutMs = MCP_LAZY_START_TIMEOUT_MS,
+  maxPendingRequests = MCP_LAZY_MAX_PENDING_REQUESTS,
+} = {}) {
   let armed = false
+  let knownKeys = []
   let upstream = null
   let notifyFirstUse = () => {}
   const firstUse = new Promise((resolve) => { notifyFirstUse = resolve })
@@ -222,8 +260,12 @@ export function createLazyMcpProxy({ upstreamTimeoutMs = MCP_HEALTH_TIMEOUT_MS }
 
   const server = http.createServer((req, res) => {
     if (!upstream && (req.url ?? '/').split('?')[0] === '/health') {
-      if (armed) sendJson(req, res, 200, { status: 'ok', lazy: true, timestamp: new Date().toISOString() })
-      else sendJson(req, res, 503, { status: 'starting' })
+      sendJson(req, res, armed ? 200 : 503, {
+        status: armed ? 'ok' : 'starting',
+        tools: 0,
+        lazy: true,
+        timestamp: new Date().toISOString(),
+      })
       return
     }
     if (upstream) {
@@ -232,6 +274,17 @@ export function createLazyMcpProxy({ upstreamTimeoutMs = MCP_HEALTH_TIMEOUT_MS }
     }
     if (!armed) {
       sendJson(req, res, 503, { error: 'MCP server is not ready yet' })
+      return
+    }
+    if (!mayWakeMcpServer(req.headers['x-api-key'], knownKeys)) {
+      sendJson(req, res, 401, {
+        error: req.headers['x-api-key'] ? 'Invalid or expired API key' : 'API key required (x-api-key header)',
+      })
+      return
+    }
+    if (waiters.size >= maxPendingRequests) {
+      res.setHeader('retry-after', '5')
+      sendJson(req, res, 429, { error: 'MCP server is starting; too many pending requests' })
       return
     }
     notifyFirstUse()
@@ -245,7 +298,8 @@ export function createLazyMcpProxy({ upstreamTimeoutMs = MCP_HEALTH_TIMEOUT_MS }
   return {
     server,
     firstUse,
-    arm() {
+    arm(keys = []) {
+      knownKeys = keys.filter((key) => typeof key === 'string' && key !== '')
       armed = true
     },
     setUpstream(target) {

@@ -589,10 +589,16 @@ or environment-variable name changed. See
 
 The root and standalone `yarn dev` launchers still provision the MCP API key at startup and own
 `MCP_PORT`, but they now keep the MCP server process (~500 MB) down until a client sends its first
-non-health request; that request is held until the server is ready and every later request is
-proxied unchanged. Until then `GET /health` is answered by the launcher: `503` before the key is
-provisioned, then `200 {"status":"ok","lazy":true}` without the `tools` count. The MCP CLI now runs
-as a direct Node child from the app workspace instead of through a Yarn wrapper.
+non-health request; that request is held (up to 60 s, at most 16 at once, `429` beyond) until the
+server is ready and every later request is proxied unchanged. Until then `GET /health` is answered
+by the launcher with the server's response shape plus an additive `lazy: true`: `503
+{"status":"starting","tools":0,...}` before the key is provisioned, then `200
+{"status":"ok","tools":0,...}`; `tools` reports `0` because no tools are loaded yet and becomes the
+real count once the server runs. Only a request with an `x-api-key` that matches the provisioned key
+or `MCP_SERVER_API_KEY`, or that has the format of an Open Mercato API key (`omk_<8 hex>.<48 hex>`),
+wakes the server; others get `401`. The format check is not authentication — the server still
+verifies every key. The MCP CLI now runs as a direct Node child from the app workspace instead of
+through a Yarn wrapper.
 
 **Operator action:** none. Set `OM_DEV_MCP_LAZY=0` to restore the eager start; `--no-mcp` and
 `OM_DEV_WITH_MCP=0` keep disabling MCP entirely.

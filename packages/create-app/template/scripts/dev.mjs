@@ -2588,11 +2588,19 @@ async function refreshOpencodeMcpBinding() {
   void checkOpencodeMcpWiring()
 }
 
+function readKnownMcpApiKeys() {
+  let provisioned = ''
+  try {
+    provisioned = fs.readFileSync(mcpKeyFilePath, 'utf8').trim()
+  } catch {}
+  return [provisioned, process.env.MCP_SERVER_API_KEY?.trim() ?? '']
+}
+
 // The armed proxy is what clients see as the ready endpoint (the key file is
 // final and requests are held until the server is up), so OpenCode is
 // refreshed here rather than when the server first becomes healthy.
 async function armLazyMcpEndpoint() {
-  mcpProxy.arm()
+  mcpProxy.arm(readKnownMcpApiKeys())
   const armedMessage = `MCP armed on http://localhost:${mcpPort}/mcp — the server starts on first request (OM_DEV_MCP_LAZY=0 starts it eagerly)`
   console.log(`🔌 ${armedMessage}`)
   updateSplashState({ activity: armedMessage })

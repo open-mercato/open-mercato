@@ -24,6 +24,7 @@ import {
   looksLikePermissionError,
   looksLikeUninitializedDatabase,
   nextMcpKeyRetryDelayMs,
+  mayWakeMcpServer,
   nextMcpRestartDelayMs,
   resolveDevMcpHost,
   resolveMcpKeyFilePath,
@@ -318,24 +319,70 @@ async function startLazyProxy(options) {
   return { proxy, port, firstUseSeen: () => firstUseSeen }
 }
 
-test('lazy MCP proxy answers /health itself and never starts the server for it', async () => {
+const KNOWN_KEY = ['managed', 'key', 'from', 'file'].join('-')
+const WELL_FORMED_KEY = `omk_${'a1'.repeat(4)}.${'b2'.repeat(24)}`
+
+function assertHealthShape(response, expectedStatus) {
+  const body = JSON.parse(response.body)
+  assert.equal(response.status, expectedStatus)
+  assert.equal(typeof body.status, 'string')
+  assert.equal(typeof body.tools, 'number')
+  assert.equal(typeof body.timestamp, 'string')
+  return body
+}
+
+test('mayWakeMcpServer accepts known keys and well-formed Open Mercato keys only', () => {
+  assert.equal(mayWakeMcpServer(KNOWN_KEY, [KNOWN_KEY]), true)
+  assert.equal(mayWakeMcpServer([KNOWN_KEY], ['', KNOWN_KEY]), true)
+  assert.equal(mayWakeMcpServer(WELL_FORMED_KEY, []), true)
+  assert.equal(mayWakeMcpServer(undefined, [KNOWN_KEY]), false)
+  assert.equal(mayWakeMcpServer('', ['']), false)
+  assert.equal(mayWakeMcpServer(`${KNOWN_KEY}x`, [KNOWN_KEY]), false)
+  assert.equal(mayWakeMcpServer('omk_short.key', [KNOWN_KEY]), false)
+  assert.equal(mayWakeMcpServer(`${WELL_FORMED_KEY}0`, []), false)
+  assert.equal(mayWakeMcpServer(WELL_FORMED_KEY.toUpperCase(), []), false)
+})
+
+test('lazy MCP proxy answers /health itself with the real server shape and never starts the server for it', async () => {
   const { proxy, port, firstUseSeen } = await startLazyProxy()
   try {
-    const beforeArm = await sendRequest(port, { path: '/health' })
-    assert.equal(beforeArm.status, 503)
-    assert.equal(JSON.parse(beforeArm.body).status, 'starting')
+    const beforeArm = assertHealthShape(await sendRequest(port, { path: '/health' }), 503)
+    assert.equal(beforeArm.status, 'starting')
+    assert.equal(beforeArm.tools, 0)
+    assert.equal(beforeArm.lazy, true)
 
-    const blocked = await sendRequest(port, { method: 'POST', path: '/mcp', body: '{}' })
+    const blocked = await sendRequest(port, { method: 'POST', path: '/mcp', headers: { 'x-api-key': WELL_FORMED_KEY }, body: '{}' })
     assert.equal(blocked.status, 503)
 
-    proxy.arm()
+    proxy.arm([KNOWN_KEY])
     const armed = await sendRequest(port, { path: '/health?probe=1' })
-    assert.equal(armed.status, 200)
     assert.equal(armed.headers['content-type'], 'application/json')
-    assert.equal(JSON.parse(armed.body).status, 'ok')
+    const armedBody = assertHealthShape(armed, 200)
+    assert.equal(armedBody.status, 'ok')
+    assert.equal(armedBody.tools, 0)
+    assert.equal(armedBody.lazy, true)
     const head = await sendRequest(port, { method: 'HEAD', path: '/health' })
     assert.equal(head.status, 200)
     assert.equal(head.body, '')
+
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(firstUseSeen(), false)
+  } finally {
+    await proxy.close()
+  }
+})
+
+test('lazy MCP proxy answers 401 without waking the server for a missing or malformed API key', async () => {
+  const { proxy, port, firstUseSeen } = await startLazyProxy()
+  try {
+    proxy.arm([KNOWN_KEY])
+    const missing = await sendRequest(port, { method: 'POST', path: '/mcp', body: '{}' })
+    assert.equal(missing.status, 401)
+    assert.equal(JSON.parse(missing.body).error, 'API key required (x-api-key header)')
+
+    const wrong = await sendRequest(port, { method: 'POST', path: '/mcp', headers: { 'x-api-key': 'not-a-key' }, body: '{}' })
+    assert.equal(wrong.status, 401)
+    assert.equal(JSON.parse(wrong.body).error, 'Invalid or expired API key')
 
     await new Promise((resolve) => setImmediate(resolve))
     assert.equal(firstUseSeen(), false)
@@ -365,11 +412,11 @@ test('lazy MCP proxy starts on the first request, holds it until the upstream is
     })
   })
   try {
-    proxy.arm()
+    proxy.arm([KNOWN_KEY])
     const pending = sendRequest(port, {
       method: 'POST',
       path: '/mcp?x=1',
-      headers: { 'content-type': 'application/json', 'x-api-key': 'omk_test' },
+      headers: { 'content-type': 'application/json', 'x-api-key': KNOWN_KEY },
       body: '{"jsonrpc":"2.0","id":1,"method":"initialize"}',
     })
     await proxy.firstUse
@@ -383,17 +430,48 @@ test('lazy MCP proxy starts on the first request, holds it until the upstream is
     assert.deepEqual(JSON.parse(forwarded.body), {
       method: 'POST',
       url: '/mcp?x=1',
-      apiKey: 'omk_test',
+      apiKey: KNOWN_KEY,
       body: '{"jsonrpc":"2.0","id":1,"method":"initialize"}',
     })
+
+    const keyless = await sendRequest(port, { method: 'POST', path: '/mcp', body: '{}' })
+    assert.equal(keyless.status, 201)
 
     const health = await sendRequest(port, { path: '/health' })
     assert.deepEqual(JSON.parse(health.body), { status: 'ok', tools: 3 })
 
     proxy.setUpstream(null)
-    const localHealth = await sendRequest(port, { path: '/health' })
-    assert.equal(JSON.parse(localHealth.body).status, 'ok')
-    assert.equal(JSON.parse(localHealth.body).tools, undefined)
+    const localHealth = assertHealthShape(await sendRequest(port, { path: '/health' }), 200)
+    assert.equal(localHealth.status, 'ok')
+    assert.equal(localHealth.tools, 0)
+  } finally {
+    await proxy.close()
+    if (upstream.listening) await new Promise((resolve) => upstream.close(resolve))
+  }
+})
+
+test('lazy MCP proxy wakes for a well-formed key it does not know and caps pending requests at 429', async () => {
+  const { proxy, port, firstUseSeen } = await startLazyProxy({ maxPendingRequests: 2 })
+  const upstream = http.createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' })
+    res.end('{"ok":true}')
+  })
+  const send = () => sendRequest(port, { method: 'POST', path: '/mcp', headers: { 'x-api-key': WELL_FORMED_KEY }, body: '{}' })
+  try {
+    proxy.arm([KNOWN_KEY])
+    const first = send()
+    await proxy.firstUse
+    assert.equal(firstUseSeen(), true)
+    const second = send()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    const overflow = await send()
+    assert.equal(overflow.status, 429)
+    assert.equal(overflow.headers['retry-after'], '5')
+
+    const upstreamPort = await listenOnLoopback(upstream)
+    proxy.setUpstream({ host: '127.0.0.1', port: upstreamPort })
+    assert.deepEqual((await Promise.all([first, second])).map((response) => response.status), [200, 200])
   } finally {
     await proxy.close()
     if (upstream.listening) await new Promise((resolve) => upstream.close(resolve))
@@ -412,7 +490,7 @@ test('lazy MCP proxy streams SSE unbuffered and aborts the upstream when the cli
   })
   try {
     const upstreamPort = await listenOnLoopback(upstream)
-    proxy.arm()
+    proxy.arm([KNOWN_KEY])
     proxy.setUpstream({ host: '127.0.0.1', port: upstreamPort })
 
     const request = http.get({ host: '127.0.0.1', port, path: '/mcp', headers: { accept: 'text/event-stream' }, agent: false })
@@ -434,8 +512,8 @@ test('lazy MCP proxy streams SSE unbuffered and aborts the upstream when the cli
 test('lazy MCP proxy answers 503 when the server never becomes ready', async () => {
   const { proxy, port } = await startLazyProxy({ upstreamTimeoutMs: 50 })
   try {
-    proxy.arm()
-    const response = await sendRequest(port, { method: 'POST', path: '/mcp', body: '{}' })
+    proxy.arm([KNOWN_KEY])
+    const response = await sendRequest(port, { method: 'POST', path: '/mcp', headers: { 'x-api-key': KNOWN_KEY }, body: '{}' })
     assert.equal(response.status, 503)
   } finally {
     await proxy.close()
