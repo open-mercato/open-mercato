@@ -66,6 +66,13 @@ test.describe('TC-INT-002: Customer to Deal to Quote to Order Flow', () => {
 
       await page.goto('/backend/customers/deals/create');
 
+      // Status and probability sit under the collapsed "More details" disclosure (#5109);
+      // open it first so the fields below are visible and interactable.
+      const moreDetailsToggle = page.getByRole('button', { name: 'More details', exact: true });
+      await expect(moreDetailsToggle).toBeVisible({ timeout: 30_000 });
+      if ((await moreDetailsToggle.getAttribute('aria-expanded')) !== 'true') await moreDetailsToggle.click();
+      await expect(moreDetailsToggle).toHaveAttribute('aria-expanded', 'true');
+
       // Wait for dictionary-driven dropdowns to finish loading before any user
       // input. Race avoidance: a late dictionary load can re-trigger
       // CrudForm's initialValues merge that clobbers already-typed `title`.
