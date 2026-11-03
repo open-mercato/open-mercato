@@ -227,6 +227,15 @@ function KanbanCardImpl({
     >
       <div className="text-sm font-semibold leading-normal text-foreground">{task.title}</div>
 
+      {task.supportReference ? (
+        <div className="flex flex-wrap items-center gap-1" data-testid="task-card-support">
+          <Badge variant="brand" size="sm">
+            {t('staff.time_tracking.board.card.customerRequest', 'Customer request')}
+          </Badge>
+          <span className="text-xs font-medium text-muted-foreground">{task.supportReference}</span>
+        </div>
+      ) : null}
+
       {tags.length > 0 ? (
         <div className="flex flex-wrap gap-1">
           {tags.map((tag) => (

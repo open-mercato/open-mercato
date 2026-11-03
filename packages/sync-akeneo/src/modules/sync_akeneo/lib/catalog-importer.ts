@@ -2405,7 +2405,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
       })
       return true
     } catch (error) {
-      if (isCrudHttpError(error) && error.status === 409) return false
+      if (isCrudHttpError(error) && (error.status === 409 || error.status === 404)) return false
       throw error
     }
   }

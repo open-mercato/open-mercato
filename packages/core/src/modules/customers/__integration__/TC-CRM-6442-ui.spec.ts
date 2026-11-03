@@ -174,10 +174,16 @@ test.describe('CRM deal owner assignment — browser UI', () => {
     expect(JSON.parse(assign.request().postData() ?? '{}').ownerUserId).toBeTruthy();
     await expect.poll(() => ownerOf(request, token, dealId), { timeout: 20_000 }).not.toBeNull();
 
+    await page.reload();
+    await revealOwnerField(page);
+    await expect(ownerField.locator('[role="option"][aria-selected="true"]')).toBeVisible();
+
     // D5 — clearing must send an explicit null, not omit the key.
     const clear = ownerField.getByRole('button', { name: /clear selection/i }).first();
     await expect(clear).toBeVisible({ timeout: 20_000 });
     await clear.click();
+    await expect(ownerField.locator('[role="option"][aria-selected="true"]')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Save' }).first()).toBeEnabled();
 
     const cleared = await waitForApiMutation(page, '/api/customers/deals', async () => {
       await page.getByRole('button', { name: 'Save' }).first().click();

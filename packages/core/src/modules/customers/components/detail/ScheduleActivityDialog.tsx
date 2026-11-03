@@ -24,6 +24,7 @@ import {
   isDateRequired,
   isTimeRequired,
   getFieldLabel,
+  resolveScheduleActivityType,
   DateTimeFields,
   ParticipantsField,
   LocationField,
@@ -141,10 +142,16 @@ export function ScheduleActivityDialog({
 }: ScheduleActivityDialogProps) {
   const t = useT()
   const state = useScheduleFormState({ open, editData: editData ?? null })
-  const visibleFields = FIELD_VISIBILITY[state.activityType]
+  // `state.activityType` is the raw persisted/selected key — may be a built-in
+  // Event, a custom dictionary key, or a historical key outside this dialog's
+  // five legacy kinds (#7486). `presentationType` resolves it to a safe key for
+  // every lookup into the five-kind maps below; the save payload keeps the raw
+  // value so an unsupported type is never silently rewritten.
+  const presentationType = resolveScheduleActivityType(state.activityType)
+  const visibleFields = FIELD_VISIBILITY[presentationType]
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const isEditing = Boolean(editData?.id)
-  const chrome = TYPE_CHROME[state.activityType]
+  const chrome = TYPE_CHROME[presentationType]
   const SaveIcon = chrome.saveIcon
   const [callDirection, setCallDirection] = React.useState<'outbound' | 'inbound'>('outbound')
   const [callOutcome, setCallOutcome] = React.useState<string | null>(null)
@@ -369,8 +376,8 @@ export function ScheduleActivityDialog({
   const trimmedCallPhone = callPhoneNumber.trim()
   // Only calendar-bound types must be scheduled; a task may stay an undated
   // backlog item, so blocking its save on an empty date was wrong (#5941).
-  const isDateMissing = isDateRequired(state.activityType) && !trimmedDate
-  const isTimeMissing = isTimeRequired(state.activityType) && !state.allDay && !trimmedStartTime
+  const isDateMissing = isDateRequired(presentationType) && !trimmedDate
+  const isTimeMissing = isTimeRequired(presentationType) && !state.allDay && !trimmedStartTime
   const isSubmitDisabled =
     state.saving ||
     !state.title.trim() ||
@@ -388,7 +395,7 @@ export function ScheduleActivityDialog({
       return
     }
     let phoneNumberForPayload: string | undefined
-    if (state.activityType === 'call' && trimmedCallPhone) {
+    if (presentationType === 'call' && trimmedCallPhone) {
       const phoneValidation = validatePhoneNumber(trimmedCallPhone)
       if (!phoneValidation.valid) {
         setCallPhoneError(callPhoneInvalidMessage)
@@ -417,7 +424,7 @@ export function ScheduleActivityDialog({
 
       const isSaveEdit = Boolean(editData?.id)
       const customValues: Record<string, unknown> = {}
-      if (state.activityType === 'call') {
+      if (presentationType === 'call') {
         customValues.callDirection = callDirection
         if (callOutcome) customValues.callOutcome = callOutcome
         if (phoneNumberForPayload) customValues.callPhoneNumber = phoneNumberForPayload
@@ -440,10 +447,10 @@ export function ScheduleActivityDialog({
         ...(isSaveEdit ? {} : { status: 'planned' }),
         date: trimmedDate || null,
         time: trimmedDate ? timeForPayload || null : null,
-        phoneNumber: state.activityType === 'call' ? phoneNumberForPayload : undefined,
+        phoneNumber: presentationType === 'call' ? phoneNumberForPayload : undefined,
         // Only tasks expose the priority control, so other types leave the column
         // untouched rather than clearing it on a type switch (#5943).
-        priority: state.activityType === 'task' ? buildTaskPriorityPayload(taskPriority, seededTaskPriority) : undefined,
+        priority: presentationType === 'task' ? buildTaskPriorityPayload(taskPriority, seededTaskPriority) : undefined,
         scheduledAt,
         durationMinutes: visibleFields.has('duration') && !state.allDay ? state.duration : null,
         location: visibleFields.has('location') ? (state.location.trim() || null) : null,
@@ -498,7 +505,7 @@ export function ScheduleActivityDialog({
       }
       const { message, fieldErrors } = mapCrudServerErrorToFormErrors(err)
       const phoneFieldError = fieldErrors?.phoneNumber
-      if (state.activityType === 'call' && phoneFieldError) {
+      if (presentationType === 'call' && phoneFieldError) {
         const translatedPhoneError = translateErrorMessage(phoneFieldError, callPhoneInvalidMessage)
         setCallPhoneError(translatedPhoneError)
         flash(translatedPhoneError, 'error')
@@ -511,7 +518,7 @@ export function ScheduleActivityDialog({
     } finally {
       state.setSaving(false)
     }
-  }, [callDirection, callOutcome, callPhoneInvalidMessage, callPhoneNumber, isDateMissing, isTimeMissing, state.activityType, state.allDay, state.date, state.description, dealId, state.duration, editData, entityId, state.guestPermissions, state.linkedEntities, state.location, onActivityCreated, onClose, state.participants, state.recurrenceCount, state.recurrenceDays, state.recurrenceEnabled, state.recurrenceEndDate, state.recurrenceEndType, state.reminderMinutes, runGuardedMutation, seededTaskPriority, state.startTime, t, taskPriority, state.title, translateErrorMessage, trimmedCallPhone, trimmedDate, trimmedStartTime, state.visibility, visibleFields]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [callDirection, callOutcome, callPhoneInvalidMessage, callPhoneNumber, isDateMissing, isTimeMissing, presentationType, state.activityType, state.allDay, state.date, state.description, dealId, state.duration, editData, entityId, state.guestPermissions, state.linkedEntities, state.location, onActivityCreated, onClose, state.participants, state.recurrenceCount, state.recurrenceDays, state.recurrenceEnabled, state.recurrenceEndDate, state.recurrenceEndType, state.reminderMinutes, runGuardedMutation, seededTaskPriority, state.startTime, t, taskPriority, state.title, translateErrorMessage, trimmedCallPhone, trimmedDate, trimmedStartTime, state.visibility, visibleFields]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleKeyDown = useDialogKeyHandler({ onConfirm: handleSave })
 
@@ -588,14 +595,14 @@ export function ScheduleActivityDialog({
         {/* Title */}
         <div className="flex flex-col gap-1.5">
           <label className="text-overline font-semibold text-muted-foreground tracking-wider">
-            {getFieldLabel(state.activityType, 'title', t, 'customers.schedule.titleLabel', 'Title')}
+            {getFieldLabel(presentationType, 'title', t, 'customers.schedule.titleLabel', 'Title')}
           </label>
           <input
             type="text"
             value={state.title}
             onChange={(e) => state.setTitle(e.target.value)}
             placeholder={
-              state.activityType === 'email'
+              presentationType === 'email'
                 ? t('customers.schedule.subjectPlaceholder', 'Subject...')
                 : t('customers.schedule.titlePlaceholder', 'Activity title...')
             }
@@ -608,7 +615,7 @@ export function ScheduleActivityDialog({
             workflows match Figma 829:50 / 790:280 (date row first, then status chips). */}
         <DateTimeFields
           visible={visibleFields}
-          activityType={state.activityType}
+          activityType={presentationType}
           date={state.date}
           setDate={state.setDate}
           startTime={state.startTime}
@@ -630,7 +637,7 @@ export function ScheduleActivityDialog({
         />
 
         {/* Call: Direction + Outcome chips */}
-        {state.activityType === 'call' && (
+        {presentationType === 'call' && (
           <div className="flex flex-col gap-3">
             <div>
               <label className="text-overline font-semibold uppercase text-muted-foreground tracking-wider">
@@ -690,7 +697,7 @@ export function ScheduleActivityDialog({
         )}
 
         {/* Task: Priority chips */}
-        {state.activityType === 'task' && (
+        {presentationType === 'task' && (
           <div>
             <label className="text-overline font-semibold uppercase text-muted-foreground tracking-wider">
               {t('customers.schedule.task.priorityLabel', 'Priority')}
@@ -723,7 +730,7 @@ export function ScheduleActivityDialog({
         {/* Participants */}
         <ParticipantsField
           visible={visibleFields}
-          activityType={state.activityType}
+          activityType={presentationType}
           participants={state.participants}
           setParticipants={state.setParticipants}
           removeParticipant={state.removeParticipant}
@@ -732,7 +739,7 @@ export function ScheduleActivityDialog({
         />
 
         {/* Location (or phone number for calls) */}
-        {state.activityType === 'call' ? (
+        {presentationType === 'call' ? (
           <div className="flex flex-col gap-1.5">
             <label htmlFor="schedule-call-phone" className="text-overline font-semibold uppercase text-muted-foreground tracking-wider">
               {t('customers.schedule.call.phoneLabel', 'Phone number')}
@@ -751,7 +758,7 @@ export function ScheduleActivityDialog({
         ) : (
           <LocationField
             visible={visibleFields}
-            activityType={state.activityType}
+            activityType={presentationType}
             location={state.location}
             setLocation={state.setLocation}
           />
@@ -760,7 +767,7 @@ export function ScheduleActivityDialog({
         {/* Linked Entities */}
         <LinkedEntitiesField
           visible={visibleFields}
-          activityType={state.activityType}
+          activityType={presentationType}
           linkedEntities={state.linkedEntities}
           setLinkedEntities={state.setLinkedEntities}
         />
@@ -768,7 +775,7 @@ export function ScheduleActivityDialog({
         {/* Description */}
         <div>
           <label className="text-overline font-semibold uppercase text-muted-foreground tracking-wider">
-            {getFieldLabel(state.activityType, 'description', t, 'customers.schedule.description', 'Description')}
+            {getFieldLabel(presentationType, 'description', t, 'customers.schedule.description', 'Description')}
           </label>
           <div className="mt-[8px]">
             <SwitchableMarkdownInput
@@ -777,12 +784,12 @@ export function ScheduleActivityDialog({
               isMarkdownEnabled={state.markdownEnabled}
               // Email bodies are plain text from other mail clients, not Markdown; `<address>`
               // or `<url>` tokens in them break the MDX editor (#5903).
-              disableMarkdown={state.activityType === 'email'}
+              disableMarkdown={presentationType === 'email'}
               // The plain textarea defaults to 3 hidden-overflow rows, which
               // would cut off quoted replies; give email bodies room and a scrollbar.
-              rows={state.activityType === 'email' ? 8 : undefined}
+              rows={presentationType === 'email' ? 8 : undefined}
               textareaClassName={
-                state.activityType === 'email'
+                presentationType === 'email'
                   ? 'w-full resize-y overflow-y-auto rounded-lg border border-muted-foreground/20 bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
                   : undefined
               }
@@ -795,7 +802,7 @@ export function ScheduleActivityDialog({
         {/* Reminder + Visibility */}
         <FooterFields
           visible={visibleFields}
-          activityType={state.activityType}
+          activityType={presentationType}
           reminderMinutes={state.reminderMinutes}
           setReminderMinutes={state.setReminderMinutes}
           visibility={state.visibility}
