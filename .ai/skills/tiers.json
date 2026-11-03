@@ -35,6 +35,8 @@
       "om-help",
       "om-judge-agent-session",
       "om-share-this-session",
+      "om-auto-sec-report",
+      "om-auto-sec-report-pr",
       "om-app-spec-writing",
       "om-gap-analysis"
     ]
@@ -69,10 +71,6 @@
         "om-auto-publish-pr",
         "om-auto-qa-scenarios"
       ]
-    },
-    "security": {
-      "description": "Security audit skills. Opt-in.",
-      "skills": ["om-auto-sec-report", "om-auto-sec-report-pr"]
     },
     "analysis": {
       "description": "Draft accessibility review (WCAG 2.2 AA). Opt-in.",
