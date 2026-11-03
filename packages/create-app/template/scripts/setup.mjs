@@ -61,5 +61,10 @@ try {
   clearTimeout(shutdownTimer)
   process.off('SIGINT', onInterrupt)
   process.off('SIGTERM', onTerminate)
-  await services?.cleanup?.()
+  try { await services?.cleanup?.() }
+  catch (error) {
+    console.error(`[setup] ${error.message}`)
+    printManualSetup()
+    process.exitCode = 1
+  }
 }

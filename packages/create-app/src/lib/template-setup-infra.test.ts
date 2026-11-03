@@ -306,3 +306,30 @@ test('failed dev setup prints the manual fallback and preserves exit status', { 
     assert.match(run.output, /Manual setup:[\s\S]*yarn install[\s\S]*yarn generate[\s\S]*yarn dev --no-infra/)
   } finally { fs.rmSync(app.appDir, { recursive: true, force: true }) }
 })
+
+test('ephemeral cleanup failures print manual recovery instructions and fail setup', { skip }, async () => {
+  const app = await makeApp()
+  try {
+    fs.mkdirSync(path.join(app.appDir, 'node_modules', '@open-mercato', 'cli'), { recursive: true })
+    const moduleDir = path.join(app.appDir, 'node_modules', 'testcontainers')
+    fs.mkdirSync(moduleDir)
+    fs.writeFileSync(path.join(moduleDir, 'index.js'), `
+      class GenericContainer {
+        withEnvironment() { return this }
+        withExposedPorts(port) { this.port = port; return this }
+        withHealthCheck() { return this }
+        withWaitStrategy() { return this }
+        async start() { return this }
+        getHost() { return '127.0.0.1' }
+        getMappedPort() { return this.port + 20000 }
+        async stop() { throw new Error('simulated cleanup failure') }
+      }
+      module.exports = { GenericContainer, Wait: { forHealthCheck() {} } }
+    `)
+    const run = await runScript(app, 'setup.mjs', ['--ephemeral'])
+    assert.equal(run.code, 1, run.output)
+    assert.match(run.output, /Could not fully restore/)
+    assert.match(run.output, /Manual setup:[\s\S]*yarn dev --no-infra/)
+    assert.deepEqual(run.devArgs, ['--setup', '--no-infra'])
+  } finally { fs.rmSync(app.appDir, { recursive: true, force: true }) }
+})

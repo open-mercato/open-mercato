@@ -25,8 +25,8 @@ Explicit isolated modes replace service endpoints; preserve existing credentials
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Implementation
-- [ ] 1.1 Implement shared service modes and ephemeral lifecycle
-- [ ] 1.2 Integrate both setup entrypoints and recovery guidance
+- [x] 1.1 Implement shared service modes and ephemeral lifecycle — 598ac65f0
+- [x] 1.2 Integrate both setup entrypoints and recovery guidance — 598ac65f0
 ### Phase 2: Verification
 - [ ] 2.1 Validate regression suites and template parity
 - [ ] 2.2 Review and publish the result
