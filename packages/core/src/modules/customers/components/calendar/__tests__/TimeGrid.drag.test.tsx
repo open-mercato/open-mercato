@@ -73,6 +73,22 @@ it('creates the half-hour slot under the pointer on a plain click', () => {
   expect(onCreateRange).toHaveBeenCalledWith(new Date(2026, 8, 29, 9), new Date(2026, 8, 29, 9, 30))
 })
 
+it('creates the highlighted slot when clicking just below a slot boundary', () => {
+  const onCreateRange = jest.fn()
+  const { container } = renderGrid(onCreateRange)
+  const layer = container.querySelector('.cursor-cell')!
+  act(() => {
+    dispatchPointer(layer, 'pointermove', 1138)
+  })
+  expect(container.querySelector('[data-calendar-hover-slot]')?.getAttribute('data-calendar-hover-slot')).toBe('540')
+  act(() => {
+    dispatchPointer(layer, 'pointerdown', 1138)
+    dispatchPointer(layer, 'pointerup', 1138)
+  })
+  expect(onCreateRange).toHaveBeenCalledTimes(1)
+  expect(onCreateRange).toHaveBeenCalledWith(new Date(2026, 8, 29, 9), new Date(2026, 8, 29, 9, 30))
+})
+
 it('highlights the hovered half-hour slot and clears it when the pointer leaves', () => {
   const { container } = renderGrid(jest.fn())
   const layer = container.querySelector('.cursor-cell')!

@@ -69,7 +69,7 @@ type DayColumnData = {
   overflows: PositionedOverflow[]
 }
 
-type DragState = { dayMs: number; startMin: number; endMin: number; moved: boolean }
+type DragState = { dayMs: number; startMin: number; endMin: number; pressSlotStartMin: number; moved: boolean }
 
 type HoverSlot = { dayMs: number; startMin: number }
 
@@ -327,14 +327,21 @@ export function TimeGrid({
     }
     const layer = event.currentTarget
     const rect = layer.getBoundingClientRect()
-    const minute = offsetYToMinutes(event.clientY - rect.top, HOUR_HEIGHT_PX)
+    const offsetY = event.clientY - rect.top
+    const minute = offsetYToMinutes(offsetY, HOUR_HEIGHT_PX)
     try {
       layer.setPointerCapture(event.pointerId)
     } catch {
       // Pointer capture is best-effort; ignore environments that reject it.
     }
     setSelectedId(null)
-    updateDrag({ dayMs: dayStart.getTime(), startMin: minute, endMin: minute, moved: false })
+    updateDrag({
+      dayMs: dayStart.getTime(),
+      startMin: minute,
+      endMin: minute,
+      pressSlotStartMin: slotStartFor(offsetYToMinutes(offsetY, HOUR_HEIGHT_PX, 1)),
+      moved: false,
+    })
   }
 
   const moveDrag = (event: React.PointerEvent<HTMLDivElement>, dayStart: Date) => {
@@ -376,8 +383,7 @@ export function TimeGrid({
     }
     // A plain click creates the half-hour slot under the pointer, so the user
     // never has to discover drag-to-create first.
-    const slotStart = slotStartFor(previous.startMin)
-    const range = buildDragRange(dayStart, slotStart, slotStart + SLOT_MINUTES)
+    const range = buildDragRange(dayStart, previous.pressSlotStartMin, previous.pressSlotStartMin + SLOT_MINUTES)
     onCreateRange(range.start, range.end)
   }
 
