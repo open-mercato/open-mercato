@@ -316,6 +316,7 @@
   "ai_assistant.dock.left": "Links andocken",
   "ai_assistant.dock.minimize": "Minimieren",
   "ai_assistant.dock.right": "Rechts andocken",
+  "ai_assistant.errors.directMutationDenied": "Änderungswerkzeuge können nicht direkt ausgeführt werden. Verwenden Sie einen Agenten-Chat oder eine run-object-Anfrage mit der Richtlinie zur Genehmigung von Änderungen.",
   "ai_assistant.errors.moderationBlocked": "Ihre Nachricht wurde vom Inhaltssicherheitsfilter blockiert. Bitte formulieren Sie sie um und versuchen Sie es erneut.",
   "ai_assistant.errors.moderationUnavailable": "Die Inhaltssicherheitsprüfung ist vorübergehend nicht verfügbar. Bitte versuchen Sie es in einem Moment erneut.",
   "ai_assistant.errors.pendingAllRecordsStale": "Alle ausstehenden Datensätze sind veraltet; der Assistent muss die Änderung neu vorschlagen.",
