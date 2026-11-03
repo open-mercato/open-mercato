@@ -65,5 +65,5 @@ PR: #8626
 
 ### Phase 4: Independent review findings
 
-- [ ] 4.1 Align scheduler run and exit-code docs with source
+- [x] 4.1 Align scheduler run and exit-code docs with source — 5fbfbf679
 - [ ] 4.2 Re-run the configured validation gate
