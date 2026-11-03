@@ -91,6 +91,24 @@ describe('LinkEntityDialog', () => {
     expect(classes).toContain('border-t')
   })
 
+  // The panes only sit side by side from `lg`. A fixed height below that lets a full
+  // results page collapse the stacked right pane to its padding.
+  it('fixes the dialog height only for the side-by-side layout', async () => {
+    const adapter = buildAdapter()
+    renderWithProviders(
+      <LinkEntityDialog
+        open
+        onOpenChange={() => undefined}
+        adapter={adapter}
+        initialSelectedIds={[]}
+        onConfirm={async () => undefined}
+      />,
+    )
+    const classes = (await screen.findByRole('dialog')).className.split(/\s+/)
+    expect(classes).toContain('lg:h-160')
+    expect(classes).not.toContain('sm:h-160')
+  })
+
   it('toggles selection when a row is clicked and reports diff on save', async () => {
     const adapter = buildAdapter()
     const onConfirm = jest.fn(async () => undefined)
