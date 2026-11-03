@@ -8,6 +8,8 @@ AI provider setup is optional: press Enter or choose `0` to skip. Missing creden
 
 `yarn dev:greenfield` now refuses an initialized database by default. For the previous destructive reset behavior, explicitly run `yarn dev:greenfield --reinstall`. Ordinary `yarn setup` continues to retain initialized data.
 
+The development diagnostics banner’s Retry button now invokes runtime recovery; a page reload alone no longer leaves the historical incident as the only outcome. Existing generation/health checks still determine whether recovery succeeded.
+
 The CLI starts Next development processes with `NODE_ENV=development` so development CSP/debugging features work. Production server and background-process environment behavior is unchanged.
 
 ## Agent search answers honor domain policy (#7234)
