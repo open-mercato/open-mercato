@@ -255,6 +255,23 @@ export async function GET(req: Request) {
     if (superAdminUserIds.size) {
       filters.push({ id: { $nin: Array.from(superAdminUserIds) as any } })
     }
+    // Browsing follows the topbar organization selection; explicit `?id=`/`?ids=` lookups stay
+    // tenant-wide so callers resolving a known user (author labels, assignee names) keep working.
+    if (userIdFilter.kind !== 'ids') {
+      const scope = await resolveOrganizationScopeForRequest({
+        container,
+        auth,
+        request: req,
+        tenantId: actorTenantId,
+      })
+      effectiveSelectedOrganizationId = scope.selectedId
+      if (Array.isArray(scope.filterIds)) {
+        if (scope.filterIds.length === 0) {
+          return NextResponse.json({ items: [], total: 0, totalPages: 1, isSuperAdmin })
+        }
+        effectiveOrganizationIds = scope.filterIds
+      }
+    }
   } else {
     const selectedTenantId = getSelectedTenantFromRequest(req)
     if (typeof selectedTenantId === 'string' && selectedTenantId.trim().length > 0) {
@@ -726,7 +743,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List users',
       description:
-        'Non-superadmins with auth.users.list receive a tenant-wide staff directory by default, excluding superadmin accounts. Neither the active organization nor the caller\'s organization visibility list narrows this default. Directory visibility does not grant access to organization-owned records. Super administrators may scope the response via the topbar tenant and organization selection; without a selected tenant, their list can span tenants. Search matches email, organization name, and role name. Pass organizationId for an exact organization filter, or scopeToActiveOrganization=1 to restrict results to the caller\'s exact active organization (used by recipient/assignee pickers); when the caller has no active organization, this selects only users with no organization. Both filters apply when supplied together. These are optional list filters, not authorization boundaries. Pass ids=<uuid>,<uuid> (max 100) to resolve a known set of users in one request, for example to label a list of foreign keys; it intersects with id and roleId, and a supplied ids value that contains no valid identifier matches nothing.',
+        'Non-superadmins with auth.users.list browse users in the selected organization and its descendants, bounded by their tenant and organization visibility, excluding superadmin accounts. Selecting all organizations remains bounded by organization visibility. Explicit id/ids lookups retain tenant-wide staff-reference visibility, excluding superadmin accounts. Directory visibility does not grant access to organization-owned records. Super administrators may scope the response via the topbar tenant and organization selection; without a selected tenant, their list can span tenants. Search matches email, organization name, and role name. Pass organizationId for an exact organization filter, or scopeToActiveOrganization=1 to restrict results to the caller\'s exact active organization (used by recipient/assignee pickers); when the caller has no active organization, this selects only users with no organization. Both filters apply when supplied together. These optional list filters further narrow the effective scope. Pass ids=<uuid>,<uuid> (max 100) to resolve a known set of users in one request, for example to label a list of foreign keys; it intersects with id and roleId, and a supplied ids value that contains no valid identifier matches nothing.',
       query: querySchema,
       responses: [
         { status: 200, description: 'User collection', schema: userListResponseSchema },
