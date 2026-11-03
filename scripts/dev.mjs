@@ -12,6 +12,7 @@ import {
   noteCommandStart,
 } from './dev-log-files.mjs'
 import {
+  extractInitSummaryLines,
   isIgnorableFailureLine,
   isIgnorableTurboLine,
 } from './dev-orchestration-log-policy.mjs'
@@ -70,7 +71,8 @@ import { createDevRuntimeGateway } from './dev-runtime-gateway.mjs'
 import { createDevRuntimeActionRunner } from './dev-runtime-actions.mjs'
 import { isMatchingDevRuntimeToken } from './dev-runtime-diagnostics.mjs'
 import {
-  resolveDevBaseUrl,
+  mergeDevUrlEnv,
+  resolveDevPublicAppBaseUrl,
   resolveSplashUrl as resolveSplashAccessUrl,
 } from './dev-splash-url.mjs'
 import { resolveDatabaseNameOverride } from './dev-database-url.mjs'
@@ -82,6 +84,14 @@ import {
   isEnabledEnvFlag as isEnabledMemoryTraceFlag,
   resolveMemoryTraceIntervalMs,
 } from './dev-memory-sampler.mjs'
+
+function readAppDotEnv(appDir) {
+  try {
+    return parseEnv(fs.readFileSync(path.join(appDir, '.env'), 'utf8'))
+  } catch {
+    return {}
+  }
+}
 
 function detectDevRuntimeMode() {
   const cwd = process.cwd()
@@ -238,6 +248,9 @@ const classic = args.includes('--classic') || isEnabledEnvFlag(process.env.OM_DE
 const verbose = args.includes('--verbose') || process.env.MERCATO_DEV_OUTPUT === 'verbose'
 const greenfield = isMonorepo && args.includes('--greenfield')
 const appOnly = args.includes('--app-only')
+// `--no-infra` (forwarded by `yarn setup --no-infra` and the starter) promises
+// zero Docker calls, so the OpenCode container refresh is skipped entirely.
+const noInfra = args.includes('--no-infra')
 const withMcp = shouldStartMcp({ args, env: process.env, appOnly })
 let mcpPort = resolveMcpPort(process.env)
 const preferredMcpPort = mcpPort
@@ -254,7 +267,9 @@ const standaloneStageTotal = setupMode ? 5 : 4
 const splashEnabled = !classic && !appOnly && splashPortConfig.enabled
 const autoOpenSplash = splashEnabled && process.stdout.isTTY && process.env.CI !== 'true' && process.env.OM_DEV_AUTO_OPEN !== '0'
 const splashBindHost = resolveSplashBindHost(process.env)
-const publicAppPort = resolveDevBaseUrl(process.env).port ?? 3000
+const appDotEnv = readAppDotEnv(isMonorepo ? path.join(process.cwd(), 'apps', 'mercato') : process.cwd())
+const publicAppBaseUrl = resolveDevPublicAppBaseUrl(process.env, appDotEnv)
+const publicAppPort = publicAppBaseUrl.port ?? 3000
 const devRuntimeConfig = (() => {
   try {
     return resolveDevRuntimeConfig(process.env, { splashEnabled, publicPort: publicAppPort })
@@ -269,6 +284,7 @@ const devRuntimeConfig = (() => {
 // The gateway owns the public port only when explicitly opted in; `direct` mode
 // keeps the historical topology where Next.js binds it.
 const gatewayMode = devRuntimeConfig.mode === 'proxy'
+const expectedAppBaseUrl = publicAppBaseUrl.url
 const standaloneRuntimeScript = path.join(process.cwd(), 'scripts', 'dev-runtime.mjs')
 const monorepoPackageWatchScript = path.join(process.cwd(), 'scripts', 'watch-packages.mjs')
 const monorepoAppDir = path.join(process.cwd(), 'apps', 'mercato')
@@ -392,7 +408,7 @@ const devRuntime = createDevRuntimeSupervisor({
   enabled: devRuntimeConfig.diagnosticsEnabled,
   config: devRuntimeConfig,
   stateDirectory: path.join(process.cwd(), '.mercato'),
-  publicUrl: resolveDevBaseUrl(process.env).url,
+  publicUrl: expectedAppBaseUrl,
   configuredPort: publicAppPort,
   resolveBaseUrl: () => resolveRuntimeProbeBaseUrl(),
   readChildState: () => readSplashChildState(),
@@ -441,7 +457,7 @@ function formatProgressLine(label, current, total, percent) {
 }
 
 function resolveExpectedAppBaseUrl() {
-  return resolveDevBaseUrl(process.env).url
+  return expectedAppBaseUrl
 }
 
 function resolveRuntimeProbeBaseUrl() {
@@ -1434,7 +1450,7 @@ async function startSplashServer() {
 
   const address = splashServer.address()
   if (!address || typeof address === 'string') return
-  splashUrl = resolveSplashAccessUrl(process.env, address.port)
+  splashUrl = resolveSplashAccessUrl(mergeDevUrlEnv(process.env, appDotEnv), address.port)
   if (splashPortConfig.port !== 0 && address.port !== splashPortConfig.port) {
     console.log(`🪟 Dev splash moved to ${splashUrl}`)
   }
@@ -1695,11 +1711,16 @@ function resolveChildExitCode(result, fallback = 1) {
   return fallback
 }
 
-async function runRawYarnCommand(commandArgs) {
+// `mercato init` prints "Start the dev server: yarn dev" unless told that this
+// runner launches the dev server right after it.
+const INIT_DEV_AUTOSTART_ENV = { OM_INIT_DEV_AUTOSTART: '1' }
+
+async function runRawYarnCommand(commandArgs, options = {}) {
   const child = spawnCommand(yarnCommand, commandArgs, {
     label: commandArgs.join(' '),
     logFile: getDevRunnerLog(),
     mirrorOutput: true,
+    env: options.env,
   })
   const result = await waitForClose(child)
   if (isGracefulShutdownResult(result)) {
@@ -2095,6 +2116,7 @@ async function runPassthroughStage(label, commandArgs, options = {}) {
       label,
       logFile: getDevRunnerLog(),
       mirrorOutput: true,
+      env: options.env,
     })
     const result = await waitForClose(child)
     if (isGracefulShutdownResult(result)) {
@@ -2110,6 +2132,7 @@ async function runPassthroughStage(label, commandArgs, options = {}) {
     const child = spawnCommand(yarnCommand, commandArgs, {
       label,
       logFile: getDevRunnerLog(),
+      env: options.env,
     })
     const capturedLines = []
     const capture = (line) => {
@@ -2135,6 +2158,9 @@ async function runPassthroughStage(label, commandArgs, options = {}) {
         stageTotal,
       })
       return
+    }
+    if (options.echoSummaryBox) {
+      for (const line of extractInitSummaryLines(capturedLines)) console.log(line)
     }
   }
 
@@ -2459,6 +2485,10 @@ function restartOpencodeContainer(reason) {
   const endpoint = process.env.OPENCODE_MCP_URL || `http://host.docker.internal:${mcpPort}/mcp`
   if (shuttingDown || opencodeLastRestartEndpoint === endpoint) return false
   opencodeLastRestartEndpoint = endpoint
+  if (noInfra) {
+    noteDockerUnavailable('--no-infra was passed, so Docker is never called')
+    return false
+  }
   const composeArgs = resolveOpencodeComposeArgs()
   if (!composeArgs || !isOpencodeContainerRunning(composeArgs)) return false
   console.log(`🔄 ${reason} — recreating the OpenCode container with the current MCP endpoint...`)
@@ -2708,7 +2738,7 @@ async function runGreenfieldDev() {
   await runStage('🧱 Greenfield build packages', ['build:packages'], { stageCurrent: 1, stageTotal: 5 })
   await runStage('🧬 Greenfield generate artifacts', ['generate'], { stageCurrent: 2, stageTotal: 5 })
   await runStage('🧱 Greenfield rebuild packages', ['build:packages'], { stageCurrent: 3, stageTotal: 5 })
-  await runPassthroughStage('🛠️ Greenfield initialize', ['initialize', '--', '--reinstall'], { stageCurrent: 4, stageTotal: 5 })
+  await runPassthroughStage('🛠️ Greenfield initialize', ['initialize', '--', '--reinstall'], { stageCurrent: 4, stageTotal: 5, env: INIT_DEV_AUTOSTART_ENV, echoSummaryBox: true })
 
   startPackageWatch()
   launchMonorepoAppDev()
@@ -2719,7 +2749,7 @@ async function runClassicGreenfieldDev() {
   await runRawYarnCommand(['build:packages'])
   await runRawYarnCommand(['generate'])
   await runRawYarnCommand(['build:packages'])
-  await runRawYarnCommand(['initialize', '--', '--reinstall'])
+  await runRawYarnCommand(['initialize', '--', '--reinstall'], { env: INIT_DEV_AUTOSTART_ENV })
 
   startPackageWatch()
   launchMonorepoAppDev()
@@ -2739,8 +2769,8 @@ async function runStandaloneSetup() {
   await runPassthroughStage('🗄️ Applying database migrations', ['db:migrate'], { stageCurrent: 3, stageTotal: 5 })
   await runPassthroughStage(
     '🛠️ Initializing Open Mercato',
-    reinstall ? ['initialize', '--reinstall'] : ['initialize'],
-    { stageCurrent: 4, stageTotal: 5 },
+    reinstall ? ['initialize', '--reinstall'] : ['initialize', '--skip-if-initialized'],
+    { stageCurrent: 4, stageTotal: 5, env: INIT_DEV_AUTOSTART_ENV, echoSummaryBox: true },
   )
   launchStandaloneDev({
     stageCurrent: 4,
@@ -2761,7 +2791,7 @@ async function runClassicStandaloneSetup() {
   await runRawYarnCommand(['install'])
   await runRawYarnCommand(['generate'])
   await runRawYarnCommand(['db:migrate'])
-  await runRawYarnCommand(reinstall ? ['initialize', '--reinstall'] : ['initialize'])
+  await runRawYarnCommand(reinstall ? ['initialize', '--reinstall'] : ['initialize', '--skip-if-initialized'], { env: INIT_DEV_AUTOSTART_ENV })
   launchStandaloneDev()
 }
 
