@@ -380,26 +380,6 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
     if (!current) throw new CrudHttpError(404, { error: 'Role not found' })
     const actorTenantScope = resolveActorTenantScope(ctx)
     assertRoleTenantInScope(actorTenantScope, current.tenantId)
-    if (parsed.name !== undefined) {
-      const nextName = parsed.name
-      if (nextName !== current.name) assertRoleNameAllowed(nextName)
-      if (nextName !== current.name) {
-        const assignments = await em.count(UserRole, { role: current, deletedAt: null })
-        if (assignments > 0) {
-          throw new CrudHttpError(400, { error: 'Role name cannot be changed while users are assigned' })
-        }
-      }
-    }
-    const wantsTenantChange = parsed.tenantId !== undefined && parsed.tenantId !== current.tenantId
-    if (wantsTenantChange) {
-      if (!scope.isSuperAdmin) {
-        throw new CrudHttpError(403, { error: 'Not authorized to target this tenant.' })
-      }
-      const assignments = await em.count(UserRole, { role: current, deletedAt: null })
-      if (assignments > 0) {
-        throw new CrudHttpError(400, { error: 'Role cannot be moved to another tenant while users are assigned' })
-      }
-    }
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const redoLogEntry = (ctx as RoleReplayRuntimeContext)[ROLE_REDO_LOG]
     let role: Role | null = null
@@ -413,6 +393,22 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
         })
       }
       await lockRoleWriterAuthorizationState(em, [parsed.id])
+      const wantsRename = parsed.name !== undefined && parsed.name !== current.name
+      const wantsTenantChange = parsed.tenantId !== undefined && parsed.tenantId !== current.tenantId
+      if (wantsRename) assertRoleNameAllowed(parsed.name)
+      if (wantsTenantChange && !scope.isSuperAdmin) {
+        throw new CrudHttpError(403, { error: 'Not authorized to target this tenant.' })
+      }
+      if (wantsRename || wantsTenantChange) {
+        const assignments = await em.count(UserRole, { role: current, deletedAt: null })
+        if (assignments > 0) {
+          throw new CrudHttpError(400, {
+            error: wantsRename
+              ? 'Role name cannot be changed while users are assigned'
+              : 'Role cannot be moved to another tenant while users are assigned',
+          })
+        }
+      }
       if (wantsTenantChange) {
         await em.nativeDelete(RoleAcl, { role: parsed.id as unknown as Role })
       }
