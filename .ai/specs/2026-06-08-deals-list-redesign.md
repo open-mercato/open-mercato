@@ -167,6 +167,7 @@ New flat dotted keys under `customers.deals.list.kpi.*` in all four locale files
 
 **UI paths**
 - `/backend/customers/deals` — **new/extended** Playwright spec (mirror `TC-CRM-071-create-deal-redesign.spec.ts`): log in, navigate, assert the **KPI strip** renders four cards with values + delta chips, the **STATUS badge**, **OWNER avatar+name**, **PEOPLE avatar stack** and **STAGE name** cells render, the table loads rows, and row selection / row-actions / advanced filter still work (no regression).
+- `/backend/customers/deals` KPI strip (`TC-CRM-083`, real charts): open and switch metric tabs, tab keyboard navigation (arrows, Home, End), line and bar rendering with the chart type kept per metric, a period refetch, collapse and reopen with the state kept across a reload, and recovery after a failed period refetch by re-selecting the period and by Retry.
 
 ## Final compliance report
 
