@@ -414,9 +414,45 @@ export class DefaultDataEngine implements DataEngine {
     }
   }
 
+  // custom_entities_storage has no unique constraint: `custom_entities_storage_unique_idx` is a plain
+  // btree index (Migration20251030150038), and organization_id is nullable. An INSERT ... ON CONFLICT
+  // therefore never has a matching arbiter index and always errors, so write by scoped update-then-insert.
+  private async writeCustomEntityStorageDoc(target: {
+    entityType: string
+    entityId: string
+    organizationId: string | null
+    tenantId: string | null
+    doc: Record<string, unknown>
+  }): Promise<void> {
+    const db = this.getKysely()
+    const docJson = JSON.stringify(target.doc)
+    let update = db
+      .updateTable('custom_entities_storage' as any)
+      .set({ doc: sql`${docJson}::jsonb`, updated_at: sql`now()`, deleted_at: null } as any)
+      .where('entity_type' as any, '=', target.entityType)
+      .where('entity_id' as any, '=', target.entityId)
+    update = target.organizationId === null
+      ? update.where('organization_id' as any, 'is', null as any)
+      : update.where('organization_id' as any, '=', target.organizationId)
+    update = target.tenantId === null
+      ? update.where('tenant_id' as any, 'is', null as any)
+      : update.where('tenant_id' as any, '=', target.tenantId)
+    const updated = await update.executeTakeFirst()
+    if (updated && Number(updated.numUpdatedRows ?? 0) > 0) return
+    await db.insertInto('custom_entities_storage' as any).values({
+      entity_type: target.entityType,
+      entity_id: target.entityId,
+      organization_id: target.organizationId,
+      tenant_id: target.tenantId,
+      doc: sql`${docJson}::jsonb`,
+      created_at: sql`now()`,
+      updated_at: sql`now()`,
+      deleted_at: null,
+    } as any).execute()
+  }
+
   async createCustomEntityRecord(opts: Parameters<DataEngine['createCustomEntityRecord']>[0]): Promise<{ id: string }> {
     assertCustomEntityStorageEntityId(this.em, opts.entityId)
-    const db = this.getKysely()
     await this.ensureStorageTableExists()
     const sanitizedValues = await sanitizeCustomFieldHtmlRichTextValuesServer(this.em, {
       entityId: opts.entityId,
@@ -485,36 +521,7 @@ export class DefaultDataEngine implements DataEngine {
         }
       })
     } else {
-      try {
-        await db
-          .insertInto('custom_entities_storage' as any)
-          .values(payload as any)
-          .onConflict((oc) => oc
-            .columns(['entity_type', 'entity_id', 'organization_id'])
-            .doUpdateSet({
-              doc: sql`${JSON.stringify(doc)}::jsonb`,
-              updated_at: sql`now()`,
-              deleted_at: null,
-            } as any))
-          .execute()
-      } catch {
-        // Fallback for global scope uniqueness
-        const updated = await db
-          .updateTable('custom_entities_storage' as any)
-          .set({
-            doc: sql`${JSON.stringify(doc)}::jsonb`,
-            updated_at: sql`now()`,
-            deleted_at: null,
-          } as any)
-          .where('entity_type' as any, '=', opts.entityId)
-          .where('entity_id' as any, '=', id)
-          .where('organization_id' as any, orgId === null ? 'is' : '=', orgId as any)
-          .where('tenant_id' as any, tenantId === null ? 'is' : '=', tenantId as any)
-          .executeTakeFirst()
-        if (!updated || Number(updated.numUpdatedRows ?? 0) === 0) {
-          await db.insertInto('custom_entities_storage' as any).values(payload as any).execute()
-        }
-      }
+      await this.writeCustomEntityStorageDoc({ entityType: opts.entityId, entityId: id, organizationId: orgId, tenantId, doc })
     }
 
     // Optional EAV backward compatibility (disabled by default)
@@ -572,29 +579,7 @@ export class DefaultDataEngine implements DataEngine {
       doc: { ...prevDoc, ...this.normalizeDocValues(sanitizedValues || {}), id },
       encryptionService: this.resolveCustomEntityEncryptionService(),
     })
-    try {
-      const updated = await applyScope(
-        db.updateTable('custom_entities_storage' as any).set({
-          doc: sql`${JSON.stringify(nextDoc)}::jsonb`,
-          updated_at: sql`now()`,
-          deleted_at: null,
-        } as any) as any
-      ).executeTakeFirst()
-      if (!updated || Number((updated as any).numUpdatedRows ?? 0) === 0) {
-        await db.insertInto('custom_entities_storage' as any).values({
-          entity_type: opts.entityId,
-          entity_id: id,
-          organization_id: orgId,
-          tenant_id: tenantId,
-          doc: sql`${JSON.stringify(nextDoc)}::jsonb`,
-          created_at: sql`now()`,
-          updated_at: sql`now()`,
-          deleted_at: null,
-        } as any).execute()
-      }
-    } catch (err) {
-      throw err
-    }
+    await this.writeCustomEntityStorageDoc({ entityType: opts.entityId, entityId: id, organizationId: orgId, tenantId, doc: nextDoc })
 
     // Optional EAV backward compatibility (disabled by default)
     if (this.backcompatEavEnabled() && sanitizedValues && Object.keys(sanitizedValues).length > 0) {
