@@ -4,7 +4,8 @@ import * as React from 'react'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import type { ExternalIdMapping } from '@open-mercato/shared/modules/integrations/types'
 import { getIntegrationTitle } from '@open-mercato/shared/modules/integrations/types'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDate } from '@open-mercato/ui/primitives/date-format'
 import { cn } from '@open-mercato/shared/lib/utils'
 
 type IntegrationsData = Record<string, ExternalIdMapping>
@@ -18,6 +19,7 @@ const SYNC_STATUS_STYLES: Record<ExternalIdMapping['syncStatus'], { dot: string;
 
 function SyncStatusBadge({ status, lastSynced }: { status: ExternalIdMapping['syncStatus']; lastSynced?: string }) {
   const t = useT()
+  const locale = useLocale()
   const config = SYNC_STATUS_STYLES[status]
   const label = t(config.label, status)
 
@@ -27,7 +29,7 @@ function SyncStatusBadge({ status, lastSynced }: { status: ExternalIdMapping['sy
       <span>{label}</span>
       {lastSynced && (
         <span title={lastSynced}>
-          {new Date(lastSynced).toLocaleDateString()}
+          {formatDisplayDate(lastSynced, locale)}
         </span>
       )}
     </span>

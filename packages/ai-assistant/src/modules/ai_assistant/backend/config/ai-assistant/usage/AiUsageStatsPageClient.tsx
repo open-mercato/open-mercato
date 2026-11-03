@@ -3,7 +3,8 @@
 import * as React from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { BarChart2, ChevronRight, Loader2 } from 'lucide-react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
@@ -139,8 +140,8 @@ function formatNumber(value: number): string {
   return value.toLocaleString()
 }
 
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleString()
+function formatDate(iso: string, locale: string): string {
+  return formatDisplayDateTime(iso, locale) ?? iso
 }
 
 function shortId(id: string): string {
@@ -149,6 +150,7 @@ function shortId(id: string): string {
 
 export function AiUsageStatsPageClient() {
   const t = useT()
+  const locale = useLocale()
 
   const defaultFrom = daysAgoIso(30)
   const defaultTo = todayIso()
@@ -356,7 +358,7 @@ export function AiUsageStatsPageClient() {
                     >
                       <td className="px-3 py-2 font-mono text-xs">{shortId(session.sessionId)}…</td>
                       <td className="px-3 py-2 font-mono text-xs">{session.agentId}</td>
-                      <td className="px-3 py-2 text-muted-foreground text-xs">{formatDate(session.startedAt)}</td>
+                      <td className="px-3 py-2 text-muted-foreground text-xs">{formatDate(session.startedAt, locale)}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{formatNumber(session.inputTokens)}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{formatNumber(session.outputTokens)}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{session.stepCount}</td>

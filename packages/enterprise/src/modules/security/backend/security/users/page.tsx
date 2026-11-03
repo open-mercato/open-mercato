@@ -8,7 +8,8 @@ import type { SortingState } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import MfaComplianceBadge from '../../../components/MfaComplianceBadge'
 import type { ComplianceItem, ComplianceResponse } from './_shared'
@@ -16,16 +17,14 @@ import { Button } from '@open-mercato/ui/primitives/button'
 
 const PAGE_SIZE = 20
 
-function formatLastLogin(value: string | undefined, fallback: string): string {
-  if (!value) return fallback
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return fallback
-  return parsed.toLocaleString()
+function formatLastLogin(value: string | undefined, fallback: string, locale: string): string {
+  return formatDisplayDateTime(value, locale) ?? fallback
 }
 
 export default function SecurityUsersPage() {
   const router = useRouter()
   const t = useT()
+  const locale = useLocale()
   const [page, setPage] = React.useState(1)
   const [search, setSearch] = React.useState('')
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'email', desc: false }])
@@ -111,9 +110,10 @@ export default function SecurityUsersPage() {
       cell: ({ row }) => formatLastLogin(
         row.original.lastLoginAt,
         t('security.admin.users.lastLogin.unknown', 'Unknown'),
+        locale,
       ),
     },
-  ], [t])
+  ], [t, locale])
 
   const filterDefs = React.useMemo<FilterDef[]>(() => [
     {

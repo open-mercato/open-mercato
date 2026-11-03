@@ -6,7 +6,8 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import type { LedgerEntry } from '../../lib/context-ledger'
 import { resolveStepSample, type PinnedSampleEnvelope } from '../../lib/sample-resolver'
 
@@ -82,6 +83,7 @@ export function ActivityTestPanel({
   disabled,
 }: ActivityTestPanelProps) {
   const t = useT()
+  const locale = useLocale()
   const [isRunning, setIsRunning] = React.useState(false)
   const [outcome, setOutcome] = React.useState<ActivityTestOutcome | null>(null)
   const [lastOutput, setLastOutput] = React.useState<{ value: unknown } | null>(null)
@@ -136,9 +138,8 @@ export function ActivityTestPanel({
 
   const pinnedAtLabel = React.useMemo(() => {
     if (!pinnedSample) return null
-    const parsed = new Date(pinnedSample.pinnedAt)
-    return Number.isNaN(parsed.getTime()) ? pinnedSample.pinnedAt : parsed.toLocaleString()
-  }, [pinnedSample])
+    return formatDisplayDateTime(pinnedSample.pinnedAt, locale) ?? pinnedSample.pinnedAt
+  }, [pinnedSample, locale])
 
   return (
     <div className="space-y-2">

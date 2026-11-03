@@ -46,7 +46,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { MobileTaskForm } from '../../../components/mobile/MobileTaskForm'
 import { StatusChip } from '../../../components/work-inbox/StatusChip'
 import { TaskActionNotice } from '../../../components/work-inbox/TaskActionNotice'
@@ -78,6 +78,7 @@ import { normalizeWorkInboxPriority } from '../../../lib/work-inbox/provider'
 import { flattenTaskText } from '../../../lib/task-resolution'
 import { readRecordedDecision } from '../../../lib/task-decisions'
 import { normalizeTaskFormSchema } from '../../../lib/task-form-schema'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 
 const logger = createLogger('workflows')
 
@@ -98,6 +99,7 @@ function decisionButtonVariant(style: UserTaskDecision['style']): 'default' | 'o
 export default function UserTaskDetailPage({ params }: { params: { id: string } }) {
   const router = useRouter()
   const t = useT()
+  const locale = useLocale()
   const queryClient = useQueryClient()
   const isMobile = useIsMobile()
   const [formData, setFormData] = React.useState<Record<string, string | number | boolean>>({})
@@ -771,7 +773,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
                 <div className="space-y-1 text-sm">
                   <div>
                     <span className="text-muted-foreground">{t('workflows.tasks.fields.createdAt')}:</span>
-                    <span className="ml-2 text-foreground">{new Date(task.createdAt).toLocaleString()}</span>
+                    <span className="ml-2 text-foreground">{formatDisplayDateTime(task.createdAt, locale)}</span>
                   </div>
                   {task.dueDate ? (
                     <div>
@@ -779,7 +781,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
                       <span
                         className={`ml-2 ${isOverdue ? `${WORK_INBOX_OVERDUE_TONE.text} font-medium` : 'text-foreground'}`}
                       >
-                        {new Date(task.dueDate).toLocaleString()}
+                        {formatDisplayDateTime(task.dueDate, locale)}
                       </span>
                     </div>
                   ) : null}

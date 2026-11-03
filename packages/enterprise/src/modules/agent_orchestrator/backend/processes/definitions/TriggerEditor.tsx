@@ -22,6 +22,7 @@ import {
   type ProcessTrigger,
 } from '../../../data/validators'
 import { parseGrantedFeaturesText, listTimeZones } from './formHelpers'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 
 const TIMEZONE_DATALIST_ID = 'om-process-trigger-timezones'
 
@@ -48,7 +49,7 @@ function formatNextRuns(cron: string, timezoneRaw: string, locale: string): { ok
   return {
     ok: true,
     text: result.nextRuns
-      .map((run) => new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(run))
+      .map((run) => formatDisplayDateTime(run, locale) ?? '')
       .join(' · '),
   }
 }

@@ -5,7 +5,8 @@ import { extensionPoints } from '@open-mercato/webhooks/modules/webhooks/extensi
 import Link from 'next/link'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -60,6 +61,7 @@ const statusVariantMap: Record<string, 'default' | 'secondary' | 'destructive' |
 
 export default function IntegrationDeliveriesWidget(_props: InjectionWidgetComponentProps) {
   const t = useT()
+  const locale = useLocale()
   const [items, setItems] = React.useState<DeliveryRow[]>([])
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
@@ -186,14 +188,10 @@ export default function IntegrationDeliveriesWidget(_props: InjectionWidgetCompo
       accessorKey: 'enqueuedAt',
       header: t('webhooks.deliveries.columns.enqueuedAt'),
       cell: ({ row }) => {
-        try {
-          return new Date(row.original.enqueuedAt).toLocaleString()
-        } catch {
-          return '—'
-        }
+        return formatDisplayDateTime(row.original.enqueuedAt, locale) ?? '—'
       },
     },
-  ], [t])
+  ], [t, locale])
 
   return (
     <div className="space-y-4">

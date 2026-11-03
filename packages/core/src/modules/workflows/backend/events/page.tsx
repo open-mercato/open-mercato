@@ -7,10 +7,11 @@ import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useQuery } from '@tanstack/react-query'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 
 type WorkflowEvent = {
   id: string
@@ -44,6 +45,7 @@ export default function WorkflowEventsPage() {
   const [totalPages, setTotalPages] = React.useState(1)
   const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const t = useT()
+  const locale = useLocale()
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
 
   const { data, isLoading, error, refetch } = useQuery({
@@ -144,7 +146,7 @@ export default function WorkflowEventsPage() {
       accessorKey: 'occurredAt',
       cell: ({ row }) => (
         <div className="text-sm">
-          {new Date(row.original.occurredAt).toLocaleString()}
+          {formatDisplayDateTime(row.original.occurredAt, locale)}
         </div>
       ),
     },

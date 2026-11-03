@@ -13,7 +13,8 @@ import {
 } from '@open-mercato/ui/primitives/dialog'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
 
 type Props = {
@@ -28,6 +29,7 @@ type SessionKeyResponse = {
 
 export default function SessionKeyDialog({ open, onOpenChange }: Props) {
   const t = useT()
+  const locale = useLocale()
   const [sessionToken, setSessionToken] = useState<string | null>(null)
   const [expiresAt, setExpiresAt] = useState<string | null>(null)
   const [isGenerating, setIsGenerating] = useState(false)
@@ -103,8 +105,7 @@ Workflow (use this order):
 
   const formatExpiry = (isoDate: string | null) => {
     if (!isoDate) return t('ai_assistant.session.expiresDefault')
-    const date = new Date(isoDate)
-    return date.toLocaleString()
+    return formatDisplayDateTime(isoDate, locale) ?? isoDate
   }
 
   return (

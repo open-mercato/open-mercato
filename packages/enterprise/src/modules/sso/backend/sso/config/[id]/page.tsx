@@ -10,7 +10,8 @@ import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDate, formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 
 type Tab = 'general' | 'domains' | 'roles' | 'scim' | 'activity'
@@ -742,6 +743,7 @@ function isGoogleIssuer(issuer?: string): boolean {
 function ScimProvisioningTab({ configId, jitEnabled, issuer, onProvisioningChange, runMutationWithContext }: { configId: string; jitEnabled: boolean; issuer?: string; onProvisioningChange: () => void; runMutationWithContext: <T>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>) => Promise<T> }) {
   const isGoogleProvider = isGoogleIssuer(issuer)
   const t = useT()
+  const locale = useLocale()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
   const [tokens, setTokens] = React.useState<ScimTokenRow[]>([])
@@ -943,7 +945,7 @@ function ScimProvisioningTab({ configId, jitEnabled, issuer, onProvisioningChang
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-muted-foreground">
-                    {new Date(token.createdAt).toLocaleDateString()}
+                    {formatDisplayDate(token.createdAt, locale)}
                   </span>
                   {token.isActive && (
                     <Button variant="ghost" size="sm" onClick={() => handleRevokeToken(token.id)} className="text-destructive">
@@ -976,7 +978,7 @@ function ScimProvisioningTab({ configId, jitEnabled, issuer, onProvisioningChang
                 {logs.map((log) => (
                   <tr key={log.id} className="border-t">
                     <td className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">
-                      {new Date(log.createdAt).toLocaleString()}
+                      {formatDisplayDateTime(log.createdAt, locale)}
                     </td>
                     <td className="px-3 py-2">
                       <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-muted">
@@ -1009,6 +1011,7 @@ function ScimProvisioningTab({ configId, jitEnabled, issuer, onProvisioningChang
 
 function SsoActivityTab({ configId }: { configId: string }) {
   const t = useT()
+  const locale = useLocale()
   const [identities, setIdentities] = React.useState<SsoIdentityRow[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
 
@@ -1043,7 +1046,7 @@ function SsoActivityTab({ configId }: { configId: string }) {
             {identity.idpName && <span className="text-sm text-muted-foreground ml-2">({identity.idpName})</span>}
           </div>
           <span className="text-xs text-muted-foreground">
-            {identity.lastLoginAt ? new Date(identity.lastLoginAt).toLocaleString() : '—'}
+            {formatDisplayDateTime(identity.lastLoginAt, locale) ?? '—'}
           </span>
         </div>
       ))}

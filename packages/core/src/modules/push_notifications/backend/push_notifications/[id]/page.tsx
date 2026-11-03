@@ -6,7 +6,8 @@ import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
 import { StatusBadge, type StatusMap } from '@open-mercato/ui/primitives/status-badge'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 
 type PushDeliveryStatus = 'pending' | 'sending' | 'sent' | 'failed' | 'skipped' | 'expired'
 
@@ -50,6 +51,7 @@ function DetailRow({ label, children }: { label: string; children: React.ReactNo
 export default function PushDeliveryDetailPage({ params }: { params?: { id?: string } }) {
   const id = typeof params?.id === 'string' ? params.id : ''
   const t = useT()
+  const locale = useLocale()
   const [item, setItem] = React.useState<DeliveryDetail | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -123,13 +125,13 @@ export default function PushDeliveryDetailPage({ params }: { params?: { id?: str
                   <code className="font-mono text-xs">…{item.token_snapshot}</code>
                 </DetailRow>
                 <DetailRow label={t('push_notifications.deliveries.columns.created')}>
-                  {item.created_at ? new Date(item.created_at).toLocaleString() : '—'}
+                  {formatDisplayDateTime(item.created_at, locale) ?? '—'}
                 </DetailRow>
                 <DetailRow label={t('push_notifications.deliveries.columns.sent')}>
-                  {item.sent_at ? new Date(item.sent_at).toLocaleString() : '—'}
+                  {formatDisplayDateTime(item.sent_at, locale) ?? '—'}
                 </DetailRow>
                 <DetailRow label={t('push_notifications.deliveries.detail.nextRetry')}>
-                  {item.next_retry_at ? new Date(item.next_retry_at).toLocaleString() : '—'}
+                  {formatDisplayDateTime(item.next_retry_at, locale) ?? '—'}
                 </DetailRow>
               </dl>
             </section>
