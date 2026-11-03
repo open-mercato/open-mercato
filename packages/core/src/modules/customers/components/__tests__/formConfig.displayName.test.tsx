@@ -14,9 +14,10 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
 
 import * as React from 'react'
 import { act, fireEvent, render, screen } from '@testing-library/react'
-import type { CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import type { CrudCustomFieldRenderProps, CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import {
   buildPersonEditPayload,
+  createPersonEditFields,
   createPersonEditGroups,
   createPersonFormGroups,
   createPersonPersonalDataGroups,
@@ -29,6 +30,7 @@ const t: Translator = (key, fallback) => fallback ?? key
 const PERSON_ID = '44444444-4444-4444-8444-444444444444'
 
 type FormValues = Record<string, unknown>
+type CrudCustomField = { id: string; component: (props: CrudCustomFieldRenderProps) => React.ReactNode }
 
 function findGroup(groups: CrudFormGroup[], id: string): CrudFormGroup {
   const group = groups.find((candidate) => candidate.id === id)
@@ -60,40 +62,83 @@ function renderGroup(group: CrudFormGroup, initialValues: FormValues) {
   }
 }
 
-describe('person display name on the detail page', () => {
-  const detailGroup = () => findGroup(createPersonPersonalDataGroups(t), 'personalDataDisplay')
-  const stalePerson = { id: PERSON_ID, displayName: 'Dr. J. Doe', firstName: 'John', lastName: 'Doe' }
+function renderDisplayNameField(initialValues: FormValues) {
+  expect(findGroup(createPersonPersonalDataGroups(t), 'personalData').fields).toContain('displayName')
+  const field = createPersonEditFields(t).find((entry) => entry.id === 'displayName') as CrudCustomField | undefined
+  if (!field) throw new Error('[internal] missing displayName field')
+  const latest: { values: FormValues; change: (id: string, value: unknown) => void } = {
+    values: initialValues,
+    change: () => {},
+  }
+  function Host() {
+    const [values, setValues] = React.useState<FormValues>(initialValues)
+    const change = React.useCallback((id: string, value: unknown) => {
+      setValues((current) => ({ ...current, [id]: value }))
+    }, [])
+    const setDisplayName = React.useCallback((value: unknown) => change('displayName', value), [change])
+    latest.values = values
+    latest.change = change
+    return <>{field?.component({ id: 'displayName', value: values.displayName, values, setValue: setDisplayName })}</>
+  }
+  render(<Host />)
+  return {
+    latest,
+    change(id: string, value: unknown) {
+      act(() => latest.change(id, value))
+    },
+    payloadName: () => buildPersonEditPayload(latest.values as PersonEditFormValues).displayName,
+  }
+}
 
-  it('hosts the sync in a bare group without any name editor', () => {
-    const group = detailGroup()
+const RESET = 'customers.people.form.displayName.reset'
+
+describe('person display name on the detail page', () => {
+  const customNamePerson = { id: PERSON_ID, displayName: 'Dr. J. Doe', firstName: 'John', lastName: 'Doe' }
+  const derivedNamePerson = { id: PERSON_ID, displayName: 'John Doe', firstName: 'John', lastName: 'Doe' }
+
+  it('keeps the personalDataDisplay group id with nothing rendered in it', () => {
+    const group = findGroup(createPersonPersonalDataGroups(t), 'personalDataDisplay')
     expect(group.bare).toBe(true)
-    const { container } = renderGroup(group, stalePerson)
+    const { container } = renderGroup(group, customNamePerson)
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('keeps a persisted custom name while the names are untouched', () => {
-    const { change, latest } = renderGroup(detailGroup(), stalePerson)
-    change('primaryEmail', 'john@example.com')
+  it('keeps a custom name when first or last name changes, up to the save payload', () => {
+    const { change, latest, payloadName } = renderDisplayNameField(customNamePerson)
+    change('firstName', 'Jon')
     expect(latest.values.displayName).toBe('Dr. J. Doe')
-    expect(buildPersonEditPayload(latest.values as PersonEditFormValues).displayName).toBe('Dr. J. Doe')
+    expect(payloadName()).toBe('Dr. J. Doe')
+    change('lastName', 'Smith')
+    expect(payloadName()).toBe('Dr. J. Doe')
   })
 
-  it('follows the new names and stops sending the stale value once a name changes', () => {
-    const { change, latest } = renderGroup(detailGroup(), stalePerson)
+  it('keeps a custom name after a name is edited and changed back', () => {
+    const { change, latest } = renderDisplayNameField(customNamePerson)
+    change('firstName', 'John ')
+    change('firstName', 'John')
+    expect(latest.values.displayName).toBe('Dr. J. Doe')
+  })
+
+  it('lets the user enter a custom name, which then stays', () => {
+    const { change, latest, payloadName } = renderDisplayNameField(derivedNamePerson)
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Johnny' } })
+    expect(latest.values.displayName).toBe('Johnny')
+    change('firstName', 'Jon')
+    expect(payloadName()).toBe('Johnny')
+  })
+
+  it('resets a custom name to first and last name, and it follows them again', () => {
+    const { change, latest, payloadName } = renderDisplayNameField(customNamePerson)
+    fireEvent.click(screen.getByRole('button', { name: RESET }))
+    expect(payloadName()).toBe('John Doe')
+    expect(screen.queryByRole('button', { name: RESET })).not.toBeInTheDocument()
     change('firstName', 'Jon')
     expect(latest.values.displayName).toBe('Jon Doe')
-    expect(buildPersonEditPayload(latest.values as PersonEditFormValues).displayName).toBe('Jon Doe')
-    change('lastName', 'Smith')
-    expect(buildPersonEditPayload(latest.values as PersonEditFormValues).displayName).toBe('Jon Smith')
   })
 
-  it('keeps following when a derived name changes', () => {
-    const { change, latest } = renderGroup(detailGroup(), {
-      id: PERSON_ID,
-      displayName: 'John Doe',
-      firstName: 'John',
-      lastName: 'Doe',
-    })
+  it('follows the names and offers no reset while the name is derived', () => {
+    const { change, latest } = renderDisplayNameField(derivedNamePerson)
+    expect(screen.queryByRole('button', { name: RESET })).not.toBeInTheDocument()
     change('lastName', 'Smith')
     expect(latest.values.displayName).toBe('John Smith')
   })
