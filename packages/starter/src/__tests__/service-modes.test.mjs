@@ -190,3 +190,22 @@ test('normalized local database identifiers fit the PostgreSQL identifier limit'
     assert.equal(decodeURIComponent(new URL(env.DATABASE_URL).pathname.slice(1)), env.POSTGRES_DB)
   } finally { fs.rmSync(dir, { recursive: true, force: true }) }
 })
+
+test('ephemeral cleanup restores its endpoints when the dev runner persists a database-name override', async () => {
+  const dir = fixture(); const mock = containers()
+  try {
+    const file = path.join(dir, '.env')
+    fs.writeFileSync(file, 'DATABASE_URL="postgres://old_user:old_password@existing.example:6543/old_db?sslmode=require"\nOTHER=kept\n')
+    const env = {}
+    const result = await configureServiceMode({ mode: 'ephemeral', projectDir: dir, env, loadTestcontainers: mock.loader, log: silent })
+    const selected = new URL(env.DATABASE_URL); selected.pathname = '/chosen_db'
+    fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(/^DATABASE_URL=.*$/m, `DATABASE_URL=${selected.toString()}`) + 'LATER=kept\n')
+    await result.cleanup()
+    const restored = parseEnv(fs.readFileSync(file, 'utf8')); const url = new URL(restored.DATABASE_URL)
+    assert.equal(url.hostname, 'existing.example'); assert.equal(url.port, '6543')
+    assert.equal(url.username, 'old_user'); assert.equal(url.password, 'old_password')
+    assert.equal(url.pathname, '/chosen_db'); assert.equal(url.search, '?sslmode=require')
+    assert.equal(restored.OTHER, 'kept'); assert.equal(restored.LATER, 'kept')
+    assert.equal(mock.stopped.length, 3)
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})

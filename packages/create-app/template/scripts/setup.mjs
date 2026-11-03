@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync } from 'node:fs'
-import { collectForwardedSetupFlags } from './dev-database-url.mjs'
+import { copyFileSync, existsSync, readFileSync } from 'node:fs'
+import { collectForwardedSetupFlags, previewDatabaseNameOverride } from './dev-database-url.mjs'
 import { NO_INFRA_FLAG } from './dev-infra-preflight.mjs'
 import { ensureInfra } from './infra.mjs'
 import { chooseServiceMode, configureServiceMode, printManualSetup } from './dev-service-modes.mjs'
@@ -44,7 +44,8 @@ try {
     const infra = await ensureInfra()
     if (!infra.ok) throw new Error('Infrastructure did not become ready.')
   }
-  await verifyServiceConnections({ projectDir: process.cwd(), env: services.env })
+  const selectedDatabaseUrl = previewDatabaseNameOverride({ argv, env: services.env, cwd: process.cwd(), envText: existsSync('.env') ? readFileSync('.env', 'utf8') : '' })
+  await verifyServiceConnections({ projectDir: process.cwd(), env: selectedDatabaseUrl ? { ...services.env, DATABASE_URL: selectedDatabaseUrl } : services.env })
   if (interrupted) throw new Error('Setup interrupted while verifying service connections.')
   child = spawn(process.execPath, [
     './scripts/dev.mjs', '--setup',

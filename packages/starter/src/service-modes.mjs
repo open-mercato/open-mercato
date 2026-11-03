@@ -131,10 +131,30 @@ export async function configureServiceMode({ mode, projectDir, env = process.env
           } else {
             const current = parseEnv(envText(file))
             const keys = Object.keys(changes).filter((key) => current[key] === String(changes[key]))
+            let persistedDatabaseAssignment
+            if (current.DATABASE_URL && changes.DATABASE_URL && current.DATABASE_URL !== changes.DATABASE_URL) {
+              try {
+                const active = new URL(current.DATABASE_URL)
+                const owned = new URL(changes.DATABASE_URL)
+                if (active.protocol === owned.protocol && active.hostname === owned.hostname && active.port === owned.port) {
+                  keys.push('DATABASE_URL')
+                  const previous = before.get(file).DATABASE_URL
+                  persistedDatabaseAssignment = ''
+                  if (previous) {
+                    const restoredUrl = new URL(previous)
+                    restoredUrl.pathname = active.pathname
+                    const raw = (originalText.get(file) ?? '').match(assignmentPattern('DATABASE_URL'))?.join('') ?? ''
+                    persistedDatabaseAssignment = raw.includes(previous) ? raw.replace(previous, restoredUrl.toString()) : raw
+                  }
+                }
+              } catch {}
+            }
             let next = envText(file)
             for (const key of keys) {
               next = next.replace(assignmentPattern(key), '')
-              const raw = (originalText.get(file) ?? '').match(assignmentPattern(key))?.join('') ?? ''
+              const raw = key === 'DATABASE_URL' && persistedDatabaseAssignment !== undefined
+                ? persistedDatabaseAssignment
+                : (originalText.get(file) ?? '').match(assignmentPattern(key))?.join('') ?? ''
               if (raw) next += `${next && !next.endsWith('\n') ? '\n' : ''}${raw}${raw.endsWith('\n') ? '' : '\n'}`
             }
             fs.writeFileSync(file, next, { mode: 0o600 })

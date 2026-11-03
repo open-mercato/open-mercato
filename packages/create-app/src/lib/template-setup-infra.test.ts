@@ -67,7 +67,7 @@ async function makeApp() {
     fs.copyFileSync(path.join(TEMPLATE_SCRIPTS, file), path.join(appDir, 'scripts', file))
   }
   fs.writeFileSync(path.join(appDir, 'scripts', 'dev.mjs'), DEV_STUB)
-  fs.writeFileSync(path.join(appDir, 'scripts', 'dev-service-connections.mjs'), `export async function verifyServiceConnections() { if (process.env.FAKE_CONNECTION_INTERRUPT) process.emit('SIGTERM'); if (process.env.FAKE_CONNECTION_FAILURE) throw new Error('[setup] PostgreSQL connection failed (DATABASE_URL at postgres://localhost:5432/example). The service rejected the configured credentials. Check .env.'); return { ok: true } }\n`)
+  fs.writeFileSync(path.join(appDir, 'scripts', 'dev-service-connections.mjs'), `import fs from 'node:fs'; export async function verifyServiceConnections({ env = {} } = {}) { if (process.env.FAKE_VERIFY_DATABASE_LOG) fs.writeFileSync(process.env.FAKE_VERIFY_DATABASE_LOG, env.DATABASE_URL || ''); if (process.env.FAKE_CONNECTION_INTERRUPT) process.emit('SIGTERM'); if (process.env.FAKE_CONNECTION_FAILURE) throw new Error('[setup] PostgreSQL connection failed (DATABASE_URL at postgres://localhost:5432/example). The service rejected the configured credentials. Check .env.'); return { ok: true } }\n`)
   fs.mkdirSync(path.join(appDir, 'node_modules', 'cross-spawn'), { recursive: true })
   const binDir = path.join(appDir, 'fake-bin')
   fs.mkdirSync(binDir)
@@ -152,6 +152,7 @@ test('yarn setup keeps a remote DATABASE_URL and says so instead of switching to
 test('classic and reinstall wrappers keep their semantics and forward --no-infra', { skip }, async () => {
   const app = await makeApp()
   try {
+    fs.writeFileSync(path.join(app.appDir, '.env'), 'DATABASE_URL=postgres://fixture:password@localhost:5432/default_db\n')
     const run = await runScript(app, 'setup.mjs', ['--reinstall', '--classic', '--verbose', '--no-infra', '--database-name=review_db'])
     assert.equal(run.code, 0, run.output)
     assert.deepEqual(run.dockerCalls, [])
@@ -357,5 +358,20 @@ test('interrupting service verification prevents database/dev startup', { skip }
     assert.equal(run.devArgs, null)
     assert.match(run.output, /Setup interrupted while verifying service connections/)
     assert.deepEqual(run.dockerCalls, [])
+  } finally { fs.rmSync(app.appDir, { recursive: true, force: true }) }
+})
+
+
+test('database-name verification previews the selected database without rewriting env or consuming the dev flags', { skip }, async () => {
+  const app = await makeApp()
+  try {
+    const original = 'DATABASE_URL=postgres://fixture:password@localhost:5432/default_db\n'
+    fs.writeFileSync(path.join(app.appDir, '.env'), original)
+    const log = path.join(app.appDir, 'verified-url.txt')
+    const run = await runScript(app, 'setup.mjs', ['--database-name=selected_db', '--no-update-env', '--reuse-services'], { env: { FAKE_VERIFY_DATABASE_LOG: log } })
+    assert.equal(run.code, 0, run.output)
+    assert.equal(new URL(fs.readFileSync(log, 'utf8')).pathname, '/selected_db')
+    assert.equal(fs.readFileSync(path.join(app.appDir, '.env'), 'utf8'), original)
+    assert.deepEqual(run.devArgs, ['--setup', '--no-infra', '--database-name=selected_db', '--no-update-env'])
   } finally { fs.rmSync(app.appDir, { recursive: true, force: true }) }
 })

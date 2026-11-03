@@ -206,3 +206,22 @@ test('Redis preserves emitted authentication details when connect rejects with a
     return redacted(error)
   })
 })
+
+
+test('a missing selected PostgreSQL database verifies credentials read-only through maintenance before initialization creates it', async () => {
+  const calls = []
+  const closed = []
+  class Client {
+    constructor(options) { this.url = new URL(options.connectionString); calls.push(this.url.pathname) }
+    on() {}
+    async connect() { if (this.url.pathname === '/fresh') throw Object.assign(new Error('does not exist'), { code: '3D000' }) }
+    async query(sql) { assert.equal(sql, 'SELECT 1'); calls.push(sql) }
+    async end() { closed.push(this.url.pathname) }
+  }
+  const messages = []
+  const result = await verifyServiceConnections({ projectDir: '/missing', env: { DATABASE_URL: 'postgres://fixture:pw@localhost/fresh' }, loadModule: async () => ({ Client }), log: (line) => messages.push(line) })
+  assert.equal(result.ok, true)
+  assert.deepEqual(calls, ['/fresh', '/postgres', 'SELECT 1'])
+  assert.deepEqual(closed, ['/fresh', '/postgres'])
+  assert.match(messages.join('\n'), /initialization will handle its creation/)
+})
