@@ -11,6 +11,16 @@ jest.mock('../columns/ColumnChooserPanel', () => ({
   ColumnChooserSection: () => null,
 }))
 
+jest.mock('../views/ViewChip', () => ({
+  ViewChip: (props: { label: string; onClone: () => void }) => (
+    <button type="button" onClick={props.onClone}>{`Clone ${props.label}`}</button>
+  ),
+}))
+
+if (typeof globalThis.structuredClone !== 'function') {
+  globalThis.structuredClone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T
+}
+
 const PERSONAL_VIEW: PerspectiveDto = {
   id: 'persp-1',
   name: 'My view',
@@ -77,5 +87,32 @@ describe('PerspectiveSidebar save-as-new with a taken name', () => {
     )
     expect(screen.getByText('Translated duplicate name')).toBeTruthy()
     expect(screen.getByPlaceholderText('View name...')).toBeTruthy()
+  })
+
+  it('moves a clone on to the next copy number when the server reports the name is taken', async () => {
+    const duplicate = Object.assign(new Error('A view with this name already exists.'), {
+      status: 409,
+      code: 'duplicate_name',
+    })
+    const onSave = jest
+      .fn<Promise<void>, Parameters<PerspectiveSidebarProps['onSave']>>()
+      .mockRejectedValueOnce(duplicate)
+      .mockResolvedValueOnce(undefined)
+    renderSidebar(onSave)
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Clone My view' }))
+    })
+
+    expect(onSave).toHaveBeenCalledTimes(2)
+    expect(onSave).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ name: 'My view (copy)', perspectiveId: null, createOnly: true }),
+    )
+    expect(onSave).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ name: 'My view (copy 2)', perspectiveId: null, createOnly: true }),
+    )
+    expect(screen.queryByText('Translated duplicate name')).toBeNull()
   })
 })

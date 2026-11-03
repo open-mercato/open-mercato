@@ -357,6 +357,10 @@ export function PerspectiveSidebar({
       }
     }
     if (surfaceRecordConflict(lastErr, t)) return
+    if (isDuplicateNameError(lastErr)) {
+      setError(t('ui.perspectives.error.nameExists', 'View with this name already exists'))
+      return
+    }
     setError(lastErr instanceof Error ? lastErr.message : 'Failed to clone view')
   }
 

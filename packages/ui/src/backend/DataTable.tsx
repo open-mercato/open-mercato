@@ -292,7 +292,9 @@ export type DataTableSaveViewInput = {
   name?: string
   /**
    * Target view id. Defaults to the active personal view; pass `null` to force
-   * creating a new view (then `name` is required).
+   * creating a new view (then `name` is required). Creating never overwrites:
+   * when another personal view already uses `name`, the save resolves
+   * `{ ok: false, reason: 'failed' }` with the 409 `duplicate_name` in `error`.
    */
   perspectiveId?: string | null
   /** Marks the saved view as the user's default. Defaults to the target's current flag. */
@@ -2693,7 +2695,7 @@ function DataTableImpl<T extends RowData>({
         applyToRoles: [],
         setRoleDefault: false,
         perspectiveId: targetId ?? null,
-        createOnly: input?.perspectiveId === null,
+        createOnly: !targetId,
       })
       return { ok: true, perspectiveId: saved?.perspective?.id ?? null }
     } catch (error) {

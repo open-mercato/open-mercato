@@ -421,6 +421,7 @@ describe('DataTable public save-view API', () => {
     expect(result).toEqual({ ok: true, perspectiveId: 'persp-new' })
     expect(savedPayloads).toHaveLength(1)
     expect(savedPayloads[0].name).toBe('Wide view')
+    expect(savedPayloads[0].createOnly).toBe(true)
     expect((savedPayloads[0].settings as { searchValue?: string }).searchValue).toBe('acme')
     // A completed save re-baselines the view, so nothing stays flagged as unsaved.
     await waitFor(() => expect(apiRef.current?.getDirtyState().isDirty).toBe(false))
@@ -440,6 +441,7 @@ describe('DataTable public save-view API', () => {
     expect(result).toEqual({ ok: true, perspectiveId: 'persp-new' })
     expect(savedPayloads).toHaveLength(1)
     expect(savedPayloads[0].perspectiveId).toBe('persp-1')
+    expect(savedPayloads[0].createOnly).toBeUndefined()
     expect(savedPayloads[0].name).toBe('My view')
     expect((savedPayloads[0].settings as { searchValue?: string }).searchValue).toBe('other')
   })

@@ -101,9 +101,9 @@ test.describe('TC-PERSP-UNIQUENESS-002: save-as-new does not overwrite a same-na
       expect(fresh.status(), 'create-only with a free name').toBe(200);
       const freshBody = await readJsonSafe<SaveResponse>(fresh);
       const freshId = freshBody?.perspective?.id ?? null;
+      if (freshId) createdIds.push(freshId);
       expect(typeof freshId).toBe('string');
       expect(freshId).not.toBe(existingId);
-      createdIds.push(freshId as string);
     } finally {
       await deleteViews(request, token, tableId, createdIds);
     }
