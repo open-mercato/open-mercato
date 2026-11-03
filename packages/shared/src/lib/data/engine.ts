@@ -98,7 +98,14 @@ export interface DataEngine {
     organizationId?: string | null
     tenantId?: string | null
     values: Record<string, string | number | boolean | null | undefined | Array<string | number | boolean | null | undefined>>
-    notify?: boolean // default true -> emit '<module>.<entity>.updated'
+    /**
+     * Default true: emits the entity-keyed custom-field change signal `<module>.<entity>.updated`,
+     * derived from `entityId` (e.g. `catalog:catalog_product` → `catalog.catalog_product.updated`).
+     * It is not a module domain event — the query_index bridge subscribes to the same derivation for
+     * every entity carrying custom fields, including runtime custom entities — so it is deliberately
+     * not checked against the `events.ts` registry.
+     */
+    notify?: boolean
     // Forwarded to `setRecordCustomFields` — see its doc for when a caller must pass
     // true (a recordId that is not unique across organizations for this entityId).
     pinOrganizationId?: boolean
@@ -304,7 +311,6 @@ export class DefaultDataEngine implements DataEngine {
         const [mod, ent] = (entityId || '').split(':')
         if (mod && ent) {
           const eventName = `${mod}.${ent}.updated`
-          warnIfUndeclaredEvent(eventName, 'setCustomFields')
           try {
             await bus.emitEvent(eventName, { id: recordId, organizationId, tenantId }, {
               persistent: true,
