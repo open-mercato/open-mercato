@@ -18,10 +18,12 @@ Keep Open Mercato secure by curating roles, features, and user-specific override
 
 ![Editing a user ACL](/screenshots/open-mercato-edit-user-and-acl.png)
 
-- **Open** **Auth → Users** to invite new operators or adjust identities. The users list respects the current organization and tenant scope.
+- **Open** **Auth → Users** to invite new operators or adjust identities. For non-superadmins, `auth.users.list` grants visibility of staff identities across the current tenant, excluding superadmin accounts. Selecting an organization in the topbar does not automatically narrow this list; use the **Organization** filter to narrow it.
 - **Select a user** to edit their profile, assign roles, and apply per-user feature overrides. Overrides are additive—you can grant temporary features without cloning roles.
 - **Control dashboard widgets** for individuals when you need tailored visibility. Per-user settings override the role defaults configured above.
 - **Reset access** directly from this screen when operators forget credentials or need a password rotation.
+
+Staff directory visibility is separate from access to organization-owned records. A non-superadmin's organization visibility list does not restrict the default staff directory, so grant `auth.users.list` only to operators who should see identities throughout their tenant. API consumers can request an exact active-organization filter with `scopeToActiveOrganization=1`; this is an optional list filter, not an authorization boundary. See the [user-list API reference](../api/auth#list-users--get-authusers) for details.
 
 ## Review and audit access
 
