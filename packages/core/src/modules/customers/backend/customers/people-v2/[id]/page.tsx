@@ -233,10 +233,6 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
     onAfterChange: reloadAfterActivityChange,
   })
 
-  React.useEffect(() => {
-    void loadPlannedActivities({ cache: true })
-  }, [loadPlannedActivities])
-
   // Publish page-load record context to the AppShell-owned `backend:record:current`
   // mount so the enterprise record_locks widget resolves `customers.person` + id
   // explicitly (the hardcoded path allowlist misses the `people-v2` route).
@@ -315,6 +311,12 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
   React.useEffect(() => {
     setActiveTab(initialTab)
   }, [initialTab])
+
+  const isActivityTabActive = activeTab === 'activities'
+  React.useEffect(() => {
+    if (!isActivityTabActive) return
+    void loadPlannedActivities({ cache: true })
+  }, [isActivityTabActive, loadPlannedActivities])
 
   const handleTabChange = React.useCallback(
     (tab: PersonTabId) => {

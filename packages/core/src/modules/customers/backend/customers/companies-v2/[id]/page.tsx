@@ -218,9 +218,11 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     onAfterChange: reloadAfterActivityChange,
   })
 
+  const isActivityTabActive = activeTab === 'activity-log'
   React.useEffect(() => {
+    if (!isActivityTabActive) return
     void loadPlannedActivities({ cache: true })
-  }, [loadPlannedActivities])
+  }, [isActivityTabActive, loadPlannedActivities])
 
   // Publish page-load record context to the AppShell-owned `backend:record:current`
   // mount so the enterprise record_locks widget resolves `customers.company` + id

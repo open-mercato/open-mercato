@@ -273,6 +273,16 @@ describe('PersonDetailV2Page', () => {
     expect(readApiResultOrThrowMock).not.toHaveBeenCalledWith(expect.stringContaining('dealId='))
   })
 
+  it('sends no interactions request while a non-activity tab is open (#7494)', async () => {
+    activeTabParam = 'addresses'
+    renderWithProviders(<PersonDetailV2Page params={{ id: 'person-123' }} />)
+
+    await waitFor(() => expect(screen.getByText('addresses-section')).toBeInTheDocument())
+    expect(readApiResultOrThrowMock).not.toHaveBeenCalledWith(
+      expect.stringContaining('/api/customers/interactions'),
+    )
+  })
+
   it('renders the AddressesSection when the addresses tab is active', async () => {
     activeTabParam = 'addresses'
     renderWithProviders(<PersonDetailV2Page params={{ id: 'person-123' }} />)
