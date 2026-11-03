@@ -114,6 +114,7 @@
   "wms.backend.asns.receive.errors.stagingRequired": "Strefa przyjęć jest wymagana przy pozytywnej kontroli jakości.",
   "wms.backend.asns.receive.errors.submit": "Nie udało się przyjąć pozycji ASN.",
   "wms.backend.asns.receive.flash.qcFailed": "Pozycja ASN zarejestrowana z negatywną kontrolą jakości",
+  "wms.backend.asns.receive.flash.reconciled": "Przyjęta ilość zmieniła się w międzyczasie. Nic nowego nie zostało zapisane — sprawdź linię i wyślij ponownie.",
   "wms.backend.asns.receive.flash.success": "Pozycja ASN przyjęta",
   "wms.backend.asns.receive.form.lotNumber": "Numer partii",
   "wms.backend.asns.receive.form.qcStatus": "Wynik kontroli jakości",

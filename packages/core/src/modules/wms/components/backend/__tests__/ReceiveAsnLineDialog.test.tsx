@@ -299,8 +299,52 @@ describe('ReceiveAsnLineDialog', () => {
     await waitFor(() => expect(mockApiCall).toHaveBeenCalledTimes(3))
     const retryBody = JSON.parse(String(mockApiCall.mock.calls[2][1].body)) as { targetReceivedQty?: number }
     expect(retryBody.targetReceivedQty).toBe(8)
-    expect(flash).not.toHaveBeenCalled()
+    await waitFor(() =>
+      expect(flash).toHaveBeenCalledWith(expect.stringContaining('Nothing new was recorded'), 'warning'),
+    )
+    expect(flash).not.toHaveBeenCalledWith('ASN line received', 'success')
     expect(screen.getByTestId('receive-asn-submit')).toBeTruthy()
+  })
+
+  it('warns instead of reporting success when a retry after a failed reload is a stale no-op', async () => {
+    const freshUpdatedAt = '2026-08-22T10:05:00.000Z'
+    const onOpenChange = jest.fn()
+    mockApiCall
+      .mockResolvedValueOnce(conflict(freshUpdatedAt))
+      .mockResolvedValueOnce({ ok: false, status: 500, result: null, response: new Response(null, { status: 500 }) })
+      .mockResolvedValueOnce(receiveOk(5, []))
+      .mockResolvedValueOnce(receiveOk(8, ['mov-1']))
+
+    render(
+      <ReceiveAsnLineDialog
+        open
+        onOpenChange={onOpenChange}
+        access={access}
+        asnId="11111111-1111-1111-1111-111111111111"
+        warehouseId="22222222-2222-2222-2222-222222222222"
+        line={line}
+      />,
+    )
+
+    fireEvent.change(screen.getByTestId('receive-asn-qty'), { target: { value: '3' } })
+    fireEvent.click(screen.getByTestId('receive-asn-submit'))
+    await waitFor(() => expect(mockApiCall).toHaveBeenCalledTimes(2))
+
+    fireEvent.click(screen.getByTestId('receive-asn-submit'))
+    await waitFor(() => expect(mockApiCall).toHaveBeenCalledTimes(3))
+    const staleBody = JSON.parse(String(mockApiCall.mock.calls[2][1].body)) as { targetReceivedQty?: number }
+    expect(staleBody.targetReceivedQty).toBe(5)
+    await waitFor(() =>
+      expect(flash).toHaveBeenCalledWith(expect.stringContaining('Nothing new was recorded'), 'warning'),
+    )
+    expect(flash).not.toHaveBeenCalledWith('ASN line received', 'success')
+    expect(onOpenChange).not.toHaveBeenCalledWith(false)
+
+    fireEvent.click(screen.getByTestId('receive-asn-submit'))
+    await waitFor(() => expect(mockApiCall).toHaveBeenCalledTimes(4))
+    const retryBody = JSON.parse(String(mockApiCall.mock.calls[3][1].body)) as { targetReceivedQty?: number }
+    expect(retryBody.targetReceivedQty).toBe(8)
+    await waitFor(() => expect(flash).toHaveBeenCalledWith('ASN line received', 'success'))
   })
 
   it('keeps a same-target replay successful when the response was lost', async () => {

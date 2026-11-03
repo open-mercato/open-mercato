@@ -114,6 +114,7 @@
   "wms.backend.asns.receive.errors.stagingRequired": "품질 검사 합격 시 입고 대기 위치가 필요합니다.",
   "wms.backend.asns.receive.errors.submit": "사전 출하 통지 품목을 입고하지 못했습니다.",
   "wms.backend.asns.receive.flash.qcFailed": "사전 출하 통지 품목이 품질 검사 불합격으로 기록되었습니다",
+  "wms.backend.asns.receive.flash.reconciled": "그 사이에 입고 수량이 변경되었습니다. 새로 기록된 내용이 없으니 라인을 확인한 후 다시 제출하세요.",
   "wms.backend.asns.receive.flash.success": "사전 출하 통지 품목이 입고되었습니다",
   "wms.backend.asns.receive.form.lotNumber": "로트 번호",
   "wms.backend.asns.receive.form.qcStatus": "품질 검사 결과",

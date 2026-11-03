@@ -114,6 +114,7 @@
   "wms.backend.asns.receive.errors.stagingRequired": "La ubicación de preparación es obligatoria cuando el control de calidad se supera.",
   "wms.backend.asns.receive.errors.submit": "No se pudo recibir la línea del aviso de envío.",
   "wms.backend.asns.receive.flash.qcFailed": "Línea del aviso de envío registrada con control de calidad rechazado",
+  "wms.backend.asns.receive.flash.reconciled": "La cantidad recibida cambió mientras tanto. No se registró nada nuevo: revise la línea y envíela de nuevo.",
   "wms.backend.asns.receive.flash.success": "Línea del aviso de envío recibida",
   "wms.backend.asns.receive.form.lotNumber": "Número de lote",
   "wms.backend.asns.receive.form.qcStatus": "Resultado del control de calidad",

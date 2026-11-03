@@ -114,6 +114,7 @@
   "wms.backend.asns.receive.errors.stagingRequired": "Bei bestandener Qualitätsprüfung ist ein Bereitstellungsplatz erforderlich.",
   "wms.backend.asns.receive.errors.submit": "Lieferavis-Position konnte nicht empfangen werden.",
   "wms.backend.asns.receive.flash.qcFailed": "Lieferavis-Position mit nicht bestandener Qualitätsprüfung erfasst",
+  "wms.backend.asns.receive.flash.reconciled": "Die empfangene Menge hat sich zwischenzeitlich geändert. Es wurde nichts Neues erfasst – prüfen Sie die Position und senden Sie sie erneut.",
   "wms.backend.asns.receive.flash.success": "Lieferavis-Position empfangen",
   "wms.backend.asns.receive.form.lotNumber": "Chargennummer",
   "wms.backend.asns.receive.form.qcStatus": "Ergebnis der Qualitätsprüfung",

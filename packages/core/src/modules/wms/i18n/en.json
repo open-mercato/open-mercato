@@ -114,6 +114,7 @@
   "wms.backend.asns.receive.errors.stagingRequired": "Staging location is required for QC pass.",
   "wms.backend.asns.receive.errors.submit": "Failed to receive ASN line.",
   "wms.backend.asns.receive.flash.qcFailed": "ASN line recorded with QC fail",
+  "wms.backend.asns.receive.flash.reconciled": "The received quantity changed in the meantime. Nothing new was recorded — review the line and submit again.",
   "wms.backend.asns.receive.flash.success": "ASN line received",
   "wms.backend.asns.receive.form.lotNumber": "Lot number",
   "wms.backend.asns.receive.form.qcStatus": "QC outcome",

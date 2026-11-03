@@ -425,7 +425,17 @@ export function ReceiveAsnLineDialog({
           },
         })
 
-        if (conflictHandled || !deltaApplied) return
+        if (conflictHandled) return
+        if (!deltaApplied) {
+          flash(
+            t(
+              'wms.backend.asns.receive.flash.reconciled',
+              'The received quantity changed in the meantime. Nothing new was recorded — review the line and submit again.',
+            ),
+            'warning',
+          )
+          return
+        }
 
         const nextReceivedQty =
           typeof mutationResult.receivedQty === 'number'
