@@ -1,0 +1,169 @@
+---
+title: Results and A/B tests
+description: A funnel counted in people rather than messages, drop-off step by step, which links were clicked, how an A/B winner is decided — and when the module refuses to name one.
+sidebar_label: Results and A/B tests
+---
+
+# Results and A/B tests
+
+**Campaigns → (a campaign) → Results** is where you find out whether a campaign worked. It has five parts: a funnel, a step-by-step breakdown, a chart over time, the links people clicked, and — if the campaign has an A/B split — the comparison between its variants.
+
+## The funnel
+
+Five stages, in order:
+
+| Stage | Who is counted |
+|---|---|
+| **Entered** | People the campaign started for |
+| **Received a message** | Of those, the ones at least one message actually went out to |
+| **Opened** | Of those, the ones who opened one |
+| **Clicked** | Of those, the ones who clicked something in one |
+| **Ordered afterwards** | Of those, the ones who then placed an order inside the attribution window |
+
+Each stage shows the number of people, what share of the previous stage that is, and what share of everyone who entered.
+
+:::note Counted in people, never in messages
+*"One person going through the campaign once counts once at each stage."*
+
+This is worth stating because the alternative is genuinely misleading. A campaign with three emails in it would report three times the "sent" of a campaign with one, and look as though it had reached three times as many customers. It had not.
+:::
+
+Two more things the funnel deliberately does not do:
+
+- **There is no "delivered" stage.** Whether a mailbox accepted a message is something your email provider reports, and the platform has no contract for that feedback. A delivered count here could only be the sent count wearing a more confident name.
+- **A rate over nobody is blank, not zero.** If nobody opened anything, the click-through rate from opens is empty rather than 0% — because "half of nobody clicked" is not a fact.
+
+### When the stages below "sent" are all empty
+
+The screen says so plainly: *"No opens or clicks are on record for this campaign — if its messages were sent with tracking switched off, the stages below 'sent' cannot be measured."*
+
+That is the difference between "nobody engaged with this" and "we were not watching". Tracking is per email step (**Track opens and clicks**), and it also needs a signing secret and a public URL configured for the installation — see [Getting started](./getting-started.mdx).
+
+## Step by step
+
+The funnel's five stages are the right shape for one message and not much use for a six-email sequence: "forty people were sent something" cannot tell you that the third email is where they stop.
+
+**Step by step** does. One row per step, showing how many people reached it, how many where it did its work, how many it was skipped for, how many it failed for, and the drop from the step before.
+
+:::note It is always in the order the campaign runs, never sorted by volume
+The value of this table is that it reads the way a customer experiences the journey. Sorted by counts it would stop being a funnel and become a list.
+:::
+
+### Steps inside an A/B lane
+
+A step inside a variant is measured against **the split**, not against the trunk step before the split. Only a share of the people who reach a split enter each lane, so comparing a lane step against the trunk would report the split's own weights as a drop-off — and make every A/B test look like a catastrophe on the very screen meant to evaluate it.
+
+The first step *after* a split is measured against the split too, for a related reason: which lane a given person walked differs per person, and the split is the last point all of them shared.
+
+Lane rows are labelled **in lane A**, and so on.
+
+## Over time
+
+A daily chart of the campaign's sends and engagement, so you can see a spike, a plateau, or the day something stopped working.
+
+## What they clicked
+
+A campaign can report "forty people clicked" without telling you *what* they clicked — which is the thing that decides what the next message leads with. This table answers it.
+
+Per link: the URL as it appeared in the message, how many **people** clicked it, how many **clicks** that was in total, the share of everyone who clicked anything, and which steps carried it.
+
+Two readings worth knowing:
+
+- **People and clicks diverging is itself information.** A link clicked twice per person is one people came back to; a link where the two counts are equal was clicked once and abandoned.
+- **The shares overlap and can add up to more than 100%.** Each share is of everyone who clicked *anything* in this campaign, so somebody who clicked two links is counted in both. That is the honest answer. Normalising them into a pie chart would quietly switch the question to "share of clicks", where one person clicking twice outranks two people clicking once.
+
+The same link legitimately appears in a reminder and in the original message, which is why the steps that carried it are listed: it is the difference between "this offer works" and "the second email works".
+
+Only the most-clicked links are listed, and the screen says so when there are more. A newsletter with a product grid can easily have hundreds of distinct URLs, and this is a ranking rather than an inventory.
+
+## A/B results
+
+One row per variant, with:
+
+| Column | What it is |
+|---|---|
+| **Entered** | People assigned to this variant |
+| **Sent** | Messages this variant's own steps sent |
+| **Reached** | People at least one of those messages went out to — **the denominator for every rate** |
+| **Opened** / **Open rate** | |
+| **Clicked** / **Click rate** | |
+| **Revenue** / **Per recipient** | What this variant's messages earned |
+
+:::note Every rate is per person reached, never per message
+A variant holding two emails sends twice as many messages to the same people. Dividing by messages would halve every one of its rates against a one-email variant — so the split would be decided by how many steps you happened to put in each lane rather than by the copy.
+
+For the same reason, opens and clicks are counted as people rather than as raw events: otherwise the variant that happened to reach the more aggressive inbox previewers would win.
+:::
+
+A variant with no steps of its own is labelled **control — sends nothing**. The number of people held back is the whole point of having one, so it is reported like any other lane — but it is excluded from the comparison, since nothing can raise a control group's click rate.
+
+### How a winner is decided
+
+The screen suggests a leader — *"Variant B leads"* — once **every** variant has reached the minimum sample, which is 50 people reached by default. Until then it says *"Not enough data yet (50 recipients per variant needed)"*.
+
+**Marketing settings → Decide a test on** chooses the question:
+
+| Setting | Meaning |
+|---|---|
+| **Clicks per recipient** | Available on every campaign; needs no order data |
+| **Revenue per recipient** | The better question — a variant that collects clicks and sells less is the classic trap — but it needs orders to be attributable |
+
+One setting governs both the suggestion on this screen and any promotion made for you. Being shown a click winner while a revenue winner is applied behind your back would be worse than either alone.
+
+### When no winner is named
+
+The module withholds a verdict rather than ranking numbers that do not mean what they say:
+
+| Situation | Why there is no verdict |
+|---|---|
+| Any variant is below the minimum sample | Declaring a winner on a lane nobody has received yet picks whichever went out first |
+| The rates are **tied** | There is nothing to learn, and replacing the split would throw away the ability to keep measuring |
+| Only one variant has steps | Nothing to compare |
+| **On revenue:** the variants earn in **different currencies** | *"No revenue verdict: these lanes earn in more than one currency, which cannot be compared."* Two amounts in different currencies have no ordering, and summing them would produce a number that means nothing |
+| **On revenue:** a variant has nothing attributed yet | "Nobody has bought from this variant yet" is not evidence that nobody will. It is also recoverable — attribution arrives as orders do |
+
+### Ending a test
+
+**End the test, keep this variant** replaces the split with the winning variant's steps, so every future customer walks that path. The screen then shows *"Variant B is now the only path."*
+
+This is recorded as a version of the campaign, so you can restore the test if you change your mind.
+
+### Letting a decisive test conclude itself
+
+**Marketing settings → Let a decisive test promote its own winner** is **off by default**, and deliberately so: promoting a winner rewrites your campaign, which is the one thing this module otherwise reserves for a person.
+
+When you switch it on, a daily pass promotes a winner only under conditions stricter than the ones the screen suggests under:
+
+- **Twice the usual sample** in every variant — 100 people reached, against the 50 the suggestion needs. The suggestion exists to start a conversation; this one ends it, so it waits for a sample nobody would argue with.
+- **A relative margin** the winner must beat the runner-up by. The default is 0.25 — a quarter higher, not a quarter of a percentage point. *3.0% against 2.9% is a coin toss; 3.0% against 2.0% is a result.*
+- **The runner-up must have a figure at all.** A blank means nobody in that variant has clicked or bought yet, which is not evidence that they never will.
+
+A promotion goes through the ordinary save, so it is validated, recorded as a restorable version, and it loses to a concurrent edit of yours rather than overwriting it. Everyone who can manage campaigns gets a notification saying which variant won and on what evidence, linking to this screen.
+
+Only enabled campaigns are touched. A paused campaign's split has stopped gathering data, and rewriting something nobody is running would be a change you would find waiting for you with no explanation.
+
+## Attributed revenue
+
+**Attributed revenue** is the figure a marketing budget gets renewed on. It is worked out by finding the orders a customer placed after clicking a campaign link, within the attribution window, and splitting each order's value **equally between every campaign they clicked in that window**.
+
+That is *linear* attribution, and it is a deliberate choice over the easier alternative. Giving all the credit to the last campaign before the purchase systematically flatters whichever campaign happens to run closest to the order — usually the one that needed the least persuasion. Equal shares make no claim about which message did the work, which is honest, and they add up to exactly the order total.
+
+The screen labels it: *"linear split, 7-day window"*.
+
+Two things that follow:
+
+- **A campaign clicked several times before one order is still one touch.** Otherwise somebody who clicked the same newsletter three times would hand it three quarters of the credit.
+- **Currencies are never added together.** A shop selling in two currencies gets **Attributed revenue by currency** — two figures, side by side. A total mixing them would be a number that means nothing.
+
+The same definition of "converted" is used by the funnel's last stage and by the per-variant revenue, so the three screens cannot disagree about who converted.
+
+## One customer's history
+
+From a run row, **Open the customer profile** shows everything marketing knows about one person: their orders and lifetime spend, their RFM digits, their projected value, their lead score and tier with the points to the next one, their latest NPS answer, their tags and segments, their recent runs, their score history, their referral code and who used it, what they are watching for a price drop, what the next message would recommend them, their consent state, and what they asked for themselves.
+
+It is also where you [explain a non-delivery](./send-rules.mdx#why-didnt-this-customer-get-it) and where you [export or erase](./consent-and-privacy.mdx) their data.
+
+## Where to go next
+
+- [**Send rules**](./send-rules.mdx) — why a message was held back
+- [**Consent and personal data**](./consent-and-privacy.mdx) — the compliance side

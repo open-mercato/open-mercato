@@ -1,0 +1,147 @@
+---
+title: Triggers
+description: The fourteen things that can start a campaign as they happen, the five periodic searches that can start one on a timer, and what each of them brings with it.
+sidebar_label: Triggers
+---
+
+# Triggers
+
+A trigger is what starts a campaign. There are two kinds, and a campaign can carry several — any one of them starting a journey for the customer it is about.
+
+- **When something happens** — the campaign reacts the moment a customer registers, an order is confirmed, a payment arrives. Fourteen of these.
+- **On a schedule** — the campaign wakes up every so often and looks for customers who match. Five things it can look through.
+
+You add both from the **Triggers** part of the canvas palette. A trigger that this installation cannot offer is shown greyed out, with the reason.
+
+## Things a trigger brings with it
+
+Most triggers carry a few facts about what just happened, and you can use those facts in two places: as conditions in the audience, and as placeholders in your copy. They are always named `trigger.` followed by the fact — so a reorder reminder can say "your coffee usually lasts you about a month" by printing `{{trigger.cycleDays}}`, and an audience can require a real discount with `trigger.dropPercent` at least 20.
+
+The available facts are listed per trigger below.
+
+## When something happens
+
+### Customers
+
+| Trigger | When it fires | What it brings |
+|---|---|---|
+| **Customer registered** | A new person record is created | — |
+| **Tag added to a customer** | A tag is put on somebody | Which tag |
+| **Tag removed from a customer** | A tag is taken off | Which tag |
+| **Deal won** | A deal is closed as won | The deal, its title, its value, the currency |
+| **Deal lost** | A deal is closed as lost | The same |
+
+:::note A deal's campaign is about its primary contact
+A deal usually links to several people, so "who is this message for" has no obvious answer. The campaign uses the contact marked as **primary** on the deal, and nothing else: taking the first contact in the list would make the campaign depend on the order rows happen to be stored in, and messaging everybody would send copy written for one person to the whole buying committee. A deal with no primary contact starts no run — which is a state you can see on the deal and fix.
+:::
+
+### Orders and money
+
+| Trigger | When it fires | What it brings |
+|---|---|---|
+| **Order placed** | An order is created | The order, its number, its total, the currency, its status |
+| **Order confirmed** | An order reaches a confirmed status | The same, plus the status it came from |
+| **Invoice created** | An invoice is raised | The invoice, its number, its total, the amount still outstanding, the currency, the order |
+| **Payment received** | Your payment provider reports that money was actually captured | The payment, the amount, the currency, which provider, the order |
+| **Payment recorded (any status)** | A payment row is written, whatever its state | The payment, the amount, the currency, the status, the order |
+
+:::tip Which of the two order triggers, and which of the two payment triggers
+**Order placed** fires the instant somebody presses buy. **Order confirmed** fires when your shop accepts the order. They are genuinely different moments, and the useful one is usually confirmation: a thank-you or a cross-sell hung off creation also goes out for orders you then reject.
+
+**Payment received** is the honest "they have paid" signal — it comes from the provider reporting a capture. **Payment recorded** fires whenever a payment row is written, which includes a pending authorisation, so a thank-you hung off it thanks people who have not paid. Use **Payment recorded** only if your shop enters payments by hand and no provider ever reports anything; it carries the status so you can filter on it yourself.
+:::
+
+An invoice reaches a customer *through* its order — the invoice itself does not name one. An invoice with no order therefore starts no run, because there is nobody for the campaign to be about.
+
+### Marketing's own signals
+
+| Trigger | When it fires | What it brings |
+|---|---|---|
+| **Lead score changed** | A customer's loyalty score goes up or down | The new total, the previous total, the change |
+| **Watched product price dropped** | A product somebody asked to be told about gets at least 5% cheaper | The product code, the drop percentage, the current and previous price |
+| **Referral converted** | Somebody who arrived on this customer's referral code places their first order | The code, who they referred, that order's total |
+| **Inbound hook received** | Another system posts to one of this campaign's hook URLs | Which hook, plus every field that was posted |
+
+**Lead score changed** is deliberately not a "crossed a threshold" trigger with a threshold you configure. Because it carries the *previous* total as well as the new one, you express the crossing in the audience yourself — "previous points below 100 **and** lead score at least 100". That fires once, needs no configuration, and lets one shop have as many thresholds as it likes.
+
+**Referral converted** is about the *referrer* — the person to thank or reward — not the buyer. That is why it exists as its own trigger rather than as a rule over "Order placed": no audience condition can turn one person's order into a different person's campaign.
+
+**Watched product price dropped** is the highest-intent signal here, because the customer told you both the product and the condition. Watches themselves are created by your storefront or app through the API; **Marketing → Price watches** shows how many people are waiting on each product. A product that has simply been unpublished has not become cheaper, so that does not count as a drop; and if a price goes *up*, the reference the watch compares against follows it, so a later recovery back to where the customer started is announced.
+
+**Inbound hook received** is how something outside the platform starts a campaign. Create a hook under **Marketing → Inbound hooks**, copy its URL, and have the other system POST JSON containing either `customerId` or `email`. Every other field you post becomes available to the campaign as `trigger.<field>`. The campaign must be triggered by **Inbound hook received** for the hook to do anything, and a hook is tied to one campaign at creation so nobody can quietly re-point an integration somebody else built.
+
+### Not available, and why
+
+Four triggers appear in the palette greyed out because they describe something real that this installation cannot detect as it happens:
+
+| Trigger | Why not |
+|---|---|
+| **Cart abandoned** | There is no shopping cart in the platform to abandon. It is listed with its reason rather than left out, so nobody has to wonder where the best-known marketing trigger went |
+| **Quote about to expire** | There is nothing to react *to* — a quote does not announce its own expiry. Use the **Quotes about to expire** scheduled source instead |
+| **Order delivered** | Same: there is no delivery event to subscribe to. Use the **Orders delivered a while ago** scheduled source |
+| **Product due to be reordered** | Same: nobody announces that a customer has run out of coffee. Use the **Customers due to buy something again** scheduled source |
+
+The last three are listed so their facts are offered to the audience builder and to your copy, even though the campaign is started on a schedule rather than by an event.
+
+## On a schedule
+
+A scheduled trigger asks two questions: **how often**, and **what to look through**.
+
+### How often
+
+**Run every** takes a simple interval: `30m`, `6h`, `1d`. Minutes, hours or days.
+
+### What to look through
+
+| Source | What it walks | Window means | Facts it brings |
+|---|---|---|---|
+| **All customers** | Your whole customer list, narrowed by the campaign's own audience | — | — |
+| **Quotes about to expire** | Quotes whose validity ends soon, excluding any already accepted or cancelled | Days of notice. Default 7 | The quote, its number, its total, days until expiry |
+| **Orders delivered a while ago** | Orders marked as fulfilled or delivered | How long *after* delivery to ask. Default 7 | The order, its number, its total, days since the order |
+| **Customers with a birthday** | Customers whose birth date falls in the window | Days of notice. Default 0, meaning today | Their birth date, days until the birthday |
+| **Customers due to buy something again** | Each customer-and-product pair whose own purchase rhythm says they are due | **A percentage of the cycle to remind early**, not days. Default 10 — a tenth of a cycle before they run out, which for a monthly habit is about three days | The product code, the cycle length in days, days since the last purchase, how far through the cycle they are, how many times they have bought it |
+
+:::warning "All customers" is the only source your audience narrows
+With **All customers**, the audience *is* the query — the pass walks your customer list and the conditions decide who gets in. The other four sources have a query of their own, and the audience is then applied on top of what they find. So a birthday campaign whose audience says "lifetime spend at least 500" reaches customers who have a birthday today *and* have spent that much.
+:::
+
+### Birthdays match the month and the day, never the year
+
+A stored birth year is often a guess, a placeholder, or simply absent, so matching it would turn an annual greeting into a once-in-a-lifetime one. The year goes into the campaign's bookkeeping instead, which is exactly what makes the greeting annual: the same person is greeted once per calendar year and never twice in one — including when your notice period crosses New Year.
+
+29 February simply does not match in a year that does not have one, rather than firing on 1 March.
+
+### Reorder reminders use each customer's own rhythm
+
+There is nothing to configure per product. The pass looks at how often each customer has actually bought each product, works out their typical gap between purchases — using the middle of their gaps rather than the average, so one unusual order does not distort it — and reminds them shortly before they are due again. A customer needs at least three purchases of the same product before a rhythm can be read at all.
+
+Each reminder is counted against the cycle it belongs to, so somebody is reminded once per cycle: not once ever, and not every morning once they are overdue. Being due for coffee also says nothing about being due for filters, so the two are tracked separately.
+
+## Re-entering the same customer
+
+A scheduled pass has a problem an event does not: the audience it matches ("has not ordered in 90 days") *stays* true, so without a rule it would enrol the same person again on every single pass.
+
+**Re-enter the same customer after (days)** is that rule.
+
+| Setting | Effect |
+|---|---|
+| A number of days | The same customer can enter again once that many days have passed since their last run of this campaign |
+| **Once ever** | Each customer enters this campaign at most once, ever |
+
+The shipped templates show the range: win-back re-enters after 180 days, a birthday greeting after 365, and a review request is **once ever** — because asking twice for a review of the same order is exactly the failure this rule exists to prevent.
+
+:::note Event triggers do not need this
+An event has already happened; reacting to it twice is not a risk the way re-scanning a list is. Two protections apply instead, and they are always on: a redelivered event cannot start a second run for the same occurrence (for six hours, which comfortably covers any retry a queue will attempt), and no single customer can be enrolled in more than twenty runs across *all* campaigns in one hour.
+:::
+
+## Guarding against loops
+
+Some steps cause events that are themselves triggers. Adding a tag, for instance, fires **Tag added to a customer**.
+
+Two things stop that becoming a loop. The save refuses a campaign whose trigger is an event its own steps would cause, and it tells you so: *"This campaign reacts to an event that its own steps can cause, which may make it run in a loop."* And behind that, the twenty-runs-per-hour ceiling applies across every campaign, so no combination of campaigns can chain indefinitely.
+
+## Where to go next
+
+- [**Audiences and segments**](./audiences.mdx) — narrowing who a trigger admits
+- [**Campaign steps**](./steps.mdx) — what happens once they are in
+- [**Send rules**](./send-rules.mdx) — when a message is actually allowed out

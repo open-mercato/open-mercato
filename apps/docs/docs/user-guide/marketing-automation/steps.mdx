@@ -1,0 +1,234 @@
+---
+title: Campaign steps
+description: The ten things a campaign can do to a customer, what each one needs from you, and when a step is quietly skipped instead of run.
+sidebar_label: Campaign steps
+---
+
+# Campaign steps
+
+Steps are what a campaign actually does. They run in the order you put them, one after another, for each customer who got past the audience.
+
+Pick one from the **Steps** part of the canvas palette; a form appears beside it for whatever that step needs.
+
+## The ten step types
+
+| Step | What it does |
+|---|---|
+| **Send email** | Sends a message to the customer this run is about |
+| **Wait** | Pauses the rest of the campaign for this customer |
+| **A/B split** | Sends different variants to different people so you can compare them |
+| **Add tag** | Tags the customer so later campaigns and segments can target them |
+| **Add score points** | Awards or deducts loyalty points |
+| **Ask for an NPS score** | Emails one rating question the customer answers in a click |
+| **Issue a referral code** | Gives this customer their referral code and makes it available to later steps |
+| **Assign to a sales rep** | Gives this lead to whoever in the rep pool currently has the fewest |
+| **Tell a colleague** | Puts a notice in a colleague's notifications |
+| **Signal an outside system** | Emits an event your integrations can subscribe to |
+
+## Send email
+
+| Field | Notes |
+|---|---|
+| **Subject** | |
+| **Body** | HTML. Placeholders and content-block references are filled in when the message is sent |
+| **Track opens and clicks** | On by default. Turn it off for a message that should feel transactional |
+| **Recommended products** | How many products `{{recommendations}}` renders, when the body uses it |
+
+### Placeholders you can use in the subject and the body
+
+| Placeholder | What it prints |
+|---|---|
+| `{{customer.displayName}}` | Their name |
+| `{{customer.email}}` | Their email address |
+| `{{orders.count}}` | How many orders they have placed |
+| `{{orders.totalGross}}` | Their lifetime spend |
+| `{{orders.daysSinceLast}}` | Days since their last order |
+| `{{score.points}}` | Their lead score |
+| `{{score.tier}}` | Their loyalty tier |
+| `{{survey.nps}}` | Their latest NPS answer |
+| `{{trigger.…}}` | Whatever the trigger brought with it — see [Triggers](./triggers.mdx) |
+| `{{referral.code}}` / `{{referral.url}}` | Their referral code, after an **Issue a referral code** step earlier in the campaign |
+| `{{unsubscribeUrl}}` | The unsubscribe link for this message |
+| `{{recommendations}}` | A block of recommended products |
+| `{{block:key}}` | A reusable content block |
+
+:::warning A placeholder that cannot be filled in prints as itself
+If a customer has never ordered, `{{orders.daysSinceLast}}` has nothing to print. Rather than inventing a zero — "0 days since your last order" to somebody who has never bought anything — the placeholder is left out. Check your copy against a real customer with **Preview** before publishing, and choose an audience that guarantees the facts your copy relies on.
+:::
+
+### The unsubscribe link
+
+Every marketing email gets a way out. Place it yourself by putting `{{unsubscribeUrl}}` anywhere in the body — a link, a button, wherever your design wants it. If you do not, a small unsubscribe footer is appended automatically.
+
+A message with no way out is not a shippable default, and in much of the world it is not lawful, so there is no way to switch this off. What you control is where it goes.
+
+The unsubscribe link itself is never counted as a click. Counting it would inflate every click rate, and would let the variant that drove the most opt-outs win an A/B test.
+
+### Recommended products
+
+`{{recommendations}}` renders a small block of products. Two signals decide what goes in it: things customers who bought what this customer bought also bought, and — with no history to go on — your best sellers.
+
+Two things it will not do: recommend a product the customer already owns (that is the reorder engine's job, and it knows a product's interval), or print a price. A price recorded on an old order is what somebody else paid at the time, and offering it back is a price your shop may no longer honour.
+
+**Marketing settings → Product links in messages** sets the URL template. Without one, recommended products render as plain names rather than links.
+
+### Content blocks
+
+A **content block** is a piece of HTML you write once and reuse — a footer, a header, a seasonal banner. **Marketing → Content blocks**. Reference one from a message as `{{block:key}}`. A block may contain placeholders of its own, and they are filled in too.
+
+A block's reference cannot be changed after you create it, because messages point at it; renaming it would empty it out of every campaign that used it.
+
+### Drafting with AI
+
+**Draft with AI** writes a first version from a brief you type — "remind them about the items they looked at, offer free delivery this week". **Marketing settings → Brand voice** is handed to the model every time, so every draft sounds like the same shop.
+
+The draft is shown to you as text to read and edit, and nothing is saved until you press **Use this draft**. Copy is drafted once, by a person, and saved to the campaign — never generated per recipient at send time, which would mail text nobody had read.
+
+## Wait
+
+| Field | Notes |
+|---|---|
+| **Minutes** | How long to pause this customer |
+
+A wait is measured in **minutes**, so two days is 2880 and three days is 4320. The shipped templates use exactly those values.
+
+When the wait elapses the customer resumes at the **step after** the wait. That is one of the two kinds of pause described in the [overview](/user-guide/marketing-automation/) — a wait that has done its job, as opposed to a message that has not been let out yet.
+
+A wait as the very last step is refused when you save: it has nothing to wait for.
+
+## A/B split
+
+| Field | Notes |
+|---|---|
+| **Variant** | A short key, shown on the results screen |
+| **Weight** | How much of the traffic goes to this variant, relative to the others |
+
+Press **Add variant** for each lane, then **Add steps here** on a lane and pick from the palette. A split needs at least two variants.
+
+**Each customer is assigned one variant and stays in it.** That holds across a wait that pauses them for days — so a customer who pauses inside variant A comes back into variant A, never a mixture of both.
+
+A lane with **no steps** is a control group, or *holdout*: those people get nothing, and the number of them is reported so you can see the difference a campaign makes at all. A holdout is excluded from the winner comparison, since nothing can raise a control group's click rate.
+
+See [Results and A/B tests](./results.mdx) for how a winner is decided.
+
+## Add tag
+
+| Field | Notes |
+|---|---|
+| **Tag** | Picked from your customer tags |
+
+Tagging goes through the same mechanism the Customers module uses, so the tag appears everywhere else immediately. If the customer already has the tag, that counts as success — the tag is on them, which is what you asked for.
+
+:::note Tagging is itself a trigger
+**Tag added to a customer** is an available trigger, so a campaign that tags people can start another campaign. That is useful. What it cannot do is start *itself*: the save refuses a campaign whose trigger is an event its own steps would cause.
+:::
+
+## Add score points
+
+| Field | Notes |
+|---|---|
+| **Points (negative to deduct)** | A whole number, positive or negative. Zero is refused, since it would do nothing |
+| **Reason** | Shown in the customer's score history |
+
+The score is a running total of every award, so a step that gets retried cannot award twice. Loyalty tiers are worked out from the score rather than stored, so a tier can never be out of date.
+
+Awarding points fires the **Lead score changed** trigger, which carries the previous total as well as the new one — so another campaign can react to a customer crossing a threshold. See [Triggers](./triggers.mdx).
+
+## Ask for an NPS score
+
+| Field | Notes |
+|---|---|
+| **Email subject** | |
+| **Question** | The one question to ask |
+
+This is the one sending step that composes its own message. An eleven-point scale is eleven separate links, and asking you to place eleven of them correctly in every template and every language would make the feature technically available and practically unused. You write the question and the subject line; the module renders the scale, with the labels and the unsubscribe footer.
+
+The customer answers by clicking a number in the email, and can add a comment on the page that follows. Their latest answer is available as an audience condition (**Latest NPS answer**) and on their profile.
+
+Because it is a message, all the usual send rules apply to it: consent, quiet hours, the frequency cap. A customer who unsubscribed did not ask to be surveyed either.
+
+**Skipped when:** the customer has no email address, the installation has no signing secret or public URL (the answer links could not be signed, and a survey nobody can answer is worse than none), or this survey has already been sent for this step.
+
+## Issue a referral code
+
+No settings. The step gives the customer their referral code and makes it available to every later step as `{{referral.code}}` — and, if you configured a link template under **Marketing settings → Referral links**, as `{{referral.url}}` too.
+
+A customer's code never changes. It is already printed in every message that mentioned it, so re-issuing one would break links already in people's inboxes. Running this step again simply hands back the same code.
+
+A code **converts** when somebody who used it places their first order — not when they type it in. Claiming a code is somebody typing something; only the order is worth rewarding. The referrer is then the subject of the **Referral converted** trigger, so you can thank or reward them in another campaign.
+
+**Marketing → Referrals** lists every code, who used it, and who went on to buy.
+
+## Assign to a sales rep
+
+| Field | Notes |
+|---|---|
+| **Reassign a lead that already has an owner** | Off by default |
+
+The lead goes to whoever in the pool currently carries the fewest. Set the pool under **Marketing settings → Lead routing**; **Marketing → Lead routing** shows who has been getting new leads and how many each carries in total.
+
+Least-loaded-wins rather than taking turns in a fixed order: it corrects itself when the pool changes, and it does not keep handing leads to somebody who has been away.
+
+:::warning Leave "Reassign" off unless you mean it
+Taking a customer away from the rep who has been talking to them is the most damaging thing routing can do — and a campaign somebody re-enters would do it on every pass. With it off, a lead that already has an owner is left alone.
+:::
+
+Each rep also gets a weekly digest of the leads assigned to them, in their notifications. A digest with nothing in it is not sent: that is the notification that teaches people to ignore notifications.
+
+**Skipped when:** nobody is in the rep pool, or the lead already has an owner and **Reassign** is off. Both are reported in the run's step log as what they are, rather than as failures.
+
+## Tell a colleague
+
+| Field | Notes |
+|---|---|
+| **Who to tell** | **The customer's owner**, or **everyone who may see campaign runs** |
+| **Message** | One sentence. Placeholders work here too, so it can name the customer and quote the trigger |
+| **Importance** | **For information** or **Needs attention** |
+
+The notice appears in the recipient's in-app notifications, and links to the customer — because acting on it means opening the person, not the campaign.
+
+The classic use: a VIP answering 2 on an NPS survey. The campaign can put that in somebody's notifications the moment it happens, instead of waiting for whoever next reads the results screen.
+
+In-app only, and that is a choice rather than a gap: notifications are delivered to a *person*, and respect that person's own channel preferences, which is both cheaper and more correct than keeping a copy of staff email addresses in marketing settings.
+
+Choosing **everyone who may see campaign runs** addresses the notice by permission rather than by role name — the set of people allowed to know what campaigns are doing to customers is exactly the set who should hear about one.
+
+**Skipped when:** you chose **The customer's owner** and nobody owns them (said plainly in the step log, rather than quietly broadcast to the whole team), or the installation has no notifications module.
+
+## Signal an outside system
+
+| Field | Notes |
+|---|---|
+| **Topic** | Your name for this signal — lower-case letters, digits, dots, dashes and underscores |
+| **Extra fields** | One `key=value` per line. Values are interpolated like a message body, so `{{customer.email}}` works |
+
+The step emits an event. Your operator subscribes an endpoint to it under [Webhooks](../webhooks.mdx) and filters on the topic; delivery then comes with signing, retries and a delivery log for free.
+
+The payload carries the topic, the campaign, the run, the step, the customer's identifier, and your extra fields. Deliberately nothing else about the customer — this leaves the platform for an endpoint you chose, so it carries an identifier the receiver can look up rather than a name or an address. If you genuinely need the email address there, put `{{customer.email}}` in a field yourself.
+
+A line without an `=` is dropped rather than guessed at, and at most twenty fields are sent.
+
+## When a step is skipped rather than run
+
+A skipped step does not stop the journey — the customer carries on to the next step, and the run's step log records what happened and why. Common reasons:
+
+| Reason | Which steps |
+|---|---|
+| The customer has no email address | Send email, Ask for an NPS score |
+| The customer has unsubscribed | Any sending step |
+| A frequency cap was reached | Any sending step |
+| Nobody owns the customer | Tell a colleague (when set to the owner), and it is why **Assign to a sales rep** usually runs first |
+| Nobody is in the rep pool | Assign to a sales rep |
+| The lead already has an owner | Assign to a sales rep, with **Reassign** off |
+| The notifications module is not installed | Tell a colleague |
+| No signing secret or public URL | Ask for an NPS score |
+| The step type is not available in this installation | Any — a step type disappears when the module that contributed it is switched off, and stopping the whole journey over that would punish the customer for a configuration change |
+
+Note what is *not* on that list: a customer with no email address is a skip, not a failure. Failing would retry five times and then abandon a journey that could never succeed.
+
+A step that genuinely errors — your email provider refusing the message, say — is a failure. The run is retried, and it resumes **at the failed step**, not from the beginning, so the customer is not mailed again for the steps that already succeeded.
+
+## Where to go next
+
+- [**Send rules**](./send-rules.mdx) — the checks that stand between a sending step and an actual message
+- [**Results and A/B tests**](./results.mdx) — reading what happened

@@ -1,0 +1,449 @@
+# Marketing Automation — Full Port Roadmap (epic-level)
+
+Companion to [`2026-09-28-marketing-automation-module.md`](2026-09-28-marketing-automation-module.md),
+which carries the design and the decisions it asks for. This document plans what comes after the
+engine: functional parity with the author's own Magento module the work is ported from, **including**
+the expensive items, and — more usefully for a reviewer — what is genuinely blocked and by what.
+
+Epic-level and deliberately not a feature spec: each phase below gets its own
+`{date}-{title}.md` when it starts. Precedent for an epic-level entry: `SPEC-024`.
+
+## Discovery: settled facts
+
+The pre-work plan left six questions open. They are answered — in code, not documentation —
+and three of its four risks are void as a result.
+
+| Question | Answer | Consequence |
+|---|---|---|
+| Event bus between modules? | **Exists** — `packages/events`, `createModuleEvents`, `subscribers/*.ts` with `metadata = { event }` | Building one would have duplicated the platform. Risk void. |
+| Transactional email? | **Exists** — `sendEmail` in `@open-mercato/shared`; `communication_channels` registers the transport; providers in `channel-resend`, `channel-ses`, `channel-gmail` | A separate `transactional-mail` module would have duplicated core. Risk void. |
+| Orders / customers / cart in core? | Orders and customers **yes** (`sales`, `customers`). Cart **no** | Abandoned cart is blocked, not merely deferred. New finding the pre-work plan did not anticipate. |
+| B2B accounts? | Companies exist in `customers`; quotes with `validUntil` in `sales`; a `sales.orders.approve` ACL feature already exists. **No** credit-limit concept | Order approval may be partly present — verify before building (Phase 7.1). |
+| DI registration? | Awilix; `register(container)` per module | Confirmed. |
+| Multi-tenancy automatic? | **No** — every query must carry `tenantId` and `organizationId` by hand | Risk **confirmed and live**. Enforced explicitly throughout Phase 1. |
+
+Two corrections to the pre-work plan's design, already implemented:
+
+- **Tags are not a new entity.** `customer_tags` + `customer_tag_assignments` exist with
+  commands. A parallel tag table would fork segmentation away from the CRM.
+- **Web push is the cheapest channel, not the most expensive.** `push_notifications` plus
+  `channel-apns`/`channel-fcm`/`channel-expo` already exist; hand-rolling RFC 8291 is
+  unnecessary.
+
+## External dependencies — optional, taken last
+
+Three items depend on third parties rather than on code. They are scheduled last and treated as
+optional; what matters is knowing precisely what each one does and does not block.
+
+| Item | Blocks | Does NOT block |
+|---|---|---|
+| Meta WhatsApp Business verification and template pre-approval (days to weeks) | 6.4 in full | anything else |
+| An SMS account and sender number | 6.3 in full | anything else |
+| A publicly reachable URL | Only verification from a real inbox: a mail client fetching the open pixel over the internet | **Building and testing Phase 3, 4.1, 4.2 and 4.3.** The tracking endpoints are ordinary routes; integration tests exercise them directly on localhost, and the funnel, A/B winner and send-time optimization read from the database, not from the network |
+
+So the only real cost of deferring all three is that WhatsApp and SMS are absent, and that an
+open/click demo has to be shown through the database and the runs view rather than through a real
+mailbox. No earlier phase is gated.
+
+## Not port targets
+
+Absent from the source module too, so anything built here would be new product rather than a port:
+geographic or location targeting (no country, region, city, postcode or radius condition exists
+anywhere in it), landing pages, an on-site form builder, charts in reports, and per-campaign store or
+language targeting.
+
+> A longer coverage audit taken on 2026-09-28 was folded into the 2026-09-29 business-feature audit
+> below, which scored the same ground by asking what a MERCHANT can do in each system rather than by
+> counting tables and crons. Only the second is kept.
+
+## Backlog — every remaining capability, scored
+
+One row per shippable capability. `Size` is honest engineering effort on top of what already exists:
+**S** ≈ a step type or a predicate plus tests, **M** ≈ a table, a job and a screen, **L** ≈ a
+subsystem with an external dependency or a new provider package. `Extends` names the Phase 1
+extension point it plugs into, which is the reason most of these are S rather than M: the engine was
+built to be extended, so breadth is additive by construction.
+
+### Parity — capabilities the source module has
+
+| ID | Capability | Why a merchant pays for it | Size | Extends | Depends on |
+|---|---|---|---|---|---|
+| B-01 | Lead scoring: points per customer, rules, `score_threshold_crossed` trigger, `score_at_least` predicate, `add_points` step | Turns behaviour into one number a salesperson can sort by; every "hot lead" workflow starts here — ✅ 2026-09-28 — ledger, not a total, so a redelivered step cannot double-award | M | step registry + trigger catalog + subject document | — |
+| B-02 | Loyalty tiers derived from score thresholds, `loyalty_tier_at_least` predicate | Lets one campaign say "gold customers only" without maintaining a list — ✅ 2026-09-28 — derived from the score, ladder configurable per tenant | S | subject document + audience fields | B-01 |
+| B-03 | Customer 360 screen: score, tier, RFM, recency, frequency, spend, tags, segments, sends, opens, clicks | The screen that makes the module a customer profile rather than a send log; nearly free because the data already exists — ✅ 2026-09-28 — linked from the run list; every later item adds a section | M | backend page + read API | B-01, B-02, 3.1 |
+| B-04 | Win-back lifecycle: inactivity tagging and a win-back send with a configurable day threshold | The single highest-ROI campaign in ecommerce — ✅ 2026-09-28 — needed no new code: a daily population sweep plus a narrowable audience | S | sweep source + audience narrowing | — |
+| B-05 | Review-request automation: delayed request after a completed order, claimed once per order | Review volume is a ranking and conversion input, and nobody asks manually — ✅ 2026-09-28 — a row sweep source with a durable per-order claim | S | sweep source | — |
+| B-06 | Price-drop and back-in-stock alerts: watch subscriptions, two scan jobs, two triggers, guest notifier | Recovers demand that already declared itself; the highest intent signal a shop gets — ✅ 2026-09-29 **for price drops**; back-in-stock is BLOCKED and the block is real: the platform has no availability contract (`.ai/specs/2026-08-14-availability-contract.md` is unimplemented), stock lives in the optional `wms` module's inventory balances, and reading its tables from here is exactly the cross-module coupling this codebase forbids. The watch table, the scan pass, the trigger and the screens are in place, so the second scan is a few dozen lines once `availabilityService` exists. A guest notifier is also deferred — it needs an identity for somebody who has no customer record | M | trigger catalog + new table | catalogue price/stock reads |
+| B-07 | NPS survey: 0–10 prompt step, `nps_score_at_least` predicate, public answer endpoint | Closes the loop from sending to satisfaction, and feeds segmentation — ✅ 2026-09-28 — the step renders the scale itself; the score is signed, not a parameter | M | step registry + public route | — |
+| B-08 | Product recommendations: co-purchase affinity with best-seller padding, injected into a message | Raises revenue per send without the author writing anything — ✅ 2026-09-29 — `{{recommendations}}` in a body, ranked by distinct co-purchasing customers and padded with best sellers, shown on the customer profile with the signal that chose it; links go through a per-tenant product URL template, so recommendation clicks are tracked and attributed like any other | M | step registry + interpolation context | order history reads |
+| B-09 | Referral programme: codes, redemption on first order, `referral_converted` trigger targeting the REFERRER | Acquisition at near-zero cost; the trigger's subject flip is the whole trick — ✅ 2026-09-29 — Crockford base32 codes (one live code per customer, forever), a two-stage claim→convert model so a reward is only ever paid for a real purchase, and an event whose SUBJECT is the referrer while the buyer travels as trigger context. The claim endpoint is authenticated on purpose: a public one would let anybody attach any customer to any code | M | trigger catalog + new tables | — |
+| B-10 | Multi-touch revenue attribution: linear split across every click-through inside a window | Answers "what did marketing earn", which is the question that renews the budget — ✅ 2026-09-28 — linear, computed from recorded clicks; a campaign filter applies after the split | M | tracking events + order reads | 3.1, 3.2 |
+| B-11 | Segment overlap, audience-size history, queued bulk actions over members, import/export | Makes segments operable rather than merely definable — ✅ 2026-09-29 (export; import deferred) — overlap resolves both sets at ONE instant and reports whether the answer is exact or sampled; sizes are snapshotted once a day by the sweep, made idempotent by a unique index on the day rather than by a flag; bulk actions are real `ProgressJob`s over a queue, resolving membership when they RUN so they act on who is in the segment then. **Import is deferred on purpose:** importing a member list means a segment that is a stored list rather than a rule, which is a different entity with a different membership model — recorded as a follow-up rather than bolted onto the rule-based one | M | segments + progress module | 5.1 |
+| B-12 | Reorder-cycle engine: per-customer/SKU interval detection, drift-based at-risk tagging, build-a-cart, admin grid | Consumables businesses live on this; it is the one feature with no substitute | L | sweep source + new tables + cart | 7.4, cart surface |
+| B-13 | Audience predicates: `purchased_sku`, `purchased_category` with a window, `event_occurred` (cart add, wishlist add) | Product-level targeting is the difference between a newsletter and a campaign — ✅ 2026-09-28 (SKU) — read from the order line catalogue snapshot, pushed down; category and behaviour predicates still open | S | subject document | order/behaviour reads |
+| B-14 | Two-way messaging inbox: inbound replies stored and readable, STOP-keyword opt-out feeding consent | A reply nobody reads is a customer you lost; STOP handling is also a legal duty | L | webhooks module + new table | 6.x channel |
+| B-15 | GDPR export and erasure across every table, plus an append-only consent audit log | Legally required once you store engagement data, and a deal-blocker in enterprise procurement — consent model and one-click unsubscribe ✅ 2026-09-28; export and erasure ✅ 2026-09-28 — erasure unlinks rather than deletes, and keeps the unsubscribe on purpose | M | commands + admin screen | 6.1 |
+| B-16 | Per-provider outbound rate limiting (pacing, distinct from retry) | One burst can get a sending domain throttled or blocked for everyone | M | queue + new table | 6.x |
+| B-17 | Content blocks: snippet, RSS with a fetch cache, product feed, recommendations | Lets marketing change message content without touching campaigns — ✅ 2026-09-29 (snippet) — reusable HTML referenced as `{{block:key}}`, edited on its own screen and offered by the palette; RSS, product feed and recommendation blocks stay open and belong with B-08 | M | step params + new table | B-08 |
+| B-18 | Inbound webhook as a trigger, signed | Makes the module reactable-to by anything outside the platform — ✅ 2026-09-29 — a signed, revocable URL per hook; the endpoint emits the platform event so audiences, re-entry and duplicate guards apply unchanged. **Deliberately not the `webhooks` module:** its inbound machinery verifies a THIRD PARTY's signing scheme through a provider adapter, whereas here we issue the URL ourselves; going through it would also mean an operator had to create an endpoint there and pick our adapter before any campaign could fire | S | trigger catalog + webhooks module | — |
+| B-19 | Real test send per channel, and a per-node "send test" on the canvas | Authors do not trust a campaign they could not try once — ✅ 2026-09-28 — email only, and only ever to the caller own address | S | canvas + step registry | 2.4 |
+| B-20 | Anonymous visitors: visitor tags as a first-class primitive, `visitor_tag_added`, identity stitching on login | Most of a shop's traffic is not logged in; without this they are invisible to marketing | L | trigger catalog + new tables | storefront tracking |
+| B-21 | Free gift offers: cascading subtotal tiers with a gift pool | Raises average order value; arguably promotions rather than automation | L | cart/pricing surfaces | cart |
+| B-22 | Ad audience sync: hashed segment members to Google Ads and Meta | Extends a segment beyond email at no extra content cost | L | new provider package | 5.1 |
+| B-23 | Product/shopping feeds: Google Merchant and Meta catalogue, cached per store | Table stakes for paid acquisition | L | new provider package | catalogue |
+| B-24 | AI content generation step: LLM writes subject and body into the run context | Removes the blank-page problem that stops campaigns being written at all — ✅ 2026-09-29, **as an authoring-time draft rather than a step**: a Draft button in the message inspector returns a subject and body for the author to edit, grounded in the campaign, its triggers, the tenant brand voice and the placeholders and blocks that actually exist. Per-recipient generation was rejected — copy nobody read would reach customers (the module's rule is AI authors, humans publish), cost would scale with the audience, and a slow model at send time would block or skip messages. Personalisation per customer is already interpolation's and the recommendation block's job | M | step registry + ai-assistant | — |
+| B-25 | Operational observability: job-run log, admin audit trail of campaign changes, email template versioning with restore | What you need the morning after a campaign went wrong — ✅ 2026-09-29 — one revisions table serves BOTH the audit trail and the restorable versions (they are the same data); a restore replays the ordinary save command, so it is validated, version-checked and becomes a new version rather than rewriting history. The job log records the start before the work, so a job killed mid-flight is visible as `running` rather than as nothing | M | workers + admin screens | — |
+| B-26 | Lead routing: round-robin assignment to sales reps, weekly rep digest | B2B: a lead with no owner is a lead nobody calls — ✅ 2026-09-29 — **least-loaded wins, not round robin**: a stored cursor needs a table, has to be reset when the pool changes, and keeps feeding a rep who has been away. Counting current work is stateless, self-correcting and answers the question an operator actually has. The digest is an IN-APP notification rather than email, because emailing a rep means reading the auth module's users or copying their address into marketing config, while the notifications module delivers to a user id and respects their own channel preferences. **No new table:** the owner is the customers module's field, written through `customers.people.update` | M | new tables + admin CRUD | B-01 |
+| B-27 | Setup wizard: guided first run | The difference between an installed module and a used one — ✅ 2026-09-29 — a readiness checklist answered from LIVE state rather than a "setup completed" flag, so it is also the answer to "why did nothing send" long after the first run. Blocking checks (email channel, a campaign, publishing it) are separated from recommended ones (tracking, segments, blocks) because a campaign without tracking still delivers | S | onboarding module | — |
+| B-28 | Push subscription management: admin grid, register/unregister endpoints, service worker | Operability for the push channel | M | public routes + new table | 6.2 |
+
+### Beyond parity — what Open Mercato makes cheap that the source module never had
+
+These are NOT in the source. They are listed because the platform already carries the hard part, so
+each is unusually cheap here, and because a port that only reproduces the original has not used its
+new home.
+
+| ID | Capability | Why it belongs here | Size | Platform surface it reuses |
+|---|---|---|---|---|
+| X-01 | Geographic targeting: country, region, city, postcode, and radius predicates | The most-asked targeting dimension in the original's own feature requests, and absent from it — ✅ 2026-09-28 — per-customer only: addresses are encrypted at rest, so this can never be narrowed in SQL | M | customer addresses + audience fields |
+| X-02 | Birthday and anniversary campaigns | One date field and a sweep source; the highest open-rate message a shop sends. **Checked 2026-09-28: the platform stores no birth date** — not on `customer_entities`, not on the person profile — so this needs a custom field defined per installation and a sweep source that reads it through the query engine's `cf:` filters. Still S–M, but it depends on a field the merchant must define, which is worth saying out loud rather than discovering mid-demo | M | sweep source + custom fields | — ✅ 2026-09-29 — the missing birth date is added as a CUSTOM FIELD on the person profile, which is the platform's own way for one module to extend another's record rather than an edit to the customers module. The sweep source matches month and day only (a stored year may be a guess) and puts the YEAR in its claim key, which is what makes the campaign annual instead of once ever.
+| X-03 | Per-campaign store, channel and language targeting | The original cannot do it at all; multi-channel is native here — ✅ 2026-09-29 — channel targeting is `orders.channels CONTAINS '<code>'`, pushed down to SQL, and means "has bought through this channel": the platform has no "belongs to this store" field on a customer, and inventing one would be a second source of truth for something orders already record. Language is `customer.locale`, sourced from the customer's OWN choice in the preference centre — the platform has no language field on a customer, and guessing from an address is how somebody receives marketing they cannot read. Per-language copy is then one campaign or one split lane per language, which the existing primitives already compose |
+| X-04 | Campaign authoring by an AI agent: describe a campaign in chat, get a draft graph to review | The platform ships an agent runtime with mutation approval; a campaign is a JSON definition, which is exactly what an agent can safely propose — ✅ 2026-09-29 — a `Campaign Author` agent over the existing tool pack. Its tool list is written out by hand rather than derived, so a future tool cannot arrive in its hands for free, and a test asserts no tool it may call suggests enabling, publishing or sending. Every write is confirm-required | M | `ai-assistant`, `prepareMutation`, agent tools |
+| X-05 | MCP tools for campaigns: list, inspect, estimate audience, enable, from any MCP client | Makes the module scriptable by external assistants with no new API design — ✅ 2026-09-28 — six tools; none can enable a campaign, asserted by a test | S | `registerMcpTool` |
+| X-06 | Charts on the campaign dashboard: sends, opens, clicks, revenue over time | The original has tiles and tables only; the platform ships a chart family — ✅ 2026-09-28 — daily series generated in SQL so empty days are zeroes, not gaps | S | `ui` chart components |
+| X-07 | In-app notifications and progress for long operations (bulk enrolment, segment actions) | Operators can watch work finish instead of guessing | S | `core:progress`, notifications, DOM event bridge |
+| X-08 | Customer-portal preference centre: the recipient manages their own consent and frequency | Fewer unsubscribes, and consent that is provably first-party — ✅ 2026-09-29 — the middle ground consent lacks: "at most N a week" and "pause for 30/90/180 days" beside unsubscribe. The engine honours both as a SECOND cap (its own weekly window, never merged with the campaign's) and a deferral — a pause is "not now", so it moves the message rather than dropping it, while a cap drops it like the campaign's own. The subject always comes from the portal session and never from the request, or the page would let anybody unsubscribe anybody |
+| X-09 | Segment membership in the search index, so campaigns can target fulltext and vector queries | Semantic audiences ("customers who bought something like X") are impossible in the original | L | `search` module |
+| X-10 | Workflow bridge: let a campaign step start a platform workflow, and a workflow start a campaign | Marketing and operations stop being two disconnected automations | M | `workflows` module |
+| X-11 | Optimal send-time per recipient learned from their own open history | The original has a send-time gate but no learning; tracking data now makes it possible — ✅ 2026-09-28 — per-customer, minimum five opens, always subordinate to quiet hours | M | 3.1 tracking events |
+| X-12 | A/B winner auto-selection on click-through once a minimum sample is reached | Completes the split feature already shipped — ✅ 2026-09-28 — as a SUGGESTION plus an author action, not an automatic rewrite; auto-apply on a schedule is a follow-up | S | 2.1 split + 3.1 tracking |
+| X-13 | Deliverability guardrails: bounce-rate and complaint-rate circuit breaker that pauses a campaign | Protects the sending domain, which no amount of content quality can undo — ✅ 2026-09-29 **on the failure rate of attempted sends**, which is the signal this module owns; bounce and complaint rates need provider feedback webhooks the platform has no contract for, and that is recorded as a core proposal rather than faked. Failed sends are now RECORDED as failed, which they were not before — a campaign being refused by the transport used to look quiet rather than broken. Pausing is a real unpublish through the ordinary command | M | 3.1 events + campaign state |
+| X-14 | Dry-run preview of a whole journey for one named customer: every step, every gate, every timestamp | The fastest way for an author to trust a campaign, and a superb demo — ✅ 2026-09-28 — drives the real executor with recording effects, so it cannot drift from the engine | M | executor + audience narrowing |
+
+### What is actually blocked, and what is only work
+
+The distinction that matters for planning. Nothing below is blocked on difficulty — the engine's
+extension points make most items a step type, a predicate or a sweep source. These are blocked on
+something that is not ours to write:
+
+| Blocked item | What it waits for |
+|---|---|
+| B-12 reorder engine (build-a-cart half), B-21 free gifts | A cart entity. The platform has orders and quotes; `SPEC-029` (storefront) owns the cart |
+| B-14 two-way inbox, B-16 provider pacing | A live SMS or WhatsApp channel provider — an account with a verified sender, not code |
+| B-20 anonymous visitors | Storefront behaviour tracking, which is a storefront concern |
+| B-22 ad audiences, B-23 product feeds | Google Ads / Meta credentials and an approved app |
+| B-28 push management | Push rails plus a public origin for the service worker |
+| X-09 semantic segments | A decision about indexing customers, which touches the `search` module's own scope |
+| X-10 workflow bridge | A contract decision in `workflows`, whose activity enum is a frozen surface |
+
+**Everything else on both tables is plain work**, and most of it is S: one step type or one predicate
+plus its tests, five locale files and a migration when it needs a table — the same shape as the A/B
+split, which took one sitting end to end. The per-feature cost that is easy to underestimate is not
+the logic, it is the tests, the five locales, the DS lint and the migration review that make it
+survivable in review. That is the rate limiter, and it is the reason each item is sized in this table
+rather than waved at.
+
+### The customer profile is built early and extended, not built last
+
+`B-03` ships before most of the capabilities it will eventually display, deliberately. Every later
+feature adds one card or one section to it, which costs minutes, whereas leaving the screen until the
+end means every intermediate feature is invisible while it is being built — and a feature nobody can
+see is a feature nobody notices is WRITE-ONLY. That defect already happened once in this module:
+delivery tracking recorded opens and clicks that nothing read, until a counts endpoint was added in
+the same phase. "What does this add to the customer profile?" is the question that catches it, so from
+here on every backlog item answers it.
+
+### Suggested shipping order
+
+Value per unit of effort, given what already exists:
+
+1. **B-01, B-02, B-03** — scoring, tiers, Customer 360. They compound, and they end in a screen.
+2. **B-04, B-05, X-02** — win-back, review requests, birthdays. Three merchant-recognisable campaigns, each one sweep source.
+3. **X-12, B-10, X-11** — A/B winners, attribution, send-time learning. All unlocked by Phase 3 and all invisible without it.
+4. **X-14, B-19** — journey preview and real test send. Author confidence, and the two best things to show on a demo.
+5. **B-13, X-01** — product-level and geographic targeting. The two dimensions authors reach for next.
+6. **X-04, X-05, X-06** — agent authoring, MCP tools, charts. Each one is small here and each one is impossible in the original.
+7. **Superseded 2026-09-29 — see "Ordo parity audit" below.** The claim that follows held for the backlog
+   table, not for the source module: a business-feature audit found unbuilt, unblocked items (score rules
+   first). Kept for the record: **Nothing unblocked remains.** X-08, X-03, B-27, X-04, X-13 and X-02 landed on 2026-09-29. Everything still
+   open is in the blocked table below or needs a platform capability listed under "core proposals" — a missing
+   dependency rather than remaining effort. Two items are partially delivered and say so in their rows: B-06
+   (price drops yes, back-in-stock blocked on the availability contract) and X-13 (send-failure rate yes, bounce
+   and complaint rates blocked on provider feedback). (B-06 price drops and B-26 lead routing landed 2026-09-29; B-06's
+   back-in-stock half is blocked on the availability contract.) (X-07 progress arrived with B-11: bulk segment actions are
+   `ProgressJob`s on the shared top bar.)
+   (B-07 NPS, B-15 GDPR, B-17 content blocks, B-08 recommendations, B-18 inbound hooks, B-24 AI copy
+   drafting, B-25 observability and B-09 referrals landed on 2026-09-28/29.)
+8. The blocked table above, each item the moment its dependency lands.
+
+Target for the current push: every unblocked item. The blocked ones are documented so nobody mistakes
+a missing dependency for a missing plan.
+
+## Ordo parity audit — business features, 2026-09-29
+
+**Read this before choosing the next item.** The backlog above was scored against a 2026-09-28 inventory; this
+section is a second pass, done by comparing what a MERCHANT can do in each system rather than by table or cron.
+It found unblocked work the backlog never listed, and it records why two items that look cheap are not.
+
+Method: two inventories. Ordo (`Ordo_Automation`, the author's own Magento module, contributed here under MIT): 14
+triggers, 19 conditions plus a nested group, 14 action types, 62 tables, 34 crons, 23 ACL resources, 58 REST
+routes. This module: 18 catalogue triggers (14 available), 5 sweep sources, 10 step types, 21 tables. Ordo paths
+below are relative to its root.
+
+### A. Doable now — in this order
+
+| # | Capability (Ordo evidence) | State here | Notes |
+|---|---|---|---|
+| A1 | **Demographic score rules**: a rule is attribute + operator (`equals`/`not_equals`/`contains`) + value + signed points; the sum of matching rules is kept apart from the running score and only the DELTA is applied, re-evaluated on every customer save and able to cross the score threshold (`Model/ScoreRule/ScoreRuleEvaluator.php`, `Observer/EvaluateCustomerScoreRules.php`, tables `ordo_score_rule`, `ordo_customer_demographic_score`) | ✅ 2026-09-29 — see "Score rules" in the module spec | **Done.** Intended shape: the rule's condition is the same `ConditionExpression` a segment uses (a superset of Ordo's attribute/operator/value), evaluated by `matchesAudience` over the subject document. A rule may reference neither `score` (rule points would feed themselves) nor `segments` (a segment may be defined on score). The current rule sum is the sum of `source = 'rule'` entries, so no second table is needed; the delta goes into the ledger and emits `score_changed` like `add_points` does. Re-evaluate on `customers.person.created` / `customers.person.updated` (nothing here subscribes to the latter yet) and in a daily sweep pass gated like the lead digest (`lib/lead-digest.ts`), because rules over behaviour change without a save. There is no lock in this module to reuse — make the delta insert idempotent through the ledger's `(run_id, step_id)` unique index |
+| A2 | **Reorder at-risk**: tag customers whose cycle is overdue, `reorder_cycle_at_risk` condition, admin grid with "recalculate" and "send reminder" (`Cron/TagReorderCycleAtRiskCustomers`, `Controller/Adminhtml/ReorderCycle/*`) | Reminders exist (`lib/engine/reorder.ts`, `reorder_due` sweep); no at-risk flag, predicate or grid | Build-a-cart stays blocked on the cart |
+| A3 | **Static segment import** (`Controller/Adminhtml/Segment/Import.php`) | Export only (B-11) | A second membership model — core proposal 5. Its own entity, not a flag on `MarketingSegment` |
+| A4 | **Mass enable / disable / delete of campaigns** (`Controller/Adminhtml/Campaign/Mass*`) | Absent | Small; publish still goes through the volume-estimate dialog |
+| A5 | **B2B offers**: automatic expiry of overdue offers, customer self-extension from "My offers" with a day count and a cap (`Cron/ExpireOverdueOffers`, `Model/OfferManagement.php`, `Controller/Offer/Extend.php`) | Only the `quote.expiring` sweep trigger | **Changes `sales` — ask the user first** |
+| A6 | **B2B credit limit**: alerts at a warning band (default 80%) and at 100% with a cooldown, hard checkout block at 100%, "my limit" endpoint (`Cron/SendCreditLimitAlerts`, `Plugin/Quote/BlockOverLimitCheckout.php`) | Absent | **Changes `sales` / checkout — ask first.** Phase 7.2 |
+| A7 | **B2B order approval**: hold orders over a customer's spend limit, approve/reject from an emailed token without logging in, multi-level escalation of stale approvals, admin grid (`Observer/HoldOrderForApproval.php`, `Controller/Approval/*`, `Cron/EscalateStalePendingApprovals`) | Absent | **Changes `sales` — ask first.** Phase 7.1 applies: establish what the existing `sales.orders.approve` feature already does |
+
+### B. Blocked — each checked on 2026-09-29
+
+| Capability | Why it is blocked |
+|---|---|
+| **Per-customer coupon** (`generate_coupon`, `Model/CouponGenerator.php`) | No promotions engine. SPEC-055 (`SPEC-055-2026-02-23-promotions-module.md`) is approved and unimplemented; `sales` only snapshots a `promotion_code` on lines. A code nothing at checkout will redeem is a promise the shop cannot keep |
+| **Push to customers** (`send_push`, web push with VAPID, push-subscription grid — B-28) | The platform's push rails reach STAFF: `devices.user_devices` is keyed on `user_id` (an auth user) and the providers are mobile-only (FCM, APNs, Expo). There is no customer device registry and no browser web push (the push spec lists it as a follow-up). Needs a core change plus a provider package — ask first |
+| Abandoned cart (with SMS/WhatsApp fallback), browse abandonment, build-a-cart, free-gift tiers, "cheapest item free" rule | A cart and a storefront (`SPEC-029`) |
+| Popups and banners, dismissable visitor notifications, tracking pixel, visitor tags with identity stitching, `event_occurred` (cart add, wishlist add) | Storefront behaviour tracking |
+| Back-in-stock; price-watch registration by guests or from the storefront | The availability contract (`2026-08-14-availability-contract.md`), and a storefront |
+| SMS (Twilio), WhatsApp templates and approval, two-way inbox, STOP keywords, per-provider rate limits | A channel-provider account with a verified sender |
+| Delivered / bounced / complained status | Provider feedback webhooks — core proposal 6 |
+| Google Ads / Meta audience sync, Google Merchant / Meta catalogue feeds, AI-agent commerce (API-key quote endpoint, `.well-known` plugin manifest) | External accounts; agent commerce also needs the cart |
+
+### C. Deliberately not built
+
+Campaign calendar, per-recipient AI generation at send time, RSS and product-feed content blocks — reasons in
+"Deliberately not built" below. Not to be reopened without a new reason.
+
+### D. Already at parity — no need to re-audit
+
+Campaigns with several triggers; one-off and recurring schedules; waits; A/B with an auto-applied winner; quiet
+hours in the recipient's zone; learned send time; frequency cap; re-entry guard; import/export; win-back; review
+requests; reorder reminders; price-drop alerts; 16 of the 19 conditions (missing: `visitor_tag`,
+`reorder_cycle_at_risk`, `event_occurred`); segments with overlap, size history, bulk actions and export;
+recommendations; snippet blocks; AI copy; template versioning; test send; NPS; referrals; tiers; lead scoring by
+step; lead routing and the rep digest; RFM; CLV; customer profile; quote-expiry reminder; funnel; attribution;
+consent with audit, suppression import and GDPR; admin audit trail; signed inbound hooks; setup wizard; job log;
+dead letters. **Email is the only channel that reaches a customer.**
+
+**Deliberately not built, with the reason** (so nobody re-derives it):
+
+- **B-16 per-provider outbound pacing.** Per-PROVIDER rate limiting needs provider identity, which lives behind
+  the channel abstraction this module does not own. A tenant-wide "sends per minute" cap is reachable and is a
+  DIFFERENT feature: it would add a fourth gate to the hot path of every send for a problem no installation here
+  has reported, on top of the frequency cap, quiet hours and the deliverability breaker. Left until a real
+  provider limit exists to pace against.
+- **A per-locale body map on `send_email`.** Language targeting landed as an audience field, so per-language copy
+  is one campaign or one split lane per language — primitives that already exist and already compose. A map of
+  locale to body would be a second authoring model for the same outcome, and the canvas would have to grow a UI
+  for editing it.
+- **A static (list-based) segment.** A second membership model beside the rule-based one; see the follow-up note
+  below.
+
+**Cleared on 2026-09-29 — the "plain work" that was still open.** The shipping order above claimed "nothing
+unblocked remains", which was not true: seven items were neither blocked nor built. Six are now done and the
+seventh is recorded below with its reason.
+
+- **4.1 funnel + dashboard widget** — ✅ the funnel counted in PEOPLE (a funnel of messages is not a funnel), with
+  no `delivered` stage because the platform has no provider feedback and a delivered count could only be the sent
+  count wearing a more confident name. Plus the module's first dashboard widget: sends, engagement and attributed
+  revenue across every campaign, in one read.
+- **5.3 RFM and CLV** — ✅ RFM as quintiles over the tenant's OWN buyers, so a 5 means "in the top fifth here"
+  rather than a threshold somebody invented; cut points computed once a day by the sweep and read as one row. The
+  value projection is deliberately arithmetic rather than a model — "four orders a year at 80 each" is a number an
+  operator can argue with, which is what makes it usable — and every forward-looking figure is absent until there
+  are two orders, because one purchase is not a rate.
+- **B-13 `purchased_category`** — ✅ pushed down to SQL like the sku predicate, and read from the CATALOGUE rather
+  than the order snapshot: a category is a current classification, so re-filing a product should change who is
+  targeted, while a sku is a historical fact about the purchase.
+- **X-12 auto-apply the A/B winner** — ✅ off by default, and a stricter question than the screen asks: twice the
+  sample, plus a relative margin, because 3.0% against 2.9% is a coin toss. Acts through the ordinary command, so
+  it is validated, version-checked and recorded as a restorable version.
+- **Phase 8 triggers** — ✅ seven commerce moments no campaign could hear: order confirmed, invoice created,
+  payment captured, payment recorded, deal won, deal lost, tag removed. Two were corrected by checking the
+  platform rather than the plan: `sales.invoice.issued` and `sales.quote.accepted` do not exist, and
+  `payment_gateways.payment.captured` is the honest "paid" signal where `sales.payment.created` also fires for a
+  pending authorisation.
+- **Phase 8 steps `notify` and `send_webhook`** — ✅ as `notify` and `send_signal`. The second is named for what it
+  does because the platform has no outbound-webhook service to call: the `webhooks` module subscribes to every
+  declared event and delivers it with signing, retries and a delivery log, so a step that emits a declared event
+  reaches any endpoint an operator subscribed.
+- **Phase 8 import/export and template library** — ✅ the graph already WAS the contract, so export is that
+  document and import is the ordinary create-and-save. Six templates are data in the same format, validated by the
+  same path. Always disabled on arrival; the format does not even carry the flag.
+- **7.4 reorder reminders** — ✅ measured from each customer's own cadence (median gap, three purchases minimum,
+  plausible band), with the cycle NUMBER in the claim key — which is what makes it neither a single reminder
+  forever nor a daily nag.
+
+**Deliberately not built, added 2026-09-29:**
+
+- **B-17's RSS block.** Blocked on two decisions rather than on effort: parsing XML needs a production dependency
+  (this module has added none), and fetching a URL an operator typed needs an SSRF policy — a private-range and
+  redirect guard — which is a platform-level decision, not one a marketing module should make alone for itself.
+- **B-17's product-feed block.** Reachable and left unbuilt, because it would be a second rendering of the same
+  product HTML, differing only in whether the ranker is handed a subject. `{{recommendations}}` already degrades
+  to best sellers for a customer with no history, so the outcome exists; a shared block would be cheaper per send
+  and that is a performance argument for a problem no installation here has reported. The honest gap in B-17 is
+  EXTERNAL content, which is the RSS item above.
+- **A campaign calendar.** The three questions a calendar would answer are each already answered somewhere better:
+  which campaigns are scheduled and how often (the campaign list's trigger summary), when each last ran and what
+  it did (the job log), and what a specific customer will receive (the journey preview). A fourth screen showing
+  the same three facts in a grid is a screen to keep in step with all of them.
+- **A form-based authoring fallback beside the canvas.** A second authoring surface for the same model, which
+  doubles the authoring work of every future step type — the same objection that ruled out a per-locale body map.
+  The canvas is the authoring surface; an author who wants to edit a campaign as data has export and import.
+
+**Core proposals recorded rather than made** (this module never edits the platform):
+
+1. `communicationChannels.hasChannel(type, scope)` — a read answering "is a tenant-wide email channel
+   configured". The readiness screen answers it with raw SQL today: the one place this module reaches across a
+   module boundary, taken knowingly because a wizard that claims readiness without checking is the failure the
+   screen exists to prevent.
+2. The availability contract (`.ai/specs/2026-08-14-availability-contract.md`) — back-in-stock alerts need it.
+   Stock lives in the optional `wms` module; the watch table, the scan pass and the screens are already here.
+3. A staff-directory read for a rep's contact address, if the weekly lead digest should ever be an email rather
+   than an in-app notification. Today it is a notification precisely to avoid needing one.
+4. A platform-wide customer language field, if the platform ever wants one. This module keeps its own, set by
+   the customer in the preference centre, because a guess from an address is worse than no answer.
+5. A STATIC segment — membership from an imported list rather than a rule — is a second membership model (a
+   member table, an import job, a different answer to "who is in it now") and belongs beside the rule-based one
+   rather than inside it.
+6. Provider delivery feedback (bounce and complaint webhooks from the email transport). The deliverability
+   breaker watches the failure rate of attempted sends, which catches a refused campaign but not a delivered one
+   people mark as spam.
+
+## Phase 2 — structural decisions and shared foundations
+
+Everything later rests on these, and each gets more expensive the more steps exist.
+
+**2.1 Branching model — nested variants.** ✅ Implemented 2026-09-28. Landed as described, with
+the lane choice derived from `hash(step id, subject id)` rather than stored, so a resume cannot land
+a subject in the other lane. `flattenSteps` runs before `planSteps`, so the planner and the executor
+stayed index-based and no column was added. Editor-side tree edits live in `lib/canvas/step-tree.ts`.
+The top level stays a spine, so the canvas keeps its honesty (no user-drawn edges) and gains a split
+node with N lanes that fan out and rejoin.
+*We did not inherit the original's limitation that variant steps cannot carry their own delay —
+steps live in jsonb with stable ids, so a lane can contain a wait. A lane that ENDS on a wait is
+refused, for the same reason a trailing wait at the top level is: it parks its subjects forever.*
+
+**2.2 Set-level audience evaluation.** ✅ Implemented 2026-09-28 as a NARROWING rather than a second
+evaluation path. A set walk that returned "the matching subjects" would need a second, independent
+definition of matching, and the two would drift — so the planner returns a superset of candidates and
+`matchesAudience` stays the only authority on membership. Aggregates go through the same shared SQL
+filter as `subject-document.ts` rather than `queryEngine`, which has no aggregate surface; tag and
+order predicates are pushed down, negations and per-event leaves are not. The sweep now enrols from
+candidates, and `POST /campaigns/:id/audience-estimate` exposes the count with an honest qualifier.
+This is the foundation segments need (Phase 5). Files: `lib/engine/narrowing.ts`,
+`lib/audience/set-resolver.ts`.
+
+**2.3 Event idempotency.** ✅ Implemented 2026-09-28. The deterministic queue job id is not available
+— `EnqueueOptions` carries only `delayMs`, and adding a job id would change a contract surface in
+`packages/queue` that every strategy would have to honour — so the guarantee lives where it belongs
+anyway: a partial unique index on `(tenant, org, campaign, occurrence_key)` over the run table, with
+the key derived from the delivered payload. Released after six hours, because two separate
+occurrences with identical payloads hash the same and permanent uniqueness would turn every
+`unlimited` re-entry policy into `once`. Provider webhooks duplicate routinely, so this was needed
+before any webhook-driven channel.
+
+**2.4 Dry-run and test dispatch.** A CLI command and an API endpoint that answer "who would
+receive this, and what would they get" without sending. The `marketing_automation.test_dispatch`
+feature already exists with no implementation behind it. Cheap, and it is the safe way to
+demonstrate a campaign.
+
+**2.5 Runs UI.** `marketing_campaign_runs` and its `step_log` exist with no page. An operator
+cannot currently see who is mid-journey, what each step did, or why a run died.
+
+## Phase 3 — delivery tracking (prerequisite for three later features) — ✅ Implemented 2026-09-28
+
+**3.1** `marketing_message_send_events` — delivered / opened / clicked / bounced, keyed to
+`marketing_message_sends`.
+**3.2** Tracking endpoints: a signed open pixel and a signed click redirect. No PII in the URL;
+the token identifies the send, not the person.
+**3.3** `send_email` rewrites links and embeds the pixel.
+
+Unlocks 4.1, 4.2 and 4.3 — all three read from here, which is why tracking comes before them
+rather than alongside. Verified without a public URL exactly as planned: the integration tests mint
+tokens with the server's own secret, call the endpoints and assert the recorded counts, including
+every refusal (tampered token, wrong purpose, non-http destination).
+
+Landed with two decisions worth carrying forward: the event table stores no IP and no user agent, and
+the signing secret falls back to the platform's data-encryption key material so tracking works without
+new configuration — never to a session or JWT secret, because the token lives in mail archives forever.
+
+## Phase 4 — what tracking unlocks
+
+**4.1** Per-campaign funnel (sent → delivered → opened → clicked → converted) plus a dashboard
+widget via `widgets/dashboard/` and `analytics.ts`.
+**4.2** A/B winner selection on click-through once each lane has enough sends. Needs 2.1 + 3.
+**4.3** Send-time optimization: defer a send to each customer's historically best hour.
+Email-only, because it is the only channel with open/click data. Needs 3.
+
+## Phase 5 — segments and richer targeting
+
+**5.1** ✅ 2026-09-29 — `MarketingSegment` holds the same condition expression a campaign audience does;
+membership is `matchesAudience` over the subject document, narrowed through 2.2 where the expression allows.
+The slug is derived from the name once and then immutable, because saved audiences reference it.
+**5.2** ✅ 2026-09-29 — no new operator was needed: membership is published as a `segments` array on the
+subject document, so `segments CONTAINS 'slug'` and `NOT CONTAINS` come free from the existing evaluator. A
+segment may not be defined in terms of segments — nesting invites a cycle, and a cycle in per-customer
+evaluation is a stack overflow inside a dispatch.
+**5.3** RFM and CLV projections on the subject document, plus percentile comparisons.
+
+## Phase 6 — channels
+
+**6.1 Consent model — do this before any new channel.** The platform has none, so Phase 1 does
+not gate sends on a marketing opt-in. **Compliance-blocking for production use.** Nearest prior
+art: `consent_flag` in `SPEC-055` and the tenant legal-documents/consent-versioning spec.
+**6.2 Push** — a `push` step over the existing `push_notifications` rails. Cheapest.
+**6.3 SMS** — a new `packages/channel-<provider>` implementing `ChannelAdapter` with
+`channelType: 'sms'`, a `sms` notification delivery strategy for per-user opt-out, a delivery
+status webhook, and an opt-out table. Blocked on the account (see Start now).
+**6.4 WhatsApp** — provider package, admin-managed template approval lifecycle, status webhook.
+Blocked on Meta verification (see Start now).
+
+Every channel step routes through the `communication_channels` outbound queue so retries,
+dead-lettering and per-tenant credentials apply, rather than calling a provider directly.
+
+## Phase 7 — B2B
+
+**7.1 Verify first.** `sales.orders.approve` already exists as an ACL feature. Establish what
+`sales` already does for approvals before building a parallel flow.
+**7.2** Credit limit: entity per company, an endpoint for "my limit", threshold alerts, and an
+optional hard checkout block at full utilization.
+**7.3** Order approval: token-based approve/reject from an email without logging in, plus
+escalation when an approval goes unanswered.
+**7.4** Reorder reminders from each customer's own purchase interval — cheap, reuses the subject
+document and the existing sweep.
+
+## Phase 8 — breadth and authoring comfort
+
+Remaining triggers already stubbed in the catalog (quote, invoice, payment, deal won/lost, tag
+removed) — mostly copy-paste subscribers. Steps: `notify`, `send_webhook` (over
+`@open-mercato/webhooks`), dynamic content, coupon generation (**verify a coupon primitive
+exists before promising it**). Campaign calendar, template library, import/export (nearly free —
+the graph already *is* the contract), and a form-based authoring fallback beside the canvas.
+
+## Blocked on other work
+
+Abandoned cart, browse abandonment and on-site behaviour tracking all need cart sessions and a
+storefront: `SPEC-029`. The trigger is listed in the catalog as unavailable with a reason so the
+palette explains itself, and its context contract is written down.
+
+## Definition of done, per phase
+
+Each phase ships: its own spec, integration tests for every affected API path and key UI path,
+i18n in all five locales, and a green run of the ordered `validation.commands` gate from
+`.ai/agentic.config.json`. A phase that sends messages also ships a dry-run path before it
+ships the send.
+
+## Changelog
+
+- 2026-09-29 — Ordo parity audit by business feature: seven doable items (score rules next), the blocked ones with
+  verified reasons (coupons need SPEC-055, customer push needs a customer device registry and web push), and the
+  list already at parity. Shipping-order item 7 marked superseded.
+- 2026-09-29 — A1 score rules implemented.
