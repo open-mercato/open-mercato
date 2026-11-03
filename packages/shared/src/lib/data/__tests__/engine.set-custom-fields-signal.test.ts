@@ -27,7 +27,6 @@ jest.mock('@open-mercato/core/modules/entities/lib/htmlRichTextSanitizer', () =>
   sanitizeCustomFieldHtmlRichTextValuesServer: jest.fn(async (_em: unknown, opts: { values: unknown }) => opts.values),
 }))
 
-// eslint-disable-next-line @typescript-eslint/no-var-requires
 const { DefaultDataEngine, __resetUndeclaredEventWarningsForTests } = require('../engine')
 
 const loggerWarn = createLogger('shared').warn as jest.Mock
