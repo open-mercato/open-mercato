@@ -353,7 +353,7 @@ export async function reserveInventoryForConfirmedOrder(
         if (reserveQuantity <= 0) continue
         const reservedBefore = reservedBeforeByWarehouse.get(bucket.warehouseId) ?? 0
 
-        const executed = await commandBus.execute('wms.inventory.reserve', {
+        await commandBus.execute('wms.inventory.reserve', {
           input: {
             tenantId: scope.tenantId,
             organizationId: scope.organizationId,
@@ -372,20 +372,13 @@ export async function reserveInventoryForConfirmedOrder(
           },
           ctx: commandCtx,
         })
-        const commandResult = executed.result as { appliedQuantity?: number } | undefined
-        const appliedQuantity =
-          typeof commandResult?.appliedQuantity === 'number'
-            ? commandResult.appliedQuantity
-            : reserveQuantity
-        if (appliedQuantity <= 0) {
-          bucket.available -= reserveQuantity
-          continue
-        }
 
-        remainingQuantity -= appliedQuantity
-        reservedForVariant += appliedQuantity
-        bucket.available -= appliedQuantity
-        reservedBeforeByWarehouse.set(bucket.warehouseId, reservedBefore + appliedQuantity)
+        // The key is cumulative per warehouse, so an idempotent replay means a concurrent
+        // run already holds this reservation for the order; it still covers the demand.
+        remainingQuantity -= reserveQuantity
+        reservedForVariant += reserveQuantity
+        bucket.available -= reserveQuantity
+        reservedBeforeByWarehouse.set(bucket.warehouseId, reservedBefore + reserveQuantity)
       }
     } catch (error) {
       if (!isInsufficientStockError(error)) throw error
