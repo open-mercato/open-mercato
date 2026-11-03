@@ -18,12 +18,17 @@ export type PipelineStageOption = {
 export type UseDealPipelinesResult = {
   pipelines: PipelineOption[]
   stages: PipelineStageOption[]
+  /** The pipeline `stages` were loaded for; `null` while none are loaded. */
+  stagesPipelineId: string | null
   loadStages: (pipelineId: string) => Promise<void>
 }
 
 export function useDealPipelines(): UseDealPipelinesResult {
   const [pipelines, setPipelines] = React.useState<PipelineOption[]>([])
-  const [stages, setStages] = React.useState<PipelineStageOption[]>([])
+  const [loadedStages, setLoadedStages] = React.useState<{
+    pipelineId: string | null
+    stages: PipelineStageOption[]
+  }>({ pipelineId: null, stages: [] })
   const mountedRef = React.useRef(true)
 
   React.useEffect(() => {
@@ -60,7 +65,7 @@ export function useDealPipelines(): UseDealPipelinesResult {
     const isCurrent = () => mountedRef.current && requestId === latestStagesRequest.current
     // Cleared up front: stages of the previous pipeline must never be offered, or preselected,
     // for the newly chosen one while its own stages load.
-    if (mountedRef.current) setStages([])
+    if (mountedRef.current) setLoadedStages({ pipelineId: null, stages: [] })
     if (!pipelineId) return
     try {
       const call = await apiCall<{ items: PipelineStageOption[] }>(
@@ -69,16 +74,16 @@ export function useDealPipelines(): UseDealPipelinesResult {
       if (!isCurrent()) return
       if (call.ok && call.result?.items) {
         const sorted = [...call.result.items].sort((a, b) => a.order - b.order)
-        setStages(sorted)
+        setLoadedStages({ pipelineId, stages: sorted })
       } else {
-        setStages([])
+        setLoadedStages({ pipelineId, stages: [] })
       }
     } catch {
-      if (isCurrent()) setStages([])
+      if (isCurrent()) setLoadedStages({ pipelineId, stages: [] })
     }
   }, [])
 
-  return { pipelines, stages, loadStages }
+  return { pipelines, stages: loadedStages.stages, stagesPipelineId: loadedStages.pipelineId, loadStages }
 }
 
 export default useDealPipelines

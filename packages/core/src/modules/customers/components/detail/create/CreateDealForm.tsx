@@ -34,6 +34,7 @@ const CONTEXT_ID = 'customers.deals.create'
 const DEAL_ENTITY_ID = 'customers:customer_deal'
 const CUSTOM_FIELDS_MANAGE_HREF = `/backend/entities/system/${encodeURIComponent(DEAL_ENTITY_ID)}`
 const ASSOCIATION_FIELDS: ReadonlyArray<keyof BaseValues> = ['personIds', 'companyIds']
+const NO_STAGES: PipelineStageOption[] = []
 // Fields that live under "More details"; an error on one of them (or on a custom field)
 // opens the disclosure so the message is never hidden behind a collapsed section.
 const MORE_DETAILS_FIELDS: ReadonlyArray<keyof BaseValues> = ['status', 'probability', 'description']
@@ -70,6 +71,7 @@ type PipelineDefaultsProps = {
   pipelineStageId: string
   pipelines: PipelineOption[]
   stages: PipelineStageOption[]
+  stagesPipelineId: string | null
   loadStages: (pipelineId: string) => Promise<void> | void
   setValue: (id: string, value: unknown) => void
 }
@@ -77,28 +79,31 @@ type PipelineDefaultsProps = {
 /**
  * A new deal starts on the default pipeline and its first stage, so the stage picker is
  * there from the first paint instead of an empty select the user has to discover (#5109).
- * A pipeline the caller seeded through initialValues wins.
+ * A pipeline the caller seeded through initialValues wins. Stages follow the form value,
+ * not the select, because an injected field widget can change the pipeline through
+ * `sideEffects`; a stage that is not on the loaded pipeline is replaced by its first one.
  */
-function PipelineDefaults({ pipelineId, pipelineStageId, pipelines, stages, loadStages, setValue }: PipelineDefaultsProps) {
+function PipelineDefaults({ pipelineId, pipelineStageId, pipelines, stages, stagesPipelineId, loadStages, setValue }: PipelineDefaultsProps) {
   const pipelineDefaulted = React.useRef(false)
   React.useEffect(() => {
     if (pipelineDefaulted.current || !pipelines.length) return
     pipelineDefaulted.current = true
-    if (pipelineId) {
-      Promise.resolve(loadStages(pipelineId)).catch(() => {})
-      return
-    }
+    if (pipelineId) return
     const preferred = pipelines.find((entry) => entry.isDefault) ?? pipelines[0]
     if (!preferred) return
     setValue('pipelineId', preferred.id)
     setValue('pipelineStageId', '')
-    Promise.resolve(loadStages(preferred.id)).catch(() => {})
-  }, [loadStages, pipelineId, pipelines, setValue])
+  }, [pipelineId, pipelines, setValue])
   React.useEffect(() => {
-    if (!pipelineId || pipelineStageId || !stages.length) return
-    const first = stages[0]
-    if (first) setValue('pipelineStageId', first.id)
-  }, [pipelineId, pipelineStageId, setValue, stages])
+    // loadStages resets stages to [] on failure; the rejection is intentionally ignored here.
+    Promise.resolve(loadStages(pipelineId)).catch(() => {})
+  }, [loadStages, pipelineId])
+  React.useEffect(() => {
+    if (!pipelineId || stagesPipelineId !== pipelineId) return
+    if (stages.some((stage) => stage.id === pipelineStageId)) return
+    const nextStageId = stages[0]?.id ?? ''
+    if (nextStageId !== pipelineStageId) setValue('pipelineStageId', nextStageId)
+  }, [pipelineId, pipelineStageId, setValue, stages, stagesPipelineId])
   return null
 }
 
@@ -156,7 +161,7 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
   )
   const revealMoreDetails = React.useCallback(() => setMoreExpanded(true), [])
   const { runMutation, retryLastMutation } = useGuardedMutation({ contextId: CONTEXT_ID, blockedMessage: tr('ui.forms.flash.saveBlocked', 'Save blocked by validation') })
-  const { pipelines, stages, loadStages } = useDealPipelines()
+  const { pipelines, stages, stagesPipelineId, loadStages } = useDealPipelines()
   const { customFieldsLoaded, handleCustomAttributesLoaded, collectNormalizedCustomValues } = useDealCustomFields(tr)
   // A required custom field must be visible from the start, not discovered on submit.
   const onCustomAttributesLoaded = React.useCallback(
@@ -233,13 +238,15 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
         const patch = (partial: Partial<BaseValues>) => {
           for (const [key, value] of Object.entries(partial)) setValue(key, value)
         }
+        const currentStages = stagesPipelineId === current.pipelineId ? stages : NO_STAGES
         return (
           <>
             <PipelineDefaults
               pipelineId={current.pipelineId}
               pipelineStageId={current.pipelineStageId}
               pipelines={pipelines}
-              stages={stages}
+              stages={currentStages}
+              stagesPipelineId={stagesPipelineId}
               loadStages={loadStages}
               setValue={setValue}
             />
@@ -248,13 +255,9 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
               errors={errors}
               isSubmitting={isSubmitting}
               patch={patch}
-              onPipelineChange={(pipelineId) => {
-                patch({ pipelineId, pipelineStageId: '' })
-                // loadStages resets stages to [] on failure; the rejection is intentionally ignored here.
-                Promise.resolve(loadStages(pipelineId)).catch(() => {})
-              }}
+              onPipelineChange={(pipelineId) => patch({ pipelineId, pipelineStageId: '' })}
               pipelines={pipelines}
-              stages={stages}
+              stages={currentStages}
               pipelineName={pipelineName(current.pipelineId)}
               ownerInitialOption={ownerInitialOption}
               tr={tr}
@@ -368,6 +371,7 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
     pipelines,
     revealMoreDetails,
     stages,
+    stagesPipelineId,
     statusLabels,
     tr,
   ])

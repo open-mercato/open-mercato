@@ -53,6 +53,23 @@ describe('useDealPipelines', () => {
     expect(result.current.stages).toEqual([])
   })
 
+  it('reports which pipeline the loaded stages belong to', async () => {
+    const { result } = renderHook(() => useDealPipelines())
+    expect(result.current.stagesPipelineId).toBeNull()
+
+    await act(async () => {
+      const load = result.current.loadStages('first')
+      pending.get('first')?.resolve(stagesResponse('first-stage'))
+      await load
+    })
+    expect(result.current.stagesPipelineId).toBe('first')
+
+    await act(async () => {
+      void result.current.loadStages('second')
+    })
+    expect(result.current.stagesPipelineId).toBeNull()
+  })
+
   it('ignores a slower response from a pipeline that is no longer selected', async () => {
     const { result } = renderHook(() => useDealPipelines())
     let firstLoad: Promise<void> = Promise.resolve()
