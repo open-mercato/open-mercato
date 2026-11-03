@@ -1041,6 +1041,7 @@
   "customers.deals.create.sections.custom.title": "Custom attributes",
   "customers.deals.create.sections.details.title": "Details",
   "customers.deals.create.sections.more.title": "More details",
+  "customers.deals.create.stagesLoading": "Stages are still loading. Try again in a moment.",
   "customers.deals.create.submit": "Create deal",
   "customers.deals.create.title": "Create deal",
   "customers.deals.detail.actions.apply": "Apply",

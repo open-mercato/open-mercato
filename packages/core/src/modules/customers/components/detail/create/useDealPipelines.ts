@@ -20,6 +20,8 @@ export type UseDealPipelinesResult = {
   stages: PipelineStageOption[]
   /** The pipeline `stages` were loaded for; `null` while none are loaded. */
   stagesPipelineId: string | null
+  /** True from the moment a pipeline's stages are requested until the latest request settles. */
+  stagesLoading: boolean
   loadStages: (pipelineId: string) => Promise<void>
 }
 
@@ -58,6 +60,7 @@ export function useDealPipelines(): UseDealPipelinesResult {
     }
   }, [])
 
+  const [stagesLoading, setStagesLoading] = React.useState(false)
   const latestStagesRequest = React.useRef(0)
 
   const loadStages = React.useCallback(async (pipelineId: string) => {
@@ -65,7 +68,10 @@ export function useDealPipelines(): UseDealPipelinesResult {
     const isCurrent = () => mountedRef.current && requestId === latestStagesRequest.current
     // Cleared up front: stages of the previous pipeline must never be offered, or preselected,
     // for the newly chosen one while its own stages load.
-    if (mountedRef.current) setLoadedStages({ pipelineId: null, stages: [] })
+    if (mountedRef.current) {
+      setLoadedStages({ pipelineId: null, stages: [] })
+      setStagesLoading(Boolean(pipelineId))
+    }
     if (!pipelineId) return
     try {
       const call = await apiCall<{ items: PipelineStageOption[] }>(
@@ -80,10 +86,12 @@ export function useDealPipelines(): UseDealPipelinesResult {
       }
     } catch {
       if (isCurrent()) setLoadedStages({ pipelineId, stages: [] })
+    } finally {
+      if (isCurrent()) setStagesLoading(false)
     }
   }, [])
 
-  return { pipelines, stages: loadedStages.stages, stagesPipelineId: loadedStages.pipelineId, loadStages }
+  return { pipelines, stages: loadedStages.stages, stagesPipelineId: loadedStages.pipelineId, stagesLoading, loadStages }
 }
 
 export default useDealPipelines

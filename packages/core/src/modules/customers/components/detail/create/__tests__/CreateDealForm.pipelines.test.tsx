@@ -4,12 +4,14 @@
 import * as React from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { z } from 'zod'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { CreateDealForm } from '../CreateDealForm'
 
 type StagesCall = { ok: boolean; result: { items: Array<{ id: string; label: string; order: number }> } }
 
 const mockCreateCrud = jest.fn()
 const mockApiCall = jest.fn()
+const mockCrudFormProps = jest.fn()
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn() }),
@@ -32,6 +34,18 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({ flash: jest.fn() }))
+
+jest.mock('@open-mercato/ui/backend/CrudForm', () => {
+  const ReactForMock = require('react') as typeof React
+  const actual = jest.requireActual('@open-mercato/ui/backend/CrudForm')
+  return {
+    ...actual,
+    CrudForm: (props: Record<string, unknown>) => {
+      mockCrudFormProps(props)
+      return ReactForMock.createElement(actual.CrudForm, props)
+    },
+  }
+})
 
 jest.mock('@open-mercato/ui/backend/utils/crud', () => ({
   createCrud: (...args: unknown[]) => mockCreateCrud(...args),
@@ -144,6 +158,7 @@ function submitDeal() {
 
 describe('CreateDealForm pipeline defaults', () => {
   beforeEach(() => {
+    jest.mocked(flash).mockClear()
     mockCreateCrud.mockReset()
     mockCreateCrud.mockResolvedValue({ result: { id: 'deal-1' } })
     mockApiCall.mockReset()
@@ -165,6 +180,18 @@ describe('CreateDealForm pipeline defaults', () => {
       }
       return Promise.resolve({ ok: false, result: null })
     })
+  })
+
+  it('keeps extensions targeting the old custom group on the More details section', async () => {
+    render(<CreateDealForm returnTo="/backend/customers/deals" />)
+    await waitFor(() => expect(mockCrudFormProps).toHaveBeenCalled())
+    const props = mockCrudFormProps.mock.calls.at(-1)?.[0] as {
+      injectionGroupAliases?: Record<string, string>
+      groups: Array<{ id: string }>
+    }
+    const target = props.injectionGroupAliases?.custom
+    expect(target).toBe('more')
+    expect(props.groups.map((group) => group.id)).toContain(target)
   })
 
   it('submits the default pipeline with its first stage', async () => {
@@ -192,7 +219,14 @@ describe('CreateDealForm pipeline defaults', () => {
     await waitFor(() => expect(mockApiCall).toHaveBeenCalledWith(expect.stringContaining('pipelineId=pipe-other')))
     expect(screen.getByLabelText('Pipeline')).toHaveTextContent('pipe-other')
     expect(screen.getByLabelText('Offered stages')).toBeEmptyDOMElement()
-    expect(screen.getByLabelText('Stage')).toHaveTextContent('default-first')
+    await waitFor(() => expect(screen.getByLabelText('Stage')).toBeEmptyDOMElement())
+
+    const createDeal = screen.getByRole('button', { name: 'Create deal' })
+    expect(createDeal).toBeDisabled()
+    fireEvent.change(screen.getByLabelText('Deal title'), { target: { value: 'New deal' } })
+    fireEvent.submit(document.getElementById(createDeal.getAttribute('form') as string) as HTMLFormElement)
+    await waitFor(() => expect(flash).toHaveBeenCalledWith('Stages are still loading. Try again in a moment.', 'error'))
+    expect(mockCreateCrud).not.toHaveBeenCalled()
 
     await act(async () => {
       resolveOtherPipelineStages(OTHER_PIPELINE_STAGES)

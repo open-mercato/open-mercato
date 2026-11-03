@@ -9,6 +9,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useCurrentUserId } from '@open-mercato/ui/backend/utils/useCurrentUserId'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
@@ -41,6 +42,9 @@ const MORE_DETAILS_FIELDS: ReadonlyArray<keyof BaseValues> = ['status', 'probabi
 const DETAILS_FIELDS = (Object.keys(EMPTY_VALUES) as Array<keyof BaseValues>).filter(
   (id) => !ASSOCIATION_FIELDS.includes(id) && !MORE_DETAILS_FIELDS.includes(id),
 )
+
+// Extensions written for the earlier form target the `custom` group, now the More details section.
+const INJECTION_GROUP_ALIASES: Readonly<Record<string, string>> = { custom: 'more' }
 
 function isMoreDetailsField(key: string): boolean {
   return MORE_DETAILS_FIELDS.includes(key as keyof BaseValues) || key.startsWith('cf_')
@@ -81,10 +85,13 @@ type PipelineDefaultsProps = {
  * there from the first paint instead of an empty select the user has to discover (#5109).
  * A pipeline the caller seeded through initialValues wins. Stages follow the form value,
  * not the select, because an injected field widget can change the pipeline through
- * `sideEffects`; a stage that is not on the loaded pipeline is replaced by its first one.
+ * `sideEffects`. The previous pipeline's stage is cleared as soon as the pipeline changes,
+ * unless the same change also set a stage, and once the new stages load a stage that is not
+ * on them is replaced by the first one.
  */
 function PipelineDefaults({ pipelineId, pipelineStageId, pipelines, stages, stagesPipelineId, loadStages, setValue }: PipelineDefaultsProps) {
   const pipelineDefaulted = React.useRef(false)
+  const previousSelection = React.useRef({ pipelineId, pipelineStageId })
   React.useEffect(() => {
     if (pipelineDefaulted.current || !pipelines.length) return
     pipelineDefaulted.current = true
@@ -94,6 +101,12 @@ function PipelineDefaults({ pipelineId, pipelineStageId, pipelines, stages, stag
     setValue('pipelineId', preferred.id)
     setValue('pipelineStageId', '')
   }, [pipelineId, pipelines, setValue])
+  React.useEffect(() => {
+    const previous = previousSelection.current
+    previousSelection.current = { pipelineId, pipelineStageId }
+    if (!previous.pipelineId || previous.pipelineId === pipelineId) return
+    if (pipelineStageId && pipelineStageId === previous.pipelineStageId) setValue('pipelineStageId', '')
+  }, [pipelineId, pipelineStageId, setValue])
   React.useEffect(() => {
     // loadStages resets stages to [] on failure; the rejection is intentionally ignored here.
     Promise.resolve(loadStages(pipelineId)).catch(() => {})
@@ -161,7 +174,7 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
   )
   const revealMoreDetails = React.useCallback(() => setMoreExpanded(true), [])
   const { runMutation, retryLastMutation } = useGuardedMutation({ contextId: CONTEXT_ID, blockedMessage: tr('ui.forms.flash.saveBlocked', 'Save blocked by validation') })
-  const { pipelines, stages, stagesPipelineId, loadStages } = useDealPipelines()
+  const { pipelines, stages, stagesPipelineId, stagesLoading, loadStages } = useDealPipelines()
   const { customFieldsLoaded, handleCustomAttributesLoaded, collectNormalizedCustomValues } = useDealCustomFields(tr)
   // A required custom field must be visible from the start, not discovered on submit.
   const onCustomAttributesLoaded = React.useCallback(
@@ -180,6 +193,9 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
     [pipelines],
   )
   const handleSubmit = React.useCallback(async (values: Record<string, unknown>) => {
+    if (stagesLoading) {
+      throw createCrudFormError(tr('customers.deals.create.stagesLoading', 'Stages are still loading. Try again in a moment.'))
+    }
     const data = dealFormSchema.parse(values)
     const payload: Record<string, unknown> = {
       title: data.title,
@@ -214,7 +230,7 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
     } finally {
       setIsSubmitting(false)
     }
-  }, [collectNormalizedCustomValues, tr, runMutation, retryLastMutation])
+  }, [collectNormalizedCustomValues, stagesLoading, tr, runMutation, retryLastMutation])
   const handleSubmitSuccess = React.useCallback(() => {
     router.push(returnTo)
   }, [router, returnTo])
@@ -401,7 +417,7 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
           actions={{
             cancelHref: returnTo,
             cancelLabel,
-            submit: { formId: CONTEXT_ID, pending: isSubmitting, label: submitLabel, icon: Save, disabled: !customFieldsLoaded },
+            submit: { formId: CONTEXT_ID, pending: isSubmitting, label: submitLabel, icon: Save, disabled: !customFieldsLoaded || stagesLoading },
           }}
         />
       </div>
@@ -409,7 +425,8 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
         <CrudForm<Record<string, unknown>> embedded hideFooterActions formId={CONTEXT_ID}
           entityId="customers.deal" resourceKind="customers.deal" entityIds={[E.customers.customer_deal]}
           injectionSpotId={extensionPoints.hosts.dealForm.spotId} fields={fields} groups={groups}
-          initialValues={seedValues} schema={dealFormSchema} onSubmit={handleSubmit} onSubmitSuccess={handleSubmitSuccess} />
+          injectionGroupAliases={INJECTION_GROUP_ALIASES} initialValues={seedValues} schema={dealFormSchema}
+          onSubmit={handleSubmit} onSubmitSuccess={handleSubmitSuccess} />
       </div>
     </div>
   )
