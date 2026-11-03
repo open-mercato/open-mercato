@@ -69,9 +69,7 @@ async function uploadMedia(page: Page, count: number): Promise<string[]> {
   );
   await uploads;
   await expect(page.getByRole('button', { name: 'Choose files', exact: true })).toBeEnabled();
-  for (let index = 0; index < count; index += 1) {
-    await expect(page.getByText(`qa-media-${index}.png`, { exact: true })).toBeVisible();
-  }
+  await expect(page.getByRole('img', { name: /^qa-media-\d+\.png$/ })).toHaveCount(count);
   return uploadedIds;
 }
 
