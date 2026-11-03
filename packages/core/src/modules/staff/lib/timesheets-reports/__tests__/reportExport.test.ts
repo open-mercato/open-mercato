@@ -512,9 +512,40 @@ describe('exports never cut a frozen amount (legacy 2-decimal rows in a 0-decima
     const texts = buildReportPdfLines(input).flatMap((line) =>
       line.kind === 'cells' ? line.cells.map((cell) => cell.text.trim()) : [],
     )
-    expect(texts.filter((text) => text === '1234.57')).toHaveLength(2)
+    expect(texts.filter((text) => text === '1234.57')).toHaveLength(4)
     expect(texts.filter((text) => text === '2469.14 JPY')).toHaveLength(2)
     expect(texts).not.toContain('2469 JPY')
+    expect(texts).not.toContain('1235')
+  })
+
+  it('keeps the frozen rate beside the frozen amount in every PDF line row', () => {
+    const input = frozenInput()
+    const lineRows = buildReportPdfLines(input).flatMap((line) => {
+      if (line.kind !== 'cells') return []
+      const label = line.cells[0]?.text.trim()
+      if (label !== directory.taskLabelById.t1 && label !== directory.taskLabelById.t2) return []
+      return [line.cells.slice(2).map((cell) => cell.text.trim())]
+    })
+    expect(lineRows).toEqual([
+      ['1234.57', '1234.57'],
+      ['1234.57', '1234.57'],
+    ])
+  })
+
+  it('still rounds a live rate on a line with no frozen entry', () => {
+    const live = { ...frozenEntries[0], id: 'live', frozen: null, rateOverrideAmount: null, rateOverrideAmountExact: '1234.57' }
+    const totals = computeReportTotals({
+      entries: [live],
+      projects,
+      directory,
+      options: { grouping: 'project_task', nonbillableMode: 'separate', includeAlreadyReported: false, amountDecimalPlaces: 0 },
+      labels,
+    })
+    const input = makeExportInput({ currencyCode: 'JPY', amountDecimalPlaces: 0, groups: totals.groups })
+    const lineRow = buildReportPdfLines(input).find(
+      (line) => line.kind === 'cells' && line.cells[0]?.text.trim().startsWith(directory.taskLabelById.t1),
+    )
+    expect(lineRow?.kind === 'cells' ? lineRow.cells.slice(2).map((cell) => cell.text.trim()) : []).toEqual(['1235', '1235'])
   })
 
   it('keeps the frozen amounts and rates in the CSV table as stored', () => {

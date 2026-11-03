@@ -59,8 +59,8 @@ import { DurationInput } from './DurationInput'
 import { reportDetailHref } from './reportLinks'
 import { formatDuration } from '../time-tracking/duration'
 import { parseClock } from '../time-tracking/interval'
-import { applicableRate, entryAmount } from '../time-tracking/cost'
-import { decimalToNumber, toDecimal } from '@open-mercato/shared/lib/decimal'
+import { applicableRate, DEFAULT_STAFF_AMOUNT_DECIMAL_PLACES, entryAmountExact } from '../time-tracking/cost'
+import { decimalToNumber, resolveIsoCurrencyDecimalPlaces, toDecimal } from '@open-mercato/shared/lib/decimal'
 import { parseLocaleDecimal } from '@open-mercato/shared/lib/number'
 import { roundMinutes, DEFAULT_ROUNDING_SETTINGS, type RoundingSettings } from '../time-tracking/rounding'
 import {
@@ -172,6 +172,24 @@ function readSettings(payload: unknown): SettingsPayload {
     },
     warnings: { overlap: typeof warnings.overlap === 'boolean' ? warnings.overlap : true },
   }
+}
+
+/**
+ * The decimals the tenant configured for `code` in the currencies module, or
+ * `null` when the module is absent, the caller cannot read currencies, or the
+ * code is not configured.
+ */
+async function loadConfiguredCurrencyDecimalPlaces(code: string): Promise<number | null> {
+  const call = await apiCall<{ items?: Array<{ code?: unknown; decimalPlaces?: unknown }> }>(
+    `/api/currencies/currencies?code=${encodeURIComponent(code)}&pageSize=1`,
+    { headers: { 'x-om-forbidden-redirect': '0' } },
+  ).catch(() => null)
+  if (!call?.ok) return null
+  const items = Array.isArray(call.result?.items) ? call.result.items : []
+  const decimalPlaces = items.find((item) => item.code === code)?.decimalPlaces
+  return typeof decimalPlaces === 'number' && Number.isInteger(decimalPlaces) && decimalPlaces >= 0
+    ? decimalPlaces
+    : null
 }
 
 function parseRateText(value: string): string | null {
@@ -804,6 +822,18 @@ function DefaultTimeEntryDialog({
   const rateOverrideAmountExact = rateOverrideEnabled ? parseRateText(rateText) : null
   const rateOverrideAmount = rateOverrideAmountExact === null ? null : decimalToNumber(rateOverrideAmountExact)
   const currencyCode = project?.currencyCode ?? entry?.currencyCode ?? null
+  const normalizedCurrencyCode = currencyCode?.trim().toUpperCase() || null
+
+  const currencyDecimalsQuery = useQuery<number | null>({
+    queryKey: [...DIALOG_QUERY_ROOT, 'currency-decimals', `scope:${scopeVersion}`, normalizedCurrencyCode ?? 'none'],
+    enabled: open && canSeeMoney && normalizedCurrencyCode !== null,
+    staleTime: 300_000,
+    queryFn: () => (normalizedCurrencyCode ? loadConfiguredCurrencyDecimalPlaces(normalizedCurrencyCode) : Promise.resolve(null)),
+  })
+  const amountDecimalPlaces =
+    currencyDecimalsQuery.data ??
+    resolveIsoCurrencyDecimalPlaces(normalizedCurrencyCode) ??
+    DEFAULT_STAFF_AMOUNT_DECIMAL_PLACES
 
   /**
    * The dialog is hand-rolled, so it plays the `CrudForm` host contract by hand:
@@ -966,9 +996,11 @@ function DefaultTimeEntryDialog({
   ])
   const roundedMinutes = roundMinutes(durationMinutes ?? 0, settings.rounding)
   const rate = applicableRate({ rateOverrideAmount: rateOverrideAmountExact }, { hourlyRate: project?.hourlyRate ?? null })
-  const cost = entryAmount(
+  const cost = entryAmountExact(
     { isBillable, roundedMinutes, rateOverrideAmount: rateOverrideAmountExact },
     { hourlyRate: project?.hourlyRate ?? null },
+    null,
+    amountDecimalPlaces,
   )
 
   const computedBadge = (field: 'start' | 'end' | 'duration' | 'cost') => (
@@ -1702,7 +1734,7 @@ function DefaultTimeEntryDialog({
                   id="entry-dialog-cost"
                   readOnly
                   disabled
-                  value={cost === null ? '' : formatCurrency(cost, currencyCode) ?? String(cost)}
+                  value={cost === null ? '' : formatCurrency(cost, currencyCode, undefined, amountDecimalPlaces) ?? cost}
                   inputClassName="font-mono tabular-nums"
                   data-testid="entry-dialog-cost"
                 />

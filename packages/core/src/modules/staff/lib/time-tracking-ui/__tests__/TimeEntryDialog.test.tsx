@@ -9,6 +9,9 @@ import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import { autoColorFromName } from '../../timesheets-ui/colors'
 import { staffTimeEntryUpdateSchema } from '../../../data/validators'
+import { entryAmountExact } from '../../time-tracking/cost'
+import { formatCurrency } from '@open-mercato/ui/utils/format'
+import { resolveIsoCurrencyDecimalPlaces } from '@open-mercato/shared/lib/decimal'
 import { TimeEntryDialog } from '../TimeEntryDialog'
 
 const TASK_ID = '11111111-1111-4111-8111-111111111111'
@@ -623,6 +626,83 @@ describe('TimeEntryDialog — money', () => {
     )
     // 1:15 at the project rate of 320 PLN/h.
     expect(cost.value).toContain('400')
+  })
+
+  function installCurrencyEntry(
+    currencyCode: string,
+    rate: string,
+    configuredCurrencies: Array<{ code: string; decimalPlaces: number }>,
+  ) {
+    entryRows = [{
+      id: ENTRY_ID,
+      date: '2026-07-20',
+      duration_minutes: 60,
+      description: 'Precise cost',
+      task_id: TASK_ID,
+      time_project_id: PROJECT_ID,
+      is_billable: true,
+      rate_override_amount: rate,
+      updated_at: VERSION,
+      tags: [],
+    }]
+    const route = mockApiCall.getMockImplementation()
+    mockApiCall.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/timesheets/time-projects')) {
+        const rows = projectRows.map((row) => ({ ...row, currency_code: currencyCode }))
+        return ok({ items: rows, total: rows.length }) as never
+      }
+      if (url.includes('/api/currencies/currencies')) {
+        const code = new URLSearchParams(url.slice(url.indexOf('?') + 1)).get('code')
+        const items = configuredCurrencies.filter((item) => item.code === code)
+        return ok({ items, total: items.length }) as never
+      }
+      return route!(input, init)
+    })
+  }
+
+  async function renderedCost(): Promise<HTMLInputElement> {
+    renderDialog({ entryId: ENTRY_ID })
+    const cost = (await screen.findByTestId('entry-dialog-cost')) as HTMLInputElement
+    await waitFor(() => expect(cost.value).not.toBe(''))
+    return cost
+  }
+
+  it('previews a micro-rate cost at the configured 18 decimals instead of 0', async () => {
+    installCurrencyEntry('ETH', '0.00000001', [{ code: 'ETH', decimalPlaces: 18 }])
+    const saved = entryAmountExact(
+      { isBillable: true, roundedMinutes: 60, rateOverrideAmount: '0.00000001' },
+      null,
+      null,
+      18,
+    )
+    expect(saved).toBe('0.00000001')
+
+    const cost = await renderedCost()
+
+    await waitFor(() => expect(cost.value).toContain('0.00000001'))
+    expect(cost.value).toBe(formatCurrency(saved, 'ETH', undefined, 18))
+    expect(mockApiCall).toHaveBeenCalledWith(
+      expect.stringContaining('/api/currencies/currencies?code=ETH'),
+      expect.anything(),
+    )
+  })
+
+  it('previews a zero-decimal currency cost the way the server saves it', async () => {
+    installCurrencyEntry('JPY', '0.4996', [])
+    const saved = entryAmountExact(
+      { isBillable: true, roundedMinutes: 60, rateOverrideAmount: '0.4996' },
+      null,
+      null,
+      resolveIsoCurrencyDecimalPlaces('JPY') ?? 2,
+    )
+    expect(saved).toBe('0')
+
+    const cost = await renderedCost()
+
+    await waitFor(() => expect(cost.value).toBe(formatCurrency(saved, 'JPY', undefined, 0)))
+    expect(cost.value).toBe(formatCurrency('0', 'JPY'))
+    expect(cost.value).not.toBe(formatCurrency('1', 'JPY'))
   })
 
   it('hides rates and cost without staff.timesheets.rates.view', async () => {

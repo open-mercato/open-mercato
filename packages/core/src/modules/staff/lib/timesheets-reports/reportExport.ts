@@ -147,7 +147,7 @@ function pdfLinesForLine(
   ]
   if (showRates) {
     cells.push({
-      text: isNonBillable ? '—' : formatAmount(line.rateExact ?? line.rate, null, decimalPlaces),
+      text: isNonBillable ? '—' : formatAmount(line.rateExact ?? line.rate, null, decimalPlaces, line.hasFrozen === true),
       x: COLUMN_RATE_X,
       align: 'right' as const,
     })

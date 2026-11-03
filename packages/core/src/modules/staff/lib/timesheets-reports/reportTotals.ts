@@ -140,6 +140,11 @@ export type ReportLine = {
   amountExact?: string
   entryCount: number
   hasOverride: boolean
+  /**
+   * Set when an entry on this line restates a value frozen in a closed report,
+   * so exports print its rate as stored instead of at the current currency decimals.
+   */
+  hasFrozen?: boolean
   /** Child-task rollup detail (D-2); empty for person and day groupings. */
   children: ReportLine[]
 }
@@ -354,6 +359,7 @@ function bucketToLine(bucket: LineBucket, amountDecimalPlaces: number): ExactRep
     amountExact,
     entryCount: allValues.length,
     hasOverride: allValues.some((value) => value.hasOverride),
+    ...(allValues.some((value) => value.isFrozen) ? { hasFrozen: true } : {}),
     children: childLines,
   }
 }
