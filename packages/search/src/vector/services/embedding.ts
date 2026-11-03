@@ -165,6 +165,7 @@ export class EmbeddingService {
         client = createAmazonBedrock({
           accessKeyId,
           secretAccessKey,
+          sessionToken: process.env.AWS_SESSION_TOKEN || undefined,
           region: process.env.AWS_REGION ?? 'us-east-1',
         })
         break
