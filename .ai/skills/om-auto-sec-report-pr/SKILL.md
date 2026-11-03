@@ -2,8 +2,8 @@
 
 ## Step 3 — repository security knowledge (add)
 
-- `securityChecklist` in `.ai/agentic.config.json` points at `.ai/security-checklist.md` — Open Mercato's hotspots (scope keys `organization_id` + `tenant_id`, `findWithDecryption`, `requireFeatures` / `acl.ts`, wildcard `__all__`, `clientBroadcast` / `portalBroadcast`, encryption maps, quote/shipment/return/payment races, `openApi` / `.strict()` / `pageSize` rules, `@open-mercato/*` shadowing). Apply it in Pass A and Pass B on top of the built-in checklist.
-- `reviewChecklist` points at `.ai/review-checklist.md` — the `om-code-review` baseline for this repo (tenant scoping, decryption helpers, zod validation, RBAC via `acl.ts`, `bcryptjs` cost, no raw `fetch` — `apiCall` / `apiCallOrThrow`). Pass A applies it first, carrying forward only the surfaces the unit touched.
+- `securityChecklist` in `.ai/agentic.config.json` points at `.ai/security-checklist.md` — Open Mercato's hotspots (scope keys `organization_id` + `tenant_id`, `findWithDecryption`, `requireFeatures` / `acl.ts`, feature wildcards and organization-scope `__all__`, `clientBroadcast` / `portalBroadcast`, encryption maps, quote/shipment/return/payment races, `openApi` / `.strict()` / `pageSize` rules, `@open-mercato/*` shadowing). Apply it in Pass A and Pass B on top of the built-in checklist.
+- Apply `.ai/review-checklist.md` only to the surfaces the unit touched, alongside the repo-specific security hotspots in Pass A and Pass B.
 
 ## Step 4 — Pass A severity (add)
 

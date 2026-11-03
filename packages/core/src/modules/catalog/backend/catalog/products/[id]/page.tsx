@@ -34,6 +34,7 @@ import { TagsInput } from "@open-mercato/ui/backend/inputs/TagsInput";
 import { Textarea } from "@open-mercato/ui/primitives/textarea";
 import { DataLoader } from "@open-mercato/ui/primitives/DataLoader";
 import { cn } from "@open-mercato/shared/lib/utils";
+import { formatLocaleNumberInput } from "@open-mercato/shared/lib/number";
 import { extractCustomFieldEntries } from "@open-mercato/shared/lib/crud/custom-fields-client";
 import { Spinner } from "@open-mercato/ui/primitives/spinner";
 import {
@@ -74,6 +75,7 @@ import {
   type ProductUnitRoundingMode,
   productFormSchema,
   withCanonicalUomFields,
+  withLocaleUomFields,
   BASE_INITIAL_VALUES,
   createLocalId,
   slugify,
@@ -279,6 +281,7 @@ function normalizeVariantOptionValues(
 
 function readProductConversionRows(
   items: Array<Record<string, unknown>> | undefined,
+  locale?: string,
 ): ProductUnitConversionDraft[] {
   const rows = Array.isArray(items) ? items : [];
   return rows
@@ -304,7 +307,7 @@ function readProductConversionRows(
       return {
         id: id ?? null,
         unitCode,
-        toBaseFactor: String(factor),
+        toBaseFactor: formatLocaleNumberInput(factor, locale),
         sortOrder: String(sortOrderRaw),
         isActive,
         updatedAt:
@@ -679,7 +682,7 @@ export default function EditCatalogProductPage({
           optionInputs = readOptionSchema(metadata);
         }
         const conversionRows = conversionsRes.ok
-          ? readProductConversionRows(conversionsRes.result?.items)
+          ? readProductConversionRows(conversionsRes.result?.items, locale)
           : [];
         initialConversionsRef.current = conversionRows;
         const customValues = extractCustomFieldEntries(record);
@@ -742,7 +745,10 @@ export default function EditCatalogProductPage({
           weight: sanitizeProductWeight(weight),
           defaultUnit: defaultUnit ?? null,
           defaultSalesUnit: defaultSalesUnit ?? defaultUnit ?? null,
-          defaultSalesUnitQuantity: String(defaultSalesUnitQuantity ?? 1),
+          defaultSalesUnitQuantity: formatLocaleNumberInput(
+            defaultSalesUnitQuantity ?? 1,
+            locale,
+          ),
           uomRoundingScale: String(roundingScale),
           uomRoundingMode: roundingMode,
           unitPriceEnabled,
@@ -754,7 +760,9 @@ export default function EditCatalogProductPage({
               ? (unitPriceReferenceUnit as ProductUnitPriceReferenceUnit)
               : null,
           unitPriceBaseQuantity:
-            unitPriceBaseQuantity === null ? "" : String(unitPriceBaseQuantity),
+            unitPriceBaseQuantity === null
+              ? ""
+              : formatLocaleNumberInput(unitPriceBaseQuantity, locale),
           unitConversions: conversionRows,
           customFieldsetCode:
             typeof record.custom_fieldset_code === "string"
@@ -806,7 +814,7 @@ export default function EditCatalogProductPage({
     return () => {
       cancelled = true;
     };
-  }, [fetchAttachments, loadVariants, productId, t]);
+  }, [fetchAttachments, loadVariants, locale, productId, t]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -1421,7 +1429,7 @@ export default function EditCatalogProductPage({
         prev
           ? {
               ...prev,
-              ...values,
+              ...withLocaleUomFields(values, locale),
               ...refreshedEnrichments,
               updatedAt: refreshedUpdatedAt ?? prev.updatedAt,
             }
@@ -1525,7 +1533,7 @@ export default function EditCatalogProductPage({
         );
       }
     },
-    [productId, t, taxRates, variants],
+    [locale, productId, t, taxRates, variants],
   );
 
   if (!productId) {

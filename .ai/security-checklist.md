@@ -7,7 +7,7 @@ Sections follow the order of the shared deep-vector checklist so each item maps 
 ## Access control and identity
 
 - Permission model: guards use `requireFeatures` (ACL feature ids declared in the module's `acl.ts`), not `requireRoles`; a role rename without an ACL-feature-id mapping is a spoofing risk.
-- Wildcard ACL `__all__` must not reach non-superadmins through menu items, nav sections, notification handlers, mutation guards, command interceptors, or AI tools. Cross-check `packages/shared`, `packages/ui`, `packages/core/src/modules/auth`, and `packages/core/src/modules/customer_accounts`.
+- Feature grants use `*` and `module.*`; menu items, nav sections, notification handlers, mutation guards, command interceptors, and AI tools must use the shared wildcard-aware authorization helpers. The organization-scope sentinel `__all__` is not a feature grant and never bypasses the tenant boundary. Cross-check `packages/shared`, `packages/ui`, `packages/core/src/modules/auth`, and `packages/core/src/modules/customer_accounts`.
 - Portal / customer auth (`customer_accounts`) must not reach staff-only ACL features through shared endpoints.
 - Customer-auth and step-up (sudo) rate limits use the compound identifier (tenant + email + ip) so buckets cannot collide and mask brute force; sudo challenge state is tied to the tenant.
 - JWTs record the key id (`kid`); key material is never read from attacker-controlled input.

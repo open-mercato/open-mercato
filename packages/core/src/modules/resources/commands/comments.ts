@@ -15,6 +15,7 @@ import {
 } from '../data/validators'
 import { resourcesResourceCommentCrudEvents } from '../lib/crud'
 import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
+import { reviveSnapshotDates } from '@open-mercato/shared/lib/commands/undo'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload, requireResource, resolveResourceAuthorUserId } from './shared'
 import { E } from '#generated/entities.ids.generated'
 
@@ -31,6 +32,7 @@ type CommentSnapshot = {
   authorUserId: string | null
   appearanceIcon: string | null
   appearanceColor: string | null
+  createdAt?: Date
 }
 
 type CommentUndoPayload = {
@@ -50,6 +52,7 @@ async function loadCommentSnapshot(em: EntityManager, id: string): Promise<Comme
     authorUserId: comment.authorUserId ?? null,
     appearanceIcon: comment.appearanceIcon ?? null,
     appearanceColor: comment.appearanceColor ?? null,
+    createdAt: comment.createdAt,
   }
 }
 
@@ -138,7 +141,7 @@ const createCommentCommand: CommandHandler<
   },
   redo: makeCreateRedo<ResourcesResourceComment, CommentSnapshot, ResourcesResourceCommentCreateInput, { commentId: string; authorUserId: string | null }>({
     entityClass: ResourcesResourceComment,
-    seedFromSnapshot: (after) => ({
+    seedFromSnapshot: (after) => reviveSnapshotDates({
       id: after.id,
       organizationId: after.organizationId,
       tenantId: after.tenantId,
@@ -146,7 +149,8 @@ const createCommentCommand: CommandHandler<
       authorUserId: after.authorUserId,
       appearanceIcon: after.appearanceIcon,
       appearanceColor: after.appearanceColor,
-    }),
+      createdAt: after.createdAt ?? new Date(),
+    }, ['createdAt']),
     beforeRestore: async ({ em, snapshot }) => {
       const resource = await requireResource(em, snapshot.resourceId, 'Resource not found')
       return { resource }
@@ -235,7 +239,7 @@ const updateCommentCommand: CommandHandler<ResourcesResourceCommentUpdateInput, 
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const payload = extractUndoPayload<CommentUndoPayload>(logEntry)
+    const payload = extractUndoPayload<CommentUndoPayload>(logEntry, { datePaths: ['before.createdAt'] })
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -252,7 +256,7 @@ const updateCommentCommand: CommandHandler<ResourcesResourceCommentUpdateInput, 
         authorUserId: before.authorUserId,
         appearanceIcon: before.appearanceIcon,
         appearanceColor: before.appearanceColor,
-        createdAt: new Date(),
+        createdAt: before.createdAt ?? new Date(),
         updatedAt: new Date(),
       })
       em.persist(comment)
@@ -335,7 +339,7 @@ const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; que
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const payload = extractUndoPayload<CommentUndoPayload>(logEntry)
+    const payload = extractUndoPayload<CommentUndoPayload>(logEntry, { datePaths: ['before.createdAt'] })
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -351,7 +355,7 @@ const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; que
         authorUserId: before.authorUserId,
         appearanceIcon: before.appearanceIcon,
         appearanceColor: before.appearanceColor,
-        createdAt: new Date(),
+        createdAt: before.createdAt ?? new Date(),
         updatedAt: new Date(),
       })
       em.persist(comment)
