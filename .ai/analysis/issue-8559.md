@@ -44,3 +44,11 @@ Targeted tests:
 - `git diff --check`: PASS.
 
 Full application initialization was not rerun: production writer concurrency is covered directly with controlled locks and self-contained PostgreSQL fixtures. Full-gate failures remain explicit environment/toolchain blockers; this is not a claim of merge readiness.
+
+## CI follow-up — source-registry bootstrap
+
+Hosted attempts 1 and 2 pass both deadlock regressions and the unit gate, but TC-EXAMPLE-015 fails its home-Todo vector-search assertion (60 integration passes, one failure, two skips). This matches existing issue #8348: the direct vector-service caller did not bootstrap the application source registry, so the production source-authority guard correctly fails closed.
+
+The CI repair calls the existing `bootstrapFromAppRoot(resolveAppRoot())` before constructing test data. It retains all home/foreign organization, checksum and query-scope assertions. A negative control persists a vector for a unique unregistered entity, proves it exists through the list API, and requires the real similarity query to exclude it. The test closes its owned pool in `finally`; its disposable tables still drop during cleanup. No production search code, authorization, timeout or assertion is weakened.
+
+The repaired TC-EXAMPLE-015 passes all three scenarios against a managed disposable PostgreSQL/app environment, including the persisted unregistered-source negative control and the workflow integration. Workspace typechecking passes (42/42 tasks). A repeated integration run and new-head hosted CI are pending; the earlier coverage source change is unchanged.
