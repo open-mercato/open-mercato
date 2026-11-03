@@ -1568,7 +1568,7 @@
   "customers.deals.list.kpi.chart.winRate": "Win rate wg miesięcy",
   "customers.deals.list.kpi.chart.won": "Wartość wygranych wg miesięcy",
   "customers.deals.list.kpi.chartBars": "Słupkowy",
-  "customers.deals.list.kpi.chartEmpty": "Brak danych z ostatnich 6 miesięcy",
+  "customers.deals.list.kpi.chartEmpty": "Brak danych z tego okresu",
   "customers.deals.list.kpi.chartLine": "Liniowy",
   "customers.deals.list.kpi.chartTypeLabel": "Typ wykresu",
   "customers.deals.list.kpi.currencyApproxMissing": "Wartość przybliżona; szanse w {currencies} bez kursu są pomijane.",

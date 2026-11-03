@@ -81,7 +81,7 @@ const dict = {
   'customers.deals.list.kpi.chart.active': 'New deals by month',
   'customers.deals.list.kpi.chart.won': 'Won value by month',
   'customers.deals.list.kpi.chart.winRate': 'Win rate by month',
-  'customers.deals.list.kpi.chartEmpty': 'No data for the last 6 months',
+  'customers.deals.list.kpi.chartEmpty': 'No data for this period',
   'customers.deals.list.kpi.metricTabs': 'Deal metrics',
 }
 

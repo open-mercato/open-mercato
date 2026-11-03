@@ -1568,7 +1568,7 @@
   "customers.deals.list.kpi.chart.winRate": "Tasa de éxito por mes",
   "customers.deals.list.kpi.chart.won": "Valor ganado por mes",
   "customers.deals.list.kpi.chartBars": "Barras",
-  "customers.deals.list.kpi.chartEmpty": "Sin datos de los últimos 6 meses",
+  "customers.deals.list.kpi.chartEmpty": "Sin datos para este período",
   "customers.deals.list.kpi.chartLine": "Líneas",
   "customers.deals.list.kpi.chartTypeLabel": "Tipo de gráfico",
   "customers.deals.list.kpi.currencyApproxMissing": "Aproximado; se excluyen los negocios en {currencies} sin tipo de cambio.",

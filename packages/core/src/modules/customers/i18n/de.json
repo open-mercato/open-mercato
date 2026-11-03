@@ -1568,7 +1568,7 @@
   "customers.deals.list.kpi.chart.winRate": "Win-Rate pro Monat",
   "customers.deals.list.kpi.chart.won": "Gewonnener Wert pro Monat",
   "customers.deals.list.kpi.chartBars": "Balken",
-  "customers.deals.list.kpi.chartEmpty": "Keine Daten für die letzten 6 Monate",
+  "customers.deals.list.kpi.chartEmpty": "Keine Daten für diesen Zeitraum",
   "customers.deals.list.kpi.chartLine": "Linie",
   "customers.deals.list.kpi.chartTypeLabel": "Diagrammtyp",
   "customers.deals.list.kpi.currencyApproxMissing": "Näherungswert; Deals in {currencies} ohne Wechselkurs sind ausgeschlossen.",
