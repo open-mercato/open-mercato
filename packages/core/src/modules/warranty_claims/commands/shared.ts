@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import type { FindOneOptions } from '@mikro-orm/core'
+import { LockMode, type FindOneOptions } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError, assertFound } from '@open-mercato/shared/lib/crud/errors'
@@ -100,6 +100,41 @@ export async function requireScopedClaim(
 ): Promise<WarrantyClaim> {
   const claim = await loadScopedClaim(em, id, scope, options)
   return assertFound(claim, notFoundMessage)
+}
+
+export async function assertUniqueClaimLineNumbers(lineNumbers: Iterable<number>): Promise<void> {
+  const usedNumbers = new Set<number>()
+  for (const lineNo of lineNumbers) {
+    if (usedNumbers.has(lineNo)) {
+      const { translate } = await resolveTranslations()
+      const code = 'warranty_claims.errors.duplicateLineNo'
+      throw new CrudHttpError(409, {
+        error: translate(code, 'Another line on this claim already uses that line number. Remove the line that uses this number, then retry.'),
+        code,
+      })
+    }
+    usedNumbers.add(lineNo)
+  }
+}
+
+export async function assertClaimLineNumberAvailable(
+  em: EntityManager,
+  claim: WarrantyClaim,
+  lineNo: number,
+  excludedLineId?: string,
+  allowCurrentNumber = false,
+): Promise<void> {
+  const scope = { tenantId: claim.tenantId, organizationId: claim.organizationId }
+  await requireScopedClaim(em, claim.id, scope, { lockMode: LockMode.PESSIMISTIC_WRITE })
+  const siblings = await findWithDecryption(
+    em,
+    WarrantyClaimLine,
+    { claim: claim.id, lineNo, deletedAt: null, tenantId: scope.tenantId, organizationId: scope.organizationId },
+    {},
+    scope,
+  )
+  if (allowCurrentNumber && siblings.some((line) => line.id === excludedLineId)) return
+  await assertUniqueClaimLineNumbers([lineNo, ...siblings.filter((line) => line.id !== excludedLineId).map((line) => line.lineNo)])
 }
 
 export function appendClaimEvent(

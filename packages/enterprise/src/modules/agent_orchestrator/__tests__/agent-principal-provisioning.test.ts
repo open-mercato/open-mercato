@@ -188,6 +188,36 @@ describe('provisionAgentPrincipal', () => {
     expect(em.__stores.get(AgentPrincipal) ?? []).toHaveLength(1)
   })
 
+  it('replaces revoked ACL and membership rows while preserving their history', async () => {
+    const em = createFakeEm()
+    const container = createContainer(em)
+    const first = await provisionAgentPrincipal(container, SCOPE, INPUT)
+    const revokedAcl = em.__stores.get(RoleAcl)![0]
+    const revokedLink = em.__stores.get(UserRole)![0]
+    const revokedAt = new Date()
+    revokedAcl.deletedAt = revokedAt
+    revokedLink.deletedAt = revokedAt
+    revokedAcl.featuresJson = ['revoked.secret']
+
+    const second = await provisionAgentPrincipal(container, SCOPE, INPUT)
+
+    expect(second.userId).toBe(first.userId)
+    expect(second.roleId).toBe(first.roleId)
+    expect(second.principal.id).toBe(first.principal.id)
+    expect(em.__stores.get(RoleAcl)).toHaveLength(2)
+    expect(em.__stores.get(UserRole)).toHaveLength(2)
+    expect(revokedAcl.deletedAt).toBe(revokedAt)
+    expect(revokedAcl.featuresJson).toEqual(['revoked.secret'])
+    expect(revokedLink.deletedAt).toBe(revokedAt)
+    expect(em.__stores.get(RoleAcl)![1]).toMatchObject({
+      featuresJson: INPUT.roleFeatures,
+      isSuperAdmin: false,
+      organizationsJson: [SCOPE.organizationId],
+    })
+    expect(em.__stores.get(RoleAcl)![1].deletedAt ?? null).toBeNull()
+    expect(em.__stores.get(UserRole)![1].deletedAt ?? null).toBeNull()
+  })
+
   it('merges newly-requested role features on re-provision (idempotent ACL grant)', async () => {
     const em = createFakeEm()
     const container = createContainer(em)
