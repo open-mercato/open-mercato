@@ -47,21 +47,23 @@ async function expectNoStripScroll(page: Page, label: string): Promise<void> {
 }
 
 async function reachLastTab(page: Page, label: string): Promise<void> {
-  const more = page.getByTestId('detail-tabs-more')
-  if (await more.isVisible().catch(() => false)) {
-    await more.click()
-    const items = page.getByRole('menuitem')
-    const lastLabel = (await items.last().textContent())?.trim() ?? ''
-    expect(lastLabel, `${label}: More menu lists the folded tabs`).not.toBe('')
-    await items.last().click()
-    const lifted = page.getByRole('tab', { name: new RegExp(`^${lastLabel.replace(/NEW$/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`) })
-    await expect(lifted, `${label}: tab chosen from More is lifted inline`).toHaveAttribute('aria-selected', 'true')
-    return
-  }
-  const tabs = page.getByRole('tab')
-  await tabs.first().focus()
-  await page.keyboard.press('End')
-  await expect(tabs.last(), `${label}: End reaches the last tab`).toHaveAttribute('aria-selected', 'true')
+  await expect(async () => {
+    const more = page.getByTestId('detail-tabs-more')
+    if (await more.isVisible()) {
+      await more.click({ timeout: 2_000 })
+      const items = page.getByRole('menuitem')
+      const lastLabel = (await items.last().textContent({ timeout: 2_000 }))?.trim() ?? ''
+      expect(lastLabel, `${label}: More menu lists the folded tabs`).not.toBe('')
+      await items.last().click({ timeout: 2_000 })
+      const lifted = page.getByRole('tab', { name: new RegExp(`^${lastLabel.replace(/NEW$/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`) })
+      await expect(lifted, `${label}: tab chosen from More is lifted inline`).toHaveAttribute('aria-selected', 'true', { timeout: 5_000 })
+      return
+    }
+    const tabs = page.getByRole('tab')
+    await tabs.first().focus({ timeout: 2_000 })
+    await page.keyboard.press('End')
+    await expect(tabs.last(), `${label}: End reaches the last tab`).toHaveAttribute('aria-selected', 'true', { timeout: 5_000 })
+  }, `${label}: last tab is reachable once the injected tabs have landed`).toPass({ timeout: 30_000 })
 }
 
 test.describe('TC-CRM-7487: CRM detail tab strips do not scroll', () => {
