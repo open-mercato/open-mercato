@@ -198,4 +198,60 @@ describe('calendar editor scoped type catalog', () => {
       expect(result.current.items).toEqual([])
     })
   })
+
+  describe('when the organization scope resolves after the first load', () => {
+    const items = [scopedType('meeting', 0)]
+
+    beforeEach(() => {
+      act(() => emitOrganizationScopeChanged({ tenantId: null, organizationId: null }))
+    })
+
+    it('keeps the loaded catalog ready instead of remounting an open form, then revalidates', async () => {
+      readApiResultOrThrowMock.mockResolvedValue({ items })
+      const statuses: string[] = []
+      const { result } = renderHook(() => {
+        const catalog = useEventTypeCatalog(true)
+        statuses.push(catalog.status)
+        return catalog
+      })
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+      const loaded = result.current.items
+      statuses.length = 0
+
+      act(() => emitOrganizationScopeChanged({ tenantId: 'tenant-a', organizationId: 'org-a' }))
+
+      await waitFor(() => expect(readApiResultOrThrowMock).toHaveBeenCalledTimes(2))
+      await act(async () => {})
+      expect(statuses).not.toContain('loading')
+      expect(result.current.status).toBe('ready')
+      expect(result.current.items).toBe(loaded)
+    })
+
+    it('fails closed when the first read under the reported scope fails', async () => {
+      readApiResultOrThrowMock.mockResolvedValueOnce({ items })
+      const { result } = renderHook(() => useEventTypeCatalog(true))
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+
+      readApiResultOrThrowMock.mockRejectedValueOnce(new Error('offline'))
+      act(() => emitOrganizationScopeChanged({ tenantId: 'tenant-a', organizationId: 'org-a' }))
+
+      await waitFor(() => expect(result.current.status).toBe('error'))
+      expect(result.current.items).toEqual([])
+    })
+
+    it('never carries a catalog across a later organization switch', async () => {
+      readApiResultOrThrowMock.mockResolvedValue({ items })
+      const { result } = renderHook(() => useEventTypeCatalog(true))
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+      act(() => emitOrganizationScopeChanged({ tenantId: 'tenant-a', organizationId: 'org-a' }))
+      await waitFor(() => expect(readApiResultOrThrowMock).toHaveBeenCalledTimes(2))
+      await act(async () => {})
+
+      readApiResultOrThrowMock.mockReturnValue(new Promise(() => {}))
+      act(() => emitOrganizationScopeChanged({ tenantId: 'tenant-a', organizationId: 'org-b' }))
+
+      expect(result.current.status).toBe('loading')
+      expect(result.current.items).toEqual([])
+    })
+  })
 })
