@@ -22,15 +22,17 @@ async function runProvider({ interactive = false, options = {}, answers = [], ro
     delete env[entry.keyEnv]
     if (entry.baseUrlEnv) delete env[entry.baseUrlEnv]
   }
-  Object.assign(env, ambient)
+  Object.assign(env, ambient, {
+    OM_TEST_PROVIDER_INPUT: JSON.stringify({ providerModule, stepsModule, interactive, files: { rootEnv, appEnv }, options, step, repoRoot: root }),
+  })
   const script = `
-    import { ensureLlmProvider } from ${JSON.stringify(providerModule)}
-    import { llmProviderStep, runSteps } from ${JSON.stringify(stepsModule)}
-    Object.defineProperty(process.stdin, 'isTTY', { value: ${interactive} })
-    const files = ${JSON.stringify({ rootEnv, appEnv })}
-    const outcome = ${step
-      ? `await runSteps([llmProviderStep, { id: 'next', title: 'Next step', apply: async () => console.log('NEXT_STEP_REACHED') }], { repoRoot: ${JSON.stringify(root)}, flags: { nonInteractive: true }, log: console.log })`
-      : `await ensureLlmProvider(files, ${JSON.stringify(options)})`}
+    const input = JSON.parse(process.env.OM_TEST_PROVIDER_INPUT)
+    const { ensureLlmProvider } = await import(input.providerModule)
+    const { llmProviderStep, runSteps } = await import(input.stepsModule)
+    Object.defineProperty(process.stdin, 'isTTY', { value: input.interactive })
+    const outcome = input.step
+      ? await runSteps([llmProviderStep, { id: 'next', title: 'Next step', apply: async () => console.log('NEXT_STEP_REACHED') }], { repoRoot: input.repoRoot, flags: { nonInteractive: true }, log: console.log })
+      : await ensureLlmProvider(input.files, input.options)
     console.log('PROVIDER_RESULT=' + JSON.stringify(outcome))
   `
   try {
