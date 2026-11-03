@@ -35,7 +35,11 @@ The shared skill's UI Performance Gate applies with these Open Mercato specifics
 
 ## Release lines and backports
 
-Policy: `.ai/docs/pr-workflow.md` § Release lines and backports. Report as **blocker**: a hand-edited `version` in any workspace manifest, a hand-edited released `# X.Y.Z` `CHANGELOG.md` entry, a feature or refactor labelled `backport release/v*`, or a hand-written PR that targets `release/v*` directly — except PRs opened by the Backport workflow (labelled `backport`) and a can't-wait hotfix carrying `backport main`. For a PR whose base is `release/vX.Y.x`, review the diff against that line's code rather than `main`'s — a clean cherry-pick into a different context is the dangerous case. Flag (as **minor**) a missing category label, and a `priority-high`/`priority-extreme` bug fix or security fix that touches code which already exists on the newest line without a `backport release/vX.Y.x` label.
+Policy: `.ai/docs/pr-workflow.md` § Release lines and backports. Report as **blocker**: a hand-edited `version` in any workspace manifest, a hand-edited released `# X.Y.Z` `CHANGELOG.md` entry, a feature or refactor labelled `backport release/v*`, or a hand-written PR that targets `release/v*` directly — except PRs opened by the Backport workflow (labelled `backport`) and a can't-wait hotfix carrying `backport main`. For a PR whose base is `release/vX.Y.x`, review the diff against that line's code rather than `main`'s — a clean cherry-pick into a different context is the dangerous case. Flag (as **minor**) a `priority-high`/`priority-extreme` bug fix or security fix that touches code which already exists on the newest line without a `backport release/vX.Y.x` label.
+
+## Release-note labels
+
+Policy and the change → label table: `.ai/docs/pr-workflow.md` § Release-note labels. Every review checks that the PR carries exactly the category label(s) its change calls for — or `skip-changelog` for release and branch bookkeeping — and that the title reads as a release-note line. When the review runs with label permission (`om-auto-review-pr`), it **fixes** a missing or wrong category itself and records it in the review report; it never requests changes for labels alone. When it cannot write labels, it reports the expected label as a **minor** finding so a maintainer applies it before merge.
 
 ## Severity taxonomy
 

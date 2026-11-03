@@ -194,8 +194,8 @@ export default function ProductsDataTable({
     setReloadToken((token) => token + 1)
   })
   const [customFieldsetFilter, setCustomFieldsetFilter] = React.useState<string | null>(null)
-  const { data: customFieldDefs = [] } = useCustomFieldDefs(ENTITY_ID, {
-    keyExtras: [scopeVersion, reloadToken],
+  const { data: customFieldDefs = [], isLoading: customFieldDefsLoading, refetch: refetchCustomFieldDefs } = useCustomFieldDefs(ENTITY_ID, {
+    keyExtras: [scopeVersion],
   })
   const [channelOptionsCache, setChannelOptionsCache] = React.useState<Record<string, FilterOption>>({})
   const [categoryOptionsCache, setCategoryOptionsCache] = React.useState<Record<string, FilterOption>>({})
@@ -506,8 +506,9 @@ export default function ProductsDataTable({
   )
 
   const handleRefresh = React.useCallback(() => {
+    void refetchCustomFieldDefs()
     setReloadToken((token) => token + 1)
-  }, [])
+  }, [refetchCustomFieldDefs])
 
   const queryParams = React.useMemo(() => {
     const params = new URLSearchParams()
@@ -667,7 +668,7 @@ export default function ProductsDataTable({
       title={t('catalog.products.page.title', 'Products & services')}
       titleHeadingLevel={1}
         entityId={ENTITY_ID}
-        customFieldFilterKeyExtras={[scopeVersion, reloadToken]}
+        customFieldFilterKeyExtras={[scopeVersion]}
         refreshButton={{
           label: t('catalog.products.actions.refresh', 'Refresh'),
           onRefresh: handleRefresh,
@@ -729,7 +730,7 @@ export default function ProductsDataTable({
           cacheStatus,
         }}
         exporter={exportConfig}
-        isLoading={isLoading}
+        isLoading={isLoading || customFieldDefsLoading}
         perspective={{ tableId: extensionPoints.hosts.productsTable.tableId }}
         stickyActionsColumn
         rowActions={(row) => (
