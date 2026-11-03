@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { SsoAdminAuthError } from './admin-context'
 import { SsoConfigError } from '../services/ssoConfigService'
-import { ScimTokenError } from '../services/scimTokenService'
+import { isScimTokenError } from '../services/scimTokenService'
 import { ScimServiceError } from '../services/scimService'
 import { scimJson, buildScimError } from '../lib/scim-response'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -17,7 +17,7 @@ function isSsoHttpError(err: unknown): err is SsoHttpError {
   return (
     err instanceof SsoAdminAuthError ||
     err instanceof SsoConfigError ||
-    err instanceof ScimTokenError ||
+    isScimTokenError(err) ||
     err instanceof ScimServiceError
   )
 }
