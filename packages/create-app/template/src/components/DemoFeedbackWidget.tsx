@@ -14,6 +14,7 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useAiDock } from '@open-mercato/ui/ai/AiDock'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useContentSecurityPolicyNonce } from '@open-mercato/ui/theme/ContentSecurityPolicyProvider'
 import { isContactWidgetHidden } from './demoFeedbackFlag'
 
 const SUPPRESS_COOKIE = 'om_feedback_suppress'
@@ -66,6 +67,7 @@ type SubmitState = 'idle' | 'sending' | 'sent' | 'error'
 
 export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boolean }) {
   const t = useT()
+  const nonce = useContentSecurityPolicyNonce()
   const aiDock = useAiDock()
   const aiDockActive = Boolean(aiDock.state.assistant)
   const [open, setOpen] = useState(false)
@@ -429,7 +431,7 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
         </DialogContent>
       </Dialog>
 
-      <style jsx global>{`
+      <style nonce={nonce}>{`
         @keyframes subtle-bounce {
           0%, 100% { transform: translateY(0); }
           15% { transform: translateY(-4px); }

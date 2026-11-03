@@ -11,6 +11,7 @@ import {
 type MetadataShape = {
   className: string
   tableName: string
+  schema?: string
   properties: Record<string, { fieldNames: string[] }>
 }
 
@@ -18,7 +19,7 @@ function createMetadata(input: Omit<MetadataShape, 'properties'> & { organizatio
   const properties: MetadataShape['properties'] = {}
   if (input.organizationColumn) properties.organizationId = { fieldNames: [input.organizationColumn] }
   if (input.tenantColumn) properties.tenantId = { fieldNames: [input.tenantColumn] }
-  return { className: input.className, tableName: input.tableName, properties }
+  return { className: input.className, tableName: input.tableName, ...(input.schema ? { schema: input.schema } : {}), properties }
 }
 
 function createEm(
@@ -74,6 +75,23 @@ describe('resolveQueryIndexSourceMetadata', () => {
       scope: { organizationId: 'org-1', tenantId: 'tenant-1' },
     })
     expect(select).toHaveBeenCalledWith(['org_scope', 'tenant_scope'])
+  })
+
+  it('binds scope and row reads to the exact entity schema despite a same-name decoy table', async () => {
+    const actual = createMetadata({ className: 'FeatureToggle', tableName: 'catalogue_source', schema: 'scoped_catalogues', tenantColumn: 'tenant_id', organizationColumn: 'organization_id' })
+    const decoy = createMetadata({ className: 'Decoy', tableName: 'catalogue_source', schema: 'public' })
+    const { em, selectFrom } = createEm(actual, { tenant_id: 'own-tenant', organization_id: 'own-org' }, [decoy, actual])
+    const source = resolveQueryIndexSourceMetadata(em, 'feature_toggles:feature_toggle')
+    expect(source).toEqual({ table: 'scoped_catalogues.catalogue_source', tableName: 'catalogue_source', schema: 'scoped_catalogues', tenantColumn: 'tenant_id', organizationColumn: 'organization_id' })
+    expect(await loadQueryIndexRowScope(em, source, 'record-1')).toEqual({ kind: 'row', scope: { tenantId: 'own-tenant', organizationId: 'own-org' } })
+    expect(selectFrom).toHaveBeenCalledWith('scoped_catalogues.catalogue_source')
+  })
+
+  it('fails closed when the entity class itself has ambiguous metadata across schemas', () => {
+    const first = createMetadata({ className: 'FeatureToggle', tableName: 'catalogue_source', schema: 'public' })
+    const second = createMetadata({ className: 'FeatureToggle', tableName: 'catalogue_source', schema: 'private', tenantColumn: 'tenant_id' })
+    const { em } = createEm(first, undefined, [first, second])
+    expect(() => resolveQueryIndexSourceMetadata(em, 'feature_toggles:feature_toggle')).toThrow('Ambiguous query-index entity metadata')
   })
 
   it('supports a tenant-only entity without reading an organization column', async () => {
