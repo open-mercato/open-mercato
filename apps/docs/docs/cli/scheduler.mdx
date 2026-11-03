@@ -153,7 +153,9 @@ Like `POST /api/scheduler/trigger`, this command requires `QUEUE_STRATEGY=async`
 yarn mercato scheduler run 123e4567-e89b-12d3-a456-426614174000
 ```
 
-The command only enqueues the run; a `scheduler-execution` worker executes it later. It does not wait for the result.
+The command only enqueues the run; a `scheduler-execution` worker executes it later. It does not wait for the result. A disabled schedule is still enqueued (and the command still reports success), but the worker skips it and emits `scheduler.job.skipped`.
+
+The sample shows the lines `scheduler run` prints. The `mercato` CLI wrapper logs additional lines around them.
 
 **Output (Success):**
 
@@ -170,12 +172,12 @@ The command only enqueues the run; a `scheduler-execution` worker executes it la
 ✓ Manual trigger completed
 ```
 
-To follow the run, read the schedule's execution history with [`GET /api/scheduler/jobs/{id}/executions`](../api/scheduler.mdx).
+While the run is waiting or running, and if it fails, it appears in the schedule's execution history at [`GET /api/scheduler/jobs/{id}/executions`](../api/scheduler.mdx). Completed jobs are removed from the queue, so a successful run does not stay in that history.
 
 **Exit Codes:**
 
 - `0` - Run enqueued
-- `1` - Failed: missing `schedule-id`, schedule not found, `QUEUE_STRATEGY` is not `async`, or the job could not be enqueued
+- `1` - Failed: missing or invalid `schedule-id`, schedule not found, `QUEUE_STRATEGY` is not `async`, the database/app container could not be initialized, or the job could not be enqueued
 
 ---
 
@@ -334,7 +336,7 @@ The scheduler CLI respects these environment variables:
 | Code | Meaning | Context |
 |------|---------|---------|
 | `0` | Success | All commands |
-| `1` | Error (invalid arguments, not found, startup or enqueue failure) | All commands |
+| `1` | Any failure (missing or unknown arguments, not found, database/startup or enqueue failure) | All commands |
 
 ## Integration with Other CLI Tools
 
@@ -363,7 +365,7 @@ yarn mercato queue status scheduler-execution
 yarn mercato queue clear scheduler-execution
 ```
 
-There is no CLI command to list or retry individual jobs. Inspect a single job with [`GET /api/scheduler/queue-jobs/{jobId}?queue=scheduler-execution`](../api/scheduler.mdx) (async mode); take `jobId` from the `queueJobId` field of the executions endpoint.
+There is no CLI command to list or retry individual jobs. Inspect a single job with [`GET /api/scheduler/queue-jobs/{jobId}?queue=scheduler-execution`](../api/scheduler.mdx) (async mode); take `jobId` from the `queueJobId` field of the executions endpoint, or from the `(job …)` id that `scheduler run` prints.
 
 ### Database Management
 
@@ -431,7 +433,7 @@ tail -f logs/worker.log
 1. **Use scripts for automation** - Add scheduler commands to package.json scripts
 2. **Monitor in production** - Set up cron jobs to check scheduler status
 3. **Log everything** - Use `--verbose` flag when debugging
-4. **Test manually first** - Use `scheduler run` before enabling new schedules
+4. **Test manually first** - Enable the schedule, then trigger it once with `scheduler run` (async mode); runs of disabled schedules are skipped by the worker
 5. **Graceful shutdowns** - Always use Ctrl+C instead of kill -9
 6. **Check status regularly** - Run `scheduler status` to catch issues early
 7. **Filter list output** - Use filters to reduce noise in large deployments
