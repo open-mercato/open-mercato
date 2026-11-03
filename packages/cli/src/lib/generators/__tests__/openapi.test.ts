@@ -160,6 +160,33 @@ export function buildOpenApiDocument(modules: any[], options: any) {
     expect(openApiDoc.paths['/api/demo/details']?.get?.summary).toBe('package details')
   })
 
+  it('bundles concurrent runs into separate files and removes them afterwards', async () => {
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'demo', 'api', 'health', 'route.ts'),
+      [
+        'export async function GET() { return new Response("pkg-health") }',
+        'export const openApi = {',
+        "  GET: { summary: 'package health' }",
+        '}',
+        '',
+      ].join('\n'),
+    )
+    const cacheDir = path.join(tmpDir, 'node_modules', '.cache')
+    touchFile(path.join(cacheDir, '_openapi-bundle.mjs'), 'export {}\n')
+
+    const results = await Promise.all([
+      generateOpenApi({ resolver: createMockResolver([{ id: 'demo', from: '@open-mercato/core' }]), quiet: true }),
+      generateOpenApi({ resolver: createMockResolver([{ id: 'demo', from: '@open-mercato/core' }]), quiet: true }),
+    ])
+
+    for (const result of results) expect(result.errors).toEqual([])
+    const openApiDoc = JSON.parse(
+      fs.readFileSync(path.join(tmpDir, 'output', 'generated', 'openapi.generated.json'), 'utf8'),
+    ) as { paths: Record<string, { get?: { summary?: string } }> }
+    expect(openApiDoc.paths['/api/demo/health']?.get?.summary).toBe('package health')
+    expect(fs.readdirSync(cacheDir).filter((name) => name.startsWith('_openapi-bundle'))).toEqual([])
+  })
+
   it('skips route discovery and bundling when all tracked inputs are unchanged', async () => {
     touchFile(
       path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'demo', 'api', 'health', 'route.ts'),
