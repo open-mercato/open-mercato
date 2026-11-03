@@ -124,7 +124,13 @@ export type CrudFormExtensionSinkFact = {
   formOperation: 'create' | 'update'
   payloadPaths: readonly string[]
   targetEntityId: string
-  atomicity: 'host-transaction' | 'after-commit'
+  atomicity: 'host-transaction' | 'after-commit' | 'outbox'
+  externalDelivery?: {
+    integrationId: string
+    maxAttempts: number
+    preCommitValidation: 'none' | 'read-only'
+    coalesce: 'latest-state'
+  }
   optimisticLock: 'none' | 'sink-version'
   undo: 'snapshot' | 'unsupported'
 }
@@ -445,12 +451,33 @@ When authoritative validation still fails on a leaf the user cannot see (a legac
 
 An added section, or a replacement that collects more than the base section, may write fields the host entity does not own and persist them in the contributing module's own entity (linked by host id through `data/extensions.ts`). The framework supports this only through declared extension sinks, never by smuggling unknown leaves into the host payload.
 
+A sink is not a new persistence mechanism. It is one checkable declaration over primitives that already exist; `defineCrudFormSectionSink` only wires them and publishes the fact the resolver matches:
+
+| Sink part | Existing primitive it is built from |
+|---|---|
+| Storage | Extension entity in the contributing module, linked by host id through `data/extensions.ts` (as `example:example_customer_priority`) |
+| `persist` (`host-transaction`) | Command-bus hook: the new additive `afterTransactionalWrite`, sibling of the existing `beforeTransactionalWrite` |
+| `persist` (`after-commit`) | Mutation-guard post-success callback; formalizes today's widget `onAfterSave` + second POST pattern |
+| `load` → `_extensions.<moduleId>` | Response enricher on the host entity |
+| `undo` | Command undo snapshot carried in the host log entry's `logContext` |
+| `onHostDeleted` | Same transaction for hard delete; otherwise a CRUD `deleted` event subscriber |
+| External delivery (`outbox`) | Persistent queue worker (`@open-mercato/queue`) + integrations credentials, operation logs, and `SyncExternalIdMapping` |
+
 - **Namespace.** Extension leaves live under `extensions.<ownerModuleId>.*`. Host façade body schemas accept `extensions` as a record whose keys must each match an accepted sink of the resolved policy; any other key or path returns `409 extension_policy_mismatch`. Host command input never receives `extensions`; the façade strips it after sink dispatch.
 - **Capability composition.** Matching stays exact per capability. A replacement that owns base leaves plus extension leaves lists two requirements: the host capability for exactly the base payload paths, and the sink capability (`mode: 'extension-sink'`) for exactly its extension paths.
 - **Sink runtime.** The owning module registers a server-only sink in module-root `form-section-sinks.ts` via `defineCrudFormSectionSink({ id, roundTripId, schema, persist, load, undo?, onHostDeleted? })`. `persist({ values, hostResourceId, hostOperation, em, scope, auth })` validates with its own Zod schema and upserts by `(tenant_id, organization_id, host id)`. `load` is registered automatically as a response enricher on the host detail route under `_extensions.<ownerModuleId>`, so the client descriptor's initial values come from the same server read.
 - **Atomicity.** `host-transaction` sinks run inside the delegated provider's transaction after the host row is flushed (so create already has its id) and before commit; any sink error rolls back the host write. A host advertises `extensionSinkSupport: 'host-transaction'` only when its command invokes the framework seam `ctx.afterTransactionalWrite(em, result)`. That seam is a new additive `CommandRuntimeContext` hook alongside the existing `beforeTransactionalWrite`, which today only `customers/commands/interactions.ts` and `customers/commands/tags.ts` honor. `after-commit` sinks run as post-success callbacks with the committed id. A sink failure there is reported, returned as an additive `extensionWarnings` array on the success response, and shown as a non-blocking flash; it is allowed only when the requirement sets `allowAfterCommitSink: true`. A sink whose atomicity exceeds the host's support rejects the policy.
 - **Concurrency.** Changing only extension leaves does not bump the host `updated_at`. A sink with `optimisticLock: 'sink-version'` owns `updated_at` on its own row, receives `extensions.<moduleId>.__updatedAt` from the client, and compares it under the same transaction lock; a mismatch returns the standard `optimistic_lock_conflict`. `none` is allowed only for display-only or append-only data.
 - **Undo, delete, audit.** If the host command is undoable, a `host-transaction` sink declares `undo: 'snapshot'` and returns a before-snapshot that the command bus stores under the host log entry's `logContext.extensions.<moduleId>`; host undo calls the sink's `undo`. Otherwise it declares `unsupported`, and the adopter docs state that host undo leaves extension data unchanged. Host hard delete calls `onHostDeleted` in the same transaction; soft delete leaves extension rows untouched.
+- **External systems (`outbox`).** A sink whose values must be processed by and saved to an external system (ERP, PIM, CRM, tax or compliance registry) never calls that system inside the host transaction, because a remote side effect cannot roll back. Instead:
+  1. **Validate (optional).** With `preCommitValidation: 'read-only'`, the sink's `validateExternal({ values, scope, credentials, signal })` runs in the façade before the transaction opens, under a hard 3 s timeout. Example: checking that a supplier reference exists in the ERP. It may not cause remote side effects. A rejection becomes a field error on the active section; a timeout or outage returns the form-level error `crud_form_section_external_unavailable` and nothing is written.
+  2. **Record intent atomically.** Inside the host transaction (`afterTransactionalWrite`), `persist` writes the sink's local mirror row: the submitted values plus delivery columns `sync_status` (`pending|synced|failed`), `sync_attempts`, `next_attempt_at`, `last_error_code`, `external_id`, `idempotency_key` (`<sinkId>:<hostId>:<mirror updated_at>`). The mirror row is the outbox. If the host write rolls back, no delivery exists; if it commits, delivery is guaranteed to be attempted. The framework adds no table; the contributing module owns the mirror entity and its migration.
+  3. **Deliver.** After commit, the framework enqueues one job per `(sinkId, hostId)` on the sink's persistent queue with `coalesceBy` on that pair. A periodic sweeper re-enqueues `pending` rows whose `next_attempt_at` has passed, so a lost enqueue is recovered. The worker reloads the mirror row (tenant-scoped, `findWithDecryption`) and sends the latest state, not the job payload, so bursts collapse and out-of-order jobs cannot overwrite newer data. It then calls `deliver({ values, hostResourceId, operation, idempotencyKey, credentials, scope, signal })`. That hook may transform or enrich the values (the "process" step) before the remote call, and must be idempotent for the same key.
+  4. **Record the outcome.** Success sets `synced`, stores `external_id` (also in `SyncExternalIdMapping`), and writes an integrations operation log. A retryable failure schedules `next_attempt_at` via `calculateBackoffDelayMs`. After `maxAttempts` the row becomes `failed`, and the module emits a `<module>.<entity>.sync_failed` event plus an in-app notification to the actor. Raw remote errors are never stored; only a stable `last_error_code` plus a redacted log entry.
+  5. **Show state and allow retry.** `load` reads only the mirror (never the external system on the request path) and returns `_extensions.<moduleId>.__sync: { status, lastAttemptAt, errorCode }`. The section renders that status with design-system status tokens. A failed row offers a retry control bound as a declared `section-action` mutation surface (`<sinkId>.retry`) through a guarded façade that resets `sync_status` to `pending`.
+  6. **Delete and undo.** Host hard delete and command undo enqueue a compensating delivery (`operation: 'delete' | 'restore'`) through the same mirror and idempotency rules. If the external system cannot delete or restore, the sink declares `undo: 'unsupported'` and the adopter docs say so.
+  7. **Security.** Credentials come only from the integrations credentials service for the row's tenant/organization and never reach the browser or the job payload. Outbound hosts are pinned with `@open-mercato/shared/lib/host-pinning`. Mirror values follow the module's encryption map. The job payload carries only `(tenantId, organizationId, sinkId, hostId)`. A provider-specific client belongs in its own integration provider package, not in core.
+  8. **Consistency stance.** The local mirror is the source of truth for the form. Pulling external-side edits back is out of scope; that is the `data_sync` module's job, and it may update the mirror through its own command. A `sink-version` lock protects concurrent form edits of the mirror exactly as for local sinks.
 - **Scope and encryption.** Sink rows carry `tenant_id`/`organization_id`, are read through `findWithDecryption`, and follow the owning module's encryption map. A sink never reads or writes another tenant's host id; `hostResourceId` is the façade-authorized id, not a client value.
 
 ### 10. Derived adapter for plain `makeCrudRoute` hosts
@@ -554,6 +581,11 @@ No new user-facing configuration UI or design-system primitive is added. A valid
 | `host-transaction` sink throws | Whole host write rolls back; standard error response |
 | `after-commit` sink throws | Host write stays committed; `extensionWarnings` entry plus non-blocking flash; only when `allowAfterCommitSink` |
 | Only extension leaves changed concurrently | Sink-version optimistic lock returns `optimistic_lock_conflict` |
+| External system rejects pre-commit validation | Field error on the active section; nothing written |
+| External system slow or down at submit | `read-only` validation times out (3 s) → `crud_form_section_external_unavailable`, nothing written; without validation the host and mirror commit as `pending` and delivery retries |
+| External delivery keeps failing | Backoff up to `maxAttempts`, then `failed`, `sync_failed` event, notification, retry action; host data stays committed |
+| Enqueue lost after commit | Sweeper re-enqueues `pending` rows past `next_attempt_at` |
+| Two quick edits before delivery | Coalesced job sends the latest mirror state once; idempotency key prevents a duplicate remote write on retry |
 
 ## Risks & Impact Review
 
@@ -599,8 +631,9 @@ Each phase leaves the default application working. No host advertises section op
 7. Add guarded façade helpers and a shared parser/builder for the eight protected headers. Validate token schema/current client/server fingerprint, reauthorized host assertion, mode, route, request operation, mutation target, mutation surface, exact resource-binding ids, and delegated provider after auth/ACL/scoped-target gates and before domain mutation; reject `target-required` providers without an atomic lock/CAS declaration; then collect/run mutation guards plus the legacy bridge, revalidate modified payloads against the policy/domain contracts, and run post-success callbacks through error reporting. Return the exact `extension_policy_mismatch` 409 body for policy mismatches.
 
 7a. Add `requiredLeaves` facts and the schema-drift contract helper; enforce exact-once required-leaf coverage at bootstrap; add leaf-default provider discovery/runtime; map hidden-leaf validation failures to `crud_form_section_hidden_field_invalid`.
-7c. Add `defineCrudRouteSectionHost` and the generator that derives provider facts, `requiredLeaves`, the thin guarded façade, and lock mode for qualifying `makeCrudRoute` hosts; reject non-qualifying hosts with a diagnostic naming the failed qualifier.
 7b. Add `form-section-sinks.ts` discovery, `defineCrudFormSectionSink`, the `extensions.<moduleId>` façade namespace, the additive `afterTransactionalWrite` command seam, after-commit sink callbacks with `extensionWarnings`, the auto-registered `_extensions` detail enricher, sink-version locking, and undo/delete hooks.
+7c. Add `defineCrudRouteSectionHost` and the generator that derives provider facts, `requiredLeaves`, the thin guarded façade, and lock mode for qualifying `makeCrudRoute` hosts; reject non-qualifying hosts with a diagnostic naming the failed qualifier.
+7d. Add `outbox` sinks: mirror delivery-column helper, post-commit coalesced enqueue, sweeper, `deliver`/`validateExternal` hooks with timeout and abort signal, backoff and terminal `failed` state, `__sync` read-back, `<sinkId>.retry` section-action façade, compensating delete/undo delivery, credentials/host-pinning enforcement.
 
 ### Phase 3 — UI integration
 
@@ -623,6 +656,7 @@ Each phase leaves the default application working. No host advertises section op
 - Guarded façade: client collision rejection; comma-containing resource-id rejection; server missing/duplicate/malformed/recomputed-value rejection; wrong route/operation/host/target/action; auth/ACL/scope precedence; mutation-guard block/modify/legacy bridge/after-success/callback-failure behavior; modified hidden-leaf rejection; ordinary domain plus optimistic-lock header composition; `target-required` provider-declaration rejection and update/update plus update/delete contenders; exact non-leaking 409; delegated provider invoked once.
 - Browser fixture: server render → pending → ready without editable flash; add/hide/replace layout; submit/delete/action bindings; configured-host failure blocks every mutation control.
 - Required leaves: create host hiding a required-leaf section is rejected at bootstrap; replacement emitting the leaf is accepted; `server-default` provider fills it on create; update `preserve-from-record` for a wire-required leaf; hidden-leaf validation and uniqueness failures return the label-only form error; schema-drift test fails when a required leaf is added to or removed from the authoritative schema.
+- External sinks: pre-commit validation reject/timeout; host and mirror commit together and roll back together; delivery success writes `external_id`; retry with backoff to terminal `failed` plus notification and retry action; coalescing of rapid edits; idempotent redelivery after a worker crash; sweeper recovery of a lost enqueue; compensating delete; no credentials in browser, job payload, or logs.
 - Extension sinks: added section on create and update persists into the owning module's entity in the host transaction; sink failure rolls back the host; after-commit sink failure returns `extensionWarnings`; unknown extension key rejected; sink-version conflict; host undo and hard delete call the sink; values load back through `_extensions` on the detail response.
 - Compatibility: no-policy payload, endpoint selection, lifecycle order, `hiddenGroupIds`, and widget-disable behavior unchanged.
 
@@ -642,7 +676,8 @@ Each phase leaves the default application working. No host advertises section op
 12. Canonical token payloads above 3072 bytes fail closed without truncation; accepted tokens never exceed 4096 base64url characters.
 13. No policy is accepted while any server-required leaf of its host operation lacks exactly one declared coverage; hidden-leaf validation failures never reach the user as unreachable field errors.
 14. Extension leaves persist only through declared sinks under `extensions.<ownerModuleId>`, atomically with the host write unless the contribution opts into after-commit, with their own optimistic lock, undo, and delete behavior.
-15. The named framework, integration, compatibility, client-boundary, template-parity, and configured validation commands pass with recorded evidence.
+15. A sink that saves to an external system records its intent in the host transaction, never calls the remote system inside it, delivers idempotently with retries and a visible, retryable sync state, and never exposes credentials outside the server.
+16. The named framework, integration, compatibility, client-boundary, template-parity, and configured validation commands pass with recorded evidence.
 
 ## Final Compliance Report — 2026-10-27
 
@@ -688,6 +723,7 @@ None.
 
 ## Changelog
 
+- **2026-11-03:** Added external-system sinks (`atomicity: 'outbox'`): optional read-only pre-commit validation, mirror-row outbox written in the host transaction, coalesced idempotent queue delivery with sweeper, backoff and `failed` state, `__sync` read-back and retry action, compensating delete/undo, credential and host-pinning rules. Stated explicitly which existing primitives every sink part is built from.
 - **2026-11-03:** Added §10 derived adapter for plain `makeCrudRoute` hosts and stated that ungrouped forms need an explicit group conversion owned by their adopter spec.
 - **2026-11-03:** Added §8 server-required leaf coverage (`requiredLeaves`, `section`/`preserve-from-record`/`server-default`, bootstrap rejection, page-level check relocation, hidden-leaf error mapping) and §9 extension sinks (`extensions.<moduleId>` namespace, `extension-sink` mode, `form-section-sinks.ts`, host-transaction vs after-commit atomicity via a new `afterTransactionalWrite` seam, sink-version locking, undo/delete, `_extensions` read-back). Raised from PR #6769 review: hiding a section with server-required fields on create forms, and adding fields stored in another module, were unspecified.
 
