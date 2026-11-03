@@ -224,6 +224,8 @@ describe('CreateDealForm', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Create deal' })).toBeEnabled())
     const toggle = screen.getByRole('button', { name: 'More details' })
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByRole('heading', { level: 3, name: 'More details' })).toContainElement(toggle)
+    expect(toggle.querySelector('h3')).toBeNull()
     // Still in the DOM while collapsed: the custom-field loader inside gates the submit button.
     expect(screen.getByText('Custom attributes')).toBeInTheDocument()
     expect(screen.getByText('Custom attributes')).not.toBeVisible()
@@ -253,6 +255,19 @@ describe('CreateDealForm', () => {
       expect(screen.getByRole('button', { name: 'More details' })).toHaveAttribute('aria-expanded', 'true'),
     )
     expect(screen.getByLabelText('Priority')).toBeVisible()
+  })
+
+  it('opens More details when a probability error comes back', async () => {
+    mockCreateCrud.mockRejectedValue(createCrudFormError('Native rejection', { probability: 'Probability rejected' }))
+    render(<CreateDealForm returnTo="/backend/customers/deals" initialValues={{ title: 'Valid title' }} />)
+    const toggle = screen.getByRole('button', { name: 'More details' })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Create deal' })).toBeEnabled())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create deal' }))
+
+    await waitFor(() => expect(toggle).toHaveAttribute('aria-expanded', 'true'))
+    expect(screen.getByText('Probability rejected')).toBeVisible()
   })
 
   it('opens More details when a seeded value lives there', async () => {

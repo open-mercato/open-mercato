@@ -201,8 +201,33 @@ test.describe('TC-CRM-071: Create deal (UX redesign)', () => {
       expect(detailResponse.ok(), `GET /api/customers/deals/:id returned ${detailResponse.status()}`).toBeTruthy();
       const detailPayload = (await readJsonSafe(detailResponse)) as {
         customFields?: Record<string, unknown>;
+        deal?: { pipelineId?: string | null; pipelineStageId?: string | null };
       };
       expect(detailPayload.customFields?.[customFieldKey]).toBe(customFieldValue);
+
+      // The form starts on the default pipeline and its first stage (#5109).
+      const pipelinesResponse = await apiRequest(request, 'GET', '/api/customers/pipelines', { token });
+      expect(pipelinesResponse.ok(), `GET /api/customers/pipelines returned ${pipelinesResponse.status()}`).toBeTruthy();
+      const pipelinesPayload = (await readJsonSafe(pipelinesResponse)) as {
+        items?: Array<{ id: string; isDefault?: boolean }>;
+      };
+      const pipelines = pipelinesPayload.items ?? [];
+      const defaultPipeline = pipelines.find((entry) => entry.isDefault) ?? pipelines[0] ?? null;
+      expect(detailPayload.deal?.pipelineId ?? null).toBe(defaultPipeline?.id ?? null);
+      if (defaultPipeline) {
+        const stagesResponse = await apiRequest(
+          request,
+          'GET',
+          `/api/customers/pipeline-stages?pipelineId=${encodeURIComponent(defaultPipeline.id)}`,
+          { token },
+        );
+        expect(stagesResponse.ok(), `GET /api/customers/pipeline-stages returned ${stagesResponse.status()}`).toBeTruthy();
+        const stagesPayload = (await readJsonSafe(stagesResponse)) as {
+          items?: Array<{ id: string; order: number }>;
+        };
+        const firstStage = [...(stagesPayload.items ?? [])].sort((left, right) => left.order - right.order)[0] ?? null;
+        expect(detailPayload.deal?.pipelineStageId ?? null).toBe(firstStage?.id ?? null);
+      }
     } finally {
       // Best-effort: resolve the deal id by title if the UI flow failed before the API check.
       if (token && !dealId) {
