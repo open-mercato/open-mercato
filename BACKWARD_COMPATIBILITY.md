@@ -1,6 +1,6 @@
 # Backward Compatibility Contract
 
-Open Mercato modules are developed by third-party developers who depend on stable platform APIs. Every surface listed below is a **public contract**. Changes to these surfaces MUST follow the deprecation protocol or they are **breaking changes** that block merge.
+Every listed surface is a **public contract**. Changes MUST follow the deprecation protocol or block merge as **breaking changes**.
 
 ## Deprecation Protocol
 
@@ -67,7 +67,7 @@ The following file names, their expected export names, and their role in module 
 
 ### 2. Type Definitions & Interfaces (STABLE)
 
-These exported types are consumed by module developers. Required fields MUST NOT be removed or have their types narrowed. Optional fields may be added freely.
+Required fields MUST NOT be removed or narrowed. Optional fields may be added freely.
 
 **Immutable required fields** (removing or renaming any is a breaking change):
 
@@ -98,7 +98,7 @@ These exported types are consumed by module developers. Required fields MUST NOT
 - `AiAgentOverridesMap` / `AiToolOverridesMap`: `Record<string, AiAgentDefinition | null>` and `Record<string, AiToolDefinition | null>` semantics are STABLE; `null` means disable
 - `ModuleOverrides`: `overrides.ai.agents`, `overrides.ai.tools`, and `overrides.ai.extensions` shapes are STABLE; other domain keys are reserved by the unified override contract and may be wired additively. `nav` was wired 2026-07-30 under that clause (see [spec](.ai/specs/2026-07-30-nav-group-order-override-domain.md)): `overrides.nav.groupOrder` **prepends** sidebar nav group ids ahead of the built-in `defaultGroupOrder`, and ids it does not name keep their existing position. It is a default applied *beneath* role and per-user sidebar preferences, so an operator's own arrangement still wins. With no override configured, group ordering is byte-identical to before — that guarantee MUST hold for any future change to this domain.
 - `ModulesRegisteredListener` (`@open-mercato/shared/lib/modules/registry`): added 2026-08-12 as `(modules: Module[]) => void | PromiseLike<void>` (see [spec](.ai/specs/2026-08-12-module-registry-registration-listeners.md)). The listener MUST keep receiving the reconciled module list, and the return type MUST NOT be narrowed back to `void` — a subscriber returning a promise is supported and its rejection is observed and logged rather than escaping into bootstrap.
-- `WorkerMeta`: `queue` — MUST NOT remove
+- `WorkerMeta.queue` STABLE; coalescing OPTIONAL/active-no-drop; BullMQ ≥5.72.
 - `TelemetryProvider` (`@open-mercato/telemetry`): `name`, `supports`, `start`, `shutdown`, `runInSpan`, `activeSpan`, `activeTraceContext`, `inject`, `runInRemoteSpan`, `emitLog`, `recordMetric` — MUST NOT remove. `reportError?()` was added 2026-09-08 as an additive OPTIONAL method (see [spec](.ai/specs/2026-09-08-error-reporting-policy.md)); it **MUST stay optional** — third parties implement this interface and a required method would break every existing provider. The facade calls it as `provider.reportError?.(…)` *in addition to* the span/log/metric path, so a provider that omits it loses nothing.
 - `ReportErrorContext` (`@open-mercato/telemetry`) and the `reportError` context of `TelemetryRuntime` (`@open-mercato/shared/lib/telemetry/runtime`): `module?` and `attributes?` — MUST NOT remove. `code?: string` was added 2026-09-08 as an additive optional field carrying the enumerated `module.reason` fingerprint the backend groups on; it MUST stay optional so existing callers (the API dispatcher, the CRUD factory) keep compiling and keep emitting exactly what they emit today. `om.errors` gains an `error.code` label only when a caller supplies one — the same attribute name the span and the log record use, so one query works against all three.
 - `RefreshCredentialsInput` (communication_channels hub): `channelId`, `credentials`, `scope` — MUST NOT remove. `oauthClient?` was added 2026-05-27 as an additive optional field (see [Spec A](.ai/specs/implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md)). The legacy `credentials._client` read path in the Gmail adapter was **removed** (see #3828 / UPGRADE_NOTES) — OAuth client config MUST be passed via `RefreshCredentialsInput.oauthClient`.
@@ -111,7 +111,7 @@ These exported types are consumed by module developers. Required fields MUST NOT
 
 ### 3. Function Signatures (STABLE)
 
-These functions are called directly by module code. Their signatures MUST NOT change in a breaking way. New optional parameters may be added.
+Signatures MUST NOT change incompatibly. New optional parameters may be added.
 
 |Function|Package|Contract|
 |---|---|---|
@@ -178,8 +178,6 @@ Spot IDs are the addresses where external modules inject UI. Renaming or removin
 - Wildcard spots (`crud-form:*`, `data-table:*`) MUST continue to match as documented
 
 ### 7. API Route URLs (STABLE)
-
-External tools, frontends, and integrations depend on API URL patterns.
 
 - MUST NOT rename or remove an existing API route URL
 - MUST NOT change the HTTP method for an existing operation
@@ -309,7 +307,7 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 
 |Surface|Change|Classification|
 |---|---|---|
-|Type interface (`IntegrationScope`)|New **optional** field `userId?: string \| null`|✓ ADDITIVE (Type interface, optional field)|
+|Type interface (`IntegrationScope`)|New **optional** field `userId?: string \|null`|✓ ADDITIVE (Type interface, optional field)|
 |Database schema|New nullable column `integration_credentials.user_id uuid` via additive migration `Migration20260526154136`, plus partial unique index `integration_credentials_user_lookup_idx` on `(integration_id, organization_id, tenant_id, user_id)` `WHERE user_id IS NOT NULL AND deleted_at IS NULL`|✓ ADDITIVE (NULL default; the partial index leaves existing tenant-wide rows untouched)|
 |`createCredentialsService` API|`getRaw` / `resolve` / `save` / `saveField` signatures unchanged; when `scope.userId` is falsy the lookup filter pins `user_id = NULL`, reproducing the prior tenant-wide behaviour exactly|✓ Behaviour-preserving for existing callers|
 
@@ -420,7 +418,7 @@ Deleting a user who had customised their sidebar failed on the `user_sidebar_pre
 |Surface|Change|Classification|
 |---|---|---|
 |Function signatures|New export `onModulesRegistered(listener)` on `@open-mercato/shared/lib/modules/registry`|✓ ADDITIVE (new function)|
-|Type definitions|New export `ModulesRegisteredListener = (modules: Module[]) => void \| PromiseLike<void>`|✓ ADDITIVE (new type, no rename)|
+|Type definitions|New export `ModulesRegisteredListener = (modules: Module[]) => void \|PromiseLike<void>`|✓ ADDITIVE (new type, no rename)|
 |`registerModules(modules)`|Signature, return type, and synchronous behavior unchanged; it now also notifies listeners after the reconciliation it already performed|✓ Behaviour-preserving for existing callers|
 |Import paths|None — both exports ship from the existing registry path|✓ No change|
 |Event IDs, API routes, DB schema, DI names, ACL features, notification IDs, CLI commands, generated files|No change|✓ n/a|
@@ -467,7 +465,7 @@ Issue #3852 removed the non-cryptographic passkey verification shape from `Passk
 
 |Surface|Change|Classification|
 |---|---|---|
-|Type definitions (§2)|New optional method `DataSyncAdapter.supportsStartControl?(control, entityType)`; new exported type `DataSyncStartControl = 'fullSync' \| 'batchSize'`|✓ ADDITIVE (optional member, new type — same shape as the `persistsSharedCursor` and `runParameters` additions before it)|
+|Type definitions (§2)|New optional method `DataSyncAdapter.supportsStartControl?(control, entityType)`; new exported type `DataSyncStartControl = 'fullSync' \|'batchSize'`|✓ ADDITIVE (optional member, new type — same shape as the `persistsSharedCursor` and `runParameters` additions before it)|
 |Import paths (§4)|New module `data_sync/lib/start-controls.ts` exporting `resolveStartControlMap`, `applicableStartControls`, `StartControlMap`, `StartControlApplicability`, `DATA_SYNC_START_CONTROLS`|✓ ADDITIVE (new path; nothing moved or re-exported)|
 |API route URLs (§7)|`GET /api/data_sync/options` items gain a `startControls` object; `POST /api/data_sync/run` is unchanged and keeps honouring `fullSync` and `batchSize` whatever an adapter declares|✓ ADDITIVE (new optional response field, no request-shape change)|
 |Auto-discovery, function signatures, event IDs, widget spot IDs, DB schema, DI names, ACL features, notification IDs, CLI commands, generated files|No change|✓ n/a|
@@ -593,10 +591,10 @@ Clients use WebAuthn; operators audit key provenance, re-enroll with recovery. [
 |Surface|Change|Classification|
 |---|---|---|
 |Import paths (§4)|New `@open-mercato/shared/lib/db/advisoryLock` (explicit `exports` entry); `@open-mercato/core/modules/integrations/lib/oauth/{token-endpoint,pkce,authorization,redirect,resource-challenge,descriptor,grant-service,health}` and `…/lib/oauth/testing/fakeAuthorizationServer` — exactly these files, no directory index. Every path, plus `…/lib/credentials-service`, `…/lib/log-service` and the hub's `…/communication_channels/lib/oauth-state`, is verified against the built `dist` by `scripts/check-oauth-publish-shape.mjs` in CI|✓ ADDITIVE (new import paths)|
-|Type definitions (§2)|New `OAuthProviderDescriptor`, `OAuthGrantOwner`, `OAuthTokenEndpointResponse`, `OAuthClientAuthMethod`, the grant-service result and inspection types (the inspection carries no token), `AdvisoryLockOptions` (`waitDeadlineMs`, `maxConcurrentHolders`); the `FakeAuthorizationServer` handle with its options, `FakeInjection` and `FakeRotationMode`; error classes `OAuthGrantError`, `OAuthDescriptorError`, `AdvisoryLockUnavailableError` (`reason: AdvisoryLockUnavailableReason` = `'deadline' \| 'transient_db' \| 'commit_unknown'`); closed unions (`OAuthTokenFailure`, `OAuthConnectFailure`, `OAuthConnectionState`, `OAuthUnavailableReason`, …) that are additive-only, so consumers keep a default branch. `IntegrationOAuthGrantService` is a type to call, not to implement: adding a method is additive. Optional `IntegrationDetailPageConfig.connectTabId`. `CredentialsService`, `IntegrationLogService` and `IntegrationCredentialFieldOauth` are unchanged apart from `@internal` options|✓ ADDITIVE (new types; optional fields)|
+|Type definitions (§2)|New `OAuthProviderDescriptor`, `OAuthGrantOwner`, `OAuthTokenEndpointResponse`, `OAuthClientAuthMethod`, the grant-service result and inspection types (the inspection carries no token), `AdvisoryLockOptions` (`waitDeadlineMs`, `maxConcurrentHolders`); the `FakeAuthorizationServer` handle with its options, `FakeInjection` and `FakeRotationMode`; error classes `OAuthGrantError`, `OAuthDescriptorError`, `AdvisoryLockUnavailableError` (`reason: AdvisoryLockUnavailableReason` = `'deadline' \|'transient_db' \|'commit_unknown'`); closed unions (`OAuthTokenFailure`, `OAuthConnectFailure`, `OAuthConnectionState`, `OAuthUnavailableReason`, …) that are additive-only, so consumers keep a default branch. `IntegrationOAuthGrantService` is a type to call, not to implement: adding a method is additive. Optional `IntegrationDetailPageConfig.connectTabId`. `CredentialsService`, `IntegrationLogService` and `IntegrationCredentialFieldOauth` are unchanged apart from `@internal` options|✓ ADDITIVE (new types; optional fields)|
 |Function signatures (§3)|New `withAdvisoryXactLock`, `createPkcePair`, `buildAuthorizationUrl`, `exchangeAuthorizationCode`, `resolveOAuthRedirectUri`, `classifyResourceChallenge`, `mapInspectionToHealth` with `OAUTH_HEALTH_CODES`, `startFakeAuthorizationServer` with the methods of the handle it returns (`issueAuthorizationCode`, `inject`, `revokeAuthorization`, `reset`, `counters`, `requests`, `issuedTokens`, `close`) and the `IntegrationOAuthGrantService` methods|✓ ADDITIVE (new functions)|
 |DI service names (§9)|New scoped `integrationOAuthGrantService`. Contract note: inside the grant lock the service builds its credentials and log services from the core factories, so DI overrides of `integrationCredentialsService` don't apply to grant rows|✓ ADDITIVE|
-|API routes (§7)|`GET /api/integrations/:id` gains the nullable `oauthGrant: { status: 'active' \| 'invalidated' \| 'unavailable' } \| null` (always present; `null` without a live grant) and returns `integration.detailPage.connectTabId`|✓ ADDITIVE (response fields)|
+|API routes (§7)|`GET /api/integrations/:id` gains the nullable `oauthGrant: { status: 'active' \|'invalidated' \|'unavailable' } \|null` (always present; `null` without a live grant) and returns `integration.detailPage.connectTabId`|✓ ADDITIVE (response fields)|
 |Widget injection context (§6)|Spot IDs unchanged; the `integrations.detail.v1` context gains the optional `detail.oauthGrant` and `integration.detailPage.connectTabId`|✓ ADDITIVE (context fields)|
 |Log and health codes|Log codes `integrations.oauth_*` and the `OAUTH_HEALTH_CODES` values with `OAuthHealthCode`|✓ ADDITIVE; STABLE once released, additive-only|
 |Persisted formats|The grant row id `<integrationId>__oauth_grant`; the blob `version`; the lock key `oauth_grant:<integrationId>:<tenantId>:<organizationId>:<userId or ->` and its mapping `pg_try_advisory_xact_lock(hashtextextended(key, 0))`; `resourceKind` `integrations.oauth_grant`; the `Symbol.for` brands `@open-mercato/shared:AdvisoryLockUnavailableError`, `@open-mercato/core:OAuthGrantError` and `@open-mercato/core:OAuthDescriptorError` that keep `instanceof` reliable across module copies. The codes `integrations.oauth_disconnected` and `integrations.oauth_revocation_{pending,confirmed,failed,unsupported,skipped_reconnected,skipped_invalidated}` with their `disconnectId` payload key are read back to derive `lastDisconnect`; the per-process holder-slot registry `globalThis.__openMercatoAdvisoryLockSlots__` is shared by every `@open-mercato/shared` instance|The lock key, its mapping and the brand keys FROZEN for every existing Grant Owner (processes of two versions must exclude each other during a rolling deploy); everything else ADDITIVE-ONLY|
@@ -633,3 +631,7 @@ STABLE: passwords leak; bridges retain the leak. [Migrate](UPGRADE_NOTES.md#boot
 ## #3805 2026-10-31
 
 STABLE tools/execute writes bypass approval; no bridge. [Migrate](UPGRADE_NOTES.md#issue-3805)
+
+## SCIM rate limiting (2026-10-27)
+
+SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: ApiRouteBeforeAuth` is additive. See [contract and migration](.ai/specs/enterprise/implemented/SPEC-ENT-004-2026-02-19-sso-directory-sync.md#migration--backward-compatibility).
