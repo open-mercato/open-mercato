@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { getPasswordHasher } from '@open-mercato/shared/lib/auth/passwordHasher'
+import { getPasswordHasher, isPasswordHasherBusyError } from '@open-mercato/shared/lib/auth/passwordHasher'
+import { passwordHasherBusyResponse } from '@open-mercato/core/modules/auth/api/routeError'
 import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { loginSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
@@ -33,6 +34,15 @@ function reportLoginEventError(error: unknown): void {
 }
 
 export async function POST(req: Request) {
+  try {
+    return await handlePortalLoginRequest(req)
+  } catch (error) {
+    if (isPasswordHasherBusyError(error)) return passwordHasherBusyResponse('Invalid email or password')
+    throw error
+  }
+}
+
+async function handlePortalLoginRequest(req: Request) {
   if (isCrossSiteBrowserRequest(req)) {
     const { translate } = await resolveTranslations()
     return NextResponse.json({ ok: false, error: translate('customer_accounts.errors.crossSiteRequest', 'This sign-in request did not come from this application. Open the sign-in page and try again.') }, { status: 403 })
@@ -210,6 +220,7 @@ const methodDoc: OpenApiMethodDoc = {
     { status: 401, description: 'Invalid credentials', schema: errorSchema },
     { status: 403, description: 'Request was submitted cross-site', schema: errorSchema },
     { status: 429, description: 'Too many login attempts', schema: rateLimitErrorSchema },
+    { status: 503, description: 'Password hashing capacity temporarily exhausted; retry after the Retry-After interval', schema: errorSchema },
   ],
 }
 

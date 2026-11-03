@@ -315,6 +315,7 @@ const loginMethodDoc: OpenApiMethodDoc = {
     { status: 401, description: 'Invalid credentials', schema: loginErrorSchema },
     { status: 403, description: 'User lacks required role, or the request was submitted cross-site', schema: loginErrorSchema },
     { status: 429, description: 'Too many login attempts', schema: rateLimitErrorSchema },
+    { status: 503, description: 'Password hashing capacity temporarily exhausted; retry after the Retry-After interval', schema: loginErrorSchema },
   ],
 }
 

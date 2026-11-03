@@ -12,8 +12,12 @@ import { createLogger } from '../logger'
  * opportunistic upgrade after a successful login.
  *
  * The default stays `bcrypt` (cost 10) so existing installs behave exactly as
- * before. `argon2id` is opt-in and loads `@node-rs/argon2` lazily, when a
- * process first hashes with Argon2id or runs the mixed-algorithm failure profile.
+ * before and never load or run Argon2. `argon2id` is opt-in and loads
+ * `@node-rs/argon2` lazily. Every Argon2 operation runs through a process-wide
+ * bounded concurrency limiter (`OM_PASSWORD_ARGON2_MAX_CONCURRENCY` slots,
+ * `OM_PASSWORD_ARGON2_MAX_QUEUE` waiters) so memory-hard work cannot be
+ * amplified by a burst of login attempts; overflow throws
+ * `PasswordHasherBusyError`, which login routes answer with 503.
  */
 
 export type PasswordHashAlgorithm = 'bcrypt' | 'argon2id'
@@ -27,10 +31,19 @@ export type Argon2idParams = {
   parallelism: number
 }
 
+export type Argon2WorkLimits = {
+  /** Argon2 operations allowed to run at the same time in this process. */
+  maxConcurrency: number
+  /** Argon2 operations allowed to wait for a slot before new ones are rejected. */
+  maxQueue: number
+}
+
 export type PasswordHasherConfig = {
   algorithm: PasswordHashAlgorithm
   bcryptCost: number
   argon2id: Argon2idParams
+  /** Bounds for memory-hard Argon2 work. Defaults to `DEFAULT_ARGON2_WORK_LIMITS`. */
+  argon2Limits?: Argon2WorkLimits
 }
 
 export interface PasswordHasher {
@@ -38,12 +51,15 @@ export interface PasswordHasher {
   readonly algorithm: PasswordHashAlgorithm
   /** Hash a password with the configured algorithm. */
   hash(password: string): Promise<string>
-  /** Verify a password against a supported stored hash. Failed checks run one bcrypt and one Argon2id verification. */
+  /**
+   * Verify a password against a supported stored hash. Every outcome spends the same work:
+   * one bcrypt comparison, plus one Argon2id verification when Argon2id is configured.
+   */
   verify(password: string, storedHash: string): Promise<boolean>
   /** True when the stored hash should be replaced by a fresh hash with the current configuration. */
   needsRehash(storedHash: string): boolean
   /**
-   * Spend the same algorithm-independent work as a failed verification without any account data.
+   * Spend the same work as `verify` without any account data.
    * Login flows call it on every branch that has no stored hash to compare
    * against, so response latency does not reveal whether an account exists.
    */
@@ -54,6 +70,8 @@ export const PASSWORD_HASH_ENV = 'OM_PASSWORD_HASH'
 export const PASSWORD_ARGON2_MEMORY_KIB_ENV = 'OM_PASSWORD_ARGON2_MEMORY_KIB'
 export const PASSWORD_ARGON2_TIME_COST_ENV = 'OM_PASSWORD_ARGON2_TIME_COST'
 export const PASSWORD_ARGON2_PARALLELISM_ENV = 'OM_PASSWORD_ARGON2_PARALLELISM'
+export const PASSWORD_ARGON2_MAX_CONCURRENCY_ENV = 'OM_PASSWORD_ARGON2_MAX_CONCURRENCY'
+export const PASSWORD_ARGON2_MAX_QUEUE_ENV = 'OM_PASSWORD_ARGON2_MAX_QUEUE'
 
 export const DEFAULT_BCRYPT_COST = 10
 
@@ -63,6 +81,28 @@ export const DEFAULT_ARGON2ID_PARAMS: Readonly<Argon2idParams> = Object.freeze({
   timeCost: 2,
   parallelism: 1,
 })
+
+export const DEFAULT_ARGON2_WORK_LIMITS: Readonly<Argon2WorkLimits> = Object.freeze({
+  maxConcurrency: 4,
+  maxQueue: 64,
+})
+
+const PASSWORD_HASHER_BUSY_CODE = 'password_hasher_busy'
+
+/** Thrown when the bounded Argon2 work queue is full. Login routes answer it with 503. */
+export class PasswordHasherBusyError extends Error {
+  readonly code = PASSWORD_HASHER_BUSY_CODE
+
+  constructor() {
+    super('[internal] Password hashing capacity exhausted')
+    this.name = 'PasswordHasherBusyError'
+  }
+}
+
+export function isPasswordHasherBusyError(error: unknown): error is PasswordHasherBusyError {
+  return error instanceof PasswordHasherBusyError
+    || (error instanceof Error && (error as { code?: unknown }).code === PASSWORD_HASHER_BUSY_CODE)
+}
 
 // A fixed, valid bcrypt hash (cost 10) of a throwaway value no real password can
 // match — the same value the staff login used before this module existed, so the
@@ -76,6 +116,8 @@ const ARGON2_OUTPUT_BYTES = 32
 const ARGON2_MEMORY_MAX_KIB = 4 * 1024 * 1024
 const ARGON2_TIME_COST_MAX = 100
 const ARGON2_PARALLELISM_MAX = 255
+const ARGON2_MAX_CONCURRENCY_MAX = 256
+const ARGON2_MAX_QUEUE_MAX = 100_000
 
 const logger = createLogger('auth').child({ component: 'password-hasher' })
 
@@ -121,10 +163,23 @@ export function resolvePasswordHasherConfig(env: NodeJS.ProcessEnv = process.env
     DEFAULT_ARGON2ID_PARAMS.timeCost,
     ARGON2_TIME_COST_MAX,
   )
+  const maxConcurrency = parseIntegerInRange(
+    env[PASSWORD_ARGON2_MAX_CONCURRENCY_ENV],
+    DEFAULT_ARGON2_WORK_LIMITS.maxConcurrency,
+    1,
+    ARGON2_MAX_CONCURRENCY_MAX,
+  )
+  const maxQueue = parseIntegerInRange(
+    env[PASSWORD_ARGON2_MAX_QUEUE_ENV],
+    DEFAULT_ARGON2_WORK_LIMITS.maxQueue,
+    1,
+    ARGON2_MAX_QUEUE_MAX,
+  )
   return {
     algorithm,
     bcryptCost: DEFAULT_BCRYPT_COST,
     argon2id: { memoryCost, timeCost, parallelism },
+    argon2Limits: { maxConcurrency, maxQueue },
   }
 }
 
@@ -220,12 +275,36 @@ function parseArgon2idHash(storedHash: string): ParsedArgon2idHash | null {
   }
 }
 
+type Argon2WorkLimiter = <T>(task: () => Promise<T>) => Promise<T>
+
+function createArgon2WorkLimiter(limits: Argon2WorkLimits): Argon2WorkLimiter {
+  let active = 0
+  const waiting: Array<() => void> = []
+  return async <T>(task: () => Promise<T>): Promise<T> => {
+    if (active >= limits.maxConcurrency) {
+      if (waiting.length >= limits.maxQueue) throw new PasswordHasherBusyError()
+      await new Promise<void>((resolve) => waiting.push(resolve))
+    } else {
+      active += 1
+    }
+    try {
+      return await task()
+    } finally {
+      const next = waiting.shift()
+      if (next) next()
+      else active -= 1
+    }
+  }
+}
+
 export function createPasswordHasher(
   config: PasswordHasherConfig = resolvePasswordHasherConfig(),
   deps: PasswordHasherDeps = {},
 ): PasswordHasher {
   const loadArgon2 = deps.loadArgon2 ?? loadDefaultArgon2
   const argon2Params: Argon2idParams = { ...config.argon2id }
+  const withArgon2Slot = createArgon2WorkLimiter(config.argon2Limits ?? DEFAULT_ARGON2_WORK_LIMITS)
+  const argon2InProfile = config.algorithm === 'argon2id'
   let loadedArgon2: Promise<Argon2Module> | null = null
   let argon2TimingHash: Promise<string> | null = null
 
@@ -242,7 +321,7 @@ export function createPasswordHasher(
   const getArgon2TimingHash = (): Promise<string> => {
     if (!argon2TimingHash) {
       argon2TimingHash = getArgon2()
-        .then((argon2) => argon2.hash(randomBytes(32).toString('hex'), argon2Params))
+        .then((argon2) => withArgon2Slot(() => argon2.hash(randomBytes(32).toString('hex'), argon2Params)))
         .catch((error: unknown) => {
           argon2TimingHash = null
           throw error
@@ -253,46 +332,51 @@ export function createPasswordHasher(
 
   const verifyArgon2TimingHash = async (password: string): Promise<void> => {
     const argon2 = await getArgon2()
-    await argon2.verify(await getArgon2TimingHash(), password)
+    const timingHash = await getArgon2TimingHash()
+    await withArgon2Slot(() => argon2.verify(timingHash, password))
   }
 
   const hash = async (password: string): Promise<string> => {
     if (config.algorithm === 'argon2id') {
       const argon2 = await getArgon2()
-      return argon2.hash(password, argon2Params)
+      return withArgon2Slot(() => argon2.hash(password, argon2Params))
     }
     return bcryptHash(password, config.bcryptCost)
   }
 
+  const verifyStoredArgon2id = async (password: string, storedHash: string): Promise<boolean> => {
+    // A missing Argon2 implementation is an operator error and must surface,
+    // not masquerade as a wrong password.
+    const argon2 = await getArgon2()
+    // On a cold process the profile's dummy path creates its Argon2id timing hash
+    // before verifying it; create the same cached hash here so both paths match.
+    if (argon2InProfile) await getArgon2TimingHash()
+    try {
+      return await withArgon2Slot(() => argon2.verify(storedHash, password))
+    } catch (error) {
+      if (error instanceof PasswordHasherBusyError) throw error
+      return false
+    }
+  }
+
+  // Every outcome of `verify` (match, mismatch, malformed or unknown hash) spends the same
+  // work profile: one bcrypt comparison, plus one Argon2id verification when Argon2id is
+  // the configured algorithm. A correct password therefore costs as much as a wrong one, so
+  // callers that reject an account after a successful check (deactivated, unverified, locked)
+  // do not expose password validity through latency.
   const verify = async (password: string, storedHash: string): Promise<boolean> => {
     const algorithm = detectPasswordHashAlgorithm(storedHash)
     if (algorithm === 'argon2id') {
-      // A missing Argon2 implementation is an operator error and must surface,
-      // not masquerade as a wrong password.
-      const argon2 = await getArgon2()
-      if (!parseArgon2idHash(storedHash)) {
-        await verifyArgon2TimingHash(password)
-        await bcryptCompare(password, BCRYPT_TIMING_EQUALIZER_HASH)
-        return false
-      }
-      try {
-        if (await argon2.verify(storedHash, password)) return true
-      } catch {
-        await verifyArgon2TimingHash(password)
-        await bcryptCompare(password, BCRYPT_TIMING_EQUALIZER_HASH)
-        return false
-      }
-      // On a cold process, the unknown-account path creates its dummy Argon2id
-      // hash before verifying it. Create the same cached hash here so a failed
-      // real Argon2id check performs the same one-hash/one-verify work profile.
-      await getArgon2TimingHash()
+      const parsed = parseArgon2idHash(storedHash)
+      let matched = false
+      if (parsed) matched = await verifyStoredArgon2id(password, storedHash)
+      else if (argon2InProfile) await verifyArgon2TimingHash(password)
       await bcryptCompare(password, BCRYPT_TIMING_EQUALIZER_HASH)
-      return false
+      return matched
     }
-    const bcryptHash = algorithm === 'bcrypt' ? storedHash : BCRYPT_TIMING_EQUALIZER_HASH
-    if (await bcryptCompare(password, bcryptHash)) return true
-    await verifyArgon2TimingHash(password)
-    return false
+    const matched = await bcryptCompare(password, algorithm === 'bcrypt' ? storedHash : BCRYPT_TIMING_EQUALIZER_HASH)
+    if (argon2InProfile) await verifyArgon2TimingHash(password)
+    return algorithm === 'bcrypt' && matched
   }
 
   const needsRehash = (storedHash: string): boolean => {
@@ -317,7 +401,7 @@ export function createPasswordHasher(
 
   const equalizeTiming = async (password: string): Promise<void> => {
     await bcryptCompare(password, BCRYPT_TIMING_EQUALIZER_HASH)
-    await verifyArgon2TimingHash(password)
+    if (argon2InProfile) await verifyArgon2TimingHash(password)
   }
 
   return {

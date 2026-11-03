@@ -41,7 +41,7 @@ Route every user and customer-portal password hash/verify through one `passwordH
 
 ## Risks
 
-- Timing equalizer: during migration, accounts still on bcrypt and absent accounts take different times under `argon2id`. Documented residual risk; default config unchanged.
+- Timing equalizer: superseded — `verify` now spends one outcome-independent work profile per configured algorithm (see spec Risks).
 - Downgrading OM below this version after enabling Argon2id breaks login for migrated users; documented (switch back to `bcrypt` first and let users log in, or reset passwords).
 - Native module availability: `@node-rs/argon2` ships prebuilt binaries for linux gnu/musl x64/arm64, macOS, Windows; loaded lazily, so bcrypt-only installs never load it.
 

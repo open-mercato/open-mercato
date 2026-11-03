@@ -4,7 +4,9 @@ import {
   DEFAULT_ARGON2ID_PARAMS,
   createPasswordHasher,
   detectPasswordHashAlgorithm,
+  PasswordHasherBusyError,
   getPasswordHasher,
+  isPasswordHasherBusyError,
   resolvePasswordHasherConfig,
   setPasswordHasher,
   type PasswordHasher,
@@ -41,6 +43,7 @@ describe('resolvePasswordHasherConfig', () => {
       algorithm: 'bcrypt',
       bcryptCost: 10,
       argon2id: { memoryCost: 19456, timeCost: 2, parallelism: 1 },
+      argon2Limits: { maxConcurrency: 4, maxQueue: 64 },
     })
     expect(DEFAULT_ARGON2ID_PARAMS).toEqual({ memoryCost: 19456, timeCost: 2, parallelism: 1 })
   })
@@ -74,6 +77,17 @@ describe('resolvePasswordHasherConfig', () => {
     } as NodeJS.ProcessEnv)
     expect(resolved.algorithm).toBe('bcrypt')
     expect(resolved.argon2id).toEqual(DEFAULT_ARGON2ID_PARAMS)
+  })
+
+  it('reads the Argon2 work limits from env and falls back for invalid values', () => {
+    expect(resolvePasswordHasherConfig({
+      OM_PASSWORD_ARGON2_MAX_CONCURRENCY: '8',
+      OM_PASSWORD_ARGON2_MAX_QUEUE: '200',
+    } as NodeJS.ProcessEnv).argon2Limits).toEqual({ maxConcurrency: 8, maxQueue: 200 })
+    expect(resolvePasswordHasherConfig({
+      OM_PASSWORD_ARGON2_MAX_CONCURRENCY: '0',
+      OM_PASSWORD_ARGON2_MAX_QUEUE: 'many',
+    } as NodeJS.ProcessEnv).argon2Limits).toEqual({ maxConcurrency: 4, maxQueue: 64 })
   })
 
   it.each([
@@ -201,143 +215,116 @@ describe('createPasswordHasher', () => {
     })
   })
 
-  it('does not load Argon2 for successful bcrypt-only work', async () => {
+  function fakeArgon2(timingHash = argon2Hash(FAST_ARGON2, phcBase64(16, 3), phcBase64(32, 4))) {
+    return {
+      timingHash,
+      hash: jest.fn(async () => timingHash),
+      verify: jest.fn(async (_candidate: string, _password: string) => false),
+    }
+  }
+
+  function bcryptCompareCount(spy: jest.SpyInstance): number {
+    return spy.mock.calls.length
+  }
+
+  it('never loads or runs Argon2 for any bcrypt-configured outcome on bcrypt or unknown hashes', async () => {
     const loadArgon2 = jest.fn()
     const hasher = createPasswordHasher(config(), { loadArgon2 })
     const stored = await hasher.hash('Secret#1')
-    await hasher.verify('Secret#1', stored)
+    await expect(hasher.verify('Secret#1', stored)).resolves.toBe(true)
+    await expect(hasher.verify('wrong', stored)).resolves.toBe(false)
+    await expect(hasher.verify('wrong', 'legacy-or-corrupted-hash')).resolves.toBe(false)
+    await expect(hasher.verify('wrong', '$argon2id$garbage')).resolves.toBe(false)
+    await hasher.equalizeTiming('wrong')
     hasher.needsRehash(stored)
     expect(loadArgon2).not.toHaveBeenCalled()
   })
 
-  it.each(['bcrypt', 'argon2id'] as const)(
-    'adds an Argon2id dummy verification to failed bcrypt checks under %s configuration',
-    async (algorithm) => {
-      const timingHash = argon2Hash()
-      const argon2 = {
-        hash: jest.fn(async () => timingHash),
-        verify: jest.fn(async () => false),
-      }
+  describe('uniform work profile', () => {
+    const bcryptjs = jest.requireActual<typeof import('bcryptjs')>('bcryptjs')
+    let compareSpy: jest.SpyInstance
+
+    beforeEach(() => {
+      compareSpy = jest.spyOn(bcryptjs, 'compare')
+    })
+
+    afterEach(() => compareSpy.mockRestore())
+
+    async function profileOf(
+      algorithm: 'bcrypt' | 'argon2id',
+      run: (hasher: PasswordHasher) => Promise<unknown>,
+    ) {
+      const argon2 = fakeArgon2()
+      const storedArgon = argon2Hash()
+      argon2.verify.mockImplementation(async (candidate: string, password: string) => candidate === storedArgon && password === 'Secret#1')
       const hasher = createPasswordHasher(config({ algorithm }), { loadArgon2: async () => argon2 })
-      const stored = await bcryptHash('Secret#1', 4)
-
-      await expect(hasher.verify('wrong', stored)).resolves.toBe(false)
-
-      expect(argon2.hash).toHaveBeenCalledTimes(1)
-      expect(argon2.verify).toHaveBeenCalledWith(timingHash, 'wrong')
-    },
-  )
-
-  it.each(['bcrypt', 'argon2id'] as const)(
-    'preserves successful Argon2id verification and adds no Argon2id dummy under %s configuration',
-    async (algorithm) => {
-      const stored = argon2Hash()
-      const argon2 = {
-        hash: jest.fn(async () => argon2Hash()),
-        verify: jest.fn(async (candidate: string) => candidate === stored),
-      }
-      const hasher = createPasswordHasher(config({ algorithm }), { loadArgon2: async () => argon2 })
-
-      await expect(hasher.verify('Secret#1', stored)).resolves.toBe(true)
-
-      expect(argon2.verify).toHaveBeenCalledTimes(1)
-      expect(argon2.hash).not.toHaveBeenCalled()
-    },
-  )
-
-  it.each(['bcrypt', 'argon2id'] as const)(
-    'runs one real Argon2id check, initializes the timing hash, and adds bcrypt failure work under %s configuration',
-    async (algorithm) => {
-      const stored = argon2Hash()
-      const timingHash = argon2Hash(FAST_ARGON2, phcBase64(16, 3), phcBase64(32, 4))
-      const argon2 = {
-        hash: jest.fn(async () => timingHash),
-        verify: jest.fn(async () => false),
-      }
-      const hasher = createPasswordHasher(config({ algorithm }), { loadArgon2: async () => argon2 })
-
-      await expect(hasher.verify('wrong', stored)).resolves.toBe(false)
-
-      expect(argon2.verify).toHaveBeenCalledTimes(1)
-      expect(argon2.verify).toHaveBeenCalledWith(stored, 'wrong')
-      expect(argon2.hash).toHaveBeenCalledTimes(1)
-
-      await expect(hasher.verify('wrong again', stored)).resolves.toBe(false)
-      expect(argon2.verify).toHaveBeenCalledTimes(2)
-      expect(argon2.hash).toHaveBeenCalledTimes(1)
-    },
-  )
-
-  it.each(['bcrypt', 'argon2id'] as const)(
-    'keeps cold and warm Argon2id operation counts equal for failed and absent accounts under %s configuration',
-    async (algorithm) => {
-      const makeArgon2 = () => ({
-        hash: jest.fn(async () => argon2Hash()),
-        verify: jest.fn(async () => false),
-      })
-      const failedAccountArgon2 = makeArgon2()
-      const absentAccountArgon2 = makeArgon2()
-      const failedAccountHasher = createPasswordHasher(config({ algorithm }), {
-        loadArgon2: async () => failedAccountArgon2,
-      })
-      const absentAccountHasher = createPasswordHasher(config({ algorithm }), {
-        loadArgon2: async () => absentAccountArgon2,
-      })
-
-      await failedAccountHasher.verify('wrong', argon2Hash())
-      await absentAccountHasher.equalizeTiming('wrong')
-      expect(failedAccountArgon2.hash).toHaveBeenCalledTimes(1)
-      expect(absentAccountArgon2.hash).toHaveBeenCalledTimes(1)
-      expect(failedAccountArgon2.verify).toHaveBeenCalledTimes(1)
-      expect(absentAccountArgon2.verify).toHaveBeenCalledTimes(1)
-
-      await failedAccountHasher.verify('wrong again', argon2Hash())
-      await absentAccountHasher.equalizeTiming('wrong again')
-      expect(failedAccountArgon2.hash).toHaveBeenCalledTimes(1)
-      expect(absentAccountArgon2.hash).toHaveBeenCalledTimes(1)
-      expect(failedAccountArgon2.verify).toHaveBeenCalledTimes(2)
-      expect(absentAccountArgon2.verify).toHaveBeenCalledTimes(2)
-    },
-  )
-
-  it.each([
-    ['malformed Argon2id', '$argon2id$garbage'],
-    ['unknown', 'legacy-or-corrupted-hash'],
-  ])('gives %s stored hashes the cold and warm dummy Argon2id profile', async (_label, storedHash) => {
-    const timingHash = argon2Hash()
-    const argon2 = {
-      hash: jest.fn(async () => timingHash),
-      verify: jest.fn(async () => false),
+      compareSpy.mockClear()
+      await run(hasher)
+      return { hash: argon2.hash.mock.calls.length, verify: argon2.verify.mock.calls.length, bcrypt: bcryptCompareCount(compareSpy), storedArgon }
     }
-    const hasher = createPasswordHasher(config(), { loadArgon2: async () => argon2 })
 
+    it.each(['bcrypt', 'argon2id'] as const)(
+      'spends identical cold-process work for match, mismatch, absent, malformed and unknown under %s',
+      async (algorithm) => {
+        const bcryptStored = await bcryptHash('Secret#1', 4)
+        const expected = algorithm === 'argon2id' ? { hash: 1, verify: 1, bcrypt: 1 } : { hash: 0, verify: 0, bcrypt: 1 }
+        const scenarios: Array<(hasher: PasswordHasher) => Promise<unknown>> = [
+          (hasher) => hasher.verify('Secret#1', bcryptStored),
+          (hasher) => hasher.verify('wrong', bcryptStored),
+          (hasher) => hasher.equalizeTiming('wrong'),
+          (hasher) => hasher.verify('wrong', 'legacy-or-corrupted-hash'),
+          (hasher) => hasher.verify('wrong', '$argon2id$garbage'),
+        ]
+        for (const scenario of scenarios) {
+          const profile = await profileOf(algorithm, scenario)
+          expect({ hash: profile.hash, verify: profile.verify, bcrypt: profile.bcrypt }).toEqual(expected)
+        }
+      },
+    )
+
+    it('gives a correct and a wrong password on an Argon2id hash the same profile as an absent account', async () => {
+      const storedArgon = argon2Hash()
+      const correct = await profileOf('argon2id', (hasher) => hasher.verify('Secret#1', storedArgon))
+      const wrong = await profileOf('argon2id', (hasher) => hasher.verify('wrong', storedArgon))
+      const absent = await profileOf('argon2id', (hasher) => hasher.equalizeTiming('wrong'))
+      expect(correct).toEqual(wrong)
+      expect({ hash: correct.hash, verify: correct.verify, bcrypt: correct.bcrypt }).toEqual({ hash: absent.hash, verify: absent.verify, bcrypt: absent.bcrypt })
+    })
+
+    it('keeps warm-process work equal: the Argon2id timing hash is created once and reused', async () => {
+      const argon2 = fakeArgon2()
+      const stored = argon2Hash()
+      const hasher = createPasswordHasher(config({ algorithm: 'argon2id' }), { loadArgon2: async () => argon2 })
+      await hasher.verify('wrong', stored)
+      await hasher.equalizeTiming('wrong')
+      await hasher.verify('wrong', await bcryptHash('Secret#1', 4))
+      expect(argon2.hash).toHaveBeenCalledTimes(1)
+      expect(argon2.verify).toHaveBeenCalledTimes(3)
+      expect(argon2.verify).toHaveBeenCalledWith(stored, 'wrong')
+      expect(argon2.verify).toHaveBeenCalledWith(argon2.timingHash, 'wrong')
+    })
+  })
+
+  it('still verifies a legacy Argon2id hash after rolling back to bcrypt', async () => {
+    const stored = argon2Hash()
+    const argon2 = fakeArgon2()
+    argon2.verify.mockImplementation(async (candidate: string) => candidate === stored)
+    const hasher = createPasswordHasher(config(), { loadArgon2: async () => argon2 })
+    await expect(hasher.verify('Secret#1', stored)).resolves.toBe(true)
+    expect(argon2.hash).not.toHaveBeenCalled()
+  })
+
+  it('treats a throwing Argon2id verification as a mismatch without extra work', async () => {
+    const storedHash = argon2Hash()
+    const argon2 = fakeArgon2()
+    argon2.verify.mockImplementation(async (candidate: string) => {
+      if (candidate === storedHash) throw new Error('verification failed')
+      return false
+    })
+    const hasher = createPasswordHasher(config({ algorithm: 'argon2id' }), { loadArgon2: async () => argon2 })
     await expect(hasher.verify('wrong', storedHash)).resolves.toBe(false)
     expect(argon2.hash).toHaveBeenCalledTimes(1)
     expect(argon2.verify).toHaveBeenCalledTimes(1)
-    expect(argon2.verify).toHaveBeenLastCalledWith(timingHash, 'wrong')
-
-    await expect(hasher.verify('wrong again', storedHash)).resolves.toBe(false)
-    expect(argon2.hash).toHaveBeenCalledTimes(1)
-    expect(argon2.verify).toHaveBeenCalledTimes(2)
-    expect(argon2.verify).toHaveBeenLastCalledWith(timingHash, 'wrong again')
-  })
-
-  it('falls back to the dummy profile when a structurally valid Argon2id verification throws', async () => {
-    const storedHash = argon2Hash()
-    const timingHash = argon2Hash(FAST_ARGON2, phcBase64(16, 3), phcBase64(32, 4))
-    const argon2 = {
-      hash: jest.fn(async () => timingHash),
-      verify: jest.fn(async (candidate: string) => {
-        if (candidate === storedHash) throw new Error('verification failed')
-        return false
-      }),
-    }
-    const hasher = createPasswordHasher(config(), { loadArgon2: async () => argon2 })
-
-    await expect(hasher.verify('wrong', storedHash)).resolves.toBe(false)
-    expect(argon2.hash).toHaveBeenCalledTimes(1)
-    expect(argon2.verify).toHaveBeenCalledTimes(2)
-    expect(argon2.verify).toHaveBeenLastCalledWith(timingHash, 'wrong')
   })
 
   it('surfaces a missing Argon2 implementation instead of reporting a wrong password', async () => {
@@ -349,19 +336,91 @@ describe('createPasswordHasher', () => {
     await expect(hasher.verify('Secret#1', '$argon2id$v=19$m=1024,t=1,p=1$c2FsdA$aGFzaA')).rejects.toThrow('@node-rs/argon2')
   })
 
-  it.each(['bcrypt', 'argon2id'] as const)(
-    'equalizes timing with cached Argon2id work as well as bcrypt under %s configuration',
-    async (algorithm) => {
-      const timingHash = argon2Hash()
-      const argon2 = { hash: jest.fn(async () => timingHash), verify: jest.fn(async () => false) }
-      const hasher = createPasswordHasher(config({ algorithm }), { loadArgon2: async () => argon2 })
-      await hasher.equalizeTiming('Secret#1')
-      await hasher.equalizeTiming('Other#2')
-      expect(argon2.hash).toHaveBeenCalledTimes(1)
-      expect(argon2.verify).toHaveBeenCalledTimes(2)
-      expect(argon2.verify.mock.calls[1]).toEqual([timingHash, 'Other#2'])
-    },
-  )
+  describe('bounded Argon2 work', () => {
+    function deferredArgon2() {
+      let running = 0
+      let peak = 0
+      const releases: Array<() => void> = []
+      const gate = () => new Promise<void>((resolve) => {
+        running += 1
+        peak = Math.max(peak, running)
+        releases.push(() => {
+          running -= 1
+          resolve()
+        })
+      })
+      const argon2 = {
+        hash: jest.fn(async () => {
+          await gate()
+          return argon2Hash()
+        }),
+        verify: jest.fn(async () => {
+          await gate()
+          return false
+        }),
+      }
+      const releaseAll = async () => {
+        for (let round = 0; round < 50; round += 1) {
+          await new Promise((resolve) => setImmediate(resolve))
+          releases.splice(0).forEach((release) => release())
+        }
+      }
+      return { argon2, releaseAll, peak: () => peak, running: () => running }
+    }
+
+    const flush = () => new Promise((resolve) => setImmediate(resolve))
+
+    it('never runs more Argon2 operations at once than the concurrency limit during a burst', async () => {
+      const fake = deferredArgon2()
+      const hasher = createPasswordHasher(
+        config({ algorithm: 'argon2id', argon2Limits: { maxConcurrency: 2, maxQueue: 100 } }),
+        { loadArgon2: async () => fake.argon2 },
+      )
+      const burst = Array.from({ length: 20 }, (_unused, index) => hasher.hash(`Secret#${index}`))
+      await flush()
+      expect(fake.running()).toBe(2)
+      await fake.releaseAll()
+      await Promise.all(burst)
+      expect(fake.peak()).toBe(2)
+      expect(fake.argon2.hash).toHaveBeenCalledTimes(20)
+    })
+
+    it('rejects work beyond the queue bound with PasswordHasherBusyError and recovers afterwards', async () => {
+      const fake = deferredArgon2()
+      const hasher = createPasswordHasher(
+        config({ algorithm: 'argon2id', argon2Limits: { maxConcurrency: 1, maxQueue: 2 } }),
+        { loadArgon2: async () => fake.argon2 },
+      )
+      const accepted = [hasher.hash('a'), hasher.hash('b'), hasher.hash('c')]
+      await flush()
+      const rejected = hasher.hash('d')
+      await expect(rejected).rejects.toBeInstanceOf(PasswordHasherBusyError)
+      await expect(rejected.catch((error: unknown) => isPasswordHasherBusyError(error))).resolves.toBe(true)
+      await fake.releaseAll()
+      await Promise.all(accepted)
+      expect(fake.peak()).toBe(1)
+      const after = hasher.hash('e')
+      await fake.releaseAll()
+      await expect(after).resolves.toMatch(/^\$argon2id\$/)
+    })
+
+    it('rejects an overflowing login verification instead of reporting a wrong password', async () => {
+      const fake = deferredArgon2()
+      const hasher = createPasswordHasher(
+        config({ algorithm: 'argon2id', argon2Limits: { maxConcurrency: 1, maxQueue: 1 } }),
+        { loadArgon2: async () => fake.argon2 },
+      )
+      const stored = argon2Hash()
+      const warmUp = hasher.equalizeTiming('warm-up')
+      await fake.releaseAll()
+      await warmUp
+      const pending = [hasher.verify('wrong', stored), hasher.verify('wrong', stored)]
+      await flush()
+      await expect(hasher.verify('wrong', stored)).rejects.toBeInstanceOf(PasswordHasherBusyError)
+      await fake.releaseAll()
+      await expect(Promise.all(pending)).resolves.toEqual([false, false])
+    })
+  })
 })
 
 describe('getPasswordHasher / setPasswordHasher', () => {

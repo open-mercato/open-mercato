@@ -3,6 +3,18 @@ import { randomUUID } from 'crypto'
 import { registerApiInterceptors } from '@open-mercato/shared/lib/crud/interceptor-registry'
 import { POST } from '@open-mercato/core/modules/auth/api/login'
 import { AuthSessionRejectedError } from '@open-mercato/core/modules/auth/lib/sessionEligibility'
+import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
+import { compare as bcryptCompare, hash as bcryptHash } from 'bcryptjs'
+import {
+  PasswordHasherBusyError,
+  createPasswordHasher,
+  setPasswordHasher,
+} from '@open-mercato/shared/lib/auth/passwordHasher'
+
+jest.mock('bcryptjs', () => {
+  const actual = jest.requireActual('bcryptjs')
+  return { ...actual, compare: jest.fn((...args: [string, string]) => actual.compare(...args)) }
+})
 
 const tenantId = randomUUID()
 const orgId = randomUUID()
@@ -450,5 +462,91 @@ describe('account enumeration hardening (issue #2242)', () => {
     const res = await POST(loginRequest())
     expect(res.status).toBe(401)
     expect(authServiceMock.verifyPassword).toHaveBeenCalledWith(null, 'secret')
+  })
+})
+
+describe('POST /api/auth/login — password work profile across rejections', () => {
+  const realVerify = (user: unknown, password: string) =>
+    new AuthService({} as never).verifyPassword(user as never, password)
+  let storedHash = ''
+
+  beforeAll(async () => {
+    storedHash = await bcryptHash('secret', 4)
+  })
+
+  beforeEach(() => {
+    registerApiInterceptors([])
+    jest.clearAllMocks()
+    mockTenantLookup.mockResolvedValue({ id: tenantId })
+    authServiceMock.verifyPassword.mockImplementation(realVerify as never)
+  })
+
+  afterEach(() => {
+    authServiceMock.verifyPassword.mockImplementation(async () => true)
+    setPasswordHasher(null)
+  })
+
+  function installCountingHasher() {
+    const argon2 = {
+      hash: jest.fn(async () => '$argon2id$v=19$m=1024,t=1,p=1$AQEBAQEBAQEBAQEBAQEBAQ$AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI'),
+      verify: jest.fn(async () => false),
+    }
+    setPasswordHasher(createPasswordHasher(
+      { algorithm: 'argon2id', bcryptCost: 4, argon2id: { memoryCost: 1024, timeCost: 1, parallelism: 1 } },
+      { loadArgon2: async () => argon2 },
+    ))
+    return argon2
+  }
+
+  async function profileOf(setup: () => void, password: string) {
+    const argon2 = installCountingHasher()
+    jest.mocked(bcryptCompare).mockClear()
+    setup()
+    const response = await POST(new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      body: makeFormData({ email: 'user@example.com', password }),
+    }))
+    return {
+      status: response.status,
+      work: {
+        argon2Hash: argon2.hash.mock.calls.length,
+        argon2Verify: argon2.verify.mock.calls.length,
+        bcrypt: jest.mocked(bcryptCompare).mock.calls.length,
+      },
+    }
+  }
+
+  const activeUser = () => ({ id: 1, email: 'user@example.com', passwordHash: storedHash, tenantId, organizationId: orgId })
+
+  test('a correct password on a deactivated or inactive-tenant account costs the same as a wrong password', async () => {
+    const wrongPassword = await profileOf(() => {
+      authServiceMock.findUsersByEmail.mockResolvedValueOnce([activeUser()])
+    }, 'wrong-password')
+    const unknownAccount = await profileOf(() => {
+      authServiceMock.findUsersByEmail.mockResolvedValueOnce([])
+    }, 'secret')
+    const deactivated = await profileOf(() => {
+      authServiceMock.findUsersByEmail.mockResolvedValueOnce([{ ...activeUser(), isConfirmed: false }])
+    }, 'secret')
+    const inactiveTenant = await profileOf(() => {
+      authServiceMock.findUsersByEmail.mockResolvedValueOnce([activeUser()])
+      mockTenantLookup.mockResolvedValueOnce(null as never)
+    }, 'secret')
+
+    expect(wrongPassword).toEqual({ status: 401, work: { argon2Hash: 1, argon2Verify: 1, bcrypt: 1 } })
+    expect(unknownAccount).toEqual(wrongPassword)
+    expect(deactivated).toEqual(wrongPassword)
+    expect(inactiveTenant).toEqual(wrongPassword)
+  })
+
+  test('answers a full password-hashing queue with a generic 503 and Retry-After', async () => {
+    authServiceMock.verifyPassword.mockRejectedValueOnce(new PasswordHasherBusyError() as never)
+    const response = await POST(new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      body: makeFormData({ email: 'user@example.com', password: 'secret' }),
+    }))
+    expect(response.status).toBe(503)
+    expect(response.headers.get('retry-after')).toBe('1')
+    expect(authServiceMock.createSession).not.toHaveBeenCalled()
   })
 })
