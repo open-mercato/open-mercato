@@ -34,7 +34,7 @@ import {
   type CustomFieldDefinitionSummary,
   type ResolvedCustomFieldDefinitions,
 } from '../crud/custom-field-definition-index'
-import { warnOnCiphertextLikeFallback } from './ciphertext-search-warning'
+import { warnOnCiphertextLikeFallback, type CiphertextSearchWarning } from './ciphertext-search-warning'
 import {
   matchEncryptedSortFields,
   resolveEncryptedFieldNames,
@@ -581,6 +581,7 @@ export class BasicQueryEngine implements QueryEngine {
         encryptedLikeFields = null
       }
     }
+    const ciphertextSearchWarnings: CiphertextSearchWarning[] = []
     if (searchFilters.length) {
       const fields = searchFilters.map((filter) => String(filter.field))
       this.logSearchDebug('search:init', {
@@ -625,6 +626,7 @@ export class BasicQueryEngine implements QueryEngine {
             ? 'no-indexable-tokens'
             : searchConfig.enabled ? 'no-search-tokens' : 'search-disabled',
           service: this.getEncryptionService(),
+          onDiagnostic: (warning) => ciphertextSearchWarnings.push(warning),
         })
       }
     }
@@ -648,6 +650,7 @@ export class BasicQueryEngine implements QueryEngine {
           ? 'no-indexable-tokens'
           : searchConfig.enabled ? 'no-search-tokens' : 'search-disabled',
         service: this.getEncryptionService(),
+        onDiagnostic: (warning) => ciphertextSearchWarnings.push(warning),
       })
     }
     const recordIdColumn = qualify('id')
@@ -1701,6 +1704,9 @@ export class BasicQueryEngine implements QueryEngine {
       queryResult.customFieldDefinitions = resolvedCustomFieldDefinitions
     }
 
+    if (ciphertextSearchWarnings.length) {
+      queryResult.meta = { ...queryResult.meta, ciphertextSearchWarnings }
+    }
     return queryResult
   }
 

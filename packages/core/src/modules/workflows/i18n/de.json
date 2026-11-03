@@ -2029,6 +2029,7 @@
   "workflows.validation.timerDurationOrUntilRequired": "„Auf Timer warten“ erfordert entweder „Dauer“ oder „Warten bis“.",
   "workflows.validation.timerDurationXorUntil": "„Auf Timer warten“ akzeptiert „Dauer“ oder „Warten bis“, nicht beides. Löschen Sie eines davon.",
   "workflows.validation.uniqueId": "ID muss eindeutig sein",
+  "workflows.validation.unsafeMappingTarget": "Zielpfade für Zuordnungen dürfen keine Segmente namens __proto__, constructor oder prototype enthalten",
   "workflows.validation.untilMustBeFuture": "„Warten bis“ muss ein Datum und eine Uhrzeit in der Zukunft sein.",
   "workflows.validation.workflowIdFormat": "Workflow-ID darf nur Kleinbuchstaben, Zahlen, Bindestriche und Unterstriche enthalten",
   "workflows.validation.workflowIdMaxLength": "Workflow-ID darf maximal 50 Zeichen lang sein",
