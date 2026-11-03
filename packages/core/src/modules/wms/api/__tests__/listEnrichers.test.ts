@@ -319,6 +319,32 @@ describe('attachVendorLabelsToListItems', () => {
     )
     expect(payload.items[0]).toMatchObject({ vendor_name: 'Acme Supplies' })
   })
+
+  it('is a no-op when the customers entity registry key is missing', async () => {
+    const queryEngine = createQueryEngine([
+      { id: 'vendor-1', display_name: 'Acme Supplies' },
+    ])
+    const payload = {
+      items: [{
+        id: 'asn-1',
+        vendor_id: 'vendor-1',
+      }] as Array<Record<string, unknown>>,
+    }
+    const mockPath = '../../../../../jest.mocks/entities.ids.generated.js'
+    let attachWithoutCustomers: typeof attachVendorLabelsToListItems | undefined
+    jest.isolateModules(() => {
+      jest.doMock(mockPath, () => ({ E: {}, M: {} }))
+      attachWithoutCustomers = require('../listEnrichers').attachVendorLabelsToListItems
+    })
+    jest.dontMock(mockPath)
+
+    await expect(
+      attachWithoutCustomers!(payload, createCtx(queryEngine)),
+    ).resolves.toBeUndefined()
+
+    expect(queryEngine.query).not.toHaveBeenCalled()
+    expect(payload.items[0]).not.toHaveProperty('vendor_name')
+  })
 })
 
 describe('attachReservationSourceLabelsToListItems', () => {
