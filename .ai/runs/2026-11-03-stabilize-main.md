@@ -19,9 +19,12 @@ Non-goals: release changes, unrelated refactors, weakening checks, merging into 
 Latest main CI is running; historical failures may already be fixed. Local full validation depends on available dependencies and infrastructure. Snapshot investigation delegated read-only to cezar task 0d7135f4; final review reserved as second and final subtask.
 
 ## Evidence
+- Catalog trace proves failing warning case sends two uploads but no transfer request and shows plain success. Helper now waits for enabled upload control and both rendered media previews before submit (cd4fde1bc9).
+- Historical shard 8 failed during initialization with query-index coverage deadlock; existing main commit 45dc7d20f5 already fixes that cause.
+- Runner: local (neither compose probe found a running app). First configured gate command initially blocked by absent worktree install state. Installing isolated worktree dependencies with immutable lockfile.
 - Snapshot root cause: standalone app workers disabled but test process defaults to managed workers; fixed both snapshot lanes in fe718ca53a.
 - Parsed-YAML regression fails before fix and passes after. Eight focused workflow tests pass locally.
-- Full workflow test file locally blocked by existing shared esbuild host 0.28.1/binary 0.28.2 mismatch; no application dependencies changed.
+- All nine workflow tests pass after isolated dependencies became available. Immutable install exits with filesystem quota errno -122; package build can run and is in progress. No lockfile or application dependencies changed.
 - Historical CI 41591269753 shard 4 has media-warning flakes and one final failure; investigate current run before altering runtime behavior.
 
 ## Progress
@@ -31,7 +34,7 @@ PR: #8585
 
 ### Phase 1: Diagnosis and correction
 
-- [ ] 1.1 Correlate failed jobs with current main and implement regression fixes with tests.
+- [x] 1.1 Correlate failed jobs with current main and implement regression fixes with tests. — fe718ca53a, cd4fde1bc9
 
 ### Phase 2: Verification and review
 
