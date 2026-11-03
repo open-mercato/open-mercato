@@ -646,12 +646,14 @@ async function assertNoActiveSerialBalance(
   serialNumbers: string[],
 ): Promise<void> {
   if (serialNumbers.length === 0) return
-  const connection = em.getConnection()
-  for (const serialNumber of serialNumbers) {
-    await connection.execute(ACTIVE_SERIAL_LOCK_SQL, [
+  // em.execute keeps the transaction-scoped advisory lock and FOR UPDATE inside the
+  // caller's transaction. Sorted order keeps concurrent multi-serial receipts deadlock-free.
+  const orderedSerials = [...serialNumbers].sort()
+  for (const serialNumber of orderedSerials) {
+    await em.execute(ACTIVE_SERIAL_LOCK_SQL, [
       activeSerialLockKey(scope, catalogVariantId, serialNumber),
     ])
-    const rows = await connection.execute<Array<{ id: string }>>(
+    const rows = await em.execute<Array<{ id: string }>>(
       `select id
        from wms_inventory_balances
        where organization_id = ?

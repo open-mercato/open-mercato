@@ -60,6 +60,7 @@ function createEm() {
     getConnection: jest.fn(() => ({
       execute: jest.fn(async () => []),
     })),
+    execute: jest.fn(async (_sql: string, _params?: unknown[]): Promise<unknown[]> => []),
   }
   em.fork.mockReturnValue(em)
   em.transactional.mockImplementation(async (cb: (trx: typeof em) => Promise<unknown>) => cb(em))
@@ -364,11 +365,13 @@ describe('wms.asns.receive-line serial identity', () => {
 
   it('rejects an active serial already on hand for the variant before writing', async () => {
     const em = createEm()
-    const execute = jest.fn(async (sql: string) => {
+    const execute = em.execute
+    execute.mockImplementation(async (sql: string) => {
       if (String(sql).includes('quantity_on_hand')) return [{ id: 'balance-active' }]
       return []
     })
-    em.getConnection.mockReturnValue({ execute })
+    const connectionExecute = jest.fn(async () => [])
+    em.getConnection.mockReturnValue({ execute: connectionExecute })
     const receivingLine = line()
     stubReceiveLookups(em, receivingLine)
 
@@ -390,12 +393,38 @@ describe('wms.asns.receive-line serial identity', () => {
     const balanceCall = execute.mock.calls.find((call) => String(call[0]).includes('quantity_on_hand'))
     expect(String(balanceCall?.[0])).toContain('for update')
     expect(balanceCall?.[1]).toEqual([ORG, TENANT, VARIANT_ID, 'SN-X'])
+    expect(
+      connectionExecute.mock.calls.some((call: unknown[]) =>
+        /pg_advisory_xact_lock|quantity_on_hand/.test(String(call[0])),
+      ),
+    ).toBe(false)
+  })
+
+  it('locks active serials in sorted order inside the receive transaction', async () => {
+    const em = createEm()
+    const execute = em.execute
+    const receivingLine = line({ expectedQty: '2' })
+    stubReceiveLookups(em, receivingLine)
+
+    const handler = commandRegistry.get('wms.asns.receive-line')
+    await handler!.execute(
+      receiveInput({ receivedQty: 2, targetReceivedQty: 2, serialNumbers: ['SN-B', 'SN-A'] }),
+      createCtx(em) as never,
+    )
+
+    const lockedKeys = execute.mock.calls
+      .filter((call) => String(call[0]).includes('pg_advisory_xact_lock'))
+      .map((call) => call[1])
+    expect(lockedKeys).toEqual([
+      [`wms:active-serial:${ORG}:${TENANT}:${VARIANT_ID}:SN-A`],
+      [`wms:active-serial:${ORG}:${TENANT}:${VARIANT_ID}:SN-B`],
+    ])
+    expect(applyInventoryReceiveInTransaction).toHaveBeenCalledTimes(2)
   })
 
   it('receives a fresh serial and ignores historical serials with no on-hand balance', async () => {
     const em = createEm()
-    const execute = jest.fn(async () => [])
-    em.getConnection.mockReturnValue({ execute })
+    const execute = em.execute
     const receivingLine = line({ expectedQty: '1' })
     stubReceiveLookups(em, receivingLine)
 
@@ -417,11 +446,11 @@ describe('wms.asns.receive-line serial identity', () => {
 
   it('does not treat an idempotent replay as a duplicate active serial', async () => {
     const em = createEm()
-    const execute = jest.fn(async (sql: string) => {
+    const execute = em.execute
+    execute.mockImplementation(async (sql: string) => {
       if (String(sql).includes('quantity_on_hand')) return [{ id: 'balance-active' }]
       return []
     })
-    em.getConnection.mockReturnValue({ execute })
     const receivingLine = line({
       expectedQty: '1',
       receivedQty: '1',
