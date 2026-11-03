@@ -228,7 +228,7 @@ test.describe('TC-EXAMPLE-017: the module\'s bound DataTable and CrudForm hosts,
       const titleInput = page.locator('[data-crud-field-id="title"] input').first()
       await expect(page.getByText('Example Injection Widget')).toBeVisible({ timeout: 20_000 })
       await expect.poll(() => logs.some((entry) => entry.includes('Form loaded'))).toBe(true)
-      await page.locator('[data-crud-field-id="cf_priority"] input[type="number"]').first().fill('3')
+      await page.locator('[data-crud-field-id="cf_priority"] input').first().fill('3')
       await page.locator('[data-crud-field-id="cf_severity"]').getByRole('combobox').first().click()
       await page.getByRole('option', { name: 'Medium' }).click()
 
@@ -557,7 +557,7 @@ test.describe('TC-EXAMPLE-017: the module\'s bound DataTable and CrudForm hosts,
       // bulk action resolved through that chain, so its presence is the binding assertion.
       await expect(page.locator('thead').getByRole('checkbox')).toBeVisible()
       await page.locator('tbody tr').first().getByRole('checkbox').check()
-      await expect(page.getByRole('button', { name: /Mark selected todos done/i })).toBeVisible()
+      await expect(page.getByRole('button', { name: /Mark selected todos done/i }).first()).toBeVisible()
     } finally {
       await deleteEntityIfExists(request, token, TODOS_API, todoId)
     }

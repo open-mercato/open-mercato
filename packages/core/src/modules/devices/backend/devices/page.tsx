@@ -229,7 +229,8 @@ export default function DevicesAdminListPage() {
     <Page>
       <PageBody>
         <DataTable
-          title={t('devices.list.title')}
+        title={t('devices.list.title')}
+        titleHeadingLevel={1}
           actions={(
             <Button asChild>
               <Link href="/backend/devices/create">{t('devices.list.actions.register')}</Link>

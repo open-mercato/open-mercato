@@ -281,7 +281,8 @@ export default function CurrenciesPage() {
     <Page>
       <PageBody>
         <DataTable
-          title={t('currencies.list.title')}
+        title={t('currencies.list.title')}
+        titleHeadingLevel={1}
           columns={columns}
           data={rows}
           searchValue={search}

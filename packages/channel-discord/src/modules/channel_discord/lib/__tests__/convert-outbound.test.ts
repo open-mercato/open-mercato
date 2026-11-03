@@ -17,6 +17,24 @@ describe('convertOutboundForDiscord', () => {
     expect(result.content.text).not.toContain('<')
   })
 
+  it('sanitizes executable markup before converting HTML', async () => {
+    const result = await convertOutboundForDiscord({
+      body: '<p>Safe</p><script>alert(1)</script><img src=x onerror=alert(2)>',
+      bodyFormat: 'html',
+    })
+
+    expect(result.content.text).toBe('Safe')
+  })
+
+  it('decodes HTML entities exactly once', async () => {
+    const result = await convertOutboundForDiscord({
+      body: '<p>&amp;lt;script&amp;gt;</p>',
+      bodyFormat: 'html',
+    })
+
+    expect(result.content.text).toBe('&lt;script&gt;')
+  })
+
   it('clamps content to the 2000-char limit', async () => {
     const result = await convertOutboundForDiscord({ body: 'x'.repeat(5000), bodyFormat: 'text' })
     expect((result.content.text ?? '').length).toBe(2000)

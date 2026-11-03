@@ -41,16 +41,16 @@ describe('staff time-entry CRUD cache invalidation (#4970)', () => {
     process.env = ORIGINAL_ENV
   })
 
-  it('derives the cache resource from the same create command id the CRUD route registers', async () => {
+  it('derives the cache resource from the same events config the CRUD route declares', async () => {
     const { staffTimeEntryCacheResource } = await loadHelper()
-    const { staffTimeEntryCommandIds } = await import('../../crud')
-    const { canonicalizeResourceTag, deriveResourceFromCommandId } = await import(
-      '@open-mercato/shared/lib/crud/cache'
-    )
+    const { staffTimeEntryCrudEvents } = await import('../../crud')
+    const { canonicalizeResourceTag } = await import('@open-mercato/shared/lib/crud/cache')
 
-    expect(staffTimeEntryCacheResource).toBe('staff.timesheet')
+    expect(staffTimeEntryCacheResource).toBe('staff.timesheets.time.entry')
     expect(staffTimeEntryCacheResource).toBe(
-      canonicalizeResourceTag(deriveResourceFromCommandId(staffTimeEntryCommandIds.create)),
+      canonicalizeResourceTag(
+        `${staffTimeEntryCrudEvents.module}.${staffTimeEntryCrudEvents.entity}`,
+      ),
     )
   })
 
@@ -82,7 +82,7 @@ describe('staff time-entry CRUD cache invalidation (#4970)', () => {
       expect(flushedTags).toContain(tag)
     }
     expect(flushedTags).toContain(
-      `crud:staff.timesheet:tenant:${tenantId}:org:${organizationId}:collection`,
+      `crud:staff.timesheets.time.entry:tenant:${tenantId}:org:${organizationId}:collection`,
     )
   })
 

@@ -186,7 +186,8 @@ export default function SsoConfigListPage() {
           </div>
         ) : (
           <DataTable<SsoConfigRow>
-            title={t('sso.admin.title', 'Single Sign-On')}
+        title={t('sso.admin.title', 'Single Sign-On')}
+        titleHeadingLevel={1}
             actions={canCreateNew ? (
               <Button asChild size="sm">
                 <Link href="/backend/sso/config/new">

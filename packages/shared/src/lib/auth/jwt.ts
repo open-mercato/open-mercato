@@ -118,6 +118,15 @@ function inspectSecret(secret: string | undefined | null): JwtSecretViolation | 
   return null
 }
 
+/**
+ * True when `secret` would be refused by the production signing-secret policy: missing, a
+ * published placeholder, or shorter than the minimum length. Lets tooling that launches the app
+ * (e.g. the ephemeral integration runner) swap in a safe value instead of booting into a crash.
+ */
+export function isUnsafeJwtSecret(secret?: string | null): boolean {
+  return inspectSecret(secret) !== null
+}
+
 function describeViolation(name: string, violation: JwtSecretViolation): string {
   switch (violation) {
     case 'missing':

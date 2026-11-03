@@ -2,8 +2,8 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { ArrowLeft, Check, CircleAlert, Info, Paperclip, RefreshCw, ShieldCheck, Trash2, TriangleAlert } from 'lucide-react'
+import { replaceWithPageReload } from '@open-mercato/core/modules/portal/lib/navigation'
 import { useLocale, useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { localizeDictionaryLabel } from '@open-mercato/core/modules/warranty_claims/lib/dictionaryLabels'
 import { formatQuantity } from '@open-mercato/core/modules/warranty_claims/lib/quantity'
@@ -93,6 +93,8 @@ type AttachmentResponse = { items: PortalAttachment[] }
 type MutationOkResponse = { ok: boolean; error?: string }
 type UploadResponse = MutationOkResponse & { item?: PortalAttachment }
 type ClaimActionResponse = MutationOkResponse & { claimId?: string; status?: string }
+type PortalOption = { value: string; label: string }
+type PortalOptionsResponse = { ok: boolean; result?: { reasons: PortalOption[] } }
 
 type PortalClaimAction = 'submit' | 'withdraw'
 
@@ -248,10 +250,12 @@ function buildTrackerSteps(claim: PortalClaim, t: TranslateFn, locale: string): 
   })
 }
 
-function buildClaimTitle(claim: PortalClaim, t: TranslateFn): string {
+function buildClaimTitle(claim: PortalClaim, reasonOptions: PortalOption[], t: TranslateFn): string {
   const typeLabel = t(`warranty_claims.claimType.${claim.claimType}`)
   if (claim.reasonCode) {
-    const reasonLabel = localizeDictionaryLabel(t, 'reason', claim.reasonCode, claim.reasonCode)
+    const reasonCode = claim.reasonCode
+    const dictionaryLabel = reasonOptions.find((option) => option.value === reasonCode)?.label ?? reasonCode
+    const reasonLabel = localizeDictionaryLabel(t, 'reason', reasonCode, dictionaryLabel)
     return t('warranty_claims.portal.tracker.titleWithReason', { reason: reasonLabel, type: typeLabel })
   }
   return t('warranty_claims.portal.tracker.titleFallback', { type: typeLabel })
@@ -330,7 +334,6 @@ const DARK_BUTTON_CLASS = 'rounded-md px-3 py-2 text-sm font-medium'
 export default function WarrantyClaimPortalDetailPage({ params }: Props) {
   const t = useT()
   const locale = useLocale()
-  const router = useRouter()
   const { auth } = usePortalContext()
   const { user, loading } = auth
   const guardedMutation = useGuardedMutation<Record<string, unknown>>({
@@ -341,6 +344,7 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
   const [claim, setClaim] = React.useState<PortalClaim | null>(null)
   const [events, setEvents] = React.useState<PortalClaimEvent[]>([])
   const [attachments, setAttachments] = React.useState<PortalAttachment[]>([])
+  const [reasonOptions, setReasonOptions] = React.useState<PortalOption[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [notFound, setNotFound] = React.useState(false)
@@ -354,11 +358,13 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
   const replacementInputRef = React.useRef<HTMLInputElement | null>(null)
   const replacementTargetRef = React.useRef<PortalAttachment | null>(null)
 
+  // Leaving an authenticated page for the login page crosses the public/authenticated
+  // boundary, so it must be a full page load — see `replaceWithPageReload`.
   React.useEffect(() => {
     if (!loading && !user) {
-      router.replace(`/${params.orgSlug}/portal/login`)
+      replaceWithPageReload(`/${params.orgSlug}/portal/login`)
     }
-  }, [loading, user, router, params.orgSlug])
+  }, [loading, user, params.orgSlug])
 
   const refreshEvents = React.useCallback(async (claimId: string) => {
     const result = await apiCall<EventResponse>(`/api/warranty_claims/portal/events?claimId=${encodeURIComponent(claimId)}`)
@@ -400,6 +406,20 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
   React.useEffect(() => {
     if (user) void loadClaim()
   }, [loadClaim, user])
+
+  React.useEffect(() => {
+    if (!user) return
+    let cancelled = false
+    apiCall<PortalOptionsResponse>('/api/warranty_claims/portal/options')
+      .then((result) => {
+        if (cancelled) return
+        setReasonOptions(result.result?.ok ? result.result.result?.reasons ?? [] : [])
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [user])
 
   const submitComment = React.useCallback(async () => {
     if (!claim || commentSubmitting) return
@@ -740,7 +760,7 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
             ) : null}
           </div>
           <h1 className="text-xl font-bold text-foreground">
-            {buildClaimTitle(claim, t)}
+            {buildClaimTitle(claim, reasonOptions, t)}
           </h1>
           <p className="text-sm text-muted-foreground">
             {buildClaimSubtitle(claim, t, locale)}

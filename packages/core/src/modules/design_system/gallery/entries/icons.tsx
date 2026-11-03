@@ -1,124 +1,11 @@
 import * as React from 'react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { SourceIconCatalogue, sourceIconCatalogueCode } from '../demos/source-icons'
+import { SourceArtworkCatalogue, sourceArtworkCode } from '../demos/source-artwork'
+import { IconGrid } from '../demos/registered-icons'
 import { LUCIDE_ICON_REGISTRY } from '@open-mercato/ui/backend/icons/lucideRegistry'
-import { SearchInput } from '@open-mercato/ui/primitives/search-input'
-import {
-  Popover,
-  PopoverClose,
-  PopoverContent,
-  PopoverTrigger,
-} from '@open-mercato/ui/primitives/popover'
-import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import type { GalleryEntry } from '../types'
 
-// Mirrors the DS Figma icon sheet (node 2716:25504, "Lucide icons"): a plain
-// grid of outline icons with the name beneath each. The gallery shows the
-// icons REGISTERED in the string-icon registry — the set page.meta.ts `icon`
-// accepts; components import from lucide-react directly.
-
 const FIGMA_ICONS_NODE = '2716:25504'
-
-function pascalCase(registryName: string): string {
-  return registryName
-    .split(/[-_]/)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join('')
-}
-
-// Clicking a tile opens an explicit two-option menu instead of a hidden
-// copy-mode: each option shows exactly what will land in the clipboard.
-function IconTile({ name }: { name: string }) {
-  const t = useT()
-  const Icon = LUCIDE_ICON_REGISTRY[name]
-  const jsxSnippet = `<${pascalCase(name)} aria-hidden className="size-4" />`
-
-  const copy = React.useCallback(async (payload: string) => {
-    try {
-      await navigator.clipboard.writeText(payload)
-      flash(t('design_system.gallery.iconCopied', 'Copied: {snippet}', { snippet: payload }), 'success')
-    } catch {
-      flash(t('design_system.gallery.copyFailed', 'Could not copy the snippet'), 'error')
-    }
-  }, [t])
-
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="flex flex-col items-center gap-1.5 rounded-md border border-transparent p-2 transition-colors hover:border-border hover:bg-muted/40 focus-visible:outline-none focus-visible:shadow-focus"
-        >
-          <Icon aria-hidden className="size-5 text-foreground" strokeWidth={1.75} />
-          <code className="max-w-full truncate text-[10px] leading-tight text-muted-foreground">{name}</code>
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="center" className="w-auto max-w-xs p-2">
-        <div className="space-y-1">
-          <PopoverClose asChild>
-            <button
-              type="button"
-              onClick={() => copy(name)}
-              className="flex w-full flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:shadow-focus"
-            >
-              <span className="text-xs font-medium text-foreground">
-                {t('design_system.gallery.iconCopyMeta', 'Copy name for page.meta icon')}
-              </span>
-              <code className="text-[11px] text-muted-foreground">{name}</code>
-            </button>
-          </PopoverClose>
-          <PopoverClose asChild>
-            <button
-              type="button"
-              onClick={() => copy(jsxSnippet)}
-              className="flex w-full flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:shadow-focus"
-            >
-              <span className="text-xs font-medium text-foreground">
-                {t('design_system.gallery.iconCopyJsx', 'Copy JSX (lucide-react)')}
-              </span>
-              <code className="max-w-full truncate text-[11px] text-muted-foreground">{jsxSnippet}</code>
-            </button>
-          </PopoverClose>
-        </div>
-      </PopoverContent>
-    </Popover>
-  )
-}
-
-function IconGrid() {
-  const t = useT()
-  const [query, setQuery] = React.useState('')
-  const names = React.useMemo(() => Object.keys(LUCIDE_ICON_REGISTRY).sort((a, b) => a.localeCompare(b)), [])
-  const needle = query.trim().toLowerCase()
-  const visible = needle ? names.filter((name) => name.toLowerCase().includes(needle)) : names
-
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="max-w-sm flex-1">
-          <SearchInput
-            value={query}
-            onChange={setQuery}
-            placeholder={t('design_system.gallery.iconSearchPlaceholder', 'Filter icons…')}
-            aria-label={t('design_system.gallery.iconSearchPlaceholder', 'Filter icons…')}
-          />
-        </div>
-        <p className="text-xs text-muted-foreground">
-          {needle
-            ? t('design_system.gallery.iconCountFiltered', '{visible} of {total} icons', {
-                visible: visible.length,
-                total: names.length,
-              })
-            : t('design_system.gallery.iconCountAll', '{total} icons', { total: names.length })}
-        </p>
-      </div>
-      <div className="grid grid-cols-4 gap-1 sm:grid-cols-6 lg:grid-cols-8">
-        {visible.map((name) => (
-          <IconTile key={name} name={name} />
-        ))}
-      </div>
-    </div>
-  )
-}
 
 const iconRegistryEntry: GalleryEntry = {
   id: 'icon-registry',
@@ -165,4 +52,31 @@ const iconRegistryEntry: GalleryEntry = {
   ],
 }
 
-export const entries: GalleryEntry[] = [iconRegistryEntry]
+const sourceIconsEntry: GalleryEntry = {
+  id: 'source-icons',
+  title: 'Source icon library',
+  importPath: '@open-mercato/ui/assets/source-icons',
+  figmaNodeId: '199678:19375',
+  descriptionKey: 'design_system.entries.sourceIcons.description',
+  variants: [
+    { id: 'catalogue', title: 'All 1667 source icons / search and copy', render: () => <SourceIconCatalogue />, code: sourceIconCatalogueCode },
+  ],
+}
+
+const sourceArtworkEntry: GalleryEntry = {
+  id: 'source-artwork',
+  title: 'Source artwork library',
+  importPath: '@open-mercato/ui/assets/source-artwork',
+  figmaNodeId: '2771:1469',
+  descriptionKey: 'design_system.gallery.sourceArtwork.description',
+  variants: [
+    { id: 'brands', title: 'Brands / 439 original logos and styles', render: () => <SourceArtworkCatalogue group="brand" />, code: sourceArtworkCode('brand') },
+    { id: 'flags', title: 'Country flags / 263 original assets', render: () => <SourceArtworkCatalogue group="country-flags" />, code: sourceArtworkCode('country-flags') },
+    { id: 'emoji', title: 'Emoji / 607 original assets', render: () => <SourceArtworkCatalogue group="emojies" />, code: sourceArtworkCode('emojies') },
+    { id: 'store-badges', title: 'Store badges / 16 original variants', render: () => <SourceArtworkCatalogue group="appstore-badges" />, code: sourceArtworkCode('appstore-badges') },
+    { id: 'thumbnails', title: 'Thumbnails / 78 component and landing illustrations', render: () => <SourceArtworkCatalogue group="thumbnails" />, code: sourceArtworkCode('thumbnails') },
+    { id: 'cursors', title: 'Cursors / 10 original assets', render: () => <SourceArtworkCatalogue group="others" />, code: sourceArtworkCode('others') },
+  ],
+}
+
+export const entries: GalleryEntry[] = [iconRegistryEntry, sourceIconsEntry, sourceArtworkEntry]

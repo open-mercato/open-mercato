@@ -7,6 +7,27 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { Tag } from '../tag'
 
 describe('Tag primitive', () => {
+  it('disables removal without dimming already-disabled tokens in opt-in appearances', () => {
+    const onRemove = jest.fn()
+    render(<Tag appearance="gray" disabled onRemove={onRemove} leading={<svg />} sublabel="(4)">Locked</Tag>)
+    const root = screen.getByText('Locked').closest('[data-slot="tag"]') as HTMLElement
+    expect(root).toHaveAttribute('aria-disabled', 'true')
+    expect(root.className).toContain('text-text-disabled')
+    expect(root.className).not.toContain('opacity-60')
+    const button = screen.getByRole('button', { name: 'Remove' })
+    expect(button).toBeDisabled()
+    fireEvent.click(button)
+    expect(onRemove).not.toHaveBeenCalled()
+    expect(screen.getByText('(4)').className).toContain('text-text-disabled')
+  })
+
+  it('keeps the leading slot decorative and the sublabel available to readers', () => {
+    const { container } = render(<Tag appearance="stroke" leading={<svg aria-label="Decorative company" />} sublabel="(4)">Open Mercato</Tag>)
+    expect(container.querySelector('[data-slot="tag-leading"]')).toHaveAttribute('aria-hidden', 'true')
+    expect(screen.getByText('(4)')).not.toHaveAttribute('aria-hidden')
+    expect(screen.getByText('Open Mercato')).toBeInTheDocument()
+  })
+
   it('renders default pill variant when no shape prop is given', () => {
     render(<Tag>Hello</Tag>)
     const root = screen.getByText('Hello').closest('[data-slot="tag"]')

@@ -17,7 +17,8 @@ import {
 import { Separator } from '@open-mercato/ui/primitives/separator'
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import type { UserTaskResponse, UserTaskStatus, JsonSchemaField } from '../../data/types'
+import type { UserTaskDecision, UserTaskResponse, UserTaskStatus, JsonSchemaField } from '../../data/types'
+import { flattenTaskText } from '../../lib/task-resolution'
 
 interface MobileTaskFormProps {
   task: UserTaskResponse
@@ -31,6 +32,13 @@ interface MobileTaskFormProps {
   onSubmit: (e: React.FormEvent) => void
   onCancel: () => void
   getStatusBadgeClass: (status: UserTaskStatus) => string
+  /**
+   * Decision buttons authored on the step (spec §6.2). When present they REPLACE
+   * the generic "Complete" button: a step that offers named outcomes must not
+   * also offer an unnamed one, or the recorded decision becomes optional.
+   */
+  decisions?: UserTaskDecision[]
+  onDecision?: (decisionId: string) => void
 }
 
 export function MobileTaskForm({
@@ -45,6 +53,8 @@ export function MobileTaskForm({
   onSubmit,
   onCancel,
   getStatusBadgeClass,
+  decisions,
+  onDecision,
 }: MobileTaskFormProps) {
   const t = useT()
 
@@ -281,24 +291,50 @@ export function MobileTaskForm({
           </div>
 
           <div className="sticky bottom-0 border-t bg-background p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] z-10">
-            <div className="flex gap-3">
-              <Button
-                type="submit"
-                disabled={submitting}
-                className="flex-1 h-11"
-              >
-                {submitting ? t('workflows.tasks.detail.submitting') : t('workflows.tasks.detail.completeTask')}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={onCancel}
-                disabled={submitting}
-                className="h-11"
-              >
-                {t('common.cancel')}
-              </Button>
-            </div>
+            {decisions && decisions.length > 0 ? (
+              <div className="flex flex-col gap-2" data-testid="mobile-task-decisions">
+                {decisions.map((decision) => (
+                  <Button
+                    key={decision.id}
+                    type="button"
+                    variant={decision.style === 'destructive' ? 'destructive' : decision.style === 'secondary' ? 'outline' : 'default'}
+                    disabled={submitting}
+                    onClick={() => onDecision?.(decision.id)}
+                    className="h-11"
+                  >
+                    {flattenTaskText(decision.label) ?? decision.id}
+                  </Button>
+                ))}
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={onCancel}
+                  disabled={submitting}
+                  className="h-11"
+                >
+                  {t('common.cancel')}
+                </Button>
+              </div>
+            ) : (
+              <div className="flex gap-3">
+                <Button
+                  type="submit"
+                  disabled={submitting}
+                  className="flex-1 h-11"
+                >
+                  {submitting ? t('workflows.tasks.detail.submitting') : t('workflows.tasks.detail.completeTask')}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={onCancel}
+                  disabled={submitting}
+                  className="h-11"
+                >
+                  {t('common.cancel')}
+                </Button>
+              </div>
+            )}
           </div>
         </form>
       )}

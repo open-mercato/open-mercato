@@ -15,8 +15,14 @@ import {
 } from '@open-mercato/ui/primitives/select'
 import { ChevronDown, Plus, Trash2 } from 'lucide-react'
 import { JsonBuilder } from '@open-mercato/ui/backend/JsonBuilder'
+import { DurationInput } from '@open-mercato/ui/backend/inputs/DurationInput'
 import type { CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import type { LedgerEntry } from '../../lib/context-ledger'
+import type { PinnedSampleEnvelope } from '../../lib/sample-resolver'
+import { useActivityTypeOptions } from './useActivityTypeOptions'
+import { ActivityConfigFields, hasActivityConfigForm } from './ActivityConfigFields'
+import { ActivityTestPanel } from './ActivityTestPanel'
 import { durationTimeoutInputValue, durationTimeoutPatch } from '../../lib/activityTimeoutFields'
 
 /**
@@ -25,7 +31,7 @@ import { durationTimeoutInputValue, durationTimeoutPatch } from '../../lib/activ
 export interface Activity {
   activityId: string
   activityName: string
-  activityType: 'SEND_EMAIL' | 'CALL_API' | 'UPDATE_ENTITY' | 'EMIT_EVENT' | 'CALL_WEBHOOK' | 'EXECUTE_FUNCTION' | 'WAIT'
+  activityType: string
   config: Record<string, any>
   timeout?: string
   timeoutMs?: number
@@ -39,8 +45,18 @@ export interface Activity {
   }
 }
 
+export interface ActivityTestContext {
+  definitionId: string | null
+  stepId: string
+  pinnedSample?: PinnedSampleEnvelope
+  onPinSample: (data: unknown) => void
+  onUnpinSample: () => void
+}
+
 interface ActivityArrayEditorProps extends CrudCustomFieldRenderProps {
   value: Activity[]
+  ledgerEntries?: LedgerEntry[]
+  testContext?: ActivityTestContext
 }
 
 /**
@@ -55,10 +71,24 @@ interface ActivityArrayEditorProps extends CrudCustomFieldRenderProps {
  *
  * Used by both EdgeEditDialog and NodeEditDialog (automated type)
  */
-export function ActivityArrayEditor({ id, value = [], error, setValue, disabled }: ActivityArrayEditorProps) {
+export function ActivityArrayEditor({ id, value = [], error, setValue, disabled, ledgerEntries, testContext }: ActivityArrayEditorProps) {
   const t = useT()
+  const activityTypeOptions = useActivityTypeOptions()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [expandedIndices, setExpandedIndices] = useState<Set<number>>(new Set())
+  const [advancedIndices, setAdvancedIndices] = useState<Set<number>>(new Set())
+
+  const toggleAdvanced = (index: number) => {
+    setAdvancedIndices((current) => {
+      const next = new Set(current)
+      if (next.has(index)) {
+        next.delete(index)
+      } else {
+        next.add(index)
+      }
+      return next
+    })
+  }
 
   const activities = Array.isArray(value) ? value : []
 
@@ -237,15 +267,18 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled 
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="SEND_EMAIL">{t('workflows.activities.types.SEND_EMAIL')}</SelectItem>
-                          <SelectItem value="CALL_API">{t('workflows.activities.types.CALL_API')}</SelectItem>
-                          <SelectItem value="UPDATE_ENTITY">{t('workflows.activities.types.UPDATE_ENTITY')}</SelectItem>
-                          <SelectItem value="EMIT_EVENT">{t('workflows.activities.types.EMIT_EVENT')}</SelectItem>
-                          <SelectItem value="CALL_WEBHOOK">{t('workflows.activities.types.CALL_WEBHOOK')}</SelectItem>
-                          <SelectItem value="EXECUTE_FUNCTION">{t('workflows.activities.types.EXECUTE_FUNCTION')}</SelectItem>
-                          <SelectItem value="WAIT">{t('workflows.activities.types.WAIT')}</SelectItem>
+                          {activityTypeOptions.map((type) => (
+                            <SelectItem key={type.value} value={type.value}>
+                              {type.label}
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
+                      {activity.activityType === 'SEND_EMAIL' && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {t('workflows.activities.sendEmailSimulatedHint')}
+                        </p>
+                      )}
                     </div>
 
                     {/* Timeout */}
@@ -253,12 +286,11 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled 
                       <Label htmlFor={`${id}-${index}-timeout`} className="text-xs font-medium mb-1">
                         {t('workflows.fieldEditors.activities.timeout')}
                       </Label>
-                      <Input
+                      <DurationInput
                         id={`${id}-${index}-timeout`}
-                        type="text"
                         value={durationTimeoutInputValue(activity)}
-                        onChange={(e) => patchActivity(index, durationTimeoutPatch(e.target.value))}
-                        placeholder={t('workflows.fieldEditors.activities.timeoutPlaceholder')}
+                        onChange={(value) => patchActivity(index, durationTimeoutPatch(value))}
+                        aria-label={t('workflows.fieldEditors.activities.timeout')}
                         className="text-xs"
                         disabled={disabled}
                       />
@@ -268,7 +300,7 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled 
                     </div>
 
                     {/* Retry Policy */}
-                    <div className="border-t border-gray-200 pt-3">
+                    <div className="border-t border-border pt-3">
                       <Label className="text-xs font-semibold mb-2 block">{t('workflows.fieldEditors.activities.retryPolicy')}</Label>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <div>
@@ -338,7 +370,7 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled 
                     </div>
 
                     {/* Activity Options */}
-                    <div className="border-t border-gray-200 pt-3">
+                    <div className="border-t border-border pt-3">
                       <Label className="text-xs font-semibold mb-2 block">{t('workflows.fieldEditors.activities.activityOptions')}</Label>
                       <div className="space-y-2">
                         <div className="flex items-center space-x-2">
@@ -370,26 +402,84 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled 
                       </div>
                     </div>
 
-                    {/* Configuration JSON */}
-                    <div className="border-t border-gray-200 pt-3">
-                      <Label className="text-xs font-medium mb-1">
-                        {t('workflows.fieldEditors.activities.configurationJson')}
-                      </Label>
-                      <JsonBuilder
-                        value={activity.config || {}}
-                        onChange={(config) => updateActivity(index, 'config', config)}
-                        disabled={disabled}
-                      />
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {t('workflows.fieldEditors.activities.configurationHint')}
-                      </p>
+                    {/* Configuration */}
+                    <div className="border-t border-border pt-3">
+                      {hasActivityConfigForm(activity.activityType) ? (
+                        <div className="space-y-3">
+                          <ActivityConfigFields
+                            activityType={activity.activityType}
+                            idPrefix={`${id}-${index}-config`}
+                            config={activity.config || {}}
+                            onChange={(config) => updateActivity(index, 'config', config)}
+                            ledgerEntries={ledgerEntries}
+                            disabled={disabled}
+                          />
+                          <div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => toggleAdvanced(index)}
+                              aria-expanded={advancedIndices.has(index)}
+                            >
+                              <ChevronDown
+                                className={`size-4 mr-1 transition-transform ${advancedIndices.has(index) ? 'rotate-180' : ''}`}
+                              />
+                              {t('workflows.fieldEditors.activities.advancedJson')}
+                            </Button>
+                            {advancedIndices.has(index) && (
+                              <div className="mt-2">
+                                <JsonBuilder
+                                  value={activity.config || {}}
+                                  onChange={(config) => updateActivity(index, 'config', config)}
+                                  disabled={disabled}
+                                />
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  {t('workflows.fieldEditors.activities.configurationHint')}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          <Label className="text-xs font-medium mb-1">
+                            {t('workflows.fieldEditors.activities.configurationJson')}
+                          </Label>
+                          <JsonBuilder
+                            value={activity.config || {}}
+                            onChange={(config) => updateActivity(index, 'config', config)}
+                            disabled={disabled}
+                          />
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {t('workflows.fieldEditors.activities.configurationHint')}
+                          </p>
+                        </div>
+                      )}
                     </div>
 
+                    {/* Test step */}
+                    {testContext && (
+                      <div className="border-t border-border pt-3">
+                        <ActivityTestPanel
+                          definitionId={testContext.definitionId}
+                          stepId={testContext.stepId}
+                          activityType={activity.activityType}
+                          config={activity.config || {}}
+                          ledgerEntries={ledgerEntries}
+                          pinnedSample={testContext.pinnedSample}
+                          onPinSample={testContext.onPinSample}
+                          onUnpinSample={testContext.onUnpinSample}
+                          disabled={disabled}
+                        />
+                      </div>
+                    )}
+
                     {/* Delete Button */}
-                    <div className="border-t border-gray-200 pt-3">
+                    <div className="border-t border-border pt-3">
                       <Button
                         type="button"
-                        variant="destructive"
+                        variant="destructive-outline"
                         size="sm"
                         onClick={() => removeActivity(index)}
                         disabled={disabled}

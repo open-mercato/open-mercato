@@ -346,6 +346,7 @@ export default function EditEudrPlotPage({ params }: { params?: { id?: string } 
       <PageBody>
         <CrudForm<PlotFormValues>
           title={translate('eudr.plots.edit.title')}
+          titleHeadingLevel={1}
           backHref="/backend/eudr/plots"
           cancelHref="/backend/eudr/plots"
           deleteRedirect="/backend/eudr/plots"

@@ -2,25 +2,19 @@ import React from 'react'
 import figma from '@figma/code-connect'
 import { Tag } from '../src/primitives/tag'
 
-// TODO(figma): resolve the real node id in the DS file before ds:code-connect:publish.
-figma.connect(Tag, 'https://www.figma.com/design/qCq9z6q1if0mpoRstV5OEA/Design-System?node-id=0-1', {
+// Basic, non-dismissable tags. Avatar/country/brand/company content and removal handlers belong to the consumer.
+// Hover and active styling follows real interaction; there is no synthetic state prop.
+figma.connect(Tag, 'https://www.figma.com/design/qCq9z6q1if0mpoRstV5OEA/DS-Open-Mercato?node-id=431-16147', {
   imports: ["import { Tag } from '@open-mercato/ui/primitives/tag'"],
+  variant: { '🧩 Type': '📂 Basic', '✖️ Dismiss Icon': 'Off' },
   props: {
-    variant: figma.enum('Variant', {
-      Default: 'default',
-      Success: 'success',
-      Warning: 'warning',
-      Error: 'error',
-      Info: 'info',
-      Neutral: 'neutral',
-      Brand: 'brand',
-      Pink: 'pink',
-    }),
-    dot: figma.boolean('Dot'),
-    label: figma.string('Label'),
+    appearance: figma.enum('🏵️ Style', { Stroke: 'stroke', Gray: 'gray' }),
+    disabled: figma.enum('📌 State', { Default: false, Hover: false, Active: false, Disabled: true }),
+    label: figma.string('✏️ Edit Text'),
+    sublabel: figma.boolean('💬 Sublabel', { true: figma.string('✏️ Edit Sublabel'), false: undefined }),
   },
-  example: ({ variant, dot, label }) => (
-    <Tag variant={variant} dot={dot}>
+  example: ({ appearance, disabled, label, sublabel }) => (
+    <Tag appearance={appearance} disabled={disabled} sublabel={sublabel} shape="square">
       {label}
     </Tag>
   ),

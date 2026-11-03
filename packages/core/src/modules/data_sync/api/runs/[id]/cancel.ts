@@ -78,6 +78,11 @@ export async function POST(req: Request, ctx: { params?: Promise<{ id?: string }
     userId: auth.sub,
   }
 
+  const cancelledRun = await syncRunService.markStatus(run.id, 'cancelled', scope)
+  if (cancelledRun?.status !== 'cancelled') {
+    return NextResponse.json({ error: 'Only pending or running runs can be cancelled' }, { status: 409 })
+  }
+
   if (run.progressJobId) {
     try {
       await progressService.markCancelled(run.progressJobId, progressCtx)
@@ -93,7 +98,6 @@ export async function POST(req: Request, ctx: { params?: Promise<{ id?: string }
     }
   }
 
-  await syncRunService.markStatus(run.id, 'cancelled', scope)
   await integrationStateService.upsert(run.integrationId, {
     lastHealthStatus: 'degraded',
     lastHealthCheckedAt: new Date(),

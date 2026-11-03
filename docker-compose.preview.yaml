@@ -1,3 +1,7 @@
+# Backwards-compatibility duplicate of starters/docker/compose.preview.yml — the canonical file
+# lives there; edit that one. scripts/__tests__/root-compose-backcompat.test.mjs
+# enforces byte equality with the source.
+
 services:
   preview-app:
     build:

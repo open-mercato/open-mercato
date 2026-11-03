@@ -70,7 +70,7 @@ test.describe('TC-WC-001: warranty claims CRUD API', () => {
       })
       const danglingOrderBody = await readJsonSafe<{ id?: string | null; error?: string }>(danglingOrderCreate)
       expect(danglingOrderCreate.status(), `dangling orderId should return 400: ${JSON.stringify(danglingOrderBody)}`).toBe(400)
-      expect(danglingOrderBody?.error).toBe('warranty_claims.errors.invalidReference')
+      expect(danglingOrderBody?.error).toBe('The referenced order, order line, return, or replacement order could not be found.')
 
       const claim = await createClaimFixture(request, adminToken, {
         claimType: 'return',
@@ -160,7 +160,7 @@ test.describe('TC-WC-001: warranty claims CRUD API', () => {
       )
       expect(invalidAssignee.status(), 'assigning a non-tenant/random user id should return 400').toBe(400)
       const invalidAssigneeBody = await readJsonSafe<{ error?: string }>(invalidAssignee)
-      expect(invalidAssigneeBody?.error).toBe('warranty_claims.errors.invalidAssignee')
+      expect(invalidAssigneeBody?.error).toBe('The selected assignee could not be found.')
 
       const submitted = await createClaimFixture(request, adminToken, {
         claimType: 'warranty',

@@ -63,7 +63,7 @@ function buildWarehousePresenter(
   const label = t('wms.search.badge.warehouse', 'Warehouse')
   const title = pickString(record.name, record.code, record.id) ?? label
   const subtitle = formatSubtitle(record.code, record.city, record.country)
-  return { title, subtitle, icon: 'warehouse', badge: label }
+  return { title, subtitle, icon: 'warehouse' }
 }
 
 function buildLocationPresenter(
@@ -73,7 +73,7 @@ function buildLocationPresenter(
   const label = t('wms.search.badge.location', 'Location')
   const title = pickString(record.code, record.id) ?? label
   const subtitle = formatSubtitle(record.type, record.warehouse_id ?? record.warehouseId)
-  return { title, subtitle, icon: 'map-pinned', badge: label }
+  return { title, subtitle, icon: 'map-pinned' }
 }
 
 function buildInventoryProfilePresenter(
@@ -89,7 +89,7 @@ function buildInventoryProfilePresenter(
     record.default_uom ?? record.defaultUom,
     variantId ? t('wms.search.profile.variantScoped', 'Variant-scoped') : t('wms.search.profile.productScoped', 'Product-scoped'),
   )
-  return { title, subtitle, icon: 'boxes', badge: label }
+  return { title, subtitle, icon: 'boxes' }
 }
 
 function buildLotPresenter(
@@ -99,7 +99,38 @@ function buildLotPresenter(
   const label = t('wms.search.badge.lot', 'Inventory lot')
   const title = pickString(record.lot_number, record.lotNumber, record.batch_number, record.batchNumber, record.id) ?? label
   const subtitle = formatSubtitle(record.catalog_variant_id ?? record.catalogVariantId, record.status, record.expires_at ?? record.expiresAt)
-  return { title, subtitle, icon: 'package-search', badge: label }
+  return { title, subtitle, icon: 'package-search' }
+}
+
+function buildAsnPresenter(
+  t: TranslateFn,
+  record: Record<string, unknown>,
+): SearchResultPresenter {
+  const label = t('wms.search.badge.asn', 'ASN')
+  const title =
+    pickString(record.reference_number, record.referenceNumber, record.id) ?? label
+  const subtitle = formatSubtitle(
+    record.status,
+    record.warehouse_id ?? record.warehouseId,
+    record.expected_at ?? record.expectedAt,
+  )
+  return { title, subtitle, icon: 'truck', badge: label }
+}
+
+function buildPutawayPresenter(
+  t: TranslateFn,
+  record: Record<string, unknown>,
+): SearchResultPresenter {
+  const label = t('wms.search.badge.putaway', 'Putaway task')
+  const title =
+    pickString(record.catalog_variant_id, record.catalogVariantId, record.id) ?? label
+  const subtitle = formatSubtitle(
+    record.status,
+    record.warehouse_id ?? record.warehouseId,
+    record.source_location_id ?? record.sourceLocationId,
+    record.target_location_id ?? record.targetLocationId,
+  )
+  return { title, subtitle, icon: 'package', badge: label }
 }
 
 export const searchConfig: SearchModuleConfig = {
@@ -225,6 +256,70 @@ export const searchConfig: SearchModuleConfig = {
       resolveLinks: async () => [{ href: WMS_CONFIG_URL, label: 'WMS configuration', kind: 'secondary' }],
       fieldPolicy: {
         searchable: ['lot_number', 'batch_number', 'sku', 'catalog_variant_id', 'status', 'expires_at'],
+      },
+    },
+    {
+      entityId: E.wms.asn,
+      aclFeatures: ['wms.view'],
+      enabled: true,
+      priority: 7,
+      buildSource: async (ctx) => {
+        const { t } = await resolveTranslations()
+        const record = ctx.record
+        const lines: string[] = []
+        appendLine(lines, 'Reference', record.reference_number ?? record.referenceNumber)
+        appendLine(lines, 'Status', record.status)
+        appendLine(lines, 'Warehouse', record.warehouse_id ?? record.warehouseId)
+        appendLine(lines, 'Vendor', record.vendor_id ?? record.vendorId)
+        appendLine(lines, 'Expected at', record.expected_at ?? record.expectedAt)
+        appendLine(lines, 'Notes', record.notes)
+        return buildIndexSource(ctx, buildAsnPresenter(t, record), lines)
+      },
+      formatResult: async (ctx) => {
+        const { t } = await resolveTranslations()
+        return buildAsnPresenter(t, ctx.record)
+      },
+      resolveUrl: async (ctx) => {
+        const id = pickString(ctx.record.id)
+        if (id) return `${WMS_ROOT_URL}/asns/${id}`
+        return WMS_ROOT_URL
+      },
+      fieldPolicy: {
+        searchable: ['reference_number', 'status', 'warehouse_id', 'vendor_id', 'notes'],
+      },
+    },
+    {
+      entityId: E.wms.putaway_task,
+      aclFeatures: ['wms.view'],
+      enabled: true,
+      priority: 6,
+      buildSource: async (ctx) => {
+        const { t } = await resolveTranslations()
+        const record = ctx.record
+        const lines: string[] = []
+        appendLine(lines, 'Status', record.status)
+        appendLine(lines, 'Warehouse', record.warehouse_id ?? record.warehouseId)
+        appendLine(lines, 'Source', record.source_location_id ?? record.sourceLocationId)
+        appendLine(lines, 'Target', record.target_location_id ?? record.targetLocationId)
+        appendLine(lines, 'Variant', record.catalog_variant_id ?? record.catalogVariantId)
+        appendLine(lines, 'Assigned to', record.assigned_to ?? record.assignedTo)
+        appendLine(lines, 'Quantity', record.quantity)
+        return buildIndexSource(ctx, buildPutawayPresenter(t, record), lines)
+      },
+      formatResult: async (ctx) => {
+        const { t } = await resolveTranslations()
+        return buildPutawayPresenter(t, ctx.record)
+      },
+      resolveUrl: async () => `${WMS_ROOT_URL}/putaway`,
+      fieldPolicy: {
+        searchable: [
+          'status',
+          'warehouse_id',
+          'source_location_id',
+          'target_location_id',
+          'catalog_variant_id',
+          'assigned_to',
+        ],
       },
     },
   ],
