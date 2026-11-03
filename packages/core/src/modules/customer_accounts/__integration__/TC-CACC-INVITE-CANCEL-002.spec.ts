@@ -8,6 +8,7 @@ import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { getTokenScope } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { resolveAppRoot } from '@open-mercato/core/helpers/integration/appRoot'
 import { importFromAppRuntime } from '@open-mercato/core/helpers/integration/appRuntime'
+import { withNextRuntime } from './helpers/nextRuntime'
 
 const endpoint = '/api/customer_accounts/admin/users-invite'
 const eventId = 'customer_accounts.invitation.cancelled'
@@ -28,18 +29,20 @@ async function capturedToken(email: string): Promise<string> {
 }
 
 async function runtime() {
-  const { bootstrapFromAppRoot } = await importFromAppRuntime<typeof import('@open-mercato/shared/lib/bootstrap/dynamicLoader')>('@open-mercato/shared/lib/bootstrap/dynamicLoader')
-  await bootstrapFromAppRoot(resolveAppRoot())
-  const [route, events, bus, telemetry, container, tokens] = await Promise.all([
-    importFromAppRuntime<typeof import('../api/admin/users-invite')>('@open-mercato/core/modules/customer_accounts/api/admin/users-invite'),
-    importFromAppRuntime<typeof import('@open-mercato/shared/modules/events')>('@open-mercato/shared/modules/events'),
-    importFromAppRuntime<typeof import('@open-mercato/events/bus')>('@open-mercato/events/bus'),
-    importFromAppRuntime<typeof import('@open-mercato/shared/lib/telemetry/runtime')>('@open-mercato/shared/lib/telemetry/runtime'),
-    importFromAppRuntime<typeof import('@open-mercato/shared/lib/di/container')>('@open-mercato/shared/lib/di/container'),
-    importFromAppRuntime<typeof import('../lib/tokenGenerator')>('@open-mercato/core/modules/customer_accounts/lib/tokenGenerator'),
-  ])
-  await container.createRequestContainer()
-  return { route, events, bus, telemetry, container, tokens }
+  return withNextRuntime(async () => {
+    const { bootstrapFromAppRoot } = await importFromAppRuntime<typeof import('@open-mercato/shared/lib/bootstrap/dynamicLoader')>('@open-mercato/shared/lib/bootstrap/dynamicLoader')
+    await bootstrapFromAppRoot(resolveAppRoot())
+    const [route, events, bus, telemetry, container, tokens] = await Promise.all([
+      importFromAppRuntime<typeof import('../api/admin/users-invite')>('@open-mercato/core/modules/customer_accounts/api/admin/users-invite'),
+      importFromAppRuntime<typeof import('@open-mercato/shared/modules/events')>('@open-mercato/shared/modules/events'),
+      importFromAppRuntime<typeof import('@open-mercato/events/bus')>('@open-mercato/events/bus'),
+      importFromAppRuntime<typeof import('@open-mercato/shared/lib/telemetry/runtime')>('@open-mercato/shared/lib/telemetry/runtime'),
+      importFromAppRuntime<typeof import('@open-mercato/shared/lib/di/container')>('@open-mercato/shared/lib/di/container'),
+      importFromAppRuntime<typeof import('../lib/tokenGenerator')>('@open-mercato/core/modules/customer_accounts/lib/tokenGenerator'),
+    ])
+    await container.createRequestContainer()
+    return { route, events, bus, telemetry, container, tokens }
+  })
 }
 
 test.describe('TC-CACC-INVITE-CANCEL-002: real route, command persistence and lifecycle delivery', () => {
