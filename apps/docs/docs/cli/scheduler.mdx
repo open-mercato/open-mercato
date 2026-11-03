@@ -220,101 +220,54 @@ Behavior differs based on `QUEUE_STRATEGY`:
 yarn mercato scheduler start
 ```
 
+The samples below show the lines the `scheduler start` command prints. The `mercato` CLI wrapper and the scheduler services can log additional lines around them.
+
 **Local Strategy Output:**
 
 ```
-Starting scheduler in LOCAL mode...
+🚀 Starting scheduler (strategy: local)...
 
-Configuration:
-- Poll Interval: 30000ms
-- Lock Strategy: in-process (single instance only)
-- Execution: Direct (queue/command)
+✓ Local scheduler started (polling every 30 seconds)
+Press Ctrl+C to stop.
 
-Database connected
-Lock acquired: scheduler-poller
+💡 Tip: For production, use QUEUE_STRATEGY=async with Redis.
+```
 
-Active schedules loaded: 5
-- System: 2
-- Organization: 1
-- Tenant: 2
+On Ctrl+C (or `SIGTERM`) the local scheduler stops and prints:
 
-Polling started. Press Ctrl+C to stop gracefully...
-
-[10:00:00] Poll cycle 1: checked 5 schedules, executed 0
-[10:00:30] Poll cycle 2: checked 5 schedules, executed 1
-  - reports:daily:tenant-456 (completed in 2.1s)
-[10:01:00] Poll cycle 3: checked 5 schedules, executed 0
-...
-
-^C
-Shutting down gracefully...
-Lock released
-Scheduler stopped
+```
+📛 Shutting down...
+✓ Stopped
 ```
 
 **Async Strategy Output:**
 
 ```
-Starting scheduler in ASYNC mode...
+🚀 Starting scheduler (strategy: async)...
 
-Configuration:
-- Redis: redis://localhost:6379
-- Queue: scheduler-execution
-- Execution: BullMQ workers
+✓ Scheduler sync completed
 
-Database connected
-Redis connected
-
-Syncing schedules with BullMQ...
-
-Processing schedules:
-✓ currencies:fetch-rates:org-123 (synced)
-✓ reports:daily:tenant-456 (synced)
-✓ cleanup:weekly:system (synced)
-✓ backup:nightly:tenant-789 (synced)
-- old-schedule:removed (removed orphan)
-
-Sync complete:
-- Synced: 4
-- Removed: 1
-- Errors: 0
-
-Scheduler synced successfully.
-
-Next steps:
-1. Start workers: yarn mercato queue worker --all
-2. Monitor queue: yarn mercato queue status scheduler-execution
-
-Exiting...
+BullMQ is managing all schedules.
+Start workers to process jobs:
+  yarn mercato queue worker --all
 ```
 
 **Options:**
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--poll-interval <ms>` | Poll interval in milliseconds (local mode) | 30000 |
-| `--verbose` | Enable verbose logging | false |
-
-**Examples:**
+`scheduler start` takes no command-line options. Set the local poll interval with the `SCHEDULER_POLL_INTERVAL_MS` environment variable (default `30000`):
 
 ```bash
 # Start with default settings
 yarn mercato scheduler start
 
-# Start with custom poll interval (local mode)
-yarn mercato scheduler start --poll-interval 60000
-
-# Start with verbose logging
-yarn mercato scheduler start --verbose
+# Start with a custom poll interval (local mode)
+SCHEDULER_POLL_INTERVAL_MS=60000 yarn mercato scheduler start
 ```
 
 **Exit Codes:**
 
-- `0` - Success (async: sync complete, local: clean shutdown)
-- `1` - Database connection failed
-- `2` - Redis connection failed (async mode)
-- `3` - Lock acquisition failed (local mode)
-- `130` - Interrupted by user (Ctrl+C, local mode)
+- `0` - Success (async: sync complete, local: clean shutdown on Ctrl+C or `SIGTERM`)
+- `1` - Startup failed (scheduler service unavailable or the BullMQ sync failed)
 
 ---
 
@@ -415,10 +368,8 @@ The scheduler CLI respects these environment variables:
 |------|---------|---------|
 | `0` | Success | All commands |
 | `1` | General error | All commands |
-| `2` | Configuration error | scheduler start |
 | `3` | Execution error | scheduler run |
 | `4` | Not found | scheduler run |
-| `130` | User interrupt (Ctrl+C) | scheduler start (local) |
 
 ## Integration with Other CLI Tools
 
