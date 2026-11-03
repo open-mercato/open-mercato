@@ -820,7 +820,8 @@ export class DefaultCustomerCreditService implements CustomerCreditService {
 
     let result!: SettleCreditResult
 
-    await withAtomicFlush(
+    const runSettle = async () => {
+      await withAtomicFlush(
       this.em,
       [
         async () => {
@@ -892,7 +893,36 @@ export class DefaultCustomerCreditService implements CustomerCreditService {
         },
       ],
       { transaction: true, label: 'customer_groups.credit.settle' },
-    )
+      )
+    }
+
+    try {
+      await runSettle()
+    } catch (err) {
+      // Same race as `adjustCredit`/`reserveCredit` (G2: the ledger's unique constraint is
+      // `(tenant_id, idempotency_key)` only, not scoped to this account) — the upfront
+      // lookup above only locks THIS account's row, so a genuinely concurrent settle on a
+      // DIFFERENT account with the SAME key can lose the race here instead. Resolve it
+      // exactly like a normal replay rather than surface the raw constraint violation.
+      if (!isUniqueViolation(err)) throw err
+      const existing = await this.em.findOne(CustomerCreditLedgerEntry, {
+        tenantId: scope.tenantId,
+        idempotencyKey: input.idempotencyKey,
+      })
+      const account = await this.findAccount(scope, customerId, currencyCode)
+      if (
+        !existing ||
+        !account ||
+        existing.creditAccountId !== account.id ||
+        existing.entryType !== 'settle' ||
+        toMinorUnits(existing.amount) !== toMinorUnits(signedAmount) ||
+        existing.sourceType !== input.sourceType ||
+        existing.sourceId !== input.sourceId
+      ) {
+        throw idempotencyMismatchError()
+      }
+      result = { settled: false, entry: toEntryView(existing) }
+    }
 
     return result
   }
