@@ -58,7 +58,7 @@ function createEm() {
     })),
     persist: jest.fn(() => ({ flush: jest.fn(async () => undefined) })),
     flush: jest.fn(async () => undefined),
-    getConnection: jest.fn(() => {
+    execute: jest.fn(async (): Promise<unknown> => {
       throw new Error('capacity query was not expected')
     }),
     getReference: jest.fn((_entity: unknown, id: string) => ({ id })),
@@ -282,8 +282,7 @@ describe('wms.putaway-tasks.complete event emit', () => {
     const em = createEm()
     const ctx = createCtx(em)
     const task = openTask({ quantity: '10', status: 'open' })
-    const execute = jest.fn(async () => [{ total: '0' }])
-    em.getConnection.mockReturnValue({ execute })
+    em.execute.mockResolvedValue([{ total: '0' }])
 
     findOneWithDecryption.mockImplementation(async (_em, entity, where) => {
       if (entity === PutawayTask) return task
@@ -320,19 +319,78 @@ describe('wms.putaway-tasks.complete event emit', () => {
 
     expect(task.status).toBe('open')
     expect(applyInventoryMoveInTransaction).not.toHaveBeenCalled()
-    expect(String(execute.mock.calls[0]?.[0])).toContain('for update')
-    expect(execute.mock.calls[0]?.[1]).toEqual([
+    const capacitySql = String(em.execute.mock.calls[0]?.[0]).toLowerCase()
+    expect(capacitySql).toContain('sum(quantity_on_hand)')
+    expect(capacitySql).not.toContain('for update')
+    expect(em.execute.mock.calls[0]?.[1]).toEqual([
       ORG,
       TENANT,
       TARGET_LOC,
     ])
+    const targetLookup = findOneWithDecryption.mock.calls.find(
+      ([, entity, where]) =>
+        entity === WarehouseLocation && (where as { id?: string }).id === TARGET_LOC,
+    )
+    expect(targetLookup?.[3]).toEqual({ lockMode: LockMode.PESSIMISTIC_WRITE })
+  })
+
+  it('completes putaway that fits the remaining destination capacity', async () => {
+    const em = createEm()
+    const ctx = createCtx(em)
+    const task = openTask({ quantity: '2', status: 'open' })
+    em.execute.mockResolvedValue([{ total: '8' }])
+
+    findOneWithDecryption.mockImplementation(async (_em, entity, where) => {
+      if (entity === PutawayTask) return task
+      if (entity === WarehouseLocation) {
+        const id = String((where as { id?: string }).id)
+        return {
+          id,
+          tenantId: TENANT,
+          organizationId: ORG,
+          warehouse: { id: '55555555-5555-4555-8555-555555555555' },
+          isActive: true,
+          type: id === task.sourceLocationId ? 'staging' : 'bin',
+          capacityUnits: id === TARGET_LOC ? '10' : null,
+        }
+      }
+      return null
+    })
+    findPutawayCompleteMovementByReference.mockResolvedValue(null)
+    applyInventoryMoveInTransaction.mockResolvedValue({
+      movementId: MOVEMENT_ID,
+      warehouseId: '55555555-5555-4555-8555-555555555555',
+      catalogVariantId: task.catalogVariantId,
+      quantity: 2,
+      tenantId: TENANT,
+      organizationId: ORG,
+      movementEntity: { id: MOVEMENT_ID },
+      balances: [],
+      idempotentReplay: false,
+    })
+
+    const handler = commandRegistry.get('wms.putaway-tasks.complete')
+    await handler!.execute(
+      {
+        organizationId: ORG,
+        tenantId: TENANT,
+        id: TASK_ID,
+        targetLocationId: TARGET_LOC,
+        confirmedQuantity: 2,
+        performedBy: USER_ID,
+      },
+      ctx as never,
+    )
+
+    expect(applyInventoryMoveInTransaction).toHaveBeenCalledTimes(1)
+    expect(task.status).toBe('done')
   })
 
   it('rejects putaway when occupied capacity cannot fit the incoming quantity', async () => {
     const em = createEm()
     const ctx = createCtx(em)
     const task = openTask({ quantity: '3', status: 'open' })
-    em.getConnection.mockReturnValue({ execute: jest.fn(async () => [{ total: '8' }]) })
+    em.execute.mockResolvedValue([{ total: '8' }])
 
     findOneWithDecryption.mockImplementation(async (_em, entity, where) => {
       if (entity === PutawayTask) return task

@@ -277,14 +277,15 @@ async function assertDestinationHasRemainingCapacity(
 ): Promise<void> {
   const capacityUnits = readLocationCapacityUnits(location.capacityUnits)
   if (capacityUnits == null) return
-  const rows = await em.getConnection().execute<Array<{ total: string | number | null }>>(
+  // Postgres rejects FOR UPDATE with aggregates. The caller's PESSIMISTIC_WRITE
+  // lock on the destination row serializes concurrent putaways into this bin.
+  const rows = await em.execute<Array<{ total: string | number | null }>>(
     `select coalesce(sum(quantity_on_hand), 0) as total
      from wms_inventory_balances
      where organization_id = ?
        and tenant_id = ?
        and location_id = ?
-       and deleted_at is null
-     for update`,
+       and deleted_at is null`,
     [scope.organizationId, scope.tenantId, location.id],
   )
   assertPutawayDestinationCapacity({
