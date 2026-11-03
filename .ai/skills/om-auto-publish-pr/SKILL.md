@@ -11,7 +11,7 @@ Dispatch the `Package Previews` workflow for a PR. This publishes pkg.pr.new pre
 
 - `{pr_number}` (required) - Pull request number to publish previews for.
 - `--repo <owner/name>` (optional) - Defaults to the current repository.
-- `--ref <branch>` (optional) - Workflow definition ref. Default: `develop`.
+- `--ref <branch>` (optional) - Workflow definition ref. Default: `main`.
 
 ## Procedure
 
@@ -20,7 +20,7 @@ Dispatch the `Package Previews` workflow for a PR. This publishes pkg.pr.new pre
 ```bash
 REPO="${REPO:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}"
 PR_NUMBER="{pr_number}"
-WORKFLOW_REF="${WORKFLOW_REF:-develop}"
+WORKFLOW_REF="${WORKFLOW_REF:-main}"
 
 gh pr view "$PR_NUMBER" --repo "$REPO" \
   --json number,title,headRepositoryOwner,headRefName,headRefOid,isCrossRepository
@@ -58,4 +58,4 @@ gh run list \
 
 - Do not commit, push, label, or merge anything.
 - Do not dispatch `npm-snapshot-preview.yml`; that is intentionally a separate manual path.
-- If the workflow is not found on `develop`, tell the user to pass `--ref <branch-with-workflow>` or wait until the workflow change is merged.
+- If the workflow is not found on `main`, tell the user to pass `--ref <branch-with-workflow>` or wait until the workflow change is merged.

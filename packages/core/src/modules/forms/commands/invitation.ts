@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -218,8 +219,9 @@ const createInvitationCommand: CommandHandler<FormInvitationCreateCommandInput, 
     }
   },
   buildLog: async ({ input, result }) => {
+    const { translate } = await resolveTranslations()
     return {
-      actionLabel: 'forms.audit.invitation.create',
+      actionLabel: translate('forms.audit.invitation.create', 'Create invitation'),
       resourceKind: FORM_INVITATION_RESOURCE_KIND,
       resourceId: input.distributionId,
       tenantId: input.tenantId,
@@ -311,9 +313,10 @@ const sendInvitationCommand: CommandHandler<FormInvitationSendCommandInput, { in
     return { invitationId: invitation.id }
   },
   buildLog: async ({ result, snapshots }) => {
+    const { translate } = await resolveTranslations()
     const before = snapshots.before as FormInvitationSendSnapshot | undefined
     return {
-      actionLabel: 'forms.audit.invitation.send',
+      actionLabel: translate('forms.audit.invitation.send', 'Send invitation'),
       resourceKind: FORM_INVITATION_RESOURCE_KIND,
       resourceId: result.invitationId,
       tenantId: before?.tenantId ?? null,
@@ -390,9 +393,10 @@ const revokeInvitationCommand: CommandHandler<FormInvitationRevokeCommandInput, 
     return { invitationId: invitation.id }
   },
   buildLog: async ({ result, snapshots }) => {
+    const { translate } = await resolveTranslations()
     const before = snapshots.before as FormInvitationStatusSnapshot | undefined
     return {
-      actionLabel: 'forms.audit.invitation.revoke',
+      actionLabel: translate('forms.audit.invitation.revoke', 'Revoke invitation'),
       resourceKind: FORM_INVITATION_RESOURCE_KIND,
       resourceId: result.invitationId,
       tenantId: before?.tenantId ?? null,

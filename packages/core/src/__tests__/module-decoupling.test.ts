@@ -91,6 +91,13 @@ import type { EntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import { registerModules, tryGetModules } from '@open-mercato/shared/lib/modules/registry'
 import type { Module } from '@open-mercato/shared/modules/registry'
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
+import {
+  calendarEventTypes,
+  getCalendarEventTypes,
+  registerWidgetCalendarEventTypeContributions,
+  resetCalendarEventTypeRegistryForTests,
+  resolveCalendarEventType,
+} from '@open-mercato/core/modules/customers/calendar-event-types'
 
 // Build module list that mirrors enabled modules without catalog/sales/api_keys
 function buildReducedModules(): Module[] {
@@ -212,6 +219,7 @@ afterEach(() => {
   registerModules(previousModules ?? [])
   previousModules = null
   previousEntityIds = null
+  resetCalendarEventTypeRegistryForTests()
 })
 
 describe('Module Decoupling', () => {
@@ -375,6 +383,31 @@ describe('Module Decoupling', () => {
 
       const actions = mod.actionsUpToVersion('99.99.99')
       expect(Array.isArray(actions)).toBe(true)
+    })
+  })
+
+  describe('6. Calendar event types exclude disabled module contributions', () => {
+    it('removes contributed types from selection without importing the contributor', () => {
+      const meeting = calendarEventTypes[0]!
+      registerWidgetCalendarEventTypeContributions([{
+        moduleId: 'optional_calendar_module',
+        widgetId: 'optional-visit',
+        definitions: [{
+          ...meeting,
+          key: 'optional-visit',
+          label: 'Optional visit',
+          behavior: { ...meeting.behavior, baseKind: 'event' },
+        }],
+      }])
+      expect(getCalendarEventTypes().some((definition) => definition.key === 'optional-visit')).toBe(true)
+
+      registerWidgetCalendarEventTypeContributions([])
+
+      expect(getCalendarEventTypes().some((definition) => definition.key === 'optional-visit')).toBe(false)
+      expect(resolveCalendarEventType('optional-visit', { includeHistorical: true })).toMatchObject({
+        key: 'optional-visit',
+        fallbackReason: 'module-unavailable',
+      })
     })
   })
 })

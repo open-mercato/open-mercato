@@ -167,9 +167,7 @@ describe('CrudForm transform pipeline behavior', () => {
     await waitFor(() =>
       expect(screen.getByTestId('submitted')).toHaveTextContent('"note":"MAKE ME UPPERCASE"'),
     )
-    await waitFor(() =>
-      expect(container.querySelector('[data-crud-field-id="note"] input[type="text"]')).toHaveValue('MAKE ME UPPERCASE'),
-    )
+    await waitFor(() => expect(input).toHaveValue('MAKE ME UPPERCASE'))
   })
 
   it('does not treat transformDisplayData initialization as an unsaved change', async () => {

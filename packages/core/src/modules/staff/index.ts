@@ -7,7 +7,7 @@ export const metadata: ModuleInfo = {
   description: 'Teams, roles, and employee rosters.',
   author: 'Open Mercato Team',
   license: 'MIT',
-  requires: ['planner', 'resources'],
+  requires: ['planner', 'resources', 'dictionaries'],
   ejectable: true,
 }
 

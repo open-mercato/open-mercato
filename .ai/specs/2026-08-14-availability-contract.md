@@ -20,7 +20,7 @@ The parallel `open-mercato` upstream repo independently designed the same contra
 - This `availability` module is re-scoped, not removed: it keeps everything that is genuine net-new business capability and has no equivalent in the shared contract — `AvailabilityPolicy`, its resolution chain, the admin CRUD, and the reservation/checkout-hold lifecycle (§4.1, §10). It stops being the module that *defines* the base contract; it becomes one of several things (alongside `wms`) that can be consulted when a provider computes a result.
 - `AvailabilityItemRef.productId`/`.variantId` are renamed `catalogProductId`/`catalogVariantId` to match this repo's existing `catalog_product_id`/`catalog_variant_id` convention (used throughout `wms`'s own entities) and the shared contract's field names.
 - The fallback's `not_tracked` state and `canFulfil: true` default (§3.2 below) is unchanged and was in fact adopted upstream into `wms-roadmap.md` rev 11 as the more correct choice over an earlier draft that defaulted to `in_stock` — no change needed here.
-- `reserve`/`release`/`commit` (§4.1) MUST be implemented as undoable commands per root `AGENTS.md` — either by delegating directly to `wms`'s existing `reserveInventory`/`releaseReservation` commands (already command-driven, already undoable) or by registering their own commands with `extractUndoPayload()`. The original draft specified them as plain async interface methods with no stated command binding; this is fixed in §4.1 below.
+- `reserve`/`release`/`commit` (§4.1) MUST be implemented as this module's own undoable commands per root `AGENTS.md` — registered with `registerCommand(...)` and an `extractUndoPayload()` that records what each command's undo needs (see below). They **compose** `wms`'s existing `wms.inventory.reserve`/`wms.inventory.release` commands, which are themselves deliberately `isUndoable: false` (`wms/commands/inventory-actions.ts`): `wms` inventory is an append-only ledger whose reversal is an explicit counter-action (`reserve` ↔ `release`), not a generic undo verb. Undo is per command: `availability.reserve` delegates to `wms.inventory.release`; `release` re-reserves via `availability.reserve`, rebuilt from the original reserve input it records in its undo payload (`items`, `sourceId`, `ttlSeconds`, scope), under a fresh idempotency key (the released row is no longer `active`, and `wms`'s idempotent replay matches only active holds), and fails with `shortfall` when the stock is gone by then; `commit` restores the reservation's previous `source_type`, `source_id` and `idempotency_key`, except on the already-confirmed path (§4.4), where it released the remainder of the checkout hold instead, so undo re-reserves that remainder via `availability.reserve` and can fail with `shortfall`. The original draft specified them as plain async interface methods with no stated command binding; this is fixed in §4.1 below.
 
 ### Status of the deferral (2026-09-06) — read this before implementing
 
@@ -43,7 +43,7 @@ Deferring a contract to an unreachable document is worse than either alternative
 - `InventoryReservation` already carries `expires_at`, `idempotency_key`, `status` and `source_type` — everything a time-boxed checkout hold needs. The only gap is that `InventoryReservationSourceType` is `'order' | 'transfer' | 'manual'`; `'checkout'` is added additively.
 
 **Scope:**
-- `availabilityService` DI contract: `check`, `reserve`, `release`, `commit`
+- `resolveAvailability()` read contract (in `packages/shared`) plus the `availability.reserve` / `.release` / `.commit` commands
 - `AvailabilityPolicy` entity and its resolution chain
 - The `wms`-backed implementation and the catalog-only fallback
 - Caching, staleness budget, and an explicitly documented oversell window
@@ -60,7 +60,7 @@ Deferring a contract to an unreachable document is worse than either alternative
 
 Every payload in the storefront suite carries an availability state, and nothing in the platform produces one. `wms` owns the numbers; `catalog` owns the products; no contract connects them, and neither should be queried directly by a storefront.
 
-This module is the seam. It is intentionally small: one service interface, one policy entity, two implementations. Its value is that `ecommerce`, `cart` and `checkout` depend on a stable contract rather than on `wms`, which many tenants do not run.
+This module is the seam. It is intentionally small: one shared read contract (`resolveAvailability()` in `packages/shared`), the `availability.reserve`/`.release`/`.commit` commands, and one policy entity. Its value is that `ecommerce`, `cart` and `checkout` depend on a stable contract rather than on `wms`, which many tenants do not run.
 
 ---
 
@@ -160,10 +160,24 @@ export type AvailabilityShortfallLine = {
  * `resolveAvailability()` (packages/shared) is advisory only, this is not.
  *
  * Implemented as an undoable command (`registerCommand('availability.reserve', ...)`,
- * `extractUndoPayload()` on undo) that wraps `wms`'s existing `reserveInventory`
+ * `extractUndoPayload()` recording the reservation ids; undo delegates to
+ * `wms.inventory.release`) that wraps `wms`'s existing `wms.inventory.reserve`
  * command per item — this module does not bypass wms's command layer, it composes
  * it. When `wms` is absent, reservation is unavailable and this command returns
  * `reserved: false` for every line with reason `'not_tracked'`.
+ *
+ * Before it calls `wms` for any line it re-derives that line's sellable quantity
+ * from the §4.2 aggregation — safety stock and lot eligibility included — under
+ * locks held in the same transaction as the wms reserve calls, and returns
+ * `reserved: false` with `shortfall` when `requested > sellable`. For a product
+ * with a product-level safety-stock pool it also checks that the sum of this call's
+ * requested quantities for the product's variants does not exceed the product-level
+ * sellable (the per-variant sellable summed, minus the pool) under the same locks,
+ * so the pool is not oversold by variant reservations on the checkout path. Active
+ * holds are already inside `quantity_available`, so the gate does not count them
+ * again.
+ * `wms.inventory.reserve` allocates against raw `on_hand − reserved − allocated`, so
+ * this gate, not `wms`, is what keeps the safety buffer from being sold on the checkout path.
  */
 export async function reserveAvailability(input: {
   items: Array<{ catalogProductId: string; catalogVariantId?: string | null; quantity: number }>
@@ -180,13 +194,25 @@ export async function reserveAvailability(input: {
   shortfall: AvailabilityShortfallLine[]
 }>
 
-/** Undoable command wrapping wms's releaseReservation. */
+/**
+ * Undoable command wrapping wms's `wms.inventory.release`. Its undo payload records
+ * the original reserve input (`items`, `sourceId`, `ttlSeconds`, scope), so undo
+ * re-reserves the released quantity through `availability.reserve` under a fresh
+ * idempotency key — `wms`'s idempotent replay matches only active holds, so the
+ * released row is never matched; when the stock is gone by then the undo fails with
+ * `shortfall`.
+ */
 export async function releaseAvailability(input: { idempotencyKey: string; reason: string }): Promise<void>
 
 /**
  * Converts a checkout hold into an order reservation. Idempotent. Implemented as
  * an undoable command that mutates the existing wms InventoryReservation's
- * source_type/source_id in place inside one transaction — never release-then-reserve.
+ * source_type/source_id in place inside one transaction — never release-then-reserve —
+ * and rebuilds that reservation's wms idempotency key for the new source (§4.4).
+ * Undo restores the previous `source_type`, `source_id` and `idempotency_key`; when
+ * commit took the already-confirmed path (§4.4) it released the remainder of the
+ * checkout hold instead, so undo re-reserves that remainder through
+ * `availability.reserve` and fails with `shortfall` if the stock is gone by then.
  */
 export async function commitAvailability(input: { idempotencyKey: string; orderId: string }): Promise<void>
 ```
@@ -263,26 +289,31 @@ The result key is stable and derivable by the caller, so a batched response maps
 Sellable quantity, per variant, in one aggregation:
 
 ```sql
--- Aggregate across every in-scope location, THEN subtract the per-variant buffer
-SELECT catalog_variant_id,
-       SUM(quantity_available) AS aggregate_available
-FROM   inventory_balances
-WHERE  tenant_id = $1 AND organization_id = $2
-  AND  catalog_variant_id = ANY($3)
-  AND  (warehouse_id = ANY($4) OR $4 IS NULL)
-  AND  deleted_at IS NULL
-GROUP BY catalog_variant_id
+-- Aggregate across every in-scope location, THEN subtract the per-variant buffer.
+-- Ineligible lots (quarantined or expired) are excluded, matching wms.inventory.reserve.
+SELECT b.catalog_variant_id,
+       SUM(b.quantity_available) AS aggregate_available
+FROM   wms_inventory_balances b
+LEFT JOIN wms_inventory_lots l ON l.id = b.lot_id AND l.deleted_at IS NULL
+WHERE  b.tenant_id = $1 AND b.organization_id = $2
+  AND  b.catalog_variant_id = ANY($3)
+  AND  (b.warehouse_id = ANY($4) OR $4 IS NULL)
+  AND  b.deleted_at IS NULL
+  AND  (b.lot_id IS NULL OR (l.status = 'available' AND (l.expires_at IS NULL OR l.expires_at > now())))
+GROUP BY b.catalog_variant_id
 ```
 
 ```
 sellable(variant) = max(0, aggregate_available(variant) − safety_stock(variant))
 ```
 
-`safety_stock` comes from `ProductInventoryProfile`, matched on `catalog_variant_id` and falling back to the product-level profile row (`catalog_variant_id IS NULL`). It is subtracted **once per variant, after aggregation** — subtracting per balance row would multiply the buffer by the number of locations holding the item.
+`safety_stock` comes from `ProductInventoryProfile`, matched on `catalog_variant_id`. A variant-level row is subtracted **once per variant, after aggregation** — subtracting per balance row would multiply the buffer by the number of locations holding the item. A row with `catalog_variant_id IS NULL` is a **product-level pool**: it is subtracted once, from the product rollup total, not once per variant, and a variant query MUST NOT fall back to it (falling back multiplies the buffer by the variant count — four variants with `safety_stock = 5` and 3 units each would report nothing sellable with 12 units on hand). The §4.1 reserve gate applies the same pool on the checkout path: it checks the sum of the call's requested quantities for the product's variants against the product-level sellable (the per-variant sellable summed, minus the pool), not only the line's own variant sellable; active holds are already inside `quantity_available` and are not counted again.
+
+Only eligible lots count toward sellable: a balance whose lot status is not `available`, or whose `expires_at` has passed, is excluded, matching the eligibility `wms.inventory.reserve` applies. Without this, a quarantined or expired lot reads as permanently in stock while every `reserve` against it returns `shortfall`.
 
 `low_stock` triggers when `sellable ≤ lowStockThreshold`, where the threshold is the policy override if set, otherwise `ProductInventoryProfile.reorder_point`, otherwise no low-stock state.
 
-Product-level rollup (`variantId: null`) is `SUM` of sellable across the product's active variants, with state derived from the total.
+Product-level rollup (`variantId: null`) is `max(0, SUM of per-variant sellable across the product's active variants − the product-level safety-stock pool once)`, with state derived from the total.
 
 **Batching.** A 24-item listing page with configurable products can span several hundred variants. `check` MUST issue exactly one balance aggregation, one profile lookup and one policy lookup per call regardless of item count. Per-item queries are a defect, not a performance nuance.
 
@@ -295,6 +326,10 @@ Ships as the built-in `catalog-only` provider in `packages/shared` (Reconciliati
 `InventoryReservationSourceType` becomes `'order' | 'transfer' | 'manual' | 'checkout'`. Additive union extension — per `BACKWARD_COMPATIBILITY.md` this is permitted on an ADDITIVE-ONLY surface. Existing consumers narrowing on the three current values are unaffected; any exhaustive `switch` in `wms` gains a branch.
 
 `commit` transitions the reservation's `source_type` from `'checkout'` to `'order'` and rewrites `source_id` to the order id, rather than releasing and re-reserving — releasing first opens a window in which another buyer takes the stock out from under a paid order.
+
+It MUST also rebuild the reservation's wms `idempotency_key`, because `wms` derives that key from `source_type` and `source_id` alongside the variant, warehouse and quantity (`wms/lib/inventoryIdempotency.ts`); rewriting the first two while leaving the key stale produces a row that `wms`'s own idempotent replay can never match again, so a later `reserve` for the same order and bucket would take the quantity a second time.
+
+The same ordering decides the interaction with `wms`'s existing `sales.order.confirmed` auto-reservation: that subscriber tops up only reservations whose `source_type` is `order` and `source_id` is the order id, subtracting the quantity they already hold (`wms/lib/salesOrderInventoryAutomation.ts`), so a hold still on `'checkout'` is invisible to it. `commit` MUST therefore run before the order reaches a status that emits `sales.order.confirmed`. If the order is confirmed first, `commit` reads the order's per-variant quantities from the sales order lines through the query engine (`E.sales.sales_order_line`, exactly as that subscriber loads them — never a `sales` ORM import), looks up the order's active reservations for the variant (`source_type = 'order'`, `source_id` = the order id, summed across warehouses — not by idempotency key, because the subscriber splits a variant's order across warehouse buckets, `wms/lib/salesOrderInventoryAutomation.ts`), keeps exactly the ordered quantity held by converting only the shortfall between the order's quantity and the quantity the order already holds, and releases the part of the checkout hold the order already covers. A partly-covered checkout hold cannot be released wholesale, so `wms.inventory.release` gains an optional additive `quantity` input (today it takes only `reservationId` and `reason`, `wms/data/validators.ts`) that reduces the reservation row and the balance's reserved quantity under the same locks; `commit` passes it that covered part and everything happens in the same transaction, so the order is never reserved twice.
 
 ---
 
@@ -422,7 +457,7 @@ export const features = [
 | `expire-checkout-reservations` | every minute | Release `source_type = 'checkout'` reservations past `expires_at`; emit `.expired` |
 | `reconcile-orphan-reservations` | hourly | Find `active` checkout reservations whose checkout session no longer exists; release and report |
 
-The one-minute cadence on expiry is deliberate: held stock that nobody is buying is lost revenue, and a 15-minute TTL plus a 15-minute sweep means a 30-minute worst case.
+The one-minute cadence on expiry is deliberate: held stock that nobody is buying is lost revenue, and a 15-minute TTL plus a sweep of at most one minute means a worst case of about 16 minutes.
 
 ---
 
@@ -438,6 +473,7 @@ The one-minute cadence on expiry is deliberate: held stock that nobody is buying
 | R6 | Reservation leak on checkout abandonment | Medium | `availability` | Sessions abandoned after `reserve()` hold stock until TTL; at scale a meaningful slice of inventory is invisible. | One-minute expiry sweep; hourly orphan reconciliation; TTL default 900s | Low |
 | R7 | Release-then-reserve race at commit | **High** | `availability`, `checkout` | A naive `commit` releasing the checkout hold before creating the order reservation lets a concurrent buyer take stock from a paid order. | `commit` mutates the existing reservation in place (`source_type`, `source_id`) inside one transaction; never release-then-reserve | Low |
 | R8 | Union extension breaks exhaustive switches | Low | `wms` | Adding `'checkout'` to `InventoryReservationSourceType` makes any exhaustive `switch` non-exhaustive at compile time. | Compile-time failure, not runtime — surfaced by `yarn typecheck` and fixed in the same change; documented in `UPGRADE_NOTES.md` for third-party modules | Low |
+| R9 | Safety stock or lot eligibility bypassed at reserve time | **High** | `availability`, `wms` | `wms.inventory.reserve` allocates against raw `on_hand − reserved − allocated`; a gate that skips the §4.2 sellable re-derivation lets a checkout hold sell the safety buffer or a quarantined/expired lot, with no error. | §4.1's reserve gate re-derives sellable (safety stock and lot eligibility included) under locks held in the same transaction as the wms reserve calls before calling `wms`; §12 asserts both the buffer case and the ineligible-lot case | Low |
 
 ---
 
@@ -449,16 +485,21 @@ The one-minute cadence on expiry is deliberate: held stock that nobody is buying
 - State boundaries: exact-quantity request is `in_stock`; one over is `out_of_stock` or `backorder` per policy
 - `low_stock` from the policy override, and from `reorder_point` when there is no override
 - `preorder` before `preorder_release_at`, `in_stock` after
-- Product-level rollup equals the sum over active variants; inactive variants excluded
+- Product-level rollup equals the sum over active variants minus the product-level safety-stock pool, subtracted once; inactive variants excluded; 4 variants with 3 units each and a pool of 5 report 7 sellable
+- A quarantined or expired lot is excluded from sellable, not counted as `in_stock`
 - Policy resolution across all six chain levels with `policySourceId` correct at each
 - Query count for a 200-variant `check` is constant (R4)
 
 **Reservation behaviour:**
 - `reserve` succeeds, holds stock, and a subsequent `check` reflects the hold
 - `reserve` with insufficient stock returns `shortfall` and holds nothing (all-or-nothing per call)
+- `reserve` refuses a quantity that fits raw available but exceeds sellable — 10 on hand with a buffer of 8 gives sellable 2, so a reserve of 5 is refused and no pair of 5s can both succeed
+- `reserve` refuses a quantity held only in a quarantined or expired lot
 - Repeated `idempotencyKey` returns the original reservation without double-holding
 - N parallel `reserve` calls for the last unit succeed exactly once
 - `commit` mutates in place; no window in which the stock is unheld (R7)
+- `commit` followed by `sales.order.confirmed` for the same order holds exactly the ordered quantity, with no second reservation (R7, §4.4)
+- `sales.order.confirmed` before `commit`: exactly the ordered quantity stays held — `commit` matches the order's active reservations for the variant summed across warehouses, converts only the shortfall the order does not already hold and releases the rest of the checkout hold (R7, §4.4)
 - Expiry releases and emits `.expired`; orphan reconciliation catches sessionless holds
 
 **API paths:** every route in §8, with tenant isolation asserted against a second-tenant fixture.
@@ -481,7 +522,9 @@ Two deliverables with different homes, per the Reconciliation note — an earlie
 ### Phase 2 — `wms` implementation
 Batched aggregation, safety-stock handling, low-stock thresholds, product rollup, cache and event-driven invalidation.
 
-**Gate:** R1 and R4 tests pass; states match hand-computed expectations on a seeded multi-location warehouse.
+The provider shipped for Phase 2 (`wms/lib/availabilityCalculation.ts`) predates this amendment and must be brought in line with §4.2: `findProfile` falls back to the product-level row on a variant lookup, `sellableFor` subtracts safety stock per variant, the product rollup simply sums the per-variant sellable with no product-pool subtraction, and no lot-eligibility filter is applied. The R1 multi-location test, the product-level-pool rollup test and the ineligible-lot test in §12 cover the alignment.
+
+**Gate:** R1 and R4 tests pass, plus the product-level-pool rollup and ineligible-lot tests (§12); states match hand-computed expectations on a seeded multi-location warehouse.
 
 ### Phase 3 — Reservations
 `'checkout'` source type, `reserve` / `release` / `commit`, expiry and reconciliation jobs, shortfall events.
@@ -508,6 +551,7 @@ Phases 1 and 2 unblock spec 4 (public API). Phase 3 is required only by spec 7 (
 - New ACL features (`availability.policies.view/.manage`, `availability.check`) are additive; `setup.ts` MUST declare `defaultRoleFeatures` for `admin`/`employee` so existing tenants receive them via `yarn mercato auth sync-role-acls`, not only new tenants via `onTenantCreated`.
 - No consumer (`catalog`, `sales`, `wms`) gets a hard `requires: ['availability']` — `availability` remains fully ejectable, matching `wms`'s own `ejectable: true` precedent. `wms`'s optional dependency on `availability`'s policy resolution is soft (`tryResolve`), never a hard `requires`.
 - `reserve`/`release`/`commit` ship as new commands (`availability.reserve`/`.release`/`.commit`); no existing command is renamed or removed.
+- `wms.inventory.release` gains an optional additive `quantity` input — today it takes only `reservationId` and `reason` (`wms/data/validators.ts`) — that reduces the reservation row and the balance's reserved quantity under the same locks. `commit` needs it to release part of a checkout hold when the order is confirmed first (§4.4), so it is a `wms` prerequisite of phase 3; making `quantity` optional leaves every existing caller unchanged.
 
 ---
 
@@ -523,7 +567,7 @@ Phases 1 and 2 unblock spec 4 (public API). Phase 3 is required only by spec 7 (
 | Zod validation | Policy routes; command inputs validated at the boundary |
 | No `any` | Contract fully typed |
 | Optimistic locking | `AvailabilityPolicy` exposes `updatedAt` for `CrudForm` |
-| Command pattern | `reserve`/`release`/`commit` are undoable commands wrapping `wms`'s existing `reserveInventory`/`releaseReservation`, not bypassing the command layer (Reconciliation note) |
+| Command pattern | `reserve`/`release`/`commit` are this module's own undoable commands, with undo per command: `reserve` → `wms.inventory.release`; `release` → re-reserve via `availability.reserve` from the original reserve input in its undo payload (`items`, `sourceId`, `ttlSeconds`, scope), failing with `shortfall` when the stock is gone by then; `commit` → restore `source_type`/`source_id`/`idempotency_key`, or, on the already-confirmed path, re-reserve the released remainder via `availability.reserve` (failing with `shortfall` if the stock is gone). They compose `wms`'s existing `wms.inventory.reserve`/`wms.inventory.release`, which are `isUndoable: false` counter-action commands — the command layer is composed, not bypassed (Reconciliation note, §4.1) |
 | Cache safety | Tag-based invalidation via the `cache` module; no raw Redis |
 | i18n | State labels and lead-time strings in `en.json` / `pl.json`; nothing hard-coded |
 | Integration coverage | §12, shipping in the same change |
@@ -583,7 +627,7 @@ Ops/support keep abandoned holds from locking up stock.
   - AC: `availability.shortfall.detected` fires on every failed `reserve()` (§9) — this story is observability-only; no dashboard is in this spec's scope (§8 defines no public storefront endpoints).
 
 - **US-D2** — As an ops/support user, I want abandoned checkout holds to release automatically and orphaned holds (dead sessions) to be caught by reconciliation, so abandoned carts don't quietly lock up sellable stock (R6).
-  - AC: default `ttlSeconds` is 900; the one-minute expiry sweep gives a documented 30-minute worst case (§10).
+  - AC: default `ttlSeconds` is 900; the one-minute expiry sweep gives a documented worst case of about 16 minutes (§10).
   - AC: an orphan reservation (session gone) is released and reported, never silently left held.
   - AC: release is idempotent against the same `idempotencyKey` — safe to run more than once, so no separate "undo" action is needed.
 
@@ -599,6 +643,18 @@ Ops/support keep abandoned holds from locking up stock.
 ---
 
 ## 18) Changelog
+
+### 2026-10-11 (post-merge review of #5384)
+- Reconciliation note, §4.1 and §16: corrected the claim that the `wms` reservation commands are already undoable and named them by id. `wms.inventory.reserve`/`wms.inventory.release` are deliberately `isUndoable: false` (`wms/commands/inventory-actions.ts`) — counter-actions over an append-only ledger. `availability.reserve`/`.release`/`.commit` stay this module's own undoable commands; each `extractUndoPayload()` records what its undo needs, and undo is per command: `reserve` → `wms.inventory.release`; `release` → re-reserve via `availability.reserve` from the original reserve input recorded in its undo payload (`items`, `sourceId`, `ttlSeconds`, scope) under a fresh idempotency key (the released row is not `active`, and `wms`'s idempotent replay matches only active holds), failing with `shortfall` when the stock is gone by then; `commit` → restore `source_type`/`source_id`/`idempotency_key`, or, on the already-confirmed path, re-reserve the released remainder via `availability.reserve` (failing with `shortfall` if the stock is gone).
+- TLDR and §1: the `availabilityService` DI contract is replaced by the shared `resolveAvailability()` read contract plus the `availability.reserve`/`.release`/`.commit` commands.
+- §4.1: `reserve` now re-derives each line's sellable quantity from §4.2 — safety stock and lot eligibility included — under locks held in the same transaction as the wms reserve calls and returns `reserved: false` with `shortfall` when `requested > sellable`; for a product-level safety-stock pool it also checks the sum of the call's requested quantities for the product's variants against the product-level sellable (the per-variant sellable summed, minus the pool) under the same locks — active holds already sit inside `quantity_available` — so the authoritative hold no longer sells the safety buffer on the checkout path.
+- §4.2: the aggregation joins `wms_inventory_lots` (excluding soft-deleted lots) and excludes balances whose lot is not `available` or has expired, matching `wms.inventory.reserve`'s eligibility; a product-level `safety_stock` (`catalog_variant_id IS NULL`) is defined as a product pool subtracted once at rollup, never per variant, with variant queries not falling back to it and §4.1's reserve gate applying it.
+- §4.4: `commit` rebuilds the wms `idempotency_key` when it rewrites `source_type`/`source_id` to the order, runs before `sales.order.confirmed`, and — when the order is confirmed first — reads the order's per-variant quantities from the sales order lines through the query engine (as the subscriber does), matches the order's active reservations for the variant summed across warehouses (not by idempotency key, since the subscriber splits a variant across warehouse buckets), converts only the shortfall the order does not already hold and releases the part of the checkout hold the order already covers, in one transaction, so the order is never reserved twice.
+- §15: `wms.inventory.release` gains an optional additive `quantity` input (it takes only `reservationId` and `reason` today, `wms/data/validators.ts`) that reduces the reservation row and the balance's reserved quantity under the same locks; `commit` uses it to release part of a checkout hold, making it a `wms` prerequisite of phase 3 with existing callers unaffected.
+- §11: added R9 (safety-stock or lot-eligibility bypass at reserve time).
+- §12: added coverage for the safety-buffer gate, ineligible lots, the product safety-stock pool and both commit/auto-reservation orderings.
+- §13 Phase 2: notes that the shipped provider (`wms/lib/availabilityCalculation.ts`) still falls back to the product-level row, subtracts per variant, sums the rollup without the product pool and applies no lot filter; it must be brought in line with §4.2, covered by the §12 R1, product-pool and ineligible-lot tests.
+- §10 and §17/US-D2: corrected the expiry worst case from 30 minutes to about 16 minutes (900s TTL + a sweep of at most one minute).
 
 ### 2026-09-30 (review fixes on PR #6709)
 - §5.1: `is_stock_managed` is nullable and cascades like the other nullable fields; `null` defers to the next less-specific row and finally to the §5.2 module default. A store-default row created only to set a threshold no longer switches stock tracking off for every product. Migration `Migration20260930120000_availability`.
