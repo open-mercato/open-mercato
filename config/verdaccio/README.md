@@ -9,6 +9,13 @@ metadata; the previous 50 MiB limit rejected it with HTTP 413. The bounded
 100 MiB limit leaves room for the current package and growth without allowing
 unlimited uploads. Reassess it when the encoded payload approaches capacity.
 
+The default infrastructure Compose service publishes port 4873 only on
+`127.0.0.1`. `VERDACCIO_PORT` changes the port while keeping loopback binding.
+A non-loopback bind requires an explicit `VERDACCIO_HOST` override. For access
+from another machine, prefer an SSH tunnel. Before sharing the registry on a
+network, configure authenticated publishing and external request/concurrency
+limits; the bundled anonymous development configuration is for loopback use.
+
 After the normal `yarn build:packages`, `yarn generate`, `yarn build:packages`
 sequence, pack and measure a current package:
 
