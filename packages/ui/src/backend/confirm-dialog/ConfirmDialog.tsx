@@ -8,6 +8,8 @@ import { IconButton } from "../../primitives/icon-button";
 import { cn } from "@open-mercato/shared/lib/utils";
 import { CircleHelp, Loader2, TriangleAlert, X } from "lucide-react";
 
+const FOOTER_ACTION_CLASS_NAME = "h-auto min-h-9 whitespace-normal py-1.5 text-center";
+
 export type ConfirmDialogProps = {
   /** Whether the dialog is open (controlled mode — used by useConfirmDialog) */
   open?: boolean;
@@ -288,7 +290,7 @@ export function ConfirmDialog({
         </DialogHeader>
 
         {/* Footer per Figma `Modal Footer [1.1]` variant 1: 50/50 confirmation split,
-            stacked on phones where long labels would overflow the sheet */}
+            stacked on phones, with labels that wrap instead of overflowing the card */}
         <DialogFooter layout="equal" className="flex-col-reverse sm:flex-row">
           {resolvedCancelText !== false && (
             <Button
@@ -296,6 +298,7 @@ export function ConfirmDialog({
               variant="outline"
               onClick={handleCancel}
               disabled={loading}
+              className={FOOTER_ACTION_CLASS_NAME}
             >
               {resolvedCancelText}
             </Button>
@@ -306,6 +309,7 @@ export function ConfirmDialog({
               variant={variant === "destructive" ? "destructive-solid" : "default"}
               onClick={handleConfirm}
               disabled={loading}
+              className={FOOTER_ACTION_CLASS_NAME}
             >
               {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {resolvedConfirmText}
