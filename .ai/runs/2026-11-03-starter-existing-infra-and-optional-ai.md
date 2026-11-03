@@ -44,7 +44,7 @@ The operator clarified that dev:greenfield must keep its established automatic -
 - [x] 3.2 Protect unhealthy existing services before startup and cover reuse consent. — 078106eb0
 - [x] 3.3 Verify configured PostgreSQL, Redis and Meilisearch credentials before database setup; provide sanitized actionable errors. — 8f8820874
 - [x] 3.4 Run focused validation and full PR code review, then publish the updated PR scope. — 2a32c69f9
-- [ ] 3.5 Execute all eight configured workspace validation commands and finalize the review.
+- [x] 3.5 Execute all eight configured workspace validation commands and finalize the review. — a537df464
 
 ## Diagnostic findings
 
@@ -70,3 +70,10 @@ Final continuation evidence: 653 combined dev-runtime/starter/standalone script 
 The requested om-auto-review-pr --autofix pass reviewed the full PR and fixed pre-existing-unhealthy-service consent ordering, effective database-name preview, missing-database compatibility, Redis error-event classification and Meilisearch protected-response validation/cleanup. Monorepo reinstall lines match the main branch; standalone reset remains explicit. No actionable code findings remain after root re-review. Validation source for the full configured gate is current-head GitHub checks under the repository-local review extension; CI and manual browser QA remain merge gates. The focused local results do not claim a full workspace gate pass. Native author self-approval is unavailable, so the automated assessment is recorded as a COMMENT review.
 
 Full-gate follow-up: the operator explicitly requested execution of every configured workspace command for this re-review, superseding the checks-first local optimization. The isolated checkout receives physical dependency copies so build and generator resolution cannot mutate the primary checkout. Do not approve until the required local gate succeeds; current GitHub CI and manual QA remain separate merge gates.
+
+
+Full-gate completion: all eight configured commands passed locally with Node 24.22.2 on source 728b93806. Builds/generation/i18n/typecheck passed, yarn test passed all 51 Turbo tasks (including 319 UI suites, 113 CLI suites, 2668 core suites/26823 core tests, and 1020 create-app cases with 6 skips), and the app build passed in 141.6 seconds. This is actual execution, not substituted CI evidence.
+
+CI then exposed a merge-ref-only test fixture mismatch: current main calls purgeGreenfieldCaches, while the initialization VM harness only stubbed its previous helper name. Reproduced 12 failures against fetched main; a537df464 adds the cache-ready stub returning true without changing runtime/cache behavior or any reset assertion. The suite passes 20/20 on the branch and 20/20 against current main after the fix. The current-head GitHub test rerun remains pending and still gates merge. The broader local CI script command encountered 15 Mac tooling failures (11 Compose plugin-discovery cases and 4 GNU-timeout-dependent npm tests); all 11 Compose cases pass when pointed at the installed standalone Compose binary. GNU timeout is unavailable locally, so those additional checks are not claimed green. No further system/tooling changes were made.
+
+A supplied fresh-microVM report at 728b938 confirms full monorepo and standalone first-run setup/login/demo data with no LLM key. It is additional attributed evidence, not a substitute for manual browser QA of Retry/CSP or current-head checks. Related PR 8613 adds service mode choices and shares the verified connection helper.
