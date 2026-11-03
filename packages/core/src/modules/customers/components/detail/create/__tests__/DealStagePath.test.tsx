@@ -45,6 +45,9 @@ describe('DealStagePath', () => {
   it('disables every stage while submitting', () => {
     render(<DealStagePath stages={stages} value="lead" onChange={jest.fn()} disabled label="Sales" />)
 
-    for (const button of screen.getAllByRole('button')) expect(button).toBeDisabled()
+    for (const button of screen.getAllByRole('button')) {
+      expect(button).toBeDisabled()
+      expect(button).toHaveAttribute('data-slot', 'button')
+    }
   })
 })
