@@ -185,6 +185,30 @@ describe('ConfirmDialog', () => {
     expect(classNames).not.toContain('flex-row')
   })
 
+  it.each([
+    ['Weiter bearbeiten', 'Änderungen verwerfen'],
+    ['Abbrechen', 'Typ ändern und Werte löschen'],
+  ])('lets the long translated actions "%s" and "%s" wrap inside the card', (cancelText, confirmText) => {
+    renderWithProviders(
+      <ConfirmDialog
+        open
+        onOpenChange={() => undefined}
+        onConfirm={() => undefined}
+        title="Änderungen verwerfen?"
+        variant="destructive"
+        confirmText={confirmText}
+        cancelText={cancelText}
+      />,
+    )
+
+    for (const name of [cancelText, confirmText]) {
+      const classNames = screen.getByRole('button', { name }).className.split(/\s+/)
+      expect(classNames).toEqual(expect.arrayContaining(['whitespace-normal', 'h-auto', 'min-h-9', 'text-center']))
+      expect(classNames).not.toContain('whitespace-nowrap')
+      expect(classNames).not.toContain('h-9')
+    }
+  })
+
   it('closes only the confirmation that owns an Escape event', () => {
     const firstOpenChange = jest.fn()
     const secondOpenChange = jest.fn()
