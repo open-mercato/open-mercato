@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { readJsonSafe as readBrowserJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
@@ -53,7 +54,7 @@ async function uploadMedia(page: Page, count: number): Promise<string[]> {
     async (response) => {
       if (!response.url().includes('/api/attachments') || response.request().method() !== 'POST') return false;
       if (response.url().includes('/transfer')) return false;
-      const body = (await response.json().catch(() => null)) as { item?: { id?: string } } | null;
+      const body = await readBrowserJsonSafe<{ item?: { id?: string } }>(await response.text());
       if (body?.item?.id) uploadedIds.push(body.item.id);
       return uploadedIds.length >= count;
     },
