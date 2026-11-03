@@ -10,7 +10,7 @@ export const integrationMeta = {
 };
 
 type SavedPerspective = { id?: string; name?: string; settings?: Record<string, unknown> };
-type SaveResponse = { perspective?: SavedPerspective; code?: string };
+type SaveResponse = { perspective?: SavedPerspective; code?: string; error?: string };
 type StateResponse = { perspectives?: SavedPerspective[] };
 
 async function createView(
@@ -78,6 +78,16 @@ test.describe('TC-PERSP-UNIQUENESS-002: save-as-new does not overwrite a same-na
       expect(collide.status(), 'create-only with a taken name').toBe(409);
       const collideBody = await readJsonSafe<SaveResponse>(collide);
       expect(collideBody?.code).toBe('duplicate_name');
+
+      const collidePl = await apiRequest(request, 'POST', `/api/perspectives/${encodeURIComponent(tableId)}`, {
+        token,
+        data: { name, settings: { pageSize: 50 }, createOnly: true },
+        headers: { 'Accept-Language': 'pl' },
+      });
+      expect(collidePl.status(), 'create-only with a taken name, Polish client').toBe(409);
+      const collidePlBody = await readJsonSafe<SaveResponse>(collidePl);
+      expect(collidePlBody?.code).toBe('duplicate_name');
+      expect(collidePlBody?.error, 'translated duplicate_name message').toBe('Widok o tej nazwie już istnieje');
 
       const afterCollide = await listViews(request, token, tableId, name);
       expect(afterCollide, 'still exactly one view with that name').toHaveLength(1);

@@ -188,6 +188,8 @@ Deferred — the current `RolePerspective` model covers sharing via roles. A tru
 4. **Migration path** — Should old `ui.perspectives.*` i18n keys be removed immediately or deprecated gradually?
 
 ## Changelog
+### 2026-11-03 (update)
+- Creating a view never overwrites a same-named personal view: the New form, Clone and `saveCurrentView` without a target send `createOnly: true`, and the save endpoint answers 409 `duplicate_name` (translated `error`) instead of updating the existing view. Requests without the flag keep upsert-by-name. Covered by `saveUserPerspective.createOnly.test.ts`, `PerspectiveSidebar.saveNewDuplicate.test.tsx` and `TC-PERSP-UNIQUENESS-002`.
 ### 2026-09-08 (update)
 - Active view state is now exposed semantically, not just visually: `data-active="true|false"` on the `ViewChip` root and `aria-current="true"` on its activate button, so tests, browser QA and assistive technology read it without depending on the chip styling. Covered by `ViewChip.activeState.test.tsx` and `TC-PERSP-NEWVIEW-LAYOUT-001` (issue #5846, PR #5932).
 ### 2026-04-04 (update)
