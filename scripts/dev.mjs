@@ -1559,8 +1559,8 @@ function relaunchManagedRuntime(reason) {
 // probe and APP_URL keep pointing at whatever already answers on the old one.
 async function settleAppPort() {
   if (isGatewayModeRequested()) return
-  const configuredPort = resolveDevBaseUrl(process.env).port ?? 3000
   const appDir = isMonorepo ? path.join(process.cwd(), 'apps', 'mercato') : process.cwd()
+  const configuredPort = resolveDevPublicAppBaseUrl(process.env, readAppDotEnv(appDir)).port ?? 3000
   const preflight = await resolveAppPortPreflight({
     port: configuredPort,
     env: process.env,
