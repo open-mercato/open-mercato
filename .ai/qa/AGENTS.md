@@ -491,7 +491,7 @@ For each failed test, include:
 
 ## How to Manage Scenarios (Optional)
 
-Scenarios live in `.ai/qa/scenarios/` and serve as documentation. They are NOT required for test generation.
+Scenarios live in `.ai/qa/scenarios/` and serve as documentation. They are NOT required for test generation. Window-wide `qa-scenarios-<date>.md` and `.html` reports from `om-auto-qa-scenarios` also live here; they are not `TC-*` test cases and must not be batch-converted into executable tests.
 
 ### Naming Convention
 
