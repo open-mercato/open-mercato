@@ -1,7 +1,8 @@
 /** @jest-environment jsdom */
 
 import * as React from 'react'
-import { fireEvent, screen, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { TimeGrid } from '../TimeGrid'
 import type { CalendarItem } from '../types'
@@ -49,7 +50,7 @@ function installColumnWidth(widthPx: number) {
   }))
 }
 
-function renderGrid(items: CalendarItem[], onItemClick = jest.fn()) {
+function renderGrid(items: CalendarItem[], onItemClick = jest.fn(), canManage = true) {
   const utils = renderWithProviders(
     <TimeGrid
       anchor={anchor}
@@ -58,6 +59,7 @@ function renderGrid(items: CalendarItem[], onItemClick = jest.fn()) {
       showWeekends
       showConflicts={false}
       aiSummaries={false}
+      canManage={canManage}
       conflictIds={new Set()}
       onItemClick={onItemClick}
       onJoin={() => {}}
@@ -109,6 +111,31 @@ describe('TimeGrid dense overlaps (#7500)', () => {
     expect(onItemClick).toHaveBeenCalledTimes(1)
     expect(onItemClick).toHaveBeenCalledWith(expect.objectContaining({ id: 'dense-2', title: 'Charlie demo' }))
     expect(screen.queryByRole('list')).not.toBeInTheDocument()
+  })
+
+  it('lets a viewer open the peek of a hidden meeting by pointer and keyboard, without editing', async () => {
+    installColumnWidth(170)
+    const user = userEvent.setup()
+    const { onItemClick } = renderGrid(denseItems(), jest.fn(), false)
+
+    await user.click(screen.getByRole('button', { name: /^5 more events, / }))
+    const list = screen.getByRole('list')
+
+    await user.click(within(list).getByRole('button', { name: /^Charlie demo, / }))
+    const peekEdit = await screen.findByRole('button', { name: 'Edit' })
+    expect(peekEdit).toBeDisabled()
+    expect(screen.getAllByText('Charlie demo').length).toBeGreaterThan(1)
+    expect(onItemClick).not.toHaveBeenCalled()
+
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument())
+
+    const row = within(screen.getByRole('list')).getByRole('button', { name: /^Delta call, / })
+    row.focus()
+    await user.keyboard('{Enter}')
+    expect(await screen.findByRole('button', { name: 'Edit' })).toBeDisabled()
+    expect(screen.getAllByText('Delta call').length).toBeGreaterThan(1)
+    expect(onItemClick).not.toHaveBeenCalled()
   })
 
   it('closes the overflow list and any peek when the grid scrolls', () => {
