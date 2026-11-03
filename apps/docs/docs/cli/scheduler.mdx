@@ -324,12 +324,11 @@ yarn mercato scheduler run <schedule-id>
 # 4. Check logs
 tail -f logs/scheduler.log
 
-# 5. Check queue status (async mode)
+# 5. Check queue job counts, including failed jobs (async mode)
 yarn mercato queue status scheduler-execution
-
-# 6. View failed jobs (async mode)
-yarn mercato queue failed scheduler-execution
 ```
+
+To see why a specific schedule failed, read its execution history with [`GET /api/scheduler/jobs/{id}/executions`](../api/scheduler.mdx) (async mode).
 
 ### Monitoring Production
 
@@ -340,15 +339,11 @@ yarn mercato scheduler status
 # View active schedules
 yarn mercato scheduler list --enabled true
 
-# Check for failed executions (async mode)
-yarn mercato queue failed scheduler-execution
-
-# View execution history (async mode)
-yarn mercato queue history scheduler-execution --limit 20
-
-# Check scheduler queue status (async mode)
+# Check waiting, active, completed and failed job counts (async mode)
 yarn mercato queue status scheduler-execution
 ```
+
+Per-schedule execution history is available through [`GET /api/scheduler/jobs/{id}/executions`](../api/scheduler.mdx) (async mode).
 
 ## Environment Variables
 
@@ -388,22 +383,17 @@ yarn mercato queue status scheduler-execution
 
 ### Queue Management
 
+The `queue` CLI provides `worker`, `status` and `clear`:
+
 ```bash
-# View scheduler execution queue
+# Show waiting, active, completed and failed job counts
 yarn mercato queue status scheduler-execution
 
-# View pending jobs
-yarn mercato queue pending scheduler-execution
-
-# View failed jobs
-yarn mercato queue failed scheduler-execution
-
-# Retry failed jobs
-yarn mercato queue retry scheduler-execution <job-id>
-
-# Clean old jobs
-yarn mercato queue clean scheduler-execution --grace 86400
+# Remove all jobs from the scheduler execution queue
+yarn mercato queue clear scheduler-execution
 ```
+
+There is no CLI command to list or retry individual jobs. Inspect a single job with [`GET /api/scheduler/queue-jobs/{jobId}?queue=scheduler-execution`](../api/scheduler.mdx) (async mode).
 
 ### Database Management
 
