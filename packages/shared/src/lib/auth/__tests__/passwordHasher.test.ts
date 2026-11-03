@@ -314,7 +314,7 @@ describe('createPasswordHasher', () => {
     expect(argon2.hash).not.toHaveBeenCalled()
   })
 
-  it('treats a throwing Argon2id verification as a mismatch without extra work', async () => {
+  it('treats a throwing Argon2id verification as a mismatch and still spends the dummy verification', async () => {
     const storedHash = argon2Hash()
     const argon2 = fakeArgon2()
     argon2.verify.mockImplementation(async (candidate: string) => {
@@ -324,7 +324,8 @@ describe('createPasswordHasher', () => {
     const hasher = createPasswordHasher(config({ algorithm: 'argon2id' }), { loadArgon2: async () => argon2 })
     await expect(hasher.verify('wrong', storedHash)).resolves.toBe(false)
     expect(argon2.hash).toHaveBeenCalledTimes(1)
-    expect(argon2.verify).toHaveBeenCalledTimes(1)
+    expect(argon2.verify).toHaveBeenCalledTimes(2)
+    expect(argon2.verify).toHaveBeenLastCalledWith(argon2.timingHash, 'wrong')
   })
 
   it('surfaces a missing Argon2 implementation instead of reporting a wrong password', async () => {

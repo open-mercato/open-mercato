@@ -355,6 +355,9 @@ export function createPasswordHasher(
       return await withArgon2Slot(() => argon2.verify(storedHash, password))
     } catch (error) {
       if (error instanceof PasswordHasherBusyError) throw error
+      // A stored hash the library rejects (e.g. parameters below its minimum) fails fast;
+      // spend the dummy verification so it still matches the profile.
+      if (argon2InProfile) await verifyArgon2TimingHash(password)
       return false
     }
   }
