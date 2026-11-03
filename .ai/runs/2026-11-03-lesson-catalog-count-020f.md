@@ -21,7 +21,7 @@ Only `.ai/lessons.md` metadata and this portable execution plan. No lesson recor
 
 ## Risks
 
-Another lesson addition can advance the base; recheck the candidate merged tree before handoff. Review analysis is clean, but GitHub rejected native self-approval; another reviewer must approve before completing step 2.1.
+Another lesson addition can advance the base; recheck the candidate merged tree before handoff. Automatic review analysis is clean. GitHub rejected native self-approval; no native approval is claimed. The operator explicitly waived additional GitHub review requirements once automatic review, QA exemption and CI hold. Recheck the combined-tree catalog and all current-head CI before merging.
 
 ## Progress
 
@@ -36,4 +36,4 @@ PR: #8580
 
 ### Phase 2: Review and handoff
 
-- [ ] 2.1 Publish evidence, complete authoritative review, and hand off a ready PR
+- [x] 2.1 Publish evidence, complete authoritative review, and hand off a ready PR — automatic review approved; native-extra requirement waived by operator; CI remains an explicit merge gate
