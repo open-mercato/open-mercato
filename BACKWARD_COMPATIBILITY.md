@@ -637,6 +637,6 @@ SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: A
 
 ---
 
-## #7672
+## #7672 2026-11-03
 
-[Transfer id limit](UPGRADE_NOTES.md)
+STABLE `POST /api/attachments/transfer` rejects over 100 `attachmentIds` (400); no bridge, as unbounded arrays are the resource exhaustion. [Migrate](UPGRADE_NOTES.md#issue-7672)

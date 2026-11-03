@@ -1055,6 +1055,8 @@ mechanism, gated at version `0.9.1` — the version this release ships as. An ex
 these as pending upgrade actions (`configs.manage`, the same admin banner every other upgrade
 action uses) once the app reports `0.9.1`; no migration or CLI command runs them automatically.
 
+<a id="issue-7672"></a>
+
 ### `POST /api/attachments/transfer` accepts at most 100 `attachmentIds` (#7672)
 
 `POST /api/attachments/transfer` used to accept an `attachmentIds` array of any length and load and
@@ -1063,7 +1065,8 @@ ceiling as the attachment list `pageSize`. A request with more ids answers
 `400 { error: "Invalid payload" }` and transfers nothing. The URL and the response shapes are
 unchanged. This change ships under the Emergency Security Exception (see
 [the spec](.ai/specs/2026-10-21-attachments-transfer-max-ids.md#migration--backward-compatibility)),
-so there is no release in which longer arrays keep working.
+so there is no release in which longer arrays keep working. See the
+[compatibility exception record](BACKWARD_COMPATIBILITY.md#7672-2026-11-03).
 
 **Action for module authors and API clients:** a caller that moves more than 100 attachments at once
 must split the ids into chunks of at most `100` and send one request per chunk. Backend pages can
