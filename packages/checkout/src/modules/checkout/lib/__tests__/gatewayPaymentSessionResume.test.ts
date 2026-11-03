@@ -53,7 +53,7 @@ import { createGatewayPaymentSessionResumeHandler } from '../gatewayPaymentSessi
 const PAYLOAD = { paymentId: 'txn-1', organizationId: 'org-1', tenantId: 'tenant-1', transactionId: 'gw-1' }
 
 function makeTransaction(overrides: FakeRow = {}): FakeRow {
-  return { id: 'txn-1', sessionId: 'session-1', linkId: null, status: 'completed', ...overrides }
+  return { id: 'txn-1', sessionId: 'session-1', linkId: null, status: 'completed', amount: '125.00', currencyCode: 'USD', gatewayTransactionId: null, ...overrides }
 }
 
 function makeSession(overrides: FakeRow = {}): FakeRow {
@@ -88,6 +88,7 @@ describe('createGatewayPaymentSessionResumeHandler', () => {
       'order-1',
       'quote-1',
       { stockReservationKey: 'stock-1', creditReservationKey: null },
+      { amount: '125.00', currencyCode: 'USD', paymentReference: 'txn-1' },
     )
     expect(mockCompensateByCancellingOrder).not.toHaveBeenCalled()
   })

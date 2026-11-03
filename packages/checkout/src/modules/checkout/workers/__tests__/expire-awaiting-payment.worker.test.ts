@@ -65,7 +65,7 @@ function makeSession(overrides: Partial<CheckoutSession> = {}): CheckoutSession 
 describe('checkout expire-awaiting-payment worker', () => {
   const mockFindTransactionBySessionId = jest.fn()
   const mockGetPaymentStatus = jest.fn()
-  const mockEmFindOne = jest.fn(async () => ({ id: 'checkout-transaction-1' } as CheckoutTransaction))
+  const mockEmFindOne = jest.fn(async () => ({ id: 'checkout-transaction-1', amount: '125.00', currencyCode: 'USD', gatewayTransactionId: null } as CheckoutTransaction))
   const mockNativeUpdate = jest.fn(async (..._args: unknown[]) => 1)
   const mockEm = {
     fork: () => mockEm,
@@ -95,7 +95,7 @@ describe('checkout expire-awaiting-payment worker', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
-    mockEmFindOne.mockResolvedValue({ id: 'checkout-transaction-1' } as CheckoutTransaction)
+    mockEmFindOne.mockResolvedValue({ id: 'checkout-transaction-1', amount: '125.00', currencyCode: 'USD', gatewayTransactionId: null } as CheckoutTransaction)
     mockNativeUpdate.mockResolvedValue(1)
     mockFindTransactionBySessionId.mockResolvedValue({ id: GATEWAY_TRANSACTION_ID })
     mockGetPaymentStatus.mockResolvedValue({ status: 'captured' })
@@ -154,6 +154,7 @@ describe('checkout expire-awaiting-payment worker', () => {
       session.salesOrderId,
       session.salesQuoteId,
       { stockReservationKey: session.stockReservationKey, creditReservationKey: session.creditReservationKey },
+      { amount: '125.00', currencyCode: 'USD', paymentReference: 'checkout-transaction-1' },
     )
     expect(mockCompensateByCancellingOrder).not.toHaveBeenCalled()
     expect(mockEmitCheckoutEvent).toHaveBeenCalledWith('checkout.payment.succeeded', expect.objectContaining({ sessionId: session.id, orderId: session.salesOrderId }))
