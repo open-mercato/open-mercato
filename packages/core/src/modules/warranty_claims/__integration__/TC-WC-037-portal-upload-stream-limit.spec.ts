@@ -27,12 +27,14 @@ const UPLOAD_IDLE_TIMEOUT_MS = 10_000
 // server closing the connection, so its socket may be reset before the 413 is
 // read. Sending exactly one byte past the limit and then waiting leaves nothing
 // unread on the server, so the 413 always arrives and is the evidence of the
-// size check. The full-stream case is covered separately and never counts a
-// reset as that evidence. Every upload uses its own connection and stops writing
+// size check. The full-stream case is covered separately: a reset there counts
+// only once the body has passed the limit, and a reset that cuts the 413 body
+// short still has to carry the 413 status line. Every upload uses its own connection and stops writing
 // once a response arrives, and it settles only after that connection is closed,
 // so an unread body never keeps streaming beside the next upload.
 type UploadResult =
   | { kind: 'response'; status: number; body: string }
+  | { kind: 'cut'; status: number }
   | { kind: 'closed'; bytesSent: number }
 
 type UploadOptions = { bodyBytes: number; finish: boolean }
@@ -65,6 +67,7 @@ function sendChunkedUpload(
   const prefix = buildMultipartPrefix(method, claimId)
   return new Promise((resolve, reject) => {
     let responded = false
+    let responseStatus = 0
     let response: { status: number; body: string } | null = null
     let sent = prefix.length
     const req = send(url, {
@@ -77,10 +80,12 @@ function sendChunkedUpload(
       },
     }, (res) => {
       responded = true
+      responseStatus = res.statusCode ?? 0
       const chunks: Buffer[] = []
       res.on('data', (chunk: Buffer) => chunks.push(chunk))
-      res.on('error', (error) => reject(error))
-      res.on('aborted', () => reject(new Error('[internal] response aborted before it completed')))
+      res.on('error', (error: NodeJS.ErrnoException) => {
+        if (error.code !== 'ECONNRESET') reject(error)
+      })
       res.on('end', () => {
         response = { status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8') }
         req.destroy()
@@ -95,7 +100,7 @@ function sendChunkedUpload(
     })
     req.on('close', () => {
       if (response) resolve({ kind: 'response', ...response })
-      else if (responded) reject(new Error('[internal] connection closed before the response completed'))
+      else if (responded) resolve({ kind: 'cut', status: responseStatus })
       else resolve({ kind: 'closed', bytesSent: sent })
     })
     req.write(prefix)
@@ -184,6 +189,10 @@ test.describe('TC-WC-037: portal attachment upload stream limit', () => {
         })
         if (result.kind === 'response') {
           expectUploadTooLarge(method, result)
+          continue
+        }
+        if (result.kind === 'cut') {
+          expect(result.status, `${method} upload was reset mid-response after a status other than 413`).toBe(413)
           continue
         }
         expect(result.bytesSent, `${method} upload was reset before it passed the upload limit`).toBeGreaterThan(resolveAttachmentMultipartMaxBytes())
