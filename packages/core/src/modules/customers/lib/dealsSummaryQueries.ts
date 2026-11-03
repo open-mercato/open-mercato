@@ -49,7 +49,7 @@ export type DealsSummaryQueryRows = {
   wonRows: WindowSumRow[]
   winLossRows: WinLossRow[]
   seriesRows: WinRateMonthRow[]
-  /** Open deals created per trailing month and currency (pipeline inflow trend). */
+  /** All non-deleted deals created per trailing month and currency (pipeline inflow trend). */
   inflowSeriesRows: MonthlyCurrencyRow[]
   /** Deals won per trailing month and currency (won value trend). */
   wonSeriesRows: MonthlyCurrencyRow[]
@@ -193,9 +193,9 @@ export async function loadDealsSummaryQueryRows(input: DealsSummaryQueryInput): 
         COUNT(*) AS count,
         COALESCE(SUM(value_amount), 0) AS total
       FROM customer_deals
-      WHERE ${scopeWhere} AND ${openDealsPredicate.clause} AND created_at >= ?
+      WHERE ${scopeWhere} AND created_at >= ?
       GROUP BY 1, 2`,
-    [...scopeValues, ...openDealsPredicate.values, input.seriesStart.toISOString()],
+    [...scopeValues, input.seriesStart.toISOString()],
   )
 
   const wonSeriesRows = await connection.execute<MonthlyCurrencyRow[]>(
