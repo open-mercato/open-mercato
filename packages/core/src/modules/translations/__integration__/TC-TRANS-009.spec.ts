@@ -20,7 +20,7 @@ async function fillCombobox(
   await expect(input).toBeEnabled({ timeout: 10_000 })
   await input.click()
   await input.fill(value)
-  const suggestion = page.getByRole('button', {
+  const suggestion = page.getByRole('option', {
     name: new RegExp(escapeForRegex(value), 'i'),
   }).first()
   const suggestionVisible = await suggestion.waitFor({ state: 'visible', timeout: 2_000 }).then(

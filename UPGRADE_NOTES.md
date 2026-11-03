@@ -77,6 +77,28 @@ are unchanged. Host-local proxies and diagnostics can use a final loopback-only
 override. See [migration, override examples, WSS routing, and deployment checks](docker/traefik/README.md#private-application-ports-and-migration).
 No application API, database, or module-code migration is required.
 
+### AI-generated keys respect per-user ACL restrictions (#7825)
+
+Persistent MCP keys generated after this upgrade carry the same user binding as
+AI session keys. Their effective feature and organization grants cannot exceed
+the owner's ACL, including after an ACL update while caches are warm. Unbound
+machine keys retain independent role grants. User-bound keys no longer expose a
+raw global super-admin scope-override flag.
+
+Operators must revoke and regenerate existing persistent MCP keys through AI
+Assistant settings: legacy keys did not store a reliable user-binding marker and
+cannot be distinguished safely from independent machine keys. Existing session
+keys already carry the binding and receive the ceiling automatically. Clients
+keep the same endpoint payloads and token formats; update MCP client secrets after
+regeneration. Custom delegated-key issuers should supply `sessionUserId` to
+`createApiKey`; leave it unset only for independently administered machine keys.
+
+Regenerated MCP keys are not available as Business Rules "call Open Mercato"
+API-key profiles; use independently administered machine keys for those actions.
+A regenerated MCP key becomes invalid if its owner's home organization changes,
+including a change from no home organization to a concrete one. Generate a new
+key and update the MCP client secret after such a change.
+
 ### SCIM deactivation blocks fresh SSO and password sign-in (#7824)
 
 User-bound AI/MCP API keys now check live scoped deactivation state on every resolution, including warm authorization-cache hits and requests on other replicas. Outstanding deactivation denies them immediately; independently administered machine keys retain their existing behavior. SCIM `active:false` creation/linking and retries persist identity, deactivation, session revocation, and audit together. A failed write rolls back the complete operation. Custom `authService` replacements must also preserve the additive `isUserSessionEligible` capability. Scoped user-bound AI/MCP keys are revoked in the deactivation transaction. Explicit reactivation does not revive those old secrets; obtain fresh AI/MCP credentials after restoring the user. Independently administered machine keys are not revoked.

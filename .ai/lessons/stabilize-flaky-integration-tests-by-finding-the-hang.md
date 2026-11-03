@@ -1,6 +1,6 @@
 ---
 title: "Stabilize flaky integration tests by finding the hang, not by raising the timeout"
-modules: ["events","queue","ui","auth","example","record_locks","warranty_claims","customers","customer_accounts"]
+modules: ["events","queue","ui","auth","example","record_locks","warranty_claims","customers","customer_accounts","staff"]
 areas: ["integration","testing","backend-ui"]
 topics: ["testing","workers","hydration","component-overrides","timers","effect-dependencies"]
 ---
@@ -30,6 +30,8 @@ topics: ["testing","workers","hydration","component-overrides","timers","effect-
 `TC-CRM-065` selected ten unfiltered people although its scenario created three fixtures. The matching search response arrived after deletion. An exact response/fixture-row guard prevented that mutation, but a cold local attempt still timed out with an empty search field; the passing retry's trace showed typing overlapping the initial client fetch. Wait for a row populated by the client effect before typing, then verify the filtered response IDs, rendered rows, and selected count before any bulk mutation.
 
 `crmNames.parallel.test.tsx` intermittently stayed on Loading user and logged maximum update depth in release CI. Its translation-hook mock returned a new function every render while the component loading effect depends on that function. Return one stable translator from the mock factory, preserving the real hook identity contract and all concurrent-request and nested-name assertions. An isolated passing run does not disprove this render-loop cause; verify repeated runs and hosted full-suite execution. Evidence: CI41511190206 unit job125508603985 and CI41487583697; five isolated repeats and the137-test affected suite passed after the mock repair, while the original isolated suite also passed.
+
+`TaskDrawer.test.tsx` expected a cross-task timer confirmation immediately after the Start button mounted, but staff identity and running-timer data load in independent queries. Hosted unit job125575469487 observed zero confirmation calls. A delayed staff-response probe reproduced that failure; waiting for the fixture running-timer query to contain the expected entry before clicking passed the same probe. Keep all confirmation, stop/start counts and ordering assertions; remove experimental response delays from the final test. A passing isolated baseline does not establish that asynchronous fixture prerequisites were ready under CI load.
 
 **Problem**: The secondary "context closed" error is a symptom of the test-level timeout tearing the worker down mid-request — it is not the cause. Two real causes hid behind it: (1) the row-actions dropdown is opened with `actionsButton.press('Enter')` and then the menu item is clicked directly; if the Radix trigger swallows the keypress before hydration, the menu never opens and `.click()` auto-waits on a never-mounting element until the whole test times out; (2) login + navigation + three sequential ≤10s waits + fixture setup/teardown genuinely does not fit a 30s budget under 15-shard parallel load — every other login+nav spec already uses 60–120s, and this one was the lone 30s outlier.
 

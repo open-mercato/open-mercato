@@ -206,11 +206,12 @@ function installApiRouter() {
 
 function renderDrawer(props: Partial<React.ComponentProps<typeof TaskDrawer>> = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
-  return render(
+  const view = render(
     <QueryClientProvider client={queryClient}>
       <TaskDrawer taskId={TASK_ID} open onOpenChange={jest.fn()} projectName="Nordvik" {...props} />
     </QueryClientProvider>,
   )
+  return { ...view, queryClient }
 }
 
 function writeCalls(pattern: string) {
@@ -398,8 +399,12 @@ describe('TaskDrawer', () => {
     runningRows = [
       { id: RUNNING_ENTRY_ID, task_id: OTHER_TASK_ID, started_at: '2026-08-12T09:00:00.000Z', ended_at: null },
     ]
-    renderDrawer()
+    const { queryClient } = renderDrawer()
 
+    await waitFor(() => {
+      expect(queryClient.getQueryData(['staff', 'time-tracking', 'task-drawer', 'running-timer', 'scope:1', SELF_ID]))
+        .toMatchObject({ entryId: RUNNING_ENTRY_ID, taskId: OTHER_TASK_ID })
+    })
     fireEvent.click(await screen.findByTestId('task-drawer-timer-start'))
 
     await waitFor(() => expect(mockConfirm).toHaveBeenCalledTimes(1))
