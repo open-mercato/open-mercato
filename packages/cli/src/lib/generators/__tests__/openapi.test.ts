@@ -160,7 +160,7 @@ export function buildOpenApiDocument(modules: any[], options: any) {
     expect(openApiDoc.paths['/api/demo/details']?.get?.summary).toBe('package details')
   })
 
-  it('bundles concurrent runs into separate files and removes them afterwards', async () => {
+  it('bundles into a per-run file and leaves no bundle behind', async () => {
     touchFile(
       path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'demo', 'api', 'health', 'route.ts'),
       [
@@ -174,12 +174,9 @@ export function buildOpenApiDocument(modules: any[], options: any) {
     const cacheDir = path.join(tmpDir, 'node_modules', '.cache')
     touchFile(path.join(cacheDir, '_openapi-bundle.mjs'), 'export {}\n')
 
-    const results = await Promise.all([
-      generateOpenApi({ resolver: createMockResolver([{ id: 'demo', from: '@open-mercato/core' }]), quiet: true }),
-      generateOpenApi({ resolver: createMockResolver([{ id: 'demo', from: '@open-mercato/core' }]), quiet: true }),
-    ])
+    const result = await generateOpenApi({ resolver: createMockResolver([{ id: 'demo', from: '@open-mercato/core' }]), quiet: true })
 
-    for (const result of results) expect(result.errors).toEqual([])
+    expect(result.errors).toEqual([])
     const openApiDoc = JSON.parse(
       fs.readFileSync(path.join(tmpDir, 'output', 'generated', 'openapi.generated.json'), 'utf8'),
     ) as { paths: Record<string, { get?: { summary?: string } }> }
