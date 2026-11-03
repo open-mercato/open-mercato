@@ -4238,7 +4238,13 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
       }),
     ]),
   })
-  // Validate module dependencies declared via ModuleInfo.requires
+  /**
+   * Validate module dependencies declared via ModuleInfo.requires.
+   *
+   * `optionalRequires` is deliberately NOT checked here. It names modules a module uses when present and works
+   * without when absent, so a missing one is the situation it was declared for rather than a misconfiguration —
+   * failing on it would make the optional form identical to the hard one.
+   */
   {
     const enabledIds = new Set(enabled.map((e) => e.id))
     const problems: string[] = []
@@ -5107,7 +5113,13 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
     ]),
   })
 
-  // Validate module dependencies declared via ModuleInfo.requires
+  /**
+   * Validate module dependencies declared via ModuleInfo.requires.
+   *
+   * `optionalRequires` is deliberately NOT checked here. It names modules a module uses when present and works
+   * without when absent, so a missing one is the situation it was declared for rather than a misconfiguration —
+   * failing on it would make the optional form identical to the hard one.
+   */
   {
     const enabledIds = new Set(enabled.map((e) => e.id))
     const problems: string[] = []
