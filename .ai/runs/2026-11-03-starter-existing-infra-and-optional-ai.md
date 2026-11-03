@@ -43,7 +43,8 @@ The operator clarified that dev:greenfield must keep its established automatic -
 - [x] 3.1 Restore default greenfield reinstall and align regression coverage and docs. — 865b22dde
 - [x] 3.2 Protect unhealthy existing services before startup and cover reuse consent. — 078106eb0
 - [x] 3.3 Verify configured PostgreSQL, Redis and Meilisearch credentials before database setup; provide sanitized actionable errors. — 8f8820874
-- [x] 3.4 Run focused validation and full PR review, then publish the updated PR scope. — 2a32c69f9
+- [x] 3.4 Run focused validation and full PR code review, then publish the updated PR scope. — 2a32c69f9
+- [ ] 3.5 Execute all eight configured workspace validation commands and finalize the review.
 
 ## Diagnostic findings
 
@@ -67,3 +68,5 @@ Credential-verification follow-up: the operator requires real read-only connecti
 Final continuation evidence: 653 combined dev-runtime/starter/standalone script tests pass on Node 24.22.2, including 15 credential-verifier cases and 19 standalone script-boundary cases. Template-sync, syntax, whitespace and mirrored-source parity pass. Disposable pgvector/PostgreSQL, password-protected Redis (two consumers/databases), and Meilisearch prove valid connections and sanitized authentication failures for each service. A missing selected database verifies through /postgres with SELECT1 and remains absent afterward; no CREATE DATABASE or initialization was executed. Native macOS listener PID discovery also passed on a disposable listener. No user's existing services were changed.
 
 The requested om-auto-review-pr --autofix pass reviewed the full PR and fixed pre-existing-unhealthy-service consent ordering, effective database-name preview, missing-database compatibility, Redis error-event classification and Meilisearch protected-response validation/cleanup. Monorepo reinstall lines match the main branch; standalone reset remains explicit. No actionable code findings remain after root re-review. Validation source for the full configured gate is current-head GitHub checks under the repository-local review extension; CI and manual browser QA remain merge gates. The focused local results do not claim a full workspace gate pass. Native author self-approval is unavailable, so the automated assessment is recorded as a COMMENT review.
+
+Full-gate follow-up: the operator explicitly requested execution of every configured workspace command for this re-review, superseding the checks-first local optimization. The isolated checkout receives physical dependency copies so build and generator resolution cannot mutate the primary checkout. Do not approve until the required local gate succeeds; current GitHub CI and manual QA remain separate merge gates.

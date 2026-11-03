@@ -184,6 +184,7 @@ function runEvaluator(root: string, args: string[] = [], env: NodeJS.ProcessEnv 
 function installFakeRunner(root: string, name: 'codex' | 'claude', source: string): string {
   const bin = path.join(root, 'fake-bin')
   fs.mkdirSync(bin, { recursive: true })
+  fs.writeFileSync(path.join(bin, 'package.json'), JSON.stringify({ type: 'commonjs' }))
   const fake = path.join(bin, name)
   fs.writeFileSync(fake, `#!/usr/bin/env node\n${source}`)
   fs.chmodSync(fake, 0o755)
