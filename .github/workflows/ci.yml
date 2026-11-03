@@ -89,11 +89,14 @@ on:
       - 'release/v*'
       - feat/wms
 
-# Cancel any in-progress run on the same branch when a new push arrives.
-# Prevents multiple long runs queuing up from rapid pushes.
+# PR runs: a new push cancels the in-progress run, so only the latest commit is tested.
+# Branch pushes (main, release lines): never cancel a running suite. A full run takes about
+# an hour and merges land faster than that, so cancelling meant main almost never finished
+# one. GitHub keeps at most one pending run per group and replaces it with the newest push,
+# so a running suite always completes and the next run tests the latest commit.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # ── Shared build ────────────────────────────────────────────────────────────
