@@ -12,6 +12,10 @@ import { login } from '@open-mercato/core/modules/core/__integration__/helpers/a
 const PATH = '/api/configs/date-locale'
 
 test.describe('TC-CONF-008: Date & time settings page', () => {
+  // These tests change tenant-wide date settings; keep them from overlapping anything else that
+  // renders dates if the suite's single worker is ever raised.
+  test.describe.configure({ mode: 'serial' })
+
   test('previews and saves a date format preset', async ({ page, request }) => {
     test.setTimeout(120_000)
     const token = await getAuthToken(request, 'admin')

@@ -6,6 +6,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 import { render, screen } from '@testing-library/react'
 import { formatWithPublicDateFormat } from '../../primitives/date-format'
+import { resolveDateLocaleSettings } from '@open-mercato/shared/lib/date-locale/resolve'
+import { DateLocaleSettingsProvider } from '../../primitives/date-locale-settings'
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn(), replace: jest.fn(), prefetch: jest.fn() }),
@@ -31,9 +33,11 @@ afterEach(() => {
   process.env = { ...ORIGINAL_ENV }
 })
 
-function renderTable(data: Row[], locale = 'pl') {
+function renderTable(data: Row[], locale = 'pl', timeZone?: string) {
   const columns: ColumnDef<Row>[] = [{ accessorKey: 'created_at', header: 'Created' }]
   const queryClient = new QueryClient({ defaultOptions: { queries: { gcTime: 0 } } })
+  const table = React.createElement(DataTable as any, { columns, data, title: 'Test' })
+  const noEnv = { locale: null, dateFormat: null, dateTimeFormat: null, timeFormat: null, timeZone: null, firstDayOfWeek: null }
   return render(
     React.createElement(
       QueryClientProvider as any,
@@ -41,7 +45,9 @@ function renderTable(data: Row[], locale = 'pl') {
       React.createElement(
         I18nProvider as any,
         { locale, dict: {} },
-        React.createElement(DataTable as any, { columns, data, title: 'Test' }),
+        timeZone
+          ? React.createElement(DateLocaleSettingsProvider, { value: resolveDateLocaleSettings({ env: noEnv, tenant: { timeZone, dateTimeFormat: 'dd.MM.yyyy HH:mm' } }) }, table)
+          : table,
       ),
     ),
   )
@@ -158,5 +164,15 @@ describe('DataTable date cells', () => {
     expect(screen.getByText('CUSTOM-1')).toBeInTheDocument()
     const tooltipHost = container.querySelector('[data-tooltip]')
     expect(tooltipHost?.getAttribute('data-tooltip')).toBe('Jul 1, 2026, 12:00 AM')
+  })
+
+  // Regression: the cell used to be parsed into a local-midnight Date and then treated as an
+  // instant, so a tenant zone west of the viewer's moved it to the previous day (east: same day,
+  // but an invented time). Both directions relative to the jest TZ (America/New_York).
+  it.each(['Pacific/Pago_Pago', 'Pacific/Kiritimati'])('keeps a date-only value on its day under a %s tenant zone', (timeZone) => {
+    const { container } = renderTable([{ id: '1', created_at: '2026-07-01' }], 'pl', timeZone)
+
+    expect(screen.getByText('01.07.2026 00:00')).toBeInTheDocument()
+    expect(container.querySelector('[data-tooltip="01.07.2026 00:00"]')).not.toBeNull()
   })
 })

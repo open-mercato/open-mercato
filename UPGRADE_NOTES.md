@@ -23,6 +23,9 @@ time zone on **Profile → Time zone**.
   the date format followed by the time format, or date-fns' localized short time (`p`) when none is
   set. An env-only `NEXT_PUBLIC_OM_DATE_FORMAT` keeps rendering timestamps bare, as before.
 
+**API additions:** `GET /api/sales/quotes/public/{token}` adds an optional `display`
+(`timeZone`, `locale`) with the tenant's settings; the public quote page uses it.
+
 **API value change:** `GET /api/customers/interactions/conflicts` now computes `startTime` /
 `endTime` in the caller's `timezoneOffsetMinutes` (UTC when omitted) instead of the server
 process zone, and adds ISO `startsAt` / `endsAt`. Prefer the ISO fields in new clients.

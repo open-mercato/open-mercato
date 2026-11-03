@@ -120,11 +120,14 @@ function intlLocale(locale?: LocaleLike): string | undefined {
   return typeof locale === 'string' ? locale : locale.code
 }
 
-const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/
+const FLOATING_PATTERN = /^\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)?$/
 
-/** A bare `yyyy-MM-dd` names a calendar day, not an instant: it must never move between zones. */
-function isCalendarDay(value: string | Date | null | undefined): boolean {
-  return typeof value === 'string' && DATE_ONLY_PATTERN.test(value.trim())
+/**
+ * A bare `yyyy-MM-dd` names a calendar day, and a zone-less `yyyy-MM-dd HH:mm` a wall time, not an
+ * instant: neither carries an offset to convert from, so they must never move between zones.
+ */
+function isFloatingValue(value: string | Date | null | undefined): boolean {
+  return typeof value === 'string' && FLOATING_PATTERN.test(value.trim())
 }
 
 const DISPLAY_STYLES = {
@@ -142,11 +145,20 @@ type DisplayStyle = keyof typeof DISPLAY_STYLES
 // instance per (locale, zone, style) is kept for the process.
 const formatterCache = new Map<string, Intl.DateTimeFormat>()
 
-function getFormatter(locale: string | undefined, style: DisplayStyle, timeZone?: string | null): Intl.DateTimeFormat {
-  const key = `${locale ?? ''}|${timeZone ?? ''}|${style}`
+function getFormatter(
+  locale: string | undefined,
+  style: DisplayStyle,
+  timeZone?: string | null,
+  hourCycle?: Intl.DateTimeFormatOptions['hourCycle'],
+): Intl.DateTimeFormat {
+  const key = `${locale ?? ''}|${timeZone ?? ''}|${style}|${hourCycle ?? ''}`
   const cached = formatterCache.get(key)
   if (cached) return cached
-  const created = new Intl.DateTimeFormat(locale, timeZone ? { ...DISPLAY_STYLES[style], timeZone } : DISPLAY_STYLES[style])
+  const created = new Intl.DateTimeFormat(locale, {
+    ...DISPLAY_STYLES[style],
+    ...(timeZone ? { timeZone } : {}),
+    ...(hourCycle ? { hourCycle } : {}),
+  })
   formatterCache.set(key, created)
   return created
 }
@@ -191,6 +203,90 @@ export function toZonedWallClock(date: Date, timeZone: string | null | undefined
   }
 }
 
+const ZONE_TOKEN_LETTERS = new Set(['X', 'x', 'O', 'z', 't', 'T'])
+
+function offsetMinutesIn(date: Date, timeZone: string): number {
+  const wall = toZonedWallClock(date, timeZone)
+  const wallAsUtc = Date.UTC(wall.getFullYear(), wall.getMonth(), wall.getDate(), wall.getHours(), wall.getMinutes(), wall.getSeconds())
+  return Math.round((wallAsUtc - Math.floor(date.getTime() / 1000) * 1000) / 60_000)
+}
+
+function formatOffset(minutes: number, { colon, optionalMinutes }: { colon: boolean; optionalMinutes: boolean }): string {
+  const sign = minutes < 0 ? '-' : '+'
+  const absolute = Math.abs(minutes)
+  const hours = String(Math.floor(absolute / 60)).padStart(2, '0')
+  const rest = absolute % 60
+  if (optionalMinutes && rest === 0) return `${sign}${hours}`
+  return `${sign}${hours}${colon ? ':' : ''}${String(rest).padStart(2, '0')}`
+}
+
+function renderZoneToken(letter: string, length: number, date: Date, timeZone: string, locale: string | undefined): string {
+  if (letter === 't') return String(Math.floor(date.getTime() / 1000))
+  if (letter === 'T') return String(date.getTime())
+  const offset = offsetMinutesIn(date, timeZone)
+  if (letter === 'X' || letter === 'x') {
+    if (letter === 'X' && offset === 0) return 'Z'
+    if (length === 1) return formatOffset(offset, { colon: false, optionalMinutes: true })
+    return formatOffset(offset, { colon: length === 3 || length === 5, optionalMinutes: false })
+  }
+  if (letter === 'O') {
+    if (offset === 0) return 'GMT'
+    if (length === 4) return `GMT${formatOffset(offset, { colon: true, optionalMinutes: false })}`
+    const sign = offset < 0 ? '-' : '+'
+    const absolute = Math.abs(offset)
+    const rest = absolute % 60
+    return `GMT${sign}${Math.floor(absolute / 60)}${rest ? `:${String(rest).padStart(2, '0')}` : ''}`
+  }
+  try {
+    const parts = new Intl.DateTimeFormat(locale, { timeZone, timeZoneName: length === 4 ? 'long' : 'short' }).formatToParts(date)
+    return parts.find((part) => part.type === 'timeZoneName')?.value ?? timeZone
+  } catch {
+    return timeZone
+  }
+}
+
+/**
+ * `date-fns` renders zone (`X x O z`) and epoch (`t T`) tokens from the runtime's own offset, but
+ * patterns are formatted on a wall-clock `Date` shifted into `timeZone` (`toZonedWallClock`). Those
+ * tokens are therefore resolved here, for the real instant in `timeZone`, and inlined as quoted
+ * literals; every other token (and quoted text) is left to `date-fns`.
+ */
+function inlineZoneTokens(pattern: string, date: Date, timeZone: string, locale: string | undefined): string {
+  let output = ''
+  let index = 0
+  while (index < pattern.length) {
+    const char = pattern[index]
+    if (char === "'") {
+      const close = pattern.indexOf("'", index + 1)
+      const end = close === -1 ? pattern.length : close + 1
+      output += pattern.slice(index, end)
+      index = end
+      continue
+    }
+    if (ZONE_TOKEN_LETTERS.has(char)) {
+      let end = index
+      while (pattern[end] === char) end += 1
+      const rendered = renderZoneToken(char, end - index, date, timeZone, locale)
+      output += `'${rendered.replace(/'/g, "''")}'`
+      index = end
+      continue
+    }
+    output += char
+    index += 1
+  }
+  return output
+}
+
+function hourCycleOfPattern(pattern: string | null | undefined): Intl.DateTimeFormatOptions['hourCycle'] {
+  if (!pattern) return undefined
+  const unquoted = pattern.replace(/'(?:[^']|'')*'?/g, '')
+  if (unquoted.includes('H')) return 'h23'
+  if (unquoted.includes('h')) return 'h12'
+  if (unquoted.includes('k')) return 'h24'
+  if (unquoted.includes('K')) return 'h11'
+  return undefined
+}
+
 function formatDisplay(
   value: string | Date | null | undefined,
   locale: LocaleLike,
@@ -200,12 +296,17 @@ function formatDisplay(
 ): string | null {
   const parsed = parseDisplayValue(value)
   if (!parsed) return null
-  const calendarDay = isCalendarDay(value)
-  const timeZone = calendarDay ? null : settings.timeZone
+  const timeZone = isFloatingValue(value) ? null : settings.timeZone
   const formatLocale = settings.locale ?? intlLocale(locale)
-  if (pattern) return formatWithPublicDateFormat(toZonedWallClock(parsed, timeZone), pattern, resolveDateFnsLocale(formatLocale))
+  if (pattern) {
+    const zonedPattern = timeZone ? inlineZoneTokens(pattern, parsed, timeZone, formatLocale) : pattern
+    return formatWithPublicDateFormat(toZonedWallClock(parsed, timeZone), zonedPattern, resolveDateFnsLocale(formatLocale))
+  }
+  // A pinned time pattern with no date-time pattern still decides the clock of Intl timestamps, so
+  // choosing `HH:mm` makes every date-time 24-hour, not only time-only values.
+  const hourCycle = style === 'datetime' ? hourCycleOfPattern(settings.timeFormat) : undefined
   try {
-    return getFormatter(formatLocale, style, timeZone).format(parsed)
+    return getFormatter(formatLocale, style, timeZone, hourCycle).format(parsed)
   } catch {
     return getFormatter(intlLocale(locale), style).format(parsed)
   }

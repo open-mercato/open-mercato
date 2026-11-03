@@ -10,6 +10,10 @@ import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__inte
  * null returns to the tenant zone. Restores both values.
  */
 test.describe('TC-AUTH-PROFILE-TZ-001: Personal time zone', () => {
+  // These tests change tenant-wide date settings; keep them from overlapping anything else that
+  // renders dates if the suite's single worker is ever raised.
+  test.describe.configure({ mode: 'serial' })
+
   test('a personal zone wins over the tenant zone and can be cleared', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const originalProfile = (await (await apiRequest(request, 'GET', '/api/auth/profile', { token })).json()) as {

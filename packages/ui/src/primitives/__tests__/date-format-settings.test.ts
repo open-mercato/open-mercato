@@ -31,6 +31,36 @@ describe('settings-aware display helpers', () => {
     )
   })
 
+  // Patterns are formatted on a wall-clock Date shifted into the zone, so date-fns alone would print
+  // the RUNTIME offset (America/New_York in jest) next to Tokyo's clock time.
+  it('prints the configured zone offset and the real epoch for zone and epoch tokens', () => {
+    const tokyo = (dateTimeFormat: string) => formatDisplayDateTime('2026-07-01T00:00:00Z', 'en-US', settings({ timeZone: 'Asia/Tokyo', dateTimeFormat }))
+    expect(tokyo('yyyy-MM-dd HH:mm XXX')).toBe('2026-07-01 09:00 +09:00')
+    expect(tokyo('HH:mm X')).toBe('09:00 +09')
+    expect(tokyo('HH:mm xx')).toBe('09:00 +0900')
+    expect(tokyo('HH:mm O')).toBe('09:00 GMT+9')
+    expect(tokyo('HH:mm OOOO')).toBe('09:00 GMT+09:00')
+    expect(tokyo('t')).toBe(String(Date.UTC(2026, 6, 1) / 1000))
+    expect(tokyo('T')).toBe(String(Date.UTC(2026, 6, 1)))
+    expect(tokyo("HH:mm 'XXX' XXX")).toBe('09:00 XXX +09:00')
+    expect(formatDisplayDateTime('2026-07-01T00:00:00Z', 'en-US', settings({ timeZone: 'UTC', dateTimeFormat: 'HH:mm XXX' }))).toBe('00:00 Z')
+    expect(formatDisplayDateTime('2026-07-01T00:00:00Z', 'en-US', settings({ timeZone: 'Asia/Kolkata', dateTimeFormat: 'HH:mm XXX' }))).toBe('05:30 +05:30')
+    expect(formatDisplayDateTime('2026-01-15T12:00:00Z', 'en-US', settings({ timeZone: 'America/Los_Angeles', dateTimeFormat: 'HH:mm xxx' }))).toBe('04:00 -08:00')
+  })
+
+  it('applies a pinned time-only pattern clock to Intl timestamps', () => {
+    const at = '2026-07-01T13:05:00Z'
+    expect(formatDisplayDateTime(at, 'en-US', settings({ timeZone: 'UTC', timeFormat: 'HH:mm' }))).toBe('Jul 1, 2026, 13:05')
+    expect(formatDisplayTime(at, 'en-US', settings({ timeZone: 'UTC', timeFormat: 'HH:mm' }))).toBe('13:05')
+    expect(formatDisplayDateTime(at, 'de-DE', settings({ timeZone: 'UTC', timeFormat: 'h:mm a' }))).toMatch(/1:05\s?PM/)
+  })
+
+  it('keeps a zone-less wall time on its clock reading instead of shifting it', () => {
+    expect(formatDisplayDateTime('2026-07-01 10:00', 'en-US', settings({ timeZone: 'Asia/Tokyo', dateTimeFormat: 'yyyy-MM-dd HH:mm' }))).toBe(
+      '2026-07-01 10:00',
+    )
+  })
+
   it('never moves a bare calendar day between zones', () => {
     expect(formatDisplayDate('2026-07-01', 'en-US', settings({ timeZone: 'Pacific/Kiritimati' }))).toBe('Jul 1, 2026')
     expect(formatDisplayDate('2026-07-01', 'en-US', settings({ timeZone: 'Pacific/Pago_Pago', dateFormat: 'dd.MM.yyyy' }))).toBe(

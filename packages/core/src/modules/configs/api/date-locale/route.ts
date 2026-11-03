@@ -117,7 +117,7 @@ async function GET(req: Request) {
     const context = await resolveRouteContext(req)
     return NextResponse.json(await buildResponse(context))
   } catch (err) {
-    return errorResponse(err, 'GET')
+    return await errorResponse(err, 'GET')
   }
 }
 
@@ -140,6 +140,10 @@ async function PUT(req: Request) {
     const settings = parsed.data
     assertPatternsRender(settings, context.translate)
 
+    // Read-check-write, not compare-and-swap: two PUTs carrying the same version can both pass the
+    // check and the later one wins. Accepted for this single settings row (the same trade-off as the
+    // other `moduleConfigService` settings routes); the lock still stops every edit made from a
+    // stale page, which is the case it exists for.
     const current = await readTenantDateLocaleSettings(context.container, context.tenantId)
     enforceCommandOptimisticLock({
       resourceKind: RESOURCE_KIND,
@@ -176,16 +180,17 @@ async function PUT(req: Request) {
 
     return NextResponse.json(await buildResponse(context))
   } catch (err) {
-    return errorResponse(err, 'PUT')
+    return await errorResponse(err, 'PUT')
   }
 }
 
-function errorResponse(err: unknown, method: 'GET' | 'PUT') {
+async function errorResponse(err: unknown, method: 'GET' | 'PUT') {
   if (isCrudHttpError(err)) {
     return NextResponse.json(err.body, { status: err.status })
   }
   logger.error(`configs.date-locale.${method} unexpected error`, { err })
-  return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  const { translate } = await resolveTranslations()
+  return NextResponse.json({ error: translate('api.errors.internal', 'Internal error') }, { status: 500 })
 }
 
 const getDoc: OpenApiMethodDoc = {

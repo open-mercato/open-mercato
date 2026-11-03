@@ -30,6 +30,10 @@ async function loginThroughForm(page: Page, redirect: string): Promise<string[]>
 }
 
 test.describe('TC-AUTH-PROFILE-TZ-002: Settings after a form login', () => {
+  // These tests change tenant-wide date settings; keep them from overlapping anything else that
+  // renders dates if the suite's single worker is ever raised.
+  test.describe.configure({ mode: 'serial' })
+
   test('the first page after the login redirect formats with the tenant settings', async ({ page, request }) => {
     test.setTimeout(120_000)
     const token = await getAuthToken(request, 'admin')

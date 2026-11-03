@@ -25,6 +25,10 @@ async function readSettings(request: APIRequestContext, token: string): Promise<
 }
 
 test.describe('TC-CONF-007: Date & locale settings API', () => {
+  // These tests change tenant-wide date settings; keep them from overlapping anything else that
+  // renders dates if the suite's single worker is ever raised.
+  test.describe.configure({ mode: 'serial' })
+
   test('reads, updates and restores tenant settings', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const original = await readSettings(request, token)
