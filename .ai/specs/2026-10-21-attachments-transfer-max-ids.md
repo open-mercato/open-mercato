@@ -194,6 +194,7 @@ Implemented on top of #8571. Merge still needs the `security` label and the main
 ### 2026-11-03
 
 - #8571 (the credited carry-forward of #7728) merged, so the dependency is met. `route.ts` and `openapi.ts` now read `ATTACHMENT_TRANSFER_MAX_IDS`; unit and integration tests derive their boundaries from it, and a unit test checks that the OpenAPI schema enforces the same limit. References to #7728 point at #8571.
+- Restored a dated `BACKWARD_COMPATIBILITY.md` entry (`## #7672 2026-11-03`) with the surface, classification, qualifying argument and migration link, as Emergency Security Exception requirement 4 asks; `UPGRADE_NOTES.md` gets the `issue-7672` anchor and links back. Still within the create-app harness budgets.
 
 ### 2026-10-31
 
