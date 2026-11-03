@@ -3,6 +3,7 @@ import { AttachmentPartition } from '../data/entities'
 import { resolveDefaultAttachmentOcrEnabled } from './ocrConfig'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { E } from '#generated/entities.ids.generated'
+import { getDeclaredAttachmentAccessRequirements } from './access-protection'
 
 export type AttachmentPartitionSeed = {
   code: string
@@ -43,7 +44,6 @@ export async function ensureDefaultPartitions(em: EntityManager): Promise<void> 
   const existing = await repo.findAll({ fields: ['code'] })
   const existingCodes = new Set(existing.map((entry) => entry.code))
   const pending = DEFAULT_ATTACHMENT_PARTITIONS.filter((seed) => !existingCodes.has(seed.code))
-  if (!pending.length) return
   for (const seed of pending) {
     const record = repo.create({
       code: seed.code,
@@ -51,11 +51,12 @@ export async function ensureDefaultPartitions(em: EntityManager): Promise<void> 
       description: seed.description ?? null,
       storageDriver: 'local',
       isPublic: seed.isPublic ?? false,
+      accessResolverRequirements: getDeclaredAttachmentAccessRequirements(seed.code),
       requiresOcr: resolveDefaultAttachmentOcrEnabled(),
     })
     em.persist(record)
   }
-  await em.flush()
+  if (pending.length) await em.flush()
 }
 
 export function sanitizePartitionCode(input: string): string {

@@ -2,6 +2,7 @@
 import * as React from 'react'
 import { apiCall, apiCallOrThrow } from '../utils/apiCall'
 import { useGuardedMutation } from '../injection/useGuardedMutation'
+import { flash } from '../FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
   NOTIFICATION_ACTION_ALREADY_EXECUTED_ERROR_CODE,
@@ -71,11 +72,11 @@ export function useNotificationActions(
   const executeAction = React.useCallback(async (id: string, actionId: string) => {
     const result = await runMutation({
       operation: () =>
-        apiCall<{ ok?: boolean; href?: string; code?: string }>(
+        apiCall<{ ok?: boolean; href?: string; code?: string; error?: string }>(
           `/api/notifications/${id}/action`,
           {
             method: 'POST',
-            headers: { 'content-type': 'application/json' },
+            headers: { 'content-type': 'application/json', 'x-om-forbidden-redirect': '0' },
             body: JSON.stringify({ actionId }),
           },
         ),
@@ -101,10 +102,19 @@ export function useNotificationActions(
       if (notification?.status === 'unread') {
         setUnreadCount((prev) => Math.max(0, prev - 1))
       }
+    } else {
+      const serverError = result.result?.error
+      const hasCodedError = typeof result.result?.code === 'string' && result.result.code.length > 0
+      flash(
+        hasCodedError && typeof serverError === 'string' && serverError.length > 0
+          ? serverError
+          : t('notifications.error.action', 'Failed to execute action'),
+        'error',
+      )
     }
 
     return { href: result.result?.href }
-  }, [notifications, runMutation, retryLastMutation, setNotifications, setUnreadCount])
+  }, [notifications, runMutation, retryLastMutation, setNotifications, setUnreadCount, t])
 
   const dismiss = React.useCallback(
     async (id: string) => {

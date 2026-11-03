@@ -1,7 +1,7 @@
 /** @jest-environment node */
 
 import { DELETE, GET } from '@open-mercato/core/modules/auth/api/roles/route'
-import { RoleAcl } from '@open-mercato/core/modules/auth/data/entities'
+import { Role, RoleAcl } from '@open-mercato/core/modules/auth/data/entities'
 
 const mockGetAuthFromRequest = jest.fn()
 const mockLoadAcl = jest.fn()
@@ -136,6 +136,12 @@ describe('GET /api/auth/roles', () => {
       { name: { $ne: 'superadmin' } },
       { id: { $nin: ['323e4567-e89b-12d3-a456-426614174050'] } },
     ]))
+    expect(mockEm.find).toHaveBeenNthCalledWith(
+      1,
+      RoleAcl,
+      { tenantId: actorTenantId, isSuperAdmin: true, deletedAt: null },
+      {},
+    )
   })
 
   test('applies requested tenant scope for superadmin actor', async () => {
@@ -158,6 +164,9 @@ describe('GET /api/auth/roles', () => {
     const superAdminRoleId = '323e4567-e89b-12d3-a456-426614174999'
     mockLoadAcl.mockResolvedValueOnce({ isSuperAdmin: false })
     mockEm.findOne.mockImplementation(async (entity: unknown) => {
+      // `isRoleEffectivelySuperAdmin` resolves the role's own tenant first and
+      // matches the grant against it, so the role row has to exist here.
+      if (entity === Role) return { id: superAdminRoleId, tenantId: actorTenantId }
       if (entity === RoleAcl) return { isSuperAdmin: true }
       return null
     })
