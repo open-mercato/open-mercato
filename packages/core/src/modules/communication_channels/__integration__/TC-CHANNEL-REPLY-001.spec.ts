@@ -49,15 +49,7 @@ if (!process.env.OM_TEST_APP_ROOT?.trim()) {
 const EVENTS_QUEUE = 'events'
 const OUTBOUND_QUEUE = 'communication-channels-outbound'
 
-function readTokenUserId(token: string): string {
-  const payload = JSON.parse(Buffer.from(token.split('.')[1] ?? '', 'base64url').toString('utf8')) as { sub?: unknown }
-  if (typeof payload.sub !== 'string' || payload.sub.length === 0) {
-    throw new Error('[internal] auth token carries no subject')
-  }
-  return payload.sub
-}
-
-async function drainAndReadChannelTotal(
+async function drainAndReadOutboundTotal(
   request: APIRequestContext,
   token: string,
   channelId: string,
@@ -70,12 +62,25 @@ async function drainAndReadChannelTotal(
     `/api/communication_channels/channels/${channelId}/health`,
     { token },
   )
-  expect(healthResponse.status(), 'channel health must be available after the queues drain').toBe(200)
+  expect(healthResponse.status(), 'channel health must be available after draining delivery jobs').toBe(200)
   const health = await readJsonSafe<{ totalsLast24h?: number }>(healthResponse)
   expect(health?.totalsLast24h, 'channel health must include its delivery total').toEqual(expect.any(Number))
   return health?.totalsLast24h ?? 0
 }
 
+function readTokenUserId(token: string): string {
+  const payload = JSON.parse(Buffer.from(token.split('.')[1] ?? '', 'base64url').toString('utf8')) as { sub?: unknown }
+  if (typeof payload.sub !== 'string' || payload.sub.length === 0) {
+    throw new Error('[internal] auth token carries no subject')
+  }
+  return payload.sub
+}
+
+/**
+ * The outbound path is asynchronous: `messages.message.sent` reaches the bridge
+ * through the events queue, which enqueues the delivery job. Reuse enabled
+ * harness workers or drain both queues, then re-read the channel's health totals.
+ */
 async function drainUntilOutbound(
   request: APIRequestContext,
   token: string,
@@ -85,7 +90,7 @@ async function drainUntilOutbound(
   const deadline = Date.now() + 30_000
   let lastTotal = 0
   while (Date.now() < deadline) {
-    lastTotal = await drainAndReadChannelTotal(request, token, channelId)
+    lastTotal = await drainAndReadOutboundTotal(request, token, channelId)
     if (lastTotal >= expectedTotal) return lastTotal
     await new Promise((resolve) => setTimeout(resolve, 300))
   }
@@ -218,7 +223,7 @@ test.describe('TC-CHANNEL-REPLY-001: answering an inbound channel message', () =
         { token, data: { body: 'Internal: I think they are fishing for a refund.' } },
       )
       expect(replyToForwardResponse.status(), 'replying to a forward must succeed').toBe(201)
-      const totalAfterReplyToForward = await drainAndReadChannelTotal(request, token, channelId)
+      const totalAfterReplyToForward = await drainAndReadOutboundTotal(request, token, channelId)
       expect(
         totalAfterReplyToForward,
         'a reply under a forward must not be delivered to the external correspondent',

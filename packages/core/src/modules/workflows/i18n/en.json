@@ -2029,6 +2029,7 @@
   "workflows.validation.timerDurationOrUntilRequired": "Wait For Timer requires either \"Duration\" or \"Wait Until\".",
   "workflows.validation.timerDurationXorUntil": "Wait For Timer accepts \"Duration\" or \"Wait Until\", not both. Clear one of them.",
   "workflows.validation.uniqueId": "ID must be unique",
+  "workflows.validation.unsafeMappingTarget": "Mapping target paths cannot contain __proto__, constructor, or prototype segments",
   "workflows.validation.untilMustBeFuture": "Wait Until must be a date and time in the future.",
   "workflows.validation.workflowIdFormat": "Workflow ID must contain only lowercase letters, numbers, hyphens, and underscores",
   "workflows.validation.workflowIdMaxLength": "Workflow ID must be 50 characters or less",

@@ -48,6 +48,7 @@ import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { emitCrudSideEffects, emitCrudUndoSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { CustomerEntity, CustomerInteraction } from '../../data/entities'
+import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { listGrantsForViewerOnPerson, listSharedChannelIds } from '../../lib/conversationShares'
 import '../interactions'
 import '../activities'
@@ -107,6 +108,9 @@ function createInteraction(overrides: Partial<CustomerInteraction> = {}): Custom
 function createHarness(interaction = createInteraction(), authOverrides: Record<string, unknown> | null = {}) {
   const em = {
     findOne: jest.fn(async (entity: unknown, filters: Record<string, unknown>) => {
+      if (entity === User && [AUTHOR_ID, VIEWER_ID].includes(String(filters.id)) && filters.tenantId === TENANT_ID && (filters.organizationId === undefined || filters.organizationId === ORGANIZATION_ID) && (filters.deletedAt === undefined || filters.deletedAt === null)) {
+        return { id: filters.id, tenantId: TENANT_ID, organizationId: ORGANIZATION_ID, deletedAt: null }
+      }
       if (entity === CustomerInteraction) return filters.id === interaction.id ? interaction : null
       if (entity === CustomerEntity) {
         return { id: filters.id, kind: 'person', tenantId: TENANT_ID, organizationId: ORGANIZATION_ID }

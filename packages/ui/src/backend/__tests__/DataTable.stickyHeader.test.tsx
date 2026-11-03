@@ -9,8 +9,13 @@ jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn(), replace: jest.fn(), prefetch: jest.fn() }),
 }))
 
+let mockInjectedColumnsLoading = false
+
 jest.mock('../injection/useInjectionDataWidgets', () => ({
-  useInjectionDataWidgets: () => ({ widgets: [], isLoading: false }),
+  useInjectionDataWidgets: (spotId: string) => ({
+    widgets: [],
+    isLoading: mockInjectedColumnsLoading && spotId.endsWith(':columns'),
+  }),
 }))
 
 const columns = [{ accessorKey: 'title', header: 'Title' }]
@@ -61,6 +66,7 @@ describe('DataTable sticky column header', () => {
   })
 
   afterEach(() => {
+    mockInjectedColumnsLoading = false
     jest.restoreAllMocks()
     jest.useRealTimers()
   })
@@ -88,6 +94,40 @@ describe('DataTable sticky column header', () => {
     try {
       expect(wrapper.style.maxHeight).toBe('')
       setTop(wrapper, -240)
+      scroll()
+      expect(header.style.top).toBe('301px')
+      setTop(wrapper, 180)
+      scroll()
+      expect(header.style.top).toBe('0px')
+    } finally {
+      queryClient.clear()
+    }
+  })
+
+  it.each(['data', 'extensions'] as const)('attaches the header offset after initial %s loading finishes', (loadingSource) => {
+    mockInjectedColumnsLoading = loadingSource === 'extensions'
+    const queryClient = new QueryClient({ defaultOptions: { queries: { gcTime: 0 } } })
+    const tableView = (isLoading: boolean) => (
+      <QueryClientProvider client={queryClient}>
+        <I18nProvider locale="en" dict={{}}>
+          <DataTable
+            columns={columns}
+            data={data}
+            isLoading={loadingSource === 'data' && isLoading}
+            extensionTableId={loadingSource === 'extensions' ? 'sticky-header.test' : undefined}
+          />
+        </I18nProvider>
+      </QueryClientProvider>
+    )
+    const view = render(tableView(true))
+    try {
+      expect(view.container.querySelector('thead')).toBeNull()
+      const wrapper = view.container.querySelector('.overflow-auto') as HTMLElement
+      setTop(wrapper, -240)
+      mockInjectedColumnsLoading = false
+      view.rerender(tableView(false))
+      const header = view.container.querySelector('thead')!
+      expect(view.container.querySelector('table')!.parentElement).toBe(wrapper)
       scroll()
       expect(header.style.top).toBe('301px')
       setTop(wrapper, 180)

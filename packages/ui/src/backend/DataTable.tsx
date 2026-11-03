@@ -836,6 +836,10 @@ type ColumnTruncateMeta = {
   maxWidth?: string
 }
 
+function hasExplicitCellRenderer(columnDef: unknown): boolean {
+  return Boolean((columnDef as { cell?: unknown } | undefined)?.cell)
+}
+
 function getColumnTruncateConfig(columnId: string, accessorKey?: string, columnMeta?: ColumnTruncateMeta): ColumnTruncateConfig {
   const key = accessorKey || columnId
   const metaMaxWidth = typeof columnMeta?.maxWidth === 'string' ? columnMeta.maxWidth.trim() : ''
@@ -1868,14 +1872,15 @@ function DataTableImpl<T extends RowData>({
     const accessors = mergedColumns.map((c) => {
       const key = (c as any).accessorKey as string | undefined
       const id = (c as any).id as string | undefined
-      return { id: id || key || '', key }
+      const hasCustomCell = hasExplicitCellRenderer(c)
+      return { id: id || key || '', key, hasCustomCell }
     })
     const guessed = new Set<string>()
     accessors.forEach((a) => {
       if (!a.id) return
       const name = a.id
       // Name-based guess: snake_case '_at' suffix
-      if (name.endsWith('_at')) {
+      if (name.endsWith('_at') && !a.hasCustomCell) {
         guessed.add(name)
         return
       }
@@ -3691,7 +3696,7 @@ function DataTableImpl<T extends RowData>({
       if (frame !== undefined) cancelAnimationFrame(frame)
       header.style.removeProperty('top')
     }
-  }, [tableScrollEl])
+  }, [tableScrollEl, isInitializingColumns])
   const allRows = table.getRowModel().rows
   // Hooks must run on every render regardless of props (Rules of Hooks). Call
   // useVirtualizer unconditionally and keep it inert when virtualization is off
@@ -4022,7 +4027,7 @@ function DataTableImpl<T extends RowData>({
                       let tooltipText: string | undefined
                       if (metaTooltipContent) {
                         tooltipText = metaTooltipContent(row.original)
-                      } else if (isDateCol && cellValue != null) {
+                      } else if ((isDateCol || columnId.endsWith('_at')) && cellValue != null) {
                         const parsedDate = tryParseDate(cellValue)
                         tooltipText = parsedDate ? (formatDisplayDateTime(parsedDate, dateLocale) ?? String(cellValue)) : String(cellValue)
                       } else {
