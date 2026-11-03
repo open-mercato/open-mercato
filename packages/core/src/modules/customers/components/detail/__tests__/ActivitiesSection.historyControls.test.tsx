@@ -222,7 +222,7 @@ describe('history search', () => {
     await waitFor(() => { expect(renderedTitles()).toEqual(['Quarterly review']) })
   })
 
-  it('keeps later pages reachable when the API search cannot match encrypted text', async () => {
+  it('keeps later pages reachable when the API search finds nothing, for matches it does not cover', async () => {
     mockCanonicalHandler.mockImplementation(async (params) => {
       if (params.get('search')) return { items: [] }
       if (params.get('cursor') === 'cursor-2') return { items: [row('deep', 'Deep renewal note')] }

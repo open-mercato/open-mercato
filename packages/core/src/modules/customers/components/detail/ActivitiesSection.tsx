@@ -275,10 +275,9 @@ export function ActivitiesSection({
         return { items, hasMore: Boolean(cursor) }
       }
 
-      // The API search cannot match title or body in tenants with data encryption
-      // (the columns are ciphertext) and never covers author, deal or type, so the
-      // decrypted rows of the unsearched pages are matched here as well. Those pages
-      // also keep "Load more" able to reach matches the API search cannot see.
+      // The API search covers title and body. It never covers author, deal or type, so
+      // the rows of the unsearched pages are matched here as well, and those pages keep
+      // "Load more" able to reach such matches.
       const lowercaseSearchTerm = serverSearchTerm.toLowerCase()
       const [browsedPages, searchedPages] = await Promise.all([
         fetchCanonicalPages(),

@@ -23,8 +23,7 @@ import {
  *   3. A company without activities shows the composer and the empty history, no
  *      planned section, and keeps the layout inside a phone-width viewport.
  *   4. Company history search reaches a row whose only match is beyond the first
- *      page. The API search cannot read encrypted titles, so on tenants with data
- *      encryption the row appears after "Load more" instead of straight away.
+ *      page, through the API search, including on tenants with data encryption.
  *   5. A failed company history load shows an error, not an empty history, and
  *      recovers on retry.
  *   6. Company history can be sorted by name in both directions and back to newest.
