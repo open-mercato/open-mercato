@@ -1,6 +1,6 @@
 ---
 title: "Stabilize flaky integration tests by finding the hang, not by raising the timeout"
-modules: ["events","queue","ui","auth","example","record_locks","warranty_claims","customers","phone_calls","search","cache","query_index","sales","sync_excel","workflows","data_sync","communication_channels","forms","security","cart","catalog"]
+modules: ["events","queue","ui","auth","example","record_locks","warranty_claims","customers","phone_calls","search","cache","query_index","sales","sync_excel","workflows","data_sync","communication_channels","forms","security","documents","cart","catalog"]
 areas: ["integration","testing","backend-ui","module-data","debugging"]
 topics: ["events","testing","workers","hydration","component-overrides","timers"]
 ---
