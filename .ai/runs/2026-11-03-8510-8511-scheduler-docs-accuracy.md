@@ -38,6 +38,7 @@ Source: independent `om-code-review` pass on PR #8626 (head `bbbd74c91`).
 
 - 4.1 Align `scheduler run` (arguments, output samples, exit codes) and the Exit Codes Reference with `cli.ts`; add bootstrap failure to `scheduler start` exit code 1; say where the queue-jobs `jobId` comes from.
 - 4.2 Re-run the configured validation gate.
+- 4.3 Apply the independent re-review findings (disabled-schedule skip, completed-run removal, exit-1 causes, best practice wording).
 
 ## Risks
 
@@ -67,3 +68,4 @@ PR: #8626
 
 - [x] 4.1 Align scheduler run and exit-code docs with source — 5fbfbf679
 - [x] 4.2 Re-run the configured validation gate — local gate green (docs OOM workaround)
+- [x] 4.3 Apply independent re-review findings — af5129a60 (targeted: guard 2/2, docs test + build 24/24)
