@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { cn } from '@open-mercato/shared/lib/utils'
 import { Tabs, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 
 export type WarrantyWorkspaceTab = {
@@ -60,7 +61,13 @@ export function WarrantyWorkspace({
           </TabsList>
         </Tabs>
       ) : null}
-      <div className={`min-w-0 [&>[data-component-handle]>div:first-child_[data-slot=button]]:h-8 [&>[data-component-handle]>div:first-child_[data-slot=search-input-wrapper]]:h-8 [&_[data-slot=table-header]_[data-slot=table-row]]:h-9 [&_[data-slot=table-body]_[data-slot=table-row]]:h-16 ${contentClassName ?? ''}`}>{children}</div>
+      <div className={cn(
+        'min-w-0 [&>[data-component-handle]>div:first-child_[data-slot=button]]:h-8 [&>[data-component-handle]>div:first-child_[data-slot=search-input-wrapper]]:h-8 [&_[data-slot=table-header]_[data-slot=table-row]]:h-9 [&_[data-slot=table-body]_[data-slot=table-row]]:h-16',
+        'md:[&_[data-slot=table-head][class*=sticky]]:bg-card md:[&_[data-slot=table-cell][class*=sticky]]:bg-card',
+        'md:[&_[data-slot=table-head][class*=sticky]]:bg-linear-to-r md:[&_[data-slot=table-head][class*=sticky]]:from-muted/40 md:[&_[data-slot=table-head][class*=sticky]]:to-muted/40',
+        'md:[&_[data-slot=table-row]:hover_[data-slot=table-cell][class*=sticky]]:bg-linear-to-r md:[&_[data-slot=table-row]:hover_[data-slot=table-cell][class*=sticky]]:from-muted/30 md:[&_[data-slot=table-row]:hover_[data-slot=table-cell][class*=sticky]]:to-muted/30',
+        contentClassName,
+      )}>{children}</div>
     </section>
   )
 }
