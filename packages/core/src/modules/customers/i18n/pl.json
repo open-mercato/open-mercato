@@ -38,6 +38,7 @@
   "customers.activities.loadFailed": "Nie udało się załadować aktywności.",
   "customers.activities.loadMore": "Wczytaj więcej",
   "customers.activities.overdue": "{count} zaległe",
+  "customers.activities.retry": "Spróbuj ponownie",
   "customers.activities.seeAll": "Zobacz wszystkie {count} aktywności",
   "customers.activities.seeMatching": "Pokazuję {visible} z {total} aktywności",
   "customers.activities.yearSeparator": "{year}",

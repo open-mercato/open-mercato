@@ -39,6 +39,7 @@ interface ActivityTimelineFiltersProps {
   onDateFromChange: (value: string) => void
   onDateToChange: (value: string) => void
   onReset: () => void
+  sortControl?: React.ReactNode
 }
 
 const CHIP_BASE = 'inline-flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-sm font-medium transition-colors'
@@ -54,6 +55,7 @@ export function ActivityTimelineFilters({
   onDateFromChange,
   onDateToChange,
   onReset,
+  sortControl,
 }: ActivityTimelineFiltersProps) {
   const t = useT()
   const hasActiveFilters = activeTypes.length > 0 || dateFrom || dateTo
@@ -138,55 +140,58 @@ export function ActivityTimelineFilters({
         })}
       </div>
 
-      <Popover>
-        <PopoverTrigger asChild>
-          <IconButton
-            type="button"
-            variant="outline"
-            size="sm"
-            className="size-7 rounded-md text-muted-foreground"
-            aria-label={t('customers.people.detail.activities.moreFilters', 'More filters')}
-          >
-            <SlidersHorizontal className="size-3.5" />
-          </IconButton>
-        </PopoverTrigger>
-        <PopoverContent align="end" className="w-72 space-y-3">
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium">
-              {t('customers.activities.filters.dateRange', 'Date range')}
-            </label>
-            <div className="flex items-center gap-2">
-              <input
-                type="date"
-                value={dateFrom}
-                onChange={(event) => onDateFromChange(event.target.value)}
-                className="h-8 w-full rounded-md border bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
-                aria-label={t('customers.timeline.filter.from', 'From date')}
-              />
-              <span className="shrink-0 text-xs text-muted-foreground">—</span>
-              <input
-                type="date"
-                value={dateTo}
-                onChange={(event) => onDateToChange(event.target.value)}
-                className="h-8 w-full rounded-md border bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
-                aria-label={t('customers.timeline.filter.to', 'To date')}
-              />
-            </div>
-          </div>
-
-          {hasActiveFilters ? (
-            <Button
+      <div className="flex items-center gap-2">
+        {sortControl}
+        <Popover>
+          <PopoverTrigger asChild>
+            <IconButton
               type="button"
-              variant="ghost"
+              variant="outline"
               size="sm"
-              onClick={onReset}
-              className="h-7 w-full text-xs"
+              className="size-7 rounded-md text-muted-foreground"
+              aria-label={t('customers.people.detail.activities.moreFilters', 'More filters')}
             >
-              {t('customers.activities.filters.clearAll', 'Clear filters')}
-            </Button>
-          ) : null}
-        </PopoverContent>
-      </Popover>
+              <SlidersHorizontal className="size-3.5" />
+            </IconButton>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-72 space-y-3">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium">
+                {t('customers.activities.filters.dateRange', 'Date range')}
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="date"
+                  value={dateFrom}
+                  onChange={(event) => onDateFromChange(event.target.value)}
+                  className="h-8 w-full rounded-md border bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                  aria-label={t('customers.timeline.filter.from', 'From date')}
+                />
+                <span className="shrink-0 text-xs text-muted-foreground">—</span>
+                <input
+                  type="date"
+                  value={dateTo}
+                  onChange={(event) => onDateToChange(event.target.value)}
+                  className="h-8 w-full rounded-md border bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                  aria-label={t('customers.timeline.filter.to', 'To date')}
+                />
+              </div>
+            </div>
+
+            {hasActiveFilters ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={onReset}
+                className="h-7 w-full text-xs"
+              >
+                {t('customers.activities.filters.clearAll', 'Clear filters')}
+              </Button>
+            ) : null}
+          </PopoverContent>
+        </Popover>
+      </div>
     </div>
   )
 }

@@ -38,6 +38,7 @@
   "customers.activities.loadFailed": "Failed to load activities.",
   "customers.activities.loadMore": "Load more",
   "customers.activities.overdue": "{count} overdue",
+  "customers.activities.retry": "Retry",
   "customers.activities.seeAll": "See all {count} activities",
   "customers.activities.seeMatching": "Showing {visible} of {total} activities",
   "customers.activities.yearSeparator": "{year}",
