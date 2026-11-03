@@ -29,9 +29,10 @@ const UPLOAD_IDLE_TIMEOUT_MS = 10_000
 // unread on the server, so the 413 always arrives and is the evidence of the
 // size check. The full-stream case is covered separately: a reset there counts
 // only once the body has passed the limit, and a reset that cuts the 413 body
-// short still has to carry the 413 status line. Every upload uses its own connection and stops writing
-// once a response arrives, and it settles only after that connection is closed,
-// so an unread body never keeps streaming beside the next upload.
+// short still has to carry the 413 status line. Every upload uses its own
+// connection and stops writing once a response arrives, and it settles only
+// after that connection is closed, so an unread body never keeps streaming
+// beside the next upload.
 type UploadResult =
   | { kind: 'response'; status: number; body: string }
   | { kind: 'cut'; status: number }
