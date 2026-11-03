@@ -1206,10 +1206,12 @@ export type CreditMemoCreateInput = z.infer<typeof creditMemoCreateSchema>
 export type CreditMemoUpdateInput = z.infer<typeof creditMemoUpdateSchema>
 export const QUOTE_SEND_CC_LIMIT = 10
 
+export const quoteSendCcAddressSchema = z.string().trim().email()
+
 export const quoteSendSchema = z.object({
   quoteId: z.string().uuid(),
   validForDays: z.coerce.number().int().min(1).max(365).default(14),
-  cc: z.array(z.string().trim().email()).max(QUOTE_SEND_CC_LIMIT).default([]),
+  cc: z.array(quoteSendCcAddressSchema).max(QUOTE_SEND_CC_LIMIT).default([]),
 })
 
 export const quoteAcceptSchema = z.object({

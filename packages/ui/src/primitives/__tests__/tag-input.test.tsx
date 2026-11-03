@@ -202,4 +202,45 @@ describe('TagInput primitive', () => {
     fireEvent.keyDown(input, { key: 'Enter' })
     expect(screen.getByText('standalone')).toBeInTheDocument()
   })
+
+  describe('controlled inputValue', () => {
+    function ControlledHarness() {
+      const [value, setValue] = React.useState<string[]>([])
+      const [text, setText] = React.useState('')
+      return (
+        <>
+          <TagInput aria-label="tags" value={value} onChange={setValue} inputValue={text} onInputValueChange={setText} />
+          <output data-testid="pending">{text}</output>
+          <button type="button" onClick={() => setText('')}>clear</button>
+        </>
+      )
+    }
+
+    it('reports typed text and renders the value the caller holds', () => {
+      render(<ControlledHarness />)
+      const input = getInput()
+      fireEvent.change(input, { target: { value: 'gamma' } })
+      expect(screen.getByTestId('pending')).toHaveTextContent('gamma')
+      expect(input.value).toBe('gamma')
+      fireEvent.click(screen.getByRole('button', { name: 'clear' }))
+      expect(input.value).toBe('')
+    })
+
+    it('reports the cleared text when Enter commits a tag', () => {
+      render(<ControlledHarness />)
+      const input = getInput()
+      fireEvent.change(input, { target: { value: 'delta' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+      expect(screen.getByText('delta')).toBeInTheDocument()
+      expect(screen.getByTestId('pending')).toHaveTextContent('')
+      expect(input.value).toBe('')
+    })
+
+    it('reports the trailing remainder after a separator split', () => {
+      render(<ControlledHarness />)
+      fireEvent.change(getInput(), { target: { value: 'one,two' } })
+      expect(screen.getByText('one')).toBeInTheDocument()
+      expect(screen.getByTestId('pending')).toHaveTextContent('two')
+    })
+  })
 })
