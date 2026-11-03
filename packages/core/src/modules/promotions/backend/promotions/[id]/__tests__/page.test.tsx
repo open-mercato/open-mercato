@@ -15,7 +15,7 @@ import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWith
 import PromotionDetailPage from '../page'
 
 type CrudFormCapturedProps = {
-  initialValues?: { updatedAt?: string }
+  initialValues?: { updatedAt?: string; startsAt?: string | null; endsAt?: string | null }
   onSubmit?: (values: Record<string, unknown>) => Promise<void>
 }
 type RuleTreeBuilderCapturedProps = {
@@ -72,14 +72,14 @@ jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
   flash: jest.fn(),
 }))
 
-function makeRecord(updatedAt: string) {
+function makeRecord(updatedAt: string, dates: { startsAt?: string | null; endsAt?: string | null } = {}) {
   return {
     id: 'promotion-1',
     name: 'Spring sale',
     description: null,
     active: true,
-    startsAt: null,
-    endsAt: null,
+    startsAt: dates.startsAt ?? null,
+    endsAt: dates.endsAt ?? null,
     cumulative: false,
     tags: [],
     excludedTags: [],
@@ -155,6 +155,24 @@ describe('PromotionDetailPage', () => {
     await waitFor(() => {
       expect(screen.getByText('form')).toBeInTheDocument()
       expect(screen.getByText('tree')).toBeInTheDocument()
+    })
+  })
+
+  it('passes API timestamps to date-only fields without a timezone shift', async () => {
+    apiCallMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      result: makeRecord('v1', {
+        startsAt: '2026-10-01T00:00:00.000Z',
+        endsAt: '2026-10-31T23:59:59.999Z',
+      }),
+    })
+
+    renderWithProviders(<PromotionDetailPage params={{ id: 'promotion-1' }} />)
+
+    await waitFor(() => {
+      expect(crudFormPropsCapture.current?.initialValues?.startsAt).toBe('2026-10-01')
+      expect(crudFormPropsCapture.current?.initialValues?.endsAt).toBe('2026-10-31')
     })
   })
 })
