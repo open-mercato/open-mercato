@@ -4,7 +4,7 @@
 Let setup proceed without an LLM key and reuse the matching Mercato infrastructure started by earlier tooling instead of treating it as foreign port owners.
 
 ## Scope and non-goals
-Starter provider prompt, Compose discovery/read-only adoption, actionable port-conflict guidance, regression tests and related docs/spec. Diagnose the bootstrap module-facts warnings; change only a proven bootstrap logging defect if it is small and covered. Doctor was confirmed working by the operator and stays unchanged. Never kill unrelated processes or delete volumes. The operator chose explicit confirmation to continue using pre-existing services; otherwise print yarn om stop guidance. Add the requested greenfield existing-user refusal side quest and investigate the reported runtime diagnostics.
+Starter provider prompt, Compose discovery/read-only adoption, actionable port-conflict guidance, regression tests and related docs/spec. Diagnose the bootstrap module-facts warnings; change only a proven bootstrap logging defect if it is small and covered. Doctor was confirmed working by the operator and stays unchanged. Never kill unrelated processes or delete volumes. The operator chose explicit confirmation to continue using pre-existing services; otherwise print yarn om stop guidance. Preserve the established automatic reinstall behavior of dev:greenfield, as clarified by the operator, and investigate the reported runtime diagnostics.
 
 ## Implementation plan
 1. Make AI provider configuration optional with an interactive skip and non-interactive continuation; keep existing configured-provider synchronization.
@@ -49,3 +49,12 @@ Runner: local. 568 starter/dev-runtime Node tests, 16 standalone setup tests and
 Runtime Retry follow-up: two failing click regressions reproduced the reload-only behavior. The new path invokes the existing restart control, retains old errors until a new generation becomes ready, and surfaces denied recovery. Banner tests 33/33 and runtime action/state tests 48/48 pass. Browser QA remains required; no live runtime was restarted during tests.
 
 Preview publication: source c2d896060, workflow ref main, run41643337626. The prior source9c9c64d preview published successfully; use final-source URLs for Retry verification.
+
+## Greenfield clarification
+
+The operator clarified that dev:greenfield must keep its established automatic --reinstall behavior. Remove this PR's default change while retaining ordinary setup's --skip-if-initialized behavior, optional AI, existing-infrastructure reuse, CSP and Retry fixes. Verify command routing in disposable mocked fixtures only; do not run a live database reset or migration.
+
+### Phase 3: Preserve greenfield compatibility
+
+- [ ] 3.1 Restore default greenfield reinstall and align regression coverage and docs.
+- [ ] 3.2 Run focused validation and review, then publish the updated PR scope.
