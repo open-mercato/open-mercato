@@ -147,8 +147,10 @@ test.describe('TC-DOCUMENTS-014: UMES related documents across host records', ()
         for (const route of routes.slice(scenario.start, scenario.end)) {
           await page.goto(route, { waitUntil: 'domcontentloaded' })
           if (TAB_HOSTS.some((host) => host.test(route))) {
+            await expect(page.getByRole('tab', { name: /^activit/i }), `workspace on ${route}`).toBeVisible({ timeout: 30_000 })
             await expect(page.getByRole('heading', { name: 'Related documents' }), `no detached panel on ${route}`).toHaveCount(0)
             await openRelatedDocumentsTab(page)
+            await expect(page.getByRole('heading', { name: 'Related documents' }), `only the tab panel on ${route}`).toHaveCount(1, { timeout: 30_000 })
           }
           await expect(page.getByRole('heading', { name: 'Related documents' }).first(), `widget on ${route}`).toBeVisible({ timeout: 30_000 })
           const titleLink = page.getByRole('link', { name: linkedTitle }).first()

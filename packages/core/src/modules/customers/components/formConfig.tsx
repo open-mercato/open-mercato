@@ -4,7 +4,7 @@ import { extractResponseEnricherNamespaces } from '@open-mercato/shared/lib/crud
 import * as React from 'react'
 import { z } from 'zod'
 import Link from 'next/link'
-import { Plus, Settings } from 'lucide-react'
+import { Check, Pencil, Plus, Settings } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
@@ -808,18 +808,16 @@ export const createPersonFormSchema = () =>
     })
     .passthrough()
 
-/**
- * Keeps `displayName` in step with first + last name without any UI: the
- * header shows the name, so the form does not repeat it. A persisted display
- * name that differs from the derivation is treated as manual and left alone,
- * mirroring the sticky-manual rule in `updatePersonCommand`.
- */
-export const createDisplayNameSync = () =>
-  function DisplayNameSync({ values, setValue }: CrudFormGroupComponentProps) {
-    const [manualOverride] = React.useState(() => {
+export const createDisplayNameSection = (t: Translator) =>
+  function DisplayNameSection({ values, setValue, errors }: CrudFormGroupComponentProps) {
+    const [editing, setEditing] = React.useState(false)
+    const [manualOverride, setManualOverride] = React.useState(() => {
       const current = typeof values.displayName === 'string' ? values.displayName : ''
       const firstInit = typeof values.firstName === 'string' ? values.firstName : ''
       const lastInit = typeof values.lastName === 'string' ? values.lastName : ''
+      // Sticky-manual: treat as user-customized only when the persisted display name
+      // doesn't match the first+last derivation (matches the server-side rule in
+      // updatePersonCommand). Empty values are considered derived.
       return !isDerivedDisplayName(current, firstInit, lastInit)
     })
 
@@ -828,10 +826,105 @@ export const createDisplayNameSync = () =>
     const derived = React.useMemo(() => deriveDisplayName(first, last), [first, last])
 
     React.useEffect(() => {
-      if (manualOverride) return
-      const current = typeof values.displayName === 'string' ? values.displayName : ''
-      if (current !== derived) setValue('displayName', derived)
+      if (!manualOverride) {
+        const target = derived || ''
+        const current = typeof values.displayName === 'string' ? values.displayName : ''
+        if (current !== target) {
+          setValue('displayName', target)
+        }
+      }
     }, [manualOverride, derived, setValue, values.displayName])
+
+    const currentValue = typeof values.displayName === 'string' ? values.displayName : ''
+    const previewValue = currentValue || derived
+    const placeholder = t('customers.people.form.displayNamePreview.empty')
+    const error = errors.displayName
+
+    const toggleEditing = () => {
+      if (!editing && !manualOverride) {
+        const target = derived || previewValue || ''
+        setValue('displayName', target)
+        setManualOverride(true)
+      }
+      setEditing((state) => !state)
+    }
+
+    const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+      if (!manualOverride) setManualOverride(true)
+      setValue('displayName', event.target.value)
+    }
+
+    const handleReset = () => {
+      setManualOverride(false)
+      setEditing(false)
+    }
+
+    return (
+      <div className="rounded-lg border bg-muted/30 p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1">
+            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              {t('customers.people.form.displayNamePreview')}
+            </div>
+            {editing ? (
+              <div className="mt-2 space-y-2">
+                <Input
+                  value={currentValue}
+                  onChange={handleChange}
+                  placeholder={t('customers.people.form.displayName.placeholder')}
+                />
+                {error ? <p className="text-xs text-status-error-text">{error}</p> : null}
+              </div>
+            ) : (
+              <div className="mt-1 text-base font-medium">{previewValue || placeholder}</div>
+            )}
+          </div>
+          <Button type="button" variant="ghost" size="sm" onClick={toggleEditing}>
+            {editing ? (
+              <>
+                <Check className="mr-2 h-4 w-4" />
+                {t('customers.people.form.displayName.done')}
+              </>
+            ) : (
+              <>
+                <Pencil className="mr-2 h-4 w-4" />
+                {t('customers.people.form.displayName.edit')}
+              </>
+            )}
+          </Button>
+        </div>
+        {manualOverride ? (
+          <div className="mt-3">
+            <Button type="button" variant="ghost" size="sm" onClick={handleReset} disabled={!derived}>
+              {t('customers.people.form.displayName.reset')}
+            </Button>
+          </div>
+        ) : null}
+      </div>
+    )
+  }
+
+/**
+ * Headless counterpart of `createDisplayNameSection` for surfaces that show the
+ * name elsewhere (the person detail header). A persisted name that differs from
+ * first + last is kept until the user edits either of them; from then on it
+ * follows the names, so a stale value is never sent back on save.
+ */
+export const createDisplayNameSync = () =>
+  function DisplayNameSync({ values, setValue }: CrudFormGroupComponentProps) {
+    const first = typeof values.firstName === 'string' ? values.firstName : ''
+    const last = typeof values.lastName === 'string' ? values.lastName : ''
+    const current = typeof values.displayName === 'string' ? values.displayName : ''
+    const initialNamesRef = React.useRef({ first, last })
+    const keepsPersistedNameRef = React.useRef(!isDerivedDisplayName(current, first, last))
+
+    React.useEffect(() => {
+      const namesEdited = first !== initialNamesRef.current.first || last !== initialNamesRef.current.last
+      if (namesEdited) keepsPersistedNameRef.current = false
+      if (keepsPersistedNameRef.current) return
+      const derived = deriveDisplayName(first, last)
+      if (current !== derived) setValue('displayName', derived)
+    }, [first, last, current, setValue])
 
     return null
   }
@@ -1016,7 +1109,7 @@ export const createPersonFormGroups = (t: Translator): CrudFormGroup[] => [
     id: 'details',
     title: t('customers.people.form.groups.details'),
     column: 1,
-    component: createDisplayNameSync(),
+    component: createDisplayNameSection(t),
     fields: [
       'firstName',
       'lastName',
@@ -1790,7 +1883,7 @@ export const createPersonEditGroups = (t: Translator): CrudFormGroup[] => [
       'lifecycleStage',
       'source',
     ],
-    component: createDisplayNameSync(),
+    component: createDisplayNameSection(t),
   },
   {
     id: 'roles',
@@ -1840,10 +1933,16 @@ export const createPersonPersonalDataGroups = (
     : t('customers.people.form.groups.roles', 'My roles')
   return [
     {
+      id: 'personalDataDisplay',
+      title: t('customers.people.form.groups.displayName', 'Display name'),
+      column: 1,
+      bare: true,
+      component: createDisplayNameSync(),
+    },
+    {
       id: 'personalData',
       title: t('customers.people.form.groups.personalData', 'Personal data'),
       column: 1,
-      component: createDisplayNameSync(),
       fields: ['firstName', 'lastName', 'jobTitle', 'primaryEmail', 'primaryPhone'],
     },
     {
