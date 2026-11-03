@@ -15,8 +15,9 @@ import {
  *    fractions are rejected) and are optional (omit to leave a bound unset).
  *  - `unitPriceGross` rejects negatives and malformed/over-precise values but
  *    explicitly ALLOWS 0.
- *  - There is NO cross-field `minQuantity <= maxQuantity` guard — the issue
- *    assumed one exists; the last test documents the real (accepted) behavior.
+ *  - `maxQuantity >= minQuantity` IS now cross-validated (added by
+ *    `.ai/specs/2026-08-21-pricing-engine.md` Epic 1 — the issue's original
+ *    assumption that a guard exists is correct as of that change).
  *
  * Each test uses its OWN price kind so every successful create lands on a unique
  * `(variant, priceKind, currency, minQuantity)` scope — creating two prices on the
@@ -163,21 +164,23 @@ test.describe('TC-CAT-032: Price create validation', () => {
     }
   })
 
-  test('does not cross-validate minQuantity against maxQuantity (documents current behavior)', async ({
+  test('rejects an inverted minQuantity/maxQuantity range (.ai/specs/2026-08-21-pricing-engine.md Epic 1)', async ({
     request,
   }) => {
     const priceKindId = await createPriceKind(request, token, `range-${Date.now()}`)
     let priceId: string | null = null
     try {
-      // priceCreateSchema has no min<=max refine, so an inverted range is accepted.
-      // Documented for #2484 as a potential validation gap rather than enforced here.
+      // priceCreateSchema now cross-validates maxQuantity >= minQuantity (the
+      // Pricing Engine spec's Epic 1 required this field-level error state,
+      // closing the gap #2484 flagged). An inverted range is a 400, not a
+      // silently-accepted row.
       const res = await postPrice(request, priceKindId, {
         minQuantity: 100,
         maxQuantity: 50,
         unitPriceGross: 9.99,
       })
-      expect(res.status(), 'inverted min/max range is currently accepted').toBe(201)
-      priceId = ((await res.json()) as { id?: string }).id ?? null
+      expect(res.status(), 'inverted min/max range is rejected').toBe(400)
+      priceId = ((await res.json().catch(() => null)) as { id?: string } | null)?.id ?? null
     } finally {
       await deleteByQueryId(request, token, '/api/catalog/prices', priceId)
       await deleteByQueryId(request, token, '/api/catalog/price-kinds', priceKindId)

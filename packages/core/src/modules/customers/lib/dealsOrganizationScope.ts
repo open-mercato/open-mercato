@@ -25,8 +25,9 @@ export async function resolveDealsOrganizationIds(params: {
   tenantId: string
 }): Promise<string[]> {
   const { em, scope, auth, tenantId } = params
-  if (Array.isArray(scope.filterIds) && scope.filterIds.length > 0) {
-    return scope.filterIds.filter((id) => typeof id === 'string' && id.length > 0)
+  if (Array.isArray(scope.filterIds)) {
+    const ids = scope.filterIds.filter((id) => typeof id === 'string' && id.length > 0)
+    return ids.length > 0 ? ids : [NO_ORGANIZATION_SENTINEL]
   }
   if (scope.filterIds === null) {
     const rows = await em.getConnection().execute<Array<{ id: string }>>(
@@ -35,6 +36,7 @@ export async function resolveDealsOrganizationIds(params: {
     )
     const ids = rows.map((row: { id: string }) => String(row.id)).filter((id: string) => id.length > 0)
     if (ids.length > 0) return ids
+    if (auth.orgId) return [auth.orgId]
   }
-  return auth.orgId ? [auth.orgId] : [NO_ORGANIZATION_SENTINEL]
+  return [NO_ORGANIZATION_SENTINEL]
 }

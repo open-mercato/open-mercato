@@ -1,8 +1,12 @@
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { Queue, QueuedJob, JobHandler, LocalQueueOptions, ProcessOptions, ProcessResult, EnqueueOptions, QueueJobScope } from '../types'
+import { resolveCoalesceKey } from '../coalescing'
+import { attachTraceMetadata, runJobInTrace } from '../tracing'
 
 const packageLogger = createLogger('queue')
 
@@ -12,9 +16,51 @@ type LocalState = {
   failedCount?: number
 }
 
+/**
+ * The enqueue that arrived while its coalescing twin was already running, parked on that twin's
+ * record until it finishes. At most one exists per record: a later arrival overwrites it, so the
+ * follow-up run always carries the latest payload.
+ *
+ * It keeps the id minted for the latest enqueue in the active burst, matching BullMQ's stored
+ * proto-job. The caller receives the active job's id because that is the outstanding job BullMQ
+ * reports for a deduplicated add; the follow-up id is internal until the job is promoted.
+ */
+type CoalescedNextJob<T> = {
+  id: string
+  payload: T
+  createdAt: string
+  metadata?: Record<string, unknown>
+  delayMs?: number
+}
+
 type StoredJob<T> = QueuedJob<T> & {
   availableAt?: string
   attemptCount?: number
+  /** Coalescing key. While a record carries it, further enqueues for that key collapse into it. */
+  coalesceKey?: string
+  coalesceNext?: CoalescedNextJob<T>
+}
+
+/**
+ * The consumer's record of which jobs it selected into the current batch and has not yet finalized
+ * on disk. Selection captures the payload, so every selected id is leased before the lock opens —
+ * including jobs whose handlers have not started yet.
+ *
+ * Producers run in other processes, so `inFlightJobIds` cannot answer "is this job running right
+ * now?" for them — and that question is the whole of `keepLastIfActive`. Hence a file. It has
+ * exactly one writer (the strategy's single consumer, see the topology note above), so it needs an
+ * atomic replacement.
+ */
+type ActiveLease = {
+  jobIds: string[]
+  since: number
+  pid: number
+  host: string
+}
+
+type QueueFileIdentity = {
+  device: number
+  inode: number
 }
 
 function payloadMatchesScope(payload: unknown, scope: QueueJobScope): boolean {
@@ -30,11 +76,36 @@ function payloadMatchesScope(payload: unknown, scope: QueueJobScope): boolean {
   return true
 }
 
-/** Default polling interval in milliseconds */
+/** Polling interval while delayed or retrying work remains queued. */
 const DEFAULT_POLL_INTERVAL = 1000
+/** Idle safety interval for missed filesystem watcher events. */
+const DEFAULT_FALLBACK_POLL_INTERVAL = 5000
 const DEFAULT_LOCAL_QUEUE_BASE_DIR = '.mercato/queue'
 const DEFAULT_MAX_ATTEMPTS = 3
 const RETRY_BACKOFF_BASE_MS = 1000
+
+/**
+ * Cross-process lock tuning. A held lock only ever spans local file I/O — job
+ * handlers run outside it — so realistic hold times are milliseconds and the
+ * stale threshold sits orders of magnitude above them. It exists solely so a
+ * process that dies mid-segment cannot wedge the queue forever. A holder that
+ * was merely suspended rather than dead can still be reclaimed, which is why
+ * every acquisition carries an owner token and releases only its own lock.
+ */
+/**
+ * How long a lease written by a *different host* is believed. On the same host a lease is checked
+ * against its owner's pid instead, which is exact and imposes no ceiling on how long a job may run.
+ * A file-backed queue shared across hosts is outside this strategy's contract, so this is only a
+ * backstop that keeps such a setup from wedging on a lease nobody will ever clear.
+ */
+const ACTIVE_LEASE_FOREIGN_HOST_STALE_MS = 15 * 60 * 1000
+
+const LOCK_STALE_MS = 15_000
+const LOCK_ACQUIRE_TIMEOUT_MS = 30_000
+const LOCK_RETRY_MIN_MS = 2
+const LOCK_RETRY_MAX_MS = 20
+const RENAME_MAX_RETRIES = 5
+const RENAME_RETRY_BASE_MS = 10
 
 const fsp = fs.promises
 
@@ -44,19 +115,51 @@ const fsp = fs.promises
  * Jobs are stored in JSON files within a directory structure:
  * - `.mercato/queue/<name>/queue.json` - Array of queued jobs
  * - `.mercato/queue/<name>/state.json` - Processing state (last processed ID)
+ * - `.mercato/queue/<name>/active.json` - Which jobs the consumer selected (created on demand)
+ *
+ * `EnqueueOptions.coalesce` is honoured here, not just by the `async` strategy, so development and
+ * integration runs collapse bursts the way production does. A record carrying `coalesceKey` *is* the
+ * key — no separate index, because a local job stays stored for its whole life. Coalescing needs one
+ * thing that cannot be derived from `queue.json`, namely whether a job is running right now, and
+ * `active.json` supplies it across processes.
  *
  * **Limitations:**
  * - Jobs are processed sequentially (concurrency option is for logging/compatibility only)
- * - Not suitable for production or multi-process environments
+ * - Not suitable for production: there is no dead-letter store, no throughput
+ *   beyond one job at a time, and every operation rewrites the whole queue file
  *
- * Failed jobs are retried up to `DEFAULT_MAX_ATTEMPTS` times with exponential
- * backoff and moved to a dead-letter store once attempts are exhausted (see the
- * retry handling in `process()` below).
+ * Multiple processes MAY share a queue directory, which is the default
+ * development topology: the dev worker runs in its own process alongside the
+ * Next.js server. What that buys you, and what it does not:
+ *
+ * - **Safe** — concurrent producers. Every read-modify-write segment takes the
+ *   `queue.lock` directory lock and every persist swaps the file in with an
+ *   atomic rename, so the file cannot be torn, no enqueue is lost to a
+ *   concurrent one, and a reader always observes one complete document.
+ *   Writers contend, though, so throughput degrades as processes are added.
+ * - **NOT safe** — concurrent consumers. `process()` deliberately runs job
+ *   handlers outside the lock, so two worker processes polling the same queue
+ *   would both claim the same pending jobs and execute them twice. There is no
+ *   per-job lease. Run exactly one worker process per queue; use the `async`
+ *   strategy when you need more than one.
+ *
+ * Failed jobs are retried up to `DEFAULT_MAX_ATTEMPTS` times with exponential backoff.
+ * **This strategy keeps no failed-job store**: once attempts are exhausted the job is
+ * removed from `queue.json` and only counted in `state.failedCount`, so the payload is
+ * lost and the failure survives solely as an error log line. The `async` strategy keeps
+ * only a bounded inspection window: `removeOnFail: 1000` retains the most recent 1000
+ * failures and removes older ones as later failures arrive. Workflows that require
+ * no-loss persistence must write their own durable record before enqueueing, regardless
+ * of strategy.
+ *
+ * `DEFAULT_MAX_ATTEMPTS` is a module constant, not a per-job option — callers cannot
+ * request a different attempt count. (`async` likewise hard-codes `attempts: 3`.)
+ * See the retry handling in `process()` below.
  *
  * All file I/O is asynchronous (`fs.promises.*`) so queue operations do not
  * block the Node.js event loop. A per-queue promise chain serializes
- * read-modify-write sequences to preserve the atomicity guarantees the
- * previous synchronous implementation relied on.
+ * read-modify-write sequences within one instance, and the `queue.lock`
+ * directory lock extends that serialization across instances and processes.
  *
  * @template T - The payload type for jobs
  * @param name - Queue name (used for directory naming)
@@ -64,31 +167,70 @@ const fsp = fs.promises
  */
 export function createLocalQueue<T = unknown>(
   name: string,
-  options?: LocalQueueOptions
+  options?: LocalQueueOptions<T>
 ): Queue<T> {
   const nodeProcess = (globalThis as typeof globalThis & { process?: NodeJS.Process }).process
+  // Captured here because `enqueue`'s own `options` parameter shadows this one.
+  const coalesceBy = options?.coalesceBy
   const queueBaseDirFromEnv = nodeProcess?.env?.QUEUE_BASE_DIR
   const baseDir = options?.baseDir
     ?? path.resolve(queueBaseDirFromEnv || DEFAULT_LOCAL_QUEUE_BASE_DIR)
   const queueDir = path.join(baseDir, name)
   const queueFile = path.join(queueDir, 'queue.json')
   const stateFile = path.join(queueDir, 'state.json')
+  const activeFile = path.join(queueDir, 'active.json')
+  const lockDir = path.join(queueDir, 'queue.lock')
+  const lockOwnerFile = path.join(lockDir, 'owner')
   const logger = packageLogger.child({ queue: name })
+
+  /**
+   * Report a job failure outward, so the log line is not the only record of it.
+   * Wrapped: reporting is never worth a poll cycle.
+   */
+  function reportQueueError(
+    error: unknown,
+    code: string,
+    attributes?: Record<string, string | number | undefined>,
+  ): void {
+    try {
+      getTelemetryRuntime()?.reportError(error, {
+        module: 'queue',
+        code,
+        attributes: { queue: name, ...attributes },
+      })
+    } catch (telemetryError) {
+      // Reporting is never worth a worker — but a systematically broken bridge
+      // must not be silent either, or a worker stops reporting and nothing says so.
+      logger.warn('Failed to report a queue error to telemetry', { code, err: telemetryError as Error })
+    }
+  }
   // Note: concurrency is stored for logging/compatibility but jobs are processed sequentially
   const concurrency = options?.concurrency ?? 1
   const pollInterval = options?.pollInterval ?? DEFAULT_POLL_INTERVAL
+  const fallbackPollInterval = Math.max(pollInterval, DEFAULT_FALLBACK_POLL_INTERVAL)
 
   // Worker state for continuous polling
   let pollingTimer: ReturnType<typeof setInterval> | null = null
+  let queuedPollTimer: ReturnType<typeof setTimeout> | null = null
+  let queueWatcher: fs.FSWatcher | null = null
+  let queueWatcherIdentity: QueueFileIdentity | null = null
+  let watcherRefreshChain: Promise<void> = Promise.resolve()
+  let hasQueuedJobs = false
   let isProcessing = false
+  let pollRequested = false
   let activeHandler: JobHandler<T> | null = null
   const inFlightJobIds = new Set<string>()
 
   // Per-queue mutex. Serializes read-modify-write segments so async fs calls
-  // cannot interleave and clobber each other's writes.
+  // cannot interleave and clobber each other's writes. It only covers this
+  // instance, so it also guarantees at most one outstanding `queue.lock`
+  // acquisition per instance — the directory lock below is not reentrant.
   let fileOpChain: Promise<unknown> = Promise.resolve()
   function withFileLock<R>(fn: () => Promise<R>): Promise<R> {
-    const run = fileOpChain.then(() => fn(), () => fn())
+    const run = fileOpChain.then(
+      () => runExclusively(fn),
+      () => runExclusively(fn),
+    )
     fileOpChain = run.then(
       () => undefined,
       () => undefined,
@@ -96,9 +238,159 @@ export function createLocalQueue<T = unknown>(
     return run
   }
 
+  /**
+   * Runs `fn` while holding the cross-process `queue.lock`, so read-modify-write
+   * segments issued by other queue instances — in this process or another one —
+   * cannot interleave with it.
+   */
+  async function runExclusively<R>(fn: () => Promise<R>): Promise<R> {
+    await ensureDir()
+    const release = await acquireDirectoryLock()
+    try {
+      return await fn()
+    } finally {
+      await release()
+    }
+  }
+
   // -------------------------------------------------------------------------
   // File Operations
   // -------------------------------------------------------------------------
+
+  function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => { setTimeout(resolve, ms) })
+  }
+
+  async function lockHeldForMs(): Promise<number | null> {
+    try {
+      const stats = await fsp.stat(lockDir)
+      return Date.now() - stats.mtimeMs
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Reclaims a lock whose holder died. The rename is the serialization point:
+   * only one racer can move `queue.lock` aside, so two processes cannot both
+   * decide a stale lock is theirs to clear and then both create a fresh one.
+   */
+  async function reclaimStaleLock(heldForMs: number): Promise<void> {
+    const reclaimedPath = `${lockDir}.stale.${crypto.randomUUID()}`
+    try {
+      await fsp.rename(lockDir, reclaimedPath)
+    } catch {
+      return
+    }
+    logger.warn('Reclaimed a stale queue lock', { lockDir, heldForMs })
+    await fsp.rm(reclaimedPath, { recursive: true, force: true }).catch(() => {})
+  }
+
+  async function readLockOwner(): Promise<string | null> {
+    try {
+      return await fsp.readFile(lockOwnerFile, 'utf8')
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Releases the lock only when this acquisition still owns it. A holder that
+   * was suspended past `LOCK_STALE_MS` has had its lock reclaimed *and
+   * replaced* by whoever reclaimed it, so an unconditional removal here would
+   * delete the successor's lock and let a third caller into the critical
+   * section alongside it. A missing or mismatched token means someone else owns
+   * the path now, and the correct action is to leave it alone.
+   */
+  async function releaseDirectoryLock(token: string): Promise<void> {
+    if (await readLockOwner() !== token) return
+    await fsp.rm(lockDir, { recursive: true, force: true }).catch(() => {})
+  }
+
+  /**
+   * Acquires the cross-process advisory lock for this queue directory.
+   * `mkdir` without `recursive` is an atomic exclusive create on every platform
+   * Node.js supports, which makes it the portable primitive here — no runtime
+   * dependency, and no reliance on advisory `flock` semantics. The owner token
+   * written into the directory is what lets the release distinguish this
+   * acquisition from a successor's.
+   */
+  async function acquireDirectoryLock(): Promise<() => Promise<void>> {
+    const deadline = Date.now() + LOCK_ACQUIRE_TIMEOUT_MS
+
+    for (;;) {
+      let acquired = false
+      try {
+        await fsp.mkdir(lockDir)
+        acquired = true
+      } catch (e: unknown) {
+        const error = e as NodeJS.ErrnoException
+        if (error.code !== 'EEXIST') throw error
+      }
+
+      if (acquired) {
+        const token = crypto.randomUUID()
+        try {
+          await fsp.writeFile(lockOwnerFile, token, 'utf8')
+        } catch (error: unknown) {
+          await fsp.rm(lockDir, { recursive: true, force: true }).catch(() => {})
+          throw error
+        }
+        return () => releaseDirectoryLock(token)
+      }
+
+      const heldForMs = await lockHeldForMs()
+      if (heldForMs !== null && heldForMs > LOCK_STALE_MS) {
+        await reclaimStaleLock(heldForMs)
+        continue
+      }
+
+      if (Date.now() >= deadline) {
+        throw new Error(
+          `[internal] Timed out after ${LOCK_ACQUIRE_TIMEOUT_MS}ms waiting for the queue lock at ${lockDir}`,
+        )
+      }
+
+      const jitter = LOCK_RETRY_MIN_MS + Math.random() * (LOCK_RETRY_MAX_MS - LOCK_RETRY_MIN_MS)
+      await sleep(jitter)
+    }
+  }
+
+  /**
+   * Persists `content` by writing a unique sibling temp file and renaming it
+   * onto `targetFile`. `rename` within a directory is atomic, so a concurrent
+   * reader sees either the previous document or the new one in full — never the
+   * torn result of a truncate-then-write.
+   */
+  async function writeFileAtomic(targetFile: string, content: string): Promise<void> {
+    const tempFile = `${targetFile}.${crypto.randomUUID()}.tmp`
+    try {
+      await fsp.writeFile(tempFile, content, 'utf8')
+      await renameWithContentionRetry(tempFile, targetFile)
+    } catch (error: unknown) {
+      await fsp.rm(tempFile, { force: true }).catch(() => {})
+      throw error
+    }
+  }
+
+  /**
+   * Windows rejects a rename onto a file another process currently has open,
+   * so retry briefly on the contention codes it raises. POSIX renames replace
+   * the target unconditionally and take the first attempt.
+   */
+  async function renameWithContentionRetry(fromFile: string, toFile: string): Promise<void> {
+    const contentionCodes = new Set(['EPERM', 'EBUSY', 'EACCES'])
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await fsp.rename(fromFile, toFile)
+        return
+      } catch (e: unknown) {
+        const error = e as NodeJS.ErrnoException
+        if (attempt >= RENAME_MAX_RETRIES || !error.code || !contentionCodes.has(error.code)) throw error
+        await sleep(RENAME_RETRY_BASE_MS * (attempt + 1))
+      }
+    }
+  }
 
   async function ensureDir(): Promise<void> {
     try {
@@ -125,11 +417,21 @@ export function createLocalQueue<T = unknown>(
     }
   }
 
-  async function backupCorruptedQueueFile(content: string): Promise<string> {
-    const backupFile = path.join(queueDir, `queue.corrupted.${Date.now()}.json`)
-    await fsp.writeFile(backupFile, content, 'utf8')
-    await fsp.writeFile(queueFile, '[]', 'utf8')
-    return backupFile
+  /**
+   * Moves an unparsable queue file aside so its jobs stay recoverable. The
+   * caller is expected to surface the failure rather than continue on an empty
+   * queue: silently recreating `queue.json` here is what turned an unreadable
+   * file into permanent, unreported job loss.
+   */
+  async function quarantineCorruptedQueueFile(): Promise<string | null> {
+    const backupFile = path.join(queueDir, `queue.corrupted.${Date.now()}.${crypto.randomUUID()}.json`)
+    try {
+      await fsp.rename(queueFile, backupFile)
+      return backupFile
+    } catch (e: unknown) {
+      logger.error('Failed to quarantine the corrupted queue file', { err: e as Error })
+      return null
+    }
   }
 
   async function readQueue(): Promise<StoredJob<T>[]> {
@@ -158,15 +460,22 @@ export function createLocalQueue<T = unknown>(
     } catch (error: unknown) {
       const parseError = error as Error
       logger.error('Failed to parse queue file', { err: parseError })
-      const backupFile = await backupCorruptedQueueFile(content)
-      logger.error('Backed up corrupted queue file and recreated queue.json', { backupFile })
-      return []
+      const backupFile = await quarantineCorruptedQueueFile()
+      if (backupFile) {
+        logger.error('Quarantined corrupted queue file; its jobs are recoverable from the backup', { backupFile })
+      }
+      const recoveryHint = backupFile
+        ? `has been quarantined as ${backupFile}`
+        : 'could not be quarantined and was left in place'
+      throw new Error(
+        `[internal] Queue file ${queueFile} was unparsable and ${recoveryHint}: ${parseError.message}`,
+      )
     }
   }
 
   async function writeQueue(jobs: StoredJob<T>[]): Promise<void> {
     await ensureDir()
-    await fsp.writeFile(queueFile, JSON.stringify(jobs, null, 2), 'utf8')
+    await writeFileAtomic(queueFile, JSON.stringify(jobs, null, 2))
   }
 
   async function readState(): Promise<LocalState> {
@@ -181,7 +490,7 @@ export function createLocalQueue<T = unknown>(
 
   async function writeState(state: LocalState): Promise<void> {
     await ensureDir()
-    await fsp.writeFile(stateFile, JSON.stringify(state, null, 2), 'utf8')
+    await writeFileAtomic(stateFile, JSON.stringify(state, null, 2))
   }
 
   function generateId(): string {
@@ -189,25 +498,208 @@ export function createLocalQueue<T = unknown>(
   }
 
   // -------------------------------------------------------------------------
+  // Active lease
+  // -------------------------------------------------------------------------
+
+  /**
+   * Reads the consumer's lease.
+   *
+   * Unreadable or unparsable content is discarded rather than quarantined, the mirror image of
+   * `readQueue`'s fail-closed handling: a lease holds no payload anyone could recover, and the worst
+   * consequence of losing one is a job that runs twice — which is the pre-feature behaviour and
+   * within the queue's at-least-once contract. Refusing to enqueue over a damaged lease, by
+   * contrast, would turn a cosmetic file into an outage.
+   */
+  async function readActiveLease(): Promise<ActiveLease | null> {
+    let content: string
+    try {
+      content = await fsp.readFile(activeFile, 'utf8')
+    } catch (e: unknown) {
+      const readError = e as NodeJS.ErrnoException
+      if (readError.code !== 'ENOENT') {
+        logger.error('Failed to read the active-job lease; treating it as empty', { err: readError })
+        reportQueueError(readError, 'queue.active_lease_read_failed')
+      }
+      return null
+    }
+
+    try {
+      const parsed = JSON.parse(content) as Partial<ActiveLease>
+      if (!parsed || !Array.isArray(parsed.jobIds)) {
+        throw new Error('Active-job lease must be an object with a jobIds array')
+      }
+      return {
+        jobIds: parsed.jobIds.filter((id): id is string => typeof id === 'string'),
+        since: typeof parsed.since === 'number' ? parsed.since : 0,
+        pid: typeof parsed.pid === 'number' ? parsed.pid : 0,
+        host: typeof parsed.host === 'string' ? parsed.host : '',
+      }
+    } catch (e: unknown) {
+      const parseError = e as Error
+      logger.error('Failed to parse the active-job lease; discarding it', { err: parseError })
+      reportQueueError(parseError, 'queue.active_lease_parse_failed')
+      await fsp.rm(activeFile, { force: true }).catch(() => {})
+      return null
+    }
+  }
+
+  /**
+   * Whether a lease still describes a running consumer. A lease left behind by a crash must not
+   * deduplicate enqueues forever, and the strategy has no per-job heartbeat to fall back on.
+   */
+  function isLeaseLive(lease: ActiveLease | null): lease is ActiveLease {
+    if (!lease || lease.jobIds.length === 0) return false
+    if (lease.host !== os.hostname()) {
+      return Date.now() - lease.since <= ACTIVE_LEASE_FOREIGN_HOST_STALE_MS
+    }
+    if (!nodeProcess?.kill || !lease.pid) return true
+    try {
+      nodeProcess.kill(lease.pid, 0)
+      return true
+    } catch (e: unknown) {
+      // EPERM means the pid exists but belongs to another user, so the owner is alive.
+      return (e as NodeJS.ErrnoException).code === 'EPERM'
+    }
+  }
+
+  async function readLiveLeaseJobIds(): Promise<Set<string>> {
+    const lease = await readActiveLease()
+    return new Set(isLeaseLive(lease) ? lease.jobIds : [])
+  }
+
+  /**
+   * Publishes the lease with an atomic rename while the queue lock still protects job selection,
+   * closing the gap where a producer could mistake a selected job for a waiting one.
+   */
+  async function writeActiveLease(jobIds: string[]): Promise<void> {
+    await ensureDir()
+    const lease: ActiveLease = {
+      jobIds,
+      since: Date.now(),
+      pid: nodeProcess?.pid ?? 0,
+      host: os.hostname(),
+    }
+    await writeFileAtomic(activeFile, JSON.stringify(lease, null, 2))
+  }
+
+  async function releaseActiveLease(): Promise<void> {
+    await fsp.rm(activeFile, { force: true }).catch((err: unknown) => {
+      logger.error('Failed to release the active-job lease', { err })
+      reportQueueError(err, 'queue.active_lease_release_failed')
+    })
+  }
+
+  /**
+   * Builds the follow-up job parked on a finalized record by `keepLastIfActive`.
+   *
+   * Everything except the delay comes from the latest producer enqueue. Only `availableAt` is
+   * recomputed, because a delay means "after the enqueue is acted on", and that moment is now.
+   */
+  function buildFollowUpJob(record: StoredJob<T>): StoredJob<T> | null {
+    const next = record.coalesceNext
+    if (!next) return null
+    const availableAt = next.delayMs && next.delayMs > 0
+      ? new Date(Date.now() + next.delayMs).toISOString()
+      : undefined
+    return {
+      id: next.id,
+      payload: next.payload,
+      createdAt: next.createdAt,
+      ...(availableAt ? { availableAt } : {}),
+      ...(next.metadata ? { metadata: next.metadata } : {}),
+      ...(record.coalesceKey ? { coalesceKey: record.coalesceKey } : {}),
+    }
+  }
+
+  function warnAboutDiscardedFollowUps(records: StoredJob<T>[]): void {
+    const coalesceKeys = records
+      .filter((record) => record.coalesceNext)
+      .map((record) => record.coalesceKey ?? record.id)
+    if (coalesceKeys.length === 0) return
+    logger.warn(
+      'Discarded coalesced follow-up jobs while clearing the queue',
+      { coalesceKeys },
+    )
+  }
+
+  // -------------------------------------------------------------------------
   // Queue Implementation
   // -------------------------------------------------------------------------
 
   async function enqueue(data: T, options?: EnqueueOptions): Promise<string> {
-    const availableAt = options?.delayMs && options.delayMs > 0
-      ? new Date(Date.now() + options.delayMs).toISOString()
-      : undefined
+    const delayMs = options?.delayMs && options.delayMs > 0 ? options.delayMs : undefined
+    const availableAt = delayMs ? new Date(Date.now() + delayMs).toISOString() : undefined
+    const metadata = attachTraceMetadata(undefined)
+    const coalesceKey = resolveCoalesceKey(data, options, coalesceBy)
     const job: StoredJob<T> = {
       id: generateId(),
       payload: data,
       createdAt: new Date().toISOString(),
       ...(availableAt ? { availableAt } : {}),
+      ...(metadata ? { metadata } : {}),
+      ...(coalesceKey ? { coalesceKey } : {}),
     }
-    await withFileLock(async () => {
+
+    if (!coalesceKey) {
+      await withFileLock(async () => {
+        const jobs = await readQueue()
+        jobs.push(job)
+        await writeQueue(jobs)
+      })
+      return job.id
+    }
+
+    // The whole decision runs inside one locked segment, so a concurrent producer cannot slip an
+    // enqueue between the lookup and the write, and the consumer cannot finalize the job being
+    // examined halfway through.
+    return withFileLock(async () => {
       const jobs = await readQueue()
-      jobs.push(job)
-      await writeQueue(jobs)
+      const current = jobs.find((candidate) => candidate.coalesceKey === coalesceKey)
+      if (!current) {
+        jobs.push(job)
+        await writeQueue(jobs)
+        return job.id
+      }
+
+      if ((await readLiveLeaseJobIds()).has(current.id)) {
+        // The running job read its input before this enqueue existed, so dropping the enqueue would
+        // lose the write it represents. Park it; the consumer promotes it when the current run ends.
+        current.coalesceNext = {
+          id: job.id,
+          payload: data,
+          createdAt: job.createdAt,
+          ...(metadata ? { metadata } : {}),
+          ...(delayMs ? { delayMs } : {}),
+        }
+        await writeQueue(jobs)
+        return current.id
+      }
+
+      // The twin is merely waiting, so it has read nothing and will observe this enqueue's writes
+      // when it runs — but only if it runs no later than this enqueue asked for. Carrying the
+      // earlier of the two moments keeps the guarantee one-directional: collapsing may cost a
+      // caller a run that happens sooner than it asked, never one that never comes. Dropping the
+      // incoming schedule instead would defer an immediate enqueue behind a delayed twin, which is
+      // the silently-lost write this feature exists to prevent.
+      //
+      // A record in retry backoff is excluded: there `availableAt` is not a schedule any caller
+      // asked for but the failure handler's spacing, and pulling it forward would let a burst of
+      // triggers hot-loop a job that is failing. A retry keeps its key and its backoff both.
+      const inRetryBackoff = (current.attemptCount ?? 0) > 0
+      const currentAvailableAtMs = current.availableAt ? new Date(current.availableAt).getTime() : 0
+      const incomingAvailableAtMs = availableAt ? new Date(availableAt).getTime() : 0
+      if (!inRetryBackoff && currentAvailableAtMs > incomingAvailableAtMs) {
+        if (availableAt) current.availableAt = availableAt
+        else delete current.availableAt
+        await writeQueue(jobs)
+        return current.id
+      }
+
+      // Coalesced with nothing to record: deliberately no write at all. Rewriting `queue.json`
+      // here would rename the file and wake the consumer's watcher for a job that does not exist,
+      // which is precisely the work coalescing exists to avoid.
+      return current.id
     })
-    return job.id
   }
 
   /**
@@ -217,19 +709,22 @@ export function createLocalQueue<T = unknown>(
     handler: JobHandler<T>,
     options?: ProcessOptions
   ): Promise<ProcessResult> {
-    const { state, jobs } = await withFileLock(async () => {
+    const { state, jobs, jobsToProcess } = await withFileLock(async () => {
       const stateRead = await readState()
       const jobsRead = await readQueue()
-      return { state: stateRead, jobs: jobsRead }
+      const pendingJobs = jobsRead.filter((job) => {
+        if (!job.availableAt) return true
+        return new Date(job.availableAt).getTime() <= Date.now()
+      })
+      const selectedJobs = options?.limit
+        ? pendingJobs.slice(0, options.limit)
+        : pendingJobs
+      if (selectedJobs.length > 0) {
+        await writeActiveLease(selectedJobs.map((job) => job.id))
+      }
+      return { state: stateRead, jobs: jobsRead, jobsToProcess: selectedJobs }
     })
-
-    const pendingJobs = jobs.filter((job) => {
-      if (!job.availableAt) return true
-      return new Date(job.availableAt).getTime() <= Date.now()
-    })
-    const jobsToProcess = options?.limit
-      ? pendingJobs.slice(0, options.limit)
-      : pendingJobs
+    hasQueuedJobs = jobs.length > 0
 
     for (const job of jobsToProcess) {
       inFlightJobIds.add(job.id)
@@ -240,18 +735,24 @@ export function createLocalQueue<T = unknown>(
     let lastJobId: string | undefined
     const completedJobIds = new Set<string>()
     const deadJobIds = new Set<string>()
-    const retryUpdates = new Map<string, StoredJob<T>>()
+    // Patches rather than whole records: the record is re-read below, and a producer may have parked
+    // a `coalesceNext` on it while the handler ran. Rewriting it from the pre-run snapshot
+    // would silently discard that enqueue.
+    const retryPatches = new Map<string, { attemptCount: number; availableAt: string }>()
+    const leaseWritten = jobsToProcess.length > 0
 
     try {
       for (const job of jobsToProcess) {
         const attemptNumber = (job.attemptCount ?? 0) + 1
         try {
-          await Promise.resolve(
-            handler(job, {
-              jobId: job.id,
-              attemptNumber,
-              queueName: name,
-            })
+          await runJobInTrace(name, job.metadata, () =>
+            Promise.resolve(
+              handler(job, {
+                jobId: job.id,
+                attemptNumber,
+                queueName: name,
+              })
+            )
           )
           processed++
           lastJobId = job.id
@@ -259,15 +760,24 @@ export function createLocalQueue<T = unknown>(
           logger.info('Job completed', { jobId: job.id })
         } catch (error) {
           logger.error('Job failed', { jobId: job.id, attemptNumber, maxAttempts: DEFAULT_MAX_ATTEMPTS, err: error })
+          const exhausted = attemptNumber >= DEFAULT_MAX_ATTEMPTS
+          // One report per failure, coded by what the failure means: a job that
+          // has burned every retry is dead, which is the condition an operator
+          // pages on, and it must be distinguishable from a first attempt that
+          // will simply be retried. Reporting both would double-count `om.errors`
+          // on the final attempt.
+          reportQueueError(error, exhausted ? 'queue.job_exhausted' : 'queue.job_failed', {
+            jobId: job.id,
+            attemptNumber,
+          })
           failed++
           lastJobId = job.id
-          if (attemptNumber >= DEFAULT_MAX_ATTEMPTS) {
-            logger.error('Job exhausted all attempts, moving to dead letter', { jobId: job.id, maxAttempts: DEFAULT_MAX_ATTEMPTS })
+          if (exhausted) {
+            logger.error('Job exhausted all attempts; dropping it (no dead-letter store)', { jobId: job.id, maxAttempts: DEFAULT_MAX_ATTEMPTS })
             deadJobIds.add(job.id)
           } else {
             const backoffMs = RETRY_BACKOFF_BASE_MS * Math.pow(2, attemptNumber - 1)
-            retryUpdates.set(job.id, {
-              ...job,
+            retryPatches.set(job.id, {
               attemptCount: attemptNumber,
               availableAt: new Date(Date.now() + backoffMs).toISOString(),
             })
@@ -275,15 +785,30 @@ export function createLocalQueue<T = unknown>(
         }
       }
 
-      const hasChanges = completedJobIds.size > 0 || deadJobIds.size > 0 || retryUpdates.size > 0
+      const hasChanges = completedJobIds.size > 0 || deadJobIds.size > 0 || retryPatches.size > 0
       if (hasChanges) {
         await withFileLock(async () => {
           // Re-read so jobs enqueued during handler execution are preserved.
           const currentJobs = await readQueue()
+          const finalizedJobIds = new Set([...completedJobIds, ...deadJobIds])
+          // A job that exhausted its attempts is finalized too, exactly as a completed one is.
+          // Leaving its key behind would deduplicate every later enqueue onto a record that no
+          // longer exists, and would strand its follow-up.
+          const followUpJobs = currentJobs
+            .filter((j) => finalizedJobIds.has(j.id))
+            .map((j) => buildFollowUpJob(j))
+            .filter((j): j is StoredJob<T> => j !== null)
           const updatedJobs = currentJobs
-            .filter((j) => !completedJobIds.has(j.id) && !deadJobIds.has(j.id))
-            .map((j) => retryUpdates.get(j.id) ?? j)
+            .filter((j) => !finalizedJobIds.has(j.id))
+            .map((j) => {
+              const patch = retryPatches.get(j.id)
+              return patch ? { ...j, ...patch } : j
+            })
+          // Appended in the same write that removes the job they were parked on, so there is never a
+          // moment where a burst could produce a third job for one coalescing key.
+          updatedJobs.push(...followUpJobs)
           await writeQueue(updatedJobs)
+          hasQueuedJobs = updatedJobs.length > 0
 
           const newState: LocalState = {
             lastProcessedId: lastJobId,
@@ -299,24 +824,104 @@ export function createLocalQueue<T = unknown>(
       for (const job of jobsToProcess) {
         inFlightJobIds.delete(job.id)
       }
+      // After the closing write, so a job is never both stored and unleased.
+      if (leaseWritten) {
+        await releaseActiveLease()
+      }
     }
   }
 
   /**
    * Poll for and process new jobs.
    */
-  async function pollAndProcess(): Promise<void> {
-    // Skip if already processing to avoid concurrent file access
-    if (isProcessing || !activeHandler) return
+  async function pollAndProcess(rethrow = false): Promise<void> {
+    if (!activeHandler) return
+    if (isProcessing) {
+      pollRequested = true
+      return
+    }
 
     isProcessing = true
     try {
-      await processBatch(activeHandler)
+      do {
+        pollRequested = false
+        const handler = activeHandler
+        if (!handler) break
+        await processBatch(handler)
+      } while (pollRequested)
     } catch (error) {
+      if (rethrow) throw error
       logger.error('Polling error', { err: error })
     } finally {
       isProcessing = false
+      scheduleQueuedPoll()
     }
+  }
+
+  function scheduleQueuedPoll(): void {
+    if (!activeHandler || !hasQueuedJobs) {
+      if (queuedPollTimer) {
+        clearTimeout(queuedPollTimer)
+        queuedPollTimer = null
+      }
+      return
+    }
+    if (queuedPollTimer) return
+    queuedPollTimer = setTimeout(() => {
+      queuedPollTimer = null
+      void pollAndProcess()
+    }, pollInterval)
+  }
+
+  function closeQueueWatcher(): void {
+    if (queueWatcher) {
+      queueWatcher.close()
+      queueWatcher = null
+    }
+    queueWatcherIdentity = null
+  }
+
+  function refreshQueueWatcher(): Promise<void> {
+    const refresh = watcherRefreshChain.then(async () => {
+      if (!activeHandler) return
+      try {
+        await ensureDir()
+        const stats = await fsp.stat(queueFile)
+        const nextIdentity = { device: stats.dev, inode: stats.ino }
+        if (
+          queueWatcher
+          && queueWatcherIdentity?.device === nextIdentity.device
+          && queueWatcherIdentity.inode === nextIdentity.inode
+        ) {
+          return
+        }
+
+        closeQueueWatcher()
+        const watcher = fs.watch(queueFile, (eventType) => {
+          if (eventType === 'rename') {
+            queueWatcherIdentity = null
+            void refreshQueueWatcher()
+          }
+          void pollAndProcess()
+        })
+        watcher.on('error', (err) => {
+          logger.error('Queue watch error; fallback polling remains active', { err })
+          if (queueWatcher === watcher) {
+            closeQueueWatcher()
+          }
+        })
+        if (!activeHandler) {
+          watcher.close()
+          return
+        }
+        queueWatcher = watcher
+        queueWatcherIdentity = nextIdentity
+      } catch (err) {
+        logger.error('Failed to watch queue file; fallback polling remains active', { err })
+      }
+    })
+    watcherRefreshChain = refresh.catch(() => undefined)
+    return refresh
   }
 
   async function process(
@@ -325,21 +930,37 @@ export function createLocalQueue<T = unknown>(
   ): Promise<ProcessResult> {
     // If limit is specified, do a single batch (backward compatibility)
     if (options?.limit) {
+      await releaseActiveLease()
       return processBatch(handler, options)
     }
+
+    if (activeHandler) {
+      await close()
+    }
+
+    // A consumer is starting, and this strategy admits exactly one consumer per queue, so any lease
+    // still on disk belongs to a run that will never finish. Clearing it is the authoritative
+    // recovery from a crashed consumer: the jobs it named are still stored, so they simply run
+    // again, carrying any parked follow-up with them. The alternative — ageing leases out — would
+    // have to guess a ceiling on how long a handler may legitimately take.
+    await releaseActiveLease()
 
     // Start continuous polling mode (like BullMQ Worker)
     activeHandler = handler
 
-    // Process any pending jobs immediately
-    await processBatch(handler)
+    try {
+      await refreshQueueWatcher()
+      await pollAndProcess(true)
+    } catch (error) {
+      await close()
+      throw error
+    }
 
-    // Start polling interval for new jobs
     pollingTimer = setInterval(() => {
-      pollAndProcess().catch((err) => {
+      refreshQueueWatcher().then(() => pollAndProcess()).catch((err) => {
         logger.error('Poll cycle error', { err })
       })
-    }, pollInterval)
+    }, fallbackPollInterval)
 
     logger.info('Worker started', { concurrency })
 
@@ -351,7 +972,10 @@ export function createLocalQueue<T = unknown>(
     return withFileLock(async () => {
       const jobs = await readQueue()
       const removed = jobs.length
+      warnAboutDiscardedFollowUps(jobs)
       await writeQueue([])
+      hasQueuedJobs = false
+      scheduleQueuedPoll()
       // Reset state but preserve counts for historical tracking
       const state = await readState()
       await writeState({
@@ -368,20 +992,29 @@ export function createLocalQueue<T = unknown>(
       const retainedJobs = jobs.filter((job) => inFlightJobIds.has(job.id) || !payloadMatchesScope(job.payload, scope))
       const removed = jobs.length - retainedJobs.length
       if (removed > 0) {
+        const retainedIds = new Set(retainedJobs.map((job) => job.id))
+        warnAboutDiscardedFollowUps(jobs.filter((job) => !retainedIds.has(job.id)))
         await writeQueue(retainedJobs)
       }
+      hasQueuedJobs = retainedJobs.length > 0
+      scheduleQueuedPoll()
       return { removed }
     })
   }
 
   async function close(): Promise<void> {
+    activeHandler = null
+    if (queuedPollTimer) {
+      clearTimeout(queuedPollTimer)
+      queuedPollTimer = null
+    }
+    closeQueueWatcher()
+
     // Stop polling timer
     if (pollingTimer) {
       clearInterval(pollingTimer)
       pollingTimer = null
     }
-    activeHandler = null
-
     // Wait for any in-progress processing to complete (with timeout)
     const SHUTDOWN_TIMEOUT = 5000
     const startTime = Date.now()
@@ -404,10 +1037,16 @@ export function createLocalQueue<T = unknown>(
     return withFileLock(async () => {
       const state = await readState()
       const jobs = await readQueue()
+      // Intersected with the stored jobs rather than trusted outright, so a lease naming a job that
+      // has since been cleared away cannot inflate the count or push `waiting` negative.
+      const leasedJobIds = await readLiveLeaseJobIds()
+      const active = jobs.filter((job) => leasedJobIds.has(job.id)).length
 
       return {
-        waiting: jobs.length, // All jobs in queue are waiting (processed ones are removed)
-        active: 0, // Local strategy doesn't track active jobs
+        // A job stays stored while it runs, so waiting is what is left once the active ones are
+        // discounted.
+        waiting: jobs.length - active,
+        active,
         completed: state.completedCount ?? 0,
         failed: state.failedCount ?? 0,
       }

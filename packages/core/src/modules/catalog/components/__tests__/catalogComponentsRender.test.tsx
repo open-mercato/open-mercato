@@ -161,10 +161,6 @@ jest.mock('@open-mercato/core/modules/dictionaries/components/DictionaryEntrySel
   ),
 }))
 
-jest.mock('@open-mercato/core/modules/customers/components/detail/hooks/useCurrencyDictionary', () => ({
-  useCurrencyDictionary: () => ({ data: { entries: [] }, refetch: jest.fn().mockResolvedValue({ entries: [] }) }),
-}))
-
 jest.mock('@open-mercato/shared/lib/i18n/context', () => {
   const translate = (key: string, fallback?: string, vars?: Record<string, unknown>) => {
     const base = (fallback ?? key) as string
@@ -175,6 +171,7 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => {
   }
   return {
     useT: () => translate,
+    useLocale: () => 'en',
   }
 })
 

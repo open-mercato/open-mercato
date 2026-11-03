@@ -138,6 +138,7 @@ export function KpiCard({
       <div className={wrapperClass}>
         {headerRow}
         <p className="text-2xl sm:text-3xl font-semibold tracking-tight text-card-foreground">--</p>
+        {footer != null && <div className="mt-3">{footer}</div>}
       </div>
     )
   }

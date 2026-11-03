@@ -61,4 +61,24 @@ describe('AttachmentAssignmentsEditor (upload dialog)', () => {
     expect(document.activeElement).toBe(idInput)
     expect(idInput.value).toBe('ab')
   })
+
+  it('keeps the surviving assignment values after removing a middle row', () => {
+    render(
+      <EditorHarness
+        initial={[
+          { type: 'catalog.product', id: 'p-1', href: '', label: '' },
+          { type: 'sales.order', id: 'o-2', href: '', label: '' },
+          { type: 'customers.person', id: 'c-3', href: '', label: '' },
+        ]}
+      />,
+    )
+
+    fireEvent.click(screen.getAllByRole('button', { name: labels.remove })[1])
+
+    const inputs = screen.getAllByRole('textbox') as HTMLInputElement[]
+    expect(inputs[0]).toHaveValue('catalog.product')
+    expect(inputs[1]).toHaveValue('p-1')
+    expect(inputs[4]).toHaveValue('customers.person')
+    expect(inputs[5]).toHaveValue('c-3')
+  })
 })

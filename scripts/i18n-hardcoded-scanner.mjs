@@ -6,6 +6,10 @@
  *  - JSX attribute literals on user-visible props (label/title/placeholder/...)
  *  - throw new Error('...') / createCrudFormError('...') / toast.*('...') /
  *    raiseCrudError('...') with a plain English first argument
+ *  - new CrudHttpError(status, { error: '...' }), the badRequest/forbidden/
+ *    notFound/conflict('...') and assertFound(value, '...') helpers, and
+ *    NextResponse.json({ error: '...' }) / Response.json({ error: '...' })
+ *    with a plain English message on the same line
  *
  * Internal assertions are opted out with the `[internal]` prefix convention
  * documented in `.ai/specs/2026-05-26-missing-translations-audit-and-remediation.md`.
@@ -21,6 +25,8 @@ export const HARDCODED_KINDS = Object.freeze({
   crudFormError: 'crud-form-error',
   raiseCrudError: 'raise-crud-error',
   toastCall: 'toast-call',
+  crudHttpError: 'crud-http-error',
+  jsonErrorResponse: 'json-error-response',
 })
 
 const JSX_TEXT_PATTERN = />\s*([A-Z][a-z]+(?:\s+[A-Za-z][a-zA-Z]*){1,}[.?!]?)\s*</g
@@ -47,6 +53,10 @@ const THROW_ERROR_PATTERN = /throw\s+new\s+Error\(\s*(["'`])([^"'`\n]{2,})\1/g
 const CRUD_FORM_ERROR_PATTERN = /createCrudFormError\(\s*(["'`])([^"'`\n]{2,})\1/g
 const RAISE_CRUD_ERROR_PATTERN = /raiseCrudError\(\s*(["'`])([^"'`\n]{2,})\1/g
 const TOAST_CALL_PATTERN = /(?<![a-zA-Z_$])toast\.(?:error|success|warning|warn|info|message|loading)\(\s*(["'`])([^"'`\n]{2,})\1/g
+const CRUD_HTTP_ERROR_PATTERN = /new\s+CrudHttpError\(\s*[^,()\n]+,\s*\{\s*error\s*:\s*(["'`])([^"'`\n]{2,})\1/g
+const CRUD_HTTP_HELPER_PATTERN = /(?<![\w$.])(?:badRequest|forbidden|notFound|conflict)\(\s*(["'`])([^"'`\n]{2,})\1/g
+const ASSERT_FOUND_PATTERN = /(?<![\w$.])assertFound\([^\n]*?,\s*(?<!\b(?:t|translate)\([^)]*)(["'`])([^"'`\n]{2,})\1\s*\)/g
+const JSON_ERROR_RESPONSE_PATTERN = /(?<![\w$])(?:NextResponse|Response)\.json\(\s*\{\s*error\s*:\s*(["'`])([^"'`\n]{2,})\1/g
 
 const INTERNAL_PREFIX = '[internal]'
 
@@ -112,6 +122,7 @@ export function looksEnglishPhrase(value, { minWords = 2 } = {}) {
   // Reject obvious dotted identifiers like `module.entity.title` even if they
   // happen to share a regex shape with normal text — those belong to keys.
   if (/\.[a-z]+\.[a-z]+/.test(trimmed) && !/\s/.test(trimmed)) return false
+  if (/^[a-z][\w-]*(?:\.[\w${}-]+)+$/.test(trimmed)) return false
 
   let lower = 0
   for (const ch of trimmed) {
@@ -200,6 +211,10 @@ export function scanLine(line, { file = '<inline>', lineNumber = 1 } = {}) {
   applyMessagePattern(line, lineNumber, file, findings, CRUD_FORM_ERROR_PATTERN, HARDCODED_KINDS.crudFormError)
   applyMessagePattern(line, lineNumber, file, findings, RAISE_CRUD_ERROR_PATTERN, HARDCODED_KINDS.raiseCrudError)
   applyMessagePattern(line, lineNumber, file, findings, TOAST_CALL_PATTERN, HARDCODED_KINDS.toastCall)
+  applyMessagePattern(line, lineNumber, file, findings, CRUD_HTTP_ERROR_PATTERN, HARDCODED_KINDS.crudHttpError)
+  applyMessagePattern(line, lineNumber, file, findings, CRUD_HTTP_HELPER_PATTERN, HARDCODED_KINDS.crudHttpError)
+  applyMessagePattern(line, lineNumber, file, findings, ASSERT_FOUND_PATTERN, HARDCODED_KINDS.crudHttpError)
+  applyMessagePattern(line, lineNumber, file, findings, JSON_ERROR_RESPONSE_PATTERN, HARDCODED_KINDS.jsonErrorResponse)
   return findings
 }
 

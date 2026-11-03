@@ -85,6 +85,59 @@ describe('data_sync cancel run route', () => {
     expect(response.status).toBe(401)
   })
 
+  // `orgId: null` + `actorOrgId` is the shape `applySuperAdminScope` produces for an
+  // all-organizations selection. Answering 401 for it sent `apiFetch` into a refresh loop.
+  it('falls back to the actor organization instead of answering 401 in the all-organizations scope', async () => {
+    mockGetAuthFromRequest.mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: null,
+      actorOrgId: 'org-1',
+    })
+
+    const response = await postHandler(
+      new Request('http://localhost/api/data_sync/runs/11111111-1111-4111-8111-111111111111/cancel', { method: 'POST' }),
+      { params: { id: '11111111-1111-4111-8111-111111111111' } },
+    )
+
+    expect(response.status).toBe(200)
+    expect(mockSyncRunService.getRun).toHaveBeenCalledWith(
+      '11111111-1111-4111-8111-111111111111',
+      { organizationId: 'org-1', tenantId: 'tenant-1' },
+    )
+    expect(mockProgressService.markCancelled).toHaveBeenCalledWith('22222222-2222-4222-8222-222222222222', {
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      userId: 'user-1',
+    })
+  })
+
+  // When the super-admin override also switched tenants, the actor organization belongs to
+  // another tenant — the fallback must not fabricate a cross-tenant scope, and the answer
+  // must not be a 401 (which would re-enter the session-refresh loop).
+  it('answers 400 and cancels nothing when the actor organization belongs to another tenant', async () => {
+    mockGetAuthFromRequest.mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-2',
+      orgId: null,
+      actorOrgId: 'org-1',
+      actorTenantId: 'tenant-1',
+      isSuperAdmin: true,
+    })
+
+    const response = await postHandler(
+      new Request('http://localhost/api/data_sync/runs/11111111-1111-4111-8111-111111111111/cancel', { method: 'POST' }),
+      { params: { id: '11111111-1111-4111-8111-111111111111' } },
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toMatchObject({ code: 'organization_scope_required' })
+    expect(mockSyncRunService.getRun).not.toHaveBeenCalled()
+    expect(mockSyncRunService.markStatus).not.toHaveBeenCalled()
+    expect(mockProgressService.markCancelled).not.toHaveBeenCalled()
+    expect(mockCrudMutationGuardService.validateMutation).not.toHaveBeenCalled()
+  })
+
   it('marks the run as cancelled and records operational state and logs', async () => {
     const response = await postHandler(
       new Request('http://localhost/api/data_sync/runs/11111111-1111-4111-8111-111111111111/cancel', { method: 'POST' }),
@@ -102,6 +155,9 @@ describe('data_sync cancel run route', () => {
       '11111111-1111-4111-8111-111111111111',
       'cancelled',
       { organizationId: 'org-1', tenantId: 'tenant-1' },
+    )
+    expect(mockSyncRunService.markStatus.mock.invocationCallOrder[0]).toBeLessThan(
+      mockProgressService.markCancelled.mock.invocationCallOrder[0],
     )
     expect(mockIntegrationStateService.upsert).toHaveBeenCalledWith('sync_excel', expect.objectContaining({
       lastHealthStatus: 'degraded',
@@ -131,6 +187,26 @@ describe('data_sync cancel run route', () => {
       resourceKind: 'data_sync.run',
       resourceId: '11111111-1111-4111-8111-111111111111',
     }))
+  })
+
+  it('returns 409 without cancelling progress when a worker wins the terminal transition', async () => {
+    mockSyncRunService.markStatus.mockResolvedValueOnce({
+      id: '11111111-1111-4111-8111-111111111111',
+      status: 'failed',
+      lastError: 'Akeneo credentials are incomplete',
+    })
+
+    const response = await postHandler(
+      new Request('http://localhost/api/data_sync/runs/11111111-1111-4111-8111-111111111111/cancel', { method: 'POST' }),
+      { params: { id: '11111111-1111-4111-8111-111111111111' } },
+    )
+
+    expect(response.status).toBe(409)
+    await expect(response.json()).resolves.toEqual({ error: 'Only pending or running runs can be cancelled' })
+    expect(mockProgressService.markCancelled).not.toHaveBeenCalled()
+    expect(mockIntegrationStateService.upsert).not.toHaveBeenCalled()
+    expect(mockIntegrationLogService.write).not.toHaveBeenCalled()
+    expect(mockCrudMutationGuardService.afterMutationSuccess).not.toHaveBeenCalled()
   })
 
   it('short-circuits the cancellation when the mutation guard blocks it', async () => {

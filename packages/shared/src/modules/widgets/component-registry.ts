@@ -26,6 +26,20 @@ export type ComponentOverride<TProps = unknown> = {
       propsSchema: ZodType<TProps>
     }
   | {
+      /**
+       * Higher-order component composed around the resolved component.
+       *
+       * The platform invokes it **at most once per `(wrapper, wrapped component)` pair**
+       * and caches the composed component for the lifetime of the registry, so that a
+       * wrapped subtree keeps a stable React identity instead of remounting on every
+       * override resolution.
+       *
+       * A wrapper MUST therefore be a pure function of `Original`: it may only read
+       * dynamic values — feature flags, locale, tenant configuration, the clock, request
+       * state — inside the render body of the component it returns, never at composition
+       * time. On the server the registry outlives a single request, so a value captured
+       * at composition time would be frozen across requests and tenants.
+       */
       wrapper: (Original: ComponentType<TProps>) => ComponentType<TProps>
     }
   | {

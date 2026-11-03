@@ -83,9 +83,11 @@ Single-delivery is the default. A persistent emit is delivered on exactly one pa
 - the bus skips inline delivery of **persistent-marked** subscribers on a persistent emit (ephemeral subscribers still run inline — read-your-writes paths like `query_index.upsert_one` are `persistent: false` and are unaffected);
 - the events worker dispatches **persistent** subscribers via `matchEventPattern`, so wildcard (`event: '*'`) persistent subscribers (workflow triggers, business-rules CRUD trigger, webhook outbound dispatch) are reached.
 
-This avoids the legacy dual-dispatch (set `OM_EVENTS_SINGLE_DELIVERY=false` to opt back in) where persistent emits ran inline **and** in the worker — double-running exact-match persistent subscribers (duplicate notifications/emails) and never reaching wildcard persistent subscribers in the worker. Both halves read the same env var and MUST agree within a process.
+This avoids the legacy dual-dispatch, where persistent emits ran inline **and** in the worker - double-running exact-match persistent subscribers (duplicate notifications/emails) and never reaching wildcard persistent subscribers in the worker. Both halves ask the SAME bus (`EventBus.dispatchQueued`), so they cannot disagree within a process.
 
-**Worker guard (silent-loss protection).** With single-delivery on, persistent subscribers run ONLY in the worker. The server bootstrap (`mercato server`/`start`) reconciles the flag against worker availability: if a process auto-spawns no events worker (`AUTO_SPAWN_WORKERS=off`) and `OM_EVENTS_EXTERNAL_WORKER` is not set, it logs a loud warning and falls back to inline dual-dispatch so persistent side effects are never silently dropped. Run an events worker out-of-process and set `OM_EVENTS_EXTERNAL_WORKER=true` to keep single-delivery without auto-spawn. Transient worker downtime is not a concern — the durable queue holds jobs until a worker returns; the guard only catches the "no worker at all" misconfiguration. Reconcile logic: `reconcileSingleDelivery` in `@open-mercato/events/single-delivery` (mirrored for the CLI in `packages/cli/src/lib/events-single-delivery.ts`).
+**No worker yet is not the same as lost.** With single-delivery on, persistent subscribers run ONLY in the worker. The bus does not second-guess that against "is a worker running": the queue is durable, so a persistent emit with no worker yet is delayed, not dropped, and a worker started later drains the backlog. Delivering inline instead would move the work back onto the caller's request path - exactly what a split app/worker deployment sets `AUTO_SPAWN_WORKERS=false` to avoid. The `mercato server`/`start` bootstrap still reconciles the flag for a process it *knows* runs no worker (`reconcileSingleDelivery`, mirrored in `packages/cli/src/lib/events-single-delivery.ts`); when it does, the bus stamps the queued job `persistentDeliveredInline: true` so a worker draining the queue skips it. Delivery is exactly-once on either path when handlers succeed; see the failure note below.
+
+**Failure on the inline path.** Inline delivery logs each handler error and continues, so a persistent subscriber that throws inline has no retry of its own. The producer therefore stamps `persistentDeliveredInline` only when every persistent subscriber succeeded; if one threw, the job stays unstamped and the worker runs it with queue retry + dead-lettering. A retry re-runs the persistent subscribers that already succeeded, which is why persistent subscribers MUST be idempotent.
 
 **Enqueue-only emits.** Pass `{ persistent: true, deliverInline: false }` to hand a heavy persistent job (e.g. a full query-index rebuild) to the durable queue without ANY inline delivery, independent of the single-delivery flag. Only use it when every subscriber to the event is `persistent: true`. This is the "Ask First: changing persistent delivery semantics" surface — coordinate before altering these defaults.
 
@@ -99,7 +101,7 @@ This avoids the legacy dual-dispatch (set `OM_EVENTS_SINGLE_DELIVERY=false` to o
 When `QUEUE_STRATEGY=async`, persistent event workers run as background processes. Start them with:
 
 ```bash
-yarn mercato events worker event-processing --concurrency=5
+yarn mercato queue worker events --concurrency=5
 ```
 
 ## Structure
@@ -115,6 +117,8 @@ packages/events/src/
 ## Workers
 
 Workers in `modules/events/workers/` handle async event processing. Follow the standard worker contract: export default handler + `metadata` with `{ queue, id?, concurrency? }`.
+
+The events worker MUST NOT keep a subscriber registry of its own - it resolves `eventBus` from the per-job DI container and calls `dispatchQueued`. It previously built one from `getCliModules()`, which only the `mercato` bin populates, so a worker started any other way dispatched zero subscribers and completed the job silently. When no bus is resolvable it now **throws**, so the job retries and dead-letters with a visible cause.
 
 ## Testing
 
@@ -176,7 +180,29 @@ useAppEvent('mymod.entity.created', (event) => {
   - Recipient role: `recipientRoleId` or `recipientRoleIds` must intersect connection roles
 - Missing `tenantId` in event payload means no delivery
 - SSE sends heartbeats every 30s; client auto-reconnects if no heartbeat within 45s
+- The staff DOM bridge accepts cookie and Bearer authentication only. It rejects `x-api-key` and `Authorization: ApiKey` before opening, and the UI reconnects immediately after the shared organization-scope change signal so the new request carries current selection cookies.
+- SSE re-resolves canonical auth and organization scope from the original request credentials every 30s through the shared `organizationScopeService.resolveForRequest({ auth, request })` DI contract. It closes fail-closed when the scope is rejected or no longer allowed, validation fails, or its user, tenant, selected organization, or roles change. A successful check replaces the connection identity snapshot.
+- Every server stream closes after 5 minutes even when validation succeeds, forcing native `EventSource` reconnect through fresh request authorization. Operators may lower or raise these positive millisecond bounds with `OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS` and `OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS`; invalid values and values below 1000ms fall back to the defaults, and values above Node's safe timer maximum (`2^31-1`ms) are capped there.
 - Max payload size is 4096 bytes per event
 - Client deduplicates events within a 500ms window
 - `isBroadcastEvent(eventId)` checks if an event has `clientBroadcast: true`
 - The `useEventBridge()` hook must be mounted once in the app shell to start receiving events
+
+### Coalescing browser deliveries (bulk writers)
+
+Every emit of a `clientBroadcast: true` event costs a serialized `pg_notify` roundtrip plus a tenant-wide SSE fan-out, so a bulk writer pays both once per record. Declare `broadcastCoalescing: true` to bound that:
+
+```typescript
+{ id: 'mymod.entity.created', label: 'Created', clientBroadcast: true, broadcastCoalescing: true },
+```
+
+- Only the **browser** half coalesces. Inline subscribers, webhooks, workflow triggers and the queue still receive one event per record — the domain event is untouched.
+- Within `OM_BROADCAST_COALESCE_INTERVAL_MS` (default 250, `0` disables process-wide) only the newest payload per audience (event, tenant, organizations, recipient users/roles) reaches the SSE bridges. The first emit of a burst goes out immediately, and a trailing flush is **always** armed, so the last emit is delivered and a DataTable never ends a burst stale.
+- **When to declare it:** only when browser consumers react to the fact that something changed (a list refetch), never to each occurrence. A consumer that must see every record — a per-record toast, a running tally — MUST NOT have its event opted in; suppressed payloads are dropped, not merged.
+- MUST NOT combine with `crossProcessBroadcast` — delaying private coordination would let another process serve stale data. `createModuleEvents` throws on that declaration, and on `broadcastCoalescing` without a browser sink.
+- `isCoalescedBroadcastEvent(eventId)` reports the resolved decision. `progress.job.updated` keeps its own service-local throttle (`OM_PROGRESS_BROADCAST_MIN_INTERVAL_MS`) and is not affected.
+- `registerGlobalEventTap` is not a browser-only sink — it is a public export that any process-local listener can use (integration-test event capture included), not just the two SSE endpoints. For an opted-in event, every tap sees the same coalesced, trailing-flush-guaranteed stream the browser does, never a call per record. Do not rely on a global tap to observe every occurrence of an event that declares `broadcastCoalescing: true`.
+
+### Private cross-process coordination
+
+Use `crossProcessBroadcast: true` for server-to-server invalidation or coordination that must cross process boundaries but must not be exposed through browser SSE. The event bus publishes `clientBroadcast`, `portalBroadcast` and `crossProcessBroadcast` events to the cross-process bridge (only with trusted tenant scope), while the DOM Event Bridge delivers only `clientBroadcast` events and the portal stream only `portalBroadcast` events — each consumer filters by its own flag and skips its own echo via `CROSS_PROCESS_EVENT_INSTANCE_ID` (never `originPid`). An envelope over the 7 KB `pg_notify` cap is truncated to `{ truncated: true, id/entityId/entityType }` plus its audience-scope fields (consumers re-fetch); private `crossProcessBroadcast` envelopes are never reshaped and are dropped when oversize. Do not use `clientBroadcast` merely to reach another server process when the payload contains record-scoped identifiers or activity that the organization-level SSE audience cannot authorize.

@@ -56,6 +56,22 @@
           "enumItems": [],
           "mappedType": "uuid"
         },
+        "min_active_holders": {
+          "name": "min_active_holders",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "0",
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "integer"
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamptz",
@@ -602,6 +618,22 @@
           "enumItems": [],
           "mappedType": "boolean"
         },
+        "kind": {
+          "name": "kind",
+          "type": "varchar(20)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": 20,
+          "precision": null,
+          "scale": null,
+          "default": "'human'",
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "string"
+        },
         "last_login_at": {
           "name": "last_login_at",
           "type": "timestamptz",
@@ -897,7 +929,8 @@
           "referencedColumnNames": [
             "id"
           ],
-          "referencedTableName": "public.users"
+          "referencedTableName": "public.users",
+          "deleteRule": "cascade"
         }
       },
       "nativeEnums": {}
@@ -1962,7 +1995,8 @@
           "referencedColumnNames": [
             "id"
           ],
-          "referencedTableName": "public.users"
+          "referencedTableName": "public.users",
+          "deleteRule": "cascade"
         }
       },
       "nativeEnums": {}

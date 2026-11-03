@@ -4,7 +4,10 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findAndCountWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { CommunicationChannel } from '../../../data/entities'
+import { channelOrgScopeWhereFromFilter } from '../../../lib/access-control'
 
 export const metadata = {
   path: '/communication_channels/channels',
@@ -41,6 +44,13 @@ export async function GET(req: Request): Promise<Response> {
   const container = await createRequestContainer()
   const em = (container.resolve('em') as EntityManager).fork()
 
+  // Organization scoping follows the caller's *selected* organization (the
+  // `om_selected_org` cookie the top-bar switcher writes), not the org baked
+  // into the session token — `auth.orgId` only tracks the switcher for
+  // super-admins, so filtering on it made the list ignore every switch (#5012).
+  const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  const orgFilter = resolveOrganizationScopeFilter(scope, auth)
+
   // Personal mailbox privacy (v1: strict owner-only). The admin Channels page
   // lists ONLY shared / tenant-wide channels (WhatsApp Business, shared inboxes,
   // Slack workspaces) — rows where `user_id IS NULL`. Per-user email mailboxes
@@ -49,7 +59,7 @@ export async function GET(req: Request): Promise<Response> {
   // one — admins included — can see another user's connected personal account.
   const where: Record<string, unknown> = {
     tenantId: auth.tenantId,
-    organizationId: (auth as { orgId?: string | null }).orgId ?? null,
+    ...channelOrgScopeWhereFromFilter(orgFilter),
     deletedAt: null,
     userId: null,
   }
@@ -66,7 +76,7 @@ export async function GET(req: Request): Promise<Response> {
       offset: (page - 1) * pageSize,
       orderBy: { createdAt: 'desc' },
     },
-    { tenantId: auth.tenantId as string, organizationId: (auth as { orgId?: string | null }).orgId ?? null },
+    { tenantId: auth.tenantId as string, organizationId: orgFilter.rbacOrganizationId },
   )
 
   return NextResponse.json({

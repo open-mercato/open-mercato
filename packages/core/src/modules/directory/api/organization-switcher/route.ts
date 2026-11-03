@@ -6,12 +6,19 @@ import { Organization } from '@open-mercato/core/modules/directory/data/entities
 import { computeHierarchyForOrganizations, type ComputedHierarchy } from '@open-mercato/core/modules/directory/lib/hierarchy'
 import { isAllOrganizationsSelection } from '@open-mercato/core/modules/directory/constants'
 import {
+  buildOrgScopeTenantCacheTag,
   getSelectedOrganizationFromRequest,
   getSelectedTenantFromRequest,
   resolveOrganizationScope,
 } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { runWithCacheTenant, type CacheStrategy } from '@open-mercato/cache'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { directoryTag, directoryErrorSchema, organizationSwitcherResponseSchema } from '../openapi'
+import {
+  directoryTag,
+  directoryErrorSchema,
+  directoryIdSchema,
+  organizationSwitcherResponseSchema,
+} from '../openapi'
 import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
@@ -19,6 +26,21 @@ import type { FilterQuery } from '@mikro-orm/core'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('directory').child({ component: 'organization-switcher' })
+const ORGANIZATION_SWITCHER_CACHE_TTL_MS = 60_000
+const organizationSwitcherCachePayloadSchema = organizationSwitcherResponseSchema.or(
+  organizationSwitcherResponseSchema.pick({
+    items: true,
+    selectedId: true,
+    canManage: true,
+  }),
+)
+
+function buildSelectionCacheKeyPart(rawSelected: string | null): string | null {
+  if (isAllOrganizationsSelection(rawSelected)) return 'mode:all'
+  if (rawSelected === null) return 'mode:none'
+  const parsedOrganizationId = directoryIdSchema.safeParse(rawSelected)
+  return parsedOrganizationId.success ? `org:${parsedOrganizationId.data.toLowerCase()}` : null
+}
 
 type OrganizationMenuNode = {
   id: string
@@ -107,7 +129,19 @@ export async function GET(req: NextRequest) {
 
     const rawTenantParam = url.searchParams.get('tenantId')
     const cookieTenant = getSelectedTenantFromRequest(req)
-    const actorTenantId = typeof auth.tenantId === 'string' && auth.tenantId.trim().length > 0 ? auth.tenantId.trim() : null
+    const normalizeTenantId = (value: unknown): string | null =>
+      typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+
+    const authTenantId = normalizeTenantId(auth.tenantId)
+    // `auth.tenantId` is the tenant the session is currently scoped to, which a super-admin's
+    // cookie override replaces. The tenant they actually belong to survives under `actorTenantId`,
+    // so the "no selection" fallback below has to read that field — mirroring `organizationScope`.
+    // Reading `auth.tenantId` instead landed a scoped-away super-admin on `tenantRecords[0]`, the
+    // alphabetically-first tenant in the instance, rather than their own.
+    const actorTenantField = (auth as { actorTenantId?: string | null }).actorTenantId
+    const actorHomeTenantId = actorTenantField === undefined
+      ? authTenantId
+      : normalizeTenantId(actorTenantField)
     const actorIsSuperAdmin = auth.isSuperAdmin === true
 
     let requestedTenantId = rawTenantParam ?? (cookieTenant ?? undefined)
@@ -122,12 +156,12 @@ export async function GET(req: NextRequest) {
         name: typeof tenant.name === 'string' && tenant.name.length > 0 ? tenant.name : String(tenant.id),
         isActive: tenant.isActive !== false,
       }))
-      if (!tenantId) tenantId = actorTenantId ?? (tenantRecords[0]?.id ?? null)
+      if (!tenantId) tenantId = actorHomeTenantId ?? (tenantRecords[0]?.id ?? null)
       if (tenantId && tenantRecords.length && !tenantRecords.some((record) => record.id === tenantId)) {
         tenantId = tenantRecords[0]?.id ?? tenantId
       }
     } else {
-      tenantId = actorTenantId
+      tenantId = authTenantId
     }
 
     if (!tenantId) {
@@ -141,7 +175,50 @@ export async function GET(req: NextRequest) {
       })
     }
 
-    const scopedOrgId = actorTenantId && actorTenantId === tenantId ? auth.orgId ?? null : null
+    const rawSelected = getSelectedOrganizationFromRequest(req)
+    const requestedAll = isAllOrganizationsSelection(rawSelected)
+    const selectedKeyPart = buildSelectionCacheKeyPart(rawSelected)
+    const cacheKey = selectedKeyPart
+      ? `org-switcher:v1:${auth.sub}:${tenantId}:${selectedKeyPart}`
+      : null
+    let cache: CacheStrategy | null = null
+    if (!actorIsSuperAdmin && cacheKey) {
+      try {
+        cache = container.resolve<CacheStrategy>('cache')
+      } catch {
+        cache = null
+      }
+    }
+
+    const logAccess = async (payload: { items: unknown[]; selectedId: string | null }) => {
+      await logCrudAccess({
+        container,
+        auth,
+        request: req,
+        items: payload.items,
+        idField: 'id',
+        resourceKind: 'directory.organization_switcher',
+        organizationId: payload.selectedId,
+        tenantId,
+        query: Object.fromEntries(url.searchParams.entries()),
+      })
+    }
+
+    if (cache && cacheKey) {
+      const activeCache = cache
+      try {
+        const cached = await runWithCacheTenant(tenantId, () => activeCache.get(cacheKey))
+        const parsedCached = organizationSwitcherCachePayloadSchema.safeParse(cached)
+        if (parsedCached.success) {
+          await logAccess(parsedCached.data)
+          return NextResponse.json(parsedCached.data)
+        }
+      } catch (err) {
+        logger.warn('Failed to read organization switcher cache', { err })
+      }
+    }
+
+    const scopedOrgId = authTenantId && authTenantId === tenantId ? auth.orgId ?? null : null
     const acl = await rbac.loadAcl(auth.sub, { tenantId, organizationId: scopedOrgId })
     const aclIsSuperAdmin = acl?.isSuperAdmin === true
     const effectiveIsSuperAdmin = actorIsSuperAdmin || aclIsSuperAdmin
@@ -163,9 +240,7 @@ export async function GET(req: NextRequest) {
       { orderBy: { name: 'ASC' } },
     )
     const hierarchy = computeHierarchyForOrganizations(orgEntities, tenantId)
-    const rawSelected = getSelectedOrganizationFromRequest(req)
     let hasSelectionCookie = rawSelected !== null
-    const requestedAll = isAllOrganizationsSelection(rawSelected)
     const scope = await resolveOrganizationScope({
       em,
       rbac,
@@ -194,32 +269,40 @@ export async function GET(req: NextRequest) {
     }
 
     const showMenu = menuData.nodes.length > 0 || hasManageFeature || effectiveIsSuperAdmin
-    if (!showMenu) {
-      return NextResponse.json({ items: [], selectedId: null, canManage: false })
+    const response = showMenu
+      ? {
+          items: menuData.nodes,
+          selectedId,
+          canManage: !!hasManageFeature,
+          canViewAllOrganizations: accessible === null,
+          tenantId,
+          tenants: tenantRecords,
+          isSuperAdmin: effectiveIsSuperAdmin,
+        }
+      : {
+          items: [],
+          selectedId: null,
+          canManage: false,
+        }
+
+    if (cache && cacheKey) {
+      const activeCache = cache
+      try {
+        await runWithCacheTenant(tenantId, () =>
+          activeCache.set(cacheKey, response, {
+            ttl: ORGANIZATION_SWITCHER_CACHE_TTL_MS,
+            tags: [
+              buildOrgScopeTenantCacheTag(tenantId),
+              `rbac:user:${auth.sub}`,
+            ],
+          }),
+        )
+      } catch (err) {
+        logger.warn('Failed to write organization switcher cache', { err })
+      }
     }
 
-    const canViewAllOrganizations = accessible === null
-    const response = {
-      items: menuData.nodes,
-      selectedId,
-      canManage: !!hasManageFeature,
-      canViewAllOrganizations,
-      tenantId,
-      tenants: tenantRecords,
-      isSuperAdmin: effectiveIsSuperAdmin,
-    }
-
-    await logCrudAccess({
-      container,
-      auth,
-      request: req,
-      items: response.items,
-      idField: 'id',
-      resourceKind: 'directory.organization_switcher',
-      organizationId: response.selectedId,
-      tenantId,
-      query: Object.fromEntries(url.searchParams.entries()),
-    })
+    await logAccess(response)
 
     return NextResponse.json(response)
   } catch (err) {

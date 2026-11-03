@@ -13,6 +13,7 @@ import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/u
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import type { InjectionMenuItem } from '@open-mercato/shared/modules/widgets/injection'
 import type { LoadedInjectionDataWidget } from '@open-mercato/shared/modules/widgets/injection-loader'
+import { extensionPoints } from '../../extension-points'
 
 function print(value: unknown) {
   return JSON.stringify(value ?? null)
@@ -435,9 +436,10 @@ export default function UmesHandlersPage() {
           key={`phase-c-form-${formSeed.nonce}`}
           schema={schema}
           title={t('example.umes.handlers.form.title')}
+          titleHeadingLevel={2}
           fields={fields}
           groups={groups}
-          injectionSpotId="example:phase-c-handlers"
+          injectionSpotId={extensionPoints.hosts.handlersForm.spotId}
           initialValues={{ title: formSeed.title, note: formSeed.note }}
           contentHeader={contentHeader}
           cancelHref="/backend/blocked"

@@ -11,7 +11,7 @@ type ProgressBarHandle = {
   update(completed: number): void
   complete(): void
 }
-import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
+import { resolveEntityTableName, resolveRegisteredEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
 import {
@@ -22,7 +22,23 @@ import {
   type AnyRow,
 } from './lib/batch'
 import { reindexEntity, DEFAULT_REINDEX_PARTITIONS } from './lib/reindexer'
+import type { ReindexJobResult } from './lib/reindexer'
+
+/**
+ * A refused sweep returns processed 0 / total 0, which the progress reporting below prints
+ * as `0 / 0 (0.00%)` - indistinguishable from a run that found nothing. Say why instead.
+ */
+function warnIfReindexRefused(entityType: string, result: ReindexJobResult): void {
+  if (!result.refused) return
+  const detail = result.refused === 'no-tenant-column'
+    ? 'the source table has no tenant_id column and the entity type is not declared tenant-global'
+    : result.refused === 'declared-global-but-org-scoped'
+      ? 'the entity type is declared tenant-global but its table carries an organization_id column'
+      : "the source table's columns could not be read, so no scope could be proven (usually transient)"
+  console.warn(`  -> ${entityType}: reindex REFUSED, nothing was indexed - ${detail}`)
+}
 import { purgeIndexScope } from './lib/purge'
+import { refreshCoverageSnapshot } from './lib/coverage'
 import { flattenSystemEntityIds } from '@open-mercato/shared/lib/entities/system-entities'
 import type { VectorIndexService } from '@open-mercato/search/vector'
 
@@ -338,6 +354,169 @@ function describeScope(scope: ScopeDescriptor): string {
   if (!scope.global && scope.tenantId && scope.supportsTenant) parts.push(`tenant=${scope.tenantId}`)
   if (!scope.includeDeleted && scope.supportsDeleted) parts.push('active-only')
   return parts.length ? ` (${parts.join(' ')})` : ''
+}
+
+/**
+ * Above this many missing records the anti-join stops being the cheaper option and the
+ * repair falls back to a full single-partition rebuild of the entity.
+ */
+const MAX_TARGETED_REPAIR_RECORDS = 5000
+
+/**
+ * List the base records in scope that have no live index row, so a repair rebuilds only
+ * what is actually missing instead of re-upserting the whole entity for a one-row gap.
+ */
+async function findUnindexedRecordIds(
+  db: Kysely<any>,
+  options: {
+    entityType: string
+    tableName: string
+    tenantId?: string | null
+    organizationId?: string | null
+    limit: number
+  },
+): Promise<string[]> {
+  const columns = await getColumnSet(db, options.tableName)
+  let query = db
+    .selectFrom(`${options.tableName} as b` as any)
+    .select('b.id' as any)
+    .where(({ not, exists, selectFrom }: any) =>
+      not(exists(
+        selectFrom('entity_indexes as ei' as any)
+          .select(sql`1`.as('one'))
+          .whereRef('ei.entity_id' as any, '=', sql`b.id::text`)
+          .where('ei.entity_type' as any, '=', options.entityType)
+          .where('ei.deleted_at' as any, 'is', null as any),
+      )),
+    )
+    .limit(options.limit)
+  if (columns.has('deleted_at')) query = query.where('b.deleted_at' as any, 'is', null as any)
+  if (options.tenantId != null && columns.has('tenant_id')) {
+    query = query.where('b.tenant_id' as any, '=', options.tenantId)
+  }
+  if (options.organizationId != null && columns.has('organization_id')) {
+    query = query.where('b.organization_id' as any, '=', options.organizationId)
+  }
+  const rows = await query.execute() as Array<{ id: unknown }>
+  return rows.map((row) => String(row.id))
+}
+
+/**
+ * Recount the scope from the database after a reindex and rebuild whatever is still
+ * missing. Runs unconditionally so `mercato init` (and any scripted reindex) cannot finish
+ * leaving a gap that a human has to notice and repair by hand from the Query Indexes
+ * screen. When counts already agree this is two COUNT queries; when they do not, the
+ * repair is scoped to the records the anti-join says are actually missing.
+ */
+async function verifyAndRepairIndexCoverage(
+  em: EntityManager,
+  options: {
+    entityType: string
+    tenantId?: string | null
+    organizationId?: string | null
+    batchSize?: number
+  },
+): Promise<void> {
+  const scope = {
+    entityType: options.entityType,
+    tenantId: options.tenantId ?? null,
+    organizationId: options.organizationId ?? null,
+    withDeleted: false,
+  }
+
+  let counts: { baseCount: number; indexedCount: number } | null = null
+  try {
+    counts = await refreshCoverageSnapshot(em, scope)
+  } catch (error) {
+    console.warn(
+      `  -> ${options.entityType}: coverage verification skipped (${error instanceof Error ? error.message : String(error)})`,
+    )
+    return
+  }
+  if (!counts) return
+  if (counts.indexedCount > counts.baseCount) {
+    // Legitimate for entities whose base table cannot express the scope, since a per-tenant
+    // reindex stamps its own scope onto every row. Surfaced rather than repaired: a rebuild
+    // cannot remove the surplus, and the over-count would otherwise mask a real shortfall.
+    console.warn(
+      `  -> ${options.entityType}: ${counts.indexedCount} index rows for ${counts.baseCount} records — not repairable by reindexing`,
+    )
+    return
+  }
+  if (counts.indexedCount === counts.baseCount) return
+
+  const db = (em as any).getKysely() as Kysely<any>
+  let tableName: string | null = null
+  try {
+    tableName = resolveRegisteredEntityTableName(em as any, options.entityType)
+  } catch {
+    tableName = null
+  }
+
+  const missingIds = tableName
+    ? await findUnindexedRecordIds(db, {
+      entityType: options.entityType,
+      tableName,
+      tenantId: options.tenantId ?? null,
+      organizationId: options.organizationId ?? null,
+      limit: MAX_TARGETED_REPAIR_RECORDS + 1,
+    }).catch(() => null)
+    : null
+
+  const targeted = missingIds && missingIds.length > 0 && missingIds.length <= MAX_TARGETED_REPAIR_RECORDS
+  console.log(
+    `  -> ${options.entityType}: ${counts.indexedCount}/${counts.baseCount} indexed after reindex — repairing`
+    + `${targeted ? ` ${missingIds!.length} missing record(s)` : ' the whole entity'}...`,
+  )
+
+  try {
+    if (targeted) {
+      const columns = await getColumnSet(db, tableName!)
+      for (const recordId of missingIds!) {
+        await rebuildEntityIndexes({
+          em,
+          db,
+          entityType: options.entityType,
+          tableName: tableName!,
+          orgOverride: options.organizationId ?? undefined,
+          tenantOverride: options.tenantId ?? undefined,
+          global: false,
+          includeDeleted: false,
+          offset: 0,
+          recordId,
+          batchSize: 1,
+          supportsOrgFilter: columns.has('organization_id'),
+          supportsTenantFilter: columns.has('tenant_id'),
+          supportsDeletedFilter: columns.has('deleted_at'),
+        })
+      }
+    } else {
+      const repairResult = await reindexEntity(em, {
+        entityType: options.entityType,
+        tenantId: options.tenantId,
+        organizationId: options.organizationId,
+        force: false,
+        batchSize: options.batchSize,
+        emitVectorizeEvents: false,
+        resetCoverage: false,
+      })
+      warnIfReindexRefused(options.entityType, repairResult)
+    }
+  } catch (error) {
+    console.warn(
+      `  -> ${options.entityType}: repair pass failed (${error instanceof Error ? error.message : String(error)})`,
+    )
+    return
+  }
+
+  const after = await refreshCoverageSnapshot(em, scope).catch(() => null)
+  if (after && after.indexedCount < after.baseCount) {
+    console.warn(
+      `  -> ${options.entityType}: still ${after.indexedCount}/${after.baseCount} indexed after repair`,
+    )
+  } else {
+    console.log(`  -> ${options.entityType}: coverage repaired`)
+  }
 }
 
 const rebuild: ModuleCli = {
@@ -690,6 +869,7 @@ const reindex: ModuleCli = {
               if (progressBar) {
                 (progressBar as ProgressBarHandle).complete()
               }
+              warnIfReindexRefused(entity, partitionStats)
               if (!useBar && groupedProgress) {
                 groupedProgress.onProgress(part, { processed: partitionStats.processed, total: partitionStats.total })
               } else if (!useBar) {
@@ -710,6 +890,14 @@ const reindex: ModuleCli = {
         groupedProgress?.complete()
         const totalProcessed = stats.reduce((acc, value) => acc + value, 0)
         console.log(`Finished ${entity}: processed ${totalProcessed} row(s) across ${partitionTargets.length} partition(s)`)
+        if (partitionIndexOption === undefined) {
+          await verifyAndRepairIndexCoverage(baseEm, {
+            entityType: entity,
+            tenantId,
+            organizationId: orgId,
+            batchSize,
+          })
+        }
         await recordIndexerLog(
           { em: baseEm },
           {
@@ -828,6 +1016,7 @@ const reindex: ModuleCli = {
               if (progressBar) {
                 (progressBar as ProgressBarHandle).complete()
               }
+              warnIfReindexRefused(id, result)
               if (!useBar && groupedProgress) {
                 groupedProgress.onProgress(part, { processed: result.processed, total: result.total })
               } else if (!useBar) {
@@ -848,6 +1037,14 @@ const reindex: ModuleCli = {
         groupedProgress?.complete()
         const totalProcessed = partitionResults.reduce((acc, value) => acc + value, 0)
         console.log(`  -> ${id} complete: processed ${totalProcessed} row(s) across ${partitionTargets.length} partition(s)`)
+        if (partitionIndexOption === undefined) {
+          await verifyAndRepairIndexCoverage(baseEm, {
+            entityType: id,
+            tenantId,
+            organizationId: orgId,
+            batchSize,
+          })
+        }
         await recordIndexerLog(
           { em: baseEm },
           {

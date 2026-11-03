@@ -13,6 +13,7 @@ import {
   GmailPubSubJwtError,
 } from '../../../../lib/gmail-pubsub-jwt'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { readBoundedRequestBody, WebhookBodyTooLargeError } from '@open-mercato/shared/lib/webhooks'
 
 const logger = createLogger('communication_channels').child({ component: 'gmail-webhook' })
 
@@ -24,13 +25,14 @@ const logger = createLogger('communication_channels').child({ component: 'gmail-
  * header, which we verify against Google's public certs.
  *
  * Validation pipeline:
- *   1. Verify JWT signature, audience (`OM_GMAIL_PUBSUB_AUDIENCE`), and
+ *   1. Bound the raw request body before cryptographic work.
+ *   2. Verify JWT signature, audience (`OM_GMAIL_PUBSUB_AUDIENCE`), and
  *      email claim (`OM_GMAIL_PUBSUB_SERVICE_ACCOUNT_EMAIL`).
- *   2. Decode the Pub/Sub envelope → `{ emailAddress, historyId }`.
- *   3. Look up every active Gmail channel matching `emailAddress`. Multiple
+ *   3. Decode the Pub/Sub envelope → `{ emailAddress, historyId }`.
+ *   4. Look up every active Gmail channel matching `emailAddress`. Multiple
  *      tenants may have the same mailbox connected — we enqueue one sync
  *      job per matching channel (each tenant sees their own data).
- *   4. Return `204 No Content` even when no channels match — returning 4xx
+ *   5. Return `204 No Content` even when no channels match — returning 4xx
  *      would cause Pub/Sub to retry forever on a permanently-orphaned
  *      registration.
  */
@@ -58,6 +60,16 @@ export async function POST(req: Request): Promise<Response> {
     return NextResponse.json({ error: 'webhook not configured' }, { status: 503 })
   }
 
+  let rawBody: string
+  try {
+    rawBody = await readBoundedRequestBody(req)
+  } catch (error) {
+    if (error instanceof WebhookBodyTooLargeError) {
+      return NextResponse.json({ error: 'Webhook payload too large' }, { status: 413 })
+    }
+    return NextResponse.json({ error: 'unreadable_body' }, { status: 400 })
+  }
+
   const verifier = getGmailPubSubVerifier()
   try {
     await verifier.verify({
@@ -74,13 +86,6 @@ export async function POST(req: Request): Promise<Response> {
       return NextResponse.json({ error: err.code, message: err.message }, { status })
     }
     throw err
-  }
-
-  let rawBody: string
-  try {
-    rawBody = await req.text()
-  } catch {
-    return NextResponse.json({ error: 'unreadable_body' }, { status: 400 })
   }
 
   let payload: { emailAddress: string; historyId: string | number }
@@ -153,6 +158,7 @@ export const openApi = {
         { status: 400, description: 'Body not a valid Pub/Sub envelope' },
         { status: 401, description: 'Invalid JWT or email claim' },
         { status: 403, description: 'Wrong audience' },
+        { status: 413, description: 'Webhook payload too large' },
         { status: 503, description: 'Webhook not configured / Google certs unreachable' },
       ],
     },

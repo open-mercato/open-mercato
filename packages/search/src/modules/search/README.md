@@ -460,7 +460,10 @@ yarn mercato search worker fulltext-indexing --concurrency=5
 | `OM_SEARCH_ENABLE_PARTIAL` | Prefix/partial expansion for `search_tokens` (indexing "john" stores hashes for `joh`,`john`). Token/Postgres only — Meilisearch unaffected. Increases `search_tokens` size ~5–6× | `true` |
 | `OM_SEARCH_HASH_ALGO` | Hash algorithm for `search_tokens` tokens (`sha256`/`sha1`/`md5`); token strategy only | `sha256` |
 | `OM_SEARCH_STORE_RAW_TOKENS` | Store plaintext token alongside the hash in `search_tokens` — **security-sensitive** (retains plaintext of otherwise-hashed values); token strategy only | `false` |
-| `OM_SEARCH_FIELD_BLOCKLIST` | Comma-separated extra field names excluded from tokenization (merged with built-in `password,token,secret,hash`); token strategy only | - |
+| `OM_SEARCH_FIELD_BLOCKLIST` | Comma-separated field-name substrings excluded from per-field tokens and aggregate `search_text` (merged with built-in `password,token,secret,hash`); prefix an entry with `entityType@` to scope it to one entity and reindex affected entities after changes; token strategy only | - |
+| `OM_SEARCH_MAX_FIELD_CHARS` | Maximum input characters considered per field value before splitting or prefix expansion; `0` disables the limit; token strategy only | `20000` |
+| `OM_SEARCH_MAX_TOKENS_PER_FIELD` | Maximum distinct token rows across all values of one field; `0` disables the limit; token strategy only | `5000` |
+| `OM_SEARCH_MAX_TOKENS_PER_RECORD` | Maximum token rows across all fields in one indexed record; `0` disables the limit; token strategy only | `20000` |
 | `SEARCH_EXCLUDE_ENCRYPTED_FIELDS` | Exclude encrypted fields from Meilisearch indexing | `false` |
 | `QUEUE_STRATEGY` | Queue strategy (`local` or `async`) | `local` |
 | `REDIS_URL` | Redis connection URL for async queues | - |

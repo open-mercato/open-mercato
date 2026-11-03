@@ -1,26 +1,27 @@
 import type { NextConfig } from "next";
 import path from "node:path";
 import { resolveAllowedDevOrigins } from './src/lib/dev-origins'
+import { telemetryServerExternalPackages } from '@open-mercato/telemetry/nextjs-config'
+import { createContentSecurityPolicy } from '@open-mercato/shared/lib/security/contentSecurityPolicy'
+import { stripeContentSecurityPolicy } from '@open-mercato/gateway-stripe/contentSecurityPolicy'
+import { resolveDocumentsCollaborationCspOrigins } from '@open-mercato/documents/contentSecurityPolicy'
 
 const isDevelopment = process.env.NODE_ENV !== 'production'
 const allowedDevOrigins = isDevelopment ? resolveAllowedDevOrigins() : []
 
-const contentSecurityPolicy = [
-  "default-src 'self'",
-  "base-uri 'self'",
-  "font-src 'self' data: https:",
-  "form-action 'self'",
-  "frame-ancestors 'self'",
-  "frame-src 'self' https://js.stripe.com https://hooks.stripe.com",
-  "img-src 'self' data: blob: https:",
-  "object-src 'none'",
-  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com",
-  "style-src 'self' 'unsafe-inline'",
-  "connect-src 'self' https: ws: wss:",
-].join('; ')
+const contentSecurityPolicy = createContentSecurityPolicy({
+  env: process.env,
+  ...stripeContentSecurityPolicy,
+  connectOrigins: [...stripeContentSecurityPolicy.connectOrigins, ...resolveDocumentsCollaborationCspOrigins()],
+})
 
-const nextConfig: NextConfig = {
+const nextConfig: NextConfig & { agentRules?: boolean } = {
   distDir: '.mercato/next',
+  // Next 16.3+ has `next dev` auto-generate AGENTS.md/CLAUDE.md pointing agents
+  // at node_modules/next/dist/docs. This repo owns its own agent-instruction
+  // chain with a ratcheted byte budget (yarn agents:check-budget), so the
+  // generated files would be untracked churn outside that system.
+  agentRules: false,
   experimental: {
     serverMinification: false,
     turbopackMinify: false,
@@ -49,6 +50,16 @@ const nextConfig: NextConfig = {
     'esbuild',
     '@esbuild/darwin-arm64',
     '@open-mercato/cli',
+    'puppeteer-core',
+    'jszip',
+    'yjs',
+    'pdfjs-dist',
+    // Telemetry: the OTEL SDK + instrumentations must run as real Node modules,
+    // not be bundled — the auto-instrumentations (pg/undici) monkey-patch the
+    // underlying drivers at runtime. The full list is owned by
+    // @open-mercato/telemetry so it can never drift into a partial (silently
+    // "emits nothing") copy.
+    ...telemetryServerExternalPackages,
   ],
   // Mirror server-only env vars that client components must observe. Keep this
   // list minimal — anything added here is inlined into the client bundle.
@@ -77,6 +88,20 @@ const nextConfig: NextConfig = {
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+        ],
+      },
+      {
+        // The Autopay launch page auto-submits a signed form to Autopay's hosted
+        // gateway, which the global form-action 'self' would block. Keep this value
+        // in step with LAUNCH_PAGE_CONTENT_SECURITY_POLICY in
+        // @open-mercato/gateway-autopay (lib/launch.ts); the Next.js config layer
+        // replaces a CSP set by the route handler, so it has to be declared here.
+        source: '/api/gateway_autopay/launch',
+        headers: [
+          { key: 'Content-Security-Policy', value: "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; form-action https:; base-uri 'none'; frame-ancestors 'none'" },
+          { key: 'Referrer-Policy', value: 'no-referrer' },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'X-Frame-Options', value: 'DENY' },
         ],
       },
       {

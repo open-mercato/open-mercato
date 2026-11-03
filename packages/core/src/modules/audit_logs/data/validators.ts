@@ -16,6 +16,7 @@ const recordLike = z.union([
 
 export const actionLogCreateSchema = baseScopeSchema.extend({
   commandId: z.string().min(1),
+  onBehalfOfUserId: uuid.nullish(),
   actionLabel: z.string().min(1).optional(),
   resourceKind: z.string().min(1).optional(),
   resourceId: z.string().min(1).optional(),
@@ -35,6 +36,7 @@ export const actionLogCreateSchema = baseScopeSchema.extend({
 export const actionLogListSchema = z.object({
   tenantId: uuid.optional(),
   organizationId: uuid.optional(),
+  actorSubject: z.union([uuid, z.string().regex(/^api_key:[0-9a-fA-F-]{36}$/)]).optional(),
   actorUserId: uuid.optional(),
   actorUserIds: z.array(uuid).optional(),
   undoableOnly: z.boolean().optional(),

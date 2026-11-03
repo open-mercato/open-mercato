@@ -1,0 +1,2199 @@
+{
+  "$comment": "Checked disposition ledger for every CommonMark fenced block in the exact eight pinned `main` baseline assets. Derived fields (heading, openingLine, info, contentSha256) are re-derived and compared by scripts/validate-source-links.mjs; topic references resolve against source-link-topics.json.",
+  "baselineSha": "f7c941570003f3abe920b1765995cbef98dcad0b",
+  "baselineAssets": [
+    {
+      "path": "packages/create-app/agentic/shared/AGENTS.md.template",
+      "sha256": "b124b38a32f13fd4ef6202922dacfaadc1594e3af17fdd5e862510151f612b70",
+      "expectedFenceCount": 4
+    },
+    {
+      "path": "packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md",
+      "sha256": "a0820bba96eb9871e3a4ba9bfe534ddb6f458e86f85b19616a931b2d55863aac",
+      "expectedFenceCount": 13
+    },
+    {
+      "path": "packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md",
+      "sha256": "92a91dff9ad6ea997bf15ca5b44a19e9005b4b0d4f1275181ebeab3c968765b4",
+      "expectedFenceCount": 19
+    },
+    {
+      "path": "packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md",
+      "sha256": "40d6b197644e752c575460e8dcdb6ba5d152615a491c9164e490f4bd2d74f3da",
+      "expectedFenceCount": 8
+    },
+    {
+      "path": "packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md",
+      "sha256": "b3fdc1dd56314f5588db8b51945d467e47d286fee09f9de38ccedcc4623de475",
+      "expectedFenceCount": 30
+    },
+    {
+      "path": "packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md",
+      "sha256": "2a025d500c355b59db881548c7288eaa7cade3357a27fb94b0fe90f54da1f2e6",
+      "expectedFenceCount": 24
+    },
+    {
+      "path": "packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md",
+      "sha256": "1f85d73d725268b8e9e5743f523ea45975f578ac5a6502d9c8cb2dc9c0e0a4d0",
+      "expectedFenceCount": 20
+    },
+    {
+      "path": "packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md",
+      "sha256": "2b0ca22e63843e1a6e5cddbda8165013cecd230d91d4957430a16f714909d052",
+      "expectedFenceCount": 18
+    }
+  ],
+  "blocks": [
+    {
+      "id": "main:packages/create-app/agentic/shared/AGENTS.md.template#fence:1",
+      "asset": "packages/create-app/agentic/shared/AGENTS.md.template",
+      "ordinal": 1,
+      "heading": "Module Anatomy",
+      "openingLine": "```",
+      "info": "",
+      "contentSha256": "8b9a3c55f8958438a647eb6a7d7cb6238550ee394177288c759576a1776d402e",
+      "topicIds": [
+        "om-module-scaffold:README.md",
+        "om-module-scaffold/module-surfaces:references/surface-map.md"
+      ],
+      "disposition": "superseded-with-current-rule-and-source",
+      "targetTopicIds": [
+        "om-module-scaffold:README.md",
+        "om-module-scaffold/module-surfaces:references/surface-map.md"
+      ],
+      "rationale": "Root instructions are now a budget-bounded safety and routing owner. The module anatomy tree is owned by the example inventory and by om-module-scaffold, which render exact-file links for the surfaces the tree used to name."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/AGENTS.md.template#fence:2",
+      "asset": "packages/create-app/agentic/shared/AGENTS.md.template",
+      "ordinal": 2,
+      "heading": "Entity Update Safety",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "db980144ff1effa0d05f035af22b0dba7f05ec9d1e2532174f7cecd5bdb73e61",
+      "topicIds": [
+        "om-data-model-design/integrity-and-concurrency:commands/todos.ts"
+      ],
+      "disposition": "superseded-with-current-rule-and-source",
+      "targetTopicIds": [
+        "om-data-model-design/integrity-and-concurrency:commands/todos.ts"
+      ],
+      "rationale": "The atomic-flush rule survives verbatim in the integrity-and-concurrency reference, which links the example command that owns the transactional write path; the example implements the command shape rather than a multi-phase flush."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/AGENTS.md.template#fence:3",
+      "asset": "packages/create-app/agentic/shared/AGENTS.md.template",
+      "ordinal": 3,
+      "heading": "CRITICAL rules — always follow without exception",
+      "openingLine": "   ```ts",
+      "info": "ts",
+      "contentSha256": "b52f56b37e55bfec84c77b3bcb8e16c396dd83ab8de5db7a778e52f67084b776",
+      "topicIds": [
+        "om-module-scaffold/api-and-domain:api/todos/route.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-module-scaffold/api-and-domain:api/todos/route.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/AGENTS.md.template#fence:4",
+      "asset": "packages/create-app/agentic/shared/AGENTS.md.template",
+      "ordinal": 4,
+      "heading": "Key Imports Quick Reference",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "68c1a019efe97351a676d9c7b8ac2abf63f7aaeb7c1d3e7336d505b52e737805",
+      "topicIds": [
+        "om-backend-ui-design/crud-surfaces:components/TodoForm.tsx",
+        "om-module-scaffold/module-surfaces:events.ts",
+        "om-system-extension/extension-branches:widgets/injection/customer-priority-field/widget.ts"
+      ],
+      "disposition": "superseded-with-current-rule-and-source",
+      "targetTopicIds": [
+        "om-backend-ui-design/crud-surfaces:components/TodoForm.tsx",
+        "om-module-scaffold/module-surfaces:events.ts",
+        "om-system-extension/extension-branches:widgets/injection/customer-priority-field/widget.ts"
+      ],
+      "rationale": "The canonical import list is no longer duplicated in root. Each import family is stated by the owner that governs it and is readable in the linked example file that performs the import."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:1",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md",
+      "ordinal": 1,
+      "heading": "Core Layout",
+      "openingLine": "```tsx",
+      "info": "tsx",
+      "contentSha256": "433d40720dc22af0025b6330524b9b817c7d7da79e1cc1704f3317ee71a8ffbd",
+      "topicIds": [
+        "om-backend-ui-design/page-and-navigation:backend/todos/page.tsx"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-backend-ui-design/page-and-navigation:backend/todos/page.tsx"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:2",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md",
+      "ordinal": 2,
+      "heading": "Data Display (Lists)",
+      "openingLine": "```tsx",
+      "info": "tsx",
+      "contentSha256": "b9f2cc63a67eba2d27732486ac438408417ea1fb44b7a21d3d6daeec9c33bfc8",
+      "topicIds": [
+        "om-backend-ui-design/crud-surfaces:components/TodosTable.tsx"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-backend-ui-design/crud-surfaces:components/TodosTable.tsx"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:3",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md",
+      "ordinal": 3,
+      "heading": "Preferred DataTable Host Pattern",
+      "openingLine": "```tsx",
+      "info": "tsx",
+      "contentSha256": "6353057767b6a720b0c556704dc63c72541acc16ab438bde4937006ccf230b58",
+      "topicIds": [
+        "om-backend-ui-design/crud-surfaces:components/TodosTable.tsx"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-backend-ui-design/crud-surfaces:components/TodosTable.tsx"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:4",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md",
+      "ordinal": 4,
+      "heading": "DataTable Pagination",
+      "openingLine": "```tsx",
+      "info": "tsx",
+      "contentSha256": "f7717d80872ff329bb59e05780a33ba0a1022d2e02b6c6adb52fac2a6491102e",
+      "topicIds": [
+        "om-backend-ui-design/crud-surfaces:components/TodosTable.tsx"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-backend-ui-design/crud-surfaces:components/TodosTable.tsx"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:5",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md",
+      "ordinal": 5,
+      "heading": "Forms",
+      "openingLine": "```tsx",
+      "info": "tsx",
+      "contentSha256": "6a8dd410f44a2b607563c49c906d3c227138740233d0ffdea780ba093363c5ca",
+      "topicIds": [
+        "om-backend-ui-design/crud-surfaces:components/TodoForm.tsx"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-backend-ui-design/crud-surfaces:components/TodoForm.tsx"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:6",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md",
+      "ordinal": 6,
+      "heading": "Form Headers & Footers",
+      "openingLine": "```tsx",
+      "info": "tsx",
+      "contentSha256": "d5da8df6371d26266bef7839b5751994c93f52992162b76eace9e355a605256e",
+      "topicIds": [
+        "om-backend-ui-design/crud-surfaces:components/TodoForm.tsx"
+      ],
+      "disposition": "superseded-with-current-rule-and-source",
+      "targetTopicIds": [
+        "om-backend-ui-design/crud-surfaces:components/TodoForm.tsx"
+      ],
+      "rationale": "The example composes CrudForm, which owns its own header and footer; direct FormHeader/FormFooter composition stays a prose rule in the crud-surfaces reference."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:7",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md",
+      "ordinal": 7,
+      "heading": "Dialogs",
+      "openingLine": "```tsx",
+      "info": "tsx",
+      "contentSha256": "8e49ee9593620b829d23a767a46bcbbbe59f5806ab63595a02212e26da6c1150",
+      "topicIds": [
+        "om-backend-ui-design/crud-surfaces:components/TodoForm.tsx"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-backend-ui-design/crud-surfaces:components/TodoForm.tsx"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:8",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md",
+      "ordinal": 8,
+      "heading": "Detail Pages",
+      "openingLine": "```tsx",
+      "info": "tsx",
+      "contentSha256": "dc347ca19c0a46b6bc7e59693fefc3a402fbfa907fd895827ead4f3457d6089e",
+      "topicIds": [
+        "om-backend-ui-design/crud-surfaces:widgets/injection/customer-priority-detail/widget.client.tsx"
+      ],
+      "disposition": "superseded-with-current-rule-and-source",
+      "targetTopicIds": [
+        "om-backend-ui-design/crud-surfaces:widgets/injection/customer-priority-detail/widget.client.tsx"
+      ],
+      "rationale": "The example ships no standalone detail page, so the detail-section families stay a prose rule; the closest compiling surface is the linked injected detail widget."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:9",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md",
+      "ordinal": 9,
+      "heading": "Notifications",
+      "openingLine": "```tsx",
+      "info": "tsx",
+      "contentSha256": "648bef71f08fd2fe86fed2df108088a2b0d8d3320bb1cab7150cf5c2d267dec7",
+      "topicIds": [
+        "om-backend-ui-design/crud-surfaces:components/TodosTable.tsx"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-backend-ui-design/crud-surfaces:components/TodosTable.tsx"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:10",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md",
+      "ordinal": 10,
+      "heading": "Loading & Error States",
+      "openingLine": "```tsx",
+      "info": "tsx",
+      "contentSha256": "4884d7d41b90eb3e170060a970f6106aaf2e1abae5f937aece390de16115253d",
+      "topicIds": [
+        "om-backend-ui-design/crud-surfaces:components/TodoForm.tsx"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-backend-ui-design/crud-surfaces:components/TodoForm.tsx"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:11",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md",
+      "ordinal": 11,
+      "heading": "Primitives",
+      "openingLine": "```tsx",
+      "info": "tsx",
+      "contentSha256": "f7b23ff435e25190d639a43a52694e73d36e4b7bfaba95db3686fe562d746853",
+      "topicIds": [
+        "om-backend-ui-design/crud-surfaces:components/TodosTable.tsx"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-backend-ui-design/crud-surfaces:components/TodosTable.tsx"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:12",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md",
+      "ordinal": 12,
+      "heading": "API Integration",
+      "openingLine": "```tsx",
+      "info": "tsx",
+      "contentSha256": "e5efe17f5b4715d9e8eb8920bc3c23b396a6b5e41eec4fc0e61d952435a7881d",
+      "topicIds": [
+        "om-backend-ui-design/crud-surfaces:components/TodoForm.tsx"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-backend-ui-design/crud-surfaces:components/TodoForm.tsx"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:13",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md",
+      "ordinal": 13,
+      "heading": "Custom Fields Integration",
+      "openingLine": "```tsx",
+      "info": "tsx",
+      "contentSha256": "325cda3c6345e84cd66fd0f62b64a3daa4729dd18fee54a4a8024a21f452dcd9",
+      "topicIds": [
+        "om-backend-ui-design/crud-surfaces:components/TodosTable.tsx",
+        "om-data-model-design/schema-design:ce.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-backend-ui-design/crud-surfaces:components/TodosTable.tsx",
+        "om-data-model-design/schema-design:ce.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:1",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md",
+      "ordinal": 1,
+      "heading": "Standard Entity Template",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "2ac0be2244e5cff502c1dd6babcdbc3f0883523d890962b564455bd998444588",
+      "topicIds": [
+        "om-data-model-design/schema-design:data/entities.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-data-model-design/schema-design:data/entities.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:2",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md",
+      "ordinal": 2,
+      "heading": "Enum Pattern",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "03ca37f7dca5505ec4cfaab53ede81ce89c7428bd051f1cac71bd7c279fea193",
+      "topicIds": [
+        "om-data-model-design/schema-design:data/entities.ts"
+      ],
+      "disposition": "superseded-with-current-rule-and-source",
+      "targetTopicIds": [
+        "om-data-model-design/schema-design:data/entities.ts"
+      ],
+      "rationale": "The example stores its priority enum as a defaulted text column rather than a database enum, so the type-selection rule stays in schema-design while the column shape is readable in the linked entity file."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:3",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md",
+      "ordinal": 3,
+      "heading": "Nullable Fields",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "426e85b443105d269662613aadc5779aeed03a5eb231e8593697fd21878f52ee",
+      "topicIds": [
+        "om-data-model-design/schema-design:data/entities.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-data-model-design/schema-design:data/entities.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:4",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md",
+      "ordinal": 4,
+      "heading": "One-to-Many (Same Module)",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "e3c34eec5d9da0661af3b3f4545306e1d5df141942162fca26a1548b587d84cf",
+      "topicIds": [
+        "om-data-model-design/schema-design:data/entities.ts"
+      ],
+      "disposition": "superseded-with-current-rule-and-source",
+      "targetTopicIds": [
+        "om-data-model-design/schema-design:data/entities.ts"
+      ],
+      "rationale": "The canonical example declares no ORM relations at all, so this relationship shape stays a prose rule in the schema-design reference; the linked entity file is the checked column and scoping baseline it must not contradict."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:5",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md",
+      "ordinal": 5,
+      "heading": "Many-to-Many (Same Module)",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "caa907d50a7b6c5f727c944956c6cf470cc22ffab05ce5ccf22a6fa394f45028",
+      "topicIds": [
+        "om-data-model-design/schema-design:data/entities.ts"
+      ],
+      "disposition": "superseded-with-current-rule-and-source",
+      "targetTopicIds": [
+        "om-data-model-design/schema-design:data/entities.ts"
+      ],
+      "rationale": "The canonical example declares no ORM relations at all, so this relationship shape stays a prose rule in the schema-design reference; the linked entity file is the checked column and scoping baseline it must not contradict."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:6",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md",
+      "ordinal": 6,
+      "heading": "One-to-One (Same Module)",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "8b4452c887c4d9732be5566b569a17921c06f719e2d2df9fc907768deca6e8b0",
+      "topicIds": [
+        "om-data-model-design/schema-design:data/entities.ts"
+      ],
+      "disposition": "superseded-with-current-rule-and-source",
+      "targetTopicIds": [
+        "om-data-model-design/schema-design:data/entities.ts"
+      ],
+      "rationale": "The canonical example declares no ORM relations at all, so this relationship shape stays a prose rule in the schema-design reference; the linked entity file is the checked column and scoping baseline it must not contradict."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:7",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md",
+      "ordinal": 7,
+      "heading": "Self-Referencing (Tree/Hierarchy)",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "77419efe199da3fb5b33a5edac35bc68f0121f695cc6fb0ea762956ef55a3504",
+      "topicIds": [
+        "om-data-model-design/schema-design:data/entities.ts"
+      ],
+      "disposition": "superseded-with-current-rule-and-source",
+      "targetTopicIds": [
+        "om-data-model-design/schema-design:data/entities.ts"
+      ],
+      "rationale": "The canonical example declares no ORM relations at all, so this relationship shape stays a prose rule in the schema-design reference; the linked entity file is the checked column and scoping baseline it must not contradict."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:8",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md",
+      "ordinal": 8,
+      "heading": "Pattern: FK ID Only",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "ed85ad9f20df5d87cf3601c2d4e357519c0c912a7533bade728561aee593e1e1",
+      "topicIds": [
+        "om-data-model-design/schema-design:data/entities.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-data-model-design/schema-design:data/entities.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:9",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md",
+      "ordinal": 9,
+      "heading": "Fetching Related Data",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "5e56a5a875a81c7bd31ffd2215087da5084f2f66fe441121f62abf9b3dd9879f",
+      "topicIds": [
+        "om-system-extension/extension-branches:data/enrichers.ts"
+      ],
+      "disposition": "superseded-with-current-rule-and-source",
+      "targetTopicIds": [
+        "om-system-extension/extension-branches:data/enrichers.ts"
+      ],
+      "rationale": "Cross-module fetching is implemented by the example response enricher rather than by an ad-hoc query helper; the enricher is the linked source and the no-cross-module-relation rule stays with schema-design."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:10",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md",
+      "ordinal": 10,
+      "heading": "Creating a Migration",
+      "openingLine": "```bash",
+      "info": "bash",
+      "contentSha256": "f62e92853f83e9edb4dcf443af9c1c9350635275882327bd1eb4ba3de613aa85",
+      "topicIds": [
+        "rule:om-data-model-design/migration-workflow#migration-procedure"
+      ],
+      "disposition": "retained-normative-snippet",
+      "rationale": "Operational command sequence rather than module implementation. The migration probe order is retained as a numbered rule in the migration-workflow reference, which links the example migrations it produces."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:11",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md",
+      "ordinal": 11,
+      "heading": "Adding a Column to Existing Entity",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "9715acc625d689d54512946842a2780a19d7d736b47e330e5d51adc3e4e00acd",
+      "topicIds": [
+        "om-data-model-design/schema-design:data/entities.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-data-model-design/schema-design:data/entities.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:12",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md",
+      "ordinal": 12,
+      "heading": "Adding a Column to Existing Entity",
+      "openingLine": "```bash",
+      "info": "bash",
+      "contentSha256": "87d99add030f44ae96f60150a6f66d3fbc12512df2e38b0660ca1559019f001d",
+      "topicIds": [
+        "rule:om-data-model-design/migration-workflow#migration-procedure"
+      ],
+      "disposition": "retained-normative-snippet",
+      "rationale": "Operational command sequence rather than module implementation. The same probe rule covers a column added to an existing entity."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:13",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md",
+      "ordinal": 13,
+      "heading": "Polymorphic References",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "638f19f0012e3bca748f762da90cdcdef49903401ab76a9c89b79ef662ca436a",
+      "topicIds": [
+        "om-data-model-design/schema-design:data/entities.ts"
+      ],
+      "disposition": "superseded-with-current-rule-and-source",
+      "targetTopicIds": [
+        "om-data-model-design/schema-design:data/entities.ts"
+      ],
+      "rationale": "The example implements no polymorphic reference; the pattern stays a prose rule and the linked entity file is the scalar-ID baseline it must not contradict."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:14",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md",
+      "ordinal": 14,
+      "heading": "Ordered Collections",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "ef2625a3d3dd0207a6feff9660d5bce4f2520c547fa06ea7e198f12ea934c1a0",
+      "topicIds": [
+        "om-data-model-design/schema-design:data/entities.ts"
+      ],
+      "disposition": "superseded-with-current-rule-and-source",
+      "targetTopicIds": [
+        "om-data-model-design/schema-design:data/entities.ts"
+      ],
+      "rationale": "The example implements no ordered collection; ordering stays a prose rule over the linked entity baseline."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:15",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md",
+      "ordinal": 15,
+      "heading": "Soft Delete Pattern",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "8806c877fb120afd564eead2c510c35b4f9fd0b1a7f6f684b049a0c817989e9f",
+      "topicIds": [
+        "om-data-model-design/schema-design:data/entities.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-data-model-design/schema-design:data/entities.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:16",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md",
+      "ordinal": 16,
+      "heading": "Audit/History Table",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "14b96f6e7b5fd04c6a5bff666ed7e0df3332f25f8fc164100a66eb32a34ad40d",
+      "topicIds": [
+        "om-data-model-design/schema-design:data/entities.ts",
+        "om-system-extension/extension-branches:subscribers/audit-delete.ts"
+      ],
+      "disposition": "superseded-with-current-rule-and-source",
+      "targetTopicIds": [
+        "om-data-model-design/schema-design:data/entities.ts",
+        "om-system-extension/extension-branches:subscribers/audit-delete.ts"
+      ],
+      "rationale": "The example keeps no audit or history table. The delete-audit subscriber is the closest compiling shape, and the table design stays a prose rule."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:17",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md",
+      "ordinal": 17,
+      "heading": "Declare the map in `<module>/encryption.ts`",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "fae6b51956975ff48ea76f7fcc50ff7372096199172a4319baaa0ad42aba5f82",
+      "topicIds": [
+        "rule:om-data-model-design/sensitive-data#encryption-map-declaration"
+      ],
+      "disposition": "retained-normative-snippet",
+      "rationale": "The example ships `encryption.ts`, but no emitted owner renders a link to it yet, so the declaration contract remains prose-only in the sensitive-data reference. This is a recorded source-link coverage gap, not a removed topic."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:18",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md",
+      "ordinal": 18,
+      "heading": "Read with decryption — never raw `em.find`",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "71ac6c03fd59b6179fc8b4c48e524b3ccda5e86efd85f0dd707e8a4388fcdb27",
+      "topicIds": [
+        "rule:om-data-model-design/sensitive-data#decrypted-reads"
+      ],
+      "disposition": "retained-normative-snippet",
+      "rationale": "The decrypted-read contract remains prose-only in the sensitive-data reference for the same reason as the encryption-map declaration."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:19",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md",
+      "ordinal": 19,
+      "heading": "Apply maps to existing tenants",
+      "openingLine": "```bash",
+      "info": "bash",
+      "contentSha256": "5e4581a85017c9f644e4df059ac802fc22197493f77a69fe0ea1e39e42d1454a",
+      "topicIds": [
+        "rule:om-data-model-design/sensitive-data#encryption-seeding"
+      ],
+      "disposition": "retained-normative-snippet",
+      "rationale": "Operational command sequence rather than module implementation. Seeding encryption configuration is retained as a rule in the sensitive-data reference."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md#fence:1",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md",
+      "ordinal": 1,
+      "heading": "Step 1: Identify the Module",
+      "openingLine": "```bash",
+      "info": "bash",
+      "contentSha256": "9c5d011b7e2d560ba38f8034f508ed998874892757db0dadcc319e1d6cf440af",
+      "topicIds": [
+        "rule:om-eject-and-customize/decision-and-procedure#installed-module-identification"
+      ],
+      "disposition": "retained-normative-snippet",
+      "rationale": "Operational command sequence rather than module implementation. Identifying the exact installed module is retained as the first decision-gate step, which also forbids linking or copying a node_modules directory."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md#fence:2",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md",
+      "ordinal": 2,
+      "heading": "Step 5: Document the Reason",
+      "openingLine": "```markdown",
+      "info": "markdown",
+      "contentSha256": "8b75213da8e75e29e16431a686062bb24c063cf560bad66f57b9b87fc23c2436",
+      "topicIds": [],
+      "disposition": "not-implementation",
+      "rationale": "An authoring template for an ejection-reason record, carrying no module implementation. The requirement to state the reason, the smaller options rejected, and the rollback is retained in the eject decision gate."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md#fence:3",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md",
+      "ordinal": 3,
+      "heading": "Run the Eject Command",
+      "openingLine": "```bash",
+      "info": "bash",
+      "contentSha256": "e508820387f3c2822467ed03116901b4a9593bbeaa25793244afceb27ddc9b8e",
+      "topicIds": [
+        "rule:om-eject-and-customize/decision-and-procedure#eject-command"
+      ],
+      "disposition": "retained-normative-snippet",
+      "rationale": "Operational command sequence rather than module implementation. The eject command is retained verbatim as the first post-approval step."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md#fence:4",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md",
+      "ordinal": 4,
+      "heading": "Post-Ejection Steps",
+      "openingLine": "```bash",
+      "info": "bash",
+      "contentSha256": "1dad371bc09f7710033e63924ee31f39c300d3a35cb318dd9ed13db3e73ccb58",
+      "topicIds": [
+        "rule:om-eject-and-customize/decision-and-procedure#post-eject-verification"
+      ],
+      "disposition": "retained-normative-snippet",
+      "rationale": "Operational command sequence rather than module implementation. Registration verification, regeneration, and the test gate are retained as post-approval steps."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md#fence:5",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md",
+      "ordinal": 5,
+      "heading": "4. What Gets Ejected",
+      "openingLine": "```",
+      "info": "",
+      "contentSha256": "3f833c3561db5b7a32c4060e2eac54aa14d1e1ad70a65834638ab4c4fa975ded",
+      "topicIds": [
+        "om-eject-and-customize/decision-and-procedure:index.ts",
+        "om-eject-and-customize/decision-and-procedure:acl.ts",
+        "om-eject-and-customize/decision-and-procedure:setup.ts",
+        "om-eject-and-customize/decision-and-procedure:data/entities.ts",
+        "om-eject-and-customize/decision-and-procedure:migrations/.snapshot-open-mercato.json",
+        "om-eject-and-customize/decision-and-procedure:src/modules.ts"
+      ],
+      "disposition": "superseded-with-current-rule-and-source",
+      "targetTopicIds": [
+        "om-eject-and-customize/decision-and-procedure:index.ts",
+        "om-eject-and-customize/decision-and-procedure:acl.ts",
+        "om-eject-and-customize/decision-and-procedure:setup.ts",
+        "om-eject-and-customize/decision-and-procedure:data/entities.ts",
+        "om-eject-and-customize/decision-and-procedure:migrations/.snapshot-open-mercato.json",
+        "om-eject-and-customize/decision-and-procedure:src/modules.ts"
+      ],
+      "rationale": "The ejected-module file tree is replaced by the canonical app-owned module shape, rendered as exact-file links in the eject reference."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md#fence:6",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md",
+      "ordinal": 6,
+      "heading": "Safe Modification Example: Add a Column",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "50804d8adb9297c4f02d2ec927a12d91f7ebf5652f2f10373a9048d4560a47ac",
+      "topicIds": [
+        "om-eject-and-customize/decision-and-procedure:data/entities.ts",
+        "om-data-model-design/schema-design:data/validators.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-eject-and-customize/decision-and-procedure:data/entities.ts",
+        "om-data-model-design/schema-design:data/validators.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md#fence:7",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md",
+      "ordinal": 7,
+      "heading": "Create a Customization Log",
+      "openingLine": "```markdown",
+      "info": "markdown",
+      "contentSha256": "ed27d69691ab0ca1c83b44282b6da1a92ad0f99e086e5be25d2f2272457956a6",
+      "topicIds": [],
+      "disposition": "not-implementation",
+      "rationale": "A customization-log document template, carrying no module implementation. The requirement to record the upstream version for future merges is retained in the eject reference."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md#fence:8",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md",
+      "ordinal": 8,
+      "heading": "Upgrade Workflow",
+      "openingLine": "   ```bash",
+      "info": "bash",
+      "contentSha256": "cff6413f137384706afa63131b88d11eaa7546785881e6b9889730cfd3133410",
+      "topicIds": [
+        "rule:om-eject-and-customize/decision-and-procedure#post-eject-verification"
+      ],
+      "disposition": "retained-normative-snippet",
+      "rationale": "Operational command sequence rather than module implementation. The upstream diff-and-merge workflow is retained as the eject reference’s record-upstream-version step."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:1",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md",
+      "ordinal": 1,
+      "heading": "3.1 Create Package Directory",
+      "openingLine": "```",
+      "info": "",
+      "contentSha256": "5c78cb524d6c1e2e1e20c4931c655247a838c2c8002dd3c32822072ce9c224fe",
+      "topicIds": [
+        "om-integration-builder/provider-families:di.ts"
+      ],
+      "disposition": "superseded-with-current-rule-and-source",
+      "targetTopicIds": [
+        "om-integration-builder/provider-families:di.ts"
+      ],
+      "rationale": "A standalone app must not create `packages/*`. The current owner replaces the monorepo package tree with the app-owned module layout rule and links the example DI registration."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:2",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md",
+      "ordinal": 2,
+      "heading": "3.2 package.json",
+      "openingLine": "```json",
+      "info": "json",
+      "contentSha256": "ac65c94543a1094829ac8333a95b3d56ba9261579feeedbc5ad2602ad619798a",
+      "topicIds": [
+        "rule:om-integration-builder/package-and-activation#reusable-package-branch"
+      ],
+      "disposition": "retained-normative-snippet",
+      "rationale": "The publishable-package manifest belongs to the explicitly opt-in reusable branch, which the current owner keeps as prose; no emitted source owns a provider package manifest."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:3",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md",
+      "ordinal": 3,
+      "heading": "3.3 tsconfig.json",
+      "openingLine": "```json",
+      "info": "json",
+      "contentSha256": "6cf24eec21317a8dfb3b178a1015c5b21ab3e1004ac3cf9dd2d1745ccf2ed2fa",
+      "topicIds": [
+        "rule:om-integration-builder/package-and-activation#reusable-package-branch"
+      ],
+      "disposition": "retained-normative-snippet",
+      "rationale": "Provider build configuration belongs to the same reusable branch and has no emitted source counterpart."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:4",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md",
+      "ordinal": 4,
+      "heading": "3.4 src/index.ts",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "f9a16797495a646b21ca199b8b16e792875c04bbb558bb9459bee1320b210284",
+      "topicIds": [
+        "rule:om-integration-builder/package-and-activation#reusable-package-branch"
+      ],
+      "disposition": "retained-normative-snippet",
+      "rationale": "The package export barrel belongs to the reusable branch, which requires public exports and compiled discovery output as prose."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:5",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md",
+      "ordinal": 5,
+      "heading": "4.1 integration.ts (CRITICAL — marketplace registration)",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "3c76d6b9868293f66978828421886d0ba0dec0fdd22b51d27ad5b1ee1fd0c09c",
+      "topicIds": [
+        "rule:om-integration-builder/package-and-activation#integration-descriptor-exports"
+      ],
+      "disposition": "retained-normative-snippet",
+      "rationale": "The example ships mock adapters with no `integration.ts` descriptor, so the marketplace registration contract stays prose in package-and-activation."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:6",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md",
+      "ordinal": 6,
+      "heading": "4.1 integration.ts (CRITICAL — marketplace registration)",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "0d05c69703b57d15908fccbf7221a1a3d0d58a051a245e6466a716d140253c23",
+      "topicIds": [
+        "rule:om-integration-builder/package-and-activation#integration-descriptor-exports"
+      ],
+      "disposition": "retained-normative-snippet",
+      "rationale": "Second half of the same descriptor contract, retained for the same reason."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:7",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md",
+      "ordinal": 7,
+      "heading": "4.2 Bundle Integration",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "ee093b7859aeec838a2cb758ed871dd28bd8d802a011334b206913c929761447",
+      "topicIds": [
+        "rule:om-integration-builder/package-and-activation#integration-descriptor-exports"
+      ],
+      "disposition": "retained-normative-snippet",
+      "rationale": "Bundle wiring is part of the same descriptor contract and has no example counterpart."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:8",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md",
+      "ordinal": 8,
+      "heading": "4.3 index.ts (module metadata)",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "d752aa9307cfc289a8da52bd5cf4f8c24219993f3e61cb3d7e9608c1b292f8f6",
+      "topicIds": [
+        "om-module-scaffold/module-surfaces:index.ts"
+      ],
+      "disposition": "superseded-with-current-rule-and-source",
+      "targetTopicIds": [
+        "om-module-scaffold/module-surfaces:index.ts"
+      ],
+      "rationale": "Module metadata is not provider-specific; the current owner routes it to the module-scaffold surface table, which links the example module entrypoint."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:9",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md",
+      "ordinal": 9,
+      "heading": "4.4 acl.ts",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "6648025e321d63faaf6b1cf44ff0d536de28b467306662d2188b26492b867576",
+      "topicIds": [
+        "om-module-scaffold/module-surfaces:acl.ts"
+      ],
+      "disposition": "superseded-with-current-rule-and-source",
+      "targetTopicIds": [
+        "om-module-scaffold/module-surfaces:acl.ts"
+      ],
+      "rationale": "Provider ACL features are ordinary module ACL features, routed to the module-scaffold surface table that links the example acl.ts."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:10",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md",
+      "ordinal": 10,
+      "heading": "4.5 setup.ts",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "1719283030f6df4fcf603f90b30590577f76af3645e706d53a4645e179dd12dc",
+      "topicIds": [
+        "om-module-scaffold/module-surfaces:setup.ts"
+      ],
+      "disposition": "superseded-with-current-rule-and-source",
+      "targetTopicIds": [
+        "om-module-scaffold/module-surfaces:setup.ts"
+      ],
+      "rationale": "Provider tenant setup is ordinary module setup, routed to the module-scaffold surface table that links the example setup.ts."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:11",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md",
+      "ordinal": 11,
+      "heading": "4.6 di.ts",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "a5ba3d327f681a2e989ef23710baa139a7f424bb89353b8b954b7c8306e396b4",
+      "topicIds": [
+        "om-integration-builder/provider-families:di.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-integration-builder/provider-families:di.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:12",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md",
+      "ordinal": 12,
+      "heading": "5.1 Payment Gateway (`GatewayAdapter`)",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "23f5bdd83f5fc03b03794279ee92c2ef7b1d7e54f0cd7618b98b54bf96fe2d8f",
+      "topicIds": [
+        "om-integration-builder/provider-families:lib/mock-gateway-adapter.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-integration-builder/provider-families:lib/mock-gateway-adapter.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:13",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md",
+      "ordinal": 13,
+      "heading": "5.1 Payment Gateway (`GatewayAdapter`)",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "e15831772d137c67a416d62eed93a68800fe08308639173401699bbb7f428e19",
+      "topicIds": [
+        "om-integration-builder/provider-families:lib/mock-gateway-adapter.ts",
+        "om-integration-builder/provider-families:di.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-integration-builder/provider-families:lib/mock-gateway-adapter.ts",
+        "om-integration-builder/provider-families:di.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:14",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md",
+      "ordinal": 14,
+      "heading": "5.2 Shipping Carrier (`ShippingAdapter`)",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "6e91555be165b28e69f9292479bfd8f97a094b8071b3b823b577d15741630a34",
+      "topicIds": [
+        "om-integration-builder/provider-families:lib/mock-shipping-adapter.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-integration-builder/provider-families:lib/mock-shipping-adapter.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:15",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md",
+      "ordinal": 15,
+      "heading": "5.3 Data Sync (`DataSyncAdapter`)",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "4b718f265247f3f38cfc4314092f2967d87d815b528a7ae72db248459bfd042e",
+      "topicIds": [
+        "rule:om-integration-builder/provider-families#data-sync-branch"
+      ],
+      "disposition": "retained-normative-snippet",
+      "rationale": "The example ships no data-sync adapter; the branch stays a prose contract in provider-families."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:16",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md",
+      "ordinal": 16,
+      "heading": "5.4 Status Mapping",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "44aa7c584b3cbe3a1a764d0ec44537e586cfd03d99e96689d4ce0178033e20bb",
+      "topicIds": [
+        "rule:om-integration-builder/provider-families#payment-branch"
+      ],
+      "disposition": "retained-normative-snippet",
+      "rationale": "Provider status mapping has no example counterpart; the concurrency-safe status machine stays a prose rule on the payment branch."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:17",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md",
+      "ordinal": 17,
+      "heading": "5.5 Client Factory",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "fda779efa3c91b4c7cd5b9f02e796ca9939aafb44d787319f2ed24cbc3d0e1d8",
+      "topicIds": [
+        "rule:om-integration-builder/package-and-activation#credential-and-state-ownership"
+      ],
+      "disposition": "retained-normative-snippet",
+      "rationale": "The example mocks hold no credentials, so the transport client factory stays a prose rule about host-owned credential storage."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:18",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md",
+      "ordinal": 18,
+      "heading": "6.1 Webhook Handler",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "cd1de9ebbf04ce299ff16c1beffb2e50d641b7c67c5ad67dfdc3c64f18cfadf9",
+      "topicIds": [
+        "om-integration-builder/provider-families:lib/mock-webhook-endpoint-adapter.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-integration-builder/provider-families:lib/mock-webhook-endpoint-adapter.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:19",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md",
+      "ordinal": 19,
+      "heading": "6.2 Webhook Worker",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "2a55ffaab5853333f9dfebee5474799f57dfe87cceaf1bbe475d0d4f157b3756",
+      "topicIds": [
+        "rule:om-integration-builder/provider-families#webhooks-branch"
+      ],
+      "disposition": "retained-normative-snippet",
+      "rationale": "The example webhook mock verifies a signature but runs no delivery worker; queues, retries and logs stay a prose contract."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:20",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md",
+      "ordinal": 20,
+      "heading": "6.3 Webhook Guide (for admin UI)",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "76435a2797bfc50c07889715e0cfa44add2656e280546a1f733ff59218dbed9e",
+      "topicIds": [
+        "rule:om-integration-builder/provider-families#webhooks-branch"
+      ],
+      "disposition": "retained-normative-snippet",
+      "rationale": "The admin-facing webhook guide has no example counterpart and stays part of the same prose contract."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:21",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md",
+      "ordinal": 21,
+      "heading": "7. Add Health Check",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "bf6d08a0216940d7d422cdb077350eecc772111708d304184c7b8e3927b45732",
+      "topicIds": [
+        "rule:om-integration-builder/security-and-reliability#health-check-redaction"
+      ],
+      "disposition": "retained-normative-snippet",
+      "rationale": "The example mock adapters carry no health check; the health and redaction rules stay in security-and-reliability."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:22",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md",
+      "ordinal": 22,
+      "heading": "7. Add Health Check",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "0e51847d36130fbdb12307940febbe1ae602495a25653e850ab8b57141405cc1",
+      "topicIds": [
+        "rule:om-integration-builder/security-and-reliability#health-check-redaction"
+      ],
+      "disposition": "retained-normative-snippet",
+      "rationale": "Second half of the same health-check contract, retained for the same reason."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:23",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md",
+      "ordinal": 23,
+      "heading": "8.1 Widget Metadata",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "cf6e944818aa689ded241b8657e65a5ddda737793563c027ed97dc16f65c9665",
+      "topicIds": [
+        "om-system-extension/extension-branches:widgets/injection/customer-priority-detail/widget.ts"
+      ],
+      "disposition": "superseded-with-current-rule-and-source",
+      "targetTopicIds": [
+        "om-system-extension/extension-branches:widgets/injection/customer-priority-detail/widget.ts"
+      ],
+      "rationale": "Widget metadata is a generic extension surface; the current owner routes it to om-system-extension, which links the example injection widget."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:24",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md",
+      "ordinal": 24,
+      "heading": "8.2 Widget Component",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "9204274d42e0bbcb282dcdf86d0002cc1fecd5204fefc9e98184ca7ffae2fa7f",
+      "topicIds": [
+        "om-backend-ui-design/crud-surfaces:widgets/injection/customer-priority-detail/widget.client.tsx"
+      ],
+      "disposition": "superseded-with-current-rule-and-source",
+      "targetTopicIds": [
+        "om-backend-ui-design/crud-surfaces:widgets/injection/customer-priority-detail/widget.client.tsx"
+      ],
+      "rationale": "The widget client component is a generic extension surface, routed to the backend-UI reference that links the example client widget."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:25",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md",
+      "ordinal": 25,
+      "heading": "8.3 Injection Table",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "30f06a34e6c0f5889d7a643bc7792854461c4eb0de705504b3fc176f3ab98c4f",
+      "topicIds": [
+        "om-system-extension/extension-branches:widgets/injection-table.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-system-extension/extension-branches:widgets/injection-table.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:26",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md",
+      "ordinal": 26,
+      "heading": "9.1 English Translations",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "174b4d13959de2dfedcc6bb9ea055520ff3249d0dfaa6a52ec59ccc218987b0f",
+      "topicIds": [
+        "om-module-scaffold/module-surfaces:i18n/en.json",
+        "om-module-scaffold/module-surfaces:translations.ts"
+      ],
+      "disposition": "superseded-with-current-rule-and-source",
+      "targetTopicIds": [
+        "om-module-scaffold/module-surfaces:i18n/en.json",
+        "om-module-scaffold/module-surfaces:translations.ts"
+      ],
+      "rationale": "Translations are a generic module surface; the current owner routes them to the module-scaffold surface table, which links the example locale file and translatable-field declaration."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:27",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md",
+      "ordinal": 27,
+      "heading": "10.1 Unit Tests",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "42ceace285ac038b1fe32cc151e3aa45f1e87db9bc043e03b479a4e39d4aa24f",
+      "topicIds": [
+        "rule:om-integration-builder/package-and-activation#degraded-provider-tests"
+      ],
+      "disposition": "retained-normative-snippet",
+      "rationale": "The example’s own tests are repository-only and are never emitted into a generated app, so provider test requirements stay a prose rule."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:28",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md",
+      "ordinal": 28,
+      "heading": "11.1 Add to App Modules",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "dc26cd1c408574ed77af2d5c6acda5e7ee5a9160543614242639e62a8e00f57c",
+      "topicIds": [
+        "om-system-extension/unified-overrides:src/modules.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-system-extension/unified-overrides:src/modules.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:29",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md",
+      "ordinal": 29,
+      "heading": "11.2 Add Workspace Dependency",
+      "openingLine": "```json",
+      "info": "json",
+      "contentSha256": "ce17efc4616b3ba17db9440c7219cbd79c3eb3cc2cf311c96ddea6954cb57572",
+      "topicIds": [
+        "rule:om-integration-builder/package-and-activation#reusable-package-branch"
+      ],
+      "disposition": "retained-normative-snippet",
+      "rationale": "A workspace dependency entry only exists on the reusable branch, which the current owner keeps as prose."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md#fence:30",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md",
+      "ordinal": 30,
+      "heading": "11.3 Run Generators",
+      "openingLine": "```bash",
+      "info": "bash",
+      "contentSha256": "90b1c2f0fc16af532f461578f4acb33cfd24105ec0fb6ad4c0bf2ace43db4e96",
+      "topicIds": [
+        "rule:om-integration-builder/package-and-activation#generation-proof"
+      ],
+      "disposition": "retained-normative-snippet",
+      "rationale": "Operational command sequence rather than module implementation. Regeneration and typecheck as the proof of the exported registry shape are retained in package-and-activation."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:1",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md",
+      "ordinal": 1,
+      "heading": "2. Scaffold Structure",
+      "openingLine": "```",
+      "info": "",
+      "contentSha256": "9ca920e6f93be45a5c138c2241b036a1dc454b2d08845e5e8046fc48033ba1fc",
+      "topicIds": [
+        "om-module-scaffold:README.md",
+        "om-module-scaffold/module-surfaces:references/surface-map.md"
+      ],
+      "disposition": "superseded-with-current-rule-and-source",
+      "targetTopicIds": [
+        "om-module-scaffold:README.md",
+        "om-module-scaffold/module-surfaces:references/surface-map.md"
+      ],
+      "rationale": "The scaffold tree is replaced by the example inventory: README plus surface map, both rendered as exact-file links."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:2",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md",
+      "ordinal": 2,
+      "heading": "Template",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "575206758d5aa659eb65f910f2a0b604aaa77ba79d274ef4c1cee5fd76de3d42",
+      "topicIds": [
+        "om-module-scaffold/data-and-migrations:data/entities.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-module-scaffold/data-and-migrations:data/entities.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:3",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md",
+      "ordinal": 3,
+      "heading": "Template",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "e4f673f229d7ba5a936e9340b16fe5f32e4b4d1e31c8f414b988577be9c185b4",
+      "topicIds": [
+        "om-module-scaffold/data-and-migrations:data/validators.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-module-scaffold/data-and-migrations:data/validators.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:4",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md",
+      "ordinal": 4,
+      "heading": "5. Create API Routes",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "3df8fa268c4f1d8515d57270a43048c1828997171cc9a770f39188cb135911c5",
+      "topicIds": [
+        "om-module-scaffold/api-and-domain:api/todos/route.ts",
+        "om-module-scaffold/api-and-domain:api/openapi.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-module-scaffold/api-and-domain:api/todos/route.ts",
+        "om-module-scaffold/api-and-domain:api/openapi.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:5",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md",
+      "ordinal": 5,
+      "heading": "Page Metadata & Sidebar Navigation",
+      "openingLine": "```tsx",
+      "info": "tsx",
+      "contentSha256": "786a25df3564c761f8ad6fc0a0ac9e3ab37ddd0c7c1f6723d5cccf5f27d590bd",
+      "topicIds": [
+        "om-backend-ui-design/page-and-navigation:backend/todos/page.meta.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-backend-ui-design/page-and-navigation:backend/todos/page.meta.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:6",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md",
+      "ordinal": 6,
+      "heading": "List Page",
+      "openingLine": "```tsx",
+      "info": "tsx",
+      "contentSha256": "da633ceea5088f50df48a43d12e4a41a7a9344b2b562d884ef1afff027222041",
+      "topicIds": [
+        "om-backend-ui-design/page-and-navigation:backend/todos/page.tsx",
+        "om-backend-ui-design/crud-surfaces:components/TodosTable.tsx"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-backend-ui-design/page-and-navigation:backend/todos/page.tsx",
+        "om-backend-ui-design/crud-surfaces:components/TodosTable.tsx"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:7",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md",
+      "ordinal": 7,
+      "heading": "Create Page",
+      "openingLine": "```tsx",
+      "info": "tsx",
+      "contentSha256": "b9dc61cc36d3660e046f332979c0b87905cfe4c9866f42795411f5ce622c8228",
+      "topicIds": [
+        "om-backend-ui-design/crud-surfaces:backend/todos/create/page.tsx"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-backend-ui-design/crud-surfaces:backend/todos/create/page.tsx"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:8",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md",
+      "ordinal": 8,
+      "heading": "Edit Page",
+      "openingLine": "```tsx",
+      "info": "tsx",
+      "contentSha256": "49ea33e941ebe45a804ca6177e0774526cf9229dbf1fc03841546be1282451c2",
+      "topicIds": [
+        "om-backend-ui-design/crud-surfaces:backend/todos/[id]/edit/page.tsx"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-backend-ui-design/crud-surfaces:backend/todos/[id]/edit/page.tsx"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:9",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md",
+      "ordinal": 9,
+      "heading": "7. Add Module Metadata",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "8897c0a7426db179e886cd1a36e80bcf5e851e20ee758c2d5567d8bf3ccbde64",
+      "topicIds": [
+        "om-module-scaffold/module-surfaces:index.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-module-scaffold/module-surfaces:index.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:10",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md",
+      "ordinal": 10,
+      "heading": "ACL Features",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "d83118aa6cb8c0bca700db0bd7fd7c962607a7f55e2f2f3fcf7e3da3a1b7fc55",
+      "topicIds": [
+        "om-module-scaffold/module-surfaces:acl.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-module-scaffold/module-surfaces:acl.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:11",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md",
+      "ordinal": 11,
+      "heading": "Setup (Tenant Init + Default Roles)",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "9146dfde3e9f4acfa95f03c038df141aa567526ee20fa90d9983331e25a1ecd6",
+      "topicIds": [
+        "om-module-scaffold/module-surfaces:setup.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-module-scaffold/module-surfaces:setup.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:12",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md",
+      "ordinal": 12,
+      "heading": "9. Add DI Registration",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "6fc0f1ec37a402c901c110390e5587ac7f9bf88d3d9262c19255cbe0a347cd60",
+      "topicIds": [
+        "om-module-scaffold/module-surfaces:di.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-module-scaffold/module-surfaces:di.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:13",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md",
+      "ordinal": 13,
+      "heading": "10. Add Events",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "dcbd4273aaeb5aa35b2d76eb3072fdcc41cf98abe41fef6e8a7f0e2a76fb79f8",
+      "topicIds": [
+        "om-module-scaffold/module-surfaces:events.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-module-scaffold/module-surfaces:events.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:14",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md",
+      "ordinal": 14,
+      "heading": "Search Configuration",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "79a427d80828d27d5593b94b936971d8e74853f22447c8440bc76fe55338a9e0",
+      "topicIds": [
+        "rule:om-module-scaffold/module-surfaces#search-configuration"
+      ],
+      "disposition": "retained-normative-snippet",
+      "rationale": "The example ships `search.ts`, but no emitted owner renders a link to it yet; the full search contract is retained in the module-surfaces table. This is a recorded source-link coverage gap, not a removed topic."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:15",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md",
+      "ordinal": 15,
+      "heading": "Translations",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "ab75df8ebe64d841f83cae1cce6bc57e2c5c6601b3807bb68b2331fa859dda57",
+      "topicIds": [
+        "om-module-scaffold/module-surfaces:i18n/en.json",
+        "om-module-scaffold/module-surfaces:translations.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-module-scaffold/module-surfaces:i18n/en.json",
+        "om-module-scaffold/module-surfaces:translations.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:16",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md",
+      "ordinal": 16,
+      "heading": "CLI Commands",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "0d311270301b1d9cc0f9e53a7edff93cd5284489a786583b7435d2e5ac410923",
+      "topicIds": [
+        "om-module-scaffold/module-surfaces:cli.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-module-scaffold/module-surfaces:cli.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:17",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md",
+      "ordinal": 17,
+      "heading": "Response Enrichers",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "b392a5411a8959b36d17f9470f5f272d15a64c40e1d4cc25bddec374ca5eff1e",
+      "topicIds": [
+        "om-system-extension/extension-branches:data/enrichers.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-system-extension/extension-branches:data/enrichers.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:18",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md",
+      "ordinal": 18,
+      "heading": "Encryption maps (sensitive / GDPR-relevant fields)",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "04c31ba1a0e6737f62c775c80be85629d7cbea788ce40ae9dcaa777313ad2c6b",
+      "topicIds": [
+        "rule:om-data-model-design/sensitive-data#encryption-map-declaration"
+      ],
+      "disposition": "retained-normative-snippet",
+      "rationale": "Same recorded gap as the data-model encryption topics: the example ships `encryption.ts` with no emitted link, so the declaration contract stays prose."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:19",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md",
+      "ordinal": 19,
+      "heading": "Encryption maps (sensitive / GDPR-relevant fields)",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "ba1770ae0773883148ee40ff1e67666f1e5cb2dbc7eb4251113a7bdd1b61cf6c",
+      "topicIds": [
+        "rule:om-data-model-design/sensitive-data#decrypted-reads"
+      ],
+      "disposition": "retained-normative-snippet",
+      "rationale": "The decrypted-read contract stays prose for the same reason."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:20",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md",
+      "ordinal": 20,
+      "heading": "Encryption maps (sensitive / GDPR-relevant fields)",
+      "openingLine": "```bash",
+      "info": "bash",
+      "contentSha256": "5e4581a85017c9f644e4df059ac802fc22197493f77a69fe0ea1e39e42d1454a",
+      "topicIds": [
+        "rule:om-data-model-design/sensitive-data#encryption-seeding"
+      ],
+      "disposition": "retained-normative-snippet",
+      "rationale": "Operational command sequence rather than module implementation. Seeding encryption configuration is retained in the sensitive-data reference."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:21",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md",
+      "ordinal": 21,
+      "heading": "Step 1: Register in modules.ts",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "e806533d0d13ad99d7ffe06a2ad29677569a0abc5c4cf24485ce254157b90f63",
+      "topicIds": [
+        "om-system-extension/unified-overrides:src/modules.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-system-extension/unified-overrides:src/modules.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:22",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md",
+      "ordinal": 22,
+      "heading": "Step 2: Run Generators",
+      "openingLine": "```bash",
+      "info": "bash",
+      "contentSha256": "59b3fb597b1a0d73816010f74a9be796ebf99fbaeb981568d3635744814cb899",
+      "topicIds": [
+        "rule:om-module-scaffold/verification#post-scaffold-gate"
+      ],
+      "disposition": "retained-normative-snippet",
+      "rationale": "Operational command sequence rather than module implementation. Regeneration is retained as the first module-verification step."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:23",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md",
+      "ordinal": 23,
+      "heading": "Step 4: Apply & Test",
+      "openingLine": "```bash",
+      "info": "bash",
+      "contentSha256": "324932ad5d8e19553415a24c886c0e1ab10f63571bc779d45f55eaac26d7bf11",
+      "topicIds": [
+        "rule:om-module-scaffold/verification#post-scaffold-gate"
+      ],
+      "disposition": "retained-normative-snippet",
+      "rationale": "Operational command sequence rather than module implementation. The apply-and-test step is retained in the module-verification gate."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md#fence:24",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md",
+      "ordinal": 24,
+      "heading": "Step 5: Run Post-Scaffold Validation Gate",
+      "openingLine": "```bash",
+      "info": "bash",
+      "contentSha256": "abcd488a60f706142297eb3f5485e61a0c1c8db77d7a4b2568ede480436f7778",
+      "topicIds": [
+        "rule:om-module-scaffold/verification#post-scaffold-gate"
+      ],
+      "disposition": "retained-normative-snippet",
+      "rationale": "Operational command sequence rather than module implementation. The post-scaffold validation gate is retained as the module-verification checklist."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:1",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md",
+      "ordinal": 1,
+      "heading": "Template",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "bcf618936663cb6ee7c7669eed995300acf0aa1a75e9dc2c3a1666c9e2e6cfd2",
+      "topicIds": [
+        "om-system-extension/extension-branches:data/enrichers.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-system-extension/extension-branches:data/enrichers.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:2",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md",
+      "ordinal": 2,
+      "heading": "Context Available",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "9df0716ca145e6399037359c1106fa21cef1cd70a6fbece3614ef4988b9d7902",
+      "topicIds": [
+        "om-system-extension/extension-branches:data/enrichers.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-system-extension/extension-branches:data/enrichers.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:3",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md",
+      "ordinal": 3,
+      "heading": "Template",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "a9d4e025683aaca48a7e5d9ac63312bcf948ad689662b458cae7cb224fee4aea",
+      "topicIds": [
+        "om-system-extension/extension-branches:widgets/injection/customer-priority-field/widget.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-system-extension/extension-branches:widgets/injection/customer-priority-field/widget.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:4",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md",
+      "ordinal": 4,
+      "heading": "Template",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "8b34a5cbae72dc2c00d67c3ab54de5c93f8627d7cb86a76bc9f648ea4e336d7e",
+      "topicIds": [
+        "om-system-extension/extension-branches:widgets/injection/customer-priority-column/widget.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-system-extension/extension-branches:widgets/injection/customer-priority-column/widget.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:5",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md",
+      "ordinal": 5,
+      "heading": "Template",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "8964143709f421644322a1d81869b46192f66f53dcc7b7323237eabad3ad061f",
+      "topicIds": [
+        "om-system-extension/extension-branches:widgets/injection/customer-priority-filter/widget.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-system-extension/extension-branches:widgets/injection/customer-priority-filter/widget.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:6",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md",
+      "ordinal": 6,
+      "heading": "Server-Side Filtering",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "938f6b981ebb5546e9169de02d7674c65015f3f20398f84e6c2c0b0e5268ed6e",
+      "topicIds": [
+        "om-system-extension/extension-branches:widgets/injection/customer-priority-filter/widget.ts",
+        "om-system-extension/extension-branches:api/interceptors.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-system-extension/extension-branches:widgets/injection/customer-priority-filter/widget.ts",
+        "om-system-extension/extension-branches:api/interceptors.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:7",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md",
+      "ordinal": 7,
+      "heading": "Row Action Template",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "6833f30bc6393090ffb4a8a3c47c1c13a81db5ced80bcc27c5317ebf5383f175",
+      "topicIds": [
+        "om-system-extension/extension-branches:widgets/injection/customer-priority-row-action/widget.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-system-extension/extension-branches:widgets/injection/customer-priority-row-action/widget.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:8",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md",
+      "ordinal": 8,
+      "heading": "Bulk Action Template",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "d673bbb9a037678668332aa3c9ab926d2a7e7019cc2fb672a08de331d87a688a",
+      "topicIds": [
+        "om-system-extension/extension-branches:widgets/injection/customer-priority-bulk-actions/widget.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-system-extension/extension-branches:widgets/injection/customer-priority-bulk-actions/widget.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:9",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md",
+      "ordinal": 9,
+      "heading": "Tab Widget Template (Detail Pages)",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "dcbcaa314401304d6314537c657298f0d22ccdebf872a218100a9515fe43ae6f",
+      "topicIds": [
+        "om-system-extension/extension-branches:widgets/injection/customer-priority-detail/widget.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-system-extension/extension-branches:widgets/injection/customer-priority-detail/widget.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:10",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md",
+      "ordinal": 10,
+      "heading": "Tab Widget Template (Detail Pages)",
+      "openingLine": "```tsx",
+      "info": "tsx",
+      "contentSha256": "6d1eb19b092b2710949a61bda045b1ad6b6dcdc9b4c2a44b46059662cbad672f",
+      "topicIds": [
+        "om-backend-ui-design/crud-surfaces:widgets/injection/customer-priority-detail/widget.client.tsx"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-backend-ui-design/crud-surfaces:widgets/injection/customer-priority-detail/widget.client.tsx"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:11",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md",
+      "ordinal": 11,
+      "heading": "Template",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "13b35431cfa814003ac34278a133c00d6bc0258365cc05df5813d32dfcd0d9de",
+      "topicIds": [
+        "om-system-extension/extension-branches:widgets/injection/example-menus/widget.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-system-extension/extension-branches:widgets/injection/example-menus/widget.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:12",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md",
+      "ordinal": 12,
+      "heading": "Template",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "f8c17f378cf88e9963ef3d08a3190317f5cd859b44ae4e46beedd96fb6a8bf11",
+      "topicIds": [
+        "om-system-extension/extension-branches:api/interceptors.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-system-extension/extension-branches:api/interceptors.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:13",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md",
+      "ordinal": 13,
+      "heading": "Template",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "15317f74dfcb70b662e34f3578aa7e0305bcffa273a0f25a688543c9994db283",
+      "topicIds": [
+        "om-system-extension/extension-branches:data/guards.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-system-extension/extension-branches:data/guards.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:14",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md",
+      "ordinal": 14,
+      "heading": "Template",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "df0e73f88493940160ad8435710c8941aed45c0a1a43a77ee231d54ee3ee75cf",
+      "topicIds": [
+        "om-system-extension/extension-branches:widgets/components.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-system-extension/extension-branches:widgets/components.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:15",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md",
+      "ordinal": 15,
+      "heading": "Template",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "f4573325978daea1c2a9c9f16e47758c5b538a4d62749366e5cb46445ea90b87",
+      "topicIds": [
+        "om-system-extension/extension-branches:subscribers/auto-default-priority.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-system-extension/extension-branches:subscribers/auto-default-priority.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:16",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md",
+      "ordinal": 16,
+      "heading": "Sync Subscribers (Before-Event)",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "2f03ee53523a6830029b2b7fac14c95a8e04b6e68d2760411b6c57301e037668",
+      "topicIds": [
+        "om-system-extension/extension-branches:subscribers/prevent-uncomplete.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-system-extension/extension-branches:subscribers/prevent-uncomplete.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:17",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md",
+      "ordinal": 17,
+      "heading": "12. The Triad Pattern",
+      "openingLine": "```",
+      "info": "",
+      "contentSha256": "d629c15400e992f988d797e001c6c42ea42cab84e966ca0a966199fff03e7d8b",
+      "topicIds": [
+        "om-system-extension/extension-branches:data/enrichers.ts",
+        "om-system-extension/extension-branches:widgets/injection/customer-priority-field/widget.ts",
+        "om-system-extension/extension-branches:widgets/injection-table.ts"
+      ],
+      "disposition": "superseded-with-current-rule-and-source",
+      "targetTopicIds": [
+        "om-system-extension/extension-branches:data/enrichers.ts",
+        "om-system-extension/extension-branches:widgets/injection/customer-priority-field/widget.ts",
+        "om-system-extension/extension-branches:widgets/injection-table.ts"
+      ],
+      "rationale": "The triad diagram is a drawing rather than code; its three stages are now three exact-file links in the extension-branches reference."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:18",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md",
+      "ordinal": 18,
+      "heading": "Example: Add \"Priority\" field to Customers form",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "eef077004ac8254453f726235ec1892576fd996bca813b12f2e5311f589859ea",
+      "topicIds": [
+        "om-system-extension/extension-branches:data/enrichers.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-system-extension/extension-branches:data/enrichers.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:19",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md",
+      "ordinal": 19,
+      "heading": "Example: Add \"Priority\" field to Customers form",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "9868613b1f43c8f29dd02800a754e555137e02c614a6c7b261eced5d0ebfd30f",
+      "topicIds": [
+        "om-system-extension/extension-branches:widgets/injection/customer-priority-field/widget.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-system-extension/extension-branches:widgets/injection/customer-priority-field/widget.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md#fence:20",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-system-extension/SKILL.md",
+      "ordinal": 20,
+      "heading": "Example: Add \"Priority\" field to Customers form",
+      "openingLine": "```typescript",
+      "info": "typescript",
+      "contentSha256": "1ca2fa190e223d1857e04e8488043130528fc0f11146f82c3c76993460eab3e9",
+      "topicIds": [
+        "om-system-extension/extension-branches:widgets/injection-table.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-system-extension/extension-branches:widgets/injection-table.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:1",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md",
+      "ordinal": 1,
+      "heading": "Step 2: Check Generated Files",
+      "openingLine": "```bash",
+      "info": "bash",
+      "contentSha256": "671f29ab364a13260cfb9be9b1fcda082248db5ba45932018dee672067e0591d",
+      "topicIds": [
+        "rule:root#generation-after-discovery-change"
+      ],
+      "disposition": "retained-normative-snippet",
+      "rationale": "Operational command sequence rather than module implementation. The current troubleshooter routes symptoms instead of listing commands; regeneration after a discovery change is retained in root instructions."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:2",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md",
+      "ordinal": 2,
+      "heading": "Step 3: Verify the Basics",
+      "openingLine": "```bash",
+      "info": "bash",
+      "contentSha256": "4eaed0221aa8c189d70ef6cffa921a9de37cf4d71790878f35751b925dcc20fd",
+      "topicIds": [
+        "rule:guides/testing-debugging#validation-gate"
+      ],
+      "disposition": "retained-normative-snippet",
+      "rationale": "Operational command sequence rather than module implementation. The basic-verification list is retained as the validation gate in the testing-debugging guide."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:3",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md",
+      "ordinal": 3,
+      "heading": "Module not found / not loading",
+      "openingLine": "   ```typescript",
+      "info": "typescript",
+      "contentSha256": "ee3ecd942955d4a4f5fc6aa7889807991f61968a8ae8aeafae7789aed7486787",
+      "topicIds": [
+        "om-troubleshooter/diagnosis-map:src/modules.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-troubleshooter/diagnosis-map:src/modules.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:4",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md",
+      "ordinal": 4,
+      "heading": "Module not found / not loading",
+      "openingLine": "   ```typescript",
+      "info": "typescript",
+      "contentSha256": "7e09f67f2a67c5e01b2fc6dbf45daee774478a75d865666753724ce604be8ba7",
+      "topicIds": [
+        "om-troubleshooter/diagnosis-map:index.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-troubleshooter/diagnosis-map:index.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:5",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md",
+      "ordinal": 5,
+      "heading": "Module loads but pages 404",
+      "openingLine": "   ```typescript",
+      "info": "typescript",
+      "contentSha256": "715fec118921b446ce3dedf0279a7365158b87c55059abefdb0b65dc9fbd8cff",
+      "topicIds": [
+        "om-troubleshooter/diagnosis-map:backend/todos/page.meta.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-troubleshooter/diagnosis-map:backend/todos/page.meta.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:6",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md",
+      "ordinal": 6,
+      "heading": "\"Column does not exist\" / \"Table does not exist\"",
+      "openingLine": "   ```bash",
+      "info": "bash",
+      "contentSha256": "40fbf10747420fe06ec18f0a826d6011d6144fd0d06f0633b4838fc2616f5730",
+      "topicIds": [
+        "rule:om-data-model-design/migration-workflow#migration-procedure"
+      ],
+      "disposition": "retained-normative-snippet",
+      "rationale": "Operational command sequence rather than module implementation. The migration probe is retained in the migration-workflow reference."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:7",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md",
+      "ordinal": 7,
+      "heading": "\"Column does not exist\" / \"Table does not exist\"",
+      "openingLine": "   ```bash",
+      "info": "bash",
+      "contentSha256": "5e89d25ff95e7784742d816696dbed99586ed83111f14f18a4f52466c4696abd",
+      "topicIds": [
+        "rule:om-data-model-design/migration-workflow#migration-procedure"
+      ],
+      "disposition": "retained-normative-snippet",
+      "rationale": "Operational command sequence rather than module implementation. Applying a migration is retained in the same reference, which also requires asking first."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:8",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md",
+      "ordinal": 8,
+      "heading": "Migration generation creates unexpected changes",
+      "openingLine": "   ```bash",
+      "info": "bash",
+      "contentSha256": "336008854b467983845431c98997bae2b4c25b9fb67bc0b9b9899116d0e64185",
+      "topicIds": [
+        "rule:root#migration-probe-and-approval"
+      ],
+      "disposition": "retained-normative-snippet",
+      "rationale": "Operational command sequence rather than module implementation. Unexpected generator churn is covered by the root migration-probe rule."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:9",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md",
+      "ordinal": 9,
+      "heading": "Route returns 404",
+      "openingLine": "   ```typescript",
+      "info": "typescript",
+      "contentSha256": "aa8fdedeb16c85635c0449cc421471df059dcc21e8579c78a1482a909a416405",
+      "topicIds": [
+        "om-troubleshooter/diagnosis-map:api/customer-priorities/route.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-troubleshooter/diagnosis-map:api/customer-priorities/route.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:10",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md",
+      "ordinal": 10,
+      "heading": "Route returns 404",
+      "openingLine": "   ```typescript",
+      "info": "typescript",
+      "contentSha256": "ed09e90a118319719624439581ead854323aaf48a68de9a8e55d4ff71d7232a5",
+      "topicIds": [
+        "om-troubleshooter/diagnosis-map:api/customer-priorities/route.ts",
+        "om-module-scaffold/api-and-domain:api/openapi.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-troubleshooter/diagnosis-map:api/customer-priorities/route.ts",
+        "om-module-scaffold/api-and-domain:api/openapi.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:11",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md",
+      "ordinal": 11,
+      "heading": "Sidebar icons broken or wrong",
+      "openingLine": "```tsx",
+      "info": "tsx",
+      "contentSha256": "60c1ff00d952d6f13f23cb9378f4db4fbe94c7b010931902f54227c9b2250b14",
+      "topicIds": [
+        "om-troubleshooter/diagnosis-map:backend/todos/page.meta.ts"
+      ],
+      "disposition": "superseded-with-current-rule-and-source",
+      "targetTopicIds": [
+        "om-troubleshooter/diagnosis-map:backend/todos/page.meta.ts"
+      ],
+      "rationale": "The example page metadata declares its sidebar icon as the `check-square` name rather than an inline element, so the icon-source rule stays prose while the metadata shape is readable in the linked file."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:12",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md",
+      "ordinal": 12,
+      "heading": "Response Enricher data not appearing",
+      "openingLine": "   ```typescript",
+      "info": "typescript",
+      "contentSha256": "b49d83107254f4622d671dbeed255112c3cdb9e4cca0ac0b8896b65443ecde22",
+      "topicIds": [
+        "om-system-extension/extension-branches:data/enrichers.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-system-extension/extension-branches:data/enrichers.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:13",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md",
+      "ordinal": 13,
+      "heading": "Widget not appearing in target module",
+      "openingLine": "   ```typescript",
+      "info": "typescript",
+      "contentSha256": "480683cd124bdfc668e01a4e2478055e960f9517fe968041a345122ff687d46a",
+      "topicIds": [
+        "om-troubleshooter/diagnosis-map:widgets/injection-table.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-troubleshooter/diagnosis-map:widgets/injection-table.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:14",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md",
+      "ordinal": 14,
+      "heading": "Widget not appearing in target module",
+      "openingLine": "   ```typescript",
+      "info": "typescript",
+      "contentSha256": "2d0d9b504afc483b145eee458746143a4e1dfeb9f5570f4d64787a2f611bb203",
+      "topicIds": [
+        "om-system-extension/extension-branches:widgets/injection/customer-priority-field/widget.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-system-extension/extension-branches:widgets/injection/customer-priority-field/widget.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:15",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md",
+      "ordinal": 15,
+      "heading": "API Interceptor not running",
+      "openingLine": "   ```typescript",
+      "info": "typescript",
+      "contentSha256": "44620b02bd51e026019958abbc7f99471131d930818e05fac781a887cbc94656",
+      "topicIds": [
+        "om-system-extension/extension-branches:api/interceptors.ts"
+      ],
+      "disposition": "linked",
+      "targetTopicIds": [
+        "om-system-extension/extension-branches:api/interceptors.ts"
+      ]
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:16",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md",
+      "ordinal": 16,
+      "heading": "Connection refused",
+      "openingLine": "   ```bash",
+      "info": "bash",
+      "contentSha256": "19445dfdc0958263596d2c5eedccd4e7f62c7991f413a38f8fa16dbe8efba5cd",
+      "topicIds": [],
+      "disposition": "not-implementation",
+      "rationale": "Local database and container operations. No emitted knowledge owner claims them, and they carry no module implementation topic."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:17",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md",
+      "ordinal": 17,
+      "heading": "Connection refused",
+      "openingLine": "   ```bash",
+      "info": "bash",
+      "contentSha256": "4db4e929f94643406d915a503b6aea891630ab5fa8376cb4230739b9a09ce394",
+      "topicIds": [],
+      "disposition": "not-implementation",
+      "rationale": "Local database bootstrap operation, carrying no module implementation topic."
+    },
+    {
+      "id": "main:packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md#fence:18",
+      "asset": "packages/create-app/agentic/shared/ai/skills/om-troubleshooter/SKILL.md",
+      "ordinal": 18,
+      "heading": "The \"Fix Everything\" Sequence",
+      "openingLine": "```bash",
+      "info": "bash",
+      "contentSha256": "15956ba6f2f2a3493cc52fe9de15f79a1d5a5f0781298bd9546566ff35b90a84",
+      "topicIds": [
+        "rule:guides/testing-debugging#validation-gate"
+      ],
+      "disposition": "retained-normative-snippet",
+      "rationale": "Operational command sequence rather than module implementation. The recovery sequence is retained as the validation gate in the testing-debugging guide."
+    }
+  ]
+}

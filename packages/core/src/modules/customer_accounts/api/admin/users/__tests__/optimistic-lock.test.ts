@@ -22,7 +22,10 @@ const mockEm = {
 
 const mockRbacService = { userHasAllFeatures: jest.fn(async () => true) }
 const mockCustomerRbacService = { invalidateUserCache: jest.fn(async () => undefined) }
-const mockCustomerUserService = { softDelete: jest.fn(async () => undefined) }
+const mockCustomerUserService = {
+  softDelete: jest.fn(async () => undefined),
+  updateProfile: jest.fn(async () => undefined),
+}
 const mockCustomerSessionService = { revokeAllUserSessions: jest.fn(async () => undefined) }
 
 const mockContainer = {
@@ -92,6 +95,25 @@ describe('customer_accounts admin user optimistic locking', () => {
     expect(mockEm.nativeUpdate).toHaveBeenCalled()
     const updates = mockEm.nativeUpdate.mock.calls[0][2] as Record<string, unknown>
     expect(updates.updatedAt).toBeInstanceOf(Date)
+  })
+
+  it('PUT never writes the encrypted display_name through nativeUpdate (#3837)', async () => {
+    const res = await PUT(request('PUT', CURRENT_VERSION, { displayName: 'X' }), params)
+    expect(res.status).toBe(200)
+    // `nativeUpdate` skips the flush hooks the tenant-encryption subscriber depends on, so
+    // display_name must travel through the service, which writes it via the managed entity.
+    const updates = mockEm.nativeUpdate.mock.calls[0][2] as Record<string, unknown>
+    expect(updates.displayName).toBeUndefined()
+    expect(mockCustomerUserService.updateProfile).toHaveBeenCalledWith(
+      expect.objectContaining({ id: USER_ID }),
+      { displayName: 'X' },
+    )
+  })
+
+  it('PUT leaves the profile service alone when no display name is submitted', async () => {
+    const res = await PUT(request('PUT', CURRENT_VERSION, { isActive: false }), params)
+    expect(res.status).toBe(200)
+    expect(mockCustomerUserService.updateProfile).not.toHaveBeenCalled()
   })
 
   it('PUT is a no-op (no 409) when the client sends no expected-version header (strictly additive)', async () => {

@@ -6,6 +6,7 @@ import {
   verifyRegistrationResponse,
 } from '@simplewebauthn/server'
 import type { AuthenticatorTransportFuture } from '@simplewebauthn/types'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { z } from 'zod'
 import type {
   MfaMethodRecord,
@@ -24,35 +25,22 @@ import {
 
 const SETUP_TOKEN_VERSION = 'v1'
 
+const logger = createLogger('security').child({ component: 'passkey-provider' })
+
 const setupPayloadSchema = z.object({
   label: z.string().min(1).max(100).optional(),
   userName: z.string().min(1).max(255).optional(),
   authenticatorAttachment: z.enum(['platform', 'cross-platform']).optional(),
 })
 
-const setupConfirmationPayloadSchema = z.union([
-  z.object({
-    response: z.record(z.string(), z.unknown()),
-    label: z.string().min(1).max(100).optional(),
-  }),
-  z.object({
-    credentialId: z.string().min(1),
-    publicKey: z.string().min(1),
-    challenge: z.string().min(1),
-    transports: z.array(z.string().min(1)).optional(),
-    label: z.string().min(1).max(100).optional(),
-  }),
-])
+const setupConfirmationPayloadSchema = z.object({
+  response: z.record(z.string(), z.unknown()),
+  label: z.string().min(1).max(100).optional(),
+})
 
-const verifyPayloadSchema = z.union([
-  z.object({
-    response: z.record(z.string(), z.unknown()),
-  }),
-  z.object({
-    credentialId: z.string().min(1),
-    challenge: z.string().min(1),
-  }),
-])
+const verifyPayloadSchema = z.object({
+  response: z.record(z.string(), z.unknown()),
+})
 
 const setupTokenSchema = z.object({
   version: z.string().min(1),
@@ -169,61 +157,45 @@ export class PasskeyProvider implements MfaProviderInterface {
       throw new Error('Passkey setup session expired')
     }
 
-    if ('response' in parsed) {
-      const verification = await verifyRegistrationResponse({
-        response: parsed.response as never,
-        expectedChallenge: pending.challenge,
-        expectedOrigin: this.getExpectedOrigins(securityConfig),
-        expectedRPID: this.getRpId(securityConfig),
-        requireUserVerification: false,
-      })
+    const verification = await verifyRegistrationResponse({
+      response: parsed.response as never,
+      expectedChallenge: pending.challenge,
+      expectedOrigin: this.getExpectedOrigins(securityConfig),
+      expectedRPID: this.getRpId(securityConfig),
+      requireUserVerification: false,
+    })
 
-      if (!verification.verified || !verification.registrationInfo) {
-        throw new Error('Passkey registration verification failed')
-      }
-
-      const registrationInfo = verification.registrationInfo as {
-        credential?: {
-          id: string
-          publicKey: Uint8Array
-          counter: number
-          transports?: string[]
-        }
-        credentialID?: string
-        credentialPublicKey?: Uint8Array
-        counter?: number
-      }
-
-      const credentialId = registrationInfo.credential?.id ?? registrationInfo.credentialID
-      const publicKeyBytes = registrationInfo.credential?.publicKey ?? registrationInfo.credentialPublicKey
-      const counter = registrationInfo.credential?.counter ?? registrationInfo.counter ?? 0
-      const transports = this.normalizeTransports(registrationInfo.credential?.transports)
-
-      if (!credentialId || !publicKeyBytes) {
-        throw new Error('Passkey registration did not return credential data')
-      }
-
-      return {
-        metadata: {
-          credentialId,
-          credentialPublicKey: this.bytesToBase64Url(publicKeyBytes),
-          counter,
-          transports,
-          label: parsed.label ?? pending.label ?? 'Passkey',
-        },
-      }
+    if (!verification.verified || !verification.registrationInfo) {
+      throw new Error('Passkey registration verification failed')
     }
 
-    if (parsed.challenge !== pending.challenge) {
-      throw new Error('Invalid passkey setup challenge')
+    const registrationInfo = verification.registrationInfo as {
+      credential?: {
+        id: string
+        publicKey: Uint8Array
+        counter: number
+        transports?: string[]
+      }
+      credentialID?: string
+      credentialPublicKey?: Uint8Array
+      counter?: number
+    }
+
+    const credentialId = registrationInfo.credential?.id ?? registrationInfo.credentialID
+    const publicKeyBytes = registrationInfo.credential?.publicKey ?? registrationInfo.credentialPublicKey
+    const counter = registrationInfo.credential?.counter ?? registrationInfo.counter ?? 0
+    const transports = this.normalizeTransports(registrationInfo.credential?.transports)
+
+    if (!credentialId || !publicKeyBytes) {
+      throw new Error('Passkey registration did not return credential data')
     }
 
     return {
       metadata: {
-        credentialId: parsed.credentialId,
-        credentialPublicKey: parsed.publicKey,
-        counter: 0,
-        transports: parsed.transports ?? [],
+        credentialId,
+        credentialPublicKey: this.bytesToBase64Url(publicKeyBytes),
+        counter,
+        transports,
         label: parsed.label ?? pending.label ?? 'Passkey',
       },
     }
@@ -275,73 +247,64 @@ export class PasskeyProvider implements MfaProviderInterface {
     context?: MfaVerifyContext,
     runtimeContext?: MfaProviderRuntimeContext,
   ): Promise<boolean> {
-    const parsed = verifyPayloadSchema.parse(payload)
+    const parsed = verifyPayloadSchema.safeParse(payload)
+    if (!parsed.success) return false
     if (method.userId !== userId) return false
 
     const parsedContext = verifyContextSchema.safeParse(context)
+    if (!parsedContext.success) return false
+
     const securityConfig = this.resolveSecurityConfig(runtimeContext)
-    if (!parsedContext.success) {
-      if ('credentialId' in parsed) {
-        const metadataCredentialId = method.providerMetadata?.credentialId
-        return typeof metadataCredentialId === 'string' && metadataCredentialId === parsed.credentialId
-      }
-      return false
-    }
     const pending = parsedContext.data.challenge
     if (Date.now() - pending.createdAt > securityConfig.webauthn.challengeTtlMs) {
       return false
     }
 
-    if ('response' in parsed) {
-      const metadata = method.providerMetadata ?? {}
-      const credentialId = typeof metadata.credentialId === 'string' ? metadata.credentialId : null
-      const credentialPublicKey = typeof metadata.credentialPublicKey === 'string'
-        ? metadata.credentialPublicKey
-        : typeof metadata.publicKey === 'string'
-          ? metadata.publicKey
-          : null
-      const counter = typeof metadata.counter === 'number' && Number.isFinite(metadata.counter)
-        ? metadata.counter
-        : 0
+    const metadata = method.providerMetadata ?? {}
+    const credentialId = typeof metadata.credentialId === 'string' ? metadata.credentialId : null
+    const credentialPublicKey = typeof metadata.credentialPublicKey === 'string'
+      ? metadata.credentialPublicKey
+      : typeof metadata.publicKey === 'string'
+        ? metadata.publicKey
+        : null
+    const counter = typeof metadata.counter === 'number' && Number.isFinite(metadata.counter)
+      ? metadata.counter
+      : 0
 
-      if (!credentialId || !credentialPublicKey) {
-        return false
-      }
+    if (!credentialId || !credentialPublicKey) {
+      return false
+    }
 
-      const verification = await verifyAuthenticationResponse({
-        response: parsed.response as never,
-        expectedChallenge: pending.challenge,
-        expectedOrigin: this.getExpectedOrigins(securityConfig),
-        expectedRPID: this.getRpId(securityConfig),
-        requireUserVerification: false,
-        credential: {
-          id: credentialId,
-          publicKey: this.base64UrlToBytes(credentialPublicKey),
-          counter,
-          transports: this.normalizeTransports(metadata.transports),
-        },
+    const verification = await verifyAuthenticationResponse({
+      response: parsed.data.response as never,
+      expectedChallenge: pending.challenge,
+      expectedOrigin: this.getExpectedOrigins(securityConfig),
+      expectedRPID: this.getRpId(securityConfig),
+      requireUserVerification: false,
+      credential: {
+        id: credentialId,
+        publicKey: this.base64UrlToBytes(credentialPublicKey),
+        counter,
+        transports: this.normalizeTransports(metadata.transports),
+      },
+    }).catch((error: unknown) => {
+      logger.warn('Passkey assertion could not be verified', {
+        methodId: method.id,
+        rpId: this.getRpId(securityConfig),
+        err: error,
       })
+      return null
+    })
 
-      if (!verification.verified) {
-        return false
-      }
-
-      const nextCounter = verification.authenticationInfo?.newCounter
-      if (typeof nextCounter === 'number' && Number.isFinite(nextCounter)) {
-        const providerMetadata = method.providerMetadata ?? {}
-        providerMetadata.counter = nextCounter
-        method.providerMetadata = providerMetadata
-      }
-
-      return true
-    }
-
-    const metadataCredentialId = method.providerMetadata?.credentialId
-    if (typeof metadataCredentialId !== 'string' || metadataCredentialId !== parsed.credentialId) {
+    if (!verification?.verified) {
       return false
     }
-    if (pending.challenge !== parsed.challenge) {
-      return false
+
+    const nextCounter = verification.authenticationInfo?.newCounter
+    if (typeof nextCounter === 'number' && Number.isFinite(nextCounter)) {
+      const providerMetadata = method.providerMetadata ?? {}
+      providerMetadata.counter = nextCounter
+      method.providerMetadata = providerMetadata
     }
 
     return true

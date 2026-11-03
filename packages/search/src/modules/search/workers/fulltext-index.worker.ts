@@ -1,6 +1,10 @@
 import type { QueuedJob, JobContext, WorkerMeta } from '@open-mercato/queue'
 import type { Kysely } from 'kysely'
-import { FULLTEXT_INDEXING_QUEUE_NAME, type FulltextIndexJobPayload } from '../../../queue/fulltext-indexing'
+import {
+  FULLTEXT_INDEXING_QUEUE_NAME,
+  type FulltextIndexJobPayload,
+  type FulltextIndexJobType,
+} from '../../../queue/fulltext-indexing'
 import type { FullTextSearchStrategy } from '../../../strategies/fulltext.strategy'
 import type { SearchIndexer } from '../../../indexer/search-indexer'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -9,7 +13,7 @@ import type { EntityId } from '@open-mercato/shared/modules/entities'
 import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import type { ProgressService } from '@open-mercato/core/modules/progress/lib/progressService'
-import { searchDebug, searchDebugWarn, searchError } from '../../../lib/debug'
+import { searchDebug, searchDebugWarn, searchError, searchWarn } from '../../../lib/debug'
 import { clearReindexLock, updateReindexProgress } from '../lib/reindex-lock'
 import { hasActiveReindexProgress, incrementReindexProgress } from '../lib/reindex-progress'
 
@@ -73,13 +77,95 @@ async function advanceFulltextReindexProgress(params: {
 }
 
 /**
+ * Report a job that returned without indexing anything.
+ *
+ * A fulltext strategy that was never registered (no `MEILISEARCH_HOST`, so
+ * `createFulltextDriver()` returns null and `di.ts` pushes no strategy) makes
+ * every job a no-op. The bare `return` that follows leaves BullMQ reporting
+ * `completed` with zero failures and writes no `indexer_status_logs` row, so
+ * "fulltext is not configured" and "everything indexed fine" are
+ * indistinguishable from both signals an operator has.
+ *
+ * Deliberately does NOT throw. A deployment may legitimately run without
+ * Meilisearch, and throwing would retry these jobs forever, turning a
+ * configuration choice into a queue backlog. The `isAvailable()` check further
+ * down throws precisely because a registered-but-unreachable Meili is expected
+ * to recover; an unregistered strategy is not.
+ *
+ * Reported ONCE per (tenant, job type, reason) per process, deliberately.
+ * `searchStrategies` and `searchIndexer` are registered together in one
+ * `container.register` call, from a `strategies` array that only receives a
+ * `FullTextSearchStrategy` when the driver exists - so the outcome of this guard
+ * is static for the lifetime of the process and rows 2..N carry exactly the
+ * information of row 1. The surface an operator reads is the newest 100
+ * `indexer_status_logs` rows across ALL sources, so an unthrottled row per job
+ * would saturate that window under ordinary write traffic and push out every
+ * other source's rows - trading invisibility for a panel showing one signal a
+ * hundred times. Do not "fix" this back to per-job.
+ */
+const reportedSkipKeys = new Set<string>()
+
+/** Test seam: the memo above is process-scoped, so a suite must be able to clear it. */
+export function __resetSkippedWithoutIndexingMemo(): void {
+  reportedSkipKeys.clear()
+}
+
+async function reportSkippedWithoutIndexing(params: {
+  em: EntityManager | null
+  jobType: FulltextIndexJobType
+  tenantId: string
+  organizationId: string | null
+  jobId: string
+  reason: string
+}): Promise<void> {
+  const memoKey = `${params.tenantId}:${params.jobType}:${params.reason}`
+  if (reportedSkipKeys.has(memoKey)) return
+  reportedSkipKeys.add(memoKey)
+
+  const message = `${params.reason}; job skipped without indexing`
+  // `searchWarn`, not `searchError`: this is an operational warning about a
+  // configuration the guard above calls legitimate, it is the level the sibling
+  // vector worker uses for the same skip, and it agrees with the `level: 'warn'`
+  // of the row written beside it. It is un-gated by OM_SEARCH_DEBUG either way,
+  // which is the property this fix needs.
+  searchWarn('fulltext-index.worker', message, {
+    jobId: params.jobId,
+    tenantId: params.tenantId,
+    jobType: params.jobType,
+  })
+  await recordIndexerLog(
+    { em: params.em ?? undefined },
+    {
+      source: 'fulltext',
+      handler: `worker:fulltext:${params.jobType}`,
+      level: 'warn',
+      message,
+      tenantId: params.tenantId,
+      // No `organizationId`: every other recordIndexerLog call in this handler
+      // omits it, so all existing `source: 'fulltext'` rows persist with
+      // organization_id = NULL - and the unrestricted indexer-status view filters
+      // on `organization_id IS NULL` (query_index/api/status.ts). A non-null org
+      // here would hide this row in exactly the view an operator lands on when
+      // asking "did indexing run?". The value stays in `details` for triage.
+      details: {
+        jobId: params.jobId,
+        jobType: params.jobType,
+        organizationId: params.organizationId,
+        skippedWithoutIndexing: true,
+      },
+    },
+  )
+}
+
+/**
  * Process a fulltext indexing job.
  *
  * This handler processes single record indexing, batch indexing, deletion, and purge
  * operations for the fulltext search strategy.
  *
- * All indexing operations (single and batch) use searchIndexer.indexRecordById() to load
- * fresh data, ensuring consistency with the vector worker pattern.
+ * Single-record jobs load fresh data via searchIndexer.indexRecordById(). Batch jobs load
+ * fresh data per record via searchIndexer.indexRecordsById(), which flushes the whole batch
+ * through a single bulk write instead of one write per record.
  *
  * @param job - The queued job containing payload
  * @param jobCtx - Queue job context with job ID and attempt info
@@ -91,6 +177,8 @@ export async function handleFulltextIndexJob(
   ctx: HandlerContext,
 ): Promise<void> {
   const { jobType, tenantId } = job.payload
+  const payloadOrganizationId =
+    'organizationId' in job.payload ? job.payload.organizationId ?? null : null
 
   if (!tenantId) {
     searchDebugWarn('fulltext-index.worker', 'Skipping job with missing tenantId', {
@@ -117,6 +205,11 @@ export async function handleFulltextIndexJob(
   try {
     searchIndexer = ctx.resolve<SearchIndexer>('searchIndexer')
   } catch {
+    // Left at debug level to match vector-index.worker.ts for the identical
+    // condition. It is also close to unreachable: `searchIndexer` and
+    // `searchStrategies` are registered in the same `container.register` call, so
+    // the only way this throws is that search DI never ran - in which case the
+    // next guard reports it anyway.
     searchDebugWarn('fulltext-index.worker', 'searchIndexer not available')
   }
 
@@ -128,12 +221,26 @@ export async function handleFulltextIndexJob(
       (s: unknown) => (s as { id?: string })?.id === 'fulltext',
     ) as FullTextSearchStrategy | undefined
   } catch {
-    searchDebugWarn('fulltext-index.worker', 'searchStrategies not available')
+    await reportSkippedWithoutIndexing({
+      em,
+      jobType,
+      tenantId,
+      organizationId: payloadOrganizationId,
+      jobId: jobCtx.jobId,
+      reason: 'searchStrategies not available',
+    })
     return
   }
 
   if (!fulltextStrategy) {
-    searchDebugWarn('fulltext-index.worker', 'Fulltext strategy not configured')
+    await reportSkippedWithoutIndexing({
+      em,
+      jobType,
+      tenantId,
+      organizationId: payloadOrganizationId,
+      jobId: jobCtx.jobId,
+      reason: 'Fulltext strategy not configured (MEILISEARCH_HOST unset?)',
+    })
     return
   }
 
@@ -202,7 +309,7 @@ export async function handleFulltextIndexJob(
       return
     }
 
-    // ========== BATCH-INDEX: Use searchIndexer.indexRecordById() for fresh data ==========
+    // ========== BATCH-INDEX: Load fresh data, write the whole batch in one call ==========
     if (jobType === 'batch-index') {
       const { records, organizationId } = job.payload
       if (!records || records.length === 0) {
@@ -216,30 +323,13 @@ export async function handleFulltextIndexJob(
         throw new Error('searchIndexer not available for batch indexing')
       }
 
-      // Process each record using indexRecordById (same pattern as vector worker)
-      let successCount = 0
-      let failCount = 0
-
-      for (const { entityId, recordId } of records) {
-        try {
-          const result = await searchIndexer.indexRecordById({
-            entityId: entityId as EntityId,
-            recordId,
-            tenantId,
-            organizationId,
-          })
-          if (result.action === 'indexed') {
-            successCount++
-          }
-        } catch (error) {
-          failCount++
-          searchDebugWarn('fulltext-index.worker', 'Failed to index record in batch', {
-            entityId,
-            recordId,
-            error: error instanceof Error ? error.message : error,
-          })
-        }
-      }
+      // Load and index the whole batch through a single bulk write instead of
+      // one indexRecordById() call per record.
+      const { indexed: successCount, skipped: skippedCount } = await searchIndexer.indexRecordsById({
+        items: records.map(({ entityId, recordId }) => ({ entityId: entityId as EntityId, recordId })),
+        tenantId,
+        organizationId,
+      })
 
       await advanceFulltextReindexProgress({
         db,
@@ -255,7 +345,7 @@ export async function handleFulltextIndexJob(
         tenantId,
         requestedCount: records.length,
         successCount,
-        failCount,
+        skippedCount,
       })
 
       await recordIndexerLog(
@@ -265,7 +355,7 @@ export async function handleFulltextIndexJob(
           handler: 'worker:fulltext:batch-index',
           message: `Indexed ${successCount}/${records.length} records to fulltext`,
           tenantId,
-          details: { jobId: jobCtx.jobId, requestedCount: records.length, successCount, failCount },
+          details: { jobId: jobCtx.jobId, requestedCount: records.length, successCount, skippedCount },
         },
       )
       return

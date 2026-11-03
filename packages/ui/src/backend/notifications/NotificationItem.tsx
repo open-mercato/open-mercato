@@ -7,6 +7,7 @@ import { IconButton } from '../../primitives/icon-button'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { formatRelativeTime } from '@open-mercato/shared/lib/time'
 import type { NotificationDto, NotificationRendererProps, NotificationTypeAction } from '@open-mercato/shared/modules/notifications/types'
+import { useOptionalLocale } from '@open-mercato/shared/lib/i18n/context'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import type { ComponentType } from 'react'
 
@@ -33,6 +34,15 @@ function resolveNotificationText(params: {
     return t(fallback, variables ?? undefined)
   }
   return ''
+}
+
+function translateActionLabel(action: NotificationDto['actions'][number], t: TranslateFn): string {
+  return action.labelKey ? t(action.labelKey, action.label) : t(action.label, action.label)
+}
+
+function resolveActionLabel(actionId: string, actions: NotificationDto['actions'], t: TranslateFn): string {
+  const action = actions.find((candidate) => candidate.id === actionId)
+  return action ? translateActionLabel(action, t) : actionId
 }
 
 const severityIcons = {
@@ -75,6 +85,7 @@ export function NotificationItem({
   customRenderer: CustomRenderer,
 }: NotificationItemProps) {
   const router = useRouter()
+  const locale = useOptionalLocale()
   const [executing, setExecuting] = React.useState<string | null>(null)
 
   const isUnread = notification.status === 'unread'
@@ -96,7 +107,7 @@ export function NotificationItem({
     variables: notification.bodyVariables ?? undefined,
     t,
   })
-  const timeAgo = formatRelativeTime(notification.createdAt, { translate: t }) ?? ''
+  const timeAgo = formatRelativeTime(notification.createdAt, { locale, translate: t }) ?? ''
   const sourceLabel = humanizeModuleId(notification.sourceModule)
 
   const handleClick = async () => {
@@ -106,6 +117,12 @@ export function NotificationItem({
 
   const handleAction = async (actionId: string, event?: React.MouseEvent) => {
     event?.stopPropagation()
+    if (notification.status === 'actioned') {
+      const actionHref = notification.actions.find((action) => action.id === actionId)?.href
+      const fallbackHref = actionHref ?? notification.linkHref
+      if (fallbackHref) router.push(fallbackHref)
+      return
+    }
     setExecuting(actionId)
     try {
       const result = await onExecuteAction(actionId)
@@ -125,6 +142,7 @@ export function NotificationItem({
     labelKey: action.labelKey ?? action.label,
     variant: action.variant as NotificationTypeAction['variant'],
     icon: action.icon,
+    href: action.href,
   }))
 
   if (CustomRenderer) {
@@ -225,7 +243,7 @@ export function NotificationItem({
                   onClick={(event) => handleAction(action.id, event)}
                   disabled={executing !== null}
                 >
-                  {action.labelKey ? t(action.labelKey, action.label) : t(action.label, action.label)}
+                  {translateActionLabel(action, t)}
                   {executing === action.id ? <Loader2 className="ml-1 size-3 animate-spin" /> : null}
                 </Button>
               )
@@ -235,7 +253,9 @@ export function NotificationItem({
 
         {notification.status === 'actioned' && notification.actionTaken ? (
           <p className="mt-1 text-xs italic text-muted-foreground">
-            {t('notifications.actionTaken', 'Action taken: {action}', { action: notification.actionTaken })}
+            {t('notifications.actionTaken', 'Action taken: {action}', {
+              action: resolveActionLabel(notification.actionTaken, notification.actions, t),
+            })}
           </p>
         ) : null}
       </div>

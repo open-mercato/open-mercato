@@ -39,6 +39,7 @@ export type CustomFieldDefDto = {
   dictionaryId?: string
   dictionaryInlineCreate?: boolean
   defaultValue?: string | number | boolean | null
+  relatedEntityId?: string
 }
 
 export type CustomFieldsetGroupDto = {

@@ -54,6 +54,7 @@ export default function NewSchedulePage() {
       <PageBody>
         <CrudForm<ScheduleFormValues>
           title={t('scheduler.create.title', 'Create Schedule')}
+          titleHeadingLevel={1}
           backHref="/backend/config/scheduled-jobs"
           fields={fields}
           groups={groups}

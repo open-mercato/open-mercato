@@ -1,6 +1,8 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import * as React from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { z } from 'zod'
 import { Play, Square } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
@@ -8,6 +10,11 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { extensionPoints } from '@open-mercato/core/modules/staff/extension-points'
+import { registerComponent } from '@open-mercato/shared/modules/widgets/component-registry'
+import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
+import { callbackProp } from '../time-tracking/componentContracts'
 import { ProjectColorDot } from './ProjectColorDot'
 import { useActiveTimesheetTimer } from './useActiveTimesheetTimer'
 import { startTimerEntry } from './startTimer'
@@ -52,12 +59,16 @@ function getToday(): string {
   return `${year}-${month}-${day}`
 }
 
-export function TimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarProps) {
+function DefaultTimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarProps) {
   const t = useT()
   const { runMutation, retryLastMutation } = useGuardedMutation<TimerMutationContext>({
     contextId: TIMER_MUTATION_CONTEXT_ID,
     blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
   })
+  const timerBarInjectionContext = useMemo(
+    () => ({ staffMemberId, retryLastMutation }),
+    [retryLastMutation, staffMemberId],
+  )
 
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const [description, setDescription] = useState('')
@@ -306,6 +317,12 @@ export function TimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarPr
         {formatElapsed(elapsedSeconds)}
       </span>
 
+      <InjectionSpot
+        spotId={extensionPoints.hosts.timerBarActions.spotId}
+        context={timerBarInjectionContext}
+        data={{ isRunning, activeEntryId, selectedProjectId }}
+      />
+
       {isRunning ? (
         <IconButton
           type="button"
@@ -331,4 +348,35 @@ export function TimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarPr
       )}
     </div>
   )
+}
+
+const projectOptionSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  code: z.string().nullable(),
+  color: z.string().nullable().optional(),
+})
+
+const timerBarPropsSchema: z.ZodType<TimerBarProps> = z.object({
+  projects: z.array(projectOptionSchema),
+  staffMemberId: z.string().nullable(),
+  onTimerStopped: callbackProp<() => void>(),
+})
+
+registerComponent<TimerBarProps>({
+  id: extensionPoints.hosts.timerBarComponent.componentId,
+  component: DefaultTimerBar,
+  metadata: {
+    module: 'staff',
+    description: 'Running-timer bar with the project picker and start/stop controls.',
+    propsSchema: timerBarPropsSchema,
+  },
+})
+
+export function TimerBar(props: TimerBarProps) {
+  const Resolved = useRegisteredComponent<TimerBarProps>(
+    extensionPoints.hosts.timerBarComponent.componentId,
+    DefaultTimerBar,
+  )
+  return <Resolved {...props} />
 }

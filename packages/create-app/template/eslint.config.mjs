@@ -7,6 +7,7 @@ const ignores = [
   'node_modules/**',
   '.next/**',
   '.mercato/**',
+  '.ai/framework-context/**',
   'dist/**',
   'out/**',
   'build/**',

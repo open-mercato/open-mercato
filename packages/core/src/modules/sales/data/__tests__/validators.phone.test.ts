@@ -13,6 +13,7 @@ const SCOPE = {
 
 const VALID_PHONE = '+1 212 555 1234'
 const INVALID_PHONE = 'test phone'
+const ORDER_LINE = { currencyCode: 'USD', quantity: 1, name: 'Line' }
 
 function findPhoneIssue(
   result: { success: false; error: { issues: { message: string; path: (string | number)[] }[] } },
@@ -114,6 +115,7 @@ describe('orderCreateSchema — customerSnapshot phone validation', () => {
   const base = {
     ...SCOPE,
     currencyCode: 'USD',
+    lines: [ORDER_LINE],
   }
 
   it('accepts a valid customer snapshot phone', () => {

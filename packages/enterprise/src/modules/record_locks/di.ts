@@ -13,44 +13,48 @@ import { createRecordLockCrudMutationGuardService } from './lib/crudMutationGuar
 
 export function register(container: AppContainer) {
   container.register({
-    recordLockService: asFunction((
-      em: EntityManager,
-      moduleConfigService?: ModuleConfigService | null,
-      actionLogService?: ActionLogService | null,
-      rbacService?: RbacService | null,
-    ) =>
+    recordLockService: asFunction((cradle: {
+      em: EntityManager
+      moduleConfigService?: ModuleConfigService | null
+      actionLogService?: ActionLogService | null
+      rbacService?: RbacService | null
+    }) =>
       createRecordLockService({
-        em,
-        moduleConfigService: moduleConfigService ?? null,
-        actionLogService: actionLogService ?? null,
-        rbacService: rbacService ?? null,
+        em: cradle.em,
+        moduleConfigService: cradle.moduleConfigService ?? null,
+        actionLogService: cradle.actionLogService ?? null,
+        rbacService: cradle.rbacService ?? null,
       }),
-    ).scoped(),
+    ).scoped().proxy(),
     // CRUD guard decorator: chains the OSS `updated_at` floor first (built here
     // because this DI key overrides the platform default), then adds the
     // record_locks enrichment. record_locks can only ADD a 409, never skip the
     // floor (S1/H2). Spec: .ai/specs/enterprise/2026-06-09-record-locks-unified-coverage.md (Phase 0)
-    crudMutationGuardService: asFunction((
-      recordLockService: RecordLockService,
-      em: EntityManager,
-    ) =>
+    // `.proxy()`: CLASSIC injection resolves by parameter NAME, which a bundler
+    // may rename — see the comment on the platform default in
+    // packages/shared/src/lib/di/container.ts. A silent failure here disables
+    // the record-lock 409 as well as the OSS floor beneath it.
+    crudMutationGuardService: asFunction((cradle: {
+      recordLockService: RecordLockService
+      em: EntityManager
+    }) =>
       createRecordLockCrudMutationGuardService(
-        recordLockService,
+        cradle.recordLockService,
         createOptimisticLockGuardService({
-          getEm: () => em,
+          getEm: () => cradle.em,
           readers: getAllOptimisticLockReaders(),
         }),
       ),
-    ).scoped(),
+    ).scoped().proxy(),
     // Command guard override: lock-backed `resolveExpected` derived from
     // authoritative server state (never requiring a client lock token, H2),
     // awaited by `enforceCommandOptimisticLockWithGuards`. The OSS floor still
     // runs first inside that runner.
-    commandOptimisticLockGuardService: asFunction((recordLockService: RecordLockService) =>
+    commandOptimisticLockGuardService: asFunction((cradle: { recordLockService: RecordLockService }) =>
       createCommandOptimisticLockGuardService({
         resolveExpected: ({ expectedFromHeader, resourceKind }) =>
-          recordLockService.resolveExpectedVersion({ expectedFromHeader, resourceKind }),
+          cradle.recordLockService.resolveExpectedVersion({ expectedFromHeader, resourceKind }),
       }),
-    ).scoped(),
+    ).scoped().proxy(),
   })
 }

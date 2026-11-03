@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { Organization, Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import { CrudHttpError, forbidden } from '@open-mercato/shared/lib/crud/errors'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { enforceTenantSelection, resolveIsSuperAdmin } from '@open-mercato/core/modules/auth/lib/tenantAccess'
@@ -127,6 +128,10 @@ export async function resolveEnforcementContext(req: Request): Promise<Enforceme
 export async function mapEnforcementError(error: unknown): Promise<NextResponse> {
   if (error instanceof CrudHttpError) {
     return NextResponse.json(await localizeSecurityApiBody(error.body), { status: error.status })
+  }
+  const interceptorRejection = getCommandInterceptorHttpRejection(error)
+  if (interceptorRejection) {
+    return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
   }
   if (isMfaEnforcementServiceError(error)) {
     return securityApiError(error.statusCode, error.message)

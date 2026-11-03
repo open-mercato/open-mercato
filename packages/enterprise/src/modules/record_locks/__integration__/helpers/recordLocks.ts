@@ -587,7 +587,7 @@ export async function createInteractionFixture(
 ): Promise<string> {
   const response = await apiRequest(request, 'POST', '/api/customers/interactions', {
     token,
-    data: { entityId: input.entityId, interactionType: input.interactionType ?? 'note', title: input.title, status: 'planned' },
+    data: { entityId: input.entityId, interactionType: input.interactionType ?? 'call', title: input.title, status: 'planned' },
   });
   expect(response.ok(), `Failed POST interaction: ${response.status()}`).toBeTruthy();
   const payload = (await readJsonSafe(response)) as Record<string, unknown> | null;
@@ -920,7 +920,16 @@ export async function createOrderFixture(
   token: string,
   currencyCode = 'USD',
 ): Promise<string> {
-  return createSalesEntity(request, token, '/api/sales/orders', { currencyCode }, ['id', 'orderId']);
+  return createSalesEntity(request, token, '/api/sales/orders', {
+    currencyCode,
+    lines: [{
+      currencyCode,
+      quantity: 1,
+      name: 'QA seed line',
+      unitPriceNet: 0,
+      unitPriceGross: 0,
+    }],
+  }, ['id', 'orderId']);
 }
 
 export async function createQuoteFixture(

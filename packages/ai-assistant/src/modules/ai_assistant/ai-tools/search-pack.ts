@@ -7,11 +7,107 @@
  */
 import { z } from 'zod'
 import type { SearchOptions, SearchResult, SearchStrategyId } from '@open-mercato/shared/modules/search'
+import {
+  canReadSearchEntity,
+  filterSearchResultsByEntityAccess,
+  resolveReadableEntityTypes,
+  type SearchEntityAccessSubject,
+  type SearchEntityConfigLookup,
+  type SearchEntityDenyReason,
+} from '@open-mercato/shared/lib/search/entityAccess'
 import { defineAiTool } from '../lib/ai-tool-definition'
-import type { AiToolDefinition } from '../lib/types'
+import type { AiToolDefinition, McpToolContext } from '../lib/types'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
+import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
+import type { AwilixContainer } from 'awilix'
 
 type SearchServiceLike = {
   search: (query: string, options: SearchOptions) => Promise<SearchResult[]>
+}
+
+class SearchToolAuthorizationError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'SearchToolAuthorizationError'
+  }
+}
+
+function resolveSearchIndexer(ctx: McpToolContext): SearchEntityConfigLookup {
+  try {
+    const indexer = ctx.container.resolve('searchIndexer') as SearchEntityConfigLookup | undefined
+    if (indexer && typeof indexer.getEntityConfig === 'function' && typeof indexer.getAllEntityConfigs === 'function') {
+      return indexer
+    }
+  } catch {
+    // fall through to throw
+  }
+  throw new SearchToolAuthorizationError('[internal] Search entity registry unavailable')
+}
+
+function authorizeEntityAccess(
+  entityType: string,
+  lookup: SearchEntityConfigLookup,
+  subject: SearchEntityAccessSubject,
+): void {
+  if (subject.isSuperAdmin) return
+  let denial: SearchEntityDenyReason | undefined
+  const allowed = canReadSearchEntity(entityType, lookup, subject, {
+    onDeny: (_, reason) => {
+      denial = reason
+    },
+  })
+  if (allowed) return
+  if (denial === 'unconfigured') {
+    throw new SearchToolAuthorizationError(`[internal] Entity type "${entityType}" is not configured for search`)
+  }
+  if (denial === 'no-acl-features') {
+    throw new SearchToolAuthorizationError(
+      `[internal] Entity type "${entityType}" does not declare aclFeatures; access denied`,
+    )
+  }
+  const config = lookup.getEntityConfig(entityType)
+  const required = config?.aclFeatures ?? []
+  throw new SearchToolAuthorizationError(
+    `[internal] Insufficient permissions for entity "${entityType}". Required: ${required.join(', ')}`,
+  )
+}
+
+/**
+ * Resolve the actor's allowed-organization scope the same way the HTTP search
+ * route does, so this tool pack can never return results outside a
+ * restricted user's organization allowlist — even when their current
+ * organization is null. Mirrors packages/search/.../api/search/route.ts.
+ *
+ * `organizationId` is the re-validated selection (`scope.selectedId`), not the
+ * raw `ctx.organizationId` — `SearchOptions.organizationId` takes precedence
+ * over `organizationIds` in `normalizeOrganizationFilter`, so passing the
+ * unvalidated context value through would let a stale/out-of-allowlist
+ * selection bypass the allowlist below.
+ */
+async function resolveActorOrganizationScope(ctx: McpToolContext): Promise<{
+  organizationId: string | undefined
+  organizationIds: string[] | undefined
+  denyAll: boolean
+}> {
+  if (!ctx.userId) return { organizationId: undefined, organizationIds: undefined, denyAll: true }
+  const auth: AuthContext = {
+    sub: ctx.userId,
+    tenantId: ctx.tenantId,
+    orgId: ctx.organizationId,
+    isSuperAdmin: ctx.isSuperAdmin,
+  }
+  const scope = await resolveOrganizationScopeForRequest({
+    container: ctx.container as unknown as AwilixContainer,
+    auth,
+    selectedId: ctx.organizationId,
+  })
+  const scopeFilter = resolveOrganizationScopeFilter(scope, auth)
+  const denyAll = Array.isArray(scope.filterIds) && scope.filterIds.length === 0
+  const organizationId = typeof scope.selectedId === 'string' && scope.selectedId.trim().length > 0
+    ? scope.selectedId.trim()
+    : undefined
+  return { organizationId, organizationIds: scopeFilter.organizationIds, denyAll }
 }
 
 const hybridSearchInput = z.object({
@@ -49,13 +145,64 @@ const hybridSearchTool = defineAiTool({
     const service = ctx.container.resolve<SearchServiceLike>('searchService')
     const limit = input.limit ?? 20
     const started = Date.now()
-    const results = await service.search(input.q, {
+    const subject: SearchEntityAccessSubject = {
+      grantedFeatures: ctx.userFeatures,
+      isSuperAdmin: ctx.isSuperAdmin,
+    }
+
+    if (ctx.isSuperAdmin) {
+      const results = await service.search(input.q, {
+        tenantId: ctx.tenantId,
+        organizationId: ctx.organizationId,
+        limit,
+        strategies: input.strategies as SearchStrategyId[] | undefined,
+        entityTypes: input.entityTypes,
+      })
+      const timingMs = Date.now() - started
+      const strategiesUsed = Array.from(
+        new Set(results.map((result) => result.source).filter((id): id is SearchStrategyId => typeof id === 'string')),
+      )
+      return {
+        query: input.q,
+        totalResults: results.length,
+        results,
+        strategiesUsed,
+        timing: { ms: timingMs },
+      }
+    }
+
+    const lookup = resolveSearchIndexer(ctx)
+    const readableEntityTypes = resolveReadableEntityTypes(lookup, subject, input.entityTypes)
+    if (readableEntityTypes && readableEntityTypes.length === 0) {
+      return {
+        query: input.q,
+        totalResults: 0,
+        results: [],
+        strategiesUsed: [],
+        timing: { ms: Date.now() - started },
+      }
+    }
+
+    const orgScope = await resolveActorOrganizationScope(ctx)
+    if (orgScope.denyAll) {
+      return {
+        query: input.q,
+        totalResults: 0,
+        results: [],
+        strategiesUsed: [],
+        timing: { ms: Date.now() - started },
+      }
+    }
+
+    const rawResults = await service.search(input.q, {
       tenantId: ctx.tenantId,
-      organizationId: ctx.organizationId,
+      organizationId: orgScope.organizationId,
+      organizationIds: orgScope.organizationIds,
       limit,
       strategies: input.strategies as SearchStrategyId[] | undefined,
-      entityTypes: input.entityTypes,
+      entityTypes: readableEntityTypes,
     })
+    const results = filterSearchResultsByEntityAccess(rawResults, lookup, subject)
     const timingMs = Date.now() - started
     const strategiesUsed = Array.from(
       new Set(results.map((result) => result.source).filter((id): id is SearchStrategyId => typeof id === 'string')),
@@ -88,13 +235,35 @@ const getRecordContextTool = defineAiTool({
       throw new Error('Tenant context is required for search.get_record_context')
     }
     const input = getRecordContextInput.parse(rawInput)
+    const subject: SearchEntityAccessSubject = {
+      grantedFeatures: ctx.userFeatures,
+      isSuperAdmin: ctx.isSuperAdmin,
+    }
+
+    let lookup: SearchEntityConfigLookup | undefined
+    if (!ctx.isSuperAdmin) {
+      lookup = resolveSearchIndexer(ctx)
+      authorizeEntityAccess(input.entityId, lookup, subject)
+    }
+
+    const orgScope = await resolveActorOrganizationScope(ctx)
+    if (orgScope.denyAll) {
+      return {
+        found: false as const,
+        entityId: input.entityId,
+        recordId: input.recordId,
+      }
+    }
+
     const service = ctx.container.resolve<SearchServiceLike>('searchService')
-    const results = await service.search(input.recordId, {
+    const rawResults = await service.search(input.recordId, {
       tenantId: ctx.tenantId,
-      organizationId: ctx.organizationId,
+      organizationId: orgScope.organizationId,
+      organizationIds: orgScope.organizationIds,
       limit: 5,
       entityTypes: [input.entityId],
     })
+    const results = lookup ? filterSearchResultsByEntityAccess(rawResults, lookup, subject) : rawResults
     const match = results.find((result) => result.recordId === input.recordId)
     if (!match) {
       return {

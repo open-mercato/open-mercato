@@ -61,6 +61,12 @@ const events = [
     category: 'lifecycle' as const,
     clientBroadcast: true,
   },
+  {
+    id: 'ai_assistant.moderation_flag.created',
+    label: 'AI Moderation Flag Created',
+    entity: 'ai_moderation_flag',
+    category: 'system' as const,
+  },
 ] as const
 
 export const eventsConfig = createModuleEvents({
@@ -146,6 +152,21 @@ export interface AiConversationUnsharedPayload {
   organizationId: string | null
   ownerUserId: string
   participantUserId: string
+}
+
+/**
+ * Emitted (best-effort) when the input moderation gate blocks a turn and the
+ * audit row is persisted. Carries category flags only — never prompt content.
+ *
+ * Spec `2026-06-04-ai-input-moderation-and-safety-identifiers`.
+ */
+export interface AiModerationFlagCreatedPayload {
+  id: string
+  tenantId: string
+  organizationId: string | null
+  agentId: string
+  userId: string
+  categories: string[]
 }
 
 export default eventsConfig

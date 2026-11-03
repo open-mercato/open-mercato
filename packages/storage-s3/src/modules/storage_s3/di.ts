@@ -2,12 +2,17 @@ import { asFunction, asValue } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import {
   registerExternalStorageDriver,
+  registerStorageDriverValidator,
+  getAttachmentStoragePolicy,
   registerExternalCredentialEnhancer,
 } from '@open-mercato/core/modules/attachments/lib/drivers'
+import { validateS3StorageConfiguration } from './lib/storage-validation'
 import { S3StorageDriver } from './lib/s3-driver'
 import { createStorageService } from './lib/storage-service'
+import type { AttachmentQuotaService } from '@open-mercato/core/modules/attachments/lib/quota-service'
 import { s3HealthCheck } from './lib/health'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { scheduleStorageS3QuotaRecovery } from './lib/quota-recovery-queue'
 
 const logger = createLogger('storage_s3')
 
@@ -17,6 +22,7 @@ type IntegrationCredentialsService = {
 
 // Module-level registration — runs at import time, before any DI container is built.
 // This avoids the singleton-proxy resolution issue when registering via DI.
+registerStorageDriverValidator('s3', validateS3StorageConfiguration)
 registerExternalStorageDriver('s3', (config: Record<string, unknown>) => {
   logger.debug('Creating S3StorageDriver', {
     bucket: config.bucket,
@@ -60,6 +66,7 @@ export function register(container: AppContainer) {
         sessionToken: creds.sessionToken ? String(creds.sessionToken) : undefined,
       }
     } catch (err) {
+      if (getAttachmentStoragePolicy() === 'strict') throw err
       logger.warn('Credential enhancer failed, using scoped partition config', { err })
       return scopedConfig
     }
@@ -67,14 +74,22 @@ export function register(container: AppContainer) {
 
   container.register({
     s3HealthCheck: asValue(s3HealthCheck),
+    storageS3QuotaRecoveryScheduler: asValue(scheduleStorageS3QuotaRecovery),
     storageService: asFunction(
-      ({ integrationCredentialsService }: { integrationCredentialsService: IntegrationCredentialsService }) => {
+      ({ integrationCredentialsService, attachmentQuotaService, storageS3QuotaRecoveryScheduler }: {
+        integrationCredentialsService: IntegrationCredentialsService
+        attachmentQuotaService: AttachmentQuotaService
+        storageS3QuotaRecoveryScheduler: (
+          payload: { reservationId: string; tenantId: string; organizationId: string },
+          delayMs: number,
+        ) => Promise<void>
+      }) => {
         // StorageService factory — builds the service lazily using credentials
         // resolved from the Integration Marketplace per request.
         return {
           async _resolveService(scope: { tenantId: string; organizationId: string }) {
             const creds = await integrationCredentialsService.resolve('storage_s3', scope)
-            if (!creds) throw new Error('S3 storage integration is not configured for this tenant.')
+            if (!creds) throw new Error('[internal] S3 storage integration is not configured for this tenant.')
             return createStorageService({
               authMode: creds.authMode === 'ambient' || creds.authMode === 'access_keys'
                 ? (creds.authMode as 'ambient' | 'access_keys')
@@ -86,6 +101,8 @@ export function register(container: AppContainer) {
               accessKeyId: creds.accessKeyId ? String(creds.accessKeyId) : undefined,
               secretAccessKey: creds.secretAccessKey ? String(creds.secretAccessKey) : undefined,
               sessionToken: creds.sessionToken ? String(creds.sessionToken) : undefined,
+              quotaService: attachmentQuotaService,
+              quotaRecoveryScheduler: storageS3QuotaRecoveryScheduler,
               organizationId: scope.organizationId,
               tenantId: scope.tenantId,
               // Credentials are resolved from the Integration Marketplace (encrypted at rest)

@@ -1,0 +1,56 @@
+name: Enterprise Contribution Guard
+
+# packages/enterprise/ is commercial, proprietary software — external
+# contributions to it cannot be accepted (see CONTRIBUTING.md § Enterprise
+# Module Contributions). This fails the check rather than labeling the PR, so
+# it needs only the default read-only `pull_request` token (no write scope,
+# safe to run untrusted fork code against) and re-evaluates on every push
+# with no extra state to manage: dropping the offending commits makes the
+# next run pass on its own. Checks both the PR opener (commit author emails
+# are spoofable) and every commit author — an allowlisted author opening the
+# PR does not clear commits someone else pushes to the same branch afterward.
+permissions:
+  contents: read
+  pull-requests: read
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: enterprise-contribution-guard-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      # Only the guard script itself is checked out, pinned to the PR's base
+      # ref — never the PR head — so a PR can't ship its own copy of this
+      # file to neutralize the check.
+      - name: Check out the guard script
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          sparse-checkout: scripts/ci/enterprise-contribution-guard.ts
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.19.0
+
+      - name: Block external changes to packages/enterprise
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          if [ -f scripts/ci/enterprise-contribution-guard.ts ]; then
+            node scripts/ci/enterprise-contribution-guard.ts
+          else
+            # Bootstrap case: the PR that introduces this script can't check
+            # it out from its own base ref, since the base doesn't have it
+            # yet. Every PR after this one merges will have it.
+            echo "Guard script not present on the base ref yet (expected for the PR introducing it); skipping."
+          fi

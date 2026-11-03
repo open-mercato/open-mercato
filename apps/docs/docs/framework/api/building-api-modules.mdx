@@ -619,6 +619,23 @@ const crud = makeCrudRoute({
 export const { GET, POST, PUT, DELETE } = crud;
 ```
 
+:::note Who maintains the query index on the `actions.*` path
+
+A verb configured through `actions.*` executes via the command bus, which flushes the CRUD
+side effects the **command handler** queued — the route never marks the record itself. The
+route's own `indexer:` declaration is still honoured: it is handed to the data engine for
+the duration of that command and applied to a handler mark that carries no `indexer` of its
+own, so a handler ending in `emitCrudSideEffects({ ..., events })` indexes the record under
+the route's `entityType`. A handler that passes its own `indexer:` keeps it, and the
+declaration only ever applies to marks for the route's own `orm.entity` class, so a handler
+that also marks a related entity is unaffected.
+
+A handler that queues **no** side effect at all indexes nothing — there is no mark to
+complete. That case is logged as a warning naming the route, verb and command id, so a
+projection that silently stops updating is diagnosable instead of invisible.
+
+:::
+
 ### 4.2 OpenAPI Specification
 
 ```ts title="packages/<pkg>/src/modules/tasks/api/openapi.ts"

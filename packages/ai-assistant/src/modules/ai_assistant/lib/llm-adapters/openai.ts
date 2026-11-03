@@ -10,7 +10,9 @@
  *
  * The factory {@link createOpenAICompatibleProvider} takes a preset and
  * returns a fully-configured `LlmProvider` that internally calls
- * `createOpenAI({ apiKey, baseURL })` from `@ai-sdk/openai`.
+ * `createOpenAI({ apiKey, baseURL })` from `@ai-sdk/openai` and builds a
+ * Chat Completions model, or a Responses API model for presets that set
+ * `apiMode: 'responses'` (only the native `openai` preset).
  *
  * @see packages/shared/src/lib/ai/llm-provider.ts
  * @see ./openai-compatible-presets.ts
@@ -63,6 +65,23 @@ export interface OpenAICompatiblePreset {
    */
   baseURLEnvKeys?: readonly string[]
   /**
+   * When `true`, the provider exposes OpenAI's `/v1/moderations` endpoint and
+   * the runtime may run input pre-moderation through it. Only the native
+   * `openai` preset sets this — OpenAI-compatible backends (Groq, DeepInfra,
+   * Together, …) do not implement the moderations endpoint, so they leave it
+   * unset and rely on their own server-side filtering.
+   */
+  supportsInputModeration?: boolean
+  /**
+   * When `true`, the provider maps the runtime end-user safety identifier into
+   * OpenAI's per-request `safetyIdentifier` provider option. Only the native
+   * `openai` preset sets this — `safety_identifier` is an OpenAI-specific body
+   * field, and OpenAI-compatible/self-hosted backends (Groq, DeepInfra, Azure,
+   * Ollama, LM Studio, …) may reject the unknown parameter, so they leave it
+   * unset and send no identifier (matching pre-feature behavior).
+   */
+  supportsEndUserSafetyIdentifier?: boolean
+  /**
    * True when this gateway's model ids are `vendor/model` strings (OpenRouter,
    * Requesty, LiteLLM). Surfaced on the resolved `LlmProvider` so the model
    * factory suppresses intra-tier slash provider-splitting for a configured
@@ -70,7 +89,19 @@ export interface OpenAICompatiblePreset {
    * deepinfra, groq, …).
    */
   usesVendorPrefixedModelIds?: boolean
+  /**
+   * Wire protocol used for model calls. `'chat'` (the default) targets
+   * `POST {baseURL}/chat/completions`, which every OpenAI-compatible backend
+   * (DeepInfra, Groq, Together, Fireworks, LiteLLM, Ollama, …) implements.
+   * `'responses'` targets OpenAI's Responses API (`POST {baseURL}/responses`),
+   * which only the native `openai` preset opts into — compatible backends do
+   * not implement it and answer `404 Not Found`.
+   */
+  apiMode?: OpenAICompatibleApiMode
 }
+
+/** Wire protocol an {@link OpenAICompatiblePreset} speaks. */
+export type OpenAICompatibleApiMode = 'chat' | 'responses'
 
 function readFirstNonEmpty(
   env: EnvLookup,
@@ -103,6 +134,8 @@ export function createOpenAICompatibleProvider(
     )
   }
 
+  const apiMode: OpenAICompatibleApiMode = preset.apiMode ?? 'chat'
+
   function resolveApiKey(env?: EnvLookup): string | null {
     return readFirstNonEmpty(env ?? process.env, preset.envKeys)
   }
@@ -116,12 +149,13 @@ export function createOpenAICompatibleProvider(
     return preset.baseURL
   }
 
-  return {
+  const provider: LlmProvider = {
     id: preset.id,
     name: preset.name,
     envKeys: preset.envKeys,
     defaultModel: preset.defaultModel,
     defaultModels: preset.defaultModels,
+    supportsInputModeration: preset.supportsInputModeration ?? false,
     usesVendorPrefixedModelIds: preset.usesVendorPrefixedModelIds ?? false,
 
     isConfigured(env?: EnvLookup): boolean {
@@ -148,7 +182,22 @@ export function createOpenAICompatibleProvider(
         apiKey: options.apiKey,
         ...(baseURL ? { baseURL } : {}),
       })
-      return openai(options.modelId)
+      return apiMode === 'responses'
+        ? openai.responses(options.modelId)
+        : openai.chat(options.modelId)
     },
   }
+
+  // Only the native OpenAI preset maps the end-user safety identifier. The key
+  // MUST be the AI SDK provider-option name `safetyIdentifier` (camelCase) — the
+  // SDK translates it to the `safety_identifier` request-body field and strips
+  // any unknown providerOptions keys, so a snake_case key would be silently
+  // dropped and never reach OpenAI.
+  if (preset.supportsEndUserSafetyIdentifier) {
+    provider.mapEndUserIdentifier = (identifier: string): Record<string, unknown> => ({
+      openai: { safetyIdentifier: identifier },
+    })
+  }
+
+  return provider
 }

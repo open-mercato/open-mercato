@@ -52,7 +52,7 @@
   "inbox_ops.discrepancy.desc.draft_reply_no_contact": "Der Empf\u00e4nger des Antwortentwurfs hat keinen passenden Kontakt. Erstellen Sie zuerst den Kontakt.",
   "inbox_ops.discrepancy.desc.duplicate_order_reference": "Eine Bestellung mit dieser Kundenreferenz existiert bereits",
   "inbox_ops.discrepancy.desc.no_channel": "Kein Vertriebskanal verf\u00fcgbar. Erstellen Sie einen Kanal in den Vertriebseinstellungen, bevor Sie diese Bestellung akzeptieren.",
-  "inbox_ops.discrepancy.desc.no_currency": "F\u00fcr diese Bestellung konnte keine W\u00e4hrung ermittelt werden. Legen Sie einen W\u00e4hrungscode fest oder konfigurieren Sie einen Vertriebskanal mit einer Standardw\u00e4hrung.",
+  "inbox_ops.discrepancy.desc.no_currency": "F\u00fcr diese Bestellung konnte keine W\u00e4hrung ermittelt werden. Legen Sie einen W\u00e4hrungscode f\u00fcr die Bestellung fest.",
   "inbox_ops.discrepancy.desc.no_matching_contact": "Kein passender Kontakt gefunden",
   "inbox_ops.discrepancy.desc.product_not_matched": "Produkt konnte keinem Katalogprodukt zugeordnet werden",
   "inbox_ops.discrepancy.expected": "Erwartet",
@@ -162,6 +162,9 @@
   "inbox_ops.reply.send": "Antwort senden",
   "inbox_ops.reply.sending": "Wird gesendet...",
   "inbox_ops.reply.sent_success": "Antwort erfolgreich gesendet",
+  "inbox_ops.search.fallback.title": "Posteingang-Vorschlag",
+  "inbox_ops.search.subtitle.template": "Konfidenz: {{confidence}} · Status: {{status}}",
+  "inbox_ops.search.subtitle.templateWithCategory": "Konfidenz: {{confidence}} · Status: {{status}} · Kategorie: {{category}}",
   "inbox_ops.sender_unknown": "Unbekannt",
   "inbox_ops.settings.active": "Aktiv",
   "inbox_ops.settings.copied": "Kopiert",
@@ -189,5 +192,6 @@
   "inbox_ops.translate.show_original": "Original anzeigen",
   "inbox_ops.translate.translate": "\u00dcbersetzen",
   "inbox_ops.untitled_proposal": "Unbenannter Vorschlag",
-  "inbox_ops.view_in_messages": "In Nachrichten anzeigen"
+  "inbox_ops.view_in_messages": "In Nachrichten anzeigen",
+  "notifications.categories.inbox_ops": "Posteingang"
 }

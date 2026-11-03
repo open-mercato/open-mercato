@@ -1,3 +1,13 @@
+import { attachmentErrorSchema } from './openapi'
+import { withAttachmentStorageErrors } from '@open-mercato/core/modules/attachments/lib/storageErrors'
+import { assertAttachmentStoragePartitionExists, getAttachmentStoragePolicy } from '@open-mercato/core/modules/attachments/lib/drivers/storageValidation'
+import { LockMode } from '@mikro-orm/core'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { prepareAttachmentMutation } from '../lib/access-mutation'
+import { throwAttachmentAccessError } from '../lib/access-errors'
+import { createAttachmentAccessContext } from '../lib/access-runner'
+import { assertAttachmentOwnerAccess, requiresAttachmentAccessScan, scanAuthorizedAttachments } from '../lib/access-query'
+import { withAttachmentAccessErrors } from '../lib/access-errors'
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -5,6 +15,7 @@ import { z } from 'zod'
 import { sql } from 'kysely'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { buildAttachmentFileUrl, buildAttachmentImageUrl, slugifyAttachmentFileName } from '../lib/imageUrls'
+import { ensureAttachmentPartitionProtection } from '../lib/access-protection'
 import { ensureDefaultPartitions, resolveDefaultPartitionCode, sanitizePartitionCode } from '../lib/partitions'
 import { Attachment, AttachmentPartition } from '../data/entities'
 import { extractAttachmentContent } from '../lib/textExtraction'
@@ -12,8 +23,9 @@ import { requestOcrProcessing } from '../lib/ocrQueue'
 import { StorageDriverFactory } from '../lib/drivers'
 import { OcrService, shouldUseLlmOcr } from '../lib/ocrService'
 import { clearAttachmentThumbnailCache } from '../lib/thumbnailCache'
+import { lockAttachmentStorageReferences, resolveAttachmentStorageRelease } from '../lib/storageReferences'
 import { assertAttachmentScopeInvariant } from '../lib/access'
-import { resolveAttachmentOrganizationId } from '../lib/requestScope'
+import { resolveAttachmentRequestScope } from '../lib/requestScope'
 import {
   mergeAttachmentMetadata,
   normalizeAttachmentAssignments,
@@ -37,12 +49,18 @@ import {
   sanitizeUploadedFileName,
 } from '../lib/security'
 import {
+  isMultipartUploadLimitError,
   isMultipartRequestWithinUploadLimit,
+  parseMultipartFormDataWithinUploadLimit,
   resolveAttachmentMaxBytes,
   willExceedAttachmentTenantQuota,
 } from '../lib/upload-limits'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import type { AttachmentQuotaService } from '../lib/quota-service'
+import { resolveAttachmentsUploadRateLimitConfig } from '../lib/ocrLimits'
+import { checkRateLimit, RATE_LIMIT_ERROR_FALLBACK, RATE_LIMIT_ERROR_KEY } from '@open-mercato/shared/lib/ratelimit/helpers'
+import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
 
 const logger = createLogger('attachments')
 
@@ -52,11 +70,13 @@ export const metadata = {
   DELETE: { requireAuth: true, requireFeatures: ['attachments.manage'] },
 }
 
+const ATTACHMENT_LIST_MAX_PAGE_SIZE = 100
+
 const attachmentQuerySchema = z.object({
   entityId: z.string().min(1).describe('Entity identifier that owns the attachments'),
   recordId: z.string().min(1).describe('Record identifier within the entity'),
   page: z.coerce.number().min(1).optional(),
-  pageSize: z.coerce.number().min(1).max(100).optional(),
+  pageSize: z.coerce.number().min(1).max(ATTACHMENT_LIST_MAX_PAGE_SIZE).optional(),
 })
 
 const attachmentAssignmentSchema = z.object({
@@ -184,7 +204,7 @@ function parseFormAssignments(value: FormDataEntryValue | null): AttachmentAssig
   }
 }
 
-export async function GET(req: Request) {
+async function listRecordAttachments(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId || (!auth.orgId && !auth.isSuperAdmin)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const url = new URL(req.url)
@@ -201,34 +221,36 @@ export async function GET(req: Request) {
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
-  const orgId = await resolveAttachmentOrganizationId(container, auth, req)
+  const requestScope = await resolveAttachmentRequestScope(container, auth, req)
+  if (requestScope.denied) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const orgId = requestScope.organizationId
   const filter: Record<string, unknown> = { entityId, recordId, tenantId: auth.tenantId! }
   if (orgId) filter.organizationId = orgId
-  const orderBy: Record<string, 'ASC' | 'DESC'> = { createdAt: 'DESC' }
+  const orderBy: Record<string, 'ASC' | 'DESC'> = { createdAt: 'DESC', id: 'DESC' }
   const usePaging = typeof page === 'number' && typeof pageSize === 'number'
-  const total = usePaging ? await em.count(Attachment, filter) : null
   const currentPage = usePaging ? Math.max(1, page) : null
   const currentPageSize = usePaging ? pageSize : null
+  const pageOffset = usePaging ? (currentPage! - 1) * currentPageSize! : undefined
+  const partitions = await em.find(AttachmentPartition, {})
+  const protectedScan = requiresAttachmentAccessScan(partitions)
+  const scope = { tenantId: auth.tenantId ?? null, organizationId: orgId ?? null }
+  let items: Attachment[]
+  let total: number | null
+  if (protectedScan) {
+    const scanned = await scanAuthorizedAttachments({
+      auth: { ...auth, orgId }, context: createAttachmentAccessContext(container), partitions,
+      offset: pageOffset, limit: currentPageSize ?? ATTACHMENT_LIST_MAX_PAGE_SIZE,
+      loadBatch: (offset, limit) => findWithDecryption(em, Attachment, filter, { orderBy, offset, limit }, scope),
+    })
+    items = scanned.records
+    total = usePaging ? scanned.total : null
+  } else {
+    total = usePaging ? await em.count(Attachment, filter) : null
+    items = await findWithDecryption(em, Attachment, filter, {
+      orderBy, ...(usePaging ? { limit: currentPageSize!, offset: pageOffset } : { limit: ATTACHMENT_LIST_MAX_PAGE_SIZE }),
+    }, scope)
+  }
   const totalPages = usePaging && total !== null ? Math.max(1, Math.ceil(total / currentPageSize!)) : null
-  const pageOffset = usePaging ? (Math.min(currentPage!, totalPages!) - 1) * currentPageSize! : undefined
-  const items = await findWithDecryption(
-    em,
-    Attachment,
-    filter,
-    {
-      orderBy,
-      ...(usePaging
-        ? {
-            limit: currentPageSize!,
-            offset: pageOffset,
-          }
-        : {}),
-    },
-    {
-      tenantId: auth.tenantId ?? null,
-      organizationId: orgId ?? null,
-    },
-  )
   return NextResponse.json({
     items: items.map((a: any) => {
       const metadata = readAttachmentMetadata(a.storageMetadata)
@@ -253,15 +275,17 @@ export async function GET(req: Request) {
     ...(usePaging
       ? {
           total,
-          page: Math.min(currentPage!, totalPages!),
+          page: currentPage,
           pageSize: currentPageSize,
           totalPages,
         }
       : {}),
-  })
+  }, { headers: protectedScan ? { 'Cache-Control': 'private, no-store' } : undefined })
 }
 
-export async function POST(req: Request) {
+export const GET = withAttachmentAccessErrors(listRecordAttachments)
+
+async function uploadAttachment(req: Request) {
   const { t } = await resolveTranslations()
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId || (!auth.orgId && !auth.isSuperAdmin)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -278,15 +302,54 @@ export async function POST(req: Request) {
   }
   const tenantId = auth.tenantId
 
+  const container = await createRequestContainer()
+  let rateLimiterService: RateLimiterService | null = null
+  try {
+    rateLimiterService = container.resolve('rateLimiterService') as RateLimiterService | null
+  } catch (error) {
+    // Fail-open: uploads proceed when the limiter cannot be resolved (minimal/test containers).
+    logger.warn('Attachment upload rate limiter unavailable; throttle skipped', { err: error })
+  }
+  if (rateLimiterService) {
+    const principal = typeof auth.sub === 'string' && auth.sub.length > 0
+      ? auth.sub
+      : (typeof auth.userId === 'string' && auth.userId.length > 0 ? auth.userId : null)
+    if (!principal) {
+      logger.warn('Attachment upload rate limit skipped: missing authenticated principal')
+    } else {
+      const rateLimitResponse = await checkRateLimit(
+        rateLimiterService,
+        resolveAttachmentsUploadRateLimitConfig(),
+        `${tenantId}:${principal}`,
+        t(RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK),
+      )
+      if (rateLimitResponse) return rateLimitResponse
+    }
+  } else {
+    logger.warn('Attachment upload rate limiter not registered; throttle skipped')
+  }
+
   const contentType = req.headers.get('content-type') || ''
   if (!contentType.toLowerCase().includes('multipart/form-data')) {
     return NextResponse.json({ error: 'Expected multipart/form-data' }, { status: 400 })
   }
   if (!isMultipartRequestWithinUploadLimit(req.headers.get('content-length'))) {
-    return NextResponse.json({ error: 'Attachment exceeds the maximum upload size.' }, { status: 413 })
+    return NextResponse.json({
+      error: t('attachments.errors.maxUploadSize', 'Attachment exceeds the maximum upload size.'),
+    }, { status: 413 })
   }
 
-  const form = await req.formData()
+  let form: FormData
+  try {
+    form = await parseMultipartFormDataWithinUploadLimit(req)
+  } catch (error) {
+    if (isMultipartUploadLimitError(error)) {
+      return NextResponse.json({
+        error: t('attachments.errors.maxUploadSize', 'Attachment exceeds the maximum upload size.'),
+      }, { status: 413 })
+    }
+    throw error
+  }
   const formPayload = buildFormPayload(form)
   const customFieldValues = splitCustomFieldPayload(formPayload).custom
   const entityId = String(form.get('entityId') || '')
@@ -302,14 +365,29 @@ export async function POST(req: Request) {
   const tags = parseFormTags(form.get('tags'))
   const assignmentsFromForm = parseFormAssignments(form.get('assignments'))
 
-  const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
   const dataEngine = container.resolve('dataEngine')
+  let attachmentQuotaService: AttachmentQuotaService | null = null
+  let attachmentQuotaRecoveryScheduler: ((
+    payload: { reservationId: string; tenantId: string; organizationId: string },
+    delayMs: number,
+  ) => Promise<void>) | null = null
+  try {
+    attachmentQuotaService = container.resolve('attachmentQuotaService') as AttachmentQuotaService
+    attachmentQuotaRecoveryScheduler = container.resolve('attachmentQuotaRecoveryScheduler') as (
+      payload: { reservationId: string; tenantId: string; organizationId: string },
+      delayMs: number,
+    ) => Promise<void>
+  } catch {
+    // Legacy fallback below when the quota service is not registered in this container.
+  }
   const storageDriverFactory =
     (container.resolve('storageDriverFactory') as StorageDriverFactory | null) ?? new StorageDriverFactory(em)
-  const orgId = await resolveAttachmentOrganizationId(container, auth, req)
+  const uploadScope = await resolveAttachmentRequestScope(container, auth, req)
+  if (uploadScope.denied) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const orgId = uploadScope.organizationId
   if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  await ensureDefaultPartitions(em)
+  if (getAttachmentStoragePolicy() === 'legacy') await ensureDefaultPartitions(em)
   // Optional per-field validations
   let partitionFromField: string | null = null
   let fieldMaxAttachmentSizeMb: number | null = null
@@ -349,11 +427,20 @@ export async function POST(req: Request) {
       error: t('attachments.errors.maxUploadSize', 'Attachment exceeds the maximum upload size.'),
     }, { status: 413 })
   }
-  const tenantUsageBytes = await readTenantAttachmentUsageBytes(em, tenantId)
-  if (willExceedAttachmentTenantQuota(tenantUsageBytes, file.size)) {
-    return NextResponse.json({
-      error: t('attachments.errors.quotaExceeded', 'Attachment storage quota exceeded for this tenant.'),
-    }, { status: 413 })
+  if (!attachmentQuotaService) {
+    try {
+      const tenantUsageBytes = await readTenantAttachmentUsageBytes(em, tenantId)
+      if (willExceedAttachmentTenantQuota(tenantUsageBytes, file.size)) {
+        return NextResponse.json({
+          error: t('attachments.errors.quotaExceeded', 'Attachment storage quota exceeded for this tenant.'),
+        }, { status: 413 })
+      }
+    } catch (error) {
+      logger.error('Attachment quota accounting failed', { err: error })
+      return NextResponse.json({
+        error: t('attachments.errors.quotaUnavailable', 'Storage quota accounting is unavailable.'),
+      }, { status: 500 })
+    }
   }
   const buf = Buffer.from(await file.arrayBuffer())
   const safeName = sanitizeUploadedFileName(file.name)
@@ -373,6 +460,7 @@ export async function POST(req: Request) {
   let partition: AttachmentPartition | null = null
   for (const code of partitionCodeCandidates) {
     const record = await em.findOne(AttachmentPartition, { code })
+    assertAttachmentStoragePartitionExists(Boolean(record))
     if (record) {
       partition = record
       break
@@ -382,8 +470,10 @@ export async function POST(req: Request) {
     partition = await em.findOne(AttachmentPartition, { code: defaultPartitionCode })
   }
   if (!partition) {
+    assertAttachmentStoragePartitionExists(false)
     return NextResponse.json({ error: 'Storage partition is not configured.' }, { status: 400 })
   }
+  await ensureAttachmentPartitionProtection(em, partition)
   const requestedPublicOverride =
     typeof partitionOverride === 'string' &&
     partitionOverride.length > 0 &&
@@ -395,6 +485,62 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: t('attachments.errors.publicPartitionBlocked', 'Public storage partitions cannot be selected explicitly for this upload.') }, { status: 403 })
   }
   const uploadDriver = await storageDriverFactory.resolveForPartition(partition.code, { tenantId, organizationId: orgId })
+  const preparedStoragePath = attachmentQuotaService
+    ? uploadDriver.prepareStoragePath?.({
+        partitionCode: partition.code,
+        orgId,
+        tenantId,
+        fileName: safeName,
+      })
+    : undefined
+  if (attachmentQuotaService && !preparedStoragePath) {
+    return NextResponse.json({
+      error: t('attachments.errors.quotaRecoveryUnsupported', 'Storage driver cannot participate in quota recovery.'),
+    }, { status: 500 })
+  }
+  let quotaReservation: { id: string; leaseToken: string; expiresAt: Date } | null = null
+  if (attachmentQuotaService) {
+    try {
+      quotaReservation = await attachmentQuotaService.reserve({
+        tenantId,
+        organizationId: orgId,
+        bytes: buf.length,
+        source: 'attachment',
+        storageDriver: uploadDriver.key,
+        storagePath: preparedStoragePath!,
+        partitionCode: partition.code,
+      })
+      if (!attachmentQuotaRecoveryScheduler) throw new Error('Attachment quota recovery is unavailable.')
+      await attachmentQuotaRecoveryScheduler({
+        reservationId: quotaReservation.id,
+        tenantId,
+        organizationId: orgId,
+      }, Math.max(1_000, quotaReservation.expiresAt.getTime() - Date.now()))
+      if (typeof attachmentQuotaService.beginStorage === 'function') {
+        await attachmentQuotaService.beginStorage(quotaReservation.id, quotaReservation.leaseToken)
+      }
+    } catch (error) {
+      if (quotaReservation) {
+        await attachmentQuotaService.release(quotaReservation.id, quotaReservation.leaseToken).catch(() => {})
+        quotaReservation = null
+      }
+      const code = (error as { code?: unknown })?.code
+      if (code === 'quota_exceeded') {
+        return NextResponse.json({
+          error: t('attachments.errors.quotaExceeded', 'Attachment storage quota exceeded for this tenant.'),
+        }, { status: 413 })
+      }
+      if (code === 'quota_target_exists') {
+        return NextResponse.json({
+          error: t('attachments.errors.storagePathExists', 'The target storage path already exists.'),
+        }, { status: 409 })
+      }
+      logger.error('Attachment quota reservation failed', { err: error })
+      return NextResponse.json({
+        error: t('attachments.errors.quotaUnavailable', 'Storage quota accounting is unavailable.'),
+      }, { status: 500 })
+    }
+  }
   let storedPath: string
   try {
     const stored = await uploadDriver.store({
@@ -403,10 +549,25 @@ export async function POST(req: Request) {
       tenantId,
       fileName: safeName,
       buffer: buf,
+      storagePath: preparedStoragePath,
     })
     storedPath = stored.storagePath
+    if (quotaReservation) {
+      await attachmentQuotaService!.markStored(quotaReservation.id, quotaReservation.leaseToken)
+    }
   } catch (error) {
     logger.error('Failed to persist file', { err: error })
+    if (preparedStoragePath) {
+      try {
+        await (uploadDriver.deleteStrict?.(partition.code, preparedStoragePath)
+          ?? uploadDriver.delete(partition.code, preparedStoragePath))
+        if (quotaReservation) {
+          await attachmentQuotaService!.release(quotaReservation.id, quotaReservation.leaseToken)
+        }
+      } catch (cleanupError) {
+        logger.error('Failed to compensate attachment storage', { err: cleanupError })
+      }
+    }
     return NextResponse.json({ error: 'Failed to persist attachment.' }, { status: 500 })
   }
 
@@ -471,16 +632,32 @@ export async function POST(req: Request) {
           values: customFieldValues,
         })
       }
+      if (quotaReservation) {
+        await attachmentQuotaService!.completeAttachment(quotaReservation.id, quotaReservation.leaseToken, tx)
+      }
     })
   } catch (error) {
     logger.error('Failed to persist attachment with custom attributes', { err: error })
+    try {
+      await (uploadDriver.deleteStrict?.(partition.code, storedPath)
+        ?? uploadDriver.delete(partition.code, storedPath))
+      if (quotaReservation) {
+        await attachmentQuotaService!.release(quotaReservation.id, quotaReservation.leaseToken)
+      }
+    } catch (cleanupError) {
+      logger.error('Failed to compensate attachment persistence', { err: cleanupError })
+    }
     return NextResponse.json({ error: 'Failed to save attachment attributes.' }, { status: 500 })
   }
 
   if (useLlmOcr) {
-    requestOcrProcessing(em, att, uploadDriver, storedPath).catch((error) => {
+    // Await so wait-queue overflow can finish the inline text fallback before
+    // the response returns (background LLM OCR still schedules via setImmediate).
+    try {
+      await requestOcrProcessing(em, att, uploadDriver, storedPath)
+    } catch (error) {
       logger.error('Failed to queue OCR processing', { err: error })
-    })
+    }
   } else if (wantsLlmOcr) {
     logger.warn('OCR requested but OPENAI_API_KEY not configured, falling back to text extraction when available')
   }
@@ -537,12 +714,12 @@ async function readTenantAttachmentUsageBytes(em: EntityManager, tenantId: strin
       return Number.isFinite(parsed) ? parsed : 0
     }
     return 0
-  } catch {
-    return 0
+  } catch (error) {
+    throw new Error('Attachment quota accounting is unavailable.', { cause: error })
   }
 }
 
-export async function DELETE(req: Request) {
+async function deleteAttachment(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId || (!auth.orgId && !auth.isSuperAdmin)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const url = new URL(req.url)
@@ -558,22 +735,39 @@ export async function DELETE(req: Request) {
   // A superadmin browsing with "All organizations" selected has no concrete org,
   // so resolution returns null and the delete falls back to a tenant-only scope
   // (#3764) — letting them remove any attachment in the tenant.
-  const orgId = await resolveAttachmentOrganizationId(container, auth, req)
+  const deleteScope = await resolveAttachmentRequestScope(container, auth, req)
+  if (deleteScope.denied) return NextResponse.json({ error: 'Attachment not found' }, { status: 404 })
+  const orgId = deleteScope.organizationId
   const deleteFilter: Record<string, unknown> = { id, tenantId: auth.tenantId! }
   if (orgId) deleteFilter.organizationId = orgId
-  const record = await em.findOne(Attachment, deleteFilter)
-  if (!record) return NextResponse.json({ error: 'Attachment not found' }, { status: 404 })
-  await em.remove(record).flush()
+  const scopedAuth = { ...auth, orgId }
+  const outcome = await em.transactional(async (tx) => {
+    const candidate = await findOneWithDecryption(tx, Attachment, deleteFilter, undefined, {
+      tenantId: auth.tenantId, organizationId: orgId,
+    })
+    if (!candidate) return throwAttachmentAccessError(404)
+    const referenceIds = await lockAttachmentStorageReferences(tx, candidate)
+    const removal = resolveAttachmentStorageRelease(referenceIds, candidate.id)
+    if (!removal.removed) return throwAttachmentAccessError(404)
+    const record = await findOneWithDecryption(tx, Attachment, deleteFilter, {
+      lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true,
+    }, { tenantId: auth.tenantId, organizationId: orgId })
+    if (!record) return throwAttachmentAccessError(404)
+    const guard = await prepareAttachmentMutation({ container, req, auth: scopedAuth, recordId: record.id, operation: 'delete' })
+    await assertAttachmentOwnerAccess({ em: tx, context: createAttachmentAccessContext(container), auth: scopedAuth, attachment: record, action: 'delete' })
+    const driver = record.storagePath ? await storageDriverFactory.resolveForPartition(record.partitionCode, {
+      tenantId: record.tenantId ?? auth.tenantId!, organizationId: record.organizationId ?? orgId ?? '',
+    }) : null
+    tx.remove(record)
+    await tx.flush()
+    return { record, driver, guard, releaseStorage: removal.releaseStorage }
+  })
+  const { record } = outcome
   await clearAttachmentThumbnailCache(record.partitionCode, record.id).catch((error) => {
     logger.error('Failed to cleanup cached thumbnails', { err: error })
   })
-  if (record.storagePath) {
-    const delDriver = await storageDriverFactory.resolveForPartition(record.partitionCode, {
-      tenantId: record.tenantId ?? auth.tenantId!,
-      organizationId: record.organizationId ?? orgId ?? '',
-    })
-    await delDriver.delete(record.partitionCode, record.storagePath)
-  }
+  if (outcome.driver && outcome.releaseStorage) await outcome.driver.delete(record.partitionCode, record.storagePath)
+  await outcome.guard.runAfterSuccess()
   if (dataEngine) {
     await emitCrudSideEffects({
       dataEngine,
@@ -592,13 +786,16 @@ export async function DELETE(req: Request) {
   return NextResponse.json({ ok: true })
 }
 
+export const POST = withAttachmentAccessErrors(withAttachmentStorageErrors(uploadAttachment))
+export const DELETE = withAttachmentAccessErrors(withAttachmentStorageErrors(deleteAttachment))
+
 export const openApi: OpenApiRouteDoc = {
   summary: 'Manage entity attachments',
   description: 'Upload and list attachments associated with module entities and records.',
   methods: {
     GET: {
       summary: 'List attachments for a record',
-      description: 'Returns uploaded attachments for the given entity record, ordered by newest first.',
+      description: 'Returns uploaded attachments for the given entity record, ordered by newest first. Without both page and pageSize, only the newest 100 attachments are returned; pass page and pageSize to page through the rest.',
       query: attachmentQuerySchema,
       responses: [
         { status: 200, description: 'Attachments found for the record', schema: attachmentListResponseSchema },
@@ -606,6 +803,9 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Missing entity or record identifiers', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
+        { status: 403, description: 'Owner policy denies access', schema: errorSchema },
+        { status: 404, description: 'Attachment or owner is unavailable', schema: errorSchema },
+        { status: 504, description: 'Owner authorization timed out', schema: errorSchema },
       ],
     },
     POST: {
@@ -619,6 +819,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 200, description: 'Attachment stored successfully', schema: uploadResponseSchema },
       ],
       errors: [
+        { status: 503, description: 'Attachment storage configuration rejected by policy', schema: attachmentErrorSchema },
         { status: 400, description: 'Payload validation error', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
         { status: 403, description: 'Attachment violates field constraints', schema: errorSchema },
@@ -633,8 +834,12 @@ export const openApi: OpenApiRouteDoc = {
         { status: 404, description: 'Attachment not found', schema: errorSchema },
       ],
       errors: [
+        { status: 503, description: 'Attachment storage configuration rejected by policy', schema: attachmentErrorSchema },
         { status: 400, description: 'Missing attachment identifier', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
+        { status: 403, description: 'Owner policy denies access', schema: errorSchema },
+        { status: 404, description: 'Attachment or owner is unavailable', schema: errorSchema },
+        { status: 504, description: 'Owner authorization timed out', schema: errorSchema },
       ],
     },
   },
