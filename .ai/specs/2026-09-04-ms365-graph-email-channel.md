@@ -115,7 +115,7 @@ Ship `@open-mercato/channel-ms365` as a provider package that:
 | D3 | **Raw MIME in both directions** | `GET /messages/{id}/$value` and draft-from-MIME let the provider reuse `normalizeMimeInbound`, `assembleRfc2822`, `mailparser`, header sanitisation, and the contact-resolution path shared with Gmail and IMAP. No Graph-JSON-to-hub mapping layer to maintain. |
 | D4 | **Draft-from-MIME + `/send` instead of `/me/sendMail`** | `sendMail` returns `202` with no body, so the `internetMessageId` Exchange actually stamps is unknown and may differ from the one we generate. Creating the draft first returns the authoritative `internetMessageId` and `conversationId`, which become `externalMessageId` / `conversationId` on the send result. One extra request per send is acceptable for a CRM send volume. |
 | D5 | **Immutable IDs** | Every Graph call sends `Prefer: IdType="ImmutableId"`. Default Graph message ids change when a message moves folders, which would break `deleteMessage` and metadata lookups. |
-| D6 | **`receivedDateTime` watermark next to the delta link** | Delta returns *changes* (new mail, flag updates, deletes). Ingesting flag updates on old mail would cost a `$value` fetch per change. The adapter ingests only items whose `receivedDateTime` is at or after the persisted watermark, and the same watermark drives re-bootstrap after a `410`. |
+| D6 | **`receivedDateTime` watermark next to the delta link** | The persisted watermark is the floor for a bootstrap or a re-sync after `410`, so mail received while a delta token was dead is not lost. It is not an ingest filter: incremental pages have no client-side cutoff, because mail moved into the Inbox keeps its original `receivedDateTime` and would be lost for good. Two different dates are in play: the Graph baseline filter (`receivedDateTime ge {floor}`), fixed when the delta starts and applied by Graph to every page, and the watermark, the latest `receivedDateTime` seen, which is only used when the next delta starts. Delta also reports flag updates on existing mail, so each costs one `$value` fetch before the hub dedups it. |
 | D7 | **Confidential client with client secret, plus PKCE** | Matches the Gmail pattern (secret stored encrypted at tenant scope). PKCE is cheap, supported by Entra, and hardens the code exchange. Certificates are out of scope. |
 | D8 | **`tenantId` field defaults to `organizations`** | Personal Microsoft accounts (Outlook.com, Hotmail) are **not** accepted by default: `organizations` restricts consent to work/school accounts in any Entra directory. Admins pin a directory (tenant) GUID to allow only their own directory, or set `common` to also accept personal accounts (Outlook.com uses the same Graph mail API, so the adapter works unchanged). The value is only used to build the authority URL. |
 | D9 | **Phase 1 polling only** | Push (Graph change notifications) requires a provider-owned webhook route with the validation-token handshake, subscription renewal (≤ 3 days lifetime), and generalising three `provider === 'gmail'` hardcodes in the hub. Kept in phase 2 to keep phase 1 core-change-free. |
@@ -266,7 +266,9 @@ Invariants (carried over from the Gmail L3 rule in the reliability spec):
   REST disabled / consent missing). Not retried.
 
 Known limitation (documented in the user guide): a message *moved* into the Inbox whose
-`receivedDateTime` predates the watermark is not ingested by polling. `importHistory` covers it.
+`receivedDateTime` predates the current delta's baseline filter (connect time, or the floor of the
+last re-sync) is not reported by Graph, so polling does not ingest it. `importHistory` covers it.
+A message moved in that is older than the watermark but newer than the baseline filter is ingested.
 
 ### Historical import (`importHistory`)
 
@@ -286,11 +288,22 @@ GET /me/mailFolders/inbox/messages
   (`getImportHistoryMaxSinceDays()`, default 3650 days), not a fixed year.
 - `until` is pinned to the time of the first page and kept in the cursor, so mail arriving while
   an import runs never shifts a re-listed page (incremental polling covers it).
-- `cursor` = base64 JSON `{ nextLink, chunkIndex, fetched, until, pageDoneIds }`; `totalCandidates`
-  from `@odata.count` on the first page when available.
-- A transient `$value` failure re-runs the same page; `pageDoneIds` (Graph immutable ids already
-  imported or skipped on that page) resume it by identity, not by position, so a replay never
-  re-fetches or double-counts a message even if the listing changed between attempts.
+- `cursor` = base64 JSON `{ nextLink, chunkIndex, fetched, until, doneKeys }`; `totalCandidates`
+  from `@odata.count` on the first page when available. The cursor lives only in the hub worker's
+  memory for the duration of the import.
+- `doneKeys` holds a short digest (16 characters of SHA-256) of every stub already imported or
+  skipped in this import, kept across pages and sender chunks. Digests rather than Graph ids keep
+  the cursor near 1.3 MB at the hub's 50,000-message ceiling.
+- A transient `$value` failure after some progress re-runs the same page. If a call makes no
+  progress at all, the error is thrown, so the job fails with the real cause (an operator can re-run
+  it; the hub dedups). Senders without mail are passed over within one call, so they do not count as
+  the hub's empty pages. Progress is tracked by identity, not by
+  position, so a message is never re-fetched or counted twice, whether a replay shifted or mail
+  moved into the Inbox (which `until` cannot exclude, since it keeps its old `receivedDateTime`)
+  pushed it onto a later page.
+- Known limits: a message moved *out* of the Inbox during an import can make Graph's paging skip a
+  neighbour, and re-running the import picks that up (the hub dedups). Ten consecutive
+  all-duplicate pages trigger the hub's empty-page stop, which reports the import as truncated.
 - Each candidate is fetched as MIME and normalized exactly like polling.
 
 ### Outbound (`sendMessage`)
@@ -314,14 +327,23 @@ result: { externalMessageId: internetMessageId, conversationId, status: 'sent',
   (`GET /me/messages/{id}?$select=isDraft,sentDateTime`; immutable ids keep the id across the
   send). `isDraft: false` means the send went through and the response was lost ⇒ report `sent`
   (no duplicate from the hub's retry). Otherwise: a permanent failure deletes the still-existing
-  draft (best-effort, no orphans in Drafts). A transient failure on a draft confirmed unsent is
-  rethrown so the hub retries. Every other outcome — permanent, or a send that could not be
+  draft (best-effort, no orphans in Drafts). A `429` on a draft that still reads as a draft is a
+  definite rejection: the draft is deleted and the error rethrown so the hub retries. After a
+  timeout, dropped connection or `5xx` the send may be in flight, because `/send` only queues the
+  mail (`202`) and the draft can read as a draft until Exchange has processed it: the draft is left
+  in place and the delivery fails without a retry, so a user may have to resend by hand, but the
+  mail is never sent twice. Every other outcome — permanent, or a send that could not be
   verified — is **thrown** with an explicit `transient: false` and the Graph error code. It is never
   returned as `{ status: 'failed', error }`: the hub classifies such text by pattern, and a
   "timed out" or "Too Many Requests" message would be re-enqueued and could send the email twice.
-- A native transport failure (`TypeError('fetch failed')` with `ECONNRESET` / DNS / socket codes)
-  is normalized to a transient `GraphApiError` (status `599`, code `om.networkError`), like a
-  timeout: GETs retry, POSTs do not, and the `/send` outcome check still applies.
+- A connection failure before the response (`TypeError('fetch failed')` with `ECONNRESET` / DNS /
+  socket codes) or while reading its body (`TypeError('terminated')`) is normalized to a transient
+  `GraphApiError` (status `599`, code `om.networkError`), like a timeout: GETs retry, POSTs do not,
+  and the `/send` outcome check still applies. An error response whose body is lost keeps its real
+  status (a 401 stays reauth, a 403 stays permanent). A 2xx `/send` whose body is lost is a success.
+  A 2xx with empty or malformed JSON is a transient `502`.
+- A draft created on the server whose response was lost stays behind as an orphan, because its id
+  was never learned. The hub's retry creates a new draft; nothing is sent twice.
 - Attachments: `fileSharing: false` in phase 1 (same as Gmail/IMAP — the shared converter does not
   stitch attachment bytes yet). Re-enable together with the other providers.
 
@@ -413,7 +435,7 @@ export const ms365ChannelStateSchema = z.object({
   deltaLink: z.string().optional(),
   /** Opaque Graph next link — present only while a multi-page drain is in progress. */
   nextLink: z.string().optional(),
-  /** ISO receivedDateTime; ingest only items at/after it; re-bootstrap floor after 410. */
+  /** ISO receivedDateTime; floor for the next bootstrap / re-sync after 410, not an ingest filter. */
   receivedWatermark: z.string().datetime().optional(),
   /** Highest receivedDateTime seen mid-drain; promoted to receivedWatermark at the deltaLink. */
   pendingWatermark: z.string().datetime().optional(),
@@ -484,7 +506,7 @@ stay uniform.
 | Graph / OAuth condition | Adapter behaviour | Hub outcome |
 |---|---|---|
 | `401` on any call, `invalid_grant` on refresh, missing refresh token | throw / return `requires_reauth` sentinel | channel `requires_reauth`, event emitted |
-| `429`, `5xx`, network timeout, dropped connection / DNS failure | throw `GraphApiError { transient: true, status }` (`599` when no HTTP response) | retry with backoff, cursor pinned |
+| `429`, `5xx`, network timeout, dropped connection / DNS failure | throw `GraphApiError { transient: true, status }` (`599` when no HTTP response or its 2xx body was lost) | retry with backoff, cursor pinned |
 | `403 ErrorAccessDenied` / `MailboxNotEnabledForRESTAPI` / `ErrorInvalidUser` | throw `{ transient: false, status: 403 }` with actionable message | permanent failure, operator-visible |
 | `410 syncStateNotFound` / `resyncRequired` | internal re-bootstrap from watermark | none (self-healing) |
 | `404` on `$value` | skip item | none |
@@ -562,8 +584,8 @@ flow cannot run in CI).
 |---|---|
 | `credentials.test.ts` | schemas, `tenantId` default + charset guard, scope parsing always re-adds `offline_access`, channel-state passthrough |
 | `oauth.test.ts` | authority/base-URL resolution (sovereign-cloud overrides, https only), PKCE pair + RFC 7636 vector, authorize URL shape (PKCE, `select_account`, `login_hint`), exchange with `code_verifier`, refresh at the home tenant, `/me` profile, `id_token` claim decoding |
-| `graph-client.test.ts` | headers (`ImmutableId`, page size), `$select`/`$filter`, same-origin link guard, `$value` bytes, draft-from-MIME + send, lookup escaping, move/delete, permanent vs transient classification, native transport failures (`fetch failed` + socket/DNS cause) mapped to a transient `599` (GET retried, POST not), programming `TypeError`s rethrown, `429` retry with `Retry-After`, `410` resync mapping, list with `$count` |
-| `adapter.test.ts` | wiring (providerKey, capabilities, exported/omitted methods); OAuth flow (extra carries verifier/scopes/tenant, exchange resolves mailbox + home tenant, claim fallback, missing verifier rejected); refresh (rotated token persisted, missing/revoked ⇒ `requires_reauth`, secret required); `fetchHistory` (bootstrap overlap ingests its first page, incremental pages ingest every non-removed non-draft item the delta reports (no client-side `receivedDateTime` cutoff), mid-drain `nextLink` + `pendingWatermark`, `410` re-sync ingests from watermark, `404` skip + transient pin, `401` sentinel, permanent `403` message); `importHistory` (filter shape incl. the pinned `until` bound, `nextLink` paging + count, sender chunking, `maxMessages`, identity-based resume when the re-listed page gained or lost messages); `sendMessage` (MIME headers, authoritative `internetMessageId`, `401` sentinel, orphan-draft cleanup, missing mailbox; every failure path asserted through the hub's real `classifyOutboundError` / `isReauthError` — unverifiable sends never retried, confirmed-unsent transient ones retried, a native network failure through the real Graph client retried); `deleteMessage`; `resolveContact`; `normalizeInbound` |
+| `graph-client.test.ts` | headers (`ImmutableId`, page size), `$select`/`$filter`, same-origin link guard, `$value` bytes, draft-from-MIME + send, lookup escaping, move/delete, permanent vs transient classification, native transport failures before the response (`fetch failed` + socket/DNS cause) and while reading its body (`terminated`) mapped to a transient `599` (GET retried, POST not), real status kept for an error response whose body is lost, a 2xx with an unused body stays a success, empty or malformed 2xx JSON is a transient `502`, programming `TypeError`s rethrown, `429` retry with `Retry-After`, `410` resync mapping, list with `$count` |
+| `adapter.test.ts` | wiring (providerKey, capabilities, exported/omitted methods); OAuth flow (extra carries verifier/scopes/tenant, exchange resolves mailbox + home tenant, claim fallback, missing verifier rejected); refresh (rotated token persisted, missing/revoked ⇒ `requires_reauth`, secret required); `fetchHistory` (bootstrap overlap ingests its first page, incremental pages ingest every non-removed non-draft item the delta reports (no client-side `receivedDateTime` cutoff), mid-drain `nextLink` + `pendingWatermark`, `410` re-sync ingests from watermark, `404` skip + transient pin, `401` sentinel, permanent `403` message); `importHistory` (filter shape incl. the pinned `until` bound, `nextLink` paging + count, sender chunking, `maxMessages`, identity-based resume when the re-listed page gained or lost messages, consumed messages displaced onto a later page with and without a replay, no-progress failure surfaced, empty sender chunks passed over in one call); `sendMessage` (MIME headers, authoritative `internetMessageId`, `401` sentinel, orphan-draft cleanup, missing mailbox; every failure path asserted through the hub's real `classifyOutboundError` / `isReauthError` — unverifiable sends never retried, a draft still reading as a draft after a timeout or `5xx` neither retried nor deleted, a `429` on an unsent draft retried, a native network failure and a lost draft-creation response body through the real Graph client retried, a lost body on a 2xx `/send` reported as sent); `deleteMessage`; `resolveContact`; `normalizeInbound` |
 | `normalize-inbound.test.ts` / `convert-outbound.test.ts` | MIME ↔ hub mapping parity with the Gmail/IMAP providers |
 | `health.test.ts` | healthy (tenant echoed, blank tenant defaults) / unhealthy |
 
@@ -576,11 +598,11 @@ Unit coverage at implementation time: 7 suites, 76 tests, all green (`yarn works
 | Risk | Severity | Affected area | Mitigation | Residual |
 |---|---|---|---|---|
 | **Refresh-token rotation race** — two workers refresh the same channel; the second exchange invalidates the first's new token. | High | poll + outbound workers | Persist the rotated token on every refresh; hub single-flight per `channelId` (in-process). Document that multi-process deployments should keep `refreshWindowMs` default so refreshes are rare and short. | Multi-process race remains theoretically possible (same as Gmail); recovers via `requires_reauth` + reconnect. |
-| **Delta token expiry / `410`** | Medium | inbound | Re-bootstrap from `receivedWatermark`; watermark never moves back. | Mail moved into Inbox with an old `receivedDateTime` is skipped (documented; `importHistory` covers). |
+| **Delta token expiry / `410`** | Medium | inbound | Re-bootstrap from `receivedWatermark`; watermark never moves back. | Mail moved into Inbox with a `receivedDateTime` older than the re-sync floor is skipped (documented; `importHistory` covers). |
 | **Tenant disables Graph mail access / blocks user consent** | Medium | connect | `403` mapped to an actionable message; docs list admin-consent step. | None beyond operator action. |
 | **`preferred_username` ≠ primary SMTP** | Low | identity/dedup | Prefer `/me.mail`; UPN only as fallback. | Rare mismatch changes the dedup key vs an IMAP channel of the same mailbox. |
 | **Message-ID rewritten by Exchange** | Medium | threading | Draft-from-MIME returns the authoritative `internetMessageId`, which is what we store. | None. |
-| **Graph throttling (429)** on large tenants | Low | inbound/outbound | Transient classification + backoff; page size cap; one `$value` per new message only (watermark filter). | Bursty tenants may lag one tick. |
+| **Graph throttling (429)** on large tenants | Low | inbound/outbound | Transient classification + backoff; page size cap. Each non-removed delta item costs one `$value`, including flag updates on existing mail (the hub then dedups). | Bursty tenants may lag one tick; mass flag changes cost extra `$value` calls. |
 | **Duplicate mailbox via IMAP and ms365** | Low | connect | Existing `MailboxAlreadyConnectedError` check (case-insensitive email) already blocks it. | None. |
 | **Sovereign clouds (21Vianet, GCC High)** | Low | config | Base URLs overridable via env. | Untested in phase 1. |
 | **Secret handling** | High | security | Client secret and tokens only in encrypted `integration_credentials`; never logged; PKCE on exchange; state cookie bound to user + tenant by the hub. | None new. |
@@ -731,6 +753,23 @@ None block implementation; defaults apply unless the maintainer objects in revie
   CRM starter preset is now 25 modules (`main` added `api_keys` to the empty preset).
 - `TC-CHANNEL-MS365-004` asserts `oauth=error`: the hub's OAuth callback reports its result in
   `?oauth=` instead of `?flash=` since #6521.
+
+### 2026-11-03 — Second re-review fixes (PR #5898)
+
+- A connection lost while reading a response body is now classified like one lost before the
+  response: `TypeError('terminated')` maps to a transient `599`, GETs retry, POSTs do not. An error
+  response whose body is lost keeps its real status, a 2xx with an unused body (`/send`, delete,
+  move) is a success without reading it, and a 2xx with empty or malformed JSON is a transient
+  `502`. A draft created on the server whose
+  response was lost stays behind as an orphan (its id was never learned); nothing is sent twice.
+- `importHistory` keeps identity for the whole import: `doneKeys` (digests) replaces the per-page
+  `pageDoneIds`, so messages displaced onto a later page are not counted twice. A call with no
+  progress throws the real error instead of repeating its cursor, and senders without mail no
+  longer count as the hub's empty pages.
+- `/send`: only a `429` on a draft that still reads as a draft is retried. After a timeout,
+  connection loss or `5xx` the send may be in flight, so the draft is kept and nothing is retried.
+- The watermark is described everywhere as a bootstrap / re-sync floor, separate from the Graph
+  baseline filter (D6, the moved-mail limitation, the state schema, the throttling row).
 
 ### 2026-10-31 — Fresh re-review fixes (PR #5898)
 
