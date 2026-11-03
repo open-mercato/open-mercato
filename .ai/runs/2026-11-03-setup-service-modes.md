@@ -21,6 +21,11 @@ No migrations on shared services during verification, no registry publishing, no
 ## Risks
 Explicit isolated modes replace service endpoints; preserve existing credentials in Compose mode and restore previous configuration after ephemeral service cleanup. Reuse mode must perform zero Docker calls. Do not log URLs containing credentials.
 
+### Phase 3: Security remediation
+3.1 Require exact-target acknowledgement before remote database writes while preserving local/default reuse.
+3.2 Bind isolated services to loopback, pin setup images, and generate independent owned local credentials.
+3.3 Verify security regressions and live isolated services, then request a fresh security review.
+
 ## Verification
 
 Package builds, generation, translation sync/usage, typecheck (42 tasks), and the optimized app build pass locally. The full test run passed 49 tasks; after a fixture-local CommonJS manifest corrected sandbox execution of fake runners, the create-app suite passed 1,022 tests with 6 skipped and no failures. The final affected suite passed 179/179, and template parity is clean.
@@ -41,3 +46,8 @@ PR: #8613
 ### Phase 2: Verification
 - [x] 2.1 Validate regression suites and template parity — 92cfee9fe
 - [x] 2.2 Review and publish the result — 92cfee9fe
+
+### Phase 3: Security remediation
+- [ ] 3.1 Guard remote database writes with explicit target acknowledgement
+- [ ] 3.2 Secure isolated bindings, images and independent local credentials
+- [ ] 3.3 Verify and publish the security remediation
