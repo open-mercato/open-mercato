@@ -41,7 +41,9 @@ The operator clarified that dev:greenfield must keep its established automatic -
 ### Phase 3: Preserve greenfield compatibility
 
 - [x] 3.1 Restore default greenfield reinstall and align regression coverage and docs. — 865b22dde
-- [ ] 3.2 Run focused validation and review, then publish the updated PR scope.
+- [x] 3.2 Protect unhealthy existing services before startup and cover reuse consent. — 078106eb0
+- [ ] 3.3 Verify configured PostgreSQL, Redis and Meilisearch credentials before database setup; provide sanitized actionable errors.
+- [ ] 3.4 Run focused validation and full PR review, then publish the updated PR scope.
 
 ## Diagnostic findings
 
@@ -58,3 +60,5 @@ Runner: local. 568 starter/dev-runtime Node tests, 16 standalone setup tests and
 Runtime Retry follow-up: two failing click regressions reproduced the reload-only behavior. The new path invokes the existing restart control, retains old errors until a new generation becomes ready, and surfaces denied recovery. Banner tests 33/33 and runtime action/state tests 48/48 pass. Browser QA remains required; no live runtime was restarted during tests.
 
 Preview publication: source c2d896060, workflow ref main, run41643337626. The prior source9c9c64d preview published successfully; use final-source URLs for Retry verification.
+
+Credential-verification follow-up: the operator requires real read-only connection/authentication checks before setup mutates a database. PostgreSQL SELECT1, authenticated Redis PING for every configured URL, and a protected Meilisearch API read must succeed; invalid configuration stops with service-specific errors that never expose credentials. Verify disposable targets only.
