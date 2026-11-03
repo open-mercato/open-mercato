@@ -1,0 +1,39 @@
+import type { StepHandler } from '../lib/engine/registry.js'
+import type { StepDeps } from './deps.js'
+import { addPointsStep } from './add-points.js'
+import { npsSurveyStep } from './nps-survey.js'
+import { addTagStep } from './add-tag.js'
+import { notifyStep } from './notify.js'
+import { sendSignalStep } from './send-signal.js'
+import { assignOwnerStep } from './assign-owner.js'
+import { issueReferralCodeStep } from './issue-referral-code.js'
+import { sendEmailStep } from './send-email.js'
+import { splitStep } from './split.js'
+import { waitStep } from './wait.js'
+
+/** Step types this module ships. Other modules add their own through the registry. */
+export const builtInSteps: StepHandler<StepDeps>[] = [
+  waitStep,
+  splitStep,
+  addTagStep,
+  addPointsStep,
+  sendEmailStep,
+  npsSurveyStep,
+  issueReferralCodeStep,
+  assignOwnerStep,
+  notifyStep,
+  sendSignalStep,
+]
+
+export {
+  addPointsStep,
+  addTagStep,
+  assignOwnerStep,
+  issueReferralCodeStep,
+  notifyStep,
+  npsSurveyStep,
+  sendEmailStep,
+  sendSignalStep,
+  splitStep,
+  waitStep,
+}

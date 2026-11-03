@@ -3,6 +3,7 @@ import type {
   ConvertOutboundInput,
 } from '@open-mercato/core/modules/communication_channels/lib/adapter'
 import {
+  headersFromMeta,
   htmlToText,
   referencesFromMeta,
   sanitizeHeaderValue,
@@ -73,6 +74,7 @@ export async function convertOutboundForEmail(
       inReplyTo,
       references,
       messageId,
+      headers: headersFromMeta(meta.headers),
     },
   }
   return native

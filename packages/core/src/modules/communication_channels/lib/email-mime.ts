@@ -155,6 +155,27 @@ export function sanitizeHeaderValue(value: string): string {
   return value.replace(/[\r\n\t]+/g, ' ').trim()
 }
 
+/**
+ * Extra MIME headers a caller asked for (e.g. `List-Unsubscribe` / `List-Unsubscribe-Post`), sanitised.
+ *
+ * Shared across every outbound email adapter so none of them has to choose between silently
+ * dropping `channelMetadata.headers` or re-deriving its own copy of this validation. A header NAME
+ * with anything but token characters in it is not a header; dropped rather than sent. Values go
+ * through `sanitizeHeaderValue` for the same reason `to`/`from` do: a newline in a header value is a
+ * header-injection, and these values are composed from configuration and campaign data.
+ */
+export function headersFromMeta(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const headers: Record<string, string> = {}
+  for (const [name, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof raw !== 'string') continue
+    if (!/^[A-Za-z0-9-]+$/.test(name)) continue
+    const sanitized = sanitizeHeaderValue(raw).trim()
+    if (sanitized) headers[name] = sanitized
+  }
+  return Object.keys(headers).length > 0 ? headers : undefined
+}
+
 export function ensureBrackets(value: string): string {
   const trimmed = sanitizeHeaderValue(value)
   if (trimmed.startsWith('<') && trimmed.endsWith('>')) return trimmed
@@ -217,6 +238,8 @@ export interface AssembleRfc2822Input {
   inReplyTo: string | undefined
   references: string[] | undefined
   messageId: string
+  /** Already name/value-validated by `headersFromMeta`; e.g. `List-Unsubscribe`. */
+  extraHeaders?: Record<string, string>
 }
 
 /**
@@ -250,6 +273,9 @@ export function assembleRfc2822(input: AssembleRfc2822Input): Buffer {
   if (input.inReplyTo) headers.push(`In-Reply-To: ${ensureBrackets(input.inReplyTo)}`)
   if (input.references && input.references.length) {
     headers.push(`References: ${input.references.map(ensureBrackets).join(' ')}`)
+  }
+  for (const [name, value] of Object.entries(input.extraHeaders ?? {})) {
+    headers.push(`${name}: ${sanitizeHeaderValue(value)}`)
   }
   headers.push('MIME-Version: 1.0')
   headers.push(`Date: ${new Date().toUTCString()}`)
