@@ -13,6 +13,7 @@ import { ObjectHistoryButton } from './ObjectHistoryButton'
 import { useCustomerDictionary } from './hooks/useCustomerDictionary'
 import { formatFallbackLabel } from './utils'
 import { isTerminalPipelineOutcomeLabel } from './pipelineStageUtils'
+import { formatCalendarDay } from '../../lib/displayDate'
 
 type DealAssociation = {
   id: string
@@ -205,7 +206,7 @@ export function DealDetailHeader({
     [deal.valueAmount, deal.valueCurrency],
   )
   const createdAtLabel = React.useMemo(() => formatDate(deal.createdAt, locale), [deal.createdAt, locale])
-  const expectedCloseLabel = React.useMemo(() => formatDate(deal.expectedCloseAt, locale), [deal.expectedCloseAt, locale])
+  const expectedCloseLabel = React.useMemo(() => formatCalendarDay(deal.expectedCloseAt, locale), [deal.expectedCloseAt, locale])
   const { data: statusDictionary } = useCustomerDictionary('deal-statuses', 0, deal.organizationId ?? null)
   const statusEntry = deal.status ? statusDictionary?.map?.[deal.status] : null
   const companyLabel = React.useMemo(() => {

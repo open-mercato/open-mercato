@@ -12,7 +12,7 @@ import { LinkButton } from './link-button'
 import { TimeInput } from '../backend/inputs/TimeInput'
 import { formatLocalDisplayValue } from './date-format'
 import { useDateLocaleSettings } from './date-locale-settings'
-import { useDateFnsLocale } from './date-locale'
+import { resolveDateFnsLocale, useDateFnsLocale } from './date-locale'
 
 export type DatePickerFooter = 'apply-cancel' | 'today-clear' | 'none'
 
@@ -156,7 +156,8 @@ export function DatePicker({
 
   const formattedValue = React.useMemo(() => {
     if (!value) return null
-    return formatLocalDisplayValue(value, { withTime, locale, explicitFormat: displayFormat, settings: dateLocaleSettings })
+    const patternLocale = dateLocaleSettings.locale ? resolveDateFnsLocale(dateLocaleSettings.locale) ?? locale : locale
+    return formatLocalDisplayValue(value, { withTime, locale: patternLocale, explicitFormat: displayFormat, settings: dateLocaleSettings })
   }, [value, withTime, locale, displayFormat, dateLocaleSettings])
 
   const handleDaySelect = React.useCallback(

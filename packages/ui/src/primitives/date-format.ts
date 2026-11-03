@@ -173,6 +173,10 @@ function getWallClockFormatter(timeZone: string): Intl.DateTimeFormat {
  * reading. Lets a `date-fns` pattern render an instant in a zone other than the runtime's, the
  * same technique `date-fns-tz` `toZonedTime` uses. Returns `date` unchanged when the zone is
  * unknown.
+ *
+ * Known limitation (shared with `toZonedTime`): a wall time that falls in the RUNTIME zone's DST gap
+ * cannot be represented as a local `Date`, so it renders one hour late. Only patterns that print
+ * the hour are affected, and only for the skipped hour of the runtime zone's spring-forward day.
  */
 export function toZonedWallClock(date: Date, timeZone: string | null | undefined): Date {
   if (!timeZone) return date

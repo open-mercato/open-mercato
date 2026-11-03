@@ -33,6 +33,7 @@ import {
   remapDateLocaleFieldErrors,
   type DateLocaleFormValues,
 } from '../../../lib/dateLocaleForm'
+import { listSupportedTimeZones } from '@open-mercato/shared/lib/date/timezone'
 
 type DateLocaleResponse = {
   settings: NormalizedDateLocaleSettingsRecord
@@ -45,14 +46,6 @@ const API_PATH = 'configs/date-locale'
 const LOCALE_OPTIONS = ['en-US', 'en-GB', 'pl-PL', 'de-DE', 'es-ES', 'fr-FR', 'it-IT', 'ko-KR', 'pt-BR', 'nl-NL']
 
 const PREVIEW_SAMPLE = new Date(Date.UTC(2026, 11, 31, 13, 45))
-
-function listTimeZones(): string[] {
-  try {
-    const supported = (Intl as unknown as { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf
-    if (typeof supported === 'function') return supported('timeZone')
-  } catch {}
-  return ['UTC', 'Europe/London', 'Europe/Warsaw', 'Europe/Berlin', 'America/New_York', 'America/Los_Angeles', 'Asia/Tokyo', 'Asia/Seoul']
-}
 
 function weekdayName(day: number, locale: string): string {
   const reference = new Date(Date.UTC(2026, 0, 4 + day))
@@ -102,10 +95,11 @@ export default function DateLocaleSettingsPage() {
   }, [load, scopeVersion])
 
   const sourceLabel = React.useCallback(
-    (source: DateLocaleSource) =>
-      source === 'env'
-        ? t('configs.dateLocale.source.env', 'from the deployment environment')
-        : t('configs.dateLocale.source.fallback', 'from the language'),
+    (source: DateLocaleSource, field: DateLocaleField) => {
+      if (source === 'env') return t('configs.dateLocale.source.env', 'from the deployment environment')
+      if (field === 'timeZone') return t('configs.dateLocale.source.device', 'nothing configured')
+      return t('configs.dateLocale.source.fallback', 'from the language')
+    },
     [t],
   )
 
@@ -114,10 +108,13 @@ export default function DateLocaleSettingsPage() {
       if (!data) return undefined
       const inherited = resolveDateLocaleSettings({ env: data.envDefaults })
       const value = inherited[field]
-      const label = value === null ? t('configs.dateLocale.inherit.localeDefault', 'locale default') : render(String(value))
+      const emptyLabel = field === 'timeZone'
+        ? t('configs.dateLocale.inherit.viewerDevice', 'each viewer’s device time zone')
+        : t('configs.dateLocale.inherit.localeDefault', 'locale default')
+      const label = value === null ? emptyLabel : render(String(value))
       return t('configs.dateLocale.inherit.hint', 'Automatic uses {{value}} ({{source}}).', {
         value: label,
-        source: sourceLabel(inherited.sources[field]),
+        source: sourceLabel(inherited.sources[field], field),
       })
     },
     [data, sourceLabel, t],
@@ -182,7 +179,7 @@ export default function DateLocaleSettingsPage() {
         description: inheritedHint('timeZone'),
         options: [
           { value: DATE_LOCALE_AUTO, label: t('configs.dateLocale.options.autoTimeZone', "Automatic (each viewer's device)") },
-          ...listTimeZones().map((zone) => ({ value: zone, label: zone })),
+          ...listSupportedTimeZones().map((zone) => ({ value: zone, label: zone })),
         ],
         allowCustomValues: false,
         disabled: !canManage,

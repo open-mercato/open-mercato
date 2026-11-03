@@ -14,7 +14,7 @@ import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import type { FilterOptionTone } from '@open-mercato/shared/lib/query/advanced-filter'
 import { formatCurrency } from '../../../../../components/detail/utils'
-import { formatZonedDateParts } from '../../../../../lib/displayDate'
+import { formatCalendarDayParts, formatZonedDateParts } from '../../../../../lib/displayDate'
 import type {
   DealsMapCanvasDeal,
   DealsMapCanvasProps,
@@ -134,7 +134,7 @@ type PreviewCardProps = {
 function DealMapPreviewCard({ preview, onClose }: PreviewCardProps): React.ReactElement {
   const t = useT()
   const locale = useLocale()
-  const closeDate = formatShortDate(preview.expectedCloseAt, locale)
+  const closeDate = formatCalendarDayParts(preview.expectedCloseAt, { month: 'short', day: '2-digit' }, locale)
   const metaParts: string[] = []
   if (typeof preview.valueAmount === 'number') {
     metaParts.push(formatCurrency(preview.valueAmount, preview.valueCurrency))

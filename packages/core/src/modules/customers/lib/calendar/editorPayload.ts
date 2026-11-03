@@ -250,18 +250,23 @@ export function createDefaultFormState(
     base.setHours(base.getHours() + 1)
     end = new Date(base.getTime() + 90 * 60_000)
   }
+  // The grid hands over real instants; read them back as wall times in the editor's zone so the
+  // submit path (`calendarWallTimeToInstant` in that zone) saves the slot the user picked.
+  const timezone = defaultCalendarTimezone()
+  const startWall = calendarInstantToWallTime(base, timezone)
+  const endWall = calendarInstantToWallTime(end, timezone)
   return {
     kind: 'meeting',
-    timezone: defaultCalendarTimezone(),
+    timezone,
     title: '',
     relatedTo: null,
     dealId: null,
     dealLabel: null,
     allDay: false,
-    date: formatLocalDateInput(base),
-    startTime: formatLocalTimeInput(base),
-    endDate: formatLocalDateInput(end),
-    endTime: formatLocalTimeInput(end),
+    date: startWall.date,
+    startTime: startWall.time,
+    endDate: endWall.date,
+    endTime: endWall.time,
     repeatFreq: 'none',
     repeatDays: defaultRepeatDays(base),
     repeatEndType: 'never',

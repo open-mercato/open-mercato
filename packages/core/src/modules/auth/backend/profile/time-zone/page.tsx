@@ -11,19 +11,12 @@ import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { useDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-settings'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { listSupportedTimeZones } from '@open-mercato/shared/lib/date/timezone'
 
 const ORGANIZATION_DEFAULT = 'organization'
 
 type ProfileResponse = { timezone?: string | null }
 type TimeZoneFormValues = { timezone: string }
-
-function listTimeZones(): string[] {
-  try {
-    const supported = (Intl as unknown as { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf
-    if (typeof supported === 'function') return supported('timeZone')
-  } catch {}
-  return ['UTC', 'Europe/London', 'Europe/Warsaw', 'Europe/Berlin', 'America/New_York', 'America/Los_Angeles', 'Asia/Tokyo', 'Asia/Seoul']
-}
 
 export default function ProfileTimeZonePage() {
   const t = useT()
@@ -60,7 +53,7 @@ export default function ProfileTimeZonePage() {
       ),
       options: [
         { value: ORGANIZATION_DEFAULT, label: t('auth.profile.timeZone.organizationDefault', 'Organization default') },
-        ...listTimeZones().map((zone) => ({ value: zone, label: zone })),
+        ...listSupportedTimeZones().map((zone) => ({ value: zone, label: zone })),
       ],
       allowCustomValues: false,
     },

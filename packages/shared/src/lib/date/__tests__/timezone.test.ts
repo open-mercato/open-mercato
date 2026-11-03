@@ -1,4 +1,4 @@
-import { calendarDayInTimeZone, canonicalizeTimeZone, isValidTimeZone } from '../timezone'
+import { calendarDayInTimeZone, canonicalizeTimeZone, isValidTimeZone, listSupportedTimeZones } from '../timezone'
 
 describe('canonicalizeTimeZone', () => {
   it('returns the canonical spelling of a valid zone', () => {
@@ -33,5 +33,13 @@ describe('calendarDayInTimeZone', () => {
 
   it('falls back to the runtime zone for an unknown zone', () => {
     expect(calendarDayInTimeZone(instant, 'Mars/Olympus')).toBe(calendarDayInTimeZone(instant, null))
+  })
+})
+
+describe('listSupportedTimeZones', () => {
+  it('lists IANA zones including UTC-equivalent and common regions', () => {
+    const zones = listSupportedTimeZones()
+    expect(zones.length).toBeGreaterThan(5)
+    expect(zones).toEqual(expect.arrayContaining(['Europe/Warsaw', 'America/New_York']))
   })
 })

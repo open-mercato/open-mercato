@@ -6,6 +6,7 @@ import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { useOptionalLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react'
 import { todayInZone } from '@open-mercato/ui/primitives/date-format'
+import { useDisplayTimeZone } from '@open-mercato/ui/primitives/date-locale-settings'
 
 type CalendarPickerProps = {
   selectedWeekStart: Date
@@ -17,10 +18,10 @@ type CalendarPickerProps = {
   today?: Date | (() => Date)
 }
 
-function resolveToday(today: CalendarPickerProps['today']): Date {
+function resolveToday(today: CalendarPickerProps['today'], timeZone: string): Date {
   if (typeof today === 'function') return new Date(today())
   if (today) return new Date(today)
-  const [year, month, day] = todayInZone().split('-').map(Number)
+  const [year, month, day] = todayInZone(timeZone).split('-').map(Number)
   return new Date(year, month - 1, day)
 }
 
@@ -109,7 +110,8 @@ export function CalendarPicker({ selectedWeekStart, onWeekSelect, today: todayPr
     return new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric' }).format(new Date(viewYear, viewMonth, 1))
   }, [locale, viewYear, viewMonth])
 
-  const today = resolveToday(todayProp)
+  const displayTimeZone = useDisplayTimeZone()
+  const today = resolveToday(todayProp, displayTimeZone)
 
   const handleWeekClick = React.useCallback((monday: Date) => {
     onWeekSelect(monday)
@@ -151,7 +153,7 @@ export function CalendarPicker({ selectedWeekStart, onWeekSelect, today: todayPr
               variant="ghost"
               size="sm"
               className="h-auto px-2 py-1 text-xs"
-              onClick={() => handleWeekClick(getMonday(resolveToday(todayProp)))}
+              onClick={() => handleWeekClick(getMonday(resolveToday(todayProp, displayTimeZone)))}
             >
               {t('staff.timesheets.my.calendar.thisWeek', 'This week')}
             </Button>
@@ -161,7 +163,7 @@ export function CalendarPicker({ selectedWeekStart, onWeekSelect, today: todayPr
               size="sm"
               className="h-auto px-2 py-1 text-xs"
               onClick={() => {
-                const lastWeek = resolveToday(todayProp)
+                const lastWeek = resolveToday(todayProp, displayTimeZone)
                 lastWeek.setDate(lastWeek.getDate() - 7)
                 handleWeekClick(getMonday(lastWeek))
               }}

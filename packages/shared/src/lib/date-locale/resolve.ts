@@ -1,5 +1,11 @@
 import { canonicalizeTimeZone } from '../date/timezone'
-import { canonicalizeLocale, isFirstDayOfWeek, normalizeDateFormatPattern, parseFirstDayOfWeek } from './validation'
+import {
+  canonicalizeLocale,
+  isFirstDayOfWeek,
+  normalizeDateFormatPattern,
+  parseFirstDayOfWeek,
+  validateDateFormatPattern,
+} from './validation'
 import type {
   DateLocaleEnvDefaults,
   DateLocaleField,
@@ -8,6 +14,12 @@ import type {
   FirstDayOfWeek,
   ResolvedDateLocaleSettings,
 } from './types'
+
+/** A normalized pattern that passes `validateDateFormatPattern`, or `null` (follow the locale). */
+function safePattern(value: string | null | undefined): string | null {
+  const normalized = normalizeDateFormatPattern(value)
+  return normalized && validateDateFormatPattern(normalized) === null ? normalized : null
+}
 
 export type DateLocaleEnv = {
   OM_DEFAULT_LOCALE?: string
@@ -30,11 +42,11 @@ export function readDateLocaleEnv(env: DateLocaleEnv = process.env as DateLocale
   return {
     locale: canonicalizeLocale(env.OM_DEFAULT_LOCALE),
     dateFormat:
-      normalizeDateFormatPattern(env.NEXT_PUBLIC_OM_DATE_FORMAT) ?? normalizeDateFormatPattern(env.NEXT_PUBLIC_DATE_FORMAT),
+      safePattern(env.NEXT_PUBLIC_OM_DATE_FORMAT) ?? safePattern(env.NEXT_PUBLIC_DATE_FORMAT),
     dateTimeFormat:
-      normalizeDateFormatPattern(env.NEXT_PUBLIC_OM_DATE_TIME_FORMAT)
-      ?? normalizeDateFormatPattern(env.NEXT_PUBLIC_DATE_TIME_FORMAT),
-    timeFormat: normalizeDateFormatPattern(env.NEXT_PUBLIC_OM_TIME_FORMAT),
+      safePattern(env.NEXT_PUBLIC_OM_DATE_TIME_FORMAT)
+      ?? safePattern(env.NEXT_PUBLIC_DATE_TIME_FORMAT),
+    timeFormat: safePattern(env.NEXT_PUBLIC_OM_TIME_FORMAT),
     timeZone: canonicalizeTimeZone(env.OM_DEFAULT_TIMEZONE),
     firstDayOfWeek: parseFirstDayOfWeek(env.OM_FIRST_DAY_OF_WEEK),
   }
@@ -59,7 +71,7 @@ function pick<K extends DateLocaleField>(
 }
 
 function tenantPattern(value: string | null | undefined): string | null {
-  return normalizeDateFormatPattern(value)
+  return safePattern(value)
 }
 
 /**

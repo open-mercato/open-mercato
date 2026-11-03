@@ -9,7 +9,7 @@ import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { SimpleTooltip } from '@open-mercato/ui/primitives/tooltip'
 import type { RowActionItem } from '@open-mercato/ui/backend/RowActions'
 import { DealCardMenu } from './DealCardMenu'
-import { formatZonedDateParts } from '../../../../../lib/displayDate'
+import { formatCalendarDayParts, formatZonedDateParts } from '../../../../../lib/displayDate'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 
@@ -163,7 +163,9 @@ function DealCardImpl({
   const activityWarning = activityCount >= ACTIVITY_BADGE_WARNING_THRESHOLD
 
   const probabilityLabel = formatProbability(deal.probability)
-  const dateLabel = formatShortDate(deal.expectedCloseAt ?? deal.createdAt, locale)
+  const dateLabel = deal.expectedCloseAt
+    ? formatCalendarDayParts(deal.expectedCloseAt, { month: 'short', day: '2-digit' }, locale)
+    : formatShortDate(deal.createdAt, locale)
   const stageDaysLabel = deal.pipelineState.isOverdue
     ? translateWithFallback(t, 'customers.deals.kanban.card.overdueLabel', 'Overdue')
     : translateWithFallback(t, 'customers.deals.kanban.card.daysInStage', 'in {days}d', {

@@ -43,8 +43,10 @@ function formatDayLabel(day: Date, locale: string): string {
 }
 
 function formatTimeRange(item: ScheduleItem, locale: string, timezone?: string): string {
-  const active = getActiveDateLocaleSettings()
-  const settings = timezone ? { ...active, timeZone: timezone } : active
+  // Day columns are bucketed with runtime-local getters, so labels stay in that zone (or the
+  // explicit `timezone` prop) until the grid itself becomes zone-aware; only the clock style and
+  // pattern follow the date/locale settings.
+  const settings = { ...getActiveDateLocaleSettings(), timeZone: timezone ?? null }
   const startLabel = formatDisplayTime(item.startsAt, locale, settings) ?? ''
   const endLabel = formatDisplayTime(item.endsAt, locale, settings) ?? ''
   return `${startLabel}–${endLabel}`

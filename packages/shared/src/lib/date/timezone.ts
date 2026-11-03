@@ -35,3 +35,23 @@ export function calendarDayInTimeZone(date: Date, timeZone?: string | null): str
   const read = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? ''
   return `${read('year')}-${read('month')}-${read('day')}`
 }
+
+const FALLBACK_TIME_ZONES = [
+  'UTC',
+  'Europe/London',
+  'Europe/Warsaw',
+  'Europe/Berlin',
+  'America/New_York',
+  'America/Los_Angeles',
+  'Asia/Tokyo',
+  'Asia/Seoul',
+]
+
+/** Every IANA zone the runtime supports, or a short common list on runtimes without `supportedValuesOf`. */
+export function listSupportedTimeZones(): string[] {
+  try {
+    const supported = (Intl as unknown as { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf
+    if (typeof supported === 'function') return supported('timeZone')
+  } catch {}
+  return [...FALLBACK_TIME_ZONES]
+}

@@ -100,3 +100,19 @@ describe('resolveDateLocaleSettings', () => {
     expect(resolved.sources.dateTimeFormat).toBe('tenant')
   })
 })
+
+describe('invalid patterns', () => {
+  it('drops env patterns that date-fns cannot render', () => {
+    const env = readDateLocaleEnv({ NEXT_PUBLIC_OM_DATE_FORMAT: 'D.M.YYYY', NEXT_PUBLIC_OM_TIME_FORMAT: 'HH:mm f' })
+    expect(env.dateFormat).toBeNull()
+    expect(env.timeFormat).toBeNull()
+  })
+
+  it('falls back from an invalid env pattern to the legacy alias', () => {
+    expect(readDateLocaleEnv({ NEXT_PUBLIC_OM_DATE_FORMAT: 'dd<MM', NEXT_PUBLIC_DATE_FORMAT: 'yyyy-MM-dd' }).dateFormat).toBe('yyyy-MM-dd')
+  })
+
+  it('ignores an invalid stored tenant pattern', () => {
+    expect(resolveDateLocaleSettings({ env: noEnv, tenant: { dateFormat: 'D.M.yyyy' } }).dateFormat).toBeNull()
+  })
+})

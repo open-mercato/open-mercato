@@ -27,6 +27,7 @@ import { useCustomerDictionary } from './hooks/useCustomerDictionary'
 import { CustomFieldValuesList } from './CustomFieldValuesList'
 import { useCustomFieldDisplay } from './hooks/useCustomFieldDisplay'
 import { normalizeCustomFieldKey } from './customFieldUtils'
+import { formatCalendarDay } from '../../lib/displayDate'
 
 const DEALS_PAGE_SIZE = 10
 
@@ -964,7 +965,7 @@ export function DealsSection({
           <div className="space-y-4">
             {sortedDeals.map((deal) => {
           const valueLabel = formatValueLabel(deal.valueAmount, deal.valueCurrency ?? null, emptyLabel, locale)
-          const expectedLabel = deal.expectedCloseAt ? formatDate(deal.expectedCloseAt, locale) ?? emptyLabel : emptyLabel
+          const expectedLabel = formatCalendarDay(deal.expectedCloseAt, locale) ?? emptyLabel
           const probabilityLabel =
             typeof deal.probability === 'number' ? `${deal.probability}%` : emptyLabel
           const isUnlinkPending = pendingAction?.kind === 'remove' && pendingAction.id === deal.id

@@ -22,6 +22,7 @@ import { resolveStatusEntryIdByValue } from '../../../lib/statusHelpers'
 import { QuoteSentEmail } from '../../../emails/QuoteSentEmail'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveDateLocaleSettingsForScope } from '@open-mercato/shared/lib/date-locale/registry'
+import { formatQuoteValidUntil } from '../../../lib/quoteEmailDates'
 
 const logger = createLogger('sales')
 
@@ -160,12 +161,7 @@ export async function POST(req: Request) {
 
     const locale = await detectLocale()
     const dateLocaleSettings = await resolveDateLocaleSettingsForScope(ctx.container, { tenantId: quote.tenantId })
-    const validUntilFormatted = validUntil.toLocaleDateString(dateLocaleSettings.locale ?? locale, {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      ...(dateLocaleSettings.timeZone ? { timeZone: dateLocaleSettings.timeZone } : {}),
-    })
+    const validUntilFormatted = formatQuoteValidUntil(validUntil, locale, dateLocaleSettings)
 
     const copy = {
       preview: translate('sales.quotes.email.preview', 'Quote {quoteNumber} is ready for review', { quoteNumber: quote.quoteNumber }),

@@ -5,7 +5,7 @@ const DATE_OPTIONS: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short
 
 const TIME_OPTIONS: Intl.DateTimeFormatOptions = { hour: 'numeric', minute: '2-digit' }
 
-const NON_CANONICAL_INTL_SPACING = /[    ]/g
+const NON_CANONICAL_INTL_SPACING = /[\u00a0\u2007\u2009\u202f]/g
 
 function normalizeIntlSpacing(value: string): string {
   return value.replace(NON_CANONICAL_INTL_SPACING, ' ')

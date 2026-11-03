@@ -79,6 +79,7 @@ import { ReassignOwnerDialog } from './components/ReassignOwnerDialog'
 import type { BulkActionExecuteResult } from '@open-mercato/ui/backend/DataTable'
 import { requestBulkOwnerReassignment, buildReassignOwnerSuccess } from '../../../lib/reassignDealOwner'
 import { buildDealDuplicatePayload, formatDealDuplicateTitle } from '../../../lib/duplicateDeal'
+import { formatCalendarDay } from '../../../lib/displayDate'
 
 const logger = createLogger('customers')
 
@@ -1046,7 +1047,7 @@ export default function CustomersDealsPage() {
           return (
             <div className="flex flex-col">
               <span className="text-foreground">
-                {formatDateValue(expectedCloseAt, t('customers.deals.list.noValue'), locale)}
+                {formatCalendarDay(expectedCloseAt, locale) ?? t('customers.deals.list.noValue')}
               </span>
               {subtitle}
             </div>

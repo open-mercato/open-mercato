@@ -15,6 +15,7 @@ import { TERMINAL_INTERACTION_STATUS_LIST } from '../../../lib/interactionStatus
 import { applyEmailVisibilityFilter } from '../../../lib/visibilityFilter'
 import { listGrantsForViewer, listSharedChannelIds } from '../../../lib/conversationShares'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { formatConflictClock } from '../../../lib/interactionConflictClock'
 
 const logger = createLogger('customers')
 
@@ -26,15 +27,6 @@ const querySchema = z.object({
   userId: z.string().uuid().optional(),
   timezoneOffsetMinutes: z.coerce.number().int().min(-900).max(900).optional(),
 })
-
-/**
- * `HH:mm` of an instant in the caller's offset (the one its window was built in), or UTC when the
- * caller sent none. Kept for clients that render the string; new clients format `startsAt`/`endsAt`.
- */
-function formatClock(instant: Date, offsetMinutes: number | undefined): string {
-  const shifted = new Date(instant.getTime() + (offsetMinutes ?? 0) * 60_000)
-  return shifted.toISOString().slice(11, 16)
-}
 
 const conflictItemSchema = z.object({
   id: z.string(),
@@ -209,8 +201,8 @@ export async function GET(req: Request) {
       return {
         id: row.id,
         title: titleById.has(row.id) ? titleById.get(row.id) ?? null : null,
-        startTime: formatClock(start, query.timezoneOffsetMinutes),
-        endTime: formatClock(end, query.timezoneOffsetMinutes),
+        startTime: formatConflictClock(start, query.timezoneOffsetMinutes),
+        endTime: formatConflictClock(end, query.timezoneOffsetMinutes),
         startsAt: start.toISOString(),
         endsAt: end.toISOString(),
         type: row.interaction_type,
