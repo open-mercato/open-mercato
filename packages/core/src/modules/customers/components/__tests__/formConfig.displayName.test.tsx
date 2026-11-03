@@ -63,7 +63,7 @@ function renderGroup(group: CrudFormGroup, initialValues: FormValues) {
 }
 
 function renderDisplayNameField(initialValues: FormValues) {
-  expect(findGroup(createPersonPersonalDataGroups(t), 'personalData').fields).toContain('displayName')
+  expect(findGroup(createPersonPersonalDataGroups(t), 'personalData').fields?.slice(0, 3)).toEqual(['firstName', 'lastName', 'displayName'])
   const field = createPersonEditFields(t).find((entry) => entry.id === 'displayName') as CrudCustomField | undefined
   if (!field) throw new Error('[internal] missing displayName field')
   const latest: { values: FormValues; change: (id: string, value: unknown) => void } = {
