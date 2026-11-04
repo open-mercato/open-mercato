@@ -8,22 +8,23 @@ const mockApiCall = jest.fn()
 const mockCreateCrud = jest.fn()
 const mockUpdateCrud = jest.fn()
 const mockHandleConflict = jest.fn()
+const mockTriggerEvent = jest.fn()
+let mockRequestHeaders: Record<string, string> = {}
+const mockWithHeaders = async (headers: Record<string, string>, operation: () => Promise<unknown>) => {
+  const previous = mockRequestHeaders
+  mockRequestHeaders = { ...previous, ...headers }
+  try { return await operation() } finally { mockRequestHeaders = previous }
+}
 let capturedSubmit: SubmitHandler | null = null
 
 jest.mock('@open-mercato/ui/backend/injection/InjectionSpot', () => ({
-  useInjectionSpotEvents: () => ({ triggerEvent: async () => ({ ok: true }) }),
+  useInjectionSpotEvents: () => ({ triggerEvent: mockTriggerEvent }),
 }))
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: (...args: unknown[]) => mockApiCall(...args),
-  withScopedApiRequestHeaders: async (
-    _headers: unknown,
-    operation: () => Promise<unknown>,
-  ) => operation(),
-}))
-
-jest.mock('@open-mercato/ui/backend/utils/optimisticLock', () => ({
-  buildOptimisticLockHeader: () => ({}),
+  withScopedApiRequestHeaders: (headers: Record<string, string>, operation: () => Promise<unknown>) =>
+    mockWithHeaders(headers, operation),
 }))
 
 jest.mock('@open-mercato/ui/backend/utils/crud', () => ({
@@ -87,13 +88,21 @@ jest.mock('@open-mercato/ui/primitives/select', () => {
 jest.mock('@open-mercato/ui/backend/CrudForm', () => {
   const ReactLib = require('react') as typeof import('react')
   return {
-    CrudForm: ({ formId, onSubmit }: { formId?: string; onSubmit: SubmitHandler }) => {
+    CrudForm: ({ formId, resourceKind, resourceId, onSubmit }: {
+      formId?: string; resourceKind?: string; resourceId?: string; onSubmit: SubmitHandler
+    }) => {
       const [name, setName] = ReactLib.useState('')
       capturedSubmit = onSubmit
       return (
         <form id={formId} onSubmit={(event) => {
           event.preventDefault()
-          void onSubmit(customLineValues(name)).catch(() => {})
+          const submit = async () => {
+            const values = customLineValues(name)
+            const guard = await mockTriggerEvent('onBeforeSave', values, { formId, resourceKind, resourceId })
+            if (!guard.ok) return
+            await mockWithHeaders(guard.requestHeaders ?? {}, () => onSubmit(values))
+          }
+          void submit().catch(() => {})
         }}>
           <input aria-label="Line name" value={name} onChange={(event) => setName(event.target.value)} />
         </form>
@@ -111,10 +120,6 @@ const translate = (key: string, fallback?: unknown, params?: Record<string, unkn
   )
 }
 const organizationScope = { organizationId: 'org-1', tenantId: 'tenant-1' }
-
-// `jest.mock` is hoisted above these declarations and rejects out-of-scope references that
-// are not `mock`-prefixed, so the literal is repeated rather than read from TEST_LOCALE.
-const TEST_LOCALE = 'pl-PL'
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => translate,
@@ -157,6 +162,8 @@ describe('LineItemDialog conflict recovery', () => {
     jest.clearAllMocks()
     mockApiCall.mockResolvedValue({ ok: true, result: { items: [] } })
     mockHandleConflict.mockReturnValue(true)
+    mockTriggerEvent.mockResolvedValue({ ok: true })
+    mockRequestHeaders = {}
   })
 
   it.each(['order', 'quote'] as const)('keeps the %s draft through repeated conflicts and closes only on success', async (kind) => {
@@ -183,4 +190,37 @@ describe('LineItemDialog conflict recovery', () => {
     expect(payloads[1]).toEqual(payloads[0])
     expect(payloads[2]).toEqual(payloads[0])
   })
+
+  it('consumes Keep Mine once and sends its resolution through the form to exactly one API write', async () => {
+    let resolutionArmed = true
+    mockTriggerEvent.mockImplementation(async (event: string) => {
+      if (event !== 'onBeforeSave') return { ok: true }
+      if (!resolutionArmed) return { ok: false, message: 'Record conflict detected' }
+      resolutionArmed = false
+      return { ok: true, requestHeaders: { 'x-om-record-lock-resolution': 'accept_mine' } }
+    })
+    const observedHeaders: Record<string, string>[] = []
+    mockCreateCrud.mockImplementation(async () => {
+      observedHeaders.push({ ...mockRequestHeaders })
+      return { ok: true }
+    })
+    const onOpenChange = jest.fn()
+    render(<LineItemDialog open kind="order" documentId="doc-1" currencyCode="PLN"
+      documentUpdatedAt="2026-11-04T06:00:00.000Z"
+      organizationId="org-1" tenantId="tenant-1" onOpenChange={onOpenChange} />)
+    fireEvent.change(screen.getByRole('textbox', { name: 'Line name' }), { target: { value: 'Karta B' } })
+    const form = document.getElementById('record-lock:sales.order:doc-1') as HTMLFormElement
+    await act(async () => { form.requestSubmit() })
+    await waitFor(() => expect(mockCreateCrud).toHaveBeenCalledTimes(1))
+    expect(mockTriggerEvent).toHaveBeenCalledTimes(1)
+    expect(mockTriggerEvent).toHaveBeenCalledWith('onBeforeSave', expect.any(Object), {
+      formId: 'record-lock:sales.order:doc-1', resourceKind: 'sales.order', resourceId: 'doc-1',
+    })
+    expect(observedHeaders).toEqual([{
+      'x-om-record-lock-resolution': 'accept_mine',
+      'x-om-ext-optimistic-lock-expected-updated-at': '2026-11-04T06:00:00.000Z',
+    }])
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
 })
