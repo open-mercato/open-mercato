@@ -215,7 +215,17 @@ test.describe('TC-CHANNEL-REPLY-001: answering an inbound channel message', () =
         { token, data: { body: 'Internal: I think they are fishing for a refund.' } },
       )
       expect(replyToForwardResponse.status(), 'replying to a forward must succeed').toBe(201)
-      const totalAfterReplyToForward = await drainUntilOutbound(request, token, channelId, total + 1)
+      await drainIntegrationQueue(EVENTS_QUEUE, { appRoot: APP_ROOT })
+      await drainIntegrationQueue(OUTBOUND_QUEUE, { appRoot: APP_ROOT })
+      const healthAfterReplyToForward = await apiRequest(
+        request,
+        'GET',
+        `/api/communication_channels/channels/${channelId}/health`,
+        { token },
+      )
+      expect(healthAfterReplyToForward.status()).toBe(200)
+      const health = await readJsonSafe<{ totalsLast24h?: number }>(healthAfterReplyToForward)
+      const totalAfterReplyToForward = health?.totalsLast24h ?? 0
       expect(
         totalAfterReplyToForward,
         'a reply under a forward must not be delivered to the external correspondent',

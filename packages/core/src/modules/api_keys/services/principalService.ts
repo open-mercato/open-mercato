@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { ApiKeyPrincipalService, PrincipalScope } from '@open-mercato/shared/lib/auth/principal-service'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { ApiKey } from '../data/entities'
+import { resolveApiKeyRoleIds } from './sessionKeyRoles'
 
 function normalizeIds(ids: unknown): string[] {
   if (!Array.isArray(ids)) return []
@@ -24,10 +25,10 @@ export class DefaultApiKeyPrincipalService implements ApiKeyPrincipalService {
         deletedAt: null,
         $or: [{ organizationId: null }, { organizationId: scope.organizationId }],
       } as FilterQuery<ApiKey>,
-      { fields: ['rolesJson', 'expiresAt'] as const },
+      { fields: ['rolesJson', 'expiresAt', 'tenantId', 'sessionToken', 'sessionUserId', 'sessionSecretEncrypted', 'opencodeSessionId'] as const },
       scope,
     )
     if (!apiKey || (apiKey.expiresAt && apiKey.expiresAt.getTime() <= Date.now())) return []
-    return normalizeIds(apiKey.rolesJson)
+    return normalizeIds(await resolveApiKeyRoleIds(this.em, apiKey, scope.tenantId))
   }
 }

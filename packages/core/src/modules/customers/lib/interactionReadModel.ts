@@ -5,7 +5,7 @@ import { normalizeCustomFieldResponse } from '@open-mercato/shared/lib/custom-fi
 import type { EnricherContext } from '@open-mercato/shared/lib/crud/response-enricher'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerDeal, CustomerEntity, CustomerInteraction } from '../data/entities'
-import { User } from '@open-mercato/core/modules/auth/data/entities'
+import { interactionUserKey, loadInteractionAuthors } from './interactionUsers'
 import {
   CUSTOMER_INTERACTION_ENTITY_ID,
   type InteractionRecord,
@@ -128,14 +128,6 @@ export async function hydrateCanonicalInteractions({
 }: HydrateCanonicalInteractionsInput): Promise<InteractionRecord[]> {
   if (interactions.length === 0) return []
 
-  const authorIds = Array.from(
-    new Set(
-      interactions
-        .map((interaction) =>
-          typeof interaction.authorUserId === 'string' ? interaction.authorUserId : null)
-        .filter((value): value is string => !!value),
-    ),
-  )
   const dealIds = Array.from(
     new Set(
       interactions
@@ -146,8 +138,8 @@ export async function hydrateCanonicalInteractions({
 
   const tenantId = auth.tenantId ?? null
   const organizationId = selectedOrganizationId ?? null
-  const [users, deals, customFieldValues] = await Promise.all([
-    authorIds.length > 0 ? findWithDecryption(em, User, { id: { $in: authorIds } }, undefined, { tenantId, organizationId }) : Promise.resolve([]),
+  const [userMap, deals, customFieldValues] = await Promise.all([
+    loadInteractionAuthors(em, interactions),
     dealIds.length > 0 ? findWithDecryption(em, CustomerDeal, { id: { $in: dealIds } }, undefined, { tenantId, organizationId }) : Promise.resolve([]),
     loadCustomFieldValues({
       em,
@@ -159,15 +151,6 @@ export async function hydrateCanonicalInteractions({
     }),
   ])
 
-  const userMap = new Map(
-    users.map((user) => [
-      user.id,
-      {
-        name: user.name ?? null,
-        email: user.email ?? null,
-      },
-    ]),
-  )
   const dealMap = new Map(deals.map((deal) => [deal.id, deal.title]))
 
   const baseItems: InteractionRecord[] = interactions.map((interaction) => {
@@ -202,8 +185,8 @@ export async function hydrateCanonicalInteractions({
       tenantId: interaction.tenantId,
       createdAt: interaction.createdAt.toISOString(),
       updatedAt: interaction.updatedAt.toISOString(),
-      authorName: interaction.authorUserId ? userMap.get(interaction.authorUserId)?.name ?? null : null,
-      authorEmail: interaction.authorUserId ? userMap.get(interaction.authorUserId)?.email ?? null : null,
+      authorName: interaction.authorUserId ? userMap.get(interactionUserKey(interaction, interaction.authorUserId))?.name ?? null : null,
+      authorEmail: interaction.authorUserId ? userMap.get(interactionUserKey(interaction, interaction.authorUserId))?.email ?? null : null,
       dealTitle: interaction.dealId ? dealMap.get(interaction.dealId) ?? null : null,
       customValues: normalizeInteractionCustomValues(customFieldValues[interaction.id]),
     }
