@@ -71,14 +71,6 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: () => ({ orgId: 'org', tenantId: 't1', roles: ['admin'] }),
 }))
 
-jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
-  resolveTranslations: async () => ({
-    locale: 'en',
-    translate: (key: string) => `translated:${key}`,
-    t: (key: string) => `translated:${key}`,
-  }),
-}))
-
 jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
   resolveOrganizationScope: async () => ({ selectedId: 'org', filterIds: ['org'] }),
   getSelectedOrganizationFromRequest: () => 'org',
@@ -262,7 +254,7 @@ describe('Records API CRUD operations', () => {
       const res = await PUT(req)
       expect(res.status).toBe(404)
       const json = await res.json()
-      expect(json.error).toBe('translated:entities.userEntities.records.errors.notFound')
+      expect(json.error).toBe('Record not found')
       expect(mockDataEngine.createCustomEntityRecord).not.toHaveBeenCalled()
     })
 
