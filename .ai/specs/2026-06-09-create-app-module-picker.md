@@ -1,7 +1,7 @@
 # create-mercato-app: Per-Module Picker over the Module Catalog
 
-- **Status:** Draft. Revised 2026-10-23 (catalog-first); Phase 1 implemented behind opt-in flags.
-- **Date:** 2026-06-09 (revised 2026-10-23)
+- **Status:** Draft. Revised 2026-10-23 (catalog-first); Phase 1 implemented; picker offered by default in a terminal since 2026-11-04.
+- **Date:** 2026-06-09 (revised 2026-10-23, 2026-11-04)
 - **Scope:** OSS
 - **Owner:** Platform / DX
 - **Affected package:** `packages/create-app` (`create-mercato-app`)
@@ -17,7 +17,7 @@
 
 ## TLDR
 
-`create-mercato-app` gets an opt-in way to plan extra modules while scaffolding, sourced from the Open Mercato
+`create-mercato-app` gets a way to plan extra modules while scaffolding, sourced from the Open Mercato
 Modules catalog (`https://modules.openmercato.com/picker.json`) instead of the `open-mercato/official-modules`
 repository:
 
@@ -26,8 +26,9 @@ repository:
   (`official`, `community`, `third-party`, `enterprise`), license and level before anything is chosen, pull in
   required catalog modules, and print the exact `yarn mercato module add ...` commands as next steps. The plan
   is saved to `.mercato/catalog-selection.json`. Nothing is installed during scaffolding.
-- Both flags are off by default: without them the scaffolder makes no network request and its output is
-  unchanged.
+- In an interactive terminal without `--preset` or `--modules` the picker is offered by default (Enter adds
+  none; `--no-module-picker` turns it off). Without a terminal, and with `--preset`, `--modules`, `--app` or
+  `--app-url`, the scaffolder makes no catalog request unless a flag asks for it.
 - A failed fetch never blocks scaffolding: the app keeps its preset modules and a notice points to the catalog.
 
 The original plan (shipping the `official-modules` submodule tooling into every generated app and a baked
@@ -48,7 +49,7 @@ What changed since the 2026-06-09 draft, and why:
 | Official modules activated through `official-modules.json` + the `external/official-modules` submodule, with the three `official-modules*.mjs` scripts, `workspaces` and a `postinstall` shipped into the template | Removed. Modules are npm packages installed with `yarn mercato module add <package>@<version>` (existing command), core modules with `yarn mercato module enable @open-mercato/core --module <id>` | `module add` already installs, registers and generates; the submodule path needed git, a two-pass install and byte-identical script copies (Blockers A to C of the old draft). The official-modules repository is being retired in favour of npm packages listed in the catalog. |
 | Selected modules written straight into `src/modules.ts` | Phase 1 prints the install commands and saves the plan; nothing is written into `src/modules.ts` or `package.json` | Installing third-party code needs `--allow-third-party` and a version pinned to what the catalog verified; `module add` enforces both and runs the generators. Writing `src/modules.ts` before the package exists would break `yarn generate`. |
 | Baked core snapshot for offline use | Offline: the preset stays as is, the catalog step is skipped with a notice | Core modules come from the presets, which are compiled into create-app; the catalog step only adds packages, which need the network anyway. |
-| Version keyed to `PACKAGE_VERSION` tag | Version mapped to a catalog line: `0.9.x` -> `0.9`, a `*-develop.*` prerelease -> `next`; a version the catalog does not test offers nothing | Only modules with a verified install on the scaffolded line are offered (the catalog's `verifiedOn`, which follows `version.recommended`, so a new release in quarantine does not hide a module). |
+| Version keyed to `PACKAGE_VERSION` tag | Version mapped to a catalog line: `0.9.x` -> `0.9`, a `*-develop.*` or `*-canary.*` prerelease -> `next`; a version the catalog does not test offers nothing | Only modules with a verified install on the scaffolded line are offered (the catalog's `verifiedOn`, which follows `version.recommended`, so a new release in quarantine does not hide a module). |
 
 ---
 
@@ -123,12 +124,12 @@ promptForStarterPreset()             unchanged
   |
 scaffold base template + applyStarterPreset()   unchanged
   |
-NEW (only with --modules or --module-picker): runCatalogStep()
+NEW (with --modules, --module-picker, or by default on a TTY without --preset / --modules): runCatalogStep()
        |- fetchPickerCatalog()       picker.json, 4 s timeout + 1 retry; unavailable -> notice, skip
        |- catalogLineFor(version)    create-app version -> catalog line, or skip with a notice
        |- selectableModules()        non-core entries whose verifiedOn contains the line and that have an
        |                             install command for it (installCommandFor)
-       |- promptCatalogModules()     with --module-picker on a TTY: numbered list, origin, license, level
+       |- promptCatalogModules()     picker on a TTY: numbered list, origin, license, level
        |- resolveCatalogSelection()  --modules + picks, requires closure, unknown / ambiguous / unmet notes
        '- writeSelectionFile()       .mercato/catalog-selection.json
   |
@@ -320,15 +321,19 @@ after the manual install steps. Coding agents in the generated app can read the 
 ```
 create-mercato-app my-app --preset crm --modules gateway_stripe,@fastwhitecat/integration-ksef-direct
 create-mercato-app my-app --module-picker
+create-mercato-app my-app --no-module-picker
 ```
 
 - `--modules <list>`: comma-separated module IDs, npm names, locators or `<npm name>:<module id>`; no prompt.
 - `--module-picker`: interactive list on a TTY; without a TTY it is skipped with a notice (`--modules` still
   applies).
 - Both are rejected with `--app` / `--app-url` (imported ready apps keep their own module set).
-- Without either flag: no catalog request, output unchanged.
-- The 2026-06-09 `--official-modules` and `--no-module-picker` flags are withdrawn: there is no
-  official-modules activation anymore, and the picker is off unless asked for.
+- Without `--module-picker` or `--no-module-picker`, the picker is offered in an interactive terminal when the
+  command line has neither `--preset` nor `--modules` (a user who did not choose a starter set on the command
+  line also sees the verified catalog modules; Enter adds none). With `--preset`, `--modules`, `--app` /
+  `--app-url` or without a terminal: no catalog request and no prompt, as before.
+- `--no-module-picker` turns the default offer off; the last of `--module-picker` / `--no-module-picker` wins.
+- The 2026-06-09 `--official-modules` flag stays withdrawn: there is no official-modules activation anymore.
 
 ---
 
@@ -452,8 +457,8 @@ the `build.mjs` snapshot step, `scripts/lib/official-modules.mjs` `generatedPath
 
 | Surface | Impact | Handling |
 |---|---|---|
-| `create-mercato-app` default invocation | None | No new behaviour without the new flags; no network request. |
-| CLI flags | Additive | `--modules`, `--module-picker` added; existing flags unchanged. |
+| `create-mercato-app` default invocation | Interactive only (2026-11-04) | In a terminal without `--preset` or `--modules` the picker is offered after the preset prompt (one catalog request; Enter adds none). Scripts and CI without a terminal, and every run with `--preset`, `--modules`, `--app`, `--app-url` or `--no-module-picker`, are unchanged. |
+| CLI flags | Additive | `--modules`, `--module-picker`, `--no-module-picker` added; existing flags unchanged. |
 | `src/modules.ts`, `package.json`, template files | None in Phase 1 | The catalog step writes only `.mercato/catalog-selection.json`. |
 | `picker.json` contract | External, additive | `schemaVersion: 1`; the parser ignores unknown fields and drops malformed items. |
 | `official-modules.generated.ts` | None | Untouched. |
@@ -464,7 +469,7 @@ the `build.mjs` snapshot step, `scripts/lib/official-modules.mjs` `generatedPath
 
 | Risk | Severity | Mitigation | Residual risk |
 |---|---|---|---|
-| Catalog fetch slows or hangs scaffolding | Medium | Only with the opt-in flags; 4 s timeout, one retry, then a notice. | Up to about 8 s added when the catalog is down and a flag is used. |
+| Catalog fetch slows or hangs scaffolding | Medium | Only in a terminal without `--preset` / `--modules`, or with the flags; 4 s timeout, one retry, then a notice. | Up to about 8 s added to an interactive run when the catalog is down or unreachable (for example behind a proxy); `--preset` or `--no-module-picker` avoids the request. |
 | User installs third-party code without noticing | High | Origin and license shown before the choice and in the summary; commands carry `--allow-third-party`; nothing installed by the scaffolder. | The user still runs the commands; `module add` is the consent point. |
 | `picker.json` shape changes | Medium | Additive-only contract with `schemaVersion`; unknown version = unavailable, malformed items dropped. | A new required field would be ignored until create-app reads it. |
 | App on a line other than latest gets a version verified only on latest | Medium | `installByLine[line]`; without it only the latest line uses `install`, other lines leave the module out with a notice. | A catalog without `installByLine` offers nothing on `0.8` or `next`. |
@@ -504,3 +509,8 @@ _None outstanding._ The 2026-06-09 decisions on catalog source and official-modu
   third-party drop-in package unless the user asks for that package; an npm-name requirement is checked against
   the packages the preset registers; a preset other than classic on an older line or on `next` is told that a
   new classic app ships the module there and the catalog has no command for other presets.
+- 2026-11-04: The picker is offered by default in an interactive terminal when neither `--preset` nor
+  `--modules` is given (request from Piotr Karwatka, core team, 2026-11-04); `--no-module-picker` returns as
+  the opt-out. Runs without a terminal and runs with `--preset`, `--modules`, `--app` or `--app-url` keep the
+  previous behaviour (no catalog request). Canary previews of pull requests (`*-canary.*`) map to the `next`
+  line like develop snapshots, so a preview can be tested against the catalog.

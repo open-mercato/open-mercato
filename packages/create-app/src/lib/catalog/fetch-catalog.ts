@@ -98,7 +98,8 @@ export function catalogLineFor(version: string, lines: readonly string[]): strin
   const match = /^(\d+)\.(\d+)\.\d+(?:-([0-9A-Za-z.-]+))?$/.exec(version.trim())
   if (!match) return null
   const prerelease = match[3] ?? ''
-  if (/(^|[.-])develop([.-]|$)/.test(prerelease)) return lines.includes('next') ? 'next' : null
+  // develop snapshots of main and canary previews of pull requests against it both run the unreleased line.
+  if (/(^|[.-])(develop|canary)([.-]|$)/.test(prerelease)) return lines.includes('next') ? 'next' : null
   const key = `${Number(match[1])}.${Number(match[2])}`
   return lines.includes(key) ? key : null
 }

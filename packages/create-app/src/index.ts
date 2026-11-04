@@ -32,7 +32,8 @@ export interface Options {
   agents?: string
   experimentalHooksValidator?: boolean
   modules?: string
-  modulePicker: boolean
+  /** true: --module-picker, false: --no-module-picker, undefined: decided by shouldOfferModulePicker. */
+  modulePicker?: boolean
   skipAgenticSetup: boolean
   verdaccio: boolean
   help: boolean
@@ -70,7 +71,9 @@ ${pc.bold('Options:')}
                      module ids, npm names or <npm name>:<module id>, verified on this
                      version); writes .mercato/catalog-selection.json and prints their
                      install commands
-  --module-picker    Pick catalog modules interactively (off by default; needs a terminal)
+  --module-picker    Pick catalog modules interactively (needs a terminal). Offered by
+                     default in a terminal when neither --preset nor --modules is given
+  --no-module-picker Do not offer the catalog module picker
   --registry <url>   Custom npm registry URL
   --verdaccio        Use local Verdaccio registry (http://localhost:4873)
   --help, -h         Show help
@@ -89,6 +92,7 @@ ${pc.bold('Examples:')}
   npx create-mercato-app my-store --agents none
   npx create-mercato-app my-store --preset crm --modules gateway_stripe
   npx create-mercato-app my-store --module-picker
+  npx create-mercato-app my-store --no-module-picker
   npx create-mercato-app my-prm --app prm
   npx create-mercato-app my-marketplace --app-url https://github.com/some-agency/ready-app-marketplace
   npx create-mercato-app my-store --verdaccio
@@ -119,7 +123,7 @@ export function parseArgs(args: string[]): { appName: string | null; options: Op
     agents: undefined,
     experimentalHooksValidator: undefined,
     modules: undefined,
-    modulePicker: false,
+    modulePicker: undefined,
     skipAgenticSetup: false,
     verdaccio: false,
     help: false,
@@ -144,6 +148,8 @@ export function parseArgs(args: string[]): { appName: string | null; options: Op
       index += 1
     } else if (arg === '--module-picker') {
       options.modulePicker = true
+    } else if (arg === '--no-module-picker') {
+      options.modulePicker = false
     } else if (arg === '--skip-agentic-setup') {
       options.skipAgenticSetup = true
     } else if (arg === '--init-git') {
@@ -601,7 +607,21 @@ function printGitHubSyncInstructions(gitResult: GitInitializationResult): void {
   console.log('')
 }
 
-/** Runs the catalog step only when --modules or --module-picker was passed; without them the catalog is never fetched. */
+/**
+ * Whether the catalog module picker runs: --module-picker and --no-module-picker decide when given; otherwise it is
+ * offered in an interactive terminal to an app built from the template without --preset or --modules, so a user who
+ * did not choose a starter set on the command line also sees the verified catalog modules (Enter adds none).
+ */
+export function shouldOfferModulePicker(
+  options: Pick<Options, 'modulePicker' | 'preset' | 'modules'>,
+  readyAppSource: ReadyAppSource | null,
+  interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY),
+): boolean {
+  if (options.modulePicker !== undefined) return options.modulePicker
+  return interactive && !readyAppSource && options.preset === undefined && options.modules === undefined
+}
+
+/** Runs the catalog step only for --modules or the picker; without either the catalog is never fetched. */
 export async function maybeRunCatalogStep(
   targetDir: string,
   presetId: string,
@@ -679,7 +699,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     )
   }
 
-  if ((options.modules !== undefined || options.modulePicker) && readyAppSource) {
+  if ((options.modules !== undefined || options.modulePicker === true) && readyAppSource) {
     throw new Error(
       '--modules and --module-picker are not supported with --app/--app-url. Imported ready apps keep their own module set.',
     )
@@ -719,7 +739,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
 
   const catalogPlan: CatalogPlan = readyAppSource
     ? { commands: [], commandWarnings: {} }
-    : await maybeRunCatalogStep(targetDir, presetId, requestedCatalogModules, options.modulePicker)
+    : await maybeRunCatalogStep(targetDir, presetId, requestedCatalogModules, shouldOfferModulePicker(options, readyAppSource))
 
   console.log(pc.green('Success!') + ` Created ${pc.bold(appName)}`)
   console.log('')
