@@ -248,6 +248,7 @@
                   <div class="field"><label>Buffer before</label><div class="unit-input"><input class="input" value="0" /><span class="muted">minutes</span></div><span class="t-hint">0–240 minutes</span></div>
                   <div class="field"><label>Buffer after</label><div class="unit-input"><input class="input" value="10" /><span class="muted">minutes</span></div><span class="t-hint">0–240 minutes</span></div>
                   <div class="field"><label>Max bookings per day</label><div class="unit-input"><input class="input" value="" placeholder="Unlimited" /></div><span class="t-hint">Empty = unlimited</span></div>
+                  <div class="field"><label>Max new requests per day</label><div class="unit-input"><input class="input" value="20" /><span class="muted">requests</span></div><span class="t-hint">1–200, counted over any 24 hours regardless of the visitor's address</span></div>
                 </div>
               </div>
 
@@ -286,7 +287,8 @@
     <div class="note"><b>1</b><span>First run (not drawn): Enabled is off and defaults are filled (30 min, Mon–Fri 09:00–17:00, user's timezone); the URL preview reads "Enable to get your link".</span></div>
     <div class="note"><b>2</b><span>Slug validated live; "already taken in this organization" and "your organization has no address / it isn't unique — ask an admin" render as inline field errors (not drawn). Overlapping ranges are rejected inline (not drawn).</span></div>
     <div class="note"><b>3</b><span>The preview recomputes after every change; "Respond within" is hidden while approval is off. Save uses optimistic locking (conflict bar on 409).</span></div>
-    <div class="note"><b>4</b><span>The page needs <code>customers.booking.manage_own</code>, which depends on <code>customers.interactions.manage</code> (owners must be able to edit and cancel the meetings their page creates). The timezone is pre-filled from the browser on first save; users have no stored timezone.</span></div>
+    <div class="note"><b>4</b><span>The page needs <code>customers.booking.manage_own</code>. It does not require <code>customers.interactions.manage</code>: booking actions check that the request belongs to the signed-in user, so employees can run their own booking page without being able to edit colleagues' meetings. The timezone is pre-filled from the browser on first save; users have no stored timezone.</span></div>
+    <div class="note"><b>5</b><span>When the deployment has no trusted proxy depth (<code class="t-mono">RATE_LIMIT_TRUST_PROXY_DEPTH</code> unset), visitor addresses are unknown and per-address limits are off. A warning alert then appears above Limits, and "Max new requests per day" is the bound that still applies.</span></div>
   </div>
 </section>
 
@@ -517,7 +519,7 @@
                   <button role="tab" aria-selected="false">Past</button>
                   <button role="tab" aria-selected="false">Declined / expired / cancelled</button>
                 </div>
-                <div class="dt-toolbar-row"><div class="input dt-search"><svg width="16" height="16"><use href="#ic-search"/></svg> Search name or e-mail</div><div class="dt-toolbar-right"><button class="btn btn-outline btn-sm"><svg><use href="#ic-filter"/></svg> Filters</button></div></div>
+                <div class="dt-toolbar-row"><div class="input dt-search"><svg width="16" height="16"><use href="#ic-search"/></svg> Search by exact e-mail</div><div class="dt-toolbar-right"><button class="btn btn-outline btn-sm"><svg><use href="#ic-filter"/></svg> Filters</button></div></div>
               </div>
             </div>
             <div class="scroll-x">
@@ -831,7 +833,7 @@
                   <button role="tab" aria-selected="false">Declined / expired / cancelled</button>
                 </div>
                 <div class="dt-toolbar-row">
-                  <div class="input dt-search"><svg width="16" height="16"><use href="#ic-search"/></svg> Search name or e-mail</div>
+                  <div class="input dt-search"><svg width="16" height="16"><use href="#ic-search"/></svg> Search by exact e-mail</div>
                   <span class="chip chip-active">Status: any <svg><use href="#ic-chevron-down"/></svg></span>
                   <span class="chip chip-dashed"><svg><use href="#ic-plus"/></svg> Meeting date</span>
                   <div class="dt-toolbar-right"><button class="btn btn-outline btn-sm"><svg><use href="#ic-filter"/></svg> Filters</button></div>
