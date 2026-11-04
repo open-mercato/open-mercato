@@ -755,9 +755,8 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
       })
 
       if (call.ok) {
-        setCredentialsFormKey((current) => current + 1)
+        await loadCredentials()
         flash(t('integrations.detail.credentials.saved'), 'success')
-        void loadCredentials()
         return
       }
 

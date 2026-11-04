@@ -15,12 +15,20 @@ import {
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
 import type { ActivityType, ScheduleFieldId } from './fieldConfig'
-import { isVisible, isDateRequired, isTimeRequired, getFieldLabel } from './fieldConfig'
-import { resolveDisplayTimeZone } from '@open-mercato/ui/primitives/date-locale-settings'
+import { isDateRequired, isTimeRequired, getFieldLabel } from './fieldConfig'
+import { scheduleOffsetMinutes, scheduleTimeZone, toScheduleWallTime } from './scheduleWallTime'
 
-// The schedule form converts its wall-clock inputs with runtime-local `Date`s, so the zone hint
-// names the runtime zone rather than the configured display zone.
-const SCHEDULE_INPUT_TIMEZONE = resolveDisplayTimeZone({ timeZone: null })
+// The fields are the wall clock of the configured display zone (see `scheduleWallTime`), so the
+// hint names that zone and its current offset, not the device's.
+function scheduleZoneLabel(now: Date = new Date()): string {
+  const timeZone = scheduleTimeZone()
+  const wall = toScheduleWallTime(now, timeZone)
+  const offset = scheduleOffsetMinutes(wall.date, wall.time, timeZone) ?? 0
+  const sign = offset < 0 ? '-' : '+'
+  const hours = Math.floor(Math.abs(offset) / 60)
+  const minutes = Math.abs(offset) % 60
+  return `${timeZone} (GMT${sign}${hours}${minutes ? `:${String(minutes).padStart(2, '0')}` : ''})`
+}
 
 function parseIsoDate(value: string): Date | null {
   if (!value) return null
@@ -99,10 +107,10 @@ export function DateTimeFields({
 
   if (!visible.has('date')) return null
 
-  const showStartTime = isVisible(activityType, 'startTime')
-  const showDuration = isVisible(activityType, 'duration')
-  const showAllDay = isVisible(activityType, 'allDay')
-  const showRecurrence = isVisible(activityType, 'recurrence')
+  const showStartTime = visible.has('startTime')
+  const showDuration = visible.has('duration')
+  const showAllDay = visible.has('allDay')
+  const showRecurrence = visible.has('recurrence')
 
   const dateRequired = isDateRequired(activityType)
   const timeRequired = isTimeRequired(activityType)
@@ -207,7 +215,7 @@ export function DateTimeFields({
           <span className="text-muted-foreground">&middot;</span>
           <span className="flex items-center gap-1.5">
             <Globe className="size-3.5" />
-            {SCHEDULE_INPUT_TIMEZONE} (GMT{new Date().getTimezoneOffset() <= 0 ? '+' : '-'}{String(Math.abs(Math.floor(new Date().getTimezoneOffset() / 60))).padStart(1, '0')})
+            {scheduleZoneLabel()}
           </span>
           {showRecurrence && (
             <>

@@ -4,11 +4,16 @@ import * as React from 'react'
 import { act, render, screen } from '@testing-library/react'
 
 const apiCallMock = jest.fn()
+const mockEditorIslandProps = jest.fn()
+const mockVersionHistoryProps = jest.fn()
 const translate = (key: string) => key
 
 jest.mock('next/dynamic', () => ({
   __esModule: true,
-  default: () => function MockEditorIsland() { return <div>editor</div> },
+  default: () => function MockEditorIsland(props: unknown) {
+    mockEditorIslandProps(props)
+    return <div>editor</div>
+  },
 }))
 jest.mock('next/link', () => ({
   __esModule: true,
@@ -39,7 +44,10 @@ jest.mock('../backend/documents/[id]/ExportMenu', () => ({ ExportMenu: () => nul
 jest.mock('../backend/documents/[id]/RelatedRecordsPanel', () => ({ RelatedRecordsPanel: () => null }))
 jest.mock('../backend/documents/[id]/DocumentNavigator', () => ({ DocumentNavigator: () => null }))
 jest.mock('../backend/documents/[id]/VersionHistoryPanel', () => ({
-  VersionHistoryPanel: () => <section>versions-panel</section>,
+  VersionHistoryPanel: (props: unknown) => {
+    mockVersionHistoryProps(props)
+    return <section>versions-panel</section>
+  },
 }))
 jest.mock('../backend/documents/[id]/DocumentEditorErrorBoundary', () => ({
   DocumentEditorErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -148,5 +156,29 @@ describe('versions panel reveal', () => {
     await act(async () => { toggle.click() })
     expect(screen.queryByText('versions-panel')).toBeNull()
     expect(scrollIntoView).toHaveBeenCalledTimes(1)
+  })
+
+  it('requires the current editor save registration and rejects a save completed after teardown', async () => {
+    Element.prototype.scrollIntoView = jest.fn()
+    render(<DocumentPageClient documentId={DOCUMENT_ID} />)
+    const toggle = await screen.findByRole('button', { name: /documents\.actions\.versions/ })
+    await act(async () => { toggle.click() })
+    const { onBeforeSnapshot } = mockVersionHistoryProps.mock.calls.at(-1)?.[0] as {
+      onBeforeSnapshot: () => Promise<boolean>
+    }
+    const { onSaveReady } = mockEditorIslandProps.mock.calls.at(-1)?.[0] as {
+      onSaveReady: (save: (() => Promise<boolean>) | null) => void
+    }
+    await expect(onBeforeSnapshot()).resolves.toBe(false)
+    let complete!: (saved: boolean) => void
+    const save = jest.fn(() => new Promise<boolean>((resolve) => { complete = resolve }))
+    onSaveReady(save)
+    const saving = onBeforeSnapshot()
+    expect(save).toHaveBeenCalledTimes(1)
+    onSaveReady(null)
+    complete(true)
+    await expect(saving).resolves.toBe(false)
+    onSaveReady(async () => true)
+    await expect(onBeforeSnapshot()).resolves.toBe(true)
   })
 })

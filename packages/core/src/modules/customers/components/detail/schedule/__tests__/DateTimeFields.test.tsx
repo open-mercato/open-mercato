@@ -5,6 +5,8 @@ import * as React from 'react'
 import { act, fireEvent, screen } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import polishTranslations from '../../../../i18n/pl.json'
+import { resolveDateLocaleSettings } from '@open-mercato/shared/lib/date-locale/resolve'
+import { setClientDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-store'
 import { DateTimeFields } from '../DateTimeFields'
 import { FIELD_VISIBILITY, type ActivityType, type ScheduleFieldId } from '../fieldConfig'
 
@@ -147,5 +149,48 @@ describe('DateTimeFields — pickers follow the app locale', () => {
 
     renderFields('en')
     expect(screen.getByText('02:30 PM')).toBeInTheDocument()
+  })
+})
+
+describe('DateTimeFields — zone hint', () => {
+  afterEach(() => setClientDateLocaleSettings(null))
+
+  function renderMeetingFields() {
+    return renderWithProviders(
+      <DateTimeFields
+        visible={FIELD_VISIBILITY.meeting}
+        activityType="meeting"
+        date="2026-06-12"
+        setDate={() => {}}
+        startTime="10:00"
+        setStartTime={() => {}}
+        duration={30}
+        setDuration={() => {}}
+        allDay={false}
+        setAllDay={() => {}}
+        recurrenceEnabled={false}
+        setRecurrenceEnabled={() => {}}
+        recurrenceDays={[false, false, false, false, false, false, false]}
+        toggleRecurrenceDay={() => {}}
+        recurrenceEndType="never"
+        setRecurrenceEndType={() => {}}
+        recurrenceCount={8}
+        setRecurrenceCount={() => {}}
+        recurrenceEndDate=""
+        setRecurrenceEndDate={() => {}}
+      />,
+    )
+  }
+
+  it('names the configured zone the fields are edited in, with its own offset', () => {
+    setClientDateLocaleSettings(resolveDateLocaleSettings({ tenant: { timeZone: 'Asia/Kolkata' }, env: {} }))
+    renderMeetingFields()
+    expect(screen.getByText('Asia/Kolkata (GMT+5:30)')).toBeInTheDocument()
+  })
+
+  it('shows a whole-hour negative offset without minutes', () => {
+    setClientDateLocaleSettings(resolveDateLocaleSettings({ tenant: { timeZone: 'America/Bogota' }, env: {} }))
+    renderMeetingFields()
+    expect(screen.getByText('America/Bogota (GMT-5)')).toBeInTheDocument()
   })
 })
