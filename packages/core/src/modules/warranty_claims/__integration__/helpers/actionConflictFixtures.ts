@@ -48,7 +48,7 @@ export const test = base.extend<{
     const context = await playwright.request.newContext({ baseURL })
     try { await use(context) } finally { await context.dispose() }
   },
-  recovery: async ({ request, bootstrapRequest, recoveryAction }, use) => {
+  recovery: async ({ request, bootstrapRequest, recoveryAction, context, baseURL }, use) => {
     const bootstrapToken = await getAuthToken(bootstrapRequest, 'superadmin')
     const { tenantId } = getTokenContext(bootstrapToken)
     const suffix = randomUUID()
@@ -115,6 +115,11 @@ export const test = base.extend<{
       expect(claim.updatedAt).toBeTruthy()
       expect(line.updatedAt).toBeTruthy()
       expect(line.updatedAt, 'line and claim versions must be distinguishable').not.toBe(claim.updatedAt)
+      expect(baseURL, 'the native integration runner provides a base URL').toBeTruthy()
+      await context.addCookies([
+        { name: 'om_selected_tenant', value: tenantId, url: baseURL!, sameSite: 'Lax' },
+        { name: 'om_selected_org', value: organizationId, url: baseURL!, sameSite: 'Lax' },
+      ])
       await use({
         claim: { ...claim, id: claimId, updatedAt: claim.updatedAt! },
         line: { ...line, id: line.id!, updatedAt: line.updatedAt! },

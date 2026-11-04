@@ -1,4 +1,4 @@
-import type { APIRequestContext, APIResponse } from '@playwright/test'
+import type { APIRequestContext, APIResponse, BrowserContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { test as recoveryTest, type RecoveryFixture } from '../__integration__/helpers/actionConflictFixtures'
 
@@ -12,7 +12,7 @@ jest.mock('@open-mercato/core/helpers/integration/api', () => ({
 }))
 
 type FixtureCallback = (
-  input: { request: APIRequestContext; bootstrapRequest: APIRequestContext; recoveryAction: 'label' },
+  input: { request: APIRequestContext; bootstrapRequest: APIRequestContext; recoveryAction: 'label'; context: BrowserContext; baseURL: string },
   use: (fixture: RecoveryFixture) => Promise<void>,
 ) => Promise<void>
 const runFixture = (recoveryTest as unknown as { recovery: FixtureCallback }).recovery
@@ -24,6 +24,7 @@ function createActor(name: string, failReadback = false) {
   return {
     name,
     request: {} as APIRequestContext,
+    context: { addCookies: jest.fn().mockResolvedValue(undefined) } as unknown as BrowserContext,
     organizationId: `organization-${name}`,
     organizationExists: false,
     users: new Set<string>(),
@@ -153,7 +154,16 @@ function installHttp(actors: Actor[]) {
 }
 
 function invoke(actor: Actor, use: (fixture: RecoveryFixture) => Promise<void>) {
-  return runFixture({ request: actor.request, bootstrapRequest: actor.request, recoveryAction: 'label' }, use)
+  return runFixture({
+    request: actor.request, bootstrapRequest: actor.request, recoveryAction: 'label',
+    context: actor.context, baseURL: 'http://fixture.invalid',
+  }, async (fixture) => {
+    expect(actor.context.addCookies).toHaveBeenCalledWith([
+      { name: 'om_selected_tenant', value: 'owned-tenant', url: 'http://fixture.invalid', sameSite: 'Lax' },
+      { name: 'om_selected_org', value: actor.organizationId, url: 'http://fixture.invalid', sameSite: 'Lax' },
+    ])
+    await use(fixture)
+  })
 }
 
 function expectClean(actor: Actor) {
@@ -238,5 +248,15 @@ test('a failing test body still cleans all owned fixtures', async () => {
   const actor = createActor('failed-body')
   installHttp([actor])
   await expect(invoke(actor, async () => { throw new Error('injected test failure') })).rejects.toThrow('injected test failure')
+  expectClean(actor)
+})
+
+test('a failed browser scope setup cleans all owned fixtures before the test starts', async () => {
+  const actor = createActor('failed-browser-scope')
+  jest.mocked(actor.context.addCookies).mockRejectedValue(new Error('injected browser scope failure'))
+  installHttp([actor])
+  const use = jest.fn()
+  await expect(invoke(actor, use)).rejects.toThrow('injected browser scope failure')
+  expect(use).not.toHaveBeenCalled()
   expectClean(actor)
 })
