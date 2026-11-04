@@ -169,7 +169,7 @@ release/v0.10.x                                     └─ 0.10.0 ─ 0.10.1 …
 
 Two channels ship packages to npm:
 
-- **Snapshots** — every push to `main` runs `Develop Snapshot Release`, publishing under the `develop` dist-tag (the name survives from the retired `develop` branch). Install them with `yarn add @open-mercato/core@develop` or `npx create-mercato-app@develop my-app`; all `@open-mercato/*` packages must use the same tag. Exact snapshot versions stay installable for debugging or rollback.
+- **Snapshots** — every push to `main` runs `Main Snapshot Release`, publishing under the `develop` dist-tag (the name survives from the retired `develop` branch). Install them with `yarn add @open-mercato/core@develop` or `npx create-mercato-app@develop my-app`; all `@open-mercato/*` packages must use the same tag. Exact snapshot versions stay installable for debugging or rollback.
 - **Stable releases** — the maintainer-run workflows below. Only maintainers run them; agents never do.
 
 ### The workflows
