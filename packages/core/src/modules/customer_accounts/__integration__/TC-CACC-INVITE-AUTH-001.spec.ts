@@ -16,8 +16,6 @@ import { expectId, getTokenContext, readJsonSafe } from '@open-mercato/core/help
 import { hashToken } from '@open-mercato/core/modules/customer_accounts/lib/tokenGenerator'
 
 test.describe('TC-CACC-INVITE-AUTH-001: invitation authorization (#2252)', () => {
-  test.setTimeout(120_000)
-
   test('an invite-only staff user cannot invite restricted roles or link an out-of-scope company', async ({ request }) => {
     const adminToken = await getAuthToken(request, 'admin')
     const { tenantId, organizationId } = getTokenContext(adminToken)
