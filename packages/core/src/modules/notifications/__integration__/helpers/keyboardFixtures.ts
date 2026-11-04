@@ -22,8 +22,7 @@ export const notificationMessages = { en: english, pl: polish }
 type KeyboardFixture = {
   id: string
   title: string
-  email: string
-  password: string
+  origin: string
   parentHref: string
   actionHref: string
   before: Record<string, unknown>
@@ -32,7 +31,8 @@ type KeyboardFixture = {
 }
 
 export const test = base.extend<{ keyboardFixture: KeyboardFixture }>({
-  keyboardFixture: async ({ request }, use) => {
+  keyboardFixture: async ({ request, page, baseURL }, use) => {
+    expect(baseURL, 'the native runner should provide the application URL').toBeTruthy()
     const adminToken = await getAuthToken(request, 'admin')
     const { organizationId, tenantId } = getTokenScope(adminToken)
     const stamp = randomUUID()
@@ -60,7 +60,7 @@ export const test = base.extend<{ keyboardFixture: KeyboardFixture }>({
         roles: [roleId],
         name: `Notification keyboard ${stamp}`,
       })
-      const actorToken = await getAuthToken(request, email, password)
+      const actorToken = await getAuthToken(page.request, email, password)
       token = actorToken
       const notificationId = await createNotificationFixture(request, actorToken, {
         recipientUserId: userId,
@@ -95,17 +95,18 @@ export const test = base.extend<{ keyboardFixture: KeyboardFixture }>({
         expect(notification, `owned notification ${id} should be persisted`).toBeDefined()
         return notification!
       }
-      const before = await read(notificationId)
-      const unrelatedBefore = await read(unrelatedId)
+      const { items: initialNotifications } = await listNotifications(request, actorToken, { type, pageSize: 100 })
+      const before = initialNotifications.find((notification) => notification.id === notificationId)
+      const unrelatedBefore = initialNotifications.find((notification) => notification.id === unrelatedId)
       expect(before).toMatchObject({ status: 'unread', readAt: null, actionTaken: null })
+      expect(unrelatedBefore, 'the unrelated fixture should be persisted').toBeDefined()
       await use({
         id: notificationId,
         title,
-        email,
-        password,
+        origin: new URL(baseURL!).origin,
         parentHref,
         actionHref,
-        before,
+        before: before!,
         read: (status) => read(notificationId, status),
         expectUnrelatedNotificationUnchanged: async () => {
           expect(await read(unrelatedId)).toEqual(unrelatedBefore)
@@ -150,11 +151,7 @@ export async function openKeyboardNotification(
   locale: keyof typeof notificationMessages = 'en',
 ) {
   await acknowledgeGlobalNotices(page)
-  const loginResponse = await page.request.post('/api/auth/login', {
-    form: { email: fixture.email, password: fixture.password },
-  })
-  expect(loginResponse.ok(), 'the unique keyboard actor should log in').toBe(true)
-  await page.context().addCookies([{ name: 'locale', value: locale, url: new URL(loginResponse.url()).origin }])
+  await page.context().addCookies([{ name: 'locale', value: locale, url: fixture.origin }])
   await page.goto('/backend')
   const messages = notificationMessages[locale]
   const unreadLabel = new RegExp(`^${messages['notifications.badge.unread'].replace('{count}', '\\d+')}$`)

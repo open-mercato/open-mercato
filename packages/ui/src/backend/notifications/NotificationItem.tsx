@@ -113,6 +113,7 @@ export function NotificationItem({
   const sourceLabel = humanizeModuleId(notification.sourceModule)
 
   const handleClick = async () => {
+    if (executing !== null) return
     if (isUnread) await onMarkAsRead()
     if (notification.linkHref) router.push(notification.linkHref)
   }
