@@ -13,6 +13,14 @@ describe('canonicalizeTimeZone', () => {
     expect(canonicalizeTimeZone('America/Nuuk')).toBe('America/Nuuk')
   })
 
+  it('stores an alias as the current name of the zone it links to', () => {
+    expect(canonicalizeTimeZone('us/eastern')).toBe('America/New_York')
+    expect(canonicalizeTimeZone('US/Eastern')).toBe('America/New_York')
+    expect(canonicalizeTimeZone('GMT')).toBe('UTC')
+    expect(canonicalizeTimeZone('Asia/Calcutta')).toBe('Asia/Kolkata')
+    expect(canonicalizeTimeZone('Europe/Kiev')).toBe('Europe/Kyiv')
+  })
+
   it('normalizes the letter case of renamed zones to their current name', () => {
     expect(canonicalizeTimeZone('asia/kolkata')).toBe('Asia/Kolkata')
     expect(canonicalizeTimeZone('EUROPE/KYIV')).toBe('Europe/Kyiv')

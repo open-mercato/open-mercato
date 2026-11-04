@@ -116,6 +116,24 @@ describe('formatLocalDisplayValue', () => {
   it('falls back to Intl when nothing is configured', () => {
     expect(formatLocalDisplayValue(picked, { withTime: true, locale: enUS, settings: settings({}) })).toBe('May 9, 2026, 10:30 AM')
   })
+
+  it('uses the clock of a pinned time pattern, like the tables do', () => {
+    const afternoon = new Date(2026, 4, 9, 13, 30)
+    const pinned = settings({ timeFormat: 'HH:mm' })
+    expect(formatLocalDisplayValue(afternoon, { withTime: true, locale: enUS, settings: pinned })).toBe('May 9, 2026, 13:30')
+    expect(formatLocalDisplayValue(afternoon, { withTime: true, locale: enUS, settings: settings({ timeFormat: 'h:mm a' }) })).toBe(
+      'May 9, 2026, 1:30 PM',
+    )
+    expect(formatLocalDisplayValue(afternoon, { locale: enUS, settings: pinned })).toBe('May 9, 2026')
+  })
+})
+
+describe('Intl fallback', () => {
+  it('keeps the display zone and clock when the configured locale cannot be used', () => {
+    const broken = { ...settings({ timeZone: 'Asia/Tokyo', timeFormat: 'HH:mm' }), locale: 'not a locale!' }
+    expect(formatDisplayDateTime(INSTANT, 'en-US', broken)).toBe('Jan 1, 2027, 08:30')
+    expect(formatDisplayDate(INSTANT, 'en-US', broken)).toBe('Jan 1, 2027')
+  })
 })
 
 describe('zone helpers', () => {

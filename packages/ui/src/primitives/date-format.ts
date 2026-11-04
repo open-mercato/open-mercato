@@ -340,11 +340,27 @@ function formatDisplay(
   // A pinned time pattern with no date-time pattern still decides the clock of Intl timestamps, so
   // choosing `HH:mm` makes every date-time 24-hour, not only time-only values.
   const hourCycle = style === 'datetime' ? hourCycleOfPattern(settings.timeFormat) : undefined
-  try {
-    return getFormatter(formatLocale, style, timeZone, hourCycle).format(parsed)
-  } catch {
-    return getFormatter(intlLocale(locale), style).format(parsed)
+  return formatWithFallbacks(parsed, style, [formatLocale, intlLocale(locale)], timeZone, hourCycle)
+}
+
+/**
+ * Formats with the first locale `Intl` accepts, keeping the zone and clock: an unusable locale must
+ * not silently move the value into the runtime zone. Only when every locale fails with the zone
+ * (an unknown zone) does it fall back to the runtime zone, so a value still renders.
+ */
+function formatWithFallbacks(
+  value: Date,
+  style: DisplayStyle,
+  locales: Array<string | undefined>,
+  timeZone?: string | null,
+  hourCycle?: Intl.DateTimeFormatOptions['hourCycle'],
+): string {
+  for (const candidate of [...locales, undefined]) {
+    try {
+      return getFormatter(candidate, style, timeZone, hourCycle).format(value)
+    } catch {}
   }
+  return getFormatter(undefined, style).format(value)
 }
 
 /**
@@ -459,9 +475,8 @@ export function formatLocalDisplayValue(value: Date, options: LocalDisplayValueO
   const pattern = normalizeDateFormatPattern(explicitFormat) ?? (withTime ? settings.dateTimeFormat : settings.dateFormat)
   if (pattern) return formatWithPublicDateFormat(value, pattern, locale)
   const formatLocale = settings.locale ?? locale?.code
-  try {
-    return getFormatter(formatLocale, withTime ? 'datetime' : 'date').format(value)
-  } catch {
-    return getFormatter(locale?.code, withTime ? 'datetime' : 'date').format(value)
-  }
+  // Same clock rule as `formatDisplay`: a pinned time pattern alone decides 12/24-hour, so a picker
+  // shows the clock the tables and detail fields show.
+  const hourCycle = withTime ? hourCycleOfPattern(settings.timeFormat) : undefined
+  return formatWithFallbacks(value, withTime ? 'datetime' : 'date', [formatLocale, locale?.code], undefined, hourCycle)
 }

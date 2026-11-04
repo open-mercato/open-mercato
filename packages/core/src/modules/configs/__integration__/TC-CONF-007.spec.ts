@@ -8,6 +8,10 @@ import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__inte
  * GET/PUT /api/configs/date-locale — read stored + effective settings, update with
  * normalization, reject invalid zones/patterns, detect stale writes, and keep the
  * write behind configs.date_locale.manage. Restores the tenant's original settings.
+ *
+ * The API has no delete, so a tenant that had no settings row is restored with an all-empty one.
+ * That is equivalent: every empty field inherits the env default, exactly as a missing row does
+ * (pinned by `configs/lib/__tests__/date-locale-settings.test.ts`).
  */
 type DateLocaleBody = {
   settings: Record<string, unknown>

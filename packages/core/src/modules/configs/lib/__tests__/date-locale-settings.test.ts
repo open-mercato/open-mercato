@@ -84,6 +84,30 @@ describe('resolveDateLocaleSettingsFromCookies', () => {
   })
 })
 
+describe('an all-empty tenant row', () => {
+  const emptyRow = {
+    locale: null,
+    dateFormat: null,
+    dateTimeFormat: null,
+    timeFormat: null,
+    timeZone: null,
+    firstDayOfWeek: null,
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    lookupMock.mockResolvedValue(null)
+  })
+
+  it('resolves exactly like no row, so restoring a missing row with empty values is safe', async () => {
+    getRecordMock.mockResolvedValue(null)
+    const withoutRow = await resolveDateLocaleSettingsForScopeWithReporting(container, { tenantId })
+    getRecordMock.mockResolvedValue({ value: emptyRow, source: 'tenant', updatedAt: '2026-11-01T00:00:00.000Z' })
+    const withEmptyRow = await resolveDateLocaleSettingsForScopeWithReporting(container, { tenantId })
+    expect(withEmptyRow).toEqual(withoutRow)
+  })
+})
+
 describe('resolveDateLocaleSettingsForScopeWithReporting', () => {
   beforeEach(() => {
     jest.clearAllMocks()

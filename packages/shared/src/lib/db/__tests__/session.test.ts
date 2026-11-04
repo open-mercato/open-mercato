@@ -17,7 +17,7 @@ describe('resolveDbSessionTimeZone', () => {
     expect(resolveDbSessionTimeZone(env(' Europe/Warsaw '))).toBe('Europe/Warsaw')
   })
 
-  it('normalizes only the letter case of the zone name', () => {
+  it('normalizes the letter case of the zone name', () => {
     expect(resolveDbSessionTimeZone(env('europe/warsaw'))).toBe('Europe/Warsaw')
   })
 
@@ -25,6 +25,11 @@ describe('resolveDbSessionTimeZone', () => {
     expect(resolveDbSessionTimeZone(env('Asia/Kolkata'))).toBe('Asia/Kolkata')
     expect(resolveDbSessionTimeZone(env('Europe/Kyiv'))).toBe('Europe/Kyiv')
     expect(resolveDbSessionTimeZone(env('Asia/Ho_Chi_Minh'))).toBe('Asia/Ho_Chi_Minh')
+  })
+
+  it('sends an alias as its current zone name, which every tzdata build accepts', () => {
+    expect(resolveDbSessionTimeZone(env('US/Eastern'))).toBe('America/New_York')
+    expect(resolveDbSessionTimeZone(env('Asia/Calcutta'))).toBe('Asia/Kolkata')
   })
 
   it('rejects a UTC offset string, which Postgres would read with the opposite sign', () => {

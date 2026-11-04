@@ -1,11 +1,13 @@
 /**
- * Returns the IANA spelling of `value` with the runtime's letter case (for example
- * `europe/warsaw` → `Europe/Warsaw`), or `null` when the runtime cannot resolve it as a named
- * time zone.
+ * Returns the current IANA name of the zone `value` names, or `null` when the runtime cannot
+ * resolve it as a named time zone: the letter case is normalized (`europe/warsaw` →
+ * `Europe/Warsaw`), and an alias is stored as the zone it links to (`US/Eastern` →
+ * `America/New_York`, `GMT` → `UTC`).
  *
- * When `Intl` resolves the name to a different zone ID (ICU reports legacy links such as
- * `Asia/Kolkata` → `Asia/Calcutta`), the caller's spelling is kept: current tzdata builds,
- * including Postgres on Debian trixie, reject many of those legacy names.
+ * ICU still resolves some zones to names tzdata has since renamed (`Asia/Kolkata` →
+ * `Asia/Calcutta`); those come back under the current name. Current tzdata builds, including
+ * Postgres on Debian trixie, ship the old names and aliases only in an optional package, so
+ * storing them could make the database reject the zone.
  *
  * Offset strings such as `+01:00` are rejected even though recent `Intl` accepts them: Postgres
  * reads `TimeZone=+01:00` as a POSIX spec where positive means WEST of Greenwich, so the same value
@@ -18,8 +20,7 @@ export function canonicalizeTimeZone(value: string | null | undefined): string |
   try {
     const resolved = new Intl.DateTimeFormat('en-US', { timeZone: trimmed }).resolvedOptions().timeZone
     if (!/^[A-Za-z]/.test(resolved)) return null
-    const spellings = [resolved, CURRENT_NAMES_OF_ICU_LEGACY_ZONES[resolved]]
-    return spellings.find((spelling) => spelling?.toLowerCase() === trimmed.toLowerCase()) ?? trimmed
+    return CURRENT_NAMES_OF_ICU_LEGACY_ZONES[resolved] ?? resolved
   } catch {
     return null
   }
