@@ -35,10 +35,7 @@ import {
   computeEntitlementPreview,
   type ClaimProductPick,
 } from '../../components/productLookup'
-import {
-  createCustomerScopedOrderOptionsLoader,
-  resolveOrderLabel,
-} from '../../components/orderLookup'
+import { CustomerOrderPicker } from '../../components/CustomerOrderPicker'
 import { EntitlementLookupBadge } from '../../components/EntitlementLookupBadge'
 import { TroubleshootingWalker, type TroubleshootingWalkerGuide } from '../../components/TroubleshootingWalker'
 import { resolveClaimTypeUiConfig } from '../../../lib/claimTypeConfig'
@@ -481,20 +478,6 @@ function normalizeLinePayload(line: ClaimCreateLineValues): Record<string, unkno
   const warrantyMonths = parseWarrantyMonths(line.warrantyMonths)
   if (warrantyMonths !== null) payload.warrantyMonths = warrantyMonths
   return payload
-}
-
-function CustomerSelectionObserver({
-  value,
-  onChange,
-}: {
-  value: unknown
-  onChange: (customerId: string | null) => void
-}) {
-  const customerId = nullableText(value)
-  React.useEffect(() => {
-    onChange(customerId)
-  }, [customerId, onChange])
-  return null
 }
 
 function ClaimTypeSelectionObserver({
@@ -1176,7 +1159,6 @@ export default function CreateWarrantyClaimPage() {
   const t = useT()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const selectedCustomerIdRef = React.useRef<string | null>(null)
   const [selectedClaimType, setSelectedClaimType] = React.useState<string | null>(() => normalizeClaimType(searchParams.get('claimType')))
   const [selectedReasonCode, setSelectedReasonCode] = React.useState<string | null>(null)
   const [orderAccessDenied, setOrderAccessDenied] = React.useState(false)
@@ -1224,17 +1206,6 @@ export default function CreateWarrantyClaimPage() {
       ...(Array.isArray(companies.result?.items) ? companies.result.items : []),
     ]
     return items.map((item) => normalizeOption(item, t)).filter((option): option is CrudFieldOption => option !== null)
-  }, [t])
-
-  const setSelectedCustomerId = React.useCallback((customerId: string | null) => {
-    selectedCustomerIdRef.current = customerId
-  }, [])
-
-  const loadOrderOptions = React.useMemo(() => {
-    return createCustomerScopedOrderOptionsLoader(() => selectedCustomerIdRef.current, {
-      onAccessChange: setOrderAccessDenied,
-      fallbackLabel: t('warranty_claims.form.orderUnavailable', 'Order unavailable'),
-    })
   }, [t])
 
   React.useEffect(() => {
@@ -1335,14 +1306,21 @@ export default function CreateWarrantyClaimPage() {
     {
       id: 'orderId',
       label: t('warranty_claims.form.orderId'),
-      type: 'combobox',
+      type: 'custom',
       layout: 'half',
-      loadOptions: loadOrderOptions,
-      allowCustomValues: false,
-      placeholder: t('warranty_claims.form.orderId.placeholder'),
+      component: ({ value, values, setValue, disabled, autoFocus }) => (
+        <CustomerOrderPicker
+          customerId={nullableText(values?.customerId)}
+          value={nullableText(value) ?? ''}
+          onChange={setValue}
+          disabled={disabled}
+          autoFocus={autoFocus}
+          placeholder={t('warranty_claims.form.orderId.placeholder')}
+          fallbackLabel={t('warranty_claims.form.orderUnavailable', 'Order unavailable')}
+          onAccessChange={setOrderAccessDenied}
+        />
+      ),
       description: orderAccessDenied ? t('warranty_claims.form.orderId.noAccess') : undefined,
-      seedOptions: [],
-      resolveLabel: (value: string) => resolveOrderLabel(value, t('warranty_claims.form.orderUnavailable', 'Order unavailable')),
     },
     {
       id: 'notes',
@@ -1358,7 +1336,7 @@ export default function CreateWarrantyClaimPage() {
       rows: 3,
       layout: 'full',
     },
-  ], [loadCustomerOptions, loadDictionaryOptions, loadOrderOptions, orderAccessDenied, resolveOrderLabel, t])
+  ], [loadCustomerOptions, loadDictionaryOptions, orderAccessDenied, t])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => [
     {
@@ -1370,7 +1348,6 @@ export default function CreateWarrantyClaimPage() {
       fields: ['claimType', 'priority', 'customerId', 'orderId', 'reasonCode', 'notes', 'resolutionSummary'],
       component: ({ values }) => (
         <>
-          <CustomerSelectionObserver value={values.customerId} onChange={setSelectedCustomerId} />
           <ClaimTypeSelectionObserver value={values.claimType} onChange={setSelectedClaimType} />
           <ReasonCodeSelectionObserver value={values.reasonCode} onChange={setSelectedReasonCode} />
         </>
