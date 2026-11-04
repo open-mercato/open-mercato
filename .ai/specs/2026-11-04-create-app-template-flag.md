@@ -671,6 +671,12 @@ None blocking. Judgment calls made in this spec, open to reviewer override:
 16. The agent guide links to `create-mercato-template` on GitHub and names the `npx --package github:...` fallback,
     because the package is not on npm yet (2026-11-04). It adds no harness case; the routing row is covered by the
     guide test only.
+17. An index `ref` must match `^[A-Za-z0-9._/-]{1,255}$`, with no `..` and no leading `-`, else it reads as `null`.
+    The `#<ref>` hint checks the default branch from GitHub with the same rule instead of shell-quoting it.
+18. An entry without a valid `source.sha` is kept with `source: null` (refusal first). An allowed entry with neither
+    sha stops without `#ref`; with `#ref` it resolves as a listed `#ref` without catalog facts.
+19. The integration script resolves `tar` from `packages/create-app` instead of adding a root devDependency, so
+    `yarn.lock` stays unchanged.
 
 ---
 
@@ -687,3 +693,7 @@ None blocking. Judgment calls made in this spec, open to reviewer override:
   removed from help and the README, the `--app` miss hint (A8), the README and `standalone-app.mdx` sections, the
   agent guide `template-tool.md` with its routing row, and the guide test. Judgment calls 14 to 16 added. All steps
   are done.
+- 2026-11-04: Review fixes: shell-safe index refs in the `#ref` hint, hold and unknown statuses refused for entries
+  without a valid `source.sha`, the `--app prm` example removed from `packages/create-app/AGENTS.md`, a timeout test
+  for the index, and `tar` resolved from `packages/create-app` in the integration script. Judgment calls 17 to 19
+  added.
