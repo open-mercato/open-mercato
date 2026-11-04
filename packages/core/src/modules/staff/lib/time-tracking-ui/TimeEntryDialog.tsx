@@ -913,6 +913,20 @@ function DefaultTimeEntryDialog({
    */
   const injectedFieldWritesRef = React.useRef(new Set<string>())
 
+  /**
+   * One way to change the project, for the picker and for widget writes alike: a task that is not
+   * known to belong to the next project (including one still loading) is dropped, so its late
+   * resolution cannot pull the project back. A task a widget wrote in the same batch is kept.
+   */
+  const selectProject = React.useCallback(
+    (nextProjectId: string | null) => {
+      setProjectSelection(nextProjectId)
+      if (selectedTask?.timeProjectId === nextProjectId) return
+      setTaskId((current) => (current === taskId ? null : current))
+    },
+    [selectedTask, taskId],
+  )
+
   const applyInjectedFieldValue = React.useCallback((fieldId: string, value: unknown) => {
     switch (fieldId) {
       case 'taskId':
@@ -922,7 +936,7 @@ function DefaultTimeEntryDialog({
       case 'timeProjectId':
         if (!isProjectMode) return
         injectedFieldWritesRef.current.add(fieldId)
-        setProjectSelection(typeof value === 'string' && value.length > 0 ? value : null)
+        selectProject(typeof value === 'string' && value.length > 0 ? value : null)
         return
       case 'description':
         injectedFieldWritesRef.current.add(fieldId)
@@ -972,7 +986,7 @@ function DefaultTimeEntryDialog({
         return
       default:
     }
-  }, [isProjectMode])
+  }, [isProjectMode, selectProject])
 
   const previousEntryFormValuesRef = React.useRef<FormValues | null>(null)
 
@@ -1164,12 +1178,8 @@ function DefaultTimeEntryDialog({
   }, [mode, projectSelection, selectedTask])
 
   const handleProjectChange = React.useCallback(
-    (next: string) => {
-      const nextProjectId = next.trim().length > 0 ? next.trim() : null
-      setProjectSelection(nextProjectId)
-      if (selectedTask?.timeProjectId !== nextProjectId) setTaskId(null)
-    },
-    [selectedTask],
+    (next: string) => selectProject(next.trim().length > 0 ? next.trim() : null),
+    [selectProject],
   )
 
   const rememberProjects = React.useCallback((found: ProjectOption[]) => {

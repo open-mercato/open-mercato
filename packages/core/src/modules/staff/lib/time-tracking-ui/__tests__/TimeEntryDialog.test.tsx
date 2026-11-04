@@ -1700,6 +1700,98 @@ describe('TimeEntryDialog — project mode (#6989)', () => {
     expect(screen.queryByTestId('entry-dialog-project')).toBeNull()
   })
 
+  it('drops a picked task of another project when a widget moves the project', async () => {
+    renderDialog({ mode: 'project' })
+
+    await pickProject(PROJECT_ID)
+    await pickTask(TASK_ID)
+    fireEvent.change(durationInput(), { target: { value: '1h' } })
+    await waitFor(() =>
+      expect(mockInjection.calls.some((call) => call.event === 'onFieldChange' && call.fieldId === 'durationMinutes')).toBe(true),
+    )
+
+    mockInjection.fieldChange = { sideEffects: { timeProjectId: OTHER_PROJECT_ID } }
+    fireEvent.change(screen.getByTestId('entry-dialog-description'), { target: { value: 'Moved by a widget' } })
+    await waitFor(() => expect(projectSelect().value).toBe(OTHER_PROJECT_ID))
+    mockInjection.fieldChange = null
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    })
+
+    expect(projectSelect().value).toBe(OTHER_PROJECT_ID)
+    expect(taskSelect().value).toBe('')
+    fireEvent.click(saveButton())
+
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalled())
+    expect(lastWriteBody()).toEqual(expect.objectContaining({ taskId: null, timeProjectId: OTHER_PROJECT_ID }))
+  })
+
+  it('keeps a widget project choice when the entry task resolves only after it', async () => {
+    let releaseTasks: () => void = () => {}
+    const tasksGate = new Promise<void>((resolve) => {
+      releaseTasks = resolve
+    })
+    const scoped = mockApiCall.getMockImplementation()
+    mockApiCall.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes('/timesheets/tasks')) await tasksGate
+      return scoped ? scoped(input, init) : (ok({ items: [], total: 0 }) as never)
+    })
+    entryRows = [
+      {
+        id: ENTRY_ID,
+        date: '2026-07-20',
+        duration_minutes: 60,
+        description: 'Daleki wpis',
+        task_id: FAR_TASK_ID,
+        time_project_id: FAR_PROJECT_ID,
+        is_billable: true,
+        isLocked: false,
+        updated_at: VERSION,
+        tags: [],
+      },
+    ]
+    mockInjection.fieldChange = { sideEffects: { timeProjectId: OTHER_PROJECT_ID } }
+    renderDialog({ entryId: ENTRY_ID, mode: 'project' })
+
+    await waitFor(() =>
+      expect(mockInjection.calls.some((call) => call.event === 'onFieldChange' && call.fieldId === 'taskId')).toBe(true),
+    )
+    await waitFor(() => expect(projectSelect().value).toBe(OTHER_PROJECT_ID))
+    mockInjection.fieldChange = null
+
+    releaseTasks()
+    await waitFor(() =>
+      expect(taskUrls.some((url) => url.includes(`timeProjectId=${OTHER_PROJECT_ID}`))).toBe(true),
+    )
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    })
+
+    expect(projectSelect().value).toBe(OTHER_PROJECT_ID)
+    expect(taskSelect().value).toBe('')
+    fireEvent.click(saveButton())
+
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalled())
+    expect(lastWriteBody()).toEqual(
+      expect.objectContaining({ id: ENTRY_ID, taskId: null, timeProjectId: OTHER_PROJECT_ID }),
+    )
+  })
+
+  it('keeps a task the widget writes together with its project', async () => {
+    renderDialog({ mode: 'project' })
+
+    await pickProject(PROJECT_ID)
+    await pickTask(TASK_ID)
+
+    mockInjection.fieldChange = { sideEffects: { taskId: FAR_TASK_ID, timeProjectId: FAR_PROJECT_ID } }
+    fireEvent.change(screen.getByTestId('entry-dialog-description'), { target: { value: 'Moved with its task' } })
+    await waitFor(() => expect(projectSelect().value).toBe(FAR_PROJECT_ID))
+    mockInjection.fieldChange = null
+
+    await waitFor(() => expect(taskSelect().value).toBe(FAR_TASK_ID))
+    expect(projectSelect().value).toBe(FAR_PROJECT_ID)
+  })
+
   it('leaves the project of the picked task to the picker instead of repeating it under the field', async () => {
     renderDialog()
 
