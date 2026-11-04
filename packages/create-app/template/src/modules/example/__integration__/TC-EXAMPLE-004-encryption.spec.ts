@@ -59,6 +59,25 @@ async function storedNotes(todoId: string): Promise<string | null> {
   })
 }
 
+async function scopedNotesTokenCount(todoId: string, tenantId: string, organizationId: string): Promise<number> {
+  return withDatabase(async (client) => {
+    const result = await client.query(
+      "select count(*)::text as count from search_tokens where entity_type = 'example:todo' and entity_id = $1 and tenant_id = $2 and organization_id = $3 and field = 'notes'",
+      [todoId, tenantId, organizationId],
+    )
+    return Number(result.rows[0]?.count ?? '0')
+  })
+}
+
+async function searchNotes(request: APIRequestContext, token: string, notes: string, selectedOrgId: string): Promise<string[]> {
+  const response = await apiRequestWithSelectedOrg(request, 'GET', `/api/example/todos?notes=${encodeURIComponent(notes)}&pageSize=10`, {
+    token, selectedOrgId,
+  })
+  expect(response.ok(), `encrypted todo search failed: ${response.status()}`).toBeTruthy()
+  const body = await response.json() as TodoListResponse
+  return (body.items ?? []).map((item) => String(item.id))
+}
+
 async function encryptionMapCount(organizationId: string): Promise<number> {
   return withDatabase(async (client) => {
     const result = await client.query(
@@ -92,7 +111,7 @@ test.describe('TC-EXAMPLE-004: todo notes are encrypted at rest and excluded fro
   test('round-trips the sensitive field in two scopes while the column never holds plaintext', async ({ request }) => {
     test.slow()
     const token = await getAuthToken(request, 'admin')
-    const { tenantId } = getTokenContext(token)
+    const { tenantId, organizationId } = getTokenContext(token)
     const suffix = randomUUID().replaceAll('-', '').slice(0, 12)
     const homeSecret = `home secret ${suffix}`
     const otherSecret = `other secret ${suffix}`
@@ -167,6 +186,13 @@ test.describe('TC-EXAMPLE-004: todo notes are encrypted at rest and excluded fro
       expect(listed?.notes, 'a list row must not carry the encrypted field').toBeNull()
       expect(JSON.stringify(listBody)).not.toContain(homeSecret)
       expect(JSON.stringify(listBody)).not.toContain(homeAtRest)
+
+      await expect.poll(() => scopedNotesTokenCount(homeTodoId!, tenantId, organizationId), { timeout: 30_000 }).toBeGreaterThan(0)
+      await expect.poll(() => scopedNotesTokenCount(otherTodoId!, tenantId, otherOrgId!), { timeout: 30_000 }).toBeGreaterThan(0)
+      await expect.poll(() => searchNotes(request, token, homeSecret, organizationId), { timeout: 30_000 }).toEqual([homeTodoId])
+      await expect.poll(() => searchNotes(request, token, otherSecret, otherOrgId!), { timeout: 30_000 }).toEqual([otherTodoId])
+      expect(await searchNotes(request, token, homeSecret, otherOrgId!)).toEqual([])
+      expect(await searchNotes(request, token, otherSecret, organizationId)).toEqual([])
 
       // Updating the field re-encrypts it: the plaintext changes on read and the stored value
       // changes with it, so a stale ciphertext cannot survive an edit.

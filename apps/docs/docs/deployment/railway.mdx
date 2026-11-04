@@ -104,6 +104,14 @@ yarn build
 
 `yarn generate` refreshes module registries and generated metadata. `yarn build` verifies the Next.js production build before Railway receives the source. In standalone apps, `yarn build` also runs generation, but running `yarn generate` explicitly first makes discovery or registry failures easier to identify before deployment.
 
+Run the [Readiness Scanner](./readiness-scanner) from the same standalone app root:
+
+```bash
+npx --yes mercato-readiness-scanner@0.2.2 scan . --fail-on high
+```
+
+Credential checks are always enabled. Treat local `.env` and development-default findings as a reminder to replace unsafe values and deliver production secrets through Railway service variables, keeping environment files out of the deployed artifact. Review KMS and secret-injection warnings with the deployment owner.
+
 ### 6. Preview the deployment
 
 Run a dry run before creating billable resources:
@@ -131,6 +139,8 @@ The default deployment:
 - waits for `/api/healthz` to report a healthy deployment.
 
 On success, the CLI prints the app URL, healthcheck URL, Railway dashboard URL, source mode, and deployed services.
+
+Repeat the [runtime scanner check](./readiness-scanner#staging-and-production-servers) inside the deployed staging and production services using their own injected environment, before sending traffic. A local scan with Railway variables does not inspect the running service. The audit workload needs Node.js 24+ and the standalone release metadata; see the guide for slim-image limitations and warnings that remain manual review items.
 
 ## Source modes
 

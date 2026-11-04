@@ -157,10 +157,11 @@ describe('entities CLI system-scope guards', () => {
       keyScope: 'tenant',
       fields: [{ field: 'name' }],
     })
-    let writes = 0
-    execute.mockImplementation(async () => {
-      writes += 1
-      if (writes === 2) throw new Error('second map failed')
+    let upserts = 0
+    execute.mockImplementation(async (sql: unknown) => {
+      if (!String(sql).includes('insert into "encryption_maps"')) return []
+      upserts += 1
+      if (upserts === 2) throw new Error('second map failed')
       return [{ id: 'map-1', updated_at: new Date('2020-01-01T00:00:00.000Z') }]
     })
 
@@ -171,6 +172,9 @@ describe('entities CLI system-scope guards', () => {
       declaredMaps.pop()
     }
 
+    const statements = execute.mock.calls.map(([sql]) => String(sql))
+    expect(statements.filter((sql) => sql.includes('insert into "encryption_maps"'))).toHaveLength(2)
+    expect(statements.filter((sql) => sql.includes('update "encryption_maps"'))).toHaveLength(1)
     expect(invalidateMap.mock.calls).toEqual([
       ['customers:person', 'tenant-1', null],
     ])

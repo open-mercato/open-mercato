@@ -650,6 +650,46 @@ PATCH /api/customers/interactions/{id}
 | `detail:sales.order:stage-bar` | Stage progress bar area | Inject badges, alerts, or widgets alongside the stage bar |
 | `detail:sales.order:closure` | Closure dialog | Inject custom closure fields (e.g., competitor name on loss) |
 
+### Sales document host binding (2026-10-22, #7782)
+
+The four previously advertised slots are implemented as additive render-widget regions on the existing Sales document detail page:
+
+| Exact ID | Placement |
+| --- | --- |
+| `detail:sales.order:stage-bar` | Order header/status region |
+| `detail:sales.quote:stage-bar` | Quote header/status region |
+| `detail:sales.order:closure` | Order detail/closure extension region |
+| `detail:sales.quote:closure` | Quote detail/closure extension region |
+
+Canonical declarations belong to `sales/extension-points.ts`; the live page must consume those declarations. An empty entry in `widgets/injection-table.ts` alone does not provide a host.
+
+All four hosts receive the document detail injection context, current document as `data`, and the standard `onDataChange` callback. Context preserves document kind, record, `formId`, `resourceKind`, `resourceId`, and `retryLastMutation`, and adds `documentId`, `organizationId`, and `tenantId` from the scoped record (nullable before loading). Contributors own their additional data and must use scoped, guarded mutations with the correct record version.
+
+These are extension regions, not a new native stage bar, closure dialog, or workflow. They do not automatically submit contributed fields, persist local `onDataChange` updates, change document status, or add a replacement status transition path. No registered widgets means no placeholder UI. Existing tabs, details, shipping, status editing, and guarded mutations retain their behavior. This delivery does not mark the remaining draft UX implemented.
+
+#### Integration coverage
+
+- Exercise both order and quote hosts with real registered widgets and the shared injection loader; verify exact kind-specific IDs and context/data.
+- Verify empty registration leaves native document UI unchanged and denied features do not render contributions.
+- Verify contributed data is additive, existing tabs/details/shipping remain reachable, and document status writes still follow the existing guarded path.
+- Verify generator facts correlate the declared hosts with their live page binding; test standalone discovery against the installed package contract.
+
+#### Frontend architecture and risk review — Sales hosts
+
+The existing document page remains a Client Component. `SalesDocumentExtensionSpot.tsx` is a narrow client adapter around the existing `InjectionSpot`; it adds no global provider, dependency, polling, timer, custom loader, or server/client serialization boundary. The page mounts exactly two adapter instances for its loaded document kind. Empty registrations add no placeholder DOM; contributed widgets retain the shared loader's loading and feature-gating behavior. Existing page loading/error boundaries remain unchanged.
+
+The performance budget is structural: no new package dependency, at most two existing injection hosts, and no app-owned background requests without a contribution. Verification exercises empty/denied hosts and widget state preservation after data updates; a production document-page smoke checks that the existing shell/status UI still loads. Do not claim a measured bundle or Web Vitals improvement without recording a measurement.
+
+| Risk | Severity | Mitigation | Residual risk |
+| --- | --- | --- | --- |
+| Previously dormant widgets begin rendering | Medium | Preserve IDs; document activation and context; apply shared feature gates | Extension authors must check their own widget assumptions |
+| A widget assumes automatic status/closure persistence | High | Render-only contract; retain guarded native mutations; contributor-owned persistence | A custom widget still owns its API authorization and version handling |
+| Registry declarations exist without a live mount | Medium | Register real widgets in component/page tests; verify generated facts | Full third-party widget combinations require app-level testing |
+
+#### Migration & Backward Compatibility — Sales hosts
+
+All four advertised IDs are preserved byte-for-byte and become mountable. No existing ID, context member, route, event, feature, or schema is removed. Previously registered widgets targeting these IDs may now appear; authors should check their feature gates and handle missing optional record fields. New host context is additive and uses existing document-detail semantics. No data migration is required.
+
 #### UMES extension boundary
 
 Injected widgets in these spots may extend presentation and collect auxiliary data, but must not silently override core save semantics unless explicitly supported by the host contract.
@@ -1382,6 +1422,7 @@ Third-party modules need no migration to keep working. Consumers that want to:
 
 | Date | Change |
 | ---- | ------ |
+| 2026-10-22 | Implement the four advertised Sales order/quote stage-bar and closure render-widget hosts (#7782), with live canonical declarations, unchanged native lifecycle, context/compatibility documentation, and rendering coverage. |
 | 2026-04-19 | Rev 5: Retroactively documented UX iterations that shipped alongside Phases 1–5 after the initial 2026-04-06 draft. Added "Additional UX Iterations" section covering Enhancements 6–16 (Company Dashboard tab + widgets, AI Action Chips, per-user Customer Labels, Dictionary Kind Settings, Dictionary Entry Reorder/Set-Default, Company Billing extension, Person-Company Roles junction, Deal Stage Transitions audit, Decision Makers Footer, Mini Week Calendar, Coming Soon Placeholder). Extended Implementation Phases table with Phases 5–8. Updated Scope list in TLDR. No contract or migration changes beyond what Rev 3/Rev 4 already documented in the Migration & Backward Compatibility section — the new tables, columns, events, routes and ACL features referenced here are the same ones already enumerated there. This revision closes the gap where the spec described the original 5 enhancements but the branch delivered 16 |
 | 2026-04-18 | Rev 4: Post-review fixes. Documented `audit_logs` schema + service + CLI + export route additions that back the Changelog tab. Added `aria-*` semantics (`role="progressbar"`, `aria-valuenow`, `aria-valuetext`, `aria-current="step"`) to `PipelineStepper`. Added `Cmd/Ctrl+Enter` handler to `CreatePersonDialog`. Restored `data-component-handle` on the UMES example `PageBody` that was removed by an unrelated commit on this branch |
 | 2026-04-17 | Rev 3: Added "Migration & Backward Compatibility" section covering every new contract surface introduced by the feat/crm-details-screens branch (new events, new commands, new routes, new tables, ACL features). Documented query engine `eq` semantic routing, `withAtomicFlush` transaction fix, label feature-gate kind-scoping, entity-role undelete undo, per-org feature check, and deals→notifications event-bus refactor |

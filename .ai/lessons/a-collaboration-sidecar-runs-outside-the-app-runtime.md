@@ -29,6 +29,14 @@ topics: ["realtime","access-control","data-scoping"]
 - Because a share/downgrade/restore force-closes the collab room, a client that drops to a permanent read-only fallback on `provider.on('disconnect'|'close')` gets kicked to read-only after ANY share made while editing. HocuspocusProvider auto-reconnects and re-mints the token (picking up the current tier); the client must only fall back on a genuine INITIAL-connect timeout or `authenticationFailed`, and treat a mid-session disconnect as transient (`hasConnected` guard) rather than tearing the provider down.
 - `@tiptap/extension-collaboration-caret` ships NO stylesheet — its default `render` only sets inline `border-color`/`background-color` on `.collaboration-carets__caret` / `__label`, so with no app CSS the caret is an invisible zero-width span and the name renders as a plain inline colored block. Its default `selectionRender` uses `${color}70` (~44% alpha) → a heavy solid highlight. Fix in TWO places: (1) supply structural CSS (`border-left-width:2px`, an absolute-positioned label pill that fades via keyframes and shows on `:hover`) scoped under a wrapper class, injected as a `<style>` in the client editor — colors stay data-driven from the inline styles; (2) pass a custom `selectionRender` returning `${color}33` (~20%) for a Google-Docs-style wash. Verify with TWO tabs (same login = distinct Yjs clientIDs, so each sees the other's caret) — a single session shows no remote caret.
 
+## Separate document tiers from effective access
+
+**Context**: Tightening a shared access helper for notification recipients also changed mention grant decisions and collaboration authorization.
+
+**Rule**: Share-grant decisions must inspect the retained document relationship tier independently of current module features; otherwise a revoked viewer feature can make an existing editor look unshared and silently downgrade the share. Notification creation still requires current effective `documents.view` immediately before persistence. For parent organization grants, use the existing fresh organization scope service and validate its ACL through the consolidated feature policy; an exact organization check alone rejects supported descendant access. Exercise the real helper in hierarchy tests instead of mocking away the boundary under review.
+
+**Applies to**: Documents mention grants, watcher/mention recipients, and collaboration authorization.
+
 ## Global search has no per-record ACL hook
 
 **Context**: Documents are visible per record via explicit shares, not per organization.
