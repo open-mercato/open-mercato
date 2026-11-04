@@ -213,12 +213,46 @@ for (const failure of FAILURES) {
       assert.equal(run.code, 2, run.output)
       assert.match(run.output, failure.message)
       assert.match(run.output, /yarn setup --no-infra/)
+      if (failure.name !== 'failed healthcheck') {
+        assert.match(run.output, /https:\/\/github\.com\/open-mercato\/open-mercato#without-docker/)
+      }
       assert.equal(run.devArgs, null, 'setup must not continue to install/migrate/initialize')
     } finally {
       fs.rmSync(app.appDir, { recursive: true, force: true })
     }
   })
 }
+
+test('without Docker, yarn setup uses an answering database from .env instead of stopping', { skip }, async () => {
+  const app = await makeApp()
+  const database = net.createServer((socket) => socket.end())
+  await new Promise<void>((resolve) => database.listen(app.ports.POSTGRES_PORT, '127.0.0.1', () => resolve()))
+  try {
+    fs.writeFileSync(path.join(app.appDir, '.env'), `DATABASE_URL=postgres://postgres:postgres@localhost:${app.ports.POSTGRES_PORT}/open-mercato\n`)
+    const run = await runScript(app, 'setup.mjs', [], { withDocker: false })
+    assert.equal(run.code, 0, run.output)
+    assert.match(run.output, /Docker is not available .* but PostgreSQL answers at 127\.0\.0\.1:/)
+    assert.match(run.output, /SERVICE_CONNECTIONS_VERIFIED/)
+    assert.ok(run.devArgs?.includes('--no-infra'), `dev must run without infra: ${JSON.stringify(run.devArgs)}`)
+  } finally {
+    database.close()
+    fs.rmSync(app.appDir, { recursive: true, force: true })
+  }
+})
+
+test('without Docker and without an answering database, yarn setup stops with the manual-setup guide', { skip }, async () => {
+  const app = await makeApp()
+  try {
+    fs.writeFileSync(path.join(app.appDir, '.env'), `DATABASE_URL=postgres://postgres:postgres@localhost:${app.ports.POSTGRES_PORT}/open-mercato\n`)
+    const run = await runScript(app, 'setup.mjs', [], { withDocker: false })
+    assert.equal(run.code, 2, run.output)
+    assert.match(run.output, /Docker is not installed/)
+    assert.match(run.output, /No Docker\? Run PostgreSQL yourself .*#without-docker/)
+    assert.equal(run.devArgs, null)
+  } finally {
+    fs.rmSync(app.appDir, { recursive: true, force: true })
+  }
+})
 
 test('yarn setup reports a port held by another process and does not run compose up', { skip }, async () => {
   const app = await makeApp()

@@ -16,6 +16,7 @@ import { applyStarterPreset, resolvePreset } from './lib/apply-starter-preset.js
 import { runCatalogStep, type CatalogStepOptions, type CatalogStepResult } from './lib/catalog/catalog-step.js'
 import { parseModulesFlag } from './lib/catalog/selection.js'
 import { DEFAULT_PRESET_ID, VALID_PRESET_IDS } from './lib/starter-presets.js'
+import { WITHOUT_DOCKER_GUIDE_URL, isDockerCliAvailable, missingDockerNotice } from './lib/docker-availability.js'
 import { runAgenticSetup, parseAgentsValue } from './setup/wizard.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -531,7 +532,14 @@ function printTemplateNextSteps(
   appName: string,
   agenticConfigured: boolean,
   catalogPlan: CatalogPlan = { commands: [], commandWarnings: {} },
+  dockerAvailable: boolean = isDockerCliAvailable(),
 ): void {
+  if (!dockerAvailable) {
+    const [title, ...details] = missingDockerNotice()
+    console.log(pc.yellow(`⚠️  ${title}`))
+    for (const line of details) console.log(pc.yellow(line))
+    console.log('')
+  }
   console.log('Next steps:')
   console.log('')
   console.log(pc.cyan(`  cd ${appName}`))
@@ -545,6 +553,7 @@ function printTemplateNextSteps(
   console.log(pc.dim('  # Point DATABASE_URL (and Redis/Meilisearch settings) at your services, then:'))
   console.log(pc.cyan('  yarn setup --no-infra'))
   console.log(pc.dim('  # Makes no Docker calls and keeps your URLs'))
+  console.log(pc.dim(`  # Step by step: ${WITHOUT_DOCKER_GUIDE_URL}`))
   console.log('')
   console.log('Later:')
   console.log(pc.cyan('  yarn dev'))

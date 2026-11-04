@@ -321,6 +321,10 @@ function remediationFor(problem, platform, { wsl = false, databaseUrlFile = '.en
   }
 }
 
+// Where a developer without Docker learns to run the services themselves.
+export const WITHOUT_DOCKER_GUIDE_URL = 'https://github.com/open-mercato/open-mercato#without-docker'
+export const DOCKER_RUNTIME_PROBLEM_CODES = new Set(['cli-missing', 'compose-missing', 'daemon-stopped', 'daemon-unresponsive', 'daemon-permission'])
+
 const PROBLEM_TITLES = {
   'cli-missing': 'Docker is not installed (docker CLI not found).',
   'compose-missing': 'Docker Compose v2 is not available.',
@@ -349,6 +353,9 @@ export function formatInfraProblem(problem, {
   const lines = [
     PROBLEM_TITLES[problem.code] ?? PROBLEM_TITLES['compose-failed'],
     ...remediationFor(problem, platform, { wsl, databaseUrlFile, portConflictHints }).map((line) => line ? `  ${line}` : ''),
+    ...(DOCKER_RUNTIME_PROBLEM_CODES.has(problem.code)
+      ? ['', `  No Docker? Run PostgreSQL yourself (Redis and Meilisearch are optional): ${WITHOUT_DOCKER_GUIDE_URL}`]
+      : []),
     `  Already running PostgreSQL, Redis and Meilisearch yourself? Re-run with: ${optOutCommand}`,
     '  (it makes no Docker calls and keeps the URLs in your .env).',
   ]

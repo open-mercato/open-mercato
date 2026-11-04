@@ -14,7 +14,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseEnv } from 'node:util'
 
-import { detectDockerRuntime, formatInfraProblem, requestExistingServicesConsent, startInfraServices } from './dev-infra-preflight.mjs'
+import { DOCKER_RUNTIME_PROBLEM_CODES, detectDockerRuntime, formatInfraProblem, probeTcpPort, requestExistingServicesConsent, startInfraServices } from './dev-infra-preflight.mjs'
 
 export const INFRA_SERVICES = [
   { service: 'postgres', envKey: 'POSTGRES_PORT', defaultPort: 5432 },
@@ -57,6 +57,21 @@ export function externalDatabaseHost(projectDir, env = process.env) {
   }
 }
 
+// host:port of the PostgreSQL that .env (or the shell) points at, for a
+// dependency-free reachability probe before node_modules exist.
+export function configuredDatabaseEndpoint(projectDir, env = process.env) {
+  const raw = env.DATABASE_URL ?? readDotEnv(projectDir).DATABASE_URL
+  if (!raw) return null
+  try {
+    const url = new URL(raw)
+    const host = url.hostname.replace(/^\[|\]$/g, '') || 'localhost'
+    const port = Number.parseInt(url.port || '5432', 10)
+    return Number.isInteger(port) && port > 0 && port < 65536 ? { host: host === 'localhost' ? '127.0.0.1' : host, port } : null
+  } catch {
+    return null
+  }
+}
+
 export function parseInfraArgs(argv) {
   const options = { action: null, profiles: [], volumes: false, yes: false, unknown: [] }
   for (let index = 0; index < argv.length; index += 1) {
@@ -85,6 +100,7 @@ export async function ensureInfra({
   startImpl = startInfraServices,
   allowExistingServices = false,
   confirmExistingServices = requestExistingServicesConsent,
+  databaseProbe = probeTcpPort,
 } = {}) {
   const services = resolveInfraServices(projectDir, { env, profiles })
   log(`🐳 Local infrastructure: checking Docker, then starting ${services.map(({ service, port }) => `${service} :${port}`).join(', ')}...`)
@@ -101,6 +117,17 @@ export async function ensureInfra({
     log,
   })
   if (!outcome.ok) {
+    // No usable Docker, but the services may already run without it (native
+    // PostgreSQL, a remote database): use them instead of stopping. The
+    // connection check after install still verifies the credentials.
+    if (allowExistingServices && DOCKER_RUNTIME_PROBLEM_CODES.has(outcome.problem.code)) {
+      const endpoint = configuredDatabaseEndpoint(projectDir, env)
+      if (endpoint && await databaseProbe(endpoint.port, { host: endpoint.host, timeoutMs: 1500 })) {
+        log(`   Docker is not available (${outcome.problem.detail ?? outcome.problem.code}), but PostgreSQL answers at ${endpoint.host}:${endpoint.port}.`)
+        log('   Using the services configured in .env (same as --no-infra).')
+        return { ok: true, existingServices: true }
+      }
+    }
     if (allowExistingServices && (outcome.problem.code === 'port-conflict' || (outcome.problem.code === 'unhealthy' && outcome.problem.existingServices)) && await confirmExistingServices(outcome.problem, { log })) return { ok: true, existingServices: true }
     printInfraProblem(outcome.problem, { error })
     return outcome
