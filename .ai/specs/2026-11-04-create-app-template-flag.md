@@ -1,6 +1,7 @@
 # create-mercato-app --template: create an app from an app template
 
-- **Status:** Draft. Phase 4 of the Templates umbrella spec. Implementation planned in steps 2 to 6 below.
+- **Status:** Implemented on `feat/create-app-template` (steps 2 to 6), not merged or released. Phase 4 of the
+  Templates umbrella spec. The integration case was written but not run locally (it needs Verdaccio and ports).
 - **Date:** 2026-11-04
 - **Scope:** OSS
 - **Owner:** Platform / DX (proposed by Wojtek Szyjka; core team review)
@@ -422,7 +423,7 @@ No HTTP API of the app changes. External surfaces:
 Step 1 is this spec. Steps 2 to 6 follow the umbrella "Phase 4" list. Each step is one commit or a small group of
 commits on `feat/create-app-template`, with its tests green before the next step.
 
-### Step 2: index, resolution, hold policy, exclusions
+### Step 2: index, resolution, hold policy, exclusions (done)
 
 - New `src/lib/templates/types.ts`, `fetch-templates.ts` (`DEFAULT_TEMPLATES_URL`, `TEMPLATES_URL_ENV`,
   `resolveTemplatesUrl`, `parseTemplatesIndex`, `fetchTemplatesIndex`), `resolve-template.ts` (`parseTemplateArg`,
@@ -444,7 +445,7 @@ commits on `feat/create-app-template`, with its tests green before the next step
   `unmaintained` continues with its reason; every exclusion in the table fails before any request; the default
   picker is not offered with `--template`.
 
-### Step 3: archive limits in the shared fetch
+### Step 3: archive limits in the shared fetch (done)
 
 - New `src/lib/safe-archive.ts`: `ARCHIVE_LIMITS`, `readCappedBody` (streamed to a temporary file),
   `inspectArchive` (pass 1), `extractArchive` (pass 2), `assertRegularTree` (lstat walk).
@@ -457,7 +458,7 @@ commits on `feat/create-app-template`, with its tests green before the next step
   target on a pass 1 failure; the existing `--app` and `--app-url` tests stay green; a normal GitHub-style archive
   still extracts with the root folder stripped.
 
-### Step 4: compatibility, "not verified" and Enterprise notices
+### Step 4: compatibility, "not verified" and Enterprise notices (done)
 
 - New `src/lib/templates/compat.ts`: `readPinnedCoreVersion` (yarn.lock, then package.json, then manifest),
   `lineOf`, `fetchLatestStableLine` (npm dist-tags, injectable fetch), `compatibilityNotice`,
@@ -468,7 +469,7 @@ commits on `feat/create-app-template`, with its tests green before the next step
   with facts uses `linesBehind`, without facts prints the "could not check" notice; Enterprise from facts and from a
   lockfile with `@open-mercato/enterprise`.
 
-### Step 5: finalizing, cleanup, next steps, registry warning
+### Step 5: finalizing, cleanup, next steps, registry warning (done)
 
 - New `src/lib/templates/finalize.ts`: `readTemplateManifest`, `finalizeTemplateApp` (manifest removal, name
   rewrite, provenance), `printTemplateImportNextSteps`.
@@ -484,7 +485,7 @@ commits on `feat/create-app-template`, with its tests green before the next step
   (spawned `index.ts` with a mocked `fetch`, as the existing `--app` CLI test) creates a working tree.
 - Integration case in `scripts/test-create-app-integration.ts` (see "Test & Integration Coverage").
 
-### Step 6: docs and help
+### Step 6: docs and help (done)
 
 - Help: `--template`, `--keep-name`, two examples; the `--app prm` example removed.
 - `packages/create-app/README.md` and `apps/docs/docs/customization/standalone-app.mdx`: a `--template` section, the
@@ -496,6 +497,11 @@ commits on `feat/create-app-template`, with its tests green before the next step
 - Mark this spec's steps done and update the changelog.
 - Tests: help output contains the `--template` line and examples and no `--app prm`; the miss hint for a missing
   official repo; a guide test like `module-tool-guidance.test.ts` (the guide exists and is linked).
+- As built: the help and README examples are `--template crm` and `--template some-agency/b2b-portal#v1.0.0`. The
+  miss hint is the exported `READY_APP_MISS_HINT`, added only when the official repo does not exist; a missing
+  compatibility tag keeps today's message. The routing row in the generated root `AGENTS.md` was added, and
+  `agent-instruction-budget.test.ts` still passes. The guide test is `src/lib/template-tool-guidance.test.ts`. The
+  docs options table also gained the `--app` and `--app-url` rows it lacked.
 
 ---
 
@@ -519,6 +525,9 @@ commits on `feat/create-app-template`, with its tests green before the next step
 | 14 | `.ai/specs/implemented/2026-03-02-ready-apps-framework.md` | 2 | edit (changelog note) |
 | 15 | `packages/create-app/README.md`, `apps/docs/docs/customization/standalone-app.mdx` | 6 | edit |
 | 16 | `packages/create-app/agentic/guides/template-tool.md`, `agentic/guides/architecture.md` | 6 | new, edit |
+| 17 | `packages/create-app/src/lib/template-tool-guidance.test.ts` | 6 | new |
+| 18 | `packages/create-app/agentic/shared/AGENTS.md.template`, `packages/create-app/template/AGENTS.md` | 6 | edit (one routing row) |
+| 19 | `UPGRADE_NOTES.md` | 3 | edit (the `--app` / `--app-url` narrowing) |
 
 ---
 
@@ -617,7 +626,7 @@ deprecation notice. The archive limits can be raised by a patch release if a rea
 
 ### Verdict
 
-Ready for review. Implementation follows steps 2 to 6.
+Implemented. Ready for review.
 
 ---
 
@@ -643,6 +652,12 @@ None blocking. Judgment calls made in this spec, open to reviewer override:
 12. Manifest env keys must match `^[A-Za-z_][A-Za-z0-9_]{0,127}$` and are listed once; a `link` is printed only when it
     is an http or https URL.
 13. The integration case adds `--registry <Verdaccio>` to also check the warning and that `.yarnrc.yml` is unchanged.
+14. The `--app` miss hint is added only when the official repo does not exist, as written above; a missing
+    compatibility tag on an existing repo keeps today's message.
+15. The `owner/repo#ref` example reads `some-agency/b2b-portal#v1.0.0`, after the existing `some-agency` example.
+16. The agent guide links to `create-mercato-template` on GitHub and names the `npx --package github:...` fallback,
+    because the package is not on npm yet (2026-11-04). It adds no harness case; the routing row is covered by the
+    guide test only.
 
 ---
 
@@ -651,5 +666,11 @@ None blocking. Judgment calls made in this spec, open to reviewer override:
 - 2026-11-04: Initial spec (Phase 4 step 1 of the Templates umbrella spec). Amends the Ready Apps spec and
   `packages/create-app/AGENTS.md` for `--template` only, sets the archive limits for the shared fetch from measured
   apps, and plans steps 2 to 6 with their tests.
+- 2026-11-04: Steps 2 and 3 implemented (index, resolution, hold policy and exclusions; `safe-archive.ts` with the
+  limits for every import, and the `UPGRADE_NOTES.md` entry for the `--app` / `--app-url` narrowing).
 - 2026-11-04: Steps 4 and 5 implemented (`compat.ts`, `finalize.ts`, `template-step.ts`, the `--registry` warning,
   Always 7 and Never in `packages/create-app/AGENTS.md`, the integration case). Judgment calls 8 to 13 added.
+- 2026-11-04: Step 6 implemented: `--template` and `--keep-name` in help with two examples, the `--app prm` example
+  removed from help and the README, the `--app` miss hint (A8), the README and `standalone-app.mdx` sections, the
+  agent guide `template-tool.md` with its routing row, and the guide test. Judgment calls 14 to 16 added. All steps
+  are done.
