@@ -78,7 +78,7 @@ import { UserCircle2 } from 'lucide-react'
 import { ReassignOwnerDialog } from './components/ReassignOwnerDialog'
 import type { BulkActionExecuteResult } from '@open-mercato/ui/backend/DataTable'
 import { requestBulkOwnerReassignment, buildReassignOwnerSuccess } from '../../../lib/reassignDealOwner'
-import { buildDealDuplicatePayload } from '../../../lib/duplicateDeal'
+import { buildDealDuplicatePayload, formatDealDuplicateTitle } from '../../../lib/duplicateDeal'
 
 const logger = createLogger('customers')
 
@@ -566,7 +566,9 @@ export default function CustomersDealsPage() {
       if (pendingDuplicateId) return
       const payload = buildDealDuplicatePayload(
         row,
-        t('customers.deals.list.duplicateTitle', '{title} (copy)', { title: row.title }),
+        formatDealDuplicateTitle(row.title, (title) =>
+          t('customers.deals.list.duplicateTitle', '{title} (copy)', { title }),
+        ),
       )
       setPendingDuplicateId(row.id)
       try {
