@@ -81,16 +81,12 @@ async function readZoneById(
 }
 
 /**
- * CrudForm renders its labels as plain text rather than associating them with the input,
- * so no field in the dialog exposes an accessible name and `getByLabel` matches nothing.
- * Target the field container instead, the way the rest of the suite does.
- *
- * Tracked as a framework-level defect in
- * https://github.com/open-mercato/open-mercato/issues/5360 — switch this helper to
- * `getByLabel` once the label/control association lands.
+ * Each CrudForm field now exposes a real accessible name (htmlFor/id association,
+ * see #5360), so the dialog's fields can be addressed by their visible label text
+ * instead of the internal `data-crud-field-id` wrapper.
  */
-function crudField(scope: Locator, fieldId: string): Locator {
-  return scope.locator(`[data-crud-field-id="${fieldId}"] input`).first()
+function crudField(scope: Locator, label: string): Locator {
+  return scope.getByLabel(label, { exact: true })
 }
 
 async function loginAsScopedUser(
@@ -216,15 +212,15 @@ test.describe('TC-WMS-028: WMS create zone dialog (#5239)', () => {
 
       // Requirement 1 (#5239): the single warehouse in scope is pre-selected, so the
       // operator never has to search for the only choice the form can accept.
-      const warehouseInput = crudField(dialog, 'warehouseId')
+      const warehouseInput = crudField(dialog, 'Warehouse')
       await expect(warehouseInput).toHaveValue(warehouseName, { timeout: 15_000 })
 
       // Requirement 2 (#5239): the CrudForm renders the entity's custom fields.
-      const customFieldInput = crudField(dialog, `cf_${customFieldKey}`)
+      const customFieldInput = crudField(dialog, customFieldLabel)
       await expect(customFieldInput).toBeVisible({ timeout: 15_000 })
 
-      await crudField(dialog, 'code').fill(zoneCode)
-      await crudField(dialog, 'name').fill(zoneName)
+      await crudField(dialog, 'Code').fill(zoneCode)
+      await crudField(dialog, 'Name').fill(zoneName)
       await customFieldInput.fill(customFieldValue)
       await dialog.getByRole('button', { name: /Save/i }).click()
       await expect(dialog).toHaveCount(0, { timeout: 15_000 })
@@ -260,10 +256,10 @@ test.describe('TC-WMS-028: WMS create zone dialog (#5239)', () => {
 
       const editDialog = page.getByRole('dialog').filter({ hasText: /Edit zone/i }).first()
       await expect(editDialog).toBeVisible({ timeout: 15_000 })
-      await expect(crudField(editDialog, `cf_${customFieldKey}`)).toHaveValue(customFieldValue, {
+      await expect(crudField(editDialog, customFieldLabel)).toHaveValue(customFieldValue, {
         timeout: 15_000,
       })
-      await expect(crudField(editDialog, 'warehouseId')).toHaveValue(warehouseName)
+      await expect(crudField(editDialog, 'Warehouse')).toHaveValue(warehouseName)
     } finally {
       await deleteScopedFixture(request, userToken, organizationId, '/api/wms/zones', zoneId)
       await deleteScopedFixture(request, userToken, organizationId, '/api/wms/warehouses', warehouseId)

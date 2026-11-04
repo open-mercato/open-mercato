@@ -14,6 +14,7 @@ export type ComboboxOption = {
 }
 
 export type ComboboxInputProps = {
+  id?: string
   value: string
   onChange: (next: string) => void
   placeholder?: string
@@ -66,6 +67,7 @@ function areOptionsEqual(a: ComboboxOption[], b: ComboboxOption[]): boolean {
 }
 
 export function ComboboxInput({
+  id,
   value,
   onChange,
   placeholder,
@@ -427,6 +429,7 @@ export function ComboboxInput({
               on this specific surface. Keeps the rest of the form on Input primitive. */}
           <input
             ref={inputRef}
+            id={id}
             type="text"
             className={[
               'w-full h-9 rounded-md border border-input bg-background px-3 text-sm shadow-xs transition-colors outline-none placeholder:text-muted-foreground focus-visible:shadow-focus focus-visible:border-foreground disabled:bg-bg-disabled disabled:border-border-disabled disabled:text-muted-foreground disabled:cursor-not-allowed',
