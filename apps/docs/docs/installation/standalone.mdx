@@ -96,7 +96,7 @@ yarn setup
 `yarn setup` does the whole first run:
 
 1. Copies `.env.example` to `.env` when `.env` does not exist yet. An existing `.env` is never overwritten.
-2. Checks Docker: the `docker` CLI, the Compose v2 plugin and a running engine. If one is missing it stops and says what to fix. It never installs Docker or asks for sudo.
+2. Checks Docker: the `docker` CLI, the Compose v2 plugin and a running engine. If one is missing but the PostgreSQL in `.env` already answers, it uses your services (as with `--no-infra`); otherwise it stops, says what to fix and links [running the services without Docker](https://github.com/open-mercato/open-mercato#without-docker). It never installs Docker or asks for sudo.
 3. Checks that ports `5432` (PostgreSQL), `6379` (Redis) and `7700` (Meilisearch) are free, starts the containers and waits until their healthchecks pass. Containers that already run are reused and their data is kept.
 4. Installs dependencies, generates registries, runs migrations and `yarn initialize`. The first run seeds data and prints the admin credentials; later runs keep the existing database.
 5. Starts the dev server.
@@ -107,7 +107,7 @@ Before using the app for anything other than local development, replace `JWT_SEC
 
 ### Port already in use
 
-If a native PostgreSQL (for example from Homebrew) already listens on `5432`, `yarn setup` stops with exit code 2 and names the port. Either stop that service, or pick another port in `.env` and keep `DATABASE_URL` in step:
+If a native PostgreSQL (for example from Homebrew) already listens on `5432`, `yarn setup` stops with exit code 2, names the port and suggests the next free one (for example `set POSTGRES_PORT=5433 in .env`). Either stop that service, or pick another port in `.env` and keep `DATABASE_URL` in step:
 
 ```env
 POSTGRES_PORT=5433
