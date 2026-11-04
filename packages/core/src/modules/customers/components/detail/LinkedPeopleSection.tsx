@@ -87,6 +87,13 @@ export type LinkedPeopleSectionProps<
   /** Owns messaging for the link write; rejecting keeps the link dialog open. */
   onLinkConfirm: (input: LinkEntityConfirmInput<TLinkSettings>) => Promise<void>
   sectionTitle: string
+  /**
+   * Line rendered under the section title.
+   *
+   * @deprecated The built-in company and deal sections no longer show a subtitle. Move the text out
+   * of the section, for example into `header`. This prop stays for at least one minor release.
+   */
+  sectionSubtitle?: string
   searchPlaceholder: string
   linkActionLabel: string
   addActionLabel?: string
@@ -221,6 +228,7 @@ export function LinkedPeopleSection<
   linkedIds,
   onLinkConfirm,
   sectionTitle,
+  sectionSubtitle,
   searchPlaceholder,
   linkActionLabel,
   addActionLabel,
@@ -518,6 +526,9 @@ export function LinkedPeopleSection<
                     {totalLinkedPeople}
                   </Badge>
                 </div>
+                {sectionSubtitle ? (
+                  <p className="text-xs text-muted-foreground">{sectionSubtitle}</p>
+                ) : null}
               </div>
               <div className="flex flex-wrap items-center gap-2 xl:justify-end">
                 {linkAction}
