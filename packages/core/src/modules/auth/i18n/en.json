@@ -624,6 +624,7 @@
   "auth.resetPassword": "Reset password",
   "auth.roles.admin": "Admin",
   "auth.roles.employee": "Employee",
+  "auth.roles.errors.nameExists": "A role with this name already exists",
   "auth.roles.errors.notFound": "Role not found",
   "auth.roles.errors.rolesNotFound": "Role(s) not found: {roles}",
   "auth.roles.errors.superAdminTargetProtected": "Only super administrators can modify super administrator roles.",

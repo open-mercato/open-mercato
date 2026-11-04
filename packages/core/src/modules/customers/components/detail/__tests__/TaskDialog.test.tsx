@@ -15,20 +15,27 @@ jest.mock('@open-mercato/ui/primitives/dialog', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
-  CrudForm: ({ onSubmit }: { onSubmit: (values: Record<string, unknown>) => Promise<void> }) => (
-    <form
-      onSubmit={(event) => {
-        event.preventDefault()
-        const form = event.currentTarget
-        if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
-        void onSubmit({ title: 'Follow up' }).catch(() => {
-          form.closest<HTMLElement>('[role="dialog"]')?.focus()
-        })
-      }}
-    >
-      <input aria-label="Title" />
-    </form>
-  ),
+  CrudForm: (() => {
+    const { createPortal } = require('react-dom')
+
+    return ({ onSubmit }: { onSubmit: (values: Record<string, unknown>) => Promise<void> }) => (
+      <>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault()
+            const form = event.currentTarget
+            if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+            void onSubmit({ title: 'Follow up' }).catch(() => {
+              form.closest<HTMLElement>('[role="dialog"]')?.focus()
+            })
+          }}
+        >
+          <input aria-label="Title" />
+        </form>
+        {createPortal(<button type="button" data-testid="nested-popup-option">Popup option</button>, document.body)}
+      </>
+    )
+  })(),
 }))
 
 jest.mock('../hooks/useCustomerDictionary', () => ({
@@ -65,5 +72,33 @@ describe('TaskDialog keyboard submission', () => {
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2))
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
+  })
+
+  it('lets Escape close a nested portaled control before cancelling the dialog', () => {
+    const onOpenChange = jest.fn()
+
+    renderWithProviders(
+      <TaskDialog open mode="edit" onOpenChange={onOpenChange} onSubmit={jest.fn()} />,
+    )
+
+    fireEvent.keyDown(screen.getByTestId('nested-popup-option'), { key: 'Escape' })
+    expect(onOpenChange).not.toHaveBeenCalled()
+
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Title' }), { key: 'Escape' })
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('ignores Escape already handled by a nested control', () => {
+    const onOpenChange = jest.fn()
+    const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    event.preventDefault()
+
+    renderWithProviders(
+      <TaskDialog open mode="edit" onOpenChange={onOpenChange} onSubmit={jest.fn()} />,
+    )
+
+    fireEvent(screen.getByRole('textbox', { name: 'Title' }), event)
+
+    expect(onOpenChange).not.toHaveBeenCalled()
   })
 })

@@ -624,6 +624,7 @@
   "auth.resetPassword": "Resetuj hasło",
   "auth.roles.admin": "Administrator",
   "auth.roles.employee": "Pracownik",
+  "auth.roles.errors.nameExists": "Rola o tej nazwie już istnieje",
   "auth.roles.errors.notFound": "Nie znaleziono roli",
   "auth.roles.errors.rolesNotFound": "Nie znaleziono ról: {roles}",
   "auth.roles.errors.superAdminTargetProtected": "Tylko superadministratorzy mogą modyfikować role superadministratora.",

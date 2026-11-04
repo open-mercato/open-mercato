@@ -499,6 +499,12 @@ export type DataTableProps<T extends RowData> = {
    */
   activeFilterChips?: React.ReactNode
   /**
+   * Renders the filter bar's built-in row of removable chips for the active
+   * `filters`. Defaults to `true`. Set it to `false` when `activeFilterChips`
+   * already shows the applied filters, so each filter appears once.
+   */
+  showActiveFilterChips?: boolean
+  /**
    * When provided AND .active is true, replaces the generic empty state with the
    * filter-aware FilteredEmptyResults. Pages set this when their filter tree has
    * rules and the table body is empty.
@@ -834,6 +840,10 @@ type ColumnTruncateConfig = {
 type ColumnTruncateMeta = {
   truncate?: boolean
   maxWidth?: string
+}
+
+function hasExplicitCellRenderer(columnDef: unknown): boolean {
+  return Boolean((columnDef as { cell?: unknown } | undefined)?.cell)
 }
 
 function getColumnTruncateConfig(columnId: string, accessorKey?: string, columnMeta?: ColumnTruncateMeta): ColumnTruncateConfig {
@@ -1360,6 +1370,7 @@ function DataTableImpl<T extends RowData>({
   advancedFilter: advancedFilterInput,
   columnChooser,
   activeFilterChips,
+  showActiveFilterChips = true,
   filterAwareEmptyState,
   getSubRows,
   expandable,
@@ -1868,14 +1879,15 @@ function DataTableImpl<T extends RowData>({
     const accessors = mergedColumns.map((c) => {
       const key = (c as any).accessorKey as string | undefined
       const id = (c as any).id as string | undefined
-      return { id: id || key || '', key }
+      const hasCustomCell = hasExplicitCellRenderer(c)
+      return { id: id || key || '', key, hasCustomCell }
     })
     const guessed = new Set<string>()
     accessors.forEach((a) => {
       if (!a.id) return
       const name = a.id
       // Name-based guess: snake_case '_at' suffix
-      if (name.endsWith('_at')) {
+      if (name.endsWith('_at') && !a.hasCustomCell) {
         guessed.add(name)
         return
       }
@@ -3557,6 +3569,7 @@ function DataTableImpl<T extends RowData>({
         trailingItems={trailingItems}
         searchTrailing={searchTrailingNode}
         filtersExtraContent={fieldsetSelector}
+        showActiveFilterChips={showActiveFilterChips}
         layout={embedded ? 'inline' : 'stacked'}
         className={embedded ? 'min-h-[2.25rem]' : undefined}
       />
@@ -3573,6 +3586,7 @@ function DataTableImpl<T extends RowData>({
     filterValues,
     onFiltersApply,
     onFiltersClear,
+    showActiveFilterChips,
     canUsePerspectives,
     perspectiveAlign,
     embedded,
@@ -3649,6 +3663,49 @@ function DataTableImpl<T extends RowData>({
     observer.observe(tableScrollEl)
     return () => observer.disconnect()
   }, [tableScrollEl])
+  React.useEffect(() => {
+    const header = tableScrollEl?.querySelector('thead')
+    if (!tableScrollEl || !header) return
+    const scrollAncestors: HTMLElement[] = []
+    let ancestor = header.parentElement
+    while (ancestor && ancestor !== document.body && ancestor !== document.documentElement) {
+      if (/(auto|scroll|hidden|overlay)/.test(getComputedStyle(ancestor).overflowY)) {
+        scrollAncestors.push(ancestor)
+      }
+      ancestor = ancestor.parentElement
+    }
+    const scrollParent = scrollAncestors[0]
+    let frame: number | undefined
+    const update = () => {
+      frame = undefined
+      const topbarHeight = Number.parseFloat(getComputedStyle(tableScrollEl).getPropertyValue('--topbar-height')) || 0
+      const visibleTop = scrollAncestors.reduce(
+        (top, element) => Math.max(top, element.getBoundingClientRect().top + element.clientTop),
+        topbarHeight,
+      )
+      const scrollParentTop = scrollParent
+        ? scrollParent.getBoundingClientRect().top + scrollParent.clientTop
+        : 0
+      const scrollParentPadding = scrollParent ? Number.parseFloat(getComputedStyle(scrollParent).paddingTop) || 0 : 0
+      header.style.top = `${Math.max(0, visibleTop - scrollParentTop) - scrollParentPadding}px`
+    }
+    const scheduleUpdate = () => {
+      if (frame === undefined) frame = requestAnimationFrame(update)
+    }
+    update()
+    window.addEventListener('scroll', scheduleUpdate, { capture: true, passive: true })
+    window.addEventListener('resize', scheduleUpdate)
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(scheduleUpdate)
+    if (containerRef.current) observer?.observe(containerRef.current)
+    scrollAncestors.forEach((element) => observer?.observe(element))
+    return () => {
+      window.removeEventListener('scroll', scheduleUpdate, true)
+      window.removeEventListener('resize', scheduleUpdate)
+      observer?.disconnect()
+      if (frame !== undefined) cancelAnimationFrame(frame)
+      header.style.removeProperty('top')
+    }
+  }, [tableScrollEl, isInitializingColumns])
   const allRows = table.getRowModel().rows
   // Hooks must run on every render regardless of props (Rules of Hooks). Call
   // useVirtualizer unconditionally and keep it inert when virtualization is off
@@ -3776,7 +3833,9 @@ function DataTableImpl<T extends RowData>({
           </Button>
         </div>
       ) : null}
-      {activeFilterChips}
+      {activeFilterChips != null && activeFilterChips !== false ? (
+        <div data-table-active-filter-chips="">{activeFilterChips}</div>
+      ) : null}
       {injectedColumnsError ? (
         <ErrorMessage label={t('ui.dataTable.extensions.error', 'Some table extensions could not load. Reload the page to retry.')} />
       ) : null}
@@ -3792,7 +3851,7 @@ function DataTableImpl<T extends RowData>({
           <LoadingMessage label={t('ui.dataTable.loading', 'Loading data...')} className="h-24 justify-center border-0 bg-transparent" />
         ) : (
         <Table className="min-w-[640px] md:min-w-0">
-          <TableHeader>
+          <TableHeader className={cn('sticky top-0 z-30 [&_tr]:bg-muted/40', embedded ? 'bg-background' : 'bg-card')}>
             {table.getHeaderGroups().map((hg) => (
               <TableRow key={hg.id}>
                 {hasInjectedBulkActions ? (
@@ -3979,7 +4038,7 @@ function DataTableImpl<T extends RowData>({
                       let tooltipText: string | undefined
                       if (metaTooltipContent) {
                         tooltipText = metaTooltipContent(row.original)
-                      } else if (isDateCol && cellValue != null) {
+                      } else if ((isDateCol || columnId.endsWith('_at')) && cellValue != null) {
                         const parsedDate = tryParseDate(cellValue)
                         tooltipText = parsedDate ? (formatDisplayDateTime(parsedDate, dateLocale) ?? String(cellValue)) : String(cellValue)
                       } else {
@@ -4114,7 +4173,7 @@ function DataTableImpl<T extends RowData>({
       </div>
       </HeaderDndWrapper>
       {footerInjectionSpotId ? (
-        <div className={embedded ? 'mt-3' : 'px-4 py-3 border-t'}>
+        <div className={embedded ? 'mt-3 empty:hidden' : 'px-4 py-3 border-t empty:hidden'} data-table-footer="">
           <InjectionSpot spotId={footerInjectionSpotId} context={resolvedInjectionContext} />
         </div>
       ) : null}
