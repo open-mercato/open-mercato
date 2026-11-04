@@ -41,7 +41,6 @@ const integrationDetail = {
 
 test.describe('TC-INT-011: write-only integration secret editing', () => {
   test('keeps configured secrets out of editable values and submits explicit unchanged intent', async ({ page }) => {
-    test.setTimeout(60_000)
     await login(page, 'admin')
 
     const submittedBodies: Array<Record<string, unknown>> = []
