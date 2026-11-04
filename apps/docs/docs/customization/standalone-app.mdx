@@ -139,26 +139,30 @@ When a new failure or use case is discovered, invoke the bundled `om-evolve-harn
 
 ```bash
 cd my-store
+yarn setup
+```
 
-# 1. Copy environment template and configure
-cp .env.example .env
-# Edit .env — set DATABASE_URL, JWT_SECRET, REDIS_URL at minimum
+`yarn setup` copies `.env.example` to `.env` when it is missing (an existing `.env` is never overwritten), checks Docker, starts PostgreSQL, Redis and Meilisearch from `docker-compose.yml` and waits until they are healthy. Only then does it install dependencies, generate, migrate, initialize and start the dev server. If Docker is missing or stopped, or a port is taken, it stops before touching the database and says what to fix. Re-running it is safe: containers and volumes are reused and an already initialized database is kept.
 
-# 2. Start infrastructure
-docker compose up -d
+Running PostgreSQL, Redis and Meilisearch yourself? Point `.env` at them and run:
 
-# 3. Install dependencies
+```bash
+yarn setup --no-infra
+```
+
+It makes no Docker calls and keeps your URLs. The containers on their own: `yarn infra:up` (start and wait for health) and `yarn infra:down` (stop, data kept; `--volumes --yes` deletes it).
+
+The manual equivalent, against services you started yourself:
+
+```bash
+cp .env.example .env   # then set DATABASE_URL, JWT_SECRET, REDIS_URL at minimum
 yarn install
-
-# 4. Bootstrap the app (generates modules, runs migrations, seeds data)
-yarn initialize
-
-# 5. Start the dev server
+yarn initialize        # generates modules, runs migrations, seeds data
 yarn dev
 ```
 
 :::info
-`yarn initialize` handles code generation (`yarn generate`) and database migrations (`yarn db:migrate`) internally — you do not need to run them separately. It also seeds default data and will abort if existing users are found. For upgrades on an existing database, run `yarn db:migrate` instead of `yarn initialize`.
+`yarn initialize` handles code generation (`yarn generate`) and database migrations (`yarn db:migrate`) internally — you do not need to run them separately. It also seeds default data and will abort if existing users are found (`yarn setup` passes `--skip-if-initialized`, which keeps the existing data instead). For upgrades on an existing database, run `yarn db:migrate` instead of `yarn initialize`.
 :::
 
 If you prefer the old raw terminal output with no splash screen during standalone bootstrap, use `yarn setup:classic` instead of the compact `setup` flow.

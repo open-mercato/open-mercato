@@ -27,6 +27,12 @@ export type FilterBarProps = {
   searchTrailing?: React.ReactNode
   layout?: 'stacked' | 'inline'
   filtersExtraContent?: React.ReactNode
+  /**
+   * Renders the built-in row of removable chips for the active filters.
+   * Defaults to `true`. Hosts that draw their own chip layer (for example via
+   * `DataTable`'s `activeFilterChips`) set it to `false` so each filter shows once.
+   */
+  showActiveFilterChips?: boolean
 }
 
 export function FilterBar({
@@ -44,6 +50,7 @@ export function FilterBar({
   searchTrailing,
   layout = 'stacked',
   filtersExtraContent,
+  showActiveFilterChips = true,
 }: FilterBarProps) {
   const t = useT()
   const resolvedSearchPlaceholder = searchPlaceholder ?? t('ui.filterBar.searchPlaceholder', 'Search')
@@ -120,7 +127,7 @@ export function FilterBar({
         {searchAlign === 'right' ? searchBlock : null}
       </div>
       {/* Active filter chips */}
-      {filters.length > 0 && activeCount > 0 && (
+      {showActiveFilterChips && filters.length > 0 && activeCount > 0 && (
         <div className="flex flex-wrap items-center gap-1">
           {filters.map((f) => {
             const v = (values as any)[f.id]
