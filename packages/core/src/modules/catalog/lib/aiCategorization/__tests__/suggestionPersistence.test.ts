@@ -67,6 +67,44 @@ describe('persistCategorySuggestion', () => {
     expect(existingPending.status).toBe('superseded')
   })
 
+  // MikroORM v7's UnitOfWork orders INSERT changesets before UPDATE
+  // changesets within one flush, so flushing both together would race the
+  // replacement's INSERT against the still-`pending` old row and trip the
+  // partial unique (product_id) WHERE status='pending' index. The
+  // supersession must commit in its own flush, strictly before `create()`.
+  it('flushes the supersession before creating the replacement', async () => {
+    const existingPending: FakeSuggestion = { id: 'old-id', status: 'pending' }
+    const { trx } = buildTrx({ pending: [existingPending] })
+    const calls: string[] = []
+    trx.flush.mockImplementation(async () => { calls.push('flush') })
+    trx.create.mockImplementation((_entity: unknown, payload: Record<string, unknown>) => {
+      calls.push('create')
+      return { id: 'new-id', ...payload } as FakeSuggestion
+    })
+    const em = buildEm(trx)
+    await persistCategorySuggestion(em, {
+      productId: PRODUCT,
+      tenantId: TENANT,
+      organizationId: ORG,
+      outcome: 'no_match',
+      trigger: 'manual',
+    })
+    expect(calls).toEqual(['flush', 'create', 'flush'])
+  })
+
+  it('skips the pre-insert flush when there is no prior pending row', async () => {
+    const { trx } = buildTrx({ pending: [] })
+    const em = buildEm(trx)
+    await persistCategorySuggestion(em, {
+      productId: PRODUCT,
+      tenantId: TENANT,
+      organizationId: ORG,
+      outcome: 'no_match',
+      trigger: 'manual',
+    })
+    expect(trx.flush).toHaveBeenCalledTimes(1)
+  })
+
   it('throws 404 when the product cannot be found', async () => {
     const { trx } = buildTrx({ product: null })
     const em = buildEm(trx)

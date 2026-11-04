@@ -1,6 +1,7 @@
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { ProgressService } from '../../progress/lib/progressService'
 import {
   CATALOG_PRODUCT_AI_CATEGORIZE_QUEUE,
@@ -69,6 +70,10 @@ export default async function handle(
     logger.error('catalog.ai_categorization.bulk worker failed; not retrying to avoid repeating paid model calls', {
       progressJobId: bulkPayload.progressJobId,
       err: error,
+    })
+    getTelemetryRuntime()?.reportError(error, {
+      module: 'catalog',
+      code: 'catalog.ai_categorization_bulk_worker_failed',
     })
   }
 }

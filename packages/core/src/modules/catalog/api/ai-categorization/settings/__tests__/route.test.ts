@@ -2,8 +2,7 @@ const tenantId = '11111111-1111-4111-8111-111111111111'
 const organizationId = '22222222-2222-4222-8222-222222222222'
 const userId = '33333333-3333-4333-8333-333333333333'
 
-const validateCrudMutationGuardMock = jest.fn()
-const runCrudMutationGuardAfterSuccessMock = jest.fn()
+const runRouteMutationGuardsMock = jest.fn()
 const getStatusMock = jest.fn()
 const setValueMock = jest.fn()
 const deleteByTagsMock = jest.fn()
@@ -33,9 +32,8 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn(async () => authValue),
 }))
 
-jest.mock('@open-mercato/shared/lib/crud/mutation-guard', () => ({
-  validateCrudMutationGuard: (...args: unknown[]) => validateCrudMutationGuardMock(...args),
-  runCrudMutationGuardAfterSuccess: (...args: unknown[]) => runCrudMutationGuardAfterSuccessMock(...args),
+jest.mock('@open-mercato/shared/lib/crud/route-mutation-guard', () => ({
+  runRouteMutationGuards: (...args: unknown[]) => runRouteMutationGuardsMock(...args),
 }))
 
 import { GET, PUT } from '../route'
@@ -54,12 +52,14 @@ const makePutRequest = (settings: Record<string, unknown>) =>
     body: JSON.stringify({ settings }),
   })
 
+const runAfterSuccessMock = jest.fn().mockResolvedValue(undefined)
+
 describe('catalog ai-categorization settings route', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     authValue = { tenantId, sub: userId, orgId: organizationId }
-    validateCrudMutationGuardMock.mockResolvedValue({ ok: true, shouldRunAfterSuccess: true, metadata: { token: 'guard' } })
-    runCrudMutationGuardAfterSuccessMock.mockResolvedValue(undefined)
+    runAfterSuccessMock.mockClear().mockResolvedValue(undefined)
+    runRouteMutationGuardsMock.mockResolvedValue({ ok: true, runAfterSuccess: runAfterSuccessMock })
     setValueMock.mockResolvedValue(undefined)
     deleteByTagsMock.mockResolvedValue(undefined)
     getStatusMock.mockResolvedValue({
@@ -127,18 +127,18 @@ describe('catalog ai-categorization settings route', () => {
     })
     const response = await PUT(makePutRequest({ ...DEFAULT_SETTINGS, enabled: true }))
     expect(response.status).toBe(200)
-    expect(validateCrudMutationGuardMock).toHaveBeenCalledWith(
-      container,
+    expect(runRouteMutationGuardsMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        tenantId,
-        organizationId,
-        userId,
-        resourceKind: 'catalog.ai_categorization_settings',
-        resourceId: 'ai_categorization',
-        operation: 'custom',
-        requestMethod: 'PUT',
+        container,
+        auth: { userId, tenantId, organizationId },
+        input: expect.objectContaining({
+          resourceKind: 'catalog.ai_categorization_settings',
+          resourceId: 'ai_categorization',
+          operation: 'custom',
+        }),
       }),
     )
+    expect(runAfterSuccessMock).toHaveBeenCalled()
     expect(setValueMock).toHaveBeenCalledWith(
       'catalog',
       'ai_categorization',
@@ -154,7 +154,7 @@ describe('catalog ai-categorization settings route', () => {
   })
 
   it('does not invalidate the nav cache when the write is blocked', async () => {
-    validateCrudMutationGuardMock.mockResolvedValue({ ok: false, status: 409, body: { error: 'Conflict' } })
+    runRouteMutationGuardsMock.mockResolvedValue({ ok: false, errorStatus: 409, errorBody: { error: 'Conflict' }, response: new Response(JSON.stringify({ error: 'Conflict' }), { status: 409 }) })
     await PUT(makePutRequest({ ...DEFAULT_SETTINGS, enabled: true }))
     expect(deleteByTagsMock).not.toHaveBeenCalled()
   })
@@ -166,7 +166,7 @@ describe('catalog ai-categorization settings route', () => {
   })
 
   it('aborts the write before persisting when the guard blocks it', async () => {
-    validateCrudMutationGuardMock.mockResolvedValue({ ok: false, status: 409, body: { error: 'Conflict' } })
+    runRouteMutationGuardsMock.mockResolvedValue({ ok: false, errorStatus: 409, errorBody: { error: 'Conflict' }, response: new Response(JSON.stringify({ error: 'Conflict' }), { status: 409 }) })
     const response = await PUT(makePutRequest({ ...DEFAULT_SETTINGS, enabled: true }))
     expect(response.status).toBe(409)
     expect(setValueMock).not.toHaveBeenCalled()

@@ -1,8 +1,10 @@
 import { z } from 'zod'
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { emitCrudSideEffects, emitCrudUndoSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
@@ -123,22 +125,31 @@ function mergeAcceptedCategory(current: string[], categoryId: string, makeMain: 
  * Restores a reviewed suggestion to `pending` after an undo — unless a newer
  * pending suggestion now exists for the same product, in which case it is set
  * to `superseded` instead, avoiding a unique-constraint violation on the
- * partial `(product_id) WHERE status = 'pending'` index.
+ * partial `(product_id) WHERE status = 'pending'` index. Locks the row and
+ * re-counts inside the same transaction so a concurrent suggest/accept/reject
+ * on the same product can never race the count against the write.
  */
 async function restoreSuggestionAfterUndo(
   em: EntityManager,
   suggestionId: string,
   productId: string,
 ): Promise<void> {
-  const suggestion = await em.findOne(CatalogProductCategorySuggestion, { id: suggestionId })
-  if (!suggestion) return
-  const newerPendingCount = await em.count(CatalogProductCategorySuggestion, {
-    product: productId,
-    status: 'pending',
-    id: { $ne: suggestionId },
-  })
-  suggestion.status = newerPendingCount > 0 ? 'superseded' : 'pending'
-  await em.flush()
+  await withAtomicFlush(em, [
+    async () => {
+      const suggestion = await em.findOne(
+        CatalogProductCategorySuggestion,
+        { id: suggestionId },
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
+      )
+      if (!suggestion) return
+      const newerPendingCount = await em.count(CatalogProductCategorySuggestion, {
+        product: productId,
+        status: 'pending',
+        id: { $ne: suggestionId },
+      })
+      suggestion.status = newerPendingCount > 0 ? 'superseded' : 'pending'
+    },
+  ], { transaction: true, label: 'catalog.category_suggestions.restoreAfterUndo' })
 }
 
 const acceptCategorySuggestionCommand: CommandHandler<AcceptSuggestionInput, AcceptSuggestionResult> = {
@@ -159,46 +170,61 @@ const acceptCategorySuggestionCommand: CommandHandler<AcceptSuggestionInput, Acc
       request: ctx.request ?? null,
     })
 
-    if (suggestion.status !== 'pending') {
-      throw new CrudHttpError(409, { code: 'suggestion_not_pending' })
-    }
-
-    const categoryId = parsed.categoryId ?? suggestion.categoryId ?? null
-    if (!categoryId) {
-      throw new CrudHttpError(422, { code: 'category_unavailable' })
-    }
-
     const product = typeof suggestion.product === 'string'
       ? await em.findOne(CatalogProduct, { id: suggestion.product })
       : suggestion.product
     if (!product) throw new CrudHttpError(404, { error: 'Catalog product not found' })
-    if (product.deletedAt) {
-      throw new CrudHttpError(422, { code: 'product_unavailable' })
-    }
 
-    const category = await em.findOne(CatalogProductCategory, {
-      id: categoryId,
-      organizationId: product.organizationId,
-      tenantId: product.tenantId,
-      deletedAt: null,
-      isActive: true,
-    })
-    if (!category) {
-      throw new CrudHttpError(422, { code: 'category_unavailable' })
-    }
+    let categoryId: string | null = null
+    let before: string[] = []
+    let after: string[] = []
 
-    const before = await loadCurrentCategoryIds(em, product)
-    if (parsed.autoApplied && before.length > 0) {
-      throw new CrudHttpError(409, { code: 'product_already_categorized' })
-    }
-    const after = mergeAcceptedCategory(before, categoryId, parsed.makeMain)
+    // Lock product, then suggestion — the same order `persistCategorySuggestion`
+    // uses — and re-check every guard under the lock so a concurrent accept,
+    // reject, or new suggestion for this product/suggestion can never both
+    // "win": only the transaction that commits first sees status === 'pending'.
+    await withAtomicFlush(em, [
+      async () => {
+        await em.findOne(CatalogProduct, { id: product.id }, { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true })
+        await em.findOne(CatalogProductCategorySuggestion, { id: suggestion.id }, { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true })
 
-    await syncCategoryAssignments(em, product, after)
-    product.updatedAt = new Date()
-    suggestion.status = parsed.autoApplied ? 'auto_applied' : 'accepted'
-    suggestion.reviewedByUserId = ctx.auth?.sub ?? null
-    suggestion.reviewedAt = new Date()
-    await em.flush()
+        if (suggestion.status !== 'pending') {
+          throw new CrudHttpError(409, { code: 'suggestion_not_pending' })
+        }
+        if (product.deletedAt) {
+          throw new CrudHttpError(422, { code: 'product_unavailable' })
+        }
+
+        categoryId = parsed.categoryId ?? suggestion.categoryId ?? null
+        if (!categoryId) {
+          throw new CrudHttpError(422, { code: 'category_unavailable' })
+        }
+
+        const category = await em.findOne(CatalogProductCategory, {
+          id: categoryId,
+          organizationId: product.organizationId,
+          tenantId: product.tenantId,
+          deletedAt: null,
+          isActive: true,
+        })
+        if (!category) {
+          throw new CrudHttpError(422, { code: 'category_unavailable' })
+        }
+
+        before = await loadCurrentCategoryIds(em, product)
+        if (parsed.autoApplied && before.length > 0) {
+          throw new CrudHttpError(409, { code: 'product_already_categorized' })
+        }
+        after = mergeAcceptedCategory(before, categoryId, parsed.makeMain)
+      },
+      () => syncCategoryAssignments(em, product, after),
+      () => {
+        product.updatedAt = new Date()
+        suggestion.status = parsed.autoApplied ? 'auto_applied' : 'accepted'
+        suggestion.reviewedByUserId = ctx.auth?.sub ?? null
+        suggestion.reviewedAt = new Date()
+      },
+    ], { transaction: true, label: 'catalog.category_suggestions.accept' })
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({
@@ -212,7 +238,7 @@ const acceptCategorySuggestionCommand: CommandHandler<AcceptSuggestionInput, Acc
     await emitCatalogEvent('catalog.category_suggestion.accepted', {
       id: suggestion.id,
       productId: product.id,
-      categoryId,
+      categoryId: categoryId!,
       status: suggestion.status,
       confidence: suggestion.confidence != null ? Number(suggestion.confidence) : null,
     }, { tenantId: suggestion.tenantId, organizationId: suggestion.organizationId })
@@ -289,15 +315,21 @@ const rejectCategorySuggestionCommand: CommandHandler<RejectSuggestionInput, Rej
       request: ctx.request ?? null,
     })
 
-    if (suggestion.status !== 'pending') {
-      throw new CrudHttpError(409, { code: 'suggestion_not_pending' })
-    }
-
     const productId = typeof suggestion.product === 'string' ? suggestion.product : suggestion.product
-    suggestion.status = 'rejected'
-    suggestion.reviewedByUserId = ctx.auth?.sub ?? null
-    suggestion.reviewedAt = new Date()
-    await em.flush()
+
+    // Lock and re-check under the lock so a concurrent accept/reject on the
+    // same suggestion can never both succeed.
+    await withAtomicFlush(em, [
+      async () => {
+        await em.findOne(CatalogProductCategorySuggestion, { id: suggestion.id }, { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true })
+        if (suggestion.status !== 'pending') {
+          throw new CrudHttpError(409, { code: 'suggestion_not_pending' })
+        }
+        suggestion.status = 'rejected'
+        suggestion.reviewedByUserId = ctx.auth?.sub ?? null
+        suggestion.reviewedAt = new Date()
+      },
+    ], { transaction: true, label: 'catalog.category_suggestions.reject' })
 
     await emitCatalogEvent('catalog.category_suggestion.rejected', {
       id: suggestion.id,

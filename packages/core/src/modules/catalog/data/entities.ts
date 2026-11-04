@@ -452,8 +452,8 @@ export type CatalogCategorySuggestionLevel = {
 
 // No `deleted_at`: suggestions are history, never soft-deleted. The partial
 // unique index enforcing "at most one pending suggestion per product" is
-// added in a hand-written migration (MikroORM decorators cannot express a
-// partial WHERE clause) — see migrations/Migration20261029120000.ts.
+// declared below via the `expression` form (same pattern as
+// `catalog_price_history_idempotency_uq` on `CatalogPriceHistoryEntry`).
 @Entity({ tableName: 'catalog_product_category_suggestions' })
 @Index({
   name: 'catalog_product_category_suggestions_scope_idx',
@@ -462,6 +462,11 @@ export type CatalogCategorySuggestionLevel = {
 @Index({
   name: 'catalog_product_category_suggestions_product_created_idx',
   properties: ['product', 'createdAt'],
+})
+@Index({
+  name: 'catalog_product_category_suggestions_pending_unique',
+  expression:
+    'create unique index "catalog_product_category_suggestions_pending_unique" on "catalog_product_category_suggestions" ("product_id") where "status" = \'pending\'',
 })
 export class CatalogProductCategorySuggestion {
   [OptionalProps]?: 'createdAt' | 'updatedAt'

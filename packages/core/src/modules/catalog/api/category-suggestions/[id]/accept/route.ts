@@ -6,6 +6,8 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveActiveOrganizationId, organizationScopeRequiredResponse } from '@open-mercato/shared/lib/auth/organizationScope'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
+import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { CatalogCategorizationService } from '../../../../lib/aiCategorization/categorizationService'
@@ -47,6 +49,25 @@ export async function POST(req: Request, routeContext: RouteContext) {
       return NextResponse.json({ code: 'ai_categorization_unavailable', reason: status.reason ?? null }, { status: 409 })
     }
 
+    if (!auth.sub) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    const guarded = await runRouteMutationGuards({
+      container,
+      req,
+      auth: { userId: auth.sub, tenantId, organizationId },
+      input: {
+        resourceKind: 'catalog.category_suggestion',
+        resourceId: suggestionId,
+        operation: 'custom',
+        mutationPayload: { id: suggestionId, categoryId: body.categoryId ?? null, makeMain: body.makeMain },
+      },
+    })
+    if (!guarded.ok) return guarded.response
+    const commandInput = guarded.modifiedPayload
+      ? bodySchema.extend({ id: z.string().uuid() }).parse(guarded.modifiedPayload)
+      : { id: suggestionId, categoryId: body.categoryId, makeMain: body.makeMain }
+
     const commandBus = container.resolve('commandBus') as CommandBus
     const ctx: CommandRuntimeContext = {
       container,
@@ -57,9 +78,10 @@ export async function POST(req: Request, routeContext: RouteContext) {
       request: req,
     }
     const { result, logEntry } = await commandBus.execute('catalog.category_suggestions.accept', {
-      input: { id: suggestionId, categoryId: body.categoryId, makeMain: body.makeMain },
+      input: commandInput,
       ctx,
     }) as { result: { suggestionId: string; product: { id: string; categoryIds: string[]; updatedAt: string } }; logEntry: unknown }
+    await guarded.runAfterSuccess()
 
     const em = (container.resolve('em') as EntityManager).fork()
     const suggestion = await em.findOne(CatalogProductCategorySuggestion, { id: result.suggestionId })
@@ -78,6 +100,10 @@ export async function POST(req: Request, routeContext: RouteContext) {
       return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
     }
     logger.error('catalog.ai_categorization.category_suggestions.accept.POST Unexpected error', { err })
+    getTelemetryRuntime()?.reportError(err, {
+      module: 'catalog',
+      code: 'catalog.ai_categorization_accept_failed',
+    })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

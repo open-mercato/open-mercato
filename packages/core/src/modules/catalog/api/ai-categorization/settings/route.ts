@@ -4,10 +4,7 @@ import { runWithCacheTenant } from '@open-mercato/cache'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import {
-  runCrudMutationGuardAfterSuccess,
-  validateCrudMutationGuard,
-} from '@open-mercato/shared/lib/crud/mutation-guard'
+import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
@@ -111,39 +108,24 @@ async function PUT(req: Request) {
       )
     }
 
-    const guardResult = await validateCrudMutationGuard(context.container, {
-      tenantId: context.tenantId,
-      organizationId: context.organizationId,
-      userId: context.actorId,
-      resourceKind: 'catalog.ai_categorization_settings',
-      resourceId: 'ai_categorization',
-      operation: 'custom',
-      requestMethod: req.method,
-      requestHeaders: req.headers,
-      mutationPayload: body.settings,
+    const guarded = await runRouteMutationGuards({
+      container: context.container,
+      req,
+      auth: { userId: context.actorId, tenantId: context.tenantId, organizationId: context.organizationId },
+      input: {
+        resourceKind: 'catalog.ai_categorization_settings',
+        resourceId: 'ai_categorization',
+        operation: 'custom',
+        mutationPayload: body.settings,
+      },
     })
-    if (guardResult && !guardResult.ok) {
-      return NextResponse.json(guardResult.body, { status: guardResult.status })
-    }
+    if (!guarded.ok) return guarded.response
 
     const moduleConfigService = context.container.resolve('moduleConfigService') as ModuleConfigService
     await writeAiCategorizationSettings(moduleConfigService, { tenantId: context.tenantId }, body.settings)
 
     await invalidateSidebarNavCache(context.container, context.tenantId)
-
-    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
-      await runCrudMutationGuardAfterSuccess(context.container, {
-        tenantId: context.tenantId,
-        organizationId: context.organizationId,
-        userId: context.actorId,
-        resourceKind: 'catalog.ai_categorization_settings',
-        resourceId: 'ai_categorization',
-        operation: 'custom',
-        requestMethod: req.method,
-        requestHeaders: req.headers,
-        metadata: guardResult.metadata ?? null,
-      })
-    }
+    await guarded.runAfterSuccess()
 
     const nextStatus = await service.getStatus({ tenantId: context.tenantId })
     return NextResponse.json(buildResponse(nextStatus))

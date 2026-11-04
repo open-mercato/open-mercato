@@ -9,6 +9,7 @@ import type { BulkAction } from '@open-mercato/ui/backend/DataTable'
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import type { FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import type { StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -410,9 +411,9 @@ export default function CategorySuggestionsDataTable() {
       <ErrorMessage
         label={loadError}
         action={(
-          <button type="button" className="text-sm underline" onClick={() => { void refetch() }}>
+          <Button type="button" variant="outline" size="sm" onClick={() => { void refetch() }}>
             {t('catalog.categorySuggestions.list.retry', 'Retry')}
-          </button>
+          </Button>
         )}
       />
     )

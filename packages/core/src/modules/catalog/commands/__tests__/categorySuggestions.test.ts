@@ -28,13 +28,33 @@ const USER = '66666666-6666-4666-8666-666666666666'
 
 type FakeRecord = Record<string, unknown>
 
-function buildEm(findOneResults: Array<FakeRecord | null>, opts: { countResult?: number } = {}) {
-  let index = 0
+/**
+ * `accept`/`reject`/the undo restore all re-lock and re-check their rows
+ * inside `withAtomicFlush` (row lock + recheck, see the categorySuggestions.ts
+ * concurrency comment) — a positional findOne queue would desync the moment
+ * that re-fetch runs. Dispatch by entity class name instead, so the mock
+ * reflects what each entity actually resolves to regardless of how many times
+ * (or in what order) the command re-reads it under lock.
+ */
+function buildEm(
+  fixtures: { suggestion?: FakeRecord | null; product?: FakeRecord | null; category?: FakeRecord | null } = {},
+  opts: { countResult?: number } = {},
+) {
   const em = {
-    findOne: jest.fn().mockImplementation(async () => findOneResults[index++] ?? null),
+    findOne: jest.fn().mockImplementation(async (entity: { name?: string }) => {
+      switch (entity?.name) {
+        case 'CatalogProductCategorySuggestion': return fixtures.suggestion ?? null
+        case 'CatalogProduct': return fixtures.product ?? null
+        case 'CatalogProductCategory': return fixtures.category ?? null
+        default: return null
+      }
+    }),
     find: jest.fn().mockResolvedValue([]),
     count: jest.fn().mockResolvedValue(opts.countResult ?? 0),
     flush: jest.fn().mockResolvedValue(undefined),
+    begin: jest.fn().mockResolvedValue(undefined),
+    commit: jest.fn().mockResolvedValue(undefined),
+    rollback: jest.fn().mockResolvedValue(undefined),
   }
   ;(em as unknown as { fork: () => typeof em }).fork = () => em
   return em
@@ -85,7 +105,7 @@ describe('catalog.category_suggestions.accept', () => {
   it('becomes the only category when the product has none', async () => {
     findWithDecryption.mockResolvedValueOnce([])
     const suggestion = buildSuggestion()
-    const em = buildEm([suggestion, buildCategory()])
+    const em = buildEm({ suggestion, category: buildCategory() })
     const result = await acceptCategorySuggestionCommand.execute({ id: SUGGESTION }, buildCtx(em))
     expect(syncCategoryAssignments).toHaveBeenCalledWith(em, expect.objectContaining({ id: PRODUCT }), [CATEGORY])
     expect(result.categoryIdsBefore).toEqual([])
@@ -97,7 +117,7 @@ describe('catalog.category_suggestions.accept', () => {
       { position: 0, category: { id: 'existing-1' } },
     ])
     const suggestion = buildSuggestion()
-    const em = buildEm([suggestion, buildCategory()])
+    const em = buildEm({ suggestion, category: buildCategory() })
     const result = await acceptCategorySuggestionCommand.execute({ id: SUGGESTION }, buildCtx(em))
     expect(result.categoryIdsAfter).toEqual(['existing-1', CATEGORY])
   })
@@ -107,21 +127,21 @@ describe('catalog.category_suggestions.accept', () => {
       { position: 0, category: { id: 'existing-1' } },
     ])
     const suggestion = buildSuggestion()
-    const em = buildEm([suggestion, buildCategory()])
+    const em = buildEm({ suggestion, category: buildCategory() })
     const result = await acceptCategorySuggestionCommand.execute({ id: SUGGESTION, makeMain: true }, buildCtx(em))
     expect(result.categoryIdsAfter).toEqual([CATEGORY, 'existing-1'])
   })
 
   it('returns 422 category_unavailable when the category is soft-deleted', async () => {
     const suggestion = buildSuggestion()
-    const em = buildEm([suggestion, null])
+    const em = buildEm({ suggestion, category: null })
     await expect(acceptCategorySuggestionCommand.execute({ id: SUGGESTION }, buildCtx(em)))
       .rejects.toMatchObject({ status: 422, body: { code: 'category_unavailable' } })
   })
 
   it('returns 422 product_unavailable and writes nothing when the product is soft-deleted', async () => {
     const suggestion = buildSuggestion({ product: buildProduct({ deletedAt: new Date('2026-02-01T00:00:00Z') }) })
-    const em = buildEm([suggestion, buildCategory()])
+    const em = buildEm({ suggestion, category: buildCategory() })
     await expect(acceptCategorySuggestionCommand.execute({ id: SUGGESTION }, buildCtx(em)))
       .rejects.toMatchObject({ status: 422, body: { code: 'product_unavailable' } })
     expect(syncCategoryAssignments).not.toHaveBeenCalled()
@@ -133,7 +153,7 @@ describe('catalog.category_suggestions.accept', () => {
   it('accepts a suggestion for a live product whose deletedAt is null', async () => {
     findWithDecryption.mockResolvedValueOnce([])
     const suggestion = buildSuggestion({ product: buildProduct({ deletedAt: null }) })
-    const em = buildEm([suggestion, buildCategory()])
+    const em = buildEm({ suggestion, category: buildCategory() })
     const result = await acceptCategorySuggestionCommand.execute({ id: SUGGESTION }, buildCtx(em))
     expect(result.categoryIdsAfter).toEqual([CATEGORY])
     expect(suggestion.status).toBe('accepted')
@@ -142,7 +162,7 @@ describe('catalog.category_suggestions.accept', () => {
   it('marks the suggestion auto_applied and emits the accepted event when autoApplied is set', async () => {
     findWithDecryption.mockResolvedValueOnce([])
     const suggestion = buildSuggestion()
-    const em = buildEm([suggestion, buildCategory()])
+    const em = buildEm({ suggestion, category: buildCategory() })
     await acceptCategorySuggestionCommand.execute({ id: SUGGESTION, autoApplied: true }, buildCtx(em))
     expect(suggestion.status).toBe('auto_applied')
     expect(emitCatalogEvent).toHaveBeenCalledWith(
@@ -155,7 +175,7 @@ describe('catalog.category_suggestions.accept', () => {
   it('refuses autoApplied on a product that already has a category and changes nothing', async () => {
     findWithDecryption.mockResolvedValueOnce([{ position: 0, category: { id: 'existing-1' } }])
     const suggestion = buildSuggestion()
-    const em = buildEm([suggestion, buildCategory()])
+    const em = buildEm({ suggestion, category: buildCategory() })
     await expect(acceptCategorySuggestionCommand.execute({ id: SUGGESTION, autoApplied: true }, buildCtx(em)))
       .rejects.toMatchObject({ status: 409, body: { code: 'product_already_categorized' } })
     expect(suggestion.status).toBe('pending')
@@ -164,14 +184,14 @@ describe('catalog.category_suggestions.accept', () => {
 
   it('returns 409 when the suggestion is not pending', async () => {
     const suggestion = buildSuggestion({ status: 'accepted' })
-    const em = buildEm([suggestion])
+    const em = buildEm({ suggestion })
     await expect(acceptCategorySuggestionCommand.execute({ id: SUGGESTION }, buildCtx(em)))
       .rejects.toMatchObject({ status: 409, body: { code: 'suggestion_not_pending' } })
   })
 
   it('undo restores exactly before.categoryIds and touches no other product field', async () => {
     const product = buildProduct()
-    const em = buildEm([product])
+    const em = buildEm({ product })
     const logEntry = {
       commandPayload: {
         undo: { suggestionId: SUGGESTION, productId: PRODUCT, before: { categoryIds: ['existing-1'] } },
@@ -188,7 +208,7 @@ describe('catalog.category_suggestions.reject', () => {
 
   it('rejects a pending suggestion', async () => {
     const suggestion = buildSuggestion()
-    const em = buildEm([suggestion])
+    const em = buildEm({ suggestion })
     const result = await rejectCategorySuggestionCommand.execute({ id: SUGGESTION }, buildCtx(em))
     expect(suggestion.status).toBe('rejected')
     expect(result.suggestionId).toBe(SUGGESTION)
@@ -201,7 +221,7 @@ describe('catalog.category_suggestions.reject', () => {
 
   it('returns 409 when the suggestion is not pending', async () => {
     const suggestion = buildSuggestion({ status: 'rejected' })
-    const em = buildEm([suggestion])
+    const em = buildEm({ suggestion })
     await expect(rejectCategorySuggestionCommand.execute({ id: SUGGESTION }, buildCtx(em)))
       .rejects.toMatchObject({ status: 409, body: { code: 'suggestion_not_pending' } })
   })
@@ -212,7 +232,7 @@ describe('undo supersede rule (shared by accept and reject)', () => {
 
   it('restores pending when no newer pending suggestion exists', async () => {
     const suggestion = buildSuggestion({ status: 'rejected' })
-    const em = buildEm([suggestion], { countResult: 0 })
+    const em = buildEm({ suggestion }, { countResult: 0 })
     const logEntry = { commandPayload: { undo: { suggestionId: SUGGESTION, productId: PRODUCT } } }
     await rejectCategorySuggestionCommand.undo!({ input: { id: SUGGESTION }, ctx: buildCtx(em), logEntry })
     expect(suggestion.status).toBe('pending')
@@ -220,7 +240,7 @@ describe('undo supersede rule (shared by accept and reject)', () => {
 
   it('sets superseded when a newer pending suggestion already exists', async () => {
     const suggestion = buildSuggestion({ status: 'rejected' })
-    const em = buildEm([suggestion], { countResult: 1 })
+    const em = buildEm({ suggestion }, { countResult: 1 })
     const logEntry = { commandPayload: { undo: { suggestionId: SUGGESTION, productId: PRODUCT } } }
     await rejectCategorySuggestionCommand.undo!({ input: { id: SUGGESTION }, ctx: buildCtx(em), logEntry })
     expect(suggestion.status).toBe('superseded')

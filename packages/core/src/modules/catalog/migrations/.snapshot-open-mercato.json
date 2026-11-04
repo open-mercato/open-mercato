@@ -1767,6 +1767,15 @@
           "keyName": "catalog_product_category_suggestions_scope_idx",
           "primary": false,
           "unique": false
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "catalog_product_category_suggestions_pending_unique",
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"catalog_product_category_suggestions_pending_unique\" on \"catalog_product_category_suggestions\" (\"product_id\") where \"status\" = 'pending'"
         }
       ],
       "checks": [],

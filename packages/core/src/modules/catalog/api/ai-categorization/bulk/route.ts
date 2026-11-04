@@ -4,6 +4,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { ProgressService } from '../../../../progress/lib/progressService'
@@ -45,6 +46,7 @@ function failure(message: string, status: number, errors?: Array<{ path: string;
 }
 
 export async function POST(req: Request) {
+  const { translate } = await resolveTranslations()
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId) return failure('Unauthorized', 401)
 
@@ -100,8 +102,12 @@ export async function POST(req: Request) {
     const progressJob = await progressService.createJob(
       {
         jobType: CATALOG_PRODUCT_AI_CATEGORIZE_JOB_TYPE,
-        name: 'AI categorize products',
-        description: `${productIds.length} catalog products queued for AI categorization`,
+        name: translate('catalog.aiCategorization.bulk.progress.name', 'AI categorize products'),
+        description: translate(
+          'catalog.aiCategorization.bulk.progress.description',
+          '{count} catalog products queued for AI categorization',
+          { count: productIds.length },
+        ),
         totalCount: productIds.length,
         cancellable: true,
         meta: {
@@ -131,7 +137,7 @@ export async function POST(req: Request) {
       await progressService
         .failJob(
           progressJob.id,
-          { errorMessage: 'Bulk AI categorization could not be queued' },
+          { errorMessage: translate('catalog.aiCategorization.bulk.errors.enqueueFailed', 'Bulk AI categorization could not be queued') },
           { tenantId: auth.tenantId, organizationId, userId: auth.sub },
         )
         .catch((failError: unknown) => {
@@ -147,7 +153,7 @@ export async function POST(req: Request) {
       responseSchema.parse({
         ok: true,
         progressJobId: progressJob.id,
-        message: 'AI categorization started.',
+        message: translate('catalog.aiCategorization.bulk.queuedMessage', 'AI categorization started.'),
       }),
       { status: 202 },
     )

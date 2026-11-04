@@ -1,6 +1,7 @@
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import {
   CatalogProduct,
   CatalogProductCategoryAssignment,
@@ -99,6 +100,10 @@ export async function enqueueOnCreateSuggestion(params: {
     return gate
   } catch (err) {
     logger.error('catalog.ai_categorization.on_create enqueue failed', { err, productId })
+    getTelemetryRuntime()?.reportError(err, {
+      module: 'catalog',
+      code: 'catalog.ai_categorization_on_create_enqueue_failed',
+    })
     return { proceed: false, reason: 'enqueue_failed' }
   }
 }
@@ -140,6 +145,10 @@ export async function runOnCreateSuggestion(params: {
     return { proceed: true, outcome: result.outcome === 'error' ? result.code : result.outcome }
   } catch (err) {
     logger.error('catalog.ai_categorization.on_create run failed', { err, productId })
+    getTelemetryRuntime()?.reportError(err, {
+      module: 'catalog',
+      code: 'catalog.ai_categorization_on_create_run_failed',
+    })
     return { proceed: true, outcome: 'internal_error' }
   }
 }

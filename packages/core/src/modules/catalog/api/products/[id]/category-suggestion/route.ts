@@ -5,6 +5,8 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveActiveOrganizationId, organizationScopeRequiredResponse } from '@open-mercato/shared/lib/auth/organizationScope'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { CatalogCategorizationService } from '../../../../lib/aiCategorization/categorizationService'
@@ -54,6 +56,22 @@ export async function POST(req: Request, routeContext: RouteContext) {
     if (!status.effective) {
       return NextResponse.json({ code: 'ai_categorization_unavailable', reason: status.reason ?? null }, { status: 409 })
     }
+
+    if (!auth.sub) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    const guarded = await runRouteMutationGuards({
+      container,
+      req,
+      auth: { userId: auth.sub, tenantId, organizationId },
+      input: {
+        resourceKind: 'catalog.category_suggestion',
+        resourceId: productId,
+        operation: 'create',
+        mutationPayload: { productId },
+      },
+    })
+    if (!guarded.ok) return guarded.response
 
     const em = (container.resolve('em') as EntityManager).fork()
     const productState = await buildProductState(em, { productId, tenantId, organizationId })
@@ -157,12 +175,17 @@ export async function POST(req: Request, routeContext: RouteContext) {
       }
     }
 
+    await guarded.runAfterSuccess()
     return attachOperationHeader(NextResponse.json({ suggestion: serialized, ...(autoAppliedProduct ? { product: autoAppliedProduct } : {}) }, { status: 201 }), autoApplyLogEntry)
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
     logger.error('catalog.ai_categorization.category_suggestion.POST Unexpected error', { err })
+    getTelemetryRuntime()?.reportError(err, {
+      module: 'catalog',
+      code: 'catalog.ai_categorization_suggest_failed',
+    })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

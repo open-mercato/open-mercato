@@ -55,6 +55,14 @@ export async function persistCategorySuggestion(
     for (const row of pending) {
       row.status = 'superseded'
     }
+    // Flush the supersession before inserting the replacement: MikroORM's
+    // UnitOfWork orders INSERT changesets before UPDATE changesets within a
+    // single flush, so inserting and updating together would race the
+    // replacement's INSERT against the still-`pending` old row and trip the
+    // partial unique (product_id) WHERE status='pending' index.
+    if (pending.length > 0) {
+      await trx.flush()
+    }
 
     const suggestion = trx.create(CatalogProductCategorySuggestion, {
       product,

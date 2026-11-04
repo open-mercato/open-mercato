@@ -9,6 +9,7 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
@@ -16,6 +17,16 @@ import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('catalog')
+const MUTATION_CONTEXT_ID = 'catalog-ai-categorization-settings'
+
+class AiCategorizationSaveError extends Error {
+  readonly status: number
+
+  constructor(status: number) {
+    super(`[internal] catalog ai categorization settings save failed with status ${status}`)
+    this.status = status
+  }
+}
 
 type AiCategorizationSettingsValue = {
   enabled: boolean
@@ -97,6 +108,11 @@ export function AiCategorizationSettings() {
   const [thresholdDraft, setThresholdDraft] = React.useState('')
   const [thresholdInvalid, setThresholdInvalid] = React.useState(false)
 
+  const { runMutation, retryLastMutation } = useGuardedMutation({
+    contextId: MUTATION_CONTEXT_ID,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+
   const loadError = t('catalog.settings.aiCategorization.errors.load', 'Failed to load AI categorization settings.')
 
   const load = React.useCallback(async () => {
@@ -129,45 +145,58 @@ export function AiCategorizationSettings() {
     setSettings(nextSettings)
     setSaving(true)
     try {
-      // optimistic-lock-exempt: tenant-scoped module-config toggle (single
-      // settings row via moduleConfigService), not a versioned editable entity —
-      // no updated_at to lock against and no lost-update concern for this admin preference.
-      const call = await apiCall('/api/catalog/ai-categorization/settings', {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ settings: nextSettings }),
+      await runMutation({
+        operation: async () => {
+          // optimistic-lock-exempt: tenant-scoped module-config toggle (single
+          // settings row via moduleConfigService), not a versioned editable entity —
+          // no updated_at to lock against and no lost-update concern for this admin preference.
+          const call = await apiCall('/api/catalog/ai-categorization/settings', {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ settings: nextSettings }),
+          })
+          if (!call.ok) {
+            if (call.response.status === 422) {
+              throw new AiCategorizationSaveError(422)
+            }
+            await raiseCrudError(
+              call.response,
+              t('catalog.settings.aiCategorization.errors.save', 'Failed to save AI categorization settings.'),
+            )
+          }
+          return call.result
+        },
+        context: {
+          formId: MUTATION_CONTEXT_ID,
+          resourceKind: 'catalog.settings',
+          resourceId: 'ai_categorization',
+          retryLastMutation,
+        },
+        mutationPayload: nextSettings,
       })
-      if (!call.ok) {
-        if (call.response.status === 422) {
-          setSettings(previous)
-          setThresholdDraft(String(previous.autoApplyThreshold))
-          flash(
-            t(
-              'catalog.settings.aiCategorization.errors.unavailable',
-              'Cannot enable AI category suggestions: no decision model is configured.',
-            ),
-            'error',
-          )
-          return
-        }
-        await raiseCrudError(
-          call.response,
-          t('catalog.settings.aiCategorization.errors.save', 'Failed to save AI categorization settings.'),
-        )
-      }
       flash(t('catalog.settings.messages.saved', 'Settings saved.'), 'success')
     } catch (err) {
-      logger.error('catalog.ai_categorization.settings.save failed', { err })
       setSettings(previous)
       setThresholdDraft(String(previous.autoApplyThreshold))
-      const message = err instanceof Error
+      if (err instanceof AiCategorizationSaveError && err.status === 422) {
+        flash(
+          t(
+            'catalog.settings.aiCategorization.errors.unavailable',
+            'Cannot enable AI category suggestions: no decision model is configured.',
+          ),
+          'error',
+        )
+        return
+      }
+      logger.error('catalog.ai_categorization.settings.save failed', { err })
+      const message = err instanceof Error && !err.message.startsWith('[internal]')
         ? err.message
         : t('catalog.settings.aiCategorization.errors.save', 'Failed to save AI categorization settings.')
       flash(message, 'error')
     } finally {
       setSaving(false)
     }
-  }, [settings, t])
+  }, [settings, t, runMutation, retryLastMutation])
 
   const handleToggle = React.useCallback(
     (next: boolean) => {
@@ -243,7 +272,7 @@ export function AiCategorizationSettings() {
                 'Lets operators request an AI-suggested category for a product. Off by default; no product data leaves the system until this is turned on.',
               )}
               checked={settings.enabled}
-              disabled={saving || !available}
+              disabled={saving || (!available && !settings.enabled)}
               onCheckedChange={handleToggle}
             />
             {settings.enabled ? (

@@ -10,7 +10,10 @@ import { CATALOG_PRODUCT_AI_CATEGORIZE_MAX_PRODUCTS } from '../../../lib/aiCateg
 type Translate = NonNullable<BulkActionContext['translate']>
 type BulkScope = 'selected' | 'filtered'
 
-type SettingsResponse = { effective?: boolean }
+type SettingsResponse = {
+  effective?: boolean
+  settings?: { applyMode?: 'suggest' | 'auto_apply'; autoApplyThreshold?: number }
+}
 type BulkResponse = { ok?: boolean; progressJobId?: string | null; message?: string }
 
 const identityTranslate: Translate = (_key, fallback) => fallback
@@ -19,9 +22,15 @@ function resolveTranslate(context: BulkActionContext): Translate {
   return context.translate ?? identityTranslate
 }
 
-async function isFeatureEffective(): Promise<boolean> {
+type EffectiveSettings = { effective: boolean; applyMode: 'suggest' | 'auto_apply'; autoApplyThreshold: number }
+
+async function loadEffectiveSettings(): Promise<EffectiveSettings> {
   const result = await apiCall<SettingsResponse>('/api/catalog/ai-categorization/settings')
-  return result.ok && result.result?.effective === true
+  return {
+    effective: result.ok && result.result?.effective === true,
+    applyMode: result.result?.settings?.applyMode ?? 'suggest',
+    autoApplyThreshold: result.result?.settings?.autoApplyThreshold ?? 0.85,
+  }
 }
 
 async function startAiCategorizeJob(
@@ -78,7 +87,8 @@ async function confirmAndStart(
     }
   }
 
-  if (!(await isFeatureEffective())) {
+  const settingsStatus = await loadEffectiveSettings()
+  if (!settingsStatus.effective) {
     return {
       ok: false,
       message: translate(
@@ -88,13 +98,21 @@ async function confirmAndStart(
     }
   }
 
-  const confirmed = await context.confirm?.({
-    title: translate('catalog.aiCategorization.bulk.confirmTitle', 'Suggest categories with AI?'),
-    text: translate(
+  const confirmText = settingsStatus.applyMode === 'auto_apply'
+    ? translate(
+      'catalog.aiCategorization.bulk.confirmTextAutoApply',
+      'Suggest categories for {count} products? Product data is sent to the configured AI provider, which needs at least {count} model requests (more for deeper category trees). Products without a category are categorized automatically when the suggestion reaches {threshold}% confidence; everything else is stored for review.',
+      { count: ids.length, threshold: Math.round(settingsStatus.autoApplyThreshold * 100) },
+    )
+    : translate(
       'catalog.aiCategorization.bulk.confirmText',
       'Suggest categories for {count} products? Product data is sent to the configured AI provider, which needs at least {count} model requests (more for deeper category trees). Suggestions are stored for review and no product changes until you accept them.',
       { count: ids.length },
-    ),
+    )
+
+  const confirmed = await context.confirm?.({
+    title: translate('catalog.aiCategorization.bulk.confirmTitle', 'Suggest categories with AI?'),
+    text: confirmText,
     confirmText: translate('catalog.aiCategorization.bulk.confirm', 'Start'),
     cancelText: translate('common.cancel', 'Cancel'),
   })

@@ -177,16 +177,20 @@ export function CategorySuggestionCard({
   const handleSuggest = React.useCallback(async () => {
     setLoading(true)
     try {
-      const call = await apiCall<SuggestResponse>(`/api/catalog/products/${productId}/category-suggestion`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({}),
+      const payload = await runMutation<SuggestResponse>({
+        operation: async () => {
+          const call = await apiCall<SuggestResponse>(`/api/catalog/products/${productId}/category-suggestion`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({}),
+          })
+          if (!call.ok || !call.result) {
+            return raiseCrudError(call.response, t('catalog.products.create.organize.aiSuggestion.errors.generic', 'AI category suggestion failed. Please try again.'))
+          }
+          return call.result
+        },
+        context: { resourceKind: 'catalog.category_suggestion', resourceId: productId },
       })
-      const payload = call.result
-      if (!call.ok || !payload) {
-        flash(t('catalog.products.create.organize.aiSuggestion.errors.generic', 'AI category suggestion failed. Please try again.'), 'error')
-        return
-      }
       if (payload.outcome === 'error') {
         flash(t(portErrorMessageKey(payload.code), 'AI category suggestion failed. Please try again.'), 'error')
         return
@@ -211,7 +215,7 @@ export function CategorySuggestionCard({
     } finally {
       setLoading(false)
     }
-  }, [productId, categoryIdsDirty, ensureCategoryLabels, setValue, t])
+  }, [productId, categoryIdsDirty, ensureCategoryLabels, setValue, t, runMutation])
 
   const handleAccept = React.useCallback(async (categoryId: string, makeMain: boolean) => {
     if (!suggestion) return
@@ -305,9 +309,20 @@ export function CategorySuggestionCard({
       </div>
 
       {suggestion?.outcome === 'no_match' ? (
-        <p className="text-xs text-muted-foreground">
-          {t('catalog.products.create.organize.aiSuggestion.noMatch', 'No matching category was found.')}
-        </p>
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">
+            {t('catalog.products.create.organize.aiSuggestion.noMatch', 'No matching category was found.')}
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" variant="outline" size="sm" disabled={loading} onClick={() => { void handleSuggest() }}>
+              {loading ? <Spinner className="h-4 w-4" /> : null}
+              {t('catalog.products.create.organize.aiSuggestion.suggestAgain', 'Suggest again')}
+            </Button>
+            <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => { void handleReject() }}>
+              {t('catalog.products.create.organize.aiSuggestion.reject', 'Reject')}
+            </Button>
+          </div>
+        </div>
       ) : null}
 
       {suggestion && suggestion.outcome === 'suggested' ? (
