@@ -317,11 +317,14 @@ export async function createClaimFixture(
   request: APIRequestContext,
   token: string,
   data: Record<string, unknown>,
+  onCreated?: (claimId: string) => void,
 ): Promise<ClaimItem> {
   const response = await apiRequest(request, 'POST', '/api/warranty_claims', { token, data })
-  const body = await readRequiredJson<{ id?: string | null }>(response, 'claim create response should be JSON')
+  const body = await readJsonSafe<{ id?: string | null }>(response)
+  if (response.status() === 201 && typeof body?.id === 'string' && body.id.trim()) onCreated?.(body.id)
+  expect(body, 'claim create response should be JSON').toBeTruthy()
   expect(response.status(), `POST /api/warranty_claims should return 201: ${JSON.stringify(body)}`).toBe(201)
-  const claimId = expectId(body.id, 'claim create response should include id')
+  const claimId = expectId(body?.id, 'claim create response should include id')
   return readClaim(request, token, claimId)
 }
 

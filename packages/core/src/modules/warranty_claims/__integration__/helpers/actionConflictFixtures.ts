@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { expect, test as base, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
-import { createOrganizationFixture, createUserFixture } from '@open-mercato/core/helpers/integration/authFixtures'
+import { createOrganizationFixture, createUserFixture, setUserAclVisibility } from '@open-mercato/core/helpers/integration/authFixtures'
 import { getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
   cleanupReceivingClaimFixture,
@@ -60,27 +60,18 @@ export const test = base.extend<{
     let claimId: string | null = null
     let writerToken: string | null = null
     let settingsBefore: WarrantyClaimSettingsResult | null = null
-    let recordLockSettingsBefore: Record<string, unknown> | null = null
 
     try {
-      const lockingSettings = await apiRequest(bootstrapRequest, 'GET', '/api/record_locks/settings', { token: bootstrapToken })
-      if (lockingSettings.status() === 200) {
-        const body = await readJsonSafe<{ settings: Record<string, unknown> }>(lockingSettings)
-        expect(typeof body?.settings.enabled).toBe('boolean')
-        recordLockSettingsBefore = body!.settings
-        const disabled = await apiRequest(bootstrapRequest, 'POST', '/api/record_locks/settings', {
-          token: bootstrapToken, data: { ...recordLockSettingsBefore, enabled: false },
-        })
-        expect(disabled.status()).toBe(200)
-        expect(await readJsonSafe(disabled)).toMatchObject({ settings: { enabled: false } })
-      } else {
-        expect(lockingSettings.status(), 'record locks may be absent in OSS installations').toBe(404)
-      }
       organizationId = await createOrganizationFixture(bootstrapRequest, bootstrapToken, { name: `WC8579 ${suffix}`, tenantId })
       for (const userEmail of [email, writerEmail]) {
-        userIds.push(await createUserFixture(bootstrapRequest, bootstrapToken, {
+        const userId = await createUserFixture(bootstrapRequest, bootstrapToken, {
           email: userEmail, password, organizationId, roles: ['admin'],
-        }))
+        })
+        userIds.push(userId)
+        await setUserAclVisibility(bootstrapRequest, bootstrapToken, {
+          userId, organizations: [organizationId],
+          features: ['warranty_claims.*', 'sales.orders.view', 'catalog.products.view'],
+        })
       }
       writerToken = await getAuthToken(request, writerEmail, password)
       expect(getTokenContext(writerToken).organizationId).toBe(organizationId)
@@ -97,7 +88,7 @@ export const test = base.extend<{
         reasonCode: 'defective',
         currencyCode: 'USD',
         lines: [{ productName: `Conflict regression ${suffix}`, qtyClaimed: 1, creditAmount: 10 }],
-      })
+      }, (createdId) => { claimId = createdId })
       claimId = claim.id!
       expect((await submitClaim(request, writerToken, claimId, claim.updatedAt)).status()).toBe(200)
       const statuses = recoveryAction === 'label'
@@ -137,14 +128,6 @@ export const test = base.extend<{
           if (!writerToken || !claimId) return
           await cleanupReceivingClaimFixture(request, writerToken, claimId)
           expect(await listClaimLines(request, writerToken, claimId), 'owned lines should be deleted').toEqual([])
-        },
-        async () => {
-          if (!recordLockSettingsBefore) return
-          const restored = await apiRequest(bootstrapRequest, 'POST', '/api/record_locks/settings', {
-            token: bootstrapToken, data: recordLockSettingsBefore,
-          })
-          expect(restored.status()).toBe(200)
-          expect(await readJsonSafe(restored)).toEqual({ settings: recordLockSettingsBefore })
         },
         ...userIds.reverse().map((userId) => async () => { await deleteOwnedUser(bootstrapRequest, bootstrapToken, userId) }),
         async () => {
