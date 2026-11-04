@@ -1,7 +1,7 @@
 import { timingSafeEqual } from 'node:crypto'
 import http from 'node:http'
 import path from 'node:path'
-import { createServer } from 'node:net'
+import { BlockList, createServer, isIP } from 'node:net'
 import { stripHopByHopHeaders } from './dev-runtime-gateway.mjs'
 
 export const MCP_DEFAULT_PORT = 3001
@@ -179,17 +179,25 @@ function matchesKnownKey(candidate, knownKeys) {
 }
 
 /**
- * True when an `x-api-key` value may wake the lazily started MCP server: a
- * constant-time match against a key the dev runner knows (the provisioned key
- * file, MCP_SERVER_API_KEY), or any well-formed Open Mercato API key, because
- * the real server also accepts user-created keys and verifies them against the
- * database. Neither branch authenticates the caller; the real server does.
+ * Known runner keys authorize cold-start work from any peer. Other issued keys
+ * remain usable from trusted peers; only the real server can authenticate them.
+ * A public key format alone must never authorize an untrusted network peer.
  */
-export function mayWakeMcpServer(apiKeyHeader, knownKeys = []) {
+export function mayWakeMcpServer(apiKeyHeader, knownKeys = [], trustedPeer = false) {
   const candidate = Array.isArray(apiKeyHeader) ? apiKeyHeader[0] : apiKeyHeader
   if (typeof candidate !== 'string' || candidate === '') return false
   return matchesKnownKey(candidate, knownKeys.filter((key) => typeof key === 'string' && key !== ''))
-    || OPEN_MERCATO_API_KEY_PATTERN.test(candidate)
+    || (trustedPeer && OPEN_MERCATO_API_KEY_PATTERN.test(candidate))
+}
+
+function createTrustedMcpPeers(peers) {
+  const addresses = new BlockList()
+  for (const peer of peers) {
+    const address = peer.trim()
+    const family = isIP(address)
+    if (family) addresses.addAddress(address, family === 6 ? 'ipv6' : 'ipv4')
+  }
+  return addresses
 }
 
 /**
@@ -205,6 +213,7 @@ export function mayWakeMcpServer(apiKeyHeader, knownKeys = []) {
 export function createLazyMcpProxy({
   upstreamTimeoutMs = MCP_LAZY_START_TIMEOUT_MS,
   maxPendingRequests = MCP_LAZY_MAX_PENDING_REQUESTS,
+  trustedPeers = ['127.0.0.1', '::1'],
 } = {}) {
   let armed = false
   let knownKeys = []
@@ -212,6 +221,7 @@ export function createLazyMcpProxy({
   let notifyFirstUse = () => {}
   const firstUse = new Promise((resolve) => { notifyFirstUse = resolve })
   const waiters = new Set()
+  const trustedAddresses = createTrustedMcpPeers(trustedPeers)
 
   function sendJson(req, res, status, payload) {
     res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' })
@@ -276,7 +286,9 @@ export function createLazyMcpProxy({
       sendJson(req, res, 503, { error: 'MCP server is not ready yet' })
       return
     }
-    if (!mayWakeMcpServer(req.headers['x-api-key'], knownKeys)) {
+    const remoteAddress = req.socket.remoteAddress
+    const trustedPeer = remoteAddress && trustedAddresses.check(remoteAddress, isIP(remoteAddress) === 6 ? 'ipv6' : 'ipv4')
+    if (!mayWakeMcpServer(req.headers['x-api-key'], knownKeys, trustedPeer)) {
       sendJson(req, res, 401, {
         error: req.headers['x-api-key'] ? 'Invalid or expired API key' : 'API key required (x-api-key header)',
       })

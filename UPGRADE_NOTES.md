@@ -608,14 +608,21 @@ server is ready and every later request is proxied unchanged. Until then `GET /h
 by the launcher with the server's response shape plus an additive `lazy: true`: `503
 {"status":"starting","tools":0,...}` before the key is provisioned, then `200
 {"status":"ok","tools":0,...}`; `tools` reports `0` because no tools are loaded yet and becomes the
-real count once the server runs. Only a request with an `x-api-key` that matches the provisioned key
-or `MCP_SERVER_API_KEY`, or that has the format of an Open Mercato API key (`omk_<8 hex>.<48 hex>`),
-wakes the server; others get `401`. The format check is not authentication — the server still
-verifies every key. The MCP CLI now runs as a direct Node child from the app workspace instead of
-through a Yarn wrapper.
+real count once the server runs. A request with an `x-api-key` matching the provisioned key or
+`MCP_SERVER_API_KEY` (constant-time comparison) may wake the server from any peer. User-created
+Open Mercato keys (`omk_<8 hex>.<48 hex>`) may also wake it, but only from loopback (`127.0.0.1`,
+`::1`) or explicitly trusted socket peers. Untrusted peers with unknown keys get `401` before
+waking or occupying a queue slot, regardless of forwarded headers. The real server still
+authenticates every key; trusting a peer authorizes startup work, not MCP access. The MCP CLI
+now runs as a direct Node child from the app workspace instead of through a Yarn wrapper.
 
-**Operator action:** none. Set `OM_DEV_MCP_LAZY=0` to restore the eager start; `--no-mcp` and
-`OM_DEV_WITH_MCP=0` keep disabling MCP entirely.
+**Operator action:** the shipped OpenCode sidecar uses the provisioned key and needs no change.
+For a trusted container using a user-created key, set `OM_DEV_MCP_TRUSTED_PEERS=172.18.0.2`
+on the `yarn dev` process to allow that exact source IP (comma-separated IPv4/IPv6 addresses;
+no hostnames, CIDRs, or wildcards). Private networks are not automatically trusted. Only trust
+peers you control; a trusted reverse proxy must reject untrusted callers itself. Alternatively,
+use the provisioned key, connect through loopback, or set `OM_DEV_MCP_LAZY=0` to restore the
+eager start. `--no-mcp` and `OM_DEV_WITH_MCP=0` keep disabling MCP entirely.
 
 ### Auth ACL live-row canonicalization
 

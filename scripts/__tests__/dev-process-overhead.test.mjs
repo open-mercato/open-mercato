@@ -52,3 +52,7 @@ test('MCP CLI runs as a direct Node child from the app workspace without a Yarn 
   assert.doesNotMatch(body, /yarnCommand/)
   assert.match(source, /const mcpCliCwd = isMonorepo \? monorepoAppDir : process\.cwd\(\)/)
 })
+
+test('MCP cold-start admission retains app dotenv keys with process environment precedence', () => {
+  assert.match(functionBody('readKnownMcpApiKeys'), /process\.env\.MCP_SERVER_API_KEY \?\? appDotEnv\.MCP_SERVER_API_KEY/)
+})

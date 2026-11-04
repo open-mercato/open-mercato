@@ -2593,7 +2593,7 @@ function readKnownMcpApiKeys() {
   try {
     provisioned = fs.readFileSync(mcpKeyFilePath, 'utf8').trim()
   } catch {}
-  return [provisioned, process.env.MCP_SERVER_API_KEY?.trim() ?? '']
+  return [provisioned, (process.env.MCP_SERVER_API_KEY ?? appDotEnv.MCP_SERVER_API_KEY)?.trim() ?? '']
 }
 
 // The armed proxy is what clients see as the ready endpoint (the key file is
@@ -2923,7 +2923,9 @@ function resolveLazyMcpProxyHost() {
 }
 
 async function listenLazyMcpProxy() {
-  mcpProxy = createLazyMcpProxy()
+  mcpProxy = createLazyMcpProxy({
+    trustedPeers: ['127.0.0.1', '::1', ...(process.env.OM_DEV_MCP_TRUSTED_PEERS ?? '').split(',')],
+  })
   const host = resolveLazyMcpProxyHost()
   for (let attempt = 1; ; attempt += 1) {
     try {

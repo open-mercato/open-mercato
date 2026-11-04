@@ -331,10 +331,12 @@ function assertHealthShape(response, expectedStatus) {
   return body
 }
 
-test('mayWakeMcpServer accepts known keys and well-formed Open Mercato keys only', () => {
+test('mayWakeMcpServer requires a known key unless the socket peer is trusted', () => {
   assert.equal(mayWakeMcpServer(KNOWN_KEY, [KNOWN_KEY]), true)
   assert.equal(mayWakeMcpServer([KNOWN_KEY], ['', KNOWN_KEY]), true)
-  assert.equal(mayWakeMcpServer(WELL_FORMED_KEY, []), true)
+  assert.equal(mayWakeMcpServer(WELL_FORMED_KEY, []), false)
+  assert.equal(mayWakeMcpServer(WELL_FORMED_KEY, [], true), true)
+  assert.equal(mayWakeMcpServer('omk_short.key', [], true), false)
   assert.equal(mayWakeMcpServer(undefined, [KNOWN_KEY]), false)
   assert.equal(mayWakeMcpServer('', ['']), false)
   assert.equal(mayWakeMcpServer(`${KNOWN_KEY}x`, [KNOWN_KEY]), false)
@@ -450,7 +452,7 @@ test('lazy MCP proxy starts on the first request, holds it until the upstream is
   }
 })
 
-test('lazy MCP proxy wakes for a well-formed key it does not know and caps pending requests at 429', async () => {
+test('lazy MCP proxy supports user-created keys from loopback and caps pending requests at 429', async () => {
   const { proxy, port, firstUseSeen } = await startLazyProxy({ maxPendingRequests: 2 })
   const upstream = http.createServer((req, res) => {
     res.writeHead(200, { 'content-type': 'application/json' })
@@ -475,6 +477,65 @@ test('lazy MCP proxy wakes for a well-formed key it does not know and caps pendi
   } finally {
     await proxy.close()
     if (upstream.listening) await new Promise((resolve) => upstream.close(resolve))
+  }
+})
+
+test('untrusted formatted keys cannot wake MCP or occupy an authorized client queue slot', async () => {
+  // An empty trust list makes the actual HTTP peer untrusted on every platform.
+  const { proxy, port, firstUseSeen } = await startLazyProxy({ trustedPeers: [], maxPendingRequests: 1 })
+  const upstream = http.createServer((_req, res) => res.end('authorized'))
+  const forged = () => sendRequest(port, {
+    method: 'POST', path: '/mcp',
+    headers: { 'x-api-key': WELL_FORMED_KEY, 'x-forwarded-for': '127.0.0.1', forwarded: 'for="[::1]"' },
+    body: '{}',
+  })
+  try {
+    proxy.arm([KNOWN_KEY])
+    assert.deepEqual((await Promise.all(Array.from({ length: 20 }, forged))).map((res) => res.status), Array(20).fill(401))
+    assert.equal(firstUseSeen(), false)
+    const authorized = sendRequest(port, { method: 'POST', path: '/mcp', headers: { 'x-api-key': KNOWN_KEY }, body: '{}' })
+    await proxy.firstUse
+    assert.equal((await forged()).status, 401)
+    const upstreamPort = await listenOnLoopback(upstream)
+    proxy.setUpstream({ host: '127.0.0.1', port: upstreamPort })
+    assert.equal((await authorized).body, 'authorized')
+    proxy.setUpstream(null)
+    assert.equal((await forged()).status, 401)
+  } finally {
+    await proxy.close()
+    if (upstream.listening) await new Promise((resolve) => upstream.close(resolve))
+  }
+})
+
+test('explicit trusted peer addresses support user-created keys including IPv4-mapped IPv6', async () => {
+  for (const trustedPeers of [['127.0.0.1'], ['::ffff:127.0.0.1']]) {
+    const { proxy, port } = await startLazyProxy({ trustedPeers })
+    const upstream = http.createServer((_req, res) => { res.writeHead(401); res.end('upstream authenticates') })
+    try {
+      proxy.arm([KNOWN_KEY])
+      const request = sendRequest(port, { path: '/mcp', headers: { 'x-api-key': WELL_FORMED_KEY } })
+      await proxy.firstUse
+      const upstreamPort = await listenOnLoopback(upstream)
+      proxy.setUpstream({ host: '127.0.0.1', port: upstreamPort })
+      const response = await request
+      assert.equal(response.status, 401)
+      assert.equal(response.body, 'upstream authenticates')
+    } finally {
+      await proxy.close()
+      if (upstream.listening) await new Promise((resolve) => upstream.close(resolve))
+    }
+  }
+})
+
+test('invalid trusted peer entries never broaden the network boundary', async () => {
+  const { proxy, port, firstUseSeen } = await startLazyProxy({ trustedPeers: ['*', 'localhost', '127.0.0.0/8', ''] })
+  try {
+    proxy.arm([KNOWN_KEY])
+    const response = await sendRequest(port, { path: '/mcp', headers: { 'x-api-key': WELL_FORMED_KEY } })
+    assert.equal(response.status, 401)
+    assert.equal(firstUseSeen(), false)
+  } finally {
+    await proxy.close()
   }
 })
 
