@@ -3705,16 +3705,9 @@ function DataTableImpl<T extends RowData>({
           </Button>
         </div>
       ) : null}
-<<<<<<< HEAD
-      {activeFilterChips}
-=======
       {activeFilterChips != null && activeFilterChips !== false ? (
         <div data-table-active-filter-chips="">{activeFilterChips}</div>
       ) : null}
-      {injectedColumnsError ? (
-        <ErrorMessage label={t('ui.dataTable.extensions.error', 'Some table extensions could not load. Reload the page to retry.')} />
-      ) : null}
->>>>>>> ee059779d (fix(staff): keep filtered entry totals current (#6990) (#8379))
       <HeaderDndWrapper
         enabled={enableHeaderDnd}
         contextId={`${stableDndContextId}-headers`}
