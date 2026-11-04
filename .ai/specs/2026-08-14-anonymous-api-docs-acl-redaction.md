@@ -162,12 +162,13 @@ staff, default roles, superadmin policy, and navigation filtering. Browser QA mu
 also verify direct navigation with and without the grant.
 
 
-This change is additive and default-preserving:
+The original anonymous-export redaction remains additive and default-preserving;
+the backend permission follow-up has the separate migration above:
 
 - `OpenApiDocumentOptions.includeAccessControlMetadata` is a new optional field, so existing TypeScript callers compile unchanged.
 - Omitting the field is equivalent to `true`, preserving every existing non-docs caller's output.
 - Public route URLs, methods, authentication requirement, status codes, and document structure remain stable. Anonymous representations intentionally omit only ACL feature/role identifiers.
-- No event ID, widget spot, DI key, ACL feature ID, notification ID, CLI command, schema, migration, or import path changes.
+- The original export-redaction scope changes no event ID, widget spot, DI key, ACL feature ID, notification ID, CLI command, schema, migration, or import path.
 - The create-app template receives the same route behavior in the same change.
 - No deprecation bridge or `UPGRADE_NOTES.md` entry is required because nothing is removed, renamed, or reinterpreted for existing builder callers.
 
