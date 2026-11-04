@@ -27,7 +27,7 @@ describe('normalizeDateFormatPattern', () => {
 })
 
 describe('validateDateFormatPattern', () => {
-  it.each(['dd.MM.yyyy', 'MMM d, yyyy', 'h:mm a', "d 'de' MMMM yyyy", 'yyyy-MM-dd HH:mm', "HH'h'mm", "yyyy-MM-dd HH 'h' 'omtz'"])(
+  it.each(['dd.MM.yyyy', 'MMM d, yyyy', 'h:mm a', "d 'de' MMMM yyyy", 'yyyy-MM-dd HH:mm', "HH'h'mm", "yyyy-MM-dd HH 'h' 'omtz'", 'MMMM do, yyyy', 'Qo yyyy'])(
     'accepts %s',
     (pattern) => {
       expect(validateDateFormatPattern(pattern)).toBeNull()
@@ -44,6 +44,13 @@ describe('validateDateFormatPattern', () => {
     expect(validateDateFormatPattern('YYYY-MM-dd')).toBe('invalidToken')
     expect(validateDateFormatPattern('D MMM')).toBe('invalidToken')
     expect(validateDateFormatPattern('dd.MM.yyyy f')).toBe('invalidToken')
+  })
+
+  it('accepts the ordinal suffix only where date-fns renders it', () => {
+    expect(validateDateFormatPattern('o MMM')).toBe('invalidToken')
+    expect(validateDateFormatPattern('ddo MMM')).toBe('invalidToken')
+    expect(validateDateFormatPattern('doo MMM')).toBe('invalidToken')
+    expect(validateDateFormatPattern('Eo')).toBe('invalidToken')
   })
 
   it('rejects unsupported characters and unterminated quotes', () => {
@@ -120,6 +127,7 @@ describe('userTimeZoneSchema', () => {
     expect(userTimeZoneSchema.parse(null)).toBeNull()
     expect(userTimeZoneSchema.parse('')).toBeNull()
     expect(userTimeZoneSchema.parse(undefined)).toBeUndefined()
+    expect(userTimeZoneSchema.parse('Asia/Kolkata')).toBe('Asia/Kolkata')
   })
 
   it('rejects an unknown zone', () => {

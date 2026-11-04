@@ -48,6 +48,16 @@ describe('settings-aware display helpers', () => {
     expect(formatDisplayDateTime('2026-01-15T12:00:00Z', 'en-US', settings({ timeZone: 'America/Los_Angeles', dateTimeFormat: 'HH:mm xxx' }))).toBe('04:00 -08:00')
   })
 
+  it('renders the zone inside the long localized time tokens for the configured zone', () => {
+    const tokyo = (dateTimeFormat: string, locale?: string) =>
+      formatDisplayDateTime('2026-07-01T00:00:00Z', 'en-US', settings({ timeZone: 'Asia/Tokyo', dateTimeFormat, locale: locale ?? null }))
+    expect(tokyo('ppp')).toBe('9:00:00 AM GMT+9')
+    expect(tokyo('pppp')).toBe('9:00:00 AM Japan Standard Time')
+    expect(tokyo('PPPppp')).toBe("July 1st, 2026 at 9:00:00 AM GMT+9")
+    expect(tokyo("'ppp' p")).toBe('ppp 9:00 AM')
+    expect(tokyo('ppp', 'pl-PL')).toBe('09:00:00 GMT+9')
+  })
+
   it('applies a pinned time-only pattern clock to Intl timestamps', () => {
     const at = '2026-07-01T13:05:00Z'
     expect(formatDisplayDateTime(at, 'en-US', settings({ timeZone: 'UTC', timeFormat: 'HH:mm' }))).toBe('Jul 1, 2026, 13:05')

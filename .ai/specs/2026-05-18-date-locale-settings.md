@@ -45,7 +45,7 @@ Unset env values, and values such as `system` / `auto`, should fall back to loca
 
 4. **Database session timezone** (server-only, independent of the display settings):
    - `OM_DB_DEFAULT_TIMEZONE` — optional IANA zone (for example `UTC`, `Europe/Warsaw`). When present, every Postgres connection the platform opens (the MikroORM pool, CLI migrations and raw `pg` clients, the events bridge, pgvector pools, scheduler supervisor) starts with `-c TimeZone=<zone>`. When unset, connections keep the server's default `TimeZone`, exactly as before.
-   - The value is validated and canonicalized with `Intl`; an invalid value fails at connection setup with an error naming the variable (Postgres would otherwise reject every connection with `FATAL: invalid value for parameter "TimeZone"`).
+   - The value is validated with `Intl` and passed on in the operator's spelling (only the letter case is normalized): ICU reports legacy links such as `Asia/Calcutta` for `Asia/Kolkata`, which current tzdata builds of Postgres reject; an invalid value fails at connection setup with an error naming the variable (Postgres would otherwise reject every connection with `FATAL: invalid value for parameter "TimeZone"`).
    - It affects only SQL that depends on the session zone: `date_trunc` on `timestamptz`, `CURRENT_DATE`, `timestamptz::date` and `?::date` comparisons. All stored instants are `timestamptz` and MikroORM serializes Dates in UTC, so persisted values do not change.
 
 ## Data Models
@@ -116,6 +116,7 @@ About 400 call sites format dates directly; ten files used the shared helpers. C
 
 - API/settings path for reading and updating date/locale settings.
 - Backend settings UI page smoke test.
+- Customer portal page rendering in its tenant's zone and pattern (`TC-CONF-009`).
 - DataTable date column formatting with env fallback and persisted settings fallback.
 - DatePicker and DateRangePicker display formatting with locale-derived fallback.
 - Standalone app integration build/typecheck with `date-fns` available as a direct dependency.
@@ -174,5 +175,6 @@ Required by `BACKWARD_COMPATIBILITY.md` (deprecation protocol step 5). Every sur
   - **Deferred:** leave-request notification variables are still formatted server-side; the CRM calendar grid and schedule dialog still lay out in the browser zone; `resolveDateRange` server ranges use the process zone; a per-organization (not per-tenant) setting.
   - **Date-only pin:** when the tenant pins only a date pattern, timestamps use it followed by the time pattern or date-fns' localized short time `p`, so they keep their time. An env-only `NEXT_PUBLIC_OM_DATE_FORMAT` stays bare (unchanged behavior).
   - **Provider nesting:** the client store resolves the innermost mounted `DateLocaleSettingsProvider`, so the root layout re-rendering on navigation never replaces the backend/portal layout's settings. Plain `formatDisplay*` calls default to that store in the browser and to env defaults during SSR; SSR-rendered dates must pass `useDateLocaleSettings()`.
-  - **Rendering rules:** zone-less strings (`yyyy-MM-dd`, `yyyy-MM-dd HH:mm`) are floating and never shifted into the display zone, including in `DataTable` cells; zone (`X x O z`) and epoch (`t T`) tokens in custom patterns are resolved for the display zone rather than the runtime's; a pinned time pattern alone sets the 12/24-hour clock of `Intl` timestamps.
+  - **Zone names:** validated with `Intl` but stored and sent to Postgres in the spelling given (letter case normalized), never as the legacy alias ICU resolves to (`Asia/Kolkata`, not `Asia/Calcutta`).
+  - **Rendering rules:** zone-less strings (`yyyy-MM-dd`, `yyyy-MM-dd HH:mm`) are floating and never shifted into the display zone, including in `DataTable` cells; zone (`X x O z`) and epoch (`t T`) tokens in custom patterns, including the `z` inside the long localized `ppp`/`pppp` tokens, are resolved for the display zone rather than the runtime's; the ordinal suffix `o` (`MMMM do, yyyy`) is accepted after the tokens that support it; a pinned time pattern alone sets the 12/24-hour clock of `Intl` timestamps.
   - **First day of week:** resolved as configured day → the configured formatting locale's own week start, from the full regional tag via `Intl.Locale` week info (`en-GB` Monday, `en-US` Sunday, `ar-EG` Saturday) → Monday. The app UI language never decides it, so an unconfigured tenant keeps a Monday week. The settings page shows the effective day and its source (`resolveFirstDayOfWeek` in `@open-mercato/shared/lib/date-locale/weekStart`).

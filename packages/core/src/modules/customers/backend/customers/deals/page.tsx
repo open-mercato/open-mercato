@@ -43,6 +43,7 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 import { format } from 'date-fns/format'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatDisplayDate, todayInZone, toUtcDateInputValue } from '@open-mercato/ui/primitives/date-format'
+import { useDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-settings'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import {
   type CustomerDictionaryKind,
@@ -843,7 +844,8 @@ export default function CustomersDealsPage() {
     return mapAssignableStaffToFilterOptions(items)
   }, [activeOrgId])
 
-  const today = React.useMemo(() => todayInZone(), [])
+  const { timeZone: displayTimeZone } = useDateLocaleSettings()
+  const today = React.useMemo(() => todayInZone(displayTimeZone), [displayTimeZone])
   const isDealOverdue = React.useCallback(
     (row: DealRow): boolean => {
       const expectedCloseDay = toUtcDateInputValue(row.expectedCloseAt)

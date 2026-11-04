@@ -4,6 +4,7 @@ import type { Locale } from 'date-fns/locale'
 import { normalizeDateFormatPattern } from '@open-mercato/shared/lib/date-locale/validation'
 import type { ResolvedDateLocaleSettings } from '@open-mercato/shared/lib/date-locale/types'
 import { getActiveDateLocaleSettings } from './date-locale-store'
+import { enUS } from 'date-fns/locale/en-US'
 import { resolveDateFnsLocale } from './date-fns-locales'
 
 type LocaleLike = Locale | string | null | undefined
@@ -245,6 +246,37 @@ function renderZoneToken(letter: string, length: number, date: Date, timeZone: s
   }
 }
 
+const LONG_FORMAT_WIDTHS = ['short', 'medium', 'long', 'full'] as const
+
+/**
+ * Expands the localized `P`/`p` tokens to the locale's own patterns, as `date-fns` does when
+ * formatting. Their long time widths (`ppp`, `pppp`) contain `z`, which must be visible to
+ * `inlineZoneTokens` to render in the display zone.
+ */
+function expandLongFormatTokens(pattern: string, locale: Locale = enUS): string {
+  const formatLong = locale.formatLong
+  if (!formatLong) return pattern
+  return pattern
+    .split(/('(?:[^']|'')*'?)/)
+    .map((part) => {
+      if (part.startsWith("'")) return part
+      return part.replace(/P+p+|P+|p+/g, (token) => {
+        const dateLength = token.match(/P+/)?.[0].length ?? 0
+        const timeLength = token.match(/p+/)?.[0].length ?? 0
+        if (dateLength > 4 || timeLength > 4) return token
+        const date = dateLength ? formatLong.date({ width: LONG_FORMAT_WIDTHS[dateLength - 1] }) : ''
+        const time = timeLength ? formatLong.time({ width: LONG_FORMAT_WIDTHS[timeLength - 1] }) : ''
+        if (!dateLength) return time
+        if (!timeLength) return date
+        return formatLong
+          .dateTime({ width: LONG_FORMAT_WIDTHS[dateLength - 1] })
+          .replace('{{date}}', date)
+          .replace('{{time}}', time)
+      })
+    })
+    .join('')
+}
+
 /**
  * `date-fns` renders zone (`X x O z`) and epoch (`t T`) tokens from the runtime's own offset, but
  * patterns are formatted on a wall-clock `Date` shifted into `timeZone` (`toZonedWallClock`). Those
@@ -299,8 +331,11 @@ function formatDisplay(
   const timeZone = isFloatingValue(value) ? null : settings.timeZone
   const formatLocale = settings.locale ?? intlLocale(locale)
   if (pattern) {
-    const zonedPattern = timeZone ? inlineZoneTokens(pattern, parsed, timeZone, formatLocale) : pattern
-    return formatWithPublicDateFormat(toZonedWallClock(parsed, timeZone), zonedPattern, resolveDateFnsLocale(formatLocale))
+    const dateFnsLocale = resolveDateFnsLocale(formatLocale)
+    const zonedPattern = timeZone
+      ? inlineZoneTokens(expandLongFormatTokens(pattern, dateFnsLocale), parsed, timeZone, formatLocale)
+      : pattern
+    return formatWithPublicDateFormat(toZonedWallClock(parsed, timeZone), zonedPattern, dateFnsLocale)
   }
   // A pinned time pattern with no date-time pattern still decides the clock of Intl timestamps, so
   // choosing `HH:mm` makes every date-time 24-hour, not only time-only values.

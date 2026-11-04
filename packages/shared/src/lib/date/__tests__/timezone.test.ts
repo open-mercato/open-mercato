@@ -7,6 +7,12 @@ describe('canonicalizeTimeZone', () => {
     expect(canonicalizeTimeZone(' UTC ')).toBe('UTC')
   })
 
+  it('keeps current zone names that Intl reports as legacy aliases', () => {
+    expect(canonicalizeTimeZone('Asia/Kolkata')).toBe('Asia/Kolkata')
+    expect(canonicalizeTimeZone('Europe/Kyiv')).toBe('Europe/Kyiv')
+    expect(canonicalizeTimeZone('America/Nuuk')).toBe('America/Nuuk')
+  })
+
   it('returns null for empty, missing or unknown zones', () => {
     expect(canonicalizeTimeZone(undefined)).toBeNull()
     expect(canonicalizeTimeZone(null)).toBeNull()

@@ -17,8 +17,14 @@ describe('resolveDbSessionTimeZone', () => {
     expect(resolveDbSessionTimeZone(env(' Europe/Warsaw '))).toBe('Europe/Warsaw')
   })
 
-  it('canonicalizes the zone spelling', () => {
+  it('normalizes only the letter case of the zone name', () => {
     expect(resolveDbSessionTimeZone(env('europe/warsaw'))).toBe('Europe/Warsaw')
+  })
+
+  it('passes current zone names through even when Intl reports a legacy alias', () => {
+    expect(resolveDbSessionTimeZone(env('Asia/Kolkata'))).toBe('Asia/Kolkata')
+    expect(resolveDbSessionTimeZone(env('Europe/Kyiv'))).toBe('Europe/Kyiv')
+    expect(resolveDbSessionTimeZone(env('Asia/Ho_Chi_Minh'))).toBe('Asia/Ho_Chi_Minh')
   })
 
   it('rejects a UTC offset string, which Postgres would read with the opposite sign', () => {

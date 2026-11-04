@@ -1,6 +1,11 @@
 /**
- * Returns the canonical IANA spelling of `value` (for example `europe/warsaw` → `Europe/Warsaw`),
- * or `null` when the runtime cannot resolve it as a named time zone.
+ * Returns the IANA spelling of `value` with the runtime's letter case (for example
+ * `europe/warsaw` → `Europe/Warsaw`), or `null` when the runtime cannot resolve it as a named
+ * time zone.
+ *
+ * When `Intl` resolves the name to a different zone ID (ICU reports legacy links such as
+ * `Asia/Kolkata` → `Asia/Calcutta`), the caller's spelling is kept: current tzdata builds,
+ * including Postgres on Debian trixie, reject many of those legacy names.
  *
  * Offset strings such as `+01:00` are rejected even though recent `Intl` accepts them: Postgres
  * reads `TimeZone=+01:00` as a POSIX spec where positive means WEST of Greenwich, so the same value
@@ -12,7 +17,8 @@ export function canonicalizeTimeZone(value: string | null | undefined): string |
   if (!/^[A-Za-z]/.test(trimmed)) return null
   try {
     const resolved = new Intl.DateTimeFormat('en-US', { timeZone: trimmed }).resolvedOptions().timeZone
-    return /^[A-Za-z]/.test(resolved) ? resolved : null
+    if (!/^[A-Za-z]/.test(resolved)) return null
+    return resolved.toLowerCase() === trimmed.toLowerCase() ? resolved : trimmed
   } catch {
     return null
   }

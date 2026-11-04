@@ -26,6 +26,8 @@ export function normalizeDateFormatPattern(value: string | null | undefined): st
 // `D` (day of year) are deliberately excluded: `date-fns` throws on them unless the caller opts
 // in, and in practice they are always a mistyped `y` / `d`.
 const ALLOWED_TOKEN_LETTERS = new Set('GyRuQqMLwIdEecibBahHKkmsSXxOzTtPp'.split(''))
+// `o` is only a suffix: `do` renders "5th", `Mo` "1st". On its own `date-fns` throws.
+const ORDINAL_TOKEN_LETTERS = new Set('yQqMLwIdecihHKkms'.split(''))
 const ALLOWED_SEPARATOR = /^[\s.,/\-:()]$/
 
 export type DateFormatPatternIssue = 'empty' | 'tooLong' | 'unterminatedQuote' | 'invalidToken' | 'invalidCharacter' | 'noToken'
@@ -51,6 +53,12 @@ export function validateDateFormatPattern(pattern: string): DateFormatPatternIss
     }
     if (inQuote) continue
     if (/[A-Za-z]/.test(char)) {
+      if (char === 'o') {
+        const previous = pattern[index - 1]
+        const singleLetterToken = previous !== undefined && pattern[index - 2] !== previous
+        if (!previous || !ORDINAL_TOKEN_LETTERS.has(previous) || !singleLetterToken) return 'invalidToken'
+        continue
+      }
       if (!ALLOWED_TOKEN_LETTERS.has(char)) return 'invalidToken'
       tokenCount += 1
       continue
