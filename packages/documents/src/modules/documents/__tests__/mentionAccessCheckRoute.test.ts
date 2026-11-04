@@ -57,7 +57,8 @@ const rbacService = {
     organizations: null,
   })),
   userHasAllFeatures: jest.fn(async (userId: string, features: string[]) => (
-    userId === MANAGER_USER_ID && features.includes('documents.manage')
+    features.length === 1 && (features[0] === 'documents.view'
+      || (userId === MANAGER_USER_ID && features[0] === 'documents.manage'))
   )),
 }
 
