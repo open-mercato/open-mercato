@@ -121,6 +121,28 @@ markers; those comparisons never enter agent context. No database migration or c
 purge is required. Credit to @AHKSammich for the finding/proof of concept in #7323;
 this implementation was written independently for the enterprise module.
 
+### Encrypted custom fields in plaintext search fields (#7894)
+
+Application-managed `SearchIndexer` calls now exclude encrypted custom-field keys
+from fulltext document fields and vector fallback text, while preserving values
+for hashed-token search. A failed definition lookup excludes every custom field
+from those plaintext paths. Explicit source text and callback-generated metadata
+are a separate protection tracked in #7874.
+
+**Operator action:** reindex affected fulltext and vector data after upgrading;
+previously indexed plaintext is not removed until records are rewritten. Review
+any retention/export copies held by external search or embedding providers.
+
+**Module author action:** application DI wires the resolver automatically. Code
+constructing `SearchIndexer` manually must pass `encryptedCustomFieldKeysResolver`
+for definition-based exclusions; omission excludes all custom fields from plaintext paths. Tenant-wide indexing uses each loaded row’s `organization_id` (or `organizationId`) for its policy. Custom callers must provide a trusted operation organization or preserve the row organization, including explicit `null` for an organization-less row; unknown organization scope excludes all custom fields from plaintext paths.
+Direct `SearchService.index`/`bulkIndex` clients can pass
+`IndexableRecord.plaintextExcludedCustomFields` as an array of encrypted definition
+keys, or `'all'` when definitions cannot be resolved. Both `cf:` and sanitized
+`cf_` aliases are excluded. Omission excludes all custom fields, and `fields`
+continues to reach the hashed-token strategy unchanged. Public routes, required
+parameters, strategy IDs and queue payloads are unchanged.
+
 ### Customer interaction authors and owners must belong to the record's tenant (#7531)
 
 Canonical interaction writes and legacy activity adapters now reject foreign-tenant or missing author/owner IDs, and reject new assignments to deleted users with a generic `400` user-not-found response. Same-tenant users from another home organization remain valid references, including an implicit actor working in another organization. Author normalization, valid superadmin delegation, and existing record-level organization/privacy authorization are preserved.
