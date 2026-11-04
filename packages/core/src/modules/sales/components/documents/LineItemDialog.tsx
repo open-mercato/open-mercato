@@ -1758,14 +1758,9 @@ export function LineItemDialog({
           closeDialog();
         }
       } catch (err) {
-        if (
-          handleSectionMutationError(err, t, () => {
-            if (onSaved) void onSaved();
-          })
-        ) {
-          closeDialog();
-          return;
-        }
+        handleSectionMutationError(err, t, () => {
+          if (onSaved) void onSaved();
+        });
         throw err;
       }
     },
@@ -3163,6 +3158,7 @@ export function LineItemDialog({
         ) : null}
         <CrudForm<LineFormState>
           key={formResetKey}
+          formId={`record-lock:sales.${kind}:${documentId ?? "pending"}`}
           embedded
           fields={fields}
           groups={groups}
