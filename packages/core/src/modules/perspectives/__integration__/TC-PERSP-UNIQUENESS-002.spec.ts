@@ -11,7 +11,7 @@ export const integrationMeta = {
   dependsOnModules: ['perspectives', 'customers', 'auth'],
 };
 
-type SavedPerspective = { id?: string; name?: string; settings?: Record<string, unknown> };
+type SavedPerspective = { id?: string; name?: string; settings?: Record<string, unknown>; updatedAt?: string };
 type SaveResponse = { perspective?: SavedPerspective; code?: string; error?: string };
 type StateResponse = { perspectives?: SavedPerspective[] };
 
@@ -199,4 +199,75 @@ test.describe('TC-PERSP-UNIQUENESS-002: save-as-new does not overwrite a same-na
       await deleteViews(request, token, tableId, createdIds);
     }
   });
+
+  for (const activateSavedView of [false, true]) {
+    test(`UI: name-only rename preserves all settings for ${activateSavedView ? 'an active' : 'a nonactive'} view after duplicate correction`, async ({ page, request }) => {
+      test.skip(isStandaloneIntegration(), 'Standalone smoke runs omit this monorepo-only Views panel check.');
+
+      const token = await getAuthToken(request, 'admin');
+      const stamp = randomUUID();
+      const tableId = 'customers.people.list';
+      const originalName = `QA Rename ${stamp}`;
+      const occupiedName = `QA Taken ${stamp}`;
+      const correctedName = `QA Corrected ${stamp}`;
+      const settings = {
+        pageSize: 40,
+        columnOrder: ['email', 'name'],
+        columnVisibility: { name: true, email: true },
+        columnSizing: { name: 240 },
+        filters: { v: 2, root: { id: 'saved-root', type: 'group', combinator: 'and', children: [{ id: 'saved-rule', type: 'rule', field: 'name', operator: 'contains', value: 'saved filter' }] } },
+        sorting: [{ id: 'name', desc: true }],
+        searchValue: `rename-${stamp}`,
+      };
+      const createdIds: string[] = [];
+
+      try {
+        const existingId = await createView(request, token, tableId, originalName, settings);
+        createdIds.push(existingId);
+        const occupiedId = await createView(request, token, tableId, occupiedName, { pageSize: 10 });
+        createdIds.push(occupiedId);
+        const before = (await listViews(request, token, tableId, originalName))[0];
+        expect(before.settings, 'fixture settings round-trip before rename').toEqual(settings);
+        const occupiedBefore = await listViews(request, token, tableId, occupiedName);
+
+        await login(page, 'admin');
+        await page.goto('/backend/customers/people', { waitUntil: 'domcontentloaded' });
+        await page.getByTestId('data-table-open-views-sidebar').first().click();
+        await expect(page.getByRole('button', { name: 'Close', exact: true })).toBeVisible();
+        const viewButton = page.locator('[data-active]').getByRole('button', { name: originalName, exact: true });
+        if (activateSavedView) {
+          await viewButton.click();
+          await expect(viewButton).toHaveAttribute('aria-current', 'true');
+        } else {
+          await expect(viewButton).not.toHaveAttribute('aria-current', 'true');
+        }
+        await viewButton.locator('..').getByRole('button', { name: 'View options', exact: true }).click();
+        await page.getByRole('button', { name: 'Rename', exact: true }).click();
+        const nameInput = page.locator('input:focus').first();
+        await expect(nameInput).toHaveValue(originalName);
+        await nameInput.fill(occupiedName);
+        await nameInput.press('Control+Enter');
+        await expect(nameInput).toHaveValue(occupiedName);
+        await expect(page.getByText('View with this name already exists')).toBeVisible();
+        expect(await listViews(request, token, tableId, originalName)).toEqual([before]);
+        expect(await listViews(request, token, tableId, occupiedName)).toEqual(occupiedBefore);
+
+        await nameInput.fill(correctedName);
+        const saveResponse = page.waitForResponse((response) => response.request().method() === 'POST'
+          && new URL(response.url()).pathname === `/api/perspectives/${tableId}`);
+        await nameInput.press('Control+Enter');
+        expect((await saveResponse).status()).toBe(200);
+        await expect(page.locator('[data-active]').getByRole('button', { name: correctedName, exact: true })).toBeVisible();
+        const after = await listViews(request, token, tableId, correctedName);
+        expect(after).toHaveLength(1);
+        expect(after[0]).toEqual({ ...before, name: correctedName, updatedAt: expect.any(String) });
+        expect(after[0].settings).toEqual(settings);
+        expect(await listViews(request, token, tableId, occupiedName)).toEqual(occupiedBefore);
+        expect(await listViews(request, token, tableId, originalName)).toEqual([]);
+      } finally {
+        await deleteViews(request, token, tableId, createdIds);
+      }
+    });
+  }
+
 });

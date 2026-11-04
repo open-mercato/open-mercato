@@ -299,6 +299,7 @@ export function PerspectiveSidebar({
     try {
       await onSave({
         name: trimmed,
+        settings: p.settings,
         isDefault: p.isDefault,
         applyToRoles: [],
         setRoleDefault: false,
