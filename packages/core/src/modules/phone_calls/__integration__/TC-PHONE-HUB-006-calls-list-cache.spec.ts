@@ -1,11 +1,10 @@
 import path from 'node:path'
 import { randomInt } from 'node:crypto'
 import { expect, test, type APIRequestContext } from '@playwright/test'
-import { bootstrapFromAppRoot } from '@open-mercato/shared/lib/bootstrap/dynamicLoader'
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { importFromAppRuntime } from '@open-mercato/core/helpers/integration/appRuntime'
 import { deletePhoneCallsIfExist } from './helpers/phoneCallsFixtures'
 
 const APP_ROOT = process.env.OM_TEST_APP_ROOT?.trim()
@@ -73,6 +72,12 @@ test.describe('TC-PHONE-HUB-006: ingest invalidates the cached calls list', () =
       expect(cached.cache, 'the repeated query must be served from the cache').toBe('hit')
       expect(cached.ids).toEqual([])
 
+      const { bootstrapFromAppRoot } = await importFromAppRuntime<
+        typeof import('@open-mercato/shared/lib/bootstrap/dynamicLoader')
+      >('@open-mercato/shared/lib/bootstrap/dynamicLoader')
+      const { createRequestContainer } = await importFromAppRuntime<
+        typeof import('@open-mercato/shared/lib/di/container')
+      >('@open-mercato/shared/lib/di/container')
       await bootstrapFromAppRoot(APP_ROOT)
       const container = await createRequestContainer()
       const commandBus = container.resolve('commandBus') as CommandBus

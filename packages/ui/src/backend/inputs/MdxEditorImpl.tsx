@@ -32,9 +32,11 @@ import {
   DiffSourceToggleWrapper,
 } from '@mdxeditor/editor'
 import '@mdxeditor/editor/style.css'
+import { EditorView } from '@codemirror/view'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useTheme } from '../../theme'
+import { useContentSecurityPolicyNonce } from '../../theme/ContentSecurityPolicyProvider'
 
 const CODE_BLOCK_LANGUAGES: Record<string, string> = {
   js: 'JavaScript',
@@ -59,10 +61,12 @@ type MdxEditorImplProps = {
 
 export default function MdxEditorImpl({ value = '', onChange }: MdxEditorImplProps) {
   const editorRef = React.useRef<MDXEditorMethods>(null)
-  const containerRef = React.useRef<HTMLDivElement>(null)
+  const [container, setContainer] = React.useState<HTMLDivElement | null>(null)
   const latestRef = React.useRef<string>(value)
   const { resolvedTheme } = useTheme()
   const t = useT()
+  const nonce = useContentSecurityPolicyNonce()
+  const codeMirrorExtensions = React.useMemo(() => nonce ? [EditorView.cspNonce.of(nonce)] : [], [nonce])
 
   React.useEffect(() => {
     if (value !== latestRef.current) {
@@ -73,19 +77,23 @@ export default function MdxEditorImpl({ value = '', onChange }: MdxEditorImplPro
 
   return (
     <div
-      ref={containerRef}
+      ref={setContainer}
       data-testid="mdx-editor-container"
       className="w-full overflow-hidden rounded-md border border-input bg-background"
     >
-      <MDXEditor
+      {container && <MDXEditor
         ref={editorRef}
+        overlayContainer={container.closest<HTMLElement>('[role="dialog"]') ?? undefined}
         markdown={value ?? ''}
         onChange={(markdown, initialMarkdownNormalize) => {
           if (initialMarkdownNormalize || markdown === latestRef.current) return
           latestRef.current = markdown
           onChange(markdown)
         }}
-        className={cn('om-mdx-editor', resolvedTheme === 'dark' && 'dark-theme')}
+        className={cn(
+          'om-mdx-editor [&.mdxeditor-popup-container]:z-popover! [&_[class*=codeMirrorToolbar]]:static! [&_[class*=codeMirrorToolbar]]:flex-wrap [&_[class*=codeMirrorToolbar]]:justify-end',
+          resolvedTheme === 'dark' && 'dark-theme',
+        )}
         contentEditableClassName="om-mdx-prose"
         plugins={[
           headingsPlugin(),
@@ -98,13 +106,14 @@ export default function MdxEditorImpl({ value = '', onChange }: MdxEditorImplPro
           tablePlugin(),
           codeBlockPlugin({ defaultCodeBlockLanguage: '' }),
           codeMirrorPlugin({
+            codeMirrorExtensions,
             codeBlockLanguages: {
               '': t('ui.forms.richtext.plainText', 'Plain text'),
               ...CODE_BLOCK_LANGUAGES,
             },
           }),
           markdownShortcutPlugin(),
-          diffSourcePlugin({ viewMode: 'rich-text' }),
+          diffSourcePlugin({ viewMode: 'rich-text', codeMirrorExtensions }),
           toolbarPlugin({
             toolbarContents: () => (
               <DiffSourceToggleWrapper>
@@ -127,7 +136,7 @@ export default function MdxEditorImpl({ value = '', onChange }: MdxEditorImplPro
             ),
           }),
         ]}
-      />
+      />}
     </div>
   )
 }

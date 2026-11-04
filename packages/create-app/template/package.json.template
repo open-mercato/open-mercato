@@ -9,6 +9,8 @@
     "setup:classic": "node ./scripts/setup.mjs --classic",
     "setup:reinstall": "node ./scripts/setup.mjs --reinstall",
     "setup:reinstall:classic": "node ./scripts/setup.mjs --reinstall --classic",
+    "infra:up": "node ./scripts/infra.mjs up",
+    "infra:down": "node ./scripts/infra.mjs down",
     "dev": "node ./scripts/dev.mjs",
     "dev:classic": "node ./scripts/dev.mjs --classic",
     "dev:verbose": "node ./scripts/dev.mjs --verbose",
@@ -169,6 +171,8 @@
   "resolutions": {
     "lodash": "4.18.1",
     "lodash-es": "4.18.1",
+    "node-forge": "1.4.1",
+    "sharp": "0.35.5",
     "zod": "4.6.6"
   },
   "imports": {
