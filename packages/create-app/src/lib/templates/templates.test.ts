@@ -109,7 +109,7 @@ const commitRoute = (path: string, ref: string, sha: string): Route => (url) =>
   url === `${API}/repos/${path}/commits/${encodeURIComponent(ref)}` ? json({ sha }) : undefined
 const tarballRoute = (path: string, sha: string, response: () => Response): Route => (url) =>
   url === `${API}/repos/${path}/tarball/${sha}` ? response() : undefined
-const githubRequests = (requests: RecordedRequest[]) => requests.filter((request) => request.url.startsWith(API))
+const githubRequests = (requests: RecordedRequest[]) => requests.filter((request) => request.url.startsWith(`${API}/`))
 const parsedFixture = () => parseTemplatesIndex(FIXTURE) as TemplatesIndex
 
 // Index URL
