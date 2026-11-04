@@ -6,6 +6,8 @@ import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { resolveDateLocaleSettings } from '@open-mercato/shared/lib/date-locale/resolve'
+import { setClientDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-store'
 import { ScheduleActivityDialog } from '../ScheduleActivityDialog'
 import type { ScheduleActivityEditData } from '../schedule'
 import { calendarEventTypes } from '../../../calendar-event-types'
@@ -254,22 +256,60 @@ describe('ScheduleActivityDialog', () => {
     expect(requestUrl.searchParams.get('excludeId')).toBe('11111111-1111-4111-8111-111111111111')
   })
 
-  it('passes the selected local timezone offset when checking conflicts', async () => {
-    jest.spyOn(Date.prototype, 'getTimezoneOffset').mockReturnValue(-120)
+  describe('configured display zone (the zone the activity cards render in)', () => {
+    function lastSavedPayload() {
+      const requestInit = apiCallOrThrowMock.mock.calls.at(-1)?.[1] as { body?: string } | undefined
+      return JSON.parse(String(requestInit?.body ?? '{}')) as Record<string, unknown>
+    }
 
-    renderWithProviders(
-      <ScheduleActivityDialog
-        open
-        onClose={() => undefined}
-        entityId="person-1"
-        entityType="person"
-      />,
-    )
+    beforeEach(() => {
+      setClientDateLocaleSettings(resolveDateLocaleSettings({ tenant: { timeZone: 'Europe/Warsaw' }, env: {} }))
+      mockScheduleState = createScheduleState({ date: '2026-06-12', startTime: '10:00' })
+    })
 
-    await flushConflictCheck()
+    afterEach(() => setClientDateLocaleSettings(null))
 
-    const requestUrl = new URL(String(readApiResultOrThrowMock.mock.calls.at(-1)?.[0] ?? ''), 'http://localhost')
-    expect(requestUrl.searchParams.get('timezoneOffsetMinutes')).toBe('120')
+    it('sends the configured zone offset with the conflict check, whatever the device zone', async () => {
+      jest.spyOn(Date.prototype, 'getTimezoneOffset').mockReturnValue(300)
+      renderWithProviders(<ScheduleActivityDialog open onClose={() => undefined} entityId="person-1" entityType="person" />)
+
+      await flushConflictCheck()
+
+      const requestUrl = new URL(String(readApiResultOrThrowMock.mock.calls.at(-1)?.[0] ?? ''), 'http://localhost')
+      expect(requestUrl.searchParams.get('timezoneOffsetMinutes')).toBe('120')
+    })
+
+    it('names conflicts on the configured clock', async () => {
+      readApiResultOrThrowMock.mockResolvedValue({
+        hasConflicts: true,
+        conflicts: [
+          {
+            id: 'c-1',
+            title: 'Standup',
+            startTime: '08:00',
+            endTime: '08:30',
+            startsAt: '2026-06-12T08:00:00.000Z',
+            endsAt: '2026-06-12T08:30:00.000Z',
+            type: 'meeting',
+          },
+        ],
+      })
+      renderWithProviders(<ScheduleActivityDialog open onClose={() => undefined} entityId="person-1" entityType="person" />)
+
+      await flushConflictCheck()
+      await waitFor(() => expect(setConflictMock).toHaveBeenCalledWith(expect.stringMatching(/10:00.*10:30.*Standup/)))
+    })
+
+    it('saves the typed time as that wall clock in the configured zone', async () => {
+      renderWithProviders(<ScheduleActivityDialog open onClose={() => undefined} entityId="person-1" entityType="person" />)
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /^Save activity$/ }))
+      })
+
+      expect(apiCallOrThrowMock).toHaveBeenCalled()
+      expect(lastSavedPayload().scheduledAt).toBe('2026-06-12T08:00:00.000Z')
+    })
   })
 
   it('shows an inline phone error without submitting an invalid call phone', async () => {

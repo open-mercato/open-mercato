@@ -5,7 +5,6 @@ import { Users, Phone, Check, Mail, Calendar, X, StickyNote } from 'lucide-react
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatDisplayTime } from '@open-mercato/ui/primitives/date-format'
-import { getActiveDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-store'
 import { validatePhoneNumber } from '@open-mercato/shared/lib/phone'
 import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
@@ -34,6 +33,7 @@ import {
   LinkedEntitiesField,
 } from './schedule'
 import type { ActivityType, ScheduleActivityEditData } from './schedule'
+import { scheduleOffsetMinutes, scheduleWallTimeToInstant } from './schedule/scheduleWallTime'
 import { PRIORITY_NUMBER, priorityFromNumber, type EditorPriority } from '../../lib/calendar/editorPayload'
 
 const TYPE_TABS: Array<{ type: ActivityType; icon: React.ComponentType<{ className?: string }>; labelKey: string; fallback: string }> = [
@@ -341,7 +341,7 @@ export function ScheduleActivityDialog({
     }
     const timer = setTimeout(async () => {
       try {
-        const localStart = new Date(`${state.date}T${state.startTime}:00`)
+        const offsetMinutes = scheduleOffsetMinutes(state.date, state.startTime)
         const params = new URLSearchParams({
           date: state.date,
           startTime: state.startTime,
@@ -350,8 +350,8 @@ export function ScheduleActivityDialog({
         if (editData?.id) {
           params.set('excludeId', editData.id)
         }
-        if (!Number.isNaN(localStart.getTime())) {
-          params.set('timezoneOffsetMinutes', String(-localStart.getTimezoneOffset()))
+        if (offsetMinutes !== null) {
+          params.set('timezoneOffsetMinutes', String(offsetMinutes))
         }
         const data = await readApiResultOrThrow<{
           hasConflicts: boolean
@@ -360,9 +360,8 @@ export function ScheduleActivityDialog({
         if (data?.hasConflicts && Array.isArray(data.conflicts) && data.conflicts.length > 0) {
           const descriptions = data.conflicts
             .map((c) => {
-              const clock = { ...getActiveDateLocaleSettings(), timeZone: null }
-              const start = (c.startsAt ? formatDisplayTime(c.startsAt, locale, clock) : null) ?? c.startTime
-              const end = (c.endsAt ? formatDisplayTime(c.endsAt, locale, clock) : null) ?? c.endTime
+              const start = (c.startsAt ? formatDisplayTime(c.startsAt, locale) : null) ?? c.startTime
+              const end = (c.endsAt ? formatDisplayTime(c.endsAt, locale) : null) ?? c.endTime
               return `${start}–${end}: ${c.title ?? c.type}`
             })
             .join(', ')
@@ -422,8 +421,9 @@ export function ScheduleActivityDialog({
       // an explicit null clears `scheduled_at` instead of posting an
       // `Invalid Date` built from an empty date string (#5941).
       const timeForPayload = state.allDay ? '00:00' : trimmedStartTime
+      // The fields are the wall clock of the configured display zone (see `scheduleWallTime`).
       const scheduledAt = trimmedDate
-        ? new Date(`${trimmedDate}T${timeForPayload || '00:00'}:00`).toISOString()
+        ? (scheduleWallTimeToInstant(trimmedDate, timeForPayload || '00:00')?.toISOString() ?? null)
         : null
 
       const recurrenceRule = state.recurrenceEnabled
