@@ -26,6 +26,11 @@
     "risk": ["risk-low", "risk-medium", "risk-high"]
   },
   "qaGate": true,
+  "automerge": {
+    "humanOnlyLabels": ["feature"],
+    "humanOnlyAuthors": ["zielivia"],
+    "complexQa": "always"
+  },
   "paths": {
     "runs": ".ai/runs",
     "analysis": ".ai/analysis",
