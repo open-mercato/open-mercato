@@ -8,10 +8,10 @@
  * response of a single aggregate. This wraps the two shared runners in the one shape
  * those routes need: one call before the work, one call around the response.
  *
- * `routePath` is derived from the request URL exactly as the factory derives it
- * (`normalizeInterceptorRoutePath`) — the pathname with the leading `/api/` removed,
- * so an interceptor targets `staff/timesheets/time-entries/bulk`. A route with a
- * dynamic segment carries the CONCRETE id in that path
+ * `routePath` comes from the dispatcher-bound matched-route identity, exactly as it
+ * does for factory routes. Static segments therefore use their manifest spelling even
+ * when the request used a mixed-case or percent-encoded alias. A route with a dynamic
+ * segment carries the CONCRETE id in that path
  * (`staff/timesheets/time-entries/<uuid>/duplicate`), so an interceptor for one of
  * those must use the registry's prefix wildcard — `staff/timesheets/time-entries/*`
  * — rather than a literal with a placeholder in it.
@@ -33,6 +33,7 @@ import { runApiInterceptorsBefore } from '@open-mercato/shared/lib/crud/intercep
 import { runCustomRouteAfterInterceptors } from '@open-mercato/shared/lib/crud/custom-route-interceptor'
 import { parseExtensionHeaders } from '@open-mercato/shared/lib/umes/extension-headers'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { resolveApiInterceptorRoutePath } from '@open-mercato/shared/lib/modules/api-route-identity'
 
 type RbacServiceLike = {
   getGrantedFeatures?: (
@@ -140,17 +141,6 @@ function toSearchParams(query: Record<string, unknown>): URLSearchParams {
   return params
 }
 
-function normalizeRoutePath(url: string): string {
-  try {
-    const pathname = new URL(url).pathname
-    if (pathname.startsWith('/api/')) return pathname.slice(5)
-    if (pathname === '/api') return ''
-    return pathname.replace(/^\/+/, '')
-  } catch {
-    return ''
-  }
-}
-
 function toHeaderRecord(headers: Headers): Record<string, string> {
   const output: Record<string, string> = {}
   headers.forEach((value, key) => {
@@ -199,7 +189,17 @@ export async function runTimesheetInterceptors(args: {
     }
   }
 
-  const routePath = normalizeRoutePath(request.url)
+  const routePath = resolveApiInterceptorRoutePath(request)
+  if (routePath === null) {
+    const { translate } = await resolveTranslations()
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: translate('api.errors.badRequest', 'Bad request') },
+        { status: 400 },
+      ),
+    }
+  }
   const headers = toHeaderRecord(request.headers)
   const requestPayload: InterceptorRequest = {
     method,

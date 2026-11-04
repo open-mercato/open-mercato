@@ -16,6 +16,7 @@ import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { SalesOrder, SalesOrderLine, SalesShipment, SalesShipmentItem, SalesOrderAdjustment } from '../../data/entities'
+import { createSalesDocumentLockKyselyFixture } from './salesDocumentLockFixture'
 
 jest.mock('../../services/salesDocumentNumberGenerator', () => ({
   SalesDocumentNumberGenerator: class {
@@ -108,6 +109,7 @@ function makeEm() {
   const em: any = {
     fork: function () { return this },
     transactional: async (cb: (tx: unknown) => Promise<unknown>) => cb(em),
+    getKysely: () => createSalesDocumentLockKyselyFixture(ORDER_ID),
     find: jest.fn(async () => []),
     findOne: jest.fn(async () => null),
     create: jest.fn((_entity: unknown, data: unknown) => {

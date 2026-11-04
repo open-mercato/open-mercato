@@ -1,4 +1,4 @@
-import { registerTranslatableFields } from '@open-mercato/shared/lib/localization/translatable-fields'
+import { registerTranslatableFieldExpander, registerTranslatableFields } from '@open-mercato/shared/lib/localization/translatable-fields'
 
 jest.mock('#generated/entity-fields-registry', () => ({
   getEntityFields: jest.fn(),
@@ -183,6 +183,44 @@ describe('resolveFieldList', () => {
       ])
       expect(result).toHaveLength(2)
       expect(result.map((f) => f.key)).toEqual(['title', 'description'])
+    })
+  })
+
+  describe('record-derived field expansion', () => {
+    const entityType = 'test:expanded_entity'
+
+    beforeEach(() => {
+      registerTranslatableFields({ [entityType]: ['name'] })
+      registerTranslatableFieldExpander(entityType, (record) =>
+        Array.isArray(record.items)
+          ? record.items.map((code) => ({ key: `items.${String(code)}.label`, label: `Item ${String(code)}`, baseValue: String(code) }))
+          : [],
+      )
+    })
+
+    it('appends expanded fields after the registered ones with their base values', () => {
+      const result = resolveFieldList(entityType, undefined, [], { items: ['a', 'b'] })
+      expect(result).toEqual([
+        { key: 'name', label: 'Name', multiline: false },
+        { key: 'items.a.label', label: 'Item a', multiline: false, baseValue: 'a' },
+        { key: 'items.b.label', label: 'Item b', multiline: false, baseValue: 'b' },
+      ])
+    })
+
+    it('keeps only registered fields when no record values are available', () => {
+      expect(resolveFieldList(entityType, undefined, []).map((f) => f.key)).toEqual(['name'])
+      expect(resolveFieldList(entityType, undefined, [], {}).map((f) => f.key)).toEqual(['name'])
+    })
+
+    it('does not duplicate a key that is already registered', () => {
+      registerTranslatableFields({ [entityType]: ['name', 'items.a.label'] })
+      const result = resolveFieldList(entityType, undefined, [], { items: ['a'] })
+      expect(result.map((f) => f.key)).toEqual(['name', 'items.a.label'])
+    })
+
+    it('ignores expansion when explicit fields are supplied', () => {
+      const result = resolveFieldList(entityType, ['title'], [], { items: ['a'] })
+      expect(result.map((f) => f.key)).toEqual(['title'])
     })
   })
 })

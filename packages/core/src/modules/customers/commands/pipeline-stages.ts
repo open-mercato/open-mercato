@@ -2,7 +2,7 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { CustomerPipelineStage, CustomerDeal } from '../data/entities'
+import { CustomerPipeline, CustomerPipelineStage, CustomerDeal } from '../data/entities'
 import {
   pipelineStageCreateSchema,
   pipelineStageUpdateSchema,
@@ -13,8 +13,9 @@ import {
   type PipelineStageDeleteInput,
   type PipelineStageReorderInput,
 } from '../data/validators'
-import { ensureOrganizationScope, ensureTenantScope, ensureDictionaryEntry } from './shared'
-import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { ensureOrganizationScope, ensureTenantScope, ensureDictionaryEntry, invalidateDictionaryKindCaches } from './shared'
+import { CrudHttpError, badRequest, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import {
   enforceCommandOptimisticLockWithGuards,
@@ -29,6 +30,17 @@ const createPipelineStageCommand: CommandHandler<PipelineStageCreateInput, { sta
     ensureOrganizationScope(ctx, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const pipeline = await findOneWithDecryption(
+      em,
+      CustomerPipeline,
+      { id: parsed.pipelineId, tenantId: parsed.tenantId, organizationId: parsed.organizationId },
+      {},
+      { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
+    )
+    if (!pipeline) {
+      const { translate } = await resolveTranslations()
+      throw badRequest(translate('customers.errors.pipeline_not_found', 'Pipeline not found'))
+    }
 
     // Load the full ordered list once. We need it both to know where "end" is and to
     // shift any stages that occupy positions at or after the chosen insert point.
@@ -90,6 +102,8 @@ const createPipelineStageCommand: CommandHandler<PipelineStageCreateInput, { sta
       },
     ], { transaction: true })
 
+    await invalidateDictionaryKindCaches(ctx, parsed, ['pipeline_stage'])
+
     return { stageId: stage.id }
   },
 }
@@ -125,6 +139,7 @@ const updatePipelineStageCommand: CommandHandler<PipelineStageUpdateInput, void>
       request: ctx.request ?? null,
     })
 
+    const dictionaryEntryTouched = parsed.label !== undefined || parsed.color !== undefined || parsed.icon !== undefined
     await withAtomicFlush(em, [
       () => {
         if (parsed.label !== undefined) stage.label = parsed.label
@@ -132,7 +147,7 @@ const updatePipelineStageCommand: CommandHandler<PipelineStageUpdateInput, void>
         stage.updatedAt = new Date()
       },
       async () => {
-        if (parsed.label !== undefined || parsed.color !== undefined || parsed.icon !== undefined) {
+        if (dictionaryEntryTouched) {
           await ensureDictionaryEntry(em, {
             tenantId: stage.tenantId,
             organizationId: stage.organizationId,
@@ -144,6 +159,10 @@ const updatePipelineStageCommand: CommandHandler<PipelineStageUpdateInput, void>
         }
       },
     ], { transaction: true })
+
+    if (dictionaryEntryTouched) {
+      await invalidateDictionaryKindCaches(ctx, stage, ['pipeline_stage'])
+    }
   },
 }
 

@@ -2,10 +2,10 @@
   "version": 1,
   "generatedNote": "Derived asset — the app-facing projection of the repository source-link inventory, regenerated with `yarn workspace create-mercato-app harness:generate-source-link-inventory`. Never hand-edit. Harness cases resolve `context.sourceReferenceIds` against `referenceId` here; a record with `readStatus: \"qa-only\"` is validation evidence only and is refused as a case reference.",
   "derived": {
-    "ownerCount": 30,
-    "recordCount": 138,
-    "sourceRequiredCount": 113,
-    "readableCount": 138,
+    "ownerCount": 32,
+    "recordCount": 155,
+    "sourceRequiredCount": 130,
+    "readableCount": 155,
     "baselineSha": "f7c941570003f3abe920b1765995cbef98dcad0b"
   },
   "notCovered": [
@@ -100,6 +100,308 @@
       "readStatus": "readable",
       "resolvedPath": "src/modules/example/references/surface-map.md",
       "moduleId": "example",
+      "capabilityIds": [],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "referenceId": "guides/customers-calendar:commands/interceptors.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/customers-calendar.md",
+      "heading": "Exact reference implementation",
+      "href": "../../src/modules/example/commands/interceptors.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/commands/interceptors.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "commands.interceptors",
+        "umes.customers.calendar-event-types"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "referenceId": "guides/customers-calendar:components/VisitPanel.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/customers-calendar.md",
+      "heading": "Exact reference implementation",
+      "href": "../../src/modules/example/components/VisitPanel.tsx",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/components/VisitPanel.tsx",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.customers.calendar-event-types"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "referenceId": "guides/customers-calendar:di.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/customers-calendar.md",
+      "heading": "Exact reference implementation",
+      "href": "../../src/modules/example/di.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/di.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "integrations.local-bundle",
+        "module.di-registration",
+        "umes.customers.calendar-event-types"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "referenceId": "guides/customers-calendar:lib/visitAvailability.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/customers-calendar.md",
+      "heading": "Exact reference implementation",
+      "href": "../../src/modules/example/lib/visitAvailability.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/lib/visitAvailability.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.customers.calendar-event-types"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "referenceId": "guides/customers-calendar:lib/visitAvailabilityGuard.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/customers-calendar.md",
+      "heading": "Exact reference implementation",
+      "href": "../../src/modules/example/lib/visitAvailabilityGuard.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/lib/visitAvailabilityGuard.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.customers.calendar-event-types"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "referenceId": "guides/customers-calendar:node_modules/@open-mercato/core/src/modules/customers/calendar-event-types.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/customers-calendar.md",
+      "heading": "Exact reference implementation",
+      "href": "../../node_modules/@open-mercato/core/src/modules/customers/calendar-event-types.ts",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/core/src/modules/customers/calendar-event-types.ts",
+      "moduleId": null,
+      "capabilityIds": [],
+      "packageName": "@open-mercato/core",
+      "packageRelativePath": "src/modules/customers/calendar-event-types.ts",
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "referenceId": "guides/customers-calendar:node_modules/@open-mercato/core/src/modules/customers/components/calendar/CalendarEventEditor.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/customers-calendar.md",
+      "heading": "Exact reference implementation",
+      "href": "../../node_modules/@open-mercato/core/src/modules/customers/components/calendar/CalendarEventEditor.tsx",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/core/src/modules/customers/components/calendar/CalendarEventEditor.tsx",
+      "moduleId": null,
+      "capabilityIds": [],
+      "packageName": "@open-mercato/core",
+      "packageRelativePath": "src/modules/customers/components/calendar/CalendarEventEditor.tsx",
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "referenceId": "guides/customers-calendar:node_modules/@open-mercato/core/src/modules/customers/lib/calendar/eventTypeResolver.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/customers-calendar.md",
+      "heading": "Exact reference implementation",
+      "href": "../../node_modules/@open-mercato/core/src/modules/customers/lib/calendar/eventTypeResolver.ts",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/core/src/modules/customers/lib/calendar/eventTypeResolver.ts",
+      "moduleId": null,
+      "capabilityIds": [],
+      "packageName": "@open-mercato/core",
+      "packageRelativePath": "src/modules/customers/lib/calendar/eventTypeResolver.ts",
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "referenceId": "guides/customers-calendar:widgets/injection-table.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/customers-calendar.md",
+      "heading": "Exact reference implementation",
+      "href": "../../src/modules/example/widgets/injection-table.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/widgets/injection-table.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.customers.calendar-event-types",
+        "umes.injection-table"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "referenceId": "guides/customers-calendar:widgets/injection/calendar-visit/widget.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/customers-calendar.md",
+      "heading": "Exact reference implementation",
+      "href": "../../src/modules/example/widgets/injection/calendar-visit/widget.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/widgets/injection/calendar-visit/widget.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.customers.calendar-event-types"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "referenceId": "guides/customers-calendar:widgets/injection/visit-availability/widget.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/customers-calendar.md",
+      "heading": "Exact reference implementation",
+      "href": "../../src/modules/example/widgets/injection/visit-availability/widget.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/widgets/injection/visit-availability/widget.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.customers.calendar-event-types"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "referenceId": "guides/extensions:.ai/guides/customers-calendar.md",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/extensions.md",
+      "heading": "Mechanism Selector",
+      "href": "customers-calendar.md",
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/guides/customers-calendar.md",
+      "moduleId": null,
       "capabilityIds": [],
       "presets": [
         "classic",
@@ -1613,7 +1915,8 @@
       "resolvedPath": "src/modules/example/commands/interceptors.ts",
       "moduleId": "example",
       "capabilityIds": [
-        "commands.interceptors"
+        "commands.interceptors",
+        "umes.customers.calendar-event-types"
       ],
       "presets": [
         "classic",
@@ -1779,6 +2082,99 @@
       "moduleId": "example",
       "capabilityIds": [
         "data.validators"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-data-model-design/sensitive-data:api/todos/route.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-data-model-design/references/sensitive-data.md",
+      "heading": "Encrypted list search",
+      "href": "../../../../src/modules/example/api/todos/route.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/api/todos/route.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "api.crud-query-engine-custom-fields",
+        "search.encrypted-column-list-filter"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-data-model-design/sensitive-data:encryption.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-data-model-design/references/sensitive-data.md",
+      "heading": "Encrypted list search",
+      "href": "../../../../src/modules/example/encryption.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/encryption.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "data.encryption-map"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-data-model-design/sensitive-data:node_modules/@open-mercato/shared/src/lib/query/engine.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-data-model-design/references/sensitive-data.md",
+      "heading": "Encrypted list search",
+      "href": "../../../../node_modules/@open-mercato/shared/src/lib/query/engine.ts",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/shared/src/lib/query/engine.ts",
+      "moduleId": null,
+      "capabilityIds": [],
+      "packageName": "@open-mercato/shared",
+      "packageRelativePath": "src/lib/query/engine.ts",
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-data-model-design/sensitive-data:search.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-data-model-design/references/sensitive-data.md",
+      "heading": "Encrypted list search",
+      "href": "../../../../src/modules/example/search.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/search.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "search.module-config"
       ],
       "presets": [
         "classic",
@@ -1984,7 +2380,8 @@
       "moduleId": "example",
       "capabilityIds": [
         "integrations.local-bundle",
-        "module.di-registration"
+        "module.di-registration",
+        "umes.customers.calendar-event-types"
       ],
       "presets": [
         "classic",
@@ -2055,6 +2452,27 @@
       "capabilityIds": [
         "integrations.mock-adapters"
       ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-module-scaffold/api-and-domain:.ai/skills/om-data-model-design/references/sensitive-data.md",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "heading": "API and Domain Writes",
+      "href": "../../om-data-model-design/references/sensitive-data.md#encrypted-list-search",
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-data-model-design/references/sensitive-data.md",
+      "moduleId": null,
+      "capabilityIds": [],
       "presets": [
         "classic",
         "crm",
@@ -2448,7 +2866,8 @@
       "moduleId": "example",
       "capabilityIds": [
         "integrations.local-bundle",
-        "module.di-registration"
+        "module.di-registration",
+        "umes.customers.calendar-event-types"
       ],
       "presets": [
         "classic",
@@ -2766,7 +3185,8 @@
       "resolvedPath": "src/modules/example/commands/interceptors.ts",
       "moduleId": "example",
       "capabilityIds": [
-        "commands.interceptors"
+        "commands.interceptors",
+        "umes.customers.calendar-event-types"
       ],
       "presets": [
         "classic",
@@ -3019,6 +3439,7 @@
       "resolvedPath": "src/modules/example/widgets/injection-table.ts",
       "moduleId": "example",
       "capabilityIds": [
+        "umes.customers.calendar-event-types",
         "umes.injection-table"
       ],
       "presets": [
@@ -3458,6 +3879,7 @@
       "resolvedPath": "src/modules/example/widgets/injection-table.ts",
       "moduleId": "example",
       "capabilityIds": [
+        "umes.customers.calendar-event-types",
         "umes.injection-table"
       ],
       "presets": [

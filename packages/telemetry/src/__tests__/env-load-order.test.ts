@@ -3,7 +3,7 @@ import {
   getTelemetryRuntime,
   resetTelemetryRuntime,
 } from '@open-mercato/shared/lib/telemetry/runtime'
-import { initTelemetry, resetTelemetryInit } from '../init'
+import { initTelemetry, resetTelemetryInit, shutdownTelemetry } from '../init'
 import {
   getActiveProvider,
   registerProvider,
@@ -12,6 +12,7 @@ import {
 import { resetTelemetryEnvCache } from '../env'
 import type { TelemetryProvider } from '../types'
 import { NOOP_SPAN } from '../provider/noop-provider'
+import * as errorReporting from '../facade/report-error'
 
 function provider(name = 'noop'): TelemetryProvider {
   return {
@@ -25,18 +26,25 @@ function provider(name = 'noop'): TelemetryProvider {
     inject: () => {},
     runInRemoteSpan: (_carrier, _name, _options, fn) => fn(NOOP_SPAN),
     emitLog: () => {},
-    recordMetric: () => {},
+    recordMetric: jest.fn(),
   }
 }
 
 describe('telemetry explicit opt-in boundary', () => {
   beforeEach(() => {
+    jest.useFakeTimers()
     delete process.env.TELEMETRY_BACKEND
     resetTelemetryEnvCache()
     resetTelemetryInit()
     resetActiveProvider()
     resetLoggerExtension()
     resetTelemetryRuntime()
+  })
+
+  afterEach(() => {
+    jest.restoreAllMocks()
+    resetTelemetryInit()
+    jest.useRealTimers()
   })
 
   it('does not resolve a custom provider or register runtime hooks while off', async () => {
@@ -49,6 +57,7 @@ describe('telemetry explicit opt-in boundary', () => {
     expect(getActiveProvider().name).toBe('noop')
     expect(getLoggerExtension()).toBeUndefined()
     expect(getTelemetryRuntime()).toBeUndefined()
+    expect(jest.getTimerCount()).toBe(0)
   })
 
   it('can initialize after dotenv sets an enabled backend following an off call', async () => {
@@ -63,6 +72,7 @@ describe('telemetry explicit opt-in boundary', () => {
     expect(getActiveProvider()).toBe(customConsole)
     expect(getLoggerExtension()).toBeDefined()
     expect(getTelemetryRuntime()).toBeDefined()
+    expect(jest.getTimerCount()).toBe(1)
   })
 
   it('initializes an explicitly registered custom backend', async () => {
@@ -76,5 +86,90 @@ describe('telemetry explicit opt-in boundary', () => {
     expect(getActiveProvider()).toBe(customProvider)
     expect(getLoggerExtension()).toBeDefined()
     expect(getTelemetryRuntime()).toBeDefined()
+  })
+
+  it('shares concurrent initialization and releases the sampler on shutdown', async () => {
+    const customConsole = provider('console')
+    registerProvider(customConsole)
+    process.env.TELEMETRY_BACKEND = 'console'
+
+    await Promise.all([initTelemetry(), initTelemetry()])
+
+    expect(customConsole.start).toHaveBeenCalledTimes(1)
+    expect(jest.getTimerCount()).toBe(1)
+
+    await shutdownTelemetry()
+
+    expect(customConsole.shutdown).toHaveBeenCalledTimes(1)
+    expect(getTelemetryRuntime()).toBeUndefined()
+    expect(jest.getTimerCount()).toBe(0)
+  })
+
+  it.each([false, true])('reports rejected initialization during shutdown and permits recovery (reporting throws: %s)', async (reportingThrows) => {
+    const failure = new Error('[internal] telemetry provider startup failed')
+    let rejectStart!: (reason: unknown) => void
+    const startup = new Promise<void>((_resolve, reject) => { rejectStart = reject })
+    const customConsole = provider('console')
+    customConsole.start = jest.fn(() => startup)
+    registerProvider(customConsole)
+    process.env.TELEMETRY_BACKEND = 'console'
+    const reportError = jest.spyOn(errorReporting, 'reportError')
+    if (reportingThrows) {
+      reportError.mockImplementation(() => { throw new Error('[internal] reporting unavailable') })
+    }
+
+    const initialization = initTelemetry()
+    const initializationFailure = expect(initialization).rejects.toBe(failure)
+    const shutdown = shutdownTelemetry()
+    expect(customConsole.start).toHaveBeenCalledTimes(1)
+    expect(reportError).not.toHaveBeenCalled()
+
+    rejectStart(failure)
+    await initializationFailure
+    await expect(shutdown).resolves.toBeUndefined()
+
+    expect(reportError).toHaveBeenCalledTimes(1)
+    expect(reportError).toHaveBeenCalledWith(failure, {
+      module: 'telemetry',
+      code: 'telemetry.initialization_failed',
+    })
+    expect(customConsole.shutdown).not.toHaveBeenCalled()
+    expect(getActiveProvider().name).toBe('noop')
+    expect(getLoggerExtension()).toBeUndefined()
+    expect(getTelemetryRuntime()).toBeUndefined()
+    expect(jest.getTimerCount()).toBe(0)
+
+    const recoveredProvider = provider('console')
+    registerProvider(recoveredProvider)
+    await initTelemetry()
+    expect(recoveredProvider.start).toHaveBeenCalledTimes(1)
+    expect(jest.getTimerCount()).toBe(1)
+    await shutdownTelemetry()
+    expect(recoveredProvider.shutdown).toHaveBeenCalledTimes(1)
+    expect(getLoggerExtension()).toBeUndefined()
+    expect(getTelemetryRuntime()).toBeUndefined()
+    expect(jest.getTimerCount()).toBe(0)
+  })
+
+  it('wires shared runtime histograms to the active provider', async () => {
+    const customConsole = provider('console')
+    registerProvider(customConsole)
+    process.env.TELEMETRY_BACKEND = 'console'
+
+    await initTelemetry()
+    getTelemetryRuntime()?.recordHistogram?.(
+      'om.enricher.duration',
+      0.25,
+      { 'enricher.id': 'customers.people' },
+      's',
+    )
+
+    expect(customConsole.recordMetric).toHaveBeenCalledWith({
+      kind: 'histogram',
+      name: 'om.enricher.duration',
+      value: 0.25,
+      labels: { 'enricher.id': 'customers.people' },
+      unit: 's',
+    })
   })
 })

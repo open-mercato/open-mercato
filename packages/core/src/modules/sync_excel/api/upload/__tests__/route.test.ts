@@ -28,6 +28,13 @@ jest.mock('../../../lib/upload-storage', () => ({
   createSyncExcelUploadAttachment: jest.fn((params: unknown) => mockCreateSyncExcelUploadAttachment(params)),
 }))
 
+const mockRunRouteMutationGuards = jest.fn()
+const mockRunAfterSuccess = jest.fn(async () => undefined)
+
+jest.mock('@open-mercato/shared/lib/crud/route-mutation-guard', () => ({
+  runRouteMutationGuards: jest.fn((params: unknown) => mockRunRouteMutationGuards(params)),
+}))
+
 type RouteModule = typeof import('../route')
 let postHandler: RouteModule['POST']
 
@@ -57,6 +64,7 @@ describe('sync_excel upload route limits', () => {
     })
     mockCreateSyncExcelUploadAttachment.mockResolvedValue({ id: 'attachment-1' })
     mockEntityManager.flush.mockResolvedValue(undefined)
+    mockRunRouteMutationGuards.mockResolvedValue({ ok: true, runAfterSuccess: mockRunAfterSuccess })
   })
 
   afterAll(() => {
@@ -160,5 +168,55 @@ describe('sync_excel upload route limits', () => {
       entityType: 'customers.person',
     })
     expect(mockCreateSyncExcelUploadAttachment).toHaveBeenCalled()
+  })
+
+  function buildCsvUploadRequest(): Request {
+    const formData = new FormData()
+    formData.set('entityType', 'customers.person')
+    formData.set('file', new File([Buffer.from('firstName\nAda\n')], 'leads.csv', { type: 'text/csv' }))
+    return new Request('http://localhost/api/sync_excel/upload', { method: 'POST', body: formData })
+  }
+
+  it('blocks the upload before any write when a mutation guard rejects it', async () => {
+    mockRunRouteMutationGuards.mockResolvedValueOnce({
+      ok: false,
+      errorStatus: 423,
+      errorBody: { error: 'Record locked' },
+      response: Response.json({ error: 'Record locked' }, { status: 423 }),
+    })
+
+    const response = await postHandler(buildCsvUploadRequest())
+
+    expect(response.status).toBe(423)
+    await expect(response.json()).resolves.toEqual({ error: 'Record locked' })
+    expect(mockCreateSyncExcelUploadAttachment).not.toHaveBeenCalled()
+    expect(mockEntityManager.persist).not.toHaveBeenCalled()
+    expect(mockEntityManager.flush).not.toHaveBeenCalled()
+    expect(mockRunAfterSuccess).not.toHaveBeenCalled()
+  })
+
+  it('runs the mutation guard as a create on sync_excel.upload and its after-success hook once persisted', async () => {
+    const response = await postHandler(buildCsvUploadRequest())
+
+    expect(response.status).toBe(200)
+    expect(mockRunRouteMutationGuards).toHaveBeenCalledTimes(1)
+    const guardParams = mockRunRouteMutationGuards.mock.calls[0][0]
+    expect(guardParams).toMatchObject({
+      container: mockContainer,
+      auth: {
+        userId: 'user-1',
+        tenantId: '22222222-2222-4222-8222-222222222222',
+        organizationId: '33333333-3333-4333-8333-333333333333',
+      },
+      input: {
+        resourceKind: 'sync_excel.upload',
+        operation: 'create',
+        mutationPayload: expect.objectContaining({ entityType: 'customers.person', filename: 'leads.csv' }),
+      },
+    })
+    const body = await response.json()
+    expect(guardParams.input.resourceId).toBe(body.uploadId)
+    expect(mockRunAfterSuccess).toHaveBeenCalledTimes(1)
+    expect(mockEntityManager.flush.mock.invocationCallOrder[0]).toBeLessThan(mockRunAfterSuccess.mock.invocationCallOrder[0])
   })
 })

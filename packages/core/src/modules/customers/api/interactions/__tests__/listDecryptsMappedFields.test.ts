@@ -102,6 +102,7 @@ function ciphertextRow(overrides: Record<string, unknown> = {}) {
     appearance_color: null,
     source: null,
     duration_minutes: null,
+    timezone: 'America/New_York',
     location: 'enc:v1:location',
     all_day: null,
     recurrence_rule: null,
@@ -157,6 +158,7 @@ describe('interactions list — decrypts every encryption-map field (#5945)', ()
 
     expect(item.location).toBe('https://meet.example.test/room-42')
     expect(item.participants).toEqual(decryptedParticipants)
+    expect(item.timezone).toBe('America/New_York')
     expect(item.title).toBe('Quarterly review')
     expect(item.body).toBe('Agenda and notes')
   })

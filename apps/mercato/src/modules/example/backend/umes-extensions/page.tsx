@@ -7,10 +7,12 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
+import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import { extensionPoints } from '../../extension-points'
 
 type TodoListProbe = {
   _example?: {
@@ -50,7 +52,7 @@ const SAMPLE_HANDLES: HandleRow[] = [
 ]
 
 const probeOrder: InterceptorProbeKey[] = ['default', 'wildcard', 'badQuery', 'timeout', 'crash']
-const hintClassName = 'rounded-md border border-amber-500/40 bg-amber-50 dark:bg-amber-400/10 p-2 text-xs text-amber-800 dark:text-amber-100/90'
+const hintClassName = 'rounded-md border border-status-warning-border bg-status-warning-bg p-2 text-xs text-status-warning-text'
 
 function print(value: unknown): string {
   try {
@@ -261,7 +263,7 @@ export default function UmesExtensionsPage() {
             </p>
           </div>
           <div className={`grid gap-1 ${hintClassName}`}>
-            <div className="font-medium text-amber-900 dark:text-amber-50">{t('example.umes.extensions.hintHeading', 'What should be visible and how it should work')}</div>
+            <div className="font-medium text-status-warning-text">{t('example.umes.extensions.hintHeading', 'What should be visible and how it should work')}</div>
             <div>{t('example.umes.extensions.phaseE.hint1', '1. `default` probe: must return `_example.interceptor` metadata in `/api/example/todos` response.')}</div>
             <div>{t('example.umes.extensions.phaseE.hint2', '2. `wildcard` probe: must return `_example.wildcardProbe=true` for wildcard route interceptor.')}</div>
             <div>{t('example.umes.extensions.phaseE.hint3', '3. `bad-query` probe: must fail with HTTP `400` (route schema revalidation after interceptor rewrite).')}</div>
@@ -301,7 +303,7 @@ export default function UmesExtensionsPage() {
             </p>
           </div>
           <div className={`grid gap-1 ${hintClassName}`}>
-            <div className="font-medium text-amber-900 dark:text-amber-50">{t('example.umes.extensions.hintHeading', 'What should be visible and how it should work')}</div>
+            <div className="font-medium text-status-warning-text">{t('example.umes.extensions.hintHeading', 'What should be visible and how it should work')}</div>
             <div>{t('example.umes.extensions.phaseF.hint1', '1. On `/backend/customers/people` table: column `Example priority` should be visible.')}</div>
             <div>{t('example.umes.extensions.phaseF.hint2', '2. In filters drawer: select filter `Priority` should be visible.')}</div>
             <div>{t('example.umes.extensions.phaseF.hint3', '3. In row actions menu: action `Open customer` should be visible.')}</div>
@@ -317,7 +319,7 @@ export default function UmesExtensionsPage() {
           />
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <Button asChild type="button" variant="outline">
-              <Link href="/backend/customers/people">{t('example.umes.extensions.phaseF.openCustomers', 'Open customers table')}</Link>
+              <Link data-testid="phase-f-open-customers" href="/backend/customers/people">{t('example.umes.extensions.phaseF.openCustomers', 'Open customers table')}</Link>
             </Button>
             <span>{t('example.umes.extensions.phaseF.expect', 'Expect: injected column, row action, filters, and bulk action.')}</span>
           </div>
@@ -331,7 +333,7 @@ export default function UmesExtensionsPage() {
             </p>
           </div>
           <div className={`grid gap-1 ${hintClassName}`}>
-            <div className="font-medium text-amber-900 dark:text-amber-50">{t('example.umes.extensions.hintHeading', 'What should be visible and how it should work')}</div>
+            <div className="font-medium text-status-warning-text">{t('example.umes.extensions.hintHeading', 'What should be visible and how it should work')}</div>
             <div>{t('example.umes.extensions.phaseG.hint1', '1. Injected widget card `Example Injection Widget` should be visible above form fields.')}</div>
             <div>{t('example.umes.extensions.phaseG.hint2', '2. Saving valid form should update `submitResult` below the form.')}</div>
             <div>{t('example.umes.extensions.phaseG.hint3', '3. In customer detail form (`/backend/customers/people/:id`), injected `_example.priority` field should persist via onSave handler.')}</div>
@@ -350,13 +352,30 @@ export default function UmesExtensionsPage() {
           </div>
         </div>
 
+        <div className="space-y-3 rounded border border-border p-4">
+          <div>
+            <h2 className="text-base font-semibold">{t('example.umes.extensions.phaseI.title', 'Phase I — Client-side module overrides')}</h2>
+            <p className="text-sm text-muted-foreground">
+              {t('example.umes.extensions.phaseI.description', 'Both widgets below sit on the `example:override-probe` spot. `src/modules.ts` disables the first one and leaves the second alone, so this pair shows whether a modules.ts override survives the browser bootstrap that re-registers the injection registry.')}
+            </p>
+          </div>
+          <div className={`grid gap-1 ${hintClassName}`}>
+            <div className="font-medium text-status-warning-text">{t('example.umes.extensions.hintHeading', 'What should be visible and how it should work')}</div>
+            <div>{t('example.umes.extensions.phaseI.hint1', '1. The control widget should be visible — it proves the spot itself resolved.')}</div>
+            <div>{t('example.umes.extensions.phaseI.hint2', '2. The disabled widget should never appear, including after hydration finishes.')}</div>
+          </div>
+          <div data-testid="phase-i-override-probe-spot" className="grid gap-2">
+            <InjectionSpot spotId={extensionPoints.hosts.overrideProbe.spotId} context={{}} />
+          </div>
+        </div>
+
         <div className="space-y-2 rounded border border-border p-4">
           <h2 className="text-base font-semibold">{t('example.umes.extensions.phaseH.title', 'Phase H — Component replacement')}</h2>
           <p className="text-sm text-muted-foreground">
             {t('example.umes.extensions.phaseH.description', 'Active replacement handles in this area: page, DataTable, CrudForm, and the `ui.detail:NotesSection` wrapper declared in `example/widgets/components.ts`.')}
           </p>
           <div className={`grid gap-1 ${hintClassName}`}>
-            <div className="font-medium text-amber-900 dark:text-amber-50">{t('example.umes.extensions.hintHeading', 'What should be visible and how it should work')}</div>
+            <div className="font-medium text-status-warning-text">{t('example.umes.extensions.hintHeading', 'What should be visible and how it should work')}</div>
             <div>{t('example.umes.extensions.phaseH.hint1', '1. This page root should expose `data-component-handle="page:/backend/umes-extensions"`.')}</div>
             <div>{t('example.umes.extensions.phaseH.hint2', '2. Handles list table should expose `data-table:example.umes.extensions` replacement handle.')}</div>
             <div>{t('example.umes.extensions.phaseH.hint3', '3. Form should expose `crud-form:example.todo` replacement handle.')}</div>

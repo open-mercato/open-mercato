@@ -1,6 +1,5 @@
 import type {
   SearchModuleConfig,
-  SearchBuildContext,
   SearchResultPresenter,
   SearchIndexSource,
 } from '@open-mercato/shared/modules/search'
@@ -40,7 +39,6 @@ function formatSubtitle(...parts: Array<unknown>): string | undefined {
 }
 
 function buildIndexSource(
-  ctx: SearchBuildContext,
   presenter: SearchResultPresenter,
   lines: string[],
 ): SearchIndexSource | null {
@@ -48,7 +46,7 @@ function buildIndexSource(
   return {
     text: lines,
     presenter,
-    checksumSource: { record: ctx.record, customFields: ctx.customFields },
+    checksumSource: { text: lines, presenter },
   }
 }
 
@@ -63,13 +61,10 @@ export const searchConfig: SearchModuleConfig = {
         const { t } = await resolveTranslations()
         const record = ctx.record
         const lines: string[] = []
-        appendLine(lines, 'Name', record.display_name ?? record.displayName)
-        appendLine(lines, 'Email', record.email)
+        appendLine(lines, 'Customer user ID', record.id ?? 'customer_accounts:customer_user')
         return buildIndexSource(
-          ctx,
           {
             title: pickString(record.display_name, record.displayName) ?? String(record.id),
-            subtitle: formatSubtitle(record.email),
             icon: 'user',
             badge: t('customer_accounts.search.badge.customerUser', 'Customer User'),
           },
@@ -81,14 +76,14 @@ export const searchConfig: SearchModuleConfig = {
         const record = ctx.record
         return {
           title: pickString(record.display_name, record.displayName) ?? String(record.id),
-          subtitle: formatSubtitle(record.email),
           icon: 'user',
           badge: t('customer_accounts.search.badge.customerUser', 'Customer User'),
         }
       },
       resolveUrl: async (ctx) => `/backend/customer-accounts/users/${encodeURIComponent(String(ctx.record.id))}`,
       fieldPolicy: {
-        searchable: ['display_name', 'email'],
+        searchable: ['display_name'],
+        hashOnly: ['email'],
         excluded: ['password_hash', 'email_hash'],
       },
     },
@@ -104,7 +99,6 @@ export const searchConfig: SearchModuleConfig = {
         appendLine(lines, 'Name', record.name)
         appendLine(lines, 'Description', record.description)
         return buildIndexSource(
-          ctx,
           {
             title: pickString(record.name) ?? String(record.id),
             subtitle: formatSubtitle(snippet(record.description)),
