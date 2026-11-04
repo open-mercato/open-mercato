@@ -1,5 +1,19 @@
 # Upgrade Notes
 
+## Invitation role authorization (#2252)
+
+Staff invitations now reject missing, deleted, restricted (`customerAssignable:
+false`), or out-of-scope roles with `400`. Clients must submit eligible roles.
+Acceptance of older invitations grants only roles that remain live, in scope,
+and customer-assignable; an invitation can complete without its restricted role.
+Operators should review pending privileged invitations and use the existing
+staff manage-user role assignment after acceptance when a privileged grant is
+intended. Existing user-role assignments are unchanged. No database migration,
+startup or environment change is required. The old invitation behavior itself
+allowed escalation, so the PR requires named human maintainer acknowledgment of
+the emergency security compatibility exception before merge.
+
+
 ## Agent search answers honor domain policy (#7234)
 
 When an allow-list or deny-list is configured, agent `web_search` and the settings

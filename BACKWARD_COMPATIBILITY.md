@@ -634,3 +634,16 @@ STABLE tools/execute writes bypass approval; no bridge. [Migrate](UPGRADE_NOTES.
 ## SCIM rate limiting (2026-10-27)
 
 SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: ApiRouteBeforeAuth` is additive. See [contract and migration](.ai/specs/enterprise/implemented/SPEC-ENT-004-2026-02-19-sso-directory-sync.md#migration--backward-compatibility).
+
+
+## Invitation role authorization (2026-11-04, #2252)
+
+STABLE API/service behavior: staff invitation creation rejects restricted,
+missing, deleted, or out-of-scope roles (`400`); acceptance no longer grants roles
+that are not customer-assignable. The old behavior itself allows invite-only staff
+to mint privileged portal accounts, so keeping it as a bridge preserves the
+vulnerability. URLs, payload shapes, signatures, schema and existing assignments
+are unchanged. Emergency-security steps 1–3 waiver is proposed and still requires
+named human maintainer approval on the PR; automated review is insufficient.
+Client/operator migration: [upgrade notes](UPGRADE_NOTES.md#invitation-role-authorization-2252).
+Spec: [migration and backward compatibility](.ai/specs/implemented/SPEC-060-2026-03-04-customer-identity-portal-auth.md#migration--backward-compatibility).
