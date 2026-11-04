@@ -691,6 +691,21 @@ function fixtureWithWebhooks(inPresets: string[]): Record<string, unknown> {
   return body
 }
 
+test('runCatalogStep records its own warning even when the command is an inherited property', async () => {
+  const descriptor = Object.getOwnPropertyDescriptor(Object.prototype, SHIPMENT)
+  Object.defineProperty(Object.prototype, SHIPMENT, { value: 'inherited warning', configurable: true })
+  try {
+    const { options } = stepOptions({ version: '0.8.2', requested: ['shipment_tracking'], presetModuleIds: null })
+    const result = await runCatalogStep(options)
+    assert.ok(Object.hasOwn(result.commandWarnings, SHIPMENT))
+    assert.equal(result.commandWarnings[SHIPMENT], SHIPMENT_WARNING)
+    assert.equal(Object.getPrototypeOf(result.commandWarnings), Object.prototype)
+  } finally {
+    if (descriptor) Object.defineProperty(Object.prototype, SHIPMENT, descriptor)
+    else Reflect.deleteProperty(Object.prototype, SHIPMENT)
+  }
+})
+
 test('collisionWarning applies to a classic app, and to another preset only when it has a conflicting module', () => {
   const shipment = index.modules.find((entry) => entry.id === 'shipment_tracking')!
   assert.equal(collisionWarning(shipment, null, '0.8', index.modules), SHIPMENT_WARNING)

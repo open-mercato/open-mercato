@@ -710,6 +710,7 @@
   "auth.users.form.loading": "Benutzerdaten werden geladen...",
   "auth.users.form.title.create": "Benutzer erstellen",
   "auth.users.form.title.edit": "Benutzer bearbeiten",
+  "auth.users.list.actions.retry": "Erneut versuchen",
   "auth.users.list.columns.email": "E-Mail",
   "auth.users.list.columns.name": "Anzeigename",
   "auth.users.list.columns.organization": "Organisation",

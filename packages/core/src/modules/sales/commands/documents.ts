@@ -356,6 +356,7 @@ type QuoteAdjustmentSnapshot = {
 type OrderGraphSnapshot = {
   order: {
     id: string;
+    updatedAt?: string;
     organizationId: string;
     tenantId: string;
     orderNumber: string;
@@ -645,8 +646,9 @@ const documentUpdateFieldsSchema = z
     currencyCode: currencyCodeSchema.optional(),
     // Order-only columns — SalesQuote declares none of them. Declared here
     // because the create schema declares them and a caller reusing its create
-    // payload on an update otherwise lost them silently; `applyDocumentUpdate`
-    // rejects each with a 400 on a quote rather than dropping it.
+    // payload on an update otherwise lost them silently. `applyDocumentUpdate`
+    // rejects them on a quote, except `totalsMode`, which is ignored to preserve
+    // quote-create compatibility without enabling external quote amounts.
     exchangeRate: z.union([z.null(), exchangeRateSchema]).optional(),
     paymentStatusEntryId: z.string().uuid().nullable().optional(),
     fulfillmentStatusEntryId: z.string().uuid().nullable().optional(),
@@ -2033,6 +2035,7 @@ async function loadOrderSnapshot(
   return {
     order: {
       id: order.id,
+      updatedAt: order.updatedAt?.toISOString(),
       organizationId: order.organizationId,
       tenantId: order.tenantId,
       orderNumber: order.orderNumber,
@@ -3251,7 +3254,9 @@ function convertLineCalculationToEntityInput(
     unitPriceNet:
       toNumericString(
         line.unitPriceNet ??
-          lineResult.netAmount / Math.max(line.quantity || 1, 1),
+          (line.unitPriceGross !== null && line.unitPriceGross !== undefined
+            ? deriveLineNetFromGross(null, line.unitPriceGross, line.taxRate)
+            : lineResult.netAmount / Math.max(line.quantity || 1, 1)),
       ) ?? "0",
     unitPriceGross:
       toNumericString(
@@ -5890,7 +5895,6 @@ const updateQuoteCommand: CommandHandler<
   },
   async execute(rawInput, ctx) {
     const parsed = documentUpdateSchema.parse(rawInput ?? {});
-    await assertAmountsModeUnsupportedOnQuote([parsed]);
     documentEditSchema.parse(rawInput ?? {});
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     let quote!: SalesQuote;
@@ -6977,6 +6981,18 @@ const deleteOrderCommand: CommandHandler<
       em,
       [
         async () => {
+          const lockedOrder = await findOneWithDecryption(
+            em,
+            SalesOrder,
+            { id, tenantId: order.tenantId, organizationId: order.organizationId },
+            { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+            { tenantId: order.tenantId, organizationId: order.organizationId },
+          );
+          if (!lockedOrder) {
+            const { translate } = await resolveTranslations();
+            throw notFound(translate("sales.documents.detail.notFound", "Document not found."));
+          }
+          await enforceSalesDocumentOptimisticLock(ctx, lockedOrder, SALES_RESOURCE_KIND_ORDER);
           if (shipmentIds.length) {
             await em.nativeDelete(SalesShipmentItem, {
               shipment: { $in: shipmentIds },
@@ -6999,7 +7015,7 @@ const deleteOrderCommand: CommandHandler<
           });
           await em.nativeDelete(SalesOrderAdjustment, { order: order.id });
           await em.nativeDelete(SalesOrderLine, { order: order.id });
-          em.remove(order);
+          em.remove(lockedOrder);
         },
       ],
       { transaction: true },

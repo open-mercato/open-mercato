@@ -2029,6 +2029,7 @@
   "workflows.validation.timerDurationOrUntilRequired": "Krok „Czekaj na timer” wymaga podania „Czasu trwania” lub „Czekaj do”.",
   "workflows.validation.timerDurationXorUntil": "Krok „Czekaj na timer” przyjmuje „Czas trwania” albo „Czekaj do”, nie oba naraz. Wyczyść jedno z nich.",
   "workflows.validation.uniqueId": "ID musi być unikalne",
+  "workflows.validation.unsafeMappingTarget": "Ścieżki docelowe mapowania nie mogą zawierać segmentów __proto__, constructor ani prototype",
   "workflows.validation.untilMustBeFuture": "„Czekaj do” musi być datą i godziną w przyszłości.",
   "workflows.validation.workflowIdFormat": "ID przepływu może zawierać tylko małe litery, cyfry, myślniki i podkreślenia",
   "workflows.validation.workflowIdMaxLength": "ID przepływu musi mieć 50 znaków lub mniej",

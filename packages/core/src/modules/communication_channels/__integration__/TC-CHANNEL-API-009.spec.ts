@@ -123,6 +123,11 @@ test.describe('TC-CHANNEL-API-009: reaction routes mask other users\' personal m
       channelId = seeded.channelId
       const reactionId = await addReaction(request, ownerToken, seeded.messageId)
 
+      // The scenario is a stale reaction bar: keep live events from refreshing the
+      // page before the click, so the refusal path is exercised deterministically.
+      // Install the route before login, which opens the app and starts the event
+      // stream before the message-detail navigation.
+      await page.route('**/api/events/stream**', (route) => route.abort())
       await login(page, 'admin')
       await page.context().addCookies([{ name: 'locale', value: 'pl', url: baseURL ?? 'http://localhost:3000' }])
       const messageDetailPath = `/api/messages/${seeded.messageId}`
@@ -143,22 +148,21 @@ test.describe('TC-CHANNEL-API-009: reaction routes mask other users\' personal m
       const reactionButton = page.getByRole('button', { name: /👍/ })
       await expect(reactionButton).toBeVisible()
 
-      const removed = await apiRequest(
-        request,
-        'DELETE',
-        `/api/communication_channels/messages/${seeded.messageId}/reactions/${reactionId}`,
-        { token: ownerToken },
-      )
-      expect(removed.status()).toBe(204)
-
       const reactionPath = `/api/communication_channels/messages/${seeded.messageId}/reactions/${reactionId}`
-      const [refused] = await Promise.all([
-        page.waitForResponse((response) =>
-          response.request().method() === 'DELETE' && new URL(response.url()).pathname === reactionPath,
-        ),
-        reactionButton.click(),
-      ])
-      expect(refused.status()).toBe(404)
+      const ownerAuthToken = ownerToken
+      let removedStatus: number | undefined
+      await page.route(`**${reactionPath}`, async (route) => {
+        const removed = await apiRequest(request, 'DELETE', reactionPath, { token: ownerAuthToken })
+        removedStatus = removed.status()
+        await route.continue()
+      }, { times: 1 })
+      const refusalPromise = page.waitForResponse(
+        (response) => new URL(response.url()).pathname === reactionPath && response.request().method() === 'DELETE',
+      )
+      await reactionButton.click()
+      const refusalResponse = await refusalPromise
+      expect(removedStatus, 'fixture reaction removal should succeed before forwarding the browser request').toBe(204)
+      expect(refusalResponse.status()).toBe(404)
       await expect(page.getByText('Nie znaleziono reakcji')).toBeVisible()
     } finally {
       await deleteChannelIfExists(request, ownerToken, channelId)

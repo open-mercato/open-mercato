@@ -34,6 +34,7 @@ import {
   mapInteractionRecordToTodoSummary,
 } from '../../../lib/interactionCompatibility'
 import { resolveCustomerInteractionFeatureFlags } from '../../../lib/interactionFeatureFlags'
+import { countCustomerTodos } from '../../../lib/todoCompatibility'
 import { hydrateCanonicalInteractions } from '../../../lib/interactionReadModel'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
@@ -771,7 +772,10 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     if (viewerUserId) authorIds.add(viewerUserId)
 
     if (authorIds.size) {
-      const users = await findWithDecryption(em, User, { id: { $in: Array.from(authorIds) } }, {}, { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null })
+      const users = await findWithDecryption(em, User, {
+        id: { $in: Array.from(authorIds) },
+        tenantId: person.tenantId,
+      }, {}, { tenantId: person.tenantId, organizationId: person.organizationId })
       userMap = new Map(
         users.map((user) => [
           user.id,
@@ -875,19 +879,11 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
         deletedAt: null,
         ...emailVisibilityFilter,
       }),
-      interactionFlags.unified
-        ? em.count(CustomerInteraction, {
-            entity: person.id,
-            organizationId: person.organizationId,
-            tenantId: person.tenantId,
-            deletedAt: null,
-            interactionType: 'task',
-          })
-        : em.count(CustomerTodoLink, {
-            entity: person.id,
-            organizationId: person.organizationId,
-            tenantId: person.tenantId,
-          }),
+      countCustomerTodos(em, {
+        entityId: person.id,
+        organizationId: person.organizationId,
+        tenantId: person.tenantId,
+      }, interactionFlags.unified),
       includeAddresses
         ? Promise.resolve(addresses.length)
         : em.count(CustomerAddress, {
