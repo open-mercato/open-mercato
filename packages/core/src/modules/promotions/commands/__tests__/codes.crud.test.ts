@@ -334,11 +334,17 @@ describe('promotions.code.update command', () => {
     return updateCodeCommand.undo!({ logEntry, ctx, input: {} as UpdateUndoArgs['input'] })
   }
 
-  async function runLoggedUpdate(em: FakeEm, code: Row, input: Omit<UpdateInput, 'id'>) {
+  async function runLoggedUpdate(
+    em: FakeEm,
+    code: Row,
+    input: Omit<UpdateInput, 'id'>,
+    afterCommit: () => void = () => {},
+  ) {
     const ctx = fakeCtx(em, { dataEngine: fakeDataEngine() })
     const updateInput: UpdateInput = { id: code.id as string, ...input }
     const prepared = await updateCodeCommand.prepare!(updateInput, ctx)
     await updateCodeCommand.execute(updateInput, ctx)
+    afterCommit()
     const after = await updateCodeCommand.captureAfter!(updateInput, { codeId: code.id as string }, ctx)
     const logEntry = await updateCodeCommand.buildLog!({
       input: updateInput,
@@ -359,6 +365,20 @@ describe('promotions.code.update command', () => {
 
     await undo()
     expect(code.name).toBe('Original')
+    expect(code.active).toBe(false)
+  })
+
+  it('undo does not reactivate a code used up between the update commit and its log snapshot', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { name: 'Original', usage: 'single', used: 0, active: true })
+    const undo = await runLoggedUpdate(em, code, { name: 'Changed' }, () => {
+      code.used = 1
+      code.active = false
+    })
+
+    await undo()
+    expect(code.name).toBe('Original')
+    expect(code.used).toBe(1)
     expect(code.active).toBe(false)
   })
 

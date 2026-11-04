@@ -204,9 +204,9 @@ async function loadCode(em: EntityManager, id: string): Promise<Code | null> {
   return em.findOne(Code, { id, deletedAt: null })
 }
 
-function resolveUndoActiveFlag(code: Code, before: CodeSnapshot, after: CodeSnapshot | null | undefined): boolean {
+function resolveUndoActiveFlag(code: Code, before: CodeSnapshot): boolean {
   if (!before.active || code.type !== 'static') return before.active
-  const redeemedSinceUpdate = code.used > (after?.used ?? before.used)
+  const redeemedSinceUpdate = code.used > before.used
   return !redeemedSinceUpdate || hasRemainingGlobalUses(code)
 }
 
@@ -397,7 +397,6 @@ const updateCodeCommand: CommandHandler<PromotionCodeUpdateInput, { codeId: stri
     const payload = extractUndoPayload<CodeUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const after = payload?.after
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     let code = null as Code | null
 
@@ -423,7 +422,7 @@ const updateCodeCommand: CommandHandler<PromotionCodeUpdateInput, { codeId: stri
           code.usage = before.usage
           code.usageAmount = before.usageAmount
           code.usagePerCustomer = before.usagePerCustomer
-          code.active = resolveUndoActiveFlag(code, before, after)
+          code.active = resolveUndoActiveFlag(code, before)
         },
       ],
       { transaction: true, label: 'promotions.code.update.undo' },
