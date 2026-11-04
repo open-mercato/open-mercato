@@ -94,11 +94,10 @@ export async function POST(req: Request) {
     const payload = await readJsonSafe<Record<string, unknown>>(req, {})
     const scoped = withScopedPayload(payload ?? {}, ctx, translate)
     const parsedInput = quoteSendSchema.parse(scoped)
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const input = scoped.validForDays === undefined
       ? {
           ...parsedInput,
-          validForDays: normalizeQuoteValidityDays((await loadSalesSettings(em, {
+          validForDays: normalizeQuoteValidityDays((await loadSalesSettings(ctx.container.resolve('em') as EntityManager, {
             tenantId: ctx.auth!.tenantId!,
             organizationId: ctx.selectedOrganizationId!,
           }))?.defaultQuoteValidityDays),
@@ -123,6 +122,7 @@ export async function POST(req: Request) {
       return guardResult.response
     }
 
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const tenantScope = ctx.auth?.tenantId
       ? { tenantId: ctx.auth.tenantId, organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null }
       : undefined

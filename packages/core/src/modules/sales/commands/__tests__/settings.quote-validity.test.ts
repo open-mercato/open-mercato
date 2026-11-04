@@ -3,6 +3,7 @@ import { asValue, createContainer } from 'awilix'
 import { LockMode } from '@mikro-orm/core'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { QuoteValiditySettingsSaveInput } from '../../data/validators'
 import { SalesSettings } from '../../data/entities'
 
@@ -29,13 +30,15 @@ function harness(withRecord = true, expected = currentVersion) {
   }
   const transactional = jest.fn(async (callback: (em: typeof transactionEm) => Promise<unknown>) => callback(transactionEm))
   const container = createContainer()
+  const lockGuard = jest.fn().mockResolvedValue(undefined)
   container.register('em', asValue({ fork: () => ({ transactional }) }))
+  container.register('commandOptimisticLockGuardService', asValue({ enforce: lockGuard }))
   const ctx: CommandRuntimeContext = {
     container, auth: { sub: 'user', tenantId, orgId: organizationId }, selectedOrganizationId: organizationId,
     organizationIds: [organizationId], organizationScope: null,
     request: new Request('http://localhost/settings', { headers: { 'x-om-ext-optimistic-lock-expected-updated-at': expected } }),
   }
-  return { ctx, transactionEm, settings, transactional }
+  return { ctx, transactionEm, settings, transactional, lockGuard }
 }
 
 async function execute(ctx: CommandRuntimeContext, overrides: Partial<QuoteValiditySettingsSaveInput> = {}) {
@@ -46,7 +49,7 @@ async function execute(ctx: CommandRuntimeContext, overrides: Partial<QuoteValid
 
 beforeAll(async () => { await import('../settings') })
 it('locks the scoped row inside the transaction and changes only quote validity', async () => {
-  const { ctx, settings, transactionEm, transactional } = harness()
+  const { ctx, settings, transactionEm, transactional, lockGuard } = harness()
   const result = await execute(ctx)
   expect(transactional).toHaveBeenCalledTimes(1)
   expect(transactionEm.findOne).toHaveBeenCalledWith(SalesSettings, { tenantId, organizationId }, { lockMode: LockMode.PESSIMISTIC_WRITE })
@@ -55,6 +58,7 @@ it('locks the scoped row inside the transaction and changes only quote validity'
   expect(settings.orderNumberFormat).toBe('ORDER-{seq:5}')
   expect(settings.quoteNumberFormat).toBe('QUOTE-{seq:5}')
   expect(settings.orderCustomerEditableStatuses).toEqual(['draft'])
+  expect(lockGuard).toHaveBeenCalledWith({ resourceKind: 'sales.settings', resourceId: settings.id, current: new Date(currentVersion), request: ctx.request })
   expect(transactionEm.flush).toHaveBeenCalledTimes(1)
 })
 it('creates ordinary scoped settings with numbering defaults when no row exists', async () => {
@@ -65,9 +69,19 @@ it('creates ordinary scoped settings with numbering defaults when no row exists'
   expect(transactionEm.persist).not.toHaveBeenCalled()
 })
 it('rejects a stale version before changing or flushing settings', async () => {
-  const { ctx, settings, transactionEm } = harness(true, '2026-11-03T12:00:00.000Z')
+  const { ctx, settings, transactionEm, lockGuard } = harness(true, '2026-11-03T12:00:00.000Z')
   await expect(execute(ctx)).rejects.toMatchObject({ status: 409, body: { code: 'optimistic_lock_conflict' } })
   expect(settings.defaultQuoteValidityDays).toBe(14)
+  expect(transactionEm.flush).not.toHaveBeenCalled()
+  expect(lockGuard).not.toHaveBeenCalled()
+})
+it('awaits the registered record lock guard and preserves its rejection before changing settings', async () => {
+  const { ctx, settings, transactionEm, lockGuard } = harness()
+  const rejection = new CrudHttpError(409, { error: 'Record is locked', code: 'record_lock_conflict' })
+  lockGuard.mockRejectedValue(rejection)
+  await expect(execute(ctx)).rejects.toBe(rejection)
+  expect(settings.defaultQuoteValidityDays).toBe(14)
+  expect(settings.updatedAt).toEqual(new Date(currentVersion))
   expect(transactionEm.flush).not.toHaveBeenCalled()
 })
 it('rejects a forged organization before starting a transaction', async () => {

@@ -46,3 +46,21 @@ CI on9dda08898a failed its prepare/Build app step with TS2741: the new settings 
 
 ## CI date-fixture follow-up
 CI41857254484 passed prepare/lint/DS checks but its test job stopped before unit tests at `yarn check:time-bombs:fail`: two absolute future literals in the new pure-helper test were flagged HIGH. The helper tests now derive past/current/future inputs from one runtime anchor frozen for each test, retaining the fallback, rounding and cap assertions. The file-scoped scanner reproduced two HIGH findings before the change and reports zero after. Author and independent reviewer each ran `yarn jest --config packages/core/jest.config.cjs --runInBand --runTestsByPath packages/core/src/modules/sales/lib/__tests__/quoteValidity.test.ts`: one suite/26 tests passed; independent narrow review approves. No allowlist or scanner policy changed. Full local validation and the eight live cases remain pending.
+
+## Core contract follow-up
+The earlier CI core-timezone job reported four failing suites (six tests): the new synchronous optimistic-lock call lacked a record-lock decision, exact registration lists missed the new command, quote send forked its mutation context before guard approval, and the structural HTTP-mapping guard could not trace the route's existing local error helper.
+
+The settings command now awaits the existing DI-aware `enforceCommandOptimisticLockWithGuards` seam: the OSS version floor runs first, then an optional registered record-lock guard can reject before changing or flushing the settings row. No allowlist exemption is added. Quote send reads an omitted default through the scoped request manager and creates its mutation fork only after registry approval. Guards still see the configured duration. Both route catch clauses explicitly invoke the interceptor mapper while the shared local error response helper preserves the original status/body behavior. Exact registration lists include the added command.
+
+The author and independent reviewer each passed the focused seven-suite command below:73 tests (12.254s and58.086s respectively). Independent source review approves the bounded contract follow-up. It retains all four contract assertions and adds coverage for optional lock rejection before write, 422/423 interceptor response bodies, and configured omitted-duration sends rejected before a fork or email.
+```sh
+yarn jest --config packages/core/jest.config.cjs --runInBand --runTestsByPath \
+  packages/core/src/__tests__/optimistic-lock-command-coverage.test.ts \
+  packages/core/src/__tests__/command-interceptor-http-coverage.test.ts \
+  packages/core/src/modules/sales/commands/__tests__/registration.test.ts \
+  packages/core/src/__tests__/custom-write-mutation-guard-routes.test.ts \
+  packages/core/src/modules/sales/commands/__tests__/settings.quote-validity.test.ts \
+  packages/core/src/modules/sales/api/settings/quote-validity/__tests__/route.test.ts \
+  packages/core/src/modules/sales/api/__tests__/quotes.acceptance.test.ts
+```
+Only the existing custom-write contract test needed expansion; the other core coverage guards are unchanged. Full local validation and live scenarios remain pending.

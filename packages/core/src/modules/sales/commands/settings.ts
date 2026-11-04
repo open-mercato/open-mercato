@@ -1,5 +1,5 @@
 import { LockMode } from '@mikro-orm/core'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { DEFAULT_ORDER_NUMBER_FORMAT, DEFAULT_QUOTE_NUMBER_FORMAT } from '../lib/documentNumberTokens'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
@@ -144,7 +144,7 @@ const saveQuoteValiditySettingsCommand: CommandHandler<
         settings = await loadSalesSettings(transactionEm, input, { lockMode: LockMode.PESSIMISTIC_WRITE })
       }
       if (!settings) throw new Error('[internal] Sales settings initialization failed')
-      enforceCommandOptimisticLock({
+      await enforceCommandOptimisticLockWithGuards(ctx.container, {
         resourceKind: 'sales.settings', resourceId: settings.id,
         current: settings.updatedAt, request: ctx.request,
       })

@@ -43,3 +43,5 @@ PR: #8689
 - CI follow-up:9dda08898a prepare/Build app failed TS2741 for missing LoadingMessage.label. Scoped translated-label fix and a real loading-state regression added (fails before, passes after). Fresh CI atfea517 passed compile/preparation; local broad/live gates remain pending.
 
 - CI test job then stopped at the date-fixture scanner before unit tests: two new helper test literals flagged HIGH. Changed the fixtures to clock-relative inputs under a frozen anchor; file-scoped scan fails before and passes with zero findings after. Author and independent reviewer each passed the26-test helper suite; narrow review approves. No product behavior or scanner policy changed.
+
+- Core CI follow-up: await the existing DI-aware command lock seam without an exemption, expose interceptor mapping explicitly to the catch-chain guard, update exact command registration assertions, and defer the send mutation fork until after registry approval. Added scoped regressions; the author and independent reviewer each passed the four contract/registration suites plus three affected sales suites (73 tests). Narrow source review approves. Final broad/live gates remain queued.

@@ -55,9 +55,8 @@ async function resolveContext(req: Request, write: boolean) {
   return { ctx, scope, em: container.resolve('em') as EntityManager }
 }
 
-async function handleError(error: unknown) {
+async function handleError(error: unknown, rejection: ReturnType<typeof getCommandInterceptorHttpRejection>) {
   if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
-  const rejection = getCommandInterceptorHttpRejection(error)
   if (rejection) return NextResponse.json(rejection.body, { status: rejection.status })
   const { translate } = await resolveTranslations()
   if (error instanceof z.ZodError) {
@@ -77,7 +76,7 @@ export async function GET(req: Request) {
       updatedAt: settings?.updatedAt.toISOString() ?? null,
     })
   } catch (error) {
-    return handleError(error)
+    return handleError(error, getCommandInterceptorHttpRejection(error))
   }
 }
 
@@ -103,7 +102,7 @@ export async function PUT(req: Request) {
     await guardResult.runAfterSuccess()
     return NextResponse.json({ defaultQuoteValidityDays: result.defaultQuoteValidityDays, updatedAt: result.updatedAt })
   } catch (error) {
-    return handleError(error)
+    return handleError(error, getCommandInterceptorHttpRejection(error))
   }
 }
 

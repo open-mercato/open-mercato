@@ -3,6 +3,7 @@ import { GET, PUT } from '../route'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { loadSalesSettings } from '../../../../commands/settings'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
+import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
 
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const organizationId = '22222222-2222-4222-8222-222222222222'
@@ -74,6 +75,15 @@ it('honors a blocked registry guard without executing the command', async () => 
   jest.mocked(runRouteMutationGuards).mockResolvedValue({ ok: false, errorStatus: 423, errorBody: { error: 'locked' }, response: Response.json({ error: 'locked' }, { status: 423 }) })
   expect((await PUT(request('PUT', { defaultQuoteValidityDays: 30 }))).status).toBe(423)
   expect(mockExecute).not.toHaveBeenCalled()
+})
+it.each([422, 423])('preserves interceptor status %s and its complete response body', async (status) => {
+  mockPermissions.add('sales.settings.manage')
+  const body = { error: 'Blocked by interceptor', code: 'settings_policy', details: { field: 'defaultQuoteValidityDays' } }
+  mockExecute.mockRejectedValueOnce(new CommandInterceptorError('Blocked', { status, body }))
+  const response = await PUT(request('PUT', { defaultQuoteValidityDays: 30 }))
+  expect(response.status).toBe(status)
+  expect(await response.json()).toEqual(body)
+  expect(mockAfterSuccess).not.toHaveBeenCalled()
 })
 it.each([0, 366, 2.5, null])('rejects invalid duration %s before guards or writes', async (days) => {
   mockPermissions.add('sales.settings.manage')
