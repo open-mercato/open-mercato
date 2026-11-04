@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { findContainerPortOwners, requestExistingServicesConsent, startInfraServices } from '../infra-preflight.mjs'
+import { findContainerPortOwners, formatInfraProblem, requestExistingServicesConsent, startInfraServices, suggestFreePorts } from '../infra-preflight.mjs'
 import { devRuntimeArgs } from '../infra.mjs'
 import { infraUpStep, runSteps } from '../steps.mjs'
 import { ensureInfra } from '../../../create-app/template/scripts/infra.mjs'
@@ -98,8 +98,22 @@ test('restarting cross-project containers block startup even while their TCP por
 
   assert.equal(outcome.ok, false)
   assert.equal(outcome.problem.code, 'port-conflict')
-  assert.deepEqual(outcome.problem.ports, [restarting])
+  assert.deepEqual(outcome.problem.ports, [{ ...restarting, suggestedPort: restarting.port + 1 }])
   assert.ok(calls.every((args) => !args.includes('up') && !args.includes('stop') && !args.includes('down')))
+})
+
+test('port conflicts suggest the next free port, skipping taken ones and ports suggested for another service', async () => {
+  const taken = new Set([5433, 6380])
+  const suggested = await suggestFreePorts(
+    [{ service: 'postgres', envKey: 'POSTGRES_PORT', port: 5432 }, { service: 'redis', envKey: 'REDIS_PORT', port: 6379 }],
+    { probe: async (port) => taken.has(port), reserved: [5432, 6379, 5435] },
+  )
+  assert.deepEqual(suggested.map((entry) => entry.suggestedPort), [5434, 6381])
+  const skipped = await suggestFreePorts([{ service: 'postgres', envKey: 'POSTGRES_PORT', port: 5432 }], { probe: async () => false, reserved: [5433] })
+  assert.equal(skipped[0].suggestedPort, 5434, 'a port configured for another service in the stack is never suggested')
+  const text = formatInfraProblem({ code: 'port-conflict', ports: suggested }, { output: { isTTY: false }, env: {} }).join('\n')
+  assert.match(text, /set POSTGRES_PORT=5434 in \.env/)
+  assert.match(text, /\(:5432 -> :5434\)/)
 })
 
 test('running services in this Compose project do not become foreign port conflicts', async () => {

@@ -262,7 +262,8 @@ test('yarn setup reports a port held by another process and does not run compose
     const run = await runScript(app, 'setup.mjs', [])
     assert.equal(run.code, 2, run.output)
     assert.match(run.output, new RegExp(`Port ${app.ports.POSTGRES_PORT} \\(postgres\\) is already in use`))
-    assert.match(run.output, /POSTGRES_PORT in \.env/)
+    assert.match(run.output, /set POSTGRES_PORT=\d+ in \.env/)
+    for (const port of [app.ports.REDIS_PORT, app.ports.MEILISEARCH_PORT]) assert.doesNotMatch(run.output, new RegExp(`POSTGRES_PORT=${port} `))
     assert.ok(!run.dockerCalls.some((call) => call.startsWith('compose up')))
     assert.equal(run.devArgs, null)
   } finally {

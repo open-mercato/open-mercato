@@ -143,6 +143,26 @@ function diagnosticColors({ output = process.stdout, env = process.env } = {}) {
   }
 }
 
+// For each conflicting service, the next free port above the taken one, so the
+// message can name the exact .env line instead of "pick a free port".
+export async function suggestFreePorts(conflicts, { probe = probeTcpPort, span = 100, reserved = [] } = {}) {
+  const claimed = new Set([...reserved, ...conflicts.map((entry) => entry.port)])
+  const suggested = []
+  for (const entry of conflicts) {
+    let freePort = null
+    for (let candidate = entry.port + 1; candidate <= Math.min(entry.port + span, 65535); candidate += 1) {
+      if (claimed.has(candidate)) continue
+      if (!(await probe(candidate))) {
+        freePort = candidate
+        claimed.add(candidate)
+        break
+      }
+    }
+    suggested.push(freePort ? { ...entry, suggestedPort: freePort } : entry)
+  }
+  return suggested
+}
+
 export function parseListenerProcesses(raw, { format = 'lsof' } = {}) {
   const found = new Map()
   const add = (pid, command) => {
@@ -184,7 +204,7 @@ export function findPortProcessOwners(port, { platform = process.platform, spawn
 }
 
 function listenerSummary(entry, colors) {
-  if (!entry.processes?.length) return 'Listener PID: unavailable'
+  if (!entry.processes?.length) return entry.containerName ? `Container: ${diagnosticText(entry.containerName)}` : 'Listener PID: unavailable'
   return `Listener ${entry.processes.length === 1 ? 'PID' : 'PIDs'}: ${entry.processes.map(({ pid, command }) => `${colors.pid(pid)}${command ? ` (${diagnosticText(command)})` : ''}`).join(', ')}`
 }
 
@@ -296,11 +316,15 @@ function remediationFor(problem, platform, { wsl = false, databaseUrlFile = '.en
       return [
         ...problem.ports.flatMap((entry) => [
           `Port ${entry.port} (${diagnosticText(entry.service)}) is already in use.`,
-          `  ${listenerSummary(entry, diagnosticColors({ output: { isTTY: false } }))}${entry.containerName ? `; container: ${diagnosticText(entry.containerName)}` : ''}`,
-          entry.envKey ? `  Stop the listener above, or pick a free port with ${diagnosticText(entry.envKey)} in .env.` : '  Stop the listener above before retrying.',
+          `  ${listenerSummary(entry, diagnosticColors({ output: { isTTY: false } }))}${entry.containerName && entry.processes?.length ? `; container: ${diagnosticText(entry.containerName)}` : ''}`,
+          entry.envKey
+            ? entry.suggestedPort
+              ? `  Stop the listener above, or use a free port: set ${diagnosticText(entry.envKey)}=${entry.suggestedPort} in .env.`
+              : `  Stop the listener above, or pick a free port with ${diagnosticText(entry.envKey)} in .env.`
+            : '  Stop the listener above before retrying.',
           '',
         ]),
-        `If you change POSTGRES_PORT, update the port in DATABASE_URL (${databaseUrlFile}) as well.`,
+        `If you change POSTGRES_PORT, update the port in DATABASE_URL (${databaseUrlFile}) as well${problem.ports.find((entry) => entry.envKey === 'POSTGRES_PORT' && entry.suggestedPort) ? ` (:${problem.ports.find((entry) => entry.envKey === 'POSTGRES_PORT').port} -> :${problem.ports.find((entry) => entry.envKey === 'POSTGRES_PORT').suggestedPort})` : ''}; REDIS_PORT likewise in REDIS_URL if you set one.`,
         '`docker ps --all` shows existing containers, including restart loops, that may hold these ports.',
         'If this is an older Open Mercato run, run `yarn om stop` in that checkout before trying again.',
         ...portConflictHints.flatMap((line) => diagnosticText(line).split(/(?<=\.) +(?=[A-Z])/)),
@@ -431,7 +455,7 @@ export async function startInfraServices({
     const owners = containerProbe(services.filter((entry) => !running.has(entry.service)), { spawnSyncImpl }).filter((entry) => !running.has(entry.service))
     const occupied = await findPortConflicts(services, { running, probe: portProbe })
     const conflicts = services.filter((entry) => !running.has(entry.service) && (owners.some((owner) => owner.service === entry.service) || occupied.some((port) => port.service === entry.service))).map((entry) => owners.find((owner) => owner.service === entry.service) ?? entry)
-    if (conflicts.length > 0) return { ok: false, problem: { code: 'port-conflict', ports: attachProcesses(conflicts) } }
+    if (conflicts.length > 0) return { ok: false, problem: { code: 'port-conflict', ports: await suggestFreePorts(attachProcesses(conflicts), { probe: portProbe, reserved: services.map((entry) => entry.port) }) } }
   }
 
   const reused = required.filter((service) => running.has(service))
