@@ -633,10 +633,14 @@ export async function maybeRunCatalogStep(
   const preset = resolvePreset(presetId)
   const presetModuleIds = preset.isClassic ? null : preset.modules.map((entry) => entry.id)
   const interactive = picker && Boolean(process.stdin.isTTY && process.stdout.isTTY)
-  const rl = interactive ? createInterface({ input: process.stdin, output: process.stdout }) : null
-  const ask = rl
-    ? (question: string) =>
-        new Promise<string>((resolveAnswer) => rl.question(question, (answer) => resolveAnswer(answer.trim())))
+  // Opened on the first question, not before the catalog fetch: a readline puts the terminal in raw mode, where
+  // Ctrl+C during the fetch would close it instead of stopping the run.
+  const terminal: { rl: ReturnType<typeof createInterface> | null } = { rl: null }
+  const ask = interactive
+    ? (question: string) => {
+        const rl = (terminal.rl ??= createInterface({ input: process.stdin, output: process.stdout }))
+        return new Promise<string>((resolveAnswer) => rl.question(question, (answer) => resolveAnswer(answer.trim())))
+      }
     : null
 
   try {
@@ -653,7 +657,7 @@ export async function maybeRunCatalogStep(
     })
     return { commands: result.commands, commandWarnings: result.commandWarnings }
   } finally {
-    rl?.close()
+    terminal.rl?.close()
   }
 }
 

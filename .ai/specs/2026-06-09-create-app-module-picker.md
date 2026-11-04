@@ -49,7 +49,7 @@ What changed since the 2026-06-09 draft, and why:
 | Official modules activated through `official-modules.json` + the `external/official-modules` submodule, with the three `official-modules*.mjs` scripts, `workspaces` and a `postinstall` shipped into the template | Removed. Modules are npm packages installed with `yarn mercato module add <package>@<version>` (existing command), core modules with `yarn mercato module enable @open-mercato/core --module <id>` | `module add` already installs, registers and generates; the submodule path needed git, a two-pass install and byte-identical script copies (Blockers A to C of the old draft). The official-modules repository is being retired in favour of npm packages listed in the catalog. |
 | Selected modules written straight into `src/modules.ts` | Phase 1 prints the install commands and saves the plan; nothing is written into `src/modules.ts` or `package.json` | Installing third-party code needs `--allow-third-party` and a version pinned to what the catalog verified; `module add` enforces both and runs the generators. Writing `src/modules.ts` before the package exists would break `yarn generate`. |
 | Baked core snapshot for offline use | Offline: the preset stays as is, the catalog step is skipped with a notice | Core modules come from the presets, which are compiled into create-app; the catalog step only adds packages, which need the network anyway. |
-| Version keyed to `PACKAGE_VERSION` tag | Version mapped to a catalog line: `0.9.x` -> `0.9`, a `*-develop.*` or `*-canary.*` prerelease -> `next`; a version the catalog does not test offers nothing | Only modules with a verified install on the scaffolded line are offered (the catalog's `verifiedOn`, which follows `version.recommended`, so a new release in quarantine does not hide a module). |
+| Version keyed to `PACKAGE_VERSION` tag | Version mapped to a catalog line: `0.9.x` -> `0.9`, a `*-develop.*` prerelease -> `next`, a `*-canary.*` preview -> its own line when the catalog has it, else `next`; a version the catalog does not test offers nothing | Only modules with a verified install on the scaffolded line are offered (the catalog's `verifiedOn`, which follows `version.recommended`, so a new release in quarantine does not hide a module). |
 
 ---
 
@@ -330,8 +330,9 @@ create-mercato-app my-app --no-module-picker
 - Both are rejected with `--app` / `--app-url` (imported ready apps keep their own module set).
 - Without `--module-picker` or `--no-module-picker`, the picker is offered in an interactive terminal when the
   command line has neither `--preset` nor `--modules` (a user who did not choose a starter set on the command
-  line also sees the verified catalog modules; Enter adds none). With `--preset`, `--modules`, `--app` /
-  `--app-url` or without a terminal: no catalog request and no prompt, as before.
+  line also sees the verified catalog modules; Enter adds none). With `--preset`, `--app` / `--app-url` or
+  without a terminal there is no prompt and no catalog request, as before; `--modules` still fetches the
+  catalog to resolve its list, without a prompt.
 - `--no-module-picker` turns the default offer off; the last of `--module-picker` / `--no-module-picker` wins.
 - The 2026-06-09 `--official-modules` flag stays withdrawn: there is no official-modules activation anymore.
 
@@ -367,7 +368,7 @@ create-mercato-app my-app --no-module-picker
 - Edit `packages/create-app/src/index.ts`: `Options`, `parseArgs`, `showHelp`, ready-app guard,
   `maybeRunCatalogStep` after `applyStarterPreset`, `printTemplateNextSteps` catalog block.
 
-**Exit:** default invocation unchanged; `--modules` / `--module-picker` produce the plan file and commands;
+**Exit:** default invocation unchanged (since 2026-11-04 the picker is offered by default in a terminal, see CLI / non-interactive path); `--modules` / `--module-picker` produce the plan file and commands;
 offline and untested-line runs degrade with a notice.
 
 ### Phase 2: core module customization (planned)
@@ -457,7 +458,7 @@ the `build.mjs` snapshot step, `scripts/lib/official-modules.mjs` `generatedPath
 
 | Surface | Impact | Handling |
 |---|---|---|
-| `create-mercato-app` default invocation | Interactive only (2026-11-04) | In a terminal without `--preset` or `--modules` the picker is offered after the preset prompt (one catalog request; Enter adds none). Scripts and CI without a terminal, and every run with `--preset`, `--modules`, `--app`, `--app-url` or `--no-module-picker`, are unchanged. |
+| `create-mercato-app` default invocation | Interactive only (2026-11-04) | In a terminal without `--preset` or `--modules` the picker is offered after the preset prompt (one catalog request; Enter adds none). Scripts and CI without a terminal, and every run with `--preset`, `--modules`, `--app`, `--app-url` or `--no-module-picker`, get no picker, as before. |
 | CLI flags | Additive | `--modules`, `--module-picker`, `--no-module-picker` added; existing flags unchanged. |
 | `src/modules.ts`, `package.json`, template files | None in Phase 1 | The catalog step writes only `.mercato/catalog-selection.json`. |
 | `picker.json` contract | External, additive | `schemaVersion: 1`; the parser ignores unknown fields and drops malformed items. |
@@ -511,6 +512,7 @@ _None outstanding._ The 2026-06-09 decisions on catalog source and official-modu
   new classic app ships the module there and the catalog has no command for other presets.
 - 2026-11-04: The picker is offered by default in an interactive terminal when neither `--preset` nor
   `--modules` is given (request from Piotr Karwatka, core team, 2026-11-04); `--no-module-picker` returns as
-  the opt-out. Runs without a terminal and runs with `--preset`, `--modules`, `--app` or `--app-url` keep the
-  previous behaviour (no catalog request). Canary previews of pull requests (`*-canary.*`) map to the `next`
-  line like develop snapshots, so a preview can be tested against the catalog.
+  the opt-out. Runs without a terminal and runs with `--preset`, `--modules`, `--app` or `--app-url` get no
+  picker, as before (`--modules` alone still fetches the catalog). The picker opens its readline only when it
+  asks, so Ctrl+C during the catalog fetch stops the run. A canary preview (`*-canary.*`) whose x.y line is not
+  in the catalog (a pull request into main) maps to `next`; one on a released line keeps that line.
