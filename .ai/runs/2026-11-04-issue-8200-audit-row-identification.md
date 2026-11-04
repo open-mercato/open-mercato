@@ -27,8 +27,10 @@ Risks: previewing unsafe values, mismatching historical names, changed click beh
 ## Validation
 Runner: local. No running compose app; fullapp compose probe requires missing JWT_SECRET. No env values printed.
 Ordered gate: yarn build:packages; yarn generate; yarn build:packages; yarn i18n:check-sync; yarn i18n:check-usage; yarn typecheck; yarn test; yarn build:app.
-Baseline yarn build:packages passed (42/42 cached tasks, 15.74s). yarn install --immutable passed with peer warnings. Hooks require TMPDIR=/tmp/issue-8200 due macOS socket path length.
+Baseline yarn build:packages passed (42/42 cached tasks, 15.74s). yarn install --immutable passed with peer warnings. Commands and hooks use a task-private short directory created with `mktemp -d /private/tmp/cz-XXXXXX`, passed explicitly as TMPDIR, TMP and TEMP, due macOS socket path length.
 Spec PR: https://github.com/open-mercato/open-mercato/pull/8673 (design-only; spec stays out of implementation commit).
 
 Phase implementation commit: 7b4ff44607bc377f98212563db282fb1694ff55f
-Targeted validation: yarn workspace @open-mercato/core test --runInBand src/modules/audit_logs — 16 suites / 210 tests passed (159.616s). Independent static review approved after correcting parent labels. New identification assertion fails against exact baseline component (record name absent). Playwright fixture scenario authored; runtime execution pending.
+Targeted validation: yarn workspace @open-mercato/core test --runInBand src/modules/audit_logs — 16 suites / 210 tests passed (159.616s). Independent static review approved after correcting parent labels. New identification assertion fails against exact baseline component (record name absent). Native Playwright fixture scenario passed first attempt (1 test, 19.831s); screenshot captured and inspected; owned runtime cleaned and released. Full workspace gate remains blocked by the 2401.2s yarn test timeout with two unresolved unchanged UI-test failures; all other configured commands passed, including build:app (1513.0s).
+
+Focused diagnostics: unchanged EntityTagsDialog suite passed 15 tests in sibling verification; own color-playground suite passed 13 tests (124.755s). Full-suite retry awaits a serialized heavy-validation window; no gate waiver or publication claimed. Final independent review found no additional concerns and retains the publication block.
