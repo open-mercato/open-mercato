@@ -114,6 +114,8 @@ Rules:
 - `--template` reads `templates.json` (`OM_TEMPLATES_URL`: https or loopback only), selects one sha and prints `owner/repo@sha` with its verification state before any download. A `#ref` never inherits another sha's facts. A gone index sha stops with a `#ref` hint, never other code
 - `--template` refuses `hold` entries and unknown statuses with no override; `unmaintained` works and prints its reason. A slug needs the index; `owner/repo` continues without it
 - `--template` excludes `--app`, `--app-url`, `--modules`, `--module-picker`, `--agents`, `--experimental-hooks-validator` and a non-classic `--preset`, checked before any request. It never offers the module picker or runs `.template` placeholder processing
+- Every import (`--app`, `--app-url`, `--template`) goes through `src/lib/safe-archive.ts`: a streamed 64 MiB download cap, at most 10,000 entries and 128 MiB unpacked, files and directories only (any link, special entry, absolute path or `..` segment fails with its path), inspected before the target is created non-recursively, then checked with `lstat`. No override in v1
+- A failed `--template` import removes the target directory it created; `--app` and `--app-url` keep it
 
 ## Testing with Verdaccio
 
