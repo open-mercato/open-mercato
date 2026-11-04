@@ -97,11 +97,12 @@ my-app/
 
 ## Ready App Import Modes
 
-`create-mercato-app` supports three scaffold modes:
+`create-mercato-app` supports four scaffold modes:
 
 1. Bare scaffold: `npx create-mercato-app my-app`
 2. Official ready app: `npx create-mercato-app my-prm --app prm`
 3. External GitHub ready app: `npx create-mercato-app my-app --app-url https://github.com/some-agency/ready-app-marketplace`
+4. App template: `npx create-mercato-app my-app --template <slug | owner/repo>[#ref] [--keep-name]` (spec `.ai/specs/2026-11-04-create-app-template-flag.md`)
 
 Rules:
 
@@ -110,6 +111,9 @@ Rules:
 - `--app` and `--app-url` are mutually exclusive
 - Imported ready apps skip template processing and the interactive agentic wizard
 - Imported ready apps must be committed source snapshots; fail closed if `.template` files are present
+- `--template` reads `templates.json` (`OM_TEMPLATES_URL`: https or loopback only), selects one sha and prints `owner/repo@sha` with its verification state before any download. A `#ref` never inherits another sha's facts. A gone index sha stops with a `#ref` hint, never other code
+- `--template` refuses `hold` entries and unknown statuses with no override; `unmaintained` works and prints its reason. A slug needs the index; `owner/repo` continues without it
+- `--template` excludes `--app`, `--app-url`, `--modules`, `--module-picker`, `--agents`, `--experimental-hooks-validator` and a non-classic `--preset`, checked before any request. It never offers the module picker or runs `.template` placeholder processing
 
 ## Testing with Verdaccio
 
