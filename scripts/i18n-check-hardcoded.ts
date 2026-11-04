@@ -9,6 +9,10 @@
  *  - throw new Error('...') / createCrudFormError('...') / raiseCrudError('...')
  *    / toast.<level>('...') whose first argument is an English-like string and
  *    is not prefixed with `[internal]`.
+ *  - new CrudHttpError(status, { error: '...' }), the badRequest/forbidden/
+ *    notFound/conflict('...') and assertFound(value, '...') helpers, and
+ *    NextResponse.json({ error: '...' }) / Response.json({ error: '...' })
+ *    whose message is an English-like literal on the same line.
  *
  * Each module may opt out specific lines via
  * `<module>/i18n/.hardcoded-allowlist.json` (see the spec at
@@ -238,7 +242,7 @@ function main() {
   }
 
   console.log(`${cyan('[check]')} Hardcoded i18n strings — scanned ${totalFiles} files in ${elapsedMs}ms`)
-  console.log(dim(`Patterns: JSX text, JSX attributes (label/title/placeholder/aria-label/...), throw/createCrudFormError/raiseCrudError/toast.* calls`))
+  console.log(dim(`Patterns: JSX text, JSX attributes (label/title/placeholder/aria-label/...), throw/createCrudFormError/raiseCrudError/toast.* calls, CrudHttpError bodies and helpers, JSON error bodies`))
   console.log('')
 
   if (totalFindings === 0 && totalAllowlisted === 0) {

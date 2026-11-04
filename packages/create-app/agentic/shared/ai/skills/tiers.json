@@ -145,6 +145,7 @@
       "description": "Daily standalone architecture, implementation, extension, debugging, and harness-maintenance skills.",
       "skills": [
         "om-help",
+        "om-find-module",
         "om-implement-spec",
         "om-backend-ui-design",
         "om-module-scaffold",
@@ -158,7 +159,8 @@
         "om-evolve-harness",
         "om-judge-agent-session",
         "om-share-this-session",
-        "om-eject-and-customize"
+        "om-eject-and-customize",
+        "om-setup-ci"
       ]
     },
     "automation": {
@@ -171,7 +173,8 @@
         "om-auto-upgrade-0.4.10-to-0.5.0",
         "om-auto-upgrade-0.6.6-to-0.6.7",
         "om-auto-upgrade-0.6.7-to-0.7.0",
-        "om-auto-upgrade-0.7.0-to-0.8.0"
+        "om-auto-upgrade-0.7.0-to-0.8.0",
+        "om-auto-upgrade-0.8.0-to-0.9.0"
       ]
     }
   }

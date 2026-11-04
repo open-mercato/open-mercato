@@ -69,15 +69,20 @@ describe('outbound-bridge subscriber behaviour', () => {
     expect(findOne).toHaveBeenCalledTimes(1)
   })
 
-  it('skips an external_conversation sourced message without enqueueing an outbound delivery', async () => {
-    const findOne = jest.fn().mockResolvedValueOnce({
-      id: messageId,
-      threadId: 'thread-1',
-      sourceEntityType: 'communication_channels.external_conversation',
-    }) // Message
+  it('skips an ingested inbound external_conversation message without enqueueing an outbound delivery', async () => {
+    const findOne = jest.fn()
+      .mockResolvedValueOnce({
+        id: messageId,
+        threadId: 'thread-1',
+        sourceEntityType: 'communication_channels.external_conversation',
+        visibility: 'public',
+        idempotencyKey: 'cc:channel-1:external-message-1',
+      })
+      .mockResolvedValueOnce({ channelId: 'channel-1', externalConversationId: 'conversation-1' })
+      .mockResolvedValueOnce(null)
     await handler({ messageId, tenantId }, makeCtx({ findOne }))
     expect(enqueueMock).not.toHaveBeenCalled()
-    expect(findOne).toHaveBeenCalledTimes(1)
+    expect(findOne).toHaveBeenCalledTimes(3)
   })
 
   it('skips internal-only messages (no threadId)', async () => {

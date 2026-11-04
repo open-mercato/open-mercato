@@ -1491,5 +1491,6 @@
   "agent_orchestrator.webSearch.activity.stage.merging": "Merging results",
   "agent_orchestrator.webSearch.activity.stage.reading": "Reading pages",
   "agent_orchestrator.webSearch.activity.title": "Web search",
-  "agent_orchestrator.workInbox.disposition.title": "Agent proposal to review: {agent}"
+  "agent_orchestrator.workInbox.disposition.title": "Agent proposal to review: {agent}",
+  "notifications.categories.agent_orchestrator": "AI agents"
 }
