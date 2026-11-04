@@ -46,7 +46,7 @@ const mockPartition = {
 const mockStorageRead = jest.fn(async () => ({ buffer: Buffer.from('data') }))
 const mockResolveForPartition = jest.fn(async () => ({ key: 'local', read: mockStorageRead }))
 
-const mockLogger = { warn: jest.fn(), error: jest.fn(), info: jest.fn(), debug: jest.fn() }
+const mockLogger = { warn: jest.fn(), error: jest.fn(), info: jest.fn(), debug: jest.fn(), child: (): unknown => mockLogger }
 jest.mock('@open-mercato/shared/lib/logger', () => ({
   createLogger: () => mockLogger,
 }))
