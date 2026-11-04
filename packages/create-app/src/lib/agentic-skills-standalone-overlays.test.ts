@@ -628,6 +628,31 @@ test('om-find-module ships in the core tier and teaches agents to ask the module
   assert.match(taskFamilies, /\| `om-find-module` \|/)
 })
 
+test('every agent MCP example declares the om-modules catalog server that om-find-module searches first', () => {
+  const catalogUrl = 'https://om-modules.openmercato.workers.dev/mcp'
+  // Each tool has its own remote-server shape: Claude Code and VS Code need
+  // type "http", Cursor and Codex infer streamable HTTP from the url alone.
+  const examples: { file: string; serversKey: string; entry: Record<string, string> }[] = [
+    { file: 'claude-code/mcp.json.example', serversKey: 'mcpServers', entry: { type: 'http', url: catalogUrl } },
+    { file: 'codex/mcp.json.example', serversKey: 'mcpServers', entry: { url: catalogUrl } },
+    { file: 'cursor/mcp.json.example', serversKey: 'mcpServers', entry: { url: catalogUrl } },
+    { file: 'github-copilot/mcp.json.example', serversKey: 'servers', entry: { type: 'http', url: catalogUrl } },
+  ]
+  for (const { file, serversKey, entry } of examples) {
+    const config = JSON.parse(fs.readFileSync(new URL(`../../agentic/${file}`, import.meta.url), 'utf8')) as Record<
+      string,
+      Record<string, unknown> | undefined
+    >
+    const servers = config[serversKey] as Record<string, unknown> | undefined
+    assert.ok(servers?.['open-mercato'], `${file} must keep the app's own open-mercato server`)
+    assert.deepEqual(servers?.['om-modules'], entry, `${file} must declare om-modules in the tool's own format, with no secrets`)
+  }
+
+  const skill = readOverrideSkill('om-find-module')
+  assert.ok(skill.includes(catalogUrl), 'om-find-module must name the catalog MCP endpoint')
+  assert.match(skill, /`mcp\.json\.example` files declare it/, 'om-find-module must point at the shipped MCP examples')
+})
+
 test('OMH-241 routes module discovery to om-find-module without widening the OMH-239 publication case', () => {
   const cases = JSON.parse(fs.readFileSync(new URL('../harness/cases.json', skillsDir), 'utf8')) as {
     id: string
