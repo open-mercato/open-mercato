@@ -40,7 +40,7 @@ Make PR #7528 (fix for #7496) merge-ready by addressing the changes-requested re
 
 ### Phase 2: Address review feedback
 
-- [ ] 2.1 Merge latest main into the PR branch
-- [ ] 2.2 Switch integration test to published helper import paths
-- [ ] 2.3 Remove the per-test timeout override
-- [ ] 2.4 Anchor the stage locator and surface dictionary cleanup failures
+- [x] 2.1 Merge latest main into the PR branch — 6d9cfea48f
+- [x] 2.2 Switch integration test to published helper import paths — 12bea2a761
+- [x] 2.3 Remove the per-test timeout override — 12bea2a761
+- [x] 2.4 Anchor the stage locator and surface dictionary cleanup failures — 12bea2a761
