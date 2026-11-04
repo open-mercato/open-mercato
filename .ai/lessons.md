@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 144 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 148 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -17,6 +17,9 @@ This catalog indexes 144 focused lessons. Route the task first, then read only r
 - Run `yarn lessons:check` before committing.
 
 ## Catalog
+
+- [Serialize deprovisioning with final session issuance](lessons/serialize-deprovisioning-with-session-issuance.md) — area:module-data,testing; module:auth,sso; topic:security,concurrency,session-revocation,tenant-isolation
+- [Assert auth redirect responses before following them](lessons/assert-auth-redirects-before-following-them.md) — area:integration,testing; module:auth,sso; topic:testing,api-contracts,redirects,session-revocation
 
 ### architecture
 
@@ -54,7 +57,7 @@ This catalog indexes 144 focused lessons. Route the task first, then read only r
 - [Classify entity metadata by ORM ownership before custom declarations](lessons/classify-entity-metadata-by-orm-ownership-before-custom.md) — area:module-data; module:entities; topic:access-control,filters
 - [Concurrent index migrations must recover from invalid build stubs](lessons/concurrent-index-migrations-must-recover-from-invalid-build-stubs.md) — area:module-data,debugging,testing; module:query_index; topic:concurrency,database-migrations,data-integrity
 - [Data migrations must declare the query-index projections they invalidate](lessons/data-migrations-must-declare-the-projections-they.md) — area:module-data,architecture,debugging; module:query_index,cli,customers; topic:database-migrations,query-index,events
-- [The decryption `scope` argument is not a WHERE filter](lessons/decryption-scope-argument-is-not-a-where-filter.md) — area:module-data,architecture,testing; module:warranty_claims,shared,customers; topic:data-scoping,access-control,command-pattern,reference-integrity
+- [The decryption `scope` argument is not a WHERE filter](lessons/decryption-scope-argument-is-not-a-where-filter.md) — area:module-data,architecture,testing; module:warranty_claims,shared,customers; topic:data-scoping,access-control,command-pattern,historical-attribution,row-locking,reference-integrity
 - [Cross-module query precedent is not permission to copy storage coupling](lessons/cross-module-query-precedent-is-not-permission-to-copy.md) — area:module-data,debugging; module:customers; topic:access-control,module-boundaries,testing
 - [CRUD-owned custom-field writes should not emit a second entity event](lessons/crud-owned-custom-field-writes-should-not-emit-a-second.md) — area:module-data,umes; module:entities,query_index,cli; topic:command-pattern,custom-fields,data-integrity
 - [Data-sync run detail should subscribe to its progress job, not just poll it](lessons/data-sync-run-detail-should-subscribe-to-its-progress.md) — area:module-data,integration,debugging; module:data_sync,progress,events; topic:events,realtime,testing
@@ -63,7 +66,7 @@ This catalog indexes 144 focused lessons. Route the task first, then read only r
 - [Docker initialization should treat the existing-users CLI abort as already initialized](lessons/docker-initialization-should-treat-the-existing-users.md) — area:module-data,architecture,debugging; module:cli,create_app; topic:package-runtime,runtime-startup,template-sync
 - [Duplicate migration creation causes initialize failures in fresh databases](lessons/duplicate-migration-creation-causes-initialize-failures.md) — area:module-data,testing,architecture; module:customers; topic:database-migrations,runtime-startup,testing
 - [Flush entity updates before running relation syncs that query](lessons/flush-entity-updates-before-running-relation-syncs-that.md) — area:module-data; module:catalog; topic:command-pattern,data-integrity
-- [Keep fallible document preparation outside encryption guards](lessons/keep-fallible-document-preparation-outside-encryption.md) — area:module-data,debugging,testing; module:query_index,search,entities,cli; topic:data-integrity,encryption,query-index,concurrency,testing
+- [Keep fallible document preparation outside encryption guards](lessons/keep-fallible-document-preparation-outside-encryption.md) — area:module-data,debugging,testing; module:query_index,search,entities,cli,shared; topic:data-integrity,encryption,query-index,concurrency,testing,filters
 - [Keep raw SQL out of API route handlers](lessons/keep-raw-sql-out-of-api-route-handlers.md) — area:module-data,integration,testing; module:customer_accounts,customers; topic:data-scoping,filters,testing
 - [Hand-written custom routes resolve org scope via `resolveOrganizationScopeForRequest`, not `auth.orgId`](lessons/custom-routes-resolve-org-scope-via-the-directory-helper.md) — area:architecture,module-data; module:eudr,directory,customers; topic:data-scoping,access-control
 - [MikroORM 6 does NOT generate UUIDs client-side — assign PKs before referencing](lessons/mikroorm-6-does-not-generate-uuids-client-side-assign.md) — area:module-data; module:cli,shared; topic:data-integrity,testing,validation-errors
@@ -141,8 +144,8 @@ This catalog indexes 144 focused lessons. Route the task first, then read only r
 - [Optional native dependencies must report load failures accurately](lessons/optional-native-dependencies-must-report-load-failures.md) — area:integration,module-data,debugging; module:cache; topic:error-states,package-runtime,testing
 - [Provider credentials must never control authenticated cross-origin requests](lessons/provider-credentials-must-never-control-authenticated.md) — area:integration; module:auth,integrations,data_sync; topic:data-import,data-scoping,media
 - [Security caches must outlive request-scoped providers and cover reserved IPv6 space](lessons/security-caches-must-outlive-request-scoped-providers.md) — area:integration,umes; module:cache,auth,cli; topic:data-scoping,network-security,provider-lifecycle
-- [Shared security-default changes require a complete consumer audit](lessons/shared-security-default-changes-require-a-complete.md) — area:integration,testing,module-data; module:shared,auth,cache,events,example,create_app; topic:access-control,data-scoping,events
-- [Stabilize flaky integration tests by finding the hang, not by raising the timeout](lessons/stabilize-flaky-integration-tests-by-finding-the-hang.md) — area:integration,testing,backend-ui; module:events,queue,ui,auth,example,record_locks,warranty_claims,customers; topic:events,testing,workers,hydration,component-overrides,timers
+- [Shared security-default changes require a complete consumer audit](lessons/shared-security-default-changes-require-a-complete.md) — area:integration,testing,module-data; module:shared,auth,cache,events,example,create_app,sso,api_keys; topic:access-control,data-scoping,events,testing
+- [Stabilize flaky integration tests by finding the hang, not by raising the timeout](lessons/stabilize-flaky-integration-tests-by-finding-the-hang.md) — area:integration,testing,backend-ui; module:events,queue,ui,auth,example,record_locks,warranty_claims,customers,customer_accounts,staff; topic:testing,workers,hydration,component-overrides,timers,effect-dependencies
 - [Standalone integration activation must match the asserted runtime surface](lessons/standalone-integration-activation-must-match-the-asserted.md) — area:integration,architecture,testing; module:create_app,example,design_system,auth; topic:access-control,component-overrides,generated-files,testing
 - [Standalone CI runners must mirror webhook-security env from parity scripts](lessons/standalone-ci-runners-must-mirror-webhook-security-env.md) — area:integration,architecture,testing; module:webhooks,create_app,checkout; topic:events,generated-files,database-migrations
 - [Store integration registry state in `globalThis` for standalone workers](lessons/store-integration-registry-state-in-globalthis-for.md) — area:integration,architecture,testing; module:integrations,shared,create_app; topic:generated-files,module-boundaries,database-migrations
@@ -168,11 +171,13 @@ This catalog indexes 144 focused lessons. Route the task first, then read only r
 
 ### testing
 
+- [Verify integration fixture cleanup against the actual endpoint](lessons/verify-integration-fixture-cleanup-contracts.md) — area:testing,integration; module:resources,entities,customers,sales,warranty_claims; topic:testing,fixture-cleanup,fixture-setup,api-contracts,schema-validation
 - [Validate downloaded design assets before integration](lessons/validate-downloaded-design-assets-before-integration.md) — area:testing,backend-ui; module:design_system; topic:figma,asset-integrity,downloads
 
 - [Determine super-admin via the immutable `isSuperAdmin` flag, never by role name](lessons/determine-super-admin-via-the-immutable-issuperadmin.md) — area:testing,module-data,debugging; module:auth,events; topic:access-control,command-pattern,data-scoping
 - [Enqueue then stamp](lessons/enqueue-then-stamp.md) — area:testing; module:events; topic:events,workers
-- [Integration routing tests must establish the route they claim to cover](lessons/integration-routing-tests-must-establish-the-route-they-claim-to-cover.md) — area:testing,integration,debugging; module:search,query_index; topic:async-indexing,polling,query-index,route-coverage
+- [Integration routing tests must establish the route they claim to cover](lessons/integration-routing-tests-must-establish-the-route-they-claim-to-cover.md) — area:testing,integration,debugging; module:search,query_index; topic:async-indexing,polling,query-index,route-coverage,embedding-privacy
+- [Permission-sensitive exports need live API coverage](lessons/permission-sensitive-exports-need-live-api-coverage.md) — area:testing,integration; module:staff,auth; topic:access-control,testing,route-coverage
 - [Keep executable integration tests module-local](lessons/keep-executable-integration-tests-module-local.md) — area:testing,module-data; module:platform; topic:module-boundaries,package-runtime,testing
 - [Meilisearch container healthchecks must probe IPv4 explicitly](lessons/meilisearch-container-healthchecks-must-probe-ipv4.md) — area:testing,architecture; module:search,create_app; topic:network-security,package-runtime,runtime-startup
 - [Restart stale UI previews after package edits](lessons/restart-stale-ui-previews-after-package-edits.md) — area:testing,debugging; module:create_app,ui; topic:package-runtime,testing

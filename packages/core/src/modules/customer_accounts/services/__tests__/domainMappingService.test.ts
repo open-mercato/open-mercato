@@ -278,7 +278,7 @@ describe('DomainMappingService.register', () => {
     ).rejects.toThrow()
   })
 
-  it('sets the replacement pointer when replacesDomainId points at a same-tenant record', async () => {
+  it('sets the replacement pointer when replacesDomainId points at a same-organization record', async () => {
     const replacedRow = seedDomain({
       hostname: 'old.example.com',
       tenantId: TENANT_A,
@@ -298,6 +298,27 @@ describe('DomainMappingService.register', () => {
     const stored = (created as unknown as Row).replacesDomain
     expect(stored).not.toBeNull()
     expect((stored as { id: string }).id).toBe(replacedRow.id)
+  })
+
+  it('does not set a replacement pointer for another organization in the same tenant', async () => {
+    const replacedRow = seedDomain({
+      hostname: 'other-organization.example.com',
+      tenantId: TENANT_A,
+      organizationId: ORG_A2,
+      status: 'active',
+    })
+    const em = createFakeEm({ domains: [replacedRow], orgs: [{ id: ORG_A, slug: null, tenantId: TENANT_A }] })
+    const service = new DomainMappingService(em as unknown as EntityManager)
+
+    const created = await service.register({
+      hostname: 'new.example.com',
+      tenantId: TENANT_A,
+      organizationId: ORG_A,
+      replacesDomainId: replacedRow.id,
+    })
+
+    expect((created as unknown as Row).replacesDomain).toBeNull()
+    expect(em.__store.get(replacedRow.id)).toBe(replacedRow)
   })
 
   it('does NOT set the replacement pointer when replacesDomainId belongs to another tenant', async () => {
@@ -511,6 +532,33 @@ describe('DomainMappingService.activate', () => {
     expect(em.__store.get(replacementRow.id)?.status).toBe('active')
     expect(em.__store.has(replacedRow.id)).toBe(false)
     expect(em.__removed.has(replacedRow.id)).toBe(true)
+  })
+
+  it.each([
+    { label: 'another organization in the same tenant', tenantId: TENANT_A, organizationId: ORG_A2 },
+    { label: 'another tenant', tenantId: TENANT_B, organizationId: ORG_B },
+  ])('preserves a replacement target belonging to $label', async ({ tenantId, organizationId }) => {
+    const replacedRow = seedDomain({
+      hostname: 'other-scope.example.com',
+      tenantId,
+      organizationId,
+      status: 'active',
+    })
+    const replacementRow = seedDomain({
+      hostname: 'new.example.com',
+      tenantId: TENANT_A,
+      organizationId: ORG_A,
+      status: 'verified',
+      replacesDomain: { id: replacedRow.id },
+    })
+    const em = createFakeEm({ domains: [replacedRow, replacementRow] })
+    const service = new DomainMappingService(em as unknown as EntityManager)
+
+    await service.activate(replacementRow.id)
+
+    expect(em.__store.get(replacementRow.id)?.status).toBe('active')
+    expect(em.__store.get(replacedRow.id)).toBe(replacedRow)
+    expect(em.remove).not.toHaveBeenCalled()
   })
 
   it('throws when the mapping does not exist', async () => {

@@ -285,6 +285,7 @@ export class DomainMappingService {
       replacesDomain = await this.em.findOne(DomainMapping, {
         id: input.replacesDomainId,
         tenantId: input.tenantId,
+        organizationId: input.organizationId,
       } as never)
     }
 
@@ -381,6 +382,8 @@ export class DomainMappingService {
     if (entity.replacesDomain) {
       const replaced = await this.em.findOne(DomainMapping, {
         id: (entity.replacesDomain as unknown as { id: string }).id,
+        tenantId: entity.tenantId,
+        organizationId: entity.organizationId,
       } as never)
       if (replaced) {
         const replacedHostname = replaced.hostname

@@ -42,7 +42,7 @@ export class ApiKey {
   @Property({ name: 'session_token', type: 'text', nullable: true })
   sessionToken?: string | null
 
-  /** User ID who owns this session (for ephemeral keys) */
+  /** Owner whose effective ACL bounds a delegated MCP or session key. */
   @Property({ name: 'session_user_id', type: 'uuid', nullable: true })
   sessionUserId?: string | null
 

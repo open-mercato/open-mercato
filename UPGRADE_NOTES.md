@@ -32,6 +32,133 @@ Use `TENANT_DATA_ENCRYPTION_OLD_KEY` from your secret manager for entity key rot
 
 Existing scripts must supply the new explicit safety confirmations or use the safe environment-key path. Schemas, ciphertext formats, key derivation, routes and ordinary encrypted writes are unchanged. See [the safety specification](.ai/specs/2026-09-30-encryption-key-rotation-hardening.md) for the remaining online-retirement coordination limitation.
 
+### SCIM token fingerprint rollout
+
+A cheap outer admission budget runs before request-container creation, cache reads, or fingerprint database lookups: `RATE_LIMIT_SCIM_ADMISSION_POINTS` defaults to 100 requests per second, with `RATE_LIMIT_SCIM_ADMISSION_DURATION` and `RATE_LIMIT_SCIM_ADMISSION_BLOCK_DURATION` overrides. It is shared per trusted client IP, or globally in direct mode, across all SCIM requests including discovery and enrolled tokens. Once exhausted, requests return 429 without further cache/database or bcrypt work. Private token and discovery quotas still apply inside this outer resource-protection boundary. Operators should size the outer budget for their combined legitimate IdP traffic and use Redis for a shared replica-wide budget; clients must honor `Retry-After` even for enrolled tokens.
+
+SCIM rate-limit admission now uses an indexed SHA-256 fingerprint of the full bearer in `scim_tokens.token_lookup_hash`, alongside the existing bcrypt verifier. The new nullable column and index are additive; token format, management payloads, bcrypt verification, and organization scope stay compatible. Fingerprints and raw secrets must never be copied into tickets, logs, shell history, or token-management payloads. Newly issued tokens persist their fingerprint before the one-time token response is returned.
+
+Operators must apply the included SSO migration through their normal approved deployment process **before** deploying the new application code. This change does not apply a migration or rotate credentials automatically. Deploy every app/worker instance before completing the cutover; old instances can still issue unenrolled tokens during a rolling deployment. Use the same authoritative database across replicas. The short-lived admission cache is an optimization; an enrolled token has an independent inner quota even when its cache entry expires or the cache restarts, subject to the outer admission budget.
+
+Existing tokens remain valid with a null fingerprint. An admitted successful bcrypt verification enrolls the original token using a tenant/organization/configuration-scoped compare-and-set guarded by active state and the exact bcrypt hash compared. Concurrent revocation or credential changes cannot enroll that stale credential. Existing token values cannot be reconstructed from bcrypt, so SQL alone cannot backfill them. Until enrollment, an old token remains vulnerable to shared unverified-budget exhaustion after cache loss. Do not declare the cold-token availability guarantee complete until the active unenrolled count is zero.
+
+Use this **read-only, non-secret inventory** against the authoritative database, with appropriate operator access:
+
+```sql
+select tenant_id, organization_id, count(*) as active_unenrolled
+from scim_tokens
+where is_active = true and token_lookup_hash is null
+group by tenant_id, organization_id;
+```
+
+A completed cutover returns no rows. The query exposes only tenant/organization identifiers and counts; do not select `token_hash` or `token_lookup_hash`. For each nonzero scope, identify its configurations and tokens through the existing admin UI or `GET /api/sso/scim/tokens?ssoConfigId=<config-id>` under that scope. That API continues to expose only safe token metadata.
+
+1. **Enroll a retained credential:** trigger a normal sync through its existing IdP, or perform an existing `GET /api/sso/scim/v2/Users?count=1` using the credential from its secure store. A successful admitted request enrolls it without changing the secret. Follow normal secret-handling controls; do not paste the bearer into logs or shell history. If an ongoing flood prevents admission, use the rotation route below rather than raising quotas.
+2. **Rotate an unavailable or blocked legacy credential:** as the scoped administrator, call existing `POST /api/sso/scim/tokens` with `ssoConfigId` and `name`, deliver the one-time new secret through the normal secure IdP configuration flow, verify provisioning succeeds, then revoke the replaced token with existing `DELETE /api/sso/scim/tokens/<id>`. The replacement is enrolled at creation and needs no warmup. Do not revoke a working credential before its replacement is confirmed.
+3. Repeat the inventory after all instances have the new code and all affected IdPs have synced or rotated. Investigate every remaining active null row, including forgotten credentials; revoke unused tokens through the existing management API. Zero rows is the cutover acceptance condition. Test a newly issued token after cache clear while anonymous traffic exhausts the unverified bucket, and confirm a wrong-suffix token remains rate-limited.
+
+No new enrollment API or CLI is required. Real credential rotation and migration application remain operator actions. Existing legacy authentication is retained during this bridge; the migration does not silently reject old tokens or mark their fingerprints populated. Manual QA and human security review are still required.
+
+For rollback, revert application instances to code that does not read the new column before an operator runs the migration's `down`. The rollback removes only the new index/nullable column and preserves all token rows, bcrypt hashes, prefixes, and active/revoked state; it also removes the new persistent admission protection. No token secret changes as part of rollback.
+
+### Bundled Traefik keeps app and collaboration ports private (#7833)
+
+The optional `starters/docker/compose.fullapp.traefik.yml` overlay (and its
+legacy root duplicate) now removes inherited `app` and `documents-collab`
+host-port publications. Previously the public app port could bypass Traefik's
+TLS and custom-domain ForwardAuth controls. This applies to production and dev
+stacks, including the dev splash port. `APP_PORT` no longer exposes the app
+when the overlay is used. The optional collaboration profile still requires
+explicit enablement and no longer exposes port 4101 with bundled Traefik.
+
+**Operator action:** use Docker Compose **2.24.4+**, inspect the merged config
+including local overlays, and run `up -d` with the deployment's full file/profile
+chain to recreate affected containers. Move direct app-port health probes to
+the public HTTPS hostname. For Documents collaboration, configure a TLS
+WebSocket proxy and set `NEXT_PUBLIC_DOCUMENTS_COLLAB_URL` to its public `wss://`
+URL before rebuilding the app; retain the sidecar's token and Origin checks.
+Verify the recreated containers no longer publish these ports.
+
+Deployments that deliberately use an external proxy or direct access can
+continue to omit the bundled Traefik overlay; their base-file port mappings
+are unchanged. Host-local proxies and diagnostics can use a final loopback-only
+override. See [migration, override examples, WSS routing, and deployment checks](docker/traefik/README.md#private-application-ports-and-migration).
+No application API, database, or module-code migration is required.
+
+### AI-generated keys respect per-user ACL restrictions (#7825)
+
+Persistent MCP keys generated after this upgrade carry the same user binding as
+AI session keys. Their effective feature and organization grants cannot exceed
+the owner's ACL, including after an ACL update while caches are warm. Unbound
+machine keys retain independent role grants. User-bound keys no longer expose a
+raw global super-admin scope-override flag.
+
+Operators must revoke and regenerate existing persistent MCP keys through AI
+Assistant settings: legacy keys did not store a reliable user-binding marker and
+cannot be distinguished safely from independent machine keys. Existing session
+keys already carry the binding and receive the ceiling automatically. Clients
+keep the same endpoint payloads and token formats; update MCP client secrets after
+regeneration. Custom delegated-key issuers should supply `sessionUserId` to
+`createApiKey`; leave it unset only for independently administered machine keys.
+
+Regenerated MCP keys are not available as Business Rules "call Open Mercato"
+API-key profiles; use independently administered machine keys for those actions.
+A regenerated MCP key becomes invalid if its owner's home organization changes,
+including a change from no home organization to a concrete one. Generate a new
+key and update the MCP client secret after such a change.
+
+### SCIM deactivation blocks fresh SSO and password sign-in (#7824)
+
+User-bound AI/MCP API keys now check live scoped deactivation state on every resolution, including warm authorization-cache hits and requests on other replicas. Outstanding deactivation denies them immediately; independently administered machine keys retain their existing behavior. SCIM `active:false` creation/linking and retries persist identity, deactivation, session revocation, and audit together. A failed write rolls back the complete operation. Custom `authService` replacements must also preserve the additive `isUserSessionEligible` capability. Scoped user-bound AI/MCP keys are revoked in the deactivation transaction. Explicit reactivation does not revive those old secrets; obtain fresh AI/MCP credentials after restoring the user. Independently administered machine keys are not revoked.
+
+With the enterprise SSO module enabled, an outstanding SCIM deactivation now denies fresh SSO sign-in for that identity's configuration and denies password verification for the linked account in its own tenant and organization. This includes configurations created without a tenant, after verifying organization and configuration ownership. Password changes and email relinking do not reactivate the identity. Final session issuance and all SCIM deactivation writers share a user lock, so a concurrent login cannot leave a usable session after deactivation commits; access in other scopes is preserved.
+
+**Operator action:** restore intentionally deactivated access through SCIM `active:true`. Clients continue handling the existing invalid-credentials response or `sso_failed` callback redirect. No endpoint, token, or database migration is required. Applications replacing the `authService` DI registration must preserve the SSO module's scoped deactivation check in password verification and atomic final session issuance.
+
+### Agent search answers honor domain policy (#7234)
+
+When an allow-list or deny-list is configured, agent `web_search` and the settings
+preview's top-level `answer` now return `null` instead of provider-generated prose
+whose sources cannot be verified. Allowed result links and snippets remain available;
+`diagnostics.answerWithheld: 'domain_policy'` explains withheld text. This also applies
+to cached engine output and to answers whose denied sources disappeared during fusion.
+No-policy searches are unchanged. Existing clients already accept nullable answers;
+use the permitted results without disabling domain restrictions. The privileged
+`agents.manage` preview still shows raw per-adapter comparisons, including blocked-hit
+markers; those comparisons never enter agent context. No database migration or cache
+purge is required. Credit to @AHKSammich for the finding/proof of concept in #7323;
+this implementation was written independently for the enterprise module.
+
+### Encrypted custom fields in plaintext search fields (#7894)
+
+Application-managed `SearchIndexer` calls now exclude encrypted custom-field keys
+from fulltext document fields and vector fallback text, while preserving values
+for hashed-token search. A failed definition lookup excludes every custom field
+from those plaintext paths. Explicit source text and callback-generated metadata
+are a separate protection tracked in #7874.
+
+**Operator action:** reindex affected fulltext and vector data after upgrading;
+previously indexed plaintext is not removed until records are rewritten. Review
+any retention/export copies held by external search or embedding providers.
+
+**Module author action:** application DI wires the resolver automatically. Code
+constructing `SearchIndexer` manually must pass `encryptedCustomFieldKeysResolver`
+for definition-based exclusions; omission excludes all custom fields from plaintext paths. Tenant-wide indexing uses each loaded row’s `organization_id` (or `organizationId`) for its policy. Custom callers must provide a trusted operation organization or preserve the row organization, including explicit `null` for an organization-less row; unknown organization scope excludes all custom fields from plaintext paths.
+Direct `SearchService.index`/`bulkIndex` clients can pass
+`IndexableRecord.plaintextExcludedCustomFields` as an array of encrypted definition
+keys, or `'all'` when definitions cannot be resolved. Both `cf:` and sanitized
+`cf_` aliases are excluded. Omission excludes all custom fields, and `fields`
+continues to reach the hashed-token strategy unchanged. Public routes, required
+parameters, strategy IDs and queue payloads are unchanged.
+
+### Customer interaction authors and owners must belong to the record's tenant (#7531)
+
+Canonical interaction writes and legacy activity adapters now reject foreign-tenant or missing author/owner IDs, and reject new assignments to deleted users with a generic `400` user-not-found response. Same-tenant users from another home organization remain valid references, including an implicit actor working in another organization. Author normalization, valid superadmin delegation, and existing record-level organization/privacy authorization are preserved.
+
+**Client action:** supply live same-tenant author/owner IDs for new assignments, or clear optional references with null on canonical updates. Omitted update fields keep their previous values. Unchanged references may be resent after the referenced user is offboarded; this does not permit assigning that user to another reference. Legacy promotion preserves the author stored on the same tenant/organization/parent activity, including offboarded authors. Routes and response fields remain available. Historical same-tenant profiles remain readable across organizations and after soft deletion; foreign-tenant or missing profiles return null names and emails.
+
+**Operator action:** audit foreign-tenant or missing author/owner references before replaying affected command history. Snapshot restoration permits a same-tenant author or owner who was soft-deleted after the original write; offboarding does not require rewriting historical attribution. Invalid snapshot restoration and legacy promotion fail rather than copying a foreign-tenant reference. No schema migration or automatic data rewrite is required. See [the interactions specification](.ai/specs/implemented/SPEC-046b-2026-02-27-customers-interactions-unification.md#migration--backward-compatibility--interaction-users-7531).
+
 ### Scoped attachment bytes no longer advertise shared caching (#7220)
 
 The attachment file and image byte routes now return `Cache-Control: private,
@@ -124,6 +251,30 @@ there is no automatic rollback that deletes receipts. Inspect those collisions a
 before reverting the schema. See the [inbound spec](.ai/specs/2026-03-23-inbound-webhook-handlers.md#receipt-scope-migration--backward-compatibility-7830).
 
 
+### Staff time-entries totals cover the whole filtered set and render inside the table (#6990)
+
+The time-entries list (`/backend/staff/time-tracking/entries`) now asks
+`GET /api/staff/timesheets/time-entries` for `includeTotals=true`, which adds an optional `totals`
+object (`entryCount`, `durationMinutes`, `roundedMinutes`, and `money` per currency for a holder of
+`staff.timesheets.rates.view`) computed over every row matching the filters, not just the page.
+`money` is priced per entry exactly like the row `cost` (`entryAmount`), so it equals the sum of
+the row costs. Without the parameter the response is unchanged.
+
+The totals footer is no longer a separate card under the pagination. It renders inside the table
+frame through the `data-table:staff.time_entries.list:footer` injection spot (widget
+`staff.injection.time-entries-summary-footer`), and the page passes its own `injectionContext`
+(`tableId`, `title`, `entriesSummary`). The `staff.entries_summary_footer` component replacement keeps
+its props and gains an optional `totals`.
+
+The page also stops showing each filter twice: it passes the new optional `DataTable` /
+`FilterBar` prop `showActiveFilterChips={false}` (default `true`, so other hosts are unchanged),
+leaving the presets and entry chips as the only chip layer.
+
+**Action for module authors:** none required. A `staff.entries_summary_footer` replacement that
+should show whole-set figures reads `props.totals` (it is `null`/absent when unavailable, in which
+case `props.summary` still holds the page sums). A replacement styled as a standalone card may want
+to drop its outer border now that it sits inside the table frame.
+
 ### Agent page reads enforce domain rules before redirected egress (#7548)
 
 `web_search` inline content and `web_fetch` now check agent domain rules before
@@ -162,6 +313,59 @@ the byte limit to return a small acknowledgement promptly. Configure an explicit
 activity timeout for a slower endpoint, and move large results behind a separate
 retrieval or asynchronous workflow.
 Existing request configuration and successful response envelopes are unchanged.
+
+### Rebuild customer search vectors after the privacy fix (#7826)
+
+The person, company, and customer-account vector builders now use explicit safe
+fields. Contact email/phone, `hashOnly` and `excluded` custom fields, unapproved
+custom fields, and fields declared encrypted are omitted from embedding text.
+Contact details are also omitted from result presenters. Names remain available
+for result display; semantic matching no longer uses encrypted name/contact
+fields. Customer-account email remains available through hashed search.
+
+Single, by-ID, queued-batch, and bulk indexing now honor the configured safe
+source. Failed, null, or empty sources skip vector writes instead of embedding
+raw fields; independent fulltext/token indexing continues. Customer sources also
+exclude live tenant/organization encryption declarations. Search DI supplies the
+existing source-context `container`; integrations invoking customer builders
+directly must provide it with `tenantEncryptionService`. Missing dependencies or
+failed policy lookup skip the vector write. Restore policy access and reindex any
+records skipped during an outage.
+
+When `TENANT_DATA_ENCRYPTION=false`, the policy service cannot read live
+declarations. Person/company vector writes are therefore skipped entirely;
+fulltext/token indexing continues. Turning encryption off does not authorize
+exporting fields classified by retained encryption maps. Re-enable policy access
+and reindex to restore these vectors. Encryption-at-rest toggle behavior is unchanged.
+
+Deploy the fix to every app and indexing worker before rebuilding. Existing
+embeddings and stored presenters are **not automatically removed** by this code
+change. For every affected tenant and organization scope:
+
+1. Pause indexing producers/workers, drain or discard outstanding vector jobs
+   using the deployment's queue tooling, and prevent old workers from restarting.
+2. Purge the affected vector entries through the configured driver's
+   `purge(entityId, tenantId, organizationId)` operation, or the corresponding
+   `searchIndexer.purgeEntity({ entityId, tenantId, organizationId })` DI operation.
+   The latter purges all configured strategies for that entity. Use the published
+   IDs `customers:customer_person_profile`, `customers:customer_company_profile`,
+   and `customer_accounts:customer_user`; include soft-deleted records in the purge.
+   Verify the affected entries are absent before restarting indexing; the reindex
+   API can continue after a failed purge, so `purgeFirst` alone is not proof of deletion.
+3. Re-enable only upgraded workers. As an administrator with
+   `search.embeddings.manage`, call `POST /api/search/embeddings/reindex` with
+   `{ "entityId": "<affected-entity-id>", "purgeFirst": true }` for each ID and scope.
+   Run the `vector-indexing` worker and verify completion and sample results.
+   The vector reindex endpoint also rebuilds fulltext data when that strategy is
+   configured, replacing old presenter metadata; confirm its jobs have drained.
+
+If you use the broader `purgeEntity` operation, rebuild fulltext explicitly with
+`POST /api/search/reindex` as well. `yarn mercato search reindex` alone does not
+rebuild every search store. Rebuild after purging even when a record has not
+changed; otherwise an old checksum can leave stale sensitive metadata behind.
+Review backups, replicas, external vector stores, and embedding-provider retention
+under your deployment's deletion procedures. Local reindexing cannot retract data
+already retained by an external provider. No data purge is run by the upgrade.
 
 ## 0.8.0 → 0.9.0 (2026-10-09)
 

@@ -1,8 +1,8 @@
 ---
 title: "Keep fallible document preparation outside encryption guards"
-modules: ["query_index","search","entities","cli"]
+modules: ["query_index","search","entities","cli","shared"]
 areas: ["module-data","debugging","testing"]
-topics: ["data-integrity","encryption","query-index","concurrency","testing"]
+topics: ["data-integrity","encryption","query-index","concurrency","testing","filters"]
 ---
 
 # Keep fallible document preparation outside encryption guards
@@ -19,3 +19,7 @@ topics: ["data-integrity","encryption","query-index","concurrency","testing"]
 Encryption-maintenance compare-and-swap updates must select every column whose old value they compare, including non-null lookup hashes, and pin the original tenant and organization in SQL. A mocked row containing fields that the real SELECT omits hides this failure; prove the persistence boundary against PostgreSQL.
 
 A protected final verification sweep must remain bounded. Scan by primary-key keyset pages under the same protection as policy retirement, inspect every page, and test residual ciphertext beyond the first page with a tiny batch size. Table locks do not make materializing a tenant's entire table safe.
+
+**Document-storage evidence (#7810)**: Custom entity writes must finish encryption before entering the SQL upsert/fallback block. A missing tenant key or foreign-key ciphertext must stop the write rather than reach a fallback with the original document. Test the final serialized JSONB with real AES, including partial updates that retain legacy plaintext and already encrypted values; helper-only ciphertext assertions do not prove persistence is protected.
+
+**Decrypted-query evidence (#8174)**: Moving encrypted predicates into memory must not re-evaluate SQL-applied public predicates against lossy projections. Keep storage metadata on its actual columns, retain typed JSON for deferred array predicates, and strip internal comparison aliases from responses. Real PostgreSQL tests catch projection mistakes that a row-returning query mock cannot.

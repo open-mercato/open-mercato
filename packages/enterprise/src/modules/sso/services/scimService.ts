@@ -1,6 +1,8 @@
 import { EntityManager, type FilterQuery, type RequiredEntityData } from '@mikro-orm/postgresql'
 import { User, Session } from '@open-mercato/core/modules/auth/data/entities'
+import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
+import { lockAuthorizationUserRows } from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { SsoIdentity, SsoUserDeactivation, ScimProvisioningLog } from '../data/entities'
 import { toScimUserResource, fromScimUserPayload, type ScimUserResource, type ScimUserPayload } from '../lib/scim-mapper'
@@ -18,6 +20,15 @@ export class ScimService {
     scope: ScimScope,
     baseUrl: string,
   ): Promise<{ resource: ScimUserResource; status: number }> {
+    return this.em.transactional((txEm) => this.createUserInTransaction(txEm, payload, scope, baseUrl))
+  }
+
+  private async createUserInTransaction(
+    txEm: EntityManager,
+    payload: Record<string, unknown>,
+    scope: ScimScope,
+    baseUrl: string,
+  ): Promise<{ resource: ScimUserResource; status: number }> {
     const parsed = fromScimUserPayload(payload)
     const email = parsed.email ?? parsed.userName
     if (!email) {
@@ -26,23 +37,28 @@ export class ScimService {
 
     // Idempotency: if externalId already exists for this config, return existing
     if (parsed.externalId) {
-      const existingIdentity = await this.em.findOne(SsoIdentity, {
+      const existingIdentity = await findOneWithDecryption(txEm, SsoIdentity, {
         ssoConfigId: scope.ssoConfigId,
         externalId: parsed.externalId,
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId ?? null,
         deletedAt: null,
-      })
+      }, {}, { tenantId: scope.tenantId ?? null, organizationId: scope.organizationId })
       if (existingIdentity) {
         const existingUser = await findOneWithDecryption(
-          this.em, User,
-          { id: existingIdentity.userId, deletedAt: null },
+          txEm, User,
+          { id: existingIdentity.userId, organizationId: scope.organizationId, ...(scope.tenantId ? { tenantId: scope.tenantId } : {}), deletedAt: null },
           {},
           { tenantId: scope.tenantId ?? '', organizationId: scope.organizationId },
         )
         if (existingUser) {
-          const deactivation = await this.em.findOne(SsoUserDeactivation, {
-            userId: existingUser.id, ssoConfigId: scope.ssoConfigId,
-          })
-          await this.log(scope, 'CREATE', existingIdentity.id, parsed.externalId, 200)
+          const deactivation = parsed.active === false
+            ? await this.createDeactivationTx(txEm, existingUser.id, scope)
+            : await findOneWithDecryption(txEm, SsoUserDeactivation, {
+              userId: existingUser.id, ssoConfigId: scope.ssoConfigId,
+              tenantId: scope.tenantId ?? null, organizationId: scope.organizationId,
+            }, {}, { tenantId: scope.tenantId ?? null, organizationId: scope.organizationId })
+          await this.logTx(txEm, scope, 'CREATE', existingIdentity.id, parsed.externalId, 200)
           return {
             resource: toScimUserResource(existingUser, existingIdentity, baseUrl, deactivation),
             status: 200,
@@ -55,11 +71,12 @@ export class ScimService {
     const emailHash = computeEmailHash(email)
     const where: FilterQuery<User> = {
       organizationId: scope.organizationId,
+      ...(scope.tenantId ? { tenantId: scope.tenantId } : {}),
       deletedAt: null,
       $or: [{ email }, { emailHash }],
     }
     const existingUser = await findOneWithDecryption(
-      this.em, User,
+      txEm, User,
       where,
       {},
       { tenantId: scope.tenantId ?? '', organizationId: scope.organizationId },
@@ -67,64 +84,28 @@ export class ScimService {
 
     if (existingUser) {
       // Check if already linked to this SSO config
-      const existingLink = await this.em.findOne(SsoIdentity, {
+      const existingLink = await findOneWithDecryption(txEm, SsoIdentity, {
         ssoConfigId: scope.ssoConfigId,
         userId: existingUser.id,
+        tenantId: scope.tenantId ?? null, organizationId: scope.organizationId,
         deletedAt: null,
-      })
+      }, {}, { tenantId: scope.tenantId ?? null, organizationId: scope.organizationId })
       if (existingLink) {
+        if (parsed.active === false) {
+          const deactivation = await this.createDeactivationTx(txEm, existingUser.id, scope)
+          await this.logTx(txEm, scope, 'CREATE', existingLink.id, parsed.externalId, 200)
+          return { resource: toScimUserResource(existingUser, existingLink, baseUrl, deactivation), status: 200 }
+        }
         throw new ScimServiceError(409, `User with email ${email} is already linked to this SSO configuration`)
       }
 
       // Auto-link: create SsoIdentity for existing user
       const now = new Date()
-      const identity = this.em.create(SsoIdentity, {
-        tenantId: scope.tenantId ?? null,
-        organizationId: scope.organizationId,
-        ssoConfigId: scope.ssoConfigId,
-        userId: existingUser.id,
-        idpSubject: parsed.externalId ?? email,
-        idpEmail: email,
-        idpName: buildDisplayName(parsed),
-        idpGroups: [],
-        externalId: parsed.externalId ?? null,
-        provisioningMethod: 'scim',
-        createdAt: now,
-        updatedAt: now,
-      } as RequiredEntityData<SsoIdentity>)
-      await this.em.persist(identity).flush()
-
-      const deactivation = parsed.active === false
-        ? await this.createDeactivation(existingUser.id, scope)
-        : null
-
-      await this.log(scope, 'CREATE', identity.id, parsed.externalId, 201)
-      return {
-        resource: toScimUserResource(existingUser, identity, baseUrl, deactivation),
-        status: 201,
-      }
-    }
-
-    // Create new user + identity
-    return this.em.transactional(async (txEm) => {
-      const user = txEm.create(User, {
-        tenantId: scope.tenantId ?? null,
-        organizationId: scope.organizationId,
-        email,
-        emailHash: computeEmailHash(email),
-        name: buildDisplayName(parsed) ?? undefined,
-        passwordHash: null,
-        isConfirmed: true,
-        createdAt: new Date(),
-      })
-      await txEm.persist(user).flush()
-
-      const now = new Date()
       const identity = txEm.create(SsoIdentity, {
         tenantId: scope.tenantId ?? null,
         organizationId: scope.organizationId,
         ssoConfigId: scope.ssoConfigId,
-        userId: user.id,
+        userId: existingUser.id,
         idpSubject: parsed.externalId ?? email,
         idpEmail: email,
         idpName: buildDisplayName(parsed),
@@ -137,15 +118,55 @@ export class ScimService {
       await txEm.persist(identity).flush()
 
       const deactivation = parsed.active === false
-        ? await this.createDeactivationTx(txEm, user.id, scope)
+        ? await this.createDeactivationTx(txEm, existingUser.id, scope)
         : null
 
       await this.logTx(txEm, scope, 'CREATE', identity.id, parsed.externalId, 201)
       return {
-        resource: toScimUserResource(user, identity, baseUrl, deactivation),
+        resource: toScimUserResource(existingUser, identity, baseUrl, deactivation),
         status: 201,
       }
+    }
+
+    // Create new user + identity
+    const user = txEm.create(User, {
+      tenantId: scope.tenantId ?? null,
+      organizationId: scope.organizationId,
+      email,
+      emailHash: computeEmailHash(email),
+      name: buildDisplayName(parsed) ?? undefined,
+      passwordHash: null,
+      isConfirmed: true,
+      createdAt: new Date(),
     })
+    await txEm.persist(user).flush()
+
+    const now = new Date()
+    const identity = txEm.create(SsoIdentity, {
+      tenantId: scope.tenantId ?? null,
+      organizationId: scope.organizationId,
+      ssoConfigId: scope.ssoConfigId,
+      userId: user.id,
+      idpSubject: parsed.externalId ?? email,
+      idpEmail: email,
+      idpName: buildDisplayName(parsed),
+      idpGroups: [],
+      externalId: parsed.externalId ?? null,
+      provisioningMethod: 'scim',
+      createdAt: now,
+      updatedAt: now,
+    } as RequiredEntityData<SsoIdentity>)
+    await txEm.persist(identity).flush()
+
+    const deactivation = parsed.active === false
+      ? await this.createDeactivationTx(txEm, user.id, scope)
+      : null
+
+    await this.logTx(txEm, scope, 'CREATE', identity.id, parsed.externalId, 201)
+    return {
+      resource: toScimUserResource(user, identity, baseUrl, deactivation),
+      status: 201,
+    }
   }
 
   async getUser(scimId: string, scope: ScimScope, baseUrl: string): Promise<ScimUserResource> {
@@ -341,64 +362,67 @@ export class ScimService {
     }
   }
 
-  private async deactivateUser(userId: string, scope: ScimScope): Promise<void> {
-    await this.em.transactional(async (txEm) => {
-      let deactivation = await txEm.findOne(SsoUserDeactivation, {
-        userId, ssoConfigId: scope.ssoConfigId,
-      })
+  private async deactivateUser(userId: string, scope: ScimScope): Promise<SsoUserDeactivation> {
+    return this.em.transactional((txEm) => this.deactivateUserInTransaction(txEm, userId, scope))
+  }
 
-      if (deactivation) {
-        deactivation.deactivatedAt = new Date()
-        deactivation.reactivatedAt = null
-      } else {
-        deactivation = txEm.create(SsoUserDeactivation, {
-          tenantId: scope.tenantId ?? null,
-          organizationId: scope.organizationId,
-          userId,
-          ssoConfigId: scope.ssoConfigId,
-          deactivatedAt: new Date(),
-        } as RequiredEntityData<SsoUserDeactivation>)
-        txEm.persist(deactivation)
-      }
-
-      // Revoke all active sessions atomically with the deactivation upsert
-      const sessionWhere: FilterQuery<Session> = { user: userId }
-      await txEm.nativeDelete(Session, sessionWhere)
-    })
+  private async deactivateUserInTransaction(
+    txEm: EntityManager,
+    userId: string,
+    scope: ScimScope,
+  ): Promise<SsoUserDeactivation> {
+    await lockAuthorizationUserRows(txEm, [userId])
+    let deactivation = await findOneWithDecryption(
+      txEm, SsoUserDeactivation,
+      { userId, ssoConfigId: scope.ssoConfigId, organizationId: scope.organizationId, tenantId: scope.tenantId ?? null },
+      { refresh: true },
+      { tenantId: scope.tenantId ?? null, organizationId: scope.organizationId },
+    )
+    if (deactivation) {
+      deactivation.deactivatedAt = new Date()
+      deactivation.reactivatedAt = null
+    } else {
+      deactivation = txEm.create(SsoUserDeactivation, {
+        tenantId: scope.tenantId ?? null,
+        organizationId: scope.organizationId,
+        userId,
+        ssoConfigId: scope.ssoConfigId,
+        deactivatedAt: new Date(),
+      } as RequiredEntityData<SsoUserDeactivation>)
+      txEm.persist(deactivation)
+    }
+    const sessionWhere: FilterQuery<Session> = { user: userId }
+    await txEm.nativeDelete(Session, sessionWhere)
+    const user = await findOneWithDecryption(txEm, User, {
+      id: userId, organizationId: scope.organizationId,
+      ...(scope.tenantId ? { tenantId: scope.tenantId } : {}),
+    }, { fields: ['id', 'tenantId'], refresh: true }, { tenantId: scope.tenantId, organizationId: scope.organizationId })
+    await txEm.nativeUpdate(ApiKey, {
+      sessionUserId: userId,
+      tenantId: user?.tenantId ?? scope.tenantId ?? null,
+      organizationId: scope.organizationId,
+      deletedAt: null,
+    }, { deletedAt: new Date() })
+    return deactivation
   }
 
   private async reactivateUser(userId: string, scope: ScimScope): Promise<void> {
-    const deactivation = await this.em.findOne(SsoUserDeactivation, {
-      userId, ssoConfigId: scope.ssoConfigId,
+    await this.em.transactional(async (txEm) => {
+      await lockAuthorizationUserRows(txEm, [userId])
+      const deactivation = await findOneWithDecryption(
+        txEm, SsoUserDeactivation,
+        { userId, ssoConfigId: scope.ssoConfigId, organizationId: scope.organizationId, tenantId: scope.tenantId ?? null },
+        { refresh: true },
+        { tenantId: scope.tenantId ?? null, organizationId: scope.organizationId },
+      )
+      if (deactivation && !deactivation.reactivatedAt) {
+        deactivation.reactivatedAt = new Date()
+      }
     })
-    if (deactivation && !deactivation.reactivatedAt) {
-      deactivation.reactivatedAt = new Date()
-      await this.em.flush()
-    }
-  }
-
-  private async createDeactivation(userId: string, scope: ScimScope): Promise<SsoUserDeactivation> {
-    const deactivation = this.em.create(SsoUserDeactivation, {
-      tenantId: scope.tenantId ?? null,
-      organizationId: scope.organizationId,
-      userId,
-      ssoConfigId: scope.ssoConfigId,
-      deactivatedAt: new Date(),
-    } as RequiredEntityData<SsoUserDeactivation>)
-    await this.em.persist(deactivation).flush()
-    return deactivation
   }
 
   private async createDeactivationTx(txEm: EntityManager, userId: string, scope: ScimScope): Promise<SsoUserDeactivation> {
-    const deactivation = txEm.create(SsoUserDeactivation, {
-      tenantId: scope.tenantId ?? null,
-      organizationId: scope.organizationId,
-      userId,
-      ssoConfigId: scope.ssoConfigId,
-      deactivatedAt: new Date(),
-    } as RequiredEntityData<SsoUserDeactivation>)
-    await txEm.persist(deactivation).flush()
-    return deactivation
+    return this.deactivateUserInTransaction(txEm, userId, scope)
   }
 
   private async log(

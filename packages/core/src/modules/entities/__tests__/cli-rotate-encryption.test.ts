@@ -521,4 +521,33 @@ describe('entities rotate-encryption-key CLI', () => {
     expect(execute.mock.calls[1][1]).toContain('plain-value')
   })
 
+
+  it('previews custom entity documents even when no ORM encryption maps exist', async () => {
+    const rotate = cli.find((entry) => entry.command === 'rotate-encryption-key')!
+    find.mockImplementation(async (entity: unknown) => entity === CustomFieldDef ? [{
+      entityId: 'user:private_record',
+      key: 'secret',
+      kind: 'text',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      configJson: { encrypted: true },
+      updatedAt: new Date(),
+    }] : [])
+    execute.mockResolvedValueOnce([{
+      id: 'document-1',
+      entity_type: 'user:private_record',
+      tenant_id: 'tenant-1',
+      organization_id: 'org-1',
+      doc: { 'cf:secret': 'legacy' },
+    }])
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {})
+
+    await rotate.run(['--tenant', 'tenant-1', '--org', 'org-1', '--dry-run'])
+
+    expect(execute).toHaveBeenCalledTimes(1)
+    expect(execute.mock.calls[0][0]).toContain('from custom_entities_storage')
+    expect(logSpy).toHaveBeenCalledWith('[dry-run] Encrypted 1 custom entity document(s).')
+    expect(encryptEntityPayload).not.toHaveBeenCalled()
+    logSpy.mockRestore()
+  })
 })

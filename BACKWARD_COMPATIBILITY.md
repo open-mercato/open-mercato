@@ -572,3 +572,11 @@ STABLE API §7: `GET /api/checkout/pay/:slug` omits admin fields; retaining them
 ## Encryption maintenance safety gates (2026-11-02, #6767)
 
 CLI command names and key/ciphertext formats remain stable. The deprecated `entities rotate-encryption-key --old-key` / `--oldKey` bridge now requires explicit `--allow-unsafe-old-key`; prefer `TENANT_DATA_ENCRYPTION_OLD_KEY`. No removal is scheduled. `entities decrypt-database --deactivate-maps` requires `--confirm-offline-maintenance <tenantUuid>` after stopping every application, worker and integration writer; restart replicas before resuming writes. These are intentional safety confirmations for legacy risky invocations, documented in [upgrade notes](UPGRADE_NOTES.md#encryption-maintenance-safety-confirmations-6767) and the [maintenance specification](.ai/specs/2026-09-30-encryption-key-rotation-hardening.md). Organization-only runs preserve tenant-wide fallback maps. Online policy retirement is unsupported.
+
+## SCIM rate limiting (2026-10-27)
+
+SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: ApiRouteBeforeAuth` is additive. See [contract and migration](.ai/specs/enterprise/implemented/SPEC-ENT-004-2026-02-19-sso-directory-sync.md#migration--backward-compatibility).
+
+## Scoped delegated authentication eligibility (2026-11-02, #8346)
+
+`AuthService.isUserSessionEligible({ userId, tenantId, organizationId, apiKeyId? })` is additive and optional for custom DI replacements. Without an API-key ID the core default permits existing behavior; with an ID it verifies live key ownership, scope, deletion and expiry, and SSO adds its scoped live deactivation policy. The internal auth context adds optional `sessionBoundApiKey` to distinguish delegated credentials from machine keys on cache hits. Existing import paths, signatures, HTTP payloads, and database schema remain unchanged. [Migration and operator guidance](UPGRADE_NOTES.md#scim-deactivation-blocks-fresh-sso-and-password-sign-in-7824).
