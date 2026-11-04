@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { DealDetailsFields } from '../DealDetailsFields'
 import { EMPTY_VALUES } from '../dealFormTypes'
@@ -36,6 +36,30 @@ function renderFields() {
 }
 
 describe('DealDetailsFields', () => {
+  it('shows a retry instead of the stage picker when the stages failed to load', async () => {
+    const onRetryStages = jest.fn()
+    renderWithProviders(
+      <DealDetailsFields
+        values={{ ...EMPTY_VALUES, pipelineId: 'pipe-1', pipelineStageId: 'stage-1' }}
+        errors={{}}
+        isSubmitting={false}
+        patch={jest.fn()}
+        onPipelineChange={jest.fn()}
+        pipelines={[]}
+        stages={[]}
+        stagesFailed
+        onRetryStages={onRetryStages}
+        tr={translate}
+      />,
+    )
+
+    const alert = screen.getByRole('alert')
+    expect(alert).toHaveTextContent('Could not load the stages of this pipeline.')
+    within(alert).getByRole('button', { name: 'Try again' }).click()
+    expect(onRetryStages).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Currency' })).toBeInTheDocument())
+  })
+
   it('names the amount input through the Deal value label', async () => {
     renderFields()
     const amount = screen.getByLabelText('Deal value')

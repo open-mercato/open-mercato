@@ -89,4 +89,42 @@ describe('useDealPipelines', () => {
 
     await waitFor(() => expect(result.current.stages.map((stage) => stage.id)).toEqual(['second-stage']))
   })
+
+  it.each([
+    ['an HTTP error', () => Promise.resolve({ ok: false, result: null })],
+    ['a response without items', () => Promise.resolve({ ok: true, result: {} })],
+    ['a network failure', () => Promise.reject(new Error('network down'))],
+  ])('reports %s as failed, not as a pipeline without stages, and recovers on retry', async (_label, failure) => {
+    mockApiCall.mockImplementation((url: string) => {
+      if (url === '/api/customers/pipelines') return Promise.resolve({ ok: true, result: { items: [] } })
+      return failure()
+    })
+    const { result } = renderHook(() => useDealPipelines())
+
+    await act(async () => {
+      await result.current.loadStages('first')
+    })
+    expect(result.current.stagesFailed).toBe(true)
+    expect(result.current.stagesLoading).toBe(false)
+    expect(result.current.stagesPipelineId).toBeNull()
+
+    mockApiCall.mockImplementation(() => Promise.resolve(stagesResponse('first-stage')))
+    await act(async () => {
+      result.current.retryStages()
+    })
+    await waitFor(() => expect(result.current.stagesPipelineId).toBe('first'))
+    expect(result.current.stagesFailed).toBe(false)
+    expect(result.current.stages.map((stage) => stage.id)).toEqual(['first-stage'])
+  })
+
+  it('treats a successful empty response as a pipeline without stages', async () => {
+    mockApiCall.mockImplementation(() => Promise.resolve({ ok: true, result: { items: [] } }))
+    const { result } = renderHook(() => useDealPipelines())
+
+    await act(async () => {
+      await result.current.loadStages('first')
+    })
+    expect(result.current.stagesFailed).toBe(false)
+    expect(result.current.stagesPipelineId).toBe('first')
+  })
 })

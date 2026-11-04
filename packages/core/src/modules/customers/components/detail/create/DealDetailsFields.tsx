@@ -5,6 +5,8 @@ import { format } from 'date-fns/format'
 import { parseISO } from 'date-fns/parseISO'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { DatePicker } from '@open-mercato/ui/primitives/date-picker'
+import { ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { DealSectionCard } from './DealSectionCard'
 import { DealFormField } from './DealFormField'
@@ -26,6 +28,8 @@ export type DealDetailsFieldsProps = {
   pipelines: PipelineOption[]
   stages: PipelineStageOption[]
   pipelineName?: string | null
+  stagesFailed?: boolean
+  onRetryStages?: () => void
   /** Seeds the owner picker so a self-assigned user outside the roster still renders by name. */
   ownerInitialOption?: DealOwnerOption | null
   tr: Translate
@@ -51,6 +55,8 @@ export function DealDetailsFields({
   pipelines,
   stages,
   pipelineName = null,
+  stagesFailed = false,
+  onRetryStages,
   ownerInitialOption,
   tr,
 }: DealDetailsFieldsProps) {
@@ -83,6 +89,16 @@ export function DealDetailsFields({
             />
           </DealFormField>
         </div>
+        {values.pipelineId && stagesFailed ? (
+          <ErrorMessage
+            label={tr('customers.deals.create.stagesLoadFailed', 'Could not load the stages of this pipeline.')}
+            action={(
+              <Button type="button" variant="outline" size="sm" onClick={onRetryStages}>
+                {tr('customers.deals.create.stagesRetry', 'Try again')}
+              </Button>
+            )}
+          />
+        ) : null}
         {values.pipelineId && stages.length ? (
           <div className="space-y-2" data-crud-field-id="pipelineStageId">
             <Label>{tr('customers.people.detail.deals.fields.pipelineStage', 'Pipeline stage')}</Label>

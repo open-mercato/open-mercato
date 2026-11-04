@@ -175,7 +175,7 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
   )
   const revealMoreDetails = React.useCallback(() => setMoreExpanded(true), [])
   const { runMutation, retryLastMutation } = useGuardedMutation({ contextId: CONTEXT_ID, blockedMessage: tr('ui.forms.flash.saveBlocked', 'Save blocked by validation') })
-  const { pipelines, stages, stagesPipelineId, stagesLoading, loadStages } = useDealPipelines()
+  const { pipelines, stages, stagesPipelineId, stagesLoading, stagesFailed, retryStages, loadStages } = useDealPipelines()
   const { customFieldsLoaded, handleCustomAttributesLoaded, collectNormalizedCustomValues } = useDealCustomFields(tr)
   // A required custom field must be visible from the start, not discovered on submit.
   const onCustomAttributesLoaded = React.useCallback(
@@ -194,6 +194,9 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
     [pipelines],
   )
   const handleSubmit = React.useCallback(async (values: Record<string, unknown>) => {
+    if (stagesFailed) {
+      throw createCrudFormError(tr('customers.deals.create.stagesLoadFailed', 'Could not load the stages of this pipeline.'))
+    }
     if (stagesLoading) {
       throw createCrudFormError(tr('customers.deals.create.stagesLoading', 'Stages are still loading. Try again in a moment.'))
     }
@@ -231,7 +234,7 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
     } finally {
       setIsSubmitting(false)
     }
-  }, [collectNormalizedCustomValues, stagesLoading, tr, runMutation, retryLastMutation])
+  }, [collectNormalizedCustomValues, stagesFailed, stagesLoading, tr, runMutation, retryLastMutation])
   const handleSubmitSuccess = React.useCallback(() => {
     router.push(returnTo)
   }, [router, returnTo])
@@ -275,6 +278,8 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
               onPipelineChange={(pipelineId) => patch({ pipelineId, pipelineStageId: '' })}
               pipelines={pipelines}
               stages={currentStages}
+              stagesFailed={stagesFailed}
+              onRetryStages={retryStages}
               pipelineName={pipelineName(current.pipelineId)}
               ownerInitialOption={ownerInitialOption}
               tr={tr}
@@ -379,6 +384,8 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
       },
     },
   ], [
+    stagesFailed,
+    retryStages,
     isSubmitting,
     loadStages,
     moreExpanded,
@@ -418,7 +425,7 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
           actions={{
             cancelHref: returnTo,
             cancelLabel,
-            submit: { formId: CONTEXT_ID, pending: isSubmitting, label: submitLabel, icon: Save, disabled: !customFieldsLoaded || stagesLoading },
+            submit: { formId: CONTEXT_ID, pending: isSubmitting, label: submitLabel, icon: Save, disabled: !customFieldsLoaded || stagesLoading || stagesFailed },
           }}
         />
       </div>

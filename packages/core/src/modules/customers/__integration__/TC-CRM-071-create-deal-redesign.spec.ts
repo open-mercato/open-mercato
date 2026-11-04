@@ -251,4 +251,67 @@ test.describe('TC-CRM-071: Create deal (UX redesign)', () => {
       await deleteCustomFieldDefinition(request, token, customFieldKey);
     }
   });
+
+  test('a failed stage lookup blocks saving, shows a retry, and recovers', async ({ page, request }) => {
+    test.slow();
+
+    const dealTitle = `QA TC-CRM-071 Retry ${Date.now()}`;
+    let token: string | null = null;
+    let dealId: string | null = null;
+    const postedDeals: Array<Record<string, unknown>> = [];
+
+    try {
+      token = await getAuthToken(request);
+      await login(page, 'admin');
+
+      let failStages = true;
+      await page.route('**/api/customers/pipeline-stages?**', async (route) => {
+        if (failStages) {
+          await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Injected failure' }) });
+          return;
+        }
+        await route.fallback();
+      });
+      page.on('request', (sent) => {
+        if (sent.method() === 'POST' && new URL(sent.url()).pathname === '/api/customers/deals') {
+          postedDeals.push(sent.postDataJSON() as Record<string, unknown>);
+        }
+      });
+
+      await page.goto('/backend/customers/deals/create', { waitUntil: 'domcontentloaded' });
+      const failure = page.getByRole('alert').filter({ hasText: 'Could not load the stages of this pipeline.' });
+      await expect(failure).toBeVisible({ timeout: 30_000 });
+      const submitButton = page.getByRole('button', { name: 'Create deal', exact: true }).first();
+      await expect(submitButton).toBeDisabled();
+
+      const titleInput = page.getByLabel(/Deal title/i);
+      await titleInput.fill(dealTitle);
+      await expect(titleInput).toHaveValue(dealTitle);
+      await expect(submitButton).toBeDisabled();
+      expect(postedDeals, 'no deal is sent while the stages are unresolved').toHaveLength(0);
+
+      failStages = false;
+      await failure.getByRole('button', { name: 'Try again' }).click();
+      await expect(failure).toHaveCount(0);
+      const selectedStage = page.locator('[data-crud-field-id="pipelineStageId"]').getByRole('button', { pressed: true });
+      await expect(selectedStage).toBeVisible({ timeout: 30_000 });
+      await expect(titleInput, 'the retry keeps what was typed').toHaveValue(dealTitle);
+
+      await expect(submitButton).toBeEnabled({ timeout: 30_000 });
+      const saved = page.waitForResponse(
+        (response) => new URL(response.url()).pathname === '/api/customers/deals' && response.request().method() === 'POST',
+      );
+      await submitButton.click();
+      const response = await saved;
+      expect(response.status()).toBe(201);
+      const created = (await response.json()) as { id?: string; entityId?: string };
+      dealId = created.id ?? created.entityId ?? null;
+      expect(postedDeals).toHaveLength(1);
+      expect(postedDeals[0].pipelineId, 'the deal is created on the selected pipeline').toBeTruthy();
+      expect(postedDeals[0].pipelineStageId, 'the recovered stage is submitted').toBeTruthy();
+    } finally {
+      await page.unroute('**/api/customers/pipeline-stages?**');
+      await deleteEntityIfExists(request, token, '/api/customers/deals', dealId);
+    }
+  });
 });

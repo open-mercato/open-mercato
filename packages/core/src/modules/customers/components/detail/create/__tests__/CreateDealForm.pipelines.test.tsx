@@ -93,10 +93,14 @@ jest.mock('../DealDetailsFields', () => {
       values,
       stages,
       patch,
+      stagesFailed,
+      onRetryStages,
     }: {
       values: { title: string; pipelineId: string; pipelineStageId: string }
       stages: Array<{ id: string; label: string }>
       patch: (partial: Partial<{ title: string; pipelineId: string }>) => void
+      stagesFailed?: boolean
+      onRetryStages?: () => void
     }) =>
       ReactForMock.createElement(
         'div',
@@ -113,6 +117,9 @@ jest.mock('../DealDetailsFields', () => {
           type: 'button',
           onClick: () => patch({ pipelineId: 'pipe-other' }),
         }, 'Set pipeline without the select'),
+        stagesFailed
+          ? ReactForMock.createElement('button', { type: 'button', onClick: onRetryStages }, 'Retry stages')
+          : null,
       ),
   }
 })
@@ -251,6 +258,47 @@ describe('CreateDealForm pipeline defaults', () => {
 
       await waitFor(() => expect(screen.getByLabelText('Stage')).toHaveTextContent(LEAD.id))
       expect(await submitWhenReady()).toEqual(
+        expect.objectContaining({ pipelineId: 'pipe-default', pipelineStageId: LEAD.id }),
+      )
+    })
+
+    it.each([
+      ['an HTTP error', () => Promise.resolve({ ok: false, result: null })],
+      ['a response without items', () => Promise.resolve({ ok: true, result: {} })],
+      ['a network failure', () => Promise.reject(new Error('network down'))],
+    ])('keeps a seeded stage and blocks saving after %s, until a retry succeeds', async (_label, failure) => {
+      const serve = mockApiCall.getMockImplementation() as (url: string) => Promise<unknown>
+      let failing = true
+      mockApiCall.mockImplementation((url: string) => {
+        if (!url.includes('pipelineId=pipe-default')) return serve(url)
+        return failing ? failure() : Promise.resolve({ ok: true, result: { items: [WON, LEAD] } })
+      })
+      render(
+        <CreateDealForm
+          returnTo="/backend/customers/deals"
+          initialValues={{ pipelineId: 'pipe-default', pipelineStageId: LEAD.id }}
+        />,
+      )
+
+      const retry = await screen.findByRole('button', { name: 'Retry stages' })
+      expect(screen.getByLabelText('Stage')).toHaveTextContent(LEAD.id)
+      const createDeal = screen.getByRole('button', { name: 'Create deal' })
+      expect(createDeal).toBeDisabled()
+      fireEvent.change(screen.getByLabelText('Deal title'), { target: { value: 'New deal' } })
+      fireEvent.submit(document.getElementById(createDeal.getAttribute('form') as string) as HTMLFormElement)
+      await waitFor(() => expect(flash).toHaveBeenCalledWith('Could not load the stages of this pipeline.', 'error'))
+      expect(mockCreateCrud).not.toHaveBeenCalled()
+
+      failing = false
+      fireEvent.click(retry)
+      await waitFor(() => expect(screen.getByLabelText('Offered stages')).toHaveTextContent('Won,Lead'))
+      expect(screen.queryByRole('button', { name: 'Retry stages' })).not.toBeInTheDocument()
+      expect(screen.getByLabelText('Stage')).toHaveTextContent(LEAD.id)
+      expect(screen.getByLabelText('Deal title')).toHaveValue('New deal')
+      await waitFor(() => expect(createDeal).toBeEnabled())
+      fireEvent.click(createDeal)
+      await waitFor(() => expect(mockCreateCrud).toHaveBeenCalledTimes(1))
+      expect(mockCreateCrud.mock.calls[0][1]).toEqual(
         expect.objectContaining({ pipelineId: 'pipe-default', pipelineStageId: LEAD.id }),
       )
     })
