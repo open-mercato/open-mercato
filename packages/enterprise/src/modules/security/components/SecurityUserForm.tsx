@@ -2,8 +2,7 @@
 
 import * as React from 'react'
 import { z } from 'zod'
-import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
-import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { Button } from '@open-mercato/ui/primitives/button'
 import MfaComplianceBadge from './MfaComplianceBadge'
@@ -31,8 +30,11 @@ type SecurityUserFormProps = {
   onCancel: () => void
 }
 
-function formatMethodLastUsed(value: string | undefined, fallback: string, locale: string): string {
-  return formatDisplayDateTime(value, locale) ?? fallback
+function formatMethodLastUsed(value: string | undefined, fallback: string): string {
+  if (!value) return fallback
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return fallback
+  return parsed.toLocaleString()
 }
 
 function UserSummarySection({ value }: { value: SecurityUserFormValue }) {
@@ -59,7 +61,6 @@ function UserSummarySection({ value }: { value: SecurityUserFormValue }) {
 
 function MethodsSection({ methods }: { methods: SecurityUserMethod[] }) {
   const t = useT()
-  const locale = useLocale()
   if (!methods.length) {
     return (
       <p className="text-sm text-muted-foreground">
@@ -93,7 +94,6 @@ function MethodsSection({ methods }: { methods: SecurityUserMethod[] }) {
                 {formatMethodLastUsed(
                   method.lastUsed,
                   t('security.admin.users.lastLogin.unknown', 'Unknown'),
-                  locale,
                 )}
               </p>
             </div>

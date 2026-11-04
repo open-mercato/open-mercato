@@ -46,7 +46,6 @@ import {
   type ProcessStateTone,
   type ProcessStep,
 } from '../../../components/processTypes'
-import { formatDisplayDate, todayInZone } from '@open-mercato/ui/primitives/date-format'
 
 type StageState = 'done' | 'current' | 'upcoming'
 
@@ -119,17 +118,15 @@ function formatAge(iso: string | null, t: ReturnType<typeof useT>): string | nul
 /** Calendar-day key used for the timeline's day dividers. */
 function dayKeyOf(iso: string | null): string {
   if (!iso) return ''
-  const parsed = new Date(iso)
-  if (Number.isNaN(parsed.getTime())) return iso.slice(0, 10)
-  return todayInZone(undefined, parsed)
+  return iso.slice(0, 10)
 }
 
-function dayLabelOf(dayKey: string, t: ReturnType<typeof useT>, locale: string): string {
-  const today = todayInZone()
-  const yesterday = todayInZone(undefined, new Date(Date.now() - 24 * 60 * 60 * 1000))
+function dayLabelOf(dayKey: string, t: ReturnType<typeof useT>): string {
+  const today = new Date().toISOString().slice(0, 10)
+  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
   if (dayKey === today) return t('agent_orchestrator.process.today')
   if (dayKey === yesterday) return t('agent_orchestrator.process.yesterday')
-  return formatDisplayDate(dayKey, locale) ?? dayKey
+  return dayKey
 }
 
 function summarize(proposal: ProposalView, t: ReturnType<typeof useT>): string {
@@ -770,7 +767,7 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
                             <span className="relative size-1.5 rounded-full bg-muted-foreground ring-2 ring-card" />
                           </span>
                           <p className="py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                            {dayLabelOf(step.day, t, locale)}
+                            {dayLabelOf(step.day, t)}
                           </p>
                         </div>
                       ) : null}
@@ -816,7 +813,7 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
           {selected ? (
             <StepDetailPanel
               step={selected}
-              dayLabel={dayLabelOf(selected.day, t, locale)}
+              dayLabel={dayLabelOf(selected.day, t)}
               onOpenTrace={openTrace}
               onReviewInCaseload={reviewSelectedInCaseload}
             />

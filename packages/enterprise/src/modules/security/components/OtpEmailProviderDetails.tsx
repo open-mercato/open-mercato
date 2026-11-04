@@ -1,9 +1,9 @@
 'use client'
 
 import * as React from 'react'
-import { formatRelativeTime } from '@open-mercato/shared/lib/time'
+import { formatDistanceToNow } from 'date-fns'
 import { Loader2, Mail, Trash2 } from 'lucide-react'
-import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -29,11 +29,11 @@ type OtpConfirmResponse = {
   recoveryCodes?: string[]
 }
 
-function formatRelative(value: string | null, fallback: string, locale: string): string {
+function formatRelative(value: string | null, fallback: string): string {
   if (!value) return fallback
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return fallback
-  return formatRelativeTime(value, { locale }) ?? fallback
+  return formatDistanceToNow(parsed, { addSuffix: true })
 }
 
 function readMetadataEmail(method: MfaMethod): string | null {
@@ -49,7 +49,6 @@ export default function OtpEmailProviderDetails({
   onMethodsChanged,
 }: OtpEmailProviderDetailsProps) {
   const t = useT()
-  const locale = useLocale()
   const [loading, setLoading] = React.useState(false)
 
   const configuredMethod = methods[0] ?? null
@@ -121,7 +120,7 @@ export default function OtpEmailProviderDetails({
             ) : null}
             <p className="truncate text-xs text-slate-400">
               {t('security.profile.mfa.method.lastUsed', 'Last used')}:{' '}
-              {formatRelative(configuredMethod.lastUsedAt, t('security.profile.mfa.method.neverUsed', 'Never used'), locale)}
+              {formatRelative(configuredMethod.lastUsedAt, t('security.profile.mfa.method.neverUsed', 'Never used'))}
             </p>
           </div>
           {onRemoveMethod ? (

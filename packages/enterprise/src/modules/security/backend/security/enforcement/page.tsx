@@ -9,8 +9,7 @@ import type { SortingState } from '@tanstack/react-table'
 import { Pencil, Trash2 } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
-import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
@@ -50,7 +49,6 @@ function renderTargetLabel(policy: EnforcementPolicyDto, allTenantsLabel: string
 export default function SecurityEnforcementPage() {
   const router = useRouter()
   const t = useT()
-  const locale = useLocale()
   const [page, setPage] = React.useState(1)
   const [search, setSearch] = React.useState('')
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'deadline', desc: true }])
@@ -178,8 +176,9 @@ export default function SecurityEnforcementPage() {
     {
       id: 'deadline',
       header: t('security.admin.enforcement.list.deadline', 'Deadline'),
-      cell: ({ row }) => formatDisplayDateTime(row.original.enforcementDeadline, locale)
-        ?? t('security.admin.enforcement.deadline.none', 'No deadline'),
+      cell: ({ row }) => row.original.enforcementDeadline
+        ? new Date(row.original.enforcementDeadline).toLocaleString()
+        : t('security.admin.enforcement.deadline.none', 'No deadline'),
     },
     {
       id: 'methods',
@@ -195,7 +194,7 @@ export default function SecurityEnforcementPage() {
         ? t('security.admin.enforcement.status.enforced', 'Enforced')
         : t('security.admin.enforcement.status.disabled', 'Disabled'),
     },
-  ], [t, locale])
+  ], [t])
 
   const handleDelete = React.useCallback(async (policy: EnforcementPolicyDto) => {
     const accepted = await confirm({
