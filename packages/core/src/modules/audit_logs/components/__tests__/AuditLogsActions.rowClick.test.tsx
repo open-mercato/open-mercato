@@ -4,7 +4,7 @@
 
 import '@testing-library/jest-dom'
 import * as React from 'react'
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 
@@ -54,6 +54,7 @@ jest.mock('../ActionLogDetailsDialog', () => ({
 }))
 
 import { AuditLogsActions, type ActionLogItem } from '../AuditLogsActions'
+import polish from '../../i18n/pl.json'
 
 const baseItem: ActionLogItem = {
   id: 'log-1',
@@ -89,7 +90,7 @@ describe('AuditLogsActions row controls', () => {
     ;(apiCallOrThrow as jest.Mock).mockResolvedValue({ ok: true })
     const onRefresh = jest.fn().mockResolvedValue(undefined)
     renderWithProviders(<AuditLogsActions items={[baseItem]} onRefresh={onRefresh} />, {
-      dict: { 'audit_logs.actions.undo': 'Undo row' },
+      dict: { 'audit_logs.actions.undo_this': 'Undo row' },
     })
 
     fireEvent.click(await findRowButton('Undo row'))
@@ -108,7 +109,7 @@ describe('AuditLogsActions row controls', () => {
     const onUndoError = jest.fn()
     renderWithProviders(
       <AuditLogsActions items={[baseItem]} onRefresh={jest.fn()} onUndoError={onUndoError} />,
-      { dict: { 'audit_logs.actions.undo': 'Undo row' } },
+      { dict: { 'audit_logs.actions.undo_this': 'Undo row' } },
     )
 
     fireEvent.click(await findRowButton('Undo row'))
@@ -121,7 +122,7 @@ describe('AuditLogsActions row controls', () => {
     ;(apiCallOrThrow as jest.Mock).mockResolvedValue({ ok: true })
     const undoneItem: ActionLogItem = { ...baseItem, executionState: 'undone', undoToken: null }
     renderWithProviders(<AuditLogsActions items={[undoneItem]} onRefresh={jest.fn().mockResolvedValue(undefined)} />, {
-      dict: { 'audit_logs.actions.redo': 'Redo row' },
+      dict: { 'audit_logs.actions.redo_this': 'Redo row' },
     })
 
     fireEvent.click(await findRowButton('Redo row'))
@@ -130,9 +131,40 @@ describe('AuditLogsActions row controls', () => {
     expect(screen.queryByTestId('action-log-details-dialog')).not.toBeInTheDocument()
   })
 
+  it('identifies records, summarizes changes, translates states and keeps native actions sticky', async () => {
+    const createdAt = '2026-10-01T10:00:37.000Z'
+    renderWithProviders(<AuditLogsActions items={[{
+      ...baseItem,
+      resourceKind: 'directory.organization',
+      snapshotBefore: { view: { name: 'Organization A' } },
+      snapshotAfter: { name: 'Organization B' },
+      changes: { name: { from: 'Organization A', to: 'Organization B' } },
+      createdAt,
+    }]} onRefresh={jest.fn()} />, { dict: polish })
+
+    const name = await screen.findByText('Organization B')
+    const row = name.closest('tr')!
+    expect(within(row).getByText('Nazwa: Organization A → Organization B')).toBeInTheDocument()
+    expect(within(row).getByText(polish['audit_logs.version_history.status.done'])).toBeInTheDocument()
+    expect(within(row).getByText(new Intl.DateTimeFormat(undefined, {
+      dateStyle: 'medium', timeStyle: 'medium',
+    }).format(new Date(createdAt)))).toBeInTheDocument()
+    const undo = within(row).getByRole('button', { name: 'Cofnij to działanie' })
+    expect(undo).toHaveAttribute('title', 'Cofnij to działanie')
+    expect(undo.closest('td')).toHaveClass('md:sticky', 'md:right-0')
+    expect(screen.getByRole('button', { name: polish['audit_logs.actions.undo'] })).toBeInTheDocument()
+  })
+
+  it('keeps the ID fallback and only enables the newest undo for each resource', async () => {
+    renderWithProviders(<AuditLogsActions items={[baseItem, { ...baseItem, id: 'log-old', undoToken: 'old-token' }]}
+      onRefresh={jest.fn()} />, { dict: polish })
+    expect(await screen.findAllByText('catalog.product · product-1')).toHaveLength(2)
+    expect(screen.getAllByRole('button', { name: 'Cofnij to działanie' })).toHaveLength(1)
+  })
+
   it('still opens the details dialog when the row itself is clicked', async () => {
     renderWithProviders(<AuditLogsActions items={[baseItem]} onRefresh={jest.fn()} />, {
-      dict: { 'audit_logs.actions.undo': 'Undo row' },
+      dict: { 'audit_logs.actions.undo_this': 'Undo row' },
     })
 
     fireEvent.click(await screen.findByText('Delete product'))
