@@ -601,7 +601,7 @@ async function runMain(argv: string[], fetchImpl: typeof fetch, cwd = scratchDir
   return { cwd, output }
 }
 
-test('help documents --template and --keep-name with two examples and no --app prm example', async () => {
+test('help documents --template and --keep-name with two examples, and no doc keeps the --app prm example', async () => {
   const noFetch = (async () => {
     throw new Error('help must not fetch')
   }) as typeof fetch
@@ -615,6 +615,9 @@ test('help documents --template and --keep-name with two examples and no --app p
   assert.match(help, /^ {2}--app <name> /m, '--app stays documented')
   assert.doesNotMatch(help, /--app prm/)
   assert.deepEqual(readdirSync(cwd), [])
+  for (const doc of ['README.md', 'AGENTS.md']) {
+    assert.doesNotMatch(readFileSync(join(__dirname, '..', '..', '..', doc), 'utf8'), /--app prm/, doc)
+  }
 })
 
 test('main refuses every exclusion and a bad OM_TEMPLATES_URL before any request or directory', async () => {

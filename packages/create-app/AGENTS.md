@@ -100,7 +100,7 @@ my-app/
 `create-mercato-app` supports four scaffold modes:
 
 1. Bare scaffold: `npx create-mercato-app my-app`
-2. Official ready app: `npx create-mercato-app my-prm --app prm`
+2. Official ready app: `npx create-mercato-app my-app --app <name>` (resolves `open-mercato/ready-app-<name>` at `v<create-mercato-app version>`)
 3. External GitHub ready app: `npx create-mercato-app my-app --app-url https://github.com/some-agency/ready-app-marketplace`
 4. App template: `npx create-mercato-app my-app --template <slug | owner/repo>[#ref] [--keep-name]` (spec `.ai/specs/2026-11-04-create-app-template-flag.md`)
 

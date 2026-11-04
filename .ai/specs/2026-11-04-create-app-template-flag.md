@@ -326,7 +326,8 @@ The `cp` line is printed only when `.env.example` exists; the env block only whe
 ### Help and the `--app` miss (A8)
 
 - Help gains `--template` and `--keep-name` with two examples (`--template crm`, `--template owner/repo#v1.0.0`).
-- The broken `--app prm` example is removed from help and the README; `--app` stays documented.
+- The broken `--app prm` example is removed from help, the README and `packages/create-app/AGENTS.md`; `--app` stays
+  documented.
 - When `--app <name>` finds no `open-mercato/ready-app-<name>` repo, the error adds:
   `Ready apps are now app templates: see https://modules.openmercato.com/templates or use --template <owner/repo>.`
 
@@ -495,6 +496,7 @@ commits on `feat/create-app-template`, with its tests green before the next step
 ### Step 6: docs and help (done)
 
 - Help: `--template`, `--keep-name`, two examples; the `--app prm` example removed.
+- `packages/create-app/AGENTS.md`: mode 2 reads `--app <name>` instead of the broken `--app prm` example.
 - `packages/create-app/README.md` and `apps/docs/docs/customization/standalone-app.mdx`: a `--template` section, the
   hold and verification messages, the archive limits, the `--app prm` example removed.
 - The `--app` miss hint (A8) in `downloadReadyAppSnapshot` for an official repo that does not exist.
@@ -502,7 +504,8 @@ commits on `feat/create-app-template`, with its tests green before the next step
   `create-mercato-template`, create with `--template`), linked from `agentic/guides/architecture.md`. A row in the
   generated root `AGENTS.md` only if `agent-instruction-budget.test.ts` keeps passing.
 - Mark this spec's steps done and update the changelog.
-- Tests: help output contains the `--template` line and examples and no `--app prm`; the miss hint for a missing
+- Tests: help output contains the `--template` line and examples and no `--app prm`, nor do the README and
+  `packages/create-app/AGENTS.md`; the miss hint for a missing
   official repo; a guide test like `module-tool-guidance.test.ts` (the guide exists and is linked).
 - As built: the help and README examples are `--template crm` and `--template some-agency/b2b-portal#v1.0.0`. The
   miss hint is the exported `READY_APP_MISS_HINT`, added only when the official repo does not exist; a missing
