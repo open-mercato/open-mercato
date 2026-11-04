@@ -47,6 +47,7 @@
     "initialize": "turbo run initialize --filter=@open-mercato/app",
     "seed:defaults": "yarn workspace @open-mercato/app seed:defaults",
     "om": "node packages/starter/bin/om-start.mjs",
+    "setup": "node packages/starter/bin/om-start.mjs up",
     "infra:up": "node packages/starter/bin/om-start.mjs infra up",
     "infra:down": "node packages/starter/bin/om-start.mjs infra down",
     "docker:up": "docker compose --project-directory . -f starters/docker/compose.fullapp.yml up --build -d",
