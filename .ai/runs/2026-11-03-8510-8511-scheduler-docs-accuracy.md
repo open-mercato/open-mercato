@@ -47,7 +47,7 @@ Source: independent `om-code-review` pass on PR #8626 (head `bbbd74c91`).
 
 ## Progress
 
-PR: #8626
+PR: #8695
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
@@ -69,3 +69,7 @@ PR: #8626
 - [x] 4.1 Align scheduler run and exit-code docs with source — 5fbfbf679
 - [x] 4.2 Re-run the configured validation gate — local gate green (docs OOM workaround)
 - [x] 4.3 Apply independent re-review findings — af5129a60 (targeted: guard 2/2, docs test + build 24/24)
+
+## Carry-forward
+
+2026-11-04T15:36:40Z — carried forward from #8626 to #8695 by `om-auto-review-pr` autofix. Original implementation by @pgaluszk is preserved. Registered the documented queue-subcommand guard in the existing repo-wide guard manifest so docs-only changes run it. Narrow local verification: manifest tests 16/16, guard 2/2, registered-runner invocation and JavaScript syntax check pass; an unsupported queue command fails the guard.
