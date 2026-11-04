@@ -332,7 +332,7 @@ Unique `(organization_id, user_id) where deleted_at is null`: one profile per us
 | `status` | text | `pending` \| `confirmed` \| `declined` \| `expired` \| `cancelled` |
 | `expires_at` | timestamptz null | pending only |
 | `decided_at`, `decided_by_user_id` | null | |
-| `decline_reason` | text null | optional, written by the owner and shown to the booker. **Not encrypted** by product decision: it is the owner's own message to the booker, not confidential booker data. Cleared by the 90-day anonymisation like the other request texts |
+| `decline_reason` | text null | optional, written by the owner and shown to the booker. **Encrypted** (map below): owner-authored free text can still describe the booker, as with comment and interaction bodies. Read only through the decryption helpers; cleared by the 90-day anonymisation |
 | `cancelled_by` | text null | `booker` \| `owner` \| `reschedule` |
 | `interaction_id` | uuid null | set on confirm |
 | `customer_entity_id` | uuid null | person the interaction is attached to |
@@ -357,11 +357,15 @@ Indexes:
     { field: 'email', hashField: 'email_hash' },
     { field: 'first_name' },
     { field: 'last_name' },
+    { field: 'decline_reason' },
   ],
 },
 ```
 
-New organizations get it through the existing seeding subscriber; existing tenants get it with `yarn mercato entities seed-encryption`, noted in UPGRADE_NOTES. The table is new, so there are no plaintext rows to backfill.
+**Provisioning:** tenant encryption maps are seeded only at tenant creation, so a new map entry never reaches existing tenants by itself, and without a persisted rule `encryptEntityPayload` would write the first booking in plaintext with `email_hash` empty. So:
+- **new tenants and organizations** get the entry through the existing seeding at tenant creation;
+- **existing tenants** get it from a forward-only, idempotent customers migration that runs `buildEncryptionMapBackfillSql(bookingRequestEncryptionMap)` (`shared/lib/encryption/migration-backfill.ts`), with an empty `down()` as the helper requires. It inserts the entry for every (tenant, organization) scope with active maps that lacks it, and appends missing field rules to existing rows. Scopes with encryption disabled are skipped. The migration ships in Step 1, the same release as the tables, so the map is in place before public writes exist (Step 8);
+- **operator recovery only:** `yarn mercato entities seed-encryption --tenant <uuid> [--org <uuid>]` re-seeds one scope. It is not part of the upgrade path.
 
 Plus a small table, `customer_booking_idempotency_keys`, for public-write idempotency (see Architecture → Public request write).
 
@@ -577,7 +581,7 @@ Leaves (`WeeklyHoursEditor`, `SlotPreviewCard`, `BookingCountersClient`, the dia
 ## 📋 Implementation Plan
 
 ### Phase 1
-1. **Entities, validators, migration:** both entities (all columns, so later phases need no migration), zod schemas, `yarn db:generate`; unit tests for the validators (slug, weekly hours overlap).
+1. **Entities, validators, migration:** both entities (all columns, so later phases need no migration), zod schemas, `yarn db:generate`, the `customers/encryption.ts` map entry, and the forward-only encryption-map backfill migration (`buildEncryptionMapBackfillSql`, empty `down()`); unit tests for the validators (slug, weekly hours overlap); a migration test: an existing encryption-enabled tenant that receives only the normal upgrade migrations has the booking-request map afterwards, and running the migration twice changes nothing.
 2. **Busy-time extraction (separate PR):** `lib/booking/busy.ts` with `legacy` (viewer required, e-mail visibility filter applied before selection) and `calendar` modes; the conflicts route moves to `legacy`. Parity tests against existing conflicts fixtures, plus access parity: another user's private scheduled e-mail is neither returned nor title-leaked, a conversation share and a shared channel make it visible, an API-key caller is unchanged; `calendar`-mode tests for participants, recurring, all-day and multi-org.
 3. **Slot engine:** `lib/booking/slots.ts` with unit tests (overrides, buffers, notice, horizon, daily cap, DST, first-available scan).
 4. **ICS builder:** `lib/booking/ics.ts` with snapshot tests (REQUEST/CANCEL, escaping, UTC times, UID/SEQUENCE).
@@ -588,7 +592,7 @@ Leaves (`WeeklyHoursEditor`, `SlotPreviewCard`, `BookingCountersClient`, the dia
 9. **Confirmation e-mail subscriber:** `.ics` attachment with queue retry, `replyTo` = owner, booker locale, escaped and truncated names; unit test with a mocked `sendEmail`.
 10. **Public page UI:** chrome-less frontend page; Playwright test (lands on first available day, picks a slot, books, sees success).
 11. **Interaction→request sync subscribers:** snapshot diff and the person-delete cascade; integration tests (owner cancels → request cancelled and CANCEL sent; owner moves the time → SEQUENCE+1 update; two concurrent owner edits send two distinct, increasing SEQUENCE values; a title change → update; an unrelated field change → no mail; the person deleted → requests cancelled and bookers e-mailed; events with the booking `syncOrigin` ignored; the owner moves the interaction to another person → `customer_entity_id` follows; a person delete followed by undo → requests stay cancelled, no re-invite, and the undo toast warns; a booking-linked person-delete cascade also cancels the pending reschedule successor).
-12. **Mail cap plus maintenance job:** the daily outbound mail cap (queue tests); the encryption map entry, with a test that reads raw rows and the encryption metadata and finds no plaintext e-mail or names; the maintenance worker (anonymisation including ended confirmed requests, `decline_reason` and `client_ip_hash`, plus idempotency-key purge; one request container per item) with one system-scoped schedule and the manual CLI; a test reads the anonymised rows and finds no PII; the org-slug interceptor (refuses a colliding resolved slug, guards undo); tests for it.
+12. **Mail cap plus maintenance job:** the daily outbound mail cap (queue tests); a test on an existing encryption-enabled tenant upgraded only through migrations: its first booking stores ciphertext e-mail and names and the expected `email_hash`, and a declined request stores its `decline_reason` as ciphertext (raw-row reads); the maintenance worker (anonymisation including ended confirmed requests, `decline_reason` and `client_ip_hash`, plus idempotency-key purge; one request container per item) with one system-scoped schedule and the manual CLI; a test reads the anonymised rows and finds no PII; the org-slug interceptor (refuses a colliding resolved slug, guards undo); tests for it.
 
 ### Phase 2
 13. **Approval lifecycle commands:** pending create, accept (create/link person), decline and owner cancel via the conditional transitions, with `expectedUpdatedAt` enforced by `enforceCommandOptimisticLockWithGuards`; `interactions.cancel` gains `transactionalEm`/`transactionLifetime` support; owner scope enforced in the commands; events and notifications (no names in texts); accept keeps undo (ids-only `redoInput`, replay enabled, ids-only snapshots); integration tests, including a concurrent accept-vs-expire run where only one wins and one e-mail is sent, and accept → undo: the response carries a usable undo token, undo cancels the interaction and the request and sends exactly one `METHOD:CANCEL`, and the booking command's action-log entry (payload and snapshots) contains no booker e-mail or name; a forced failure after the interaction is cancelled rolls back the interaction, the request and the successor together and emits nothing; stale owner cancel → 409; an employee with only `manage_own` can accept and cancel their own booking but gets 403 on `PUT`/cancel of a colleague's ordinary interaction and 404 on a colleague's booking request.
@@ -611,7 +615,7 @@ Every UI step (6, 10, 15, 17, 18, 19) runs `yarn check:client-boundaries` and re
 ## 📋 Final Compliance Report
 - Tenant and organization scoping on every query; the public resolver derives the organization from the slug pair, never from the request body.
 - No cross-module ORM relations (`userId` and the org are FK ids only).
-- Booker e-mail and names are declared in `customers/encryption.ts` (`email` → `email_hash`) and read only through the decryption helpers.
+- Booker e-mail and names and the decline reason are declared in `customers/encryption.ts` (`email` → `email_hash`), provisioned for existing tenants by a backfill migration, and read only through the decryption helpers.
 - All writes go through commands; backend forms use `CrudForm` or `useGuardedMutation`.
 - Optimistic locking on the profile (`CrudForm`), plus conditional state transitions with `expectedUpdatedAt` on every request write (accept, decline, bulk, link-person, owner cancel, public cancel and reschedule), enforced with `enforceCommandOptimisticLockWithGuards`.
 - Long-running bulk work runs as a `ProgressJob`.
@@ -712,3 +716,6 @@ Every UI step (6, 10, 15, 17, 18, 19) runs `yarn check:client-boundaries` and re
   - **Minor:** added the Frontend Architecture Contract and per-step `check:client-boundaries` evidence;
   - **Minor:** kept as one spec by the author's decision; the three phases remain independently shippable and are implemented as separate PRs;
   - **Nit:** removed middot separators and the 900px breakpoint (now `lg`).
+- 2026-11-04: Applied @pkarw's re-review on PR #8214:
+  - `decline_reason` added to the encryption map (reverses the earlier product decision), with a raw-row ciphertext test;
+  - existing tenants get the map from a forward-only `buildEncryptionMapBackfillSql` migration in Step 1, before public writes exist; `seed-encryption --tenant` kept as operator recovery only; migration and first-booking ciphertext tests added.
