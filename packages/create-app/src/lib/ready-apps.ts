@@ -315,6 +315,96 @@ async function fetchGitHubRepositoryInfo(
   return { defaultBranch }
 }
 
+/** The default branch of a repository; a missing or hidden repository gets the access error with the token hint. */
+export async function resolveGitHubDefaultBranch(
+  owner: string,
+  repo: string,
+  packageVersion: string,
+  fetchImpl: FetchLike = fetch,
+): Promise<string> {
+  const repoInfo = await fetchGitHubRepositoryInfo(owner, repo, packageVersion, fetchImpl)
+  if (!repoInfo) {
+    throw buildRepoAccessError(owner, repo)
+  }
+
+  return repoInfo.defaultBranch
+}
+
+/** The commit sha a branch, tag or sha points to, read from `GET /repos/{owner}/{repo}/commits/{ref}`. */
+export async function resolveGitHubCommitSha(
+  owner: string,
+  repo: string,
+  ref: string,
+  packageVersion: string,
+  fetchImpl: FetchLike = fetch,
+): Promise<string> {
+  const response = await performGitHubRequest(
+    `${buildGitHubRepoApiUrl(owner, repo)}/commits/${encodeURIComponent(ref)}`,
+    owner,
+    repo,
+    packageVersion,
+    fetchImpl,
+  )
+
+  // GitHub answers 422 for a ref that names no commit and 404 for a missing repository or ref.
+  if (response.status === 404 || response.status === 422) {
+    const repoInfo = await fetchGitHubRepositoryInfo(owner, repo, packageVersion, fetchImpl)
+    if (!repoInfo) {
+      throw buildRepoAccessError(owner, repo)
+    }
+
+    throw new Error(`Ref not found: ${owner}/${repo}#${ref}. Check that the branch, tag or commit exists.`)
+  }
+
+  if (!response.ok) {
+    throw await buildGitHubRequestError(response, owner, repo, 'resolving a ref of')
+  }
+
+  const payload = (await response.json()) as { sha?: unknown }
+  if (typeof payload.sha !== 'string' || !/^[0-9a-f]{40}$/iu.test(payload.sha)) {
+    throw new Error(`GitHub did not return a commit sha for ${owner}/${repo}#${ref}.`)
+  }
+
+  return payload.sha.toLowerCase()
+}
+
+export type RepositoryTarballDownload = { status: 'ok'; archive: Uint8Array } | { status: 'not-found' }
+
+/**
+ * The tarball of one commit, `GET /repos/{owner}/{repo}/tarball/{sha}`. A 404 is returned as `not-found` when the
+ * repository itself is still reachable, so the caller can explain a commit that is gone.
+ */
+export async function downloadRepositoryTarball(
+  owner: string,
+  repo: string,
+  sha: string,
+  packageVersion: string,
+  fetchImpl: FetchLike = fetch,
+): Promise<RepositoryTarballDownload> {
+  const response = await performGitHubRequest(
+    buildGitHubTarballApiUrl(owner, repo, sha),
+    owner,
+    repo,
+    packageVersion,
+    fetchImpl,
+  )
+
+  if (response.ok) {
+    return { status: 'ok', archive: new Uint8Array(await response.arrayBuffer()) }
+  }
+
+  if (response.status === 404) {
+    const repoInfo = await fetchGitHubRepositoryInfo(owner, repo, packageVersion, fetchImpl)
+    if (!repoInfo) {
+      throw buildRepoAccessError(owner, repo)
+    }
+
+    return { status: 'not-found' }
+  }
+
+  throw await buildGitHubRequestError(response, owner, repo, 'downloading tarball for')
+}
+
 export async function downloadReadyAppSnapshot(
   source: ReadyAppSource,
   packageVersion: string,
