@@ -634,6 +634,15 @@ None blocking. Judgment calls made in this spec, open to reviewer override:
    import rules today.
 6. A URL given to `--template` is refused with a hint, not parsed.
 7. A broken or `schema: 2` manifest is removed unread with a notice.
+8. The compatibility notice names where the pinned line came from (catalog facts, `yarn.lock`, `package.json` or
+   `mercato-template.json`), and "could not check" says which side is missing.
+9. Without catalog facts and without `yarn.lock`, the Enterprise notice reads the `package.json` dependencies.
+10. Catalog facts with no `omLine` fall back to the downloaded tree for the pinned line.
+11. For a listed entry without `ref`, provenance `ref` is the default branch read after the download; if GitHub does not
+    answer, the sha is recorded as `ref`.
+12. Manifest env keys must match `^[A-Za-z_][A-Za-z0-9_]{0,127}$` and are listed once; a `link` is printed only when it
+    is an http or https URL.
+13. The integration case adds `--registry <Verdaccio>` to also check the warning and that `.yarnrc.yml` is unchanged.
 
 ---
 
@@ -642,3 +651,5 @@ None blocking. Judgment calls made in this spec, open to reviewer override:
 - 2026-11-04: Initial spec (Phase 4 step 1 of the Templates umbrella spec). Amends the Ready Apps spec and
   `packages/create-app/AGENTS.md` for `--template` only, sets the archive limits for the shared fetch from measured
   apps, and plans steps 2 to 6 with their tests.
+- 2026-11-04: Steps 4 and 5 implemented (`compat.ts`, `finalize.ts`, `template-step.ts`, the `--registry` warning,
+  Always 7 and Never in `packages/create-app/AGENTS.md`, the integration case). Judgment calls 8 to 13 added.
