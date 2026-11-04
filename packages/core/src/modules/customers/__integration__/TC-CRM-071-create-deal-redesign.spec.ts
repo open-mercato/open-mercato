@@ -334,4 +334,93 @@ test.describe('TC-CRM-071: Create deal (UX redesign)', () => {
       await deleteEntityByBody(request, token, '/api/customers/pipelines', pipelineId);
     }
   });
+
+  for (const scenario of [
+    {
+      locale: 'pl',
+      labels: { title: /Tytuł szansy/, amount: 'Wartość szansy', currency: 'Waluta', submit: 'Utwórz szansę' },
+      typed: '12,50',
+      shown: '12.50',
+      posted: 12.5,
+      stored: '12.50',
+    },
+    {
+      locale: 'en',
+      labels: { title: /Deal title/, amount: 'Deal value', currency: 'Currency', submit: 'Create deal' },
+      typed: '1,250',
+      shown: '1250',
+      posted: 1250,
+      stored: '1250.00',
+    },
+  ]) {
+    test(`saves the amount typed as ${scenario.typed} in ${scenario.locale} as ${scenario.stored} PLN`, async ({ page, request, baseURL }) => {
+      test.slow();
+
+      const dealTitle = `QA TC-CRM-071 Amount ${scenario.locale} ${Date.now()}`;
+      let token: string | null = null;
+      let dealId: string | null = null;
+
+      try {
+        token = await getAuthToken(request);
+        await login(page, 'admin');
+        await page.context().addCookies([{ name: 'locale', value: scenario.locale, url: baseURL! }]);
+        await page.route('**/api/customers/dictionaries/currency', (route) =>
+          route.fulfill({
+            json: {
+              id: 'qa-tc-crm-071-currency',
+              entries: [{ id: 'qa-tc-crm-071-pln', value: 'PLN', label: 'Polish zloty' }],
+            },
+          }),
+        );
+
+        await page.goto('/backend/customers/deals/create', { waitUntil: 'domcontentloaded' });
+        const submitButton = page.getByRole('button', { name: scenario.labels.submit, exact: true }).first();
+        await expect(submitButton).toBeEnabled({ timeout: 30_000 });
+
+        const titleInput = page.getByLabel(scenario.labels.title);
+        await titleInput.fill(dealTitle);
+        await expect(titleInput).toHaveValue(dealTitle);
+
+        const currencySelect = page.getByRole('combobox', { name: scenario.labels.currency });
+        await currencySelect.click();
+        await page.getByRole('option', { name: /^PLN/ }).click();
+        await expect(currencySelect).toHaveText(/PLN/);
+
+        const amountInput = page.getByLabel(scenario.labels.amount);
+        await amountInput.click();
+        await amountInput.pressSequentially(scenario.typed);
+        await expect(amountInput).toHaveValue(scenario.shown);
+
+        const saved = page.waitForResponse(
+          (response) => new URL(response.url()).pathname === '/api/customers/deals' && response.request().method() === 'POST',
+        );
+        await submitButton.click();
+        const response = await saved;
+        expect(response.status(), `POST /api/customers/deals returned ${response.status()}`).toBe(201);
+        const created = (await response.json()) as { id?: string; entityId?: string };
+        dealId = created.id ?? created.entityId ?? null;
+        expect(dealId, 'created deal has no id').toBeTruthy();
+
+        const posted = response.request().postDataJSON() as { valueAmount?: unknown; valueCurrency?: unknown };
+        expect(posted.valueAmount).toBe(scenario.posted);
+        expect(posted.valueCurrency).toBe('PLN');
+
+        const detailResponse = await apiRequest(
+          request,
+          'GET',
+          `/api/customers/deals/${encodeURIComponent(dealId!)}`,
+          { token },
+        );
+        expect(detailResponse.ok(), `GET /api/customers/deals/:id returned ${detailResponse.status()}`).toBeTruthy();
+        const detail = (await readJsonSafe(detailResponse)) as {
+          deal?: { valueAmount?: string | null; valueCurrency?: string | null };
+        };
+        expect(detail.deal?.valueAmount).toBe(scenario.stored);
+        expect(detail.deal?.valueCurrency).toBe('PLN');
+      } finally {
+        await page.unroute('**/api/customers/dictionaries/currency');
+        await deleteEntityIfExists(request, token, '/api/customers/deals', dealId);
+      }
+    });
+  }
 });
