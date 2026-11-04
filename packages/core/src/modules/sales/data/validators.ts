@@ -1,3 +1,4 @@
+import { DEFAULT_QUOTE_VALID_FOR_DAYS, MAX_QUOTE_VALID_FOR_DAYS } from '../lib/quoteValidity'
 import { z } from 'zod'
 import {
   createDictionaryEntrySchema,
@@ -84,6 +85,13 @@ const statusListSchema = z
   .max(200)
   .optional()
   .nullable()
+
+export const quoteValidityDaysSchema = z.coerce.number().int().min(1).max(MAX_QUOTE_VALID_FOR_DAYS)
+export const quoteValiditySettingsSchema = z.object({ defaultQuoteValidityDays: quoteValidityDaysSchema })
+export const quoteValiditySettingsResponseSchema = quoteValiditySettingsSchema.extend({ updatedAt: z.string().nullable() })
+export type QuoteValiditySettings = z.infer<typeof quoteValiditySettingsResponseSchema>
+export const quoteValiditySettingsSaveSchema = scoped.extend(quoteValiditySettingsSchema.shape)
+export type QuoteValiditySettingsSaveInput = z.infer<typeof quoteValiditySettingsSaveSchema>
 
 export const salesSettingsUpsertSchema = scoped.extend({
   orderNumberFormat: numberFormatSchema,
@@ -1206,7 +1214,7 @@ export type CreditMemoCreateInput = z.infer<typeof creditMemoCreateSchema>
 export type CreditMemoUpdateInput = z.infer<typeof creditMemoUpdateSchema>
 export const quoteSendSchema = z.object({
   quoteId: z.string().uuid(),
-  validForDays: z.coerce.number().int().min(1).max(365).default(14),
+  validForDays: quoteValidityDaysSchema.default(DEFAULT_QUOTE_VALID_FOR_DAYS),
 })
 
 export const quoteAcceptSchema = z.object({
