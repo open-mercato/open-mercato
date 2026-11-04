@@ -20,7 +20,6 @@ import { assertEntityAclForRequest } from '../lib/entityAcl'
 import { classifyRecordsEntity } from '../lib/entityClassification'
 import { loadCustomFieldKinds } from '../lib/scoped-field-defs'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 // Kept exported from this path: the classifier used to be private to this file
 // and the workflows task-visibility resolver reuses it, so both callers share
