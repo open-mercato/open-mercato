@@ -56,6 +56,7 @@ export const listSchema = z
     entityId: z.string().uuid().optional(),
     dealId: z.string().uuid().optional(),
     status: z.string().optional(),
+    excludeStatus: z.string().optional(),
     interactionType: z.string().optional(),
     type: z.string().optional(),
     excludeInteractionType: z.string().optional(),
@@ -353,6 +354,10 @@ function applyInteractionListFilters(
   if (query.entityId) q = q.where('entity_id', '=', query.entityId)
   if (query.dealId) q = q.where('deal_id', '=', query.dealId)
   if (query.status) q = q.where('status', '=', query.status)
+  if (query.excludeStatus) {
+    const excludedStatuses = query.excludeStatus.split(',').map((status) => status.trim()).filter(Boolean)
+    if (excludedStatuses.length > 0) q = q.where('status', 'not in', excludedStatuses)
+  }
   if (query.interactionType) q = q.where('interaction_type', '=', query.interactionType)
   if (query.type) {
     const types = query.type.split(',').map((t) => t.trim()).filter(Boolean)
