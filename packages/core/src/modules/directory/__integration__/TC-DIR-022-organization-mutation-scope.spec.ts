@@ -48,7 +48,7 @@ test.describe('TC-DIR-022: Organization mutation actor scope (#8677)', () => {
       const siblingId = await createOrg('B')
       const siblingChildId = await createOrg('B child', siblingId)
       const email = `qa-8677-${stamp}@example.com`
-      const password = randomUUID()
+      const password = `Scope-${randomUUID()}-A1!`
       roleId = await createRoleFixture(request, adminToken, { name: `qa-8677-${stamp}`, tenantId: tenantId as string })
       const setScope = (organizations: string[] | null) => setRoleAclFeatures(request, adminToken, {
         roleId: roleId as string, features, organizations,
