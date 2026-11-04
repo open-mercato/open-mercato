@@ -814,7 +814,11 @@ describe('ActionLogService.claimForUndo / releaseUndoClaim (TOCTOU guard)', () =
   it('releaseRedoClaim reverts only a redone source back to undone on a forked EntityManager', async () => {
     const forkedUpdate = jest.fn(async () => 1)
     const requestUpdate = jest.fn(async () => 1)
-    const fakeEm = { nativeUpdate: requestUpdate, fork: jest.fn(() => ({ nativeUpdate: forkedUpdate })) }
+    const fakeEm = {
+      nativeUpdate: requestUpdate,
+      isInTransaction: () => false,
+      fork: jest.fn(() => ({ nativeUpdate: forkedUpdate })),
+    }
     const service = new ActionLogService(
       fakeEm as unknown as ConstructorParameters<typeof ActionLogService>[0],
     )
@@ -824,6 +828,28 @@ describe('ActionLogService.claimForUndo / releaseUndoClaim (TOCTOU guard)', () =
     const [, filter, update] = forkedUpdate.mock.calls[0]
     expect(filter).toMatchObject({ id: 'log-1', executionState: 'redone', deletedAt: null })
     expect(update).toEqual({ executionState: 'undone' })
+  })
+
+  it('releaseRedoClaim stays on the request EntityManager while it holds an open transaction', async () => {
+    const requestUpdate = jest.fn(async () => 1)
+    const fork = jest.fn()
+    const fakeEm = { nativeUpdate: requestUpdate, isInTransaction: () => true, fork }
+    const service = new ActionLogService(
+      fakeEm as unknown as ConstructorParameters<typeof ActionLogService>[0],
+    )
+
+    expect(await service.releaseRedoClaim('log-1')).toBe(true)
+    expect(fork).not.toHaveBeenCalled()
+    expect(requestUpdate).toHaveBeenCalledTimes(1)
+  })
+
+  it('releaseRedoClaim uses the supplied transactional EntityManager', async () => {
+    const { service, nativeUpdate } = buildServiceWithNativeUpdate(0)
+    const transactionalUpdate = jest.fn(async () => 1)
+
+    expect(await service.releaseRedoClaim('log-1', { nativeUpdate: transactionalUpdate } as never)).toBe(true)
+    expect(nativeUpdate).not.toHaveBeenCalled()
+    expect(transactionalUpdate).toHaveBeenCalledTimes(1)
   })
 })
 

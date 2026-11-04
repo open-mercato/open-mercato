@@ -67,7 +67,7 @@ test.describe('TC-AUD-014: concurrent redo claims the source log once', () => {
         roles: [roleId],
       })
       token = await getAuthToken(request, email, password)
-      const created = await createAuditableDictionaryEntry(request, token, { keyPrefix: 'aud011' })
+      const created = await createAuditableDictionaryEntry(request, token, { keyPrefix: 'aud014' })
       dictionaryId = created.dictionaryId
       const entryPath = `/api/dictionaries/${encodeURIComponent(created.dictionaryId)}/entries/${encodeURIComponent(created.entryId)}`
 

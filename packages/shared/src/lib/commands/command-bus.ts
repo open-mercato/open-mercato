@@ -51,7 +51,7 @@ type CommandActionLogService = {
   releaseUndoClaim(id: string, transactionalEm?: EntityManager): Promise<boolean>
   markUndone(id: string, traceInput?: ActionLogCreateInput, transactionalEm?: EntityManager): Promise<ActionLog | null | void>
   claimForRedo(id: string, transactionalEm?: EntityManager): Promise<boolean>
-  releaseRedoClaim?(id: string): Promise<boolean>
+  releaseRedoClaim?(id: string, transactionalEm?: EntityManager): Promise<boolean>
   log(input: ActionLogCreateInput, transactionalEm?: EntityManager): Promise<ActionLog | null>
 }
 
@@ -687,7 +687,15 @@ export class CommandBus {
       } catch (err) {
         // Legacy handlers retain their compensating release behavior because
         // their domain mutation may not share the action-log transaction.
-        if (undoClaimed) await service.releaseUndoClaim(log.id).catch(() => {})
+        if (undoClaimed) {
+          await service.releaseUndoClaim(log.id).catch((releaseErr: unknown) => {
+            logger.error('Failed to release undo claim', { commandId: log.commandId, logId: log.id, err: releaseErr })
+            getTelemetryRuntime()?.reportError(releaseErr, {
+              module: 'shared',
+              code: 'shared.undo_claim_release_failed',
+            })
+          })
+        }
         throw err
       }
     }
@@ -841,11 +849,15 @@ export class CommandBus {
       return null
     }
     const releaseClaim = service.releaseRedoClaim.bind(service)
-    const claimed = await service.claimForRedo(sourceLogId)
+    const transactionalEm = ctx.transactionalEm
+    const claimed = transactionalEm
+      ? await service.claimForRedo(sourceLogId, transactionalEm)
+      : await service.claimForRedo(sourceLogId)
     if (!claimed) throw new Error('[internal] Redo source already consumed')
     return async () => {
       try {
-        await releaseClaim(sourceLogId)
+        if (transactionalEm) await releaseClaim(sourceLogId, transactionalEm)
+        else await releaseClaim(sourceLogId)
       } catch (releaseErr) {
         logger.error('Failed to release redo source claim', { commandId, sourceLogId, err: releaseErr })
         getTelemetryRuntime()?.reportError(releaseErr, {

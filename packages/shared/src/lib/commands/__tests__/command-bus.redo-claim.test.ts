@@ -115,6 +115,26 @@ describe('CommandBus.execute redo source claim (non-atomic replay)', () => {
     expect(service.releaseRedoClaim).toHaveBeenCalledTimes(1)
   })
 
+  it('claims and releases on the caller transaction when ctx carries a transactional EntityManager', async () => {
+    registerCommand({
+      id: COMMAND_ID,
+      execute: jest.fn(async () => {
+        throw new Error('handler boom')
+      }),
+      undo: jest.fn(async () => undefined),
+    })
+    const source = { executionState: 'undone' }
+    const service = buildCasService(source)
+    const transactionalEm = { id: 'caller-transaction' }
+    const ctx = { ...buildCtx(service), transactionalEm: transactionalEm as never }
+
+    await expect(
+      new CommandBus().execute(COMMAND_ID, { input: {}, ctx, redoLogEntry: sourceLog }),
+    ).rejects.toThrow('handler boom')
+    expect(service.claimForRedo).toHaveBeenCalledWith('source-log', transactionalEm)
+    expect(service.releaseRedoClaim).toHaveBeenCalledWith('source-log', transactionalEm)
+  })
+
   it('replays without a claim when the action log service cannot claim redo sources', async () => {
     const execute = jest.fn(async () => ({ ok: true }))
     registerCommand({ id: COMMAND_ID, execute, undo: jest.fn(async () => undefined) })
