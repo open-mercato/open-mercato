@@ -77,6 +77,43 @@ describe('startProvisioningLeaseHeartbeat', () => {
     })
   })
 
+  it('keeps the heartbeat and release healthy when error reporting itself throws', async () => {
+    reportError.mockImplementation(() => {
+      throw new Error('telemetry exporter down')
+    })
+    const renewProcessing = jest.fn().mockRejectedValueOnce(new Error('connection lost')).mockResolvedValue(true)
+
+    const lease = startProvisioningLeaseHeartbeat({ renewProcessing }, 'req-1', heldSince)
+    await jest.advanceTimersByTimeAsync(PROVISIONING_LEASE_HEARTBEAT_MS)
+    expect(reportError).toHaveBeenCalledTimes(1)
+    await jest.advanceTimersByTimeAsync(PROVISIONING_LEASE_HEARTBEAT_MS)
+    const releasedHeldSince = await lease.release()
+
+    expect(renewProcessing).toHaveBeenCalledTimes(2)
+    expect(releasedHeldSince).toBe(renewProcessing.mock.calls[1][2])
+    expect(() => lease.assertHeld()).not.toThrow()
+  })
+
+  it('resolves release when error reporting throws during an in-flight renewal', async () => {
+    reportError.mockImplementation(() => {
+      throw new Error('telemetry exporter down')
+    })
+    let failRenewal: (error: Error) => void = () => {}
+    const renewProcessing = jest.fn(
+      (_requestId: string, _heldSince: Date, _renewedAt: Date) => new Promise<boolean>((_resolve, reject) => {
+        failRenewal = reject
+      }),
+    )
+
+    const lease = startProvisioningLeaseHeartbeat({ renewProcessing }, 'req-1', heldSince)
+    await jest.advanceTimersByTimeAsync(PROVISIONING_LEASE_HEARTBEAT_MS)
+    const stopping = lease.release()
+    failRenewal(new Error('connection lost'))
+
+    await expect(stopping).resolves.toBe(heldSince)
+    expect(reportError).toHaveBeenCalledTimes(1)
+  })
+
   it('stops renewing and reports the lease as lost once it is no longer held', async () => {
     const renewProcessing = jest.fn().mockResolvedValue(false)
 

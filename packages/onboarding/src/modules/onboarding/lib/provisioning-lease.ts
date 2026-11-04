@@ -45,10 +45,14 @@ export function startProvisioningLeaseHeartbeat(
       logger.warn('Provisioning lease no longer held', { requestId })
     }).catch((error: unknown) => {
       logger.warn('Provisioning lease renewal failed', { requestId, err: error })
-      getTelemetryRuntime()?.reportError(error, {
-        module: 'onboarding',
-        code: 'onboarding.provisioning_lease_renewal_failed',
-      })
+      try {
+        getTelemetryRuntime()?.reportError(error, {
+          module: 'onboarding',
+          code: 'onboarding.provisioning_lease_renewal_failed',
+        })
+      } catch (reportingError: unknown) {
+        logger.warn('Provisioning lease renewal failure could not be reported', { requestId, err: reportingError })
+      }
     }).finally(() => {
       pendingRenewal = null
     })
