@@ -914,9 +914,8 @@ function DefaultTimeEntryDialog({
   const injectedFieldWritesRef = React.useRef(new Set<string>())
 
   /**
-   * One way to change the project, for the picker and for widget writes alike: a task that is not
-   * known to belong to the next project (including one still loading) is dropped, so its late
-   * resolution cannot pull the project back. A task a widget wrote in the same batch is kept.
+   * One way to change the project, for the picker and widget writes alike: a task not known to belong to the next
+   * project (even one still loading) is dropped so it cannot pull the project back; a same-batch widget task is kept.
    */
   const selectProject = React.useCallback(
     (nextProjectId: string | null) => {
@@ -2035,11 +2034,8 @@ function DefaultTimeEntryDialog({
 
         <DialogFooter>
           {/*
-            * The labels are flex items, so without `whitespace-nowrap` "save and
-            * add another" shrinks into a four-line column; `flex-wrap` moves whole
-            * shortcuts to the next line instead of overflowing past the dialog edge,
-            * and the gap stands in for a separator that would lead a wrapped line.
-            * Hidden below `sm`: a keyboard hint is useless on a touch device.
+            * `whitespace-nowrap` keeps the "save and add another" flex item from shrinking into a column, `flex-wrap`
+            * moves whole shortcuts to the next line, and the gap replaces a separator. Hidden below `sm` (touch).
             */}
           <span className="mr-auto hidden min-w-0 flex-wrap items-center gap-x-3 gap-y-1 whitespace-nowrap text-xs text-muted-foreground sm:flex">
             <span className="inline-flex items-center gap-1" data-testid="entry-dialog-shortcut">

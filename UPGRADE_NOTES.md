@@ -1351,7 +1351,7 @@ relative `/api/...` path or `{{env.APP_URL}}/api/...` instead.
 
 ### Time tracking: a new built-in setting key `defaults.entryMode` (#6989)
 
-The staff time-tracking settings gain a ninth built-in key, `defaults.entryMode`
+The staff time-tracking settings gain a new built-in key, `defaults.entryMode`
 (`'task' | 'project'`, default `'task'`). It switches the time entry dialog between logging
 time against a task (today's behaviour) and against a project with an optional task. Tenants
 that never change it see no difference.

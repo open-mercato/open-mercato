@@ -482,7 +482,7 @@ in [`extension-points.ts`](./extension-points.ts).
 | 39 | `staff.time_tracking.project_code_generator` | `registerProjectCodeGenerator({ id, priority?, generate(name, taken, ctx) })` — [`lib/time-tracking/projectCode.ts`](./lib/time-tracking/projectCode.ts) | `staff.time_tracking.project_code.initials` | single winner |
 | 40 | `staff.time_tracking.capacity_provider` | `registerCapacityProvider({ id, priority?, resolve(staffMemberId, dateRange, ctx) })` — [`lib/time-tracking/capacity.ts`](./lib/time-tracking/capacity.ts) | `staff.time_tracking.capacity.flat_daily_hours` | single winner |
 | 41 | `staff.time_tracking.report_approval_policy` | `registerReportApprovalPolicy({ id, priority?, canClose?, canUnlock?, onClosed? })` — [`lib/timesheets-reports/reportApprovalPolicies.ts`](./lib/timesheets-reports/reportApprovalPolicies.ts) | `staff.time_tracking.report_approval.acl_only` | conjunction, first refusal |
-| 42 | `staff.time_tracking.setting_key` | `registerTimeTrackingSettingKey({ group, key, schema, default, labelKey, priority? })` — [`lib/time-tracking/settingKeys.ts`](./lib/time-tracking/settingKeys.ts) | the nine frozen built-in keys | keyed by `<group>.<key>` |
+| 42 | `staff.time_tracking.setting_key` | `registerTimeTrackingSettingKey({ group, key, schema, default, labelKey, priority? })` — [`lib/time-tracking/settingKeys.ts`](./lib/time-tracking/settingKeys.ts) | the frozen built-in keys | keyed by `<group>.<key>` |
 | 51 | `staff.time_tracking.recalculation` | `registerTimeTrackingRecalculation({ id, labelKey, priority?, run(ctx) })` — [`lib/time-tracking/recalculations.ts`](./lib/time-tracking/recalculations.ts) | `staff.time_tracking.recalculation.rounding` | keyed by id, run in order |
 
 ### The four resolution orders
@@ -591,8 +591,8 @@ dialog UI goes into new leaves (decomposition: #7135).
 
 `TIME_TRACKING_SETTING_KEYS`, `normalizeTimeTrackingSettings` and
 `staffTimeTrackingSettingsSchema` all read
-[`lib/time-tracking/settingKeys.ts`](./lib/time-tracking/settingKeys.ts) now. The nine
-built-in keys (the original eight plus `defaults.entryMode`, #6989) are registered there,
+[`lib/time-tracking/settingKeys.ts`](./lib/time-tracking/settingKeys.ts) now. The
+built-in keys (including `defaults.entryMode`, #6989) are registered there,
 so with no contribution the defaults, the validating schema, the read and the
 `ModuleConfigService` rows are what the module ships.
 
