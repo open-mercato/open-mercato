@@ -27,6 +27,8 @@ import {
  *   5. A failed company history load shows an error, not an empty history, and
  *      recovers on retry.
  *   6. Company history can be sorted by name in both directions and back to newest.
+ *   7. Person and company planned lists keep scheduled activities in a custom open
+ *      status and leave out done and canceled ones.
  */
 
 type InteractionInput = {
@@ -35,7 +37,7 @@ type InteractionInput = {
   interactionType: 'call' | 'meeting' | 'note'
   title: string
   body: string
-  status: 'planned' | 'done'
+  status: string
   scheduledAt?: string
   occurredAt?: string
 }
@@ -251,6 +253,56 @@ test.describe('TC-CRM-7494: shared activity layout on person and company pages',
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
       expect(overflow, 'activity tab must not overflow a phone-width viewport').toBeLessThanOrEqual(1)
     } finally {
+      await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
+    }
+  })
+
+  test('person and company planned lists keep custom open statuses and leave out terminal ones', async ({ page, request }) => {
+    test.slow()
+    const stamp = Date.now()
+    const scheduledAt = new Date(Date.now() + 86_400_000).toISOString()
+    const interactionIds: string[] = []
+    let token: string | null = null
+    let companyId: string | null = null
+    let personId: string | null = null
+    try {
+      token = await getAuthToken(request, 'admin')
+      companyId = await createCompanyFixture(request, token, `QA TC-CRM-7494 Status Co ${stamp}`)
+      personId = await createPersonFixture(request, token, {
+        firstName: 'QA',
+        lastName: `Status ${stamp}`,
+        displayName: `QA Status ${stamp}`,
+        companyEntityId: companyId,
+      })
+      const records = [
+        { entityId: personId, path: `/backend/customers/people-v2/${personId}?tab=activities`, label: 'Person' },
+        { entityId: companyId, path: historyPath(companyId), label: 'Company' },
+      ]
+      for (const record of records) {
+        const titleFor = (status: string) => `QA ${record.label} ${status} ${stamp}`
+        for (const status of ['in_progress', 'done', 'canceled']) {
+          interactionIds.push(await createInteraction(request, token, {
+            entityId: record.entityId,
+            interactionType: 'call',
+            title: titleFor(status),
+            body: 'Status coverage',
+            status,
+            scheduledAt,
+          }))
+        }
+      }
+
+      await login(page, 'admin')
+      for (const record of records) {
+        const titleFor = (status: string) => `QA ${record.label} ${status} ${stamp}`
+        await page.goto(record.path, { waitUntil: 'domcontentloaded' })
+        await expect(plannedRow(page, titleFor('in_progress'))).toBeVisible({ timeout: 30_000 })
+        await expect(plannedRow(page, titleFor('done'))).toHaveCount(0)
+        await expect(plannedRow(page, titleFor('canceled'))).toHaveCount(0)
+      }
+    } finally {
+      for (const id of interactionIds) await deleteInteraction(request, token, id)
+      await deleteEntityIfExists(request, token, '/api/customers/people', personId)
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
     }
   })
