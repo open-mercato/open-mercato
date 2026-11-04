@@ -3,9 +3,9 @@ import {
   createCompanyFixture,
   deleteEntityIfExists,
   readJsonSafe,
-} from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures';
-import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
-import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
+} from '@open-mercato/core/helpers/integration/crmFixtures';
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
+import { login } from '@open-mercato/core/helpers/integration/auth';
 
 /**
  * TC-CRM-7496: the company v2 Deals tab renders a deal's pipeline stage through the
@@ -49,8 +49,6 @@ async function createDealWithRawStage(
 
 test.describe('TC-CRM-7496: company Deals tab shows readable pipeline-stage labels', () => {
   test('renders the dictionary label instead of the stored stage value', async ({ page, request }) => {
-    test.slow();
-
     let token: string | null = null;
     let companyId: string | null = null;
     let dictionaryEntryId: string | null = null;
@@ -73,9 +71,8 @@ test.describe('TC-CRM-7496: company Deals tab shows readable pipeline-stage labe
       await expect(dealCard, 'linked deal card should render on the Deals tab').toBeVisible({ timeout: 30_000 });
 
       const stageValueCell = dealCard
-        .locator('div')
-        .filter({ has: page.locator('dt', { hasText: 'Pipeline stage' }) })
-        .locator('dd');
+        .locator('dt', { hasText: 'Pipeline stage' })
+        .locator('xpath=following-sibling::dd[1]');
       await expect(stageValueCell, 'stage should resolve to its dictionary label').toHaveText(stageLabel, {
         timeout: 30_000,
       });
@@ -83,9 +80,20 @@ test.describe('TC-CRM-7496: company Deals tab shows readable pipeline-stage labe
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/deals', dealId);
       if (token && dictionaryEntryId) {
-        await apiRequest(request, 'DELETE', `/api/customers/dictionaries/pipeline-stages/${dictionaryEntryId}`, {
-          token,
-        }).catch(() => undefined);
+        const cleanupResponse = await apiRequest(
+          request,
+          'DELETE',
+          `/api/customers/dictionaries/pipeline-stages/${dictionaryEntryId}`,
+          { token },
+        ).catch((error: unknown) => {
+          console.warn(`[internal] TC-CRM-7496 dictionary cleanup failed for ${dictionaryEntryId}:`, error);
+          return null;
+        });
+        if (cleanupResponse && !cleanupResponse.ok() && cleanupResponse.status() !== 404) {
+          console.warn(
+            `[internal] TC-CRM-7496 dictionary cleanup returned ${cleanupResponse.status()} for ${dictionaryEntryId}`,
+          );
+        }
       }
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId);
     }
