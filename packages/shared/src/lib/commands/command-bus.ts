@@ -674,10 +674,12 @@ export class CommandBus {
         label: `${log.commandId}.undo`,
       })
     } else {
-      // Preserve the established non-atomic lifecycle exactly: authorization,
-      // source claim, before-undo interceptors, handler, then finalization.
-      await claimUndo()
+      let undoClaimed = false
       try {
+        // Preserve the established non-atomic lifecycle exactly: authorization,
+        // source claim, before-undo interceptors, handler, then finalization.
+        await claimUndo()
+        undoClaimed = true
         const prepared = await runBeforeUndoInterceptors(ctx)
         undoInterceptorMetadata = prepared.metadata
         userFeatures = prepared.userFeatures
@@ -685,7 +687,7 @@ export class CommandBus {
       } catch (err) {
         // Legacy handlers retain their compensating release behavior because
         // their domain mutation may not share the action-log transaction.
-        await service.releaseUndoClaim(log.id).catch(() => {})
+        if (undoClaimed) await service.releaseUndoClaim(log.id).catch(() => {})
         throw err
       }
     }
