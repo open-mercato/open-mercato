@@ -2,6 +2,7 @@ import { cache } from 'react'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { resolveDateLocaleSettings } from '@open-mercato/shared/lib/date-locale/resolve'
 import { dateLocaleSettingsInputSchema } from '@open-mercato/shared/lib/date-locale/validation'
 import {
@@ -16,6 +17,13 @@ const logger = createLogger('configs').child({ component: 'date-locale-settings'
 
 export const DATE_LOCALE_CONFIG_MODULE = 'configs'
 export const DATE_LOCALE_CONFIG_NAME = 'date_locale'
+
+/** Reports a date/locale failure that the caller turns into a fallback, so the fallback is visible. */
+export function reportDateLocaleError(err: unknown, code: string): void {
+  try {
+    getTelemetryRuntime()?.reportError(err, { module: 'configs', code })
+  } catch {}
+}
 
 type Resolver = { resolve: <T = unknown>(name: string) => T; hasRegistration?: (name: string) => boolean }
 
@@ -68,7 +76,8 @@ async function lookupUserTimeZone(container: Resolver, userId: string | null | u
     const lookup = container.resolve<UserTimeZoneLookup>(USER_TIME_ZONE_LOOKUP_DI_KEY)
     return typeof lookup === 'function' ? await lookup({ userId, tenantId }) : null
   } catch (err) {
-    logger.debug('Could not read the user timezone; using the organization default', { err })
+    logger.warn('Could not read the user timezone; using the organization default', { err })
+    reportDateLocaleError(err, 'configs.date_locale.user_time_zone_failed')
     return null
   }
 }
@@ -85,20 +94,45 @@ export async function resolveDateLocaleSettingsForScope(
 }
 
 /**
+ * The scope resolver registered into the shared slot: reports a failed lookup, then rethrows so the
+ * shared registry falls back to env defaults as before.
+ */
+export async function resolveDateLocaleSettingsForScopeWithReporting(
+  container: Resolver,
+  scope: { tenantId: string; userId?: string | null },
+): Promise<ResolvedDateLocaleSettings> {
+  try {
+    return await resolveDateLocaleSettingsForScope(container, scope)
+  } catch (err) {
+    logger.warn('Could not resolve tenant date/locale settings; using env defaults', { err })
+    reportDateLocaleError(err, 'configs.date_locale.scope_resolve_failed')
+    throw err
+  }
+}
+
+/**
  * Request resolver registered into `@open-mercato/shared/lib/date-locale/registry`. Never throws:
  * anonymous requests or a container that cannot be built yet return `null`, and the caller falls
  * back to env defaults. Memoized per server render (React `cache`), so the root and backend
  * layouts share one tenant read and one primary-key user lookup per request.
  */
 export const resolveDateLocaleSettingsFromCookies = cache(async (): Promise<ResolvedDateLocaleSettings | null> => {
+  let auth: Awaited<ReturnType<typeof getAuthFromCookies>>
   try {
-    const auth = await getAuthFromCookies()
-    if (!auth?.tenantId) return null
+    auth = await getAuthFromCookies()
+  } catch (err) {
+    // No request scope (static rendering, build) or an unreadable cookie: an expected anonymous render.
+    logger.debug('No session to resolve date/locale settings for', { err })
+    return null
+  }
+  if (!auth?.tenantId) return null
+  try {
     const container = await createRequestContainer()
     const userId = typeof auth.sub === 'string' && !auth.isApiKey ? auth.sub : null
     return await resolveDateLocaleSettingsForScope(container, { tenantId: auth.tenantId, userId })
   } catch (err) {
-    logger.debug('Could not resolve tenant date/locale settings', { err })
+    logger.warn('Could not resolve tenant date/locale settings; using env defaults', { err })
+    reportDateLocaleError(err, 'configs.date_locale.resolve_failed')
     return null
   }
 })

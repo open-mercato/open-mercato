@@ -1,6 +1,7 @@
 const getAuthFromCookiesMock = jest.fn()
 const getRecordMock = jest.fn()
 const lookupMock = jest.fn()
+const reportErrorMock = jest.fn()
 
 const container = {
   hasRegistration: jest.fn((name: string) => name === 'userTimeZoneLookup'),
@@ -19,7 +20,15 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => container),
 }))
 
-import { normalizeStoredDateLocaleSettings, resolveDateLocaleSettingsFromCookies } from '../date-locale-settings'
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: (...args: unknown[]) => reportErrorMock(...args) }),
+}))
+
+import {
+  normalizeStoredDateLocaleSettings,
+  resolveDateLocaleSettingsForScopeWithReporting,
+  resolveDateLocaleSettingsFromCookies,
+} from '../date-locale-settings'
 
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const userId = '33333333-3333-4333-8333-333333333333'
@@ -51,10 +60,48 @@ describe('resolveDateLocaleSettingsFromCookies', () => {
     expect(resolved?.timeZone).toBe('Europe/Warsaw')
   })
 
-  it('returns null instead of throwing when the lookup fails', async () => {
+  it('returns null instead of throwing when the lookup fails, and reports the failure', async () => {
     getAuthFromCookiesMock.mockResolvedValue({ tenantId, sub: userId })
-    getRecordMock.mockRejectedValue(new Error('database unavailable'))
+    const failure = new Error('database unavailable')
+    getRecordMock.mockRejectedValue(failure)
     await expect(resolveDateLocaleSettingsFromCookies()).resolves.toBeNull()
+    expect(reportErrorMock).toHaveBeenCalledWith(failure, { module: 'configs', code: 'configs.date_locale.resolve_failed' })
+  })
+
+  it('treats a render without a request scope as anonymous, without reporting it', async () => {
+    getAuthFromCookiesMock.mockRejectedValue(new Error('cookies() was called outside a request scope'))
+    await expect(resolveDateLocaleSettingsFromCookies()).resolves.toBeNull()
+    expect(reportErrorMock).not.toHaveBeenCalled()
+  })
+
+  it('falls back to the tenant zone and reports when the user time zone lookup fails', async () => {
+    getAuthFromCookiesMock.mockResolvedValue({ tenantId, sub: userId })
+    const failure = new Error('users table unavailable')
+    lookupMock.mockRejectedValue(failure)
+    const resolved = await resolveDateLocaleSettingsFromCookies()
+    expect(resolved?.timeZone).toBe('Europe/Warsaw')
+    expect(reportErrorMock).toHaveBeenCalledWith(failure, { module: 'configs', code: 'configs.date_locale.user_time_zone_failed' })
+  })
+})
+
+describe('resolveDateLocaleSettingsForScopeWithReporting', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    lookupMock.mockResolvedValue(null)
+  })
+
+  it('resolves the tenant settings', async () => {
+    getRecordMock.mockResolvedValue({ value: { timeZone: 'Europe/Warsaw' }, source: 'tenant', updatedAt: null })
+    const resolved = await resolveDateLocaleSettingsForScopeWithReporting(container, { tenantId })
+    expect(resolved.timeZone).toBe('Europe/Warsaw')
+    expect(reportErrorMock).not.toHaveBeenCalled()
+  })
+
+  it('reports a failed lookup and rethrows so the shared registry falls back', async () => {
+    const failure = new Error('database unavailable')
+    getRecordMock.mockRejectedValue(failure)
+    await expect(resolveDateLocaleSettingsForScopeWithReporting(container, { tenantId })).rejects.toBe(failure)
+    expect(reportErrorMock).toHaveBeenCalledWith(failure, { module: 'configs', code: 'configs.date_locale.scope_resolve_failed' })
   })
 })
 

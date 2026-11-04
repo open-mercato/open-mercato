@@ -5,13 +5,16 @@ import {
   registerDateLocaleSettingsScopeResolver,
 } from '@open-mercato/shared/lib/date-locale/registry'
 import { createModuleConfigService } from './lib/module-config-service'
-import { resolveDateLocaleSettingsForScope, resolveDateLocaleSettingsFromCookies } from './lib/date-locale-settings'
+import {
+  resolveDateLocaleSettingsForScopeWithReporting,
+  resolveDateLocaleSettingsFromCookies,
+} from './lib/date-locale-settings'
 
 // Registered at module scope, like the translations supported-locales resolver: the root layout
 // resolves date/locale settings before any request container exists, so a slot filled inside
 // `register()` would be empty on the first render of a fresh process.
 registerDateLocaleSettingsResolver(resolveDateLocaleSettingsFromCookies)
-registerDateLocaleSettingsScopeResolver(resolveDateLocaleSettingsForScope)
+registerDateLocaleSettingsScopeResolver(resolveDateLocaleSettingsForScopeWithReporting)
 
 export function register(container: AppContainer) {
   const service = createModuleConfigService(container)

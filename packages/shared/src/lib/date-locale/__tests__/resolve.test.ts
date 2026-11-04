@@ -137,4 +137,9 @@ describe('invalid patterns', () => {
   it('ignores an invalid stored tenant pattern', () => {
     expect(resolveDateLocaleSettings({ env: noEnv, tenant: { dateFormat: 'D.M.yyyy' } }).dateFormat).toBeNull()
   })
+
+  it('ignores a stored or env locale with a calendar extension', () => {
+    expect(resolveDateLocaleSettings({ env: noEnv, tenant: { locale: 'th-TH-u-ca-buddhist' } }).locale).toBeNull()
+    expect(resolveDateLocaleSettings({ env: { OM_DEFAULT_LOCALE: 'en-US-u-ca-islamic' } }).locale).toBeNull()
+  })
 })

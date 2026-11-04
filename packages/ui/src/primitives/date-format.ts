@@ -352,7 +352,8 @@ function formatDisplay(
  *
  * `settings` defaults to the active tenant/user settings (see `DateLocaleSettingsProvider`). A
  * bare `yyyy-MM-dd` renders as that calendar day in every zone; an instant renders in the
- * configured timezone.
+ * configured timezone. A formatting locale configured in `settings` takes precedence over the
+ * `locale` argument, which applies only when none is configured.
  *
  * The default is browser-only: during SSR it is the public env defaults (a module-level value
  * would leak between tenants' requests). A component that renders dates on the server MUST pass
@@ -367,7 +368,7 @@ export function formatDisplayDate(
   return formatDisplay(value, locale, 'date', resolveDisplayDateFormat(settings), settings)
 }
 
-/** Render a timestamp for display, or `null` when there is nothing valid to show. */
+/** Render a timestamp for display, or `null` when there is nothing valid to show. Same `settings` and `locale` rules as `formatDisplayDate`. */
 export function formatDisplayDateTime(
   value: string | Date | null | undefined,
   locale?: LocaleLike,
@@ -376,7 +377,7 @@ export function formatDisplayDateTime(
   return formatDisplay(value, locale, 'datetime', resolveDisplayDateTimeFormat(settings), settings)
 }
 
-/** Render the time of day of a timestamp, or `null` when there is nothing valid to show. */
+/** Render the time of day of a timestamp, or `null` when there is nothing valid to show. Same `settings` and `locale` rules as `formatDisplayDate`. */
 export function formatDisplayTime(
   value: string | Date | null | undefined,
   locale?: LocaleLike,

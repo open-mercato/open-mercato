@@ -61,7 +61,7 @@ describe('configs.date_locale.update command', () => {
       expect.objectContaining({
         actionLabel: 't:configs.audit.dateLocale.update',
         resourceKind: 'configs.date_locale',
-        resourceId: 'date_locale',
+        resourceId: tenantId,
         tenantId,
         snapshotBefore: { tenantId, settings: previous },
         snapshotAfter: { tenantId, settings: next },

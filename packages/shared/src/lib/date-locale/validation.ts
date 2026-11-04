@@ -70,11 +70,20 @@ export function validateDateFormatPattern(pattern: string): DateFormatPatternIss
   return null
 }
 
+/**
+ * The canonical spelling of a supported formatting locale (`en-us` → `en-US`), or `null`.
+ *
+ * Tags with Unicode (`-u-`) or private-use (`-x-`) extensions are rejected: an extension such as
+ * `th-TH-u-ca-buddhist` switches the `Intl` calendar but not the `date-fns` one, so the year would
+ * change depending on whether a custom pattern is set.
+ */
 export function canonicalizeLocale(value: string | null | undefined): string | null {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
   if (!trimmed) return null
   try {
+    const parsed = new Intl.Locale(trimmed)
+    if (parsed.toString() !== parsed.baseName) return null
     const [supported] = Intl.DateTimeFormat.supportedLocalesOf([trimmed])
     return supported ?? null
   } catch {

@@ -16,8 +16,8 @@ import { dateLocaleSettingsInputSchema } from '@open-mercato/shared/lib/date-loc
 import type { NormalizedDateLocaleSettingsRecord } from '@open-mercato/shared/lib/date-locale/types'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import {
-  DATE_LOCALE_CONFIG_NAME,
   readTenantDateLocaleSettings,
+  reportDateLocaleError,
   resolveDateLocaleSettingsForScope,
 } from '../../lib/date-locale-settings'
 import {
@@ -148,7 +148,7 @@ async function PUT(req: Request) {
       auth: { userId: context.actorId, tenantId: context.tenantId, organizationId: context.organizationId },
       input: {
         resourceKind: DATE_LOCALE_RESOURCE_KIND,
-        resourceId: DATE_LOCALE_CONFIG_NAME,
+        resourceId: context.tenantId,
         operation: 'update',
         mutationPayload: parsed.data,
       },
@@ -206,6 +206,7 @@ async function errorResponse(err: unknown, method: 'GET' | 'PUT') {
     return NextResponse.json(err.body, { status: err.status })
   }
   logger.error(`configs.date-locale.${method} unexpected error`, { err })
+  reportDateLocaleError(err, 'configs.date_locale.unexpected')
   const { translate } = await resolveTranslations()
   return NextResponse.json({ error: translate('api.errors.internal', 'Internal error') }, { status: 500 })
 }

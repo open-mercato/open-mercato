@@ -39,7 +39,7 @@ Create a shared localization settings contract with three layers:
    - `OM_DEFAULT_TIMEZONE`
    - `OM_FIRST_DAY_OF_WEEK`
 2. **Tenant/system settings** persisted through the existing settings/configs surface, editable by admins.
-3. **User profile override** for locale and display preferences, when explicitly enabled.
+3. **User time zone override** on the profile (Q2: the time zone only; locale and formats stay tenant-wide).
 
 Unset env values, and values such as `system` / `auto`, should fall back to locale-derived defaults.
 
@@ -68,7 +68,7 @@ Unset env values, and values such as `system` / `auto`, should fall back to loca
 - Use `date-fns` tokens for free-form pattern support unless the final design switches to `Intl` presets.
 - Centralize helpers in a shared UI formatting module instead of repeating day-first locale lists.
 - Preserve `NEXT_PUBLIC_DATE_FORMAT` as a backwards-compatible alias for existing apps.
-- Avoid database migrations in the first audit step; introduce persisted settings only after all consumers are inventoried.
+- Persist settings only after all consumers are inventoried (done in the Phase 2 audit). Tenant settings live in the existing `module_configs` table, so they need no migration; the user time zone is the one schema change, the additive nullable `users.timezone` column (`Migration20261103120000_auth`).
 
 ## Phasing
 
@@ -181,4 +181,6 @@ Required by `BACKWARD_COMPATIBILITY.md` (deprecation protocol step 5). Every sur
   - **Rendering rules:** zone-less strings (`yyyy-MM-dd`, `yyyy-MM-dd HH:mm`) are floating and never shifted into the display zone, including in `DataTable` cells; zone (`X x O z`) and epoch (`t T`) tokens in custom patterns, including the `z` inside the long localized `ppp`/`pppp` tokens, are resolved for the display zone rather than the runtime's; the ordinal suffix `o` (`MMMM do, yyyy`) is accepted after the tokens that support it; a pinned time pattern alone sets the 12/24-hour clock of `Intl` timestamps.
   - **Writes:** `PUT /api/configs/date-locale` runs every registered mutation guard (`runRouteMutationGuards`) and saves through the `configs.date_locale.update` command, so each change is in the action log with the previous values and can be undone.
   - **Formatting locales:** the settings page offers only locales with a bundled date-fns locale (en-US, en-GB, pl-PL, de-DE, es-ES, ko-KR), since others render a custom pattern's month and weekday names in English. A stored locale outside that list is still shown and kept.
+  - **Formatting locale tags:** only plain language/script/region tags are accepted (`en-US`, `zh-Hant-TW`). Tags with Unicode or private-use extensions (`th-TH-u-ca-buddhist`) are rejected on save and ignored when stored or set in env, because an `Intl` calendar extension would make the year differ between the default rendering and a pinned `date-fns` pattern.
+  - **Failures:** a settings lookup that fails falls back to env defaults (or the tenant zone, for the user lookup) and reports the error through telemetry (`configs.date_locale.resolve_failed`, `scope_resolve_failed`, `user_time_zone_failed`, `unexpected`). Renders without a request scope are treated as anonymous and not reported. The settings record is identified by its tenant ID in the optimistic lock, the mutation guards and the action log.
   - **First day of week:** resolved as configured day → the configured formatting locale's own week start, from the full regional tag via `Intl.Locale` week info (`en-GB` Monday, `en-US` Sunday, `ar-EG` Saturday) → Monday. The app UI language never decides it, so an unconfigured tenant keeps a Monday week. The settings page shows the effective day and its source (`resolveFirstDayOfWeek` in `@open-mercato/shared/lib/date-locale/weekStart`).

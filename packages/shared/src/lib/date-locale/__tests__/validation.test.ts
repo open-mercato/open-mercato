@@ -65,6 +65,18 @@ describe('canonicalizeLocale', () => {
     expect(canonicalizeLocale('')).toBeNull()
     expect(canonicalizeLocale('not a locale!')).toBeNull()
   })
+
+  it('normalizes letter case and keeps script and region subtags', () => {
+    expect(canonicalizeLocale('en-us')).toBe('en-US')
+    expect(canonicalizeLocale('zh-Hant-TW')).toBe('zh-Hant-TW')
+  })
+
+  it('rejects tags with Unicode or private-use extensions', () => {
+    expect(canonicalizeLocale('th-TH-u-ca-buddhist')).toBeNull()
+    expect(canonicalizeLocale('en-US-u-ca-islamic')).toBeNull()
+    expect(canonicalizeLocale('de-DE-u-co-phonebk')).toBeNull()
+    expect(canonicalizeLocale('en-US-x-acme')).toBeNull()
+  })
 })
 
 describe('parseFirstDayOfWeek', () => {
@@ -124,6 +136,12 @@ describe('dateLocaleSettingsInputSchema', () => {
       timeZone: 'configs.dateLocale.errors.timeZone',
       dateFormat: 'configs.dateLocale.errors.pattern.tooLong',
     })
+  })
+
+  it('rejects a locale with a calendar extension', () => {
+    const result = dateLocaleSettingsInputSchema.safeParse({ locale: 'th-TH-u-ca-buddhist' })
+    expect(result.success).toBe(false)
+    expect(result.success ? [] : result.error.issues.map((issue) => issue.message)).toContain('configs.dateLocale.errors.locale')
   })
 
   it('rejects a UTC offset as a tenant time zone', () => {

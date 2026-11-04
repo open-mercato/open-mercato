@@ -57,7 +57,7 @@ const updateDateLocaleSettingsCommand: CommandHandler<UpdateDateLocaleSettingsIn
     return {
       actionLabel: translate('configs.audit.dateLocale.update', 'Update date & time settings'),
       resourceKind: DATE_LOCALE_RESOURCE_KIND,
-      resourceId: DATE_LOCALE_CONFIG_NAME,
+      resourceId: after.tenantId,
       tenantId: after.tenantId,
       organizationId: ctx.selectedOrganizationId ?? null,
       snapshotBefore: before,

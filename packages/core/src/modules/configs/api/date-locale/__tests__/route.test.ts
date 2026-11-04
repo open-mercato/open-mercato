@@ -7,6 +7,7 @@ const setValueMock = jest.fn()
 const userTimeZoneLookupMock = jest.fn()
 
 const commandBusExecuteMock = jest.fn()
+const reportErrorMock = jest.fn()
 
 const container = {
   hasRegistration: jest.fn((name: string) => name === 'userTimeZoneLookup'),
@@ -36,6 +37,10 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: jest.fn(async () => ({ translate: (key: string, fallback?: string) => fallback ?? key })),
+}))
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: (...args: unknown[]) => reportErrorMock(...args) }),
 }))
 
 import { commandRegistry, type CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
@@ -142,6 +147,20 @@ describe('configs date-locale route', () => {
     expect(body.settings.timeZone).toBeNull()
   })
 
+  it('answers 500 and reports the error when the settings cannot be read', async () => {
+    const failure = new Error('database unavailable')
+    getRecordMock.mockRejectedValue(failure)
+    const response = await GET(new Request('http://localhost/api/configs/date-locale'))
+    expect(response.status).toBe(500)
+    expect(await response.json()).toEqual({ error: 'Internal error' })
+    expect(reportErrorMock).toHaveBeenCalledWith(failure, { module: 'configs', code: 'configs.date_locale.unexpected' })
+  })
+
+  it('does not report expected client errors', async () => {
+    await PUT(makePut({ timeZone: 'Mars/Olympus' }))
+    expect(reportErrorMock).not.toHaveBeenCalled()
+  })
+
   it('rejects unauthenticated requests', async () => {
     authValue = null
     const response = await GET(new Request('http://localhost/api/configs/date-locale'))
@@ -166,7 +185,14 @@ describe('configs date-locale route', () => {
       { tenantId },
     )
     expect(guardValidateMock).toHaveBeenCalledWith(
-      expect.objectContaining({ tenantId, organizationId, userId, resourceKind: 'configs.date_locale', operation: 'update' }),
+      expect.objectContaining({
+        tenantId,
+        organizationId,
+        userId,
+        resourceKind: 'configs.date_locale',
+        resourceId: tenantId,
+        operation: 'update',
+      }),
     )
     expect(commandBusExecuteMock).toHaveBeenCalledWith(
       'configs.date_locale.update',
