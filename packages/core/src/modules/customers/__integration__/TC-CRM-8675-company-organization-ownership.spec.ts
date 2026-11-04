@@ -28,7 +28,7 @@ test('TC-CRM-8675: company creates require live organizations owned by the autho
 
   async function expectNoCompanyWrites(): Promise<void> {
     await withClient(async (client) => {
-      for (const table of ['customer_entities', 'customer_company_profiles']) {
+      for (const table of ['customer_entities', 'customer_companies']) {
         const result = await client.query<{ count: string }>(`select count(*) from ${table} where tenant_id = any($1::uuid[])`, [tenantIds])
         expect(Number(result.rows[0].count), `${table} should have no rows after denial`).toBe(0)
       }
@@ -100,7 +100,7 @@ test('TC-CRM-8675: company creates require live organizations owned by the autho
       await withClient(async (client) => {
         const rows = await client.query<{ tenant_id: string; organization_id: string; profile_tenant_id: string; profile_organization_id: string }>(
           `select entity.tenant_id, entity.organization_id, profile.tenant_id as profile_tenant_id, profile.organization_id as profile_organization_id
-           from customer_entities entity join customer_company_profiles profile on profile.entity_id = entity.id
+           from customer_entities entity join customer_companies profile on profile.entity_id = entity.id
            where entity.id = $1 and profile.id = $2`, [body?.id, body?.companyId],
         )
         expect(rows.rows).toEqual([{ tenant_id: tenantId, organization_id: organizationId, profile_tenant_id: tenantId, profile_organization_id: organizationId }])
@@ -119,7 +119,7 @@ test('TC-CRM-8675: company creates require live organizations owned by the autho
     await withClient(async (client) => {
       const entities = await client.query<{ id: string }>('select id from customer_entities where tenant_id = any($1::uuid[])', [tenantIds])
       const entityIds = entities.rows.map((row) => row.id)
-      await client.query('delete from customer_company_profiles where tenant_id = any($1::uuid[])', [tenantIds])
+      await client.query('delete from customer_companies where tenant_id = any($1::uuid[])', [tenantIds])
       await client.query('delete from customer_entities where tenant_id = any($1::uuid[])', [tenantIds])
       await client.query('delete from action_logs where tenant_id = any($1::uuid[]) or actor_user_id = any($2::uuid[])', [tenantIds, userIds])
       await client.query('delete from entity_indexes where tenant_id = any($1::uuid[]) or entity_id = any($2::text[])', [tenantIds, entityIds])

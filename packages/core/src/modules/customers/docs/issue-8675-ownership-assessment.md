@@ -11,7 +11,7 @@ SELECT entity.id AS entity_id, profile.id AS profile_id,
        profile.tenant_id AS profile_tenant_id,
        profile.organization_id AS profile_organization_id
 FROM customer_entities AS entity
-LEFT JOIN customer_company_profiles AS profile ON profile.entity_id = entity.id
+LEFT JOIN customer_companies AS profile ON profile.entity_id = entity.id
 LEFT JOIN organizations AS entity_org ON entity_org.id = entity.organization_id
 LEFT JOIN organizations AS profile_org ON profile_org.id = profile.organization_id
 WHERE entity.kind = 'company'
