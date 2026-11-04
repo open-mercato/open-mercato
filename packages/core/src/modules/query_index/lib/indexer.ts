@@ -10,6 +10,7 @@ import {
 } from '@open-mercato/shared/lib/crud/custom-field-definition-index'
 import { type Kysely, type Transaction, sql } from 'kysely'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
 import { replaceSearchTokensForRecord, deleteSearchTokensForRecord } from './search-tokens'
 import { attachAggregateSearchField, rebuildAggregateSearchField } from './document'
@@ -176,8 +177,17 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
     doc[key] = multiKeys.has(fieldKey) || arr.length > 1 ? arr : arr[0]
   }
 
-  // Attach translations under flat keys 'l10n:{locale}:{field}'
+  // Attach translations under flat keys 'l10n:{locale}:{field}'. This read is optional and
+  // best-effort: a failed statement aborts the *whole* surrounding Postgres transaction
+  // (25P02), even though the JS error below is caught — so when `db` is already inside a
+  // caller's transaction (subscribers/batch writers pass a transactional em), a savepoint
+  // isolates the failure and lets every later statement in that transaction keep working.
+  // The caught error is logged via `recordIndexerError` instead of being discarded so the
+  // real cause (missing table/column, permission error, statement timeout) stays visible.
+  const translationsSavepoint = db.isTransaction ? 'om_entity_translations_read' : null
   try {
+    if (translationsSavepoint) await sql`SAVEPOINT ${sql.raw(translationsSavepoint)}`.execute(db)
+
     const translationRow = await db
       .selectFrom('entity_translations' as any)
       .select(['translations' as any])
@@ -186,6 +196,8 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
       .where(sql`tenant_id is not distinct from ${params.tenantId ?? null}`)
       .where(sql`organization_id is not distinct from ${params.organizationId ?? null}`)
       .executeTakeFirst() as { translations: Record<string, Record<string, unknown>> | null } | undefined
+
+    if (translationsSavepoint) await sql`RELEASE SAVEPOINT ${sql.raw(translationsSavepoint)}`.execute(db)
 
     if (translationRow?.translations && typeof translationRow.translations === 'object') {
       for (const [locale, fields] of Object.entries(translationRow.translations)) {
@@ -197,7 +209,23 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
         }
       }
     }
-  } catch {}
+  } catch (translationsError) {
+    if (translationsSavepoint) {
+      await sql`ROLLBACK TO SAVEPOINT ${sql.raw(translationsSavepoint)}`.execute(db).catch(() => undefined)
+    }
+    await recordIndexerError(
+      { db },
+      {
+        source: 'query_index',
+        handler: 'query_index:build-index-doc:translations',
+        error: translationsError,
+        entityType: params.entityType,
+        recordId: params.recordId,
+        tenantId: params.tenantId ?? null,
+        organizationId: params.organizationId ?? null,
+      },
+    ).catch(() => undefined)
+  }
 
   await applyIndexDocEnrichers(db, params.entityType, [{
     recordId: String(params.recordId),
