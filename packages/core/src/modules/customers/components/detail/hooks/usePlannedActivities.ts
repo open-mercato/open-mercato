@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { TERMINAL_INTERACTION_STATUS_LIST } from '../../../lib/interactionStatus'
 import type { InteractionSummary } from '../types'
 import { useInteractionMutations, type GuardedMutationRunner } from './useInteractionMutations'
 
@@ -42,7 +43,8 @@ export function plannedActivitiesUrl(scope: PlannedActivitiesScope): string {
   const scopeParam = 'dealId' in scope
     ? `dealId=${encodeURIComponent(scope.dealId)}`
     : `entityId=${encodeURIComponent(scope.entityId)}`
-  return `/api/customers/interactions?${scopeParam}&status=planned&excludeInteractionType=task&limit=100&sortField=scheduledAt&sortDir=asc`
+  const excludedStatuses = TERMINAL_INTERACTION_STATUS_LIST.map(encodeURIComponent).join(',')
+  return `/api/customers/interactions?${scopeParam}&excludeStatus=${excludedStatuses}&excludeInteractionType=task&limit=100&sortField=scheduledAt&sortDir=asc`
 }
 
 function fetchPlannedActivities(url: string, useCache: boolean): Promise<InteractionSummary[]> {
@@ -59,7 +61,7 @@ function fetchPlannedActivities(url: string, useCache: boolean): Promise<Interac
 }
 
 /**
- * Planned (non-task) activities of one record plus the shared complete/cancel
+ * Open (non-terminal, non-task) activities of one record plus the shared complete/cancel
  * mutations and the refresh key the history timeline listens to. Deal, person
  * and company detail pages all drive the same activity layout through it.
  */
@@ -101,12 +103,25 @@ export function usePlannedActivities({
     logContext,
   })
 
+  const versionOf = React.useCallback(
+    (interactionId: string) => plannedActivities.find((activity) => activity.id === interactionId)?.updatedAt ?? null,
+    [plannedActivities],
+  )
+  const handleMarkDone = React.useCallback(
+    (interactionId: string) => completeInteraction(interactionId, versionOf(interactionId)),
+    [completeInteraction, versionOf],
+  )
+  const handleCancelActivity = React.useCallback(
+    (interactionId: string) => cancelInteraction(interactionId, versionOf(interactionId)),
+    [cancelInteraction, versionOf],
+  )
+
   return {
     plannedActivities,
     activityRefreshKey,
     loadPlannedActivities,
     handleActivityCreated,
-    handleMarkDone: completeInteraction,
-    handleCancelActivity: cancelInteraction,
+    handleMarkDone,
+    handleCancelActivity,
   }
 }

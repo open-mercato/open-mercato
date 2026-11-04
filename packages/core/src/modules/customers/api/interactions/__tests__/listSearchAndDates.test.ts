@@ -107,6 +107,15 @@ describe('interactions list — search escaping and date validation (#2734)', ()
     expect(compiled!.parameters).not.toContain('%50%_off%')
   })
 
+  test('excludeStatus leaves out each listed status and ignores empty entries', async () => {
+    const res = await GET(new Request('https://example.test/api/customers/interactions?excludeStatus=done,%20canceled,,completed'))
+    expect(res.status).toBe(200)
+    const compiled = rowsQuery()
+    expect(compiled!.sql.toLowerCase()).toContain('"status" not in')
+    expect(compiled!.parameters).toEqual(expect.arrayContaining(['done', 'canceled', 'completed']))
+    expect(compiled!.parameters).not.toContain('')
+  })
+
   test('list projection includes external_message_id for email interaction links', async () => {
     const res = await GET(new Request('https://example.test/api/customers/interactions?interactionType=email'))
     expect(res.status).toBe(200)

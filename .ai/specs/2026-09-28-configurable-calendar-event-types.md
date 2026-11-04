@@ -333,6 +333,7 @@ Approved for review. The original combined brief was split by capability with th
 
 - Added optional nullable interaction `timezone` with IANA validation, API read/write support, undo snapshot preservation, and editor restoration. Existing null-zone records preserve legacy browser-local behavior.
 - Zoned weekly event recurrence keeps its wall time through daylight-saving changes, and module previews use the same chosen-zone conversion as submission. Visit keeps its fixed code-owned behavior and wraps standard Customers fields.
+- Added TC-CAL-015 coverage for the editor caches: a read that finishes after an organization switch stays out of the next organization, and a failed warm refresh keeps the draft, blocks selection and saving, and recovers only after a retry.
 - Added TC-CAL-014 coverage for normal/Visit zone persistence, invalid-zone 400s, editing a chosen zone, and DST recurrence rendering; execution awaits the timezone migration and live test gate.
 
 ### 2026-09-30 — Preserve shipped calendar types

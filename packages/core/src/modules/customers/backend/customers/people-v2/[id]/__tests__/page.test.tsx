@@ -267,7 +267,7 @@ describe('PersonDetailV2Page', () => {
 
     await waitFor(() => {
       expect(readApiResultOrThrowMock).toHaveBeenCalledWith(
-        expect.stringContaining('/api/customers/interactions?entityId=person-123&status=planned'),
+        expect.stringContaining('/api/customers/interactions?entityId=person-123&excludeStatus='),
       )
     })
     expect(readApiResultOrThrowMock).not.toHaveBeenCalledWith(expect.stringContaining('dealId='))
