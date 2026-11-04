@@ -447,13 +447,17 @@ test.describe('TC-TT-024: TimeEntryDialog project mode', () => {
 
     const adminToken = await getAuthToken(request, 'admin')
     const original = await readSettings(request, adminToken)
-    let sawSuppressedProjectRefusal = false
+    const projectDirectoryRequests: Array<{ activeSearch: boolean; suppressed: boolean }> = []
 
     try {
       await writeEntryMode(request, adminToken, original, 'project')
       await login(page, 'employee')
       await page.route('**/api/staff/timesheets/time-projects?**', async (route) => {
-        sawSuppressedProjectRefusal = route.request().headers()['x-om-forbidden-redirect'] === '0'
+        const requestUrl = new URL(route.request().url())
+        projectDirectoryRequests.push({
+          activeSearch: requestUrl.searchParams.get('status') === 'active' && !requestUrl.searchParams.has('ids'),
+          suppressed: route.request().headers()['x-om-forbidden-redirect'] === '0',
+        })
         await route.fulfill({
           status: 403,
           contentType: 'application/json',
@@ -468,7 +472,14 @@ test.describe('TC-TT-024: TimeEntryDialog project mode', () => {
       const emptyId = await empty.getAttribute('id')
       if (!emptyId) throw new Error('[internal] The project empty state must have an id.')
       await expect(projectCombobox(page)).toHaveAttribute('aria-describedby', emptyId)
-      expect(sawSuppressedProjectRefusal).toBe(true)
+
+      await page.evaluate(async () => {
+        await fetch('/api/staff/timesheets/time-projects?page=1&pageSize=1').catch(() => undefined)
+      })
+      const activeSearches = projectDirectoryRequests.filter((entry) => entry.activeSearch)
+      expect(activeSearches.length, 'The project field should search the active directory').toBeGreaterThan(0)
+      expect(activeSearches.every((entry) => entry.suppressed)).toBe(true)
+      expect(projectDirectoryRequests.at(-1)).toEqual({ activeSearch: false, suppressed: false })
     } finally {
       await restoreEntryMode(request, adminToken, original)
     }
