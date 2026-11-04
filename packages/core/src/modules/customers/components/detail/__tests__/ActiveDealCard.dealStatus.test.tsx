@@ -5,6 +5,15 @@ import { screen } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import type { DealSummary } from '../../formConfig'
 
+const mockVocabulary = { won: ['win', 'won'], lost: ['lost', 'loose'], closed: ['closed'] }
+const mockUseDealStatusVocabulary = jest.fn(() => ({
+  vocabulary: mockVocabulary, isLoading: false, isError: false,
+}))
+jest.mock('../../hooks/useDealStatusVocabulary', () => ({
+  useDealStatusVocabulary: () => mockUseDealStatusVocabulary(),
+}))
+
+
 const readApiResultOrThrowMock = jest.fn()
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
@@ -47,6 +56,7 @@ const OPEN_DEAL: DealSummary = {
 
 describe('ActiveDealCard — deal status vocabulary (#4667)', () => {
   beforeEach(() => {
+    mockUseDealStatusVocabulary.mockReturnValue({ vocabulary: mockVocabulary, isLoading: false, isError: false })
     readApiResultOrThrowMock.mockReset()
     readApiResultOrThrowMock.mockResolvedValue({ items: [] })
   })
@@ -63,4 +73,21 @@ describe('ActiveDealCard — deal status vocabulary (#4667)', () => {
 
     expect(screen.getByText('No active deals')).toBeInTheDocument()
   })
+
+  it('excludes configured terminal statuses and historical aliases', () => {
+    mockUseDealStatusVocabulary.mockReturnValue({
+      vocabulary: { won: ['contract_signed'], lost: ['declined'], closed: ['archived'] },
+      isLoading: false,
+      isError: false,
+    })
+    renderWithProviders(<ActiveDealCard deals={[
+      { ...CLOSED_WON_DEAL, status: 'contract_signed' },
+      CLOSED_LOST_DEAL,
+      OPEN_DEAL,
+    ]} />)
+
+    expect(screen.getByText('Still negotiating')).toBeInTheDocument()
+    expect(screen.queryByText('Closed through useDealClosure')).not.toBeInTheDocument()
+  })
+
 })

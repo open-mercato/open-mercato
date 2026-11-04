@@ -24,6 +24,7 @@ type FilterPopoverShellProps = {
   onApply: () => void
   /** Override the primary CTA label (e.g. "Add" on the +Add-filter popover) */
   applyLabel?: string
+  applyDisabled?: boolean
   /** Body wrapper className override — defaults to standard padded white block */
   bodyClassName?: string
 }
@@ -47,6 +48,7 @@ export function FilterPopoverShell({
   onCancel,
   onApply,
   applyLabel,
+  applyDisabled,
   bodyClassName,
 }: FilterPopoverShellProps): React.ReactElement {
   const t = useT()
@@ -88,6 +90,7 @@ export function FilterPopoverShell({
           <Button
             type="button"
             onClick={onApply}
+            disabled={applyDisabled}
             className="h-auto rounded-lg bg-foreground px-5 py-2 text-sm font-semibold text-background hover:bg-foreground/90"
           >
             {applyLabel ?? translateWithFallback(t, 'customers.deals.kanban.filter.apply', 'Apply')}

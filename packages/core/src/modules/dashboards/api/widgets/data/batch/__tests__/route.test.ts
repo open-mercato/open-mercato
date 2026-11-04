@@ -31,7 +31,16 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
 }))
 
 jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
-  resolveOrganizationScopeForRequest: jest.fn(async () => ({ selectedId: organizationId })),
+  resolveOrganizationScopeForRequest: jest.fn(async () => ({ selectedId: organizationId, filterIds: [organizationId], tenantId })),
+}))
+
+jest.mock('@open-mercato/shared/lib/crud/interceptor-runner', () => ({
+  runApiInterceptorsBefore: jest.fn(async ({ request }: { request: { body: unknown } }) => ({ ok: true, request: { body: request.body } })),
+}))
+
+jest.mock('@open-mercato/core/modules/customers/lib/dealStatusFilters', () => ({
+  ...jest.requireActual('@open-mercato/core/modules/customers/lib/dealStatusFilters'),
+  resolveDealStatusFilterVocabulary: jest.fn(),
 }))
 
 jest.mock('../../../../../services/widgetDataService', () => ({
@@ -40,6 +49,9 @@ jest.mock('../../../../../services/widgetDataService', () => ({
 }))
 
 import { POST } from '../route'
+import { runApiInterceptorsBefore } from '@open-mercato/shared/lib/crud/interceptor-runner'
+import { interceptors } from '@open-mercato/core/modules/customers/api/interceptors'
+import { resolveDealStatusFilterVocabulary } from '@open-mercato/core/modules/customers/lib/dealStatusFilters'
 import {
   WidgetDataEncryptionUnavailableError,
   WidgetDataScanLimitError,
@@ -181,5 +193,57 @@ describe('widget data batch route error mapping', () => {
       cache,
       undefined,
     )
+  })
+
+  test('normalizes authorized widgets before service/cache and isolates denial and interceptor failure', async () => {
+    analyticsRegistry.getRequiredFeatures.mockImplementation((entityType: string) => entityType === 'sales:orders' ? ['sales.orders.view'] : ['customers.deals.view'])
+    rbacService.userHasAllFeatures.mockImplementation(async (_userId: string, features: string[]) => features.every((feature) => feature === 'customers.deals.view'))
+    jest.mocked(resolveDealStatusFilterVocabulary)
+      .mockRejectedValueOnce(new Error('database unavailable'))
+      .mockImplementationOnce(async (_context, vocabulary) => ({ ...vocabulary, won: [...vocabulary.won, ' WIN '] }))
+    jest.mocked(runApiInterceptorsBefore).mockImplementation(async (args) => {
+      const result = await interceptors[1].before!(args.request, args.context)
+      return result.ok
+        ? { ok: true, request: { ...args.request, body: result.body ?? args.request.body }, metadataByInterceptor: {} }
+        : { ok: false, statusCode: result.statusCode ?? 400, body: { error: result.message } }
+    })
+    fetchWidgetData.mockResolvedValue({ value: 20, data: [], metadata: { fetchedAt: '2026-10-25T00:00:00.000Z', recordCount: 1 } })
+    const dealRequest = { entityType: 'customers:deals', metric: { field: 'valueAmount', aggregate: 'sum' }, filters: [{ field: 'status', operator: 'neq', value: 'win' }] }
+    const response = await POST(new Request('http://localhost/api/dashboards/widgets/data/batch', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ requests: [
+        { id: 'denied', request: regionRequest },
+        { id: 'failed', request: dealRequest },
+        { id: 'normalized', request: dealRequest },
+      ] }),
+    }))
+
+    expect(response.status).toBe(200)
+    expect(await readResults(response)).toEqual([
+      { id: 'denied', ok: false, error: 'Forbidden' },
+      { id: 'failed', ok: false, error: 'An error occurred while processing your request' },
+      { id: 'normalized', ok: true, data: expect.objectContaining({ value: 20 }) },
+    ])
+    expect(rbacService.userHasAllFeatures.mock.calls.map((call) => call[1])).toEqual([
+      ['sales.orders.view', 'customers.deals.view'], ['sales.orders.view'], ['customers.deals.view'],
+    ])
+    expect(runApiInterceptorsBefore).toHaveBeenCalledTimes(2)
+    expect(runApiInterceptorsBefore).toHaveBeenCalledWith(expect.objectContaining({
+      routePath: 'dashboards/widgets/data/batch', context: expect.objectContaining({ metadata: { authenticatedScope: expect.objectContaining({ organizationIds: [organizationId], auth: expect.objectContaining({ sub: userId, tenantId }) }) } }),
+    }))
+    expect(fetchWidgetData).toHaveBeenCalledTimes(1)
+    expect(fetchWidgetData).toHaveBeenCalledWith(expect.objectContaining({ filters: [{ field: 'status', operator: 'not_in', value: ['win', ' WIN '] }] }))
+  })
+
+  test('keeps a rejected interceptor response local to its widget', async () => {
+    jest.mocked(runApiInterceptorsBefore)
+      .mockResolvedValueOnce({ ok: false, statusCode: 403, body: { error: 'Access denied' } })
+      .mockImplementationOnce(async ({ request }) => ({ ok: true, request, metadataByInterceptor: {} }))
+    fetchWidgetData.mockResolvedValue({ value: 1 })
+
+    expect(await readResults(await POST(buildRequest(['blocked', 'allowed'])))).toEqual([
+      { id: 'blocked', ok: false, error: 'Access denied' },
+      { id: 'allowed', ok: true, data: { value: 1 } },
+    ])
+    expect(fetchWidgetData).toHaveBeenCalledTimes(1)
   })
 })
