@@ -101,15 +101,18 @@ test('extractTarballSnapshot strips the GitHub root folder', async () => {
     'package.json': '{"name":"ready-app-prm"}\n',
     'src/modules.ts': 'export default []\n',
   })
-  const targetDir = makeTempDir('create-mercato-app-extract-')
+  const tempRoot = makeTempDir('create-mercato-app-extract-')
+  const archivePath = join(tempRoot, 'archive.tar.gz')
+  const targetDir = join(tempRoot, 'ready-app')
+  writeFileSync(archivePath, archive)
 
   try {
-    await extractTarballSnapshot(archive, targetDir)
+    await extractTarballSnapshot(archivePath, targetDir)
 
     assert.equal(existsSync(join(targetDir, 'package.json')), true)
     assert.equal(existsSync(join(targetDir, 'src', 'modules.ts')), true)
   } finally {
-    rmSync(targetDir, { recursive: true, force: true })
+    rmSync(tempRoot, { recursive: true, force: true })
   }
 })
 
@@ -165,7 +168,9 @@ test('downloadReadyAppSnapshot resolves external default branches through the Gi
   const download = await downloadReadyAppSnapshot(source, '0.4.9', fetchMock)
 
   assert.equal(download.ref, 'main')
-  assert.deepEqual(Array.from(download.archive), [1, 2, 3])
+  assert.deepEqual(Array.from(readFileSync(download.archive.path)), [1, 2, 3])
+  download.archive.dispose()
+  assert.equal(existsSync(download.archive.path), false)
   assert.deepEqual(calls, [
     `${githubApiBaseUrl}/repos/some-agency/ready-app-marketplace`,
     `${githubApiBaseUrl}/repos/some-agency/ready-app-marketplace/tarball/main`,

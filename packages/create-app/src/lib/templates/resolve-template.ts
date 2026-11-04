@@ -4,6 +4,7 @@ import {
   resolveGitHubDefaultBranch,
   validateSlug,
 } from '../ready-apps.js'
+import type { DownloadedArchive } from '../safe-archive.js'
 import { fetchTemplatesIndex, parseGitHubPath } from './fetch-templates.js'
 import type {
   TemplateArg,
@@ -220,7 +221,7 @@ export function describeTemplateSelection(selection: TemplateSelection): Templat
 export async function downloadSelectedTemplate(
   selection: TemplateSelection,
   deps: Pick<TemplateResolveDeps, 'packageVersion' | 'fetchImpl'>,
-): Promise<Uint8Array> {
+): Promise<DownloadedArchive> {
   const fetchImpl = deps.fetchImpl ?? fetch
   const { owner, repo, sha } = selection
   const download = await downloadRepositoryTarball(owner, repo, sha, deps.packageVersion, fetchImpl)

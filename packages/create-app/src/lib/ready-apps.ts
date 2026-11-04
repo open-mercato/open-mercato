@@ -1,7 +1,14 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join, relative } from 'node:path'
-import * as tar from 'tar'
+import { existsSync, rmSync } from 'node:fs'
+import {
+  assertRegularTree,
+  createTargetDirectory,
+  extractArchive,
+  inspectArchive,
+  listRegularFiles,
+  readCappedBody,
+  type ArchiveLimits,
+  type DownloadedArchive,
+} from './safe-archive.js'
 
 const DEFAULT_GITHUB_API_BASE_URL = 'https://api.github.com'
 const GITHUB_HOSTNAME = 'github.com'
@@ -38,7 +45,7 @@ export interface ExternalReadyAppSource extends BaseReadyAppSource {
 export type ReadyAppSource = OfficialReadyAppSource | ExternalReadyAppSource
 
 export interface ReadyAppDownload {
-  archive: Uint8Array
+  archive: DownloadedArchive
   owner: string
   repo: string
   ref: string
@@ -368,7 +375,7 @@ export async function resolveGitHubCommitSha(
   return payload.sha.toLowerCase()
 }
 
-export type RepositoryTarballDownload = { status: 'ok'; archive: Uint8Array } | { status: 'not-found' }
+export type RepositoryTarballDownload = { status: 'ok'; archive: DownloadedArchive } | { status: 'not-found' }
 
 /**
  * The tarball of one commit, `GET /repos/{owner}/{repo}/tarball/{sha}`. A 404 is returned as `not-found` when the
@@ -390,7 +397,7 @@ export async function downloadRepositoryTarball(
   )
 
   if (response.ok) {
-    return { status: 'ok', archive: new Uint8Array(await response.arrayBuffer()) }
+    return { status: 'ok', archive: await readCappedBody(response, `${owner}/${repo}`) }
   }
 
   if (response.status === 404) {
@@ -437,7 +444,7 @@ export async function downloadReadyAppSnapshot(
 
   if (tarballResponse.ok) {
     return {
-      archive: new Uint8Array(await tarballResponse.arrayBuffer()),
+      archive: await readCappedBody(tarballResponse, `${source.owner}/${source.repo}`),
       owner: source.owner,
       repo: source.repo,
       ref: resolvedRef,
@@ -479,29 +486,13 @@ export async function downloadReadyAppSnapshot(
   )
 }
 
-export function findTemplateFiles(dir: string, rootDir = dir): string[] {
+/** `.template` files in a tree, found by the same `lstat` walk that rejects links and special files. */
+export function findTemplateFiles(dir: string): string[] {
   if (!existsSync(dir)) {
     return []
   }
 
-  const findings: string[] = []
-  const entries = readdirSync(dir).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
-
-  for (const entry of entries) {
-    const entryPath = join(dir, entry)
-    const entryStat = statSync(entryPath)
-
-    if (entryStat.isDirectory()) {
-      findings.push(...findTemplateFiles(entryPath, rootDir))
-      continue
-    }
-
-    if (entry.endsWith('.template')) {
-      findings.push(relative(rootDir, entryPath))
-    }
-  }
-
-  return findings
+  return listRegularFiles(dir).filter((path) => path.endsWith('.template'))
 }
 
 export function validateImportedReadyAppSnapshot(dir: string): void {
@@ -516,23 +507,35 @@ export function validateImportedReadyAppSnapshot(dir: string): void {
   )
 }
 
-export async function extractTarballSnapshot(
-  archive: Uint8Array,
-  targetDir: string,
-): Promise<void> {
-  const tempDir = mkdtempSync(join(tmpdir(), 'create-mercato-app-tarball-'))
-  const archivePath = join(tempDir, 'ready-app.tar.gz')
+export interface ExtractSnapshotOptions {
+  /** Defaults to `ARCHIVE_LIMITS`; tests pass smaller ones. */
+  limits?: ArchiveLimits
+  /** Runs after extraction, inside the cleanup scope (validation, finalizing). */
+  afterExtract?: (targetDir: string) => void | Promise<void>
+  /** Removes the target directory when this call created it and a later step fails (`--template` only). */
+  removeTargetOnFailure?: boolean
+}
 
-  writeFileSync(archivePath, archive)
-  mkdirSync(targetDir, { recursive: true })
+/**
+ * Imports an untrusted archive: pass 1 inspects it without writing, then the target is created non-recursively,
+ * pass 2 extracts files and directories only, and an `lstat` walk checks the result. A pass 1 failure creates nothing.
+ */
+export async function extractTarballSnapshot(
+  archivePath: string,
+  targetDir: string,
+  options: ExtractSnapshotOptions = {},
+): Promise<void> {
+  await inspectArchive(archivePath, options.limits)
+  createTargetDirectory(targetDir)
 
   try {
-    await tar.x({
-      cwd: targetDir,
-      file: archivePath,
-      strip: 1,
-    })
-  } finally {
-    rmSync(tempDir, { recursive: true, force: true })
+    await extractArchive(archivePath, targetDir)
+    assertRegularTree(targetDir)
+    await options.afterExtract?.(targetDir)
+  } catch (error) {
+    if (options.removeTargetOnFailure) {
+      rmSync(targetDir, { recursive: true, force: true })
+    }
+    throw error
   }
 }

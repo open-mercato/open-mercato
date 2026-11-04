@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test, { after, beforeEach } from 'node:test'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -455,7 +455,9 @@ test('a missing repo on download gets the access error, and a selected sha downl
   await assert.rejects(downloadSelectedTemplate(selection, { ...DEPS, fetchImpl: gone.fetchImpl }), /GitHub repository not found or inaccessible: acme\/crm-template/)
 
   const ok = mockFetch(tarballRoute('acme/crm-template', SHA_VERIFIED, () => new Response(new Uint8Array([1, 2, 3]))))
-  assert.deepEqual(await downloadSelectedTemplate(selection, { ...DEPS, fetchImpl: ok.fetchImpl }), new Uint8Array([1, 2, 3]))
+  const archive = await downloadSelectedTemplate(selection, { ...DEPS, fetchImpl: ok.fetchImpl })
+  assert.deepEqual(new Uint8Array(readFileSync(archive.path)), new Uint8Array([1, 2, 3]))
+  archive.dispose()
 })
 
 // CLI flags
@@ -543,12 +545,16 @@ test('main refuses every exclusion and a bad OM_TEMPLATES_URL before any request
   }
 })
 
-async function createGitHubStyleTarball(files: Record<string, string>): Promise<Uint8Array> {
+async function createGitHubStyleTarball(files: Record<string, string>, symlinks: Record<string, string> = {}): Promise<Uint8Array> {
   const dir = scratchDir('om-templates-tarball-')
   const root = join(dir, 'acme-crm-template-2222222')
   for (const [path, content] of Object.entries(files)) {
     mkdirSync(dirname(join(root, path)), { recursive: true })
     writeFileSync(join(root, path), content)
+  }
+  for (const [path, target] of Object.entries(symlinks)) {
+    mkdirSync(dirname(join(root, path)), { recursive: true })
+    symlinkSync(target, join(root, path))
   }
   const archivePath = join(dir, 'archive.tar.gz')
   await tar.c({ cwd: dir, gzip: true, file: archivePath }, ['acme-crm-template-2222222'])
@@ -567,6 +573,28 @@ test('main prints owner/repo@sha and its verification before downloading the sel
   assert.ok(existsSync(join(cwd, 'crm-app', '.mercato', 'generated', 'module-package-sources.css')))
   assert.ok(output.some((line) => line.includes('yarn initialize')), 'imported app next steps')
   assert.ok(!output.some((line) => line.includes('Agent pipeline')), 'no agentic setup for an app template')
+})
+
+test('main refuses a template archive with a symbolic link before creating the target directory', async () => {
+  const archive = await createGitHubStyleTarball({ 'package.json': '{"name":"crm-template"}\n' }, { 'src/escape': '/etc' })
+  const { fetchImpl } = mockFetch(indexRoute(), tarballRoute('acme/crm-template', SHA_VERIFIED, () => new Response(archive)))
+  const cwd = scratchDir()
+  await assert.rejects(
+    runMain(['crm-app', '--template', 'crm', '--skip-agentic-setup', '--no-init-git'], fetchImpl, cwd),
+    /Archive rejected: "acme-crm-template-2222222\/src\/escape" is a symbolic link\./,
+  )
+  assert.equal(existsSync(join(cwd, 'crm-app')), false)
+})
+
+test('main removes the target directory it created when a template import fails after extraction', async () => {
+  const archive = await createGitHubStyleTarball({ 'package.json': '{"name":"crm-template"}\n', 'src/page.tsx.template': '' })
+  const { fetchImpl } = mockFetch(indexRoute(), tarballRoute('acme/crm-template', SHA_VERIFIED, () => new Response(archive)))
+  const cwd = scratchDir()
+  await assert.rejects(
+    runMain(['crm-app', '--template', 'crm', '--skip-agentic-setup', '--no-init-git'], fetchImpl, cwd),
+    /must be committed source snapshots\. Found \.template files: src\/page\.tsx\.template/,
+  )
+  assert.equal(existsSync(join(cwd, 'crm-app')), false)
 })
 
 test('main refuses a hold slug without creating the target directory', async () => {

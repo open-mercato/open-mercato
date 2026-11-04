@@ -485,9 +485,16 @@ async function scaffoldImportedReadyApp(targetDir: string, source: ReadyAppSourc
   const download = await downloadReadyAppSnapshot(source, PACKAGE_VERSION)
   console.log(pc.dim(`Fetching ready app snapshot from ${download.owner}/${download.repo}@${download.ref}`))
 
-  await extractTarballSnapshot(download.archive, targetDir)
-  validateImportedReadyAppSnapshot(targetDir)
-  ensureGeneratedCssPlaceholder(targetDir)
+  try {
+    await extractTarballSnapshot(download.archive.path, targetDir, {
+      afterExtract: (dir) => {
+        validateImportedReadyAppSnapshot(dir)
+        ensureGeneratedCssPlaceholder(dir)
+      },
+    })
+  } finally {
+    download.archive.dispose()
+  }
 }
 
 /**
@@ -537,9 +544,18 @@ async function scaffoldImportedAppTemplate(targetDir: string, templateArg: Templ
   console.log('')
 
   const archive = await downloadSelectedTemplate(selection, deps)
-  await extractTarballSnapshot(archive, targetDir)
-  validateImportedReadyAppSnapshot(targetDir)
-  ensureGeneratedCssPlaceholder(targetDir)
+  try {
+    // From the target mkdir on, a failure removes the directory this import created (Ready Apps amendment A-4).
+    await extractTarballSnapshot(archive.path, targetDir, {
+      removeTargetOnFailure: true,
+      afterExtract: (dir) => {
+        validateImportedReadyAppSnapshot(dir)
+        ensureGeneratedCssPlaceholder(dir)
+      },
+    })
+  } finally {
+    archive.dispose()
+  }
 }
 
 // Combine --agents (validated) and --skip-agentic-setup into a single intent.
