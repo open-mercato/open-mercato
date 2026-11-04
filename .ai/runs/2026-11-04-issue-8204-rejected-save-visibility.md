@@ -11,7 +11,7 @@ Runner: local (no running compose app)
 Engine: om-auto-create-pr (steps: 3, --loop: no)
 
 ## Scope
-CrudForm and tests; existing shared error presentation and a shared focus/reveal helper; staff TaskDrawer and tests; uniquely named issue integration/run artifacts. No primitive, API, database, governance, Markdown, DataTable, audit log, customer, sales or document source changes. Reuse cezar's existing worktree/branch.
+CrudForm and tests; existing shared error presentation and a shared focus/reveal helper; staff TaskDrawer and tests; uniquely named issue integration/run artifacts. No primitive, API, database, governance, Markdown, DataTable, audit log, customer, sales or document production source changes. The coordinated scope also covers field-scoped validation locators in the existing TC-CAT-002, TC-CGRP-022 and TC-CRM-002 integration tests, preserving their existing assertions.
 
 ## Implementation Plan
 ### Phase 1: Shared rejection presentation
@@ -24,7 +24,7 @@ CrudForm and tests; existing shared error presentation and a shared focus/reveal
 ## Risks
 - Focus must follow explicit rejection identity, not ordinary error/edit state churn.
 - Oversized messages and nested scroll containers need real viewport assertions.
-- Browser integration and screenshots require a bootable isolated app. The existing descriptor is stale; this worktree has no prepared environment and migration execution is outside the task authorization.
+- Browser integration and screenshots require a bootable isolated app. The existing local descriptor is stale; an isolated disposable environment is required.
 - Spec stays on separate design branch per feature-route contract and is materialized locally but not committed here.
 
 ## Progress
@@ -40,4 +40,10 @@ CrudForm and tests; existing shared error presentation and a shared focus/reveal
 
 ## Current validation state
 
-63 component tests pass using a supplemental temporary Jest configuration that explicitly supplies TypeScript `rootDir`; the repository-native Jest invocation fails TS5011 before tests (also reproduced with an untouched suite). This supplemental result does not satisfy the configured gate. Both package builds, generation and translation sync passed; the remaining gate is in progress. Independent source review approved after addressing stale drawer notices and empty transformed validation messages. Browser integration coverage and screenshots remain outstanding, so the implementation PR remains draft.
+Source commit: `4ab9dee741`. Review evidence: [.ai/analysis/issue-8204-validation.md](../analysis/issue-8204-validation.md).
+
+All 63 focused component tests pass with the unmodified native UI/core package test scripts (15 UI and 48 core); the earlier supplemental config also passed. Six visibility cases fail against the baseline source, while successful saving passes. The generic root Jest entrypoint fails TS5011 before tests, including an untouched suite; package-native scripts work and the repository configuration is unchanged. An unrelated optimistic-lock test also reproduces a missing JSDOM Response global on baseline.
+
+Both package builds, generation and translation sync passed. Translation usage timed out after 1800 seconds. A subsequent native typecheck passed all 42 tasks. The full local test/app-build checks and native browser integration remain incomplete; the draft PR review requests changes until these gates are satisfied. Independent source review found no outstanding source defects. No QA approval is claimed.
+
+Live UI exploration is complete on the owned native runtime: long-form oversized/repeated errors, embedded-dialog rejection/keyboard retry, real drawer claim race, stale status rejection, and successful retry. Four self-contained integration specs were authored afterward, received read-only approval, and were run with the three corrected existing scenarios: three passed and four timed out. A reviewed cleanup correction requires reruns; the subsequent successful native app build could not reach authenticated readiness after Docker became unavailable. Both native application builds passed; these are distinct from the previously incomplete configured local build gate.
