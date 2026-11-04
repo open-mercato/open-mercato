@@ -72,6 +72,17 @@ async function bounded(operation, timeoutMs) {
   } finally { clearTimeout(timer) }
 }
 
+// A Redis URL that belongs to an optional feature is only verified when that
+// feature is switched on: .env.example ships DOCUMENTS_COLLAB_REDIS_URL, but
+// realtime collaboration stays off until NEXT_PUBLIC_DOCUMENTS_COLLAB_URL is set,
+// so a machine without Redis must not fail setup on it.
+const OPTIONAL_REDIS_KEYS = { DOCUMENTS_COLLAB_REDIS_URL: 'NEXT_PUBLIC_DOCUMENTS_COLLAB_URL' }
+
+export function redisKeyInUse(key, settings) {
+  const enabledBy = OPTIONAL_REDIS_KEYS[key]
+  return !enabledBy || Boolean(settings[enabledBy]?.trim())
+}
+
 export async function verifyServiceConnections({ projectDir = process.cwd(), envFiles = [], env = process.env, timeoutMs = DEFAULT_TIMEOUT_MS, loadModule = loadClientModule, fetchImpl = fetch, log = console.log } = {}) {
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1) throw new Error('Service connection timeout must be a positive integer.')
   const settings = readSettings(projectDir, envFiles, env)
@@ -107,7 +118,7 @@ export async function verifyServiceConnections({ projectDir = process.cwd(), env
     throw new ServiceConnectionError('PostgreSQL', 'DATABASE_URL', endpoint(database), failureKind(error))
   }
 
-  const redisKeys = Object.keys(settings).filter((key) => (key === 'REDIS_URL' || key.endsWith('_REDIS_URL')) && settings[key]?.trim())
+  const redisKeys = Object.keys(settings).filter((key) => (key === 'REDIS_URL' || key.endsWith('_REDIS_URL')) && settings[key]?.trim() && redisKeyInUse(key, settings))
   for (const key of redisKeys) {
     const target = parseTarget(settings[key], ['redis:', 'rediss:'], 'Redis', key)
     let redis
