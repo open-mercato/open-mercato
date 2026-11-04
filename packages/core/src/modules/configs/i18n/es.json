@@ -39,6 +39,7 @@
   "configs.dateLocale.errors.pattern.noToken": "El patrón necesita al menos un token de fecha u hora.",
   "configs.dateLocale.errors.pattern.tooLong": "El patrón puede tener como máximo 64 caracteres.",
   "configs.dateLocale.errors.pattern.unterminatedQuote": "Cierra el texto entre comillas con una comilla simple.",
+  "configs.dateLocale.errors.replayStale": "Esta configuración cambió después de esta acción, por lo que no se puede volver a aplicar.",
   "configs.dateLocale.errors.save": "No se pudieron guardar los ajustes de fecha y hora.",
   "configs.dateLocale.errors.timeZone": "Elige una zona horaria de la lista, por ejemplo Europe/Madrid.",
   "configs.dateLocale.fields.customPattern": "Patrón personalizado",

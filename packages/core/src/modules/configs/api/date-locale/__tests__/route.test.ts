@@ -7,6 +7,7 @@ const setValueMock = jest.fn()
 const userTimeZoneLookupMock = jest.fn()
 
 const commandBusExecuteMock = jest.fn()
+const getGrantedFeaturesMock = jest.fn()
 const reportErrorMock = jest.fn()
 
 const container = {
@@ -20,6 +21,7 @@ const container = {
       }
     }
     if (name === 'userTimeZoneLookup') return (...args: unknown[]) => userTimeZoneLookupMock(...args)
+    if (name === 'rbacService') return { getGrantedFeatures: (...args: unknown[]) => getGrantedFeaturesMock(...args) }
     throw new Error(`Unexpected container resolve: ${name}`)
   }),
 }
@@ -99,6 +101,7 @@ describe('configs date-locale route', () => {
     getRecordMock.mockResolvedValue(null)
     setValueMock.mockResolvedValue(null)
     userTimeZoneLookupMock.mockResolvedValue(null)
+    getGrantedFeaturesMock.mockResolvedValue([])
   })
 
   afterAll(() => {
@@ -256,5 +259,50 @@ describe('configs date-locale route', () => {
     expect(response.status).toBe(422)
     expect(await response.json()).toEqual({ error: 'Settings are frozen' })
     expect(guardAfterSuccessMock).not.toHaveBeenCalled()
+  })
+
+  describe('API-key callers', () => {
+    const keyId = '55555555-5555-4555-8555-555555555555'
+    const ownerId = '66666666-6666-4666-8666-666666666666'
+    const gatedGuardValidateMock = jest.fn()
+    const gatedGuard: MutationGuard = {
+      id: 'test.date-locale-gated-guard',
+      targetEntity: 'configs.date_locale',
+      operations: ['update'],
+      features: ['policy.date_locale.lock'],
+      validate: (input) => gatedGuardValidateMock(input),
+    }
+
+    beforeEach(() => {
+      authValue = { tenantId, sub: `api_key:${keyId}`, orgId: organizationId, isApiKey: true, keyId, userId: ownerId }
+      registerMutationGuards([{ moduleId: 'test', guards: [registryGuard, gatedGuard] }])
+      gatedGuardValidateMock.mockResolvedValue({ ok: false, status: 423, body: { error: 'Locked by policy' } })
+    })
+
+    it('evaluates mutation guards as the key principal, not its owner', async () => {
+      getGrantedFeaturesMock.mockImplementation(async (principal: string) =>
+        principal === `api_key:${keyId}` ? ['policy.date_locale.lock'] : [],
+      )
+      const response = await PUT(makePut({ timeZone: 'UTC' }))
+
+      expect(getGrantedFeaturesMock).toHaveBeenCalledWith(`api_key:${keyId}`, { tenantId, organizationId })
+      expect(getGrantedFeaturesMock).not.toHaveBeenCalledWith(ownerId, expect.anything())
+      expect(guardValidateMock).toHaveBeenCalledWith(expect.objectContaining({ userId: `api_key:${keyId}` }))
+      expect(response.status).toBe(423)
+      expect(await response.json()).toEqual({ error: 'Locked by policy' })
+      expect(commandBusExecuteMock).not.toHaveBeenCalled()
+      expect(setValueMock).not.toHaveBeenCalled()
+    })
+
+    it('does not run a feature-gated guard the key itself was not granted', async () => {
+      getGrantedFeaturesMock.mockImplementation(async (principal: string) =>
+        principal === ownerId ? ['policy.date_locale.lock'] : [],
+      )
+      const response = await PUT(makePut({ timeZone: 'UTC' }))
+
+      expect(response.status).toBe(200)
+      expect(gatedGuardValidateMock).not.toHaveBeenCalled()
+      expect(setValueMock).toHaveBeenCalled()
+    })
   })
 })

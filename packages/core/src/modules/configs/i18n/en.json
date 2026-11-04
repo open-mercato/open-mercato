@@ -39,6 +39,7 @@
   "configs.dateLocale.errors.pattern.noToken": "The pattern needs at least one date or time token.",
   "configs.dateLocale.errors.pattern.tooLong": "The pattern can be at most 64 characters long.",
   "configs.dateLocale.errors.pattern.unterminatedQuote": "Close the quoted text with a single quote.",
+  "configs.dateLocale.errors.replayStale": "These settings changed after this action, so it cannot be replayed.",
   "configs.dateLocale.errors.save": "Failed to save date and time settings.",
   "configs.dateLocale.errors.timeZone": "Choose a time zone from the list, for example Europe/Warsaw.",
   "configs.dateLocale.fields.customPattern": "Custom pattern",

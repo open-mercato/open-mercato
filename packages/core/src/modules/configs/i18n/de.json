@@ -39,6 +39,7 @@
   "configs.dateLocale.errors.pattern.noToken": "Das Muster benötigt mindestens ein Datums- oder Uhrzeit-Token.",
   "configs.dateLocale.errors.pattern.tooLong": "Das Muster darf höchstens 64 Zeichen lang sein.",
   "configs.dateLocale.errors.pattern.unterminatedQuote": "Schließen Sie den Text in Anführungszeichen mit einem einfachen Anführungszeichen.",
+  "configs.dateLocale.errors.replayStale": "Diese Einstellungen wurden nach dieser Aktion geändert, daher kann sie nicht erneut ausgeführt werden.",
   "configs.dateLocale.errors.save": "Datums- und Uhrzeiteinstellungen konnten nicht gespeichert werden.",
   "configs.dateLocale.errors.timeZone": "Wählen Sie eine Zeitzone aus der Liste, z. B. Europe/Berlin.",
   "configs.dateLocale.fields.customPattern": "Eigenes Muster",

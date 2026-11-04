@@ -39,6 +39,7 @@
   "configs.dateLocale.errors.pattern.noToken": "Wzorzec musi zawierać co najmniej jeden token daty lub godziny.",
   "configs.dateLocale.errors.pattern.tooLong": "Wzorzec może mieć najwyżej 64 znaki.",
   "configs.dateLocale.errors.pattern.unterminatedQuote": "Zamknij tekst w cudzysłowie pojedynczym apostrofem.",
+  "configs.dateLocale.errors.replayStale": "Te ustawienia zmieniły się po tej operacji, więc nie można jej powtórzyć ani cofnąć.",
   "configs.dateLocale.errors.save": "Nie udało się zapisać ustawień daty i godziny.",
   "configs.dateLocale.errors.timeZone": "Wybierz strefę czasową z listy, np. Europe/Warsaw.",
   "configs.dateLocale.fields.customPattern": "Własny wzorzec",

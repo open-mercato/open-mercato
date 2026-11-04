@@ -69,12 +69,11 @@ async function resolveRouteContext(req: Request): Promise<RouteContext> {
   if (!auth || !auth.tenantId) {
     throw new CrudHttpError(401, { error: translate('configs.errors.unauthorized', 'Unauthorized') })
   }
-  const userId = !auth.isApiKey && typeof auth.sub === 'string' && auth.sub.trim().length > 0 ? auth.sub : null
-  const actorId =
-    userId
-    || (typeof auth.userId === 'string' && auth.userId.trim().length > 0 && auth.userId)
-    || (typeof auth.keyId === 'string' && auth.keyId.trim().length > 0 && auth.keyId)
-    || 'system'
+  const principal = typeof auth.sub === 'string' && auth.sub.trim().length > 0 ? auth.sub : null
+  const userId = !auth.isApiKey ? principal : null
+  // Mutation guards resolve features for the canonical RBAC principal: `api_key:<id>` for an API
+  // key, so a key's own (delegated) feature set is checked rather than its owner's.
+  const actorId = principal ?? 'system'
   return { container, auth, tenantId: auth.tenantId, organizationId: auth.orgId ?? null, actorId, userId, translate }
 }
 
