@@ -29,7 +29,7 @@ test('standalone app template tooling has one routed guide for saving and creati
   assert.match(guide, /--keep-name/)
   assert.match(guide, /openMercatoTemplate/)
   assert.match(guide, /Without process execution, report that capability gap/)
-  assert.doesNotMatch(guide, /[–—]/, 'no long dashes')
+  assert.doesNotMatch(guide, /[\u2013\u2014]/, 'no long dashes')
 
   for (const root of ['agentic/shared/AGENTS.md.template', 'template/AGENTS.md']) {
     assert.match(read(root), /Save this app as an app template, or create an app from one.*template-tool\.md/i)
