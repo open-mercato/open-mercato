@@ -40,6 +40,8 @@ Five-day gate: ip-address 10.7.5 published 2026-10-25T01:32:24.393Z; Hono 4.13.1
 | 234 | hono | GHSA-w62v-xxxg-mg59 | yarn.lock | 4.12.25 | 4.13.14 |
 | 233 | hono | GHSA-xgm2-5f3f-mvvc | yarn.lock | 4.12.25 | 4.13.14 |
 
+Final publication refresh: authenticated alerts remain 42; all 355 open PRs were re-read; the latest 100 all-state PRs cover every update since selection (oldest 2026-11-04T15:37:20Z). No other PR matches selected package/GHSA identities. Active security run lists still show only this dependency claim; the advisory automation has finished its read-only child and was notified of this package/manifest claim. Remote main remains `66f0e39dbc28dcc4f29f3320af06db286f91208b`.
+
 ## Implementation plan
 
 1. Commit this plan and immediately push a dedicated branch/open a draft PR with source markers.
@@ -90,6 +92,37 @@ Runner: local. Both compose probes found no running app (fullapp probe lacks JWT
 
 Ordered gate: `yarn build:packages`; `yarn generate`; `yarn build:packages`; `yarn i18n:check-sync`; `yarn i18n:check-usage`; `yarn typecheck`; `yarn test`; `yarn build:app`. Additional: `yarn check:resolutions`, `yarn lint`, immutable install and before/after resolution assertions/security probes. CI integration requested through existing `ci-full` label; no workflow edits.
 
+## Validation results
+
+All configured gate commands ran in their configured order, with a 300-second limit per command. The two initial translation checks failed before running because the cockpit TMPDIR path exceeds the Unix socket path limit; the original unit gate then failed CLI fixtures because its temp root inherited the enclosing monorepo. These are runner failures, not patched dependency failures.
+
+| Command | Result |
+| --- | --- |
+| `timeout 300 yarn build:packages` (first) | Pass, 42 tasks, 65.9s |
+| `timeout 300 yarn generate` | Pass, 19.5s |
+| `timeout 300 yarn build:packages` (second) | Pass, 42 tasks, 11.6s |
+| `yarn i18n:check-sync` | Initial socket-path failure; `timeout 90 env TMPDIR=/tmp yarn i18n:check-sync` passed |
+| `yarn i18n:check-usage` | Initial socket-path failure; 90s retry timed out; `timeout 300 env TMPDIR=/tmp yarn i18n:check-usage` passed, 8,120 unused keys advisory only |
+| `timeout 300 yarn typecheck` | Pass, 42 tasks, 82.9s |
+| `timeout 300 yarn test` | CLI temp-root fixture failures (3 suites /8 tests); see retries below |
+| `timeout 300 yarn build:app` | Pass, 225.5s, production build compiled and completed |
+| `timeout 300 env TMPDIR=/tmp yarn lint` | Pass, 10 existing warnings, no errors |
+| `timeout 30 yarn check:resolutions` | Pass, 30 descriptor pins live |
+| `timeout 60 env TMPDIR=/tmp node --test scripts/__tests__/npm-minimal-age-gate.test.mjs` | Pass, 7/7; original long-temp invocation was 6/7 |
+| `timeout 120 env TMPDIR=/tmp yarn workspace @open-mercato/cli test --runInBand src/lib/generators/__tests__/agent-files-extension.test.ts` | Pass, 15/15 |
+| `timeout 900 env TMPDIR=/tmp yarn test` | Still fails shared nested tsx subprocesses retaining long TMP/TEMP; 1 suite/2 tests |
+| `timeout 900 env TMPDIR=/tmp TMP=/tmp TEMP=/tmp yarn test` | Exit 1 after 14m1s; 50/51 tasks passed. All 42 Jest packages passed: 45,961 tests, 285 existing skips. Docs 24/24 passed; create-app 1,020 passed, 5 skipped, 1 baseline sandbox failure |
+
+`ci-full` was applied through the existing-label guard. Existing `.github/workflows/ci.yml` reads it as `FORCE_FULL_SUITE=true` and selects all 15 integration shards; no workflow is changed. Remote CI/integration and independent final review are not claimed passed. The parent commissions the final review; this run will not mark the PR ready.
+
+## Remaining baseline blocker
+
+The full gate remains red solely on create-app test `fake runner starts in its admitted directory while controller reads and writes stay denied` (`packages/create-app/src/lib/agent-harness-evaluator.test.ts:239`). The fixture expects a controller write to throw EPERM/EACCES/ENOENT/EROFS, but the write succeeds.
+
+Reproduced the same assertion using a `git archive 66f0e39dbc28dcc4f29f3320af06db286f91208b packages/create-app` baseline snapshot plus the exact core/ui/shared files staged by that test. Ran `timeout 90 env TMPDIR=/tmp TMP=/tmp TEMP=/tmp node --import tsx --test --test-name-pattern "^fake runner starts in its admitted directory" /tmp/b63-baseline/packages/create-app/src/lib/agent-harness-evaluator.test.ts`: exit 1, identical missing-exception failure. The baseline probe uses the unchanged local tsx loader; the sandbox itself imports only Node built-ins.
+
+Blob identities match main byte-for-byte: evaluator test `4b227ebb8bbef5c169162883c8b91fa88d5f9876`; `agentic/shared/scripts/execution-sandbox.mjs` `849ab1ca9173fbb7087d19d0c0e012a3fccd30ac`. No source fix or test suppression was attempted. The plan and PR retain `Status: in-progress` because the full validation gate is not green; independent review and CI integration remain pending.
+
 ## Progress
 
 PR: #8717
@@ -106,6 +139,6 @@ PR: #8717
 
 ### Phase 3: Validate and hand off
 
-- [ ] 3.1 Record ordered validation and vulnerability-removal evidence
+- [x] 3.1 Record ordered validation and vulnerability-removal evidence — full gate baseline blocker documented; hand off draft
 
 Status: in-progress
