@@ -4,7 +4,8 @@ import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands/types'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { ResourcesResource } from '../../data/entities'
+import { emitCrudUndoSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+import { ResourcesResource, ResourcesResourceType } from '../../data/entities'
 import { resourceTypeLockKey } from '../../lib/resourceTypeLock'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
@@ -74,7 +75,11 @@ function buildEnvelope(assignedCount: number) {
     }),
     fork: jest.fn(),
     findOne: jest.fn().mockResolvedValue(record),
-    count: jest.fn().mockImplementation(async () => {
+    count: jest.fn().mockImplementation(async (entity: unknown) => {
+      if (entity === ResourcesResourceType) {
+        calls.push('count:live')
+        return record.deletedAt ? 0 : 1
+      }
       calls.push('count:assigned')
       return assignedCount
     }),
@@ -106,6 +111,7 @@ describe('resource type "has assigned resources" guard', () => {
 
   beforeEach(() => {
     ;(findOneWithDecryption as jest.Mock).mockReset().mockResolvedValue(null)
+    ;(emitCrudUndoSideEffects as jest.Mock).mockClear()
   })
 
   it('refuses to undo a resource type create while live resources are assigned to it', async () => {
@@ -125,7 +131,7 @@ describe('resource type "has assigned resources" guard', () => {
     })
     expect(record.deletedAt).toBeNull()
     expect(em.flush).not.toHaveBeenCalled()
-    expect(calls).toEqual([`lock:${resourceTypeLockKey(TEST_TYPE_ID)}`, 'count:assigned'])
+    expect(calls).toEqual([`lock:${resourceTypeLockKey(TEST_TYPE_ID)}`, 'count:live', 'count:assigned'])
     expect(em.rollback).toHaveBeenCalledTimes(1)
     expect(em.commit).not.toHaveBeenCalled()
   })
@@ -138,17 +144,21 @@ describe('resource type "has assigned resources" guard', () => {
 
     expect(record.deletedAt).toBeInstanceOf(Date)
     expect(em.flush).toHaveBeenCalledTimes(1)
+    expect(emitCrudUndoSideEffects).toHaveBeenCalledTimes(1)
   })
 
-  it('does not re-check assigned resources when the resource type is already deleted', async () => {
-    const { em, ctx, record } = buildEnvelope(1)
-    record.deletedAt = new Date('2026-01-01T00:00:00.000Z')
+  it('takes the lock and leaves an already-deleted resource type untouched on undo', async () => {
+    const { em, ctx, record, calls } = buildEnvelope(1)
+    const deletedAt = new Date('2026-01-01T00:00:00.000Z')
+    record.deletedAt = deletedAt
     const handler = commandRegistry.get('resources.resourceTypes.create')
 
     await handler!.undo!({ input: undefined, logEntry: createLogEntry(), ctx })
 
-    expect(em.count).not.toHaveBeenCalled()
-    expect(em.flush).toHaveBeenCalledTimes(1)
+    expect(calls).toEqual([`lock:${resourceTypeLockKey(TEST_TYPE_ID)}`, 'count:live'])
+    expect(record.deletedAt).toBe(deletedAt)
+    expect(em.commit).toHaveBeenCalledTimes(1)
+    expect(emitCrudUndoSideEffects).not.toHaveBeenCalled()
   })
 
   it('keeps refusing a direct delete of a resource type with assigned resources', async () => {

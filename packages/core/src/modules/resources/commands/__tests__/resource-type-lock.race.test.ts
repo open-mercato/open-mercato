@@ -60,13 +60,13 @@ function matches(row: Row, where: Where): boolean {
   })
 }
 
-function buildDatabase(options: { resourceDeleted: boolean }) {
+function buildDatabase(options: { resourceDeleted: boolean; typeDeleted?: boolean }) {
   const types = new Map<string, Row>([[TEST_TYPE_ID, {
     id: TEST_TYPE_ID,
     tenantId: TEST_TENANT_ID,
     organizationId: TEST_ORG_ID,
     name: 'Type A',
-    deletedAt: null,
+    deletedAt: options.typeDeleted ? new Date('2026-01-01T00:00:00.000Z') : null,
   }]])
   const resources = new Map<string, Row>()
   if (options.resourceDeleted) {
@@ -97,6 +97,8 @@ function buildDatabase(options: { resourceDeleted: boolean }) {
     const loaded = new Map<Row, { entity: unknown; committed: Row | undefined }>()
     const held: Array<() => void> = []
     const locked = deferred()
+    const loadedOnce = deferred()
+    let afterFirstLoad: Promise<void> | null = null
     let beforeCommit: Promise<void> = Promise.resolve()
     let inTransaction = false
 
@@ -106,6 +108,13 @@ function buildDatabase(options: { resourceDeleted: boolean }) {
       const copy = { ...committed }
       loaded.set(copy, { entity, committed })
       return copy
+    }
+
+    function applyLoaded() {
+      for (const [row, source] of loaded) {
+        if (source.committed) Object.assign(source.committed, row)
+        else if (em.persist.mock.calls.some(([persisted]) => persisted === row)) table(source.entity).set(row.id, { ...row })
+      }
     }
 
     function releaseAll() {
@@ -126,7 +135,14 @@ function buildDatabase(options: { resourceDeleted: boolean }) {
       }),
       count: jest.fn(async (entity: unknown, where: Where) =>
         [...table(entity).values()].filter((row) => matches(row, where)).length),
-      findOne: jest.fn(async (entity: unknown, where: Where) => load(entity, where)),
+      findOne: jest.fn(async (entity: unknown, where: Where) => {
+        const row = load(entity, where)
+        const gate = afterFirstLoad
+        afterFirstLoad = null
+        loadedOnce.resolve()
+        if (gate) await gate
+        return row
+      }),
       find: jest.fn(async () => []),
       nativeDelete: jest.fn(async () => 0),
       getReference: jest.fn((_entity: unknown, id: string) => ({ id })),
@@ -136,13 +152,12 @@ function buildDatabase(options: { resourceDeleted: boolean }) {
         return row
       }),
       persist: jest.fn(),
-      flush: jest.fn(async () => undefined),
+      flush: jest.fn(async () => {
+        if (!inTransaction) applyLoaded()
+      }),
       commit: jest.fn(async () => {
         await beforeCommit
-        for (const [row, source] of loaded) {
-          if (source.committed) Object.assign(source.committed, row)
-          else if (em.persist.mock.calls.some(([persisted]) => persisted === row)) table(source.entity).set(row.id, { ...row })
-        }
+        applyLoaded()
         releaseAll()
       }),
       rollback: jest.fn(async () => {
@@ -164,8 +179,12 @@ function buildDatabase(options: { resourceDeleted: boolean }) {
       ctx,
       load,
       locked: locked.promise,
+      loaded: loadedOnce.promise,
       holdCommitUntil(gate: Promise<void>) {
         beforeCommit = gate
+      },
+      pauseAfterFirstLoad(gate: Promise<void>) {
+        afterFirstLoad = gate
       },
     }
   }
@@ -187,6 +206,35 @@ function createResource(contender: Contender) {
     { tenantId: TEST_TENANT_ID, organizationId: TEST_ORG_ID, name: 'Resource A', resourceTypeId: TEST_TYPE_ID },
     contender.ctx,
   )
+}
+
+function typeSnapshot() {
+  return {
+    id: TEST_TYPE_ID,
+    tenantId: TEST_TENANT_ID,
+    organizationId: TEST_ORG_ID,
+    name: 'Type A',
+    description: null,
+    appearanceIcon: null,
+    appearanceColor: null,
+    deletedAt: null,
+  }
+}
+
+function undoTypeCreate(contender: Contender) {
+  return commandRegistry.get('resources.resourceTypes.create')!.undo!({
+    input: undefined,
+    logEntry: { commandPayload: { undo: { after: typeSnapshot(), customAfter: null } } },
+    ctx: contender.ctx,
+  })
+}
+
+function undoTypeDelete(contender: Contender) {
+  return commandRegistry.get('resources.resourceTypes.delete')!.undo!({
+    input: undefined,
+    logEntry: { commandPayload: { undo: { before: typeSnapshot(), customBefore: null } } },
+    ctx: contender.ctx,
+  })
 }
 
 function undoResourceDelete(contender: Contender) {
@@ -298,5 +346,26 @@ describe('resource type lock — two contenders', () => {
     await expect(codeOf(restoring)).resolves.toBe('resources.resources.errors.resourceTypeDeleted')
     expect(db.types.get(TEST_TYPE_ID)!.deletedAt).toBeInstanceOf(Date)
     expect(liveResourcesOnType(db.resources)).toBe(0)
+  })
+
+  it('a type create undo that loaded an already-deleted type re-checks it under the lock after a restore and a resource create', async () => {
+    const db = buildDatabase({ resourceDeleted: false, typeDeleted: true })
+    const undoer = db.contender()
+    const restorer = db.contender()
+    const creator = db.contender()
+    const resumeUndo = deferred()
+    undoer.pauseAfterFirstLoad(resumeUndo.promise)
+
+    const undoing = undoTypeCreate(undoer)
+    await undoer.loaded
+    await undoTypeDelete(restorer)
+    expect(db.types.get(TEST_TYPE_ID)!.deletedAt).toBeNull()
+    await expect(createResource(creator)).resolves.toEqual({ resourceId: TEST_RESOURCE_ID })
+
+    resumeUndo.resolve()
+    await expect(codeOf(undoing)).resolves.toBe('resources.resourceTypes.errors.deleteAssigned')
+    expect(undoer.em.execute).toHaveBeenCalledTimes(1)
+    expect(db.types.get(TEST_TYPE_ID)!.deletedAt).toBeNull()
+    expect(liveResourcesOnType(db.resources)).toBe(1)
   })
 })

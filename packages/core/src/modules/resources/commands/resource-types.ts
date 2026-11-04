@@ -173,16 +173,19 @@ const createResourceTypeCommand: CommandHandler<ResourcesResourceTypeCreateInput
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const resourceType = await em.findOne(ResourcesResourceType, { id: after.id })
     if (resourceType) {
+      let deleted = false
       await withAtomicFlush(em, [
         async () => {
-          if (!resourceType.deletedAt) {
-            await lockResourceType(em, resourceType.id)
-            await assertNoAssignedResources(em, resourceType, 409)
-          }
+          await lockResourceType(em, resourceType.id)
+          const isLive = await em.count(ResourcesResourceType, { id: resourceType.id, deletedAt: null }) > 0
+          if (!isLive) return
+          await assertNoAssignedResources(em, resourceType, 409)
           resourceType.deletedAt = new Date()
           resourceType.updatedAt = new Date()
+          deleted = true
         },
       ], { transaction: true })
+      if (!deleted) return
 
       const dataEngine = (ctx.container.resolve('dataEngine') as DataEngine)
       await emitCrudUndoSideEffects({

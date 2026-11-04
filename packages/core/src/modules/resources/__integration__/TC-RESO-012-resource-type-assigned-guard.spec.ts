@@ -3,7 +3,17 @@ import { expect, test, type APIRequestContext, type Response } from '@playwright
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import { fillControlledInput, waitForApiMutation } from '@open-mercato/core/helpers/integration/ui'
-import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import {
+  createOrganizationFixture,
+  deleteOrganizationIfExists,
+} from '@open-mercato/core/helpers/integration/authFixtures'
+import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
+import {
+  deleteGeneralEntityIfExists,
+  expectId,
+  getTokenContext,
+  readJsonSafe,
+} from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
   expectOperation,
   redoByLogId,
@@ -18,6 +28,8 @@ import {
  * Undoing a resource type create is refused with 409 while resources are assigned to the type (same rule as delete).
  * Resource create/update refuse a deleted resource type. Undo/redo that would bring a resource back onto a
  * type deleted meanwhile is refused with 409 until the type deletion itself is undone.
+ * Resource types of another organization or another tenant are refused on create/update (400) and on
+ * restores of rows that already reference them (409), and the resource is left unchanged.
  * Reads use a unique `probe` query param so the CRUD list cache never answers them.
  * Self-contained: resource types and resources are created via API and removed in teardown.
  */
@@ -59,6 +71,47 @@ async function deleteById(request: APIRequestContext, token: string, path: strin
   const res = await apiRequest(request, 'DELETE', `${path}?id=${encodeURIComponent(id)}`, { token })
   expect(res.ok(), `delete ${path} status ${res.status()}`).toBeTruthy()
   return res
+}
+
+function scopeCookie(scope: { tenantId?: string; organizationId: string }): Record<string, string> {
+  const cookies = [`om_selected_org=${encodeURIComponent(scope.organizationId)}`]
+  if (scope.tenantId) cookies.unshift(`om_selected_tenant=${encodeURIComponent(scope.tenantId)}`)
+  return { Cookie: cookies.join('; ') }
+}
+
+async function createResourceTypeIn(
+  request: APIRequestContext,
+  token: string,
+  scope: { tenantId?: string; organizationId: string },
+  name: string,
+) {
+  const res = await apiRequest(request, 'POST', RESOURCE_TYPES, { token, data: { name }, headers: scopeCookie(scope) })
+  expect(res.status(), `resource type create in ${scope.organizationId}`).toBe(201)
+  return expectId(((await readJsonSafe(res)) as { id?: string } | null)?.id, 'resource type create returns an id')
+}
+
+async function deleteResourceTypeIn(
+  request: APIRequestContext,
+  token: string | null,
+  scope: { tenantId?: string; organizationId: string } | null,
+  id: string | null,
+) {
+  if (!token || !scope || !id) return
+  await apiRequest(request, 'DELETE', `${RESOURCE_TYPES}?id=${encodeURIComponent(id)}`, { token, headers: scopeCookie(scope) })
+    .catch(() => {})
+}
+
+async function pointResourceAtType(resourceId: string, resourceTypeId: string) {
+  await withClient(async (client) => {
+    const result = await client.query('update resources_resources set resource_type_id = $1 where id = $2', [resourceTypeId, resourceId])
+    expect(result.rowCount, 'legacy reference fixture').toBe(1)
+  })
+}
+
+async function createTenant(request: APIRequestContext, token: string, name: string) {
+  const res = await apiRequest(request, 'POST', '/api/directory/tenants', { token, data: { name } })
+  expect(res.status(), 'foreign tenant fixture').toBe(201)
+  return expectId(((await readJsonSafe(res)) as { id?: string } | null)?.id, 'tenant create returns an id')
 }
 
 async function cleanup(request: APIRequestContext, token: string | null, resourceIds: string[], typeIds: string[]) {
@@ -209,6 +262,89 @@ test.describe('TC-RESO-012: resource type "has assigned resources" rule on undo 
       expect(restored?.resource_type_id, 'restored resource keeps its type').toBe(type.id)
     } finally {
       await cleanup(request, token, resourceIds, typeIds)
+    }
+  })
+
+  test('resource writes and restores refuse resource types of another organization or tenant', async ({ request }) => {
+    test.slow()
+    let token: string | null = null
+    let superadminToken: string | null = null
+    let otherOrgScope: { organizationId: string } | null = null
+    let foreignScope: { tenantId: string; organizationId: string } | null = null
+    let foreignTenantId: string | null = null
+    let otherOrgTypeId: string | null = null
+    let foreignTypeId: string | null = null
+    const resourceIds: string[] = []
+    const typeIds: string[] = []
+    try {
+      token = await getAuthToken(request, 'admin')
+      superadminToken = await getAuthToken(request, 'superadmin')
+      const { tenantId } = getTokenContext(token)
+      const stamp = `${Date.now()}-scope`
+      otherOrgScope = {
+        organizationId: await createOrganizationFixture(request, superadminToken, { name: `QA RESO-012 org ${stamp}`, tenantId }),
+      }
+      foreignTenantId = await createTenant(request, superadminToken, `QA RESO-012 tenant ${stamp}`)
+      foreignScope = {
+        tenantId: foreignTenantId,
+        organizationId: await createOrganizationFixture(request, superadminToken, {
+          name: `QA RESO-012 foreign org ${stamp}`,
+          tenantId: foreignTenantId,
+        }),
+      }
+      otherOrgTypeId = await createResourceTypeIn(request, token, otherOrgScope, `QA RESO-012 other org type ${stamp}`)
+      foreignTypeId = await createResourceTypeIn(request, superadminToken, foreignScope, `QA RESO-012 foreign type ${stamp}`)
+      const homeType = await createResourceType(request, token, `QA RESO-012 home type ${stamp}`)
+      typeIds.push(homeType.id)
+
+      const foreignTypes = [
+        { label: 'another organization', id: otherOrgTypeId },
+        { label: 'another tenant', id: foreignTypeId },
+      ]
+      const resourceId = await createResource(request, token, `QA RESO-012 scoped ${stamp}`, homeType.id)
+      resourceIds.push(resourceId)
+      for (const foreign of foreignTypes) {
+        const createRes = await apiRequest(request, 'POST', RESOURCES, {
+          token,
+          data: { name: `QA RESO-012 ${foreign.label} ${stamp}`, resourceTypeId: foreign.id },
+        })
+        expect(createRes.status(), `create with a type of ${foreign.label}`).toBe(400)
+        expect(await readJsonSafe(createRes)).toMatchObject({ error: UNAVAILABLE_ERROR, code: UNAVAILABLE_CODE })
+
+        const updateRes = await apiRequest(request, 'PUT', RESOURCES, { token, data: { id: resourceId, resourceTypeId: foreign.id } })
+        expect(updateRes.status(), `update to a type of ${foreign.label}`).toBe(400)
+        expect(await readJsonSafe(updateRes)).toMatchObject({ code: UNAVAILABLE_CODE })
+        const stored = await readItem(request, token, RESOURCES, resourceId)
+        expect(stored?.resource_type_id, `update to ${foreign.label} stored nothing`).toBe(homeType.id)
+
+        const deletedResource = await createResource(request, token, `QA RESO-012 deleted ${foreign.label} ${stamp}`, homeType.id)
+        resourceIds.push(deletedResource)
+        await pointResourceAtType(deletedResource, foreign.id)
+        const deleteOp = expectOperation(await deleteById(request, token, RESOURCES, deletedResource), `resource delete (${foreign.label})`)
+        const deleteUndoRes = await undoByToken(request, token, deleteOp.undoToken)
+        expect(deleteUndoRes.status(), `resource delete undo onto a type of ${foreign.label}`).toBe(409)
+        expect(((await readJsonSafe(deleteUndoRes)) as { code?: string } | null)?.code).toBe(UNAVAILABLE_CODE)
+        expect(await readItem(request, token, RESOURCES, deletedResource), `resource stays deleted (${foreign.label})`).toBeNull()
+
+        const movedResource = await createResource(request, token, `QA RESO-012 moved ${foreign.label} ${stamp}`, homeType.id)
+        resourceIds.push(movedResource)
+        await pointResourceAtType(movedResource, foreign.id)
+        const moveRes = await apiRequest(request, 'PUT', RESOURCES, { token, data: { id: movedResource, resourceTypeId: homeType.id } })
+        expect(moveRes.status(), `move off a type of ${foreign.label}`).toBe(200)
+        const moveOp = expectOperation(moveRes, `move off a type of ${foreign.label}`)
+        const updateUndoRes = await undoByToken(request, token, moveOp.undoToken)
+        expect(updateUndoRes.status(), `resource update undo back onto a type of ${foreign.label}`).toBe(409)
+        expect(((await readJsonSafe(updateUndoRes)) as { code?: string } | null)?.code).toBe(UNAVAILABLE_CODE)
+        const moved = await readItem(request, token, RESOURCES, movedResource)
+        expect(moved?.resource_type_id, `moved resource keeps the home type (${foreign.label})`).toBe(homeType.id)
+      }
+    } finally {
+      await cleanup(request, token, resourceIds, typeIds)
+      await deleteResourceTypeIn(request, token, otherOrgScope, otherOrgTypeId)
+      await deleteResourceTypeIn(request, superadminToken, foreignScope, foreignTypeId)
+      await deleteOrganizationIfExists(request, superadminToken, otherOrgScope?.organizationId ?? null)
+      await deleteOrganizationIfExists(request, superadminToken, foreignScope?.organizationId ?? null)
+      await deleteGeneralEntityIfExists(request, superadminToken, '/api/directory/tenants', foreignTenantId)
     }
   })
 
