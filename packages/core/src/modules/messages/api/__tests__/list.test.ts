@@ -146,6 +146,7 @@ describe('messages GET — encrypted-sort audit (#3386 P3)', () => {
     const scopeQuery = recordedQueries.find(isScopeQuery)
     expect(scopeQuery).toBeDefined()
     expect(scopeQuery!.sql.toLowerCase()).toMatch(/order by\s+"m"\."sent_at"\s+desc/)
+    expect(scopeQuery!.sql.toLowerCase()).toContain('nulls last')
   })
 
   it('passes LIMIT and OFFSET so pagination is DB-side, not in-memory', async () => {

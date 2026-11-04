@@ -5,6 +5,8 @@
   "communication_channels.channel.providers.whatsapp": "WhatsApp",
   "communication_channels.channelPayload.aria": "채널 페이로드",
   "communication_channels.channelPayload.email.aria": "이메일 페이로드",
+  "communication_channels.channelPayload.email.loadRemoteImages": "원격 이미지 불러오기",
+  "communication_channels.channelPayload.email.remoteImagesBlocked": "개인정보 보호를 위해 원격 이미지가 차단되었습니다. 이미지를 불러오면 발신자가 이 메시지를 열었다는 사실을 알 수 있습니다.",
   "communication_channels.channelPayload.types.email/mime": "이메일 (MIME)",
   "communication_channels.columns.displayName": "채널",
   "communication_channels.columns.identifier": "외부 ID",
