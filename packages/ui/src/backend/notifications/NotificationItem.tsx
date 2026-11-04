@@ -4,8 +4,10 @@ import { useRouter } from 'next/navigation'
 import { Bell, AlertTriangle, CheckCircle2, XCircle, Info, Loader2, X } from 'lucide-react'
 import { Button } from '../../primitives/button'
 import { IconButton } from '../../primitives/icon-button'
+import { flash } from '../FlashMessages'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { formatRelativeTime } from '@open-mercato/shared/lib/time'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { NotificationDto, NotificationRendererProps, NotificationTypeAction } from '@open-mercato/shared/modules/notifications/types'
 import { useOptionalLocale } from '@open-mercato/shared/lib/i18n/context'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
@@ -137,6 +139,18 @@ export function NotificationItem({
     await onDismiss()
   }
 
+  const handleActionClick = (actionId: string, event: React.MouseEvent) => {
+    void handleAction(actionId, event).catch((error) => {
+      try {
+        getTelemetryRuntime()?.reportError(error, {
+          module: 'notifications',
+          code: 'notifications.action_failed',
+        })
+      } catch {}
+      flash(t('notifications.error.action', 'Failed to execute action'), 'error')
+    })
+  }
+
   const rendererActions: NotificationTypeAction[] = notification.actions.map((action) => ({
     id: action.id,
     labelKey: action.labelKey ?? action.label,
@@ -183,9 +197,10 @@ export function NotificationItem({
         isUnread && 'bg-muted/20'
       )}
       onClick={handleClick}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault()
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
           handleClick()
         }
       }}
@@ -240,7 +255,7 @@ export function NotificationItem({
                     'h-8 rounded-md px-2.5 py-1.5 text-sm font-medium',
                     isPrimary && 'bg-accent-indigo text-accent-indigo-foreground hover:bg-accent-indigo/90',
                   )}
-                  onClick={(event) => handleAction(action.id, event)}
+                  onClick={(event) => handleActionClick(action.id, event)}
                   disabled={executing !== null}
                 >
                   {translateActionLabel(action, t)}

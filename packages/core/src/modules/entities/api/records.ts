@@ -15,6 +15,7 @@ import { CustomFieldValue } from '../data/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { assertEntityAclForRequest } from '../lib/entityAcl'
 import { classifyRecordsEntity } from '../lib/entityClassification'
 import { loadCustomFieldKinds } from '../lib/scoped-field-defs'
@@ -420,6 +421,7 @@ export async function POST(req: Request) {
     const { id } = await de.createCustomEntityRecord({
       entityId,
       recordId: normalizedRecordId,
+      createOnly: true,
       organizationId: targetOrgId,
       tenantId: auth.tenantId!,
       values: norm,
@@ -427,7 +429,16 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, item: { entityId, recordId: id } })
   } catch (e) {
-    if (isCrudHttpError(e)) return NextResponse.json(e.body, { status: e.status })
+    if (isCrudHttpError(e)) {
+      if (e.body.code === 'custom_entity_record_exists') {
+        const { translate } = await resolveTranslations()
+        return NextResponse.json({
+          ...e.body,
+          error: translate('entities.records.errors.alreadyExists', 'A record with this ID already exists. Use PUT to update it.'),
+        }, { status: e.status })
+      }
+      return NextResponse.json(e.body, { status: e.status })
+    }
     logger.error('Records POST failed', { err: e })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
@@ -645,7 +656,7 @@ export const openApi: OpenApiRouteDoc = {
     POST: {
       summary: 'Create record',
       description:
-        'Creates a record for the given entity. When `recordId` is omitted or not a UUID the data engine will generate one automatically.',
+        'Creates a record for the given entity. An existing recordId returns 409; use PUT to update a record. When recordId is omitted or not a UUID the data engine will generate one automatically.',
       requestBody: {
         contentType: 'application/json',
         schema: postBodySchema,
@@ -655,6 +666,11 @@ export const openApi: OpenApiRouteDoc = {
           status: 200,
           description: 'Record created',
           schema: mutationResponseSchema,
+        },
+        {
+          status: 409,
+          description: 'Record ID already exists in the current scope',
+          schema: errorSchema,
         },
         {
           status: 400,
