@@ -190,9 +190,10 @@ git init (unchanged) -> next steps with cp .env.example .env and declared env ke
 - The request carries `accept: application/json` and never `GITHUB_TOKEN`.
 - Same fetch contract as `picker.json` (`fetch-catalog.ts`): `AbortSignal.timeout(4000)`, one retry after a network
   error or a 5xx, a 4xx or an unsupported body is final.
-- Parsing: `schema` must be `1`, else the index counts as unavailable. Entries without a valid `github`, `status` or
-  `source.sha` (40 hex characters) are dropped. Strings lose control characters before printing (the picker's
-  `printable` helper).
+- Parsing: `schema` must be `1`, else the index counts as unavailable. Entries without a valid `github` or `status`
+  are dropped. An entry without a valid `source.sha` (40 hex characters) is kept with `source: null`, so the hold
+  policy still applies to it; it is never read as unlisted. Strings lose control characters before printing (the
+  picker's `printable` helper).
 - An entry `ref` is kept only when it is safe to print in a shell command: `^[A-Za-z0-9._/-]{1,255}$`, no `..`, no
   leading `-`. Otherwise it is read as `null` (the default branch). The `#<ref>` hint after a gone index sha applies
   the same rule to the default branch read from GitHub, and prints `<branch or tag>` when it fails.
@@ -226,6 +227,9 @@ git init (unchanged) -> next steps with cp .env.example .env and declared env ke
 - `delisted` entries are absent from the index, so they behave as unlisted repos.
 - An entry with a status this CLI does not know is refused like `hold` (fail closed), with a hint to update
   `create-mercato-app`.
+- Both refusals come before the sha selection, so they also apply to an entry without a valid `source.sha`. An
+  allowed entry with neither `verified.sha` nor `source.sha` stops without `#ref` and suggests `#<branch or tag>`;
+  with `#ref` it resolves as a listed `#ref` with no catalog facts.
 - `--app-url` stays the uncurated path: it does not read the index and is not affected by the hold policy.
 
 ### Untrusted archives (shared fetch: `--app`, `--app-url`, `--template`)
@@ -369,8 +373,8 @@ export type TemplateIndexEntry = {
   reason: string | null
   useCase: string
   summary: string
-  ref: string | null
-  source: { sha: string; syncedAt: string; facts: TemplateFacts | null }
+  ref: string | null             // null when missing or not shell-safe (see "Index")
+  source: { sha: string; syncedAt: string; facts: TemplateFacts | null } | null  // null without a valid sha
   verified: { sha: string; at: string; omVersion: string; importer: string; facts: TemplateFacts | null } | null
 }
 

@@ -126,12 +126,12 @@ test('parseTemplatesIndex reads the fixture in the umbrella shape', () => {
   assert.deepEqual(crm?.verified?.facts?.env, [
     { name: 'OPENAI_API_KEY', description: 'Used by the AI assistant.', link: 'https://platform.openai.com/api-keys' },
   ])
-  assert.equal(index.templates.find((entry) => entry.github === 'acme/b2b-portal')?.source.facts?.requiresEnterprise, true)
+  assert.equal(index.templates.find((entry) => entry.github === 'acme/b2b-portal')?.source?.facts?.requiresEnterprise, true)
   assert.equal(index.templates.find((entry) => entry.github === 'acme/future-status')?.status, 'unknown')
   assert.equal(index.templates.find((entry) => entry.github === 'someone/no-slug-app')?.slug, null)
 })
 
-test('parseTemplatesIndex refuses another schema and drops malformed entries', () => {
+test('parseTemplatesIndex refuses another schema, drops malformed entries and keeps an entry without a valid source.sha', () => {
   assert.equal(parseTemplatesIndex({ ...(FIXTURE as object), schema: 2 }), null)
   assert.equal(parseTemplatesIndex({ schema: 1 }), null)
   assert.equal(parseTemplatesIndex([]), null)
@@ -150,9 +150,11 @@ test('parseTemplatesIndex refuses another schema and drops malformed entries', (
       'not an object',
     ],
   })
-  assert.equal(index?.templates.length, 1)
+  assert.deepEqual(index?.templates.map((entry) => entry.github), ['acme/good', 'acme/short-sha', 'acme/no-source'])
+  assert.equal(index?.templates[1]?.source, null, 'kept for the hold policy, with no commit to select')
+  assert.equal(index?.templates[2]?.source, null)
   assert.equal(index?.templates[0]?.github, 'acme/good', 'paths are lower case')
-  assert.equal(index?.templates[0]?.source.sha, SHA_SOURCE, 'shas are lower case')
+  assert.equal(index?.templates[0]?.source?.sha, SHA_SOURCE, 'shas are lower case')
   assert.equal(index?.templates[0]?.verified, null)
   assert.equal(index?.templates[0]?.slug, null)
 })
@@ -173,8 +175,8 @@ test('parseTemplatesIndex frees strings of control characters and treats a bad v
   assert.equal(entry?.reason, 'Gone [2J away')
   assert.equal(entry?.slug, null, 'an invalid slug is ignored, the entry stays reachable as owner/repo')
   assert.equal(entry?.verified, null)
-  assert.equal(entry?.source.facts?.linesBehind, null)
-  assert.deepEqual(entry?.source.facts?.env, [{ name: 'A_KEY', description: '' }])
+  assert.equal(entry?.source?.facts?.linesBehind, null)
+  assert.deepEqual(entry?.source?.facts?.env, [{ name: 'A_KEY', description: '' }])
 })
 
 test('parseTemplatesIndex keeps only refs that are safe to print in a shell command', () => {
@@ -416,6 +418,47 @@ test('an entry with a status this CLI does not know is refused like hold', async
     resolveTemplateSelection(parseTemplateArg('future'), { ...DEPS, fetchImpl }),
     /acme\/future-status a status this create-mercato-app does not know\. Update create-mercato-app/,
   )
+})
+
+test('a hold or unknown-status entry without a valid source.sha is still refused, not treated as unlisted', async () => {
+  const body = {
+    schema: 1,
+    templates: [
+      { slug: 'prm', github: 'open-mercato/ready-app-oss-prm', status: 'hold', reason: 'no license', source: null },
+      { github: 'acme/short-sha', status: 'hold', reason: 'broken', source: { sha: 'abc1234' } },
+      { github: 'acme/future', status: 'retired', source: null },
+    ],
+  }
+  const cases: Array<[string, RegExp]> = [
+    ['open-mercato/ready-app-oss-prm', /open-mercato\/ready-app-oss-prm is on hold and cannot be used to create an app\. Reason: no license/],
+    ['prm', /open-mercato\/ready-app-oss-prm is on hold .* Reason: no license/],
+    ['open-mercato/ready-app-oss-prm#main', /is on hold/],
+    ['acme/short-sha', /acme\/short-sha is on hold .* Reason: broken/],
+    ['acme/future', /acme\/future a status this create-mercato-app does not know/],
+  ]
+  for (const [value, expected] of cases) {
+    const { fetchImpl, requests } = mockFetch(indexRoute(body))
+    await assert.rejects(resolveTemplateSelection(parseTemplateArg(value), { ...DEPS, fetchImpl }), expected, value)
+    assert.deepEqual(githubRequests(requests), [], value)
+  }
+})
+
+test('an allowed entry without any valid sha stops without #ref, and a #ref resolves without catalog facts', async () => {
+  const body = { schema: 1, templates: [{ slug: 'nosha', github: 'acme/nosha', status: 'active', ref: 'main', source: null }] }
+  const stop = mockFetch(indexRoute(body))
+  await assert.rejects(
+    resolveTemplateSelection(parseTemplateArg('nosha'), { ...DEPS, fetchImpl: stop.fetchImpl }),
+    /The template index lists acme\/nosha without a valid commit sha\..*--template acme\/nosha#<branch or tag>\./,
+  )
+  assert.deepEqual(githubRequests(stop.requests), [])
+
+  const { fetchImpl } = mockFetch(indexRoute(body), commitRoute('acme/nosha', 'v1', SHA_OTHER))
+  const selection = await resolveTemplateSelection(parseTemplateArg('acme/nosha#v1'), { ...DEPS, fetchImpl })
+  assert.equal(selection.listing, 'listed')
+  assert.equal(selection.sha, SHA_OTHER)
+  assert.equal(selection.facts, null)
+  assert.equal(selection.verified, false)
+  assert.match(describeTemplateSelection(selection).headline, new RegExp(`not verified, no catalog facts for ${SHA_OTHER}`))
 })
 
 test('an unmaintained entry works and prints its reason', async () => {

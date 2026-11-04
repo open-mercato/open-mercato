@@ -103,7 +103,7 @@ export type TemplateLookup = {
 
 /**
  * Selects one commit sha and the facts recorded for exactly that sha. A listed repository without `#ref` uses
- * `verified.sha`, else `source.sha`; any `#ref` and any unlisted repository is resolved through the GitHub API, and a
+ * `verified.sha`, else `source.sha`, and stops when it has neither; any `#ref` and any unlisted repository is resolved through the GitHub API, and a
  * resolved sha only gets catalog facts when it equals one of the entry's own shas.
  */
 export async function selectTemplateSha(
@@ -120,19 +120,25 @@ export async function selectTemplateSha(
     if (!path) throw new Error(`The template index has an invalid GitHub path: ${entry.github}`)
     if (arg.ref === null) {
       const verified = entry.verified
+      const picked = verified ?? entry.source
+      if (!picked) {
+        throw new Error(
+          `The template index lists ${entry.github} without a valid commit sha. Report it to the Open Mercato Modules maintainers, or run again with --template ${entry.github}#<branch or tag>. That code is not verified.`,
+        )
+      }
       return {
         ...base,
         ...path,
         ref: entry.ref,
-        sha: verified ? verified.sha : entry.source.sha,
+        sha: picked.sha,
         verified: verified !== null,
-        facts: verified ? verified.facts : entry.source.facts,
+        facts: picked.facts,
         shaFromIndex: true,
       }
     }
     const sha = await resolveGitHubCommitSha(path.owner, path.repo, arg.ref, deps.packageVersion, fetchImpl)
     const verified = entry.verified?.sha === sha ? entry.verified : null
-    const facts = verified ? verified.facts : sha === entry.source.sha ? entry.source.facts : null
+    const facts = verified ? verified.facts : sha === entry.source?.sha ? entry.source.facts : null
     return { ...base, ...path, ref: arg.ref, sha, verified: verified !== null, facts, shaFromIndex: false }
   }
 
@@ -193,7 +199,7 @@ function verificationState(selection: TemplateSelection): string {
   if (selection.listing === 'unknown') return 'catalog status unknown, not verified'
   if (selection.listing === 'unlisted' || !selection.entry) return 'not listed, not verified'
   if (selection.verified) return 'verified'
-  const known = selection.sha === selection.entry.source.sha || selection.sha === selection.entry.verified?.sha
+  const known = selection.sha === selection.entry.source?.sha || selection.sha === selection.entry.verified?.sha
   return known ? 'not verified' : `not verified, no catalog facts for ${selection.sha}`
 }
 

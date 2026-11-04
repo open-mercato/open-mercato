@@ -105,12 +105,22 @@ function toVerified(value: unknown): TemplateIndexEntry['verified'] {
   }
 }
 
-/** One index entry, or null when it lacks a valid `github`, `status` or `source.sha`. */
+function toSource(value: unknown): TemplateIndexEntry['source'] {
+  if (!isRecord(value) || !isString(value.sha) || !isFullSha(value.sha)) return null
+  return {
+    sha: value.sha.toLowerCase(),
+    syncedAt: isString(value.syncedAt) ? value.syncedAt : '',
+    facts: toFacts(value.facts),
+  }
+}
+
+/**
+ * One index entry, or null when it lacks a valid `github` or `status`. An entry without a valid `source.sha` is kept
+ * with `source: null`, so a `hold` or unknown status is still refused instead of the repo counting as unlisted.
+ */
 function toEntry(value: unknown): TemplateIndexEntry | null {
   if (!isRecord(value) || !isString(value.github) || !isString(value.status)) return null
   if (!parseGitHubPath(value.github)) return null
-  const source = value.source
-  if (!isRecord(source) || !isString(source.sha) || !isFullSha(source.sha)) return null
   const status = KNOWN_STATUSES.find((candidate) => candidate === value.status) ?? 'unknown'
   const slug = isString(value.slug) && validateSlug(value.slug, 'slug').valid ? value.slug : null
   return {
@@ -121,11 +131,7 @@ function toEntry(value: unknown): TemplateIndexEntry | null {
     useCase: isString(value.useCase) ? value.useCase : '',
     summary: isString(value.summary) ? value.summary : '',
     ref: isString(value.ref) && isSafeGitRef(value.ref) ? value.ref : null,
-    source: {
-      sha: source.sha.toLowerCase(),
-      syncedAt: isString(source.syncedAt) ? source.syncedAt : '',
-      facts: toFacts(source.facts),
-    },
+    source: toSource(value.source),
     verified: toVerified(value.verified),
   }
 }

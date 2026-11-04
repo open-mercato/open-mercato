@@ -24,7 +24,8 @@ export type TemplateIndexEntry = {
   useCase: string
   summary: string
   ref: string | null
-  source: { sha: string; syncedAt: string; facts: TemplateFacts | null }
+  /** Null when the index gives no valid `source.sha`; the entry is kept so the hold policy still applies to it. */
+  source: { sha: string; syncedAt: string; facts: TemplateFacts | null } | null
   verified: { sha: string; at: string; omVersion: string; importer: string; facts: TemplateFacts | null } | null
 }
 
