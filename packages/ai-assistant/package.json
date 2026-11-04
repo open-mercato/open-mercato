@@ -15,7 +15,10 @@
     "test": "jest --config jest.config.cjs --forceExit"
   },
   "exports": {
-    ".": "./dist/index.js",
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
     "./modules/ai_assistant": {
       "types": "./src/modules/ai_assistant/index.ts",
       "default": "./dist/modules/ai_assistant/index.js"
@@ -115,7 +118,7 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "tsx": "^4.23.12",
-    "zod": "^4.4.3"
+    "zod": "^4.6.6"
   },
   "publishConfig": {
     "access": "public"

@@ -1,0 +1,102 @@
+import fs from 'node:fs'
+import path from 'node:path'
+
+export const PLATFORM_LOCALE_CONFIG_PATH = path.join('packages', 'shared', 'src', 'lib', 'i18n', 'config.ts')
+
+const LOCALE_FILE_PATTERN = /^([a-z]{2,3}(?:-[a-z0-9]{2,8})*)\.json$/
+const LOCALE_SHAPED_FILE_PATTERN = /^[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{2,8})*\.json$/
+const STRING_LITERAL_PATTERN = /^(?:'([^'\\]+)'|"([^"\\]+)")$/
+
+function parseStringArrayLiteral(source, variableName) {
+  const match = source.match(new RegExp(`export\\s+const\\s+${variableName}\\s*(?::[^=]+)?=\\s*\\[([^\\]]*)\\]`))
+  if (!match) return null
+  const members = match[1].split(',').map((member) => member.trim())
+  if (members.length > 0 && members[members.length - 1] === '') members.pop()
+  const values = members.map((member) => member.match(STRING_LITERAL_PATTERN))
+  if (values.length === 0 || values.some((literal) => !literal)) {
+    throw new Error(`The \`${variableName}\` literal in the platform i18n config must contain only string literals`)
+  }
+  const locales = values.map((literal) => literal[1] ?? literal[2])
+  if (new Set(locales).size !== locales.length) {
+    throw new Error(`The \`${variableName}\` literal in the platform i18n config contains duplicate entries`)
+  }
+  return locales
+}
+
+function parseStringLiteral(source, variableName) {
+  const match = source.match(new RegExp(`export\\s+const\\s+${variableName}\\s*(?::[^=]+)?=\\s*(?:'([^']+)'|"([^"]+)")`))
+  return match ? (match[1] ?? match[2]) : null
+}
+
+export function parseLocaleConfigSource(source) {
+  const locales = parseStringArrayLiteral(source, 'locales')
+  const defaultLocale = parseStringLiteral(source, 'defaultLocale')
+  if (!locales || locales.length === 0) {
+    throw new Error('Could not read the `locales` literal from the platform i18n config')
+  }
+  if (!defaultLocale || !locales.includes(defaultLocale)) {
+    throw new Error('Could not read a `defaultLocale` literal that is one of `locales` from the platform i18n config')
+  }
+  return { locales, defaultLocale }
+}
+
+export function readPlatformLocaleSet(root) {
+  const configPath = path.join(root, PLATFORM_LOCALE_CONFIG_PATH)
+  const source = fs.readFileSync(configPath, 'utf-8')
+  return parseLocaleConfigSource(source)
+}
+
+export function resolveAppRoot(root, filePath) {
+  const segments = path.relative(root, filePath).split(/[\\/]/)
+  if (segments.length < 2 || segments[0] !== 'apps') return null
+  return path.join(root, segments[0], segments[1])
+}
+
+export function readAppLocaleSet(appRoot) {
+  const i18nDir = path.join(appRoot, 'src', 'i18n')
+  if (!fs.existsSync(i18nDir)) return null
+  const fileNames = fs
+    .readdirSync(i18nDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => entry.name)
+  const unnormalized = fileNames.filter((name) => LOCALE_SHAPED_FILE_PATTERN.test(name) && !LOCALE_FILE_PATTERN.test(name))
+  if (unnormalized.length > 0) {
+    const renames = unnormalized.map((name) => `${name} -> ${name.toLowerCase().replace(/_/g, '-')}`).join(', ')
+    throw new Error(`Locale files in ${i18nDir} must use normalized lowercase, hyphenated codes: ${renames}`)
+  }
+  const locales = fileNames
+    .map((name) => name.match(LOCALE_FILE_PATTERN)?.[1])
+    .filter((locale) => Boolean(locale))
+  return locales.length > 0 ? locales : null
+}
+
+function orderLocales(locales, platformLocales) {
+  const platformOrder = new Map(platformLocales.map((locale, index) => [locale, index]))
+  return [...locales].sort((left, right) => {
+    const leftIndex = platformOrder.get(left) ?? Number.POSITIVE_INFINITY
+    const rightIndex = platformOrder.get(right) ?? Number.POSITIVE_INFINITY
+    if (leftIndex !== rightIndex) return leftIndex - rightIndex
+    return left < right ? -1 : left > right ? 1 : 0
+  })
+}
+
+export function createTargetLocaleResolver({ root, referenceLocale, platform = readPlatformLocaleSet(root) }) {
+  const appLocaleCache = new Map()
+
+  const describeScope = (enJsonPath) => {
+    const appRoot = resolveAppRoot(root, enJsonPath)
+    if (!appRoot) return { scope: 'platform', locales: platform.locales }
+    if (!appLocaleCache.has(appRoot)) appLocaleCache.set(appRoot, readAppLocaleSet(appRoot))
+    const appLocales = appLocaleCache.get(appRoot)
+    if (!appLocales) return { scope: 'platform', locales: platform.locales }
+    return { scope: path.relative(root, appRoot).split(path.sep).join('/'), locales: orderLocales(appLocales, platform.locales) }
+  }
+
+  return {
+    platform,
+    describeScope,
+    targetsFor(enJsonPath) {
+      return describeScope(enJsonPath).locales.filter((locale) => locale !== referenceLocale)
+    },
+  }
+}

@@ -177,7 +177,7 @@ function makeEm() {
     // `withAtomicFlush({ transaction: true })` plus a `pg_advisory_xact_lock` via
     // `em.execute` (concurrency fix, review finding) — stub the transaction/raw-SQL surface
     // `withAtomicFlush` drives so this fake EM still satisfies it.
-    execute: jest.fn(async () => undefined),
+    execute: jest.fn(async () => [{ locked: true }]),
     begin: jest.fn(async () => undefined),
     commit: jest.fn(async () => undefined),
     rollback: jest.fn(async () => undefined),

@@ -2029,6 +2029,7 @@
   "workflows.validation.timerDurationOrUntilRequired": "Wait For Timer requires either \"Duration\" or \"Wait Until\".",
   "workflows.validation.timerDurationXorUntil": "Wait For Timer accepts \"Duration\" or \"Wait Until\", not both. Clear one of them.",
   "workflows.validation.uniqueId": "ID는 고유해야 합니다",
+  "workflows.validation.unsafeMappingTarget": "매핑 대상 경로에는 __proto__, constructor 또는 prototype 세그먼트를 포함할 수 없습니다",
   "workflows.validation.untilMustBeFuture": "대기 종료 시각은 미래의 날짜와 시간이어야 합니다.",
   "workflows.validation.workflowIdFormat": "워크플로우 ID는 소문자, 숫자, 하이픈, 밑줄만 포함해야 합니다",
   "workflows.validation.workflowIdMaxLength": "워크플로우 ID는 50자 이하여야 합니다",
