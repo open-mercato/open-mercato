@@ -1,7 +1,10 @@
 export {}
 
+import type { UniqueConstraintViolationException } from '@mikro-orm/core'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import {
   CatalogOptionSchemaTemplate,
+  CatalogPriceHistoryEntry,
   CatalogProduct,
   CatalogProductPrice,
   CatalogProductUnitConversion,
@@ -20,7 +23,8 @@ jest.mock('@open-mercato/shared/lib/commands', () => ({
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: jest.fn().mockResolvedValue({
-    translate: (_key: string, fallback?: string) => fallback ?? _key,
+    translate: (_key: string, fallback?: string, params?: Record<string, string>) =>
+      (fallback ?? _key).replace(/\{(\w+)\}/g, (token, name) => params?.[name] ?? token),
   }),
 }))
 
@@ -308,6 +312,22 @@ function loadDeleteCommand() {
   return deleteCommand
 }
 
+// `jest.isolateModules` gives '../products' its own fresh copy of every module it
+// requires, including `@mikro-orm/core` — so a `UniqueConstraintViolationException`
+// built from the top-level import fails `instanceof` against the one the isolated
+// `../products` module catches internally. Capture the isolated class instead.
+function loadDeleteCommandWithIsolatedMikroOrm() {
+  let deleteCommand: any
+  let IsolatedUniqueConstraintViolationException: typeof UniqueConstraintViolationException
+  jest.isolateModules(() => {
+    require('../products')
+    deleteCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'catalog.products.delete')?.[0]
+    IsolatedUniqueConstraintViolationException = require('@mikro-orm/core').UniqueConstraintViolationException
+  })
+  expect(deleteCommand).toBeDefined()
+  return { deleteCommand, UniqueConstraintViolationException: IsolatedUniqueConstraintViolationException! }
+}
+
 function buildContext(store: Store) {
   const dataEngine = { markOrmEntityChange: jest.fn() }
   const container = {
@@ -364,6 +384,28 @@ describe('catalog.products.delete undo', () => {
     expect(ids(store, CatalogProductPrice)).toEqual(['price-other'])
     expect(ids(store, CatalogProductUnitConversion)).toEqual([])
     expect(ids(store, CatalogOptionSchemaTemplate)).toEqual([])
+  })
+
+  it('records an undo price history entry for every restored price', async () => {
+    const store = createStore()
+    seedCatalog(store)
+    const deleteCommand = loadDeleteCommand()
+    const ctx = buildContext(store)
+    const { logEntry } = await deleteProduct(store, deleteCommand, ctx)
+
+    await deleteCommand.undo({ logEntry, ctx })
+
+    const undoRows = store.em.create.mock.calls
+      .filter(
+        ([entity, data]) => (entity as EntityClass).name === CatalogPriceHistoryEntry.name && data.changeType === 'undo',
+      )
+      .map(([, data]) => data)
+      .sort((left, right) => String(left.priceId).localeCompare(String(right.priceId)))
+    expect(undoRows.map((row) => [row.priceId, row.productId])).toEqual([
+      ['price-variant', PRODUCT],
+      ['price-variant-only', PRODUCT],
+    ])
+    expect(undoRows.every((row) => (row.metadata as Row).undoneCommand === 'catalog.products.delete')).toBe(true)
   })
 
   it('restores variants, prices, unit conversions and the product-owned option schema on undo', async () => {
@@ -471,6 +513,7 @@ describe('catalog.products.delete undo', () => {
     ])
     expect(log.context.cacheAliases).toEqual([
       'catalog.product',
+      'catalog.offer',
       'catalog.variant',
       'catalog.price',
       'catalog.product.unit.conversion',
@@ -611,6 +654,36 @@ describe('catalog.products.delete undo', () => {
     expect(setCustomFieldsIfAny).not.toHaveBeenCalled()
   })
 
+  it.each([
+    { constraint: 'catalog_products_handle_scope_unique', field: 'handle' },
+    { constraint: 'catalog_products_sku_scope_unique', field: 'sku' },
+  ])(
+    'reports a named $field conflict instead of the raw error when undo flush hits $constraint',
+    async ({ constraint, field }) => {
+      const store = createStore()
+      seedCatalog(store)
+      const { deleteCommand, UniqueConstraintViolationException: IsolatedUniqueConstraintViolationException } =
+        loadDeleteCommandWithIsolatedMikroOrm()
+      const ctx = buildContext(store)
+      const { logEntry } = await deleteProduct(store, deleteCommand, ctx)
+      const constraintError = new IsolatedUniqueConstraintViolationException(
+        new Error(`duplicate key value violates unique constraint "${constraint}"`),
+      )
+      ;(constraintError as unknown as Record<string, unknown>).constraint = constraint
+      store.em.flush.mockImplementationOnce(async () => {
+        throw constraintError
+      })
+
+      const error = await deleteCommand.undo({ logEntry, ctx }).catch((caught: unknown) => caught)
+
+      expect(isCrudHttpError(error)).toBe(true)
+      expect((error as { status: number }).status).toBe(400)
+      expect(
+        ((error as { body: Record<string, Record<string, string>> }).body).fieldErrors?.[field],
+      ).toBeDefined()
+    },
+  )
+
   it('refuses a child snapshot that points at another product', async () => {
     const store = createStore()
     seedCatalog(store)
@@ -626,6 +699,39 @@ describe('catalog.products.delete undo', () => {
 
     expect(store.em.create).not.toHaveBeenCalled()
     expect(ids(store, CatalogProduct)).toEqual([OTHER_PRODUCT])
+  })
+
+  it('refuses with a translated 409 naming the SKU when another variant now uses a restored variant SKU', async () => {
+    const store = createStore()
+    seedCatalog(store)
+    const deleteCommand = loadDeleteCommand()
+    const ctx = buildContext(store)
+    const { logEntry } = await deleteProduct(store, deleteCommand, ctx)
+    const otherProduct = store.rows(CatalogProduct, { id: OTHER_PRODUCT })[0]
+    store.seed(CatalogProductVariant, {
+      id: 'variant-blocker',
+      ...scoped,
+      product: otherProduct,
+      name: 'Blocker',
+      sku: 'SHIRT-S',
+      isDefault: false,
+      isActive: true,
+      deletedAt: null,
+    })
+    store.em.create.mockClear()
+
+    const failure = await deleteCommand.undo({ logEntry, ctx }).catch((err: unknown) => err)
+
+    expect(failure).toMatchObject({
+      status: 409,
+      body: {
+        error:
+          "This product cannot be restored because SKU SHIRT-S is already used by another variant. Change or remove that variant's SKU, then undo again.",
+      },
+    })
+    expect(store.em.create).not.toHaveBeenCalled()
+    expect(ids(store, CatalogProduct)).toEqual([OTHER_PRODUCT])
+    expect(ids(store, CatalogProductVariant)).toEqual(['variant-blocker', 'variant-other'])
   })
 
   it('restores a price that also references a still-existing variant or product of another product', async () => {
@@ -829,10 +935,17 @@ describe('catalog.products.delete undo', () => {
     const createdOrder = store.em.create.mock.calls.map(([entity]) => (entity as EntityClass).name)
     const firstIndex = (entity: EntityClass) => createdOrder.indexOf(entity.name)
     expect(firstIndex(CatalogOptionSchemaTemplate)).toBe(0)
-    expect(store.em.fork).toHaveBeenLastCalledWith({ keepTransactionContext: true })
-    expect(store.em.fork.mock.invocationCallOrder[store.em.fork.mock.calls.length - 1]).toBeGreaterThan(begin)
+    const commit = store.em.commit.mock.invocationCallOrder[store.em.commit.mock.calls.length - 1]
+    const transactionalForks = store.em.fork.mock.calls.filter(
+      (_call, index) => store.em.fork.mock.invocationCallOrder[index] < commit,
+    )
+    expect(transactionalForks[transactionalForks.length - 1]).toEqual([{ keepTransactionContext: true }])
+    const lastTransactionalFork = Math.max(
+      ...store.em.fork.mock.invocationCallOrder.filter((order) => order < commit),
+    )
+    expect(lastTransactionalFork).toBeGreaterThan(begin)
     const firstChildCreate = store.em.create.mock.invocationCallOrder[firstIndex(CatalogProductUnitConversion)]
-    expect(lookups.filter((order) => order > firstChildCreate)).toEqual([])
+    expect(lookups.filter((order) => order > firstChildCreate && order < commit)).toEqual([])
     expect(firstIndex(CatalogOptionSchemaTemplate)).toBeLessThan(firstIndex(CatalogProduct))
     expect(firstIndex(CatalogProduct)).toBeLessThan(firstIndex(CatalogProductUnitConversion))
     expect(firstIndex(CatalogProductUnitConversion)).toBeLessThan(firstIndex(CatalogProductVariant))

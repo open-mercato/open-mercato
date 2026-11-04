@@ -182,6 +182,30 @@ describe('ComboboxInput — eager label resolution', () => {
     expect(resolveLabel).toHaveBeenCalledTimes(1)
   })
 
+  it('resolves a disabled preselected value without enabling or changing it', async () => {
+    const onChange = jest.fn()
+    const resolveLabel = jest.fn(async () => 'Source bin')
+    const { container } = render(
+      <ComboboxInput value="location-id" onChange={onChange} resolveLabel={resolveLabel} disabled />,
+    )
+
+    await waitFor(() => expect(getInput(container).value).toBe('Source bin'))
+    expect(getInput(container).disabled).toBe(true)
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('loads a disabled preselected label when no resolver is supplied', async () => {
+    const onChange = jest.fn()
+    const loadSuggestions = jest.fn(async () => [{ value: 'location-id', label: 'Source bin' }])
+    const { container } = render(
+      <ComboboxInput value="location-id" onChange={onChange} loadSuggestions={loadSuggestions} disabled />,
+    )
+
+    await waitFor(() => expect(getInput(container).value).toBe('Source bin'))
+    expect(getInput(container).disabled).toBe(true)
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
   it('resolves the label via a synchronous resolveLabel', async () => {
     const { container } = render(
       <ComboboxInput

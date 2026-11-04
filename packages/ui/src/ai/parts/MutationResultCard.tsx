@@ -49,12 +49,18 @@ export interface MutationResultCardProps extends AiUiPartProps {
   endpoint?: string
 }
 
+const INFORMATIONAL_RECORD_CODES: ReadonlySet<string | undefined> = new Set(['record_duplicate_dropped'])
+
 function isSuccessStatus(status: AiPendingActionCardStatus | null): boolean {
   return status === 'confirmed'
 }
 
 function isFailureStatus(status: AiPendingActionCardStatus | null): boolean {
-  return status === 'failed' || status === 'cancelled' || status === 'expired'
+  return status === 'failed' || status === 'expired'
+}
+
+function isCancelledStatus(status: AiPendingActionCardStatus | null): boolean {
+  return status === 'cancelled'
 }
 
 export function MutationResultCard(props: MutationResultCardProps) {
@@ -78,20 +84,33 @@ export function MutationResultCard(props: MutationResultCardProps) {
   }
 
   if (isSuccessStatus(status) && failedRecords && failedRecords.length > 0) {
+    const onlyIgnoredEntries = failedRecords.every((record) =>
+      INFORMATIONAL_RECORD_CODES.has(record.error?.code),
+    )
     return (
-      <Alert status="warning" data-ai-mutation-result="partial">
+      <Alert
+        status={onlyIgnoredEntries ? 'success' : 'warning'}
+        data-ai-mutation-result={onlyIgnoredEntries ? 'success-with-notes' : 'partial'}
+      >
         <AlertTitle>
-          {t(
-            'ai_assistant.chat.mutation_cards.result.partialTitle',
-            'Action applied with failures',
-          )}
+          {onlyIgnoredEntries
+            ? t('ai_assistant.chat.mutation_cards.result.successTitle', 'Action applied')
+            : t(
+                'ai_assistant.chat.mutation_cards.result.partialTitle',
+                'Action applied with failures',
+              )}
         </AlertTitle>
         <div className="text-sm leading-relaxed">
           <p>
-            {t(
-              'ai_assistant.chat.mutation_cards.result.partialBody',
-              'Some records could not be updated.',
-            )}
+            {onlyIgnoredEntries
+              ? t(
+                  'ai_assistant.chat.mutation_cards.result.ignoredEntriesBody',
+                  'The change was saved. Some repeated entries in the request were ignored:',
+                )
+              : t(
+                  'ai_assistant.chat.mutation_cards.result.partialBody',
+                  'Some records could not be updated.',
+                )}
           </p>
           <ul
             className="mt-2 list-disc space-y-1 pl-5 text-xs"
@@ -141,6 +160,31 @@ export function MutationResultCard(props: MutationResultCardProps) {
               </a>
             </p>
           ) : null}
+        </div>
+      </Alert>
+    )
+  }
+
+  // A deliberate cancellation is not a failure: no destructive styling, no
+  // internal error code, and no "Fix with AI" (which would just re-propose
+  // the change the operator just rejected). Show the operator's own
+  // cancellation reason verbatim when they gave one, otherwise a neutral
+  // localized default.
+  if (isCancelledStatus(status)) {
+    const reason = result?.error?.message?.trim() || null
+    return (
+      <Alert status="information" data-ai-mutation-result="cancelled">
+        <AlertTitle>
+          {t('ai_assistant.chat.mutation_cards.result.cancelledTitle', 'Proposal cancelled')}
+        </AlertTitle>
+        <div className="text-sm leading-relaxed">
+          <p>
+            {reason ??
+              t(
+                'ai_assistant.chat.mutation_cards.result.cancelledBody',
+                'You cancelled this proposed change. No changes were made.',
+              )}
+          </p>
         </div>
       </Alert>
     )

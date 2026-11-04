@@ -259,7 +259,6 @@ export function assembleRfc2822(input: AssembleRfc2822Input): Buffer {
     const textPart = encodeBodyPart(input.text)
     const htmlPart = encodeBodyPart(input.html)
     const body = [
-      '',
       `--${boundary}`,
       'Content-Type: text/plain; charset=utf-8',
       `Content-Transfer-Encoding: ${textPart.cte}`,
@@ -273,7 +272,7 @@ export function assembleRfc2822(input: AssembleRfc2822Input): Buffer {
       `--${boundary}--`,
       '',
     ].join('\r\n')
-    return Buffer.from(headers.join('\r\n') + body, 'utf-8')
+    return Buffer.from(headers.join('\r\n') + '\r\n\r\n' + body, 'utf-8')
   }
 
   if (input.html) {
@@ -427,11 +426,17 @@ export interface NormalizeMimeInboundOptions {
    * Fallback timestamp when neither `receivedAt` nor a usable Date header is
    * available.
    */
-  fallbackDate?: Date
+  fallbackDate?: Date | null
   /** Provider-specific fields merged into `channelMetadata`. */
   channelMetadata?: (parsed: ParsedMail) => Record<string, unknown>
   /** Provider-specific fields merged into `channelPayload`. */
   channelPayload?: (parsed: ParsedMail) => Record<string, unknown>
+}
+
+function validDate(value: Date | string | null | undefined): Date | null {
+  if (value == null) return null
+  const date = value instanceof Date ? new Date(value.getTime()) : new Date(value)
+  return Number.isNaN(date.getTime()) ? null : date
 }
 
 /**
@@ -451,21 +456,30 @@ function isValidDate(value: unknown): value is Date {
  *
  * Order: the provider's receipt time; then the sender's MIME `Date` header,
  * unless it is unparsable or more than a day in the future; then the caller's
- * fallback; then now. Exported for tests.
+ * fallback; unknown remains null.
  */
-export function resolveInboundTimestamp(input: {
+function resolveKnownInboundTimestamp(input: {
   receivedAt?: Date
   mimeDate?: Date
-  fallbackDate?: Date
+  fallbackDate?: Date | null
   now?: Date
-}): Date {
+}): Date | null {
   if (isValidDate(input.receivedAt)) return input.receivedAt
   const now = input.now ?? new Date()
   if (isValidDate(input.mimeDate) && input.mimeDate.getTime() <= now.getTime() + MAX_MIME_DATE_FUTURE_SKEW_MS) {
     return input.mimeDate
   }
   if (isValidDate(input.fallbackDate)) return input.fallbackDate
-  return now
+  return null
+}
+
+export function resolveInboundTimestamp(input: {
+  receivedAt?: Date
+  mimeDate?: Date
+  fallbackDate?: Date | null
+  now?: Date
+}): Date {
+  return resolveKnownInboundTimestamp(input) ?? input.now ?? new Date()
 }
 
 /**
@@ -476,6 +490,7 @@ export function resolveInboundTimestamp(input: {
  */
 export function normalizeMimeInbound(options: NormalizeMimeInboundOptions): NormalizedInboundMessage {
   const { parsed } = options
+  const providerTimestamp = validDate(options.receivedAt) ?? validDate(options.fallbackDate)
 
   const messageId = stripBrackets(parsed.messageId) ?? options.fallbackMessageId
   const inReplyTo = stripBrackets(parsed.inReplyTo)
@@ -520,11 +535,12 @@ export function normalizeMimeInbound(options: NormalizeMimeInboundOptions): Norm
     body,
     bodyFormat,
     attachments,
-    timestamp: resolveInboundTimestamp({
+    timestamp: resolveKnownInboundTimestamp({
       receivedAt: options.receivedAt,
       mimeDate: parsed.date ? new Date(parsed.date) : undefined,
       fallbackDate: options.fallbackDate,
     }),
+    providerTimestamp,
     replyToExternalId: inReplyTo ?? undefined,
     channelPayload,
     channelContentType: 'email/mime',

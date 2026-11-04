@@ -10,6 +10,7 @@ jest.mock('@open-mercato/shared/lib/commands/flush', () => ({
 }))
 
 jest.mock('@open-mercato/core/modules/directory/lib/hierarchy', () => ({
+  findOrganizationParentCycle: jest.requireActual('@open-mercato/core/modules/directory/lib/hierarchy').findOrganizationParentCycle,
   lockOrganizationHierarchyForTenant: jest.fn(async () => []),
   rebuildHierarchyForTenant: jest.fn(async () => {}),
 }))
@@ -47,6 +48,7 @@ import {
   rebuildHierarchyForTenant,
 } from '@open-mercato/core/modules/directory/lib/hierarchy'
 import { loadCustomFieldSnapshot } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
+import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 
 const ACTOR_TENANT_ID = '11111111-1111-4111-8111-111111111111'
 const FOREIGN_TENANT_ID = '22222222-2222-4222-8222-222222222222'
@@ -106,9 +108,10 @@ function matchesFilter(organization: TestOrganization, filter: Record<string, un
   return true
 }
 
-function makeHarness(organizations: TestOrganization[]) {
+function makeHarness(organizations: TestOrganization[], generatedIds: readonly string[] = [NEW_ORG_ID]) {
   const records = [...organizations]
   const logs: Array<Record<string, unknown>> = []
+  let generatedIdIndex = 0
   const em = {
     findOne: jest.fn(async (_entity: unknown, filter: Record<string, unknown>) => {
       return records.find((organization) => matchesFilter(organization, filter)) ?? null
@@ -135,16 +138,27 @@ function makeHarness(organizations: TestOrganization[]) {
     apply(organization)
     return organization
   })
-  const deleteOrmEntity = jest.fn(async ({ where }: { where: Record<string, unknown> }) => {
+  const deleteOrmEntity = jest.fn(async ({
+    where,
+    soft,
+  }: {
+    where: Record<string, unknown>
+    soft?: boolean
+    softDeleteField?: string
+  }) => {
     const organization = records.find((candidate) => matchesFilter(candidate, where)) ?? null
     if (!organization) return null
-    organization.deletedAt = new Date('2026-10-04T00:00:00.000Z')
+    if (soft === false) {
+      records.splice(records.indexOf(organization), 1)
+    } else {
+      organization.deletedAt = new Date('2026-10-04T00:00:00.000Z')
+    }
     return organization
   })
   const createOrmEntity = jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
     const tenantRef = data.tenant as { id: string }
     const organization = makeOrganization(
-      typeof data.id === 'string' ? data.id : NEW_ORG_ID,
+      typeof data.id === 'string' ? data.id : generatedIds[generatedIdIndex++] ?? NEW_ORG_ID,
       tenantRef.id,
       { ...data, tenant: tenantRef } as Partial<TestOrganization>,
     )
@@ -721,7 +735,8 @@ describe('directory organization command tenant ownership', () => {
 
     expect(harness.deleteOrmEntity).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: NEW_ORG_ID, deletedAt: null, tenant: FOREIGN_TENANT_ID },
-      soft: false,
+      soft: true,
+      softDeleteField: 'deletedAt',
     }))
     expect(harness.actionLogService.markUndone).toHaveBeenCalledWith(
       logEntry.id,
@@ -735,6 +750,171 @@ describe('directory organization command tenant ownership', () => {
       id: NEW_ORG_ID,
       tenant: FOREIGN_TENANT_ID,
     })
+  })
+
+  it('captures the original creation time in the organization create undo and view snapshots', async () => {
+    const harness = makeHarness([])
+    const { result, logEntry } = await new CommandBus().execute('directory.organizations.create', {
+      input: { name: 'Creation timestamp' },
+      ctx: makeContext(harness),
+    })
+    const created = result as Organization
+
+    expect(logEntry?.snapshotAfter).toMatchObject({ createdAt: created.createdAt.toISOString() })
+    expect(extractUndoPayload(logEntry)).toMatchObject({
+      after: { createdAt: created.createdAt.toISOString() },
+    })
+  })
+
+  it('retains a detached inactive create-undo tombstone and revives the same row with its hierarchy and custom fields', async () => {
+    const parent = makeOrganization(PARENT_ID, ACTOR_TENANT_ID)
+    const child = makeOrganization(CHILD_ID, ACTOR_TENANT_ID, { parentId: PARENT_ID })
+    const harness = makeHarness([parent, child])
+    const ctx = makeContext(harness)
+    const bus = new CommandBus()
+    jest.mocked(loadCustomFieldSnapshot)
+      .mockResolvedValueOnce({ lifecycle_marker: 'original' })
+      .mockResolvedValueOnce({ lifecycle_marker: 'original' })
+    const { result, logEntry } = await bus.execute('directory.organizations.create', {
+      input: { name: 'Restorable organization', parentId: PARENT_ID, childIds: [CHILD_ID] },
+      ctx,
+    })
+    if (!logEntry) throw new Error('[internal] Expected an undoable action log')
+    const created = result as Organization
+    const createdAt = created.createdAt
+    expect(child.parentId).toBe(NEW_ORG_ID)
+
+    await bus.undo(String(logEntry.undoToken), ctx)
+
+    expect(harness.records).toContain(created)
+    expect(created.deletedAt).toBeInstanceOf(Date)
+    expect(created.isActive).toBe(false)
+    expect(created.parentId).toBeNull()
+    expect(created.createdAt).toBe(createdAt)
+    expect(child.parentId).toBe(PARENT_ID)
+    expect(harness.dataEngine.markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'deleted',
+      entity: created,
+      identifiers: { id: NEW_ORG_ID, tenantId: ACTOR_TENANT_ID, organizationId: NEW_ORG_ID },
+    }))
+    expect(harness.dataEngine.setCustomFields).toHaveBeenLastCalledWith(expect.objectContaining({
+      recordId: NEW_ORG_ID,
+      tenantId: ACTOR_TENANT_ID,
+      organizationId: NEW_ORG_ID,
+      values: { lifecycle_marker: null },
+    }))
+
+    const restored = await createHandler.redo?.({ input: {}, ctx, logEntry })
+
+    expect(restored).toBe(created)
+    expect(created.deletedAt).toBeNull()
+    expect(created.isActive).toBe(true)
+    expect(created.parentId).toBe(PARENT_ID)
+    expect(created.createdAt).toBe(createdAt)
+    expect(child.parentId).toBe(NEW_ORG_ID)
+    expect(harness.createOrmEntity).toHaveBeenCalledTimes(1)
+    expect(harness.dataEngine.setCustomFields).toHaveBeenLastCalledWith(expect.objectContaining({
+      recordId: NEW_ORG_ID,
+      tenantId: ACTOR_TENANT_ID,
+      organizationId: NEW_ORG_ID,
+      values: { lifecycle_marker: 'original' },
+    }))
+  })
+
+  it.each([
+    {
+      label: 'the new undo snapshot',
+      afterCreatedAt: '2024-02-03T04:05:06.000Z',
+      viewCreatedAt: '2025-03-04T05:06:07.000Z',
+      expectedCreatedAt: '2024-02-03T04:05:06.000Z',
+    },
+    {
+      label: 'the legacy view snapshot',
+      afterCreatedAt: undefined,
+      viewCreatedAt: '2024-02-03T04:05:06.000Z',
+      expectedCreatedAt: '2024-02-03T04:05:06.000Z',
+    },
+  ])('recreates a missing organization using the creation time from $label', async (scenario) => {
+    const harness = makeHarness([])
+    const after = {
+      id: TARGET_ID,
+      tenantId: ACTOR_TENANT_ID,
+      name: 'Historical organization',
+      slug: 'historical-organization',
+      isActive: true,
+      parentId: null,
+      childParents: [],
+      ...(scenario.afterCreatedAt ? { createdAt: scenario.afterCreatedAt } : {}),
+    }
+    const logEntry = {
+      commandPayload: { undo: { after } },
+      snapshotAfter: { ...after, createdAt: scenario.viewCreatedAt },
+    }
+
+    const restored = await createHandler.redo?.({ input: {}, ctx: makeContext(harness), logEntry })
+
+    expect(restored).toBe(harness.records[0])
+    expect(harness.records[0]).toMatchObject({
+      id: TARGET_ID,
+      createdAt: new Date(scenario.expectedCreatedAt),
+      deletedAt: null,
+    })
+  })
+
+  it('replays a legacy creation without a recorded timestamp and preserves a retained row timestamp', async () => {
+    const harness = makeHarness([])
+    const after = {
+      id: TARGET_ID,
+      tenantId: ACTOR_TENANT_ID,
+      name: 'Legacy organization',
+      isActive: true,
+      parentId: null,
+      childParents: [],
+    }
+    const logEntry = { commandPayload: { undo: { after } } }
+    const ctx = makeContext(harness)
+
+    await createHandler.redo?.({ input: {}, ctx, logEntry })
+
+    const restored = harness.records[0]
+    expect(restored.id).toBe(TARGET_ID)
+    expect(restored.createdAt).toBeInstanceOf(Date)
+    const originalCreatedAt = new Date('2024-02-03T04:05:06.000Z')
+    restored.createdAt = originalCreatedAt
+    restored.deletedAt = new Date('2026-10-04T00:00:00.000Z')
+    restored.isActive = false
+
+    const revived = await createHandler.redo?.({ input: {}, ctx, logEntry })
+
+    expect(revived).toBe(restored)
+    expect(restored.deletedAt).toBeNull()
+    expect(restored.createdAt).toBe(originalCreatedAt)
+    expect(harness.createOrmEntity).toHaveBeenCalledTimes(1)
+  })
+
+  it('reserves a create-undo tombstone slug when a same-name organization is created before redo', async () => {
+    const harness = makeHarness([], [NEW_ORG_ID, TARGET_ID])
+    const ctx = makeContext(harness)
+    const bus = new CommandBus()
+    const { result, logEntry } = await bus.execute('directory.organizations.create', {
+      input: { name: 'Repeated organization' },
+      ctx,
+    })
+    if (!logEntry) throw new Error('[internal] Expected an undoable action log')
+    const created = result as Organization
+
+    await bus.undo(String(logEntry.undoToken), ctx)
+    const replacement = await createHandler.execute({ name: 'Repeated organization' }, ctx)
+
+    expect(replacement.slug).toBe('repeated-organization-1')
+    expect(created.slug).toBe('repeated-organization')
+
+    const restored = await createHandler.redo?.({ input: {}, ctx, logEntry })
+
+    expect(restored).toBe(created)
+    expect(created.deletedAt).toBeNull()
+    expect(harness.records).toContain(replacement)
+    expect(replacement.slug).toBe('repeated-organization-1')
   })
 
   it('validates the create parent and resolves the slug only under the hierarchy lock', async () => {
