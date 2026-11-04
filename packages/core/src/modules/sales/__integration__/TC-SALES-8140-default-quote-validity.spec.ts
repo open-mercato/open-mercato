@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { expect, test as base, type APIRequestContext } from '@playwright/test'
+import { expect, test as base, type APIRequestContext, type Page } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import { getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
@@ -48,6 +48,14 @@ async function readQuote(request: APIRequestContext, token: string, quoteId: str
   const quote = body?.items.find((item) => item.id === quoteId)
   if (!quote) throw new Error('[internal] Quote fixture was not returned')
   return quote
+}
+
+async function openSendDialog(page: Page) {
+  const actions = page.getByRole('button', { name: 'Actions', exact: true })
+  await actions.press('Enter')
+  await expect(actions).toHaveAttribute('aria-expanded', 'true')
+  await page.getByRole('menuitem', { name: 'Send to customer', exact: true }).click()
+  return page.getByRole('dialog')
 }
 
 test('persists settings and rejects invalid values and stale versions', async ({ request, validity }) => {
@@ -128,10 +136,10 @@ for (const explicitDays of [undefined, 7]) {
 test('sales configuration saves the default and reloads it', async ({ page, request, validity }, testInfo) => {
   await login(page, 'admin')
   await page.goto('/backend/config/sales')
-  const field = page.getByRole('spinbutton', { name: 'Default quote validity (days)' })
+  const section = page.getByRole('region', { name: 'Quote validity', exact: true })
+  const field = section.getByRole('textbox')
   await expect(field).toHaveValue('30')
   await field.fill('45')
-  const section = page.getByRole('region', { name: 'Quote validity', exact: true })
   await section.getByRole('button', { name: 'Save settings', exact: true }).click()
   await expect.poll(async () => (await readSettings(request, validity.token)).defaultQuoteValidityDays).toBe(45)
   await page.reload()
@@ -150,9 +158,7 @@ for (const futureDate of [false, true]) {
       await addRecipient(request, validity.token, quoteId, validUntil)
       await login(page, 'admin')
       await page.goto(`/backend/sales/quotes/${quoteId}`)
-      await page.getByRole('button', { name: 'Actions', exact: true }).click()
-      await page.getByRole('menuitem', { name: 'Send to customer' }).click()
-      const dialog = page.getByRole('dialog')
+      const dialog = await openSendDialog(page)
       await expect(dialog.getByRole('spinbutton', { name: 'Valid for (days)' })).toHaveValue(futureDate ? '5' : '30')
       const screenshot = testInfo.outputPath(futureDate ? 'quote-date-suggestion.png' : 'quote-default-suggestion.png')
       await page.screenshot({ path: screenshot, fullPage: true })
@@ -175,9 +181,7 @@ test('send dialog submits a manual duration with Ctrl+Enter', async ({ page, req
     await addRecipient(request, validity.token, quoteId)
     await login(page, 'admin')
     await page.goto(`/backend/sales/quotes/${quoteId}`)
-    await page.getByRole('button', { name: 'Actions', exact: true }).click()
-    await page.getByRole('menuitem', { name: 'Send to customer' }).click()
-    const dialog = page.getByRole('dialog')
+    const dialog = await openSendDialog(page)
     const field = dialog.getByRole('spinbutton', { name: 'Valid for (days)' })
     await expect(field).toHaveValue('30')
     await field.fill('7')

@@ -36,10 +36,10 @@ Spec scope/readiness: GO. Source: provisionally approve, no outstanding major/bl
 | Native Chromium doctor | PASS | Playwright1.61.1 / Chromium149.0.7827.55 |
 | yarn i18n:check-usage | INTERRUPTED | Stopped on parent shared-host allocation; not a pass |
 | yarn typecheck; yarn test; yarn build:app | NOT RUN | Await parent heavy allocation |
-| Native integration/API/UI suite | NOT RUN | Eight self-contained scenarios authored; owned runtime allocation pending |
+| Native integration/API/UI suite | CI:4 API PASS /4 UI timeout | Eight scenarios selected at2c644; navigation corrections await rerun; owned local runtime allocation pending |
 | Playwright discovery; global DS health | TIMED OUT120s | Host contention; not passes |
 
-No database migration has been applied. The generated migration only adds sales_settings.default_quote_validity_days integer NOT NULL DEFAULT14; rollback removes that column. No shared UI, customer, document, staff, audit, governance or lesson-index source changed. The draft must remain in progress until the final gate and live proof finish.
+No database migration has been applied locally. The generated migration only adds sales_settings.default_quote_validity_days integer NOT NULL DEFAULT14; rollback removes that column. No shared UI, customer, document, staff, audit, governance or lesson-index source changed. The draft must remain in progress until the final gate and live proof finish.
 
 ## CI loading-state follow-up
 CI on9dda08898a failed its prepare/Build app step with TS2741: the new settings section omitted the required LoadingMessage.label prop. This is an in-scope compile failure, not an infrastructure exception. The loading state now supplies a translated label in all five sales locales. A component regression uses the real shared LoadingMessage during a pending settings request: FAIL before the fix, PASS after. Exact focused invocation: `yarn jest --config packages/core/jest.config.cjs --runInBand --runTestsByPath packages/core/src/modules/sales/components/__tests__/QuoteValiditySettings.test.tsx`. Fresh CI atfea517d9c0 passed prepare, including build/generate/rebuild/app build. The remaining local configured gate is pending; parent resource allocation has not been granted.
@@ -64,3 +64,8 @@ yarn jest --config packages/core/jest.config.cjs --runInBand --runTestsByPath \
   packages/core/src/modules/sales/api/__tests__/quotes.acceptance.test.ts
 ```
 Only the existing custom-write contract test needed expansion; the other core coverage guards are unchanged. Full local validation and live scenarios remain pending.
+
+## Native CI integration follow-up
+At2c644, CI selected all eight feature scenarios. The four API cases passed: settings persistence/validation/stale versions, organization isolation/concurrent first writes/rejected selector, omitted send fallback, and explicit send override. The four UI cases timed out twice; the job totals were317 passed,4 failed,5 skipped. This is a failed integration gate.
+
+Browser artifacts show the settings value30 in the Quote validity region as a textbox: the shared locale-aware numeric field renders a text input. The configuration scenario now scopes its textbox to that unique region. The send scenarios open the existing hover-aware Actions menu through its supported Enter-key interaction, assert expanded state, then select Send to customer. Existing field values, API persistence, reloading, cancel-without-write, manual duration, and Ctrl+Enter assertions remain intact. No product code, shared UI, timeout, retries, configuration or disabled-test flags changed. Independent read-only review confirms the real snapshots/shared-component behavior and approves these navigation-only corrections. No local tests or runtime checks were launched. A native rerun is required before any UI pass is claimed; the local full gate and live verification are still pending allocation.
