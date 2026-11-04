@@ -320,8 +320,10 @@ export const containerRuntimeStep = {
     guide.push(...runtime.guide)
     guide.push('', 'Re-run this starter once the runtime is up — every completed step is skipped.')
     if (ctx.mode === 'hybrid') {
-      guide.push('No container runtime at all? `node packages/starter/bin/om-start.mjs up --no-infra` (after the first install also `yarn setup --no-infra`) starts just the app against services you point apps/mercato/.env at, without any Docker call.')
-      guide.push(`Run PostgreSQL yourself (Redis and Meilisearch are optional): ${WITHOUT_DOCKER_GUIDE_URL}`)
+      guide.push(
+        `No container runtime at all? Run PostgreSQL yourself (Redis and Meilisearch are optional): ${WITHOUT_DOCKER_GUIDE_URL}`,
+        'Point apps/mercato/.env at it, then run `node packages/starter/bin/om-start.mjs up --no-infra` (or `yarn om up --no-infra` once dependencies are installed); it makes no Docker call.',
+      )
     }
     throw new StepBlocked(this.id, guide)
   },
