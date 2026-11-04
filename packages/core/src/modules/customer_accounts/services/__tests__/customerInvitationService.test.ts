@@ -180,6 +180,32 @@ describe('CustomerInvitationService.acceptInvitation — role lookup batching', 
     expect((userCreates[0][1] as { personEntityId: string | null }).personEntityId).toBe(personEntityId)
   })
 
+  it('does not grant roles that became nonassignable after the invitation was created', async () => {
+    const invitation = {
+      email: 'new@example.com', tenantId, organizationId, roleIdsJson: roleIds,
+      expiresAt: new Date(Date.now() + 60_000), acceptedAt: null, cancelledAt: null,
+    } as unknown as CustomerUserInvitation
+    const availableRoles = roleIds.map((id, index) => ({ id, customerAssignable: index === 0 }))
+    mockEm.findOne.mockImplementation(async (entity: unknown) => (
+      entity === CustomerUserInvitation ? invitation : null
+    ) as never)
+    mockEm.find.mockImplementation(async (_entity: unknown, where: unknown) => {
+      const filter = where as { customerAssignable?: boolean }
+      return availableRoles.filter((role) => (
+        filter.customerAssignable === undefined || role.customerAssignable === filter.customerAssignable
+      )) as never
+    })
+
+    await service.acceptInvitation('raw-token', 'Secret123!', 'New User')
+
+    const links = mockEm.create.mock.calls.filter(([entity]) => entity === CustomerUserRole)
+    expect(links).toHaveLength(1)
+    expect(links[0][1]).toMatchObject({ role: { id: roleIds[0], customerAssignable: true } })
+    expect(mockEm.find).toHaveBeenCalledWith(CustomerRole, expect.objectContaining({
+      tenantId, organizationId, customerAssignable: true, deletedAt: null,
+    }), undefined)
+  })
+
   it('skips the role query entirely when the invitation carries no roleIds', async () => {
     const invitation = {
       id: 'inv-2',

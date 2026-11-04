@@ -1,6 +1,7 @@
 /** @jest-environment node */
 
 import { NextResponse } from 'next/server'
+import { CustomerRole } from '@open-mercato/core/modules/customer_accounts/data/entities'
 
 const mockCheckAuthRateLimit = jest.fn()
 const mockCreateInvitation = jest.fn()
@@ -8,6 +9,10 @@ const mockRollbackInvitation = jest.fn()
 const mockUserHasAllFeatures = jest.fn()
 const mockGetAuthFromRequest = jest.fn()
 const mockSendCustomerInvitationEmail = jest.fn()
+const mockFindWithDecryption = jest.fn()
+const mockIsOwnedCompanyEntity = jest.fn()
+const mockEmit = jest.fn()
+const mockEm = {}
 
 const tenantId = '22222222-2222-4222-8222-222222222222'
 const organizationId = '33333333-3333-4333-8333-333333333333'
@@ -17,11 +22,28 @@ const apiKeyId = '55555555-5555-4555-8555-555555555555'
 
 const mockContainer = {
   resolve: jest.fn((token: string) => {
+    if (token === 'em') return mockEm
     if (token === 'rbacService') return { userHasAllFeatures: mockUserHasAllFeatures }
     if (token === 'customerInvitationService') return { createInvitation: mockCreateInvitation, rollbackInvitation: mockRollbackInvitation }
     return null
   }),
 }
+
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findWithDecryption: (...args: unknown[]) => mockFindWithDecryption(...args),
+}))
+
+jest.mock('@open-mercato/core/modules/customer_accounts/lib/customerEntityOwnership', () => ({
+  isOwnedCompanyEntity: (...args: unknown[]) => mockIsOwnedCompanyEntity(...args),
+}))
+
+jest.mock('@open-mercato/core/modules/customer_accounts/events', () => ({
+  emitCustomerAccountsEvent: (...args: unknown[]) => mockEmit(...args),
+}))
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(async () => ({ translate: (key: string) => key })),
+}))
 
 jest.mock('@open-mercato/core/modules/customer_accounts/lib/rateLimiter', () => ({
   checkAuthRateLimit: (...args: unknown[]) => mockCheckAuthRateLimit(...args),
@@ -45,7 +67,7 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: (...args: unknown[]) => mockGetAuthFromRequest(...args),
 }))
 
-function makeInviteRequest(): Request {
+function makeInviteRequest(overrides: Record<string, unknown> = {}): Request {
   return new Request('http://localhost/api/customer_accounts/admin/users-invite', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -53,6 +75,7 @@ function makeInviteRequest(): Request {
       email: 'buyer@example.com',
       roleIds: [roleId],
       displayName: 'Buyer User',
+      ...overrides,
     }),
   })
 }
@@ -60,6 +83,10 @@ function makeInviteRequest(): Request {
 describe('admin customer account user invite route', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockFindWithDecryption.mockReset()
+    mockFindWithDecryption.mockResolvedValue([{ id: roleId, customerAssignable: true }])
+    mockIsOwnedCompanyEntity.mockResolvedValue(true)
+    mockEmit.mockResolvedValue(undefined)
     mockCheckAuthRateLimit.mockResolvedValue({ error: null, compoundKey: null })
     mockUserHasAllFeatures.mockResolvedValue(true)
     mockGetAuthFromRequest.mockResolvedValue({
@@ -103,6 +130,76 @@ describe('admin customer account user invite route', () => {
         invitedByUserId: staffUserId,
       }),
     )
+  })
+
+  it('looks up invitation roles within the caller tenant and organization', async () => {
+    const { POST } = await import('../users-invite')
+
+    expect((await POST(makeInviteRequest())).status).toBe(201)
+    expect(mockFindWithDecryption).toHaveBeenCalledWith(
+      mockEm,
+      CustomerRole,
+      { id: { $in: [roleId] }, tenantId, organizationId, deletedAt: null, customerAssignable: true },
+      undefined,
+      { tenantId, organizationId },
+    )
+  })
+
+  it.each([
+    { reason: 'nonassignable', changes: { customerAssignable: false } },
+    { reason: 'other organization', changes: { organizationId: apiKeyId } },
+    { reason: 'other tenant', changes: { tenantId: apiKeyId } },
+    { reason: 'deleted', changes: { deletedAt: new Date() } },
+    { reason: 'missing', changes: { id: apiKeyId } },
+  ])('rejects a $reason role before creating, sending, or broadcasting an invitation', async ({ changes }) => {
+    const role = { id: roleId, tenantId, organizationId, deletedAt: null, customerAssignable: true, ...changes }
+    mockFindWithDecryption.mockImplementation(async (_em: unknown, _entity: unknown, where: Record<string, unknown>) => {
+      const filter = where as { id: { $in: string[] } }
+      const matches = filter.id.$in.includes(role.id) && Object.entries(where).every(([key, value]) => (
+        key === 'id' || value === role[key as keyof typeof role]
+      ))
+      return matches ? [role] : []
+    })
+    const { POST } = await import('../users-invite')
+
+    expect((await POST(makeInviteRequest())).status).toBe(400)
+    expect(mockCreateInvitation).not.toHaveBeenCalled()
+    expect(mockSendCustomerInvitationEmail).not.toHaveBeenCalled()
+    expect(mockEmit).not.toHaveBeenCalled()
+  })
+
+  it('rejects the whole invitation when one of the requested roles is unavailable', async () => {
+    const { POST } = await import('../users-invite')
+
+    const response = await POST(makeInviteRequest({ roleIds: [roleId, apiKeyId] }))
+
+    expect(response.status).toBe(400)
+    expect(mockCreateInvitation).not.toHaveBeenCalled()
+    expect(mockSendCustomerInvitationEmail).not.toHaveBeenCalled()
+  })
+
+  it('accepts repeated IDs of an assignable role', async () => {
+    const { POST } = await import('../users-invite')
+
+    expect((await POST(makeInviteRequest({ roleIds: [roleId, roleId] }))).status).toBe(201)
+  })
+
+  it('rejects invitations without requested roles', async () => {
+    const { POST } = await import('../users-invite')
+
+    expect((await POST(makeInviteRequest({ roleIds: [] }))).status).toBe(400)
+    expect(mockFindWithDecryption).not.toHaveBeenCalled()
+  })
+
+  it('keeps company validation scoped to the caller before any invitation side effects', async () => {
+    mockIsOwnedCompanyEntity.mockResolvedValue(false)
+    const { POST } = await import('../users-invite')
+
+    expect((await POST(makeInviteRequest({ customerEntityId: apiKeyId }))).status).toBe(400)
+    expect(mockIsOwnedCompanyEntity).toHaveBeenCalledWith(mockEm, apiKeyId, { tenantId, organizationId })
+    expect(mockCreateInvitation).not.toHaveBeenCalled()
+    expect(mockSendCustomerInvitationEmail).not.toHaveBeenCalled()
+    expect(mockEmit).not.toHaveBeenCalled()
   })
 
   it('stores null invitedByUserId for machine-only API keys', async () => {

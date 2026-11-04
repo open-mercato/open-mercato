@@ -262,6 +262,7 @@ export class CustomerInvitationService {
             id: { $in: roleIds } as any,
             tenantId: invitation.tenantId,
             organizationId: invitation.organizationId,
+            customerAssignable: true,
             deletedAt: null,
           } as any,
           undefined,

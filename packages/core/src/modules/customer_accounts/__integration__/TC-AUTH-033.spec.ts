@@ -2,6 +2,8 @@ import { expect, test } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { createCustomerRoleFixture, deleteCustomerRoleFixture, deleteCustomerUserFixture } from '@open-mercato/core/helpers/integration/customerAccountsFixtures'
+import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 
 type CapturedEmail = {
   to?: string
@@ -75,50 +77,58 @@ test.describe('TC-AUTH-033: customer invitation email happy path', () => {
 
     const adminToken = await getAuthToken(request, 'admin')
 
-    const rolesRes = await apiRequest(request, 'GET', '/api/customer_accounts/admin/roles?pageSize=10', {
-      token: adminToken,
-    })
-    expect(rolesRes.ok(), 'roles list should succeed').toBeTruthy()
-    const rolesBody = (await rolesRes.json()) as { items: Array<{ id: string; slug: string }> }
-    expect(rolesBody.items.length, 'tenant should have at least one customer role').toBeGreaterThan(0)
-    const roleId = rolesBody.items[0].id
+    let roleId: string | null = null
+    let invitationId: string | null = null
+    let userId: string | null = null
 
-    const inviteRes = await apiRequest(request, 'POST', '/api/customer_accounts/admin/users-invite', {
-      token: adminToken,
-      data: {
-        email: inviteEmail,
-        roleIds: [roleId],
-        displayName,
-      },
-    })
-    expect(inviteRes.status(), 'admin invite should return 201').toBe(201)
-    const inviteBody = (await inviteRes.json()) as {
-      ok: boolean
-      invitation: { id: string; email: string; expiresAt: string }
+    try {
+      roleId = (await createCustomerRoleFixture(request, adminToken, { customerAssignable: true })).id
+
+      const inviteRes = await apiRequest(request, 'POST', '/api/customer_accounts/admin/users-invite', {
+        token: adminToken,
+        data: {
+          email: inviteEmail,
+          roleIds: [roleId],
+          displayName,
+        },
+      })
+      expect(inviteRes.status(), 'admin invite should return 201').toBe(201)
+      const inviteBody = (await inviteRes.json()) as {
+        ok: boolean
+        invitation: { id: string; email: string; expiresAt: string }
+      }
+      invitationId = inviteBody.invitation.id
+      expect(inviteBody.ok).toBe(true)
+      expect(JSON.stringify(inviteBody), 'raw token must not be exposed by invite API').not.toContain('/invite?token=')
+
+      const capturedEmail = await waitForInviteEmail(inviteEmail)
+      expect(capturedEmail.subject).toContain('invited')
+      const token = extractInviteToken(capturedEmail)
+
+      const acceptRes = await request.post('/api/customer_accounts/invitations/accept', {
+        data: {
+          token,
+          password: `Password${stamp}!`,
+          displayName: acceptedDisplayName,
+        },
+        headers: { 'Content-Type': 'application/json' },
+      })
+      expect(acceptRes.status(), 'invite token from captured email should be accepted').toBe(201)
+      const acceptBody = (await acceptRes.json()) as {
+        ok: boolean
+        user: { id: string; email: string; displayName: string; emailVerified: boolean }
+      }
+      userId = acceptBody.user.id
+      expect(acceptBody.ok).toBe(true)
+      expect(acceptBody.user.email.toLowerCase()).toBe(inviteEmail.toLowerCase())
+      expect(acceptBody.user.displayName).toBe(acceptedDisplayName)
+      expect(acceptBody.user.emailVerified).toBe(true)
+    } finally {
+      await deleteCustomerUserFixture(request, adminToken, userId)
+      if (invitationId) await withClient(async (client) => {
+        await client.query('delete from customer_user_invitations where id = $1', [invitationId])
+      })
+      await deleteCustomerRoleFixture(request, adminToken, roleId)
     }
-    expect(inviteBody.ok).toBe(true)
-    expect(JSON.stringify(inviteBody), 'raw token must not be exposed by invite API').not.toContain('/invite?token=')
-
-    const capturedEmail = await waitForInviteEmail(inviteEmail)
-    expect(capturedEmail.subject).toContain('invited')
-    const token = extractInviteToken(capturedEmail)
-
-    const acceptRes = await request.post('/api/customer_accounts/invitations/accept', {
-      data: {
-        token,
-        password: `Password${stamp}!`,
-        displayName: acceptedDisplayName,
-      },
-      headers: { 'Content-Type': 'application/json' },
-    })
-    expect(acceptRes.status(), 'invite token from captured email should be accepted').toBe(201)
-    const acceptBody = (await acceptRes.json()) as {
-      ok: boolean
-      user: { email: string; displayName: string; emailVerified: boolean }
-    }
-    expect(acceptBody.ok).toBe(true)
-    expect(acceptBody.user.email.toLowerCase()).toBe(inviteEmail.toLowerCase())
-    expect(acceptBody.user.displayName).toBe(acceptedDisplayName)
-    expect(acceptBody.user.emailVerified).toBe(true)
   })
 })
