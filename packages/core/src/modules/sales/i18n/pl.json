@@ -313,6 +313,7 @@
   "sales.config.quoteValidity.description": "Domyślna ważność, gdy oferta nie ma przyszłej daty ważności. Możesz ją zmienić podczas wysyłania oferty.",
   "sales.config.quoteValidity.errors.invalid": "Wprowadź całkowitą liczbę dni od 1 do 365.",
   "sales.config.quoteValidity.label": "Domyślna ważność oferty (dni)",
+  "sales.config.quoteValidity.loading": "Wczytywanie ustawień ważności ofert…",
   "sales.config.quoteValidity.saved": "Zapisano ustawienia ważności ofert.",
   "sales.config.quoteValidity.title": "Ważność ofert",
   "sales.config.shippingMethods.actions.add": "Dodaj metodę dostawy",

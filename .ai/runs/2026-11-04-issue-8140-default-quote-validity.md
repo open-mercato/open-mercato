@@ -39,3 +39,5 @@ PR: #8689
 - i18n usage deliberately interrupted before heavy commands when parent allocated the host to other tasks; NOT passed. Typecheck/fulltest/build:app and live integration/UI remain queued.
 - Client-boundary scan and diff whitespace check passed. DS health/discovery commands exceeded bounded120s during host contention; not passes.
 - Integration scenarios authored; discovery/runtime verification pending.
+
+- CI follow-up:9dda08898a prepare/Build app failed TS2741 for missing LoadingMessage.label. Scoped translated-label fix and a real loading-state regression added (fails before, passes after). Fresh CI compile and all remaining local broad/live gates are pending.

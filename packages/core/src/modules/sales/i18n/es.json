@@ -313,6 +313,7 @@
   "sales.config.quoteValidity.description": "Validez predeterminada cuando un presupuesto no tiene una fecha de validez futura. Puede cambiarla al enviarlo.",
   "sales.config.quoteValidity.errors.invalid": "Introduzca un número entero de días entre 1 y 365.",
   "sales.config.quoteValidity.label": "Validez predeterminada del presupuesto (días)",
+  "sales.config.quoteValidity.loading": "Cargando la configuración de validez de presupuestos…",
   "sales.config.quoteValidity.saved": "Configuración de validez guardada.",
   "sales.config.quoteValidity.title": "Validez de presupuestos",
   "sales.config.shippingMethods.actions.add": "Agregar método de envío",

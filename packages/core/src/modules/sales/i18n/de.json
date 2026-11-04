@@ -313,6 +313,7 @@
   "sales.config.quoteValidity.description": "Standardgültigkeit, wenn ein Angebot kein zukünftiges Gültigkeitsdatum hat. Sie können sie beim Senden ändern.",
   "sales.config.quoteValidity.errors.invalid": "Geben Sie eine ganze Zahl von 1 bis 365 Tagen ein.",
   "sales.config.quoteValidity.label": "Standardgültigkeit von Angeboten (Tage)",
+  "sales.config.quoteValidity.loading": "Einstellungen zur Angebotsgültigkeit werden geladen…",
   "sales.config.quoteValidity.saved": "Einstellungen zur Angebotsgültigkeit gespeichert.",
   "sales.config.quoteValidity.title": "Angebotsgültigkeit",
   "sales.config.shippingMethods.actions.add": "Versandart hinzufügen",

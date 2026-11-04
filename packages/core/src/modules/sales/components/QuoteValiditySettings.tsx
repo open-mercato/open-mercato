@@ -69,7 +69,7 @@ export function QuoteValiditySettings() {
             flash(t('sales.config.quoteValidity.saved', 'Quote validity settings saved.'), 'success')
           }}
         />
-      ) : <LoadingMessage />}
+      ) : <LoadingMessage label={t('sales.config.quoteValidity.loading', 'Loading quote validity settings…')} />}
     </section>
   )
 }

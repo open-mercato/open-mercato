@@ -40,3 +40,6 @@ Spec scope/readiness: GO. Source: provisionally approve, no outstanding major/bl
 | Playwright discovery; global DS health | TIMED OUT120s | Host contention; not passes |
 
 No database migration has been applied. The generated migration only adds sales_settings.default_quote_validity_days integer NOT NULL DEFAULT14; rollback removes that column. No shared UI, customer, document, staff, audit, governance or lesson-index source changed. The draft must remain in progress until the final gate and live proof finish.
+
+## CI loading-state follow-up
+CI on9dda08898a failed its prepare/Build app step with TS2741: the new settings section omitted the required LoadingMessage.label prop. This is an in-scope compile failure, not an infrastructure exception. The loading state now supplies a translated label in all five sales locales. A component regression uses the real shared LoadingMessage during a pending settings request: FAIL before the fix, PASS after. Exact focused invocation: `yarn jest --config packages/core/jest.config.cjs --runInBand --runTestsByPath packages/core/src/modules/sales/components/__tests__/QuoteValiditySettings.test.tsx`. Fresh compilation and the remaining local configured gate are still pending; parent resource allocation has not been granted.
