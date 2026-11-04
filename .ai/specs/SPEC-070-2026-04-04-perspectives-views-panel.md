@@ -195,6 +195,7 @@ The original redesign changed no backend contract. The 2026-11-03 update adds on
 
 ## Changelog
 ### 2026-11-04 (update)
+- Rename excludes overlapping mouse/keyboard submissions synchronously, releases the guard after rejection for retry, and preserves genuine optimistic-lock conflicts. Unit and own-fixture browser coverage asserts one request, full settings preservation and no false post-success conflict after ten seconds.
 - Name-only rename passes the selected saved view's complete settings instead of substituting current table state, preserving page size, columns, sizing, filters, sorting and search. Active/nonactive and duplicate-refusal/corrected-keyboard paths are covered by `PerspectiveSidebar.renameSettings.test.tsx` and own-fixture UI cases in `TC-PERSP-UNIQUENESS-002`; no API/schema/authorization contract changes.
 - Save-as-new excludes overlapping mouse/keyboard submissions while preserving duplicate-error retry. Long view labels truncate inside mobile toolbar/chips with full-name titles and reachable options. Scoped missing/foreign/deleted personal ids return a translated404 `NOT_FOUND`, preserving all lookup/mutation guards. Focused unit and own-fixture API regressions cover the repaired paths; current-head browser/CI evidence remains required.
 ### 2026-11-03 (update)

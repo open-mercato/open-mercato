@@ -103,6 +103,7 @@ export function PerspectiveSidebar({
   const [pendingCloneBaselineIds, setPendingCloneBaselineIds] = React.useState<Set<string> | null>(null)
 
   const newViewSaveRef = React.useRef(false)
+  const renameSaveRef = React.useRef(false)
   const autosaveRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingAutosaveActionRef = React.useRef<(() => void) | null>(null)
   const isDefaultUserChangeRef = React.useRef(false)
@@ -283,6 +284,7 @@ export function PerspectiveSidebar({
   }, [onReorderColumns, scheduleAutosave])
 
   const handleRename = async (p: PerspectiveDto | RolePerspectiveDto) => {
+    if (renameSaveRef.current) return
     const trimmed = renameValue.trim()
     if (!trimmed) {
       setRenamingId(null)
@@ -295,6 +297,7 @@ export function PerspectiveSidebar({
       flash(t('ui.perspectives.error.nameExists', 'View with this name already exists'), 'error')
       return
     }
+    renameSaveRef.current = true
     setError(null)
     try {
       await onSave({
@@ -309,6 +312,8 @@ export function PerspectiveSidebar({
     } catch (err: unknown) {
       if (surfaceRecordConflict(err, t)) return
       setError(err instanceof Error ? err.message : 'Failed to rename view')
+    } finally {
+      renameSaveRef.current = false
     }
   }
 

@@ -201,7 +201,7 @@ test.describe('TC-PERSP-UNIQUENESS-002: save-as-new does not overwrite a same-na
   });
 
   for (const activateSavedView of [false, true]) {
-    test(`UI: name-only rename preserves all settings for ${activateSavedView ? 'an active' : 'a nonactive'} view after duplicate correction`, async ({ page, request }) => {
+    test(`UI: name-only rename preserves all settings for ${activateSavedView ? 'an active' : 'a nonactive'} view after duplicate correction and ${activateSavedView ? 'keyboard burst' : 'double-click'}`, async ({ page, request }) => {
       test.skip(isStandaloneIntegration(), 'Standalone smoke runs omit this monorepo-only Views panel check.');
 
       const token = await getAuthToken(request, 'admin');
@@ -253,9 +253,22 @@ test.describe('TC-PERSP-UNIQUENESS-002: save-as-new does not overwrite a same-na
         expect(await listViews(request, token, tableId, occupiedName)).toEqual(occupiedBefore);
 
         await nameInput.fill(correctedName);
+        const renameRequests: string[] = [];
+        await page.route(`**/api/perspectives/${tableId}`, async (route) => {
+          if (route.request().method() === 'POST') {
+            renameRequests.push(route.request().postData() ?? '');
+            await new Promise((resolve) => setTimeout(resolve, 150));
+          }
+          await route.continue();
+        });
         const saveResponse = page.waitForResponse((response) => response.request().method() === 'POST'
           && new URL(response.url()).pathname === `/api/perspectives/${tableId}`);
-        await nameInput.press('Control+Enter');
+        if (activateSavedView) {
+          await nameInput.press('Control+Enter');
+          await nameInput.press('Control+Enter');
+        } else {
+          await page.getByRole('button', { name: 'Confirm rename', exact: true }).dblclick();
+        }
         expect((await saveResponse).status()).toBe(200);
         await expect(page.locator('[data-active]').getByRole('button', { name: correctedName, exact: true })).toBeVisible();
         const after = await listViews(request, token, tableId, correctedName);
@@ -264,6 +277,9 @@ test.describe('TC-PERSP-UNIQUENESS-002: save-as-new does not overwrite a same-na
         expect(after[0].settings).toEqual(settings);
         expect(await listViews(request, token, tableId, occupiedName)).toEqual(occupiedBefore);
         expect(await listViews(request, token, tableId, originalName)).toEqual([]);
+        await page.waitForTimeout(10_000);
+        expect(renameRequests, 'one rename intent despite repeated submit').toHaveLength(1);
+        await expect(page.getByText('This record was modified by someone else.', { exact: false })).toHaveCount(0);
       } finally {
         await deleteViews(request, token, tableId, createdIds);
       }
