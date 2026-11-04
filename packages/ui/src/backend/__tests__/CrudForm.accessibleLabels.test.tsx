@@ -81,4 +81,28 @@ describe('CrudForm accessible field labels (#5360)', () => {
     fireEvent.click(label)
     expect(checkbox).toHaveAttribute('aria-checked', 'true')
   })
+
+  it('gives a custom field group an accessible name derived from its label (aria-labelledby fallback)', () => {
+    const fields: CrudField[] = [
+      {
+        id: 'notes',
+        label: 'Notes',
+        type: 'custom',
+        component: ({ value, setValue }) => (
+          <textarea
+            value={typeof value === 'string' ? value : ''}
+            onChange={(event) => setValue(event.target.value)}
+          />
+        ),
+      },
+    ]
+    const { getByRole } = renderWithProviders(
+      <CrudForm title="Form" fields={fields} initialValues={{ notes: '' }} onSubmit={() => {}} />,
+      { dict },
+    )
+
+    const group = getByRole('group', { name: 'Notes' })
+    expect(group).not.toBeNull()
+    expect(group.querySelector('textarea')).not.toBeNull()
+  })
 })
