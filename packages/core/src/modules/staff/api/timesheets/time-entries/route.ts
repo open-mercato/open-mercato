@@ -49,6 +49,8 @@ import { readTimeTrackingSettings } from '../../../lib/time-tracking/settings'
 import { decorateTimeEntryRows } from '../../../lib/timesheets/timeEntryDecoration'
 import { parseWithLocalizedIssues } from '../../../lib/validationIssues'
 import { computeTimeEntryTotals } from '../../../lib/timesheets/timeEntryTotals'
+import { DEFAULT_STAFF_AMOUNT_DECIMAL_PLACES } from '../../../lib/time-tracking/cost'
+import { resolveCurrencyDecimalPlaces } from '@open-mercato/shared/lib/currencyPrecision'
 import { createStaffCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from '../../openapi'
 
 const logger = createLogger('staff').child({ component: 'api/timesheets/time-entries' })
@@ -453,6 +455,9 @@ export async function attachTimeEntryTotals(
       organizationIds: resolveListOrganizationIds(ctx),
       canSeeRates: rates.allowed,
       includeDeleted: parseBooleanToken(typeof query.withDeleted === 'string' ? query.withDeleted : null) === true,
+      resolveDecimalPlaces: async (code) =>
+        (await resolveCurrencyDecimalPlaces(ctx.container, { code, tenantId, organizationId })) ??
+        DEFAULT_STAFF_AMOUNT_DECIMAL_PLACES,
     })
   } catch (err) {
     logger.error('staff.timesheets.time-entries totals failed', { err })
