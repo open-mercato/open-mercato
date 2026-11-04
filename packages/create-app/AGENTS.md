@@ -74,6 +74,8 @@ Telemetry / observability wiring (keep at parity when the `@open-mercato/telemet
 
 Known deferred drift: the monorepo's `starters/` directory (hybrid install/start scripts, compose files under `starters/docker/`, the MCP-as-dev.mjs-child runtime in `scripts/dev.mjs` + `scripts/dev-mcp.mjs`) is NOT mirrored into the template yet — generated apps keep compose files at their own root and the pre-starters dev runtime. Mirroring the starters layout into the template is a tracked follow-up of `.ai/specs/2026-07-17-hybrid-dev-runtime-and-starters.md`; sync `scripts/dev.mjs` + `scripts/dev-mcp.mjs` together when doing it (the former imports the latter).
 
+One starter file IS mirrored: `packages/starter/src/infra-preflight.mjs` -> `template/scripts/dev-infra-preflight.mjs` (byte-for-byte via `yarn template:sync`, guarded by a starter test). It must stay Node-stdlib-only with no sibling imports. The template's own `scripts/infra.mjs` (`yarn infra:up` / `infra:down`, called by `scripts/setup.mjs`) is template-only and has no monorepo source.
+
 ## Dev Runtime Expectations
 
 - `yarn dev` is the compact runtime. It folds routine startup logs and lets the user press `d` to show or hide raw logs.
