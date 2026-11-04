@@ -102,6 +102,7 @@ export function PerspectiveSidebar({
   const [sharedIds, setSharedIds] = React.useState<Set<string>>(new Set())
   const [pendingCloneBaselineIds, setPendingCloneBaselineIds] = React.useState<Set<string> | null>(null)
 
+  const newViewSaveRef = React.useRef(false)
   const autosaveRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingAutosaveActionRef = React.useRef<(() => void) | null>(null)
   const isDefaultUserChangeRef = React.useRef(false)
@@ -253,6 +254,8 @@ export function PerspectiveSidebar({
   }, [open, activePerspectiveId])
 
   const handleSaveNew = async () => {
+    if (newViewSaveRef.current) return
+    newViewSaveRef.current = true
     setError(null)
     try {
       await onSave({ name: name.trim(), isDefault, applyToRoles: [], setRoleDefault: false, perspectiveId: null, createOnly: true })
@@ -264,6 +267,8 @@ export function PerspectiveSidebar({
         return
       }
       setError(err instanceof Error ? err.message : 'Failed to save view')
+    } finally {
+      newViewSaveRef.current = false
     }
   }
 

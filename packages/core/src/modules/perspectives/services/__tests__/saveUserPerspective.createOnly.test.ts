@@ -88,3 +88,22 @@ describe('saveUserPerspective without perspectiveId when the name is already tak
     expect(entity.settingsJson).toEqual({ pageSize: 50 })
   })
 })
+
+
+it('rejects an unmatched id before any mutation using the complete personal scope', async () => {
+  const em = makeEm(null)
+  await expect(saveUserPerspective(em as never, null, {
+    scope,
+    tableId: 'customers',
+    input: { perspectiveId: PERSPECTIVE_ID, name: 'Rejected', settings: { pageSize: 90 } },
+    request,
+  })).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  expect(em.findOne).toHaveBeenCalledWith(expect.anything(), {
+    id: PERSPECTIVE_ID, userId: scope.userId, tenantId: scope.tenantId,
+    organizationId: scope.organizationId, tableId: 'customers', deletedAt: null,
+  })
+  expect(em.create).not.toHaveBeenCalled()
+  expect(em.persist).not.toHaveBeenCalled()
+  expect(em.flush).not.toHaveBeenCalled()
+  expect(em.nativeUpdate).not.toHaveBeenCalled()
+})

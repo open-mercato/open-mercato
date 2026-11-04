@@ -1,12 +1,14 @@
+import { randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import type { APIRequestContext } from '@playwright/test';
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
 import { login } from '@open-mercato/core/helpers/integration/auth';
-import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
+import { getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
+import { createRoleFixture, createUserFixture, deleteRoleIfExists, deleteUserIfExists, setUserAclVisibility } from '@open-mercato/core/helpers/integration/authFixtures';
 import { isStandaloneIntegration } from '@open-mercato/core/helpers/integration/standaloneEnv';
 
 export const integrationMeta = {
-  dependsOnModules: ['perspectives', 'customers'],
+  dependsOnModules: ['perspectives', 'customers', 'auth'],
 };
 
 type SavedPerspective = { id?: string; name?: string; settings?: Record<string, unknown> };
@@ -116,6 +118,48 @@ test.describe('TC-PERSP-UNIQUENESS-002: save-as-new does not overwrite a same-na
       expect(freshId).not.toBe(existingId);
     } finally {
       await deleteViews(request, token, tableId, createdIds);
+    }
+  });
+
+  test('API: foreign, missing and deleted personal ids return404 without changing the owner view', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin');
+    const { organizationId } = getTokenContext(token);
+    const stamp = Date.now();
+    const tableId = `qa-persp-refusal-${stamp}`;
+    const name = `Protected view ${stamp}`;
+    const email = `qa-persp-refusal-${stamp}@example.com`;
+    const password = 'Secret123!';
+    let roleId: string | null = null;
+    let userId: string | null = null;
+    const createdIds: string[] = [];
+    try {
+      roleId = await createRoleFixture(request, token, { name: `Perspective refusal ${stamp}` });
+      userId = await createUserFixture(request, token, { email, password, organizationId, roles: [roleId] });
+      await setUserAclVisibility(request, token, { userId, features: ['perspectives.use'], organizations: [organizationId] });
+      const actorToken = await getAuthToken(request, email, password);
+      const existingId = await createView(request, token, tableId, name, { pageSize: 20 });
+      createdIds.push(existingId);
+      const before = await listViews(request, token, tableId, name);
+      const deletedId = await createView(request, token, tableId, `${name} deleted`, { pageSize: 10 });
+      createdIds.push(deletedId);
+      const deleted = await apiRequest(request, 'DELETE', `/api/perspectives/${encodeURIComponent(tableId)}/${deletedId}`, { token });
+      expect(deleted.status()).toBe(200);
+
+      for (const [perspectiveId, requestToken] of [[existingId, actorToken], [randomUUID(), token], [deletedId, token]]) {
+        const refused = await apiRequest(request, 'POST', `/api/perspectives/${encodeURIComponent(tableId)}`, {
+          token: requestToken,
+          data: { perspectiveId, name: `Rejected ${stamp}`, settings: { pageSize: 90 } },
+        });
+        expect(refused.status()).toBe(404);
+        const body = await readJsonSafe<SaveResponse>(refused);
+        expect(body?.code).toBe('NOT_FOUND');
+        expect(typeof body?.error).toBe('string');
+        expect(await listViews(request, token, tableId, name)).toEqual(before);
+      }
+    } finally {
+      await deleteViews(request, token, tableId, createdIds);
+      await deleteUserIfExists(request, token, userId);
+      await deleteRoleIfExists(request, token, roleId);
     }
   });
 

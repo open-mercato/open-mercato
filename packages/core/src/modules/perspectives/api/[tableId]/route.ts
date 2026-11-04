@@ -316,6 +316,13 @@ export async function POST(req: Request, ctx: { params: { tableId: string } }) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
+    if (err instanceof Error && 'code' in err && err.code === 'NOT_FOUND') {
+      const { translate } = await resolveTranslations()
+      return NextResponse.json({
+        error: translate('api.errors.notFound', 'Not Found'),
+        code: 'NOT_FOUND',
+      }, { status: 404 })
+    }
     throw err
   }
 
@@ -388,6 +395,7 @@ const perspectivesPostDoc: OpenApiMethodDoc = {
     { status: 400, description: 'Validation failed or invalid roles provided', schema: perspectivesErrorSchema },
     { status: 401, description: 'Authentication required', schema: perspectivesErrorSchema },
     { status: 403, description: 'Missing perspectives.role_defaults feature for role updates', schema: perspectivesErrorSchema },
+    { status: 404, description: 'Personal perspective does not exist in the current user scope', schema: perspectivesErrorSchema },
     { status: 409, description: 'Optimistic lock conflict or perspective name already exists', schema: perspectivesErrorSchema },
   ],
 }

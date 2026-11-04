@@ -116,3 +116,41 @@ describe('PerspectiveSidebar save-as-new with a taken name', () => {
     expect(screen.queryByText('Translated duplicate name')).toBeNull()
   })
 })
+
+
+describe('PerspectiveSidebar create submission exclusion', () => {
+  it('ignores mouse and keyboard submits while the same creation is in flight', async () => {
+    let resolveSave: (() => void) | undefined
+    const onSave = jest.fn(() => new Promise<void>((resolve) => { resolveSave = resolve }))
+    renderSidebar(onSave)
+    fireEvent.click(screen.getByRole('button', { name: /New/ }))
+    const input = screen.getByPlaceholderText('View name...')
+    fireEvent.change(input, { target: { value: 'Free view' } })
+
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Enter' })
+      fireEvent.keyDown(input, { key: 'Enter', metaKey: true })
+      fireEvent.click(screen.getByRole('button', { name: 'Create view' }))
+    })
+
+    expect(onSave).toHaveBeenCalledTimes(1)
+    await act(async () => { resolveSave?.() })
+    expect(screen.queryByPlaceholderText('View name...')).toBeNull()
+    expect(screen.queryByText('Translated duplicate name')).toBeNull()
+  })
+
+  it('allows a corrected keyboard retry after a duplicate refusal', async () => {
+    const duplicate = Object.assign(new Error('Taken'), { status: 409, code: 'duplicate_name' })
+    const onSave = jest.fn<Promise<void>, Parameters<PerspectiveSidebarProps['onSave']>>()
+      .mockRejectedValueOnce(duplicate).mockResolvedValueOnce(undefined)
+    renderSidebar(onSave)
+    await submitNewView('My view')
+    const input = screen.getByPlaceholderText('View name...')
+    fireEvent.change(input, { target: { value: 'Corrected view' } })
+    await act(async () => { fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true }) })
+    expect(onSave).toHaveBeenCalledTimes(2)
+    expect(onSave).toHaveBeenLastCalledWith(expect.objectContaining({ name: 'Corrected view' }))
+    expect(screen.queryByText('Translated duplicate name')).toBeNull()
+    expect(screen.queryByPlaceholderText('View name...')).toBeNull()
+  })
+})

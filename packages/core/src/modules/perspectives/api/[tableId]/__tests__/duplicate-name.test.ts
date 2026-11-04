@@ -99,4 +99,14 @@ describe('POST /api/perspectives/[tableId] duplicate_name response', () => {
     expect(await response.json()).toEqual({ error: 'Record changed', code: 'record_conflict' })
     expect(translateMock).not.toHaveBeenCalled()
   })
+
+  it('returns a translated not-found refusal for a scoped lookup miss instead of throwing500', async () => {
+    saveUserPerspectiveMock.mockRejectedValue(Object.assign(new Error('Perspective not found'), { code: 'NOT_FOUND' }))
+
+    const response = await postSave()
+
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: '[api.errors.notFound] Not Found', code: 'NOT_FOUND' })
+  })
+
 })
