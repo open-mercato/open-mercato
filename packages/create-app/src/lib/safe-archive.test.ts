@@ -29,6 +29,23 @@ import {
 const MIB = 1024 * 1024
 const ROOT = 'acme-app-1a2b3c4'
 
+/** False when this platform can create symbolic links, else the reason the link fixtures are skipped. */
+function symlinkSkipReason(): string | false {
+  const dir = mkdtempSync(join(tmpdir(), 'om-symlink-probe-'))
+  try {
+    symlinkSync('target', join(dir, 'link'))
+    return false
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code ?? String(error)
+    return `this platform cannot create symbolic links (${code}); on Windows enable Developer Mode or run as administrator`
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+const SYMLINKS = { skip: symlinkSkipReason() }
+/** Paths compared regardless of the separator: tar and path.relative use the platform's. */
+const posixPath = (path: string) => path.replace(/\\/gu, '/')
+
 const scratchDirs: string[] = []
 const scratchDir = (prefix = 'om-safe-archive-') => {
   const dir = mkdtempSync(join(tmpdir(), prefix))
@@ -130,9 +147,9 @@ async function assertRejected(
   await assert.rejects(promise, (error: unknown) => {
     assert.ok(error instanceof UnsafeArchiveError, `expected UnsafeArchiveError, got ${String(error)}`)
     assert.equal(error.rule, rule)
-    assert.equal(error.path, path)
+    assert.equal(error.path === null ? null : posixPath(error.path), path === null ? null : posixPath(path))
     assert.match(error.message, message)
-    if (path) assert.ok(error.message.includes(`"${path}"`), `message names the path: ${error.message}`)
+    if (path) assert.ok(posixPath(error.message).includes(`"${posixPath(path)}"`), `message names the path: ${error.message}`)
     return true
   })
 }
@@ -210,12 +227,12 @@ test('a content-length above the 64 MiB cap fails the shared fetch before readin
 
 // Pass 1: entry types
 
-test('inspectArchive rejects a symbolic link with its path', async () => {
+test('inspectArchive rejects a symbolic link with its path', SYMLINKS, async () => {
   const archivePath = await packTree({ 'package.json': { kind: 'file', content: '{}' }, 'src/escape': { kind: 'symlink', target: '/etc/passwd' } })
   await assertRejected(inspectArchive(archivePath), 'entry-type', `${ROOT}/src/escape`, /is a symbolic link\. Imported apps may contain only files and directories\./)
 })
 
-test('inspectArchive rejects a symbolic link that points to itself', async () => {
+test('inspectArchive rejects a symbolic link that points to itself', SYMLINKS, async () => {
   const archivePath = await packTree({ 'loop': { kind: 'symlink', target: 'loop' } })
   await assertRejected(inspectArchive(archivePath), 'entry-type', `${ROOT}/loop`, /is a symbolic link/)
 })
@@ -319,14 +336,14 @@ test('inspectArchive rejects data that is not a tar archive', async () => {
 
 // Pass 2 and the lstat walk
 
-test('extractArchive skips links even without pass 1 (defense in depth)', async () => {
+test('extractArchive skips links even without pass 1 (defense in depth)', SYMLINKS, async () => {
   const archivePath = await packTree({ 'package.json': { kind: 'file', content: '{}' }, 'escape': { kind: 'symlink', target: '..' } })
   const target = scratchDir()
   await extractArchive(archivePath, target)
   assert.deepEqual(readdirSync(target), ['package.json'])
 })
 
-test('assertRegularTree and findTemplateFiles walk with lstat and reject links with their path', () => {
+test('assertRegularTree and findTemplateFiles walk with lstat and reject links with their path', SYMLINKS, () => {
   const target = scratchDir()
   mkdirSync(join(target, 'src'))
   writeFileSync(join(target, 'src', 'a.ts.template'), '')
@@ -335,14 +352,18 @@ test('assertRegularTree and findTemplateFiles walk with lstat and reject links w
     assert.ok(error instanceof UnsafeArchiveError)
     assert.equal(error.rule, 'not-regular')
     assert.equal(error.path, join('src', 'dangling'))
-    assert.match(error.message, /"src\/dangling" is not a regular file or directory/)
+    assert.match(posixPath(error.message), /"src\/dangling" is not a regular file or directory/)
     return true
   })
-  assert.throws(() => findTemplateFiles(target), /"src\/dangling" is not a regular file or directory/)
+  assert.throws(() => findTemplateFiles(target), (error: unknown) => /"src\/dangling" is not a regular file or directory/.test(posixPath(String(error))))
 
   rmSync(join(target, 'src', 'dangling'))
   symlinkSync(target, join(target, 'src', 'cycle'))
-  assert.throws(() => findTemplateFiles(target), /"src\/cycle" is not a regular file or directory/, 'a directory link is not followed')
+  assert.throws(
+    () => findTemplateFiles(target),
+    (error: unknown) => /"src\/cycle" is not a regular file or directory/.test(posixPath(String(error))),
+    'a directory link is not followed',
+  )
   rmSync(join(target, 'src', 'cycle'))
   assert.deepEqual(findTemplateFiles(target), [join('src', 'a.ts.template')])
 })
@@ -358,7 +379,7 @@ test('extractTarballSnapshot extracts a GitHub-style archive with the root folde
   assert.equal(existsSync(join(target, ROOT)), false)
 })
 
-test('a pass 1 failure writes nothing and does not create the target directory', async () => {
+test('a pass 1 failure writes nothing and does not create the target directory', SYMLINKS, async () => {
   const archivePath = await packTree({ 'package.json': { kind: 'file', content: '{}' }, 'escape': { kind: 'symlink', target: '/' } })
   const target = join(scratchDir(), 'my-app')
   await assertRejected(extractTarballSnapshot(archivePath, target, { removeTargetOnFailure: true }), 'entry-type', `${ROOT}/escape`, /symbolic link/)

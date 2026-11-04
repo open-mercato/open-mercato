@@ -6,14 +6,17 @@ import {
   extractTarballSnapshot,
   resolveGitHubDefaultBranch,
   validateImportedReadyAppSnapshot,
+  type GitHubDeadlines,
 } from '../ready-apps.js'
 import {
   compatibilityNotice,
   enterpriseNotice,
   fetchLatestStableLine,
   lineOf,
+  readEnterpriseRegistrations,
   readPinnedCoreVersion,
   requiresEnterpriseFromLockfile,
+  type EnterpriseEvidence,
   type PinnedLine,
 } from './compat.js'
 import { finalizeTemplateApp, type FinalizeTemplateResult, type TemplateNextStepsInput } from './finalize.js'
@@ -35,15 +38,22 @@ export type TemplateStepDeps = {
   fetchImpl?: typeof fetch
   /** Timeout for the index and npm requests; tests pass a small one. */
   timeoutMs?: number
+  /** Deadlines of the GitHub ref-resolution and download requests; tests pass small ones. */
+  githubDeadlines?: GitHubDeadlines
   log?: (line: string) => void
   warn?: (line: string) => void
 }
 
 /** The ref recorded in provenance: `#ref`, else the entry's `ref`, else the default branch (the sha if it cannot be read). */
-async function provenanceRef(selection: TemplateSelection, packageVersion: string, fetchImpl: typeof fetch): Promise<string> {
+async function provenanceRef(
+  selection: TemplateSelection,
+  packageVersion: string,
+  fetchImpl: typeof fetch,
+  githubDeadlines: GitHubDeadlines | undefined,
+): Promise<string> {
   if (selection.ref) return selection.ref
   try {
-    return await resolveGitHubDefaultBranch(selection.owner, selection.repo, packageVersion, fetchImpl)
+    return await resolveGitHubDefaultBranch(selection.owner, selection.repo, packageVersion, fetchImpl, githubDeadlines)
   } catch {
     return selection.sha
   }
@@ -70,7 +80,7 @@ export async function scaffoldFromTemplate(
   const fetchImpl = deps.fetchImpl ?? fetch
   const log = deps.log ?? ((line: string) => console.log(line))
   const warn = deps.warn ?? ((line: string) => console.log(pc.yellow(line)))
-  const resolveDeps = { indexUrl: options.indexUrl, packageVersion: options.packageVersion, fetchImpl, timeoutMs: deps.timeoutMs }
+  const resolveDeps = { indexUrl: options.indexUrl, packageVersion: options.packageVersion, fetchImpl, timeoutMs: deps.timeoutMs, githubDeadlines: deps.githubDeadlines }
 
   const selection = await resolveTemplateSelection(templateArg, resolveDeps)
   const description = describeTemplateSelection(selection)
@@ -87,7 +97,7 @@ export async function scaffoldFromTemplate(
   try {
     provenance = {
       repo: `${selection.owner}/${selection.repo}`,
-      ref: await provenanceRef(selection, options.packageVersion, fetchImpl),
+      ref: await provenanceRef(selection, options.packageVersion, fetchImpl, deps.githubDeadlines),
       sha: selection.sha,
     }
     // From the target mkdir on, a failure removes the directory this import created (Ready Apps amendment A-4).
@@ -115,7 +125,10 @@ export async function scaffoldFromTemplate(
     linesBehind: pinned?.source === 'catalog' ? selection.facts?.linesBehind ?? null : null,
   })
   if (compatibility) warn(compatibility)
-  const enterprise = enterpriseNotice(selection.facts ? selection.facts.requiresEnterprise : requiresEnterpriseFromLockfile(targetDir))
+  const enterpriseEvidence: EnterpriseEvidence = selection.facts
+    ? { source: 'catalog', requiresEnterprise: selection.facts.requiresEnterprise }
+    : { source: 'app', dependency: requiresEnterpriseFromLockfile(targetDir), registrations: readEnterpriseRegistrations(targetDir) }
+  const enterprise = enterpriseNotice(enterpriseEvidence)
   if (enterprise) warn(enterprise)
   if (compatibility || enterprise) log('')
 

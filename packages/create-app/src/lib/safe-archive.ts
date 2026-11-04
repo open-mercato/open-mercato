@@ -94,10 +94,18 @@ function downloadLimitError(source: string, maxBytes: number): UnsafeArchiveErro
  * Streams a response body into a temporary file and stops once it passes `maxDownloadBytes`. A `content-length`
  * above the limit fails before any byte is read. Nothing is buffered whole.
  */
+export type CappedBodyOptions = {
+  /** Aborting it stops the stream, removes the partial file and rejects with the abort reason. */
+  signal?: AbortSignal
+  /** Called for every chunk read, so a caller can measure stalls. */
+  onChunk?: () => void
+}
+
 export async function readCappedBody(
   response: Response,
   source: string,
   limits: Pick<ArchiveLimits, 'maxDownloadBytes'> = ARCHIVE_LIMITS,
+  options: CappedBodyOptions = {},
 ): Promise<DownloadedArchive> {
   const maxBytes = limits.maxDownloadBytes
   const declaredLength = Number(response.headers.get('content-length') ?? Number.NaN)
@@ -121,10 +129,12 @@ export async function readCappedBody(
         for await (const chunk of chunks) {
           bytes += chunk.byteLength
           if (bytes > maxBytes) throw downloadLimitError(source, maxBytes)
+          options.onChunk?.()
           yield chunk
         }
       },
       createWriteStream(path, { flags: 'wx' }),
+      options.signal ? { signal: options.signal } : {},
     )
   } catch (error) {
     dispose()

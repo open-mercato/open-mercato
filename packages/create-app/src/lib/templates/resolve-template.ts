@@ -3,6 +3,7 @@ import {
   resolveGitHubCommitSha,
   resolveGitHubDefaultBranch,
   validateSlug,
+  type GitHubDeadlines,
 } from '../ready-apps.js'
 import type { DownloadedArchive } from '../safe-archive.js'
 import { fetchTemplatesIndex, isSafeGitRef, parseGitHubPath } from './fetch-templates.js'
@@ -22,6 +23,8 @@ export type TemplateResolveDeps = {
   packageVersion: string
   fetchImpl?: FetchLike
   timeoutMs?: number
+  /** Deadlines of the GitHub ref-resolution and download requests; the defaults apply when omitted. */
+  githubDeadlines?: GitHubDeadlines
 }
 
 const CONTROL_OR_SPACE = /[\s\u0000-\u001f\u007f-\u009f]/u
@@ -109,7 +112,7 @@ export type TemplateLookup = {
 export async function selectTemplateSha(
   arg: TemplateArg,
   lookup: TemplateLookup,
-  deps: Pick<TemplateResolveDeps, 'packageVersion' | 'fetchImpl'>,
+  deps: Pick<TemplateResolveDeps, 'packageVersion' | 'fetchImpl' | 'githubDeadlines'>,
 ): Promise<TemplateSelection> {
   const fetchImpl = deps.fetchImpl ?? fetch
   const base = { listing: lookup.listing, entry: lookup.entry, indexProblem: lookup.indexProblem, indexUrl: lookup.indexUrl }
@@ -136,7 +139,7 @@ export async function selectTemplateSha(
         shaFromIndex: true,
       }
     }
-    const sha = await resolveGitHubCommitSha(path.owner, path.repo, arg.ref, deps.packageVersion, fetchImpl)
+    const sha = await resolveGitHubCommitSha(path.owner, path.repo, arg.ref, deps.packageVersion, fetchImpl, deps.githubDeadlines)
     const verified = entry.verified?.sha === sha ? entry.verified : null
     const facts = verified ? verified.facts : sha === entry.source?.sha ? entry.source.facts : null
     return { ...base, ...path, ref: arg.ref, sha, verified: verified !== null, facts, shaFromIndex: false }
@@ -145,8 +148,8 @@ export async function selectTemplateSha(
   if (arg.kind !== 'repo') {
     throw new Error(`No template with slug "${arg.slug}".`)
   }
-  const ref = arg.ref ?? await resolveGitHubDefaultBranch(arg.owner, arg.repo, deps.packageVersion, fetchImpl)
-  const sha = await resolveGitHubCommitSha(arg.owner, arg.repo, ref, deps.packageVersion, fetchImpl)
+  const ref = arg.ref ?? await resolveGitHubDefaultBranch(arg.owner, arg.repo, deps.packageVersion, fetchImpl, deps.githubDeadlines)
+  const sha = await resolveGitHubCommitSha(arg.owner, arg.repo, ref, deps.packageVersion, fetchImpl, deps.githubDeadlines)
   return { ...base, owner: arg.owner, repo: arg.repo, ref, sha, verified: false, facts: null, shaFromIndex: false }
 }
 
@@ -226,11 +229,11 @@ export function describeTemplateSelection(selection: TemplateSelection): Templat
  */
 export async function downloadSelectedTemplate(
   selection: TemplateSelection,
-  deps: Pick<TemplateResolveDeps, 'packageVersion' | 'fetchImpl'>,
+  deps: Pick<TemplateResolveDeps, 'packageVersion' | 'fetchImpl' | 'githubDeadlines'>,
 ): Promise<DownloadedArchive> {
   const fetchImpl = deps.fetchImpl ?? fetch
   const { owner, repo, sha } = selection
-  const download = await downloadRepositoryTarball(owner, repo, sha, deps.packageVersion, fetchImpl)
+  const download = await downloadRepositoryTarball(owner, repo, sha, deps.packageVersion, fetchImpl, deps.githubDeadlines)
   if (download.status === 'ok') return download.archive
 
   if (!selection.shaFromIndex) {
@@ -239,7 +242,7 @@ export async function downloadSelectedTemplate(
   let ref = selection.ref
   if (!ref) {
     try {
-      ref = await resolveGitHubDefaultBranch(owner, repo, deps.packageVersion, fetchImpl)
+      ref = await resolveGitHubDefaultBranch(owner, repo, deps.packageVersion, fetchImpl, deps.githubDeadlines)
     } catch {
       ref = null
     }

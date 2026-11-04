@@ -1,5 +1,6 @@
 import { existsSync, lstatSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { Node, Project, SyntaxKind } from 'ts-morph'
 
 export const NPM_CORE_DIST_TAGS_URL = 'https://registry.npmjs.org/-/package/@open-mercato/core/dist-tags'
 export const NPM_TIMEOUT_MS = 4000
@@ -83,13 +84,114 @@ export function readPinnedCoreVersion(appDir: string, manifestOpenMercato: strin
 
 /**
  * Whether a downloaded app depends on `@open-mercato/enterprise`: resolved in `yarn.lock`, or listed in
- * `package.json` when the app has no `yarn.lock`.
+ * `package.json` when the app has no `yarn.lock`. Recorded only: the dependency alone never means the app needs an
+ * Enterprise license (umbrella D5, revision 7).
  */
 export function requiresEnterpriseFromLockfile(appDir: string): boolean {
   const lockLines = readLockfileLines(appDir)
   if (lockLines) return lockLines.some((line) => ENTERPRISE_RESOLUTION.test(line))
   const pkg = readPackageJson(appDir)
   return pkg !== null && dependencyRange(pkg, '@open-mercato/enterprise') !== null
+}
+
+export const ENTERPRISE_PACKAGE = '@open-mercato/enterprise'
+
+/**
+ * The `@open-mercato/enterprise` registrations of `src/modules.ts`. `unconditional` lists modules registered on every
+ * start; `conditional` lists modules behind a condition (an `if`, a ternary, `&&`, `||` or `??`), such as the stock
+ * scaffold's `OM_ENABLE_ENTERPRISE_MODULES`. `unreadable` means the file is missing or a reference to the package
+ * is neither kind, for example inside a function or a loop, or kept in another binding that may be added later.
+ */
+export type EnterpriseRegistrations =
+  | { status: 'read'; unconditional: string[]; conditional: string[] }
+  | { status: 'unreadable' }
+
+const CONDITIONAL_OPERATORS = new Set([
+  SyntaxKind.AmpersandAmpersandToken,
+  SyntaxKind.BarBarToken,
+  SyntaxKind.QuestionQuestionToken,
+])
+
+/**
+ * A top-level statement that registers what it holds on every start: the `enabledModules` declaration, or an
+ * expression such as `enabledModules.push(...)`. A literal kept in another binding may be added later under a
+ * condition, so it is not followed.
+ */
+function registersUnconditionally(statement: Node): boolean {
+  if (Node.isExpressionStatement(statement)) return true
+  if (!Node.isVariableStatement(statement)) return false
+  const declarations = statement.getDeclarations()
+  return declarations.length === 1 && declarations[0].getName() === 'enabledModules'
+}
+
+/** Where a registration object sits: on every start, behind a condition, or somewhere this reader does not follow. */
+function registrationPlacement(objectLiteral: Node): 'unconditional' | 'conditional' | 'unknown' {
+  let child: Node = objectLiteral
+  let conditional = false
+  for (let parent = child.getParent(); parent; child = parent, parent = parent.getParent()) {
+    if (Node.isSourceFile(parent)) {
+      if (conditional) return 'conditional'
+      return registersUnconditionally(child) ? 'unconditional' : 'unknown'
+    }
+    if (Node.isIfStatement(parent)) {
+      if (child === parent.getExpression()) return 'unknown'
+      conditional = true
+    } else if (Node.isConditionalExpression(parent)) {
+      if (child === parent.getCondition()) return 'unknown'
+      conditional = true
+    } else if (Node.isBinaryExpression(parent) && CONDITIONAL_OPERATORS.has(parent.getOperatorToken().getKind())) {
+      if (child === parent.getLeft()) return 'unknown'
+      conditional = true
+    } else if (
+      Node.isFunctionLikeDeclaration(parent)
+      || Node.isIterationStatement(parent)
+      || Node.isTryStatement(parent)
+      || Node.isCatchClause(parent)
+      || Node.isSwitchStatement(parent)
+    ) {
+      return 'unknown'
+    }
+  }
+  return 'unknown'
+}
+
+/**
+ * Reads the `@open-mercato/enterprise` registrations of `<appDir>/src/modules.ts` with the TypeScript AST, without
+ * running it. Every string equal to the package name must be the `from` of an object literal with a string `id`;
+ * anything else makes the file `unreadable`, so a caller never treats an unfollowed registration as absent.
+ */
+export function readEnterpriseRegistrations(appDir: string): EnterpriseRegistrations {
+  const content = readRegularFile(join(appDir, 'src', 'modules.ts'))
+  if (content === null) return { status: 'unreadable' }
+  try {
+    const project = new Project({ useInMemoryFileSystem: true })
+    const sourceFile = project.createSourceFile('modules.ts', content)
+    const unconditional: string[] = []
+    const conditional: string[] = []
+    const references = sourceFile
+      .getDescendants()
+      .filter((node) => (Node.isStringLiteral(node) || Node.isNoSubstitutionTemplateLiteral(node)) && node.getLiteralText() === ENTERPRISE_PACKAGE)
+    for (const reference of references) {
+      const property = reference.getParent()
+      if (!property || !Node.isPropertyAssignment(property) || property.getName() !== 'from' || property.getInitializer() !== reference) {
+        return { status: 'unreadable' }
+      }
+      const objectLiteral = property.getParent()
+      if (!objectLiteral || !Node.isObjectLiteralExpression(objectLiteral)) return { status: 'unreadable' }
+      const idProperty = objectLiteral.getProperty('id')
+      const idValue = idProperty && Node.isPropertyAssignment(idProperty) ? idProperty.getInitializer() : undefined
+      if (!idValue || !(Node.isStringLiteral(idValue) || Node.isNoSubstitutionTemplateLiteral(idValue))) {
+        return { status: 'unreadable' }
+      }
+      const placement = registrationPlacement(objectLiteral)
+      if (placement === 'unknown') return { status: 'unreadable' }
+      const list = placement === 'unconditional' ? unconditional : conditional
+      if (!list.includes(idValue.getLiteralText())) list.push(idValue.getLiteralText())
+    }
+    return { status: 'read', unconditional, conditional }
+  } catch {
+    return { status: 'unreadable' }
+  }
 }
 
 type DistTagsResponse = { ok: boolean; json(): Promise<unknown> }
@@ -148,7 +250,32 @@ export function compatibilityNotice(input: {
 export const ENTERPRISE_NOTICE =
   'This template depends on @open-mercato/enterprise, which needs an Open Mercato Enterprise license.'
 
-/** The Enterprise notice (umbrella D5), or null. */
-export function enterpriseNotice(requiresEnterprise: boolean): string | null {
-  return requiresEnterprise ? ENTERPRISE_NOTICE : null
+/**
+ * What decides the Enterprise notice (umbrella D5, revision 7): the catalog's computed mark when the selected sha has
+ * facts, else the app's own `src/modules.ts` registrations and its dependency on `@open-mercato/enterprise`.
+ */
+/** Module ids printed in the notice; an archive is untrusted, so anything else is left out of the terminal. */
+const SAFE_MODULE_ID = /^[A-Za-z0-9_-]{1,64}$/u
+
+export type EnterpriseEvidence =
+  | { source: 'catalog'; requiresEnterprise: boolean }
+  | { source: 'app'; dependency: boolean; registrations: EnterpriseRegistrations }
+
+/**
+ * The Enterprise notice, or null. Catalog facts decide alone. Without them, an unconditional enterprise module asserts
+ * the license, conditional ones (the stock scaffold's `OM_ENABLE_ENTERPRISE_MODULES`) and a dependency alone do not,
+ * and a dependency with registrations this reader cannot follow says the license could not be confirmed.
+ */
+export function enterpriseNotice(evidence: EnterpriseEvidence): string | null {
+  if (evidence.source === 'catalog') return evidence.requiresEnterprise ? ENTERPRISE_NOTICE : null
+  const { registrations, dependency } = evidence
+  if (registrations.status === 'read') {
+    if (registrations.unconditional.length === 0) return null
+    const ids = registrations.unconditional.every((id) => SAFE_MODULE_ID.test(id))
+      ? ` (${registrations.unconditional.join(', ')})`
+      : ''
+    return `This template registers Enterprise modules on every start${ids}, which need an Open Mercato Enterprise license.`
+  }
+  if (!dependency) return null
+  return 'This template depends on @open-mercato/enterprise and may need an Open Mercato Enterprise license. That could not be confirmed: src/modules.ts could not be read for unconditional Enterprise modules.'
 }

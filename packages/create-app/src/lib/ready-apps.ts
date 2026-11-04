@@ -277,14 +277,110 @@ async function performGitHubRequest(
   repo: string,
   packageVersion: string,
   fetchImpl: FetchLike,
+  signal?: AbortSignal,
 ): Promise<Response> {
   try {
     return await fetchImpl(url, {
       headers: buildGitHubHeaders(packageVersion),
       redirect: 'follow',
+      ...(signal ? { signal } : {}),
     })
   } catch (error) {
     throw buildNetworkError(owner, repo, error)
+  }
+}
+
+/** Deadlines for the GitHub operations of `--template`; every value is in milliseconds. */
+export type GitHubDeadlines = {
+  /** One API request: headers and JSON body, and the headers of a tarball. */
+  requestTimeoutMs?: number
+  /** A tarball body that delivers no bytes for this long is abandoned. */
+  archiveIdleTimeoutMs?: number
+  /** A whole tarball download, headers and body. */
+  archiveTimeoutMs?: number
+}
+
+export const GITHUB_REQUEST_TIMEOUT_MS = 15_000
+export const GITHUB_ARCHIVE_IDLE_TIMEOUT_MS = 30_000
+export const GITHUB_ARCHIVE_TIMEOUT_MS = 10 * 60_000
+
+type OperationDeadline = {
+  signal: AbortSignal
+  /** Restarts the stall timer: the operation is aborted when it is not called again within `ms`. */
+  stallAfter(ms: number): void
+  clear(): void
+}
+
+function startDeadline(totalMs: number): OperationDeadline {
+  const controller = new AbortController()
+  const total = setTimeout(() => controller.abort(), totalMs)
+  let stall: ReturnType<typeof setTimeout> | undefined
+  return {
+    signal: controller.signal,
+    stallAfter(ms) {
+      clearTimeout(stall)
+      stall = setTimeout(() => controller.abort(), ms)
+    },
+    clear() {
+      clearTimeout(total)
+      clearTimeout(stall)
+    },
+  }
+}
+
+function buildTimeoutError(owner: string, repo: string, action: string): Error {
+  return new Error(`GitHub did not answer in time while ${action} ${owner}/${repo}. Check network access and retry.`)
+}
+
+/** Settles with `work`, or rejects with the timeout error once the deadline aborts, whatever the fetch implementation does with the signal. */
+async function withinDeadline<T>(work: Promise<T>, deadline: OperationDeadline, timeoutError: () => Error): Promise<T> {
+  const { signal } = deadline
+  if (signal.aborted) throw timeoutError()
+  let onAbort: () => void = () => undefined
+  const aborted = new Promise<never>((_, reject) => {
+    onAbort = () => reject(timeoutError())
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
+  try {
+    return await Promise.race([work, aborted])
+  } catch (error) {
+    throw signal.aborted ? timeoutError() : error
+  } finally {
+    signal.removeEventListener('abort', onAbort)
+  }
+}
+
+/**
+ * One API request under its own deadline, covering the headers and the JSON body. A status in `passthrough` returns
+ * without a payload; any other failure throws the GitHub request error.
+ */
+async function requestGitHubJson(
+  url: string,
+  target: { owner: string; repo: string; action: string },
+  packageVersion: string,
+  fetchImpl: FetchLike,
+  timeoutMs: number,
+  passthrough: readonly number[] = [],
+): Promise<{ status: number; payload: unknown }> {
+  const { owner, repo, action } = target
+  const deadline = startDeadline(timeoutMs)
+  const timeoutError = () => buildTimeoutError(owner, repo, action)
+  try {
+    const response = await withinDeadline(
+      performGitHubRequest(url, owner, repo, packageVersion, fetchImpl, deadline.signal),
+      deadline,
+      timeoutError,
+    )
+    if (passthrough.includes(response.status)) {
+      await response.body?.cancel().catch(() => undefined)
+      return { status: response.status, payload: null }
+    }
+    if (!response.ok) {
+      throw await withinDeadline(buildGitHubRequestError(response, owner, repo, action), deadline, timeoutError)
+    }
+    return { status: response.status, payload: await withinDeadline(response.json() as Promise<unknown>, deadline, timeoutError) }
+  } finally {
+    deadline.clear()
   }
 }
 
@@ -293,24 +389,40 @@ async function fetchGitHubRepositoryInfo(
   repo: string,
   packageVersion: string,
   fetchImpl: FetchLike,
+  timeoutMs?: number,
 ): Promise<GitHubRepositoryInfo | null> {
-  const response = await performGitHubRequest(
-    buildGitHubRepoApiUrl(owner, repo),
-    owner,
-    repo,
-    packageVersion,
-    fetchImpl,
-  )
+  let payload: { default_branch?: unknown }
+  if (timeoutMs === undefined) {
+    const response = await performGitHubRequest(
+      buildGitHubRepoApiUrl(owner, repo),
+      owner,
+      repo,
+      packageVersion,
+      fetchImpl,
+    )
 
-  if (response.status === 404) {
-    return null
+    if (response.status === 404) {
+      return null
+    }
+
+    if (!response.ok) {
+      throw await buildGitHubRequestError(response, owner, repo, 'inspecting')
+    }
+
+    payload = (await response.json()) as { default_branch?: unknown }
+  } else {
+    const result = await requestGitHubJson(
+      buildGitHubRepoApiUrl(owner, repo),
+      { owner, repo, action: 'inspecting' },
+      packageVersion,
+      fetchImpl,
+      timeoutMs,
+      [404],
+    )
+    if (result.status === 404) return null
+    payload = (result.payload ?? {}) as { default_branch?: unknown }
   }
 
-  if (!response.ok) {
-    throw await buildGitHubRequestError(response, owner, repo, 'inspecting')
-  }
-
-  const payload = (await response.json()) as { default_branch?: unknown }
   const defaultBranch =
     typeof payload.default_branch === 'string' && payload.default_branch.trim().length > 0
       ? payload.default_branch
@@ -323,14 +435,19 @@ async function fetchGitHubRepositoryInfo(
   return { defaultBranch }
 }
 
-/** The default branch of a repository; a missing or hidden repository gets the access error with the token hint. */
+/**
+ * The default branch of a repository; a missing or hidden repository gets the access error with the token hint.
+ * Headers and body share one deadline (`requestTimeoutMs`).
+ */
 export async function resolveGitHubDefaultBranch(
   owner: string,
   repo: string,
   packageVersion: string,
   fetchImpl: FetchLike = fetch,
+  deadlines: GitHubDeadlines = {},
 ): Promise<string> {
-  const repoInfo = await fetchGitHubRepositoryInfo(owner, repo, packageVersion, fetchImpl)
+  const timeoutMs = deadlines.requestTimeoutMs ?? GITHUB_REQUEST_TIMEOUT_MS
+  const repoInfo = await fetchGitHubRepositoryInfo(owner, repo, packageVersion, fetchImpl, timeoutMs)
   if (!repoInfo) {
     throw buildRepoAccessError(owner, repo)
   }
@@ -338,25 +455,31 @@ export async function resolveGitHubDefaultBranch(
   return repoInfo.defaultBranch
 }
 
-/** The commit sha a branch, tag or sha points to, read from `GET /repos/{owner}/{repo}/commits/{ref}`. */
+/**
+ * The commit sha a branch, tag or sha points to, read from `GET /repos/{owner}/{repo}/commits/{ref}`. Each request
+ * has its own deadline (`requestTimeoutMs`) over headers and body.
+ */
 export async function resolveGitHubCommitSha(
   owner: string,
   repo: string,
   ref: string,
   packageVersion: string,
   fetchImpl: FetchLike = fetch,
+  deadlines: GitHubDeadlines = {},
 ): Promise<string> {
-  const response = await performGitHubRequest(
+  const timeoutMs = deadlines.requestTimeoutMs ?? GITHUB_REQUEST_TIMEOUT_MS
+  // GitHub answers 422 for a ref that names no commit and 404 for a missing repository or ref.
+  const { status, payload } = await requestGitHubJson(
     `${buildGitHubRepoApiUrl(owner, repo)}/commits/${encodeURIComponent(ref)}`,
-    owner,
-    repo,
+    { owner, repo, action: 'resolving a ref of' },
     packageVersion,
     fetchImpl,
+    timeoutMs,
+    [404, 422],
   )
 
-  // GitHub answers 422 for a ref that names no commit and 404 for a missing repository or ref.
-  if (response.status === 404 || response.status === 422) {
-    const repoInfo = await fetchGitHubRepositoryInfo(owner, repo, packageVersion, fetchImpl)
+  if (status === 404 || status === 422) {
+    const repoInfo = await fetchGitHubRepositoryInfo(owner, repo, packageVersion, fetchImpl, timeoutMs)
     if (!repoInfo) {
       throw buildRepoAccessError(owner, repo)
     }
@@ -364,23 +487,21 @@ export async function resolveGitHubCommitSha(
     throw new Error(`Ref not found: ${owner}/${repo}#${ref}. Check that the branch, tag or commit exists.`)
   }
 
-  if (!response.ok) {
-    throw await buildGitHubRequestError(response, owner, repo, 'resolving a ref of')
-  }
-
-  const payload = (await response.json()) as { sha?: unknown }
-  if (typeof payload.sha !== 'string' || !/^[0-9a-f]{40}$/iu.test(payload.sha)) {
+  const sha = typeof payload === 'object' && payload !== null && 'sha' in payload ? payload.sha : null
+  if (typeof sha !== 'string' || !/^[0-9a-f]{40}$/iu.test(sha)) {
     throw new Error(`GitHub did not return a commit sha for ${owner}/${repo}#${ref}.`)
   }
 
-  return payload.sha.toLowerCase()
+  return sha.toLowerCase()
 }
 
 export type RepositoryTarballDownload = { status: 'ok'; archive: DownloadedArchive } | { status: 'not-found' }
 
 /**
  * The tarball of one commit, `GET /repos/{owner}/{repo}/tarball/{sha}`. A 404 is returned as `not-found` when the
- * repository itself is still reachable, so the caller can explain a commit that is gone.
+ * repository itself is still reachable, so the caller can explain a commit that is gone. The headers must arrive
+ * within `requestTimeoutMs`, the body may not stall for `archiveIdleTimeoutMs`, and the whole download ends at
+ * `archiveTimeoutMs`; a timed-out download leaves no partial file.
  */
 export async function downloadRepositoryTarball(
   owner: string,
@@ -388,29 +509,46 @@ export async function downloadRepositoryTarball(
   sha: string,
   packageVersion: string,
   fetchImpl: FetchLike = fetch,
+  deadlines: GitHubDeadlines = {},
 ): Promise<RepositoryTarballDownload> {
-  const response = await performGitHubRequest(
-    buildGitHubTarballApiUrl(owner, repo, sha),
-    owner,
-    repo,
-    packageVersion,
-    fetchImpl,
-  )
-
-  if (response.ok) {
-    return { status: 'ok', archive: await readCappedBody(response, `${owner}/${repo}`) }
-  }
-
-  if (response.status === 404) {
-    const repoInfo = await fetchGitHubRepositoryInfo(owner, repo, packageVersion, fetchImpl)
-    if (!repoInfo) {
-      throw buildRepoAccessError(owner, repo)
+  const requestTimeoutMs = deadlines.requestTimeoutMs ?? GITHUB_REQUEST_TIMEOUT_MS
+  const idleTimeoutMs = deadlines.archiveIdleTimeoutMs ?? GITHUB_ARCHIVE_IDLE_TIMEOUT_MS
+  const action = 'downloading tarball for'
+  const timeoutError = () => buildTimeoutError(owner, repo, action)
+  const deadline = startDeadline(deadlines.archiveTimeoutMs ?? GITHUB_ARCHIVE_TIMEOUT_MS)
+  try {
+    deadline.stallAfter(requestTimeoutMs)
+    const response = await withinDeadline(
+      performGitHubRequest(buildGitHubTarballApiUrl(owner, repo, sha), owner, repo, packageVersion, fetchImpl, deadline.signal),
+      deadline,
+      timeoutError,
+    )
+    if (response.ok) {
+      deadline.stallAfter(idleTimeoutMs)
+      try {
+        const archive = await readCappedBody(response, `${owner}/${repo}`, undefined, {
+          signal: deadline.signal,
+          onChunk: () => deadline.stallAfter(idleTimeoutMs),
+        })
+        return { status: 'ok', archive }
+      } catch (error) {
+        throw deadline.signal.aborted ? timeoutError() : error
+      }
     }
-
-    return { status: 'not-found' }
+    if (response.status !== 404) {
+      throw await withinDeadline(buildGitHubRequestError(response, owner, repo, action), deadline, timeoutError)
+    }
+    await response.body?.cancel().catch(() => undefined)
+  } finally {
+    deadline.clear()
   }
 
-  throw await buildGitHubRequestError(response, owner, repo, 'downloading tarball for')
+  const repoInfo = await fetchGitHubRepositoryInfo(owner, repo, packageVersion, fetchImpl, requestTimeoutMs)
+  if (!repoInfo) {
+    throw buildRepoAccessError(owner, repo)
+  }
+
+  return { status: 'not-found' }
 }
 
 /** Printed when `--app <name>` finds no official repo (Templates umbrella spec, A8). */

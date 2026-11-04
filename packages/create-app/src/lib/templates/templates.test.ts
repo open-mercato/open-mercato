@@ -21,7 +21,7 @@ import {
   parseTemplateArg,
   resolveTemplateSelection,
 } from './resolve-template.js'
-import { NPM_CORE_DIST_TAGS_URL, compatibilityNotice, lineOf } from './compat.js'
+import { NPM_CORE_DIST_TAGS_URL, compatibilityNotice, enterpriseNotice, lineOf, readEnterpriseRegistrations } from './compat.js'
 import { finalizeTemplateApp, printTemplateImportNextSteps, readTemplateManifest } from './finalize.js'
 import { scaffoldFromTemplate } from './template-step.js'
 import type { TemplatesFetch, TemplatesIndex } from './types.js'
@@ -34,6 +34,21 @@ const SHA_VERIFIED = '2222222222222222222222222222222222222222'
 const SHA_B2B = '3333333333333333333333333333333333333333'
 const SHA_OTHER = 'abcdefabcdefabcdefabcdefabcdefabcdefabcd'
 const DEPS = { indexUrl: DEFAULT_TEMPLATES_URL, packageVersion: '0.10.0', timeoutMs: 50 }
+
+/** False when this platform can create symbolic links, else the reason the link fixtures are skipped. */
+function symlinkSkipReason(): string | false {
+  const dir = mkdtempSync(join(tmpdir(), 'om-symlink-probe-'))
+  try {
+    symlinkSync('target', join(dir, 'link'))
+    return false
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code ?? String(error)
+    return `this platform cannot create symbolic links (${code}); on Windows enable Developer Mode or run as administrator`
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+const SYMLINKS = { skip: symlinkSkipReason() }
 
 const scratchDirs: string[] = []
 const scratchDir = (prefix = 'om-templates-') => {
@@ -692,7 +707,7 @@ test('main prints owner/repo@sha and its verification before downloading the sel
   assert.ok(!output.some((line) => line.includes('Agent pipeline')), 'no agentic setup for an app template')
 })
 
-test('main refuses a template archive with a symbolic link before creating the target directory', async () => {
+test('main refuses a template archive with a symbolic link before creating the target directory', SYMLINKS, async () => {
   const archive = await createGitHubStyleTarball({ 'package.json': '{"name":"crm-template"}\n' }, { 'src/escape': '/etc' })
   const { fetchImpl } = mockFetch(indexRoute(), tarballRoute('acme/crm-template', SHA_VERIFIED, () => new Response(archive)))
   const cwd = scratchDir()
@@ -709,7 +724,7 @@ test('main removes the target directory it created when a template import fails 
   const cwd = scratchDir()
   await assert.rejects(
     runMain(['crm-app', '--template', 'crm', '--skip-agentic-setup', '--no-init-git'], fetchImpl, cwd),
-    /must be committed source snapshots\. Found \.template files: src\/page\.tsx\.template/,
+    /must be committed source snapshots\. Found \.template files: src[\\/]page\.tsx\.template/,
   )
   assert.equal(existsSync(join(cwd, 'crm-app')), false)
 })
@@ -863,25 +878,118 @@ test('with npm unreachable, catalog linesBehind decides; without catalog facts t
   ])
 })
 
-test('the Enterprise notice comes from the catalog facts, else from the lockfile or package.json', async () => {
+const STOCK_MODULES_TS = readFileSync(join(__dirname, '..', '..', '..', 'template', 'src', 'modules.ts'), 'utf8')
+const modulesTs = (body: string) => [
+  "type ModuleEntry = { id: string; from?: string }",
+  "export const enabledModules: ModuleEntry[] = [",
+  "  { id: 'auth', from: '@open-mercato/core' },",
+  "]",
+  body,
+].join('\n')
+const ENTERPRISE_NOTICE = 'This template depends on @open-mercato/enterprise, which needs an Open Mercato Enterprise license.'
+const UNCONFIRMED_NOTICE =
+  'This template depends on @open-mercato/enterprise and may need an Open Mercato Enterprise license. That could not be confirmed: src/modules.ts could not be read for unconditional Enterprise modules.'
+
+test('the stock scaffold gates every Enterprise module behind OM_ENABLE_ENTERPRISE_MODULES', () => {
+  const dir = scratchDir()
+  mkdirSync(join(dir, 'src'))
+  writeFileSync(join(dir, 'src', 'modules.ts'), STOCK_MODULES_TS)
+  const registrations = readEnterpriseRegistrations(dir)
+  assert.equal(registrations.status, 'read')
+  assert.ok(registrations.status === 'read')
+  assert.deepEqual(registrations.unconditional, [])
+  assert.ok(registrations.conditional.includes('record_locks'), registrations.conditional.join(', '))
+  assert.ok(registrations.conditional.includes('sso'), registrations.conditional.join(', '))
+})
+
+test('readEnterpriseRegistrations tells unconditional from conditional registrations and refuses what it cannot follow', () => {
+  const read = (body: string) => {
+    const dir = scratchDir()
+    mkdirSync(join(dir, 'src'))
+    writeFileSync(join(dir, 'src', 'modules.ts'), modulesTs(body))
+    return readEnterpriseRegistrations(dir)
+  }
+  const entry = (id: string) => `{ id: '${id}', from: '@open-mercato/enterprise' }`
+  assert.deepEqual(read(''), { status: 'read', unconditional: [], conditional: [] })
+  assert.deepEqual(read(`// ${entry('commented')}\nenabledModules.push(${entry('record_locks')})`), {
+    status: 'read',
+    unconditional: ['record_locks'],
+    conditional: [],
+  })
+  assert.deepEqual(
+    read(`enabledModules.push({ id: 'base', from: '@open-mercato/core' }, ${entry('second_push')})`),
+    { status: 'read', unconditional: ['second_push'], conditional: [] },
+  )
+  assert.deepEqual(
+    read([
+      "const on = process.env.OM_ENABLE_ENTERPRISE_MODULES === 'true'",
+      `if (on) { enabledModules.push(${entry('if_then')}) } else { enabledModules.push(${entry('if_else')}) }`,
+      `enabledModules.push(...(on ? [${entry('ternary')}] : []))`,
+      `on && enabledModules.push(${entry('and')})`,
+    ].join('\n')),
+    { status: 'read', unconditional: [], conditional: ['if_then', 'if_else', 'ternary', 'and'] },
+  )
+  for (const unreadable of [
+    `function add() { enabledModules.push(${entry('in_function')}) }`,
+    `for (const id of ['a']) enabledModules.push(${entry('in_loop')})`,
+    "enabledModules.push(...enterpriseEntries)\nconst pkg = '@open-mercato/enterprise'",
+    `const later = [${entry('kept_aside')}]\nif (process.env.OM_X) enabledModules.push(...later)`,
+    "enabledModules.push({ id: moduleId, from: '@open-mercato/enterprise' })",
+    `if (${entry('in_condition')}.id) {}`,
+  ]) {
+    assert.deepEqual(read(unreadable), { status: 'unreadable' }, unreadable)
+  }
+  assert.deepEqual(readEnterpriseRegistrations(scratchDir()), { status: 'unreadable' }, 'no src/modules.ts')
+})
+
+test('enterpriseNotice prints only safe module ids from an archive', () => {
+  assert.equal(
+    enterpriseNotice({ source: 'app', dependency: true, registrations: { status: 'read', unconditional: ['sso', 'record_locks'], conditional: [] } }),
+    'This template registers Enterprise modules on every start (sso, record_locks), which need an Open Mercato Enterprise license.',
+  )
+  assert.equal(
+    enterpriseNotice({ source: 'app', dependency: true, registrations: { status: 'read', unconditional: ['x\u001b[31m'], conditional: [] } }),
+    'This template registers Enterprise modules on every start, which need an Open Mercato Enterprise license.',
+  )
+  assert.equal(enterpriseNotice({ source: 'catalog', requiresEnterprise: true }), ENTERPRISE_NOTICE)
+  assert.equal(enterpriseNotice({ source: 'catalog', requiresEnterprise: false }), null)
+})
+
+test('without catalog facts the Enterprise notice keys on unconditional registrations, never on the dependency alone', async () => {
   const routes = [npmRoute('0.10.0'), repoRoute('agency/shop'), commitRoute('agency/shop', 'main', SHA_UNLISTED)]
-  const notice = 'This template depends on @open-mercato/enterprise, which needs an Open Mercato Enterprise license.'
-  const fromLock = await runTemplateStep('agency/shop', { 'package.json': appPackageJson(), 'yarn.lock': lockfile('0.10.0', ENTERPRISE_LOCK) }, routes)
-  assert.deepEqual(fromLock.warnings, [notice])
+  const enterpriseLock = { 'package.json': appPackageJson(), 'yarn.lock': lockfile('0.10.0', ENTERPRISE_LOCK) }
+
+  const stock = await runTemplateStep('agency/shop', { ...enterpriseLock, 'src/modules.ts': STOCK_MODULES_TS }, routes)
+  assert.deepEqual(stock.warnings, [], 'the stock scaffold depends on @open-mercato/enterprise behind OM_ENABLE_ENTERPRISE_MODULES')
+
+  const dependencyOnly = await runTemplateStep('agency/shop', { ...enterpriseLock, 'src/modules.ts': modulesTs('') }, routes)
+  assert.deepEqual(dependencyOnly.warnings, [], 'a dependency with no registered Enterprise module is not marked')
+
+  const unconditional = await runTemplateStep('agency/shop', {
+    ...enterpriseLock,
+    'src/modules.ts': modulesTs("enabledModules.push({ id: 'record_locks', from: '@open-mercato/enterprise' })"),
+  }, routes)
+  assert.deepEqual(unconditional.warnings, [
+    'This template registers Enterprise modules on every start (record_locks), which need an Open Mercato Enterprise license.',
+  ])
+
+  const unreadable = await runTemplateStep('agency/shop', {
+    'package.json': appPackageJson('0.10.0', { devDependencies: { '@open-mercato/enterprise': '0.10.0' } }),
+    'src/modules.ts': modulesTs("function later() { enabledModules.push({ id: 'sso', from: '@open-mercato/enterprise' }) }"),
+  }, routes)
+  assert.deepEqual(unreadable.warnings, [UNCONFIRMED_NOTICE], 'an unfollowed registration is reported as unconfirmed, not asserted')
+
+  const noModulesFile = await runTemplateStep('agency/shop', enterpriseLock, routes)
+  assert.deepEqual(noModulesFile.warnings, [UNCONFIRMED_NOTICE])
 
   const lockWithout = await runTemplateStep('agency/shop', {
     'package.json': appPackageJson('0.10.0', { devDependencies: { '@open-mercato/enterprise': '0.10.0' } }),
     'yarn.lock': lockfile('0.10.0'),
   }, routes)
-  assert.deepEqual(lockWithout.warnings, [], 'yarn.lock decides when it exists')
-
-  const fromPackage = await runTemplateStep('agency/shop', {
-    'package.json': appPackageJson('0.10.0', { devDependencies: { '@open-mercato/enterprise': '0.10.0' } }),
-  }, routes)
-  assert.deepEqual(fromPackage.warnings, [notice])
+  assert.deepEqual(lockWithout.warnings, [], 'yarn.lock decides the dependency when it exists')
 
   const fromFacts = await runTemplateStep('b2b-portal', { 'package.json': appPackageJson('0.10.0') }, [npmRoute('0.9.0'), repoRoute('acme/b2b-portal')])
-  assert.deepEqual(fromFacts.warnings, [notice])
+  assert.deepEqual(fromFacts.warnings, [ENTERPRISE_NOTICE], 'catalog facts decide alone')
 })
 
 test('compatibilityNotice compares lines and names the source', () => {
