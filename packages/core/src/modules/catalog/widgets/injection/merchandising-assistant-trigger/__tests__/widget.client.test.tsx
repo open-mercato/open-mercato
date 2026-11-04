@@ -80,6 +80,25 @@ describe('catalog MerchandisingAssistantTriggerWidget', () => {
     await waitFor(() => expect(mockApiCall).toHaveBeenCalledTimes(1))
     expect(screen.queryByRole('button', { name: /open ai merchandising assistant/i })).toBeNull()
   })
+
+  it('keeps the selected-products counter inside the trigger layout', async () => {
+    render(
+      <MerchandisingAssistantTriggerWidget
+        context={{
+          totalMatching: 7,
+          filters: {},
+          selectedRowIds: ['product-1', 'product-2', 'product-3', 'product-4'],
+        }}
+      />,
+    )
+
+    const trigger = await screen.findByRole('button', { name: /open ai merchandising assistant/i })
+    const counter = trigger.querySelector('[data-ai-merchandising-selected-count="4"]')
+
+    expect(counter).toBeTruthy()
+    expect(counter).toHaveClass('inline-flex', 'text-xs')
+    expect(counter).not.toHaveClass('absolute', '-top-1', '-right-1')
+  })
 })
 
 describe('catalog computeCatalogMerchandisingPageContext (Step 5.15)', () => {
