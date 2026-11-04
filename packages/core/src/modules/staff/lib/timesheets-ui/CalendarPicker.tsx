@@ -5,24 +5,20 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { useOptionalLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react'
-import { todayInZone } from '@open-mercato/ui/primitives/date-format'
-import { useDisplayTimeZone } from '@open-mercato/ui/primitives/date-locale-settings'
 
 type CalendarPickerProps = {
   selectedWeekStart: Date
   onWeekSelect: (weekStart: Date) => void
   /**
    * Reference "now". A function is read at click time; a Date is used as rendered.
-   * Defaults to today in the configured display timezone.
+   * Defaults to `new Date()` — the browser-zone day timesheet entries are stored in.
    */
   today?: Date | (() => Date)
 }
 
-function resolveToday(today: CalendarPickerProps['today'], timeZone: string): Date {
+function resolveToday(today: CalendarPickerProps['today']): Date {
   if (typeof today === 'function') return new Date(today())
-  if (today) return new Date(today)
-  const [year, month, day] = todayInZone(timeZone).split('-').map(Number)
-  return new Date(year, month - 1, day)
+  return today ? new Date(today) : new Date()
 }
 
 function getMonday(date: Date): Date {
@@ -110,8 +106,7 @@ export function CalendarPicker({ selectedWeekStart, onWeekSelect, today: todayPr
     return new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric' }).format(new Date(viewYear, viewMonth, 1))
   }, [locale, viewYear, viewMonth])
 
-  const displayTimeZone = useDisplayTimeZone()
-  const today = resolveToday(todayProp, displayTimeZone)
+  const today = resolveToday(todayProp)
 
   const handleWeekClick = React.useCallback((monday: Date) => {
     onWeekSelect(monday)
@@ -153,7 +148,7 @@ export function CalendarPicker({ selectedWeekStart, onWeekSelect, today: todayPr
               variant="ghost"
               size="sm"
               className="h-auto px-2 py-1 text-xs"
-              onClick={() => handleWeekClick(getMonday(resolveToday(todayProp, displayTimeZone)))}
+              onClick={() => handleWeekClick(getMonday(resolveToday(todayProp)))}
             >
               {t('staff.timesheets.my.calendar.thisWeek', 'This week')}
             </Button>
@@ -163,7 +158,7 @@ export function CalendarPicker({ selectedWeekStart, onWeekSelect, today: todayPr
               size="sm"
               className="h-auto px-2 py-1 text-xs"
               onClick={() => {
-                const lastWeek = resolveToday(todayProp, displayTimeZone)
+                const lastWeek = resolveToday(todayProp)
                 lastWeek.setDate(lastWeek.getDate() - 7)
                 handleWeekClick(getMonday(lastWeek))
               }}

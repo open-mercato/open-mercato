@@ -5,7 +5,6 @@ import {
   type ComputedIntervalField,
   type IntervalInput,
 } from '../time-tracking/interval'
-import { todayInZone } from '@open-mercato/ui/primitives/date-format'
 
 export type IntervalField = 'start' | 'end' | 'duration'
 
@@ -172,16 +171,11 @@ export function shiftIsoDate(date: string, days: number): string {
   return `${shifted.getUTCFullYear()}-${month}-${day}`
 }
 
-/** Today's day in the configured display zone (the viewer's zone when none is configured). */
+/** Today's calendar day in the browser zone — the frame time entries are typed, stored and read back in. */
 export function todayIsoDate(now: Date = new Date()): string {
-  return todayInZone(undefined, now)
-}
-
-/** Local calendar day of an instant — the same frame `clockFromApiValue` reads the clock in. */
-function localIsoDate(value: Date): string {
-  const month = String(value.getMonth() + 1).padStart(2, '0')
-  const day = String(value.getDate()).padStart(2, '0')
-  return `${value.getFullYear()}-${month}-${day}`
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  return `${now.getFullYear()}-${month}-${day}`
 }
 
 /**
@@ -223,7 +217,7 @@ export function dateFromApiValue(value: unknown): string {
   if (match) return match[1]
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return ''
-  return localIsoDate(parsed)
+  return todayIsoDate(parsed)
 }
 
 export type TimeEntryRecord = {

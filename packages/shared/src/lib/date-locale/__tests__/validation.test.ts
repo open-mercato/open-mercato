@@ -111,6 +111,21 @@ describe('dateLocaleSettingsInputSchema', () => {
     )
   })
 
+  it('reports over-long values with i18n keys, not the default English message', () => {
+    const result = dateLocaleSettingsInputSchema.safeParse({
+      locale: 'x'.repeat(36),
+      timeZone: 'x'.repeat(65),
+      dateFormat: 'y'.repeat(65),
+    })
+    expect(result.success).toBe(false)
+    const messages = result.success ? {} : Object.fromEntries(result.error.issues.map((issue) => [issue.path[0], issue.message]))
+    expect(messages).toEqual({
+      locale: 'configs.dateLocale.errors.locale',
+      timeZone: 'configs.dateLocale.errors.timeZone',
+      dateFormat: 'configs.dateLocale.errors.pattern.tooLong',
+    })
+  })
+
   it('rejects a UTC offset as a tenant time zone', () => {
     expect(dateLocaleSettingsInputSchema.safeParse({ timeZone: '+01:00' }).success).toBe(false)
   })
@@ -132,5 +147,13 @@ describe('userTimeZoneSchema', () => {
 
   it('rejects an unknown zone', () => {
     expect(userTimeZoneSchema.safeParse('Mars/Olympus').success).toBe(false)
+  })
+
+  it('reports an over-long zone with the translated time zone key', () => {
+    const result = userTimeZoneSchema.safeParse('x'.repeat(65))
+    expect(result.success).toBe(false)
+    expect(new Set(result.success ? [] : result.error.issues.map((issue) => issue.message))).toEqual(
+      new Set(['auth.profile.errors.timeZone']),
+    )
   })
 })

@@ -113,9 +113,10 @@ export function parseFirstDayOfWeek(value: string | number | null | undefined): 
   return WEEKDAY_NAMES[trimmed] ?? null
 }
 
-const optionalText = (max: number) => z.string().trim().max(max).nullable().optional()
+// Length errors carry i18n keys too: the routes translate every issue message as a key.
+const optionalText = (max: number, message: string) => z.string().trim().max(max, { message }).nullable().optional()
 
-const patternField = optionalText(DATE_FORMAT_PATTERN_MAX_LENGTH).superRefine((value, ctx) => {
+const patternField = optionalText(DATE_FORMAT_PATTERN_MAX_LENGTH, 'configs.dateLocale.errors.pattern.tooLong').superRefine((value, ctx) => {
   const normalized = normalizeDateFormatPattern(value)
   if (!normalized) return
   const issue = validateDateFormatPattern(normalized)
@@ -131,13 +132,13 @@ const patternField = optionalText(DATE_FORMAT_PATTERN_MAX_LENGTH).superRefine((v
  */
 export const dateLocaleSettingsInputSchema = z
   .object({
-    locale: optionalText(35).refine((value) => !value || value === DATE_LOCALE_AUTO || canonicalizeLocale(value) !== null, {
+    locale: optionalText(35, 'configs.dateLocale.errors.locale').refine((value) => !value || value === DATE_LOCALE_AUTO || canonicalizeLocale(value) !== null, {
       message: 'configs.dateLocale.errors.locale',
     }),
     dateFormat: patternField,
     dateTimeFormat: patternField,
     timeFormat: patternField,
-    timeZone: optionalText(64).refine((value) => !value || value === DATE_LOCALE_AUTO || canonicalizeTimeZone(value) !== null, {
+    timeZone: optionalText(64, 'configs.dateLocale.errors.timeZone').refine((value) => !value || value === DATE_LOCALE_AUTO || canonicalizeTimeZone(value) !== null, {
       message: 'configs.dateLocale.errors.timeZone',
     }),
     firstDayOfWeek: z
@@ -160,7 +161,7 @@ export type NormalizedDateLocaleSettings = z.output<typeof dateLocaleSettingsInp
 export const userTimeZoneSchema = z
   .string()
   .trim()
-  .max(64)
+  .max(64, { message: 'auth.profile.errors.timeZone' })
   .nullable()
   .optional()
   .refine((value) => !value || canonicalizeTimeZone(value) !== null, { message: 'auth.profile.errors.timeZone' })

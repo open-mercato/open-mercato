@@ -19,8 +19,6 @@
  * shown is the one containing it.
  */
 
-import { todayInZone } from '@open-mercato/ui/primitives/date-format'
-
 export type TimesheetPeriodKind = 'year' | 'quarter' | 'month' | 'week'
 
 export const TIMESHEET_PERIOD_KINDS: readonly TimesheetPeriodKind[] = ['year', 'quarter', 'month', 'week']
@@ -61,9 +59,9 @@ function safeParse(value: string, fallback: Date): Date {
   return parseIsoDay(value) ?? fallback
 }
 
-/** Today's day in the configured display zone (the viewer's zone when none is configured). */
+/** Today's calendar day in the browser zone — the frame time entries are typed, stored and read back in. */
 export function todayIso(now: Date = new Date()): string {
-  return todayInZone(undefined, now)
+  return toIsoDay(now)
 }
 
 export function addDaysIso(iso: string, days: number): string {

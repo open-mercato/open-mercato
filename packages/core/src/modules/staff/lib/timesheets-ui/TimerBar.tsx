@@ -19,7 +19,6 @@ import { ProjectColorDot } from './ProjectColorDot'
 import { useActiveTimesheetTimer } from './useActiveTimesheetTimer'
 import { startTimerEntry } from './startTimer'
 import { resolveTimerActionError } from './timerErrors'
-import { todayInZone } from '@open-mercato/ui/primitives/date-format'
 
 type ProjectOption = {
   id: string
@@ -50,6 +49,15 @@ function formatElapsed(seconds: number): string {
   const m = Math.floor((seconds % 3600) / 60)
   const s = seconds % 60
   return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+}
+
+// The browser-zone day: the timer's `date` must match the clock its start instant is read back in.
+function getToday(): string {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 function DefaultTimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarProps) {
@@ -144,7 +152,7 @@ function DefaultTimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarPr
 
     setIsStarting(true)
     try {
-      const today = todayInZone()
+      const today = getToday()
       const startPayload = {
         staffMemberId,
         timeProjectId: selectedProjectId,
