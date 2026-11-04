@@ -1,4 +1,5 @@
-import { existsSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import {
   assertRegularTree,
   createTargetDirectory,
@@ -484,6 +485,17 @@ export async function downloadReadyAppSnapshot(
     source.repo,
     'downloading tarball for',
   )
+}
+
+/** The bootstrap-safe artifact every app gets, imported ones included (packages/create-app AGENTS.md, Always 7). */
+export function ensureGeneratedCssPlaceholder(targetDir: string): void {
+  const generatedDir = join(targetDir, '.mercato', 'generated')
+  const placeholderPath = join(generatedDir, 'module-package-sources.css')
+
+  mkdirSync(generatedDir, { recursive: true })
+  if (!existsSync(placeholderPath)) {
+    writeFileSync(placeholderPath, '')
+  }
 }
 
 /** `.template` files in a tree, found by the same `lstat` walk that rejects links and special files. */

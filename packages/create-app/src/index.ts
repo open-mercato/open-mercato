@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import pc from 'picocolors'
 import {
   downloadReadyAppSnapshot,
+  ensureGeneratedCssPlaceholder,
   extractTarballSnapshot,
   resolveReadyAppSource,
   type ReadyAppSource,
@@ -17,12 +18,9 @@ import { runCatalogStep, type CatalogStepOptions, type CatalogStepResult } from 
 import { parseModulesFlag } from './lib/catalog/selection.js'
 import { DEFAULT_PRESET_ID, VALID_PRESET_IDS } from './lib/starter-presets.js'
 import { resolveTemplatesUrl } from './lib/templates/fetch-templates.js'
-import {
-  describeTemplateSelection,
-  downloadSelectedTemplate,
-  parseTemplateArg,
-  resolveTemplateSelection,
-} from './lib/templates/resolve-template.js'
+import { printTemplateImportNextSteps, type TemplateNextStepsInput } from './lib/templates/finalize.js'
+import { parseTemplateArg } from './lib/templates/resolve-template.js'
+import { scaffoldFromTemplate } from './lib/templates/template-step.js'
 import type { TemplateArg } from './lib/templates/types.js'
 import { runAgenticSetup, parseAgentsValue } from './setup/wizard.js'
 
@@ -451,16 +449,6 @@ function copyDirRecursive(src: string, dest: string, placeholders: Record<string
   }
 }
 
-function ensureGeneratedCssPlaceholder(targetDir: string): void {
-  const generatedDir = join(targetDir, '.mercato', 'generated')
-  const placeholderPath = join(generatedDir, 'module-package-sources.css')
-
-  mkdirSync(generatedDir, { recursive: true })
-  if (!existsSync(placeholderPath)) {
-    writeFileSync(placeholderPath, '')
-  }
-}
-
 async function scaffoldTemplateApp(
   targetDir: string,
   placeholders: Record<string, string>,
@@ -532,30 +520,6 @@ export function resolveTemplateFlags(options: Options): TemplateArg | null {
   }
 
   return parseTemplateArg(options.template)
-}
-
-async function scaffoldImportedAppTemplate(targetDir: string, templateArg: TemplateArg, indexUrl: string): Promise<void> {
-  const deps = { indexUrl, packageVersion: PACKAGE_VERSION }
-  const selection = await resolveTemplateSelection(templateArg, deps)
-  const description = describeTemplateSelection(selection)
-  console.log(pc.bold(description.headline))
-  if (description.pageUrl) console.log(pc.dim(`Template page: ${description.pageUrl}`))
-  for (const notice of description.notices) console.log(pc.yellow(notice))
-  console.log('')
-
-  const archive = await downloadSelectedTemplate(selection, deps)
-  try {
-    // From the target mkdir on, a failure removes the directory this import created (Ready Apps amendment A-4).
-    await extractTarballSnapshot(archive.path, targetDir, {
-      removeTargetOnFailure: true,
-      afterExtract: (dir) => {
-        validateImportedReadyAppSnapshot(dir)
-        ensureGeneratedCssPlaceholder(dir)
-      },
-    })
-  } finally {
-    archive.dispose()
-  }
 }
 
 // Combine --agents (validated) and --skip-agentic-setup into a single intent.
@@ -823,8 +787,20 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     REGISTRY_CONFIG: registryConfig,
   }
 
+  let templateResult: TemplateNextStepsInput | null = null
   if (templateArg && templatesUrl) {
-    await scaffoldImportedAppTemplate(targetDir, templateArg, templatesUrl)
+    if (options.registry !== undefined || options.verdaccio) {
+      console.log(pc.yellow(
+        '--registry and --verdaccio do not apply to app templates. The app keeps the registry settings of its own .yarnrc.yml.',
+      ))
+      console.log('')
+    }
+    templateResult = await scaffoldFromTemplate(targetDir, templateArg, {
+      appName,
+      keepName: options.keepName,
+      indexUrl: templatesUrl,
+      packageVersion: PACKAGE_VERSION,
+    })
   } else if (readyAppSource) {
     console.log(pc.dim(`Ready app source: ${describeReadyAppSource(readyAppSource)}`))
     console.log('')
@@ -852,7 +828,9 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
 
   const gitResult = await maybeInitializeGitRepository(targetDir, options)
 
-  if (importsApp) {
+  if (templateResult) {
+    printTemplateImportNextSteps(templateResult)
+  } else if (importsApp) {
     printImportedReadyAppNextSteps(appName)
   } else {
     printTemplateNextSteps(appName, agenticConfigured, catalogPlan)

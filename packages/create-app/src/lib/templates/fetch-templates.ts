@@ -58,7 +58,8 @@ export function resolveTemplatesUrl(env: NodeJS.ProcessEnv = process.env): strin
   )
 }
 
-function toEnvKey(value: unknown): TemplateEnvKey | null {
+/** One declared env key (`name`, `description`, optional `link`), or null without a name. */
+export function toEnvKey(value: unknown): TemplateEnvKey | null {
   if (!isRecord(value) || !isString(value.name) || value.name.trim() === '') return null
   const key: TemplateEnvKey = { name: value.name, description: isString(value.description) ? value.description : '' }
   if (isString(value.link) && value.link.trim() !== '') key.link = value.link
