@@ -124,6 +124,49 @@ describe('PersonDetailTabs', () => {
     }
   })
 
+  it('re-measures when selecting a tab changes its width, so the strip folds at the all-fit boundary and unfolds again', () => {
+    const selectedWidth = (element: Element) => (element.textContent?.startsWith('Addresses') ? 140 : 110)
+    const widthSpy = jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.getAttribute('role') !== 'tab') return { width: 0 } as DOMRect
+      return { width: this.getAttribute('aria-selected') === 'true' ? selectedWidth(this) : 100 } as DOMRect
+    })
+    const tabCount = 8
+    const widthWithActivitiesSelected = (tabCount - 1) * 100 + 110
+    const clientWidth = Object.getOwnPropertyDescriptor(Element.prototype, 'clientWidth')
+    Object.defineProperty(Element.prototype, 'clientWidth', { configurable: true, get: () => widthWithActivitiesSelected + 1 })
+    try {
+      const onTabChange = jest.fn()
+      const { rerender } = render(
+        <PersonDetailTabs activeTab="activities" onTabChange={onTabChange}>
+          <div>content</div>
+        </PersonDetailTabs>,
+      )
+      expect(screen.getAllByRole('tab')).toHaveLength(tabCount)
+      expect(screen.queryByRole('button', { name: /^More/ })).toBeNull()
+
+      rerender(
+        <PersonDetailTabs activeTab="addresses" onTabChange={onTabChange}>
+          <div>content</div>
+        </PersonDetailTabs>,
+      )
+      expect(screen.getByRole('tab', { name: /address/i })).toHaveAttribute('aria-selected', 'true')
+      expect(screen.getAllByRole('tab').length).toBeLessThan(tabCount)
+      fireEvent.click(screen.getByRole('button', { name: /^More/ }))
+      expect(screen.getAllByRole('menuitem').length + screen.getAllByRole('tab').length).toBe(tabCount)
+
+      rerender(
+        <PersonDetailTabs activeTab="activities" onTabChange={onTabChange}>
+          <div>content</div>
+        </PersonDetailTabs>,
+      )
+      expect(screen.getAllByRole('tab')).toHaveLength(tabCount)
+      expect(screen.queryByRole('button', { name: /^More/ })).toBeNull()
+    } finally {
+      widthSpy.mockRestore()
+      if (clientWidth) Object.defineProperty(Element.prototype, 'clientWidth', clientWidth)
+    }
+  })
+
   describe('when the rail narrows without the row resizing', () => {
     type ObservedCallback = () => void
     const observed = new Map<Element, ObservedCallback[]>()
