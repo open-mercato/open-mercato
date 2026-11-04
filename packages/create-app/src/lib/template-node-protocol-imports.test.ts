@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { NextConfig } from 'next'
+import { PHASE_PRODUCTION_BUILD } from 'next/constants'
 
-import templateConfig from '../../template/next.config'
+import resolveTemplateConfig from '../../template/next.config'
+
+const templateConfig = resolveTemplateConfig(PHASE_PRODUCTION_BUILD)
 
 type WebpackConfigFn = NonNullable<NextConfig['webpack']>
 type WebpackConfigContext = Parameters<WebpackConfigFn>[1]
