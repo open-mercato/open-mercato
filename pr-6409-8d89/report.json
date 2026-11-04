@@ -1,0 +1,96 @@
+{
+  "runId": "pr6409-8d89",
+  "mode": "pr",
+  "target": {
+    "prNumber": 6409,
+    "title": "Staff timer correctness",
+    "headSha": "4b33a7ae560fd87a8925cc288fbde75f764cf27f"
+  },
+  "verdict": "FAIL",
+  "environment": {
+    "baseUrl": "http://127.0.0.1:5001",
+    "role": "owned manage-own user and owned supervisor",
+    "startedByThisRepo": true,
+    "browserProvider": "playwright",
+    "mode": "production with disposable Postgres; enterprise record-lock module enabled"
+  },
+  "scenario": [
+    {
+      "step": 0,
+      "action": "Empty owned-user timesheet with no assignments",
+      "result": "PASS",
+      "observed": "Disabled Start explained missing assignments; empty grid visible."
+    },
+    {
+      "action": "10 UI start/stop cycles with distinct notes; persisted list read after each, picker reload after first",
+      "result": "PASS",
+      "observed": "All 10 timers stopped; saved notes and project retained; note field cleared; last-started project restored after reload.",
+      "step": 1
+    },
+    {
+      "action": "Save a running note with Enter",
+      "result": "PASS",
+      "observed": "PUT succeeded; persisted entry contains edited note.",
+      "step": 2
+    },
+    {
+      "action": "10 stale saves against second owned supervisor, followed by Stop",
+      "result": "PASS",
+      "observed": "10/10 stale PUTs409, draft preserved; 10/10 Stops persisted end and supervisor note. Supervisor edit preserved every other listed field except description alias and updated_at. Secondary edits exercised through API with two distinct authenticated browser users.",
+      "step": 3
+    },
+    {
+      "action": "Manage-own boundary on direct timer endpoints (API)",
+      "result": "PASS",
+      "observed": "Attempted foreign-member start201 was safely rebound to caller own member (verified persisted owner); stopping an actual supervisor timer refused403. Both fixture timers then stopped.",
+      "step": 4
+    },
+    {
+      "action": "Cold-load owned-user timesheet",
+      "result": "PASS",
+      "observed": "Usable timer and grid shell in 1538ms.",
+      "step": 5
+    },
+    {
+      "action": "assignments read503 and UI Retry",
+      "result": "PASS",
+      "observed": "Expected fallback visible; Retry restored grid.",
+      "step": 6
+    },
+    {
+      "action": "entries read503 and UI Retry",
+      "result": "PASS",
+      "observed": "Expected fallback visible; Retry restored grid.",
+      "step": 7
+    },
+    {
+      "action": "375px viewport with a long draft",
+      "result": "FAIL",
+      "observed": "Document width 384 at viewport 375; screenshot retains grid readability evidence.",
+      "step": 8
+    },
+    {
+      "action": "English/Polish timesheet profile language switch",
+      "result": "PASS",
+      "observed": "Polski selected through UI; localized placeholder and timer controls rendered.",
+      "step": 9
+    },
+    {
+      "action": "Dashboard shared default in both directions, Start/Stop and stop-Undo",
+      "result": "PASS",
+      "observed": "Alpha started in timesheet seeded widget; selecting and starting Beta in widget then stopping seeded Beta on timesheet. Stop-Undo returned200 after granting undo_self to fixture; timer reopened and stopped again. UI settled10s after final navigation.",
+      "step": 10
+    }
+  ],
+  "hasUiTest": true,
+  "notes": [
+    "Evidence-only complex QA; risk-high requires human signoff.",
+    "375px mobile grid is cramped and document width384px exceeds375px viewport. The PR description already discloses cramped375px grid; GridView and PeriodSelector are unchanged by this diff. Base revision was not separately booted, so the9px overflow attribution is not independently established.",
+    "First environment expired during an interrupted timer cycle; it was discarded and all counted cycle/stale checks used fresh disposable environment.",
+    "Fixture ACL omissions caused expected403s before correction; those attempts are not product failures. The corrected role exercised the actual own/foreign boundary and undo paths.",
+    "Secondary supervisor edits were API-driven with two distinct authenticated browser users. No direct database fixture writes.",
+    "Not independently exercised here: wrong-tenant/organization cases, all closed-report/cascade interleavings, every delete/redo path, delayed-period response reversal, DE/ES rendering, mobile dashboard and full keyboard/screen-reader coverage. CI covers deterministic cascade/concurrent undo and record-lock cases; that is separate automated evidence."
+  ],
+  "validationSource": "GitHub checks plus separate browser exploration",
+  "cleanup": "Complete: owned disposable environment stopped; all9 recorded child/owner process IDs gone; app port5001 no longer responds. All fixture data belonged to its disposed database."
+}
