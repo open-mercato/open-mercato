@@ -4,7 +4,10 @@ type PolicyOptions = {
   scriptOrigins?: readonly string[]
   connectOrigins?: readonly string[]
   frameOrigins?: readonly string[]
+  frameAncestorOrigins?: readonly string[]
 }
+
+export const devServerLoopbackFrameAncestorOrigins: readonly string[] = ['http://localhost:*', 'http://127.0.0.1:*']
 
 function configuredOrigins(value: string | undefined, development: boolean, connections = false): string[] {
   if (!value?.trim()) return []
@@ -26,7 +29,7 @@ function configuredOrigins(value: string | undefined, development: boolean, conn
 }
 
 export function createContentSecurityPolicy(options: PolicyOptions = {}): string {
-  const { env = {}, nonce, scriptOrigins = [], connectOrigins = [], frameOrigins = [] } = options
+  const { env = {}, nonce, scriptOrigins = [], connectOrigins = [], frameOrigins = [], frameAncestorOrigins = [] } = options
   const development = env.NODE_ENV === 'development'
   if (nonce !== undefined && !/^[A-Za-z0-9+/]+={0,2}$/.test(nonce)) {
     throw new Error('[internal] Invalid CSP nonce')
@@ -46,7 +49,7 @@ export function createContentSecurityPolicy(options: PolicyOptions = {}): string
     "base-uri 'self'",
     "font-src 'self' data: https:",
     "form-action 'self'",
-    "frame-ancestors 'self'",
+    `frame-ancestors ${[...new Set(["'self'", ...frameAncestorOrigins])].join(' ')}`,
     `frame-src ${[...new Set(frames)].join(' ')}`,
     "img-src 'self' data: blob: https:",
     "object-src 'none'",
