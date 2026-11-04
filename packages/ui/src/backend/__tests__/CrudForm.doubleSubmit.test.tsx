@@ -91,4 +91,46 @@ describe('CrudForm double-submit protection (issue #1539)', () => {
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2))
   })
 
+  it('ignores a second submit after a successful save that redirects, before the route unmounts the form (issue #8645)', async () => {
+    let resolveSubmit: (() => void) | null = null
+    const onSubmit = jest.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSubmit = resolve
+        }),
+    )
+
+    const { container } = renderWithProviders(
+      <CrudForm
+        title="Form"
+        fields={fields}
+        initialValues={{ name: 'alpha' }}
+        onSubmit={onSubmit}
+        successRedirect="/somewhere"
+      />,
+    )
+
+    const form = container.querySelector('form') as HTMLFormElement
+
+    await act(async () => {
+      fireEvent.submit(form)
+    })
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
+
+    // Resolve the save. The mocked router's push() never unmounts the form,
+    // mirroring the real window between router.push resolving and the route
+    // actually unmounting. By the time this act() settles, the success path
+    // (including the success-redirect call) has fully run.
+    await act(async () => {
+      resolveSubmit?.()
+    })
+
+    // A second submit fired in that window must not call onSubmit again.
+    await act(async () => {
+      fireEvent.submit(form)
+    })
+
+    expect(onSubmit).toHaveBeenCalledTimes(1)
+  })
+
 })
