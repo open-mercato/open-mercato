@@ -152,6 +152,50 @@ test.describe('TC-AUTH-067: logout revokes the refresh session without a valid a
     }
   });
 
+  test('bearer-only logout revokes access and refresh credentials while preserving another session', async ({ request }) => {
+    const adminToken = await getAuthToken(request, 'admin');
+    const suffix = randomUUID().slice(0, 8);
+    let roleId: string | null = null;
+    let userId: string | null = null;
+    try {
+      const fixture = await createLoginUser(request, adminToken, suffix);
+      roleId = fixture.roleId;
+      userId = fixture.userId;
+      const credentials = await withCredentialIsolatedRequest(async (isolated) => {
+        const response = await isolated.post('/api/auth/login', {
+          data: new URLSearchParams({ email: fixture.email, password: PASSWORD, remember: 'on' }).toString(),
+          headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        });
+        expect(response.status()).toBe(200);
+        const body = await readJsonSafe<{ token?: string; refreshToken?: string }>(response);
+        expect(typeof body?.token).toBe('string');
+        expect(typeof body?.refreshToken).toBe('string');
+        return { token: body?.token ?? '', refreshToken: body?.refreshToken ?? '' };
+      });
+      const otherRefreshToken = await loginWithRememberMe(fixture.email);
+      const profileStatus = () => withCredentialIsolatedRequest(async (isolated) => {
+        const response = await isolated.get('/api/auth/profile', {
+          headers: { authorization: `Bearer ${credentials.token}` },
+        });
+        return response.status();
+      });
+      expect(await profileStatus(), 'access JWT works before logout').toBe(200);
+      await withCredentialIsolatedRequest(async (isolated) => {
+        const response = await isolated.post('/api/auth/logout', {
+          headers: { authorization: `Bearer ${credentials.token}` },
+          maxRedirects: 0,
+        });
+        expect(response.status()).toBe(307);
+      });
+      expect(await profileStatus(), 'the logged-out bearer session is rejected').toBe(401);
+      expect(await refreshStatus(credentials.refreshToken), 'its refresh session is revoked').toBe(401);
+      expect(await refreshStatus(otherRefreshToken), 'another session remains usable').toBe(200);
+    } finally {
+      await deleteUserIfExists(request, adminToken, userId);
+      await deleteRoleIfExists(request, adminToken, roleId);
+    }
+  });
+
   test('a logout without any session cookie, as a cross-site form sends it, is redirected without clearing cookies', async () => {
     const response = await logoutWithCookies('');
     expect(response.status(), 'a cookieless logout should redirect to /login').toBe(307);
