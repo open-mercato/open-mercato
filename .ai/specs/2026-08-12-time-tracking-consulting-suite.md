@@ -632,6 +632,12 @@ The #7834 export permission fix adds only the optional `ReportExportInput.canSee
 
 ## Migration & Backward Compatibility
 
+**Whole-filter entry totals (#6990).** `GET /api/staff/timesheets/time-entries?includeTotals=true` adds optional `totals: { entryCount, durationMinutes, roundedMinutes, money? }` across the entire filtered result, independent of pagination. `money` is absent without `staff.timesheets.rates.view`; authorized amounts use entry-level rounding and separate currency groups. Authorization-derived project predicates are structurally AND-composed with advanced filters for both items and totals. Aggregate failure omits `totals` while preserving the list. Requests without the opt-in retain the existing response.
+
+The entries footer renders through the existing `data-table:staff.time_entries.list:footer` spot and retains the `staff.entries_summary_footer` replacement handle and existing props, adding only optional `totals`. Shared `DataTable` / `FilterBar` accept optional `showActiveFilterChips`, defaulting to `true`. No ACL, database, route, event, or required prop changes; no client or operator migration is needed. `UPGRADE_NOTES.md` describes the footer placement for component replacements.
+
+Integration coverage: TC-STAFF-047 covers live whole-result/page parity, entry-cost rounding and the rendered chip/footer consumer. TC-STAFF-048 creates its own users, ACLs, customer, projects, staff and entries; its project-boundary scenarios explicitly grant entry-level `manage_all` to bypass the existing self-entry interceptor while withholding project-management access from the project-boundary callers. It verifies authorized monetary baselines, missing money without rates, project-A membership intersected with a project-B advanced filter, and fail-closed items/count/durations for a caller without a staff profile, project membership or project-management grant. A separate view-only caller without a staff profile retains the existing interceptor-level 403 and receives no items or totals.
+
 Reviewed against [`BACKWARD_COMPATIBILITY.md`](../../BACKWARD_COMPATIBILITY.md)'s 13 contract surfaces:
 
 | Surface | Impact |
@@ -707,6 +713,7 @@ Every question the requirements left open — each one traced to the mockup note
 
 | Date | Change |
 |---|---|
+| 2026-11-03 | #6990 / #8379: document additive whole-filter entry totals, rates redaction, structural project-access filter composition, footer/shared chip props, and self-contained live API boundary regressions in TC-STAFF-048. |
 | 2026-10-26 | #7834: redact monetary group/line values before the export serializer registry and omit money from built-in PDF/CSV/XLSX for callers without `staff.timesheets.rates.view`. Preserve amounts for authorized callers using `showRates: false`; add handler/serializer and scope regressions plus self-contained live CSV/PDF API coverage in TC-TT-026. |
 | 2026-10-02 | An entry quoted by two closed reports (D-5 opt-in): each closed report now resolves its own freeze record, so neither sheet nor export drops the hour, and unlocking the report that locked the entry first moves `locked_report_id` to the remaining closed report instead of clearing it. Unlock row-locks the entries it quotes so unlocks of overlapping reports serialize. Integration coverage: TC-TT-023. |
 | 2026-08-16 | Demo data added (`seedStaffTimeTrackingExamples`, `mercato staff seed-time-tracking-examples`, wired into `setup.ts seedExamples`), so a fresh tenant lands on a populated portfolio, board, week grid and report list instead of four empty screens. Projects link to real `customer_entities` when the CRM examples are present and degrade to a snapshot name when they are not. Fixed three raw-SQL sites that bound an id array to a single `= ANY(?)` placeholder — MikroORM interpolates rather than binds, so the projects list 500'd for every tenant that had a project, the rounding-impact preview 500'd for org-narrowed callers, and the retro-rounding job selected no candidates while reporting success. Shared helper: `lib/time-tracking/sqlInClause.ts`. |

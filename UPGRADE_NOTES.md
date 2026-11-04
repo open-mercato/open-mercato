@@ -243,6 +243,30 @@ there is no automatic rollback that deletes receipts. Inspect those collisions a
 before reverting the schema. See the [inbound spec](.ai/specs/2026-03-23-inbound-webhook-handlers.md#receipt-scope-migration--backward-compatibility-7830).
 
 
+### Staff time-entries totals cover the whole filtered set and render inside the table (#6990)
+
+The time-entries list (`/backend/staff/time-tracking/entries`) now asks
+`GET /api/staff/timesheets/time-entries` for `includeTotals=true`, which adds an optional `totals`
+object (`entryCount`, `durationMinutes`, `roundedMinutes`, and `money` per currency for a holder of
+`staff.timesheets.rates.view`) computed over every row matching the filters, not just the page.
+`money` is priced per entry exactly like the row `cost` (`entryAmount`), so it equals the sum of
+the row costs. Without the parameter the response is unchanged.
+
+The totals footer is no longer a separate card under the pagination. It renders inside the table
+frame through the `data-table:staff.time_entries.list:footer` injection spot (widget
+`staff.injection.time-entries-summary-footer`), and the page passes its own `injectionContext`
+(`tableId`, `title`, `entriesSummary`). The `staff.entries_summary_footer` component replacement keeps
+its props and gains an optional `totals`.
+
+The page also stops showing each filter twice: it passes the new optional `DataTable` /
+`FilterBar` prop `showActiveFilterChips={false}` (default `true`, so other hosts are unchanged),
+leaving the presets and entry chips as the only chip layer.
+
+**Action for module authors:** none required. A `staff.entries_summary_footer` replacement that
+should show whole-set figures reads `props.totals` (it is `null`/absent when unavailable, in which
+case `props.summary` still holds the page sums). A replacement styled as a standalone card may want
+to drop its outer border now that it sits inside the table frame.
+
 ### Agent page reads enforce domain rules before redirected egress (#7548)
 
 `web_search` inline content and `web_fetch` now check agent domain rules before

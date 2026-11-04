@@ -1155,6 +1155,7 @@
   "staff.time_tracking.entries.source.mobile": "Móvil",
   "staff.time_tracking.entries.source.timer": "Cronómetro",
   "staff.time_tracking.entries.summary.count": "Total ({visible} de {total} registros)",
+  "staff.time_tracking.entries.summary.filteredCount": "Total de los {total} registros coincidentes",
   "staff.time_tracking.entries.summary.multiCurrencyHint": "Estos registros se facturan en más de una moneda, por eso se muestran por separado en lugar de sumarse.",
   "staff.time_tracking.entries.table.durationAria": "Duración del registro",
   "staff.time_tracking.entries.table.noTask": "Sin tarea",
