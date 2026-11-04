@@ -12,6 +12,8 @@ export type LoadSalesReturnOptionsParams = {
   fallbackLabel?: string
 }
 
+export type CustomerScopedOrderOptionsLoaderParams = Omit<LoadOrderOptionsParams, 'customerId'>
+
 const DEFAULT_FALLBACK_LABEL = '—'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -60,6 +62,16 @@ export async function loadOrderOptions(
   return items
     .map((item) => normalizeOrderOption(item, fallbackLabel))
     .filter((option): option is CrudFieldOption => option !== null)
+}
+
+export function createCustomerScopedOrderOptionsLoader(
+  resolveCustomerId: () => string | null,
+  params?: CustomerScopedOrderOptionsLoaderParams,
+): (query?: string) => Promise<CrudFieldOption[]> {
+  return (query) => loadOrderOptions(query, {
+    ...params,
+    customerId: resolveCustomerId(),
+  })
 }
 
 export async function resolveOrderLabel(value: string, fallbackLabel: string = DEFAULT_FALLBACK_LABEL): Promise<string> {

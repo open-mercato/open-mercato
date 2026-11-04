@@ -36,7 +36,7 @@ import {
   type ClaimProductPick,
 } from '../../components/productLookup'
 import {
-  loadOrderOptions as loadOrderOptionsShared,
+  createCustomerScopedOrderOptionsLoader,
   resolveOrderLabel,
 } from '../../components/orderLookup'
 import { EntitlementLookupBadge } from '../../components/EntitlementLookupBadge'
@@ -1176,7 +1176,7 @@ export default function CreateWarrantyClaimPage() {
   const t = useT()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const [selectedCustomerId, setSelectedCustomerId] = React.useState<string | null>(null)
+  const selectedCustomerIdRef = React.useRef<string | null>(null)
   const [selectedClaimType, setSelectedClaimType] = React.useState<string | null>(() => normalizeClaimType(searchParams.get('claimType')))
   const [selectedReasonCode, setSelectedReasonCode] = React.useState<string | null>(null)
   const [orderAccessDenied, setOrderAccessDenied] = React.useState(false)
@@ -1226,13 +1226,16 @@ export default function CreateWarrantyClaimPage() {
     return items.map((item) => normalizeOption(item, t)).filter((option): option is CrudFieldOption => option !== null)
   }, [t])
 
-  const loadOrderOptions = React.useCallback(async (query?: string): Promise<CrudFieldOption[]> => {
-    return loadOrderOptionsShared(query, {
-      customerId: selectedCustomerId,
+  const setSelectedCustomerId = React.useCallback((customerId: string | null) => {
+    selectedCustomerIdRef.current = customerId
+  }, [])
+
+  const loadOrderOptions = React.useMemo(() => {
+    return createCustomerScopedOrderOptionsLoader(() => selectedCustomerIdRef.current, {
       onAccessChange: setOrderAccessDenied,
       fallbackLabel: t('warranty_claims.form.orderUnavailable', 'Order unavailable'),
     })
-  }, [selectedCustomerId, t])
+  }, [t])
 
   React.useEffect(() => {
     let cancelled = false
