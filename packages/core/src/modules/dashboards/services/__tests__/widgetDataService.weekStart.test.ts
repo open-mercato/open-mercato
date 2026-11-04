@@ -59,3 +59,23 @@ describe('WidgetDataService this_week range', () => {
     expect(resolvedRangeStart()).toEqual(new Date(2026, 5, 14, 0, 0, 0, 0))
   })
 })
+
+describe('WidgetDataService weekly buckets', () => {
+  const request = {
+    entityType: 'sales:orders',
+    metric: { field: 'total', aggregate: 'sum' as const },
+    groupBy: { field: 'created_at', granularity: 'week' as const },
+  }
+
+  beforeEach(() => (buildAggregationQuery as jest.Mock).mockClear())
+
+  it('passes the configured week start to the bucket query', async () => {
+    await serviceFor({ tenantId: 'tenant-1', weekStartsOn: 0 }).fetchWidgetData(request)
+    expect((buildAggregationQuery as jest.Mock).mock.calls.at(-1)?.[0]).toMatchObject({ weekStartsOn: 0 })
+  })
+
+  it('leaves the week start unset when the scope carries none', async () => {
+    await serviceFor({ tenantId: 'tenant-1' }).fetchWidgetData(request)
+    expect((buildAggregationQuery as jest.Mock).mock.calls.at(-1)?.[0].weekStartsOn).toBeUndefined()
+  })
+})

@@ -85,7 +85,7 @@ export async function probeEnabledSchedules(env: NodeJS.ProcessEnv = process.env
   const client = new Client({
     connectionString: databaseUrl,
     ssl: getSslConfig(),
-    ...getPgSessionConfig(),
+    ...getPgSessionConfig(env),
   })
 
   try {

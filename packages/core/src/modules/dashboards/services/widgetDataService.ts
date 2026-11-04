@@ -479,6 +479,7 @@ export class WidgetDataService {
       entityType: request.entityType,
       metric: request.metric,
       groupBy: request.groupBy,
+      weekStartsOn: this.scope.weekStartsOn,
       dateRange: dateRange && request.dateRange ? { field: request.dateRange.field, ...dateRange } : undefined,
       filters: request.filters,
       scope: this.scope,
