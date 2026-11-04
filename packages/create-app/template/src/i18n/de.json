@@ -782,6 +782,7 @@
   "ui.dataTable.export.label": "Exportieren",
   "ui.dataTable.export.sectionTitle": "Export {index}",
   "ui.dataTable.export.viewTitle": "Exportieren, was Sie sehen",
+  "ui.dataTable.extensions.error": "Einige Tabellenerweiterungen konnten nicht geladen werden. Laden Sie die Seite neu, um es erneut zu versuchen.",
   "ui.dataTable.fieldset.label": "Columns",
   "ui.dataTable.filters": "Filter",
   "ui.dataTable.loading": "Loading table…",

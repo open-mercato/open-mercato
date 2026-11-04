@@ -22,6 +22,8 @@ import {
 } from '@open-mercato/core/helpers/integration/customerGroupsFixtures';
 import { selectBestPrice, type PriceRow, type PricingContext } from '@open-mercato/core/modules/catalog/lib/pricing';
 
+export const integrationMeta = { dependsOnModules: ['catalog', 'customer_groups'] };
+
 /**
  * TC-CAT-PRICES-001: Price-rule admin UI reaches the customer-group +
  * quantity-tier dimensions the API already supported (Pricing Engine spec,

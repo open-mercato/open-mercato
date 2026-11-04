@@ -20,6 +20,7 @@ import {
   defaultBuiltInUrl,
   loadIndex,
   MODULE_INDEX_CACHE_FILE,
+  MODULE_INDEX_MAX_BYTES,
   MODULE_INDEX_UNAVAILABLE_EXIT_CODE,
   MODULE_INDEX_UNAVAILABLE_MESSAGE,
   BUILT_IN_UNAVAILABLE_MESSAGE,
@@ -121,6 +122,7 @@ function jsonResponse(status: number, body: unknown, etag: string | null = null)
     status,
     ok: status >= 200 && status < 300,
     headers: { get: (name: string) => (name.toLowerCase() === 'etag' ? etag : null) },
+    body: status === 304 ? null : new Response(JSON.stringify(body)).body,
     json: async () => body,
   }
 }
@@ -275,6 +277,19 @@ describe('resolveLine', () => {
     expect(resolveLine('0.10.1-develop.7590.1.abc', index.lines).line).toBe('next')
     expect(resolveLine('0.7.4', index.lines)).toEqual({ line: null, version: null, note: 'Line 0.7 is not tested by the catalog.' })
     expect(resolveLine(null, index.lines).line).toBe('0.9')
+  })
+})
+
+describe('module search catalog version forms', () => {
+  it.each([
+    '0.10.1-develop.1+build', '0.9.0+build', '0.9.0-rc.01', '0.10.1-develop.01',
+    '00.9.0', '0.09.0', '0.9.00', '0.9.0-rc..1', '0.9.0-rc.', '0.9-rc.1',
+  ])('rejects non-catalog version %s', (version) => {
+    expect(resolveLine(version, index.lines)).toEqual({ line: null, version: null, note: 'Unknown Open Mercato version.' })
+  })
+
+  it.each(['0.9.0-rc.0', '0.9.0-rc.1a', '~0.9.2', 'v0.9.0'])('keeps valid version %s', (version) => {
+    expect(resolveLine(version, index.lines).line).toBe('0.9')
   })
 })
 
@@ -702,6 +717,102 @@ describe('module search app-root resolution', () => {
       fs.rmSync(explicit, { recursive: true, force: true })
       exists.mockRestore()
     }
+  })
+})
+
+describe('module index transport bounds', () => {
+  it.each(['http://catalog.example/modules.json', 'ftp://localhost/modules.json', 'http://localhost.example/modules.json'])('rejects unsafe URL %s before fetching', async (url) => {
+    const fetchImpl = jest.fn(fixtureFetch().fetchImpl)
+    await expect(loadIndex({ appRoot: tempApp(), url, fetchImpl })).rejects.toThrow('HTTPS')
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it.each(['localhost', '127.0.0.1', '[::1]'])('allows local HTTP on %s', async (host) => {
+    const loaded = await loadIndex({ appRoot: tempApp(), url: `http://${host}/modules.json`, fetchImpl: fixtureFetch().fetchImpl })
+    expect(loaded.source).toBe('network')
+  })
+
+  it('validates the built-in override too', async () => {
+    const fetchImpl = jest.fn(fixtureFetch().fetchImpl)
+    await expect(loadIndex({ appRoot: tempApp(), builtInUrl: 'http://remote.example/built-in.json', fetchImpl })).rejects.toThrow('HTTPS')
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('refuses HTTPS downgrades before requesting the redirect target', async () => {
+    const fetchImpl = jest.fn<ReturnType<FetchLike>, Parameters<FetchLike>>(async () => new Response(null, {
+      status: 302, headers: { location: 'http://remote.example/modules.json' },
+    }))
+    await expect(loadIndex({ appRoot: tempApp(), fetchImpl })).rejects.toThrow('HTTPS')
+    expect(fetchImpl.mock.calls.every(([url, init]) => url === DEFAULT_MODULES_INDEX_URL && init?.redirect === 'manual')).toBe(true)
+  })
+
+  it('follows HTTPS redirects', async () => {
+    const fixtures = fixtureFetch().fetchImpl
+    const fetchImpl: FetchLike = async (url, init) => url === DEFAULT_MODULES_INDEX_URL
+      ? new Response(null, { status: 302, headers: { location: 'https://mirror.example/modules.json' } })
+      : fixtures(url, init)
+    expect((await loadIndex({ appRoot: tempApp(), fetchImpl })).source).toBe('network')
+  })
+
+  it('rejects oversized Content-Length before consuming the body', async () => {
+    const cancel = jest.fn()
+    const fetchImpl: FetchLike = async () => new Response(new ReadableStream({ cancel }), {
+      headers: { 'content-length': String(MODULE_INDEX_MAX_BYTES + 1) },
+    })
+    await expect(loadIndex({ appRoot: tempApp(), fetchImpl })).rejects.toThrow('exceeds')
+    expect(cancel).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([undefined, '1'])('caps streamed bytes regardless of Content-Length (%s), cancels and keeps stale cache', async (length) => {
+    const app = tempApp()
+    await loadIndex({ appRoot: app, fetchImpl: fixtureFetch().fetchImpl, now: () => NOW })
+    const cache = fs.readFileSync(path.join(app, MODULE_INDEX_CACHE_FILE), 'utf8')
+    const cancel = jest.fn()
+    const fetchImpl: FetchLike = async () => new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(new Uint8Array(MODULE_INDEX_MAX_BYTES))
+        controller.enqueue(new Uint8Array(1))
+      },
+      cancel,
+    }), { headers: length ? { 'content-length': length } : {} })
+    const loaded = await loadIndex({ appRoot: app, fetchImpl, now: () => NOW + 60 * 60 * 1000 })
+    expect(loaded.source).toBe('stale-cache')
+    expect(cancel).toHaveBeenCalledTimes(1)
+    expect(fs.readFileSync(path.join(app, MODULE_INDEX_CACHE_FILE), 'utf8')).toBe(cache)
+  })
+
+  it('accepts a streamed index exactly at the size limit', async () => {
+    const serialized = JSON.stringify(index)
+    const padded = serialized + ' '.repeat(MODULE_INDEX_MAX_BYTES - Buffer.byteLength(serialized))
+    const fetchImpl: FetchLike = async (url) => url.endsWith('/modules.json')
+      ? new Response(padded)
+      : jsonResponse(200, builtIn)
+    expect((await loadIndex({ appRoot: tempApp(), fetchImpl })).source).toBe('network')
+  })
+
+  it('bounds redirect loops', async () => {
+    const fetchImpl = jest.fn<ReturnType<FetchLike>, Parameters<FetchLike>>(async () => new Response(null, {
+      status: 302, headers: { location: DEFAULT_MODULES_INDEX_URL },
+    }))
+    await expect(loadIndex({ appRoot: tempApp(), fetchImpl })).rejects.toThrow('redirects')
+    expect(fetchImpl).toHaveBeenCalledTimes(12)
+  })
+
+  it('reports an unsafe override through the normal unavailable exit code', async () => {
+    const io = capture()
+    const options = { ...deps(tempApp(), fixtureFetch().fetchImpl, io), env: { OM_MODULES_INDEX_URL: 'http://remote.example/modules.json' } }
+    expect(await runModuleSearch(['stripe'], options)).toBe(MODULE_INDEX_UNAVAILABLE_EXIT_CODE)
+    expect(io.stderr.join(' ')).toContain('HTTPS')
+    expect(io.stdout).toEqual([])
+  })
+
+  it('applies the cap to the built-in index', async () => {
+    const fetchImpl: FetchLike = async (url) => url.endsWith('/modules.json')
+      ? jsonResponse(200, index)
+      : new Response('too large', { headers: { 'content-length': String(MODULE_INDEX_MAX_BYTES + 1) } })
+    const loaded = await loadIndex({ appRoot: tempApp(), fetchImpl })
+    expect(loaded.builtIn).toBeNull()
+    expect(loaded.builtInUnavailable).toContain('exceeds')
   })
 })
 

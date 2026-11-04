@@ -99,6 +99,23 @@ async function fetchCustomFieldKindResolversByEntityType(
 /**
  * Build a single batch query for multiple entity types and their record IDs.
  * Uses OR conditions to fetch all needed docs in one round trip.
+ *
+ * The tenant predicate carries the same NULL branch the organization predicate
+ * below already has, and for the same reason: a row stored under a null scope is
+ * one shared record, not a record belonging to nobody. `entity_indexes` holds at
+ * most one row per (entity_type, entity_id, organization_id_coalesced), so a
+ * platform-wide catalogue whose source table has neither scope column has exactly
+ * one row to serve every tenant from, and an exact-match tenant predicate resolves
+ * it for at most one of them; the rest get a search hit with no presenter, which
+ * the UI renders as a raw record id.
+ *
+ * The branch is deliberately NOT `tenant_id IS NULL` on its own. `tenant_id` is
+ * null on the projection of every source table with neither scope column —
+ * `resolveQueryIndexRecordScope()` calls that shape `global` and requires an
+ * explicitly null scope for it — and most of those tables are private
+ * (`directory:tenant`, `auth:user_role`, `auth:session`). An unqualified NULL
+ * branch would serve all of them to every tenant. Only entity types declared
+ * through `registerTenantGlobalEntityTypes()` are widened.
  */
 async function fetchDocsBatch(
   db: Kysely<any>,
@@ -118,6 +135,12 @@ async function fetchDocsBatch(
 
   if (allPairs.length === 0) return allDocs
 
+  // Dynamically imported to match the sibling reader in `strategies/token.strategy.ts`
+  // and keep this module free of a load-time edge back into `@open-mercato/core`.
+  const { resolveQueryIndexSearchScope, buildQueryIndexSearchScopePredicate } = await import('@open-mercato/core/modules/query_index/lib/search-scope')
+  const scope = await resolveQueryIndexSearchScope()
+  const globalTypes = new Set(scope.tenantGlobalEntityTypes)
+
   // Process in chunks to avoid hitting DB parameter limits
   const chunks = chunk(allPairs, BATCH_SIZE)
 
@@ -130,11 +153,24 @@ async function fetchDocsBatch(
       chunkByType.set(entityType, ids)
     }
 
+    // Entity types in this chunk that are declared platform-wide catalogues, and so
+    // may also be served from a row stored under the null tenant.
+    const globalEntityTypes = Array.from(chunkByType.keys()).filter((entityType) => globalTypes.has(entityType))
+
     // Build query with OR conditions per entity type
     let query = db
       .selectFrom('entity_indexes' as any)
       .select(['entity_type' as any, 'entity_id' as any, 'doc' as any])
-      .where('tenant_id' as any, '=', tenantId)
+      .where(buildQueryIndexSearchScopePredicate(scope, { entityTypeRef: 'entity_indexes.entity_type', recordIdRef: 'entity_indexes.entity_id', organizationIdRef: 'entity_indexes.organization_id' }, tenantId))
+      .where((eb) => (globalEntityTypes.length === 0
+        ? eb('tenant_id' as any, '=', tenantId)
+        : eb.or([
+          eb('tenant_id' as any, '=', tenantId),
+          eb.and([
+            eb('tenant_id' as any, 'is', null),
+            eb('entity_type' as any, 'in', globalEntityTypes),
+          ]),
+        ])))
       .where('deleted_at' as any, 'is', null)
       .where((eb: any) => eb.or(
         Array.from(chunkByType.entries()).map(([entityType, recordIds]) => eb.and([
@@ -352,6 +388,14 @@ export function createPresenterEnricher(
   encryptionService?: TenantDataEncryptionService | null,
 ): PresenterEnricherFn {
   return async (results, tenantId, organizationId) => {
+    const { resolveQueryIndexSearchScope, filterQueryIndexSearchRecords } = await import('@open-mercato/core/modules/query_index/lib/search-scope')
+    const scope = await resolveQueryIndexSearchScope()
+    const persistedSources = new Set(['tokens', 'vector', 'fulltext'])
+    const candidates = results.filter((result) => persistedSources.has(result.source))
+      .map((result) => ({ entityId: result.entityId, recordId: result.recordId, tenantId, organizationId: result.organizationId ?? null, result }))
+    const allowed = await filterQueryIndexSearchRecords(db, scope, candidates)
+    const allowedResults = new Set(allowed.map((candidate) => candidate.result))
+    results = results.filter((result) => !scope.blockedEntityTypes.includes(result.entityId) && (!persistedSources.has(result.source) || allowedResults.has(result)))
     const shouldEnrich = (result: SearchResult): boolean =>
       needsSearchResultEnrichment(result) || entityConfigMap.has(result.entityId as EntityId)
 
