@@ -40,6 +40,8 @@ let seedDefaultsEntered: Promise<void> = Promise.resolve()
 let markSeedDefaultsEntered: () => void = () => {}
 let leaseRenewals = 0
 let leaseRenewalsAtCompletion: number | null = null
+const detachedRequestIds: string[] = []
+let detachedRequestIdsAtSetup: string[] | null = null
 
 const blockingSeedModule: SeedModule = {
   id: 'slow_defaults',
@@ -141,7 +143,14 @@ jest.mock('next/server', () => {
 })
 
 jest.mock('@open-mercato/shared/lib/di/container', () => {
-  const em = { fork: () => em }
+  const em = {
+    fork: () => em,
+    getUnitOfWork: () => ({
+      unsetIdentity: (entity: { id: string }) => {
+        detachedRequestIds.push(entity.id)
+      },
+    }),
+  }
   return {
     createRequestContainer: jest.fn(async () => ({
       resolve: (name: string) => {
@@ -179,11 +188,14 @@ jest.mock('@open-mercato/onboarding/modules/onboarding/lib/deferred-provisioning
 })
 
 jest.mock('@open-mercato/core/modules/auth/lib/setup-app', () => ({
-  setupInitialTenant: jest.fn(async () => ({
-    tenantId: TENANT_ID,
-    organizationId: ORGANIZATION_ID,
-    users: [{ user: { id: USER_ID, email: 'owner@example.com' } }],
-  })),
+  setupInitialTenant: jest.fn(async () => {
+    detachedRequestIdsAtSetup = [...detachedRequestIds]
+    return {
+      tenantId: TENANT_ID,
+      organizationId: ORGANIZATION_ID,
+      users: [{ user: { id: USER_ID, email: 'owner@example.com' } }],
+    }
+  }),
 }))
 
 jest.mock('@open-mercato/shared/lib/modules/registry', () => ({
@@ -205,6 +217,8 @@ describe('onboarding verify provisioning lease', () => {
     events.length = 0
     leaseRenewals = 0
     leaseRenewalsAtCompletion = null
+    detachedRequestIds.length = 0
+    detachedRequestIdsAtSetup = null
     seedModules = [blockingSeedModule]
     staleTokenLookup = null
     seedDefaultsEntered = new Promise<void>((resolve) => {
@@ -269,6 +283,18 @@ describe('onboarding verify provisioning lease', () => {
       'markCompleted',
       'runDeferredProvisioning',
     ])
+    expect(row.status).toBe('completed')
+  })
+
+  it('detaches the claimed request from the request EM before provisioning can flush it', async () => {
+    seedModules = []
+
+    const response = await GET(verifyRequest())
+
+    expect(response.headers.get('location')).toBe(
+      `https://app.example.com/onboarding/preparing?tenant=${TENANT_ID}`,
+    )
+    expect(detachedRequestIdsAtSetup).toEqual(['req-1'])
     expect(row.status).toBe('completed')
   })
 

@@ -202,6 +202,11 @@ export async function GET(req: Request) {
     }
     return redirectToPreparing(baseUrl, current?.tenantId ?? request.tenantId ?? null)
   }
+  // From here on the request row is written only through lease-guarded native updates.
+  // Detach it from the request EM so a flush issued by provisioning code sharing that EM
+  // (setup hooks resolve services from the request container) cannot write its stale
+  // in-memory processing_started_at over a renewed lease and lose the claim.
+  em.getUnitOfWork().unsetIdentity(request)
   if (!request.passwordHash) {
     logger.error('Missing password hash for request', { requestId: request.id })
     await service.resetProcessing(request)
