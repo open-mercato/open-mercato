@@ -100,6 +100,23 @@ describe('CompletePutawayTaskDialog', () => {
     expect(screen.getByTestId('complete-putaway-qty')).toBeTruthy()
   })
 
+  it('shows a translatable error instead of the raw zod message when the target location is empty', async () => {
+    render(
+      <CompletePutawayTaskDialog
+        open
+        onOpenChange={jest.fn()}
+        access={access}
+        task={{ ...task, targetLocationId: null }}
+      />,
+    )
+
+    fireEvent.click(screen.getByTestId('complete-putaway-submit'))
+
+    expect(await screen.findByText('wms.backend.putaway.complete.errors.targetRequired')).toBeTruthy()
+    expect(screen.queryByText('Invalid UUID')).toBeNull()
+    expect(mockApiCall).not.toHaveBeenCalled()
+  })
+
   it('refreshes the optimistic-lock token from a 409 so retry sends a fresh If-Match', async () => {
     const freshUpdatedAt = '2026-08-22T10:05:00.000Z'
     mockApiCall

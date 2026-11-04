@@ -1038,6 +1038,7 @@
   "wms.backend.putaway.complete.dialog.title": "Complete putaway",
   "wms.backend.putaway.complete.errors.serialMismatch": "The scanned serial does not match this task.",
   "wms.backend.putaway.complete.errors.submit": "Failed to complete putaway task.",
+  "wms.backend.putaway.complete.errors.targetRequired": "Select a target location.",
   "wms.backend.putaway.complete.flash.success": "Putaway completed",
   "wms.backend.putaway.complete.form.quantity": "Confirmed quantity",
   "wms.backend.putaway.complete.form.serial": "Serial",
