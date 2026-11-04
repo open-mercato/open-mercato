@@ -46,6 +46,44 @@ Five-day gate: ip-address 10.7.5 published 2026-10-25T01:32:24.393Z; Hono 4.13.1
 2. Update the two existing pins and regenerate the lockfile using pinned Yarn; inspect the diff and prove all target vulnerable resolutions are absent.
 3. Run the ordered validation gate using local runner, resolution/lint checks and security probes. Request `ci-full` for explicit integration coverage. Refresh alerts/PRs/claims before final push; report exact evidence and leave draft for parent independent review.
 
+## Remediation evidence
+
+Pinned `yarn install --mode=update-lockfile` succeeded; exactly the Hono and ip-address lock entries changed, including Yarn-generated checksums. `yarn install --immutable` passed with warnings: native optional builds lack `make`/compiler (better-sqlite3/cpu-features).
+
+`yarn why --recursive` confirms MCP SDK 1.32.2 receives only Hono 4.13.14, and express-rate-limit 8.3.1 plus socks 2.8.7/2.8.9 receive only ip-address 10.7.5. Parsed the full before/after lockfile and tested every one of the 17 alerts against its vulnerable-version predicate (normalizing GitHub comma separators to semver conjunctions): all 17 match baseline and exclude every new resolution.
+
+`timeout 120 yarn npm audit --all --recursive --json` exits 1 for other dependency findings/deprecations (61 records); zero records name Hono or ip-address. This does not claim the whole dependency tree is clean.
+
+Five bounded runtime assertions ran against cached exact old/new artifacts: `fe81::1` link-local classification, IPv6/IPv4 subnet separation, NAT64 local-use private classification, sequential Hono memo isolation for different context users, and escaping a quoted Hono `cx()` class value. Each fails on the old version and passes on the patched version. The reproducible probe is included below.
+
+```js
+const assert = require('node:assert/strict');
+async function probe(phase) {
+  const base = '/tmp/b63-probe-' + phase + '/node_modules';
+  const { Address4, Address6 } = require(base + '/ip-address/dist/ip-address.js');
+  const { jsx, createContext, useContext, memo } = require(base + '/hono/dist/cjs/jsx/index.js');
+  const { cx } = require(base + '/hono/dist/cjs/helper/css/index.js');
+  const context = createContext('default');
+  const component = memo(() => jsx('span', null, useContext(context)));
+  const first = await jsx(context.Provider, {value: 'user-A'}, jsx(component, {})).toString();
+  const second = await jsx(context.Provider, {value: 'user-B'}, jsx(component, {})).toString();
+  const markup = await jsx('div', {class: cx('" data-probe="injected')}).toString();
+  const result = {
+    linkLocalRecognized: new Address6('fe81::1').isLinkLocal(),
+    crossFamilyRejected: !new Address6('a00::1').isInSubnet(new Address4('10.0.0.0/8')),
+    nat64LocalUsePrivate: new Address6('64:ff9b:1:7f00:0:100::').isPrivate(),
+    memoIsolatesUsers: first === '<span>user-A</span>' && second === '<span>user-B</span>',
+    classAttributeEscaped: markup.includes('&quot;') && !markup.includes('class="" data-probe="injected'),
+  };
+  const expected = phase === 'after';
+  for (const [key, value] of Object.entries(result)) assert.equal(value, expected, phase + ': ' + key);
+  console.log(JSON.stringify({phase, result, first, second, markup}));
+}
+(async () => { await probe('before'); await probe('after'); })().catch(error => { console.error(error); process.exitCode = 1; });
+```
+
+The probe expects each exact artifact extracted into `/tmp/b63-probe-{before,after}/node_modules/`; old versions are Hono 4.12.25/ip-address 10.4.0, new versions are Hono 4.13.14/ip-address 10.7.5. These are ephemeral evidence artifacts; no source files are changed.
+
 ## Risks and validation
 
 Runner: local. Both compose probes found no running app (fullapp probe lacks JWT_SECRET). Fresh worktree has no node_modules. Dependency install/build availability may block the gate; record each command result without calling missing coverage passed. No public contract or DB change intended. Keep draft regardless of results.
@@ -54,15 +92,17 @@ Ordered gate: `yarn build:packages`; `yarn generate`; `yarn build:packages`; `ya
 
 ## Progress
 
+PR: #8717
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Publish plan
 
-- [ ] 1.1 Commit plan and open draft PR
+- [x] 1.1 Commit plan and open draft PR — 6f554d4f11
 
 ### Phase 2: Remediate dependencies
 
-- [ ] 2.1 Regenerate minimal patched dependency resolutions
+- [x] 2.1 Regenerate minimal patched dependency resolutions — 0ac9c8228a
 
 ### Phase 3: Validate and hand off
 
