@@ -517,6 +517,12 @@ Enrichers declared in `data/enrichers.ts` of any module can add data to the comp
 
 ---
 
+## Responsive activity calendars
+
+Company Activity log and person Activities use the shared `ActivitiesCard` / `ActivitiesDayStrip`. At phone widths, the five-date row scrolls horizontally inside the card; it must never widen the document. The month and previous/next-days controls remain outside that row. All five dates remain selectable by pointer and keyboard, with wheel/touch access to overflow; focusing a date scrolls it fully into view. Activity-history AI action chips wrap so populated person pages also fit the phone viewport. Desktop keeps the centered five-date row. Calendar selection, activity type defaults and save/cancel/local-date behavior retain the current-main contracts.
+
+Regression coverage: `TC-CRM-8603` creates a CRM-scoped user, company/person and interaction fixtures; checks empty/populated calendars at 390×844 and 1440×900; exercises pointer, wheel, touch and keyboard reachability; verifies completed-activity editing preserves its local date and persisted timestamp; and cleans up fixtures in `finally`. The scoped account excludes unrelated injected widgets from the document-overflow assertion.
+
 ## Integration Tests
 
 ### TC-CRM-V2-001: Company v2 — CRUD Fields
@@ -643,6 +649,7 @@ Same pattern as TC-CRM-V2-003 but for person:
 
 | Date | Change |
 |------|--------|
+| 2026-11-04 | Contain company/person activity date rows inside phone cards with accessible internal scrolling; add TC-CRM-8603 coverage (#8603). |
 | 2026-03-19 | Clarified the implemented contract: v2 pages use `detail:customers.*:tabs` injection slots and keep address editing section-only in Zone 2 |
 | 2026-03-02 | Formally linked child workstreams `SPEC-046b` and `SPEC-046c` to this spec and marked implementation dependency alignment |
 | 2026-02-25 | Initial draft |
