@@ -196,6 +196,7 @@
   "entities.nav.systemEntities": "Encje systemowe",
   "entities.nav.userEntities": "Encje użytkownika",
   "entities.nav.userEntities.create": "Utwórz encję",
+  "entities.records.errors.alreadyExists": "Rekord o tym identyfikatorze już istnieje. Użyj PUT, aby go zaktualizować.",
   "entities.settings.description": "Zarządzaj globalnymi ustawieniami niestandardowych encji.",
   "entities.settings.errors.conflict": "Ustawienia zostały zmodyfikowane przez innego użytkownika. Proszę przeładować.",
   "entities.settings.errors.loadFailed": "Nie udało się załadować ustawień",

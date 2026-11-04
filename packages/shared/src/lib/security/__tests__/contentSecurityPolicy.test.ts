@@ -1,4 +1,8 @@
-import { createContentSecurityPolicy, createContentSecurityPolicyRequestHeaders } from '../contentSecurityPolicy'
+import {
+  createContentSecurityPolicy,
+  createContentSecurityPolicyRequestHeaders,
+  devServerLoopbackFrameAncestorOrigins,
+} from '../contentSecurityPolicy'
 
 function directives(policy: string) {
   return Object.fromEntries(policy.split('; ').map((directive) => {
@@ -56,6 +60,12 @@ describe('production content security policy', () => {
     }))
     expect(policy['connect-src']).toContain('http://localhost:3001')
     expect(policy['connect-src']).toContain('ws://localhost:3002')
+  })
+
+  it('keeps same-origin framing unless frame ancestors are passed explicitly', () => {
+    expect(directives(createContentSecurityPolicy())['frame-ancestors']).toEqual(["'self'"])
+    expect(directives(createContentSecurityPolicy({ frameAncestorOrigins: devServerLoopbackFrameAncestorOrigins }))['frame-ancestors'])
+      .toEqual(["'self'", 'http://localhost:*', 'http://127.0.0.1:*'])
   })
 
   it('replaces attacker-supplied nonce and request policy with fresh matching values', () => {

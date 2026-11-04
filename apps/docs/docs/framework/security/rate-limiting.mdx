@@ -237,6 +237,9 @@ When using `redis` strategy, the service reads `REDIS_URL` (already used by cach
 | `RATE_LIMIT_ATTACHMENTS_UPLOAD_DURATION` | `60` | Window in seconds |
 | `RATE_LIMIT_ATTACHMENTS_UPLOAD_BLOCK_DURATION` | &mdash; | Optional block duration after exceeding limit |
 
+
+Warranty portal attachment uploads and replacements (`POST`/`PUT /api/warranty_claims/portal/attachments`) also use `RATE_LIMIT_ATTACHMENTS_UPLOAD_{POINTS,DURATION,BLOCK_DURATION}`. Their buckets are scoped to the authenticated tenant and customer-user principal, with a separate `portal:` namespace from staff uploads. The check runs before multipart parsing and OCR; exhausted buckets return HTTP 429 with `Retry-After`. The existing attachment limiter availability policy applies.
+
 **Future:**
 
 | Variable | Default | Description |
@@ -447,3 +450,5 @@ packages/core/src/modules/auth/lib/
 ```
 
 The service singleton and DI registration live in `packages/core/src/bootstrap.ts`.
+
+For isolated integration tests that verify real counters, set `OM_TEST_MODE=1` and `OM_TEST_RATE_LIMIT_MODE=enabled`. Integration runs otherwise keep rate limiting disabled. This switch has no effect outside `OM_INTEGRATION_TEST`; production continues to use `RATE_LIMIT_ENABLED`.
