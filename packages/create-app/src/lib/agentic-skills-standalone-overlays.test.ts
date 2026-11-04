@@ -649,7 +649,8 @@ test('every agent MCP example declares the om-modules catalog server that om-fin
   }
 
   const skill = readOverrideSkill('om-find-module')
-  assert.ok(skill.includes(catalogUrl), 'om-find-module must name the catalog MCP endpoint')
+  const namedEndpoint = /\(streamable HTTP at `([^`]+)`\)/.exec(skill)?.[1]
+  assert.equal(namedEndpoint, catalogUrl, 'om-find-module must name the catalog MCP endpoint')
   assert.match(skill, /`mcp\.json\.example` files declare it/, 'om-find-module must point at the shipped MCP examples')
 })
 
