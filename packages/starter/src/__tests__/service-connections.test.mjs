@@ -53,6 +53,20 @@ test('verifies PostgreSQL query, every configured Redis consumer and a protected
   assert.equal(responseClosed, true)
 })
 
+test('the documents collaboration Redis is only verified when collaboration is enabled', async () => {
+  const collabEnv = { DATABASE_URL: databaseUrl, DOCUMENTS_COLLAB_REDIS_URL: 'redis://127.0.0.1:6379' }
+  const disabled = clients({ redisFailure: () => true })
+  const result = await verifyServiceConnections(options(disabled, { env: collabEnv }))
+  assert.deepEqual(result.checked, ['DATABASE_URL'])
+  assert.equal(disabled.calls.filter(([kind]) => kind === 'redis-options').length, 0)
+
+  const enabled = clients({ redisFailure: () => true })
+  await assert.rejects(
+    verifyServiceConnections(options(enabled, { env: { ...collabEnv, NEXT_PUBLIC_DOCUMENTS_COLLAB_URL: 'ws://localhost:4101' } })),
+    /DOCUMENTS_COLLAB_REDIS_URL/,
+  )
+})
+
 test('PostgreSQL credential rejection is actionable, redacted and closes the connection', async () => {
   const mock = clients({ postgresFailure: Object.assign(new Error('db-secret query-secret'), { code: '28P01' }) })
   await assert.rejects(verifyServiceConnections(options(mock)), (error) => {
