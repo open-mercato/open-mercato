@@ -20,7 +20,7 @@ test('failed and cancelled operation summaries stay distinct from success on nar
         errorMessage: status === 'failed' ? 'The operation was refused' : null,
       }],
     },
-  })))
+  }))
   await login(page, 'admin')
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/backend/customers/deals')
