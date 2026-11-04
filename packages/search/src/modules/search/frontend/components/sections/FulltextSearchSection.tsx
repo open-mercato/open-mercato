@@ -181,7 +181,7 @@ export function FulltextSearchSection({
 
       const body = await response.json() as ReindexResponse
 
-      if (!response.ok || body.error) {
+      if (!response.ok || body.error || body.ok === false) {
         throw new Error(body.error || t('search.settings.reindexErrorLabel', 'Failed to reindex'))
       }
 

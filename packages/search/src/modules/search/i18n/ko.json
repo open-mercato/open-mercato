@@ -17,6 +17,7 @@
   "search.api.errors.recreateFailed": "새 차원으로 벡터 테이블을 재생성하지 못했습니다.",
   "search.api.errors.reindexFailed": "재인덱싱 작업에 실패했습니다.",
   "search.api.errors.reindexInProgress": "이미 재인덱싱이 진행 중입니다.",
+  "search.api.errors.reindexIncomplete": "재인덱싱이 완료되지 않았습니다. 자세한 내용은 검색 활동 로그를 확인하세요.",
   "search.api.errors.scopedQueueCancelFailed": "대기 중인 재인덱싱 작업 취소에 실패했습니다.",
   "search.api.errors.scopedQueueCancelUnavailable": "범위 지정 대기열 취소를 사용할 수 없습니다.",
   "search.api.errors.searchFailed": "검색 작업에 실패했습니다.",

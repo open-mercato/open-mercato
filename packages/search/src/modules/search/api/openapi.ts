@@ -154,6 +154,7 @@ export const reindexResultSchema = z.object({
 
 export const reindexResponseSchema = z.object({
   ok: z.boolean(),
+  error: z.string().optional().describe('Localized message present when ok is false'),
   action: z.enum(['clear', 'recreate', 'reindex']),
   entityId: z.string().nullable(),
   useQueue: z.boolean().optional(),

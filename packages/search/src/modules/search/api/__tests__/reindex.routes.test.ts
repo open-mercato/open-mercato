@@ -45,6 +45,11 @@ jest.mock('../../lib/reindex-progress', () => ({
 
 import { POST as fulltextReindexPost } from '../reindex/route'
 import { POST as fulltextReindexCancelPost } from '../reindex/cancel/route'
+import { SearchIndexer, type SearchIndexerOptions } from '../../../../indexer/search-indexer'
+import { SearchService } from '../../../../service'
+import { FullTextSearchStrategy } from '../../../../strategies/fulltext.strategy'
+import type { FullTextSearchDriver } from '../../../../fulltext/types'
+import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 
 function mockAuth() {
   mockGetAuthFromRequest.mockResolvedValue({
@@ -164,6 +169,64 @@ describe('POST /api/search/reindex', () => {
     )
     expect(mockClearReindexLock).toHaveBeenCalledWith(mockDb, 'tenant-123', 'fulltext', 'org-456')
     expect(mockContainer.dispose).toHaveBeenCalled()
+  })
+
+  test.each([
+    { label: 'entity', payload: { action: 'reindex', entityId: 'test:product', useQueue: false }, failedEntityId: 'test:product' },
+    { label: 'full', payload: { action: 'reindex', useQueue: true }, failedEntityId: 'all' },
+  ])('fails progress and returns a localized error when the fulltext driver cannot clear a scoped $label reindex', async ({ payload, failedEntityId }) => {
+    const mockDb = { db: true }
+    const mockEm = { getKysely: jest.fn(() => mockDb) }
+    const driver: FullTextSearchDriver = {
+      id: 'algolia',
+      ensureReady: jest.fn(async () => {}),
+      isHealthy: jest.fn(async () => true),
+      search: jest.fn(async () => []),
+      index: jest.fn(async () => {}),
+      delete: jest.fn(async () => {}),
+      bulkIndex: jest.fn(async () => {}),
+      recreateIndex: jest.fn(async () => {}),
+    }
+    const strategy = new FullTextSearchStrategy(driver)
+    const queryEngine: QueryEngine = { query: jest.fn() }
+    const enqueue = jest.fn(async () => 'job-1')
+    const searchIndexer = new SearchIndexer(
+      new SearchService({ strategies: [strategy] }),
+      [{ entities: [{ entityId: 'test:product', enabled: true }] }],
+      { queryEngine, fulltextQueue: { enqueue } as unknown as SearchIndexerOptions['fulltextQueue'] },
+    )
+    const mockContainer = {
+      resolve: jest.fn((name: string) => {
+        if (name === 'em') return mockEm
+        if (name === 'progressService') return { progress: true }
+        if (name === 'searchStrategies') return [strategy]
+        if (name === 'searchIndexer') return searchIndexer
+        throw new Error(`Unknown service: ${name}`)
+      }),
+      dispose: jest.fn().mockResolvedValue(undefined),
+    }
+    mockCreateRequestContainer.mockResolvedValue(mockContainer)
+
+    const res = await fulltextReindexPost(makeRequest(payload))
+    const body = await res.json()
+
+    expect(body.ok).toBe(false)
+    expect(body.error).toBe('Reindex did not complete. Check the search activity log for details.')
+    expect(body.result.errors).toEqual([
+      { entityId: failedEntityId, error: expect.stringContaining('implement purge or listDocumentIds') },
+    ])
+    expect(mockFailReindexProgress).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'fulltext',
+      tenantId: 'tenant-123',
+      organizationId: 'org-456',
+      errorMessage: expect.stringContaining('implement purge or listDocumentIds'),
+    }))
+    expect(mockCompleteReindexProgress).not.toHaveBeenCalled()
+    expect(mockClearReindexLock).toHaveBeenCalledWith(mockDb, 'tenant-123', 'fulltext', 'org-456')
+    expect(driver.recreateIndex).not.toHaveBeenCalled()
+    expect(driver.bulkIndex).not.toHaveBeenCalled()
+    expect(enqueue).not.toHaveBeenCalled()
+    expect(queryEngine.query).not.toHaveBeenCalled()
   })
 
   test('cancel removes only current tenant and organization fulltext queue jobs', async () => {

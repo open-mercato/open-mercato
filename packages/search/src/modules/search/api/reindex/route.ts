@@ -322,7 +322,16 @@ export async function POST(req: Request) {
           : `Reindex all entities (${useQueue ? 'queued' : 'sync'})`,
       })
       const jobsEnqueued = result.jobsEnqueued ?? 0
-      if (!useQueue || jobsEnqueued === 0) {
+      if (!result.success) {
+        await failReindexProgress({
+          em,
+          progressService,
+          type: 'fulltext',
+          tenantId,
+          organizationId: auth.orgId ?? null,
+          errorMessage: result.errors[0]?.error ?? 'Fulltext reindex failed',
+        })
+      } else if (!useQueue || jobsEnqueued === 0) {
         await completeReindexProgress({
           em,
           progressService,
@@ -345,6 +354,9 @@ export async function POST(req: Request) {
 
       return toJson({
         ok: result.success,
+        ...(result.success
+          ? {}
+          : { error: t('search.api.errors.reindexIncomplete', 'Reindex did not complete. Check the search activity log for details.') }),
         action,
         entityId: entityId ?? null,
         useQueue,
