@@ -8,7 +8,10 @@ import {
 } from './lib/customDomainResolver'
 import { tryNormalizeHostname } from '@open-mercato/core/modules/customer_accounts/lib/hostname'
 import { secretEqual } from '@open-mercato/core/modules/customer_accounts/lib/secretCompare'
-import { createContentSecurityPolicyRequestHeaders } from '@open-mercato/shared/lib/security/contentSecurityPolicy'
+import {
+  createContentSecurityPolicyRequestHeaders,
+  devServerLoopbackFrameAncestorOrigins,
+} from '@open-mercato/shared/lib/security/contentSecurityPolicy'
 import { stripeContentSecurityPolicy } from '@open-mercato/gateway-stripe/contentSecurityPolicy'
 import { resolveDocumentsCollaborationCspOrigins } from '@open-mercato/documents/contentSecurityPolicy'
 
@@ -66,6 +69,7 @@ export async function proxy(req: NextRequest) {
     env: process.env,
     ...stripeContentSecurityPolicy,
     connectOrigins: [...stripeContentSecurityPolicy.connectOrigins, ...resolveDocumentsCollaborationCspOrigins()],
+    frameAncestorOrigins: process.env.OM_DEV_SERVER_LOOPBACK_FRAMING === '1' ? devServerLoopbackFrameAncestorOrigins : [],
   })
   function withContentSecurityPolicy(response: NextResponse) {
     response.headers.set('Content-Security-Policy', contentSecurityPolicy)
