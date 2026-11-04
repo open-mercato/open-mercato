@@ -124,8 +124,15 @@ export async function ensureInfra({
       const endpoint = configuredDatabaseEndpoint(projectDir, env)
       if (endpoint && await databaseProbe(endpoint.port, { host: endpoint.host, timeoutMs: 1500 })) {
         log(`   Docker is not available (${outcome.problem.detail ?? outcome.problem.code}), but PostgreSQL answers at ${endpoint.host}:${endpoint.port}.`)
-        log('   Using the services configured in .env (same as --no-infra).')
-        return { ok: true, existingServices: true }
+        const configuredServices = {
+          ...outcome.problem,
+          configuredServices: true,
+          services: [{ service: 'postgres', host: endpoint.host, port: endpoint.port, state: 'reachable' }],
+        }
+        if (await confirmExistingServices(configuredServices, { log })) {
+          log('   Using the services configured in .env (same as --no-infra).')
+          return { ok: true, existingServices: true }
+        }
       }
     }
     if (allowExistingServices && (outcome.problem.code === 'port-conflict' || (outcome.problem.code === 'unhealthy' && outcome.problem.existingServices)) && await confirmExistingServices(outcome.problem, { log })) return { ok: true, existingServices: true }

@@ -92,7 +92,7 @@ Docker only runs the services for you. Without it, run them yourself; only Postg
 
 1. Create the database with a user that may create extensions on the first run (`unaccent` and `pg_trgm`, which ship with PostgreSQL; add [pgvector](https://github.com/pgvector/pgvector) only for vector search). With the defaults from `.env.example`: `sudo -u postgres psql -c "ALTER USER postgres PASSWORD 'postgres'"` and `sudo -u postgres createdb open-mercato` (on macOS with Homebrew: `createuser -s postgres`, then `createdb -U postgres open-mercato`).
 2. If your user, password, host or port differ, set `DATABASE_URL` in `.env`; for the optional services, uncomment and set `REDIS_URL`, `MEILISEARCH_HOST` and `MEILISEARCH_API_KEY`.
-3. Run `yarn setup`. When Docker is missing but the database in `.env` answers, setup uses your services; `yarn setup --no-infra` forces that and makes no Docker calls at all.
+3. Run `yarn setup`. When Docker is missing but the database in `.env` answers, interactive setup asks before using your services. Non-interactive setup requires `yarn setup --no-infra`, which makes no Docker calls at all.
 
 A plain `npx create-mercato-app my-app` asks these questions plus Git init (its agent default is Claude Code). Without a terminal it silently picks classic, claude-code and no git, so agents always pass the flags and run `yarn setup` in the background. If Docker is unavailable, follow [Without Docker](#without-docker), or offer Open Mercato Cloud. To keep mise after this terminal closes, add `eval "$(~/.local/bin/mise activate zsh)"` (or `bash`) to your shell profile. Pushing to GitHub is optional and comes later, in [Day 1](#day-1-the-missing-20-as-a-module).
 

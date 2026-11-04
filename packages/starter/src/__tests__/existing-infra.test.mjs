@@ -283,6 +283,35 @@ test('standalone setup does not offer reuse for an unavailable Docker daemon', a
   assert.deepEqual(outcome, failure)
 })
 
+test('standalone setup requires consent before using a reachable configured database without Docker', async () => {
+  const failure = { ok: false, problem: { code: 'daemon-stopped', detail: 'engine unavailable' } }
+  for (const accepted of [false, true]) {
+    let confirmations = 0
+    const outcome = await ensureInfra({
+      projectDir: '/missing-standalone-fixture',
+      env: { DATABASE_URL: 'postgres://postgres:postgres@db.example.test:5544/open_mercato' },
+      allowExistingServices: true,
+      startImpl: async () => failure,
+      databaseProbe: async (port, options) => {
+        assert.equal(port, 5544)
+        assert.equal(options.host, 'db.example.test')
+        return true
+      },
+      confirmExistingServices: async (problem) => {
+        confirmations += 1
+        assert.equal(problem.configuredServices, true)
+        assert.deepEqual(problem.services, [{ service: 'postgres', host: 'db.example.test', port: 5544, state: 'reachable' }])
+        return accepted
+      },
+      log: () => {},
+      error: () => {},
+    })
+
+    assert.deepEqual(outcome, accepted ? { ok: true, existingServices: true } : failure)
+    assert.equal(confirmations, 1)
+  }
+})
+
 for (const state of ['running', 'restarting']) {
   test(`setup preserves existing ${state} unhealthy project services before consent`, async () => {
     for (const mode of ['monorepo', 'standalone']) {

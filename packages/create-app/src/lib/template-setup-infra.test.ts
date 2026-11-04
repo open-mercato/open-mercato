@@ -223,15 +223,33 @@ for (const failure of FAILURES) {
   })
 }
 
-test('without Docker, yarn setup uses an answering database from .env instead of stopping', { skip }, async () => {
+test('without Docker, non-interactive setup does not treat an answering database as consent', { skip }, async () => {
   const app = await makeApp()
   const database = net.createServer((socket) => socket.end())
   await new Promise<void>((resolve) => database.listen(app.ports.POSTGRES_PORT, '127.0.0.1', () => resolve()))
   try {
     fs.writeFileSync(path.join(app.appDir, '.env'), `DATABASE_URL=postgres://postgres:postgres@localhost:${app.ports.POSTGRES_PORT}/open-mercato\n`)
     const run = await runScript(app, 'setup.mjs', [], { withDocker: false })
-    assert.equal(run.code, 0, run.output)
+    assert.equal(run.code, 2, run.output)
     assert.match(run.output, /Docker is not available .* but PostgreSQL answers at 127\.0\.0\.1:/)
+    assert.match(run.output, /Existing services need interactive confirmation.*--no-infra/s)
+    assert.doesNotMatch(run.output, /SERVICE_CONNECTIONS_VERIFIED/)
+    assert.equal(run.devArgs, null)
+  } finally {
+    database.close()
+    fs.rmSync(app.appDir, { recursive: true, force: true })
+  }
+})
+
+test('without Docker, interactive setup uses an answering database only after explicit consent', { skip }, async () => {
+  const app = await makeApp()
+  const database = net.createServer((socket) => socket.end())
+  await new Promise<void>((resolve) => database.listen(app.ports.POSTGRES_PORT, '127.0.0.1', () => resolve()))
+  try {
+    fs.writeFileSync(path.join(app.appDir, '.env'), `DATABASE_URL=postgres://postgres:postgres@localhost:${app.ports.POSTGRES_PORT}/open-mercato\n`)
+    const run = await runScript(app, 'setup.mjs', [], { withDocker: false, promptAnswer: 'yes' })
+    assert.equal(run.code, 0, run.output)
+    assert.match(run.output, /Continuing with the services configured in \.env/)
     assert.match(run.output, /SERVICE_CONNECTIONS_VERIFIED/)
     assert.ok(run.devArgs?.includes('--no-infra'), `dev must run without infra: ${JSON.stringify(run.devArgs)}`)
   } finally {
