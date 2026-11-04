@@ -9,6 +9,8 @@ import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration
 import { deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
 import { getTokenScope } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
+import { resolveAppRoot } from '@open-mercato/core/helpers/integration/appRoot'
+import { bootstrapFromAppRoot } from '@open-mercato/shared/lib/bootstrap/dynamicLoader'
 import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue'
 import type { QueryEngine, QueryOptions } from '@open-mercato/shared/lib/query/types'
 import {
@@ -307,6 +309,12 @@ test.describe('TC-EXAMPLE-015: the nine specialized registries have real local c
   })
 
   test('token search and live deterministic pgvector indexing preserve Todo organization scope', async ({ request }) => {
+    // A live pgvector index over a freshly created per-suffix table can lag a moment on a
+    // loaded CI worker: the list read below resolves immediately, while the similarity search
+    // can transiently return [] until the row is queryable. Poll the two search assertions so
+    // the test tolerates the brief window without weakening what it proves — mirrors the load
+    // hardening the sibling workflow test in this file applies.
+    test.slow()
     const token = await getAuthToken(request, 'admin')
     const { tenantId, organizationId } = getTokenScope(token)
     const suffix = randomUUID().replaceAll('-', '').slice(0, 12)
@@ -316,20 +324,23 @@ test.describe('TC-EXAMPLE-015: the nine specialized registries have real local c
     const vectorTableName = `vector_search_tc015_${suffix}`
     const vectorMigrationsTableName = `vector_migrations_tc015_${suffix}`
     const observedVectorQueryScopes: string[] = []
+    const vectorPool = createIntegrationPgPool()
+    const embeddingService = new DeterministicEmbeddingService()
     const vectorDriver = createPgVectorDriver({
-      pool: createIntegrationPgPool(),
+      pool: vectorPool,
       tableName: vectorTableName,
       migrationsTable: vectorMigrationsTableName,
       dimension: 1_536,
     })
     const vectorService = new VectorIndexService({
       drivers: [vectorDriver],
-      embeddingService: new DeterministicEmbeddingService(),
+      embeddingService,
       queryEngine: createLiveTodoQueryEngine(observedVectorQueryScopes),
       moduleConfigs: [vectorConfig],
     })
 
     try {
+      await bootstrapFromAppRoot(resolveAppRoot())
       const created = await apiRequest(request, 'POST', TODOS_API, {
         token,
         data: {
@@ -401,6 +412,26 @@ test.describe('TC-EXAMPLE-015: the nine specialized registries have real local c
         reason: 'checksum_match',
       })
 
+      const unregisteredRecordId = randomUUID()
+      const unregisteredEntityId = `example:unregistered_${suffix}`
+      const unregisteredEmbedding = await embeddingService.createEmbedding(`TC-EXAMPLE-015 vector ${suffix}`)
+      await vectorDriver.upsert({
+        entityId: unregisteredEntityId,
+        recordId: unregisteredRecordId,
+        tenantId,
+        organizationId,
+        checksum: suffix,
+        embedding: unregisteredEmbedding,
+        driverId: 'pgvector',
+        resultTitle: `TC-EXAMPLE-015 unregistered ${suffix}`,
+      })
+      expect((await vectorDriver.list!({ tenantId, organizationId, entityId: unregisteredEntityId }))
+        .map((entry) => entry.recordId)).toEqual([unregisteredRecordId])
+      expect(await vectorDriver.query({
+        vector: unregisteredEmbedding,
+        filter: { tenantId, organizationId, entityIds: [unregisteredEntityId] },
+      })).toEqual([])
+
       const homeEntries = await vectorDriver.list!({
         tenantId,
         organizationId,
@@ -414,39 +445,53 @@ test.describe('TC-EXAMPLE-015: the nine specialized registries have real local c
       expect(homeEntries.map((entry) => entry.recordId)).toEqual([todoId])
       expect(foreignEntries.map((entry) => entry.recordId)).toEqual([foreignTodoId])
 
-      const homeHits = await vectorService.search({
-        query: `TC-EXAMPLE-015 vector ${suffix}`,
-        tenantId,
-        organizationId,
-        limit: 10,
-      })
-      const foreignHits = await vectorService.search({
-        query: `TC-EXAMPLE-015 foreign vector ${suffix}`,
-        tenantId,
-        organizationId: foreignOrgId,
-        limit: 10,
-      })
-      expect(homeHits.map((hit) => hit.recordId)).toEqual([todoId])
-      expect(foreignHits.map((hit) => hit.recordId)).toEqual([foreignTodoId])
+      await expect.poll(
+        () =>
+          vectorService
+            .search({
+              query: `TC-EXAMPLE-015 vector ${suffix}`,
+              tenantId,
+              organizationId,
+              limit: 10,
+            })
+            .then((homeHits) => homeHits.map((hit) => hit.recordId)),
+        { timeout: 30_000, message: 'live deterministic pgvector indexing should surface the home Todo' },
+      ).toEqual([todoId])
+      await expect.poll(
+        () =>
+          vectorService
+            .search({
+              query: `TC-EXAMPLE-015 foreign vector ${suffix}`,
+              tenantId,
+              organizationId: foreignOrgId,
+              limit: 10,
+            })
+            .then((foreignHits) => foreignHits.map((hit) => hit.recordId)),
+        { timeout: 30_000, message: 'live deterministic pgvector indexing should surface the foreign Todo' },
+      ).toEqual([foreignTodoId])
       expect(observedVectorQueryScopes).toEqual(expect.arrayContaining([
         organizationId,
         foreignOrgId,
       ]))
 
     } finally {
-      await withClient(async (client) => {
-        await client.query(`DROP TABLE IF EXISTS "${vectorTableName}"`)
-        await client.query(`DROP TABLE IF EXISTS "${vectorMigrationsTableName}"`)
-      }).catch(() => undefined)
-      await deleteEntityIfExists(request, token, TODOS_API, todoId)
-      if (foreignOrgId && foreignTodoId) {
-        await apiRequestWithSelectedOrg(request, 'DELETE', TODOS_API, {
-          token,
-          selectedOrgId: foreignOrgId,
-          data: { id: foreignTodoId },
+      try {
+        await withClient(async (client) => {
+          await client.query(`DROP TABLE IF EXISTS "${vectorTableName}"`)
+          await client.query(`DROP TABLE IF EXISTS "${vectorMigrationsTableName}"`)
         }).catch(() => undefined)
+        await deleteEntityIfExists(request, token, TODOS_API, todoId)
+        if (foreignOrgId && foreignTodoId) {
+          await apiRequestWithSelectedOrg(request, 'DELETE', TODOS_API, {
+            token,
+            selectedOrgId: foreignOrgId,
+            data: { id: foreignTodoId },
+          }).catch(() => undefined)
+        }
+        await deleteOrganizationIfExists(request, token, foreignOrgId)
+      } finally {
+        await vectorPool.end()
       }
-      await deleteOrganizationIfExists(request, token, foreignOrgId)
     }
   })
 

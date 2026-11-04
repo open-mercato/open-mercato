@@ -62,6 +62,7 @@ import type {
 } from "../data/types";
 import {
   cloneJson,
+  commandScopeWhere,
   ensureOrganizationScope,
   ensureSameScope,
   ensureTenantScope,
@@ -285,10 +286,19 @@ type ProductDeleteSnapshots = {
 
 const PRODUCT_DELETE_CACHE_ALIASES: readonly string[] = [
   "catalog.product",
+  "catalog.offer",
   "catalog.variant",
   "catalog.price",
   "catalog.product.unit.conversion",
   "catalog.optionschema",
+];
+
+// Shared by create, update, and delete/undo: all three write catalog_product_offers
+// rows (syncOffers / restoreOffersFromSnapshot), so each must also invalidate the
+// offers list cache alongside the product cache alias (issue #7721).
+const PRODUCT_OFFER_CACHE_ALIASES: readonly string[] = [
+  "catalog.product",
+  "catalog.offer",
 ];
 
 const productCrudEvents: CrudEventsConfig<CatalogProduct> = {
@@ -678,6 +688,7 @@ function ensureSchemaName(
 
 async function assignOptionSchemaTemplate(
   em: EntityManager,
+  lookupEm: EntityManager,
   product: CatalogProduct,
   schema: CatalogProductOptionSchema,
   preferredName?: string | null,
@@ -693,7 +704,7 @@ async function assignOptionSchemaTemplate(
   });
   let template = product.optionSchemaTemplate ?? null;
   if (!template) {
-    template = await em.findOne(CatalogOptionSchemaTemplate, {
+    template = await lookupEm.findOne(CatalogOptionSchemaTemplate, {
       organizationId: product.organizationId,
       tenantId: product.tenantId,
       code: templateCode,
@@ -1165,11 +1176,12 @@ async function resolveOptionSchemaTemplateForRemoval(
 async function loadProductSnapshot(
   em: EntityManager,
   id: string,
+  scopeWhere: Record<string, unknown> = {},
 ): Promise<ProductSnapshot | null> {
   const record = await findOneWithDecryption(
     em,
     CatalogProduct,
-    { id, deletedAt: null },
+    { id, deletedAt: null, ...scopeWhere },
     { populate: ["optionSchemaTemplate"] },
   );
   if (!record) return null;
@@ -1596,6 +1608,7 @@ const createProductCommand: CommandHandler<
     } else if (optionSchemaDefinition) {
       optionSchemaTemplate = await assignOptionSchemaTemplate(
         em,
+        em,
         record,
         optionSchemaDefinition,
         optionSchemaDefinition.name ?? parsed.title,
@@ -1655,6 +1668,7 @@ const createProductCommand: CommandHandler<
           after,
         } satisfies ProductUndoPayload,
       },
+      context: { cacheAliases: [...PRODUCT_OFFER_CACHE_ALIASES] },
     };
   },
   undo: async ({ logEntry, ctx }) => {
@@ -1747,7 +1761,7 @@ const updateProductCommand: CommandHandler<
   async prepare(input, ctx) {
     const id = requireId(input, "Product id is required");
     const em = ctx.container.resolve("em") as EntityManager;
-    const snapshot = await loadProductSnapshot(em, id);
+    const snapshot = await loadProductSnapshot(em, id, commandScopeWhere(ctx));
     if (snapshot) {
       ensureTenantScope(ctx, snapshot.tenantId);
       ensureOrganizationScope(ctx, snapshot.organizationId);
@@ -1782,6 +1796,7 @@ const updateProductCommand: CommandHandler<
     const record = await findOneWithDecryption(em, CatalogProduct, {
       id: parsed.id,
       deletedAt: null,
+      ...commandScopeWhere(ctx),
     });
     if (!record)
       throw new CrudHttpError(404, {
@@ -2016,6 +2031,7 @@ const updateProductCommand: CommandHandler<
     if (optionSchemaDefinition) {
       await assignOptionSchemaTemplate(
         em,
+        lookupEm,
         record,
         optionSchemaDefinition,
         optionSchemaDefinition.name ?? parsed.title ?? record.title,
@@ -2188,6 +2204,7 @@ const updateProductCommand: CommandHandler<
           after,
         } satisfies ProductUndoPayload,
       },
+      context: { cacheAliases: [...PRODUCT_OFFER_CACHE_ALIASES] },
     };
   },
   undo: async ({ logEntry, ctx }) => {
@@ -2279,7 +2296,7 @@ const deleteProductCommand: CommandHandler<
   async prepare(input, ctx) {
     const id = requireId(input, "Product id is required");
     const em = ctx.container.resolve("em") as EntityManager;
-    const snapshot = await loadProductSnapshot(em, id);
+    const snapshot = await loadProductSnapshot(em, id, commandScopeWhere(ctx));
     if (!snapshot) return {};
     ensureTenantScope(ctx, snapshot.tenantId);
     ensureOrganizationScope(ctx, snapshot.organizationId);
@@ -2295,7 +2312,7 @@ const deleteProductCommand: CommandHandler<
     const record = await findOneWithDecryption(
       em,
       CatalogProduct,
-      { id },
+      { id, ...commandScopeWhere(ctx) },
       { populate: ["optionSchemaTemplate"] },
     );
     if (!record) {
@@ -2456,17 +2473,21 @@ const deleteProductCommand: CommandHandler<
       em.persist(record);
     }
     applyProductSnapshot(em, record, before);
-    await withAtomicFlush(
-      em,
-      [
-        () => em.flush(),
-        () => restoreOffersFromSnapshot(em, record, before.offers),
-        () => syncCategoryAssignments(em, record, before.categoryIds),
-        () => syncProductTags(em, record, before.tags),
-        ...buildProductDeleteChildrenRestorePhases(em, owner, childrenPlan),
-      ],
-      { transaction: true },
-    );
+    try {
+      await withAtomicFlush(
+        em,
+        [
+          () => em.flush(),
+          () => restoreOffersFromSnapshot(em, record, before.offers),
+          () => syncCategoryAssignments(em, record, before.categoryIds),
+          () => syncProductTags(em, record, before.tags),
+          ...buildProductDeleteChildrenRestorePhases(em, owner, childrenPlan),
+        ],
+        { transaction: true },
+      );
+    } catch (error) {
+      await rethrowProductUniqueConstraint(error);
+    }
     const restoredPrices = await loadRestoredPricesForHistory(
       em,
       owner,
