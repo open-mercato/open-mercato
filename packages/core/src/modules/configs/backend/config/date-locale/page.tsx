@@ -167,7 +167,7 @@ export default function DateLocaleSettingsPage() {
         placeholder: field.presets[0],
         description: t(
           'configs.dateLocale.fields.customPatternHint',
-          'Uses date-fns tokens, for example dd.MM.yyyy or h:mm a. Wrap literal text in single quotes.',
+          "Uses date-fns tokens, for example dd.MM.yyyy or h:mm a. Wrap literal text in single quotes: unquoted letters are tokens, so write d MMM 'at' HH:mm, not d MMM at HH:mm.",
         ),
         visibleWhen: { field: `${field.id}Mode`, equals: CUSTOM_PATTERN },
         maxLength: 64,

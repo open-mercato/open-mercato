@@ -42,7 +42,7 @@
   "configs.dateLocale.errors.save": "Datums- und Uhrzeiteinstellungen konnten nicht gespeichert werden.",
   "configs.dateLocale.errors.timeZone": "Wählen Sie eine Zeitzone aus der Liste, z. B. Europe/Berlin.",
   "configs.dateLocale.fields.customPattern": "Eigenes Muster",
-  "configs.dateLocale.fields.customPatternHint": "Verwendet date-fns-Tokens, z. B. dd.MM.yyyy oder HH:mm. Festen Text in einfache Anführungszeichen setzen.",
+  "configs.dateLocale.fields.customPatternHint": "Verwendet date-fns-Tokens, z. B. dd.MM.yyyy oder HH:mm. Festen Text in einfache Anführungszeichen setzen: Buchstaben ohne Anführungszeichen sind Tokens, also d MMM 'um' HH:mm statt d MMM um HH:mm.",
   "configs.dateLocale.fields.dateFormat": "Datumsformat",
   "configs.dateLocale.fields.dateTimeFormat": "Datums- und Uhrzeitformat",
   "configs.dateLocale.fields.firstDayOfWeek": "Erster Wochentag",

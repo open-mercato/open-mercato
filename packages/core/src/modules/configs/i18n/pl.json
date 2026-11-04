@@ -42,7 +42,7 @@
   "configs.dateLocale.errors.save": "Nie udało się zapisać ustawień daty i godziny.",
   "configs.dateLocale.errors.timeZone": "Wybierz strefę czasową z listy, np. Europe/Warsaw.",
   "configs.dateLocale.fields.customPattern": "Własny wzorzec",
-  "configs.dateLocale.fields.customPatternHint": "Używa tokenów date-fns, np. dd.MM.yyyy lub HH:mm. Stały tekst umieść w apostrofach.",
+  "configs.dateLocale.fields.customPatternHint": "Używa tokenów date-fns, np. dd.MM.yyyy lub HH:mm. Stały tekst umieść w apostrofach: litery bez apostrofów są tokenami, więc pisz d MMM 'o' HH:mm, a nie d MMM o HH:mm.",
   "configs.dateLocale.fields.dateFormat": "Format daty",
   "configs.dateLocale.fields.dateTimeFormat": "Format daty i godziny",
   "configs.dateLocale.fields.firstDayOfWeek": "Pierwszy dzień tygodnia",

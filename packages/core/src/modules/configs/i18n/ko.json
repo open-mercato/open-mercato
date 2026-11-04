@@ -42,7 +42,7 @@
   "configs.dateLocale.errors.save": "날짜 및 시간 설정을 저장하지 못했습니다.",
   "configs.dateLocale.errors.timeZone": "목록에서 시간대를 선택하세요(예: Asia/Seoul).",
   "configs.dateLocale.fields.customPattern": "사용자 지정 패턴",
-  "configs.dateLocale.fields.customPatternHint": "date-fns 토큰을 사용합니다(예: yyyy-MM-dd 또는 a h:mm). 고정 텍스트는 작은따옴표로 감싸세요.",
+  "configs.dateLocale.fields.customPatternHint": "date-fns 토큰을 사용합니다(예: yyyy-MM-dd 또는 a h:mm). 고정 텍스트는 작은따옴표로 감싸세요. 따옴표 없는 영문자는 토큰으로 해석되므로 d MMM at HH:mm 대신 d MMM 'at' HH:mm처럼 쓰세요.",
   "configs.dateLocale.fields.dateFormat": "날짜 형식",
   "configs.dateLocale.fields.dateTimeFormat": "날짜 및 시간 형식",
   "configs.dateLocale.fields.firstDayOfWeek": "한 주의 시작 요일",

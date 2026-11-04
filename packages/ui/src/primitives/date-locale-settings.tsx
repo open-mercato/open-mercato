@@ -4,6 +4,7 @@ import * as React from 'react'
 import type { FirstDayOfWeek, ResolvedDateLocaleSettings } from '@open-mercato/shared/lib/date-locale/types'
 import { resolveFirstDayOfWeek } from '@open-mercato/shared/lib/date-locale/weekStart'
 import {
+  clearRenderingDateLocaleProvider,
   getActiveDateLocaleSettings,
   noteRenderingDateLocaleProvider,
   registerDateLocaleProvider,
@@ -33,13 +34,16 @@ export function DateLocaleSettingsProvider({
   const [key] = React.useState(() => ({}))
   // During render, not only in an effect: the first client render (hydration) must already format
   // with the tenant settings, otherwise every date cell renders once in the env default and flips.
-  // The note is idempotent (same key, depth and value on every render), so a StrictMode double
-  // render or a discarded concurrent render leaves nothing inconsistent behind. The store resolves
-  // the innermost provider, so a root re-render cannot override a nested layout's settings.
+  // The store resolves the innermost provider, so a root re-render cannot override a nested
+  // layout's settings. The note lasts until the next commit: a render React throws away (an
+  // interrupted transition, an error boundary) would otherwise keep its settings in the store.
   noteRenderingDateLocaleProvider(key, depth, settings)
   useIsomorphicLayoutEffect(() => {
     registerDateLocaleProvider(key, depth, settings)
   }, [key, depth, settings])
+  useIsomorphicLayoutEffect(() => {
+    clearRenderingDateLocaleProvider()
+  })
   useIsomorphicLayoutEffect(() => () => unregisterDateLocaleProvider(key), [key])
   return (
     <DateLocaleProviderDepthContext.Provider value={depth}>

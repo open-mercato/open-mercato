@@ -198,7 +198,10 @@ export function toZonedWallClock(date: Date, timeZone: string | null | undefined
   try {
     const parts = getWallClockFormatter(timeZone).formatToParts(date)
     const read = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((part) => part.type === type)?.value ?? 0)
-    return new Date(read('year'), read('month') - 1, read('day'), read('hour'), read('minute'), read('second'), date.getMilliseconds())
+    const wall = new Date(2000, read('month') - 1, read('day'), read('hour'), read('minute'), read('second'), date.getMilliseconds())
+    // Set separately: the Date constructor reads years 0–99 as 1900–1999.
+    wall.setFullYear(read('year'), read('month') - 1, read('day'))
+    return wall
   } catch {
     return date
   }
@@ -208,7 +211,9 @@ const ZONE_TOKEN_LETTERS = new Set(['X', 'x', 'O', 'z', 't', 'T'])
 
 function offsetMinutesIn(date: Date, timeZone: string): number {
   const wall = toZonedWallClock(date, timeZone)
-  const wallAsUtc = Date.UTC(wall.getFullYear(), wall.getMonth(), wall.getDate(), wall.getHours(), wall.getMinutes(), wall.getSeconds())
+  const wallAsUtcDate = new Date(Date.UTC(2000, 0, 1, wall.getHours(), wall.getMinutes(), wall.getSeconds()))
+  wallAsUtcDate.setUTCFullYear(wall.getFullYear(), wall.getMonth(), wall.getDate())
+  const wallAsUtc = wallAsUtcDate.getTime()
   return Math.round((wallAsUtc - Math.floor(date.getTime() / 1000) * 1000) / 60_000)
 }
 

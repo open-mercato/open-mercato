@@ -143,6 +143,17 @@ describe('zone helpers', () => {
     expect(todayInZone('Europe/Warsaw', now)).toBe('2027-01-01')
   })
 
+  it('keeps years 0–99 instead of reading them as 1900–1999', () => {
+    const instant = new Date(Date.UTC(2000, 5, 15, 10, 30))
+    instant.setUTCFullYear(50)
+    const wall = toZonedWallClock(instant, 'UTC')
+    expect(wall.getFullYear()).toBe(50)
+    expect([wall.getMonth(), wall.getDate(), wall.getHours(), wall.getMinutes()]).toEqual([5, 15, 10, 30])
+    expect(formatDisplayDateTime(instant, 'en-US', settings({ timeZone: 'UTC', dateTimeFormat: "yyyy-MM-dd HH:mm XXX" }))).toBe(
+      '0050-06-15 10:30 Z',
+    )
+  })
+
   it('returns the original date for an unknown zone', () => {
     const date = new Date(INSTANT)
     expect(toZonedWallClock(date, 'Mars/Olympus')).toBe(date)

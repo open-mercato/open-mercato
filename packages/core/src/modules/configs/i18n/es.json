@@ -42,7 +42,7 @@
   "configs.dateLocale.errors.save": "No se pudieron guardar los ajustes de fecha y hora.",
   "configs.dateLocale.errors.timeZone": "Elige una zona horaria de la lista, por ejemplo Europe/Madrid.",
   "configs.dateLocale.fields.customPattern": "Patrón personalizado",
-  "configs.dateLocale.fields.customPatternHint": "Usa tokens de date-fns, por ejemplo dd/MM/yyyy o HH:mm. Pon el texto literal entre comillas simples.",
+  "configs.dateLocale.fields.customPatternHint": "Usa tokens de date-fns, por ejemplo dd/MM/yyyy o HH:mm. Pon el texto literal entre comillas simples: las letras sin comillas son tokens, así que escribe d MMM 'a las' HH:mm, no d MMM a las HH:mm.",
   "configs.dateLocale.fields.dateFormat": "Formato de fecha",
   "configs.dateLocale.fields.dateTimeFormat": "Formato de fecha y hora",
   "configs.dateLocale.fields.firstDayOfWeek": "Primer día de la semana",

@@ -42,7 +42,7 @@
   "configs.dateLocale.errors.save": "Failed to save date and time settings.",
   "configs.dateLocale.errors.timeZone": "Choose a time zone from the list, for example Europe/Warsaw.",
   "configs.dateLocale.fields.customPattern": "Custom pattern",
-  "configs.dateLocale.fields.customPatternHint": "Uses date-fns tokens, for example dd.MM.yyyy or h:mm a. Wrap literal text in single quotes.",
+  "configs.dateLocale.fields.customPatternHint": "Uses date-fns tokens, for example dd.MM.yyyy or h:mm a. Wrap literal text in single quotes: unquoted letters are tokens, so write d MMM 'at' HH:mm, not d MMM at HH:mm.",
   "configs.dateLocale.fields.dateFormat": "Date format",
   "configs.dateLocale.fields.dateTimeFormat": "Date and time format",
   "configs.dateLocale.fields.firstDayOfWeek": "First day of the week",

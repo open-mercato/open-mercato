@@ -7,6 +7,7 @@ import { render, screen } from '@testing-library/react'
 import { resolveDateLocaleSettings } from '@open-mercato/shared/lib/date-locale/resolve'
 import { DateLocaleSettingsProvider } from '@open-mercato/ui/primitives/date-locale-settings'
 import QuotePublicPage from '../page'
+import { formatQuoteValidUntil } from '../../../../lib/quoteEmailDates'
 
 const mockApiCallOrThrow = jest.fn()
 
@@ -37,8 +38,9 @@ const quoteResponse = (display?: { timeZone: string | null; locale: string | nul
   ...(display ? { display } : {}),
 })
 
-// The viewer's own provider says Los Angeles (still July 1st); the quote's tenant says Tokyo
-// (already July 2nd), which is the day the quote email named.
+// The viewer's own provider says Los Angeles (still July 1st) with a pinned `yyyy-MM-dd`; the
+// quote's tenant says Tokyo (already July 2nd). The page names the day the quote email named, in
+// the email's long format, never in the viewer's own pattern.
 const viewerSettings = resolveDateLocaleSettings({
   tenant: { timeZone: 'America/Los_Angeles', dateFormat: 'yyyy-MM-dd' },
   env: {},
@@ -55,15 +57,23 @@ function renderPage() {
 describe('public quote page validity date', () => {
   beforeEach(() => mockApiCallOrThrow.mockReset())
 
-  it('names the validity day in the time zone returned with the quote', async () => {
+  it('names the validity day in the time zone returned with the quote, as the email does', async () => {
     mockApiCallOrThrow.mockResolvedValue({ result: quoteResponse({ timeZone: 'Asia/Tokyo', locale: null }) })
     renderPage()
-    expect(await screen.findByText('sales.quotes.public.validUntil:2026-07-02')).toBeTruthy()
+    const expected = formatQuoteValidUntil(new Date('2026-07-01T20:00:00.000Z'), 'en', { timeZone: 'Asia/Tokyo', locale: null })
+    expect(expected).toBe('July 2, 2026')
+    expect(await screen.findByText(`sales.quotes.public.validUntil:${expected}`)).toBeTruthy()
   })
 
-  it('falls back to the surrounding settings when the response has no display block', async () => {
+  it('uses the tenant formatting locale returned with the quote', async () => {
+    mockApiCallOrThrow.mockResolvedValue({ result: quoteResponse({ timeZone: 'Asia/Tokyo', locale: 'en-GB' }) })
+    renderPage()
+    expect(await screen.findByText('sales.quotes.public.validUntil:2 July 2026')).toBeTruthy()
+  })
+
+  it('falls back to the surrounding zone when the response has no display block', async () => {
     mockApiCallOrThrow.mockResolvedValue({ result: quoteResponse() })
     renderPage()
-    expect(await screen.findByText('sales.quotes.public.validUntil:2026-07-01')).toBeTruthy()
+    expect(await screen.findByText('sales.quotes.public.validUntil:July 1, 2026')).toBeTruthy()
   })
 })

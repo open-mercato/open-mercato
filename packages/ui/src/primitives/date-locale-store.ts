@@ -43,6 +43,15 @@ export function noteRenderingDateLocaleProvider(key: object, depth: number, sett
   renderingProvider = { key, depth, settings }
 }
 
+/**
+ * Called by every `DateLocaleSettingsProvider` after each commit. Every provider that rendered in
+ * that commit is mounted by now, so the render-time note is no longer needed; a note left by a
+ * render React discarded (an interrupted transition, an error boundary) must not keep deciding.
+ */
+export function clearRenderingDateLocaleProvider(): void {
+  renderingProvider = null
+}
+
 /** Called by `DateLocaleSettingsProvider` once mounted (and when its value changes). Browser only. */
 export function registerDateLocaleProvider(key: object, depth: number, settings: ResolvedDateLocaleSettings | null): void {
   if (typeof window === 'undefined') return

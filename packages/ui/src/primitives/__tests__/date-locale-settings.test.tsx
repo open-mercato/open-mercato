@@ -91,6 +91,37 @@ describe('DateLocaleSettingsProvider', () => {
     expect(getActiveDateLocaleSettings().timeZone).toBe('Asia/Tokyo')
   })
 
+  it('ignores a nested provider whose render React discarded', () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    function Throws(): React.ReactElement {
+      throw new Error('[internal] render discarded')
+    }
+    class Boundary extends React.Component<{ children: React.ReactNode }, { failed: boolean }> {
+      state = { failed: false }
+      static getDerivedStateFromError() {
+        return { failed: true }
+      }
+      render() {
+        return this.state.failed ? null : this.props.children
+      }
+    }
+    try {
+      render(
+        <DateLocaleSettingsProvider value={rootSettings}>
+          <Boundary>
+            <DateLocaleSettingsProvider value={tenantSettings}>
+              <Throws />
+            </DateLocaleSettingsProvider>
+          </Boundary>
+        </DateLocaleSettingsProvider>,
+      )
+    } finally {
+      errorSpy.mockRestore()
+    }
+    // The tenant provider rendered (and noted itself) but never mounted, so the root decides.
+    expect(getActiveDateLocaleSettings().timeZone).toBe('UTC')
+  })
+
   it('applies a nested provider value change after a refresh', () => {
     const { rerender } = render(
       <DateLocaleSettingsProvider value={rootSettings}>
