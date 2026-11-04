@@ -38,7 +38,7 @@ import { apiCall, apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHead
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
-import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
+import { mapCrudServerErrorToFormErrors, raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { cn } from '@open-mercato/shared/lib/utils'
@@ -3784,7 +3784,7 @@ export default function SalesDocumentDetailPage({
     setSending(true)
     try {
       await runMutationWithContext(async () => {
-        await apiCallOrThrow('/api/sales/quotes/send', {
+        const call = await apiCall<{ quoteSent?: boolean }>('/api/sales/quotes/send', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -3792,14 +3792,26 @@ export default function SalesDocumentDetailPage({
           },
           body: JSON.stringify({ quoteId: record.id, validForDays }),
         })
-        flash(t('sales.quotes.send.success', 'Quote sent.'), 'success')
-        setSendOpen(false)
+        if (!call.ok && call.result?.quoteSent !== true) await raiseCrudError(call.response)
         const updated = await fetchDocumentByKind(record.id, 'quote')
         if (updated) setRecord(updated)
+        setSendOpen(false)
+        if (call.ok) {
+          flash(t('sales.quotes.send.success', 'Quote sent.'), 'success')
+        } else {
+          flash(t('sales.quotes.send.emailFailed', 'Quote marked as sent, but the email could not be delivered.'), 'error')
+        }
       }, { quoteId: record.id, validForDays })
     } catch (err) {
       logger.error('sales.quotes.send', { err })
-      flash(t('sales.quotes.send.failed', 'Failed to send quote.'), 'error')
+      try {
+        getTelemetryRuntime()?.reportError(err, { module: 'sales', code: 'sales.quote_send_failed' })
+      } catch (reportFailure) {
+        logger.warn('sales.quotes.send.reportFailed', { err: reportFailure })
+      }
+      if (!handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) {
+        flash(t('sales.quotes.send.failed', 'Failed to send quote.'), 'error')
+      }
     } finally {
       setSending(false)
     }

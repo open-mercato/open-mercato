@@ -1390,6 +1390,7 @@
   "sales.quotes.send.cancel": "Cancel",
   "sales.quotes.send.canceled": "Canceled quotes cannot be sent.",
   "sales.quotes.send.description": "Email will be sent to:",
+  "sales.quotes.send.emailFailed": "Quote marked as sent, but the email could not be delivered.",
   "sales.quotes.send.failed": "Failed to send quote.",
   "sales.quotes.send.missingEmail": "Customer email is required to send a quote.",
   "sales.quotes.send.noEmail": "No email",

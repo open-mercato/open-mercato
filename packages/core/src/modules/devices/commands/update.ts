@@ -1,3 +1,4 @@
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
 import { ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
@@ -37,44 +38,47 @@ const updateDeviceCommand: CommandHandler<UpdateDeviceCommandInput, { id: string
   async execute(rawInput, ctx) {
     const parsed = updateDeviceCommandSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const device = assertFound(
-      await findOneWithDecryption(em, UserDevice, { id: parsed.id, deletedAt: null }),
-      'Device not found',
-    )
-    ensureTenantScope(ctx, device.tenantId)
+    const device = await em.transactional(async (transaction) => {
+      const device = assertFound(
+        await findOneWithDecryption(transaction, UserDevice, { id: parsed.id, tenantId: parsed.tenantId, deletedAt: null }, { lockMode: LockMode.PESSIMISTIC_WRITE }),
+        'Device not found',
+      )
+      ensureTenantScope(ctx, device.tenantId)
 
-    const now = new Date()
-    await withAtomicFlush(
-      em,
-      [
-        () => {
-          if (Object.prototype.hasOwnProperty.call(parsed, 'clientAppVersion')) {
-            device.clientAppVersion = parsed.clientAppVersion ?? null
-          }
-          if (Object.prototype.hasOwnProperty.call(parsed, 'osVersion')) {
-            device.osVersion = parsed.osVersion ?? null
-          }
-          if (Object.prototype.hasOwnProperty.call(parsed, 'locale')) {
-            device.locale = parsed.locale ?? null
-          }
-          if (Object.prototype.hasOwnProperty.call(parsed, 'pushToken')) {
-            device.pushToken = parsed.pushToken ?? null
-            device.pushTokenUpdatedAt = now
-          }
-          if (Object.prototype.hasOwnProperty.call(parsed, 'pushProvider')) {
-            device.pushProvider = parsed.pushProvider ?? null
-          }
-          // Only a client-supplied lastSeenAt advances presence. Metadata-only edits (e.g. an admin
-          // changing push_provider) must NOT bump last_seen_at — device presence is maintained by the
-          // register heartbeat, not by edits.
-          if (Object.prototype.hasOwnProperty.call(parsed, 'lastSeenAt') && parsed.lastSeenAt) {
-            device.lastSeenAt = parsed.lastSeenAt
-          }
-        },
-      ],
-      { transaction: true },
-    )
+      const now = new Date()
+      await withAtomicFlush(
+        transaction,
+        [
+          () => {
+            if (Object.prototype.hasOwnProperty.call(parsed, 'clientAppVersion')) {
+              device.clientAppVersion = parsed.clientAppVersion ?? null
+            }
+            if (Object.prototype.hasOwnProperty.call(parsed, 'osVersion')) {
+              device.osVersion = parsed.osVersion ?? null
+            }
+            if (Object.prototype.hasOwnProperty.call(parsed, 'locale')) {
+              device.locale = parsed.locale ?? null
+            }
+            if (Object.prototype.hasOwnProperty.call(parsed, 'pushToken')) {
+              device.pushToken = parsed.pushToken ?? null
+              device.pushTokenUpdatedAt = now
+            }
+            if (Object.prototype.hasOwnProperty.call(parsed, 'pushProvider')) {
+              device.pushProvider = parsed.pushProvider ?? null
+            }
+            // Only a client-supplied lastSeenAt advances presence. Metadata-only edits (e.g. an admin
+            // changing push_provider) must NOT bump last_seen_at — device presence is maintained by the
+            // register heartbeat, not by edits.
+            if (Object.prototype.hasOwnProperty.call(parsed, 'lastSeenAt') && parsed.lastSeenAt) {
+              device.lastSeenAt = parsed.lastSeenAt
+            }
+          },
+        ],
+        { transaction: false },
+      )
 
+      return device
+    })
     const de = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({
       dataEngine: de,

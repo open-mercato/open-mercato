@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { PushNotificationDelivery } from '../../data/entities'
 import { checkPushReceipts } from '../push-receipt-reaper'
 
@@ -27,6 +28,7 @@ function makeRow(overrides: Partial<PushNotificationDelivery> = {}): PushNotific
     userId: 'user-1',
     userDeviceId: 'device-1',
     provider: 'expo',
+    tokenSnapshot: '12345678',
     status: 'sent',
     attempts: 1,
     lastError: null,
@@ -63,7 +65,10 @@ function makeEm(rows: PushNotificationDelivery[], channel: Record<string, unknow
         .sort((a, b) => (a.sentAt as Date).getTime() - (b.sentAt as Date).getTime())
       return typeof options?.limit === 'number' ? matched.slice(0, options.limit) : matched
     }),
-    findOne: jest.fn(async () => channel),
+    findOne: jest.fn(async (entity: unknown, where: Record<string, unknown>) => entity === 'UserDevice' ? {
+      id: where.id, tenantId: TENANT, organizationId: 'org-1', userId: 'user-1',
+      pushToken: 'receipt-token-12345678', pushProvider: 'expo', pushTokenUpdatedAt: new Date(IN_WINDOW.getTime() - 1000),
+    } : channel),
     flush: jest.fn(async () => undefined),
   }
 }
@@ -87,6 +92,8 @@ function makeResolve(options: {
           return registry
         case 'commandBus':
           return commandBus
+        case 'UserDevice':
+          return 'UserDevice'
         case 'CommunicationChannel':
           return 'CommunicationChannel'
         case 'integrationCredentialsService':
@@ -100,6 +107,25 @@ function makeResolve(options: {
 }
 
 describe('checkPushReceipts', () => {
+  it.each(['changed-fingerprint', 'same-fingerprint-new-version'])('keeps a device rotated before receipt lookup (%s) and persists the receipt mark', async (rotation) => {
+    const row = makeRow()
+    const em = makeEm([row], { providerKey: 'expo', organizationId: 'org-1', credentialsRef: null })
+    const lookup = em.findOne.getMockImplementation()!
+    em.findOne.mockImplementation(async (entity, where) => {
+      const device = await lookup(entity, where)
+      return entity === 'UserDevice' ? {
+        ...device,
+        pushToken: rotation === 'changed-fingerprint' ? 'new-token-87654321' : 'receipt-token-12345678',
+        pushTokenUpdatedAt: new Date(IN_WINDOW.getTime() + 1000),
+      } : device
+    })
+    const { resolve, commandBus } = makeResolve({ checkReceipts: async () => [{ ticketId: 'ticket-1', unregistered: true }] })
+    await checkPushReceipts(em as never, { tenantId: TENANT }, resolve as never, NOW)
+    expect(commandBus.execute).not.toHaveBeenCalled()
+    expect(em.flush).toHaveBeenCalledTimes(1)
+    expect(row.providerResponse).toMatchObject({ receiptChecked: true, unregistered: true })
+  })
+
   it('soft-deletes the device on a DeviceNotRegistered receipt via devices.deactivate and marks the row', async () => {
     const row = makeRow({ id: 'dead-1', userDeviceId: 'dev-dead' })
     const em = makeEm([row], { providerKey: 'expo', organizationId: 'org-1', userId: null, credentialsRef: null })
@@ -113,12 +139,26 @@ describe('checkPushReceipts', () => {
     expect(commandBus.execute).toHaveBeenCalledWith(
       'devices.user_devices.deactivate',
       expect.objectContaining({
-        input: { id: 'dev-dead', tenantId: TENANT, userId: 'user-1', organizationId: 'org-1' },
+        input: { id: 'dev-dead', tenantId: TENANT, userId: 'user-1', organizationId: 'org-1', expectedPushToken: { hash: createHash('sha256').update('receipt-token-12345678').digest('hex'), updatedAt: new Date(IN_WINDOW.getTime() - 1000) } },
       }),
     )
     expect((row.providerResponse as Record<string, unknown>).receiptChecked).toBe(true)
     expect((row.providerResponse as Record<string, unknown>).unregistered).toBe(true)
     expect(row.lastError).toBe('device_unregistered')
+  })
+
+  it('still cleans up an unchanged legacy device without an explicit provider', async () => {
+    const row = makeRow()
+    const em = makeEm([row], { providerKey: 'expo', organizationId: 'org-1', credentialsRef: null })
+    const lookup = em.findOne.getMockImplementation()!
+    em.findOne.mockImplementation(async (entity, where) => {
+      const device = await lookup(entity, where)
+      return entity === 'UserDevice' ? { ...device, pushProvider: null } : device
+    })
+    const { resolve, commandBus } = makeResolve({ checkReceipts: async () => [{ ticketId: 'ticket-1', unregistered: true }] })
+    await checkPushReceipts(em as never, { tenantId: TENANT }, resolve as never, NOW)
+    expect(commandBus.execute).toHaveBeenCalledTimes(1)
+    expect(commandBus.execute.mock.calls[0][1].input.expectedPushToken.hash).toBe(createHash('sha256').update('receipt-token-12345678').digest('hex'))
   })
 
   it('keeps the device on a transient receipt (MessageRateExceeded) but marks the row checked', async () => {

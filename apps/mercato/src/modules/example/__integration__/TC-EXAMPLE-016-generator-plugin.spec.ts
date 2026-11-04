@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { expect, test } from '@playwright/test'
-import * as ts from 'typescript'
+import * as ts from 'typescript-js'
 
 const configuredAppRoot = process.env.OM_TEST_APP_ROOT?.trim()
 const appRoot = configuredAppRoot ? path.resolve(configuredAppRoot) : null

@@ -234,3 +234,17 @@ test('a template-literal t() call outside a code sample is still counted as dyna
   assert.deepEqual(refs.map((ref) => ref.key), ['module.entity.status.active'])
   assert.equal(dynamicCount, 1)
 })
+
+test('a shared prefix index preserves per-file direct, indirect, template and dynamic references', () => {
+  const keys = new Set(['sales.quote.sent', 'sales.quote.draft', 'devices.label'])
+  const prefixIndex = buildPrefixIndex(keys)
+  const sources = [
+    "t('sales.quote.sent')\nconst labelKey = 'devices.label'\nt(`sales.quote.${status}`)",
+    "translate('missing.key')\ntranslate(variable)\nconst label = 'sales.quote.draft'",
+  ]
+  for (const [index, text] of sources.entries()) {
+    const file = `fixture-${index}.tsx`
+    assert.deepEqual(scanText(text, keys, { file, prefixIndex }), scanText(text, keys, { file }))
+  }
+  assert.deepEqual(prefixIndex, buildPrefixIndex(keys))
+})

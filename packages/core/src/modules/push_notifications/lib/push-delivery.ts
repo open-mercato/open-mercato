@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { raw, type EntityName } from '@mikro-orm/core'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -229,7 +230,7 @@ async function handleRetryableFailure(
 // system context — no business-logic import, no authenticated actor.
 export async function softDeleteUnregisteredDevice(
   resolve: Resolve,
-  input: { id: string; tenantId: string; userId: string; organizationId: string | null },
+  input: { id: string; tenantId: string; userId: string; organizationId: string | null; expectedPushToken?: { hash: string; updatedAt: Date | null } },
 ): Promise<void> {
   try {
     const commandBus = resolve('commandBus') as CommandBus
@@ -396,6 +397,8 @@ export async function processPushDeliveryJob(
   const payload = (delivery.payload ?? {}) as PushPayload
   const body = payload.body ?? payload.title ?? ''
 
+  const sentToken = device.pushToken
+  const sentTokenUpdatedAt = device.pushTokenUpdatedAt ?? null
   try {
     const converted = await adapter.convertOutbound({ body, bodyFormat: 'text' })
     const result = await sendWithTimeout(
@@ -414,7 +417,7 @@ export async function processPushDeliveryJob(
         credentials,
         scope,
         metadata: {
-          pushToken: device.pushToken,
+          pushToken: sentToken,
           platform: device.platform,
           userDeviceId: device.id,
           provider: delivery.provider,
@@ -443,6 +446,10 @@ export async function processPushDeliveryJob(
         tenantId: device.tenantId,
         userId: device.userId,
         organizationId: device.organizationId ?? null,
+        expectedPushToken: {
+          hash: createHash('sha256').update(sentToken).digest('hex'),
+          updatedAt: sentTokenUpdatedAt,
+        },
       })
       return outcome
     }

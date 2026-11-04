@@ -10,6 +10,13 @@ import { LockMode } from '@mikro-orm/core'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { createSalesDocumentLockKyselyFixture } from '../../commands/__tests__/salesDocumentLockFixture'
 
+const mockInvalidateCrudCache = jest.fn().mockResolvedValue(undefined)
+
+jest.mock('@open-mercato/shared/lib/crud/cache', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/crud/cache'),
+  invalidateCrudCache: (...args: unknown[]) => mockInvalidateCrudCache(...args),
+}))
+
 const mockCommandBus = { execute: jest.fn() }
 const mockRateLimiterService = { trustProxyDepth: 1, consume: jest.fn() }
 const mockEm: Record<string, jest.Mock> = {
@@ -127,6 +134,13 @@ describe('quote send + accept flow', () => {
 
     const res = await sendQuote(makeRequest({ quoteId: quote.id, validForDays: 14 }))
     expect(res.status).toBe(200)
+    expect(mockInvalidateCrudCache).toHaveBeenCalledWith(
+      expect.anything(),
+      'sales.quote',
+      { id: quote.id, tenantId: quote.tenantId, organizationId: quote.organizationId },
+      quote.tenantId,
+      'updated',
+    )
     expect(quote.status).toBe('sent')
     expect(quote.acceptanceToken).toBeTruthy()
     // Stored token must be a hash, not a UUID
@@ -723,6 +737,15 @@ describe('send - commits send-state before email delivery (fix: #2336, supersede
     const res = await sendQuote(makeRequest({ quoteId: quote.id, validForDays: 14 }))
     // A failed email surfaces as an error to the caller so they know the customer was not notified...
     expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({
+      error: 'Quote marked as sent, but the email could not be delivered.',
+      quoteSent: true,
+    })
+    expect(mockInvalidateCrudCache).toHaveBeenCalledWith(
+      expect.anything(), 'sales.quote',
+      { id: quote.id, tenantId: quote.tenantId, organizationId: quote.organizationId },
+      quote.tenantId, 'updated',
+    )
     // ...but the acceptance token was already committed durably before the email, so the send-state is NOT rolled back.
     expect(mockEm.transactional).toHaveBeenCalled()
     expect(quote.status).toBe('sent')
@@ -762,6 +785,7 @@ describe('send - commits send-state before email delivery (fix: #2336, supersede
     }) as any
 
     const { sendEmail } = await import('@open-mercato/shared/lib/email/send')
+    mockInvalidateCrudCache.mockImplementationOnce(async () => { callOrder.push('invalidateCache') })
     ;(sendEmail as jest.Mock).mockImplementation(async () => {
       callOrder.push('sendEmail')
     })
@@ -769,7 +793,8 @@ describe('send - commits send-state before email delivery (fix: #2336, supersede
     const res = await sendQuote(makeRequest({ quoteId: quote.id, validForDays: 14 }))
     expect(res.status).toBe(200)
     expect(callOrder.indexOf('commit')).toBeGreaterThanOrEqual(0)
-    expect(callOrder.indexOf('commit')).toBeLessThan(callOrder.indexOf('sendEmail'))
+    expect(callOrder.indexOf('commit')).toBeLessThan(callOrder.indexOf('invalidateCache'))
+    expect(callOrder.indexOf('invalidateCache')).toBeLessThan(callOrder.indexOf('sendEmail'))
   })
 })
 

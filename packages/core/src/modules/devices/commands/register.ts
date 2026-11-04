@@ -1,3 +1,4 @@
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
 import { ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
@@ -41,70 +42,74 @@ const registerDeviceCommand: CommandHandler<RegisterDeviceCommandInput, { id: st
     ensureTenantScope(ctx, parsed.tenantId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const existing = await loadExistingDevice(em, {
-      tenantId: parsed.tenantId,
-      organizationId: parsed.organizationId ?? null,
-      userId: parsed.userId,
-      deviceId: parsed.deviceId,
-    })
-    const now = new Date()
-    const hasPushToken = parsed.pushToken !== undefined && parsed.pushToken !== null
-    const wasActive = existing ? existing.deletedAt == null : false
+    const { device, existing, revived } = await em.transactional(async (transaction) => {
+      const existing = await loadExistingDevice(transaction, {
+        tenantId: parsed.tenantId,
+        organizationId: parsed.organizationId ?? null,
+        userId: parsed.userId,
+        deviceId: parsed.deviceId,
+      }, { lockMode: LockMode.PESSIMISTIC_WRITE })
+      const now = new Date()
+      const hasPushToken = parsed.pushToken !== undefined && parsed.pushToken !== null
+      const wasActive = existing ? existing.deletedAt == null : false
 
-    let device!: UserDevice
-    try {
-      await withAtomicFlush(
-        em,
-        [
-          () => {
-            if (existing) {
-              device = existing
-              device.platform = parsed.platform
-              device.organizationId = parsed.organizationId ?? device.organizationId ?? null
-              if (parsed.clientAppVersion !== undefined) device.clientAppVersion = parsed.clientAppVersion ?? null
-              if (parsed.osVersion !== undefined) device.osVersion = parsed.osVersion ?? null
-              if (parsed.locale !== undefined) device.locale = parsed.locale ?? null
-              if (hasPushToken) {
-                device.pushToken = parsed.pushToken ?? null
-                device.pushProvider = parsed.pushProvider ?? device.pushProvider ?? null
-                device.pushTokenUpdatedAt = now
+      let device!: UserDevice
+      try {
+        await withAtomicFlush(
+          transaction,
+          [
+            () => {
+              if (existing) {
+                device = existing
+                device.platform = parsed.platform
+                device.organizationId = parsed.organizationId ?? device.organizationId ?? null
+                if (parsed.clientAppVersion !== undefined) device.clientAppVersion = parsed.clientAppVersion ?? null
+                if (parsed.osVersion !== undefined) device.osVersion = parsed.osVersion ?? null
+                if (parsed.locale !== undefined) device.locale = parsed.locale ?? null
+                if (hasPushToken) {
+                  device.pushToken = parsed.pushToken ?? null
+                  device.pushProvider = parsed.pushProvider ?? device.pushProvider ?? null
+                  device.pushTokenUpdatedAt = now
+                }
+                device.lastSeenAt = now
+                device.deletedAt = null
+              } else {
+                device = transaction.create(UserDevice, {
+                  tenantId: parsed.tenantId,
+                  organizationId: parsed.organizationId ?? null,
+                  userId: parsed.userId,
+                  deviceId: parsed.deviceId,
+                  platform: parsed.platform,
+                  clientAppVersion: parsed.clientAppVersion ?? null,
+                  osVersion: parsed.osVersion ?? null,
+                  locale: parsed.locale ?? null,
+                  pushToken: hasPushToken ? parsed.pushToken ?? null : null,
+                  pushProvider: hasPushToken ? parsed.pushProvider ?? null : null,
+                  pushTokenUpdatedAt: hasPushToken ? now : null,
+                  lastSeenAt: now,
+                })
+                transaction.persist(device)
               }
-              device.lastSeenAt = now
-              device.deletedAt = null
-            } else {
-              device = em.create(UserDevice, {
-                tenantId: parsed.tenantId,
-                organizationId: parsed.organizationId ?? null,
-                userId: parsed.userId,
-                deviceId: parsed.deviceId,
-                platform: parsed.platform,
-                clientAppVersion: parsed.clientAppVersion ?? null,
-                osVersion: parsed.osVersion ?? null,
-                locale: parsed.locale ?? null,
-                pushToken: hasPushToken ? parsed.pushToken ?? null : null,
-                pushProvider: hasPushToken ? parsed.pushProvider ?? null : null,
-                pushTokenUpdatedAt: hasPushToken ? now : null,
-                lastSeenAt: now,
-              })
-              em.persist(device)
-            }
-          },
-        ],
-        { transaction: true },
-      )
-    } catch (err) {
-      if (isDeviceUniqueViolation(err)) {
-        // Default English message is a fallback; device routes translate by `code` (see route POST
-        // handlers), matching the customers dictionaries conflict pattern.
-        throw new CrudHttpError(409, {
-          code: 'device_already_registered',
-          error: 'This device is already registered',
-        })
+            },
+          ],
+          { transaction: false },
+        )
+      } catch (err) {
+        if (isDeviceUniqueViolation(err)) {
+          // Default English message is a fallback; device routes translate by `code` (see route POST
+          // handlers), matching the customers dictionaries conflict pattern.
+          throw new CrudHttpError(409, {
+            code: 'device_already_registered',
+            error: 'This device is already registered',
+          })
+        }
+        throw err
       }
-      throw err
-    }
 
-    const revived = Boolean(existing) && !wasActive
+      const revived = Boolean(existing) && !wasActive
+
+      return { device, existing, revived }
+    })
     const de = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({
       dataEngine: de,
