@@ -192,7 +192,6 @@ test('readAppLocaleSet ignores JSON files whose name is not a language code', ()
     'apps/app/src/i18n/qq.json': '{}',
     'apps/app/src/i18n/my-app.json': '{}',
     'apps/app/src/i18n/id-map.json': '{}',
-    'apps/app/src/i18n/en-config.json': '{}',
     'apps/app/src/i18n/es-419.json': '{}',
     'apps/app/src/i18n/sr-latn-rs.json': '{}',
   })
@@ -202,6 +201,26 @@ test('readAppLocaleSet ignores JSON files whose name is not a language code', ()
     'sr-latn-rs',
     'zh-hant',
   ])
+})
+
+test('readAppLocaleSet keeps variant locales that registerLocales accepts', () => {
+  const root = makeRepo({
+    'apps/app/src/i18n/en.json': '{}',
+    'apps/app/src/i18n/ca-valencia.json': '{}',
+    'apps/app/src/i18n/de-1996.json': '{}',
+    'apps/app/src/i18n/sl-rozaj-biske.json': '{}',
+  })
+  assert.deepEqual(readAppLocaleSet(path.join(root, 'apps', 'app'), APP_LOCALE_OPTIONS).sort(), [
+    'ca-valencia',
+    'de-1996',
+    'en',
+    'sl-rozaj-biske',
+  ])
+})
+
+test('a file name shaped like a variant locale is read as a locale, matching registerLocales', () => {
+  const root = makeRepo({ 'apps/app/src/i18n/en.json': '{}', 'apps/app/src/i18n/en-config.json': '{}' })
+  assert.deepEqual(readAppLocaleSet(path.join(root, 'apps', 'app'), APP_LOCALE_OPTIONS).sort(), ['en', 'en-config'])
 })
 
 test('readAppLocaleSet accepts a non-ISO-639-1 code only when the config declares it', () => {

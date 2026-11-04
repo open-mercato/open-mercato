@@ -44,16 +44,30 @@ function makeFixtureRepo() {
   return root
 }
 
-test('the sync checker leaves unrelated app JSON files out of the app locale set', () => {
-  const root = makeFixtureRepo()
+function runSyncChecker(root) {
   const tsxCli = path.join(REPO_ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs')
-  const result = spawnSync(process.execPath, [tsxCli, path.join(root, 'scripts', 'i18n-check-sync.ts')], {
+  return spawnSync(process.execPath, [tsxCli, path.join(root, 'scripts', 'i18n-check-sync.ts')], {
     cwd: root,
     encoding: 'utf8',
     env: { ...process.env, NO_COLOR: '1' },
   })
+}
+
+test('the sync checker leaves unrelated app JSON files out of the app locale set', () => {
+  const root = makeFixtureRepo()
+  const result = runSyncChecker(root)
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
   assert.match(result.stdout, /apps\/mercato: en, xh\b/)
   assert.doesNotMatch(result.stdout, /faq|\bapp\.json/)
   assert.equal(fs.existsSync(path.join(root, 'apps', 'mercato', 'src', 'modules', 'records', 'i18n', 'faq.json')), false)
+})
+
+test('the sync checker keeps checking an app variant locale such as ca-valencia', () => {
+  const root = makeFixtureRepo()
+  const dictionary = `${JSON.stringify({ 'records.title': 'Records' }, null, 2)}\n`
+  writeFile(root, 'apps/mercato/src/i18n/ca-valencia.json', dictionary)
+  const result = runSyncChecker(root)
+  assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+  assert.match(result.stdout, /apps\/mercato: en, ca-valencia, xh\b/)
+  assert.match(result.stdout, /\[app\/records\] MISSING FILES: ca-valencia\.json/)
 })

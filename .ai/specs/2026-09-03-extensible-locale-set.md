@@ -482,9 +482,12 @@ change, not a behaviour change; an assertion covering the new prop was added alo
 - Follow-up #8436: app dictionary files count only when their base code is an ISO 639-1 language (read
   from `iso639.ts`) or a code declared in `config.ts`. Unrelated JSON files such as `faq.json` or `app.json`
   no longer enter either checker's target set, and the normalized-name check only fires for real language
-  codes (`pt-BR.json` still aborts; `FAQ.json` is ignored). Undeclared codes may add only a script and/or
-  region subtag (`pt-br`, `zh-hant`, `es-419`, `sr-latn-rs`), so `my-app.json` or `en-config.json` is ignored too.
-  A three-letter code such as `fil`, or a variant subtag, must be declared in `config.ts`, matching `registerLocales`.
+  codes (`pt-BR.json` still aborts; `FAQ.json` is ignored). An undeclared code must also be a well-formed
+  BCP 47 tag (`Intl.getCanonicalLocales`), so region, script and variant locales such as `pt-br`, `zh-hant`,
+  `es-419`, `ca-valencia` or `de-1996` keep being checked — the same codes `registerLocales` accepts, since it
+  validates only the ISO 639-1 base — while `my-app.json` or `id-map.json` is ignored. Known limit: a name that
+  is itself a well-formed tag, such as `en-config.json` (`config` has the shape of a variant subtag), is read as
+  a locale. A three-letter base such as `fil` must be declared in `config.ts`; `registerLocales` rejects it too.
 - The `config.ts` parser ignores commented-out declarations, rejects a second `locales`/`defaultLocale`
   declaration, rejects declared codes that are not normalized, and requires `defaultLocale` to be a single
   string literal (an `as`/`satisfies` type suffix is allowed).

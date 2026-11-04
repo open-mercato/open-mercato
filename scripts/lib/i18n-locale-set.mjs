@@ -8,7 +8,6 @@ const LOCALE_CODE_PATTERN = /^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/
 const LOCALE_FILE_PATTERN = /^([a-z]{2,3}(?:-[a-z0-9]{2,8})*)\.json$/
 const LOCALE_SHAPED_FILE_PATTERN = /^[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{2,8})*\.json$/
 const STRING_LITERAL_PATTERN = /^(?:'([^'\\]+)'|"([^"\\]+)")$/
-const ISO_LOCALE_SUBTAGS_PATTERN = /^[a-z]{2}(?:-[a-z]{4})?(?:-(?:[a-z]{2}|[0-9]{3}))?$/
 const ISO_CODE_ENTRY_PATTERN = /\bcode:\s*(?:'([a-z]{2})'|"([a-z]{2})")/g
 
 function stripComments(source) {
@@ -115,13 +114,21 @@ export function readIsoLanguageCodes(root) {
   return parseIsoLanguageCodesSource(fs.readFileSync(path.join(root, ISO_LANGUAGE_CODES_PATH), 'utf-8'))
 }
 
+function isWellFormedLanguageTag(locale) {
+  try {
+    return Intl.getCanonicalLocales(locale).length === 1
+  } catch {
+    return false
+  }
+}
+
 function createLocaleRecognizer({ languageCodes, declaredLocales }) {
   if (!(languageCodes instanceof Set) || languageCodes.size === 0) {
     throw new Error('Recognizing locale files requires the ISO 639-1 language codes')
   }
   const declared = new Set(declaredLocales)
   return (locale) =>
-    declared.has(locale) || (ISO_LOCALE_SUBTAGS_PATTERN.test(locale) && languageCodes.has(locale.split('-')[0]))
+    declared.has(locale) || (languageCodes.has(locale.split('-')[0]) && isWellFormedLanguageTag(locale))
 }
 
 function normalizeFileStem(fileName) {
