@@ -93,6 +93,8 @@ The app root governs writable locations and safety. The compatibility snapshot g
 
 For creation, publication, and continued repository development of one app module, read `.ai/guides/module-tool.md`.
 
+To save this whole app as an app template, or to create a new app from one, read `.ai/guides/template-tool.md`.
+
 ## Package and Bootstrap Boundaries
 
 - Import public package exports; do not reach through monorepo-only relative paths or app-generated registries from a package.
