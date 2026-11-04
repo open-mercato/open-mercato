@@ -34,6 +34,9 @@ async function resolveContext(req: Request, write: boolean) {
     throw new CrudHttpError(401, { error: translate('sales.settings.errors.unauthorized', 'Unauthorized') })
   }
   const organizationScope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  if (organizationScope.selectionRejected) {
+    throw new CrudHttpError(403, { error: translate('sales.documents.errors.forbidden', 'Forbidden') })
+  }
   const organizationId = resolveSingleOrganizationIdOrDeny(organizationScope, auth)
   if (!organizationId) {
     throw new CrudHttpError(400, { error: translate('sales.settings.errors.organization_required', 'Organization context is required') })

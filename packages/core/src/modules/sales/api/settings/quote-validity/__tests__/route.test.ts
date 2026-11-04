@@ -7,6 +7,7 @@ import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-muta
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const organizationId = '22222222-2222-4222-8222-222222222222'
 const mockPermissions = new Set<string>()
+let mockSelectionRejected = false
 const mockExecute = jest.fn()
 const mockHasFeatures = jest.fn(async (_user: string, features: string[]) => features.every((feature) => mockPermissions.has(feature)))
 const mockAfterSuccess = jest.fn()
@@ -17,7 +18,9 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({ createRequestContain
 }) }))
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({ getAuthFromRequest: jest.fn() }))
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({ resolveTranslations: async () => ({ translate: (key: string) => key }) }))
-jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({ resolveOrganizationScopeForRequest: async () => ({ selectedId: organizationId, filterIds: [organizationId], allowedIds: [organizationId] }) }))
+jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({ resolveOrganizationScopeForRequest: async () => mockSelectionRejected
+  ? { selectedId: null, filterIds: null, allowedIds: null, tenantId, selectionRejected: true }
+  : { selectedId: organizationId, filterIds: [organizationId], allowedIds: [organizationId], tenantId } }))
 jest.mock('../../../../commands/settings', () => ({ loadSalesSettings: jest.fn() }))
 jest.mock('@open-mercato/shared/lib/crud/route-mutation-guard', () => ({ runRouteMutationGuards: jest.fn() }))
 
@@ -30,6 +33,7 @@ function request(method = 'GET', body: unknown = undefined) {
 beforeEach(() => {
   jest.clearAllMocks()
   mockPermissions.clear()
+  mockSelectionRejected = false
   jest.mocked(getAuthFromRequest).mockResolvedValue({ sub: 'user', tenantId, orgId: organizationId })
   jest.mocked(loadSalesSettings).mockResolvedValue(null)
   jest.mocked(runRouteMutationGuards).mockResolvedValue({ ok: true, runAfterSuccess: mockAfterSuccess })
@@ -74,6 +78,16 @@ it('honors a blocked registry guard without executing the command', async () => 
 it.each([0, 366, 2.5, null])('rejects invalid duration %s before guards or writes', async (days) => {
   mockPermissions.add('sales.settings.manage')
   expect((await PUT(request('PUT', { defaultQuoteValidityDays: days }))).status).toBe(400)
+  expect(runRouteMutationGuards).not.toHaveBeenCalled()
+  expect(mockExecute).not.toHaveBeenCalled()
+})
+
+it('rejects a stale organization selection before falling back to the auth organization', async () => {
+  mockPermissions.add('sales.settings.manage')
+  mockSelectionRejected = true
+  expect((await GET(request())).status).toBe(403)
+  expect((await PUT(request('PUT', { defaultQuoteValidityDays: 30 }))).status).toBe(403)
+  expect(loadSalesSettings).not.toHaveBeenCalled()
   expect(runRouteMutationGuards).not.toHaveBeenCalled()
   expect(mockExecute).not.toHaveBeenCalled()
 })

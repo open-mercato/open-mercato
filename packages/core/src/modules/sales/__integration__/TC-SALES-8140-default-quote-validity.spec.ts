@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { expect, test as base, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { login } from '@open-mercato/core/helpers/integration/auth'
@@ -85,6 +86,14 @@ test('isolates organizations and safely handles concurrent first writes', async 
     const count = await withClient((client) => client.query<{ count: string }>('select count(*)::text as count from sales_settings where tenant_id = $1 and organization_id = $2', [tenantId, organizationId]))
     expect(count.rows[0].count).toBe('1')
     expect((await readSettings(request, validity.token)).defaultQuoteValidityDays).toBe(30)
+    const rejectedOrganizationId = randomUUID()
+    const rejectedHeaders = { Cookie: `om_selected_org=${rejectedOrganizationId}; om_selected_tenant=${tenantId}` }
+    const rejectedRead = await apiRequest(request, 'GET', settingsPath, { token, headers: rejectedHeaders })
+    const rejectedWrite = await apiRequest(request, 'PUT', settingsPath, { token, headers: rejectedHeaders, data: { defaultQuoteValidityDays: 45 } })
+    expect(rejectedRead.status()).toBe(403)
+    expect(rejectedWrite.status()).toBe(403)
+    const rejectedRows = await withClient((client) => client.query<{ count: string }>('select count(*)::text as count from sales_settings where tenant_id = $1 and organization_id = $2', [tenantId, rejectedOrganizationId]))
+    expect(rejectedRows.rows[0].count).toBe('0')
   } finally {
     if (organizationId) await withClient((client) => client.query('delete from sales_settings where tenant_id = $1 and organization_id = $2', [tenantId, organizationId]))
     await deleteOrganizationInDb(organizationId)

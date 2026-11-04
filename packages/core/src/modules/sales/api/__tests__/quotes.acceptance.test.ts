@@ -881,7 +881,7 @@ describe('accept - always uses em.transactional (no fallback)', () => {
 })
 
 describe('configured quote-send fallback (#8140)', () => {
-  it.each([{ requested: undefined, expected: 30 }, { requested: 7, expected: 7 }])(
+  it.each([{ requested: undefined, expected: 30 }, { requested: 7, expected: 7 }, { requested: null, expected: null }, { requested: 0, expected: null }, { requested: 366, expected: null }])(
     'uses configured validity only when omitted: $requested', async ({ requested, expected }) => {
       jest.clearAllMocks()
       const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
@@ -913,9 +913,17 @@ describe('configured quote-send fallback (#8140)', () => {
       })
       const before = Date.now()
       const response = await sendQuote(makeRequest({ quoteId: quote.id, ...(requested === undefined ? {} : { validForDays: requested }) }))
-      expect(response.status).toBe(200)
-      expect(Math.round((quote.validUntil.getTime() - before) / 86400000)).toBe(expected)
-      expect(settingsReads).toBe(requested === undefined ? 1 : 0)
+      if (expected === null) {
+        expect(response.status).toBe(400)
+        expect(settingsReads).toBe(0)
+        expect(mockEm.transactional).not.toHaveBeenCalled()
+        expect(mockEm.persist).not.toHaveBeenCalled()
+        expect(sendEmail).not.toHaveBeenCalled()
+      } else {
+        expect(response.status).toBe(200)
+        expect(Math.round((quote.validUntil.getTime() - before) / 86400000)).toBe(expected)
+        expect(settingsReads).toBe(requested === undefined ? 1 : 0)
+      }
     },
   )
 })
