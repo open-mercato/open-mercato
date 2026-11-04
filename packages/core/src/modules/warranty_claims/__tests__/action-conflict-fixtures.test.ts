@@ -192,7 +192,7 @@ test('overlapping fixtures never mutate global locking and retain separate owner
       expect(actor.acl.size).toBe(2)
       for (const acl of actor.acl.values()) {
         expect(acl.organizations).toEqual([actor.organizationId])
-        expect(acl.features).toEqual(['warranty_claims.*', 'sales.orders.view', 'catalog.products.view'])
+        expect(acl.features).toEqual(['warranty_claims.*', 'sales.orders.view', 'catalog.products.view', 'attachments.view'])
       }
     }
   } finally {

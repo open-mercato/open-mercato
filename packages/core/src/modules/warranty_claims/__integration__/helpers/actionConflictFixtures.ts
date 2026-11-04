@@ -70,7 +70,7 @@ export const test = base.extend<{
         userIds.push(userId)
         await setUserAclVisibility(bootstrapRequest, bootstrapToken, {
           userId, organizations: [organizationId],
-          features: ['warranty_claims.*', 'sales.orders.view', 'catalog.products.view'],
+          features: ['warranty_claims.*', 'sales.orders.view', 'catalog.products.view', 'attachments.view'],
         })
       }
       writerToken = await getAuthToken(request, writerEmail, password)
