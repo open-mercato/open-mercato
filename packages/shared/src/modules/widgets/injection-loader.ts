@@ -54,10 +54,12 @@ let _coreInjectionWidgetEntries: ModuleInjectionWidgetEntry[] | null = null
 let _coreInjectionTables: Array<{ moduleId: string; table: ModuleInjectionTable }> | null = null
 let _enabledModuleIds: ReadonlySet<string> | null = null
 let _injectionRegistryVersion = 0
+let _injectionRegistryError: string | null = null
 const GLOBAL_INJECTION_WIDGETS_KEY = '__openMercatoCoreInjectionWidgetEntries__'
 const GLOBAL_INJECTION_TABLES_KEY = '__openMercatoCoreInjectionTables__'
 const GLOBAL_ENABLED_MODULE_IDS_KEY = '__openMercatoEnabledModuleIds__'
 const GLOBAL_INJECTION_REGISTRY_VERSION_KEY = '__openMercatoCoreInjectionRegistryVersion__'
+const GLOBAL_INJECTION_REGISTRY_ERROR_KEY = '__openMercatoCoreInjectionRegistryError__'
 const INJECTION_REGISTRY_CHANGED_EVENT = '__openMercatoInjectionRegistryChanged__'
 
 function readGlobalInjectionWidgets(): ModuleInjectionWidgetEntry[] | null {
@@ -130,7 +132,7 @@ function writeGlobalInjectionRegistryVersion(version: number) {
 }
 
 function notifyInjectionRegistryChanged() {
-  _injectionRegistryVersion += 1
+  _injectionRegistryVersion = (readGlobalInjectionRegistryVersion() ?? _injectionRegistryVersion) + 1
   writeGlobalInjectionRegistryVersion(_injectionRegistryVersion)
   invalidateInjectionWidgetCache()
 
@@ -243,6 +245,35 @@ export function getInjectionRegistryVersion(): number {
   const globalVersion = readGlobalInjectionRegistryVersion()
   if (globalVersion !== null) return globalVersion
   return _injectionRegistryVersion
+}
+
+/** @internal */
+export function getInjectionRegistryError(): string | null {
+  try {
+    const value = (globalThis as Record<string, unknown>)[GLOBAL_INJECTION_REGISTRY_ERROR_KEY]
+    if (value === null || typeof value === 'string') return value
+  } catch {
+    return _injectionRegistryError
+  }
+  return _injectionRegistryError
+}
+
+/** @internal */
+export function setInjectionRegistryError(error: string | null): void {
+  _injectionRegistryError = error === null ? null : error || '[internal] Injection registry registration failed'
+  try {
+    ;(globalThis as Record<string, unknown>)[GLOBAL_INJECTION_REGISTRY_ERROR_KEY] = _injectionRegistryError
+  } catch {
+    notifyInjectionRegistryChanged()
+    return
+  }
+  notifyInjectionRegistryChanged()
+}
+
+/** @internal */
+export function isInjectionRegistryReady(): boolean {
+  return (readGlobalInjectionWidgets() ?? _coreInjectionWidgetEntries) !== null
+    && (readGlobalInjectionTables() ?? _coreInjectionTables) !== null
 }
 
 const injectionRegistryChangeSubscribers = new Set<() => void>()

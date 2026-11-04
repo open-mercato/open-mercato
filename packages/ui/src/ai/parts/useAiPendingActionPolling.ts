@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { apiCall } from '../../backend/utils/apiCall'
 import type { AiPendingActionCardAction, AiPendingActionCardStatus } from './types'
 
@@ -21,6 +22,8 @@ const logger = createLogger('ui').child({ component: 'useAiPendingActionPolling'
  * - A 404/401/403 from the endpoint is also terminal — the row is gone or
  *   unreachable and retrying cannot help (issue #7550: without this, every
  *   card whose row disappeared polled every 3s forever, in every tab).
+ *   A 404 additionally reports `unavailable`: the action is gone or belongs
+ *   to another user (pending actions are owner-scoped).
  * - Any other failure (5xx, network error) backs off exponentially (capped
  *   at 60s) and gives up after 5 consecutive failures.
  * - Polling pauses while the tab is hidden (`document.visibilityState`) and
@@ -92,6 +95,7 @@ export interface UseAiPendingActionPollingResult {
   status: AiPendingActionCardStatus | null
   isPolling: boolean
   error: { code?: string; message: string } | null
+  unavailable: boolean
   refresh: () => Promise<AiPendingActionCardAction | null>
 }
 
@@ -156,6 +160,7 @@ export function useAiPendingActionPolling(
   const [action, setAction] = React.useState<AiPendingActionCardAction | null>(null)
   const [error, setError] = React.useState<{ code?: string; message: string } | null>(null)
   const [isPolling, setIsPolling] = React.useState<boolean>(!disabled)
+  const [unavailable, setUnavailable] = React.useState<boolean>(false)
 
   const mountedRef = React.useRef(true)
   const timerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -184,6 +189,7 @@ export function useAiPendingActionPolling(
         consecutiveFailuresRef.current = 0
         stoppedRef.current = false
         terminalErrorCodeRef.current = null
+        setUnavailable(false)
         setError(result.error ?? null)
         if (result.pendingAction) {
           setAction(result.pendingAction)
@@ -194,6 +200,7 @@ export function useAiPendingActionPolling(
         const code = result.error?.code
         if (code && TERMINAL_HTTP_ERROR_CODES.includes(code)) {
           terminalErrorCodeRef.current = code
+          if (code === 'not_found') setUnavailable(true)
         } else {
           consecutiveFailuresRef.current += 1
           if (consecutiveFailuresRef.current >= MAX_CONSECUTIVE_FAILURES) {
@@ -203,6 +210,7 @@ export function useAiPendingActionPolling(
       }
     } catch (err) {
       logger.error('Failed to load the pending AI action', { err, pendingActionId })
+      getTelemetryRuntime()?.reportError(err, { module: 'ai_assistant', code: 'ai_assistant.pending_action_poll_failed' })
       if (!mountedRef.current) return null
       const message = err instanceof Error ? err.message : 'Failed to load pending action.'
       setError({ message })
@@ -282,6 +290,7 @@ export function useAiPendingActionPolling(
     terminalErrorCodeRef.current = null
     consecutiveFailuresRef.current = 0
     stoppedRef.current = false
+    setUnavailable(false)
     if (disabled) {
       setIsPolling(false)
       return () => {
@@ -305,8 +314,9 @@ export function useAiPendingActionPolling(
   return {
     action,
     status,
-    isPolling: isPolling && !isTerminal(status),
+    isPolling: isPolling && !isTerminal(status) && !unavailable,
     error,
+    unavailable,
     refresh,
   }
 }

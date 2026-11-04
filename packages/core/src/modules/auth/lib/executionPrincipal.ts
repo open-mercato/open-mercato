@@ -169,7 +169,7 @@ export async function provisionExecutionPrincipal(
     const existingAcl = await findOneWithDecryption(
       trx,
       RoleAcl,
-      { role, tenantId },
+      { role, tenantId, deletedAt: null },
       {},
       { tenantId, organizationId: null },
     )
@@ -204,7 +204,7 @@ export async function provisionExecutionPrincipal(
     const existingLink = await findOneWithDecryption(
       trx,
       UserRole,
-      { user, role },
+      { user, role, deletedAt: null },
       {},
       { tenantId, organizationId: null },
     )
