@@ -158,6 +158,10 @@ production-only encryption map still needs a test.
 
 ## Key management
 
+Custom entity document storage honors the effective custom field definition's `encrypted` flag before writing JSONB. Bare keys and `cf:`/`cf_` aliases use the same field policy; arrays encrypt entries individually. Existing ciphertext is authenticated before reuse, and unavailable keys fail the document write. Custom-storage queries resolve each row's own tenant and organization, preserve field kinds during decryption, and evaluate encrypted comparisons and ordering before pagination. When `OM_ENCRYPTED_SORT_MAX_ROWS` is configured, queries that exceed it fail explicitly instead of returning partial matches.
+
+`mercato entities rotate-encryption-key` includes these documents independently of ORM maps. Without an old key it backfills plaintext; with an old key it reseals decryptable ciphertext and retains values already encrypted with the current key. Dry runs do not provision keys, and writes compare the original document plus tenant/organization scope to detect concurrent edits. Historical plaintext documents require this backfill or a re-save; the upgrade does not rewrite them automatically.
+
 - **DEK generation** – 32 random bytes, base64-encoded; stored under `tenant_key_<tenantId>` in Vault.
 - **Rotation** – future addition: new version stored under suffix `tenant_key_<tenantId>_v2` with dual-read, single-write strategy; current design keeps a single active DEK per tenant.
 - **Caching** – DEKs cached with TTL (e.g., 15 minutes) and proactive refresh on expiry; invalidated if KMS returns a new version.

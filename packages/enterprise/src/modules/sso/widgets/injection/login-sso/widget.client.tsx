@@ -1,5 +1,5 @@
 "use client"
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import type { LoginFormWidgetContext } from '@open-mercato/core/modules/auth/frontend/login-injection'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -23,15 +23,22 @@ type HrdResponse = {
   protocol?: string
 }
 
+type SsoDiscovery = {
+  email: string
+  tenantId: string | null
+  configId: string
+}
+
 export default function SsoLoginWidget({ context }: InjectionWidgetComponentProps<LoginFormWidgetContext>) {
   const t = useT()
   const translate = useCallback(
     (key: string, fallback: string) => translateWithFallback(t, key, fallback),
     [t],
   )
-  const [ssoActive, setSsoActive] = useState(false)
-  const lastCheckedEmail = useRef('')
-  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const providerLabel = translate('sso.login.continueWithSso', 'Continue with SSO')
+  const { email, tenantId, searchParams, setAuthOverride, setAuthOverridePending } = context
+  const [discovery, setDiscovery] = useState<SsoDiscovery | null>(null)
+  const activeDiscovery = discovery?.email === email && discovery.tenantId === tenantId ? discovery : null
 
   useEffect(() => {
     const errorParam = context.searchParams.get('error')
@@ -51,88 +58,63 @@ export default function SsoLoginWidget({ context }: InjectionWidgetComponentProp
     }
   }, [context.searchParams, context.setError, translate])
 
-  const checkHrd = useCallback(async (email: string) => {
+  useEffect(() => {
+    setDiscovery(null)
     if (!email || !email.includes('@')) {
-      context.setAuthOverridePending?.(false)
-      context.setAuthOverride(null)
-      setSsoActive(false)
-      lastCheckedEmail.current = ''
+      setAuthOverridePending?.(false)
       return
     }
 
-    if (email === lastCheckedEmail.current) {
-      context.setAuthOverridePending?.(false)
-      return
-    }
-    lastCheckedEmail.current = email
+    let active = true
+    const checkHrd = async () => {
+      setAuthOverridePending?.(true)
+      try {
+        const body: Record<string, string> = { email }
+        if (tenantId) body.tenantId = tenantId
 
-    try {
-      const body: Record<string, string> = { email }
-      if (context.tenantId) {
-        body.tenantId = context.tenantId
+        const response = await apiCall<HrdResponse>(
+          '/api/sso/hrd',
+          { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } },
+        )
+        if (!active) return
+        setDiscovery(response.result?.hasSso && response.result.configId
+          ? { email, tenantId, configId: response.result.configId }
+          : null)
+      } catch {
+        if (active) setDiscovery(null)
+      } finally {
+        if (active) setAuthOverridePending?.(false)
       }
-
-      const res = await apiCall<HrdResponse>(
-        '/api/sso/hrd',
-        { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } },
-      )
-
-      if (res.result?.hasSso && res.result.configId) {
-        const configId = res.result.configId
-        setSsoActive(true)
-        context.setAuthOverride({
-          providerId: 'sso',
-          providerLabel: translate('sso.login.continueWithSso', 'Continue with SSO'),
-          onSubmit: () => {
-            const returnUrl = context.searchParams.get('returnUrl') || '/backend'
-            window.location.href = `/api/sso/initiate?configId=${encodeURIComponent(configId)}&returnUrl=${encodeURIComponent(returnUrl)}`
-          },
-          hidePassword: true,
-          hideRememberMe: true,
-          hideForgotPassword: true,
-        })
-      } else {
-        setSsoActive(false)
-        context.setAuthOverride(null)
-      }
-    } catch {
-      setSsoActive(false)
-      context.setAuthOverride(null)
-    } finally {
-      context.setAuthOverridePending?.(false)
     }
-  }, [context, translate])
+
+    const timer = setTimeout(() => {
+      void checkHrd()
+    }, HRD_DEBOUNCE_MS)
+    return () => {
+      active = false
+      clearTimeout(timer)
+      setAuthOverridePending?.(false)
+    }
+  }, [email, tenantId, setAuthOverridePending])
 
   useEffect(() => {
-    if (debounceTimer.current) {
-      clearTimeout(debounceTimer.current)
-    }
+    if (!activeDiscovery) return
+    const configId = activeDiscovery.configId
+    setAuthOverride({
+      providerId: 'sso',
+      providerLabel,
+      onSubmit: () => {
+        const returnUrl = searchParams.get('returnUrl') || '/backend'
+        window.location.href = `/api/sso/initiate?configId=${encodeURIComponent(configId)}&returnUrl=${encodeURIComponent(returnUrl)}`
+      },
+      hidePassword: true,
+      hideRememberMe: true,
+      hideForgotPassword: true,
+    })
+    return () => setAuthOverride(null)
+  }, [activeDiscovery, searchParams, setAuthOverride, providerLabel])
 
-    if (!context.email) {
-      context.setAuthOverridePending?.(false)
-      setSsoActive(false)
-      context.setAuthOverride(null)
-      lastCheckedEmail.current = ''
-      return
-    }
-
-    debounceTimer.current = setTimeout(() => {
-      context.setAuthOverridePending?.(true)
-      void checkHrd(context.email)
-    }, HRD_DEBOUNCE_MS)
-
-    return () => {
-      if (debounceTimer.current) {
-        clearTimeout(debounceTimer.current)
-      }
-    }
-  }, [context.email, checkHrd])
-
-  useEffect(() => () => {
-    context.setAuthOverridePending?.(false)
-  }, [context])
-
-  if (!ssoActive) return null
+  if (!activeDiscovery) return null
 
   return (
     <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-center text-xs text-blue-800">
