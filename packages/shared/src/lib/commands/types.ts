@@ -161,9 +161,10 @@ export type CommandExecuteResult<TResult> = {
   result: TResult
   logEntry: any | null
   /**
-   * True when an atomic redo finalized its source action log in the same
-   * transaction as the domain mutation and the newly persisted log entry, and
-   * that transaction has committed. An ambient replay returns this as false
+   * True when a redo finalized its source action log: an atomic redo in the
+   * same transaction as the domain mutation and the newly persisted log entry,
+   * once that transaction has committed; a non-atomic redo through the
+   * compare-and-set claim taken before the command ran. An ambient replay returns this as false
    * while its caller-owned transaction is still active; the returned result
    * object is updated to true by the owner's commit callback. It remains false
    * on rollback. Callers that historically finalized redo themselves can use

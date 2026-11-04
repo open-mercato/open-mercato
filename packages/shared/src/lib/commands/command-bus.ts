@@ -34,6 +34,7 @@ import { CommandInterceptorError } from './errors'
 import { isReadProjectionAlwaysConsistent } from '@open-mercato/shared/lib/data/consistency'
 import { createLogger } from '../logger'
 import { withAtomicFlush } from './flush'
+import { getTelemetryRuntime } from '../telemetry/runtime'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   getTransactionLifetime,
@@ -50,6 +51,7 @@ type CommandActionLogService = {
   releaseUndoClaim(id: string, transactionalEm?: EntityManager): Promise<boolean>
   markUndone(id: string, traceInput?: ActionLogCreateInput, transactionalEm?: EntityManager): Promise<ActionLog | null | void>
   claimForRedo(id: string, transactionalEm?: EntityManager): Promise<boolean>
+  releaseRedoClaim?(id: string): Promise<boolean>
   log(input: ActionLogCreateInput, transactionalEm?: EntityManager): Promise<ActionLog | null>
 }
 
@@ -487,6 +489,15 @@ export class CommandBus {
         coreResult = await executeCore(effectiveOptions)
       }], { transaction: true, label: `${commandId}.redo` })
       replaySourceFinalized = !ambientReplay.joinsAmbient
+    } else if (replayLogEntry?.id) {
+      const releaseRedoClaim = await this.claimRedoSource(effectiveOptions.ctx, commandId, replayLogEntry.id)
+      try {
+        coreResult = await executeCore(effectiveOptions)
+      } catch (err) {
+        await releaseRedoClaim?.()
+        throw err
+      }
+      replaySourceFinalized = releaseRedoClaim !== null
     } else {
       coreResult = await executeCore(effectiveOptions)
     }
@@ -663,10 +674,10 @@ export class CommandBus {
         label: `${log.commandId}.undo`,
       })
     } else {
+      // Preserve the established non-atomic lifecycle exactly: authorization,
+      // source claim, before-undo interceptors, handler, then finalization.
+      await claimUndo()
       try {
-        // Preserve the established non-atomic lifecycle exactly: authorization,
-        // source claim, before-undo interceptors, handler, then finalization.
-        await claimUndo()
         const prepared = await runBeforeUndoInterceptors(ctx)
         undoInterceptorMetadata = prepared.metadata
         userFeatures = prepared.userFeatures
@@ -810,6 +821,37 @@ export class CommandBus {
     await withAtomicFlush(guardEm, [async () => {
       await ctx.replayTransactionGuard!({ operation, logEntry, transactionalEm: guardEm })
     }], { transaction: true, label: `${logEntry.commandId}.${operation}.request-guard` })
+  }
+
+  private async claimRedoSource(
+    ctx: CommandRuntimeContext,
+    commandId: string,
+    sourceLogId: string,
+  ): Promise<(() => Promise<void>) | null> {
+    let service: CommandActionLogService | null = null
+    try {
+      service = ctx.container.resolve('actionLogService') as CommandActionLogService
+    } catch {
+      service = null
+    }
+    if (!service || typeof service.claimForRedo !== 'function' || typeof service.releaseRedoClaim !== 'function') {
+      logger.warn('Redo source claim unavailable; replaying without an atomic claim', { commandId, sourceLogId })
+      return null
+    }
+    const releaseClaim = service.releaseRedoClaim.bind(service)
+    const claimed = await service.claimForRedo(sourceLogId)
+    if (!claimed) throw new Error('[internal] Redo source already consumed')
+    return async () => {
+      try {
+        await releaseClaim(sourceLogId)
+      } catch (releaseErr) {
+        logger.error('Failed to release redo source claim', { commandId, sourceLogId, err: releaseErr })
+        getTelemetryRuntime()?.reportError(releaseErr, {
+          module: 'shared',
+          code: 'shared.redo_claim_release_failed',
+        })
+      }
+    }
   }
 
   private async resolveHandler<TInput, TResult>(commandId: string): Promise<CommandHandler<TInput, TResult>> {

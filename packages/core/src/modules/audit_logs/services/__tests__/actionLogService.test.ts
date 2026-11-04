@@ -810,6 +810,21 @@ describe('ActionLogService.claimForUndo / releaseUndoClaim (TOCTOU guard)', () =
     expect(filter).toMatchObject({ id: 'log-1', executionState: 'undone', deletedAt: null })
     expect(update).toEqual({ executionState: 'redone', undoToken: null })
   })
+
+  it('releaseRedoClaim reverts only a redone source back to undone on a forked EntityManager', async () => {
+    const forkedUpdate = jest.fn(async () => 1)
+    const requestUpdate = jest.fn(async () => 1)
+    const fakeEm = { nativeUpdate: requestUpdate, fork: jest.fn(() => ({ nativeUpdate: forkedUpdate })) }
+    const service = new ActionLogService(
+      fakeEm as unknown as ConstructorParameters<typeof ActionLogService>[0],
+    )
+
+    expect(await service.releaseRedoClaim('log-1')).toBe(true)
+    expect(requestUpdate).not.toHaveBeenCalled()
+    const [, filter, update] = forkedUpdate.mock.calls[0]
+    expect(filter).toMatchObject({ id: 'log-1', executionState: 'redone', deletedAt: null })
+    expect(update).toEqual({ executionState: 'undone' })
+  })
 })
 
 describe('ActionLogService transactional return isolation', () => {
