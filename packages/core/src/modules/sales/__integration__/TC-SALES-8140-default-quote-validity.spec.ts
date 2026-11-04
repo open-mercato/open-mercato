@@ -3,7 +3,7 @@ import { expect, test as base, type APIRequestContext, type Page } from '@playwr
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import { getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
-import { createSalesQuoteFixture, deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
+import { deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
 import { createOrganizationInDb, deleteOrganizationInDb, withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { seedSystemEmailChannel, deleteChannelIfExists } from '@open-mercato/core/helpers/integration/communicationChannelsFixtures'
 import type { QuoteValiditySettings } from '../data/validators'
@@ -34,11 +34,18 @@ const test = base.extend<{ validity: { token: string; original: QuoteValiditySet
   },
 })
 
-async function addRecipient(request: APIRequestContext, token: string, quoteId: string, validUntil: string | null = null) {
-  const response = await apiRequest(request, 'PUT', '/api/sales/quotes', {
-    token, data: { id: quoteId, metadata: { customerEmail: `qa-8140-${quoteId}@example.test` }, validUntil },
+async function createQuoteWithRecipient(request: APIRequestContext, token: string, validUntil: string | null = null) {
+  const response = await apiRequest(request, 'POST', '/api/sales/quotes', {
+    token, retryTransport: false,
+    data: {
+      currencyCode: 'USD', metadata: { customerEmail: `qa-8140-${randomUUID()}@example.test` },
+      ...(validUntil ? { validUntil } : {}),
+    },
   })
-  expect(response.status()).toBe(200)
+  expect(response.status()).toBe(201)
+  const quote = await readJsonSafe<{ id: string }>(response)
+  if (!quote?.id) throw new Error('[internal] Missing created quote id')
+  return quote.id
 }
 
 async function readQuote(request: APIRequestContext, token: string, quoteId: string) {
@@ -114,8 +121,7 @@ for (const explicitDays of [undefined, 7]) {
     let channelId: string | null = null
     try {
       channelId = await seedSystemEmailChannel(request, validity.token)
-      quoteId = await createSalesQuoteFixture(request, validity.token)
-      await addRecipient(request, validity.token, quoteId, new Date(Date.now() + 86400000).toISOString())
+      quoteId = await createQuoteWithRecipient(request, validity.token, new Date(Date.now() + 86400000).toISOString())
       const before = Date.now()
       const response = await apiRequest(request, 'POST', '/api/sales/quotes/send', {
         token: validity.token, data: { quoteId, ...(explicitDays === undefined ? {} : { validForDays: explicitDays }) },
@@ -153,9 +159,9 @@ for (const futureDate of [false, true]) {
   test(`send dialog suggests ${futureDate ? 'the quote date' : 'the configured default'} and cancels without a write`, async ({ page, request, validity }, testInfo) => {
     let quoteId: string | null = null
     try {
-      quoteId = await createSalesQuoteFixture(request, validity.token)
       const validUntil = futureDate ? new Date(Date.now() + 5 * 86400000).toISOString() : null
-      await addRecipient(request, validity.token, quoteId, validUntil)
+      quoteId = await createQuoteWithRecipient(request, validity.token, validUntil)
+      expect((await readQuote(request, validity.token, quoteId)).validUntil).toBe(validUntil)
       await login(page, 'admin')
       await page.goto(`/backend/sales/quotes/${quoteId}`)
       const dialog = await openSendDialog(page)
@@ -177,8 +183,7 @@ test('send dialog submits a manual duration with Ctrl+Enter', async ({ page, req
   let channelId: string | null = null
   try {
     channelId = await seedSystemEmailChannel(request, validity.token)
-    quoteId = await createSalesQuoteFixture(request, validity.token)
-    await addRecipient(request, validity.token, quoteId)
+    quoteId = await createQuoteWithRecipient(request, validity.token)
     await login(page, 'admin')
     await page.goto(`/backend/sales/quotes/${quoteId}`)
     const dialog = await openSendDialog(page)
