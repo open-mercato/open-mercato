@@ -54,6 +54,7 @@ import {
   assertFound,
   syncEntityTags,
   loadEntityTagIds,
+  shouldBumpOptimisticLockVersion,
   ensureDictionaryEntry,
   invalidateDictionaryKindCaches,
   emitQueryIndexDeleteEvents,
@@ -1045,7 +1046,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
           parsed.department, parsed.seniority, parsed.timezone, parsed.linkedInUrl,
           parsed.twitterUrl, parsed.companyEntityId,
         ].some((v) => v !== undefined)
-        if (profileFieldsUpdated) {
+        if (shouldBumpOptimisticLockVersion(profileFieldsUpdated, custom, parsed.tags)) {
           record.updatedAt = new Date()
         }
 
