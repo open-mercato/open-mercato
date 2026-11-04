@@ -11,7 +11,7 @@ Make the resource-usage snapshot tests deterministic by letting them await the m
 ## Scope
 
 - Track in-flight snapshot writes and stale-snapshot prunes in `packages/shared/src/lib/modules/resource-usage.ts`.
-- Export an additive `waitForModuleResourceUsageSnapshotWrites()` that resolves once that I/O settles.
+- Export an additive `waitForModuleResourceUsageSnapshotIoForTests()` that resolves once that I/O settles.
 - Await it in the test file's `afterEach`, and replace the two snapshot tests' polling loops with it.
 - Add a regression test proving the helper waits for the snapshot write.
 
@@ -25,8 +25,8 @@ Make the resource-usage snapshot tests deterministic by letting them await the m
 
 ### Phase 1: Awaitable snapshot I/O
 
-- Register each snapshot write and stale-file prune promise in a module-level set, removed when it settles.
-- Export `waitForModuleResourceUsageSnapshotWrites()`.
+- Register each snapshot write and stale-file prune promise in a set kept on `globalThis`, removed when it settles.
+- Export `waitForModuleResourceUsageSnapshotIoForTests()`.
 - Use it in the tests and add the regression test.
 
 ### Phase 2: Verification
@@ -35,7 +35,7 @@ Make the resource-usage snapshot tests deterministic by letting them await the m
 
 ## Risks
 
-- The helper is a new public export of `@open-mercato/shared` (BACKWARD_COMPATIBILITY.md § 3 Function Signatures, STABLE: a new export is an allowed additive change). Callers that never invoke it see no behavior change.
+- The helper is a new test-only export of `@open-mercato/shared`, named with the package's `ForTests` suffix. It is additive, and callers that never invoke it see no behavior change.
 
 ## Progress
 
@@ -43,9 +43,9 @@ Make the resource-usage snapshot tests deterministic by letting them await the m
 
 ### Phase 1: Awaitable snapshot I/O
 
-- [x] 1.1 Track in-flight snapshot I/O and export a wait helper — squashed
-- [x] 1.2 Await snapshot I/O in the resource-usage tests — squashed
+- [x] 1.1 Track in-flight snapshot I/O and export a wait helper — e5d9c7cd6e
+- [x] 1.2 Await snapshot I/O in the resource-usage tests — e5d9c7cd6e
 
 ### Phase 2: Verification
 
-- [x] 2.1 Stress-run the tests and run the validation gate — squashed
+- [x] 2.1 Stress-run the tests and run the validation gate — e5d9c7cd6e

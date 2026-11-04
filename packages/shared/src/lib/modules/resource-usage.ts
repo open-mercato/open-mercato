@@ -792,15 +792,6 @@ function registerSnapshotShutdownHook(state: ResourceUsageState): void {
   state.shutdownHookRegistered = true
 }
 
-// Fire-and-forget: nothing in this process depends on the write completing (readers always
-// skip their own pid's file — see readSnapshotPayloads), so there's no reason for the write to
-// block the tracked call, event dispatch, or report request that triggered it. This mirrors the
-// existing fire-and-forget queue-close pattern in registerProducerShutdownHook (bus.ts): Node's
-// event loop stays alive for the pending promise, so even the beforeExit-triggered flush below
-// still completes before the process actually exits, as long as nothing calls process.exit()
-// first.
-let snapshotWriteSequence = 0
-
 // Kept on globalThis under its own key, like the usage state, so every module instance (dev hot
 // reload, standalone server chunks) sees the same in-flight I/O; resetModuleResourceUsage() replaces
 // the usage state and must not drop I/O that is still running.
@@ -822,15 +813,24 @@ function trackSnapshotIo(operation: Promise<void>): void {
   operation.then(settle, settle)
 }
 
-// Resolves once every snapshot write and stale-snapshot prune started so far has settled. The
-// tracked call path never waits on this; it is for callers that read or remove the snapshot
-// directory right after a report, such as tests that delete their temporary snapshot directory.
-export async function waitForModuleResourceUsageSnapshotWrites(): Promise<void> {
+// Test-only: resolves once no snapshot write or stale-snapshot prune is in flight, including work
+// started while waiting. The tracked call path never waits on this; tests use it before they read
+// or remove their temporary snapshot directory.
+export async function waitForModuleResourceUsageSnapshotIoForTests(): Promise<void> {
   const pending = getPendingSnapshotIo()
   while (pending.size > 0) {
     await Promise.allSettled(Array.from(pending))
   }
 }
+
+// Fire-and-forget: nothing in this process depends on the write completing (readers always
+// skip their own pid's file — see readSnapshotPayloads), so there's no reason for the write to
+// block the tracked call, event dispatch, or report request that triggered it. This mirrors the
+// existing fire-and-forget queue-close pattern in registerProducerShutdownHook (bus.ts): Node's
+// event loop stays alive for the pending promise, so even the beforeExit-triggered flush below
+// still completes before the process actually exits, as long as nothing calls process.exit()
+// first.
+let snapshotWriteSequence = 0
 
 // Writes atomically: serialize to a unique temp file, then rename onto the final path. rename is
 // atomic on POSIX, so a concurrent reader (this process's report, another process's directory scan,

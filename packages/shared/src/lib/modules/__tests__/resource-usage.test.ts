@@ -2,7 +2,7 @@ import {
   clearModuleResourceUsageData,
   getModuleResourceUsageReport,
   resetModuleResourceUsage,
-  waitForModuleResourceUsageSnapshotWrites,
+  waitForModuleResourceUsageSnapshotIoForTests,
   withModuleResourceUsage,
 } from '../resource-usage'
 import fs from 'node:fs'
@@ -26,7 +26,8 @@ describe('module resource usage tracker', () => {
   })
 
   afterEach(async () => {
-    await waitForModuleResourceUsageSnapshotWrites()
+    await waitForModuleResourceUsageSnapshotIoForTests()
+    jest.restoreAllMocks()
     resetModuleResourceUsage()
     if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true })
     tempDir = null
@@ -274,7 +275,7 @@ describe('module resource usage tracker', () => {
 
     // The flush is fire-and-forget (no fs.*Sync calls on the hot path), so wait for the async
     // write to land instead of asserting on it synchronously.
-    await waitForModuleResourceUsageSnapshotWrites()
+    await waitForModuleResourceUsageSnapshotIoForTests()
     const ownSnapshotPath = path.join(tempDir!, `process-${process.pid}.json`)
     const ownPayload = JSON.parse(fs.readFileSync(ownSnapshotPath, 'utf8'))
     expect(ownPayload.entries.some((entry: { moduleId: string }) => entry.moduleId === 'customers')).toBe(true)
@@ -339,7 +340,7 @@ describe('module resource usage tracker', () => {
     // readSnapshotPayloads() runs as part of building the report; the prune it triggers is
     // fire-and-forget, so wait for it instead of asserting synchronously.
     getModuleResourceUsageReport()
-    await waitForModuleResourceUsageSnapshotWrites()
+    await waitForModuleResourceUsageSnapshotIoForTests()
     expect(fs.existsSync(stalePath)).toBe(false)
   })
 
@@ -350,8 +351,59 @@ describe('module resource usage tracker', () => {
     getModuleResourceUsageReport()
     expect(fs.existsSync(ownSnapshotPath)).toBe(false)
 
-    await waitForModuleResourceUsageSnapshotWrites()
+    await waitForModuleResourceUsageSnapshotIoForTests()
     expect(fs.readdirSync(tempDir!)).toEqual([`process-${process.pid}.json`])
     expect(JSON.parse(fs.readFileSync(ownSnapshotPath, 'utf8')).pid).toBe(process.pid)
+  })
+
+  it('waits for snapshot I/O started while it is already waiting', async () => {
+    process.env.OM_MODULE_RESOURCE_USAGE_SNAPSHOT = 'on'
+    const realRename = fs.promises.rename.bind(fs.promises)
+    const renameSpy = jest.spyOn(fs.promises, 'rename').mockImplementationOnce(async (from, to) => {
+      getModuleResourceUsageReport()
+      return realRename(from, to)
+    })
+
+    getModuleResourceUsageReport()
+    await waitForModuleResourceUsageSnapshotIoForTests()
+
+    expect(renameSpy).toHaveBeenCalledTimes(2)
+  })
+
+  it('waits for a stale snapshot prune', async () => {
+    process.env.OM_MODULE_RESOURCE_USAGE_SNAPSHOT = 'on'
+    const stalePid = process.pid + 2
+    const stalePath = path.join(tempDir!, `process-${stalePid}.json`)
+    fs.writeFileSync(stalePath, JSON.stringify({ pid: stalePid, generatedAt: new Date(0).toISOString(), entries: [] }))
+    const realUnlink = fs.promises.unlink.bind(fs.promises)
+    let pruned = false
+    jest.spyOn(fs.promises, 'unlink').mockImplementationOnce(async (target) => {
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      await realUnlink(target)
+      pruned = true
+    })
+
+    getModuleResourceUsageReport()
+    await waitForModuleResourceUsageSnapshotIoForTests()
+
+    expect(pruned).toBe(true)
+  })
+
+  it('waits for the temp-file cleanup of a failed write', async () => {
+    process.env.OM_MODULE_RESOURCE_USAGE_SNAPSHOT = 'on'
+    jest.spyOn(fs.promises, 'rename').mockRejectedValueOnce(new Error('[internal] rename failed'))
+    const realUnlink = fs.promises.unlink.bind(fs.promises)
+    let cleaned = false
+    jest.spyOn(fs.promises, 'unlink').mockImplementationOnce(async (target) => {
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      await realUnlink(target)
+      cleaned = true
+    })
+
+    getModuleResourceUsageReport()
+    await waitForModuleResourceUsageSnapshotIoForTests()
+
+    expect(cleaned).toBe(true)
+    expect(fs.readdirSync(tempDir!)).toEqual([])
   })
 })
