@@ -27,8 +27,8 @@ export type DetailTabRailProps = {
   children: React.ReactNode
 }
 
-function tabSignature(tab: { label: string; count?: React.ReactNode }): string {
-  return `${tab.label}\u0000${tab.count == null ? '' : String(tab.count)}`
+function tabSignature(tab: { id: string; label: string; count?: React.ReactNode }, activeTab: string): string {
+  return `${tab.label}\u0000${tab.count == null ? '' : String(tab.count)}\u0000${tab.id === activeTab ? 'selected' : ''}`
 }
 
 function moveMoreMenuFocus(event: React.KeyboardEvent<HTMLDivElement>, close: () => void) {
@@ -87,15 +87,16 @@ export function DetailTabRail({
   const moreRef = React.useRef<HTMLButtonElement>(null)
   const moreMenuRef = React.useRef<HTMLDivElement>(null)
   const [moreOpen, setMoreOpen] = React.useState(false)
-  // Width per tab id, keyed to the label and count it was measured with: counts arrive after
-  // the first paint and widen a tab, so a changed signature triggers a fresh measurement.
+  // Width per tab id, keyed to the label, count and selected state it was measured with: counts
+  // arrive after the first paint and the selected tab is heavier, so both widen a tab and a
+  // changed signature triggers a fresh measurement.
   const widthsRef = React.useRef<Map<string, { width: number; signature: string }>>(new Map())
   const moreWidthRef = React.useRef(0)
   const listChromeRef = React.useRef(0)
   const remeasureRetriesRef = React.useRef(0)
   const [visibleIds, setVisibleIds] = React.useState<string[] | null>(null)
 
-  const measuring = visibleIds === null || tabs.some((tab) => widthsRef.current.get(tab.id)?.signature !== tabSignature(tab))
+  const measuring = visibleIds === null || tabs.some((tab) => widthsRef.current.get(tab.id)?.signature !== tabSignature(tab, activeTab))
 
   React.useLayoutEffect(() => {
     const row = rowRef.current
@@ -113,7 +114,7 @@ export function DetailTabRail({
           const tab = tabs[index]
           const width = element.getBoundingClientRect().width
           tabsWidth += width
-          if (tab) widthsRef.current.set(tab.id, { width, signature: tabSignature(tab) })
+          if (tab) widthsRef.current.set(tab.id, { width, signature: tabSignature(tab, activeTab) })
         })
         if (moreRef.current) moreWidthRef.current = moreRef.current.getBoundingClientRect().width
         if (tabList) {
