@@ -62,7 +62,7 @@ test('TC-CRM-8675: company creates require live organizations owned by the autho
       { name: 'foreign organization', token: unrestricted, data: { organizationId: foreign } },
       { name: 'unknown organization', token: unrestricted, data: { organizationId: randomUUID() } },
       { name: 'deleted organization', token: unrestricted, data: { organizationId: deleted } },
-      { name: 'foreign tenant input', token: unrestricted, data: { tenantId: tenantIds[1], organizationId: foreign } },
+      { name: 'foreign tenant input', token: unrestricted, data: { tenantId: tenantIds[1], organizationId: foreign }, error: 'Not authorized to target this tenant.' },
       { name: 'restricted organization', token: restricted, data: { organizationId: sibling } },
       { name: 'empty organization ACL', token: empty, data: { organizationId: home } },
     ]
@@ -72,7 +72,7 @@ test('TC-CRM-8675: company creates require live organizations owned by the autho
         data: { displayName: `${marker}-${invalid.name}`, ...invalid.data },
       })
       expect(response.status(), invalid.name).toBe(403)
-      expect(await readJsonSafe<{ error?: string }>(response), invalid.name).toMatchObject({ error: 'Forbidden' })
+      expect(await readJsonSafe<{ error?: string }>(response), invalid.name).toMatchObject({ error: invalid.error ?? 'Forbidden' })
       expect(response.headers()['x-om-operation'], 'denial should not issue a successful undo operation').toBeUndefined()
       await expectNoCompanyWrites()
     }
