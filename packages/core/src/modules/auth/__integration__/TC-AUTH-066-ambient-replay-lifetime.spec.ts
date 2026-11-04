@@ -1,13 +1,9 @@
 import { randomInt } from 'node:crypto'
 import { expect, test } from '@playwright/test'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { bootstrapFromAppRoot } from '@open-mercato/shared/lib/bootstrap/dynamicLoader'
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands/types'
 import type { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
-import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
-import { getTransactionLifetime } from '@open-mercato/shared/lib/commands/transaction-lifetime'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
   createUserFixture,
@@ -18,6 +14,20 @@ import {
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { expectId, getTokenScope } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { resolveAppRoot } from '@open-mercato/core/helpers/integration/appRoot'
+import { importFromAppRuntime } from '@open-mercato/core/helpers/integration/appRuntime'
+
+// Bootstrap, container, flush and transaction lifetime must come from the copy the app runs on:
+// against a standalone app the spec's static imports and the app's registries resolve to two
+// different package copies, and the command registry / ambient transaction state split in two.
+async function loadAppRuntime() {
+  const [{ bootstrapFromAppRoot }, { createRequestContainer }, { withAtomicFlush }, { getTransactionLifetime }] = await Promise.all([
+    importFromAppRuntime<typeof import('@open-mercato/shared/lib/bootstrap/dynamicLoader')>('@open-mercato/shared/lib/bootstrap/dynamicLoader'),
+    importFromAppRuntime<typeof import('@open-mercato/shared/lib/di/container')>('@open-mercato/shared/lib/di/container'),
+    importFromAppRuntime<typeof import('@open-mercato/shared/lib/commands/flush')>('@open-mercato/shared/lib/commands/flush'),
+    importFromAppRuntime<typeof import('@open-mercato/shared/lib/commands/transaction-lifetime')>('@open-mercato/shared/lib/commands/transaction-lifetime'),
+  ])
+  return { bootstrapFromAppRoot, createRequestContainer, withAtomicFlush, getTransactionLifetime }
+}
 
 type ReplayRow = {
   execution_state: string
@@ -135,6 +145,7 @@ test.describe.serial('TC-AUTH-066: caller-owned replay transaction lifetime', ()
       expect(update.status(), await update.text()).toBe(200)
       const source = await latestReplayRow(userId, actorUserId)
 
+      const { bootstrapFromAppRoot, createRequestContainer, withAtomicFlush, getTransactionLifetime } = await loadAppRuntime()
       await bootstrapFromAppRoot(resolveAppRoot())
       const container = await createRequestContainer()
       const commandBus = container.resolve('commandBus') as CommandBus
@@ -188,6 +199,7 @@ test.describe.serial('TC-AUTH-066: caller-owned replay transaction lifetime', ()
       expect(update.status(), await update.text()).toBe(200)
       const source = await latestReplayRow(userId, actorUserId)
 
+      const { bootstrapFromAppRoot, createRequestContainer, withAtomicFlush, getTransactionLifetime } = await loadAppRuntime()
       await bootstrapFromAppRoot(resolveAppRoot())
       const container = await createRequestContainer()
       const commandBus = container.resolve('commandBus') as CommandBus
@@ -253,6 +265,7 @@ test.describe.serial('TC-AUTH-066: caller-owned replay transaction lifetime', ()
       expect(await countUserRole(userId, roleId)).toBe(0)
       const notificationsBefore = await countRoleAssignedNotifications(userId)
 
+      const { bootstrapFromAppRoot, createRequestContainer, withAtomicFlush, getTransactionLifetime } = await loadAppRuntime()
       await bootstrapFromAppRoot(resolveAppRoot())
       const container = await createRequestContainer()
       const commandBus = container.resolve('commandBus') as CommandBus

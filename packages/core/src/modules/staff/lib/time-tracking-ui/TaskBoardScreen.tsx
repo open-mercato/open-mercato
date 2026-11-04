@@ -155,6 +155,7 @@ export function TaskBoardScreen({
               onChange={setFilters}
               self={selfQuery.data ?? null}
               statuses={statuses}
+              timeProjectId={timeProjectId}
               testId="board-filters-button"
               trigger={
                 <Button type="button" variant="outline" size="sm" data-testid="board-filters-button">
@@ -190,6 +191,7 @@ export function TaskBoardScreen({
           onChange={setFilters}
           self={selfQuery.data ?? null}
           statuses={statuses}
+          timeProjectId={timeProjectId}
         />
 
         {view === 'board' ? (

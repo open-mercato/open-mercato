@@ -1,0 +1,117 @@
+# Execution plan — passkey enrollment review remediation (adopted from PR #6824)
+
+**Origin:** adopted by `om-auto-continue-pr --adopt auto` on 2026-10-25 because PR #6824 has no tracking plan.
+**PR:** #6824 · **Branch:** `codex/fix-6800-passkey-attestation` · **Base:** `main`
+**Author:** @haxiorz
+
+## Goal
+
+Finish the independently actionable review remediation while preserving verified passkey enrollment, the current main behavior, and the named human security-exception merge gate.
+
+## Scope
+
+Merge the current PR base, resolve conflicts, validate the resulting security paths, publish the correction, and request re-review.
+
+## Non-goals
+
+No merge, compatibility bridge restoring vulnerable enrollment, human waiver, QA approval, release-policy change, or unrelated refactor.
+
+## Evidence
+
+| Conclusion | Drawn from | Confidence |
+| --- | --- | --- |
+| Verified WebAuthn enrollment and localized rejection are implemented | PR description, security spec, head `5862cad387674e3006e87e89bcc1d4e99bedce7a` | High |
+| Current base conflicts require resolution | Review `5564811872`; current PR base is `main` | High |
+| A named human must acknowledge the Emergency Security Exception | Same review, `BACKWARD_COMPATIBILITY.md`, security spec; QA comment `6238527028` explicitly preserves the gate | High |
+
+## Assumptions
+
+The PR metadata's current base `main` supersedes historical `develop` references. Existing QA evidence remains historical evidence for its stated head; the agent will not infer a human waiver from it. The unchecked CLA declaration remains the author's personal attestation.
+
+## Risks
+
+Conflicts may combine main's error-reporting requirements with the provider's localized validation boundary. Both must survive. Removed STABLE payload acceptance remains gated by explicit named human approval.
+
+## Progress
+
+> Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
+
+### Phase 1: Already landed on this PR (reconstructed)
+
+- [x] 1.1 Require verified registration, preserve signed login, cover legacy rejection and document migration — 5862cad387674e3006e87e89bcc1d4e99bedce7a
+
+### Phase 2: Resolve and publish review remediation
+
+- [x] 2.1 Merge current main and preserve both passkey verification and main changes — 7543cae85002724af0ef768f63e9664ba37f11b9
+- [x] 2.2 Run focused validation and review the resulting head using CI-first policy — 7543cae85002724af0ef768f63e9664ba37f11b9; source review and static checks complete, remote checks queued/running, no green CI claim
+- [x] 2.3 Publish evidence and request re-review while preserving changes-requested — 7543cae85002724af0ef768f63e9664ba37f11b9; review requested from @wojciechszyjka
+
+- [x] 2.4 Correct the merged lesson catalog count exposed by CI and verify focused checks — CI test job 121197721648; count 153 to 155, validator and 5/5 focused tests passed
+
+- [x] 2.5 Refresh main and reconcile measured compatibility context caps without expanding reads — 75b97e1cb1934492458e32b71983d198cd8491e4 and 9c1dfce5b1d5a03ab72449c7195e5d9d8948adf9
+- [x] 2.6 Correct the stale migration release-section reference — ae3be79a3d17885704b7f04c63e23ea8b5382cb7
+
+### Phase 3: Human merge gates
+
+- [x] 3.1 Obtain named human maintainer acknowledgment of the Emergency Security Exception — [@haxiorz, 2026-10-29](https://github.com/open-mercato/open-mercato/pull/6824#issuecomment-6505351158); explicitly approved the waiver and acknowledged client/operator migrations
+- [ ] 3.2 Author confirms the outstanding CLA declaration if still required
+
+## Remediation evidence
+
+- Merged current main `477f2486e5923517c9e762abe541939611c3c49e` without rewriting branch history.
+- Resolved the only conflicts in `UPGRADE_NOTES.md` and the harness catalog. Retained both documentation sides; the catalog is byte-identical to main, preserving the larger current budgets.
+- `git diff --exit-code HEAD^1 HEAD -- packages/enterprise/src/modules/security` passed on the merge commit: the entire security module is unchanged by the merge.
+- Main ancestry, final PR diff whitespace, harness JSON parsing (240 cases), preserved waiver wording, and clean working tree checks passed. Runner: local for these static checks; no running compose app was found.
+- Validation source: GitHub checks. The merge-head checks were queued/running, so the CI-first override prohibits duplicate local test/build substitutes. Required-check discovery returned 403; all reported contexts are treated as required. Final-head outcomes must be verified after the documentation progress commit as well.
+- The source review reconfirmed response-only enrollment, the localized synchronous/asynchronous validation boundary, unchanged authentication and scope guards, retained real-crypto tests, and two-authenticator integration coverage. No new source defect was found. The security compatibility waiver is still a blocker.
+- @wojciechszyjka, who reviewed related proof of concept #6710, was requested through GitHub for re-review on #6824. This is a request for fresh human assessment, not sign-off.
+- Historical QA at `5862cad3` is preserved as historical evidence only. This run does not grant QA approval, human waiver, CLA acknowledgment, or merge permission.
+## CI count correction follow-up
+
+The test job for `0e97769f53058bbbf074c0b84fd6e88d42feed3f` in run `40202422396` passed the workspace Jest tasks, then failed the root `check-lessons.test.mjs` assertion: the merged catalog contains 155 records and rows while its introduction says 153. All other reported checks completed successfully or were conditionally skipped, including the security integration job.
+
+The focused test reproduced the count failure before the fix (4/5 passed). Changed only the catalog's declared count to 155, preserving every row and record. Afterward, `node packages/create-app/agentic/shared/scripts/check-lessons.mjs --root .` passed, `node --test scripts/__tests__/check-lessons.test.mjs` passed 5/5, and `git diff --check` passed. Runner: local. The initially requested `scripts/check-lessons.mjs` path does not exist; the package script identifies the canonical validator path used above.
+
+No broad Jest rerun or security source change was needed for this documentation correction. The new commit requires fresh exact-head CI; prior-head successful jobs are historical evidence only. The named human Emergency Security Exception acknowledgment remains required. The `license/cla` context succeeded at the preceding head; the PR body's human checkbox was left untouched.
+
+## Measured compatibility-context correction
+
+Current main db279a693eb283f6147b6e1ef24abfeeca6de646 contained no existing budget correction and merged cleanly. Measured final source context: OMH-007/064 = 123775 bytes, minimum cap 123904; OMH-022 = 110831, cap 111616; OMH-057 = 116225, cap 116736; OMH-030 = 125814, existing cap 126976 unchanged. Initial/read/file/forbidden sets and the 12288 root limit are unchanged; emitted root 11971 bytes. The existing test reports independent case subtests and retains every assertion.
+
+The unchanged controller derives knowledge-contract (context-read, evaluator) and independently proves base-plus-test-only exit 1, corrected source head exit 0. Result SHA-256: a2ebd63bb5d6d75e9462e4edfacecf8b72fc4bb688a914e2defdafbcdb89c789. Six focused tests and all five affected fresh-scaffold deterministic cases pass. Lesson validator and five lesson tests also pass; no broad Jest rerun was performed.
+
+Full deterministic catalog validation in the minimal source fixture remains incomplete due to unrelated absent installed/example/template surfaces. Full packed-preset/certified release proof is unavailable: official target-isolation preflight rejects win32. These are explicit unpassed gates, not asset-sync exemptions or waived checks. The local sanitized refresh report records the bounded proof. The separate authorized continuation publishes the concrete correction; fresh-head CI and named human Emergency Security Exception acknowledgment remain required.
+
+The migration-section reference nit was corrected from 0.8.0 → 0.8.1 to the existing 0.8.0 → 0.9.0 heading. Its byte length is unchanged; final measurements and controller proof include the corrected reference. No passkey/security source changed.
+
+## Maintenance continuation — 2026-10-26
+
+The latest independent review confirms the measured context-cap correction and migration-reference fix. Its remaining blockers are the named human Emergency Security Exception acknowledgment and supported-environment certified harness/release evidence. No further production-code correction is requested.
+
+Merged latest main `c3cfc9211cbd0bdf0c59643e5df7859aa4c95b94` cleanly in `bd6b7522a2bdf047e89c00eaddbeceeb9c2f8bb4`. The security module, harness catalog and focused compatibility test are unchanged by the merge. The merge combined two additional lesson records with the branch's earlier catalog count; the focused lesson regression caught the resulting 155-versus-157 mismatch. Updated only the declared count to match all 157 retained records.
+
+Runner: local for narrow post-merge checks, because this new head has no GitHub check results yet and neither installed Docker context supplies a running engine. Compatibility regression: 6/6 passed. The lesson regression first failed 4/5 with the count mismatch, then passed 5/5 after correction; the canonical lesson validator and final diff whitespace also passed. Ordinary CI on preceding head `e27c47d96f4f6251517cbffcb04c1a949e7646e1` succeeded in run `40217884584`; that is historical evidence after this continuation and does not establish new-head CI.
+
+Called the unchanged release runner's `releaseHostPrerequisiteViolations` against the checked-out release matrix on native macOS. It reports: `isolated loopback is unavailable with macOS sandbox-exec; run this lane in a Linux VM/container with Bubblewrap`. Docker Desktop reports it cannot start; the existing alternate Colima context has no daemon socket. The full packed-preset/certified release gate remains unpassed. No containment, assertion, controller or release gate was weakened, and no external infrastructure was provisioned.
+
+The original fork PR and historical QA evidence are preserved. Independent re-review is requested; `changes-requested` remains appropriate while GitHub's review decision and the two explicit gates remain outstanding. No automated review supplies the named human acknowledgment, QA renewal or merge approval.
+
+## Review repair — 2026-10-29
+
+Merged verified live main e1a6f9de51 cleanly. The reviewed security module remains byte-identical to db48f88a59. Replaced duplicated dated-entry detail with precise spec and client/operator migration links, preserving the full Emergency Security Exception policy and the pending named human maintainer acknowledgment. The 21 equivalent Markdown table separators save 551 bytes; table cells and all other main content are unchanged.
+
+Restored the harness catalog and compatibility regression exactly to main, removing all four context-cap increases and the test-reporting-only delta. Main's unchanged limits first reproduced four overflows; the documentation repair now fits all five contexts (OMH-057: 114604/114688 bytes). The native regression and independent measurements pass without changing limits, file/read sets, assertions or containment. The specific certification finding concerned the now-removed harness contract delta; fresh independent review must confirm its disposition. No certified release pass or waiver is claimed.
+
+Corrected the merged lesson catalog to its actual160 records; the native checker and all five script tests pass. Runner: local for these focused documentation checks; no broad test/build or live QA rerun. Historical exact-head CI40531421748 passed before this update; the new head requires fresh CI. The named human security-exception acknowledgment remains required before merge.
+
+### Concurrent disclosure budget proof
+
+The batch review identified that the independently prepared checkout and CLI entries add232 and228 bytes to the same document. Their exact combined text reproduced an OMH-057 overflow of376 bytes; the separator savings cannot be counted three times. Removed only cell-edge padding from the first four existing tables (78rows,552bytes). The complete parsed Markdown AST, all21tables/cells/alignment, every disclosure and the exception policy are identical before/after this formatting change.
+
+Both the actual native compatibility regression and five-case measurements pass for the own document (OMH-057114052/114688) and the combined three-entry document (114512/114688). Other PR entries were temporary test input and are absent from this branch. All existing caps, contexts, assertions and production source remain unchanged.
+
+### Human acknowledgment — 2026-10-29
+
+The named human maintainer acknowledgment linked in step 3.1 supersedes this run's historical pending-waiver statements. @haxiorz explicitly approved the Emergency Security Exception for removing unverified passkey enrollment and acknowledged the disclosed client/operator migrations. The dated compatibility entry and specification now cite that decision. Runtime, context caps and historical QA evidence are unchanged; current-head CI and independent re-review remain required. This records the human decision and grants no automated approval or merge permission.
+
+The native compatibility-context regression passes (1/1; local runner, existing installed dependencies, no install). The compatibility document is two bytes smaller; every byte outside the dated passkey entry is unchanged. CI on preceding head `d1185420` passed in run `40895118299`, with conditional skips reported separately. The documentation commit still requires fresh CI.
