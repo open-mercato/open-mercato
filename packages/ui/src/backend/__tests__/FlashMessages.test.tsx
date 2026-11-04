@@ -190,6 +190,43 @@ describe('FlashMessages', () => {
     expect(screen.queryByText('Too old to show.')).not.toBeInTheDocument()
   })
 
+  /**
+   * Regression for #8471: the URL-reading effect used to run in every mounted
+   * host regardless of primary status, so whichever host's effect fired
+   * first stripped `?flash=` from the URL and stored it in its own state.
+   * When that host was not primary, its render was suppressed and the
+   * message was lost. Mounting a second ("late") host after the primary one
+   * has already settled, with the flash param already present in the URL,
+   * reproduces the race deterministically: the late host would (pre-fix)
+   * consume the param before the primary host ever saw it.
+   */
+  it('shows a URL flash via the primary host even when a later-mounting host is not primary', async () => {
+    jest.useRealTimers()
+
+    function Hosts({ withSecondHost }: { withSecondHost: boolean }) {
+      return (
+        <>
+          <FlashMessages />
+          {withSecondHost ? <FlashMessages /> : null}
+        </>
+      )
+    }
+
+    const { rerender } = renderWithProviders(<Hosts withSecondHost={false} />)
+
+    window.history.replaceState({}, '', 'http://localhost/backend/checkout/pay-links?flash=Saved&type=success')
+    rerender(<Hosts withSecondHost />)
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    })
+
+    expect(screen.getAllByText('Saved')).toHaveLength(1)
+    expect(window.location.search).toBe('')
+
+    jest.useFakeTimers()
+  })
+
   it('auto-dismisses programmatic flashes', () => {
     renderWithProviders(<FlashMessages />)
 
