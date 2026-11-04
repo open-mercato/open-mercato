@@ -58,7 +58,7 @@ import type { FilterOptionTone } from '@open-mercato/shared/lib/query/advanced-f
 import { ViewTabsRow, VIEW_TABS_ROW_COMPONENT_ID, type ViewTabsRowProps } from './components/ViewTabsRow'
 import { LANE_WIDTH_CLASS } from './components/constants'
 import { useCurrencyDictionary } from '../../../../components/detail/hooks/useCurrencyDictionary'
-import { buildDealDuplicatePayload } from '../../../../lib/duplicateDeal'
+import { buildDealDuplicatePayload, formatDealDuplicateTitle } from '../../../../lib/duplicateDeal'
 import { FilterBarRow, type KanbanFilterChip } from './components/FilterBarRow'
 import { Lane, type LaneStage } from './components/Lane'
 import { LaneCurrencyBreakdown } from './components/LaneCurrencyBreakdown'
@@ -2270,11 +2270,13 @@ export default function DealsKanbanPage(): React.ReactElement {
             expectedCloseAt: deal.expectedCloseAt,
             ownerUserId: deal.owner?.userId,
           },
-          translateWithFallback(
-            t,
-            'customers.deals.kanban.menu.duplicate.titleSuffix',
-            '{title} (copy)',
-            { title: deal.title },
+          formatDealDuplicateTitle(deal.title, (title) =>
+            translateWithFallback(
+              t,
+              'customers.deals.kanban.menu.duplicate.titleSuffix',
+              '{title} (copy)',
+              { title },
+            ),
           ),
         )
 
