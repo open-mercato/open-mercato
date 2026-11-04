@@ -1,6 +1,10 @@
 import { commandRegistry, type CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import '../dateLocale'
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(async () => ({ translate: (key: string) => `t:${key}` })),
+}))
+
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const otherTenantId = '44444444-4444-4444-8444-444444444444'
 
@@ -55,6 +59,7 @@ describe('configs.date_locale.update command', () => {
     expect(setValueMock).toHaveBeenCalledWith('configs', 'date_locale', next, { tenantId })
     expect(log).toEqual(
       expect.objectContaining({
+        actionLabel: 't:configs.audit.dateLocale.update',
         resourceKind: 'configs.date_locale',
         resourceId: 'date_locale',
         tenantId,

@@ -18,10 +18,38 @@ export function canonicalizeTimeZone(value: string | null | undefined): string |
   try {
     const resolved = new Intl.DateTimeFormat('en-US', { timeZone: trimmed }).resolvedOptions().timeZone
     if (!/^[A-Za-z]/.test(resolved)) return null
-    return resolved.toLowerCase() === trimmed.toLowerCase() ? resolved : trimmed
+    const spellings = [resolved, CURRENT_NAMES_OF_ICU_LEGACY_ZONES[resolved]]
+    return spellings.find((spelling) => spelling?.toLowerCase() === trimmed.toLowerCase()) ?? trimmed
   } catch {
     return null
   }
+}
+
+/**
+ * Zones ICU still lists under the name tzdata has since renamed. Current tzdata builds keep the old
+ * names only in the optional `backward` file (Debian trixie ships it separately), so pickers offer
+ * the current name instead.
+ */
+const CURRENT_NAMES_OF_ICU_LEGACY_ZONES: Record<string, string> = {
+  'Africa/Asmera': 'Africa/Asmara',
+  'America/Buenos_Aires': 'America/Argentina/Buenos_Aires',
+  'America/Catamarca': 'America/Argentina/Catamarca',
+  'America/Coral_Harbour': 'America/Atikokan',
+  'America/Cordoba': 'America/Argentina/Cordoba',
+  'America/Godthab': 'America/Nuuk',
+  'America/Indianapolis': 'America/Indiana/Indianapolis',
+  'America/Jujuy': 'America/Argentina/Jujuy',
+  'America/Louisville': 'America/Kentucky/Louisville',
+  'America/Mendoza': 'America/Argentina/Mendoza',
+  'Asia/Calcutta': 'Asia/Kolkata',
+  'Asia/Katmandu': 'Asia/Kathmandu',
+  'Asia/Rangoon': 'Asia/Yangon',
+  'Asia/Saigon': 'Asia/Ho_Chi_Minh',
+  'Atlantic/Faeroe': 'Atlantic/Faroe',
+  'Europe/Kiev': 'Europe/Kyiv',
+  'Pacific/Enderbury': 'Pacific/Kanton',
+  'Pacific/Ponape': 'Pacific/Pohnpei',
+  'Pacific/Truk': 'Pacific/Chuuk',
 }
 
 export function isValidTimeZone(value: string | null | undefined): value is string {
@@ -62,12 +90,21 @@ const FALLBACK_TIME_ZONES = [
  * Every IANA zone the runtime supports (or a short common list on runtimes without
  * `supportedValuesOf`), always starting with `UTC`: V8's canonical list omits `UTC` and `Etc/UTC`,
  * and pickers that only accept listed values would otherwise make it unselectable.
+ *
+ * Renamed zones are listed under their current name (`Asia/Kolkata`, not ICU's `Asia/Calcutta`).
+ * Pass the currently stored value as `include` so a picker can still show a zone the list lacks.
  */
-export function listSupportedTimeZones(): string[] {
+export function listSupportedTimeZones(include?: string | null): string[] {
   let zones: string[] = [...FALLBACK_TIME_ZONES]
   try {
     const supported = (Intl as unknown as { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf
     if (typeof supported === 'function') zones = supported('timeZone')
   } catch {}
-  return zones.includes('UTC') ? zones : ['UTC', ...zones]
+  const named = zones.map((zone) => CURRENT_NAMES_OF_ICU_LEGACY_ZONES[zone] ?? zone)
+  const extra = include?.trim()
+  if (extra && !named.includes(extra)) named.push(extra)
+  const sorted = [...new Set(named)]
+    .filter((zone) => zone !== 'UTC')
+    .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
+  return ['UTC', ...sorted]
 }

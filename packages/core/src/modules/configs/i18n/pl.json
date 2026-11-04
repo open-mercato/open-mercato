@@ -1,4 +1,5 @@
 {
+  "configs.audit.dateLocale.update": "Aktualizacja ustawień daty i godziny",
   "configs.cache.description": "Przeglądaj zapisane odpowiedzi i czyść segmenty w razie potrzeby.",
   "configs.cache.empty": "Brak zapisanych odpowiedzi dla tego tenanta.",
   "configs.cache.generatedAt": "Statystyki z {{timestamp}}",

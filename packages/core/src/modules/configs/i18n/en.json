@@ -1,4 +1,5 @@
 {
+  "configs.audit.dateLocale.update": "Update date & time settings",
   "configs.cache.description": "Inspect cached responses and clear segments when necessary.",
   "configs.cache.empty": "No cached responses for this tenant.",
   "configs.cache.generatedAt": "Stats generated {{timestamp}}",

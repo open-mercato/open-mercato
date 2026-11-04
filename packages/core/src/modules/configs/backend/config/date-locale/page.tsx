@@ -196,7 +196,7 @@ export default function DateLocaleSettingsPage() {
         description: inheritedHint('timeZone'),
         options: [
           { value: DATE_LOCALE_AUTO, label: t('configs.dateLocale.options.autoTimeZone', "Automatic (each viewer's device)") },
-          ...listSupportedTimeZones().map((zone) => ({ value: zone, label: zone })),
+          ...listSupportedTimeZones(data?.settings.timeZone).map((zone) => ({ value: zone, label: zone })),
         ],
         allowCustomValues: false,
         disabled: !canManage,

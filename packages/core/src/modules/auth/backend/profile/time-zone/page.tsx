@@ -53,7 +53,7 @@ export default function ProfileTimeZonePage() {
       ),
       options: [
         { value: ORGANIZATION_DEFAULT, label: t('auth.profile.timeZone.organizationDefault', 'Organization default') },
-        ...listSupportedTimeZones().map((zone) => ({ value: zone, label: zone })),
+        ...listSupportedTimeZones(timezone).map((zone) => ({ value: zone, label: zone })),
       ],
       allowCustomValues: false,
     },
@@ -78,7 +78,7 @@ export default function ProfileTimeZonePage() {
         )
       },
     },
-  ], [locale, settings, t])
+  ], [locale, settings, t, timezone])
 
   const handleSubmit = React.useCallback(async (values: TimeZoneFormValues) => {
     const next = values.timezone && values.timezone !== ORGANIZATION_DEFAULT ? values.timezone : null

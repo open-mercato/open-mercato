@@ -82,6 +82,20 @@ describe('PUT /api/auth/profile time zone', () => {
     expect(body.issues).toEqual([expect.objectContaining({ path: ['timezone'], message: 'Choose a time zone from the list.' })])
   })
 
+  it('saves a time zone without renewing the session cookie', async () => {
+    const response = await PUT(put({ timezone: 'Asia/Tokyo' }))
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('set-cookie')).toBeNull()
+  })
+
+  it('still renews the session cookie when the email changes', async () => {
+    const response = await PUT(put({ email: 'ada@example.com', timezone: 'Asia/Tokyo' }))
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('set-cookie')).toContain('auth_token=signed-token')
+  })
+
   it('does not send a time zone to the command when the request omits it', async () => {
     await PUT(put({ email: 'ada@example.com' }))
 

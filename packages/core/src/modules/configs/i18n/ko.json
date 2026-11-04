@@ -1,4 +1,5 @@
 {
+  "configs.audit.dateLocale.update": "날짜 및 시간 설정 업데이트",
   "configs.cache.description": "캐시된 응답을 확인하고 필요할 때 세그먼트를 지우세요.",
   "configs.cache.empty": "이 테넌트에 캐시된 응답이 없습니다.",
   "configs.cache.generatedAt": "{{timestamp}}에 생성된 통계",

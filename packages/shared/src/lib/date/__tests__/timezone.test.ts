@@ -13,6 +13,12 @@ describe('canonicalizeTimeZone', () => {
     expect(canonicalizeTimeZone('America/Nuuk')).toBe('America/Nuuk')
   })
 
+  it('normalizes the letter case of renamed zones to their current name', () => {
+    expect(canonicalizeTimeZone('asia/kolkata')).toBe('Asia/Kolkata')
+    expect(canonicalizeTimeZone('EUROPE/KYIV')).toBe('Europe/Kyiv')
+    expect(canonicalizeTimeZone('asia/ho_chi_minh')).toBe('Asia/Ho_Chi_Minh')
+  })
+
   it('returns null for empty, missing or unknown zones', () => {
     expect(canonicalizeTimeZone(undefined)).toBeNull()
     expect(canonicalizeTimeZone(null)).toBeNull()
@@ -47,6 +53,27 @@ describe('listSupportedTimeZones', () => {
     const zones = listSupportedTimeZones()
     expect(zones.length).toBeGreaterThan(5)
     expect(zones).toEqual(expect.arrayContaining(['Europe/Warsaw', 'America/New_York']))
+  })
+
+  it('lists renamed zones under their current name, never the ICU legacy one', () => {
+    const zones = listSupportedTimeZones()
+    for (const [legacy, current] of [
+      ['Asia/Calcutta', 'Asia/Kolkata'],
+      ['Europe/Kiev', 'Europe/Kyiv'],
+      ['Asia/Saigon', 'Asia/Ho_Chi_Minh'],
+      ['Asia/Katmandu', 'Asia/Kathmandu'],
+      ['Asia/Rangoon', 'Asia/Yangon'],
+    ]) {
+      expect(zones).toContain(current)
+      expect(zones).not.toContain(legacy)
+    }
+    expect(new Set(zones).size).toBe(zones.length)
+  })
+
+  it('adds a stored zone the list does not carry, once', () => {
+    expect(listSupportedTimeZones('Etc/GMT+5')).toContain('Etc/GMT+5')
+    expect(listSupportedTimeZones('Europe/Warsaw').filter((zone) => zone === 'Europe/Warsaw')).toHaveLength(1)
+    expect(listSupportedTimeZones(null)).toEqual(listSupportedTimeZones())
   })
 })
 

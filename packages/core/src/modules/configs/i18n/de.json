@@ -1,4 +1,5 @@
 {
+  "configs.audit.dateLocale.update": "Datums- und Zeiteinstellungen aktualisieren",
   "configs.cache.description": "Gecachte Antworten prüfen und Segmente bei Bedarf leeren.",
   "configs.cache.empty": "Keine gecachten Antworten für diesen Mandanten.",
   "configs.cache.generatedAt": "Statistik erstellt {{timestamp}}",

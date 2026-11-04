@@ -200,6 +200,13 @@ export async function PUT(req: Request) {
         ctx,
       },
     )
+    const res = NextResponse.json({
+      ok: true,
+      email: String(result.email),
+      ...(parsed.data.timezone !== undefined ? { timezone: result.timezone ?? null } : {}),
+    })
+    // Only credential changes renew the session token; a preference save must not extend the session.
+    if (parsed.data.email === undefined && !parsed.data.password) return res
     const roles = await authService.getUserRoles(result, result.tenantId ? String(result.tenantId) : null)
     const jwt = signJwt({
       sub: String(result.id),
@@ -208,11 +215,6 @@ export async function PUT(req: Request) {
       orgId: result.organizationId ? String(result.organizationId) : null,
       email: result.email,
       roles,
-    })
-    const res = NextResponse.json({
-      ok: true,
-      email: String(result.email),
-      ...(parsed.data.timezone !== undefined ? { timezone: result.timezone ?? null } : {}),
     })
     res.cookies.set('auth_token', jwt, {
       httpOnly: true,

@@ -1,6 +1,7 @@
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
 import { ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { NormalizedDateLocaleSettingsRecord } from '@open-mercato/shared/lib/date-locale/types'
 import type { ModuleConfigService } from '../lib/module-config-service'
 import {
@@ -52,8 +53,9 @@ const updateDateLocaleSettingsCommand: CommandHandler<UpdateDateLocaleSettingsIn
     const before = (snapshots.before as DateLocaleSnapshot | undefined) ?? null
     const after = (snapshots.after as DateLocaleSnapshot | undefined) ?? null
     if (!after) return null
+    const { translate } = await resolveTranslations()
     return {
-      actionLabel: 'Update date & time settings',
+      actionLabel: translate('configs.audit.dateLocale.update', 'Update date & time settings'),
       resourceKind: DATE_LOCALE_RESOURCE_KIND,
       resourceId: DATE_LOCALE_CONFIG_NAME,
       tenantId: after.tenantId,
