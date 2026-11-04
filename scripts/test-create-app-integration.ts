@@ -4,11 +4,11 @@ import type { AddressInfo } from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { createRequire } from 'node:module'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 
 import { chromium } from '@playwright/test'
-import * as tar from 'tar'
 import { createAppBin, createStandaloneInstallEnv, ensureVerdaccioPublished, VERDACCIO_URL, runCommand } from './lib/verdaccio'
 import { assertProductionBuildArtifacts } from './lib/standalone-build-artifacts.mjs'
 import { findChromiumPreflightFailure, PLAYWRIGHT_BROWSERS_DOCS_URL } from './lib/playwright-browsers.mjs'
@@ -23,6 +23,8 @@ import {
 const __filename = fileURLToPath(import.meta.url)
 const ROOT = path.resolve(path.dirname(__filename), '..')
 const CREATE_APP_BIN = createAppBin(ROOT)
+// tar is a dependency of create-app, not of the root workspace, so it is resolved from that package.
+const tar = createRequire(path.join(ROOT, 'packages', 'create-app', 'package.json'))('tar') as typeof import('tar')
 const ROOT_VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version as string
 
 const green = (value: string) => `\x1b[32m${value}\x1b[0m`

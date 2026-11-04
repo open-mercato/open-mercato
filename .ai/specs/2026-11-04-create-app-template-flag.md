@@ -576,6 +576,9 @@ Added to `scripts/test-create-app-integration.ts`, after the standalone scaffold
 5. Run the `hold` slug and assert the refusal with its reason and no target directory.
 6. In the created app: `yarn install` and `yarn generate` succeed. No second build, to keep the lane time.
 
+The script packs the fixture with `tar` resolved from `packages/create-app` (`createRequire`), because the root
+workspace does not declare `tar` and a hoisted copy is not a contract.
+
 Not run in this branch: the script needs Verdaccio and free ports. It runs in the standalone CI lane.
 
 ---
