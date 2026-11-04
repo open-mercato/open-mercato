@@ -32,6 +32,8 @@ Root cause: each page binds `DataTable isLoading` to React Query `isFetching`. T
 
 ## Progress
 
+PR: #8706
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Fix and regression test
