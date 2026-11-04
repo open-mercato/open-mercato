@@ -32,9 +32,11 @@ import {
   DiffSourceToggleWrapper,
 } from '@mdxeditor/editor'
 import '@mdxeditor/editor/style.css'
+import { EditorView } from '@codemirror/view'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useTheme } from '../../theme'
+import { useContentSecurityPolicyNonce } from '../../theme/ContentSecurityPolicyProvider'
 
 const CODE_BLOCK_LANGUAGES: Record<string, string> = {
   js: 'JavaScript',
@@ -63,6 +65,8 @@ export default function MdxEditorImpl({ value = '', onChange }: MdxEditorImplPro
   const latestRef = React.useRef<string>(value)
   const { resolvedTheme } = useTheme()
   const t = useT()
+  const nonce = useContentSecurityPolicyNonce()
+  const codeMirrorExtensions = React.useMemo(() => nonce ? [EditorView.cspNonce.of(nonce)] : [], [nonce])
 
   React.useEffect(() => {
     if (value !== latestRef.current) {
@@ -102,13 +106,14 @@ export default function MdxEditorImpl({ value = '', onChange }: MdxEditorImplPro
           tablePlugin(),
           codeBlockPlugin({ defaultCodeBlockLanguage: '' }),
           codeMirrorPlugin({
+            codeMirrorExtensions,
             codeBlockLanguages: {
               '': t('ui.forms.richtext.plainText', 'Plain text'),
               ...CODE_BLOCK_LANGUAGES,
             },
           }),
           markdownShortcutPlugin(),
-          diffSourcePlugin({ viewMode: 'rich-text' }),
+          diffSourcePlugin({ viewMode: 'rich-text', codeMirrorExtensions }),
           toolbarPlugin({
             toolbarContents: () => (
               <DiffSourceToggleWrapper>
