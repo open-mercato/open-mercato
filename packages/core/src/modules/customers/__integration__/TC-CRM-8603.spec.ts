@@ -74,8 +74,18 @@ async function withCalendar(
       })
       ownRecord('/api/customers/interactions', interactionId)
     }
+    const formDefinitions = page.waitForResponse((response) => {
+      const url = new URL(response.url())
+      return url.pathname === '/api/entities/definitions'
+        && url.searchParams.getAll('entityId').includes('customers:customer_entity')
+    })
     await page.goto(`/backend/customers/${kind}-v2/${entityId}`)
-    await expect(page.locator('[data-zone-layout-mode][data-persistence-hydrated="true"]').first()).toBeVisible()
+    const definitionsResponse = await formDefinitions
+    expect(definitionsResponse.ok()).toBe(true)
+    await definitionsResponse.finished()
+    await page.evaluate(() => new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+    }))
     const activityTab = page.getByRole('tab', { name: kind === 'companies' ? /^Activity log(?: \d+)?$/ : 'Activity', exact: true })
     if (kind === 'companies' || page.viewportSize()!.width === 390) {
       await expect(activityTab).toBeVisible()
