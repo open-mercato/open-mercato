@@ -54,7 +54,7 @@ async function readQuote(request: APIRequestContext, token: string, quoteId: str
   const body = await readJsonSafe<{ items: Array<{ id: string; validUntil: string | null }> }>(response)
   const quote = body?.items.find((item) => item.id === quoteId)
   if (!quote) throw new Error('[internal] Quote fixture was not returned')
-  return quote
+  return { ...quote, validUntil: quote.validUntil ? new Date(quote.validUntil).toISOString() : null }
 }
 
 async function openSendDialog(page: Page) {
@@ -189,7 +189,9 @@ test('send dialog submits a manual duration with Ctrl+Enter', async ({ page, req
     const dialog = await openSendDialog(page)
     const field = dialog.getByRole('spinbutton', { name: 'Valid for (days)' })
     await expect(field).toHaveValue('30')
-    await field.fill('7')
+    await field.press('ControlOrMeta+A')
+    await field.press('7')
+    await expect(field).toHaveValue('7')
     const before = Date.now()
     const sent = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/sales/quotes/send' && response.request().method() === 'POST')
     await field.press('Control+Enter')
