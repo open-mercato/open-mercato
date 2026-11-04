@@ -21,14 +21,25 @@ No speculative changes, production changes, or merging into main. The requested 
 Hosted runner queues may delay full-suite evidence. Current latest main CI is pending; do not infer defects from incomplete runs.
 
 ## Progress
+PR: #8702
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Diagnose
-- [ ] 1.1 Independently audit main failures and verify full-suite routing.
+- [x] 1.1 Independently audit main failures and verify full-suite routing. — 03d30d4c29; audit afaad41a
 
 ### Phase 2: Stabilize
-- [ ] 2.1 Fix demonstrated root causes and run full PR CI.
+- [x] 2.1 Fix demonstrated root causes and run full PR CI. — 03d30d4c29; full CI 41863667128 passed, no current defect demonstrated.
 
 ### Phase 3: Review
 - [ ] 3.1 Dispatch one final independent review and apply automerge only when green.
+
+## Diagnosis and validation evidence
+
+- Independent audit afaad41a made no changes; its branch adds no diff and needs no merge.
+- Main CI https://github.com/open-mercato/open-mercato/actions/runs/41859661310 passed at 0822b5d5fd, the base of this branch.
+- Snapshot Release https://github.com/open-mercato/open-mercato/actions/runs/41848322869 passed at 673c22ad09; the audit reported 2,826 standalone tests passed.
+- PR full CI https://github.com/open-mercato/open-mercato/actions/runs/41863667128 passed at 03d30d4c29. Independently checked exactly 15 successful integration shards plus passing build, unit, lint, timezone, multi-instance and coverage jobs. Other reported PR checks passed or intentionally skipped.
+- The ci-full event trigger, concurrency handling and full-shard selection already exist in .github/workflows/ci.yml; duplicating them is unnecessary.
+- Historical credential reload and mobile progress overflow fixes shipped in merged PR #8657. No current failure justifies another source change. Zero-job cancelled runs are not evidence of test failures.
+- Validation source: GitHub checks. This diff only records the execution plan and evidence; no configured Markdown lint command was found in the root package scripts. Manual diff review and git diff --check apply to this documentation-only run. Final independent review remains pending.
