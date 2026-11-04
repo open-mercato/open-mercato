@@ -63,13 +63,14 @@ for (const runtimePath of ['../dev.mjs', '../../packages/create-app/template/scr
   assert.ok(start >= 0 && end > start)
   const restartSource = runtimeSource.slice(start, end)
 
-  function runRestart(probeResult, ports = [3123, 3123], environment = {}) {
+  function runRestart(probeResult, ports = [3123, 3123], environment = {}, { noInfra = false } = {}) {
     const calls = []
     const warnings = []
     const activities = []
     const result = runInNewContext(`${restartSource}\n${JSON.stringify(ports)}.map((port) => { mcpPort = port; return restartOpencodeContainer('test') })`, {
       opencodeLastRestartEndpoint: null,
       shuttingDown: false,
+      noInfra,
       DOCKER_PROBE_TIMEOUT_MS,
       classifyDockerProbe,
       console: { log() {}, warn: (message) => warnings.push(message) },
@@ -109,6 +110,15 @@ for (const runtimePath of ['../dev.mjs', '../../packages/create-app/template/scr
     assert.deepEqual(result, [false, false])
     assert.equal(calls.length, 1)
     assert.equal(warnings.length, 0)
+    assert.equal(activities.length, 0)
+  })
+
+  test(`${runtimePath} makes no docker call at all under --no-infra`, () => {
+    const { result, calls, warnings, activities } = runRestart({ status: 0, stdout: 'container-id\n' }, undefined, undefined, { noInfra: true })
+
+    assert.deepEqual(result, [false, false])
+    assert.equal(calls.length, 0)
+    assert.equal(warnings.filter((message) => message.includes('--no-infra')).length, 1)
     assert.equal(activities.length, 0)
   })
 
