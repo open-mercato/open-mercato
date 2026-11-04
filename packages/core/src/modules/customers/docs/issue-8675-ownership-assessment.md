@@ -2,7 +2,7 @@
 
 Company creation now checks the final organization against the authorized tenant before creating either the customer entity or company profile. Missing, soft-deleted, and foreign organizations return the existing generic 403 denial. Organization ACL semantics, privileged tenant selection, system calls, and update/delete behavior remain unchanged. No schema, startup, or configuration changes are required.
 
-Existing rows are not rewritten. An authorized operator can assess historical inconsistencies using a read-only connection in each tenant's approved maintenance context. Do not expose identifiers or results to tenant users or public issue comments. The following query returns identifiers only, including soft-deleted records, for investigation:
+Existing rows are not rewritten. An authorized operator can assess historical inconsistencies using a read-only connection in each tenant's approved maintenance context. Do not expose identifiers or results to tenant users or public issue comments. Bind `$1` to the authorized tenant ID through the SQL client and assess one tenant at a time. The following query returns identifiers only, including soft-deleted records, for investigation:
 
 ```sql
 SELECT entity.id AS entity_id, profile.id AS profile_id,
@@ -14,7 +14,8 @@ FROM customer_entities AS entity
 LEFT JOIN customer_companies AS profile ON profile.entity_id = entity.id
 LEFT JOIN organizations AS entity_org ON entity_org.id = entity.organization_id
 LEFT JOIN organizations AS profile_org ON profile_org.id = profile.organization_id
-WHERE entity.kind = 'company'
+WHERE entity.tenant_id = $1::uuid
+  AND entity.kind = 'company'
   AND (entity_org.id IS NULL
        OR entity_org.tenant_id IS DISTINCT FROM entity.tenant_id
        OR profile.id IS NULL
