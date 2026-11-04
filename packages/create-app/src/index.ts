@@ -16,6 +16,14 @@ import { applyStarterPreset, resolvePreset } from './lib/apply-starter-preset.js
 import { runCatalogStep, type CatalogStepOptions, type CatalogStepResult } from './lib/catalog/catalog-step.js'
 import { parseModulesFlag } from './lib/catalog/selection.js'
 import { DEFAULT_PRESET_ID, VALID_PRESET_IDS } from './lib/starter-presets.js'
+import { resolveTemplatesUrl } from './lib/templates/fetch-templates.js'
+import {
+  describeTemplateSelection,
+  downloadSelectedTemplate,
+  parseTemplateArg,
+  resolveTemplateSelection,
+} from './lib/templates/resolve-template.js'
+import type { TemplateArg } from './lib/templates/types.js'
 import { runAgenticSetup, parseAgentsValue } from './setup/wizard.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -26,6 +34,9 @@ const TEMPLATE_DIR = join(__dirname, '..', 'template')
 export interface Options {
   app?: string
   appUrl?: string
+  /** --template <slug | owner/repo>[#ref]: create the app from an app template. */
+  template?: string
+  keepName: boolean
   preset?: string
   registry?: string
   initGit?: boolean
@@ -117,6 +128,8 @@ export function parseArgs(args: string[]): { appName: string | null; options: Op
   const options: Options = {
     app: undefined,
     appUrl: undefined,
+    template: undefined,
+    keepName: false,
     preset: undefined,
     registry: undefined,
     initGit: undefined,
@@ -167,6 +180,11 @@ export function parseArgs(args: string[]): { appName: string | null; options: Op
     } else if (arg === '--app-url') {
       options.appUrl = requireOptionValue(args, index, arg)
       index += 1
+    } else if (arg === '--template') {
+      options.template = requireOptionValue(args, index, arg)
+      index += 1
+    } else if (arg === '--keep-name') {
+      options.keepName = true
     } else if (arg === '--preset') {
       options.preset = requireOptionValue(args, index, arg)
       index += 1
@@ -226,12 +244,12 @@ async function promptForStarterPreset(ask: Ask): Promise<string> {
   }
 }
 
-async function resolveStarterPresetId(options: Options, readyAppSource: ReadyAppSource | null): Promise<string> {
+async function resolveStarterPresetId(options: Options, importsApp: boolean): Promise<string> {
   if (options.preset) {
     if (!VALID_PRESET_IDS.includes(options.preset)) {
       throw new Error(`Unknown preset "${options.preset}". Valid presets: ${VALID_PRESET_IDS.join(', ')}`)
     }
-    if (options.preset !== DEFAULT_PRESET_ID && readyAppSource) {
+    if (options.preset !== DEFAULT_PRESET_ID && importsApp) {
       throw new Error(
         `--preset ${options.preset} cannot be combined with --app or --app-url. Presets apply only to the built-in template.`,
       )
@@ -240,7 +258,7 @@ async function resolveStarterPresetId(options: Options, readyAppSource: ReadyApp
     return options.preset
   }
 
-  if (readyAppSource) return DEFAULT_PRESET_ID
+  if (importsApp) return DEFAULT_PRESET_ID
 
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     console.log(pc.dim(`No starter preset selected; using ${DEFAULT_PRESET_ID}.`))
@@ -472,6 +490,58 @@ async function scaffoldImportedReadyApp(targetDir: string, source: ReadyAppSourc
   ensureGeneratedCssPlaceholder(targetDir)
 }
 
+/**
+ * Checks the flags that cannot be combined with --template and parses its value, all before any network call.
+ * Returns null without --template, where --keep-name is a usage error.
+ */
+export function resolveTemplateFlags(options: Options): TemplateArg | null {
+  if (options.template === undefined) {
+    if (options.keepName) {
+      throw new Error('--keep-name works only with --template.')
+    }
+    return null
+  }
+
+  if (options.app !== undefined || options.appUrl !== undefined) {
+    throw new Error('Options --template, --app and --app-url are mutually exclusive. Use only one source flag.')
+  }
+  if (options.modules !== undefined || options.modulePicker === true) {
+    throw new Error('--modules and --module-picker are not supported with --template. App templates keep their own module set.')
+  }
+  if (options.preset !== undefined && options.preset !== DEFAULT_PRESET_ID) {
+    throw new Error(
+      `--preset ${options.preset} cannot be combined with --template. Presets apply only to the built-in scaffold.`,
+    )
+  }
+  if (options.agents !== undefined) {
+    throw new Error(
+      '--agents is not supported with --template. App templates manage their own agentic tooling; run `yarn mercato agentic:init` inside the app instead.',
+    )
+  }
+  if (options.experimentalHooksValidator) {
+    throw new Error(
+      '--experimental-hooks-validator is not supported with --template. Run `yarn mercato agentic:init --experimental-hooks-validator` inside the app instead.',
+    )
+  }
+
+  return parseTemplateArg(options.template)
+}
+
+async function scaffoldImportedAppTemplate(targetDir: string, templateArg: TemplateArg, indexUrl: string): Promise<void> {
+  const deps = { indexUrl, packageVersion: PACKAGE_VERSION }
+  const selection = await resolveTemplateSelection(templateArg, deps)
+  const description = describeTemplateSelection(selection)
+  console.log(pc.bold(description.headline))
+  if (description.pageUrl) console.log(pc.dim(`Template page: ${description.pageUrl}`))
+  for (const notice of description.notices) console.log(pc.yellow(notice))
+  console.log('')
+
+  const archive = await downloadSelectedTemplate(selection, deps)
+  await extractTarballSnapshot(archive, targetDir)
+  validateImportedReadyAppSnapshot(targetDir)
+  ensureGeneratedCssPlaceholder(targetDir)
+}
+
 // Combine --agents (validated) and --skip-agentic-setup into a single intent.
 // `--agents none` == `--skip-agentic-setup`; a non-empty --agents list together
 // with --skip-agentic-setup is contradictory and rejected.
@@ -613,10 +683,12 @@ function printGitHubSyncInstructions(gitResult: GitInitializationResult): void {
  * did not choose a starter set on the command line also sees the verified catalog modules (Enter adds none).
  */
 export function shouldOfferModulePicker(
-  options: Pick<Options, 'modulePicker' | 'preset' | 'modules'>,
+  options: Pick<Options, 'modulePicker' | 'preset' | 'modules' | 'template'>,
   readyAppSource: ReadyAppSource | null,
   interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY),
 ): boolean {
+  // An app template keeps its own module set; resolveTemplateFlags refuses --module-picker with it.
+  if (options.template !== undefined) return false
   if (options.modulePicker !== undefined) return options.modulePicker
   return interactive && !readyAppSource && options.preset === undefined && options.modules === undefined
 }
@@ -690,7 +762,10 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     throw new Error(`Directory "${appName}" already exists`)
   }
 
+  const templateArg = resolveTemplateFlags(options)
+  const templatesUrl = templateArg ? resolveTemplatesUrl() : null
   const readyAppSource = resolveReadyAppSource(options, PACKAGE_VERSION)
+  const importsApp = readyAppSource !== null || templateArg !== null
 
   if (options.agents !== undefined && readyAppSource) {
     throw new Error(
@@ -714,7 +789,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   // value fails before any scaffolding work happens.
   const agentSelection = resolveAgentSelection(options)
 
-  const presetId = await resolveStarterPresetId(options, readyAppSource)
+  const presetId = await resolveStarterPresetId(options, importsApp)
 
   const registryConfig = options.verdaccio
     ? buildRegistryConfig('http://localhost:4873')
@@ -732,7 +807,9 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     REGISTRY_CONFIG: registryConfig,
   }
 
-  if (readyAppSource) {
+  if (templateArg && templatesUrl) {
+    await scaffoldImportedAppTemplate(targetDir, templateArg, templatesUrl)
+  } else if (readyAppSource) {
     console.log(pc.dim(`Ready app source: ${describeReadyAppSource(readyAppSource)}`))
     console.log('')
     await scaffoldImportedReadyApp(targetDir, readyAppSource)
@@ -741,7 +818,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     applyStarterPreset(presetId, targetDir)
   }
 
-  const catalogPlan: CatalogPlan = readyAppSource
+  const catalogPlan: CatalogPlan = importsApp
     ? { commands: [], commandWarnings: {} }
     : await maybeRunCatalogStep(targetDir, presetId, requestedCatalogModules, shouldOfferModulePicker(options, readyAppSource))
 
@@ -749,7 +826,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   console.log('')
 
   let agenticConfigured = false
-  if (!readyAppSource) {
+  if (!importsApp) {
     agenticConfigured = await maybeRunAgenticSetup(
       targetDir,
       agentSelection,
@@ -759,7 +836,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
 
   const gitResult = await maybeInitializeGitRepository(targetDir, options)
 
-  if (readyAppSource) {
+  if (importsApp) {
     printImportedReadyAppNextSteps(appName)
   } else {
     printTemplateNextSteps(appName, agenticConfigured, catalogPlan)

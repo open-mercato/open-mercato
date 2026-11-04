@@ -22,10 +22,10 @@ const isStringArray = (value: unknown): value is string[] => Array.isArray(value
 
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/g
 
-const printableText = (text: string) => text.replace(CONTROL_CHARACTERS, ' ')
+export const printableText = (text: string) => text.replace(CONTROL_CHARACTERS, ' ')
 
 /** Catalog values with every string freed of control characters, which could rewrite the terminal they print to. */
-function printable(value: unknown): unknown {
+export function printable(value: unknown): unknown {
   if (isString(value)) return printableText(value)
   if (Array.isArray(value)) return value.map(printable)
   if (isRecord(value)) return Object.fromEntries(Object.entries(value).map(([key, item]) => [printableText(key), printable(item)]))
