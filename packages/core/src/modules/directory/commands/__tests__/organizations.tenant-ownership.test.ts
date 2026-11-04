@@ -1220,4 +1220,21 @@ describe('directory organization command tenant ownership', () => {
     expect(harness.updateOrmEntity).not.toHaveBeenCalled()
   })
 
+
+  it('refuses create undo when an out-of-scope child was attached after the recorded creation', async () => {
+    const harness = makeHarness([])
+    const bus = new CommandBus()
+    const { logEntry } = await bus.execute('directory.organizations.create', {
+      input: { name: 'Created' }, ctx: makeContext(harness),
+    })
+    if (!logEntry) throw new Error('[internal] Expected log')
+    harness.records.push(makeOrganization(CHILD_ID, ACTOR_TENANT_ID, { parentId: NEW_ORG_ID }))
+    await expect(bus.undo(String(logEntry.undoToken), makeContext(harness, { allowedIds: [NEW_ORG_ID] })))
+      .rejects.toMatchObject({ status: 404 })
+    expect(harness.records[0].deletedAt).toBeNull()
+    expect(harness.records[1].parentId).toBe(NEW_ORG_ID)
+    expect(harness.deleteOrmEntity).not.toHaveBeenCalled()
+    expect(harness.actionLogService.releaseUndoClaim).toHaveBeenCalledWith(logEntry.id)
+  })
+
 })

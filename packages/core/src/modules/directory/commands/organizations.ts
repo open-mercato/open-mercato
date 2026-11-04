@@ -204,6 +204,7 @@ async function assertOrganizationReplayAccess(
   tenantId: string,
   parentId: string | null,
   childParents: ChildParentSnapshot[],
+  removingTarget = false,
 ): Promise<void> {
   const scope = await resolveOrganizationActorScope(ctx)
   assertOrganizationIdsInScope(scope, [snapshot.id])
@@ -214,6 +215,11 @@ async function assertOrganizationReplayAccess(
     assertOrganizationIdsInScope(scope, [current?.parentId ?? null, parentId])
   }
   await assertHierarchyAssignmentsInScope(em, scope, tenantId, childParents)
+  if (removingTarget) {
+    const children = await findWithDecryption(em, Organization,
+      { tenant: tenantId, parentId: snapshot.id, deletedAt: null }, undefined, { tenantId, organizationId: snapshot.id })
+    assertOrganizationIdsInScope(scope, children.map((child) => String(child.id)))
+  }
 }
 
 function buildOrganizationTargetFilter(
@@ -591,7 +597,7 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     await withAtomicFlush(em, [
       async () => {
         await lockOrganizationHierarchyForTenant(em, tenantId)
-        await assertOrganizationReplayAccess(em, ctx, after, tenantId, null, childrenBefore)
+        await assertOrganizationReplayAccess(em, ctx, after, tenantId, null, childrenBefore, true)
         await restoreChildParents(em, tenantId, childrenBefore)
         if (after.custom && Object.keys(after.custom).length) {
           const reset = buildCustomFieldResetMap(undefined, after.custom)
