@@ -168,14 +168,14 @@ selectTemplateSha()              one sha, its facts or none (see "One sha, its o
   |
 print "Template: owner/repo@<sha> (verified | not verified)" + page URL when listed + pre-download notices
   |
-downloadRepositoryTarball(sha)   shared fetch, streamed with a byte cap
+downloadRepositoryTarball(sha)   shared fetch, streamed with a byte cap and the GitHub deadlines
   |
 mkdir target (not recursive)     from here on, any failure removes the target directory
 inspect + extract                archive limits, files and directories only
 validateImportedReadyAppSnapshot lstat walk, no .template files (existing rule)
   |
 finalizeTemplateApp()            read + remove mercato-template.json, name rewrite, provenance
-compatibility + Enterprise notices (from the lockfile when no catalog facts apply)
+compatibility + Enterprise notices (from the app's own files when no catalog facts apply)
   |
 git init (unchanged) -> next steps with cp .env.example .env and declared env keys
 ```
@@ -283,9 +283,36 @@ Rules:
   With catalog facts and no npm answer, `linesBehind > 0` gives `Built on <pinned>, <n> line(s) behind the latest
   stable line.` Without either source: `Could not check the Open Mercato line of this template.` Always a warning,
   never a stop; no `--strict` in v1.
-- **Enterprise.** From `facts.requiresEnterprise` when catalog facts apply; otherwise true when `yarn.lock` resolves
-  any `@open-mercato/enterprise@` package. Notice: `This template depends on @open-mercato/enterprise, which needs
-  an Open Mercato Enterprise license.`
+- **Enterprise.** From `facts.requiresEnterprise` when catalog facts apply. Notice: `This template depends on
+  @open-mercato/enterprise, which needs an Open Mercato Enterprise license.` Without catalog facts the CLI applies the
+  umbrella D5 rule (revision 7) to the downloaded tree: the mark keys on **unconditional** `@open-mercato/enterprise`
+  registrations in `src/modules.ts`, and the dependency alone (resolved in `yarn.lock`, or in `package.json` when
+  there is no `yarn.lock`) is only recorded. `readEnterpriseRegistrations` reads the file with the TypeScript AST
+  (`ts-morph`, already a dependency), never runs it, and classifies each `{ id, from: '@open-mercato/enterprise' }`:
+  - **unconditional**: in the `enabledModules` declaration or a top-level expression such as
+    `enabledModules.push(...)`. Notice: `This template registers Enterprise modules on every start (<ids>), which
+    need an Open Mercato Enterprise license.` Ids are printed only when they match `^[A-Za-z0-9_-]{1,64}$`.
+  - **conditional**: under an `if` or `else`, a ternary, `&&`, `||` or `??`, as the stock scaffold does behind
+    `OM_ENABLE_ENTERPRISE_MODULES`. No notice.
+  - **unreadable**: no `src/modules.ts`, a parse failure, or a reference the reader does not follow (inside a
+    function, loop, `try` or `switch`, a non-literal `id`, the package name outside a `from`, a literal kept in
+    another binding). With the dependency: `This template depends on @open-mercato/enterprise and may need an Open
+    Mercato Enterprise license. That could not be confirmed: src/modules.ts could not be read for unconditional
+    Enterprise modules.` Without it: no notice.
+
+### GitHub deadlines
+
+The ref-resolution and download requests of `--template` (`resolveGitHubDefaultBranch`, `resolveGitHubCommitSha`,
+`downloadRepositoryTarball`, and the repository lookup after a 404) run under deadlines that cover the headers and the
+body, enforced around the response even when a custom fetch ignores its signal, which is aborted too:
+
+- one API request, headers and JSON (error bodies included): 15 s (`GITHUB_REQUEST_TIMEOUT_MS`);
+- a tarball: headers within 15 s, then the streamed body may not stall for 30 s (`GITHUB_ARCHIVE_IDLE_TIMEOUT_MS`,
+  restarted on every chunk), and the whole download ends at 10 minutes (`GITHUB_ARCHIVE_TIMEOUT_MS`). A timed-out
+  download cancels the body and removes the partial file.
+
+The error reads `GitHub did not answer in time while <action> <owner>/<repo>. Check network access and retry.` The
+`--app` and `--app-url` downloads keep today's behavior.
 
 ### Finalizing the created app
 
@@ -475,7 +502,8 @@ commits on `feat/create-app-template`, with its tests green before the next step
   shows both lines; catalog facts win over the lockfile when the sha matches; an unlisted repo takes the line from
   its lockfile and prints `not listed, not verified`; no `yarn.lock` falls back to `package.json`; npm unreachable
   with facts uses `linesBehind`, without facts prints the "could not check" notice; Enterprise from facts and from a
-  lockfile with `@open-mercato/enterprise`.
+  lockfile with `@open-mercato/enterprise`. (Superseded by the review fixes: Enterprise without facts follows the
+  unconditional registrations in `src/modules.ts`, see "Compatibility and Enterprise notices".)
 
 ### Step 5: finalizing, cleanup, next steps, registry warning (done)
 
@@ -554,8 +582,15 @@ The full list is in the step descriptions above. Summary by area:
 - Exclusions: every row of the exclusion table, before any request; no default picker with `--template`.
 - Archive: symlink, hard link, self-link, FIFO, absolute path, `..`, download cap (stream and header), entry cap,
   unpacked cap; lstat walk; existing imports unchanged.
-- Notices: line comparison from facts, lockfile, `package.json`, manifest; npm unreachable; Enterprise from facts and
-  lockfile.
+- Notices: line comparison from facts, lockfile, `package.json`, manifest; npm unreachable; Enterprise from facts;
+  without facts the stock scaffold `src/modules.ts` (conditional, no notice), a dependency with no registration (no
+  notice), an unconditional registration (notice), an unreadable registration (unconfirmed notice), and the
+  classification of `if`/`else`, ternary, `&&`, function, loop, spread and kept-aside literals.
+- GitHub deadlines (`github-deadlines.test.ts`): stalled headers, stalled JSON (success and error bodies), a stalled
+  archive stream (body canceled, no partial file), a trickling archive past the whole-download deadline, a slow
+  archive that completes, per-request deadlines across the 404 follow-up, and the `--template` call sites.
+- Portability: path assertions compare without the separator; link fixtures are skipped with the reason when the
+  platform cannot create symbolic links.
 - Finalizing: name rewrite and `--keep-name`, provenance, manifest removal, next steps, cleanup on failure, registry
   warning.
 - CLI: one spawned end-to-end `--template` run with a mocked `fetch`; help output.
@@ -605,7 +640,8 @@ Not run in this branch: the script needs Verdaccio and free ports. It runs in th
 | Narrowed `--app-url` | A legitimate external app is larger than the caps. | Low | `--app-url` users | Caps set at several times the measured apps and above the catalog limits; the error names the limit. | An unusual app needs trimming; no override in v1. |
 | Index outage | `templates.json` unreachable during a workshop. | Medium | `--template <slug>` | `owner/repo` continues; the slug error suggests it; 4 s timeout with one retry. | Slug users must retype the command. |
 | Stale or incompatible template | A template pins an old line. | Medium | Created apps | Compatibility warning with both lines; "not verified" until the Phase 1b smoke; `unmaintained` reason shown. | The user may continue on an old line by choice. |
-| Paid dependency surprise | A template needs `@open-mercato/enterprise`. | Medium | License compliance | Enterprise notice from facts or the lockfile, before the next steps. | Notice only; the license decision stays with the user (D5). |
+| Paid dependency surprise | A template needs `@open-mercato/enterprise`. | Medium | License compliance | Enterprise notice from facts or unconditional `src/modules.ts` registrations, an unconfirmed notice when they cannot be read, before the next steps. | Notice only; the license decision stays with the user (D5). A registration hidden behind an indirection the reader refuses gets the unconfirmed notice, not the assertion. |
+| Stalled GitHub | GitHub or a proxy accepts the connection and stops answering. | Medium | `--template` | Per-request deadline over headers and body; stall and total deadlines for the tarball. | A very slow link that keeps sending can take up to the 10-minute cap. |
 | Half-created app | Import fails mid-way. | Low | DX | Cleanup removes the target the CLI created; the non-recursive `mkdir` protects an existing directory. | Ctrl+C during extraction can still leave a partial directory. |
 | Provenance or name rewrite breaks an app | A template depends on its own `package.json` `name`. | Low | Created apps | `--keep-name`; only `name` and one additive field change. | Scripts that read `name` need `--keep-name`. |
 | Overlap with #8718 | Both touch `index.ts` flag parsing and `shouldOfferModulePicker`. | Low | Merge | This branch is based on #8718; rebase after it merges. | Small conflicts in `index.ts`. |
@@ -658,7 +694,8 @@ None blocking. Judgment calls made in this spec, open to reviewer override:
 7. A broken or `schema: 2` manifest is removed unread with a notice.
 8. The compatibility notice names where the pinned line came from (catalog facts, `yarn.lock`, `package.json` or
    `mercato-template.json`), and "could not check" says which side is missing.
-9. Without catalog facts and without `yarn.lock`, the Enterprise notice reads the `package.json` dependencies.
+9. Without catalog facts and without `yarn.lock`, the Enterprise dependency is read from `package.json`. (Since the
+   review fixes the dependency alone only decides the unconfirmed notice; see judgment call 20.)
 10. Catalog facts with no `omLine` fall back to the downloaded tree for the pinned line.
 11. For a listed entry without `ref`, provenance `ref` is the default branch read after the download; if GitHub does not
     answer, the sha is recorded as `ref`.
@@ -677,6 +714,12 @@ None blocking. Judgment calls made in this spec, open to reviewer override:
     sha stops without `#ref`; with `#ref` it resolves as a listed `#ref` without catalog facts.
 19. The integration script resolves `tar` from `packages/create-app` instead of adding a root devDependency, so
     `yarn.lock` stays unchanged.
+20. Without catalog facts, the Enterprise notice follows D5 revision 7 with an AST read of `src/modules.ts` instead of
+    the lockfile: unconditional registrations assert, conditional ones and a dependency alone print nothing, and an
+    unreadable file with the dependency prints the unconfirmed notice. Only `@open-mercato/enterprise` counts, because
+    the CLI has no catalog license facts for other packages.
+21. GitHub deadlines: 15 s per API request (headers and body), and for a tarball 15 s for headers, a 30 s stall
+    timer and a 10-minute total. The `--app` and `--app-url` paths are unchanged.
 
 ---
 
@@ -697,3 +740,8 @@ None blocking. Judgment calls made in this spec, open to reviewer override:
   without a valid `source.sha`, the `--app prm` example removed from `packages/create-app/AGENTS.md`, a timeout test
   for the index, and `tar` resolved from `packages/create-app` in the integration script. Judgment calls 17 to 19
   added.
+- 2026-11-04: Second review fixes: the Enterprise notice without catalog facts keys on unconditional
+  `@open-mercato/enterprise` registrations in `src/modules.ts` (D5 revision 7), with an unconfirmed notice when they
+  cannot be read; deadlines over headers and body for the `--template` GitHub requests, stalled archive streams
+  included; separator-independent path assertions and symlink fixtures skipped with a reason where links cannot be
+  created. Judgment calls 20 and 21 added.
