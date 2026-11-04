@@ -9,7 +9,7 @@ import {
   requireId,
 } from '@open-mercato/shared/lib/commands/helpers'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
-import { CrudHttpError, forbidden } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, forbidden, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -192,13 +192,25 @@ const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
       throw new CrudHttpError(400, { error: 'tenantId is required — global roles are not supported' })
     }
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    const role = await de.createOrmEntity({
-      entity: Role,
-      data: {
-        name: parsed.name,
-        tenantId: resolvedTenantId,
-      },
-    })
+    let role: Role
+    try {
+      role = await de.createOrmEntity({
+        entity: Role,
+        data: {
+          name: parsed.name,
+          tenantId: resolvedTenantId,
+        },
+      })
+    } catch (error) {
+      if (!isUniqueViolation(error, 'roles_tenant_id_name_unique')) throw error
+      const { translate } = await resolveTranslations()
+      const message = translate('auth.roles.errors.nameExists', 'A role with this name already exists')
+      throw new CrudHttpError(400, {
+        error: message,
+        fieldErrors: { name: message },
+        details: [{ path: ['name'], message, code: 'duplicate', origin: 'validation' }],
+      })
+    }
 
     await setCustomFieldsIfAny({
       dataEngine: de,
