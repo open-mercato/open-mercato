@@ -17,11 +17,13 @@ Version-check/write races; tenant/org isolation; preserving required schema outp
 
 ## Progress
 
+PR: #8689
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Scoped setting
-- [ ] 1.1 Add setting, migration/snapshot and transactional command support
-- [ ] 1.2 Add guarded settings API and configuration form
+- [x] 1.1 Add setting, migration/snapshot and transactional command support — 2baa0aab83
+- [x] 1.2 Add guarded settings API and configuration form — 2baa0aab83
 
 ### Phase 2: Send integration
 - [ ] 2.1 Connect dialog and omitted-value send path
