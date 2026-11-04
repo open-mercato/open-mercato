@@ -13,10 +13,20 @@ description: All widget injection spots available in the Sales module.
 | `sales.document.detail.quote:details` | Section | Inject sections into the quote detail page |
 | `sales.document.detail.order:tabs` | Tab | Inject tabs into the order detail page |
 | `sales.document.detail.quote:tabs` | Tab | Inject tabs into the quote detail page |
-| `detail:sales.order:stage-bar` | Section | Order stage bar *(empty, ready for extension)* |
-| `detail:sales.quote:stage-bar` | Section | Quote stage bar *(empty, ready for extension)* |
-| `detail:sales.order:closure` | Section | Order closure section *(empty, ready for extension)* |
-| `detail:sales.quote:closure` | Section | Quote closure section *(empty, ready for extension)* |
+| `detail:sales.order:stage-bar` | Section | Order extension region immediately below the document header |
+| `detail:sales.quote:stage-bar` | Section | Quote extension region immediately below the document header |
+| `detail:sales.order:closure` | Section | Order closure extension region below document details |
+| `detail:sales.quote:closure` | Section | Quote closure extension region below document details |
+
+The stage-bar and closure regions mount render widgets through `InjectionSpot`. Without matching widgets, they render no placeholder or container. They provide extension regions rather than a built-in stage workflow or closure dialog.
+
+Widgets receive the current document as `data` and this context, exported as `SalesDocumentExtensionContext` from `@open-mercato/core/modules/sales/components/documents/SalesDocumentExtensionSpot`:
+
+- `kind`, `documentId`, and `record` identify the loaded order or quote.
+- `formId`, `resourceKind`, `resourceId`, and `retryLastMutation` preserve the page's guarded mutation context.
+- `organizationId` and `tenantId` come from the server-scoped document.
+
+The widget's `onDataChange` callback updates the in-page record; it does not persist changes. Widget-owned writes must use guarded mutations and enforce authorization and tenant/organization scope on the server. These render hosts do not add save/delete lifecycle dispatch or change native document status behavior.
 
 ## Order list
 

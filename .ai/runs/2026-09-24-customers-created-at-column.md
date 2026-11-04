@@ -1,0 +1,74 @@
+# Execution plan: Created column with sort and filter on the People and Companies lists
+
+## Goal
+
+Let CRM users see, sort, and filter the People and Companies lists by creation date, with a date filter that covers whole calendar days.
+
+## Scope
+
+- `packages/core/src/modules/customers/backend/customers/{people,companies}/page.tsx`: add a `Created` column (row mapping from `created_at`, `Dates`/`Activity` groups, `created_at` filter key).
+- `packages/core/src/modules/customers/backend/customers/listSorting.ts`: map the `createdAt` column to the existing `createdAt` API sort field.
+- `packages/core/src/modules/customers/lib/createdAtDayFilter.ts` plus the people and companies list API routes: expand date-only `created_at` rules to whole days before the advanced-filter tree is compiled.
+- `packages/core/src/modules/customers/i18n/*.json`: `customers.{people,companies}.list.columns.createdAt` in all five locales.
+- Tests: unit (sort mapping, day expansion), jsdom list-column tests, and a Playwright integration spec.
+
+## Non-goals
+
+- No change to the shared advanced-filter compiler (`packages/shared/src/lib/query/advanced-filter-tree.ts`). The whole-day rewrite is scoped to `created_at` on these two list APIs.
+- No schema, migration, or API contract change: `created_at` is already stored, returned, and mapped in `sortFieldMap`.
+- No change to the Deals list (covered separately by #6295).
+
+## Implementation Plan
+
+### Phase 1: List column, sorting, and whole-day filter
+
+- 1.1 Add the Created column with sort mapping and translations to the People and Companies lists.
+- 1.2 Treat date-only `created_at` filter values as whole days in the People and Companies list APIs.
+- 1.3 Add the Playwright integration spec for sort and filter by creation date.
+
+### Phase 2: Regression coverage
+
+- 2.1 Add jsdom list-column tests for the People and Companies Created column (header, formatted value, sort wiring).
+
+### Phase 3: Validation
+
+- 3.1 Run the full validation gate.
+
+### Phase 4: Maintainer review follow-up (review 5316332421)
+
+- 4.1 Define one calendar-day contract: expand date-only created_at values to explicit instants in the user's time zone on the client and in UTC on the server, with non-UTC boundary tests.
+- 4.2 Make the integration spec deterministic with explicit created_at fixtures, including a midnight boundary and a non-UTC browser time zone.
+- 4.3 Re-run the full validation gate.
+
+## Risks
+
+- Resolved in Phase 4: date-only values are expanded to explicit instants — the user's time zone in the UI (matching how the column renders dates) and UTC for direct API callers — instead of the database session time zone.
+- Open PR #5974 localizes the column-chooser and filter group labels on the same two pages. Whichever lands second adapts the new column's `Dates`/`Activity` group labels.
+- `yarn test` in `@open-mercato/cli` fails locally only when the temp dir lives inside the repository (this runner's `TMPDIR`); it passes under a system temp dir and in upstream CI on the same base.
+
+## Progress
+
+PR: #6448
+
+> Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
+
+### Phase 1: List column, sorting, and whole-day filter
+
+- [x] 1.1 Add the Created column with sort mapping and translations to the People and Companies lists — d574f0cdd
+- [x] 1.2 Treat date-only created_at filter values as whole days in the People and Companies list APIs — 6323c1a61
+- [x] 1.3 Add the Playwright integration spec for sort and filter by creation date — 6323c1a61, d8340a4da
+
+### Phase 2: Regression coverage
+
+- [x] 2.1 Add jsdom list-column tests for the People and Companies Created column — 0b3280c09
+
+### Phase 3: Validation
+
+- [x] 3.1 Run the full validation gate — decffdb1b
+- [x] Post-review fix: keep the Companies Recently created preset window after whole-day created_at filters — 39fb36096
+
+### Phase 4: Maintainer review follow-up (review 5316332421)
+
+- [x] 4.1 Define one calendar-day contract for created_at filters with non-UTC boundary tests — 8374ecb76
+- [x] 4.2 Make the integration spec deterministic with explicit created_at fixtures — 4374dfab4
+- [x] 4.3 Re-run the full validation gate — eb48b392e

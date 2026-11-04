@@ -1,6 +1,7 @@
 /** @jest-environment node */
 import { GET, POST, PUT, DELETE } from '@open-mercato/core/modules/entities/api/records'
 import { UNKNOWN_CUSTOM_FIELD_ERROR } from '@open-mercato/shared/modules/entities/validation'
+import { conflict } from '@open-mercato/shared/lib/crud/errors'
 
 let mockRecordUpdatedAt: string | null = null
 
@@ -100,11 +101,36 @@ describe('Records API CRUD operations', () => {
       expect(mockDataEngine.createCustomEntityRecord).toHaveBeenCalledWith(
         expect.objectContaining({
           entityId: 'user:qa_entity',
+          createOnly: true,
           tenantId: 't1',
           organizationId: 'org',
           values: { location: 'Berlin', title: 'Conference' },
         }),
       )
+    })
+
+    it('returns a localized 409 when a caller-supplied UUID already exists', async () => {
+      mockCustomFieldDefsLookup(['title'])
+      const error = conflict('[internal] Custom entity record already exists')
+      error.body.code = 'custom_entity_record_exists'
+      mockDataEngine.createCustomEntityRecord.mockRejectedValueOnce(error)
+      const recordId = '123e4567-e89b-12d3-a456-426614174000'
+      const res = await POST(new Request('http://x/api/entities/records', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ entityId: 'user:qa_entity', recordId, values: { title: 'Stale title' } }),
+      }))
+
+      expect(res.status).toBe(409)
+      expect(await res.json()).toEqual({
+        code: 'custom_entity_record_exists',
+        error: 'A record with this ID already exists. Use PUT to update it.',
+      })
+      expect(mockDataEngine.createCustomEntityRecord).toHaveBeenCalledWith(expect.objectContaining({
+        recordId,
+        createOnly: true,
+      }))
+      expect(mockDataEngine.updateCustomEntityRecord).not.toHaveBeenCalled()
     })
 
     it('strips cf_ prefix from value keys', async () => {

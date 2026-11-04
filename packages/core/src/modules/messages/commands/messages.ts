@@ -329,6 +329,7 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
       // here echoed every inbound email back to its sender through the tenant
       // system email channel and made send-as-user deliver twice.
       const sendViaEmail = input.sendViaEmail
+      const sentAt = input.sentAt === undefined ? new Date() : input.sentAt
       const message = trx.create(Message, {
         type: input.type,
         visibility: input.visibility ?? null,
@@ -347,7 +348,7 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
         isDraft: input.isDraft ?? false,
         // #6095: channel ingest passes the provider's timestamp so an imported
         // mailbox sorts by when the mail was received, not when it was imported.
-        sentAt: input.isDraft ? null : input.sentAt ?? new Date(),
+        sentAt: input.isDraft ? null : sentAt,
         actionData: input.actionData as MessageActionData | undefined,
         sendViaEmail,
         idempotencyKey: input.idempotencyKey ?? null,
