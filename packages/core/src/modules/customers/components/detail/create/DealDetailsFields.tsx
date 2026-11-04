@@ -8,6 +8,7 @@ import { DatePicker } from '@open-mercato/ui/primitives/date-picker'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Label } from '@open-mercato/ui/primitives/label'
+import { useOptionalLocale } from '@open-mercato/shared/lib/i18n/context'
 import { DealSectionCard } from './DealSectionCard'
 import { DealFormField } from './DealFormField'
 import { PipelineSelect } from './PipelineSelect'
@@ -60,6 +61,7 @@ export function DealDetailsFields({
   ownerInitialOption,
   tr,
 }: DealDetailsFieldsProps) {
+  const locale = useOptionalLocale()
   return (
     <>
       <DealSectionCard>
@@ -127,7 +129,7 @@ export function DealDetailsFields({
                 suffix={values.valueCurrency}
                 inputMode="decimal"
                 value={values.valueAmount}
-                onChange={(event) => patch({ valueAmount: sanitizeAmount(event.target.value) })}
+                onChange={(event) => patch({ valueAmount: sanitizeAmount(event.target.value, locale) })}
                 placeholder="0"
                 aria-invalid={errors.valueAmount ? true : undefined}
                 disabled={isSubmitting}

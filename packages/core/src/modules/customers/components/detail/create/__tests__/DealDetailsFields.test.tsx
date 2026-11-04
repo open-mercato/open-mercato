@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { DealDetailsFields } from '../DealDetailsFields'
 import { EMPTY_VALUES } from '../dealFormTypes'
@@ -65,6 +65,29 @@ describe('DealDetailsFields', () => {
     const amount = screen.getByLabelText('Deal value')
     expect(amount.tagName).toBe('INPUT')
     expect(amount).toHaveValue('250')
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Currency' })).toBeInTheDocument())
+  })
+
+  it.each([
+    { locale: 'pl', typed: '12,50', stored: '12.50' },
+    { locale: 'en', typed: '1,250', stored: '1250' },
+  ])('stores $typed typed in $locale as $stored', async ({ locale, typed, stored }) => {
+    const patch = jest.fn()
+    renderWithProviders(
+      <DealDetailsFields
+        values={{ ...EMPTY_VALUES, valueCurrency: 'USD' }}
+        errors={{}}
+        isSubmitting={false}
+        patch={patch}
+        onPipelineChange={jest.fn()}
+        pipelines={[]}
+        stages={[]}
+        tr={translate}
+      />,
+      { locale },
+    )
+    fireEvent.change(screen.getByLabelText('Deal value'), { target: { value: typed } })
+    expect(patch).toHaveBeenCalledWith({ valueAmount: stored })
     await waitFor(() => expect(screen.getByRole('combobox', { name: 'Currency' })).toBeInTheDocument())
   })
 

@@ -42,6 +42,7 @@ jest.mock('next/link', () => {
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (key: string, fallbackOrParams?: string | Record<string, string | number>) =>
     typeof fallbackOrParams === 'string' ? fallbackOrParams : key,
+  useOptionalLocale: () => 'en',
 }))
 
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
