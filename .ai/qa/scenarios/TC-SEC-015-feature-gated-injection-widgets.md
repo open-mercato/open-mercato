@@ -2,8 +2,10 @@
 
 Regression coverage for #4398 and #3946. The current SEO widget requires
 `catalog.products.manage`; the historical `catalog.products.edit` permission no
-longer applies. The test creates its own product, role, and restricted employee
-through shared API fixtures and removes them in `finally`.
+longer applies. The granted and restricted actors run as independent cases with their own
+product fixtures. Only the restricted case creates a role and employee. Both
+cases use shared API fixtures and remove them in `finally`, retaining the shared
+20-second timeout for each case.
 
 | Actor | Expected result |
 | --- | --- |
