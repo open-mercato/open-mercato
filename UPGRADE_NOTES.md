@@ -19,18 +19,20 @@ this implementation was written independently for the enterprise module.
 Two public surfaces widen as part of B2B checkout and cart proposals:
 
 - **Sales line validators** (`packages/core/src/modules/sales/data/validators.ts`):
-  several `orderLineCreateSchema`/`orderLineUpdateSchema` fields (`quantityUnit`,
-  `normalizedQuantity`, `normalizedUnit`, `unitPriceNet`, `unitPriceGross`,
-  `discountAmount`, `discountAmountBasis`, `discountPercent`, `taxRate`,
-  `taxAmount`, `totalNetAmount`, `totalGrossAmount`, `productId`,
+  several shared line fields (`quantityUnit`, `normalizedQuantity`, `unitPriceNet`,
+  `unitPriceGross`, `discountAmount`, `discountAmountBasis`, `discountPercent`,
+  `taxRate`, `taxAmount`, `totalNetAmount`, `totalGrossAmount`, `productId`,
   `productVariantId`, `name`, `description`, `comment`, `configuration`,
   `promotionCode`, `metadata`, `customFieldSetId`, `customFields`) changed from
   `.optional()` to `.nullable().optional()`, so their inferred TypeScript types
-  gain `| null`. This lets checkout's document creation spread a
-  `SalesLineSnapshot` (which already declares these as nullable) straight into
-  the schema. **Module authors:** code that narrowed these fields to
-  non-null-or-undefined will need an explicit `null` check; this is additive at
-  the schema level (every existing non-null payload still validates).
+  gain `| null`. These fields live in `linePricingSchema`/`lineSharedSchema`,
+  which both `orderLineCreateSchema`/`orderLineUpdateSchema` **and**
+  `quoteLineCreateSchema`/`quoteLineUpdateSchema` extend, so the widening applies
+  to order lines and quote lines alike. This lets checkout's document creation
+  spread a `SalesLineSnapshot` (which already declares these as nullable)
+  straight into the schema. **Module authors:** code that narrowed these fields
+  to non-null-or-undefined will need an explicit `null` check; this is additive
+  at the schema level (every existing non-null payload still validates).
 - **`StoreContextService`** (`packages/core/src/modules/ecommerce/lib/storeContextService.ts`)
   adds an optional `resolveForBuyer?(input): Promise<ResolveForBuyerResult>` method
   to the DI-replaceable service interface. Existing `StoreContextService`
