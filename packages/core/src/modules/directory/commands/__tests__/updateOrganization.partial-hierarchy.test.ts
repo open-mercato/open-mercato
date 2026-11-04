@@ -127,7 +127,7 @@ function makeCtx(em: ReturnType<typeof makeEm>, de: ReturnType<typeof makeDataEn
       resolve: (token: string) => {
         if (token === 'em') return em
         if (token === 'dataEngine') return de
-        if (token === 'rbacService') return { loadAcl: async () => ({ isSuperAdmin: false }) }
+        if (token === 'rbacService') return { loadAcl: async () => ({ isSuperAdmin: false, organizations: null }) }
         throw new Error(`[internal] Unexpected DI token: ${token}`)
       },
     },
