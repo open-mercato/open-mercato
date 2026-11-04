@@ -16,6 +16,16 @@ Reuse the existing verified JWT sid revocation path with the same bearer-before-
 2.1 Run ordered configured validation, targeted regressions and applicable lint; document limitations.
 2.2 Obtain independent review, record evidence and finalize the existing draft PR.
 
+## Verification evidence
+Runner: local, pinned Yarn 4.17.1 / Node 24.15.0; commands use `TMPDIR=/tmp TMP=/tmp TEMP=/tmp` to keep test/hook Unix socket paths within system limits.
+
+- `timeout 90 yarn jest --config packages/core/jest.config.cjs --runTestsByPath packages/core/src/modules/auth/api/__tests__/logout.test.ts --runInBand`: main with new regressions 4 failed / 25 passed; fixed 29 passed.
+- `timeout 900 yarn test:integration:ephemeral TC-AUTH-067`: 4 passed, including access/refresh revocation and sibling-session preservation; isolated database and app torn down by managed runner.
+- Targeted `timeout 90 yarn eslint` across the three changed auth files: exit 0 (existing Next pages-directory warning).
+- Ordered configured gate (each bounded at 600 seconds): build:packages PASS, generate PASS, build:packages PASS, i18n:check-sync PASS, i18n:check-usage PASS, typecheck PASS, test TIMEOUT (49/51 package tasks complete, no failing suite reported), build:app PASS.
+- `timeout 1800 yarn test`: longer retry pending; completion evidence will be recorded on the PR.
+- `git diff --check`: PASS. No schema, dependency or token-format changes; auth behavior is a compatible bug fix.
+
 ## Risks
 Auth/session changes require careful mixed-credential precedence. Native dependency builds emitted existing optional build warnings during immutable installation. Keep the PR draft if verification is incomplete.
 
