@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { findApiRouteManifestMatch, getApiRouteManifests, registerApiRouteManifests, type HttpMethod } from '@open-mercato/shared/modules/registry'
+import { findApiRouteManifestMatch, getApiRouteManifests, registerApiRouteManifests, type ApiRouteBeforeAuth, type HttpMethod } from '@open-mercato/shared/modules/registry'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { apiRouteFacades } from '@/.mercato/generated/api-route-shards.generated'
@@ -74,9 +74,10 @@ function buildRequestId(req: NextRequest): string {
   return req.headers.get('x-request-id') ?? crypto.randomUUID()
 }
 
-async function resolveLifecycleEventBus(): Promise<LifecycleEventBus | null> {
+async function resolveLifecycleEventBus(allowContainer = true): Promise<LifecycleEventBus | null> {
   const globalEventBus = getGlobalEventBus() as LifecycleEventBus | null
   if (globalEventBus) return globalEventBus
+  if (!allowContainer) return null
 
   try {
     const container = await createRequestContainer()
@@ -86,9 +87,9 @@ async function resolveLifecycleEventBus(): Promise<LifecycleEventBus | null> {
   }
 }
 
-async function emitLifecycleEvent(eventId: ApplicationLifecycleEventId, payload: Record<string, unknown>): Promise<void> {
+async function emitLifecycleEvent(eventId: ApplicationLifecycleEventId, payload: Record<string, unknown>, allowContainer = true): Promise<void> {
   try {
-    const eventBus = await resolveLifecycleEventBus()
+    const eventBus = await resolveLifecycleEventBus(allowContainer)
     if (!eventBus) return
     if (typeof eventBus.emit === 'function') {
       await eventBus.emit(eventId, payload)
@@ -345,9 +346,9 @@ async function handleRequest(
     pathname,
     receivedAt: new Date().toISOString(),
   }
-  await emitLifecycleEvent(applicationLifecycleEvents.requestReceived, receivedPayload)
   const match = findApiRouteManifestMatch(getApiRouteManifests(), method, pathname, req)
   if (!match) {
+    await emitLifecycleEvent(applicationLifecycleEvents.requestReceived, receivedPayload)
     const response = NextResponse.json({ error: t('api.errors.notFound', 'Not Found') }, { status: 404 })
     await emitLifecycleEvent(applicationLifecycleEvents.requestNotFound, {
       ...receivedPayload,
@@ -361,6 +362,7 @@ async function handleRequest(
     ? (loadedRouteModule.default ?? loadedRouteModule[method] ?? loadedRouteModule.handler)
     : loadedRouteModule[method]
   if (typeof rawHandler !== 'function') {
+    await emitLifecycleEvent(applicationLifecycleEvents.requestReceived, receivedPayload)
     const response = NextResponse.json({ error: t('api.errors.notFound', 'Not Found') }, { status: 404 })
     await emitLifecycleEvent(applicationLifecycleEvents.requestNotFound, {
       ...receivedPayload,
@@ -371,6 +373,27 @@ async function handleRequest(
   }
   const handler = rawHandler as (req: NextRequest, ctx?: HandlerContext) => Promise<Response> | Response
   const routeMetadata = normalizeLoadedMetadata(loadedRouteModule.metadata, method, match.route.kind)
+  if (typeof loadedRouteModule.beforeAuth === 'function') {
+    const beforeAuth = loadedRouteModule.beforeAuth as ApiRouteBeforeAuth
+    let response: Response | null
+    try {
+      response = await beforeAuth(req, { method, params: match.params })
+    } catch (error) {
+      await emitLifecycleEvent(applicationLifecycleEvents.requestReceived, receivedPayload, false)
+      throw error
+    }
+    if (response) {
+      await emitLifecycleEvent(applicationLifecycleEvents.requestReceived, receivedPayload, false)
+      await emitLifecycleEvent(
+        response.status === 429 ? applicationLifecycleEvents.requestRateLimited : applicationLifecycleEvents.requestCompleted,
+        { ...receivedPayload, status: response.status, userId: null, tenantId: null, durationMs: Date.now() - startedAt },
+        false,
+      )
+      getTelemetryRuntime()?.recordHttpDuration(method, match.route.path, response.status, startedAt)
+      return response
+    }
+  }
+  await emitLifecycleEvent(applicationLifecycleEvents.requestReceived, receivedPayload)
   const authResolution = await resolveAuthFromRequestDetailed(req)
   const auth = authResolution.auth
   await emitLifecycleEvent(applicationLifecycleEvents.requestAuthResolved, {

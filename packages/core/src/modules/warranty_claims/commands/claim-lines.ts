@@ -9,6 +9,7 @@ import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { E } from '#generated/entities.ids.generated'
 import { WarrantyClaim, WarrantyClaimLine } from '../data/entities'
@@ -463,6 +464,10 @@ function restoreLineFromSnapshot(line: WarrantyClaimLine, snapshot: LineSnapshot
   line.updatedAt = new Date()
 }
 
+async function lockClaimForLineMutation(em: EntityManager, claim: WarrantyClaim): Promise<void> {
+  await requireScopedClaim(em, claim.id, { tenantId: claim.tenantId, organizationId: claim.organizationId }, { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true })
+}
+
 async function recomputeClaimRollups(em: EntityManager, claim: WarrantyClaim): Promise<void> {
   const lines = await findWithDecryption(
     em,
@@ -480,6 +485,39 @@ async function recomputeClaimRollups(em: EntityManager, claim: WarrantyClaim): P
   claim.totalClaimedAmount = String(totals.totalClaimedAmount)
   claim.totalApprovedAmount = String(totals.totalApprovedAmount)
   claim.updatedAt = new Date()
+}
+
+async function validateLineRestore(
+  em: EntityManager,
+  ctx: CommandRuntimeContext,
+  claim: WarrantyClaim,
+  before: LineSnapshot,
+): Promise<void> {
+  if (!before.orderLineId || before.deletedAt) return
+  const scope = { tenantId: claim.tenantId, organizationId: claim.organizationId }
+  try {
+    await validateClaimReferences(ctx, scope, {
+      lineOrderRefs: [{ orderLineId: before.orderLineId, orderId: claim.orderId ?? null }],
+    })
+    if (before.lineStatus === 'rejected') return
+    await assertPendingClaimQuantitiesWithinSold(em, scope, new Map([[before.orderLineId, [{
+      id: before.id,
+      orderLineId: before.orderLineId,
+      qtyClaimed: before.qtyClaimed,
+    }]]]), { currentClaimId: claim.id, excludedLineIds: new Set([before.id]) })
+  } catch (error) {
+    if (error instanceof CrudHttpError) {
+      if (error.body.error === 'warranty_claims.errors.qtyExceedsOrdered') {
+        const { translate } = await resolveTranslations()
+        throw new CrudHttpError(409, { error: translate('warranty_claims.errors.qtyExceedsOrdered', 'Claimed quantity exceeds the quantity sold on the linked order line.'), code: 'warranty_claims.errors.qtyExceedsOrdered' })
+      }
+      if (error.body.error === 'warranty_claims.errors.invalidReference') {
+        const { translate } = await resolveTranslations()
+        throw new CrudHttpError(409, { error: translate('warranty_claims.errors.invalidReference', 'The referenced order, order line, return, or replacement order could not be found.'), code: 'warranty_claims.errors.invalidReference' })
+      }
+    }
+    throw error
+  }
 }
 
 async function requireScopedLine(
@@ -612,6 +650,7 @@ const createClaimLineCommand: CommandHandler<ClaimLineCreateInput, { lineId: str
     let line!: WarrantyClaimLine
     let nextLineNo = input.lineNo ?? 1
     await withAtomicFlush(em, [
+      () => lockClaimForLineMutation(em, claim),
       async () => {
         await requireScopedClaim(em, claim.id, scope, { lockMode: LockMode.PESSIMISTIC_WRITE })
         const existingLines = await findWithDecryption(
@@ -662,6 +701,7 @@ const createClaimLineCommand: CommandHandler<ClaimLineCreateInput, { lineId: str
     const claim = line ? claimOf(line) : null
     if (!line || !claim) return
     await withAtomicFlush(em, [
+      () => lockClaimForLineMutation(em, claim),
       () => {
         line.deletedAt = new Date()
         line.updatedAt = new Date()
@@ -704,6 +744,7 @@ const updateClaimLineCommand: CommandHandler<ClaimLineUpdateInput, { lineId: str
     }
     const guardsClaimedQty = hasOwn(input, 'qtyClaimed') || hasOwn(input, 'orderLineId')
     await withAtomicFlush(em, [
+      () => lockClaimForLineMutation(em, claim),
       async () => {
         if (!guardsClaimedQty) return
         await requireScopedClaim(em, claim.id, scope, { lockMode: LockMode.PESSIMISTIC_WRITE })
@@ -750,6 +791,8 @@ const updateClaimLineCommand: CommandHandler<ClaimLineUpdateInput, { lineId: str
     if (!line) return
     const claim = claimOf(line) ?? await requireScopedClaim(em, before.claimId, scope)
     await withAtomicFlush(em, [
+      () => lockClaimForLineMutation(em, claim),
+      () => validateLineRestore(em, ctx, claim, before),
       () => restoreLineFromSnapshot(line, before),
       () => recomputeClaimRollups(em, claim),
     ], { transaction: true, label: 'warranty_claims.claim_line.update.undo' })
@@ -779,6 +822,7 @@ const deleteClaimLineCommand: CommandHandler<LineDeleteInput, { lineId: string; 
     assertParentMutable(claim)
     await enforceWarrantyClaimOptimisticLock(ctx, line, WARRANTY_CLAIM_LINE_RESOURCE_KIND)
     await withAtomicFlush(em, [
+      () => lockClaimForLineMutation(em, claim),
       () => {
         line.deletedAt = new Date()
         line.updatedAt = new Date()
@@ -805,6 +849,8 @@ const deleteClaimLineCommand: CommandHandler<LineDeleteInput, { lineId: string; 
     let line = await findOneWithDecryption(em, WarrantyClaimLine, { id: before.id, tenantId: scope.tenantId, organizationId: scope.organizationId }, { populate: ['claim'] }, scope)
     const claim = (line ? claimOf(line) : null) ?? await requireScopedClaim(em, before.claimId, scope)
     await withAtomicFlush(em, [
+      () => lockClaimForLineMutation(em, claim),
+      () => validateLineRestore(em, ctx, claim, before),
       () => {
         if (!line) {
           line = em.create(WarrantyClaimLine, {
@@ -855,6 +901,7 @@ const receiveClaimLineCommand: CommandHandler<ClaimLineReceiveInput, { lineId: s
     const shouldQuarantine = Boolean(effectiveSettings.quarantineGrades?.includes(grade))
 
     await withAtomicFlush(em, [
+      () => lockClaimForLineMutation(em, claim),
       () => {
         line.conditionGrade = grade
         if (input.inspectionNotes !== undefined) line.inspectionNotes = input.inspectionNotes ?? null
@@ -922,6 +969,8 @@ const receiveClaimLineCommand: CommandHandler<ClaimLineReceiveInput, { lineId: s
     if (!line) return
     const claim = await requireScopedClaim(em, before.claimId, scope)
     await withAtomicFlush(em, [
+      () => lockClaimForLineMutation(em, claim),
+      () => validateLineRestore(em, ctx, claim, before),
       () => restoreLineFromSnapshot(line, before),
       () => recomputeClaimRollups(em, claim),
     ], { transaction: true, label: 'warranty_claims.claim_line.receive.undo' })
@@ -949,6 +998,7 @@ const releaseClaimLineQuarantineCommand: CommandHandler<ClaimLineReleaseQuaranti
     await enforceWarrantyClaimOptimisticLock(ctx, line, WARRANTY_CLAIM_LINE_RESOURCE_KIND, input.updatedAt ?? undefined)
 
     await withAtomicFlush(em, [
+      () => lockClaimForLineMutation(em, claim),
       () => {
         line.quarantineStatus = 'released'
         line.updatedAt = new Date()
@@ -986,6 +1036,8 @@ const releaseClaimLineQuarantineCommand: CommandHandler<ClaimLineReleaseQuaranti
     if (!line) return
     const claim = await requireScopedClaim(em, before.claimId, scope)
     await withAtomicFlush(em, [
+      () => lockClaimForLineMutation(em, claim),
+      () => validateLineRestore(em, ctx, claim, before),
       () => restoreLineFromSnapshot(line, before),
       () => recomputeClaimRollups(em, claim),
     ], { transaction: true, label: 'warranty_claims.claim_line.release_quarantine.undo' })
@@ -1013,6 +1065,7 @@ const setClaimLineAssessmentCommand: CommandHandler<LineSetAssessmentInput, { li
     await enforceWarrantyClaimOptimisticLock(ctx, line, WARRANTY_CLAIM_LINE_RESOURCE_KIND, input.updatedAt ?? undefined)
 
     await withAtomicFlush(em, [
+      () => lockClaimForLineMutation(em, claim),
       () => {
         line.assessmentPayload = input.assessmentPayload
         line.updatedAt = new Date()
@@ -1049,6 +1102,8 @@ const setClaimLineAssessmentCommand: CommandHandler<LineSetAssessmentInput, { li
     if (!line) return
     const claim = claimOf(line) ?? await requireScopedClaim(em, before.claimId, scope)
     await withAtomicFlush(em, [
+      () => lockClaimForLineMutation(em, claim),
+      () => validateLineRestore(em, ctx, claim, before),
       () => restoreLineFromSnapshot(line, before),
     ], { transaction: true, label: 'warranty_claims.claim_line.set_assessment.undo' })
     await emitClaimUpdated(ctx, claim)

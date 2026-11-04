@@ -1,3 +1,4 @@
+import { isSessionBoundApiKey } from '@open-mercato/core/modules/api_keys/services/sessionKeyRoles'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   getApiRouteManifests,
@@ -205,7 +206,7 @@ export async function listOpenMercatoApiKeyOptions(
 
   const keys = (await em.find(ApiKey, filters, { orderBy: { name: 'asc' } })) as ApiKey[]
   const now = Date.now()
-  const activeKeys = keys.filter((key) => !key.expiresAt || key.expiresAt.getTime() > now)
+  const activeKeys = keys.filter((key) => !isSessionBoundApiKey(key) && (!key.expiresAt || key.expiresAt.getTime() > now))
 
   const roleIds = new Set<string>()
   const organizationIds = new Set<string>()
@@ -255,7 +256,7 @@ export async function resolveOpenMercatoApiKeyProfile(
   }
 
   const key = await em.findOne(ApiKey, filters)
-  if (!key) return null
+  if (!key || isSessionBoundApiKey(key)) return null
   if (key.expiresAt && key.expiresAt.getTime() <= Date.now()) return null
   return key
 }

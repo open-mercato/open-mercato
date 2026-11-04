@@ -67,3 +67,7 @@ Both package builds, generation, translation sync/usage checks, typechecking, ap
 ### 2026-11-02 — Release prerequisite repair
 
 Backported the existing #7447 cross-site sign-in guard and its shared URL policy into the release repair for #8191, as required by the inherited review. Staff and portal login, refresh, magic-link and invitation completion retain the original origin/Fetch Metadata assertions; tenant eligibility remains independently enforced. The source API integration specs TC-AUTH-069 and TC-PORTAL-012 ship with the repair. Focused local evidence: 64 core and 63 shared tests passed; core build passed. Hosted CI and API integration execution remain separate gates.
+
+### 2026-11-05 — Release-target conflict integration
+
+Integrated release/v0.9.x at `307f067fb5666af0207a9376f6956fefbd3356ad` into the backport. The conflict resolution preserves the release line's SCIM/session-rejection handling, transaction-aware session writer, and MCP-bound API-key checks, together with the tenant and cross-site regressions. Focused validation of the integrated source passed 149 staff/portal tests and 83 shared URL/API-key tests; complete new-head CI remains a separate gate.

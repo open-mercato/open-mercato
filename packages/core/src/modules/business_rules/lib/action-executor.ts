@@ -1,3 +1,4 @@
+import { resolveApiKeyRoleIds } from '@open-mercato/core/modules/api_keys/services/sessionKeyRoles'
 import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import type { EvaluationContext } from './expression-evaluator'
 import { getNestedValue, resolveSpecialValue } from './value-resolver'
@@ -474,9 +475,7 @@ async function handleCallOpenMercato(
     throw new Error('CALL_OPEN_MERCATO action requires an active API key profile in scope')
   }
 
-  const roleIds = Array.isArray(apiKeyProfile.rolesJson)
-    ? apiKeyProfile.rolesJson.filter((roleId): roleId is string => typeof roleId === 'string' && roleId.length > 0)
-    : []
+  const roleIds = await resolveApiKeyRoleIds(em, apiKeyProfile, tenantId)
   if (roleIds.length === 0) {
     throw new Error('CALL_OPEN_MERCATO action requires an API key profile with at least one role')
   }

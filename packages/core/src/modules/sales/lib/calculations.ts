@@ -121,7 +121,7 @@ function buildBaseLineResult(line: SalesLineSnapshot): SalesLineCalculationResul
   const unitNet =
     line.unitPriceNet ??
     (line.unitPriceGross !== null && line.unitPriceGross !== undefined
-      ? toNumber(line.unitPriceGross) / (1 + taxRate)
+      ? round(toNumber(line.unitPriceGross) / (1 + taxRate))
       : 0)
   const netSubtotalBeforeDiscount = toNumber(unitNet, 0) * quantity
   const discountTotal = Math.min(
