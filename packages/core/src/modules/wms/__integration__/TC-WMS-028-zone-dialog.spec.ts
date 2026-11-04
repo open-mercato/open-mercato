@@ -86,7 +86,9 @@ async function readZoneById(
  * instead of the internal `data-crud-field-id` wrapper.
  */
 function crudField(scope: Locator, label: string): Locator {
-  return scope.getByLabel(label, { exact: true })
+  // `exact: false` because a required field's accessible name carries a
+  // trailing " *" (CrudForm's required-marker span sits inside the <label>).
+  return scope.getByLabel(label, { exact: false })
 }
 
 async function loginAsScopedUser(
