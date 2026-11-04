@@ -10,7 +10,8 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDate } from '@open-mercato/ui/primitives/date-format'
 import Link from 'next/link'
 
 interface SsoConfigRow {
@@ -39,6 +40,7 @@ const fallback: ListResponse = { items: [], total: 0, totalPages: 1 }
 export default function SsoConfigListPage() {
   const router = useRouter()
   const t = useT()
+  const locale = useLocale()
 
   const [data, setData] = React.useState<ListResponse>(fallback)
   const [isLoading, setIsLoading] = React.useState(true)
@@ -157,12 +159,12 @@ export default function SsoConfigListPage() {
       {
         accessorKey: 'createdAt',
         header: t('sso.admin.column.created', 'Created'),
-        cell: ({ row }) => new Date(row.original.createdAt).toLocaleDateString(),
+        cell: ({ row }) => formatDisplayDate(row.original.createdAt, locale),
       },
     ]
 
     return cols
-  }, [t, isSuperAdmin])
+  }, [t, isSuperAdmin, locale])
 
   const hasConfigs = data.items.length > 0 || search
   const canCreateNew = isSuperAdmin || data.items.length === 0
