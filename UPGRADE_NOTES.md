@@ -515,6 +515,20 @@ A regenerated MCP key becomes invalid if its owner's home organization changes,
 including a change from no home organization to a concrete one. Generate a new
 key and update the MCP client secret after such a change.
 
+### Custom-record POST rejects existing UUIDs (#7815)
+
+`POST /api/entities/records` now returns HTTP 409 (`custom_entity_record_exists`)
+when the supplied UUID already exists in the current tenant, organization and
+entity, including a soft-deleted record. It preserves the existing document and
+version. Clients that previously used POST as an upsert must read the current
+record and use PUT with its `x-om-ext-optimistic-lock-expected-updated-at` header.
+Creating new records, including server-generated IDs, is unchanged.
+
+Internal `DataEngine.createCustomEntityRecord` callers retain upserts by default;
+the new optional `createOnly` flag selects conflict-on-existing creation. No
+operator configuration or database migration is needed. See the
+[locking coverage spec](.ai/specs/2026-05-28-optimistic-locking-coverage-completion.md#custom-record-creation--7815).
+
 ### Inbound webhook receipt deduplication includes verified scope (#7830)
 
 Inbound receipts now identify duplicates by endpoint, message ID, tenant, and organization.
@@ -1334,6 +1348,30 @@ the same check, for at most three hops. Any other redirect fails with
 **Action for operators:** fix any workflow definition whose `CALL_API` endpoint hard-codes a
 different scheme (for example `http://` while `APP_URL` is `https://`) or a non-`/api/` path. Use a
 relative `/api/...` path or `{{env.APP_URL}}/api/...` instead.
+
+### Staff time-entries totals cover the whole filtered set and render inside the table (#6990)
+
+The time-entries list (`/backend/staff/time-tracking/entries`) now asks
+`GET /api/staff/timesheets/time-entries` for `includeTotals=true`, which adds an optional `totals`
+object (`entryCount`, `durationMinutes`, `roundedMinutes`, and `money` per currency for a holder of
+`staff.timesheets.rates.view`) computed over every row matching the filters, not just the page.
+`money` is priced per entry exactly like the row `cost` (`entryAmount`), so it equals the sum of
+the row costs. Without the parameter the response is unchanged.
+
+The totals footer is no longer a separate card under the pagination. It renders inside the table
+frame through the `data-table:staff.time_entries.list:footer` injection spot (widget
+`staff.injection.time-entries-summary-footer`), and the page passes its own `injectionContext`
+(`tableId`, `title`, `entriesSummary`). The `staff.entries_summary_footer` component replacement keeps
+its props and gains an optional `totals`.
+
+The page also stops showing each filter twice: it passes the new optional `DataTable` /
+`FilterBar` prop `showActiveFilterChips={false}` (default `true`, so other hosts are unchanged),
+leaving the presets and entry chips as the only chip layer.
+
+**Action for module authors:** none required. A `staff.entries_summary_footer` replacement that
+should show whole-set figures reads `props.totals` (it is `null`/absent when unavailable, in which
+case `props.summary` still holds the page sums). A replacement styled as a standalone card may want
+to drop its outer border now that it sits inside the table frame.
 
 ### Sales quote enrichment and document injection hosts (#7782, #7783)
 
