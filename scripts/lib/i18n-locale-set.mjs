@@ -8,6 +8,7 @@ const LOCALE_CODE_PATTERN = /^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/
 const LOCALE_FILE_PATTERN = /^([a-z]{2,3}(?:-[a-z0-9]{2,8})*)\.json$/
 const LOCALE_SHAPED_FILE_PATTERN = /^[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{2,8})*\.json$/
 const STRING_LITERAL_PATTERN = /^(?:'([^'\\]+)'|"([^"\\]+)")$/
+const ISO_LOCALE_SUBTAGS_PATTERN = /^[a-z]{2}(?:-[a-z]{4})?(?:-(?:[a-z]{2}|[0-9]{3}))?$/
 const ISO_CODE_ENTRY_PATTERN = /\bcode:\s*(?:'([a-z]{2})'|"([a-z]{2})")/g
 
 function stripComments(source) {
@@ -76,7 +77,7 @@ function parseStringArrayLiteral(source, variableName) {
 function parseStringLiteral(source, variableName) {
   const declaration = source.match(new RegExp(`export\\s+const\\s+${variableName}\\s*(?::[^=]+)?=\\s*([^\\n;]*)`))
   if (!declaration) return null
-  const literal = declaration[1].replace(/\s+as\s+const\s*$/, '').trim().match(STRING_LITERAL_PATTERN)
+  const literal = declaration[1].replace(/\s+(?:as|satisfies)\s+[A-Za-z_$][\w$.]*\s*$/, '').trim().match(STRING_LITERAL_PATTERN)
   if (!literal) {
     throw new Error(`The \`${variableName}\` declaration in the platform i18n config must be a single string literal`)
   }
@@ -119,7 +120,12 @@ function createLocaleRecognizer({ languageCodes, declaredLocales }) {
     throw new Error('Recognizing locale files requires the ISO 639-1 language codes')
   }
   const declared = new Set(declaredLocales)
-  return (locale) => declared.has(locale) || languageCodes.has(locale.split('-')[0])
+  return (locale) =>
+    declared.has(locale) || (ISO_LOCALE_SUBTAGS_PATTERN.test(locale) && languageCodes.has(locale.split('-')[0]))
+}
+
+function normalizeFileStem(fileName) {
+  return fileName.replace(/\.json$/, '').toLowerCase().replace(/_/g, '-')
 }
 
 export function resolveAppRoot(root, filePath) {
@@ -136,12 +142,11 @@ export function readAppLocaleSet(appRoot, { languageCodes, declaredLocales = [] 
     .readdirSync(i18nDir, { withFileTypes: true })
     .filter((entry) => entry.isFile())
     .map((entry) => entry.name)
-  const normalizeStem = (name) => name.replace(/\.json$/, '').toLowerCase().replace(/_/g, '-')
   const unnormalized = fileNames.filter(
-    (name) => LOCALE_SHAPED_FILE_PATTERN.test(name) && !LOCALE_FILE_PATTERN.test(name) && isRecognizedLocale(normalizeStem(name)),
+    (name) => LOCALE_SHAPED_FILE_PATTERN.test(name) && !LOCALE_FILE_PATTERN.test(name) && isRecognizedLocale(normalizeFileStem(name)),
   )
   if (unnormalized.length > 0) {
-    const renames = unnormalized.map((name) => `${name} -> ${normalizeStem(name)}.json`).join(', ')
+    const renames = unnormalized.map((name) => `${name} -> ${normalizeFileStem(name)}.json`).join(', ')
     throw new Error(`Locale files in ${i18nDir} must use normalized lowercase, hyphenated codes: ${renames}`)
   }
   const locales = fileNames

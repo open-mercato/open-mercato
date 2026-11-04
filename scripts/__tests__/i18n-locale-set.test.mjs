@@ -134,6 +134,8 @@ test('parseLocaleConfigSource requires defaultLocale to be a single string liter
   assert.throws(() => parseLocaleConfigSource(withLocales("`en`")), /single string literal/)
   assert.equal(parseLocaleConfigSource(withLocales("'pl';")).defaultLocale, 'pl')
   assert.equal(parseLocaleConfigSource(withLocales("'pl' as const")).defaultLocale, 'pl')
+  assert.equal(parseLocaleConfigSource(withLocales("'pl' as Locale")).defaultLocale, 'pl')
+  assert.equal(parseLocaleConfigSource(withLocales("'pl' satisfies Locale")).defaultLocale, 'pl')
 })
 
 test('parseIsoLanguageCodesSource reads two-letter codes and fails closed on an unreadable table', () => {
@@ -188,8 +190,18 @@ test('readAppLocaleSet ignores JSON files whose name is not a language code', ()
     'apps/app/src/i18n/FAQ.json': '{}',
     'apps/app/src/i18n/ui-kit.json': '{}',
     'apps/app/src/i18n/qq.json': '{}',
+    'apps/app/src/i18n/my-app.json': '{}',
+    'apps/app/src/i18n/id-map.json': '{}',
+    'apps/app/src/i18n/en-config.json': '{}',
+    'apps/app/src/i18n/es-419.json': '{}',
+    'apps/app/src/i18n/sr-latn-rs.json': '{}',
   })
-  assert.deepEqual(readAppLocaleSet(path.join(root, 'apps', 'app'), APP_LOCALE_OPTIONS).sort(), ['en', 'zh-hant'])
+  assert.deepEqual(readAppLocaleSet(path.join(root, 'apps', 'app'), APP_LOCALE_OPTIONS).sort(), [
+    'en',
+    'es-419',
+    'sr-latn-rs',
+    'zh-hant',
+  ])
 })
 
 test('readAppLocaleSet accepts a non-ISO-639-1 code only when the config declares it', () => {
