@@ -14,12 +14,18 @@ import test from 'node:test'
 // what setup forwarded to it.
 
 const TEMPLATE_SCRIPTS = fileURLToPath(new URL('../../template/scripts/', import.meta.url))
-const SHIPPED_SCRIPTS = ['setup.mjs', 'infra.mjs', 'dev-infra-preflight.mjs', 'dev-database-url.mjs', 'dev-service-modes.mjs', 'dev-service-connections.mjs', 'dev-database-write-guard.mjs']
+const SHIPPED_SCRIPTS = ['setup.mjs', 'infra.mjs', 'dev-infra-preflight.mjs', 'dev-database-url.mjs', 'dev-service-modes.mjs', 'dev-service-connections.mjs', 'dev-database-write-guard.mjs', 'dev-session-guard.mjs']
 const skip = process.platform === 'win32' ? 'fake docker shim is a POSIX shell script' : false
 
 const FAKE_DOCKER = `#!/bin/sh
 printf '%s\\n' "$*" >> "$FAKE_DOCKER_LOG"
 case "$1" in
+  ps)
+    [ -n "$FAKE_DOCKER_FOREIGN_PORT" ] && echo "abcdef123456"
+    exit 0 ;;
+  inspect)
+    [ -n "$FAKE_DOCKER_FOREIGN_PORT" ] && printf '{"name":"/%s","status":"running","health":"healthy","ports":{"5432/tcp":[{"HostIp":"127.0.0.1","HostPort":"%s"}]}}\\n' "$FAKE_DOCKER_FOREIGN_NAME" "$FAKE_DOCKER_FOREIGN_PORT"
+    exit 0 ;;
   --version) [ "$FAKE_DOCKER_MODE" = "no-cli" ] && exit 127; echo "Docker version 27.3.1"; exit 0 ;;
   info)
     [ "$FAKE_DOCKER_MODE" = "daemon-stopped" ] && { echo "Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?" >&2; exit 1; }
@@ -46,6 +52,7 @@ exit 0
 
 const DEV_STUB = `import fs from 'node:fs'
 fs.writeFileSync(process.env.FAKE_DEV_ARGS_LOG, JSON.stringify(process.argv.slice(2)))
+fs.writeFileSync(process.env.FAKE_DEV_ARGS_LOG + '.session', JSON.stringify({ token: process.env.OM_DEV_SESSION_TOKEN ?? null, workspaceRoot: process.env.OM_DEV_SESSION_WORKSPACE_ROOT ?? null }))
 `
 
 async function freePort(): Promise<number> {
@@ -68,7 +75,7 @@ async function makeApp() {
   }
   fs.writeFileSync(path.join(appDir, 'scripts', 'dev.mjs'), DEV_STUB)
   fs.writeFileSync(path.join(appDir, 'scripts', 'dev-database-write-guard.mjs'), `export async function assertDatabaseWriteAllowed({ env = {} } = {}) { if (process.env.FAKE_REMOTE_REJECTION) throw new Error('Remote database writes are blocked for remote.example:5432/app. Pass --allow-remote-database=remote.example:5432/app.'); return { remote: false, connectionEnv: env } }\n`)
-  fs.writeFileSync(path.join(appDir, 'scripts', 'dev-service-connections.mjs'), `import fs from 'node:fs'; export async function verifyServiceConnections({ env = {} } = {}) { if (process.env.FAKE_VERIFY_DATABASE_LOG) fs.writeFileSync(process.env.FAKE_VERIFY_DATABASE_LOG, env.DATABASE_URL || ''); if (process.env.FAKE_CONNECTION_INTERRUPT) process.emit('SIGTERM'); if (process.env.FAKE_CONNECTION_FAILURE) throw new Error('[setup] PostgreSQL connection failed (DATABASE_URL at postgres://localhost:5432/example). The service rejected the configured credentials. Check .env.'); return { ok: true } }\n`)
+  fs.writeFileSync(path.join(appDir, 'scripts', 'dev-service-connections.mjs'), `import fs from 'node:fs'; export async function verifyServiceConnections({ env = {} } = {}) { if (process.env.FAKE_VERIFY_DATABASE_LOG) fs.appendFileSync(process.env.FAKE_VERIFY_DATABASE_LOG, (env.DATABASE_URL || '') + '\\n'); if (process.env.FAKE_CONNECTION_INTERRUPT) process.emit('SIGTERM'); let port = ''; try { port = new URL(env.DATABASE_URL).port } catch {} if (process.env.FAKE_MISSING_DRIVER && !fs.existsSync('node_modules/pg')) throw Object.assign(new Error('[setup] PostgreSQL connection failed (DATABASE_URL). Install project dependencies with yarn install, then retry setup.'), { kind: 'dependency' }); if (process.env.FAKE_CONNECTION_FAILURE || (process.env.FAKE_REJECT_DATABASE_PORT && port === process.env.FAKE_REJECT_DATABASE_PORT)) throw new Error('[setup] PostgreSQL connection failed (DATABASE_URL at postgres://localhost:5432/example). The service rejected the configured credentials. Check .env.'); return { ok: true } }\n`)
   fs.mkdirSync(path.join(appDir, 'node_modules', 'cross-spawn'), { recursive: true })
   const binDir = path.join(appDir, 'fake-bin')
   fs.mkdirSync(binDir)
@@ -197,6 +204,9 @@ for (const failure of FAILURES) {
       assert.match(run.output, /Manual setup:/)
       assert.match(run.output, /yarn install/)
       assert.match(run.output, /yarn dev --no-infra/)
+      if (failure.name !== 'failed healthcheck') {
+        assert.match(run.output, /https:\/\/github\.com\/open-mercato\/open-mercato#without-docker/)
+      }
       assert.equal(run.devArgs, null, 'setup must not continue to install/migrate/initialize')
     } finally {
       fs.rmSync(app.appDir, { recursive: true, force: true })
@@ -342,7 +352,7 @@ test('ephemeral cleanup failures print manual recovery instructions and fail set
 test('rejected service credentials stop setup before database/dev and print clear recovery instructions', { skip }, async () => {
   const app = await makeApp()
   try {
-    const run = await runScript(app, 'setup.mjs', [], { env: { FAKE_CONNECTION_FAILURE: '1' } })
+    const run = await runScript(app, 'setup.mjs', ['--reuse-services'], { env: { FAKE_CONNECTION_FAILURE: '1' } })
     assert.equal(run.code, 2, run.output)
     assert.equal(run.devArgs, null)
     assert.match(run.output, /PostgreSQL connection failed[\s\S]*rejected the configured credentials[\s\S]*Check \.env/)
@@ -355,7 +365,7 @@ test('rejected service credentials stop setup before database/dev and print clea
 test('interrupting service verification prevents database/dev startup', { skip }, async () => {
   const app = await makeApp()
   try {
-    const run = await runScript(app, 'setup.mjs', [], { env: { FAKE_CONNECTION_INTERRUPT: '1' } })
+    const run = await runScript(app, 'setup.mjs', ['--reuse-services'], { env: { FAKE_CONNECTION_INTERRUPT: '1' } })
     assert.equal(run.code, 143, run.output)
     assert.equal(run.devArgs, null)
     assert.match(run.output, /Setup interrupted while verifying service connections/)
@@ -372,7 +382,7 @@ test('database-name verification previews the selected database without rewritin
     const log = path.join(app.appDir, 'verified-url.txt')
     const run = await runScript(app, 'setup.mjs', ['--database-name=selected_db', '--no-update-env', '--reuse-services'], { env: { FAKE_VERIFY_DATABASE_LOG: log } })
     assert.equal(run.code, 0, run.output)
-    assert.equal(new URL(fs.readFileSync(log, 'utf8')).pathname, '/selected_db')
+    assert.equal(new URL(fs.readFileSync(log, 'utf8').trim()).pathname, '/selected_db')
     assert.equal(fs.readFileSync(path.join(app.appDir, '.env'), 'utf8'), original)
     assert.deepEqual(run.devArgs, ['--setup', '--no-infra', '--database-name=selected_db', '--no-update-env'])
   } finally { fs.rmSync(app.appDir, { recursive: true, force: true }) }
@@ -381,10 +391,216 @@ test('database-name verification previews the selected database without rewritin
 test('remote database write rejection happens before verification or database/dev startup', { skip }, async () => {
   const app = await makeApp()
   try {
-    const run = await runScript(app, 'setup.mjs', [], { env: { FAKE_REMOTE_REJECTION: '1' } })
+    const run = await runScript(app, 'setup.mjs', ['--reuse-services'], { env: { FAKE_REMOTE_REJECTION: '1' } })
     assert.equal(run.code, 2, run.output)
     assert.equal(run.devArgs, null)
     assert.match(run.output, /Remote database writes are blocked.*allow-remote-database/)
     assert.deepEqual(run.dockerCalls, [])
   } finally { fs.rmSync(app.appDir, { recursive: true, force: true }) }
+})
+
+async function listenOn(port: number): Promise<net.Server> {
+  const server = net.createServer((socket) => socket.end())
+  await new Promise<void>((resolve) => server.listen(port, '127.0.0.1', () => resolve()))
+  return server
+}
+
+function localDatabaseEnv(app: Awaited<ReturnType<typeof makeApp>>): string {
+  return `DATABASE_URL=postgres://postgres:postgres@localhost:${app.ports.POSTGRES_PORT}/open-mercato\n`
+}
+
+test('default selection (a): answering services that verify are reused without Compose', { skip }, async () => {
+  const app = await makeApp()
+  const database = await listenOn(app.ports.POSTGRES_PORT)
+  try {
+    fs.writeFileSync(path.join(app.appDir, '.env'), localDatabaseEnv(app))
+    const run = await runScript(app, 'setup.mjs', [])
+    assert.equal(run.code, 0, run.output)
+    assert.match(run.output, /answer and their credentials verified; reusing them/)
+    assert.deepEqual(run.devArgs, ['--setup', '--no-infra'])
+    assert.ok(!run.dockerCalls.some((call) => call.startsWith('compose up')), run.dockerCalls.join('\n'))
+    assert.equal(fs.readFileSync(path.join(app.appDir, '.env'), 'utf8'), localDatabaseEnv(app))
+  } finally {
+    database.close()
+    fs.rmSync(app.appDir, { recursive: true, force: true })
+  }
+})
+
+test('default selection (b): nothing answers and Docker works, so Compose starts on the configured ports', { skip }, async () => {
+  const app = await makeApp()
+  try {
+    fs.writeFileSync(path.join(app.appDir, '.env'), localDatabaseEnv(app))
+    const run = await runScript(app, 'setup.mjs', [])
+    assert.equal(run.code, 0, run.output)
+    assert.match(run.output, /Nothing answers on the configured ports/)
+    assert.ok(run.dockerCalls.includes('compose up -d --wait'), run.dockerCalls.join('\n'))
+    assert.deepEqual(run.devArgs, ['--setup'])
+    assert.equal(fs.readFileSync(path.join(app.appDir, '.env'), 'utf8'), localDatabaseEnv(app))
+  } finally {
+    fs.rmSync(app.appDir, { recursive: true, force: true })
+  }
+})
+
+test('default selection (c): rejected credentials on the configured port start an isolated stack on free ports', { skip }, async () => {
+  const app = await makeApp()
+  const database = await listenOn(app.ports.POSTGRES_PORT)
+  try {
+    fs.writeFileSync(path.join(app.appDir, '.env'), localDatabaseEnv(app))
+    const run = await runScript(app, 'setup.mjs', [], { env: { FAKE_REJECT_DATABASE_PORT: String(app.ports.POSTGRES_PORT) } })
+    assert.equal(run.code, 0, run.output)
+    assert.match(run.output, /did not accept the configured settings[\s\S]*isolated stack on free ports/)
+    const { parseEnv } = await import('node:util')
+    const settings = parseEnv(fs.readFileSync(path.join(app.appDir, '.env'), 'utf8'))
+    assert.notEqual(settings.POSTGRES_PORT, String(app.ports.POSTGRES_PORT))
+    assert.equal(new URL(settings.DATABASE_URL).port, settings.POSTGRES_PORT)
+    assert.ok(run.dockerCalls.includes('compose up -d --wait'), run.dockerCalls.join('\n'))
+    assert.deepEqual(run.devArgs, ['--setup'])
+  } finally {
+    database.close()
+    fs.rmSync(app.appDir, { recursive: true, force: true })
+  }
+})
+
+test('default selection (c): another project\'s container on the configured port is never verified or written to', { skip }, async () => {
+  const app = await makeApp()
+  const database = await listenOn(app.ports.POSTGRES_PORT)
+  const verifyLog = path.join(app.appDir, 'verified-urls.txt')
+  try {
+    fs.writeFileSync(path.join(app.appDir, '.env'), localDatabaseEnv(app))
+    const run = await runScript(app, 'setup.mjs', [], {
+      env: { FAKE_DOCKER_FOREIGN_PORT: String(app.ports.POSTGRES_PORT), FAKE_DOCKER_FOREIGN_NAME: 'other-app-postgres', FAKE_VERIFY_DATABASE_LOG: verifyLog },
+    })
+    assert.equal(run.code, 0, run.output)
+    assert.match(run.output, /container other-app-postgres of another project; starting an isolated stack on free ports/)
+    const verified = fs.readFileSync(verifyLog, 'utf8').split('\n').filter(Boolean)
+    assert.ok(verified.length > 0)
+    for (const url of verified) assert.notEqual(new URL(url).port, String(app.ports.POSTGRES_PORT), 'the foreign database must never be contacted')
+    assert.ok(run.dockerCalls.includes('compose up -d --wait'), run.dockerCalls.join('\n'))
+  } finally {
+    database.close()
+    fs.rmSync(app.appDir, { recursive: true, force: true })
+  }
+})
+
+test('default selection (d): without Docker and without answering services setup stops with the guide', { skip }, async () => {
+  const app = await makeApp()
+  try {
+    fs.writeFileSync(path.join(app.appDir, '.env'), localDatabaseEnv(app))
+    const started = Date.now()
+    const run = await runScript(app, 'setup.mjs', [], { withDocker: false })
+    assert.equal(run.code, 2, run.output)
+    assert.ok(Date.now() - started < 15_000, 'must fail quickly')
+    assert.match(run.output, /Nothing answers on the configured service ports/)
+    assert.match(run.output, /Docker is not installed/)
+    assert.match(run.output, /No Docker\? Run PostgreSQL yourself \(Redis and Meilisearch are optional\): https:\/\/github\.com\/open-mercato\/open-mercato#without-docker/)
+    assert.match(run.output, /yarn setup --no-infra/)
+    assert.equal(run.devArgs, null)
+    assert.equal(fs.readFileSync(path.join(app.appDir, '.env'), 'utf8'), localDatabaseEnv(app))
+  } finally {
+    fs.rmSync(app.appDir, { recursive: true, force: true })
+  }
+})
+
+test('default selection (d): without Docker, a configured database that rejects credentials stops setup', { skip }, async () => {
+  const app = await makeApp()
+  const database = await listenOn(app.ports.POSTGRES_PORT)
+  try {
+    fs.writeFileSync(path.join(app.appDir, '.env'), localDatabaseEnv(app))
+    const run = await runScript(app, 'setup.mjs', [], { withDocker: false, env: { FAKE_REJECT_DATABASE_PORT: String(app.ports.POSTGRES_PORT) } })
+    assert.equal(run.code, 2, run.output)
+    assert.match(run.output, /Configured services are not usable/)
+    assert.match(run.output, /#without-docker/)
+    assert.equal(run.devArgs, null)
+  } finally {
+    database.close()
+    fs.rmSync(app.appDir, { recursive: true, force: true })
+  }
+})
+
+test('default selection (e): without Docker, configured services that verify are used', { skip }, async () => {
+  const app = await makeApp()
+  const database = await listenOn(app.ports.POSTGRES_PORT)
+  try {
+    fs.writeFileSync(path.join(app.appDir, '.env'), localDatabaseEnv(app))
+    const run = await runScript(app, 'setup.mjs', [], { withDocker: false })
+    assert.equal(run.code, 0, run.output)
+    assert.match(run.output, /Docker is not available \(docker CLI not found\), but the services configured in \.env answer/)
+    assert.deepEqual(run.devArgs, ['--setup', '--no-infra'])
+    assert.deepEqual(run.dockerCalls, [])
+  } finally {
+    database.close()
+    fs.rmSync(app.appDir, { recursive: true, force: true })
+  }
+})
+
+test('a second setup in a checkout with a live dev session is rejected before any .env write or Compose call', { skip }, async () => {
+  const app = await makeApp()
+  const { acquireDevSession } = await import(new URL('../../template/scripts/dev-session-guard.mjs', import.meta.url).href)
+  const first = acquireDevSession({ workspaceRoot: app.appDir, mode: 'setup', role: 'setup' })
+  try {
+    const original = `${localDatabaseEnv(app)}POSTGRES_PORT=${app.ports.POSTGRES_PORT}\n`
+    fs.writeFileSync(path.join(app.appDir, '.env'), original)
+    const run = await runScript(app, 'setup.mjs', ['--random-ports'])
+    assert.equal(run.code, 2, run.output)
+    assert.match(run.output, /Another Open Mercato dev session already owns this workspace/)
+    assert.match(run.output, /No service configuration, \.env file or container was changed/)
+    assert.deepEqual(run.dockerCalls, [])
+    assert.equal(run.devArgs, null)
+    assert.equal(fs.readFileSync(path.join(app.appDir, '.env'), 'utf8'), original)
+    const owner = JSON.parse(fs.readFileSync(path.join(app.appDir, '.mercato', 'dev-session.lock', 'owner.json'), 'utf8'))
+    assert.equal(owner.token, first.token)
+  } finally {
+    first.release()
+    fs.rmSync(app.appDir, { recursive: true, force: true })
+  }
+})
+
+test('setup owns the dev session, hands its token to the dev runner and releases it on exit', { skip }, async () => {
+  const app = await makeApp()
+  try {
+    const run = await runScript(app, 'setup.mjs', ['--no-infra'])
+    assert.equal(run.code, 0, run.output)
+    const session = JSON.parse(fs.readFileSync(path.join(app.appDir, 'dev-args.json.session'), 'utf8'))
+    assert.match(session.token ?? '', /^[0-9a-f-]{36}$/i)
+    assert.equal(session.workspaceRoot, fs.realpathSync(app.appDir))
+    assert.equal(fs.existsSync(path.join(app.appDir, '.mercato', 'dev-session.lock')), false)
+  } finally {
+    fs.rmSync(app.appDir, { recursive: true, force: true })
+  }
+})
+
+test('without Docker and services, a fresh app fails within seconds before yarn install runs', { skip }, async () => {
+  const app = await makeApp()
+  try {
+    fs.rmSync(path.join(app.appDir, 'node_modules'), { recursive: true, force: true })
+    fs.writeFileSync(path.join(app.appDir, '.env'), localDatabaseEnv(app))
+    const started = Date.now()
+    const run = await runScript(app, 'setup.mjs', [], { withDocker: false })
+    assert.equal(run.code, 2, run.output)
+    assert.ok(Date.now() - started < 15_000, 'must fail quickly')
+    assert.match(run.output, /#without-docker/)
+    assert.doesNotMatch(run.output, /Dependency installation failed/)
+    assert.equal(fs.existsSync(path.join(app.appDir, 'node_modules')), false, 'yarn install must not run before the service decision')
+  } finally {
+    fs.rmSync(app.appDir, { recursive: true, force: true })
+  }
+})
+
+test('credential verification that needs drivers installs dependencies, then decides', { skip }, async () => {
+  const app = await makeApp()
+  const database = await listenOn(app.ports.POSTGRES_PORT)
+  try {
+    fs.rmSync(path.join(app.appDir, 'node_modules'), { recursive: true, force: true })
+    const yarnLog = path.join(app.appDir, 'yarn.log')
+    fs.writeFileSync(path.join(app.binDir, 'yarn'), `#!/bin/sh\nprintf '%s\\n' "$*" >> "${yarnLog}"\nmkdir -p node_modules/pg node_modules/cross-spawn\nexit 0\n`, { mode: 0o755 })
+    fs.writeFileSync(path.join(app.appDir, '.env'), localDatabaseEnv(app))
+    const run = await runScript(app, 'setup.mjs', [], { env: { FAKE_MISSING_DRIVER: '1' } })
+    assert.equal(run.code, 0, run.output)
+    assert.deepEqual(fs.readFileSync(yarnLog, 'utf8').split('\n').filter(Boolean), ['install'])
+    assert.match(run.output, /credentials verified; reusing them/)
+    assert.deepEqual(run.devArgs, ['--setup', '--no-infra'])
+  } finally {
+    database.close()
+    fs.rmSync(app.appDir, { recursive: true, force: true })
+  }
 })

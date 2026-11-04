@@ -75,12 +75,26 @@ curl https://mise.run | sh && export PATH="$HOME/.local/bin:$HOME/.local/share/m
 mise use -g node@24 yarn@4      # Node.js 24 and Yarn 4; skip both lines if you already have them
 npx create-mercato-app my-app --preset classic --agents all --init-git
 cd my-app
-yarn setup --infra
+yarn setup
 ```
 
-`yarn setup` creates missing environment files and reuses the PostgreSQL, Redis and Meilisearch services configured in `.env` by default. It installs dependencies, applies migrations, initializes demo data when needed, and starts the dev runtime. Interactive terminals offer service choices: `--ephemeral` starts disposable Testcontainers services for the session, `--random-ports` starts an isolated Compose stack on free ports, and `--infra` starts Compose on configured ports. Both isolated options synchronize the service ports and URLs; ephemeral settings are restored when the session exits. `--no-infra` explicitly selects reuse. Before database setup, connections and credentials are verified with a PostgreSQL query, Redis PINGs and the protected Meilisearch API. Rejected credentials or unreachable services stop with a clear configuration error. Remote database migrations and initialization additionally require an exact-target acknowledgement such as `--allow-remote-database=staging.example:5432/app_db`; local reuse remains automatic. Setup failures print the manual install, initialization and dev commands.
+`yarn setup` creates missing environment files, installs dependencies, picks the services, applies migrations, initializes demo data when needed, and starts the dev runtime. Without a service flag it reuses the PostgreSQL, Redis and Meilisearch configured in `.env` when they answer and their credentials verify; when nothing answers it starts this app's Docker Compose services on the configured ports; when those ports belong to something else (another checkout's containers, a database with different credentials) it starts an isolated Compose stack on free ports and says why. Interactive terminals show the choice with that pick as the default; the flags select a mode explicitly: `--infra` (Compose on configured ports), `--random-ports` (isolated Compose stack on free ports), `--ephemeral` (disposable Testcontainers services for the session) and `--no-infra` / `--reuse-services` (the services in `.env`, no Docker calls). Isolated options synchronize the service ports and URLs; ephemeral settings are restored when the session exits. Re-running reuses existing infrastructure and keeps your data. Before database setup, connections and credentials are verified with a PostgreSQL query, Redis PINGs and the protected Meilisearch API. Remote database migrations and initialization additionally require an exact-target acknowledgement such as `--allow-remote-database=staging.example:5432/app_db`; local reuse remains automatic. Setup failures print the manual install, initialization and dev commands.
 
-A plain `npx create-mercato-app my-app` asks these questions plus Git init (its agent default is Claude Code). Without a terminal it silently picks classic, claude-code and no git, so agents always pass the flags and choose services explicitly: run `yarn setup --infra` for a fresh machine, `yarn setup --ephemeral` for disposable services, or `yarn setup --reuse-services` for configured existing services. If Docker is unavailable, offer Open Mercato Cloud instead. To keep mise after this terminal closes, add `eval "$(~/.local/bin/mise activate zsh)"` (or `bash`) to your shell profile. Pushing to GitHub is optional and comes later, in [Day 1](#day-1-the-missing-20-as-a-module).
+#### Without Docker
+
+Docker only runs the services for you. Without it, run them yourself; only PostgreSQL is required:
+
+| Service | Needed for | Install, for example |
+|---|---|---|
+| PostgreSQL 15+ | everything | `sudo apt install postgresql` · `brew install postgresql@17` · [Windows installer](https://www.postgresql.org/download/windows/) |
+| Redis 7 | optional: cache, queues and events shared across processes | `sudo apt install redis-server` · `brew install redis` |
+| Meilisearch 1.11 | optional: full-text search | `curl -L https://install.meilisearch.com \| sh` |
+
+1. Create the database with a user that may create extensions on the first run (`unaccent` and `pg_trgm`, which ship with PostgreSQL; add [pgvector](https://github.com/pgvector/pgvector) only for vector search). With the defaults from `.env.example`: `sudo -u postgres psql -c "ALTER USER postgres PASSWORD 'postgres'"` and `sudo -u postgres createdb open-mercato` (on macOS with Homebrew: `createuser -s postgres`, then `createdb -U postgres open-mercato`).
+2. If your user, password, host or port differ, set `DATABASE_URL` in `.env`; for the optional services, uncomment and set `REDIS_URL`, `MEILISEARCH_HOST` and `MEILISEARCH_API_KEY`.
+3. Run `yarn setup`. When Docker is missing but the database in `.env` answers, setup uses your services; `yarn setup --no-infra` forces that and makes no Docker calls at all.
+
+A plain `npx create-mercato-app my-app` asks these questions plus Git init (its agent default is Claude Code). Without a terminal it silently picks classic, claude-code and no git, so agents always pass the flags and run `yarn setup` in the background; it picks services without prompting. If Docker is unavailable, follow [Without Docker](#without-docker), or offer Open Mercato Cloud. To keep mise after this terminal closes, add `eval "$(~/.local/bin/mise activate zsh)"` (or `bash`) to your shell profile. Pushing to GitHub is optional and comes later, in [Day 1](#day-1-the-missing-20-as-a-module).
 
 **In the Cloud:** [sign in or request access](https://app.openmercatocloud.com/signup) (registration may be closed, see the [waitlist note](#no-terminal-open-mercato-cloud)), create a sandbox from the **classic** template, wait until it shows Running, then click **Open app**.
 

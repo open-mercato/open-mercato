@@ -24,6 +24,7 @@ import readline from 'node:readline'
 import { detectDocker, resolveRepoRoot, runCompose, runStreamingSync, spawnStreaming } from './compose.mjs'
 import { readEnvValue } from './env-file.mjs'
 import { chooseServiceMode, printManualSetup } from './service-modes.mjs'
+import { FRESH_CLONE_NO_INFRA_COMMAND, acquireSetupSession, selectStarterServiceMode } from './setup-session.mjs'
 import { FULLAPP_DEV_COMPOSE_FILE, STARTER_STATE_DIR, resolveStackPorts, stackUrls } from './constants.mjs'
 import { loadCompanyConfig } from './company.mjs'
 import { printDoctorReport, runDoctor } from './doctor.mjs'
@@ -169,9 +170,43 @@ async function confirm(question, { nonInteractive }) {
 
 async function commandUp(flags) {
   const selectedMode = resolveMode(flags.mode)
-  flags.serviceMode = flags.mode === 'docker' && flags.serviceArgs.length === 0
-    ? 'compose'
-    : await chooseServiceMode({ argv: [...flags.serviceArgs, ...(flags.nonInteractive ? ['--non-interactive'] : [])] })
+  const containerized = flags.mode === 'docker' && flags.serviceArgs.length === 0
+  let session = null
+  if (!containerized) {
+    try {
+      session = await acquireSetupSession(repoRoot)
+    } catch (error) {
+      console.error(`❌ ${error instanceof Error ? error.message : String(error)}`)
+      console.error('   No service configuration, .env file or container was changed.')
+      process.exitCode = 2
+      return
+    }
+  }
+  const state = { handedOff: false }
+  try {
+    return await runUp(flags, { selectedMode, containerized, session, state })
+  } finally {
+    if (!state.handedOff) session?.release()
+  }
+}
+
+async function runUp(flags, { selectedMode, containerized, session, state }) {
+  if (containerized) {
+    flags.serviceMode = 'compose'
+  } else {
+    try {
+      flags.serviceMode = await chooseServiceMode({
+        argv: [...flags.serviceArgs, ...(flags.nonInteractive ? ['--non-interactive'] : [])],
+        selectDefault: () => selectStarterServiceMode(repoRoot),
+      })
+    } catch (error) {
+      if (!error.problem) throw error
+      console.error(`❌ ${error.message}`)
+      printInfraProblem(error.problem, { optOutCommand: FRESH_CLONE_NO_INFRA_COMMAND })
+      process.exitCode = 2
+      return
+    }
+  }
   flags.noInfra = ['reuse', 'ephemeral'].includes(flags.serviceMode)
   if (flags.serviceMode === 'ephemeral' && flags.detach) {
     console.error('Ephemeral services belong to a foreground setup session. Omit --detach or use --random-ports for persistent local services.')
@@ -188,6 +223,7 @@ async function commandUp(flags) {
     console.log(color.dim(`  --clean: cleared ${cleared.length} convergence marker(s) — install, build, and migrations will re-run (data untouched).`))
   }
   const ctx = await createStepContext(repoRoot, { mode, flags })
+  if (session) Object.assign(ctx.env, session.childEnv)
   let devChild
   let signalExitCode
   let shutdownTimer
@@ -198,6 +234,7 @@ async function commandUp(flags) {
     clearTimeout(shutdownTimer)
     try { await ctx.cleanupServices?.() }
     catch (error) { console.error(`Could not clean up ephemeral services: ${error.message}`); code = 1 }
+    session?.release()
     process.exit(code)
   }
   if (flags.serviceMode === 'ephemeral') {
@@ -249,12 +286,15 @@ async function commandUp(flags) {
 
   const devArgs = devRuntimeArgs([...flags.passthrough, ...(ctx.remoteDatabaseArgument ? [ctx.remoteDatabaseArgument] : flags.remoteDatabaseArgs)], { noInfra: flags.noInfra })
   if (flags.detach) {
-    startDetached(repoRoot, devArgs, { env: ctx.env })
+    const pid = startDetached(repoRoot, devArgs, { env: ctx.env })
+    session?.registerChild({ pid }, 'dev-runner')
     console.log('Manage it with the status / logs / stop subcommands.')
     return
   }
   const dev = yarnInvocation(ctx, ['dev', ...devArgs])
   devChild = spawnStreaming(dev.command, dev.args, { cwd: repoRoot, env: ctx.env })
+  state.handedOff = true
+  session?.registerChild(devChild, 'dev-runner')
   devChild.on('close', (code) => { void finish(signalExitCode ?? code ?? 0) })
   devChild.on('error', (error) => {
     console.error(`❌ Could not start yarn dev: ${error.message}`)
@@ -411,8 +451,8 @@ async function commandInfra(flags) {
   process.exit(0)
 }
 
-function printInfraProblem(problem) {
-  const [title, ...rest] = describeInfraProblem(problem)
+function printInfraProblem(problem, options = {}) {
+  const [title, ...rest] = describeInfraProblem(problem, options)
   console.error(`❌ ${title}`)
   for (const line of rest) console.error(` ${line}`)
 }

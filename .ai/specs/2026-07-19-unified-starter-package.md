@@ -119,12 +119,27 @@ A first run needed several manual commands. The monorepo had `yarn infra:up` but
 
 ## 2026-11-03 — Service choices for setup
 
-Both monorepo and standalone setup default to reusing the configured backing
-services without Docker calls. A TTY prompt offers reuse (Enter), ephemeral
-Testcontainers services, isolated Compose services on random free ports, and
-Compose on configured ports. Explicit flags are `--reuse-services` (legacy
-`--no-infra`), `--ephemeral`, `--random-ports`, and `--infra`; noninteractive runs
-reuse by default. Explicit full-Docker mode keeps its existing Compose behavior.
+A TTY prompt offers reuse, ephemeral Testcontainers services, isolated Compose
+services on random free ports, and Compose on configured ports. Explicit flags
+are `--reuse-services` (legacy `--no-infra`), `--ephemeral`, `--random-ports`,
+and `--infra`.
+
+Without a service flag both entrypoints pick the mode in this order (shared
+`selectDefaultServiceMode` in `infra-preflight.mjs`, which never writes):
+(a) configured services answer, their credentials verify and they are not
+containers of a different Compose project -> reuse (as `--no-infra`); (b) nothing
+answers on the configured ports and Docker is usable -> this app's Compose stack
+on the configured ports (as `--infra`); (c) the configured ports are held by
+something unusable (rejected credentials, another project's containers, a
+non-PostgreSQL listener) and Docker is usable -> an isolated stack on free ports
+(as `--random-ports`), with one line saying why; another project's database is
+never contacted; (d) Docker is unusable and nothing usable answers -> exit 2 with
+the formatted Docker problem, the `#without-docker` guide and the `--no-infra`
+hint; (e) Docker is unusable but the configured services verify -> reuse. A
+non-loopback `DATABASE_URL` is an explicit choice and is reused (verification and
+the remote-write acknowledgement decide). A TTY shows the menu with that pick as
+the default; noninteractive runs never prompt. Explicit flags keep their exact
+semantics. Explicit full-Docker mode keeps its existing Compose behavior.
 
 The shared helper owns port allocation and URL/credential configuration for
 PostgreSQL, all configured Redis consumers, and Meilisearch. Random Compose
@@ -136,8 +151,9 @@ Setup errors include the manual install/generate/migrate/initialize/dev sequence
 
 ### Migration & Backward Compatibility
 
-The user-requested default changes from starting Compose to reusing services.
-Pass `--infra` to retain configured-port Compose startup. Existing `--no-infra`
+A plain `yarn setup` on a fresh machine still starts Compose on the configured
+ports (b); it reuses working configured services instead (a/e) and isolates
+itself from occupied ports (c). Pass `--infra` to force configured-port Compose. Existing `--no-infra`
 continues to work, and direct `infra:up` / `infra:down` retain their behavior.
 No existing command or env key is removed; isolated modes explicitly replace
 service endpoints. Explicit isolated modes generate independent random local-only credentials
@@ -164,9 +180,9 @@ credential validity.
 
 ### 2026-11-03 security review remediation
 
-Default reuse is intentional for interactive and noninteractive runs. Fresh
-machines must explicitly choose `--infra`, `--random-ports` or `--ephemeral`;
-there is no automatic fallback that can start or mutate unexpected services.
+Superseded on 2026-11-04 by the default selection above: setup never starts
+services on ports that answer, never writes into another project's database, and
+only falls back to an isolated stack on free ports or stops with guidance.
 
 Remote PostgreSQL writes now require `--allow-remote-database=host:port/database`
 matching the actual pg client parameters. A bare flag can request exact target
@@ -193,3 +209,27 @@ now requires the exact-target acknowledgement. Existing local reuse and explicit
 must add the acknowledgement shown by the guard. Isolated v1 data is preserved
 under its former namespace; v2 starts a separate local stack with independent
 credentials. Optional non-setup profiles retain their existing image policy.
+
+
+### 2026-11-04 — Smooth default selection and setup session ownership
+
+- Default service selection (a)–(e) described in "Service choices for setup";
+  replaces "reuse by default", which on a fresh machine stopped with
+  `PostgreSQL connection failed (localhost:5432)`.
+- The selection runs before `yarn install` and package builds, using only
+  dependency-free probes (TCP, docker CLI); case (d) fails within seconds.
+  Credential verification needs the PostgreSQL driver: when it is missing and
+  a service answers, the template installs dependencies and re-runs the
+  selection, while the monorepo starter reuses and verifies after its install
+  step. Fresh-clone hints use `node packages/starter/bin/om-start.mjs up
+  --no-infra`, which works before the first install.
+- Docker-runtime problems link the README `#without-docker` section;
+  `create-mercato-app` prints the same guide when the docker CLI is missing.
+- Both setup parents (template `scripts/setup.mjs`, monorepo starter `up` in
+  hybrid mode) acquire the canonical workspace dev-session guard
+  (`scripts/dev-session-guard.mjs`, see
+  `2026-07-17-hybrid-dev-runtime-and-starters.md`) before any `.env` write,
+  service configuration, Compose or Testcontainers call, pass its token to the
+  dev runner (`OM_DEV_SESSION_TOKEN`, `OM_DEV_SESSION_WORKSPACE_ROOT`) and
+  release it on failure/exit (detached runs transfer ownership to the runner).
+  A second setup in an active checkout exits 2 without changing anything.

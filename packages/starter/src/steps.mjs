@@ -14,7 +14,7 @@ import { describeInfraProblem, startInfra } from './infra.mjs'
 import { configureServiceMode } from './service-modes.mjs'
 import { assertDatabaseWriteAllowed } from './database-write-guard.mjs'
 import { verifyServiceConnections } from './service-connections.mjs'
-import { findUnhealthyServices } from './infra-preflight.mjs'
+import { WITHOUT_DOCKER_GUIDE_URL, findUnhealthyServices } from './infra-preflight.mjs'
 import { ensureLlmProvider } from './providers.mjs'
 import { color, formatDuration, guideBox, statusLine, stepHeader } from './ui.mjs'
 
@@ -319,7 +319,10 @@ export const containerRuntimeStep = {
     if (wsl && wsl.level !== 'pass') guide.push(`WSL2 first: ${wsl.detail}`, ...wsl.guide, '')
     guide.push(...runtime.guide)
     guide.push('', 'Re-run this starter once the runtime is up — every completed step is skipped.')
-    if (ctx.mode === 'hybrid') guide.push('No container runtime at all? `yarn setup --no-infra` (or `yarn om up --no-infra`) starts just the app against services you point .env at, without any Docker call.')
+    if (ctx.mode === 'hybrid') {
+      guide.push('No container runtime at all? `node packages/starter/bin/om-start.mjs up --no-infra` (after the first install also `yarn setup --no-infra`) starts just the app against services you point apps/mercato/.env at, without any Docker call.')
+      guide.push(`Run PostgreSQL yourself (Redis and Meilisearch are optional): ${WITHOUT_DOCKER_GUIDE_URL}`)
+    }
     throw new StepBlocked(this.id, guide)
   },
 }

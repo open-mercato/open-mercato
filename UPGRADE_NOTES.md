@@ -5136,9 +5136,14 @@ skill can parse them.
 
 ## Setup service isolation and remote database acknowledgement
 
-Local `yarn setup` continues to reuse configured services by default. Fresh
-unattended machines should explicitly choose `yarn setup --infra`,
-`--random-ports`, or `--ephemeral`; reuse failures never start Docker implicitly.
+Without a service flag `yarn setup` reuses configured services that answer and
+verify, starts Compose on the configured ports when nothing answers, and starts
+an isolated stack on free ports when the configured ports are held by something
+unusable (another checkout's containers, rejected credentials). Without Docker
+and without usable services it stops with a link to the README "Without Docker"
+guide. Explicit flags (`--infra`, `--random-ports`, `--ephemeral`, `--no-infra` /
+`--reuse-services`) are unchanged. Setup now claims the workspace dev session
+before touching `.env` or containers; a second setup in a running checkout stops.
 
 Before migrations or initialization against a non-loopback PostgreSQL target,
 provide `--allow-remote-database=host:port/database` matching the target printed

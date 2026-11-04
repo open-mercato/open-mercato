@@ -11,7 +11,7 @@ yarn setup              # same as `yarn om up`: everything from install to a run
 yarn om                 # alias for node packages/starter/bin/om-start.mjs
 ```
 
-`yarn setup` offers a service choice in an interactive terminal; press Enter to reuse the services configured in `apps/mercato/.env` without Docker calls. Noninteractive runs also default to reuse. Use `--ephemeral` for disposable PostgreSQL, Redis and Meilisearch managed by Testcontainers, `--random-ports` for a persistent isolated Compose stack on free ports, or `--infra` for Compose on configured ports. `--no-infra` and `--reuse-services` explicitly select reuse. Random and ephemeral modes update the service ports and matching connection URLs together; ephemeral mode restores the previous settings and removes its containers when the foreground session stops. Compose containers and volumes persist. Nothing installs Docker or asks for sudo.
+Without a service flag `yarn setup` picks the services itself: it reuses those configured in `apps/mercato/.env` when they answer, their credentials verify and they are not another checkout's containers; starts this checkout's Compose services on the configured ports when nothing answers; starts an isolated stack on free ports (and says why) when the configured ports are held by something unusable; and stops with the Docker problem plus the [Without Docker](https://github.com/open-mercato/open-mercato#without-docker) guide when Docker is unusable and nothing usable answers. An interactive terminal shows the choice with that pick as the default; noninteractive runs never prompt. Setup claims the checkout's dev session first, so a second `yarn setup` while one is running stops before changing `.env` or containers. Use `--ephemeral` for disposable PostgreSQL, Redis and Meilisearch managed by Testcontainers, `--random-ports` for a persistent isolated Compose stack on free ports, or `--infra` for Compose on configured ports. `--no-infra` and `--reuse-services` explicitly select reuse. Random and ephemeral modes update the service ports and matching connection URLs together; ephemeral mode restores the previous settings and removes its containers when the foreground session stops. Compose containers and volumes persist. Nothing installs Docker or asks for sudo.
 
 Apps created with `npx create-mercato-app` get the same check: their `yarn setup` (and `yarn infra:up` / `yarn infra:down`) runs this package's preflight from `scripts/dev-infra-preflight.mjs`, a byte-for-byte copy kept in sync by `yarn template:sync`.
 
@@ -65,9 +65,10 @@ Before database setup, the starter verifies PostgreSQL with `SELECT 1`, every co
 
 ## Setup security boundaries
 
-Plain and noninteractive setup still default to reusing configured services.
-On a fresh machine choose `yarn setup --infra`, `--random-ports`, or `--ephemeral`
-explicitly; a failed reuse probe never starts containers automatically.
+Plain and noninteractive setup never start services on ports that already
+answer and never contact a database held by another project's containers: they
+reuse verified services, start Compose on free configured ports, or isolate
+themselves on free random ports. Explicit flags keep their exact meaning.
 
 Before any setup/development migration or initialization, the guard resolves the
 actual PostgreSQL target (including connection-string overrides). Non-loopback

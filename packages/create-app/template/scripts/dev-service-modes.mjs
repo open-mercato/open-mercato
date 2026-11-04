@@ -19,17 +19,35 @@ export function resolveServiceMode(argv) {
   return modes[0] ?? 'reuse'
 }
 
-export async function chooseServiceMode({ argv = [], input = process.stdin, output = process.stdout } = {}) {
+const MENU = [['reuse', 'reuse configured services'], ['ephemeral', 'ephemeral Testcontainers'], ['random', 'Docker Compose on random ports'], ['compose', 'Docker Compose on configured ports']]
+
+export class ServiceSelectionError extends Error {
+  constructor(selection) {
+    super(selection.reason)
+    this.name = 'ServiceSelectionError'
+    this.problem = selection.problem
+  }
+}
+
+// Explicit flags keep their exact meaning. Without one, `selectDefault`
+// (selectDefaultServiceMode from the infra preflight) picks the mode; a TTY
+// may still choose, with that pick as the default. Non-interactive runs never
+// prompt.
+export async function chooseServiceMode({ argv = [], input = process.stdin, output = process.stdout, selectDefault, log = console.log } = {}) {
   const mode = resolveServiceMode(argv)
-  if (argv.some((arg) => MODE_FLAGS.has(arg)) || argv.includes('--non-interactive') || !input.isTTY || !output.isTTY || process.env.CI) return mode
+  if (argv.some((arg) => MODE_FLAGS.has(arg))) return mode
+  const selection = selectDefault ? await selectDefault() : { mode: 'reuse' }
+  if (!selection.mode) throw new ServiceSelectionError(selection)
+  if (selection.reason) log(`[setup] ${selection.reason}`)
+  if (argv.includes('--non-interactive') || !input.isTTY || !output.isTTY || process.env.CI) return selection.mode
   const prompt = createInterface({ input, output })
   try {
-    const answer = (await prompt.question('Services: [1] reuse configured services (default), [2] ephemeral Testcontainers, [3] Docker Compose on random ports, [4] Docker Compose on configured ports: ')).trim()
-    if (!answer || answer === '1') return 'reuse'
-    if (answer === '2') return 'ephemeral'
-    if (answer === '3') return 'random'
-    if (answer === '4') return 'compose'
-    throw new Error('Invalid service choice. Re-run setup and choose 1, 2, 3, or 4.')
+    const choices = MENU.map(([value, label], index) => `[${index + 1}] ${label}${value === selection.mode ? ' (default)' : ''}`).join(', ')
+    const answer = (await prompt.question(`Services: ${choices}: `)).trim()
+    if (!answer) return selection.mode
+    const picked = MENU[Number(answer) - 1]
+    if (!/^[1-4]$/.test(answer) || !picked) throw new Error('Invalid service choice. Re-run setup and choose 1, 2, 3, or 4.')
+    return picked[0]
   } finally {
     prompt.close()
   }

@@ -1,15 +1,18 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { copyFileSync, existsSync, readFileSync } from 'node:fs'
+import { parseEnv } from 'node:util'
 import { collectForwardedSetupFlags, previewDatabaseNameOverride } from './dev-database-url.mjs'
-import { NO_INFRA_FLAG } from './dev-infra-preflight.mjs'
-import { ensureInfra } from './infra.mjs'
+import { NO_INFRA_FLAG, formatInfraProblem, selectDefaultServiceMode } from './dev-infra-preflight.mjs'
+import { ensureInfra, resolveInfraServices } from './infra.mjs'
 import { chooseServiceMode, configureServiceMode, printManualSetup } from './dev-service-modes.mjs'
 import { verifyServiceConnections } from './dev-service-connections.mjs'
 import { assertDatabaseWriteAllowed } from './dev-database-write-guard.mjs'
+import { acquireDevSession } from './dev-session-guard.mjs'
 
 const argv = process.argv.slice(2)
 const verbose = argv.includes('--verbose')
 let services
+let session
 let child
 let shutdownTimer
 let interrupted = false
@@ -25,16 +28,57 @@ const forwardSignal = (signal) => {
 const onInterrupt = () => forwardSignal('SIGINT')
 const onTerminate = () => forwardSignal('SIGTERM')
 
+function installDependencies() {
+  const bootstrap = spawnSync('yarn', ['install'], { stdio: 'inherit', shell: process.platform === 'win32' })
+  if (bootstrap.status !== 0) throw new Error('Dependency installation failed. Resolve the install error above before retrying setup.')
+}
+
+function configuredSettings() {
+  return { ...(existsSync('.env') ? parseEnv(readFileSync('.env', 'utf8')) : {}), ...process.env }
+}
+
+async function selectDefault() {
+  const selection = await selectConfiguredServices()
+  if (!selection.deferredVerification) return selection
+  installDependencies()
+  return selectConfiguredServices()
+}
+
+function selectConfiguredServices() {
+  const settings = configuredSettings()
+  return selectDefaultServiceMode({
+    databaseUrl: settings.DATABASE_URL,
+    services: resolveInfraServices(process.cwd()),
+    cwd: process.cwd(),
+    verifyConnections: () => verifyServiceConnections({ projectDir: process.cwd(), env: settings, timeoutMs: 3000, log: () => {} }),
+  })
+}
+
+try {
+  session = acquireDevSession({ workspaceRoot: process.cwd(), mode: 'setup', role: 'setup' })
+} catch (error) {
+  console.error(`[setup] ${error.message}`)
+  console.error('[setup] No service configuration, .env file or container was changed.')
+  process.exit(2)
+}
+
 try {
   if (!existsSync('.env') && existsSync('.env.example')) {
     copyFileSync('.env.example', '.env')
     console.log('[setup] Copied .env.example to .env')
   }
-  const mode = await chooseServiceMode({ argv })
-  if (!existsSync('node_modules/cross-spawn') || (mode === 'ephemeral' && !existsSync('node_modules/@open-mercato/cli'))) {
-    const bootstrap = spawnSync('yarn', ['install'], { stdio: 'inherit', shell: process.platform === 'win32' })
-    if (bootstrap.status !== 0) throw new Error('Dependency installation failed. Resolve the install error above before retrying setup.')
+  let mode
+  try {
+    mode = await chooseServiceMode({ argv, selectDefault })
+  } catch (error) {
+    if (!error.problem) throw error
+    console.error(`[setup] ${error.message}`)
+    const [title, ...rest] = formatInfraProblem(error.problem)
+    console.error(`❌ ${title}`)
+    for (const line of rest) console.error(` ${line}`)
+    throw Object.assign(new Error('No usable services and no usable Docker.'), { reported: true })
   }
+  if (!existsSync('node_modules/cross-spawn') || (mode === 'ephemeral' && !existsSync('node_modules/@open-mercato/cli'))) installDependencies()
   process.on('SIGINT', onInterrupt)
   process.on('SIGTERM', onTerminate)
   services = await configureServiceMode({ mode, projectDir: process.cwd() })
@@ -59,7 +103,8 @@ try {
     ...(services.noInfra ? [NO_INFRA_FLAG] : []),
     ...collectForwardedSetupFlags(argv),
     ...(databaseAuthorization?.argument ? [databaseAuthorization.argument] : []),
-  ], { stdio: 'inherit', env: childEnv })
+  ], { stdio: 'inherit', env: { ...childEnv, ...session.childEnv } })
+  session.registerChild(child, 'dev-runner')
   const status = await new Promise((resolve, reject) => {
     child.once('error', reject)
     child.once('exit', (code, signal) => resolve(code ?? (signal === 'SIGINT' ? 130 : 1)))
@@ -69,8 +114,10 @@ try {
     printManualSetup()
   }
 } catch (error) {
-  console.error(`[setup] ${error.message}`)
-  printManualSetup()
+  if (!error.reported) {
+    console.error(`[setup] ${error.message}`)
+    printManualSetup()
+  }
   process.exitCode = signalExitCode ?? 2
 } finally {
   clearTimeout(shutdownTimer)
@@ -82,4 +129,5 @@ try {
     printManualSetup()
     process.exitCode = 1
   }
+  session.release()
 }
