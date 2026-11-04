@@ -36,5 +36,5 @@ Root cause: each page binds `DataTable isLoading` to React Query `isFetching`. T
 
 ### Phase 1: Fix and regression test
 
-- [ ] 1.1 Bind DataTable isLoading to isLoading in WMS list pages
-- [ ] 1.2 Add background-refetch regression test
+- [x] 1.1 Bind DataTable isLoading to isLoading in WMS list pages — f6dd97618c
+- [x] 1.2 Add background-refetch regression test — f6dd97618c
