@@ -53,7 +53,7 @@ type CompletePutawayTaskDialogProps = {
 }
 
 const formSchema = z.object({
-  confirmedQuantity: z.number().positive(),
+  confirmedQuantity: z.number().positive('wms.backend.putaway.complete.errors.quantityPositive'),
   targetLocationId: z.string().uuid('wms.backend.putaway.complete.errors.targetRequired'),
 })
 
