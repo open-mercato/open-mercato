@@ -11,12 +11,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import type { WorkflowInstance, WorkflowEvent } from '../../data/entities'
 import { WorkflowGraphReadOnly } from '../WorkflowGraph'
 import { MobileWorkflowTimeline, type TimelineStep } from './MobileWorkflowTimeline'
 import { ChevronDown, ChevronUp, Maximize2 } from 'lucide-react'
 import type { Node, Edge } from '@xyflow/react'
+import { formatDisplayDateTime, formatDisplayTime } from '@open-mercato/ui/primitives/date-format'
 
 interface MobileInstanceOverviewProps {
   instance: WorkflowInstance
@@ -42,6 +43,7 @@ export function MobileInstanceOverview({
   calculateDuration,
 }: MobileInstanceOverviewProps) {
   const t = useT()
+  const locale = useLocale()
   const [showFullGraph, setShowFullGraph] = useState(false)
   const [expandedEvents, setExpandedEvents] = useState<Set<string>>(new Set())
 
@@ -111,12 +113,12 @@ export function MobileInstanceOverview({
           </div>
           <div className="flex items-start justify-between">
             <dt className="text-xs font-medium text-muted-foreground">{t('workflows.instances.fields.startedAt')}</dt>
-            <dd className="text-xs">{new Date(instance.startedAt).toLocaleString()}</dd>
+            <dd className="text-xs">{formatDisplayDateTime(instance.startedAt, locale)}</dd>
           </div>
           {instance.completedAt && (
             <div className="flex items-start justify-between">
               <dt className="text-xs font-medium text-muted-foreground">{t('workflows.instances.fields.completedAt')}</dt>
-              <dd className="text-xs">{new Date(instance.completedAt).toLocaleString()}</dd>
+              <dd className="text-xs">{formatDisplayDateTime(instance.completedAt, locale)}</dd>
             </div>
           )}
           {instance.retryCount > 0 && (
@@ -185,7 +187,7 @@ export function MobileInstanceOverview({
                       {t(`workflows.events.types.${event.eventType}`) || event.eventType}
                     </span>
                     <span className="text-overline text-muted-foreground">
-                      {new Date(event.occurredAt).toLocaleTimeString()}
+                      {formatDisplayTime(event.occurredAt, locale)}
                     </span>
                   </div>
                   {event.eventData?.toStepId && (
@@ -219,7 +221,7 @@ export function MobileInstanceOverview({
                         </span>
                       </div>
                       <div className="mt-1 text-overline text-muted-foreground">
-                        {new Date(event.occurredAt).toLocaleString()}
+                        {formatDisplayDateTime(event.occurredAt, locale)}
                       </div>
                     </div>
                     {event.eventData && (

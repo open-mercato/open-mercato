@@ -10,7 +10,8 @@ import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
 import type { TranslateFn, TranslateParams } from '@open-mercato/shared/lib/i18n/context'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
-import { formatDateTime, formatRelativeTime } from '@open-mercato/shared/lib/time'
+import { formatRelativeTime } from '@open-mercato/shared/lib/time'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -2011,7 +2012,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">{t('warranty_claims.detail.opened')}</p>
-                <p className="mt-1 text-sm font-medium text-foreground" title={formatDateTime(claim.createdAt) ?? undefined}>
+                <p className="mt-1 text-sm font-medium text-foreground" title={formatDisplayDateTime(claim.createdAt) ?? undefined}>
                   {formatRelativeTime(claim.createdAt, { locale }) ?? noValue}
                 </p>
               </div>
@@ -2226,7 +2227,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
                                 ? t('warranty_claims.detail.visibility.customer')
                                 : t('warranty_claims.detail.visibility.internal')}
                             </StatusBadge>
-                            <span className="text-xs text-muted-foreground">{formatDateTime(event.createdAt) ?? noValue}</span>
+                            <span className="text-xs text-muted-foreground">{formatDisplayDateTime(event.createdAt) ?? noValue}</span>
                           </div>
                           {body ? <p className="text-sm">{body}</p> : null}
                         </div>

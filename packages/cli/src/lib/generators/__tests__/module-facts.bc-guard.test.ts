@@ -207,7 +207,11 @@ describe('module-facts BC resolve guard (T2)', () => {
     // contributions all render a resolved Source cell, and contribution
     // resolutions render as their own source-linked section — plus the additive
     // `channel_discord` module's own render, per the growth note above.
-    expect(markdownBytes).toBeLessThan(2_100_000)
+    // Raised 2,100,000 → 2,150,000 for the date/locale settings work (configs
+    // date-locale route, settings + profile pages, two ACL features, the
+    // userTimeZoneLookup DI token): measured 2,100,156, an additive overshoot of
+    // 156 bytes, not a blow-up — the other three measures stayed under their caps.
+    expect(markdownBytes).toBeLessThan(2_150_000)
     // Raised even though it was still passing: at 2,050,000 it sat 3.2% above
     // the union measurement, and a cap that close has stopped detecting blow-ups
     // and started rejecting the next additive module — the failure mode the note

@@ -6,7 +6,8 @@ import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { DataTable, type PaginationProps } from '@open-mercato/ui/backend/DataTable'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { ActionLogDetailsDialog } from './ActionLogDetailsDialog'
 import { Undo2, RotateCcw } from 'lucide-react'
 import { markRedoConsumed, markUndoSuccess } from '@open-mercato/ui/backend/operations/store'
@@ -72,6 +73,7 @@ export function AuditLogsActions({
   pagination?: PaginationProps
 }) {
   const t = useT()
+  const locale = useLocale()
   const permissions = useAuditPermissions(true)
   const [undoingToken, setUndoingToken] = React.useState<string | null>(null)
   const [redoingId, setRedoingId] = React.useState<string | null>(null)
@@ -182,7 +184,7 @@ export function AuditLogsActions({
     {
       accessorKey: 'createdAt',
       header: t('audit_logs.actions.columns.when'),
-      cell: (info) => formatDate(info.getValue() as string),
+      cell: (info) => formatDate(info.getValue() as string, locale),
     },
     {
       accessorKey: 'executionState',
@@ -229,7 +231,7 @@ export function AuditLogsActions({
       },
       meta: { align: 'right' },
     },
-  ], [t, noneLabel, handleUndo, handleRedo, isLatestUndoableForItem, isRedoCandidate, undoingToken, redoingId, permissions])
+  ], [t, locale, noneLabel, handleUndo, handleRedo, isLatestUndoableForItem, isRedoCandidate, undoingToken, redoingId, permissions])
 
   const undoButton = latestUndoable?.undoToken && canUndoEntry(permissions, latestUndoable.actorUserId) ? (
     <Button
@@ -290,11 +292,6 @@ function buildResourceKey(item: { resourceKind?: string | null; resourceId?: str
   return `${kind}::${id}`
 }
 
-function formatDate(value: string) {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(date)
+function formatDate(value: string, locale?: string) {
+  return formatDisplayDateTime(value, locale) ?? value
 }

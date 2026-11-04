@@ -3,14 +3,16 @@
 import * as React from 'react'
 import { Calendar, CalendarClock, Clock, Mail, Phone, StickyNote, Users } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { formatDisplayTime } from '@open-mercato/ui/primitives/date-format'
 import { ActivitiesDayStrip } from './ActivitiesDayStrip'
 import { ActivitiesAddNewMenu, type ActivityKind } from './ActivitiesAddNewMenu'
 import type { InteractionSummary } from './types'
 import { isOpenInteractionStatus } from '../../lib/interactionStatus'
 import { isSameDay, toLocalZonedDate } from '../../lib/localDay'
+import { formatZonedDateParts } from '../../lib/displayDate'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
@@ -62,19 +64,18 @@ function isOverdue(activity: InteractionSummary, now: Date): boolean {
 // race the fetch.
 const FETCH_WINDOW_DAYS = 31
 
-function formatTime(date: Date): string {
-  return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+function formatTime(date: Date, locale: string): string {
+  return formatDisplayTime(date, locale) ?? ''
 }
 
-function formatRelativeDay(date: Date, t: TranslateFn): string {
-  const now = new Date()
-  const today = startOfDay(now)
-  const target = startOfDay(date)
+function formatRelativeDay(date: Date, t: TranslateFn, locale: string): string {
+  const today = startOfDay(toLocalZonedDate(new Date()))
+  const target = startOfDay(toLocalZonedDate(date))
   const diff = Math.round((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
   if (diff === 0) return t('customers.timeline.date.today', 'today')
   if (diff === 1) return t('customers.timeline.date.tomorrow', 'tomorrow')
   if (diff === -1) return t('customers.timeline.date.yesterday', 'yesterday')
-  return target.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+  return formatZonedDateParts(date, { day: 'numeric', month: 'short' }, locale)
 }
 
 function formatDuration(minutes: number, t: TranslateFn): string {
@@ -94,7 +95,7 @@ export function ActivitiesCard({
   entityCompanyName,
 }: ActivitiesCardProps) {
   const t = useT()
-  const [selectedDate, setSelectedDate] = React.useState<Date>(() => startOfDay(new Date()))
+  const [selectedDate, setSelectedDate] = React.useState<Date>(() => startOfDay(toLocalZonedDate(new Date())))
   // Fetch the same broader window as the day strip via the canonical interactions
   // endpoint. This single source of truth aligns the day-strip count with the
   // visible event list (issue #1809 — E1) and surfaces all interaction types
@@ -234,6 +235,7 @@ interface PlannedEventRowProps {
 }
 
 function PlannedEventRow({ activity, onClick, entityCompanyName, t }: PlannedEventRowProps) {
+  const locale = useLocale()
   const dateStr = activity.scheduledAt ?? activity.occurredAt ?? activity.createdAt
   const date = new Date(dateStr)
   const validDate = !Number.isNaN(date.getTime())
@@ -258,10 +260,10 @@ function PlannedEventRow({ activity, onClick, entityCompanyName, t }: PlannedEve
       >
         <div className="flex h-[44px] w-[43px] shrink-0 flex-col gap-[2px] pt-[2px]">
           <span className="text-xs font-semibold leading-none text-foreground">
-            {validDate ? formatTime(date) : ''}
+            {validDate ? formatTime(date, locale) : ''}
           </span>
           <span className="text-[10px] leading-none font-normal text-muted-foreground">
-            {validDate ? formatRelativeDay(date, t) : ''}
+            {validDate ? formatRelativeDay(date, t, locale) : ''}
           </span>
         </div>
         <div className="flex shrink-0 items-center justify-center rounded-full bg-muted border-4 border-background size-7">

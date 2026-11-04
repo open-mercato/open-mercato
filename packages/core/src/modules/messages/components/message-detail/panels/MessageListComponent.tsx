@@ -1,18 +1,21 @@
 "use client"
 
 import type { MessageListItemProps } from '@open-mercato/shared/modules/messages/types'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayTime, todayInZone } from '@open-mercato/ui/primitives/date-format'
+import { resolveDisplayTimeZone } from '@open-mercato/ui/primitives/date-locale-settings'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { getActiveDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-store'
 
-function formatSentTime(value: Date | null, unknownDate: string): string {
+function formatSentTime(value: Date | null, unknownDate: string, locale: string): string {
   if (!value || Number.isNaN(value.getTime())) return unknownDate
 
-  const now = new Date()
-  if (now.toDateString() === value.toDateString()) {
-    return value.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  const timeZone = resolveDisplayTimeZone()
+  if (todayInZone(timeZone) === todayInZone(timeZone, value)) {
+    return formatDisplayTime(value, locale) ?? unknownDate
   }
 
-  return value.toLocaleDateString([], { month: 'short', day: 'numeric' })
+  return value.toLocaleDateString(getActiveDateLocaleSettings().locale ?? locale, { month: 'short', day: 'numeric', timeZone })
 }
 
 function normalizeBody(value: string | null): string {
@@ -22,11 +25,12 @@ function normalizeBody(value: string | null): string {
 
 export function MessageListComponent({ message, onClick }: MessageListItemProps) {
   const t = useT()
+  const locale = useLocale()
   const senderLabel = message.senderName || '—'
   const body = normalizeBody(message.body)
   const sentAtLabel = message.isDraft
     ? '—'
-    : formatSentTime(message.sentAt, t('messages.unknownDate', 'Unknown date'))
+    : formatSentTime(message.sentAt, t('messages.unknownDate', 'Unknown date'), locale)
 
   return (
     <div

@@ -12,7 +12,8 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { Plus, Star } from 'lucide-react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
@@ -46,6 +47,7 @@ type ResponsePayload = {
 
 export default function CurrenciesPage() {
   const t = useT()
+  const locale = useLocale()
   const { confirm: confirmDialog, ConfirmDialogElement } = useConfirmDialog()
   const [rows, setRows] = React.useState<CurrencyRow[]>([])
   const [page, setPage] = React.useState(1)
@@ -241,7 +243,7 @@ export default function CurrenciesPage() {
         header: t('currencies.list.columns.createdAt'),
         cell: ({ row }) => {
           const date = row.original.createdAt
-          return date ? new Date(date).toLocaleString() : '—'
+          return formatDisplayDateTime(date, locale) ?? '—'
         },
       },
       {
@@ -249,11 +251,11 @@ export default function CurrenciesPage() {
         header: t('currencies.list.columns.updatedAt'),
         cell: ({ row }) => {
           const date = row.original.updatedAt
-          return date ? new Date(date).toLocaleString() : '—'
+          return formatDisplayDateTime(date, locale) ?? '—'
         },
       },
     ],
-    [t]
+    [locale, t]
   )
 
   const filterDefs = React.useMemo<FilterDef[]>(

@@ -15,6 +15,7 @@ import { getFetchWindow } from '../../../lib/calendar/range'
 import type { CalendarItem } from '../types'
 import { fetchCalendarCandidates } from '../useCalendarItems'
 import { useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromeProvider'
+import { formatDisplayTime } from '@open-mercato/ui/primitives/date-format'
 import { fetchDealById, fetchRelatedEntityById, findStaffMemberName } from './lookups'
 
 // Edit-mode prefill stores ids only (parseItemToFormState is pure); resolve the
@@ -59,7 +60,7 @@ export function useEditorLabelResolution(
 const NO_DRAFT_RESOURCES: ReadonlyArray<{ id: string; label: string }> = []
 
 function formatClock(date: Date): string {
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return formatDisplayTime(date) ?? ''
 }
 
 // Debounced save-time conflict probe. Detection uses the SAME `findConflicts`

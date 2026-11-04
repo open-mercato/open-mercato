@@ -6,16 +6,18 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { LeaveRequestForm, buildLeaveRequestPayload, type LeaveRequestFormValues } from '@open-mercato/core/modules/staff/components/LeaveRequestForm'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useDisplayTimeZone } from '@open-mercato/ui/primitives/date-locale-settings'
 
 export default function StaffLeaveRequestCreatePage() {
   const t = useT()
   const router = useRouter()
+  const displayTimeZone = useDisplayTimeZone()
 
   const initialValues = React.useMemo<LeaveRequestFormValues>(() => ({
     startDate: null,
     endDate: null,
-    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-  }), [])
+    timezone: displayTimeZone,
+  }), [displayTimeZone])
 
   const handleSubmit = React.useCallback(async (values: LeaveRequestFormValues) => {
     const payload = buildLeaveRequestPayload(values)

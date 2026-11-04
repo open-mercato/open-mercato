@@ -634,6 +634,22 @@
           "enumItems": [],
           "mappedType": "string"
         },
+        "timezone": {
+          "name": "timezone",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
         "last_login_at": {
           "name": "last_login_at",
           "type": "timestamptz",

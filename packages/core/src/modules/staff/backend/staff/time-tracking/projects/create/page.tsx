@@ -18,6 +18,7 @@ import {
   createProjectFormSchema,
   type ProjectFormValues,
 } from '../projectFormConfig'
+import { todayInZone } from '@open-mercato/ui/primitives/date-format'
 
 const BACK_HREF = '/backend/staff/time-tracking/projects'
 
@@ -89,7 +90,7 @@ export default function TimeTrackingProjectCreatePage() {
                 if (staffMemberId) {
                   await createCrud('staff/timesheets/time-projects/' + newId + '/employees', {
                     staffMemberId,
-                    assignedStartDate: new Date().toISOString().slice(0, 10),
+                    assignedStartDate: todayInZone(),
                     status: 'active',
                   }, { errorMessage: '' })
                 }

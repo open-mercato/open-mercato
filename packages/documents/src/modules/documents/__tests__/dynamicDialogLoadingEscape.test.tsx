@@ -13,6 +13,7 @@ jest.mock('next/dynamic', () => (_loader: unknown, options?: { loading?: Loading
 })
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
+  useLocale: () => 'en',
   useT: () => (key: string) => key,
 }))
 

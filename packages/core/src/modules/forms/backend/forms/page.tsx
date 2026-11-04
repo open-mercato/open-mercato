@@ -12,7 +12,8 @@ import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/u
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { Tag } from '@open-mercato/ui/primitives/tag'
@@ -50,15 +51,13 @@ const statusVariantMap: Record<FormStatus, 'success' | 'warning' | 'neutral'> = 
   archived: 'neutral',
 }
 
-function formatDate(value: string | null): string {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleString()
+function formatDate(value: string | null, locale: string): string {
+  return formatDisplayDateTime(value, locale) ?? ''
 }
 
 export default function FormsListPage() {
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const { runMutation } = useGuardedMutation({ contextId: 'forms.form.archive' })
@@ -202,7 +201,7 @@ export default function FormsListPage() {
     {
       header: t('forms.list.columns.updatedAt'),
       accessorKey: 'updatedAt',
-      cell: ({ row }) => formatDate(row.original.updatedAt),
+      cell: ({ row }) => formatDate(row.original.updatedAt, locale),
     },
     {
       id: 'actions',
@@ -231,7 +230,7 @@ export default function FormsListPage() {
         return <RowActions items={items} />
       },
     },
-  ], [t, router, handleArchive])
+  ], [t, locale, router, handleArchive])
 
   return (
     <Page>

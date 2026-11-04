@@ -24,6 +24,7 @@ import { ErrorMessage, LoadingMessage, RecordNotFoundState } from '@open-mercato
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { useDisplayTimeZone } from '@open-mercato/ui/primitives/date-locale-settings'
 import { downloadInventoryCsv } from '../../lib/inventoryCsvExport'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { LinkButton } from '@open-mercato/ui/primitives/link-button'
@@ -161,7 +162,8 @@ function formatLotLabel(
   if (!lot.expires_at) return number
   const expires = new Date(lot.expires_at)
   if (Number.isNaN(expires.getTime())) return number
-  const expLabel = new Intl.DateTimeFormat(locale, { month: '2-digit', year: '2-digit' }).format(expires)
+  // `expires_at` is a day picked in a date input and stored as UTC midnight: read it in UTC.
+  const expLabel = new Intl.DateTimeFormat(locale, { month: '2-digit', year: '2-digit', timeZone: 'UTC' }).format(expires)
   return `${number} · exp ${expLabel}`
 }
 
@@ -411,6 +413,7 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
 
   const distributionPageSize = 20
 
+  const displayTimeZone = useDisplayTimeZone()
   const activityTimeFormatter = React.useMemo(
     () =>
       new Intl.DateTimeFormat(locale, {
@@ -418,8 +421,9 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
         day: '2-digit',
         hour: '2-digit',
         minute: '2-digit',
+        timeZone: displayTimeZone,
       }),
-    [locale],
+    [displayTimeZone, locale],
   )
 
   const variantQuery = useQuery({

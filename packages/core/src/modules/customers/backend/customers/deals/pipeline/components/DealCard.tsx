@@ -9,7 +9,8 @@ import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { SimpleTooltip } from '@open-mercato/ui/primitives/tooltip'
 import type { RowActionItem } from '@open-mercato/ui/backend/RowActions'
 import { DealCardMenu } from './DealCardMenu'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatCalendarDayParts, formatZonedDateParts } from '../../../../../lib/displayDate'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 
 export type DealCardPipelineState = {
@@ -115,16 +116,9 @@ function formatProbability(value: number | null): string | null {
   return `${Math.min(Math.max(Math.round(value), 0), 100)}%`
 }
 
-const shortDateFormatter = new Intl.DateTimeFormat(undefined, {
-  month: 'short',
-  day: '2-digit',
-})
-
-function formatShortDate(value: string | null): string | null {
+function formatShortDate(value: string | null, locale: string): string | null {
   if (!value) return null
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return null
-  return shortDateFormatter.format(date)
+  return formatZonedDateParts(value, { month: 'short', day: '2-digit' }, locale) || null
 }
 
 function shortDealRef(id: string): string {
@@ -145,6 +139,7 @@ function DealCardImpl({
 }: DealCardProps): React.ReactElement {
   const menuItems = React.useMemo(() => buildMenuItems(deal), [buildMenuItems, deal])
   const t = useT()
+  const locale = useLocale()
   // useDraggable is significantly cheaper than useSortable: dnd-kit doesn't recompute sibling
   // transforms during a drag. We don't reorder within a lane (sortBy controls order), so we just
   // need a draggable handle that drops into a Lane droppable.
@@ -168,7 +163,9 @@ function DealCardImpl({
   const activityWarning = activityCount >= ACTIVITY_BADGE_WARNING_THRESHOLD
 
   const probabilityLabel = formatProbability(deal.probability)
-  const dateLabel = formatShortDate(deal.expectedCloseAt ?? deal.createdAt)
+  const dateLabel = deal.expectedCloseAt
+    ? formatCalendarDayParts(deal.expectedCloseAt, { month: 'short', day: '2-digit' }, locale)
+    : formatShortDate(deal.createdAt, locale)
   const stageDaysLabel = deal.pipelineState.isOverdue
     ? translateWithFallback(t, 'customers.deals.kanban.card.overdueLabel', 'Overdue')
     : translateWithFallback(t, 'customers.deals.kanban.card.daysInStage', 'in {days}d', {

@@ -21,7 +21,7 @@ import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Pencil, Users } from 'lucide-react'
-import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('staff')
@@ -230,7 +230,7 @@ export default function StaffTeamMembersPage() {
       meta: { priority: 6 },
       sortingFn: groupedSortingFn('updatedAt'),
       cell: ({ row }) => row.original.kind === 'member' && row.original.updatedAt
-        ? <span className="text-xs text-muted-foreground">{formatDateTime(row.original.updatedAt)}</span>
+        ? <span className="text-xs text-muted-foreground">{formatDisplayDateTime(row.original.updatedAt)}</span>
         : <span className="text-xs text-muted-foreground">-</span>,
     },
   ], [groupedSortingFn, labels.table.active, labels.table.name, labels.table.roles, labels.table.tags, labels.table.updatedAt, labels.table.user])

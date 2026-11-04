@@ -23,7 +23,7 @@ import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { Plus } from 'lucide-react'
-import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('staff')
@@ -166,7 +166,7 @@ export default function StaffTeamEditPage({ params }: { params?: { id?: string }
       header: memberLabels.table.updatedAt,
       meta: { priority: 6 },
       cell: ({ row }) => row.original.updatedAt
-        ? <span className="text-xs text-muted-foreground">{formatDateTime(row.original.updatedAt)}</span>
+        ? <span className="text-xs text-muted-foreground">{formatDisplayDateTime(row.original.updatedAt)}</span>
         : <span className="text-xs text-muted-foreground">-</span>,
     },
   ], [

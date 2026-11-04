@@ -1,32 +1,34 @@
 "use client"
 
 import type { MessageListItemProps } from '@open-mercato/shared/modules/messages/types'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime, formatDisplayTime, todayInZone } from '@open-mercato/ui/primitives/date-format'
+import { resolveDisplayTimeZone } from '@open-mercato/ui/primitives/date-locale-settings'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { CheckCircle2, FileText, Paperclip, Zap } from 'lucide-react'
+import { getActiveDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-store'
 
-function formatDateTime(value: Date | null, unknownDate: string): string {
-  if (!value) return unknownDate
-  if (Number.isNaN(value.getTime())) return unknownDate
-  return value.toLocaleString()
+function formatDateTime(value: Date | null, unknownDate: string, locale: string): string {
+  return formatDisplayDateTime(value, locale) ?? unknownDate
 }
 
-function formatSentTime(value: Date | null, unknownDate: string): string {
+function formatSentTime(value: Date | null, unknownDate: string, locale: string): string {
   if (!value) return unknownDate
   if (Number.isNaN(value.getTime())) return unknownDate
 
-  const now = new Date()
-  const isSameDay = now.toDateString() === value.toDateString()
-  if (isSameDay) {
-    return value.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  const timeZone = resolveDisplayTimeZone()
+  const today = todayInZone(timeZone)
+  const sentDay = todayInZone(timeZone, value)
+  if (today === sentDay) {
+    return formatDisplayTime(value, locale) ?? unknownDate
   }
 
-  const isSameYear = now.getFullYear() === value.getFullYear()
+  const isSameYear = today.slice(0, 4) === sentDay.slice(0, 4)
   if (isSameYear) {
-    return value.toLocaleDateString([], { month: 'short', day: 'numeric' })
+    return value.toLocaleDateString(getActiveDateLocaleSettings().locale ?? locale, { month: 'short', day: 'numeric', timeZone })
   }
 
-  return value.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' })
+  return value.toLocaleDateString(getActiveDateLocaleSettings().locale ?? locale, { year: 'numeric', month: 'short', day: 'numeric', timeZone })
 }
 
 function truncateWords(value: string, maxWords: number): string {
@@ -39,12 +41,13 @@ function truncateWords(value: string, maxWords: number): string {
 
 export function DefaultMessageListItem({ message, onClick }: MessageListItemProps) {
   const t = useT()
+  const locale = useLocale()
   const senderLabel = message.senderName?.trim() || t('messages.list.noRecipient', '(No recipient)')
   const subject = message.subject.trim() || t('messages.list.noSubject', '(No subject)')
   const unknownDate = t('messages.unknownDate', 'Unknown date')
   const notSentYet = '—'
-  const absoluteSentAt = message.isDraft ? notSentYet : formatDateTime(message.sentAt, unknownDate)
-  const sentAtLabel = message.isDraft ? notSentYet : formatSentTime(message.sentAt, unknownDate)
+  const absoluteSentAt = message.isDraft ? notSentYet : formatDateTime(message.sentAt, unknownDate, locale)
+  const sentAtLabel = message.isDraft ? notSentYet : formatSentTime(message.sentAt, unknownDate, locale)
   const bodyPreview = truncateWords(message.body || '', 16)
 
   return (

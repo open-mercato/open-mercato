@@ -2,7 +2,7 @@
 
 import type { ComponentType } from 'react'
 import type { MessageActionsProps } from '@open-mercato/shared/modules/messages/types'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import type { MessageAction, MessageDetail } from '../types'
 import { formatDateTime } from '../utils'
@@ -18,6 +18,7 @@ type ActionsPanelProps = {
 
 export function MessageDetailActionsSection(props: ActionsPanelProps) {
   const t = useT()
+  const locale = useLocale()
 
   if (!props.messageActions.length) return null
 
@@ -58,7 +59,7 @@ export function MessageDetailActionsSection(props: ActionsPanelProps) {
       )}
       {props.detail.actionTaken ? (
         <p className="text-xs text-muted-foreground">
-          {t('messages.actions.taken', 'Action taken')}: {props.detail.actionTaken} ({formatDateTime(props.detail.actionTakenAt)})
+          {t('messages.actions.taken', 'Action taken')}: {props.detail.actionTaken} ({formatDateTime(props.detail.actionTakenAt, undefined, locale)})
         </p>
       ) : null}
     </section>

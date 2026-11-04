@@ -31,7 +31,7 @@ import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { WORK_INBOX_PRIORITIES } from '../../lib/work-inbox/provider'
@@ -47,6 +47,7 @@ import {
 import { StatusChip } from '../../components/work-inbox/StatusChip'
 import { WorkInboxEmptyState } from '../../components/work-inbox/WorkInboxEmptyState'
 import { extensionPoints } from '@open-mercato/core/modules/workflows/extension-points'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 
 /**
  * `data-table:workflows.tasks.list:*` is a FROZEN widget spot id — the
@@ -81,6 +82,7 @@ export default function WorkInboxPage() {
   const [entityHiddenCount, setEntityHiddenCount] = React.useState(0)
   const [degradedKinds, setDegradedKinds] = React.useState<string[]>([])
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const queryClient = useQueryClient()
   const { confirm: confirmDialog, ConfirmDialogElement } = useConfirmDialog()
@@ -380,7 +382,7 @@ export default function WorkInboxPage() {
           }
           const tone = row.original.overdue ? WORK_INBOX_OVERDUE_TONE.text : 'text-foreground'
           return (
-            <div className={`text-sm ${tone}`}>{new Date(row.original.dueDate).toLocaleString()}</div>
+            <div className={`text-sm ${tone}`}>{formatDisplayDateTime(row.original.dueDate, locale)}</div>
           )
         },
       },
@@ -390,7 +392,7 @@ export default function WorkInboxPage() {
         accessorKey: 'createdAt',
         cell: ({ row }) => (
           <span className="text-sm text-muted-foreground">
-            {new Date(row.original.createdAt).toLocaleString()}
+            {formatDisplayDateTime(row.original.createdAt, locale)}
           </span>
         ),
       },
@@ -443,7 +445,7 @@ export default function WorkInboxPage() {
         },
       },
     ],
-    [handleClaim, handleRelease, t],
+    [handleClaim, handleRelease, t, locale],
   )
 
   const rows = data ?? []

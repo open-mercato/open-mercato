@@ -28,6 +28,7 @@ jest.mock('@dnd-kit/core', () => ({
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (key: string, fallback?: string) => mockTranslations[key] ?? fallback ?? key,
+  useLocale: () => 'en',
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/translate', () => ({

@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { FormHeader, type ActionItem } from '@open-mercato/ui/backend/forms'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import {
@@ -39,6 +39,7 @@ type MessageHeaderProps = {
 
 export function MessageHeader(props: MessageHeaderProps) {
   const t = useT()
+  const locale = useLocale()
   const showSubject = props.showSubject !== false
   const canReply = !props.detail.isDraft && props.detail.typeDefinition.allowReply
   const senderLabel = getMessageParticipantLabel(props.detail)
@@ -126,7 +127,7 @@ export function MessageHeader(props: MessageHeaderProps) {
           subtitle={`${t('messages.detail.from', 'From')}: ${senderLabel}`}
           statusBadge={<p className="text-xs text-muted-foreground">{props.detail.isDraft
             ? '—'
-            : formatDateTime(props.detail.sentAt, t('messages.unknownDate', 'Unknown date'))}</p>}
+            : formatDateTime(props.detail.sentAt, t('messages.unknownDate', 'Unknown date'), locale)}</p>}
           utilityActions={canReply ? (
             <IconButton
               type="button"

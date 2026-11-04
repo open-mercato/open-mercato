@@ -12,7 +12,7 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { FlaskConical, Footprints } from 'lucide-react'
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -53,6 +53,7 @@ import { isRunMilestoneEvent } from '../../../lib/run-event-tone'
 import type { Node } from '@xyflow/react'
 import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { formatDisplayDateTime, formatDisplayTime } from '@open-mercato/ui/primitives/date-format'
 
 const logger = createLogger('workflows')
 
@@ -66,6 +67,7 @@ type StepInstancesResponse = {
 export default function WorkflowInstanceDetailPage({ params }: { params?: { id?: string } }) {
   const id = params?.id
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const isMobile = useIsMobile()
   const queryClient = useQueryClient()
@@ -311,7 +313,7 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
       const presentation = resolveStepPresentation(
         execution,
         { id: node.id, status: runStatus },
-        { agentLabels, agentId: readNodeAgentId(node.data) }
+        { agentLabels, agentId: readNodeAgentId(node.data), locale }
       )
       const status = presentationToWorkflowStatus(presentation.state)
       const state = execution.stepStates.get(node.id)
@@ -325,10 +327,10 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
         `${t('workflows.instances.fields.status', 'Status')}: ${status}`,
       ]
       if (state?.startedAt) {
-        tooltipLines.push(`${t('workflows.instances.fields.startedAt', 'Started')}: ${state.startedAt.toLocaleString()}`)
+        tooltipLines.push(`${t('workflows.instances.fields.startedAt', 'Started')}: ${formatDisplayDateTime(state.startedAt, locale) ?? ''}`)
       }
       if (state?.completedAt) {
-        tooltipLines.push(`${t('workflows.instances.fields.completedAt', 'Completed')}: ${state.completedAt.toLocaleString()}`)
+        tooltipLines.push(`${t('workflows.instances.fields.completedAt', 'Completed')}: ${formatDisplayDateTime(state.completedAt, locale) ?? ''}`)
       }
       if (duration) {
         tooltipLines.push(`${t('workflows.instances.fields.duration', 'Duration')}: ${duration}`)
@@ -360,7 +362,7 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
     })
 
     return { graphNodes: styledNodes, graphEdges: styledEdges }
-  }, [workflowDefinition, execution, agentLabels, instance?.currentStepId, instance?.status, childrenByStepId, selectedStepId, t])
+  }, [workflowDefinition, execution, agentLabels, instance?.currentStepId, instance?.status, childrenByStepId, selectedStepId, t, locale])
 
   const calculateDuration = React.useCallback(
     (startedAt: string | Date, completedAt: string | Date | null | undefined) =>
@@ -630,14 +632,14 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
                 <dt className="text-sm font-medium text-muted-foreground">
                   {t('workflows.instances.fields.startedAt')}
                 </dt>
-                <dd className="mt-1 text-sm text-foreground">{new Date(instance.startedAt).toLocaleString()}</dd>
+                <dd className="mt-1 text-sm text-foreground">{formatDisplayDateTime(instance.startedAt, locale)}</dd>
               </div>
               <div>
                 <dt className="text-sm font-medium text-muted-foreground">
                   {t('workflows.instances.fields.completedAt')}
                 </dt>
                 <dd className="mt-1 text-sm text-foreground">
-                  {instance.completedAt ? new Date(instance.completedAt).toLocaleString() : '-'}
+                  {instance.completedAt ? formatDisplayDateTime(instance.completedAt, locale) : '-'}
                 </dd>
               </div>
               <div>
@@ -874,7 +876,7 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
                             <div className="flex items-center gap-2">
                               <RunEventBadge eventType={event.eventType} />
                               <span className="text-xs text-muted-foreground">
-                                {new Date(event.occurredAt).toLocaleTimeString()}
+                                {formatDisplayTime(event.occurredAt, locale)}
                               </span>
                             </div>
                             {event.eventData?.toStepId && (
@@ -928,7 +930,7 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
                             >
                               <RunEventBadge eventType={event.eventType} />
                               <span className="text-xs text-muted-foreground">
-                                {new Date(event.occurredAt).toLocaleTimeString()}
+                                {formatDisplayTime(event.occurredAt, locale)}
                               </span>
                               {event.eventData?.activityName && (
                                 <span className="text-xs font-medium text-foreground">
@@ -977,7 +979,7 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
                         {events.map((event) => (
                           <tr key={event.id} className="hover:bg-muted/50">
                             <td className="whitespace-nowrap px-4 py-3 text-sm text-foreground">
-                              {new Date(event.occurredAt).toLocaleString()}
+                              {formatDisplayDateTime(event.occurredAt, locale)}
                             </td>
                             <td className="whitespace-nowrap px-4 py-3">
                               <RunEventBadge eventType={event.eventType} />

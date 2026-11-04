@@ -11,6 +11,7 @@ import {
 } from '@open-mercato/core/modules/planner/components/unavailabilityReasons'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { resolveDisplayTimeZone } from '@open-mercato/ui/primitives/date-locale-settings'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 
 type TeamMemberResponse = {
@@ -50,15 +51,13 @@ export type LeaveRequestFormProps = {
   extraActions?: React.ReactNode
 }
 
-const DEFAULT_TIMEZONE = 'UTC'
-
 import { toDateInputValue } from '@open-mercato/shared/lib/date/format'
 
 export function buildLeaveRequestPayload(
   values: LeaveRequestFormValues,
   options: { id?: string } = {},
 ): Record<string, unknown> {
-  const timezone = values.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? DEFAULT_TIMEZONE
+  const timezone = values.timezone ?? resolveDisplayTimeZone()
   return {
     ...(options.id ? { id: options.id } : {}),
     memberId: values.memberId ?? null,

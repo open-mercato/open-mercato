@@ -15,9 +15,9 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
-import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('sales')
@@ -65,6 +65,7 @@ const DEFAULT_FORM_VALUES: TaxRateFormValues = {
 
 export function TaxRatesSettings() {
   const t = useT()
+  const locale = useLocale()
   const scopeVersion = useOrganizationScopeVersion()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [entries, setEntries] = React.useState<TaxRateRow[]>([])
@@ -291,9 +292,9 @@ export function TaxRatesSettings() {
     {
       header: translations.table.updatedAt,
       accessorKey: 'updatedAt',
-      cell: ({ row }) => (row.original.updatedAt ? formatDateTime(row.original.updatedAt) : '—'),
+      cell: ({ row }) => (formatDisplayDateTime(row.original.updatedAt, locale) ?? '—'),
     },
-  ], [translations.table])
+  ], [locale, translations.table])
 
   const dialogValues: TaxRateFormValues = React.useMemo(() => {
     if (!dialog || dialog.mode === 'create') return { ...DEFAULT_FORM_VALUES }

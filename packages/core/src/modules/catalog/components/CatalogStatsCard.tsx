@@ -14,7 +14,8 @@
 
 import * as React from 'react'
 import { Boxes, FolderTree, PackageCheck, Tags } from 'lucide-react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import {
   defaultAiUiPartRegistry,
   type AiUiPartProps,
@@ -58,6 +59,7 @@ function StatTile({
 
 export function CatalogStatsCard({ payload }: AiUiPartProps) {
   const t = useT()
+  const locale = useLocale()
   const data = (payload ?? {}) as CatalogStatsCardPayload
   return (
     <div
@@ -95,7 +97,7 @@ export function CatalogStatsCard({ payload }: AiUiPartProps) {
       ) : null}
       {data.generatedAt ? (
         <p className="mt-2 text-[10px] text-muted-foreground">
-          {t('catalog.stats.snapshotAt', 'Snapshot at {time}').replace('{time}', new Date(data.generatedAt).toLocaleString())}
+          {t('catalog.stats.snapshotAt', 'Snapshot at {time}').replace('{time}', formatDisplayDateTime(data.generatedAt, locale) ?? data.generatedAt)}
         </p>
       ) : null}
     </div>

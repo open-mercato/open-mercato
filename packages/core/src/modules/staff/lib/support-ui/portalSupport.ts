@@ -1,5 +1,6 @@
 import type { StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 
 export type PortalSupportStatus = 'received' | 'in_progress' | 'resolved'
 
@@ -90,9 +91,7 @@ export function portalSupportStatusLabel(t: TranslateFn, status: PortalSupportSt
 
 export function formatPortalDate(value: string | null | undefined, locale?: string): string {
   if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })
+  return formatDisplayDateTime(value, locale) ?? ''
 }
 
 export function formatFileSize(t: TranslateFn, bytes: number): string {

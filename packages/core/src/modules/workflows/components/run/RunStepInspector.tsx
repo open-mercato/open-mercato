@@ -3,11 +3,12 @@
 import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { RunStatusBadge } from './RunStatusBadge'
 import { formatRunDuration } from '../../lib/run-duration'
 import type { RunStepInstanceInput } from '../../lib/run-execution'
 import { stepInstanceStatusToRunStatus } from '../../lib/run-execution'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 
 export type RunStepInspectorProps = {
   /** The node the author selected on the painted canvas, `null` when nothing is selected. */
@@ -33,6 +34,7 @@ function ExecutionRecord({
   attemptLabel: string | null
 }) {
   const t = useT()
+  const locale = useLocale()
   const duration = formatRunDuration(execution.enteredAt, execution.exitedAt, execution.executionTimeMs)
   const attempts = typeof execution.retryCount === 'number' ? execution.retryCount + 1 : 1
 
@@ -54,7 +56,7 @@ function ExecutionRecord({
             {t('workflows.instances.run.inspector.startedAt', 'Started')}
           </dt>
           <dd className="mt-0.5 text-foreground">
-            {execution.enteredAt ? new Date(execution.enteredAt).toLocaleString() : '-'}
+            {execution.enteredAt ? formatDisplayDateTime(execution.enteredAt, locale) : '-'}
           </dd>
         </div>
         <div>
@@ -62,7 +64,7 @@ function ExecutionRecord({
             {t('workflows.instances.run.inspector.endedAt', 'Ended')}
           </dt>
           <dd className="mt-0.5 text-foreground">
-            {execution.exitedAt ? new Date(execution.exitedAt).toLocaleString() : '-'}
+            {execution.exitedAt ? formatDisplayDateTime(execution.exitedAt, locale) : '-'}
           </dd>
         </div>
         <div>

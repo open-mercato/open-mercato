@@ -30,7 +30,8 @@ import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { ConnectChannelMenu } from './ConnectChannelMenu'
 
 type ChannelRow = {
@@ -75,6 +76,7 @@ type ChannelMutationContext = {
 
 export default function ProfileCommunicationChannelsPage() {
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const searchParams = useSearchParams()
   const flashType = searchParams?.get(OAUTH_RESULT_QUERY_PARAM)
@@ -511,12 +513,10 @@ export default function ProfileCommunicationChannelsPage() {
         header: t('communication_channels.profile.columns.lastPolled', 'Last synced'),
         accessorKey: 'lastPolledAt',
         cell: ({ row }) =>
-          row.original.lastPolledAt
-            ? new Date(row.original.lastPolledAt).toLocaleString()
-            : '—',
+          formatDisplayDateTime(row.original.lastPolledAt, locale) ?? '—',
       },
     ],
-    [t],
+    [locale, t],
   )
 
   /**

@@ -29,6 +29,7 @@ import {
   EUDR_STATEMENT_TRANSITIONS,
 } from '../lib/statement-lifecycle'
 import { statusBadgeVariant } from './formConfig'
+import { formatDisplayDate } from '@open-mercato/ui/primitives/date-format'
 
 type StatementLifecycleRecord = {
   id: string
@@ -275,7 +276,7 @@ export function StatementLifecycleBar({
           </div>
           {retainUntil ? (
             <p className="text-sm text-muted-foreground">
-              {translate('eudr.lifecycle.retainUntil', { date: retainUntil.toLocaleDateString(locale || undefined) })}
+              {translate('eudr.lifecycle.retainUntil', { date: formatDisplayDate(retainUntil, locale || undefined) ?? '' })}
             </p>
           ) : null}
         </div>

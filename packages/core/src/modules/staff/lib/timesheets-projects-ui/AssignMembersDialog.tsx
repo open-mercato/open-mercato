@@ -9,6 +9,8 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { todayInZone } from '@open-mercato/ui/primitives/date-format'
+import { useDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-settings'
 
 const logger = createLogger('staff')
 
@@ -67,10 +69,6 @@ function toCandidate(item: StaffMemberItem): Candidate | null {
   return { id, name: displayName, subtitle: teamName }
 }
 
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10)
-}
-
 export function AssignMembersDialog({
   open,
   onOpenChange,
@@ -87,16 +85,17 @@ export function AssignMembersDialog({
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [selectedIds, setSelectedIds] = React.useState<string[]>([])
   const [role, setRole] = React.useState('')
-  const [startDate, setStartDate] = React.useState(todayIso)
+  const { timeZone } = useDateLocaleSettings()
+  const [startDate, setStartDate] = React.useState(() => todayInZone(timeZone))
 
   React.useEffect(() => {
     if (!open) return
     setSearch('')
     setSelectedIds([])
     setRole('')
-    setStartDate(todayIso())
+    setStartDate(todayInZone(timeZone))
     setLoadError(null)
-  }, [open])
+  }, [open, timeZone])
 
   React.useEffect(() => {
     if (!open) return

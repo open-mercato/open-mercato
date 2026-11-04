@@ -23,6 +23,7 @@ import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import type { EudrCommodity } from '../../../data/validators'
 import { commodityOptions, type ProductSnapshot } from '../../../components/formConfig'
 import { MappingSuggestionsDialog } from '../../../components/MappingSuggestionsDialog'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 
 type ProductMappingRow = {
   id: string
@@ -45,9 +46,7 @@ type ProductMappingsResponse = {
 
 function formatDateTime(value: string | null | undefined, emptyLabel: string, locale: string): string {
   if (!value) return emptyLabel
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return emptyLabel
-  return date.toLocaleString(locale || undefined)
+  return formatDisplayDateTime(value, locale || undefined) ?? emptyLabel
 }
 
 function formatProduct(row: ProductMappingRow, unavailableLabel: string): string {
