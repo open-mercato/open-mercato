@@ -191,7 +191,7 @@ export function LookupSelect({
     }
   }, [activeIndex, optionDomId])
 
-  const listboxVisible = shouldSearch && !disabled
+  const listboxVisible = shouldSearch && !disabled && !collapsed
 
   const finishSelection = React.useCallback(() => {
     pendingCommitRef.current = null
@@ -240,6 +240,11 @@ export function LookupSelect({
     focusSummaryRef.current = false
     onChange(null)
   }, [onChange])
+
+  // With nothing selected there is no summary to collapse onto, so the browse list comes back.
+  React.useEffect(() => {
+    if (!value) setCollapsed(false)
+  }, [value])
 
   const handleInputKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
     if (!listboxVisible) return
