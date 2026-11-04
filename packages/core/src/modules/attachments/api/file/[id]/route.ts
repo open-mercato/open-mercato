@@ -23,7 +23,7 @@ import { resolveAttachmentRequestScope } from '@open-mercato/core/modules/attach
 import { createLogger } from '@open-mercato/shared/lib/logger';
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime';
 
-const logger = createLogger('attachments');
+const logger = createLogger('attachments').child({ component: 'file' });
 
 const MISSING_STORAGE_OBJECT_CODES = new Set(['ENOENT', 'NoSuchKey', 'NotFound']);
 
