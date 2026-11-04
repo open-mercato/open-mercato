@@ -8,14 +8,18 @@
  * The sibling `indexer.test.ts` exercises `buildIndexDoc` against a fake Kysely that cannot
  * reproduce Postgres transaction-abort semantics; this suite pins the real behaviour.
  *
- * Gated on OM_QUERY_INDEX_PG_URL (or the pre-existing OM_COUNT_CAP_PG_URL) — a throwaway
- * database, since the suite creates and drops its own tables. Run it with, for example:
+ * Gated on OM_QUERY_INDEX_PG_URL (or the pre-existing OM_COUNT_CAP_PG_URL). The suite creates
+ * its tables inside a unique per-run schema (first in `search_path`) and drops only that
+ * schema afterwards, so it is isolated even if the URL points at a shared, non-disposable
+ * database: it never reads, truncates, or drops anything in that database's `public` schema.
+ * Run it with, for example:
  *
  *   docker run -d --rm --name om-pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=om \
  *     -p 54372:5432 postgres:18-alpine
  *   OM_QUERY_INDEX_PG_URL=postgres://postgres:postgres@127.0.0.1:54372/om \
  *     yarn workspace @open-mercato/core jest build-index-doc-translations.pg
  */
+import crypto from 'node:crypto'
 import { Kysely, PostgresDialect, sql } from 'kysely'
 import { buildIndexDoc } from '../lib/indexer'
 
@@ -26,6 +30,16 @@ const ENTITY = 'txncheck:widget'
 const TENANT = '55555555-5555-4555-8555-555555555555'
 const ORG_A = '66666666-6666-4666-8666-666666666666'
 
+// The suite reads/writes `entity_translations`, `custom_field_values`, and
+// `indexer_error_logs` — real production table names `buildIndexDoc` queries
+// unqualified. Running against those names directly would truncate/drop whatever
+// `PG_URL` actually points at if it is ever a shared or app database rather than a
+// disposable one. A unique per-run schema, first in `search_path`, makes every
+// unqualified table reference in both the suite and `buildIndexDoc` resolve to this
+// suite's own copies, so teardown only ever drops this schema and the real schema
+// (and its data) is never touched regardless of what `PG_URL` points at.
+const SCHEMA = `om_test_${crypto.randomBytes(8).toString('hex')}`
+
 maybe('buildIndexDoc entity_translations read does not poison the caller transaction', () => {
   jest.setTimeout(60_000)
   let db: Kysely<any>
@@ -33,7 +47,13 @@ maybe('buildIndexDoc entity_translations read does not poison the caller transac
   beforeAll(async () => {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { Pool } = require('pg')
-    db = new Kysely<any>({ dialect: new PostgresDialect({ pool: new Pool({ connectionString: PG_URL }) }) })
+    // max: 1 keeps every query on the same physical connection, so the SET search_path
+    // below (a session-level setting) applies to every statement this suite issues,
+    // including the ones buildIndexDoc runs through the same `db` instance.
+    db = new Kysely<any>({ dialect: new PostgresDialect({ pool: new Pool({ connectionString: PG_URL, max: 1 }) }) })
+
+    await sql`create schema if not exists ${sql.raw(SCHEMA)}`.execute(db)
+    await sql`set search_path to ${sql.raw(SCHEMA)}, public`.execute(db)
 
     await sql`create table if not exists widgets (
       id uuid primary key,
@@ -72,10 +92,9 @@ maybe('buildIndexDoc entity_translations read does not poison the caller transac
   })
 
   afterAll(async () => {
-    await sql`drop table if exists indexer_error_logs`.execute(db)
-    await sql`drop table if exists custom_field_values`.execute(db)
-    await sql`drop table if exists widgets`.execute(db)
-    await sql`drop table if exists entity_translations`.execute(db)
+    // Drops only this run's isolated schema — the real `public` schema (and any
+    // production-named tables living there) is never touched.
+    await sql`drop schema if exists ${sql.raw(SCHEMA)} cascade`.execute(db)
     await db.destroy()
   })
 
