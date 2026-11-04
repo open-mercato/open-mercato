@@ -1,3 +1,6 @@
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { loadSalesSettings } from '../../../commands/settings'
+import { normalizeQuoteValidityDays } from '../../../lib/quoteValidity'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -88,9 +91,19 @@ export async function POST(req: Request) {
   try {
     const { ctx } = await resolveRequestContext(req)
     const { translate } = await resolveTranslations()
-    const payload = await req.json().catch(() => ({}))
+    const payload = await readJsonSafe<Record<string, unknown>>(req, {})
     const scoped = withScopedPayload(payload ?? {}, ctx, translate)
-    const input = quoteSendSchema.parse(scoped)
+    const parsedInput = quoteSendSchema.parse(scoped)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const input = scoped.validForDays === undefined
+      ? {
+          ...parsedInput,
+          validForDays: normalizeQuoteValidityDays((await loadSalesSettings(em, {
+            tenantId: ctx.auth!.tenantId!,
+            organizationId: ctx.selectedOrganizationId!,
+          }))?.defaultQuoteValidityDays),
+        }
+      : parsedInput
     const guardResult = await runRouteMutationGuards({
       container: ctx.container,
       req,
@@ -110,7 +123,6 @@ export async function POST(req: Request) {
       return guardResult.response
     }
 
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const tenantScope = ctx.auth?.tenantId
       ? { tenantId: ctx.auth.tenantId, organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null }
       : undefined
@@ -131,9 +143,10 @@ export async function POST(req: Request) {
       throw new CrudHttpError(400, { error: translate('sales.quotes.send.missingEmail', 'Customer email is required to send a quote.') })
     }
 
+    const effectiveInput = quoteSendSchema.parse({ ...input, ...guardResult.modifiedPayload })
     const now = new Date()
     const validUntil = new Date(now)
-    validUntil.setUTCDate(validUntil.getUTCDate() + input.validForDays)
+    validUntil.setUTCDate(validUntil.getUTCDate() + effectiveInput.validForDays)
 
     const rawAcceptanceToken = crypto.randomUUID()
 

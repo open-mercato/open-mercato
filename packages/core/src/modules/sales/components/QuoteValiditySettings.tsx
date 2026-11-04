@@ -7,7 +7,6 @@ import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
-import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -45,8 +44,8 @@ export function QuoteValiditySettings() {
   const settings = loaded?.scopeVersion === scopeVersion ? loaded.settings : null
 
   return (
-    <section className="space-y-4 rounded border border-border bg-card p-5">
-      <h2 className="text-lg font-semibold">{t('sales.config.quoteValidity.title', 'Quote validity')}</h2>
+    <section aria-labelledby="sales-quote-validity-title" className="space-y-4 rounded border border-border bg-card p-5">
+      <h2 id="sales-quote-validity-title" className="text-lg font-semibold">{t('sales.config.quoteValidity.title', 'Quote validity')}</h2>
       <p className="text-sm text-muted-foreground">
         {t('sales.config.quoteValidity.description', 'Default validity when a quote has no future valid-until date. You can change it when sending a quote.')}
       </p>
@@ -65,14 +64,9 @@ export function QuoteValiditySettings() {
               const message = t('sales.config.quoteValidity.errors.invalid', 'Enter a whole number of days from 1 to 365.')
               throw createCrudFormError(message, { defaultQuoteValidityDays: message })
             }
-            try {
-              await updateCrud('sales/settings/quote-validity', { defaultQuoteValidityDays: days })
-              setReloadKey((value) => value + 1)
-              flash(t('sales.config.quoteValidity.saved', 'Quote validity settings saved.'), 'success')
-            } catch (error) {
-              surfaceRecordConflict(error, t, { onRefresh: () => setReloadKey((value) => value + 1) })
-              throw error
-            }
+            await updateCrud('sales/settings/quote-validity', { defaultQuoteValidityDays: days })
+            setReloadKey((value) => value + 1)
+            flash(t('sales.config.quoteValidity.saved', 'Quote validity settings saved.'), 'success')
           }}
         />
       ) : <LoadingMessage />}

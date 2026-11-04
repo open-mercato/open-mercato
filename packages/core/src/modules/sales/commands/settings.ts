@@ -139,6 +139,7 @@ const saveQuoteValiditySettingsCommand: CommandHandler<
         await transactionEm.upsert(SalesSettings, {
           tenantId: input.tenantId, organizationId: input.organizationId,
           orderNumberFormat: DEFAULT_ORDER_NUMBER_FORMAT, quoteNumberFormat: DEFAULT_QUOTE_NUMBER_FORMAT,
+          updatedAt: new Date(),
         }, { onConflictFields: ['organizationId', 'tenantId'], onConflictAction: 'ignore' })
         settings = await loadSalesSettings(transactionEm, input, { lockMode: LockMode.PESSIMISTIC_WRITE })
       }

@@ -60,7 +60,7 @@ it('locks the scoped row inside the transaction and changes only quote validity'
 it('creates ordinary scoped settings with numbering defaults when no row exists', async () => {
   const { ctx, transactionEm } = harness(false)
   expect((await execute(ctx)).defaultQuoteValidityDays).toBe(30)
-  expect(transactionEm.upsert).toHaveBeenCalledWith(SalesSettings, expect.objectContaining({ tenantId, organizationId }), { onConflictFields: ['organizationId', 'tenantId'], onConflictAction: 'ignore' })
+  expect(transactionEm.upsert).toHaveBeenCalledWith(SalesSettings, expect.objectContaining({ tenantId, organizationId, updatedAt: expect.any(Date) }), { onConflictFields: ['organizationId', 'tenantId'], onConflictAction: 'ignore' })
   expect(transactionEm.findOne).toHaveBeenCalledTimes(2)
   expect(transactionEm.persist).not.toHaveBeenCalled()
 })
