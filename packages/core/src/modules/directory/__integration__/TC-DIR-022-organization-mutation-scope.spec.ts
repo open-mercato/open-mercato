@@ -22,7 +22,7 @@ test.describe('TC-DIR-022: Organization mutation actor scope (#8677)', () => {
     const organizationIds: string[] = []
     let roleId: string | null = null
     let userId: string | null = null
-    const features = ['directory.organizations.view', 'directory.organizations.manage', 'audit_logs.view', 'audit_logs.undo_self']
+    const features = ['directory.organizations.view', 'directory.organizations.manage', 'audit_logs.view_self', 'audit_logs.undo_self', 'audit_logs.redo_self']
     const createOrg = async (label: string, parentId?: string) => {
       const id = await createOrganizationFixture(request, adminToken, {
         name: `QA #8677 ${label} ${stamp}`, tenantId: tenantId as string, parentId,
