@@ -9,7 +9,11 @@ import CompanyDetailV2Page from '../page'
 
 const readApiResultOrThrowMock = jest.fn()
 const scopedDeleteHeaderCalls: Array<Record<string, string>> = []
+const companyDetailTabsPropsCapture: {
+  current: { injectedTabs?: Array<{ id: string; label: string; priority?: number }> } | null
+} = { current: null }
 let activeTabParam: string | null = 'activity-log'
+let injectedTabWidgets: Array<Record<string, unknown>> = []
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn() }),
@@ -71,7 +75,7 @@ jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
 
 jest.mock('@open-mercato/ui/backend/injection/InjectionSpot', () => ({
   InjectionSpot: () => null,
-  useInjectionWidgets: () => ({ widgets: [] }),
+  useInjectionWidgets: () => ({ widgets: injectedTabWidgets }),
 }))
 
 jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
@@ -128,13 +132,23 @@ jest.mock('../../../../../components/detail/CompanyKpiBar', () => ({
 }))
 
 jest.mock('../../../../../components/detail/CompanyDetailTabs', () => ({
+  COMPANY_DETAIL_TAB_IDS: jest.requireActual<typeof import('../../../../../components/detail/CompanyDetailTabs')>('../../../../../components/detail/CompanyDetailTabs').COMPANY_DETAIL_TAB_IDS,
   resolveLegacyTab: (tab?: string | null) => {
     if (tab === 'activity-log' || tab === 'files') {
       return tab
     }
     return 'people'
   },
-  CompanyDetailTabs: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  CompanyDetailTabs: ({
+    children,
+    injectedTabs,
+  }: {
+    children: React.ReactNode
+    injectedTabs?: Array<{ id: string; label: string; priority?: number }>
+  }) => {
+    companyDetailTabsPropsCapture.current = { injectedTabs }
+    return <div>{children}</div>
+  },
 }))
 
 jest.mock('../../../../../components/detail/ActivityLogTab', () => ({
@@ -195,9 +209,11 @@ jest.mock('../../../../../components/detail/ChangelogTab', () => ({
   ChangelogTab: () => <div>changelog</div>,
 }))
 
-describe('CompanyDetailV2Page schedule dialog state', () => {
+describe('CompanyDetailV2Page', () => {
   beforeEach(() => {
     activeTabParam = 'activity-log'
+    injectedTabWidgets = []
+    companyDetailTabsPropsCapture.current = null
     readApiResultOrThrowMock.mockReset()
     readApiResultOrThrowMock.mockResolvedValue({
       company: {
@@ -251,6 +267,22 @@ describe('CompanyDetailV2Page schedule dialog state', () => {
       expect(screen.getByTestId('attachments-section')).toHaveTextContent(
         'e1:company-123:Files:Upload and manage files linked to this company.',
       )
+    })
+  })
+
+  it('passes injected tab priority through to CompanyDetailTabs', async () => {
+    injectedTabWidgets = [{
+      widgetId: 'crm.overview',
+      placement: { kind: 'tab', groupId: 'crm.overview', priority: 1000 },
+      module: { metadata: { title: 'Overview' }, Widget: () => <div>overview</div> },
+    }]
+
+    renderWithProviders(<CompanyDetailV2Page params={{ id: 'company-123' }} />)
+
+    await waitFor(() => {
+      expect(companyDetailTabsPropsCapture.current?.injectedTabs).toEqual([
+        { id: 'crm.overview', label: 'Overview', priority: 1000 },
+      ])
     })
   })
 

@@ -6,8 +6,9 @@ import { apiCall, withScopedApiRequestHeaders } from "@open-mercato/ui/backend/u
 import { buildOptimisticLockHeader } from "@open-mercato/ui/backend/utils/optimisticLock";
 import { deleteCrud } from "@open-mercato/ui/backend/utils/crud";
 import { normalizeCrudServerError } from "@open-mercato/ui/backend/utils/serverErrors";
-import { LoadingMessage, TabEmptyState } from "@open-mercato/ui/backend/detail";
-import { Button } from "@open-mercato/ui/primitives/button";
+import { ErrorMessage, LoadingMessage, TabEmptyState } from "@open-mercato/ui/backend/detail";
+import { IconButton } from "@open-mercato/ui/primitives/icon-button";
+import { SimpleTooltip } from "@open-mercato/ui/primitives/tooltip";
 import { flash } from "@open-mercato/ui/backend/FlashMessages";
 import { Pencil, Trash2 } from "lucide-react";
 import {
@@ -16,12 +17,14 @@ import {
   createDictionaryMap,
   normalizeDictionaryEntries,
 } from "@open-mercato/core/modules/dictionaries/components/dictionaryAppearance";
+import { cn } from "@open-mercato/shared/lib/utils";
 import { useT, useLocale } from "@open-mercato/shared/lib/i18n/context";
 import { useOrganizationScopeDetail } from "@open-mercato/shared/lib/frontend/useOrganizationScope";
 import { useConfirmDialog } from "@open-mercato/ui/backend/confirm-dialog";
 import { emitSalesDocumentTotalsRefresh } from "@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents";
 import { LineItemDialog } from "./LineItemDialog";
 import { handleSectionMutationError } from "./optimisticLock";
+import { useSalesDocumentMutation } from "./useSalesDocumentMutation";
 import type { SalesLineRecord } from "./lineItemTypes";
 import {
   formatMoney,
@@ -38,6 +41,53 @@ import { OrderItemsInjectionContext } from "../../widgets/injection/order-items-
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('sales')
+
+function DisabledActionHint({
+  label,
+  reason,
+  children,
+}: {
+  label: string
+  reason?: string
+  children: React.ReactNode
+}) {
+  const [open, setOpen] = React.useState(false)
+  const touchOpenRef = React.useRef(false)
+  if (!reason) return <>{children}</>
+  return (
+    <SimpleTooltip
+      content={reason}
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (nextOpen || !touchOpenRef.current) setOpen(nextOpen)
+      }}
+    >
+      <span
+        className="inline-flex rounded-md focus-visible:outline-none focus-visible:shadow-focus"
+        tabIndex={0}
+        aria-label={`${label}: ${reason}`}
+        onClick={(event) => event.stopPropagation()}
+        onPointerDown={(event) => {
+          if (event.pointerType !== 'touch') return
+          touchOpenRef.current = true
+          setOpen(true)
+          event.currentTarget.focus()
+        }}
+        onBlur={() => {
+          touchOpenRef.current = false
+          setOpen(false)
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== 'Escape') return
+          touchOpenRef.current = false
+          setOpen(false)
+        }}
+      >
+        {children}
+      </span>
+    </SimpleTooltip>
+  )
+}
 
 type ResolvedUnitPriceReference = {
   grossPerReference: number;
@@ -150,6 +200,8 @@ type SalesDocumentItemsSectionProps = {
   tenantId?: string | null;
   onActionChange?: (action: SectionAction | null) => void;
   onItemsChange?: (items: SalesLineRecord[]) => void;
+  /** Disables line writes: on an external order they would all be rejected. */
+  amountsReadOnly?: boolean;
 };
 
 export function SalesDocumentItemsSection({
@@ -161,8 +213,10 @@ export function SalesDocumentItemsSection({
   tenantId: tenantFromProps,
   onActionChange,
   onItemsChange,
+  amountsReadOnly = false,
 }: SalesDocumentItemsSectionProps) {
   const t = useT();
+  const runDocumentMutation = useSalesDocumentMutation(kind, documentId);
   const locale = useLocale();
   const { organizationId, tenantId } = useOrganizationScopeDetail();
   const { confirm, ConfirmDialogElement } = useConfirmDialog();
@@ -186,7 +240,7 @@ export function SalesDocumentItemsSection({
     kind !== "order",
   );
 
-  const { widgets: allColumnWidgets } = useInjectionDataWidgets(
+  const { widgets: allColumnWidgets, isLoading: injectedColumnsLoading, error: injectedColumnsError } = useInjectionDataWidgets(
     extensionPoints.hosts.orderItemColumns.spotId,
   );
   const columnWidgets = kind === "order" ? allColumnWidgets : [];
@@ -533,15 +587,19 @@ export function SalesDocumentItemsSection({
     onActionChange({
       label: t("sales.documents.items.add", "Add item"),
       onClick: openCreate,
-      disabled: false,
+      disabled: amountsReadOnly,
     });
     return () => onActionChange(null);
-  }, [onActionChange, openCreate, t]);
+  }, [amountsReadOnly, onActionChange, openCreate, t]);
 
-  const handleEdit = React.useCallback((line: SalesLineRecord) => {
-    setLineForEdit(line);
-    setDialogOpen(true);
-  }, []);
+  const handleEdit = React.useCallback(
+    (line: SalesLineRecord) => {
+      if (amountsReadOnly) return;
+      setLineForEdit(line);
+      setDialogOpen(true);
+    },
+    [amountsReadOnly],
+  );
 
   const resolveVariantInfo = React.useCallback((record: SalesLineRecord) => {
     const meta =
@@ -582,7 +640,7 @@ export function SalesDocumentItemsSection({
       });
       if (!confirmed) return;
       try {
-        const result = await withScopedApiRequestHeaders(
+        const result = await runDocumentMutation(() => withScopedApiRequestHeaders(
           buildOptimisticLockHeader(documentUpdatedAt),
           () =>
             deleteCrud(resourcePath, {
@@ -597,7 +655,7 @@ export function SalesDocumentItemsSection({
                 "Failed to delete line.",
               ),
             }),
-        );
+        ), { id: line.id, [documentKey]: documentId });
         if (result.ok) {
           flash(t("sales.documents.items.deleted", "Line removed."), "success");
           await loadItems();
@@ -625,6 +683,7 @@ export function SalesDocumentItemsSection({
       resourcePath,
       t,
       resolvedTenantId,
+      runDocumentMutation,
     ],
   );
 
@@ -708,7 +767,10 @@ export function SalesDocumentItemsSection({
   return (
     <OrderItemsInjectionContext.Provider value={{ documentId, kind }}>
     <div className="space-y-4">
-      {loading ? (
+      {kind === "order" && injectedColumnsError ? (
+        <ErrorMessage label={t('ui.dataTable.extensions.error', 'Some table extensions could not load. Reload the page to retry.')} />
+      ) : null}
+      {loading || (kind === "order" && injectedColumnsLoading) ? (
         <LoadingMessage
           label={t("sales.documents.items.loading", "Loading items…")}
           className="border-0 bg-transparent p-0 py-8 justify-center"
@@ -725,10 +787,11 @@ export function SalesDocumentItemsSection({
           action={{
             label: t("sales.documents.items.add", "Add item"),
             onClick: openCreate,
+            disabled: amountsReadOnly,
           }}
         />
       ) : (
-        <div className="overflow-hidden rounded border">
+        <div className="relative overflow-x-auto rounded border">
           <table className="w-full text-sm">
             <thead className="bg-muted">
               <tr className="text-left">
@@ -807,7 +870,10 @@ export function SalesDocumentItemsSection({
                 return (
                   <tr
                     key={item.id}
-                    className="border-t hover:bg-muted/50 cursor-pointer transition-colors"
+                    className={cn(
+                      "border-t transition-colors",
+                      amountsReadOnly ? "" : "cursor-pointer hover:bg-muted/50",
+                    )}
                     onClick={() => handleEdit(item)}
                   >
                     <td className="px-3 py-3">
@@ -914,11 +980,13 @@ export function SalesDocumentItemsSection({
                             {discount.amount !== null ? (
                               <span className="font-mono text-sm">
                                 {t(
-                                  "sales.documents.items.table.discountAmount",
-                                  "−{{value}}",
+                                  discount.amount < 0
+                                    ? "sales.documents.items.table.markupAmount"
+                                    : "sales.documents.items.table.discountAmount",
+                                  discount.amount < 0 ? "+{{value}}" : "−{{value}}",
                                   {
                                     value: formatMoney(
-                                      discount.amount,
+                                      Math.abs(discount.amount),
                                       item.currencyCode ??
                                         currencyCode ??
                                         undefined,
@@ -987,37 +1055,49 @@ export function SalesDocumentItemsSection({
                     })}
                     <td className="px-3 py-3">
                       <div className="flex items-center gap-2 justify-end">
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8"
-                          aria-label={t('ui.actions.edit', 'Edit')}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            handleEdit(item);
-                          }}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <span
-                          title={kind === 'order' && items.length === 1
-                            ? t('sales.documents.items.errorDeleteLast', 'An order must contain at least one line item.')
+                        <DisabledActionHint
+                          label={t('ui.actions.edit', 'Edit')}
+                          reason={amountsReadOnly
+                            ? t('sales.documents.amountsExternalHint', 'Totals on this document come from an external system and are stored as supplied.')
                             : undefined}
                         >
-                          <Button
-                            size="icon"
+                          <IconButton
+                            type="button"
+                            size="default"
                             variant="ghost"
-                            className="h-8 w-8 text-destructive"
+                            aria-label={t('ui.actions.edit', 'Edit')}
+                            disabled={amountsReadOnly}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleEdit(item);
+                            }}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </IconButton>
+                        </DisabledActionHint>
+                        <DisabledActionHint
+                          label={t('ui.actions.delete', 'Delete')}
+                          reason={amountsReadOnly
+                            ? t('sales.documents.amountsExternalHint', 'Totals on this document come from an external system and are stored as supplied.')
+                            : kind === 'order' && items.length === 1
+                              ? t('sales.documents.items.errorDeleteLast', 'An order must contain at least one line item.')
+                              : undefined}
+                        >
+                          <IconButton
+                            type="button"
+                            size="default"
+                            variant="ghost"
+                            className="text-destructive"
                             aria-label={t('ui.actions.delete', 'Delete')}
-                            disabled={kind === 'order' && items.length === 1}
+                            disabled={amountsReadOnly || (kind === 'order' && items.length === 1)}
                             onClick={(event) => {
                               event.stopPropagation();
                               void handleDelete(item);
                             }}
                           >
                             <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </span>
+                          </IconButton>
+                        </DisabledActionHint>
                       </div>
                     </td>
                   </tr>

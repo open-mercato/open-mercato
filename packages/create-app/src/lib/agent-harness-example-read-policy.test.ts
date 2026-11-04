@@ -284,7 +284,9 @@ function declaredCase(overrides: {
         entrypoints: overrides.entrypoints ?? ENTRYPOINTS,
         allowedCapabilityIds: overrides.allowedCapabilityIds ?? ['api.crud-factory', 'data.entities', 'ui.datatable'],
         maxFiles: overrides.maxFiles ?? 12,
-        maxBytes: overrides.maxBytes ?? 131_072,
+        // README.md plus surface-inventory.json alone now exceed 131_072 bytes, so the fixture
+        // uses the ceiling the shipped inventory-reading case (OMH-221) declares.
+        maxBytes: overrides.maxBytes ?? 196_608,
       }],
       ...(overrides.fallback === null ? {} : {
         installedVersionFallback: overrides.fallback ?? {
