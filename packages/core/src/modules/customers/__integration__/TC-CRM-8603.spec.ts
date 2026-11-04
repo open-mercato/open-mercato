@@ -75,6 +75,7 @@ async function withCalendar(
       ownRecord('/api/customers/interactions', interactionId)
     }
     await page.goto(`/backend/customers/${kind}-v2/${entityId}`)
+    await expect(page.locator('[data-zone-layout-mode][data-persistence-hydrated="true"]').first()).toBeVisible()
     const activityTab = page.getByRole('tab', { name: kind === 'companies' ? /^Activity log(?: \d+)?$/ : 'Activity', exact: true })
     if (kind === 'companies' || page.viewportSize()!.width === 390) {
       await expect(activityTab).toBeVisible()
@@ -171,10 +172,17 @@ for (const kind of ['companies', 'people'] as const) {
                 expect(box).not.toBeNull()
                 const touch = await page.context().newCDPSession(page)
                 try {
-                  await touch.send('Input.synthesizeScrollGesture', {
-                    x: box!.x + box!.width / 2, y: box!.y + box!.height / 2,
-                    xDistance: -180, yDistance: 0, gestureSourceType: 'touch', speed: 500,
+                  const startX = box!.x + box!.width - 16
+                  const centerY = box!.y + box!.height / 2
+                  await touch.send('Input.dispatchTouchEvent', {
+                    type: 'touchStart', touchPoints: [{ x: startX, y: centerY }],
                   })
+                  for (let step = 1; step <= 6; step += 1) {
+                    await touch.send('Input.dispatchTouchEvent', {
+                      type: 'touchMove', touchPoints: [{ x: startX - (box!.width - 32) * step / 6, y: centerY }],
+                    })
+                  }
+                  await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
                   await expect.poll(() => dates.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0)
                 } finally {
                   await touch.detach()
