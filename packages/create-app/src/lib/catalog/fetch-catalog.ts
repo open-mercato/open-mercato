@@ -139,9 +139,10 @@ export async function fetchPickerCatalog(options: {
  * never verified on an older line or on `next`.
  */
 export function installCommandFor(entry: CatalogModule, line: string, lines: readonly string[]): string | null {
-  const command = entry.installByLine?.[line]
-  if (command !== undefined) return command
-  return line === lines[0] ? entry.install : null
+  const command = entry.installByLine?.[line] ?? (line === lines[0] ? entry.install : null)
+  if (typeof command !== 'string' || !/^yarn mercato module (add|enable) \S/.test(command)) return null
+  if (/[;&|`$<>\\\r\n]/.test(command)) return null
+  return command
 }
 
 const verifiedOnLine = (index: PickerIndex, line: string): CatalogModule[] =>
