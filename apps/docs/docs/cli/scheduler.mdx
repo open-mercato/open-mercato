@@ -282,7 +282,7 @@ Sync complete:
 Scheduler synced successfully.
 
 Next steps:
-1. Start workers: yarn mercato worker:start
+1. Start workers: yarn mercato queue worker --all
 2. Monitor queue: yarn mercato queue status scheduler-execution
 
 Exiting...
@@ -350,7 +350,7 @@ yarn mercato scheduler status
 yarn mercato scheduler start
 
 # 4. Start workers (separate process)
-yarn mercato worker:start
+yarn mercato queue worker --all
 
 # 5. Monitor execution
 yarn mercato queue status scheduler-execution
@@ -393,8 +393,8 @@ yarn mercato queue failed scheduler-execution
 # View execution history (async mode)
 yarn mercato queue history scheduler-execution --limit 20
 
-# Check worker health (async mode)
-yarn mercato worker:status
+# Check scheduler queue status (async mode)
+yarn mercato queue status scheduler-execution
 ```
 
 ## Environment Variables
@@ -426,13 +426,13 @@ The scheduler CLI respects these environment variables:
 
 ```bash
 # Start all workers (includes scheduler execution worker)
-yarn mercato worker:start
+yarn mercato queue worker --all
 
 # Start only scheduler worker
-yarn mercato worker:start --queue scheduler-execution
+yarn mercato queue worker scheduler-execution
 
-# Check worker status
-yarn mercato worker:status
+# Check scheduler queue status
+yarn mercato queue status scheduler-execution
 ```
 
 ### Queue Management
@@ -505,11 +505,11 @@ redis-cli -u $REDIS_URL ping
 ### "No workers running"
 
 ```bash
-# Check worker status
-yarn mercato worker:status
+# Check scheduler queue status
+yarn mercato queue status scheduler-execution
 
 # Start workers
-yarn mercato worker:start
+yarn mercato queue worker --all
 
 # Check worker logs
 tail -f logs/worker.log

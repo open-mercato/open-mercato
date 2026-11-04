@@ -68,17 +68,24 @@ async function uploadMedia(page: Page, count: number): Promise<string[]> {
     })),
   );
   await uploads;
+  for (let index = 0; index < count; index += 1) {
+    await expect(page.getByRole('img', { name: `qa-media-${index}.png`, exact: true })).toBeVisible();
+  }
   await expect(page.getByRole('button', { name: 'Choose files', exact: true })).toBeEnabled();
   await expect(page.getByRole('img', { name: /^qa-media-\d+\.png$/ })).toHaveCount(count);
   return uploadedIds;
 }
 
-async function submitAndReadProductId(page: Page): Promise<string> {
+// The create page raises its flash before `router.push`, and flashes auto-dismiss after 3 s.
+// The App Router only commits the new URL once the edit page's payload arrives, which can take
+// longer than that on a cold CI shard, so the flash must be asserted before waiting for the URL.
+async function submitAndReadProductId(page: Page, expectedFlash?: string): Promise<string> {
   await page
     .locator('button[type="submit"]')
     .filter({ hasText: /^Create product$/ })
     .first()
     .click();
+  if (expectedFlash) await expect(page.getByText(expectedFlash)).toBeVisible({ timeout: 30_000 });
   await expect(page).toHaveURL(PRODUCT_ID_URL, { timeout: 30_000 });
   return expectId(PRODUCT_ID_URL.exec(page.url())?.[1], 'created product id should be in the URL');
 }
@@ -135,10 +142,8 @@ test.describe('TC-CAT-042: product create transfers uploaded media', () => {
       route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Transfer failed' }) }),
     );
 
-    const productId = await submitAndReadProductId(page);
+    const productId = await submitAndReadProductId(page, 'Product created, but 2 of 2 media files could not be attached.');
     productIds.push(productId);
-
-    await expect(page.getByText('Product created, but 2 of 2 media files could not be attached.')).toBeVisible();
     expect(await listProductAttachmentIds(request, token!, productId)).toEqual([]);
   });
 
@@ -148,10 +153,8 @@ test.describe('TC-CAT-042: product create transfers uploaded media', () => {
     attachmentIds.push(...uploaded);
     await page.route('**/api/attachments/transfer', (route) => route.abort('failed'));
 
-    const productId = await submitAndReadProductId(page);
+    const productId = await submitAndReadProductId(page, 'Product created, but 2 of 2 media files could not be attached.');
     productIds.push(productId);
-
-    await expect(page.getByText('Product created, but 2 of 2 media files could not be attached.')).toBeVisible();
     const product = await apiRequest(request, 'GET', `/api/catalog/products?id=${encodeURIComponent(productId)}`, { token: token! });
     expect(product.status(), 'created product should still be readable').toBe(200);
     expect(((await readJsonSafe<{ items?: AttachmentRow[] }>(product))?.items ?? []).map((item) => item.id)).toEqual([productId]);
@@ -165,9 +168,7 @@ test.describe('TC-CAT-042: product create transfers uploaded media', () => {
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, updated: 1 }) }),
     );
 
-    const productId = await submitAndReadProductId(page);
+    const productId = await submitAndReadProductId(page, 'Product created, but 1 of 2 media files could not be attached.');
     productIds.push(productId);
-
-    await expect(page.getByText('Product created, but 1 of 2 media files could not be attached.')).toBeVisible();
   });
 });
