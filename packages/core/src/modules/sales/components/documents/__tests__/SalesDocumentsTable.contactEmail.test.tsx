@@ -10,28 +10,28 @@ const mockApiCall = jest.fn()
 
 jest.mock('@open-mercato/ui/backend/DataTable', () => ({
   withDataTableNamespaces: (mappedRow: Record<string, unknown>) => mappedRow,
-  DataTable: (props: any) => {
+  DataTable: (props: Record<string, unknown>) => {
     mockDataTable(props)
     return null
   },
 }))
 
 jest.mock('@open-mercato/ui/backend/Page', () => ({
-  Page: ({ children }: any) => <div>{children}</div>,
-  PageBody: ({ children }: any) => <div>{children}</div>,
+  Page: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
+  PageBody: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
 }))
 
 jest.mock('@open-mercato/ui/backend/RowActions', () => ({
-  RowActions: ({ children }: any) => <div>{children}</div>,
+  RowActions: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
 }))
 
 jest.mock('@open-mercato/ui/primitives/button', () => ({
-  Button: ({ children, ...props }: any) => <button {...props}>{children}</button>,
+  Button: ({ children, ...props }: React.ComponentProps<'button'>) => <button {...props}>{children}</button>,
 }))
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
-  apiCall: (...args: any[]) => mockApiCall(...args),
-  withScopedApiRequestHeaders: (_header: unknown, callback: any) => callback?.(),
+  apiCall: (...args: unknown[]) => mockApiCall(...args),
+  withScopedApiRequestHeaders: (_header: unknown, callback?: () => unknown) => callback?.(),
 }))
 
 jest.mock('@open-mercato/ui/backend/utils/optimisticLock', () => ({
@@ -63,14 +63,14 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => {
 })
 
 jest.mock('@open-mercato/core/modules/dictionaries/components/dictionaryAppearance', () => ({
-  DictionaryValue: ({ value }: any) => <span>{value}</span>,
+  DictionaryValue: ({ value }: { value?: React.ReactNode }) => <span>{value}</span>,
   createDictionaryMap: () => ({}),
   normalizeDictionaryEntries: () => [],
 }))
 
 jest.mock('next/link', () => ({
   __esModule: true,
-  default: ({ children, ...props }: any) => <a {...props}>{children}</a>,
+  default: ({ children, ...props }: React.ComponentProps<'a'>) => <a {...props}>{children}</a>,
 }))
 
 jest.mock('next/navigation', () => ({

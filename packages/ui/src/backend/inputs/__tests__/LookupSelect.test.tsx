@@ -686,3 +686,63 @@ describe('LookupSelect disabled', () => {
     expect(onChange).not.toHaveBeenCalled()
   })
 })
+
+describe('LookupSelect after clearing a pick', () => {
+  const OPTIONS = [
+    { id: 'one', title: 'Product One' },
+    { id: 'two', title: 'Product Two' },
+  ]
+
+  function ControlledPicker(props: { defaultOpen?: boolean; minQuery?: number; onChange?: (next: string | null) => void }) {
+    const [value, setValue] = React.useState<string | null>(null)
+    return (
+      <LookupSelect
+        value={value}
+        onChange={(next) => {
+          props.onChange?.(next)
+          setValue(next)
+        }}
+        fetchItems={async () => OPTIONS}
+        defaultOpen={props.defaultOpen}
+        minQuery={props.minQuery}
+      />
+    )
+  }
+
+  it.each([
+    ['defaultOpen', { defaultOpen: true }],
+    ['minQuery 0', { minQuery: 0 }],
+  ])('brings the browse list and the keyboard back with %s', async (_label, pickerProps) => {
+    const onChange = jest.fn()
+    const { container } = render(<ControlledPicker {...pickerProps} onChange={onChange} />)
+    fireEvent.click(await screen.findByRole('option', { name: /Product One/ }))
+    expect(screen.queryByRole('listbox')).toBeNull()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Clear selection' }))
+
+    expect(await screen.findByRole('option', { name: /Product Two/ })).toBeVisible()
+    const input = getInput(container)
+    expect(input).toHaveAttribute('aria-expanded', 'true')
+
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await waitFor(() => expect(onChange).toHaveBeenLastCalledWith('one'))
+    expect(await screen.findByTestId('lookup-select-selected')).toHaveTextContent('Product One')
+  })
+
+  it('does not commit a hidden option from the keyboard once Escape closed the list', async () => {
+    const onChange = jest.fn()
+    const { container } = render(<ControlledPicker defaultOpen onChange={onChange} />)
+    await screen.findByRole('option', { name: /Product One/ })
+    const input = getInput(container)
+
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(input).toHaveAttribute('aria-expanded', 'false')
+
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(onChange).not.toHaveBeenCalled()
+  })
+})
