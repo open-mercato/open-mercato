@@ -188,9 +188,9 @@ toggle. On a database that has never encrypted anything, set the flag and restar
 order matters:
 
 ```bash
-# 1. While encryption is still ON — this needs the DEK.
+# 1. Stop all application, worker and integration writers. Keep encryption ON — this needs the DEK.
 yarn mercato entities decrypt-database --tenant <uuid> --confirm <uuid> --dry-run
-yarn mercato entities decrypt-database --tenant <uuid> --confirm <uuid> --deactivate-maps
+yarn mercato entities decrypt-database --tenant <uuid> --confirm <uuid> --deactivate-maps --confirm-offline-maintenance <uuid>
 
 # 2. Only now flip the flag, and restart every replica (DEK and map caches are in-process).
 #    TENANT_DATA_ENCRYPTION=no

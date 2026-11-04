@@ -935,6 +935,7 @@ const decryptDatabase: ModuleCli = {
       console.log(`Active EncryptionMap records for scope: ${maps.length}`)
       let encryptedCandidatesSampled = 0
       let malformedPayloadCountSampled = 0
+      let unreadableEncryptedPayloadCountSampled = 0
       // --check writes nothing, so an unreachable DEK is the diagnosis the operator came for,
       // not a reason to abort mid-inspection. Report every uninspectable entity, inspect the
       // rest, and let the closing gate below make the incomplete run exit non-zero.
@@ -986,6 +987,8 @@ const decryptDatabase: ModuleCli = {
               } catch (e: any) {
                 if (e instanceof TenantDataEncryptionError && e.code === TenantDataEncryptionErrorCode.MALFORMED_PAYLOAD) {
                   malformedPayloadCountSampled++
+                } else if (isEncryptedPayloadShape(rawValue)) {
+                  unreadableEncryptedPayloadCountSampled++
                 }
               }
             }
@@ -1000,15 +1003,18 @@ const decryptDatabase: ModuleCli = {
         console.log(`malformed payloads (sampled): ${malformedPayloadCountSampled}`)
       }
       console.log('not a proof of absence — run full command + rerun --check to confirm')
-      if (uninspectableEntityIds.length || failedSampleScopes.length) {
+      if (uninspectableEntityIds.length || failedSampleScopes.length || unreadableEncryptedPayloadCountSampled) {
         const unavailableDekSummary = uninspectableEntityIds.length
           ? ` No DEK was available for ${uninspectableEntityIds.join(', ')}.`
           : ''
         const failedSampleSummary = failedSampleScopes.length
           ? ` Sample queries failed for ${failedSampleScopes.join(', ')}.`
           : ''
+        const unreadablePayloadSummary = unreadableEncryptedPayloadCountSampled
+          ? ` ${unreadableEncryptedPayloadCountSampled} encrypted field(s) could not authenticate with the current tenant key.`
+          : ''
         failCli(
-          `Encryption check incomplete.${unavailableDekSummary}${failedSampleSummary} `
+          `Encryption check incomplete.${unavailableDekSummary}${failedSampleSummary}${unreadablePayloadSummary} `
             + 'The counts above cover only successfully inspected scopes.',
         )
       }
@@ -1098,7 +1104,9 @@ const decryptDatabase: ModuleCli = {
                 } catch (e: any) {
                   if (e instanceof TenantDataEncryptionError) {
                     if (e.code === TenantDataEncryptionErrorCode.AUTH_FAILED) {
-                      // Value is plaintext — skip silently
+                      if (isEncryptedPayloadShape(rawValue)) {
+                        failCli('[internal] An encrypted field could not authenticate with the current tenant key. Encryption maps remain active; restore the matching key before retrying.')
+                      }
                     } else if (e.code === TenantDataEncryptionErrorCode.MALFORMED_PAYLOAD) {
                       scopeMalformedCount++
                       const locationKey = `${tableName}:${col}`

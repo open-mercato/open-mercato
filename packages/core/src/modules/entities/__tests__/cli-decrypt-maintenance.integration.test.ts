@@ -147,6 +147,16 @@ describePostgres('offline encryption maintenance in PostgreSQL', () => {
     expect((await pool.query(`SELECT resource_id FROM access_logs`)).rows[0].resource_id).toBe(replacement)
   })
 
+  test('rejects a wrong tenant key without changing ciphertext or retiring its policy', async () => {
+    const ciphertext = encryptWithAesGcm('foreign-key fixture', Buffer.alloc(32, 28).toString('base64')).value
+    await pool.query(`INSERT INTO access_logs (id, tenant_id, organization_id, resource_id) VALUES ('one', $1, 'org-a', $2)`, [tenantId, ciphertext])
+
+    await expect(run()).rejects.toThrow('current tenant key')
+
+    expect((await pool.query(`SELECT resource_id FROM access_logs`)).rows[0].resource_id).toBe(ciphertext)
+    expect((await pool.query(`SELECT is_active FROM encryption_maps`)).rows[0].is_active).toBe(true)
+  })
+
   test('residual ciphertext at the protected final sweep rolls back policy retirement', async () => {
     await insert('one', 'org-a')
     beforeTransaction = async () => {

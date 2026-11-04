@@ -6,6 +6,7 @@ import {
   decryptWithAesGcmStrict,
 } from '@open-mercato/shared/lib/encryption/aes'
 import { registerEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
+import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 
 registerEntityIds({
   audit_logs: {
@@ -405,6 +406,29 @@ describe('entities decrypt-database CLI', () => {
 
     const updateCalls = execute.mock.calls.filter((c) => String(c[0]).startsWith('UPDATE'))
     expect(updateCalls).toHaveLength(0)
+  })
+
+  it.each([false, true])('fails closed on ciphertext sealed under another key, check mode %s', async (checkMode) => {
+    const actualAes = jest.requireActual<typeof import('@open-mercato/shared/lib/encryption/aes')>('@open-mercato/shared/lib/encryption/aes')
+    const previousKey = Buffer.alloc(32, 11).toString('base64')
+    const currentKey = Buffer.alloc(32, 12).toString('base64')
+    const ciphertext = actualAes.encryptWithAesGcm('unreadable fixture', previousKey).value
+    const baseKms = createKmsService()
+    jest.mocked(createKmsService).mockReturnValueOnce({
+      ...baseKms,
+      getTenantDek: async (tenantId) => ({ tenantId, key: currentKey, fetchedAt: Date.now() }),
+    })
+    setupDefaultMapFind()
+    setupScopesAndRows([{ id: 'row-1', resource_id: ciphertext, email_hash: 'existing-hash' }])
+    mockDecrypt.mockImplementation(actualAes.decryptWithAesGcmStrict)
+    const logSpy = jest.spyOn(console, 'log').mockImplementation()
+    const args = checkMode ? ['--tenant', 'tenant-1', '--check'] : ['--tenant', 'tenant-1', '--confirm', 'tenant-1']
+
+    await expect(getCmd().run(args)).rejects.toThrow('current tenant key')
+
+    expect(execute.mock.calls.some(([sql]) => String(sql).startsWith('UPDATE'))).toBe(false)
+    expect(logSpy.mock.calls.flat().map(String).join('\n')).not.toContain('Decryption complete')
+    logSpy.mockRestore()
   })
 
   it('MALFORMED_PAYLOAD: reports the incomplete run and leaves encryption maps active', async () => {
