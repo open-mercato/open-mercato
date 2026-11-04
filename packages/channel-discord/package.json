@@ -85,7 +85,7 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
     "esbuild": "^0.28.2",
-    "glob": "^14.0.2",
+    "glob": "^14.0.3",
     "jest": "^30.4.2",
     "react": "19.2.8",
     "react-dom": "19.2.8",
