@@ -2,15 +2,16 @@ const tenantId = '11111111-1111-4111-8111-111111111111'
 const organizationId = '22222222-2222-4222-8222-222222222222'
 const userId = '33333333-3333-4333-8333-333333333333'
 
-const validateCrudMutationGuardMock = jest.fn()
-const runCrudMutationGuardAfterSuccessMock = jest.fn()
 const getRecordMock = jest.fn()
 const setValueMock = jest.fn()
 const userTimeZoneLookupMock = jest.fn()
 
+const commandBusExecuteMock = jest.fn()
+
 const container = {
   hasRegistration: jest.fn((name: string) => name === 'userTimeZoneLookup'),
   resolve: jest.fn((name: string) => {
+    if (name === 'commandBus') return { execute: (...args: unknown[]) => commandBusExecuteMock(...args) }
     if (name === 'moduleConfigService') {
       return {
         getRecord: (...args: unknown[]) => getRecordMock(...args),
@@ -37,12 +38,22 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: jest.fn(async () => ({ translate: (key: string, fallback?: string) => fallback ?? key })),
 }))
 
-jest.mock('@open-mercato/shared/lib/crud/mutation-guard', () => ({
-  validateCrudMutationGuard: (...args: unknown[]) => validateCrudMutationGuardMock(...args),
-  runCrudMutationGuardAfterSuccess: (...args: unknown[]) => runCrudMutationGuardAfterSuccessMock(...args),
-}))
-
+import { commandRegistry, type CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
+import { registerMutationGuards } from '@open-mercato/shared/lib/crud/mutation-guard-store'
+import type { MutationGuard } from '@open-mercato/shared/lib/crud/mutation-guard-registry'
 import { GET, PUT } from '../route'
+
+const guardValidateMock = jest.fn()
+const guardAfterSuccessMock = jest.fn()
+
+const registryGuard: MutationGuard = {
+  id: 'test.date-locale-guard',
+  targetEntity: 'configs.date_locale',
+  operations: ['update'],
+  validate: (input) => guardValidateMock(input),
+  afterSuccess: (input) => guardAfterSuccessMock(input),
+}
 
 const storedRecord = (value: unknown, updatedAt = '2026-11-01T10:00:00.000Z') => ({
   moduleId: 'configs',
@@ -72,8 +83,14 @@ describe('configs date-locale route', () => {
     delete process.env.NEXT_PUBLIC_OM_DATE_FORMAT
     delete process.env.NEXT_PUBLIC_DATE_FORMAT
     authValue = { tenantId, sub: userId, orgId: organizationId }
-    validateCrudMutationGuardMock.mockResolvedValue({ ok: true, shouldRunAfterSuccess: true, metadata: null })
-    runCrudMutationGuardAfterSuccessMock.mockResolvedValue(undefined)
+    registerMutationGuards([{ moduleId: 'test', guards: [registryGuard] }])
+    guardValidateMock.mockResolvedValue({ ok: true, shouldRunAfterSuccess: true })
+    guardAfterSuccessMock.mockResolvedValue(undefined)
+    commandBusExecuteMock.mockImplementation(async (id: string, { input, ctx }: { input: unknown; ctx: CommandRuntimeContext }) => {
+      const handler = commandRegistry.get(id)
+      if (!handler) throw new Error(`Unknown command ${id}`)
+      return { result: await handler.execute(input, ctx), logEntry: null }
+    })
     getRecordMock.mockResolvedValue(null)
     setValueMock.mockResolvedValue(null)
     userTimeZoneLookupMock.mockResolvedValue(null)
@@ -81,6 +98,7 @@ describe('configs date-locale route', () => {
 
   afterAll(() => {
     process.env = originalEnv
+    registerMutationGuards([])
   })
 
   it('returns empty settings and env defaults when nothing is stored', async () => {
@@ -130,7 +148,7 @@ describe('configs date-locale route', () => {
     expect(response.status).toBe(401)
   })
 
-  it('normalizes and stores tenant-scoped settings through the mutation guard', async () => {
+  it('normalizes and stores tenant-scoped settings through the registry guards and the update command', async () => {
     const response = await PUT(makePut({ dateFormat: 'DD.MM.YYYY', timeZone: 'europe/warsaw', firstDayOfWeek: 1, locale: 'auto' }))
 
     expect(response.status).toBe(200)
@@ -147,11 +165,28 @@ describe('configs date-locale route', () => {
       },
       { tenantId },
     )
-    expect(validateCrudMutationGuardMock).toHaveBeenCalledWith(
-      container,
-      expect.objectContaining({ tenantId, organizationId, resourceKind: 'configs.date_locale', operation: 'update' }),
+    expect(guardValidateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId, organizationId, userId, resourceKind: 'configs.date_locale', operation: 'update' }),
     )
-    expect(runCrudMutationGuardAfterSuccessMock).toHaveBeenCalled()
+    expect(commandBusExecuteMock).toHaveBeenCalledWith(
+      'configs.date_locale.update',
+      expect.objectContaining({ input: expect.objectContaining({ tenantId }) }),
+    )
+    expect(guardAfterSuccessMock).toHaveBeenCalledWith(expect.objectContaining({ resourceKind: 'configs.date_locale' }))
+  })
+
+  it('stores the payload a registry guard rewrote, after validating it again', async () => {
+    guardValidateMock.mockResolvedValue({ ok: true, modifiedPayload: { timeZone: 'asia/tokyo' } })
+    const response = await PUT(makePut({ timeZone: 'UTC' }))
+    expect(response.status).toBe(200)
+    expect(setValueMock).toHaveBeenCalledWith('configs', 'date_locale', expect.objectContaining({ timeZone: 'Asia/Tokyo' }), { tenantId })
+  })
+
+  it('rejects a guard rewrite that no longer validates', async () => {
+    guardValidateMock.mockResolvedValue({ ok: true, modifiedPayload: { dateFormat: 'dd<MM' } })
+    const response = await PUT(makePut({ timeZone: 'UTC' }))
+    expect(response.status).toBe(400)
+    expect(setValueMock).not.toHaveBeenCalled()
   })
 
   it('returns field errors for an invalid zone or pattern and does not write', async () => {
@@ -177,10 +212,23 @@ describe('configs date-locale route', () => {
     expect(setValueMock).not.toHaveBeenCalled()
   })
 
-  it('stops when a mutation guard blocks the write', async () => {
-    validateCrudMutationGuardMock.mockResolvedValue({ ok: false, status: 423, body: { error: 'Locked' } })
+  it('stops when a registered mutation guard blocks the write', async () => {
+    guardValidateMock.mockResolvedValue({ ok: false, status: 423, body: { error: 'Locked' } })
     const response = await PUT(makePut({ timeZone: 'UTC' }))
     expect(response.status).toBe(423)
+    expect(await response.json()).toEqual({ error: 'Locked' })
+    expect(commandBusExecuteMock).not.toHaveBeenCalled()
     expect(setValueMock).not.toHaveBeenCalled()
+    expect(guardAfterSuccessMock).not.toHaveBeenCalled()
+  })
+
+  it('answers with the status a command interceptor rejected the update with', async () => {
+    commandBusExecuteMock.mockRejectedValue(
+      new CommandInterceptorError('Blocked', { status: 422, body: { error: 'Settings are frozen' } }),
+    )
+    const response = await PUT(makePut({ timeZone: 'UTC' }))
+    expect(response.status).toBe(422)
+    expect(await response.json()).toEqual({ error: 'Settings are frozen' })
+    expect(guardAfterSuccessMock).not.toHaveBeenCalled()
   })
 })

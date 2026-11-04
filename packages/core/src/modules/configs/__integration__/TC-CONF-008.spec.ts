@@ -7,7 +7,8 @@ import { login } from '@open-mercato/core/modules/core/__integration__/helpers/a
  * Source: `.ai/specs/2026-05-18-date-locale-settings.md` (Phase 4)
  *
  * The Settings > System > Date & time page loads, previews a chosen preset, saves it,
- * and the saved pattern is what the API reports. Restores the original settings.
+ * and the saved pattern is what the API reports. A DatePicker elsewhere in the backend then shows
+ * the saved pattern and week start. Restores the original settings.
  */
 const PATH = '/api/configs/date-locale'
 
@@ -40,6 +41,36 @@ test.describe('TC-CONF-008: Date & time settings page', () => {
       const saved = await apiRequest(request, 'GET', PATH, { token })
       const body = (await saved.json()) as { settings: { dateFormat: string | null } }
       expect(body.settings.dateFormat).toBe('yyyy-MM-dd')
+    } finally {
+      await apiRequest(request, 'PUT', PATH, { token, data: original.settings }).catch(() => {})
+    }
+  })
+
+  test('a backend date picker uses the tenant pattern and week start', async ({ page, request }) => {
+    test.setTimeout(120_000)
+    const token = await getAuthToken(request, 'admin')
+    const originalResponse = await apiRequest(request, 'GET', PATH, { token })
+    const original = (await originalResponse.json()) as { settings: Record<string, unknown> }
+
+    try {
+      const saved = await apiRequest(request, 'PUT', PATH, {
+        token,
+        data: { ...original.settings, timeZone: 'UTC', dateFormat: 'dd.MM.yyyy', firstDayOfWeek: 0 },
+      })
+      expect(saved.status()).toBe(200)
+      await login(page, 'admin')
+      await page.goto('/backend/customers/deals/create')
+
+      await page.getByRole('button', { name: 'Pick a date' }).first().click()
+      const grid = page.getByRole('grid').first()
+      await expect(grid).toBeVisible()
+      await expect(grid.locator('th[scope="col"]').first()).toHaveAttribute('aria-label', 'Sunday')
+
+      const now = new Date()
+      const year = now.getUTCFullYear()
+      const month = String(now.getUTCMonth() + 1).padStart(2, '0')
+      await grid.locator(`[data-day="${year}-${month}-15"] button`).click()
+      await expect(page.getByText(`15.${month}.${year}`).first()).toBeVisible()
     } finally {
       await apiRequest(request, 'PUT', PATH, { token, data: original.settings }).catch(() => {})
     }

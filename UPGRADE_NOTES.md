@@ -37,6 +37,12 @@ process zone, and adds ISO `startsAt` / `endsAt`. Prefer the ISO fields in new c
 **Permissions:** new `configs.date_locale.view` (admin, employee) and `configs.date_locale.manage`
 (admin). Existing tenants need `yarn mercato auth sync-role-acls`.
 
+**Audit:** saving the settings runs the `configs.date_locale.update` command, so each change is in
+the action log with the previous values and can be undone.
+
+**Deprecated:** `USER_TIMEZONE` from `customers/lib/localDay` is read once at import, before the
+configured zone is known. Call `getUserTimeZone()` instead; the constant is removed in 0.12.0.
+
 ## Agent search answers honor domain policy (#7234)
 
 When an allow-list or deny-list is configured, agent `web_search` and the settings

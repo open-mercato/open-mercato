@@ -637,17 +637,4 @@ SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: A
 
 ## Date & Locale Settings (2026-11-03)
 
-[`.ai/specs/2026-05-18-date-locale-settings.md`](.ai/specs/2026-05-18-date-locale-settings.md) adds tenant date/time settings and a per-user time zone. Everything is additive except two value-semantics changes below; the full surface table is in the spec's Migration & Backward Compatibility section.
-
-|Surface|Change|Classification|
-|---|---|---|
-|API route (§7): `GET /api/customers/interactions/conflicts`|`startTime`/`endTime` are formatted with the caller's `timezoneOffsetMinutes` (UTC when omitted) instead of the server process zone; ISO `startsAt`/`endsAt` added|⚠️ Value-semantics change, no shape change. Legacy fields kept; read `startsAt`/`endsAt`|
-|Visible defaults (`DataTable`, pickers, `Calendar`, schedules)|Intl medium/short date-times instead of `toLocaleString()`; pickers follow the locale clock instead of forcing `HH:mm`; Monday week start unless the locale says otherwise|⚠️ Rendering change. Pin the old look with `NEXT_PUBLIC_OM_DATE_TIME_FORMAT` / `OM_FIRST_DAY_OF_WEEK`|
-|Database schema (§8)|Nullable `users.timezone`|✓ ADDITIVE|
-|API routes (§7)|New `GET`/`PUT /api/configs/date-locale`; optional `timezone` on `/api/auth/profile`; optional `display` on `GET /api/sales/quotes/public/{token}`|✓ ADDITIVE|
-|ACL features (§10)|New `configs.date_locale.view`, `configs.date_locale.manage`|✓ ADDITIVE (`yarn mercato auth sync-role-acls` for existing tenants)|
-|Function signatures / types (§2, §3)|Optional trailing `settings` / `weekStartsOn` parameters and optional fields; `customers/lib/localDay.USER_TIMEZONE` deprecated with a bridge|✓ ADDITIVE / deprecation protocol|
-|Config|Optional `OM_DB_DEFAULT_TIMEZONE`; `NEXT_PUBLIC_DATE_FORMAT` / `NEXT_PUBLIC_DATE_TIME_FORMAT` kept as aliases of `NEXT_PUBLIC_OM_*`|✓ ADDITIVE|
-|Event IDs, DI names, CLI commands, notification types|No change|✓ n/a|
-
-**Migration path for existing modules**: read the ISO conflict fields; pin env formats to keep the old rendering ([UPGRADE_NOTES.md](UPGRADE_NOTES.md#date--locale-settings-aispecs2026-05-18-date-locale-settingsmd)).
+Conflicts API `startTime`/`endTime` use the caller offset (ISO `startsAt`/`endsAt` added); default date rendering changed. See [contract](.ai/specs/2026-05-18-date-locale-settings.md#migration--backward-compatibility).

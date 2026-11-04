@@ -19,8 +19,8 @@ export function getUserTimeZone(): string {
 }
 
 /**
- * @deprecated Evaluated once at import, before the configured display timezone is known.
- * Use `getUserTimeZone()`.
+ * @deprecated Since 0.10.0; scheduled for removal in 0.12.0. Evaluated once at import, before the
+ * configured display timezone is known. Use `getUserTimeZone()`.
  */
 export const USER_TIMEZONE = getUserTimeZone()
 

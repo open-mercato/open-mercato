@@ -43,7 +43,9 @@ type DateLocaleResponse = {
 
 const API_PATH = 'configs/date-locale'
 
-const LOCALE_OPTIONS = ['en-US', 'en-GB', 'pl-PL', 'de-DE', 'es-ES', 'fr-FR', 'it-IT', 'ko-KR', 'pt-BR', 'nl-NL']
+// Only locales with a bundled date-fns locale (`ui/primitives/date-fns-locales.ts`): any other one
+// renders the month and weekday names of a custom pattern in English.
+const LOCALE_OPTIONS = ['en-US', 'en-GB', 'pl-PL', 'de-DE', 'es-ES', 'ko-KR']
 
 const PREVIEW_SAMPLE = new Date(Date.UTC(2026, 11, 31, 13, 45))
 

@@ -4,10 +4,9 @@ import { format as formatDateFns } from 'date-fns/format'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import {
-  runCrudMutationGuardAfterSuccess,
-  validateCrudMutationGuard,
-} from '@open-mercato/shared/lib/crud/mutation-guard'
+import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
+import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -16,17 +15,18 @@ import { readDateLocaleEnv } from '@open-mercato/shared/lib/date-locale/resolve'
 import { dateLocaleSettingsInputSchema } from '@open-mercato/shared/lib/date-locale/validation'
 import type { NormalizedDateLocaleSettingsRecord } from '@open-mercato/shared/lib/date-locale/types'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import type { ModuleConfigService } from '../../lib/module-config-service'
 import {
-  DATE_LOCALE_CONFIG_MODULE,
   DATE_LOCALE_CONFIG_NAME,
   readTenantDateLocaleSettings,
   resolveDateLocaleSettingsForScope,
 } from '../../lib/date-locale-settings'
+import {
+  DATE_LOCALE_RESOURCE_KIND,
+  DATE_LOCALE_UPDATE_COMMAND_ID,
+  type UpdateDateLocaleSettingsInput,
+} from '../../commands/dateLocale'
 
 const logger = createLogger('configs').child({ component: 'api/date-locale' })
-
-const RESOURCE_KIND = 'configs.date_locale'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['configs.date_locale.view'] },
@@ -54,6 +54,7 @@ const responseSchema = z.object({
 
 type RouteContext = {
   container: Awaited<ReturnType<typeof createRequestContainer>>
+  auth: NonNullable<Awaited<ReturnType<typeof getAuthFromRequest>>>
   tenantId: string
   organizationId: string | null
   actorId: string
@@ -74,7 +75,7 @@ async function resolveRouteContext(req: Request): Promise<RouteContext> {
     || (typeof auth.userId === 'string' && auth.userId.trim().length > 0 && auth.userId)
     || (typeof auth.keyId === 'string' && auth.keyId.trim().length > 0 && auth.keyId)
     || 'system'
-  return { container, tenantId: auth.tenantId, organizationId: auth.orgId ?? null, actorId, userId, translate }
+  return { container, auth, tenantId: auth.tenantId, organizationId: auth.orgId ?? null, actorId, userId, translate }
 }
 
 async function buildResponse(context: RouteContext) {
@@ -126,19 +127,8 @@ async function PUT(req: Request) {
     const context = await resolveRouteContext(req)
     const raw = await readJsonSafe<unknown>(req, {})
     const parsed = dateLocaleSettingsInputSchema.safeParse(raw ?? {})
-    if (!parsed.success) {
-      const fieldErrors: Record<string, string> = {}
-      for (const issue of parsed.error.issues) {
-        const field = typeof issue.path[0] === 'string' ? issue.path[0] : 'form'
-        fieldErrors[field] ??= context.translate(issue.message, issue.message)
-      }
-      return NextResponse.json(
-        { error: context.translate('configs.dateLocale.errors.invalid', 'Some settings are invalid.'), fieldErrors },
-        { status: 400 },
-      )
-    }
-    const settings = parsed.data
-    assertPatternsRender(settings, context.translate)
+    if (!parsed.success) return invalidSettingsResponse(parsed.error.issues, context.translate)
+    assertPatternsRender(parsed.data, context.translate)
 
     // Read-check-write, not compare-and-swap: two PUTs carrying the same version can both pass the
     // check and the later one wins. Accepted for this single settings row (the same trade-off as the
@@ -146,42 +136,69 @@ async function PUT(req: Request) {
     // stale page, which is the case it exists for.
     const current = await readTenantDateLocaleSettings(context.container, context.tenantId)
     enforceCommandOptimisticLock({
-      resourceKind: RESOURCE_KIND,
+      resourceKind: DATE_LOCALE_RESOURCE_KIND,
       resourceId: context.tenantId,
       current: current.updatedAt,
       request: req,
     })
 
-    const guardInput = {
-      tenantId: context.tenantId,
-      organizationId: context.organizationId,
-      userId: context.actorId,
-      resourceKind: RESOURCE_KIND,
-      resourceId: DATE_LOCALE_CONFIG_NAME,
-      operation: 'update' as const,
-      requestMethod: req.method,
-      requestHeaders: req.headers,
-    }
-    const guardResult = await validateCrudMutationGuard(context.container, { ...guardInput, mutationPayload: settings })
-    if (guardResult && !guardResult.ok) {
-      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    const guard = await runRouteMutationGuards({
+      container: context.container,
+      req,
+      auth: { userId: context.actorId, tenantId: context.tenantId, organizationId: context.organizationId },
+      input: {
+        resourceKind: DATE_LOCALE_RESOURCE_KIND,
+        resourceId: DATE_LOCALE_CONFIG_NAME,
+        operation: 'update',
+        mutationPayload: parsed.data,
+      },
+    })
+    if (!guard.ok) return guard.response
+
+    let settings = parsed.data
+    if (guard.modifiedPayload) {
+      const reparsed = dateLocaleSettingsInputSchema.safeParse({ ...parsed.data, ...guard.modifiedPayload })
+      if (!reparsed.success) return invalidSettingsResponse(reparsed.error.issues, context.translate)
+      settings = reparsed.data
+      assertPatternsRender(settings, context.translate)
     }
 
-    const service = context.container.resolve('moduleConfigService') as ModuleConfigService
-    await service.setValue(DATE_LOCALE_CONFIG_MODULE, DATE_LOCALE_CONFIG_NAME, settings, { tenantId: context.tenantId })
-
-    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
-      try {
-        await runCrudMutationGuardAfterSuccess(context.container, { ...guardInput, metadata: guardResult.metadata ?? null })
-      } catch (err) {
-        logger.warn('date-locale after-success guard failed', { err })
-      }
+    const ctx: CommandRuntimeContext = {
+      container: context.container,
+      auth: context.auth,
+      organizationScope: null,
+      selectedOrganizationId: context.organizationId,
+      organizationIds: context.organizationId ? [context.organizationId] : null,
+      request: req,
     }
+    const commandBus = context.container.resolve('commandBus') as CommandBus
+    await commandBus.execute<UpdateDateLocaleSettingsInput, { tenantId: string }>(DATE_LOCALE_UPDATE_COMMAND_ID, {
+      input: { tenantId: context.tenantId, settings },
+      ctx,
+    })
+
+    await guard.runAfterSuccess()
 
     return NextResponse.json(await buildResponse(context))
   } catch (err) {
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
     return await errorResponse(err, 'PUT')
   }
+}
+
+function invalidSettingsResponse(issues: z.ZodError['issues'], translate: RouteContext['translate']) {
+  const fieldErrors: Record<string, string> = {}
+  for (const issue of issues) {
+    const field = typeof issue.path[0] === 'string' ? issue.path[0] : 'form'
+    fieldErrors[field] ??= translate(issue.message, issue.message)
+  }
+  return NextResponse.json(
+    { error: translate('configs.dateLocale.errors.invalid', 'Some settings are invalid.'), fieldErrors },
+    { status: 400 },
+  )
 }
 
 async function errorResponse(err: unknown, method: 'GET' | 'PUT') {

@@ -49,7 +49,9 @@ export type MyWorkPeriods = {
 /**
  * The my-work dashboard periods for `now`: today named in `timeZone` (the viewer's display zone;
  * UTC when none is configured, the long-standing behavior), and the Monday-based week and the
- * month that contain that day, as UTC-midnight date-only values.
+ * month that contain that day, as UTC-midnight date-only values. The week stays Monday-based even
+ * when the tenant's first day of week differs: it must match the timesheet week period and the
+ * project KPIs, which are Monday-based by design.
  */
 export function resolveMyWorkPeriods(now: Date, timeZone: string | null | undefined): MyWorkPeriods {
   const todayDate = calendarDayInTimeZone(now, timeZone ?? 'UTC')
