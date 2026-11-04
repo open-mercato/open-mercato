@@ -5,7 +5,7 @@ import {
   validateSlug,
 } from '../ready-apps.js'
 import type { DownloadedArchive } from '../safe-archive.js'
-import { fetchTemplatesIndex, parseGitHubPath } from './fetch-templates.js'
+import { fetchTemplatesIndex, isSafeGitRef, parseGitHubPath } from './fetch-templates.js'
 import type {
   TemplateArg,
   TemplateIndexEntry,
@@ -235,9 +235,11 @@ export async function downloadSelectedTemplate(
     try {
       ref = await resolveGitHubDefaultBranch(owner, repo, deps.packageVersion, fetchImpl)
     } catch {
-      ref = '<branch or tag>'
+      ref = null
     }
   }
+  // The hint is a command the user may copy, so a ref that could carry shell syntax is never printed.
+  if (!ref || !isSafeGitRef(ref)) ref = '<branch or tag>'
   throw new Error(
     `The commit ${sha} that the template index lists for ${owner}/${repo} can no longer be downloaded. create-mercato-app does not switch to other code on its own. To use the current code, run again with --template ${owner}/${repo}#${ref}. That code is not verified.`,
   )

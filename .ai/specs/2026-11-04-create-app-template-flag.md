@@ -193,6 +193,9 @@ git init (unchanged) -> next steps with cp .env.example .env and declared env ke
 - Parsing: `schema` must be `1`, else the index counts as unavailable. Entries without a valid `github`, `status` or
   `source.sha` (40 hex characters) are dropped. Strings lose control characters before printing (the picker's
   `printable` helper).
+- An entry `ref` is kept only when it is safe to print in a shell command: `^[A-Za-z0-9._/-]{1,255}$`, no `..`, no
+  leading `-`. Otherwise it is read as `null` (the default branch). The `#<ref>` hint after a gone index sha applies
+  the same rule to the default branch read from GitHub, and prints `<branch or tag>` when it fails.
 - Duplicate slugs or duplicate `github` paths in one index (emit guarantees neither) make that lookup fail with a
   clear message instead of picking one.
 

@@ -19,6 +19,7 @@ const KNOWN_STATUSES: readonly TemplateStatus[] = ['active', 'hold', 'unmaintain
 const OWNER_PATTERN = /^[A-Za-z0-9-]{1,39}$/
 const REPO_PATTERN = /^[A-Za-z0-9._-]{1,100}$/
 const SHA_PATTERN = /^[0-9a-f]{40}$/i
+const GIT_REF_PATTERN = /^[A-Za-z0-9._/-]{1,255}$/
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -27,6 +28,14 @@ const stringOrNull = (value: unknown): string | null => (isString(value) && valu
 
 export function isFullSha(value: string): boolean {
   return SHA_PATTERN.test(value)
+}
+
+/**
+ * A branch, tag or sha that is safe to print inside a suggested shell command: letters, digits, `.`, `_`, `/` and `-`
+ * only, no `..` and no leading `-`. Refs from the index or from GitHub are printed only when they pass.
+ */
+export function isSafeGitRef(value: string): boolean {
+  return GIT_REF_PATTERN.test(value) && value !== '.' && !value.includes('..') && !value.startsWith('-')
 }
 
 /** `owner/repo` split into its parts when both are valid GitHub names, else null. */
@@ -111,7 +120,7 @@ function toEntry(value: unknown): TemplateIndexEntry | null {
     reason: stringOrNull(value.reason),
     useCase: isString(value.useCase) ? value.useCase : '',
     summary: isString(value.summary) ? value.summary : '',
-    ref: stringOrNull(value.ref),
+    ref: isString(value.ref) && isSafeGitRef(value.ref) ? value.ref : null,
     source: {
       sha: source.sha.toLowerCase(),
       syncedAt: isString(source.syncedAt) ? source.syncedAt : '',
