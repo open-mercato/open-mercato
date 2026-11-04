@@ -4,7 +4,7 @@
 Sales administrators will configure the default quote validity per organization. Quotes without a usable valid-until date and sends without an explicit number will use the same setting, initially 14 days.
 
 ## Resolved assumptions (autonomous defaults)
-- Use the existing organization-scoped SalesSettings entity, command, and configuration page; a setting is one of the issue’s accepted outcomes.
+- Use the existing organization-scoped SalesSettings entity, command, and configuration page, adding a narrow settings command; a setting is one of the issue’s accepted outcomes.
 - Preserve the current 1–365 day bound, explicit send overrides, and future valid-until suggestions.
 - Deliver one cohesive setting; additional dialog extension mechanisms are outside this issue.
 
@@ -15,14 +15,14 @@ The dialog and send schema independently default to 14 and customizers cannot co
 Add defaultQuoteValidityDays to sales settings and expose a guarded settings API and configuration field. Share fallback and date-suggestion helpers between server and client.
 
 ## Overview and Architecture
-Extend existing SalesSettings, sales.settings.save, and /backend/config/sales. No new service, dependency, or cross-module relation. A pure sales/lib/quoteValidity helper owns the historical default (14), accepted range (1–365), and date-suggestion calculation. The existing exported page helper remains available as a re-export.
+Extend existing SalesSettings, the narrow sales.settings.quote_validity.save command, and /backend/config/sales. No new service, dependency, or cross-module relation. A pure sales/lib/quoteValidity helper owns the historical default (14), accepted range (1–365), and date-suggestion calculation. The existing exported page helper remains available as a re-export.
 
 ## Data Models
 Add sales_settings.default_quote_validity_days integer NOT NULL DEFAULT 14. Existing rows retain behavior. Include a reversible sales-only migration and the module snapshot; do not apply to a developer database. SalesSettings already has updatedAt. No sensitive fields are added.
 
 ## API Contracts
-GET /api/sales/settings/quote-validity returns { defaultQuoteValidityDays, updatedAt: string|null }. Authenticated users need either sales.settings.manage or sales.quotes.manage; reuse RBAC wildcard-aware helpers. Scope is derived from authenticated tenant and selected organization, never caller body. Export method metadata and openApi documentation with 400/401/403/409 responses.
-PUT on that route requires sales.settings.manage; accepts { defaultQuoteValidityDays: integer 1..365 }, runs route mutation guards and sales.settings.save, and returns the same shape. Keep required numbering-format outputs in salesSettingsUpsertSchema unchanged; the narrow route supplies the current formats. The command preserves omitted optional settings and performs its settings load, optimistic-version check, and write inside a transaction with a pessimistic row lock, preventing a check/write race. Existing command callers may continue omitting the new field. The first write creates the normal SalesSettings row.
+GET /api/sales/settings/quote-validity returns { defaultQuoteValidityDays, updatedAt: string|null }. Authenticated users need either sales.settings.manage or sales.quotes.manage; reuse RBAC wildcard-aware helpers. Scope is derived from authenticated tenant and selected organization, never caller body. Reject selectionRejected before any fallback to auth.orgId, including stale superadmin tenant/organization selections. Export method metadata and openApi documentation with 400/401/403/409 responses.
+PUT on that route requires sales.settings.manage; accepts { defaultQuoteValidityDays: integer 1..365 }, runs route mutation guards and sales.settings.quote_validity.save, and returns the same shape. Keep required numbering-format outputs in salesSettingsUpsertSchema unchanged. A separate narrow command changes only quote validity, preserving numbering and editing settings and performs its settings load, optimistic-version check, and write inside a transaction with a pessimistic row lock, preventing a check/write race. Existing sales.settings.save callers retain their unchanged required input/output shape. The first write initializes the normal SalesSettings row using an insert-on-conflict-ignore upsert, then reloads it under the same row lock. Concurrent initial writes therefore cannot fail with a duplicate scope row or reset numbering settings.
 POST /api/sales/quotes/send resolves the setting only when validForDays is omitted. Explicit values retain existing coercion/validation, including rejection of null/0/out-of-range values. Keep quoteSendSchema’s public output shape and historical default for direct schema callers; the route supplies the scoped configured fallback before parsing. Mutation guards see the effective validated value. Existing authentication, scoping, cancellation, token/email ordering and conflict protections remain intact.
 
 ## UI/UX
@@ -44,23 +44,23 @@ Sales config remains a server page; only the new small form component is client-
 Odoo also provides a company-specific Default Quotation Validity with per-document override ([official documentation](https://www.odoo.com/documentation/master/applications/sales/sales/sales_quotations/create_quotations.html)). We adopt only that narrow default/override relationship, retaining Open Mercato’s existing quote behavior and settings machinery.
 
 ## Migration & Backward Compatibility
-Additive schema, route and optional command input only. Old clients, command inputs, locale keys, page helper import and explicit send values remain supported. No renames or deprecations; no UPGRADE_NOTES migration is necessary beyond normal additive migrations. SQL rollback removes only the setting and returns behavior to 14; changing the configured value back to 14 reverses the product change without data loss to quote records.
+Additive schema, route and narrow command only. Old clients, command inputs, locale keys, page helper import and explicit send values remain supported. No renames or deprecations; no UPGRADE_NOTES migration is necessary beyond normal additive migrations. SQL rollback removes only the setting and returns behavior to 14; changing the configured value back to 14 reverses the product change without data loss to quote records.
 
 ## Risks & Impact Review
-Medium: incorrect scope could leak/default across organizations; mitigate server-derived scope and tests. Medium: changing the shared command could reset existing settings; update only supplied fields and regress omitted-value saves. Low: failed/stale read could show the wrong default; reject load failure and ignore obsolete responses. No production dependencies, workflow changes, or release/pipeline changes.
+Medium: incorrect scope could leak/default across organizations; mitigate server-derived scope and tests. Medium: reusing broad settings inputs could reset existing settings; the narrow command updates only quote validity and regression tests preserve other fields. Low: failed/stale read could show the wrong default; reject load failure and ignore obsolete responses. No production dependencies, workflow changes, or release/pipeline changes.
 
 ## Integration Coverage
 Self-contained TC-SALES-8140 fixtures create/clean quotes and restore organization settings. Cover GET/PUT default/persistence/invalid input/stale token, send omitted versus explicit values with persisted validUntil, dialog fallback after changing to 30, future validUntil precedence, and settings save/reload. Unit tests cover pure date/default boundaries, command preservation/locking, both allowed GET permissions, denied GET/PUT, cross-organization isolation, guarded payload changes, failed dialog loads and obsolete async responses after organization/document changes, and the omitted-value send branch. Runtime uses the owned native ephemeral runner after the parent grants its serialized QA slot.
 
 ## Final Compliance Report
-Scope is one setting entirely inside sales. Uses existing commands, guarded mutations, scoped reads and shared UI clients/forms; no shared UI edits. The additive migration contains no unrelated SQL. All new copy is present in each sales locale. Independent scope audit: conditional GO; required-format compatibility, transactional version checking, security/error coverage and OpenAPI findings incorporated. Full configured validation, review and live QA are pending and must be reported honestly before ready promotion.
+Scope is one setting entirely inside sales. Uses existing commands, guarded mutations, scoped reads and shared UI clients/forms; no shared UI edits. The additive migration contains no unrelated SQL. All new copy is present in each sales locale. Independent scope/readiness audit: GO; required-format compatibility, transactional version checking, security/error coverage and OpenAPI findings resolved. Full configured validation, review and live QA are pending and must be reported honestly before ready promotion.
 
 ## Changelog
-- 2026-11-04: Autonomous design for #8140; implementation and validation pending.
+- 2026-11-04: Autonomous design and GO readiness audit for #8140. Implementation PR #8689 uses a narrow settings command, conflict-safe initialization with explicit updatedAt, and rejected-selection guards; final validation and live QA pending.
 
 ## Implementation Plan
 ### Phase 1: Scoped setting
-1. Add the field/migration/snapshot and extend the existing settings command without resetting omitted fields.
+1. Add the field/migration/snapshot and a narrow settings command without resetting unrelated fields.
 2. Add read/write API and settings UI with validation, authorization, scoping and optimistic locking.
 ### Phase 2: Send integration
 3. Resolve the shared setting in the dialog and omitted-value send path while retaining existing date/explicit-value precedence.
