@@ -40,7 +40,7 @@ Five-day gate: ip-address 10.7.5 published 2026-10-25T01:32:24.393Z; Hono 4.13.1
 | 234 | hono | GHSA-w62v-xxxg-mg59 | yarn.lock | 4.12.25 | 4.13.14 |
 | 233 | hono | GHSA-xgm2-5f3f-mvvc | yarn.lock | 4.12.25 | 4.13.14 |
 
-Final publication refresh: authenticated alerts remain 42; all 355 open PRs were re-read; the latest 100 all-state PRs cover every update since selection (oldest 2026-11-04T15:37:20Z). No other PR matches selected package/GHSA identities. Active security run lists still show only this dependency claim; the advisory automation has finished its read-only child and was notified of this package/manifest claim. Remote main remains `66f0e39dbc28dcc4f29f3320af06db286f91208b`.
+Final publication refresh: authenticated alerts remain 42; all 355 open PRs were re-read; the latest 100 all-state PRs cover every update since selection (oldest 2026-11-04T15:37:20Z). No other PR matches selected package/GHSA identities. Active security run lists still show only this dependency claim; the advisory automation has finished its read-only child and was notified of this package/manifest claim. Remote main at the last pre-commit refresh was `66f0e39dbc28dcc4f29f3320af06db286f91208b`; see the final main-advance check below.
 
 ## Implementation plan
 
@@ -114,6 +114,10 @@ All configured gate commands ran in their configured order, with a 300-second li
 | `timeout 900 env TMPDIR=/tmp TMP=/tmp TEMP=/tmp yarn test` | Exit 1 after 14m1s; 50/51 tasks passed. All 42 Jest packages passed: 45,961 tests, 285 existing skips. Docs 24/24 passed; create-app 1,020 passed, 5 skipped, 1 baseline sandbox failure |
 
 `ci-full` was applied through the existing-label guard. Existing `.github/workflows/ci.yml` reads it as `FORCE_FULL_SUITE=true` and selects all 15 integration shards; no workflow is changed. Remote CI/integration and independent final review are not claimed passed. The parent commissions the final review; this run will not mark the PR ready.
+
+## Final main-advance check
+
+While validation ran, main advanced to `cc82ba769734ce6445976ca7247bf5781140a4a7` through #8188, changing only `packages/create-app/src/lib/catalog/catalog.test.ts` and `packages/create-app/src/lib/catalog/fetch-catalog.ts`. Authenticated refreshed alerts still list all17targets open. Latest main root manifest blob `d5403649c3111b8e626d5b45d2f55b6f7e481ad7` and lock blob `b77e199c51adbca7e18f50f1029af99e5ea6fc7f` are byte-identical to the tested starting main. The two-package remediation therefore still applies unchanged to the latest dependency graph. The branch retains its authorized parent fork point; no merge or history rewrite was performed. Full validation ran on the original fork with this dependency patch, not on the later catalog change.
 
 ## Remaining baseline blocker
 
