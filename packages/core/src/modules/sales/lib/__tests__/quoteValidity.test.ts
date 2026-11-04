@@ -2,19 +2,21 @@ import { DEFAULT_QUOTE_VALID_FOR_DAYS, normalizeQuoteValidityDays, resolveDefaul
 import { quoteSendSchema, quoteValiditySettingsSchema, salesSettingsUpsertSchema } from '../../data/validators'
 
 const quoteId = '11111111-1111-4111-8111-111111111111'
+const clockNow = Date.now()
+const millisecondsPerDay = 24 * 60 * 60 * 1000
 
 describe('quote validity defaults (#8140)', () => {
-  beforeEach(() => { jest.useFakeTimers(); jest.setSystemTime(new Date('2026-11-04T12:00:00Z')) })
+  beforeEach(() => { jest.useFakeTimers(); jest.setSystemTime(clockNow) })
   afterEach(() => jest.useRealTimers())
 
-  it.each([null, undefined, '', 'invalid', '2026-11-03T12:00:00Z', '2026-11-04T12:00:00Z'])(
+  it.each([null, undefined, '', 'invalid', new Date(clockNow - millisecondsPerDay).toISOString(), new Date(clockNow).toISOString()])(
     'uses the configured fallback for unusable validUntil %s', (value) => {
       expect(resolveDefaultValidForDays(value, 30)).toBe(30)
     },
   )
   it('preserves rounding up and the cap for future quote dates', () => {
-    expect(resolveDefaultValidForDays('2026-11-05T12:00:01Z', 30)).toBe(2)
-    expect(resolveDefaultValidForDays('2028-11-04T12:00:00Z', 30)).toBe(365)
+    expect(resolveDefaultValidForDays(new Date(clockNow + millisecondsPerDay + 1000).toISOString(), 30)).toBe(2)
+    expect(resolveDefaultValidForDays(new Date(clockNow + 366 * millisecondsPerDay).toISOString(), 30)).toBe(365)
   })
   it.each([0, -1, 366, 1.5, NaN, null, undefined, '30'])(
     'rejects an unusable stored fallback %s', (value) => expect(normalizeQuoteValidityDays(value)).toBe(DEFAULT_QUOTE_VALID_FOR_DAYS),

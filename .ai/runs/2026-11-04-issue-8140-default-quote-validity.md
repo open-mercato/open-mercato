@@ -40,4 +40,6 @@ PR: #8689
 - Client-boundary scan and diff whitespace check passed. DS health/discovery commands exceeded bounded120s during host contention; not passes.
 - Integration scenarios authored; discovery/runtime verification pending.
 
-- CI follow-up:9dda08898a prepare/Build app failed TS2741 for missing LoadingMessage.label. Scoped translated-label fix and a real loading-state regression added (fails before, passes after). Fresh CI compile and all remaining local broad/live gates are pending.
+- CI follow-up:9dda08898a prepare/Build app failed TS2741 for missing LoadingMessage.label. Scoped translated-label fix and a real loading-state regression added (fails before, passes after). Fresh CI atfea517 passed compile/preparation; local broad/live gates remain pending.
+
+- CI test job then stopped at the date-fixture scanner before unit tests: two new helper test literals flagged HIGH. Changed the fixtures to clock-relative inputs under a frozen anchor; file-scoped scan fails before and passes with zero findings after. Author and independent reviewer each passed the26-test helper suite; narrow review approves. No product behavior or scanner policy changed.
