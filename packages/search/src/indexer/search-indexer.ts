@@ -219,8 +219,10 @@ export class SearchIndexer {
    * Index a record in the search service.
    */
   async indexRecord(params: IndexRecordParams): Promise<void> {
-    const record = await this.buildIndexableRecord(params)
-    if (record) await this.searchService.index(record)
+    const indexableRecord = await this.buildIndexableRecord(params)
+    if (indexableRecord) {
+      await this.searchService.index(indexableRecord)
+    }
   }
 
   private async buildIndexableRecord(
@@ -251,7 +253,7 @@ export class SearchIndexer {
       try {
         const source = await config.buildSource(buildContext)
         if (source) {
-          text = source.text
+          text = source.text ?? []
           if (source.presenter) presenter = source.presenter
           if (source.links) links = source.links
           if (source.checksumSource !== undefined) checksumSource = source.checksumSource
@@ -307,8 +309,7 @@ export class SearchIndexer {
       }
     }
 
-    // Build IndexableRecord
-    const indexableRecord: IndexableRecord = {
+    return {
       entityId: params.entityId,
       recordId: params.recordId,
       tenantId: params.tenantId,
@@ -321,8 +322,6 @@ export class SearchIndexer {
       text,
       checksumSource,
     }
-
-    return indexableRecord
   }
 
   /**
@@ -631,8 +630,10 @@ export class SearchIndexer {
     const exclusions = this.createPlaintextExclusionLookup()
 
     for (const param of params) {
-      const record = await this.buildIndexableRecord(param, exclusions)
-      if (record) indexableRecords.push(record)
+      const indexableRecord = await this.buildIndexableRecord(param, exclusions)
+      if (indexableRecord) {
+        indexableRecords.push(indexableRecord)
+      }
     }
 
     if (indexableRecords.length > 0) {
@@ -1172,7 +1173,7 @@ export class SearchIndexer {
         try {
           const source = await config.buildSource(buildContext)
           if (source) {
-            text = source.text
+            text = source.text ?? []
             if (source.presenter) presenter = source.presenter
             if (source.links) links = source.links
             if (source.checksumSource !== undefined) checksumSource = source.checksumSource
