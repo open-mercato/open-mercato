@@ -210,6 +210,20 @@ test('fetchTemplatesIndex retries once after a 5xx or a network error and never 
   assert.equal(notFound.calls, 1)
 })
 
+test('fetchTemplatesIndex aborts a hanging request after the timeout and retries it once', { timeout: 5000 }, async () => {
+  let calls = 0
+  const hanging: TemplatesFetch = (_url, init) => {
+    calls += 1
+    return new Promise((_resolve, reject) => init.signal.addEventListener('abort', () => reject(init.signal.reason)))
+  }
+  const started = Date.now()
+  const result = await fetchTemplatesIndex({ fetchImpl: hanging, timeoutMs: 20 })
+  assert.equal(result.status, 'unavailable')
+  assert.match(result.status === 'unavailable' ? result.reason : '', /timeout/i)
+  assert.equal(calls, 2)
+  assert.ok(Date.now() - started < 2000)
+})
+
 test('fetchTemplatesIndex reports an unsupported body and never sends the GitHub token', async () => {
   process.env.GITHUB_TOKEN = 'ghp_secret'
   const { fetchImpl, requests } = mockFetch(indexRoute({ schema: 2, templates: [] }))
