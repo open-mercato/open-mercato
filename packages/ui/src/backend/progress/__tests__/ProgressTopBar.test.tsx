@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 
 import * as React from 'react'
-import { render } from '@testing-library/react'
+import { fireEvent, render } from '@testing-library/react'
 
 import type { ProgressJobDto, UseProgressPollResult } from '../useProgressPoll'
 
@@ -72,6 +72,18 @@ describe('ProgressTopBar progress.view gating', () => {
     const { container } = render(<ProgressTopBar t={translate} />)
     expect(mockUseProgress).toHaveBeenCalled()
     expect(container.textContent).toContain('Bulk update')
+  })
+
+  it('retains a long operation name and its expand action in the compact summary', () => {
+    const name = 'Reassign selected deals to a new owner with a long operation description'
+    mockUseBackendChrome.mockReturnValue({ payload: { grantedFeatures: ['progress.view'] } })
+    mockUseProgress.mockReturnValue(progressResult({ activeJobs: [{ ...activeJob, name }] }))
+    const { getByRole, getByText } = render(<ProgressTopBar t={translate} />)
+    const summary = getByRole('button', { name: new RegExp(name) })
+    fireEvent.click(summary)
+    expect(getByText(name)).toBeVisible()
+    fireEvent.click(summary)
+    expect(getByRole('button', { name: new RegExp(name) })).toBeVisible()
   })
 
   it('honors wildcard grants such as progress.* for the read gate', () => {

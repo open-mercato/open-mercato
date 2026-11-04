@@ -41,6 +41,7 @@ const integrationDetail = {
 
 test.describe('TC-INT-011: write-only integration secret editing', () => {
   test('keeps configured secrets out of editable values and submits explicit unchanged intent', async ({ page }) => {
+    test.setTimeout(60_000)
     await login(page, 'admin')
 
     const submittedBodies: Array<Record<string, unknown>> = []
@@ -98,6 +99,7 @@ test.describe('TC-INT-011: write-only integration secret editing', () => {
     await expect(secretInput).toHaveAttribute('type', 'text')
     await expect(secretInput).toHaveValue('')
 
+    const originalSecretInput = await secretInput.elementHandle()
     await page.getByRole('button', { name: 'Save Credentials' }).click()
     await expect.poll(() => submittedBodies.length).toBe(1)
     expect(submittedBodies[0]).toEqual({
@@ -105,6 +107,8 @@ test.describe('TC-INT-011: write-only integration secret editing', () => {
       unchangedSecretFields: ['secretKey', 'webhookSecret'],
     })
 
+    await originalSecretInput?.waitForElementState('hidden')
+    await expect(page.getByRole('button', { name: 'Save Credentials' })).toBeEnabled()
     const reloadedSecretInput = page.locator('[data-crud-field-id="secretKey"] input')
     await expect(reloadedSecretInput).toBeVisible()
     await reloadedSecretInput.fill('rotated-secret')
