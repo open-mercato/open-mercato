@@ -39,6 +39,9 @@ test.describe('TC-DIR-022: Organization mutation actor scope (#8677)', () => {
     const update = (token: string, id: string, data: Record<string, unknown>) => apiRequest(request, 'PUT', '/api/directory/organizations', {
       token, data: { id, ...data },
     })
+    const create = (token: string, data: Record<string, unknown>) => apiRequest(request, 'POST', '/api/directory/organizations', {
+      token, data: { tenantId, ...data },
+    })
     const remove = (token: string, id: string) => apiRequest(request, 'DELETE', `/api/directory/organizations?id=${id}`, { token })
     const expectDenied = (status: number) => expect([403, 404]).toContain(status)
 
@@ -58,6 +61,18 @@ test.describe('TC-DIR-022: Organization mutation actor scope (#8677)', () => {
         email, password, organizationId: allowedId, roles: [roleId], name: 'Scoped directory manager',
       })
       const actorToken = await getAuthToken(request, email, password)
+
+      const deniedRootCreate = await create(actorToken, { name: `QA #8677 denied root ${stamp}` })
+      expectDenied(deniedRootCreate.status())
+      const allowedChildCreate = await create(actorToken, {
+        name: `QA #8677 allowed child ${stamp}`,
+        parentId: allowedId,
+      })
+      expect(allowedChildCreate.status()).toBe(201)
+      const allowedChildBody = await readJsonSafe<{ id?: string }>(allowedChildCreate)
+      if (!allowedChildBody?.id) throw new Error('[internal] Scoped child creation did not return an id')
+      organizationIds.push(allowedChildBody.id)
+
       expect((await update(actorToken, allowedId, { name: `QA #8677 allowed ${stamp}` })).status()).toBe(200)
       expect((await update(actorToken, childId, { name: `QA #8677 expanded descendant ${stamp}` })).status()).toBe(200)
 
@@ -102,6 +117,7 @@ test.describe('TC-DIR-022: Organization mutation actor scope (#8677)', () => {
 
       await setScope([])
       const denyAllBefore = await loadOrg(allowedId)
+      expectDenied((await create(actorToken, { name: `QA #8677 deny-all root ${stamp}` })).status())
       expectDenied((await update(actorToken, allowedId, { name: 'Deny-all bypass' })).status())
       expectDenied((await remove(actorToken, allowedId)).status())
       expect(await loadOrg(allowedId)).toEqual(denyAllBefore)

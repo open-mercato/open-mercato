@@ -940,6 +940,37 @@ describe('directory organization command tenant ownership', () => {
     expect(created.parentId).toBe(PARENT_ID)
   })
 
+  it.each([
+    { label: 'finite', allowedIds: [PARENT_ID] },
+    { label: 'empty', allowedIds: [] },
+  ])('rejects a parentless create for a $label organization scope before side effects', async ({ allowedIds }) => {
+    const harness = makeHarness([makeOrganization(PARENT_ID, ACTOR_TENANT_ID)])
+
+    await expect(new CommandBus().execute('directory.organizations.create', {
+      input: { name: 'Unauthorized root' },
+      ctx: makeContext(harness, { allowedIds }),
+    })).rejects.toMatchObject({ status: 404, body: { error: 'Not found' } })
+
+    expect(lockOrganizationHierarchyForTenant).not.toHaveBeenCalled()
+    expect(harness.em.findOne).not.toHaveBeenCalled()
+    expect(harness.createOrmEntity).not.toHaveBeenCalled()
+    expect(harness.dataEngine.setCustomFields).not.toHaveBeenCalled()
+    expect(harness.logs).toHaveLength(0)
+  })
+
+  it('allows a finite-scope actor to create below an allowed parent', async () => {
+    const parent = makeOrganization(PARENT_ID, ACTOR_TENANT_ID)
+    const harness = makeHarness([parent])
+
+    const created = await createHandler.execute(
+      { name: 'Allowed child', parentId: PARENT_ID },
+      makeContext(harness, { allowedIds: [PARENT_ID] }),
+    )
+
+    expect(created.parentId).toBe(PARENT_ID)
+    expect(harness.createOrmEntity).toHaveBeenCalledTimes(1)
+  })
+
   it('re-reads the update target and validates the hierarchy only under the lock', async () => {
     const target = makeOrganization(TARGET_ID, ACTOR_TENANT_ID)
     const parent = makeOrganization(PARENT_ID, ACTOR_TENANT_ID)

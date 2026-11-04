@@ -182,6 +182,11 @@ function assertOrganizationIdsInScope(scope: OrganizationActorScope, ids: Iterab
   }
 }
 
+function assertOrganizationCreateRootAccess(scope: OrganizationActorScope, parentId: string | null): void {
+  if (scope.isUnrestricted || scope.allowedOrganizationIds === null || parentId) return
+  throw notFound()
+}
+
 async function assertHierarchyAssignmentsInScope(
   em: EntityManager,
   scope: OrganizationActorScope,
@@ -481,6 +486,7 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     const parentId = parsed.parentId ?? null
     const childIds = normalizeChildIds(parsed.childIds ?? [], parentId ? [parentId] : [])
     if (parentId && childIds.includes(parentId)) throw new CrudHttpError(400, { error: 'Child cannot equal parent' })
+    assertOrganizationCreateRootAccess(scope, parentId)
 
     const tenantRef = em.getReference(Tenant, tenantId)
     const baseSlug = parsed.slug ? parsed.slug : slugify(parsed.name)
