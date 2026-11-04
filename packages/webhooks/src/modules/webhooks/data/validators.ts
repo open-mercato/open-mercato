@@ -53,6 +53,7 @@ export const webhookCreateSchema = webhookFieldsSchema.extend({
 export type WebhookCreateInput = z.infer<typeof webhookCreateSchema>
 
 export const webhookUpdateSchema = webhookFieldsSchema.partial().extend({
+  id: z.string().uuid().optional(),
   isActive: z.boolean().optional(),
 })
 
