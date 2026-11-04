@@ -53,6 +53,9 @@ function ProgressTopBarContent({ className, t, completedAutoHideMs }: ProgressTo
 
   const hasActiveJobs = activeJobs.length > 0
   const hasRecentJobs = visibleCompleted.length > 0
+  const failedCount = visibleCompleted.filter((job) => job.status === 'failed').length
+  const cancelledCount = visibleCompleted.filter((job) => job.status === 'cancelled').length
+  const hasUnsuccessfulJobs = failedCount > 0 || cancelledCount > 0
 
   if (!hasActiveJobs && !hasRecentJobs) return null
 
@@ -82,9 +85,17 @@ function ProgressTopBarContent({ className, t, completedAutoHideMs }: ProgressTo
             </>
           ) : (
             <>
-              <CheckCircle className="h-4 w-4 shrink-0 text-status-success-icon" />
+              {hasUnsuccessfulJobs ? (
+                <XCircle className={cn('h-4 w-4 shrink-0', failedCount > 0 ? 'text-status-error-icon' : 'text-muted-foreground')} />
+              ) : (
+                <CheckCircle className="h-4 w-4 shrink-0 text-status-success-icon" />
+              )}
               <span className="truncate text-muted-foreground">
-                {t('progress.recentlyCompleted', '{count} operations completed', { count: visibleCompleted.length })}
+                {failedCount > 0
+                  ? t('progress.recentlyFailed', '{count} operations failed', { count: failedCount })
+                  : cancelledCount > 0
+                    ? t('progress.recentlyCancelled', '{count} operations cancelled', { count: cancelledCount })
+                    : t('progress.recentlyCompleted', '{count} operations completed', { count: visibleCompleted.length })}
               </span>
             </>
           )}

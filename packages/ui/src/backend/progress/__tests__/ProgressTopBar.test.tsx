@@ -92,4 +92,25 @@ describe('ProgressTopBar progress.view gating', () => {
     expect(mockUseProgress).toHaveBeenCalled()
     expect(container.textContent).toContain('Bulk update')
   })
+
+  it('does not announce failed operations as completed successfully', () => {
+    mockUseBackendChrome.mockReturnValue({ payload: { grantedFeatures: ['progress.view'] } })
+    mockUseProgress.mockReturnValue(progressResult({
+      activeJobs: [],
+      recentlyCompleted: [{ ...activeJob, status: 'failed', errorMessage: 'Operation refused' }],
+    }))
+    const { getByRole, queryByRole } = render(<ProgressTopBar t={translate} />)
+    expect(getByRole('button', { name: '{count} operations failed' })).toBeVisible()
+    expect(queryByRole('button', { name: '{count} operations completed' })).toBeNull()
+  })
+
+  it('keeps cancellation distinct from successful completion', () => {
+    mockUseBackendChrome.mockReturnValue({ payload: { grantedFeatures: ['progress.view'] } })
+    mockUseProgress.mockReturnValue(progressResult({
+      activeJobs: [],
+      recentlyCompleted: [{ ...activeJob, status: 'cancelled' }],
+    }))
+    const { getByRole } = render(<ProgressTopBar t={translate} />)
+    expect(getByRole('button', { name: '{count} operations cancelled' })).toBeVisible()
+  })
 })
