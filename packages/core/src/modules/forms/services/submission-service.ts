@@ -39,6 +39,7 @@ import {
   type VisibilitySchemaNode,
 } from './visibility-resolver'
 import { buildTamperingMarker, type StructuredLogger } from '../lib/log-redaction'
+import { isPortalSubmitAllowed } from '../lib/portal-subject-policy'
 import { formsEventPayloadSchemas } from '../events-payloads'
 import { validateFieldValue } from './field-validation-service'
 import type { FieldNode } from '../backend/forms/[id]/studio/schema-helpers'
@@ -74,6 +75,7 @@ export type SubmissionServiceErrorCode =
   | 'INVALID_ROLE'
   | 'FORM_INACTIVE'
   | 'FORM_VERSION_NOT_PUBLISHED'
+  | 'SUBJECT_FORBIDDEN'
 
 /**
  * `Symbol.for` so the brand survives module duplication across bundle
@@ -144,6 +146,13 @@ export type SubmitArgs = Scope & {
   baseRevisionId: string
   submittedBy: string
   submitMetadata?: Record<string, unknown> | null
+  /**
+   * Set when `submittedBy` is a signed-in portal customer. A submission that
+   * customer started themselves must then carry their own `customer` subject
+   * (`lib/portal-subject-policy.ts`), otherwise 403 SUBJECT_FORBIDDEN. Left
+   * unset for invitation (token) principals, whose subject is server-derived.
+   */
+  submittedByPortalCustomer?: boolean
 }
 
 export type ReopenArgs = Scope & {
@@ -747,6 +756,9 @@ export class SubmissionService {
       )
       if (!submission) {
         throw new SubmissionServiceError('NOT_FOUND', 'Submission not found.', 404)
+      }
+      if (args.submittedByPortalCustomer && !isPortalSubmitAllowed(args.submittedBy, submission)) {
+        throw new SubmissionServiceError('SUBJECT_FORBIDDEN', 'Submission subject is not the caller\'s own customer subject.', 403)
       }
       if (submission.status === 'submitted') {
         throw new SubmissionServiceError('INVALID_STATUS', 'Submission already submitted.', 422)

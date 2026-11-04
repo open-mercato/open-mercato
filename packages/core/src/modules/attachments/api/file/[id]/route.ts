@@ -1,3 +1,7 @@
+import { withAttachmentStorageErrors } from '@open-mercato/core/modules/attachments/lib/storageErrors'
+import { assertAttachmentStoragePartitionExists } from '@open-mercato/core/modules/attachments/lib/drivers/storageValidation'
+import { createAttachmentAccessContext, evaluateAttachmentAccess } from '../../../lib/access-runner'
+import { attachmentAccessErrorResponse } from '../../../lib/access-errors'
 import { NextRequest, NextResponse } from "next/server";
 import type { OpenApiRouteDoc } from "@open-mercato/shared/lib/openapi";
 import { getAuthFromRequest } from "@open-mercato/shared/lib/auth/server";
@@ -36,7 +40,7 @@ export const metadata = {
   GET: { requireAuth: false },
 };
 
-export async function GET(
+async function readAttachmentFile(
   req: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
@@ -77,6 +81,7 @@ export async function GET(
   const partition = await em.findOne(AttachmentPartition, {
     code: attachment.partitionCode,
   });
+  assertAttachmentStoragePartitionExists(Boolean(partition))
   if (!partition) {
     return NextResponse.json(
       { error: "Partition misconfigured" },
@@ -84,11 +89,14 @@ export async function GET(
     );
   }
 
-  const access = checkAttachmentAccess(scopedAuth, attachment, partition);
-  if (!access.ok) {
-    const message = access.status === 401 ? "Unauthorized" : "Forbidden";
-    return NextResponse.json({ error: message }, { status: access.status });
-  }
+  const url = new URL(req.url);
+  const forceDownload = url.searchParams.get("download") === "1";
+  const renderInline = !forceDownload && canRenderInlineAttachment(attachment.mimeType);
+  const access = await evaluateAttachmentAccess({
+    auth: scopedAuth, attachment, partition, action: renderInline ? 'render' : 'read',
+    context: createAttachmentAccessContext(container),
+  });
+  if (!access.ok) return attachmentAccessErrorResponse(access);
 
   const driver = await storageDriverFactory.resolveForPartition(attachment.partitionCode, {
     tenantId: attachment.tenantId ?? '',
@@ -124,11 +132,8 @@ export async function GET(
     );
   }
 
-  const url = new URL(req.url);
-  const forceDownload = url.searchParams.get("download") === "1";
-  const renderInline = !forceDownload && canRenderInlineAttachment(attachment.mimeType);
   const headers: Record<string, string> = {
-    "Cache-Control": partition.isPublic
+    "Cache-Control": access.protected ? "private, no-store" : checkAttachmentAccess(null, attachment, partition).ok
       ? "public, max-age=86400"
       : "private, max-age=60",
     "Content-Security-Policy": "default-src 'none'; sandbox",
@@ -150,6 +155,8 @@ export async function GET(
   return new NextResponse(responseBody, { status: 200, headers });
 }
 
+export const GET = withAttachmentStorageErrors(readAttachmentFile)
+
 export const openApi: OpenApiRouteDoc = {
   tag: attachmentsTag,
   summary: "Download attachment file",
@@ -166,6 +173,7 @@ export const openApi: OpenApiRouteDoc = {
         },
       ],
       errors: [
+        { status: 503, description: 'Attachment storage configuration rejected by policy', schema: attachmentErrorSchema },
         {
           status: 400,
           description: "Missing attachment ID",
@@ -192,6 +200,7 @@ export const openApi: OpenApiRouteDoc = {
           description: "Partition misconfigured or storage read failed",
           schema: attachmentErrorSchema,
         },
+        { status: 504, description: 'Owner authorization timed out', schema: attachmentErrorSchema },
       ],
     },
   },
