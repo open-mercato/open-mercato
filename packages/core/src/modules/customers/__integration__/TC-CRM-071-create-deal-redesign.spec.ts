@@ -2,6 +2,9 @@ import { expect, test, type APIRequestContext } from '@playwright/test';
 import {
   createCompanyFixture,
   createPersonFixture,
+  createPipelineFixture,
+  createPipelineStageFixture,
+  deleteEntityByBody,
   deleteEntityIfExists,
   readJsonSafe,
 } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures';
@@ -255,14 +258,28 @@ test.describe('TC-CRM-071: Create deal (UX redesign)', () => {
   test('a failed stage lookup blocks saving, shows a retry, and recovers', async ({ page, request }) => {
     test.slow();
 
-    const dealTitle = `QA TC-CRM-071 Retry ${Date.now()}`;
+    const stamp = Date.now();
+    const dealTitle = `QA TC-CRM-071 Retry ${stamp}`;
     let token: string | null = null;
     let dealId: string | null = null;
+    let pipelineId: string | null = null;
+    let stageId: string | null = null;
     const postedDeals: Array<Record<string, unknown>> = [];
 
     try {
       token = await getAuthToken(request);
+      pipelineId = await createPipelineFixture(request, token, { name: `QA TC-CRM-071 Pipeline ${stamp}` });
+      stageId = await createPipelineStageFixture(request, token, { pipelineId, label: `QA TC-CRM-071 Stage ${stamp}`, order: 0 });
       await login(page, 'admin');
+
+      await page.route('**/api/customers/pipelines', async (route) => {
+        const upstream = await route.fetch();
+        const body = (await upstream.json()) as { items?: Array<{ id: string }> };
+        const items = (body.items ?? [])
+          .filter((pipeline) => pipeline.id === pipelineId)
+          .map((pipeline) => ({ ...pipeline, isDefault: true }));
+        await route.fulfill({ response: upstream, json: { ...body, items } });
+      });
 
       let failStages = true;
       await page.route('**/api/customers/pipeline-stages?**', async (route) => {
@@ -307,11 +324,14 @@ test.describe('TC-CRM-071: Create deal (UX redesign)', () => {
       const created = (await response.json()) as { id?: string; entityId?: string };
       dealId = created.id ?? created.entityId ?? null;
       expect(postedDeals).toHaveLength(1);
-      expect(postedDeals[0].pipelineId, 'the deal is created on the selected pipeline').toBeTruthy();
-      expect(postedDeals[0].pipelineStageId, 'the recovered stage is submitted').toBeTruthy();
+      expect(postedDeals[0].pipelineId, 'the deal is created on the selected pipeline').toBe(pipelineId);
+      expect(postedDeals[0].pipelineStageId, 'the recovered stage is submitted').toBe(stageId);
     } finally {
       await page.unroute('**/api/customers/pipeline-stages?**');
+      await page.unroute('**/api/customers/pipelines');
       await deleteEntityIfExists(request, token, '/api/customers/deals', dealId);
+      await deleteEntityByBody(request, token, '/api/customers/pipeline-stages', stageId);
+      await deleteEntityByBody(request, token, '/api/customers/pipelines', pipelineId);
     }
   });
 });
