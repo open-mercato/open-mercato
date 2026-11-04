@@ -27,6 +27,8 @@ import { StaffTimeReport, StaffTimeReportEvent } from '../../../../../data/entit
 import { loadReportProjectIds } from '../../../../../commands/timesheets-reports'
 import { buildReportSheet } from '../../../../../lib/timesheets-reports/buildReportSheet'
 import { buildReportRows } from '../../../../../lib/timesheets-reports/reportRows'
+import type { ReportGroup } from '../../../../../lib/timesheets-reports/reportTotals'
+import { formatReportPeriodDate } from '../../../../../lib/timesheets-reports/reportPeriod'
 import {
   normalizeReportExportFormat,
   serializeReportExport,
@@ -126,6 +128,17 @@ function readCustomerName(snapshot: Record<string, unknown> | null | undefined, 
   return fallback
 }
 
+function stripAmounts(groups: readonly ReportGroup[]): ReportGroup[] {
+  return groups.map((group) => ({
+    ...group,
+    rate: null,
+    amount: 0,
+    lines: group.lines.map(function strip(line): ReportGroup['lines'][number] {
+      return { ...line, rate: null, amount: 0, children: line.children.map(strip) }
+    }),
+  }))
+}
+
 export async function GET(req: Request) {
   try {
     const context = await resolveReportRequestContext(req, { segment: 'export' })
@@ -187,8 +200,8 @@ export async function GET(req: Request) {
       labels,
     })
 
-    const periodFrom = report.periodFrom instanceof Date ? report.periodFrom.toISOString().slice(0, 10) : ''
-    const periodTo = report.periodTo instanceof Date ? report.periodTo.toISOString().slice(0, 10) : ''
+    const periodFrom = formatReportPeriodDate(report.periodFrom) ?? ''
+    const periodTo = formatReportPeriodDate(report.periodTo) ?? ''
 
     const file = serializeReportExport(format, {
       reference: report.reference,
@@ -198,8 +211,9 @@ export async function GET(req: Request) {
       issuedByLabel: null,
       issuedAtLabel: report.closedAt ? report.closedAt.toISOString().slice(0, 10) : null,
       currencyCode: sheet.currencyCode,
+      canSeeMoney,
       showRates: (report.showRates ?? true) && canSeeMoney,
-      groups: sheet.totals.groups,
+      groups: canSeeMoney ? sheet.totals.groups : stripAmounts(sheet.totals.groups),
       rows: canSeeMoney ? rows : rows.map((row) => ({ ...row, rate: null, amount: null })),
       totals: {
         billableMinutes: sheet.totals.billableMinutes,

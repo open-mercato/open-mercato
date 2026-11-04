@@ -35,6 +35,7 @@
   "availability.policies.errors.duplicateTarget": "Ya existe una política para esta combinación de tienda, producto y variante.",
   "availability.policies.errors.integerTooLarge": "Este valor es demasiado grande. Introduce un número no mayor que 2147483647.",
   "availability.policies.errors.maxBelowMin": "La cantidad máxima de pedido no puede ser inferior a la cantidad mínima de pedido",
+  "availability.policies.errors.organizationRequired": "Selecciona una organización concreta en el encabezado antes de crear una política.",
   "availability.policies.errors.variantRequiresProduct": "Una política a nivel de variante requiere un producto",
   "availability.policies.flash.created": "Política de disponibilidad creada",
   "availability.policies.flash.deleted": "Política de disponibilidad eliminada",

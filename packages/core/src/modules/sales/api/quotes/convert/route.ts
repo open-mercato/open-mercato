@@ -3,17 +3,13 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import {
-  bridgeLegacyGuard,
-  runMutationGuards,
-  type MutationGuard,
-  type MutationGuardInput,
-} from '@open-mercato/shared/lib/crud/mutation-guard-registry'
+import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { withScopedPayload } from '../../utils'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
@@ -34,53 +30,6 @@ type RequestContext = {
   ctx: CommandRuntimeContext
 }
 
-function resolveUserFeatures(auth: unknown): string[] {
-  const features = (auth as { features?: unknown })?.features
-  if (!Array.isArray(features)) return []
-  return features.filter((value): value is string => typeof value === 'string')
-}
-
-async function runGuards(
-  ctx: CommandRuntimeContext,
-  input: MutationGuardInput,
-): Promise<{
-  ok: boolean
-  errorBody?: Record<string, unknown>
-  errorStatus?: number
-  afterSuccessCallbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }>
-}> {
-  const legacyGuard = bridgeLegacyGuard(ctx.container)
-  if (!legacyGuard) {
-    return { ok: true, afterSuccessCallbacks: [] }
-  }
-
-  return runMutationGuards([legacyGuard], input, {
-    userFeatures: resolveUserFeatures(ctx.auth),
-  })
-}
-
-async function runGuardAfterSuccessCallbacks(
-  callbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }>,
-  input: {
-    tenantId: string
-    organizationId: string | null
-    userId: string
-    resourceKind: string
-    resourceId: string
-    operation: 'create' | 'update' | 'delete'
-    requestMethod: string
-    requestHeaders: Headers
-  },
-): Promise<void> {
-  for (const callback of callbacks) {
-    if (!callback.guard.afterSuccess) continue
-    await callback.guard.afterSuccess({
-      ...input,
-      metadata: callback.metadata ?? null,
-    })
-  }
-}
-
 async function resolveRequestContext(req: Request): Promise<RequestContext> {
   const container = await createRequestContainer()
   const auth = await getAuthFromRequest(req)
@@ -91,7 +40,7 @@ async function resolveRequestContext(req: Request): Promise<RequestContext> {
   }
 
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-  const organizationId = scope?.selectedId ?? auth.orgId ?? null
+  const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth) ?? null
   if (!organizationId) {
     throw new CrudHttpError(400, {
       error: translate('sales.documents.errors.organization_required', 'Organization context is required'),
@@ -117,18 +66,23 @@ export async function POST(req: Request) {
     const payload = await req.json().catch(() => ({}))
     const scoped = withScopedPayload(payload ?? {}, ctx, translate)
     const input = convertSchema.parse(scoped)
-    const guardResult = await runGuards(ctx, {
-      tenantId: ctx.auth?.tenantId ?? '',
-      organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
-      userId: ctx.auth?.sub ?? '',
-      resourceKind: 'sales.quote',
-      resourceId: input.quoteId,
-      operation: 'update',
-      requestMethod: req.method,
-      requestHeaders: req.headers,
+    const guardResult = await runRouteMutationGuards({
+      container: ctx.container,
+      req,
+      auth: {
+        tenantId: ctx.auth?.tenantId ?? '',
+        organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+        userId: ctx.auth?.sub ?? '',
+      },
+      input: {
+        resourceKind: 'sales.quote',
+        resourceId: input.quoteId,
+        operation: 'update',
+        mutationPayload: input,
+      },
     })
     if (!guardResult.ok) {
-      return NextResponse.json(guardResult.errorBody ?? { error: 'Operation blocked by guard' }, { status: guardResult.errorStatus ?? 422 })
+      return guardResult.response
     }
     const commandBus = ctx.container.resolve('commandBus') as CommandBus
     const { result, logEntry } = await commandBus.execute<
@@ -158,18 +112,7 @@ export async function POST(req: Request) {
       )
     }
 
-    if (guardResult.afterSuccessCallbacks.length) {
-      await runGuardAfterSuccessCallbacks(guardResult.afterSuccessCallbacks, {
-        tenantId: ctx.auth?.tenantId ?? '',
-        organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
-        userId: ctx.auth?.sub ?? '',
-        resourceKind: 'sales.quote',
-        resourceId: input.quoteId,
-        operation: 'update',
-        requestMethod: req.method,
-        requestHeaders: req.headers,
-      })
-    }
+    await guardResult.runAfterSuccess()
 
     return jsonResponse
   } catch (err) {

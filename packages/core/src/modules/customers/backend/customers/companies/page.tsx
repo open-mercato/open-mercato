@@ -58,6 +58,9 @@ import {
 } from '../../../components/detail/assignableStaff'
 import { CollectionPreviewCell, normalizeCollectionLabels } from '../../../components/list/CollectionPreviewCell'
 import { appendCustomerListSortParams } from '../listSorting'
+import { expandCreatedAtDayRules } from '../../../lib/createdAtDayFilter'
+import { USER_TIMEZONE } from '../../../lib/localDay'
+import { formatInTimeZone } from 'date-fns-tz'
 
 type DictionaryOptionWithTone = AdvancedFilterOption & FilterOption
 
@@ -74,8 +77,9 @@ function makeCompaniesPresets(): FilterPreset[] {
       labelKey: 'customers.companies.presets.recentlyCreated',
       iconName: 'clock',
       build: ({ now }) => {
-        const cutoff = new Date(now.getTime() - 7 * 24 * 3600 * 1000).toISOString().slice(0, 10)
-        return makeRuleTree({ field: 'created_at', operator: 'is_after', value: cutoff })
+        const dayBeforeWindow = new Date(`${formatInTimeZone(now, USER_TIMEZONE, 'yyyy-MM-dd')}T00:00:00.000Z`)
+        dayBeforeWindow.setUTCDate(dayBeforeWindow.getUTCDate() - 8)
+        return makeRuleTree({ field: 'created_at', operator: 'is_after', value: dayBeforeWindow.toISOString().slice(0, 10) })
       },
     },
     {
@@ -112,6 +116,7 @@ type CompanyRow = {
   organizationId?: string | null
   source?: string | null
   ownerUserId?: string | null
+  createdAt?: string | null
 } & Record<string, unknown>
 
 type CompaniesResponse = {
@@ -159,6 +164,7 @@ function mapApiItem(item: Record<string, unknown>): CompanyRow | null {
   const nextInteractionColor = typeof item.next_interaction_color === 'string' ? item.next_interaction_color : null
   const organizationId = typeof item.organization_id === 'string' ? item.organization_id : null
   const source = typeof item.source === 'string' ? item.source : null
+  const createdAt = typeof item.created_at === 'string' ? item.created_at : null
   const ownerUserId = typeof item.owner_user_id === 'string' ? item.owner_user_id : null
   const customFields: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(item)) {
@@ -188,6 +194,7 @@ function mapApiItem(item: Record<string, unknown>): CompanyRow | null {
     organizationId,
     source,
     ownerUserId,
+    createdAt,
     ...customFields,
   }, item)
 }
@@ -323,9 +330,9 @@ export default function CustomersCompaniesPage() {
     }
   }, [fetchDictionaryEntries, scopeVersion, reloadToken])
 
-  const { data: customFieldDefs = [] } = useCustomFieldDefs(
+  const { data: customFieldDefs = [], isLoading: customFieldDefsLoading, refetch: refetchCustomFieldDefs } = useCustomFieldDefs(
     [E.customers.customer_entity, E.customers.customer_company_profile],
-    { keyExtras: [scopeVersion, reloadToken] },
+    { keyExtras: [scopeVersion] },
   )
   const currentUserId = useCurrentUserId()
   const activeOrgId = useCurrentOrganization()?.id ?? null
@@ -364,7 +371,7 @@ export default function CustomersCompaniesPage() {
     params.set('pageSize', String(pageSize))
     appendCustomerListSortParams(params, sorting)
     if (search.trim()) params.set('search', search.trim())
-    const advancedParams = serializeTree(advancedFilterState)
+    const advancedParams = serializeTree(expandCreatedAtDayRules(advancedFilterState, USER_TIMEZONE))
     for (const [key, val] of Object.entries(advancedParams)) {
       params.set(key, val)
     }
@@ -442,8 +449,9 @@ export default function CustomersCompaniesPage() {
   }, [queryParams, reloadToken, scopeVersion, t])
 
   const handleRefresh = React.useCallback(() => {
+    void refetchCustomFieldDefs()
     setReloadToken((token) => token + 1)
-  }, [])
+  }, [refetchCustomFieldDefs])
 
   const handleDelete = React.useCallback(async (company: CompanyRow) => {
     if (!company?.id) return
@@ -615,9 +623,9 @@ export default function CustomersCompaniesPage() {
         header: t('customers.companies.list.columns.name'),
         meta: {
           alwaysVisible: true,
-          columnChooserGroup: 'Basic Info',
+          columnChooserGroup: t('customers.columnGroups.basicInfo', 'Basic Info'),
           filterKey: 'display_name',
-          filterGroup: 'CRM',
+          filterGroup: t('customers.columnGroups.crm', 'CRM'),
           maxWidth: '260px',
         },
         cell: ({ row }) => (
@@ -630,9 +638,9 @@ export default function CustomersCompaniesPage() {
         accessorKey: 'email',
         header: t('customers.companies.list.columns.email'),
         meta: {
-          columnChooserGroup: 'Contact',
+          columnChooserGroup: t('customers.columnGroups.contact', 'Contact'),
           filterKey: 'primary_email',
-          filterGroup: 'Contact',
+          filterGroup: t('customers.columnGroups.contact', 'Contact'),
           filterIconName: 'mail',
           maxWidth: '220px',
         },
@@ -642,10 +650,10 @@ export default function CustomersCompaniesPage() {
         accessorKey: 'phone',
         header: t('customers.companies.detail.highlights.primaryPhone', 'Primary phone'),
         meta: {
-          columnChooserGroup: 'Contact',
+          columnChooserGroup: t('customers.columnGroups.contact', 'Contact'),
           hidden: true,
           filterKey: 'primary_phone',
-          filterGroup: 'Contact',
+          filterGroup: t('customers.columnGroups.contact', 'Contact'),
           filterIconName: 'phone',
           maxWidth: '180px',
         },
@@ -657,8 +665,8 @@ export default function CustomersCompaniesPage() {
         meta: {
           filterType: 'select' as const,
           filterOptions: dictionaryOptions.statuses,
-          columnChooserGroup: 'Basic Info',
-          filterGroup: 'CRM',
+          columnChooserGroup: t('customers.columnGroups.basicInfo', 'Basic Info'),
+          filterGroup: t('customers.columnGroups.crm', 'CRM'),
         },
         cell: ({ row }) => renderDictionaryCell('statuses', row.original.status),
       },
@@ -668,9 +676,9 @@ export default function CustomersCompaniesPage() {
         meta: {
           filterType: 'select' as const,
           filterOptions: dictionaryOptions.lifecycleStages,
-          columnChooserGroup: 'Basic Info',
+          columnChooserGroup: t('customers.columnGroups.basicInfo', 'Basic Info'),
           filterKey: 'lifecycle_stage',
-          filterGroup: 'CRM',
+          filterGroup: t('customers.columnGroups.crm', 'CRM'),
         },
         cell: ({ row }) => renderDictionaryCell('lifecycle-stages', row.original.lifecycleStage),
       },
@@ -678,9 +686,9 @@ export default function CustomersCompaniesPage() {
         accessorKey: 'nextInteractionAt',
         header: t('customers.companies.list.columns.nextInteraction'),
         meta: {
-          columnChooserGroup: 'Dates',
+          columnChooserGroup: t('customers.columnGroups.dates', 'Dates'),
           filterKey: 'next_interaction_at',
-          filterGroup: 'Activity',
+          filterGroup: t('customers.columnGroups.activity', 'Activity'),
           filterIconName: 'calendar',
         },
         cell: ({ row }) =>
@@ -708,13 +716,29 @@ export default function CustomersCompaniesPage() {
             : noValue,
       },
       {
+        accessorKey: 'createdAt',
+        header: t('customers.companies.list.columns.createdAt', 'Created'),
+        meta: {
+          columnChooserGroup: t('customers.columnGroups.dates', 'Dates'),
+          filterKey: 'created_at',
+          filterType: 'date' as const,
+          filterGroup: t('customers.columnGroups.activity', 'Activity'),
+          filterIconName: 'calendar',
+        },
+        cell: ({ row }) => (
+          <span className="text-sm">
+            {formatDate(row.original.createdAt, t('customers.companies.list.noValue'))}
+          </span>
+        ),
+      },
+      {
         accessorKey: 'source',
         header: t('customers.companies.list.columns.source'),
         meta: {
           filterType: 'select' as const,
           filterOptions: dictionaryOptions.sources,
-          columnChooserGroup: 'Basic Info',
-          filterGroup: 'CRM',
+          columnChooserGroup: t('customers.columnGroups.basicInfo', 'Basic Info'),
+          filterGroup: t('customers.columnGroups.crm', 'CRM'),
         },
         cell: ({ row }) => renderDictionaryCell('sources', row.original.source),
       },
@@ -722,11 +746,11 @@ export default function CustomersCompaniesPage() {
         accessorKey: 'ownerUserId',
         header: t('customers.companies.list.columns.owner', 'Owner'),
         meta: {
-          columnChooserGroup: 'CRM',
+          columnChooserGroup: t('customers.columnGroups.crm', 'CRM'),
           filterType: 'select',
           filterOptions: resolvedOwnerFilterOptions,
           filterLoadOptions: loadOwnerFilterOptions,
-          filterGroup: 'CRM',
+          filterGroup: t('customers.columnGroups.crm', 'CRM'),
           filterIconName: 'user-round',
           filterKey: 'owner_user_id',
           hidden: true,
@@ -737,10 +761,10 @@ export default function CustomersCompaniesPage() {
         accessorKey: 'legalName',
         header: t('customers.companies.detail.fields.legalName', 'Legal name'),
         meta: {
-          columnChooserGroup: 'Profile',
+          columnChooserGroup: t('customers.columnGroups.profile', 'Profile'),
           hidden: true,
           filterKey: 'company_profile.legal_name',
-          filterGroup: 'Profile',
+          filterGroup: t('customers.columnGroups.profile', 'Profile'),
         },
         cell: ({ row }) => row.original.legalName || noValue,
       },
@@ -748,10 +772,10 @@ export default function CustomersCompaniesPage() {
         accessorKey: 'brandName',
         header: t('customers.companies.detail.fields.brandName', 'Brand name'),
         meta: {
-          columnChooserGroup: 'Profile',
+          columnChooserGroup: t('customers.columnGroups.profile', 'Profile'),
           hidden: true,
           filterKey: 'company_profile.brand_name',
-          filterGroup: 'Profile',
+          filterGroup: t('customers.columnGroups.profile', 'Profile'),
         },
         cell: ({ row }) => row.original.brandName || noValue,
       },
@@ -759,10 +783,10 @@ export default function CustomersCompaniesPage() {
         accessorKey: 'domain',
         header: t('customers.companies.detail.fields.domain', 'Domain'),
         meta: {
-          columnChooserGroup: 'Profile',
+          columnChooserGroup: t('customers.columnGroups.profile', 'Profile'),
           hidden: true,
           filterKey: 'company_profile.domain',
-          filterGroup: 'Profile',
+          filterGroup: t('customers.columnGroups.profile', 'Profile'),
         },
         cell: ({ row }) => row.original.domain || noValue,
       },
@@ -770,10 +794,10 @@ export default function CustomersCompaniesPage() {
         accessorKey: 'websiteUrl',
         header: t('customers.companies.detail.fields.website', 'Website'),
         meta: {
-          columnChooserGroup: 'Profile',
+          columnChooserGroup: t('customers.columnGroups.profile', 'Profile'),
           hidden: true,
           filterKey: 'company_profile.website_url',
-          filterGroup: 'Profile',
+          filterGroup: t('customers.columnGroups.profile', 'Profile'),
         },
         cell: ({ row }) => row.original.websiteUrl || noValue,
       },
@@ -781,10 +805,10 @@ export default function CustomersCompaniesPage() {
         accessorKey: 'industry',
         header: t('customers.companies.detail.fields.industry', 'Industry'),
         meta: {
-          columnChooserGroup: 'Profile',
+          columnChooserGroup: t('customers.columnGroups.profile', 'Profile'),
           hidden: true,
           filterKey: 'company_profile.industry',
-          filterGroup: 'Profile',
+          filterGroup: t('customers.columnGroups.profile', 'Profile'),
         },
         cell: ({ row }) => row.original.industry || noValue,
       },
@@ -792,10 +816,10 @@ export default function CustomersCompaniesPage() {
         accessorKey: 'sizeBucket',
         header: t('customers.companies.detail.fields.sizeBucket', 'Company size'),
         meta: {
-          columnChooserGroup: 'Profile',
+          columnChooserGroup: t('customers.columnGroups.profile', 'Profile'),
           hidden: true,
           filterKey: 'company_profile.size_bucket',
-          filterGroup: 'Profile',
+          filterGroup: t('customers.columnGroups.profile', 'Profile'),
         },
         cell: ({ row }) => row.original.sizeBucket || noValue,
       },
@@ -803,11 +827,11 @@ export default function CustomersCompaniesPage() {
         accessorKey: 'annualRevenue',
         header: t('customers.companies.detail.highlights.annualRevenue', 'Annual revenue'),
         meta: {
-          columnChooserGroup: 'Profile',
+          columnChooserGroup: t('customers.columnGroups.profile', 'Profile'),
           hidden: true,
           filterKey: 'company_profile.annual_revenue',
           filterType: 'number' as const,
-          filterGroup: 'Profile',
+          filterGroup: t('customers.columnGroups.profile', 'Profile'),
         },
         cell: ({ row }) => row.original.annualRevenue || noValue,
       },
@@ -815,10 +839,10 @@ export default function CustomersCompaniesPage() {
         accessorKey: 'description',
         header: t('customers.companies.detail.fields.description', 'Description'),
         meta: {
-          columnChooserGroup: 'Notes',
+          columnChooserGroup: t('customers.columnGroups.notes', 'Notes'),
           hidden: true,
           filterKey: 'description',
-          filterGroup: 'Notes',
+          filterGroup: t('customers.columnGroups.notes', 'Notes'),
         },
         cell: ({ row }) => row.original.description || noValue,
       },
@@ -970,7 +994,7 @@ export default function CustomersCompaniesPage() {
           )}
           virtualized
           pagination={{ page, pageSize, total, totalPages, totalIsCapped, onPageChange: setPage, pageSizeOptions: [10, 25, 50, 100], onPageSizeChange: handlePageSizeChange, cacheStatus }}
-          isLoading={isLoading}
+          isLoading={isLoading || customFieldDefsLoading}
         />
         <AdvancedFilterPanel
           fields={advancedFilterFields}

@@ -5,6 +5,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
@@ -70,7 +71,7 @@ async function resolveCommandContext(request: Request): Promise<CommandRuntimeCo
     container,
     auth,
     organizationScope,
-    selectedOrganizationId: organizationScope?.selectedId ?? auth.orgId ?? null,
+    selectedOrganizationId: resolveSingleOrganizationIdOrDeny(organizationScope, auth) ?? null,
     organizationIds: organizationScope?.filterIds ?? (auth.orgId ? [auth.orgId] : null),
     request,
   }

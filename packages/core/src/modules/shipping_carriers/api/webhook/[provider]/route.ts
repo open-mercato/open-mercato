@@ -21,6 +21,7 @@ export const metadata = {
 }
 
 const WEBHOOK_VERIFICATION_FAILED = 'Webhook verification failed'
+const MAX_WEBHOOK_CANDIDATES = 10
 
 const shippingCarrierWebhookRateLimitConfig = {
   points: 60,
@@ -70,7 +71,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
   const integrationCredentialsService = container.resolve('integrationCredentialsService') as CredentialsService
   const queue = getShippingCarrierQueue('shipping-carriers-webhook')
   const payload = await readJsonSafe<Record<string, unknown>>(rawBody)
-  const carrierShipmentId = readCarrierShipmentId(payload)
+  const carrierShipmentId = (payload ? adapter.extractWebhookShipmentId?.(payload) : null) || readCarrierShipmentId(payload)
 
   try {
     // The webhook endpoint is unauthenticated. Tenant/organization scope MUST come from a
@@ -88,40 +89,46 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
           carrierShipmentId,
           deletedAt: null,
         },
-        { limit: 10, orderBy: { createdAt: 'desc' } },
+        { limit: MAX_WEBHOOK_CANDIDATES + 1, orderBy: { createdAt: 'desc' } },
       )
       : []
 
-    let shipment: CarrierShipment | null = null
-    let matchedScope: { organizationId: string; tenantId: string } | null = null
-    let event: Awaited<ReturnType<typeof adapter.verifyWebhook>> | null = null
+    if (candidates.length > MAX_WEBHOOK_CANDIDATES) {
+      throw new Error('[internal] Webhook verification failed: candidate limit exceeded')
+    }
+
+    const verifiedMatches: Array<{
+      shipment: CarrierShipment
+      scope: { organizationId: string; tenantId: string }
+      event: Awaited<ReturnType<typeof adapter.verifyWebhook>>
+    }> = []
     let lastVerificationError: unknown = null
 
     for (const candidate of candidates) {
       const candidateScope = { organizationId: candidate.organizationId, tenantId: candidate.tenantId }
       const credentials = await integrationCredentialsService.resolve(`carrier_${providerKey}`, candidateScope) ?? {}
       try {
-        event = await adapter.verifyWebhook({ rawBody, headers, credentials })
-        shipment = candidate
-        matchedScope = candidateScope
-        break
+        const event = await adapter.verifyWebhook({ rawBody, headers, credentials })
+        verifiedMatches.push({ shipment: candidate, scope: candidateScope, event })
       } catch (error: unknown) {
         lastVerificationError = error
       }
     }
 
-    if (!event || !shipment || !matchedScope) {
+    if (verifiedMatches.length > 1) {
+      throw new Error('[internal] Webhook verification failed: multiple matching shipments')
+    }
+
+    const [match] = verifiedMatches
+    if (!match) {
       throw lastVerificationError ?? new Error('Webhook verification failed: no matching shipment')
     }
 
     await queue.enqueue({
-      name: 'shipping-carrier-webhook',
-      payload: {
-        providerKey,
-        event,
-        shipmentId: shipment.id,
-        scope: matchedScope,
-      },
+      providerKey,
+      event: match.event,
+      shipmentId: match.shipment.id,
+      scope: match.scope,
     })
 
     return NextResponse.json({ received: true, queued: true }, { status: 202 })
