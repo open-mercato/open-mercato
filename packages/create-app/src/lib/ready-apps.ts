@@ -413,6 +413,10 @@ export async function downloadRepositoryTarball(
   throw await buildGitHubRequestError(response, owner, repo, 'downloading tarball for')
 }
 
+/** Printed when `--app <name>` finds no official repo (Templates umbrella spec, A8). */
+export const READY_APP_MISS_HINT =
+  'Ready apps are now app templates: see https://modules.openmercato.com/templates or use --template <owner/repo>.'
+
 export async function downloadReadyAppSnapshot(
   source: ReadyAppSource,
   packageVersion: string,
@@ -462,7 +466,7 @@ export async function downloadReadyAppSnapshot(
 
     if (!repoInfo) {
       if (source.kind === 'official') {
-        throw new Error(`Official ready app repository not found: ${source.owner}/${source.repo}.`)
+        throw new Error(`Official ready app repository not found: ${source.owner}/${source.repo}. ${READY_APP_MISS_HINT}`)
       }
 
       throw buildRepoAccessError(source.owner, source.repo)

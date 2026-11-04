@@ -12,6 +12,7 @@ import {
   extractTarballSnapshot,
   getGitHubApiBaseUrl,
   parseGitHubRepositoryUrl,
+  READY_APP_MISS_HINT,
   resolveOfficialReadyAppSource,
   resolveReadyAppSource,
   validateImportedReadyAppSnapshot,
@@ -175,6 +176,68 @@ test('downloadReadyAppSnapshot resolves external default branches through the Gi
     `${githubApiBaseUrl}/repos/some-agency/ready-app-marketplace`,
     `${githubApiBaseUrl}/repos/some-agency/ready-app-marketplace/tarball/main`,
   ])
+})
+
+function notFoundFetch(calls: string[]): typeof fetch {
+  return (async (input: RequestInfo | URL) => {
+    calls.push(String(input))
+    return new Response(JSON.stringify({ message: 'Not Found' }), {
+      status: 404,
+      headers: { 'content-type': 'application/json' },
+    })
+  }) as typeof fetch
+}
+
+test('downloadReadyAppSnapshot points a missing official ready app to app templates', async () => {
+  const githubApiBaseUrl = getGitHubApiBaseUrl()
+  const calls: string[] = []
+  const source = resolveOfficialReadyAppSource('prm', PACKAGE_VERSION)
+
+  await assert.rejects(
+    downloadReadyAppSnapshot(source, PACKAGE_VERSION, notFoundFetch(calls)),
+    (error: Error) => {
+      assert.equal(
+        error.message,
+        `Official ready app repository not found: open-mercato/ready-app-prm. ${READY_APP_MISS_HINT}`,
+      )
+      assert.match(error.message, /https:\/\/modules\.openmercato\.com\/templates/)
+      assert.match(error.message, /--template <owner\/repo>/)
+      return true
+    },
+  )
+  assert.deepEqual(calls, [
+    `${githubApiBaseUrl}/repos/open-mercato/ready-app-prm/tarball/v${PACKAGE_VERSION}`,
+    `${githubApiBaseUrl}/repos/open-mercato/ready-app-prm`,
+  ])
+})
+
+test('downloadReadyAppSnapshot keeps the --app-url and missing-tag errors without the templates hint', async () => {
+  const external = resolveReadyAppSource({ appUrl: 'https://github.com/some-agency/gone/tree/main' }, PACKAGE_VERSION)
+  assert.ok(external)
+  await assert.rejects(downloadReadyAppSnapshot(external, PACKAGE_VERSION, notFoundFetch([])), (error: Error) => {
+    assert.match(error.message, /^GitHub repository not found or inaccessible: some-agency\/gone\./)
+    assert.equal(error.message.includes(READY_APP_MISS_HINT), false)
+    return true
+  })
+
+  const githubApiBaseUrl = getGitHubApiBaseUrl()
+  const repoOnly = (async (input: RequestInfo | URL) => {
+    if (String(input) === `${githubApiBaseUrl}/repos/open-mercato/ready-app-prm`) {
+      return new Response(JSON.stringify({ default_branch: 'main' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }
+    return new Response(JSON.stringify({ message: 'Not Found' }), { status: 404 })
+  }) as typeof fetch
+  await assert.rejects(
+    downloadReadyAppSnapshot(resolveOfficialReadyAppSource('prm', PACKAGE_VERSION), PACKAGE_VERSION, repoOnly),
+    (error: Error) => {
+      assert.match(error.message, /^Official ready app compatibility tag not found: open-mercato\/ready-app-prm@v/)
+      assert.equal(error.message.includes(READY_APP_MISS_HINT), false)
+      return true
+    },
+  )
 })
 
 test('published CLI bin executes the dist entrypoint', () => {

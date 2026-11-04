@@ -525,6 +525,22 @@ async function runMain(argv: string[], fetchImpl: typeof fetch, cwd = scratchDir
   return { cwd, output }
 }
 
+test('help documents --template and --keep-name with two examples and no --app prm example', async () => {
+  const noFetch = (async () => {
+    throw new Error('help must not fetch')
+  }) as typeof fetch
+  const { cwd, output } = await runMain(['--help'], noFetch)
+  const help = output.join('\n')
+  assert.match(help, /^ {2}--template <slug \| owner\/repo>\[#ref\]$/m)
+  assert.match(help, /https:\/\/modules\.openmercato\.com\/templates/)
+  assert.match(help, /^ {2}--keep-name +With --template, keep the template's package\.json name$/m)
+  assert.match(help, /^ {2}npx create-mercato-app my-crm --template crm$/m)
+  assert.match(help, /^ {2}npx create-mercato-app my-portal --template some-agency\/b2b-portal#v1\.0\.0$/m)
+  assert.match(help, /^ {2}--app <name> /m, '--app stays documented')
+  assert.doesNotMatch(help, /--app prm/)
+  assert.deepEqual(readdirSync(cwd), [])
+})
+
 test('main refuses every exclusion and a bad OM_TEMPLATES_URL before any request or directory', async () => {
   const cases: Array<[string[], RegExp, string?]> = [
     [['--template', 'crm', '--app', 'prm'], /mutually exclusive/],

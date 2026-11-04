@@ -55,8 +55,8 @@ type AgentSelection =
   | { mode: 'tools'; tools: string[] }
   | { mode: 'interactive' }
 
-function showHelp(): void {
-  console.log(`
+export function helpText(): string {
+  return `
 ${pc.bold('create-mercato-app')} - Create a new Open Mercato application
 
 ${pc.bold('Usage:')}
@@ -68,6 +68,12 @@ ${pc.bold('Arguments:')}
 ${pc.bold('Options:')}
   --app <name>       Bootstrap an official ready app from open-mercato/ready-app-<name>
   --app-url <url>    Bootstrap a ready app from a GitHub repository URL
+  --template <slug | owner/repo>[#ref]
+                     Create the app from an app template: a slug listed at
+                     https://modules.openmercato.com/templates or any GitHub repo
+                     (set GITHUB_TOKEN for a private one). Prints owner/repo@sha
+                     and whether that commit is verified before the download
+  --keep-name        With --template, keep the template's package.json name
   --preset <id>      Starter preset: classic, empty, crm, or wms (omit to choose interactively)
   --init-git         Initialize a local Git repository after scaffolding
   --no-init-git      Do not prompt for or initialize a local Git repository
@@ -102,11 +108,16 @@ ${pc.bold('Examples:')}
   npx create-mercato-app my-store --preset crm --modules gateway_stripe
   npx create-mercato-app my-store --module-picker
   npx create-mercato-app my-store --no-module-picker
-  npx create-mercato-app my-prm --app prm
+  npx create-mercato-app my-crm --template crm
+  npx create-mercato-app my-portal --template some-agency/b2b-portal#v1.0.0
   npx create-mercato-app my-marketplace --app-url https://github.com/some-agency/ready-app-marketplace
   npx create-mercato-app my-store --verdaccio
   npx create-mercato-app my-store --registry http://localhost:4873
-`)
+`
+}
+
+function showHelp(): void {
+  console.log(helpText())
 }
 
 function showVersion(): void {
