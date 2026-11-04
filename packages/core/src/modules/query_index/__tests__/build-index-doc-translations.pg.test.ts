@@ -1,67 +1,49 @@
 /**
- * Behavioural cover for #8637 against a real PostgreSQL: `buildIndexDoc`'s optional
- * `entity_translations` read used to run inside a bare `try { ... } catch {}`. In Postgres a
- * failed statement aborts the *whole* surrounding transaction (25P02) even though the JS error
- * is caught, so when `buildIndexDoc` runs inside a caller's transaction (subscribers/batch
- * writers pass a transactional `em`), every later statement in that transaction failed with an
- * unrelated 25P02 and the real cause (here: a missing `organization_id` column) never surfaced.
- * The sibling `indexer.test.ts` exercises `buildIndexDoc` against a fake Kysely that cannot
- * reproduce Postgres transaction-abort semantics; this suite pins the real behaviour.
- *
- * Gated on OM_QUERY_INDEX_PG_URL (or the pre-existing OM_COUNT_CAP_PG_URL). The suite creates
- * its tables inside a unique per-run schema (first in `search_path`) and drops only that
- * schema afterwards, so it is isolated even if the URL points at a shared, non-disposable
- * database: it never reads, truncates, or drops anything in that database's `public` schema.
- * Run it with, for example:
- *
- *   docker run -d --rm --name om-pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=om \
- *     -p 54372:5432 postgres:18-alpine
- *   OM_QUERY_INDEX_PG_URL=postgres://postgres:postgres@127.0.0.1:54372/om \
- *     yarn workspace @open-mercato/core jest build-index-doc-translations.pg
+ * Real PostgreSQL regression for optional translation reads aborting the caller's transaction.
+ * OM_QUERY_INDEX_PG_URL (or OM_COUNT_CAP_PG_URL) enables the suite. Every connection searches
+ * only its random private schema; destructive fixture statements also qualify that schema.
  */
 import crypto from 'node:crypto'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { Kysely, PostgresDialect, sql } from 'kysely'
+import { Pool } from 'pg'
 import { buildIndexDoc } from '../lib/indexer'
+
+const mockReportError = jest.fn()
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
+}))
 
 const PG_URL = process.env.OM_QUERY_INDEX_PG_URL ?? process.env.OM_COUNT_CAP_PG_URL
 const maybe = PG_URL ? describe : describe.skip
-
 const ENTITY = 'txncheck:widget'
 const TENANT = '55555555-5555-4555-8555-555555555555'
 const ORG_A = '66666666-6666-4666-8666-666666666666'
-
-// The suite reads/writes `entity_translations`, `custom_field_values`, and
-// `indexer_error_logs` — real production table names `buildIndexDoc` queries
-// unqualified. Running against those names directly would truncate/drop whatever
-// `PG_URL` actually points at if it is ever a shared or app database rather than a
-// disposable one. A unique per-run schema, first in `search_path`, makes every
-// unqualified table reference in both the suite and `buildIndexDoc` resolve to this
-// suite's own copies, so teardown only ever drops this schema and the real schema
-// (and its data) is never touched regardless of what `PG_URL` points at.
 const SCHEMA = `om_test_${crypto.randomBytes(8).toString('hex')}`
 
 maybe('buildIndexDoc entity_translations read does not poison the caller transaction', () => {
   jest.setTimeout(60_000)
-  let db: Kysely<any>
+  let db: Kysely<Record<string, never>>
+  let schemaCreated = false
 
   beforeAll(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { Pool } = require('pg')
-    // max: 1 keeps every query on the same physical connection, so the SET search_path
-    // below (a session-level setting) applies to every statement this suite issues,
-    // including the ones buildIndexDoc runs through the same `db` instance.
-    db = new Kysely<any>({ dialect: new PostgresDialect({ pool: new Pool({ connectionString: PG_URL, max: 1 }) }) })
+    db = new Kysely<Record<string, never>>({
+      dialect: new PostgresDialect({
+        pool: new Pool({ connectionString: PG_URL, options: `-c search_path=${SCHEMA}`, max: 2 }),
+      }),
+    })
+    await sql`create schema ${sql.id(SCHEMA)}`.execute(db)
+    schemaCreated = true
+    const searchPath = await sql<{ schemas: string[] }>`select current_schemas(false)::text[] as schemas`.execute(db)
+    expect(searchPath.rows[0].schemas).toEqual([SCHEMA])
 
-    await sql`create schema if not exists ${sql.raw(SCHEMA)}`.execute(db)
-    await sql`set search_path to ${sql.raw(SCHEMA)}, public`.execute(db)
-
-    await sql`create table if not exists widgets (
+    await sql`create table widgets (
       id uuid primary key,
       title text not null,
       organization_id uuid,
       tenant_id uuid
     )`.execute(db)
-    await sql`create table if not exists custom_field_values (
+    await sql`create table custom_field_values (
       id uuid primary key default gen_random_uuid(),
       entity_id text not null,
       record_id text not null,
@@ -76,7 +58,7 @@ maybe('buildIndexDoc entity_translations read does not poison the caller transac
       created_at timestamptz not null default now(),
       deleted_at timestamptz null
     )`.execute(db)
-    await sql`create table if not exists indexer_error_logs (
+    await sql`create table indexer_error_logs (
       id uuid primary key default gen_random_uuid(),
       source text not null,
       handler text not null,
@@ -92,23 +74,23 @@ maybe('buildIndexDoc entity_translations read does not poison the caller transac
   })
 
   afterAll(async () => {
-    // Drops only this run's isolated schema — the real `public` schema (and any
-    // production-named tables living there) is never touched.
-    await sql`drop schema if exists ${sql.raw(SCHEMA)} cascade`.execute(db)
-    await db.destroy()
+    if (!db) return
+    try {
+      if (schemaCreated) await sql`drop schema if exists ${sql.id(SCHEMA)} cascade`.execute(db)
+    } finally {
+      await db.destroy()
+    }
   })
 
   beforeEach(async () => {
-    await sql`truncate table widgets, custom_field_values, indexer_error_logs`.execute(db)
-    await sql`drop table if exists entity_translations`.execute(db)
+    mockReportError.mockReset()
+    await sql`truncate table ${sql.id(SCHEMA, 'widgets')}, ${sql.id(SCHEMA, 'custom_field_values')}, ${sql.id(SCHEMA, 'indexer_error_logs')}`.execute(db)
+    await sql`drop table if exists ${sql.id(SCHEMA, 'entity_translations')}`.execute(db)
   })
 
-  const fakeEm = (executor: Kysely<any>) => ({ getKysely: () => executor }) as any
+  const fakeEm = (executor: Kysely<Record<string, never>>) => ({ getKysely: () => executor }) as unknown as EntityManager
 
   it('keeps the enclosing transaction usable when entity_translations is missing a queried column', async () => {
-    // Reproduces the issue's repro steps: entity_translations exists but is missing the
-    // `organization_id` column the read queries — a partially migrated database, not a
-    // missing table, so the information_schema table-existence probe alone would not catch it.
     await sql`create table entity_translations (
       id uuid primary key default gen_random_uuid(),
       entity_type text not null,
@@ -128,19 +110,11 @@ maybe('buildIndexDoc entity_translations read does not poison the caller transac
         organizationId: ORG_A,
         tenantId: TENANT,
       })
-      // The optional read failed, but the base document still builds.
       expect(doc).toBeTruthy()
       expect(doc!.title).toBe('Widget One')
 
-      // The load-bearing assertion: a later statement in the SAME transaction must still
-      // succeed. Under the old bare `try { ... } catch {}`, Postgres had already aborted this
-      // transaction (25P02) and this query would throw "current transaction is aborted".
-      const stillWorks = await trx
-        .selectFrom('widgets' as any)
-        .select(['id' as any])
-        .where('id' as any, '=', recordId)
-        .executeTakeFirst()
-      expect(stillWorks).toBeTruthy()
+      const stillWorks = await sql<{ id: string }>`select id from widgets where id = ${recordId}::uuid`.execute(trx)
+      expect(stillWorks.rows).toHaveLength(1)
     })
 
     const errorRows = await sql<{ message: string; source: string; handler: string }>`
@@ -149,8 +123,11 @@ maybe('buildIndexDoc entity_translations read does not poison the caller transac
     expect(errorRows.rows.length).toBe(1)
     expect(errorRows.rows[0].source).toBe('query_index')
     expect(errorRows.rows[0].handler).toBe('query_index:build-index-doc:translations')
-    // The real cause (missing column) is what got recorded, not a downstream 25P02.
     expect(errorRows.rows[0].message).toMatch(/organization_id/)
+    expect(mockReportError).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('organization_id') }), {
+      module: 'query_index',
+      code: 'query_index.translations_read_failed',
+    })
   })
 
   it('still attaches translations under flat l10n keys inside a transaction when the read succeeds', async () => {
@@ -183,5 +160,58 @@ maybe('buildIndexDoc entity_translations read does not poison the caller transac
       select id from indexer_error_logs where entity_type = ${ENTITY}
     `.execute(db)
     expect(errorRows.rows.length).toBe(0)
+    expect(mockReportError).not.toHaveBeenCalled()
+  })
+
+  it.each(['missing', 'rejects inserts'])('keeps the transaction usable when indexer_error_logs %s', async (failure) => {
+    const recordId = crypto.randomUUID()
+    await sql`insert into widgets (id, title) values (${recordId}::uuid, 'Logging failure')`.execute(db)
+
+    await db.transaction().execute(async (trx) => {
+      if (failure === 'missing') {
+        await sql`drop table ${sql.id(SCHEMA, 'indexer_error_logs')}`.execute(trx)
+      } else {
+        await sql`alter table ${sql.id(SCHEMA, 'indexer_error_logs')} add check (source <> 'query_index')`.execute(trx)
+      }
+      const doc = await buildIndexDoc(fakeEm(trx), { entityType: ENTITY, recordId })
+      expect(doc?.title).toBe('Logging failure')
+      expect(mockReportError).toHaveBeenCalledWith(expect.anything(), {
+        module: 'query_index',
+        code: 'query_index.translations_log_failed',
+      })
+      const stillWorks = await sql<{ alive: number }>`select 1 as alive`.execute(trx)
+      expect(stillWorks.rows[0].alive).toBe(1)
+      throw new Error('[internal] Roll back fixture change')
+    }).catch((error: unknown) => {
+      expect(error).toEqual(new Error('[internal] Roll back fixture change'))
+    })
+  })
+
+  it('recovers from repeated missing-table reads and a throwing telemetry sink', async () => {
+    mockReportError.mockImplementation(() => { throw new Error('[internal] Telemetry unavailable') })
+    const recordId = crypto.randomUUID()
+    await sql`insert into widgets (id, title) values (${recordId}::uuid, 'Repeated read')`.execute(db)
+
+    await db.transaction().execute(async (trx) => {
+      for (let iteration = 0; iteration < 3; iteration += 1) {
+        const doc = await buildIndexDoc(fakeEm(trx), { entityType: ENTITY, recordId })
+        expect(doc?.title).toBe('Repeated read')
+        const stillWorks = await sql<{ alive: number }>`select 1 as alive`.execute(trx)
+        expect(stillWorks.rows[0].alive).toBe(1)
+      }
+    })
+
+    const errors = await sql<{ count: string }>`select count(*) from indexer_error_logs`.execute(db)
+    expect(Number(errors.rows[0].count)).toBe(3)
+  })
+
+  it('logs a failed optional read without an enclosing transaction', async () => {
+    const recordId = crypto.randomUUID()
+    await sql`insert into widgets (id, title) values (${recordId}::uuid, 'Plain connection')`.execute(db)
+    const doc = await buildIndexDoc(fakeEm(db), { entityType: ENTITY, recordId })
+    expect(doc?.title).toBe('Plain connection')
+    const errors = await sql<{ message: string }>`select message from indexer_error_logs`.execute(db)
+    expect(errors.rows).toHaveLength(1)
+    expect(errors.rows[0].message).toContain('entity_translations')
   })
 })

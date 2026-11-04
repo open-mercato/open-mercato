@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { resolveQueryIndexSourceTableMetadata } from './subscriber-scope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveEntityTableName as resolveFallbackEntityTableName } from '@open-mercato/shared/lib/query/engine'
@@ -12,6 +13,7 @@ import {
 import { type Kysely, type Transaction, sql } from 'kysely'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
 import { replaceSearchTokensForRecord, deleteSearchTokensForRecord } from './search-tokens'
 import { attachAggregateSearchField, rebuildAggregateSearchField } from './document'
@@ -22,6 +24,17 @@ function resolveEntityTableName(em: EntityManager, entity: string): string {
 }
 
 const logger = createLogger('query_index').child({ component: 'indexer' })
+
+function reportTranslationsFailure(
+  error: unknown,
+  code: 'query_index.translations_read_failed' | 'query_index.translations_log_failed',
+): void {
+  try {
+    getTelemetryRuntime()?.reportError(error, { module: 'query_index', code })
+  } catch (telemetryError) {
+    logger.warn('Failed to report index translations error', { err: telemetryError })
+  }
+}
 
 type QueryIndexExecutor = Kysely<any> | Transaction<any>
 
@@ -182,17 +195,10 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
     doc[key] = multiKeys.has(fieldKey) || arr.length > 1 ? arr : arr[0]
   }
 
-  // Attach translations under flat keys 'l10n:{locale}:{field}'. This read is optional and
-  // best-effort: a failed statement aborts the *whole* surrounding Postgres transaction
-  // (25P02), even though the JS error below is caught — so when `db` is already inside a
-  // caller's transaction (subscribers/batch writers pass a transactional em), a savepoint
-  // isolates the failure and lets every later statement in that transaction keep working.
-  // The caught error is logged via `recordIndexerError` instead of being discarded so the
-  // real cause (missing table/column, permission error, statement timeout) stays visible.
-  const translationsSavepoint = db.isTransaction ? 'om_entity_translations_read' : null
+  // Attach translations under flat keys 'l10n:{locale}:{field}'
+  const translationsSavepoint = db.isTransaction ? `om_translations_${randomUUID()}` : null
+  if (translationsSavepoint) await sql`SAVEPOINT ${sql.id(translationsSavepoint)}`.execute(db)
   try {
-    if (translationsSavepoint) await sql`SAVEPOINT ${sql.raw(translationsSavepoint)}`.execute(db)
-
     const translationRow = await db
       .selectFrom('entity_translations' as any)
       .select(['translations' as any])
@@ -201,8 +207,6 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
       .where(sql`tenant_id is not distinct from ${params.tenantId ?? null}`)
       .where(sql`organization_id is not distinct from ${params.organizationId ?? null}`)
       .executeTakeFirst() as { translations: Record<string, Record<string, unknown>> | null } | undefined
-
-    if (translationsSavepoint) await sql`RELEASE SAVEPOINT ${sql.raw(translationsSavepoint)}`.execute(db)
 
     if (translationRow?.translations && typeof translationRow.translations === 'object') {
       for (const [locale, fields] of Object.entries(translationRow.translations)) {
@@ -216,8 +220,9 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
     }
   } catch (translationsError) {
     if (translationsSavepoint) {
-      await sql`ROLLBACK TO SAVEPOINT ${sql.raw(translationsSavepoint)}`.execute(db).catch(() => undefined)
+      await sql`ROLLBACK TO SAVEPOINT ${sql.id(translationsSavepoint)}`.execute(db)
     }
+    reportTranslationsFailure(translationsError, 'query_index.translations_read_failed')
     await recordIndexerError(
       { db },
       {
@@ -229,7 +234,17 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
         tenantId: params.tenantId ?? null,
         organizationId: params.organizationId ?? null,
       },
-    ).catch(() => undefined)
+    ).catch((loggingError: unknown) => reportTranslationsFailure(loggingError, 'query_index.translations_log_failed'))
+  } finally {
+    if (translationsSavepoint) {
+      try {
+        await sql`RELEASE SAVEPOINT ${sql.id(translationsSavepoint)}`.execute(db)
+      } catch (loggingError) {
+        await sql`ROLLBACK TO SAVEPOINT ${sql.id(translationsSavepoint)}`.execute(db)
+        await sql`RELEASE SAVEPOINT ${sql.id(translationsSavepoint)}`.execute(db)
+        reportTranslationsFailure(loggingError, 'query_index.translations_log_failed')
+      }
+    }
   }
 
   await applyIndexDocEnrichers(db, params.entityType, [{
