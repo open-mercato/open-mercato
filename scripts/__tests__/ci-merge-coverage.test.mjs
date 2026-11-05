@@ -157,3 +157,53 @@ test('protected branch pushes run full typecheck and unit gates', () => {
 test('unavailable PR comparison ancestry falls back to full validation', () => {
   assert.deepEqual(runValidationSteps({ createParent: false }), ['typecheck', 'test'])
 })
+
+function runCoverageMerge({ includeCoverage = true } = {}) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ci-shard-download-'))
+  try {
+    fs.mkdirSync(path.join(root, 'scripts'))
+    fs.copyFileSync(new URL('../merge-coverage.mjs', import.meta.url), path.join(root, 'scripts/merge-coverage.mjs'))
+    const download = coverageJob.steps.find((step) => step.name === 'Download shard artifacts')
+    const destination = path.resolve(root, download.with.path ?? '.')
+    assert.ok(destination === root || destination.startsWith(`${root}${path.sep}`))
+    if (includeCoverage) {
+      for (const [index, [total, covered]] of [[4, 1], [6, 3]].entries()) {
+        const artifactRoot = download.with['merge-multiple']
+          ? destination
+          : path.join(destination, `integration-test-results-${index + 1}`)
+        const directory = path.join(artifactRoot, `coverage-shard-${index + 1}`, 'code')
+        fs.mkdirSync(directory, { recursive: true })
+        const metrics = Object.fromEntries(['lines', 'statements', 'functions', 'branches'].map((metric) => [
+          metric, { total, covered, skipped: 0, pct: (covered / total) * 100 },
+        ]))
+        fs.writeFileSync(path.join(directory, 'coverage-summary.json'), JSON.stringify({
+          total: metrics,
+          [`/fixtures/shard-${index + 1}.ts`]: metrics,
+        }))
+      }
+    }
+    const step = coverageJob.steps.find((candidate) => candidate.name === 'Merge shard coverage reports')
+    const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', step.run], {
+      cwd: root, encoding: 'utf8', timeout: 10000,
+    })
+    const output = path.join(root, '.ai/qa/test-results/coverage/code/coverage-summary.json')
+    return { ...result, summary: fs.existsSync(output) ? JSON.parse(fs.readFileSync(output, 'utf8')) : null }
+  } finally {
+    assert.equal(path.dirname(root), path.resolve(os.tmpdir()))
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+}
+
+test('downloaded shard artifacts produce merged coverage at the required result path', () => {
+  const result = runCoverageMerge()
+  assert.equal(result.status, 0, result.stderr)
+  assert.ok(result.summary, result.stdout)
+  assert.match(result.stdout, /Merged 2 shards/)
+  assert.deepEqual(result.summary.total.lines, { total: 10, covered: 4, skipped: 0, pct: 40 })
+})
+
+test('required coverage merge fails when artifacts contain no shard reports', () => {
+  const result = runCoverageMerge({ includeCoverage: false })
+  assert.notEqual(result.status, 0, 'Missing shard reports must fail the required job')
+  assert.equal(result.summary, null)
+})
