@@ -35,6 +35,53 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 const roleId = '11111111-1111-4111-8111-111111111111'
 const tenantId = '22222222-2222-4222-8222-222222222222'
 
+describe('auth.roles.create duplicate names', () => {
+  const handler = commandRegistry.get<Record<string, unknown>, Role>('auth.roles.create')!
+
+  it.each([
+    { code: '23505', constraint: 'roles_tenant_id_name_unique' },
+    { cause: { code: '23505', constraint: 'roles_tenant_id_name_unique' } },
+  ])('returns a name field error for a duplicate role: %j', async (error) => {
+    const createOrmEntity = jest.fn().mockRejectedValue(error)
+    const ctx = makeExecuteCtx({ createOrmEntity }, {})
+
+    await expect(handler.execute({ name: 'Duplicate Role' }, ctx)).rejects.toMatchObject({
+      status: 400,
+      body: {
+        error: 'A role with this name already exists',
+        fieldErrors: { name: 'A role with this name already exists' },
+        details: [{ path: ['name'], code: 'duplicate', origin: 'validation' }],
+      },
+    })
+    expect(createOrmEntity).toHaveBeenCalledWith({
+      entity: Role,
+      data: { name: 'Duplicate Role', tenantId },
+    })
+  })
+
+  it('preserves successful creation and its scoped side effects', async () => {
+    const role = { id: roleId, name: 'New Role', tenantId } as Role
+    const createOrmEntity = jest.fn().mockResolvedValue(role)
+    const markOrmEntityChange = jest.fn()
+    const ctx = makeExecuteCtx({ createOrmEntity, markOrmEntityChange }, {})
+
+    await expect(handler.execute({ name: 'New Role' }, ctx)).resolves.toBe(role)
+    expect(markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'created',
+      entity: role,
+      identifiers: { id: roleId, tenantId, organizationId: null },
+    }))
+  })
+
+  it.each([
+    new Error('Database unavailable'),
+    { code: '23505', constraint: 'roles_pkey' },
+  ])('preserves unrelated write errors: %j', async (error) => {
+    const ctx = makeExecuteCtx({ createOrmEntity: jest.fn().mockRejectedValue(error) }, {})
+    await expect(handler.execute({ name: 'New Role' }, ctx)).rejects.toBe(error)
+  })
+})
+
 describe('auth.roles.update', () => {
   it('allows updating the built-in admin role when the name is unchanged', async () => {
     const handler = commandRegistry.get<Record<string, unknown>, unknown>('auth.roles.update') as CommandHandler<Record<string, unknown>, Role>

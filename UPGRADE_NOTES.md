@@ -17,6 +17,16 @@ Move any custom text out of the section, for example into `header`.
 
 Both stay for at least one minor release. No database migration is required.
 
+## Search writes honor entity strategy pins (#5930)
+
+SearchService direct and bulk writes now honor each registered entity's existing
+`strategies` restriction; an explicit empty list writes to no strategy. Unpinned
+entities, fulltext content, and null-source behavior are unchanged. No client,
+configuration, or database migration is required. After upgrading all workers,
+operators whose entities previously reached an excluded writer should purge those
+entities from that index using the existing cleanup operations. Existing vectors
+and embedding-provider retention are not removed automatically.
+
 ## Agent search answers honor domain policy (#7234)
 
 When an allow-list or deny-list is configured, agent `web_search` and the settings
