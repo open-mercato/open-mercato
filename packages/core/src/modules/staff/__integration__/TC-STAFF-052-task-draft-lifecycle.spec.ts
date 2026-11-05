@@ -11,8 +11,9 @@ for (const persona of ['manager', 'employee'] as const) {
       const surface = await openBoard(page, fixture, locale, baseURL, { global: true })
       try {
         const copy = boardCopy(locale)
-        await enterTaskDraft(page, locale, 'Discarded old project draft', 'Working A')
-        await page.keyboard.press('Escape')
+        const discarded = await enterTaskDraft(page, locale, 'Discarded old project draft', 'Working A')
+        await discarded.getByRole('textbox', { name: copy.title, exact: true }).press('Escape')
+        await expect(discarded).toHaveCount(0)
         await page.getByRole('button', { name: copy.newTask, exact: true }).click()
         await assertTaskDraft(page, locale, '', 'Ready A')
         const dialog = page.getByRole('dialog', { name: copy.dialog, exact: true })
