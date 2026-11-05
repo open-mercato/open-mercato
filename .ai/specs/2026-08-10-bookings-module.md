@@ -4561,6 +4561,11 @@ against its code.
 
 ## Changelog
 
+### 2026-11-05
+- Repair prototype navigation across phase filters and Presentation toolbar links; add loading,
+  empty and retryable failed-read states to Categories and Booking pages, with isolated browser
+  regressions. The proposal and implementation contracts remain unchanged.
+
 ### 2026-11-01
 - Update the prototype after the first design review: grouped menu, single-column settings, one
   conflict signal, the card as a side panel, a Place dialog for unplaced reservations, filters and

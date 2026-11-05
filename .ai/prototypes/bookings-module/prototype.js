@@ -177,6 +177,7 @@
       flashToast('This screen does not exist in the prototype: ' + screenId);
       return;
     }
+    document.dispatchEvent(new CustomEvent('om-prototype:navigate', { detail: { screenId: screenId } }));
     if (record !== false) {
       var current = document.querySelector('.screen.is-current');
       if (current && current.id !== screenId) history.push(current.id);
@@ -608,6 +609,12 @@
   }
 
   function onDocumentClick(event) {
+    var toolbarLink = event.target.closest('.doc-toolbar .screen-nav [data-goto]');
+    if (toolbarLink) {
+      event.preventDefault();
+      goTo(toolbarLink.getAttribute('data-goto'));
+      return;
+    }
     if (event.target.closest('.anno-panel') || event.target.closest('.doc-toolbar')) return;
     if (event.target.closest('.anno-pin')) return;
     var frame = event.target.closest('.frame');
@@ -674,12 +681,16 @@
       hintsButton.textContent = hints ? 'Hide hotspots' : 'Show hotspots';
     } });
     var focusButton = element('button', { class: 'btn btn-outline btn-sm', type: 'button', text: 'Presentation', onclick: function () {
+      var focusTarget = document.querySelector('.screen.is-current');
+      if (!focusTarget || getComputedStyle(focusTarget).display === 'none') {
+        focusTarget = screens().find(function (screen) { return getComputedStyle(screen).display !== 'none'; });
+      }
       focusMode = !focusMode;
       document.body.classList.toggle('proto-focus', focusMode);
       focusButton.className = 'btn btn-sm ' + (focusMode ? 'btn-primary' : 'btn-outline');
-      if (focusMode && !document.querySelector('.screen.is-current')) {
-        var firstScreen = screens()[0];
-        if (firstScreen) firstScreen.classList.add('is-current');
+      if (focusMode && focusTarget) {
+        screens().forEach(function (screen) { screen.classList.remove('is-current'); });
+        focusTarget.classList.add('is-current');
       }
       updateBackButton();
     } });

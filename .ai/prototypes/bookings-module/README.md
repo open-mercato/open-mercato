@@ -48,6 +48,13 @@ Screen numbers are kept, so comments and references stay valid; 19 is unused.
 - Viewer (15): the shell follows the user's features. The menu shows only Timeline and All bookings, and the bell has no bookings notifications.
 - Loading, empty and failed-read states on Timeline (2), All bookings (8), Subjects (9) and Targets (13), drawn after `LoadingMessage`, `ErrorMessage` and the `DataTable` loading, error and empty rows. Every failed read offers Try again.
 
+## Changes after the re-review (2026-11-05)
+
+- Following any screen link, including Back and keyboard navigation, resets Phase to All when its destination would otherwise be hidden. Changing phase in Presentation keeps a screen from that phase visible.
+- Toolbar screen links now use the prototype navigation engine in Presentation, Clickable and Comment modes. These navigation hooks are local changes to `prototype.js`; the rest of its comment/export behavior is retained.
+- Categories (12) and Booking pages (23) now offer Loading, Empty and Failed to load states. Empty states offer creation; failed reads retry into the loaded list.
+- Run the isolated browser regressions from the repository root with `node --test .ai/prototypes/bookings-module/prototype.test.mjs`. They use the repository's existing Playwright/Chromium installation, serve only these static assets on an owned loopback port, and close their browser and server afterward.
+
 ## How to read it
 
 - Every screen carries its phase. Phase 1 is the first delivery; phases 2–4 are the roadmap of the specification. The **Phase** filter in the toolbar shows one phase at a time and hides what later phases add to the screens.

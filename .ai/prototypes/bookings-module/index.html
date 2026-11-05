@@ -668,14 +668,17 @@
     <h2>12. Categories</h2>
     <p>Subjects are grouped into categories with an icon and a colour so the timeline rows are easy to scan.</p>
     <div class="screen-refs"><span class="ref">§7.3</span><span class="ref">US-B3</span></div>
-    <div class="states" data-states="list:List|new:New category|refused:Delete refused"></div>
+    <div class="states" data-states="list:List|new:New category|refused:Delete refused|loading:Loading|empty:Empty|error:Failed to load"></div>
   </div>
   <div class="frame" data-shell="app" data-url="/backend/bookings/categories" data-nav="s12" data-crumbs="Bookings|Categories">
     <div class="dt">
       <div class="dt-head"><div class="dt-head-row"><div class="row between"><h2 class="t-table-title" style="margin:0">Categories</h2><button class="btn btn-primary"><svg><use href="#ic-plus"/></svg> New category</button></div></div></div>
       <table class="table">
         <thead><tr><th>Name</th><th>Colour</th><th>Subjects</th><th>Conflict mode</th><th class="right"></th></tr></thead>
-        <tbody>
+        <tbody data-when="loading"><tr class="dt-state"><td colspan="5"><div><span class="spin"></span>Loading data…</div></td></tr></tbody>
+        <tbody data-when="error"><tr class="dt-state error"><td colspan="5"><div>Could not load categories. <button class="btn btn-outline btn-sm" data-set-state="list">Try again</button></div></td></tr></tbody>
+        <tbody data-when="empty"><tr class="dt-state"><td colspan="5"><div class="dt-empty"><div class="empty-icon"><svg><use href="#ic-tag"/></svg></div><div class="t-card-title">No categories yet</div><p class="muted">Create a category to group the subjects on your timeline.</p><button class="btn btn-primary btn-sm" data-set-state="new"><svg><use href="#ic-plus"/></svg> New category</button></div></td></tr></tbody>
+        <tbody data-when="list new refused">
           <tr><td><svg width="14" height="14"><use href="#ic-truck"/></svg> Excavators</td><td><span class="swatch c-blue"></span></td><td class="num">4</td><td>Default (Warn)</td><td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Delete"><svg><use href="#ic-trash"/></svg></button></td></tr>
           <tr><td><svg width="14" height="14"><use href="#ic-truck"/></svg> Cranes</td><td><span class="swatch c-amber"></span></td><td class="num">2</td><td>Default (Warn)</td><td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Delete"><svg><use href="#ic-trash"/></svg></button></td></tr>
           <tr><td><svg width="14" height="14"><use href="#ic-user"/></svg> Operators</td><td><span class="swatch c-emerald"></span></td><td class="num">2</td><td><span class="badge badge-error">Block</span></td><td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Delete"><svg><use href="#ic-trash"/></svg></button></td></tr>
@@ -1007,14 +1010,17 @@
     <h2>23. Booking pages</h2>
     <p>Staff create a page per service the way payment links are created, and share its link.</p>
     <div class="screen-refs"><span class="ref">§19 The page</span><span class="ref">US-H1</span></div>
-    <div class="states" data-states="list:List|new:New page|created:Created|edit:Edit"></div>
+    <div class="states" data-states="list:List|new:New page|created:Created|edit:Edit|loading:Loading|empty:Empty|error:Failed to load"></div>
   </div>
   <div class="frame" data-shell="app" data-url="/backend/bookings/pages" data-nav="s23" data-crumbs="Bookings|Booking pages">
     <div class="dt">
       <div class="dt-head"><div class="dt-head-row"><div class="row between"><h2 class="t-table-title" style="margin:0">Booking pages</h2><button class="btn btn-primary"><svg><use href="#ic-plus"/></svg> New page</button></div></div></div>
       <table class="table">
         <thead><tr><th>Page</th><th>Link</th><th>Services</th><th>Awaiting</th><th>State</th><th class="right"></th></tr></thead>
-        <tbody>
+        <tbody data-when="loading"><tr class="dt-state"><td colspan="6"><div><span class="spin"></span>Loading data…</div></td></tr></tbody>
+        <tbody data-when="error"><tr class="dt-state error"><td colspan="6"><div>Could not load booking pages. <button class="btn btn-outline btn-sm" data-set-state="list">Try again</button></div></td></tr></tbody>
+        <tbody data-when="empty"><tr class="dt-state"><td colspan="6"><div class="dt-empty"><div class="empty-icon"><svg><use href="#ic-link"/></svg></div><div class="t-card-title">No booking pages yet</div><p class="muted">Create a booking page to share a service with customers.</p><button class="btn btn-primary btn-sm" data-set-state="new"><svg><use href="#ic-plus"/></svg> New page</button></div></td></tr></tbody>
+        <tbody data-when="list new created edit">
           <tr data-when="created"><td>Implants consultation</td><td class="t-mono">/book/smile-implants</td><td>1</td><td class="num">0</td><td><span class="badge badge-success">Active</span></td><td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Copy link"><svg><use href="#ic-copy"/></svg></button></td></tr>
           <tr><td>Check-ups</td><td class="t-mono">/book/smile-check-up</td><td>2</td><td class="num">3</td><td><span class="badge badge-success">Active</span></td><td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Copy link"><svg><use href="#ic-copy"/></svg></button></td></tr>
           <tr><td>Whitening</td><td class="t-mono">/book/smile-whitening</td><td>1</td><td class="num">0</td><td><span class="badge badge-neutral">Inactive</span></td><td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Copy link"><svg><use href="#ic-copy"/></svg></button></td></tr>
@@ -1303,7 +1309,19 @@
         var later = value !== 'all' && Number(target.getAttribute('data-phase')) > Number(value);
         node.classList.toggle('is-later', later);
       });
+      var current = document.querySelector('.screen.is-current');
+      if (document.body.classList.contains('proto-focus') && current && current.classList.contains('is-filtered')) {
+        var firstVisible = document.querySelector('.screen:not(.is-filtered)');
+        if (firstVisible) document.querySelector('.screen-nav a[href="#' + firstVisible.id + '"]').click();
+      }
     });
+  });
+
+  document.addEventListener('om-prototype:navigate', function (event) {
+    var target = document.getElementById(event.detail.screenId);
+    if (target && target.classList.contains('is-filtered')) {
+      document.querySelector('[data-phase-filter="all"]').click();
+    }
   });
 
   document.getElementById('theme-toggle').addEventListener('click', function () {
