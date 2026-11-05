@@ -196,6 +196,7 @@
   "entities.nav.systemEntities": "시스템 엔터티",
   "entities.nav.userEntities": "사용자 엔터티",
   "entities.nav.userEntities.create": "엔터티 생성",
+  "entities.records.errors.alreadyExists": "이 ID의 레코드가 이미 존재합니다. 업데이트하려면 PUT을 사용하세요.",
   "entities.settings.description": "전역 사용자 지정 엔터티 구성을 관리합니다.",
   "entities.settings.errors.conflict": "다른 사용자가 설정을 수정했습니다. 새로고침하세요.",
   "entities.settings.errors.loadFailed": "설정을 로드하지 못했습니다.",
