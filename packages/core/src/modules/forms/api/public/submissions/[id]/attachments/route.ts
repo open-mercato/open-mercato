@@ -16,10 +16,13 @@ import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { AttachmentService } from '../../../../../services/attachment-service'
+import type { FormVersionCompiler } from '../../../../../services/form-version-compiler'
+import type { RolePolicyService } from '../../../../../services/role-policy-service'
 import { resolveRuntimePrincipal } from '../../../../../lib/runtime-principal'
 import {
   mapAttachmentError,
   parseUploadBody,
+  resolveAttachmentRolePolicy,
   resolveFieldUploadConfig,
 } from '../../../../attachment-helpers'
 import { buildPublicRateLimitKey, enforcePublicRateLimit } from '../../../rate-limit'
@@ -50,6 +53,17 @@ export async function POST(
 
   const parsed = await parseUploadBody(req)
   if (parsed instanceof NextResponse) return parsed
+
+  const policy = await resolveAttachmentRolePolicy(em, {
+    organizationId: principal.organizationId,
+    tenantId: principal.tenantId,
+    submissionId,
+    role: principal.role,
+  }, container.resolve('formVersionCompiler') as FormVersionCompiler,
+  container.resolve('formsRolePolicyService') as RolePolicyService)
+  if (!policy?.canWrite(parsed.fieldKey)) {
+    return NextResponse.json({ error: 'NOT_FOUND' }, { status: 404 })
+  }
 
   const config = await resolveFieldUploadConfig(em, {
     organizationId: principal.organizationId,
@@ -90,11 +104,12 @@ const uploadResponseSchema = z.object({
 
 const postMethodDoc: OpenApiMethodDoc = {
   summary: 'Upload an attachment (public/anonymous)',
-  description: 'Stores an encrypted file for a file-typed field. Authorized via access token or portal session.',
+  description: 'Stores an encrypted file for a file-typed field the participant role can edit in the submission’s pinned version. Authorized via access token or portal session.',
   tags: ['Forms Public Runtime'],
   responses: [{ status: 201, description: 'Attachment stored', schema: uploadResponseSchema }],
   errors: [
     { status: 401, description: 'Missing or invalid access token / session', schema: errorSchema },
+    { status: 404, description: 'Field not found or not editable by the participant role', schema: errorSchema },
     { status: 413, description: 'File empty or oversize', schema: errorSchema },
     { status: 422, description: 'Disallowed type / invalid field / scan rejected', schema: errorSchema },
     { status: 429, description: 'Rate limit exceeded', schema: errorSchema },
