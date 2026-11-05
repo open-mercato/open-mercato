@@ -220,9 +220,16 @@ function FlashMessagesInner() {
     }
   }, [clearDismissTimer])
 
-  // Read flash from URL on any navigation change (client-side too)
+  // Read flash from URL on any navigation change (client-side too).
+  // Only the primary host may consume it: every mounted host would otherwise
+  // race to strip the params first, and a non-primary "winner" stores the
+  // message in state that never renders (its render is gated on
+  // isPrimaryHost below), silently swallowing the toast. Leaving the params
+  // in the URL for a non-primary host means the eventually-primary host's
+  // own effect re-runs and consumes them once isPrimaryHost flips true.
   React.useEffect(() => {
     if (typeof window === 'undefined') return
+    if (!isPrimaryHost) return
     const url = new URL(window.location.href)
     const message = url.searchParams.get('flash')
     const type = normalizeFlashKind(url.searchParams.get('type'))
@@ -237,7 +244,7 @@ function FlashMessagesInner() {
         showFlash(message, type)
       }
     }
-  }, [locationKey, showFlash])
+  }, [locationKey, showFlash, isPrimaryHost])
 
   // Listen for programmatic flash events
   React.useEffect(() => {
