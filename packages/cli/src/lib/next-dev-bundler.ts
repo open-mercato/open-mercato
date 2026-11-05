@@ -10,10 +10,11 @@ export function resolveNextDevBundler(environment: NodeJS.ProcessEnv = process.e
 export function buildNextDevArgs(
   nextBinary: string,
   environment: NodeJS.ProcessEnv = process.env,
-): { args: string[]; bundler: NextDevBundler } {
+): { args: string[]; bundler: NextDevBundler; env: NodeJS.ProcessEnv } {
   const bundler = resolveNextDevBundler(environment)
   return {
     args: [nextBinary, 'dev', bundler === 'webpack' ? '--webpack' : '--turbopack'],
     bundler,
+    env: { ...environment, NODE_ENV: 'development' },
   }
 }
