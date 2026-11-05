@@ -29,10 +29,12 @@ Mermaid parsing/rendering can regress despite a same-major upgrade. Validate tar
 
 ## Progress
 
+PR: #8741
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Dependency remediation
-- [ ] 1.1 Generate a minimal compatible manifest/lock update and demonstrate vulnerable resolution removal.
+- [x] 1.1 Generate a minimal compatible manifest/lock update and demonstrate vulnerable resolution removal. — 49cca78d30
 
 ### Phase 2: Verification and review
 - [ ] 2.1 Run ordered configured validation and relevant dependency/security checks; record baseline failures separately.
