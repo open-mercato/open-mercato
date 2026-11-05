@@ -7,6 +7,7 @@ function readProcessTable() {
   try {
     const output = execFileSync('ps', ['-axo', 'pid=,ppid=,lstart=,stat=,command='], {
       encoding: 'utf8',
+      env: { ...process.env, LC_ALL: 'C' },
       timeout: 1000,
       maxBuffer: 8 * 1024 * 1024,
       stdio: ['ignore', 'pipe', 'ignore'],

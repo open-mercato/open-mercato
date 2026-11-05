@@ -63,7 +63,7 @@ function inspectOrphans(snapshot, dependencies) {
   }
   for (const member of snapshot.liveRecords) {
     const root = trees.get(member.pid)
-    const lastSeen = Date.parse(member.heartbeatAt ?? snapshot.owner.transferredAt ?? snapshot.owner.startedAt)
+    const lastSeen = Date.parse(member.registeredAt ?? member.heartbeatAt ?? snapshot.owner.transferredAt ?? snapshot.owner.startedAt)
     const started = Date.parse(root?.startedAt)
     if (!root || !Number.isFinite(lastSeen) || !Number.isFinite(started) || started > lastSeen) return null
     const workspace = canonicalPath(dependencies.processWorkspace(member.pid))

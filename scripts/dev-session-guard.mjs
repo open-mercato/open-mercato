@@ -129,11 +129,17 @@ function registerMember(lockDirectory, token, pid, role) {
   const membersDirectory = path.join(lockDirectory, MEMBERS_DIRECTORY_NAME)
   fs.mkdirSync(membersDirectory, { recursive: true })
   const memberPath = path.join(membersDirectory, `${pid}.json`)
+  const previous = readJsonFile(memberPath)
+  const now = new Date().toISOString()
+  const registeredAt = previous?.token === token && previous.pid === pid
+    ? previous.registeredAt ?? previous.heartbeatAt ?? now
+    : now
   writeJsonAtomically(memberPath, {
     pid,
     role,
     token,
-    heartbeatAt: new Date().toISOString(),
+    registeredAt,
+    heartbeatAt: now,
   })
   return memberPath
 }

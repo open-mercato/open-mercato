@@ -71,7 +71,7 @@ test('orphaned app-runtime processes may have cwd inside the workspace app direc
   assert.equal(fixture.signals.length, 1)
 })
 
-for (const scenario of ['declined', 'noninteractive', 'active owner', 'occupied endpoint', 'reused PID', 'other workspace']) {
+for (const scenario of ['declined', 'noninteractive', 'active owner', 'occupied endpoint', 'reused PID', 'PID reused before heartbeat', 'other workspace']) {
   test(`recovery never signals ${scenario}`, async (context) => {
     const fixture = orphanFixture(context)
     if (scenario === 'declined') fixture.dependencies.confirm = async () => false
@@ -79,6 +79,11 @@ for (const scenario of ['declined', 'noninteractive', 'active owner', 'occupied 
     if (scenario === 'active owner') fs.writeFileSync(fixture.ownerPath, JSON.stringify({ ...fixture.owner, role: 'dev-runner', transferredAt: undefined }))
     if (scenario === 'occupied endpoint') fixture.dependencies.endpointAvailable = async () => false
     if (scenario === 'reused PID') fixture.record.startedAt = new Date(Date.now() + 20_000).toString()
+    if (scenario === 'PID reused before heartbeat') {
+      const memberPath = path.join(fixture.lockDirectory, 'members', `${process.pid}.json`)
+      const member = JSON.parse(fs.readFileSync(memberPath, 'utf8'))
+      fs.writeFileSync(memberPath, JSON.stringify({ ...member, registeredAt: new Date(Date.now() - 20000).toISOString() }))
+    }
     if (scenario === 'other workspace') fixture.dependencies.processWorkspace = () => '/another-workspace'
     await assert.rejects(acquireDevSessionWithRecovery({ workspaceRoot: fixture.workspaceRoot, token: null }, fixture.dependencies), DevSessionConflictError)
     assert.deepEqual(fixture.signals, [])

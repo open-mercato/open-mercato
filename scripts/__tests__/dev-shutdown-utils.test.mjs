@@ -224,3 +224,20 @@ test('signalProcessTree terminates deepest descendants before the wrapper', () =
   })
   assert.deepEqual(signaled, [43, 42, 41])
 })
+
+test('POSIX process identities remain stable under a localized shell', (context) => {
+  if (process.platform === 'win32') { context.skip('POSIX ps only'); return }
+  const previous = process.env.LC_ALL
+  try {
+    process.env.LC_ALL = 'C'
+    const baseline = inspectProcessTree(process.pid).find((record) => record.pid === process.pid)
+    assert.ok(baseline)
+    process.env.LC_ALL = 'pl_PL.UTF-8'
+    const localized = inspectProcessTree(process.pid).find((record) => record.pid === process.pid)
+    assert.ok(localized)
+    assert.equal(localized.startedAt, baseline.startedAt)
+  } finally {
+    if (previous === undefined) delete process.env.LC_ALL
+    else process.env.LC_ALL = previous
+  }
+})
