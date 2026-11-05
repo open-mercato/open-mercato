@@ -1,6 +1,10 @@
 /** @jest-environment jsdom */
 import * as React from 'react'
+import { EditorView } from '@codemirror/view'
+import { ContentSecurityPolicyProvider } from '../../../theme/ContentSecurityPolicyProvider'
 import { render } from '@testing-library/react'
+
+type CodeMirrorExtensions = NonNullable<ConstructorParameters<typeof EditorView>[0]>['extensions']
 
 type PluginMarker = { plugin: string; params?: Record<string, unknown> }
 
@@ -76,5 +80,50 @@ describe('MdxEditorImpl code blocks', () => {
     expect(Object.prototype.hasOwnProperty.call(languages, '')).toBe(true)
     expect(languages['']).toBe('Plain text')
     expect(languages).toEqual(expect.objectContaining({ ts: 'TypeScript', js: 'JavaScript' }))
+  })
+})
+
+describe('CodeMirror CSP styles', () => {
+  it('uses the stable document nonce for code blocks and source/diff views', () => {
+    capturedPlugins.length = 0
+    const view = render(
+      <ContentSecurityPolicyProvider nonce="documentNonce">
+        <MdxEditorImpl value={'```ts\nconst first = 1\n```'} onChange={jest.fn()} />
+      </ContentSecurityPolicyProvider>,
+    )
+    const plugins = capturedPlugins.at(-1)!
+    const extensionsFor = (name: string) => plugins.find((entry) => entry.plugin === name)?.params?.codeMirrorExtensions
+    for (const name of ['codeMirror', 'diffSource']) {
+      const extensions = extensionsFor(name) as CodeMirrorExtensions
+      expect(extensions).toBeDefined()
+      const editor = new EditorView({ extensions })
+      try {
+        expect(editor.state.facet(EditorView.cspNonce)).toBe('documentNonce')
+      } finally {
+        editor.destroy()
+      }
+    }
+    view.rerender(
+      <ContentSecurityPolicyProvider nonce="navigationNonce">
+        <MdxEditorImpl value={'```ts\nconst first = 2\n```'} onChange={jest.fn()} />
+      </ContentSecurityPolicyProvider>,
+    )
+    for (const name of ['codeMirror', 'diffSource']) {
+      const extensions = capturedPlugins.at(-1)!.find((entry) => entry.plugin === name)?.params?.codeMirrorExtensions
+      expect(extensions).toBe(extensionsFor(name))
+    }
+  })
+
+  it('keeps CodeMirror defaults when no document nonce is supplied', () => {
+    for (const plugin of renderPlugins().filter((entry) => ['codeMirror', 'diffSource'].includes(entry.plugin))) {
+      const extensions = plugin.params?.codeMirrorExtensions as CodeMirrorExtensions
+      expect(extensions).toEqual([])
+      const editor = new EditorView({ extensions })
+      try {
+        expect(editor.state.facet(EditorView.cspNonce)).toBe('')
+      } finally {
+        editor.destroy()
+      }
+    }
   })
 })
