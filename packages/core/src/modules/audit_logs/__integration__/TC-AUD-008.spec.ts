@@ -65,9 +65,9 @@ test.describe('TC-AUD-008: date-range filtering and pagination', () => {
       const afterFuture = await listActionLogs(request, token, { ...scoped, after: tFarFuture })
       expect(afterFuture.body!.items.length, 'after=<future> excludes the log').toBe(0)
 
-      // Pagination is driven by `offset` (the route always applies an offset,
-      // defaulting to 0, so `pageSize` + `offset` define the window). A window of
-      // size 1 returns a single row with consistent total/totalPages metadata.
+      // An explicit `offset` takes precedence over `page`, so `pageSize` + `offset`
+      // define the window here. A window of size 1 returns a single row with
+      // consistent total/totalPages metadata.
       const firstWindow = await listActionLogs(request, token, { pageSize: 1, offset: 0 })
       expect(firstWindow.status, 'paginated list returns 200').toBe(200)
       const firstBody = firstWindow.body!

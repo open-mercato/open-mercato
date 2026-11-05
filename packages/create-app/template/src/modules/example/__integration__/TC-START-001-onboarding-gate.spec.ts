@@ -1,5 +1,13 @@
 import { expect, test } from '@playwright/test'
 
+// `/start` renders the onboarding CTA only when the app has self-service onboarding on AND a
+// configured email transport (src/app/start/page.tsx). This spec asserts that
+// connected state, so it only runs in lanes that configure both.
+export const integrationMeta = {
+  dependsOnModules: ['onboarding'],
+  requiredEnvVars: ['SELF_SERVICE_ONBOARDING_ENABLED', 'SYSTEM_EMAIL_PROVIDER'],
+}
+
 const viewports = [
   { name: 'desktop', width: 1280, height: 900 },
   { name: 'mobile', width: 390, height: 844 },
