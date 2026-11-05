@@ -32,6 +32,10 @@ Source doc: .ai/specs/2026-06-09-create-app-module-picker.md
 
 Documentation-only gate: manual code-grounded review, `git diff --check`, local reference checks, and any configured Markdown-specific checks. Runtime validation commands do not apply to this document-only change and will be disclosed as skipped. No dependency installation is necessary.
 
+## Verification Evidence
+
+Runner: local. Documentation-only validation passed: whitespace, 13 introduced local links, new-spec fences, required sections, and index/related-spec cross-links. No Markdown-specific command is configured; runtime validation commands were skipped as inapplicable. Independent scope and code-grounded specification reviews found no blocking, major, or Medium findings. Low findings were resolved in e577a0ca8 (publisher handoff) and ef385a25d (core-enable advice and regression coverage).
+
 ## Progress
 
 PR: #8775
@@ -45,5 +49,5 @@ PR: #8775
 
 ### Phase 2: Verify and hand off
 
-- [ ] 2.1 Run documentation checks and the specification review, including independent scope-cohesion review; resolve actionable findings.
+- [x] 2.1 Run documentation checks and the specification review, including independent scope-cohesion review; resolve actionable findings. — ef385a25d
 - [ ] 2.2 Finalize PR metadata, evidence, and assignment to Wojciech Szyjka; release the run claim and clean up the worktree.
