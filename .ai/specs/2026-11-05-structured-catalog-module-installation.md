@@ -226,7 +226,7 @@ Deliver one capability: a typed installation boundary for the picker. The follow
 | `.ai/qa/AGENTS.md` | Design covers isolation | Fixture HTTP catalogs and temporary app cleanup; no seeded data or live-service requirement. |
 | UI, tenant/entity, encryption, optimistic-locking rules | Not applicable | No browser components, entities, database queries, or credentials are introduced. |
 
-The proposal's contracts, failure cases, rollout, and tests describe the same boundary. Implementation readiness still requires maintainer acceptance and confirmation of publisher ownership; this report is a document review, not evidence of a shipped refactor.
+The proposal's contracts, failure cases, rollout, and tests describe the same boundary. Maintainer acceptance is required before implementation. Publisher ownership must be confirmed before Phase 2; Phase 1 can proceed against valid legacy catalogs. This report is a document review, not evidence of a shipped refactor.
 
 ## Changelog
 
