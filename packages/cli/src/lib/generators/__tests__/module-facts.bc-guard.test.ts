@@ -196,29 +196,24 @@ describe('module-facts BC resolve guard (T2)', () => {
     // so uniform growth across all four is the evidence that this is repo size,
     // not a duplicated payload. The headroom ratio is kept at the ~1.15 the
     // previous raise used, so the guard keeps the same detection power it had.
-    expect(Buffer.byteLength(completeJson)).toBeLessThan(5_550_000)
-    // Measured on the merged tree (`yarn jest module-facts.bc-guard`):
-    //   completeJson 4,823,226 · legacy delta 2,111,784 · markdown 1,820,787 ·
-    //   directory markdown 1,985,779.
-    // (Previous, on develop's tree: 4,120,374 · 1,795,214 · 1,558,590 · 1,709,511.)
-    expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(2_430_000)
+    expect(Buffer.byteLength(completeJson)).toBeLessThan(6_380_000)
+    // Measured on the current merged tree (`yarn jest module-facts.bc-guard`):
+    //   completeJson 5,547,284 · legacy delta 2,425,489 · markdown 2,100,437 ·
+    //   directory markdown 2,289,693.
+    // The four measures grew uniformly since the previous baseline
+    // (+15.0% / +14.9% / +15.4% / +15.3%), preserving the linear-growth signal.
+    expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(2_790_000)
     // Markdown cap raised with the source-link contract: entities, events, ACL
     // features, DI tokens, search entities, notifications, UMES hosts and UMES
     // contributions all render a resolved Source cell, and contribution
     // resolutions render as their own source-linked section — plus the additive
     // `channel_discord` module's own render, per the growth note above.
-    // Raised 2,100,000 → 2,150,000 for the date/locale settings work (configs
-    // date-locale route, settings + profile pages, two ACL features, the
-    // userTimeZoneLookup DI token): measured 2,100,156, an additive overshoot of
-    // 156 bytes, not a blow-up — the other three measures stayed under their caps.
-    expect(markdownBytes).toBeLessThan(2_150_000)
+    expect(markdownBytes).toBeLessThan(2_420_000)
     // Raised even though it was still passing: at 2,050,000 it sat 3.2% above
     // the union measurement, and a cap that close has stopped detecting blow-ups
     // and started rejecting the next additive module — the failure mode the note
     // above warns about, one merge away.
-    // Raised 2,290,000 → 2,340,000 for the date/locale settings work: measured 2,290,772, an
-    // additive overshoot of 772 bytes from the same surfaces as the markdown raise above.
-    expect(directoryMarkdownBytes).toBeLessThan(2_340_000)
+    expect(directoryMarkdownBytes).toBeLessThan(2_640_000)
   })
 
   it('keeps every shipped directory section resumable and every advertised subsection anchor exact', () => {

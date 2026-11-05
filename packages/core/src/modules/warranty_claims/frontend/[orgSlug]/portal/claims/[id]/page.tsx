@@ -62,6 +62,7 @@ type PortalClaim = {
   orderNumber: string | null
   reasonCode: string | null
   rejectionReasonCode: string | null
+  rejectionReasonLabel?: string | null
   resolutionSummary: string | null
   submittedAt: string | null
   resolvedAt: string | null
@@ -197,7 +198,7 @@ function bannerMessage(claim: PortalClaim, t: TranslateFn): string {
       return claim.resolutionSummary ?? t('warranty_claims.portal.tracker.banner.resolved')
     case 'rejected': {
       const reason = claim.rejectionReasonCode
-        ? localizeDictionaryLabel(t, 'rejection', claim.rejectionReasonCode, claim.rejectionReasonCode)
+        ? localizeDictionaryLabel(t, 'rejection', claim.rejectionReasonCode, claim.rejectionReasonLabel || claim.rejectionReasonCode)
         : null
       const base = t('warranty_claims.portal.detail.terminal.rejected')
       const parts = [base, reason, claim.resolutionSummary].filter((part): part is string => Boolean(part))

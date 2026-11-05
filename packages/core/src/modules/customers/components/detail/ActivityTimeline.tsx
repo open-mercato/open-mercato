@@ -41,9 +41,9 @@ export function ActivityTimeline({ activities, onEdit, onMarkDone }: ActivityTim
   return (
     <div>
       {activities.map((activity, index) => {
-        const dateStr = activity.scheduledAt ?? activity.occurredAt ?? activity.createdAt
+        const dateStr = activity.scheduledAt ?? activity.occurredAt
         const activityYear = dateStr ? new Date(dateStr).getFullYear() : null
-        const prevDateStr = index > 0 ? (activities[index - 1].scheduledAt ?? activities[index - 1].occurredAt ?? activities[index - 1].createdAt) : null
+        const prevDateStr = index > 0 ? (activities[index - 1].scheduledAt ?? activities[index - 1].occurredAt) : null
         const prevYear = prevDateStr ? new Date(prevDateStr).getFullYear() : null
         const showYearSeparator = activityYear !== null && prevYear !== null && activityYear !== prevYear
 
@@ -86,7 +86,7 @@ function TimelineEntry({
   onMarkDone?: (activityId: string, updatedAt?: string | null) => void | Promise<void>
 }) {
   const locale = useLocale()
-  const dateStr = activity.scheduledAt ?? activity.occurredAt ?? activity.createdAt
+  const dateStr = activity.scheduledAt ?? activity.occurredAt
   const TypeIcon = TYPE_ICONS[activity.interactionType]
   const title = activity.title ?? activity.body ?? activity.interactionType
   const duration = activity.duration ? ` (${activity.duration} min)` : ''
@@ -116,11 +116,11 @@ function TimelineEntry({
       <div className="grid items-start gap-3" style={{ gridTemplateColumns: '75px 32px 1fr' }}>
         {/* Column 1: Date */}
         <div className="shrink-0">
-          <span className="block text-[11px] font-semibold leading-tight text-foreground">
-            {formatRelativeDate(dateStr, t, locale)}
+          <span className="block text-xs font-semibold leading-tight text-foreground">
+            {dateStr ? formatRelativeDate(dateStr, t, locale) : t('customers.timeline.date.unknown', 'Unknown date')}
           </span>
-          <span className="block text-[10px] leading-tight text-muted-foreground">
-            {formatTime(dateStr, locale)}
+          <span className="block text-xs leading-tight text-muted-foreground">
+            {dateStr ? formatTime(dateStr, locale) : null}
           </span>
         </div>
 

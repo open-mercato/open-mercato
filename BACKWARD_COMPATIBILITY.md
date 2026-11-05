@@ -638,3 +638,9 @@ SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: A
 ## Date & Locale Settings (2026-11-03)
 
 Conflicts API `startTime`/`endTime` use the caller offset (ISO `startsAt`/`endsAt` added); default date rendering changed. See [contract](.ai/specs/2026-05-18-date-locale-settings.md#migration--backward-compatibility).
+
+## Staff Logout Uses Post/Redirect/Get (2026-11-05)
+
+`POST /api/auth/logout` now returns `303 See Other` instead of `307`, including the cookieless branch ([#7383](https://github.com/open-mercato/open-mercato/issues/7383)). Browsers follow `Location: /login` with GET rather than repeating the logout POST. This intentionally corrects the status documented in the 2026-10-13 entry above; shared redirect helper defaults remain 307.
+
+**Migration:** custom clients asserting 307 must accept 303 and follow the Location with GET. Session revocation, cookie expiry, route URL/method and auth events are unchanged. No schema migration is needed. See [spec](.ai/specs/2026-11-05-logout-post-redirect.md#migration--backward-compatibility) and UPGRADE_NOTES.md.

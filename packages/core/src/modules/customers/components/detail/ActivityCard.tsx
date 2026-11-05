@@ -121,7 +121,7 @@ function buildEmailCardWidgetData(activity: InteractionSummary): EmailCardWidget
 export function ActivityCard({ activity, onOpen, onChanged, runMutation }: ActivityCardProps) {
   const t = useT()
   const locale = useLocale()
-  const timestamp = activity.occurredAt ?? activity.scheduledAt ?? activity.createdAt
+  const timestamp = activity.occurredAt ?? activity.scheduledAt
   const TypeIcon = TYPE_ICONS[activity.interactionType] ?? StickyNote
   const titleBase = activity.title ?? activity.body ?? activity.interactionType
   const title = activity.duration ? `${titleBase} (${activity.duration} min)` : titleBase
@@ -184,8 +184,8 @@ export function ActivityCard({ activity, onOpen, onChanged, runMutation }: Activ
       } : undefined}
     >
       <div className="pt-1 text-xs text-muted-foreground">
-        <div className="font-semibold text-foreground">{formatDayLabel(timestamp, t, locale)}</div>
-        <div>{formatTimeLabel(timestamp, locale)}</div>
+        <div className="font-semibold text-foreground">{timestamp ? formatDayLabel(timestamp, t, locale) : t('customers.timeline.date.unknown', 'Unknown date')}</div>
+        <div>{timestamp ? formatTimeLabel(timestamp, locale) : null}</div>
       </div>
 
       <div className="flex size-9 items-center justify-center rounded-lg bg-muted/80">
