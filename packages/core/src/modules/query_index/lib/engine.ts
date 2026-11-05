@@ -1,8 +1,9 @@
+import { resolveQueryIndexSourceTableMetadata } from './subscriber-scope'
 import type { QueryEngine, QueryOptions, QueryResult, QueryResultMeta, EncryptedSortRowCapWarning, ListCountCapWarning, FilterOp, Filter, QueryCustomFieldSource, PartialIndexWarning, QueryExtensionsConfig, Sort } from '@open-mercato/shared/lib/query/types'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { BasicQueryEngine, resolveEntityTableName, resolveRegisteredEntityTableName } from '@open-mercato/shared/lib/query/engine'
+import { BasicQueryEngine, resolveEntityTableName as resolveFallbackEntityTableName, resolveRegisteredEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { isOrmBackedSystemEntityId } from '@open-mercato/shared/lib/data/engine'
 import {
   buildArrayColumnNoOverlapPredicate,
@@ -57,7 +58,7 @@ import {
 import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
 import { buildContainmentPatterns } from '@open-mercato/shared/lib/search/containment'
 import { runBeforeQueryPipeline, runAfterQueryPipeline, type QueryExtensionContext } from '@open-mercato/shared/lib/query/query-extension-runner'
-import { warnOnCiphertextLikeFallback } from '@open-mercato/shared/lib/query/ciphertext-search-warning'
+import { warnOnCiphertextLikeFallback, type CiphertextSearchWarning } from '@open-mercato/shared/lib/query/ciphertext-search-warning'
 import {
   matchEncryptedSortFields,
   resolveEncryptedFieldNames,
@@ -71,6 +72,10 @@ import { mapWithConcurrency } from '@open-mercato/shared/lib/query/bounded-decry
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { parseNumberWithDefault } from '@open-mercato/shared/lib/number'
 import { createBoundedTtlMemo } from '@open-mercato/shared/lib/query/bounded-ttl-memo'
+
+function resolveEntityTableName(em: EntityManager, entity: string): string {
+  return resolveQueryIndexSourceTableMetadata(em, entity)?.table ?? resolveFallbackEntityTableName(em, entity)
+}
 
 const logger = createLogger('query_index').child({ component: 'engine' })
 
@@ -447,12 +452,17 @@ export class HybridQueryEngine implements QueryEngine {
     const applyAfterExtensions = async <R>(queryResult: QueryResult<R>): Promise<QueryResult<R>> => {
       if (!ext || !hybridExtCtx) return queryResult
       const diCtx = ext.resolve ? { resolve: ext.resolve } : noopDi
-      return await runAfterQueryPipeline(
+      const ciphertextSearchWarnings = queryResult.meta?.ciphertextSearchWarnings
+      const result = await runAfterQueryPipeline(
         queryResult as QueryResult<Record<string, unknown>>,
         opts,
         hybridExtCtx,
         diCtx,
       ) as QueryResult<R>
+      if (ciphertextSearchWarnings?.length) {
+        result.meta = { ...result.meta, ciphertextSearchWarnings }
+      }
+      return result
     }
 
     try {
@@ -488,14 +498,14 @@ export class HybridQueryEngine implements QueryEngine {
       const baseExists = await profiler.measure('base_table_exists', () => this.tableExists(baseTable))
       if (!baseExists) {
         if (debugEnabled) this.debug('query:fallback:missing-base', { entity, baseTable })
-        const fallbackResult = await this.fallback.query(entity, opts)
+        const fallbackResult = await this.queryFallback<T>(entity, opts)
         finishProfile({ result: 'fallback', reason: 'missing_base' })
         return await applyAfterExtensions(fallbackResult)
       }
 
       if (opts.omitAutomaticTenantOrgScope === true) {
         if (debugEnabled) this.debug('query:fallback:omit-automatic-scope', { entity })
-        const fallbackResult = await this.fallback.query(entity, opts)
+        const fallbackResult = await this.queryFallback<T>(entity, opts)
         finishProfile({ result: 'fallback', reason: 'omit_automatic_tenant_org_scope' })
         return await applyAfterExtensions(fallbackResult)
       }
@@ -539,7 +549,7 @@ export class HybridQueryEngine implements QueryEngine {
         )
         if (!hasIndexRows) {
           if (debugEnabled) this.debug('query:fallback:no-index', { entity })
-          const fallbackResult = await this.fallback.query(entity, opts)
+          const fallbackResult = await this.queryFallback<T>(entity, opts)
           finishProfile({ result: 'fallback', reason: 'no_index_rows' })
           return await applyAfterExtensions(fallbackResult)
         }
@@ -568,7 +578,7 @@ export class HybridQueryEngine implements QueryEngine {
                 logger.warn('Partial index coverage detected; falling back to basic engine', { entity })
                 if (debugEnabled) this.debug('query:fallback:partial-coverage', { entity })
               }
-              const fallbackResult = await this.fallback.query(entity, opts)
+              const fallbackResult = await this.queryFallback<T>(entity, opts)
               const resultWithWarning: QueryResult<T> = {
                 ...fallbackResult,
                 meta: {
@@ -654,6 +664,11 @@ export class HybridQueryEngine implements QueryEngine {
         }
       }
 
+      const tenantlessIndexSources = new Set<string>()
+      for (const source of preparedCfSources) {
+        if (!source.tenantField && !(await this.columnExists(source.table, 'tenant_id'))) tenantlessIndexSources.add(source.indexAlias)
+      }
+
       const searchSources: SearchTokenSource[] = indexSources
         .map((src) => ({ entity: String(src.entityId), recordIdColumn: src.recordIdColumn }))
         .filter((src) => src.recordIdColumn && src.entity)
@@ -717,6 +732,7 @@ export class HybridQueryEngine implements QueryEngine {
           searchRuntime.encryptedFields = null
         }
       }
+      const ciphertextSearchWarnings: CiphertextSearchWarning[] = []
       if (searchFilters.length) {
         this.logSearchDebug('search:init', {
           entity,
@@ -758,6 +774,7 @@ export class HybridQueryEngine implements QueryEngine {
               ? 'no-indexable-tokens'
               : searchConfig.enabled ? 'no-search-tokens' : 'search-disabled',
             service: this.getEncryptionService(),
+            onDiagnostic: (warning) => ciphertextSearchWarnings.push(warning),
           })
         }
       }
@@ -781,6 +798,7 @@ export class HybridQueryEngine implements QueryEngine {
             ? 'no-indexable-tokens'
             : searchConfig.enabled ? 'no-search-tokens' : 'search-disabled',
           service: this.getEncryptionService(),
+          onDiagnostic: (warning) => ciphertextSearchWarnings.push(warning),
         })
       }
       const hasNonBaseSearchSource = searchSources.some(
@@ -963,6 +981,8 @@ export class HybridQueryEngine implements QueryEngine {
             jc = jc
               .onRef('ei.tenant_id', '=', qualify('tenant_id'))
               .on('ei.tenant_id', 'is not', null)
+          } else {
+            jc = jc.on('ei.tenant_id', 'is', null)
           }
           if (!opts.withDeleted) {
             jc = jc.on('ei.deleted_at', 'is', null)
@@ -995,7 +1015,9 @@ export class HybridQueryEngine implements QueryEngine {
             const tenantRef = source.tenantField
               ? `${source.alias}.${source.tenantField}`
               : (columns.has('tenant_id') ? qualify('tenant_id') : null)
-            if (tenantRef) {
+            if (tenantlessIndexSources.has(source.indexAlias)) {
+              jc = jc.on(`${source.indexAlias}.tenant_id`, 'is', null)
+            } else if (tenantRef) {
               jc = jc
                 .onRef(`${source.indexAlias}.tenant_id`, '=', tenantRef)
                 .on(`${source.indexAlias}.tenant_id`, 'is not', null)
@@ -1583,6 +1605,9 @@ export class HybridQueryEngine implements QueryEngine {
       }
 
       result = await applyAfterExtensions(result)
+      if (ciphertextSearchWarnings.length) {
+        result.meta = { ...result.meta, ciphertextSearchWarnings }
+      }
       finishProfile({
         result: 'ok', total, page, pageSize,
         itemCount: Array.isArray(items) ? items.length : undefined,
@@ -2572,13 +2597,22 @@ export class HybridQueryEngine implements QueryEngine {
     return result
   }
 
+  private async queryFallback<T = unknown>(entity: EntityId, opts: QueryOptions): Promise<QueryResult<T>> {
+    const source = resolveQueryIndexSourceTableMetadata(this.em, entity)
+    if (source?.schema || source?.table.includes('.')) {
+      throw new Error('[internal] Query fallback cannot preserve a schema-qualified source identity')
+    }
+    return this.fallback.query<T>(entity, opts)
+  }
+
   private async tableExists(table: string): Promise<boolean> {
     if (baseTableExistsCache.get(table)) return true
     const db = this.getDb() as any
     const exists = await db
       .selectFrom('information_schema.tables')
       .select(sql<number>`1`.as('one'))
-      .where('table_name', '=', table)
+      .where(table.includes('.') ? sql<boolean>`table_schema = ${table.split('.')[0]}` : sql<boolean>`table_schema = current_schema()`)
+      .where('table_name', '=', table.split('.').pop())
       .executeTakeFirst()
     const present = !!exists
     if (present) baseTableExistsCache.set(table, true)
@@ -2949,7 +2983,8 @@ export class HybridQueryEngine implements QueryEngine {
     const exists = await db
       .selectFrom('information_schema.columns')
       .select(sql<number>`1`.as('one'))
-      .where('table_name', '=', table)
+      .where(table.includes('.') ? sql<boolean>`table_schema = ${table.split('.')[0]}` : sql<boolean>`table_schema = current_schema()`)
+      .where('table_name', '=', table.split('.').pop())
       .where('column_name', '=', column)
       .executeTakeFirst()
     const present = !!exists
@@ -2964,7 +2999,8 @@ export class HybridQueryEngine implements QueryEngine {
     const rows = await db
       .selectFrom('information_schema.columns')
       .select(['column_name', 'data_type'])
-      .where('table_name', '=', table)
+      .where(table.includes('.') ? sql<boolean>`table_schema = ${table.split('.')[0]}` : sql<boolean>`table_schema = current_schema()`)
+      .where('table_name', '=', table.split('.').pop())
       .execute() as Array<{ column_name: string; data_type: string }>
     const map = new Map<string, string>()
     for (const r of rows) map.set(r.column_name, r.data_type)

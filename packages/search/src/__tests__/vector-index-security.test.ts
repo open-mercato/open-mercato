@@ -552,3 +552,12 @@ describe('VectorIndexService decrypted result parse-back (issue #5789)', () => {
     expect(results[0].metadata).toEqual({ foo: 'bar' })
   })
 })
+
+jest.mock('@open-mercato/core/modules/query_index/lib/search-scope', () => ({
+  buildQueryIndexSearchScopePredicate: () => jest.requireActual('kysely').sql`true`,
+  filterQueryIndexSearchRecords: async (_database: unknown, _scope: unknown, records: unknown[]) => records,
+  resolveQueryIndexSearchScope: async () => ({
+    blockedEntityTypes: [],
+    tenantGlobalEntityTypes: jest.requireActual('@open-mercato/core/modules/query_index/lib/tenant-global').listTenantGlobalEntityTypes(),
+  }),
+}))

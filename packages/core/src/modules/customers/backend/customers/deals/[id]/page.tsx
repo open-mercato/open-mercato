@@ -667,7 +667,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
             isLoadingInjectedTabs={injectedTabsLoading}
             activeTab={activeTab}
             onTabChange={handleTabChange}
-            injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label }))}
+            injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label, priority: tab.priority }))}
             peopleCount={data.counts.people}
             companiesCount={data.counts.companies}
           >

@@ -16,10 +16,13 @@ import path from 'node:path'
  * a dead port still drives the query path, and the instrumentation records the
  * span before the underlying call fails.
  */
-const distProvider = path.resolve(__dirname, '../../dist/provider/otlp-provider.js')
 const pkgRoot = path.resolve(__dirname, '../..')
 
 const CHILD_SCRIPT = `
+import assert from 'node:assert/strict'
+import { writeSync } from 'node:fs'
+const stage = (name) => writeSync(2, 'STAGE=' + name + '\\n')
+stage('import-provider')
 const { OtlpProvider } = await import('@open-mercato/telemetry/provider/otlp-provider')
 const { setActiveProvider } = await import('@open-mercato/telemetry/provider/registry')
 const { InMemorySpanExporter, SimpleSpanProcessor } = await import('@opentelemetry/sdk-trace-base')
@@ -27,34 +30,59 @@ const { InMemorySpanExporter, SimpleSpanProcessor } = await import('@opentelemet
 // No 'instrumentations' override: the provider's DEFAULT list must include the
 // pg instrumentation (with PII-safe options), or this probe records no span.
 const exporter = new InMemorySpanExporter()
+const processor = new SimpleSpanProcessor(exporter)
 const provider = new OtlpProvider({
-  spanProcessors: [new SimpleSpanProcessor(exporter)],
+  spanProcessors: [processor],
+  logRecordProcessors: [],
+  metricReaders: [],
 })
 // start() BEFORE pg is imported — the ordering the CLI bootstrap guarantees.
+stage('start-provider')
 await provider.start()
 setActiveProvider(provider)
 
+stage('import-pg')
 const pgModule = await import('pg')
 const Client = (pgModule.default ?? pgModule).Client
-const client = new Client({ host: '127.0.0.1', port: 1, connectionTimeoutMillis: 200 })
-try { await client.connect() } catch {}
-try { await client.query('SELECT $1::text', ['pii-sentinel-value']) } catch {}
-await new Promise((resolve) => setTimeout(resolve, 250))
-const spans = exporter.getFinishedSpans().map((s) => ({ name: s.name, attributes: s.attributes }))
-console.log('SPANS=' + JSON.stringify(spans))
-process.exit(0)
+const client = new Client({
+  host: '127.0.0.1', port: 1, connectionTimeoutMillis: 200,
+  user: 'telemetry-probe', database: 'telemetry-probe',
+})
+const ended = new Promise((resolve) => client.once('end', resolve))
+try {
+  stage('connect')
+  await assert.rejects(client.connect())
+  if (process.argv[2] === 'socket-ended') {
+    stage('wait-socket-end')
+    await ended
+  }
+  stage('close-client')
+  await client.end()
+  stage('query')
+  await assert.rejects(client.query('SELECT $1::text', ['pii-sentinel-value']))
+  stage('flush-spans')
+  await processor.forceFlush()
+  const spans = exporter.getFinishedSpans().map((span) => ({ name: span.name, attributes: span.attributes }))
+  stage('shutdown-provider')
+  await provider.shutdown()
+  stage('shutdown-finished')
+  console.log('SPANS=' + JSON.stringify(spans))
+} finally {
+  await client.end()
+  await provider.shutdown()
+}
 `
 
 type ProbeSpan = { name: string; attributes: Record<string, unknown> }
 
-function runChild(): ProbeSpan[] {
+function runChild(order: string): ProbeSpan[] {
   // The script must live inside the package tree: ESM resolves bare specifiers
   // (`@open-mercato/telemetry`, `@opentelemetry/*`, `pg`) relative to the file's
   // location, not the process cwd.
   const scriptFile = path.join(pkgRoot, `.pg-instrumentation-probe.${process.pid}.mjs`)
   fs.writeFileSync(scriptFile, CHILD_SCRIPT)
   try {
-    const result = spawnSync(process.execPath, [scriptFile], {
+    const result = spawnSync(process.execPath, [scriptFile, order], {
       cwd: pkgRoot,
       encoding: 'utf8',
       env: {
@@ -65,24 +93,26 @@ function runChild(): ProbeSpan[] {
       },
       timeout: 30_000,
     })
-    const line = (result.stdout || '').split('\n').find((l) => l.startsWith('SPANS='))
-    if (!line) throw new Error(`child produced no SPANS output.\nstdout: ${result.stdout}\nstderr: ${result.stderr}`)
+    const line = (result.stdout || '').split('\n').find((candidate) => candidate.startsWith('SPANS='))
+    if (result.error || result.status !== 0 || result.signal || !line) {
+      throw new Error(`[internal] child probe failed.\nerror: ${result.error?.message ?? 'none'}\nstatus: ${result.status}\nsignal: ${result.signal}\nstdout: ${result.stdout}\nstderr: ${result.stderr}`)
+    }
     return JSON.parse(line.slice('SPANS='.length)) as ProbeSpan[]
   } finally {
     fs.rmSync(scriptFile, { force: true })
   }
 }
 
-// The build output must exist (the child imports the compiled provider). Runs in
-// CI after build:packages; skip locally when the package hasn't been built yet.
-const maybe = fs.existsSync(distProvider) ? describe : describe.skip
-
-maybe('OTLP provider pg instrumentation', () => {
-  it('emits a pg query span (default instrumentations) without leaking bound parameter values', () => {
-    const spans = runChild()
-    expect(spans.some((span) => span.name.startsWith('pg.query'))).toBe(true)
-    // enhancedDatabaseReporting must stay off in the provider's default wiring:
-    // the statement text may appear, bound values must not.
-    expect(JSON.stringify(spans)).not.toContain('pii-sentinel-value')
-  }, 35_000)
+describe('OTLP provider pg instrumentation', () => {
+  it.each(['connect-rejected', 'socket-ended'])(
+    'emits a pg query span without leaking bound parameter values after %s',
+    (order) => {
+      const spans = runChild(order)
+      expect(spans.some((span) => span.name.startsWith('pg.query'))).toBe(true)
+      // enhancedDatabaseReporting must stay off in the provider's default wiring:
+      // the statement text may appear, bound values must not.
+      expect(JSON.stringify(spans)).not.toContain('pii-sentinel-value')
+    },
+    35_000,
+  )
 })

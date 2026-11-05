@@ -26,7 +26,7 @@ import { readEnvValue } from './env-file.mjs'
 import { FULLAPP_DEV_COMPOSE_FILE, STARTER_STATE_DIR, resolveStackPorts, stackUrls } from './constants.mjs'
 import { loadCompanyConfig } from './company.mjs'
 import { printDoctorReport, runDoctor } from './doctor.mjs'
-import { infraDown, infraUp, ensureMcpSharedDir, removeLeftoverComposeResources } from './infra.mjs'
+import { describeInfraProblem, devRuntimeArgs, infraDown, ensureMcpSharedDir, removeLeftoverComposeResources, resolveUpMode, startInfra } from './infra.mjs'
 import { buildUpSteps, clearConvergenceState, createStepContext, ensureOpencodeImage, runSteps, yarnInvocation } from './steps.mjs'
 import { collectStatus, printStatus, readRunState, isPidAlive, startDetached, stopDetached, tailLogs } from './supervise.mjs'
 import { ensureWindowsUtf8Console } from './spawn.mjs'
@@ -156,7 +156,8 @@ async function confirm(question, { nonInteractive }) {
 }
 
 async function commandUp(flags) {
-  const mode = resolveMode(flags.mode)
+  const selectedMode = resolveMode(flags.mode)
+  const mode = resolveUpMode(selectedMode, flags)
   if (flags.clean) {
     // Full re-converge: drop the completed-step markers (keeps the mode, all
     // data, and the one-time initialize state — `reset` is the destructive
@@ -169,6 +170,9 @@ async function commandUp(flags) {
   printBanner(`dev environment starter — mode: ${mode}${ctx.company.name ? ` — company profile: ${ctx.company.name}` : ''}`)
   console.log(color.dim(`  Repo: ${repoRoot}`))
   console.log(color.dim('  Every step is idempotent — re-running always resumes where it stopped.'))
+  if (selectedMode !== mode) {
+    console.log(color.dim('  --no-infra: using the host runtime for this run so no Docker command is invoked.'))
+  }
 
   if (mode === 'docker') return commandUpDocker(ctx, flags)
 
@@ -192,12 +196,13 @@ async function commandUp(flags) {
   console.log(color.dim('  Stop: Ctrl+C (infra containers keep running; `stop` shuts everything down)'))
   console.log('')
 
+  const devArgs = devRuntimeArgs(flags.passthrough, { noInfra: flags.noInfra })
   if (flags.detach) {
-    startDetached(repoRoot, flags.passthrough, { env: ctx.env })
+    startDetached(repoRoot, devArgs, { env: ctx.env })
     console.log('Manage it with the status / logs / stop subcommands.')
     return
   }
-  const dev = yarnInvocation(ctx, ['dev', ...flags.passthrough])
+  const dev = yarnInvocation(ctx, ['dev', ...devArgs])
   const child = spawnStreaming(dev.command, dev.args, { cwd: repoRoot, env: ctx.env })
   child.on('close', (code) => process.exit(code ?? 0))
   child.on('error', (error) => {
@@ -328,7 +333,8 @@ async function commandReset(flags) {
 async function commandInfra(flags) {
   const docker = detectDocker()
   if (!docker.ok) {
-    console.error(`❌ Docker is not available (${docker.reason}). Run the doctor subcommand for guided setup.`)
+    printInfraProblem({ code: docker.code, detail: docker.reason })
+    console.error('   Full environment audit: yarn om doctor')
     process.exit(2)
   }
   if (flags.infraAction === 'down') {
@@ -338,16 +344,25 @@ async function commandInfra(flags) {
     }
     process.exit(infraDown(repoRoot, { volumes: flags.volumes }))
   }
-  ensureMcpSharedDir(repoRoot)
-  ensureOpencodeImage({ repoRoot, env: process.env, flags: { rebuild: flags.rebuild }, log: console.log })
-  const status = infraUp(repoRoot, { profiles: flags.profiles })
-  if (status === 0) {
-    const ports = resolveStackPorts(repoRoot)
-    console.log('')
-    console.log(`✅ Infra containers are up (opencode :${ports.opencode}, postgres :${ports.postgres}, redis :${ports.redis}, meilisearch :${ports.meilisearch}).`)
-    console.log('   Next: yarn dev (starts the app and the MCP server on this machine)')
+  const outcome = await startInfra(repoRoot, {
+    profiles: flags.profiles,
+    beforeUp: () => ensureOpencodeImage({ repoRoot, env: process.env, flags: { rebuild: flags.rebuild }, log: console.log }),
+  })
+  if (!outcome.ok) {
+    printInfraProblem(outcome.problem)
+    process.exit(2)
   }
-  process.exit(status)
+  const ports = resolveStackPorts(repoRoot)
+  console.log('')
+  console.log(`✅ Infra containers are up (opencode :${ports.opencode}, postgres :${ports.postgres}, redis :${ports.redis}, meilisearch :${ports.meilisearch}).`)
+  console.log('   Next: yarn dev (starts the app and the MCP server on this machine)')
+  process.exit(0)
+}
+
+function printInfraProblem(problem) {
+  const [title, ...rest] = describeInfraProblem(problem)
+  console.error(`❌ ${title}`)
+  for (const line of rest) console.error(` ${line}`)
 }
 
 async function main() {

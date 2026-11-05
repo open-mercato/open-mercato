@@ -530,7 +530,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                 activeTab={activeTab}
                 onTabChange={handleTabChange}
                 isLoadingInjectedTabs={injectedTabsLoading}
-                injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label }))}
+                injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label, priority: tab.priority }))}
                 peopleCount={data.counts?.people ?? 0}
                 dealsCount={dealCount}
                 activitiesCount={data.counts?.activities ?? 0}

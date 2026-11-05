@@ -123,6 +123,8 @@ describe('DataTable sticky columns are viewport-gated', () => {
   it('paints pinned cells with the card surface and carries the header strip and row hover through', () => {
     const { container, queryClient } = renderStickyTable()
     try {
+      expect(tokensOf(container.querySelector('thead'))).toContain('bg-card')
+      expect(tokensOf(container.querySelector('thead'))).not.toContain('bg-background')
       const headerCells = Array.from(container.querySelectorAll('thead th'))
       const pinnedHeaders = [headerCells[0], headerCells[headerCells.length - 1]]
       const bodyRow = container.querySelector('tbody tr')
@@ -160,6 +162,8 @@ describe('DataTable sticky columns are viewport-gated', () => {
   it('keeps the page surface on pinned cells of an embedded table but still carries the tints', () => {
     const { container, queryClient } = renderStickyTable({ embedded: true })
     try {
+      expect(tokensOf(container.querySelector('thead'))).toContain('bg-background')
+      expect(tokensOf(container.querySelector('thead'))).not.toContain('bg-card')
       const actionsHeader = Array.from(container.querySelectorAll('thead th')).pop() ?? null
       const actionsBodyCell = container.querySelector('tbody tr td[data-actions-cell]')
 
