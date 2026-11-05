@@ -43,7 +43,7 @@ Both the spec's **§ Backward Compatibility & Migration** satisfies the protocol
 ### Violations / Notes
 | Rule | Location | Assessment |
 |------|----------|-----------|
-| Wildcard-aware matching (`hasFeature`/`hasAllFeatures`) for raw feature arrays — `.ai/lessons.md:197` | § A resolver | ✅ Spec already mandates `hasAllFeatures`. Must NOT use `includes`/`Set.has`. Reinforce in impl. |
+| Wildcard-aware matching (`hasFeature`/`hasAllFeatures`) for raw feature arrays — [lesson](../../lessons/feature-gated-runtime-helpers-must-use-wildcard-aware.md) | § A resolver | ✅ Spec already mandates `hasAllFeatures`. Must NOT use `includes`/`Set.has`. Reinforce in impl. |
 | `findWithDecryption`/`findOneWithDecryption` for user/role reads — shared AGENTS | § B guards | ✅ Existing `grantChecks.ts` uses these; new guard must too (read target tenant via `findOneWithDecryption(..., { tenantId: null, organizationId: null })` then compare — load stays global, *decision* becomes ownership-gated). |
 | `enforceTenantSelection` signature | § B, § C | ⚠️ Helper takes `ctx: { auth, container }`, not `rbacService` directly. The new guards in `grantChecks.ts` currently take `{ em, rbacService, auth, ... }`. Either build a `ctx` for `enforceTenantSelection` or compare `target.tenantId === auth.tenantId` inline using the existing `resolveActorIsSuperAdmin`. Pick one and state it. |
 | i18n for any new user-facing error | § B/§ C 403/404 | New denials should reuse existing `forbidden()` / `404` bodies (internal, no new user-facing strings). Confirm no hardcoded UI strings added in portal page edits. |

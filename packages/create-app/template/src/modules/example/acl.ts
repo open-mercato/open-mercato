@@ -1,5 +1,11 @@
 export const features = [
   { id: 'example.backend', title: 'Access example backend', module: 'example' },
+  // ACL override probe. Nothing gates on it, so it stays inert wherever it is granted.
+  // `apps/mercato/src/modules.ts` nulls it through `entry.overrides.acl.features` so
+  // TC-AUTH-055 can assert that a nulled feature stays denied for literal, wildcard and
+  // super-admin grants. It must remain declared here — an override naming an undeclared
+  // feature is skipped as stale and logs a warning on every module registration.
+  { id: 'example.manage', title: 'Manage example (override probe)', module: 'example' },
   { id: 'example.view', title: 'View example enrichments', module: 'example' },
   { id: 'example.todos.view', title: 'View todos', module: 'example' },
   {

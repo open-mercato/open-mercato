@@ -70,6 +70,10 @@ export async function POST(req: Request) {
         organizationId: ctx.organizationId,
         forwardedByAddress: submitterEmail,
         subject: title || 'Text extraction',
+      }, {
+        persistent: true,
+        tenantId: ctx.tenantId,
+        organizationId: ctx.organizationId,
       })
     } catch (eventError) {
       logger.error('Failed to emit email.received event', { err: eventError })

@@ -4,6 +4,14 @@ import { ScheduledJob } from '../../data/entities.js'
 import type { BullMQSchedulerService } from '../bullmqSchedulerService'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn().mockResolvedValue({
+    translate: (key: string, _fallback?: string, params?: Record<string, unknown>) => (
+      params?.max === undefined ? `translated:${key}` : `translated:${key}:max=${params.max}`
+    ),
+  }),
+}))
+
 jest.mock('@open-mercato/shared/lib/logger', () => {
   const mocked = {
     debug: jest.fn(),
@@ -93,6 +101,7 @@ describe('SchedulerService', () => {
       const existingSchedule = {
         id: 'test-schedule-1',
         name: 'Old Name',
+        sourceType: 'module',
         isEnabled: true,
       } as ScheduledJob
 
@@ -105,6 +114,7 @@ describe('SchedulerService', () => {
       })
 
       expect(existingSchedule.name).toBe('Updated Name')
+      expect(existingSchedule.sourceType).toBe('module')
       expect(mockForkedEm.flush).toHaveBeenCalled()
       expect(mockForkedEm.create).not.toHaveBeenCalled()
     })
@@ -183,6 +193,91 @@ describe('SchedulerService', () => {
       expect(mockForkedEm.create).toHaveBeenCalledWith(ScheduledJob, expect.objectContaining({
         timezone: 'America/New_York',
       }))
+    })
+
+    it('should reject a new enabled tenant schedule when the tenant active cap is reached', async () => {
+      const originalLimit = process.env.OM_SCHEDULER_MAX_ACTIVE_SCHEDULES_PER_TENANT
+      process.env.OM_SCHEDULER_MAX_ACTIVE_SCHEDULES_PER_TENANT = '2'
+      try {
+        mockForkedEm.findOne.mockResolvedValue(null)
+        mockForkedEm.count.mockResolvedValue(2)
+
+        await expect(service.register({
+          ...baseRegistration,
+          scopeType: 'tenant',
+          tenantId: 'tenant-1',
+          sourceType: 'user',
+          scheduleType: 'interval',
+          scheduleValue: '15m',
+        })).rejects.toMatchObject({
+          status: 422,
+          body: { error: 'translated:scheduler.error.active_schedule_limit:max=2' },
+        })
+
+        expect(mockForkedEm.count).toHaveBeenCalledWith(ScheduledJob, {
+          tenantId: 'tenant-1',
+          sourceType: 'user',
+          isEnabled: true,
+          deletedAt: null,
+        })
+        expect(mockForkedEm.create).not.toHaveBeenCalled()
+        expect(mockForkedEm.flush).not.toHaveBeenCalled()
+      } finally {
+        if (originalLimit === undefined) delete process.env.OM_SCHEDULER_MAX_ACTIVE_SCHEDULES_PER_TENANT
+        else process.env.OM_SCHEDULER_MAX_ACTIVE_SCHEDULES_PER_TENANT = originalLimit
+      }
+    })
+
+    it('does not apply the user schedule cap to module registrations', async () => {
+      mockForkedEm.findOne.mockResolvedValue(null)
+      mockForkedEm.count.mockResolvedValue(100)
+      mockForkedEm.flush.mockResolvedValue()
+
+      await service.register({
+        ...baseRegistration,
+        scopeType: 'organization',
+        organizationId: 'organization-1',
+        tenantId: 'tenant-1',
+        scheduleType: 'interval',
+        scheduleValue: '15m',
+      })
+
+      expect(mockForkedEm.count).not.toHaveBeenCalled()
+      expect(mockForkedEm.create).toHaveBeenCalledWith(ScheduledJob, expect.objectContaining({
+        sourceType: 'module',
+      }))
+      expect(mockForkedEm.flush).toHaveBeenCalled()
+    })
+
+    it('applies the user schedule cap when reclassifying an enabled module schedule', async () => {
+      const existingSchedule = {
+        id: 'test-schedule-1',
+        sourceType: 'module',
+        isEnabled: true,
+        tenantId: 'tenant-1',
+      } as ScheduledJob
+      mockForkedEm.findOne.mockResolvedValue(existingSchedule)
+      mockForkedEm.count.mockResolvedValue(100)
+
+      await expect(service.register({
+        ...baseRegistration,
+        scopeType: 'tenant',
+        tenantId: 'tenant-1',
+        sourceType: 'user',
+        scheduleType: 'interval',
+        scheduleValue: '15m',
+      })).rejects.toMatchObject({
+        status: 422,
+        body: { error: 'translated:scheduler.error.active_schedule_limit:max=100' },
+      })
+
+      expect(mockForkedEm.count).toHaveBeenCalledWith(ScheduledJob, {
+        tenantId: 'tenant-1',
+        sourceType: 'user',
+        isEnabled: true,
+        deletedAt: null,
+      })
+      expect(mockForkedEm.flush).not.toHaveBeenCalled()
     })
   })
 
@@ -379,6 +474,94 @@ describe('SchedulerService', () => {
       await service.update('test-1', { isEnabled: false })
 
       expect(mockBullMQService.unregister).toHaveBeenCalledWith('test-1')
+    })
+
+    it('should reject enabling a tenant schedule when the tenant active cap is reached', async () => {
+      const originalLimit = process.env.OM_SCHEDULER_MAX_ACTIVE_SCHEDULES_PER_TENANT
+      process.env.OM_SCHEDULER_MAX_ACTIVE_SCHEDULES_PER_TENANT = '2'
+      try {
+        const schedule = {
+          id: 'test-1',
+          tenantId: 'tenant-1',
+          organizationId: null,
+          scopeType: 'tenant',
+          sourceType: 'user',
+          isEnabled: false,
+          scheduleType: 'interval',
+          scheduleValue: '15m',
+          timezone: 'UTC',
+        } as ScheduledJob
+
+        mockForkedEm.findOne.mockResolvedValue(schedule)
+        mockForkedEm.count.mockResolvedValue(2)
+
+        await expect(service.update('test-1', { isEnabled: true })).rejects.toMatchObject({
+          status: 422,
+          body: { error: 'translated:scheduler.error.active_schedule_limit:max=2' },
+        })
+
+        expect(mockForkedEm.count).toHaveBeenCalledWith(ScheduledJob, {
+          tenantId: 'tenant-1',
+          sourceType: 'user',
+          isEnabled: true,
+          deletedAt: null,
+        })
+        expect(schedule.isEnabled).toBe(false)
+        expect(mockForkedEm.flush).not.toHaveBeenCalled()
+      } finally {
+        if (originalLimit === undefined) delete process.env.OM_SCHEDULER_MAX_ACTIVE_SCHEDULES_PER_TENANT
+        else process.env.OM_SCHEDULER_MAX_ACTIVE_SCHEDULES_PER_TENANT = originalLimit
+      }
+    })
+
+    it('does not apply the user schedule cap when enabling a module schedule', async () => {
+      const schedule = {
+        id: 'test-1',
+        tenantId: 'tenant-1',
+        organizationId: 'organization-1',
+        scopeType: 'organization',
+        sourceType: 'module',
+        isEnabled: false,
+        scheduleType: 'interval',
+        scheduleValue: '15m',
+        timezone: 'UTC',
+      } as ScheduledJob
+
+      mockForkedEm.findOne.mockResolvedValue(schedule)
+      mockForkedEm.count.mockResolvedValue(100)
+      mockForkedEm.flush.mockResolvedValue()
+
+      await service.update('test-1', { isEnabled: true })
+
+      expect(mockForkedEm.count).not.toHaveBeenCalled()
+      expect(schedule.isEnabled).toBe(true)
+      expect(mockForkedEm.flush).toHaveBeenCalled()
+    })
+
+    it('should reject interval updates below one minute', async () => {
+      const nextRunAt = new Date('2026-01-01T00:15:00.000Z')
+      const schedule = {
+        id: 'test-1',
+        tenantId: 'tenant-1',
+        organizationId: null,
+        scopeType: 'tenant',
+        isEnabled: true,
+        scheduleType: 'interval',
+        scheduleValue: '15m',
+        timezone: 'UTC',
+        nextRunAt,
+      } as ScheduledJob
+
+      mockForkedEm.findOne.mockResolvedValue(schedule)
+
+      await expect(service.update('test-1', {
+        scheduleType: 'interval',
+        scheduleValue: '1s',
+      })).rejects.toThrow('Failed to calculate next run time')
+
+      expect(schedule.scheduleValue).toBe('15m')
+      expect(schedule.nextRunAt).toBe(nextRunAt)
+      expect(mockForkedEm.flush).not.toHaveBeenCalled()
     })
   })
 

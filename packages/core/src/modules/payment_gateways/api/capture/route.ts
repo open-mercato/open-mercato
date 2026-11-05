@@ -61,6 +61,7 @@ export async function POST(req: Request) {
       parsed.data.transactionId,
       parsed.data.amount,
       { organizationId: auth.orgId as string, tenantId: auth.tenantId },
+      parsed.data.operationId,
     )
     await runPaymentGatewayMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
       tenantId: auth.tenantId,
@@ -91,7 +92,7 @@ export const openApi = {
       tags: [paymentGatewaysTag],
       responses: [
         { status: 200, description: 'Payment captured' },
-        { status: 409, description: 'Invalid payment status transition' },
+        { status: 409, description: 'Invalid payment status transition, cumulative capture ceiling exceeded, or conflicting capture operation' },
         { status: 422, description: 'Invalid payload' },
         { status: 502, description: 'Gateway provider error' },
       ],

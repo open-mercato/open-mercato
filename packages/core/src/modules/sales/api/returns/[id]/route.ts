@@ -5,6 +5,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError, isCrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -40,20 +41,20 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
     }
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-    const organizationId = scope?.selectedId ?? auth.orgId ?? null
-    if (!organizationId) {
-      throw new CrudHttpError(400, {
-        error: translate('sales.documents.errors.organization_required', 'Organization context is required'),
-      })
-    }
+    // Scope by the caller's visible organizations. Under "All organizations"
+    // (super-admin) `where` is empty and `rbacOrganizationId` is null, so the
+    // return is fetched by its tenant-unique id instead of 400-ing; restricted
+    // callers keep their `filterIds` `$in` guard.
+    const orgFilter = resolveOrganizationScopeFilter(scope, auth)
+    const decryptionOrganizationId = orgFilter.rbacOrganizationId ?? undefined
 
     const em = (container.resolve('em') as EntityManager).fork()
     const header = await findOneWithDecryption(
       em,
       SalesReturn,
-      { id, deletedAt: null, tenantId: auth.tenantId, organizationId },
+      { id, deletedAt: null, tenantId: auth.tenantId, ...orgFilter.where },
       { populate: ['order'] },
-      { tenantId: auth.tenantId, organizationId },
+      { tenantId: auth.tenantId, organizationId: decryptionOrganizationId },
     )
     if (!header || !header.order) {
       throw notFound(translate('sales.returns.notFound', 'Return not found.'))
@@ -64,7 +65,7 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
       SalesReturnLine,
       { salesReturn: header.id, deletedAt: null },
       { populate: ['orderLine'] },
-      { tenantId: auth.tenantId, organizationId },
+      { tenantId: auth.tenantId, organizationId: decryptionOrganizationId },
     )
 
     const totals = lines.reduce(

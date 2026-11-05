@@ -1,6 +1,7 @@
 import { after, NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { assertAllowedAppOrigin, mapSecurityEmailUrlError } from '@open-mercato/shared/lib/url'
@@ -47,6 +48,9 @@ function readCookie(req: Request, name: string): string | null {
 }
 
 export async function GET(req: Request) {
+  if (parseBooleanToken(process.env.SELF_SERVICE_ONBOARDING_ENABLED ?? '') !== true) {
+    return NextResponse.json({ ok: false, error: 'Self-service onboarding is disabled.' }, { status: 404 })
+  }
   const url = new URL(req.url)
   const tenantId = url.searchParams.get('tenantId') || url.searchParams.get('tenant') || ''
   const parsed = onboardingStatusQuerySchema.safeParse({ tenantId })

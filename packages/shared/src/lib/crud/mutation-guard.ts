@@ -1,5 +1,6 @@
 import type { AwilixContainer } from 'awilix'
 import { createLogger } from '../logger'
+import { resolveCrudMutationGuardService } from './mutation-guard-service'
 
 const logger = createLogger('shared').child({ component: 'crud' })
 
@@ -41,23 +42,6 @@ export type CrudMutationGuardAfterSuccessInput = {
   requestMethod: string
   requestHeaders: Headers
   metadata?: Record<string, unknown> | null
-}
-
-type CrudMutationGuardServiceLike = {
-  validateMutation: (input: CrudMutationGuardValidateInput) => Promise<CrudMutationGuardValidationResult>
-  afterMutationSuccess: (input: CrudMutationGuardAfterSuccessInput) => Promise<void>
-}
-
-function resolveCrudMutationGuardService(container: AwilixContainer): CrudMutationGuardServiceLike | null {
-  try {
-    const service = container.resolve<CrudMutationGuardServiceLike>('crudMutationGuardService')
-    if (!service) return null
-    if (typeof service.validateMutation !== 'function') return null
-    if (typeof service.afterMutationSuccess !== 'function') return null
-    return service
-  } catch {
-    return null
-  }
 }
 
 /**

@@ -4,12 +4,16 @@ import * as React from 'react'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import type { MessageListItemProps } from '@open-mercato/shared/modules/messages/types'
 import type { MessageDetail } from '../types'
+import { getMessageParticipantLabel } from '../../messageListLabels'
 
 export type ConversationItem = {
   id: string
   senderUserId: string
   senderName?: string | null
   senderEmail?: string | null
+  externalName?: string | null
+  externalEmail?: string | null
+  sourceEntityType?: string | null
   body: string
   bodyFormat?: 'text' | 'markdown'
   sentAt?: string | null
@@ -33,6 +37,9 @@ export function useMessageDetailsConversation({
         senderUserId: detail.senderUserId,
         senderName: detail.senderName,
         senderEmail: detail.senderEmail,
+        externalName: detail.externalName,
+        externalEmail: detail.externalEmail,
+        sourceEntityType: detail.sourceEntityType,
         body: detail.body,
         bodyFormat: detail.bodyFormat,
         sentAt: detail.sentAt,
@@ -46,6 +53,9 @@ export function useMessageDetailsConversation({
         senderUserId: item.senderUserId,
         senderName: item.senderName,
         senderEmail: item.senderEmail,
+        externalName: item.externalName,
+        externalEmail: item.externalEmail,
+        sourceEntityType: item.sourceEntityType,
         body: item.body,
         bodyFormat: item.bodyFormat,
         sentAt: item.sentAt,
@@ -58,6 +68,9 @@ export function useMessageDetailsConversation({
         senderUserId: detail.senderUserId,
         senderName: detail.senderName,
         senderEmail: detail.senderEmail,
+        externalName: detail.externalName,
+        externalEmail: detail.externalEmail,
+        sourceEntityType: detail.sourceEntityType,
         body: detail.body,
         bodyFormat: detail.bodyFormat,
         sentAt: detail.sentAt,
@@ -114,7 +127,7 @@ export function useMessageDetailsConversation({
     bodyFormat: item.bodyFormat ?? 'text',
     priority: 'normal',
     sentAt: item.sentAt ? new Date(item.sentAt) : null,
-    senderName: item.senderName || item.senderEmail || item.senderUserId,
+    senderName: getMessageParticipantLabel(item),
     hasObjects: (item.objects ?? []).length > 0,
     objectCount: (item.objects ?? []).length,
     hasAttachments: false,

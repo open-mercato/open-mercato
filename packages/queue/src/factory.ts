@@ -27,32 +27,32 @@ import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
 export function createQueue<T = unknown>(
   name: string,
   strategy: 'local',
-  options?: LocalQueueOptions
+  options?: LocalQueueOptions<T>
 ): Queue<T>
 
 export function createQueue<T = unknown>(
   name: string,
   strategy: 'async',
-  options?: AsyncQueueOptions
+  options?: AsyncQueueOptions<T>
 ): Queue<T>
 
 // General overload for dynamic strategy (union type)
 export function createQueue<T = unknown>(
   name: string,
   strategy: 'local' | 'async',
-  options?: LocalQueueOptions | AsyncQueueOptions
+  options?: LocalQueueOptions<T> | AsyncQueueOptions<T>
 ): Queue<T>
 
 export function createQueue<T = unknown>(
   name: string,
   strategy: 'local' | 'async',
-  options?: LocalQueueOptions | AsyncQueueOptions
+  options?: LocalQueueOptions<T> | AsyncQueueOptions<T>
 ): Queue<T> {
   if (strategy === 'async') {
-    return createAsyncQueue<T>(name, options as AsyncQueueOptions)
+    return createAsyncQueue<T>(name, options as AsyncQueueOptions<T>)
   }
 
-  return createLocalQueue<T>(name, options as LocalQueueOptions)
+  return createLocalQueue<T>(name, options as LocalQueueOptions<T>)
 }
 
 /**
@@ -82,14 +82,24 @@ export function resolveQueueStrategy(): QueueStrategyType {
  */
 export function createModuleQueue<T = unknown>(
   name: string,
-  options?: { concurrency?: number },
+  options?: Pick<
+    AsyncQueueOptions<T>,
+    'attempts' | 'concurrency' | 'lockDuration' | 'maxStalledCount' | 'onJobAbandoned' | 'coalesceBy'
+  >,
 ): Queue<T> {
   const strategy = resolveQueueStrategy()
   if (strategy === 'async') {
     return createAsyncQueue<T>(name, {
       connection: { url: getRedisUrlOrThrow('QUEUE') },
       concurrency: options?.concurrency,
+      attempts: options?.attempts,
+      lockDuration: options?.lockDuration,
+      maxStalledCount: options?.maxStalledCount,
+      onJobAbandoned: options?.onJobAbandoned,
+      coalesceBy: options?.coalesceBy,
     })
   }
-  return createLocalQueue<T>(name, { concurrency: options?.concurrency })
+  // The local strategy runs the handler in-process, so there is no queue that could outlive it and
+  // abandon a job — `onJobAbandoned` has nothing to report and is deliberately not forwarded.
+  return createLocalQueue<T>(name, { concurrency: options?.concurrency, coalesceBy: options?.coalesceBy })
 }

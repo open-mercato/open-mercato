@@ -23,6 +23,7 @@ type Props = {
   defaultMediaId: string | null
   onItemsChange: (items: ProductMediaItem[]) => void
   onDefaultChange: (attachmentId: string | null) => void
+  onUploadingChange?: (isUploading: boolean) => void
 }
 
 function humanFileSize(size: number): string {
@@ -44,6 +45,7 @@ export function ProductMediaManager({
   defaultMediaId,
   onItemsChange,
   onDefaultChange,
+  onUploadingChange,
 }: Props) {
   const t = useT()
   const fileInputRef = React.useRef<HTMLInputElement | null>(null)
@@ -56,6 +58,7 @@ export function ProductMediaManager({
       if (!files || !files.length || !draftRecordId) return
       setError(null)
       setUploading(true)
+      onUploadingChange?.(true)
       let nextItems = items
       let defaultId = defaultMediaId
       try {
@@ -101,12 +104,13 @@ export function ProductMediaManager({
         }
       } finally {
         setUploading(false)
+        onUploadingChange?.(false)
         if (fileInputRef.current) {
           fileInputRef.current.value = ''
         }
       }
     },
-    [defaultMediaId, draftRecordId, entityId, items, onDefaultChange, onItemsChange, t],
+    [defaultMediaId, draftRecordId, entityId, items, onDefaultChange, onItemsChange, onUploadingChange, t],
   )
 
   const handleRemove = React.useCallback(
@@ -186,7 +190,7 @@ export function ProductMediaManager({
           onChange={(event) => void acceptFiles(event.target.files)}
         />
       </div>
-      {error ? <p className="text-xs font-medium text-red-600">{error}</p> : null}
+      {error ? <p className="text-xs font-medium text-status-error-text">{error}</p> : null}
       {items.length ? (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {items.map((item) => {

@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { z } from 'zod'
+import { E } from '#generated/entities.ids.generated'
 import {
   Dialog,
   DialogContent,
@@ -14,17 +15,19 @@ import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/b
 import { ComboboxInput } from '@open-mercato/ui/backend/inputs/ComboboxInput'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { extensionPoints } from '../../../../../extension-points'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
+import { registerComponent } from '@open-mercato/shared/modules/widgets/component-registry'
 
 // Deal status values written by the kanban flow. These intentionally do NOT include 'closed'
-// because the rest of the app only persists 'loose' for lost deals (see StatusFilterPopover
+// because the rest of the app only persists 'lost' for lost deals (see StatusFilterPopover
 // notes). 'in_progress' is kept for backwards compatibility with quick-deals created from
-// the previous version of this dialog. The labels are looked up via i18n at render time so
-// the historic typo 'loose' doesn't leak to operators — the storage value stays unchanged.
-const STATUS_OPTIONS = ['open', 'in_progress', 'win', 'loose'] as const
+// the previous version of this dialog. Deals written before 0.7.1 carry the misspelled
+// 'loose'; readers still match it through `lib/dealStatus.ts`, but no writer produces it.
+const STATUS_OPTIONS = ['open', 'in_progress', 'win', 'lost'] as const
 
 /**
  * Tenant currency option. The page resolves these from the currencies module (see
@@ -56,7 +59,18 @@ export type QuickDealCompanyOption = {
   label: string
 }
 
-type QuickDealDialogProps = {
+/**
+ * Registered component id for the kanban quick-add dialog. Downstream apps can
+ * target it from `widgets/components.ts` to replace/wrap the dialog or to
+ * transform its props — e.g. `defaultProbability: null` so quick-create stops
+ * seeding a probability that overrides pipeline automation (#4329).
+ */
+export const QUICK_DEAL_DIALOG_COMPONENT_ID = 'dialog:customers.deals.quickDeal'
+
+/** Probability seeded into the quick-add form when the host passes no override. */
+export const DEFAULT_QUICK_DEAL_PROBABILITY = 25
+
+export type QuickDealDialogProps = {
   open: boolean
   context: QuickDealContext | null
   onClose: () => void
@@ -64,6 +78,13 @@ type QuickDealDialogProps = {
   currentUserId?: string
   currentUserLabel?: string
   companies?: QuickDealCompanyOption[]
+  /**
+   * Probability pre-filled in the collapsed "More details" group. `null` leaves
+   * the field empty, so quick-create sends no `probability` at all and whatever
+   * the pipeline/automation derives for the target stage stands. Defaults to
+   * `DEFAULT_QUICK_DEAL_PROBABILITY` to preserve the historic behavior.
+   */
+  defaultProbability?: number | null
   /**
    * Tenant currency list. When omitted (e.g. dictionary not yet loaded), we render a
    * conservative fallback so the dialog still works end-to-end. The default selection is
@@ -94,6 +115,7 @@ export function QuickDealDialog({
   currentUserLabel,
   companies = [],
   currencies,
+  defaultProbability = DEFAULT_QUICK_DEAL_PROBABILITY,
 }: QuickDealDialogProps): React.ReactElement | null {
   const t = useT()
   // Re-mount CrudForm whenever the dialog opens so cleared state is consistently fresh.
@@ -104,14 +126,8 @@ export function QuickDealDialog({
     if (open) setFormInstanceKey((current) => current + 1)
   }, [open])
 
-  const { runMutation, retryLastMutation } = useGuardedMutation<{
-    formId: string
-    resourceKind: string
-    retryLastMutation: () => Promise<boolean>
-  }>({
-    contextId: QUICK_DEAL_CONTEXT_ID,
-    blockedMessage: translateWithFallback(t, 'ui.forms.flash.saveBlocked', 'Save blocked by validation'),
-  })
+
+  const { runMutation, retryLastMutation } = useGuardedMutation({ contextId: QUICK_DEAL_CONTEXT_ID, blockedMessage: translateWithFallback(t, 'ui.forms.flash.saveBlocked', 'Save blocked by validation') })
 
   const titleRequiredMessage = translateWithFallback(
     t,
@@ -157,11 +173,11 @@ export function QuickDealDialog({
       valueCurrency: defaultCurrencyCode,
       companyId: '',
       status: 'open',
-      probability: 25,
+      probability: defaultProbability,
       expectedCloseAt: '',
       description: '',
     }),
-    [defaultCurrencyCode],
+    [defaultCurrencyCode, defaultProbability],
   )
 
   const fields = React.useMemo<CrudField[]>(
@@ -246,7 +262,7 @@ export function QuickDealDialog({
           id: 'status',
           label: translateWithFallback(t, 'customers.deals.kanban.quickDeal.status', 'Status'),
           type: 'select',
-          // Storage value is preserved (`loose` etc.) — only the displayed label is
+          // Storage value is preserved (`lost` etc.), only the displayed label is
           // translated, so we never write a localised string back to the DB.
           options: STATUS_OPTIONS.map((statusValue) => ({
             value: statusValue,
@@ -335,32 +351,27 @@ export function QuickDealDialog({
       if (values.description && values.description.trim().length) {
         payload.description = values.description
       }
-      const operation = () =>
-        createCrud('customers/deals', payload, {
+      const { result } = await runMutation({
+        operation: () => createCrud<{ id?: string; entityId?: string }>('customers/deals', payload, {
           errorMessage: translateWithFallback(t, 'customers.deals.create.error', 'Failed to create deal.'),
-        })
-      await runMutation({
-        operation,
-        context: {
-          formId: QUICK_DEAL_CONTEXT_ID,
-          resourceKind: 'customers.deal',
-          retryLastMutation,
-        },
+        }),
+        context: { formId: QUICK_DEAL_CONTEXT_ID, resourceKind: 'customers.deal', retryLastMutation },
+        mutationPayload: payload,
       })
       flash(
-        translateWithFallback(
-          t,
-          'customers.deals.kanban.quickDeal.success',
-          'Deal added to {stage}.',
-          { stage: context.pipelineStageLabel },
-        ),
+        translateWithFallback(t, 'customers.deals.kanban.quickDeal.success', 'Deal added to {stage}.', { stage: context.pipelineStageLabel }),
         'success',
       )
-      onCreated()
-      onClose()
+      return { resourceId: result?.id ?? result?.entityId }
     },
-    [context, currentUserId, onClose, onCreated, retryLastMutation, runMutation, t, titleRequiredMessage],
+    [context, currentUserId, t, titleRequiredMessage, runMutation, retryLastMutation],
   )
+
+  const handleSubmitSuccess = React.useCallback(() => {
+    if (!context) return
+    onCreated()
+    onClose()
+  }, [context, onCreated, onClose])
 
   if (!context) return null
 
@@ -389,6 +400,12 @@ export function QuickDealDialog({
         <CrudForm<QuickDealFormValues>
           key={`${context.pipelineStageId}:${formInstanceKey}`}
           embedded
+          formId={QUICK_DEAL_CONTEXT_ID}
+          entityId="customers.deal"
+          entityIds={[E.customers.customer_deal]}
+          resourceKind="customers.deal"
+          injectionSpotId={extensionPoints.hosts.dealForm.spotId}
+          injectionGroupAliases={{ details: 'basic' }}
           fields={fields}
           groups={groups}
           // The "More details" group starts collapsed; users can expand to set
@@ -399,10 +416,23 @@ export function QuickDealDialog({
           schema={formSchema}
           submitLabel={translateWithFallback(t, 'customers.deals.kanban.quickDeal.submit', 'Add deal')}
           onSubmit={handleSubmit}
+          onSubmitSuccess={handleSubmitSuccess}
         />
       </DialogContent>
     </Dialog>
   )
 }
+
+// Register so downstream apps can reach the dialog from `widgets/components.ts`
+// (replace / wrap / propsTransform) instead of forking the whole kanban page
+// just to change a default (#4329).
+registerComponent<QuickDealDialogProps>({
+  id: QUICK_DEAL_DIALOG_COMPONENT_ID,
+  component: QuickDealDialog,
+  metadata: {
+    module: 'customers',
+    description: 'Kanban quick-add deal dialog (pipeline board "+ deal").',
+  },
+})
 
 export default QuickDealDialog

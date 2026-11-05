@@ -318,7 +318,7 @@ function ChatLane({ agent, debug }: { agent: PlaygroundAgent; debug: boolean }) 
 
   if (agent.executionMode !== 'chat') {
     return (
-      <Alert variant="info" data-ai-playground-unsupported="chat">
+      <Alert status="information" data-ai-playground-unsupported="chat">
         <AlertTitle>
           {t(
             'ai_assistant.playground.chat.notSupportedTitle',
@@ -413,7 +413,7 @@ function ObjectLane({ agent }: { agent: PlaygroundAgent }) {
 
   if (!isSupported) {
     return (
-      <Alert variant="info" data-ai-playground-unsupported="object">
+      <Alert status="information" data-ai-playground-unsupported="object">
         <AlertTitle>
           {t(
             'ai_assistant.playground.object.notSupportedTitle',
@@ -474,7 +474,7 @@ function ObjectLane({ agent }: { agent: PlaygroundAgent }) {
       </div>
 
       {error ? (
-        <Alert variant="destructive" data-ai-playground-object-error={error.code ?? 'unknown'}>
+        <Alert status="error" data-ai-playground-object-error={error.code ?? 'unknown'}>
           <AlertTitle>
             {t('ai_assistant.playground.object.errorTitle', 'Object run failed')}
           </AlertTitle>
@@ -582,7 +582,7 @@ export function AiPlaygroundPageClient() {
 
   if (isError) {
     return (
-      <Alert variant="destructive" data-ai-playground-error>
+      <Alert status="error" data-ai-playground-error>
         <AlertTitle>
           {t('ai_assistant.playground.loadErrorTitle', 'Failed to load AI agents')}
         </AlertTitle>

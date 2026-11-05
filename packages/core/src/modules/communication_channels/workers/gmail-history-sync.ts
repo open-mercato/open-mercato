@@ -126,7 +126,7 @@ export default async function handle(
   try {
     page = await adapter.applyPushNotification({
       credentials,
-      scope: { tenantId: scope.tenantId, organizationId: scope.organizationId ?? scope.tenantId },
+      scope: { tenantId: scope.tenantId, organizationId: channel.organizationId ?? null },
       channelState: (channel.channelState as Record<string, unknown> | null) ?? {},
       notification: job.payload.notification as unknown as Record<string, unknown>,
     })

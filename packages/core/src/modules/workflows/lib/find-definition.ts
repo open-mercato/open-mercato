@@ -62,7 +62,11 @@ export async function findWorkflowDefinition(
   }
 
   if (version === undefined) {
+    // Unpinned resolution: latest PUBLISHED version (was "latest enabled").
+    // Backfill defaulted existing rows to lifecycle='published', so behaviour is
+    // identical for current data; only matters once drafts/archived rows exist.
     where.enabled = true
+    where.lifecycle = 'published'
     const dbDef = await em.findOne(WorkflowDefinition, where, {
       orderBy: { version: 'DESC' },
     })

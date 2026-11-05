@@ -18,6 +18,7 @@ const stuckDealId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
 
 const executeMock = jest.fn()
 const getRatesMock = jest.fn()
+const resolveBaseCurrencyMock = jest.fn()
 const fetchStuckDealIdsMock = jest.fn()
 const getAuthFromRequestMock = jest.fn()
 
@@ -29,6 +30,7 @@ const container = {
   resolve: jest.fn((name: string) => {
     if (name === 'em') return em
     if (name === 'exchangeRateService') return { getRates: getRatesMock }
+    if (name === 'baseCurrencyService') return { resolveBaseCurrency: resolveBaseCurrencyMock }
     throw new Error(`Unexpected container resolve: ${name}`)
   }),
 }
@@ -123,6 +125,7 @@ describe('customers deals summary route', () => {
     jest.clearAllMocks()
     getAuthFromRequestMock.mockResolvedValue({ sub: userId, tenantId, orgId: organizationId })
     getRatesMock.mockResolvedValue(new Map())
+    resolveBaseCurrencyMock.mockResolvedValue({ status: 'resolved', code: 'USD' })
     fetchStuckDealIdsMock.mockResolvedValue([])
     jest.useFakeTimers()
     // Fix "today" inside Q1 2026 so quarter bucketing is deterministic.
@@ -133,11 +136,21 @@ describe('customers deals summary route', () => {
     jest.useRealTimers()
   })
 
-  it('returns 401 when auth lacks tenant or org', async () => {
-    getAuthFromRequestMock.mockResolvedValueOnce({ sub: userId, tenantId, orgId: null })
+  it('returns 401 when auth lacks a tenant', async () => {
+    getAuthFromRequestMock.mockResolvedValueOnce({ sub: userId, tenantId: null, orgId: null })
     const response = await GET(new Request('http://localhost/api/customers/deals/summary'))
     expect(response.status).toBe(401)
     expect(executeMock).not.toHaveBeenCalled()
+  })
+
+  // A null `orgId` is how an all-organizations selection reaches this route (the super-admin
+  // org cookie override clears it), not a sign of a broken session. Answering 401 sent
+  // `apiFetch` into a session-refresh loop that reloaded the deals page forever.
+  it('does not treat an all-organizations selection as an auth failure', async () => {
+    getAuthFromRequestMock.mockResolvedValueOnce({ sub: userId, tenantId, orgId: null })
+    executeMock.mockResolvedValue([])
+    const response = await GET(new Request('http://localhost/api/customers/deals/summary'))
+    expect(response.status).toBe(200)
   })
 
   it('computes KPI values, deltas, UTC quarter bucketing, multi-currency conversion and need-attention union', async () => {
@@ -150,34 +163,32 @@ describe('customers deals summary route', () => {
     fetchStuckDealIdsMock.mockResolvedValue([stuckDealId, overdueDealId])
 
     executeMock
-      // 1) base currency
-      .mockResolvedValueOnce([{ code: 'USD' }])
-      // 2) open pipeline rows (stage/currency/total/count/owner)
+      // 1) open pipeline rows (stage/currency/total/count/owner)
       .mockResolvedValueOnce([
         { stage: 'qualification', currency: 'USD', total: '1000', count: '2', owner_user_id: ownerA },
         { stage: 'qualification', currency: 'EUR', total: '100', count: '1', owner_user_id: ownerB },
         { stage: 'proposal', currency: 'GBP', total: '50', count: '1', owner_user_id: ownerA },
       ])
-      // 3) inflow rows (open value created current vs previous quarter)
+      // 2) inflow rows (open value created current vs previous quarter)
       .mockResolvedValueOnce([
         { currency: 'USD', current_total: '600', current_count: '2', previous_total: '300', previous_count: '1' },
       ])
-      // 4) won rows (updated_at current vs previous quarter)
+      // 3) won rows (updated_at current vs previous quarter)
       .mockResolvedValueOnce([
         { currency: 'USD', current_total: '800', current_count: '2', previous_total: '400', previous_count: '1' },
       ])
-      // 5) win/loss counts (current/previous quarter)
+      // 4) win/loss counts (current/previous quarter)
       .mockResolvedValueOnce([
         { current_won: '3', current_lost: '1', previous_won: '1', previous_lost: '1' },
       ])
-      // 6) win-rate series (trailing months)
+      // 5) win-rate series (trailing months)
       .mockResolvedValueOnce([
         { period: '2026-02', won: '3', lost: '1' },
         { period: '2026-01', won: '1', lost: '3' },
       ])
-      // 7) overdue open deal ids
+      // 6) overdue open deal ids
       .mockResolvedValueOnce([{ id: overdueDealId }])
-      // 8) open-status intersection for the stuck ids (both seeded ids resolve as open here)
+      // 7) open-status intersection for the stuck ids (both seeded ids resolve as open here)
       .mockResolvedValueOnce([{ id: stuckDealId }, { id: overdueDealId }])
 
     const response = await GET(new Request('http://localhost/api/customers/deals/summary'))
@@ -237,7 +248,7 @@ describe('customers deals summary route', () => {
     expect(series.find((p) => p.period === '2025-11')).toEqual({ period: '2025-11', rate: 0 })
 
     // Quarter window params were passed to the inflow query (current quarter start/end, UTC).
-    const inflowCall = executeMock.mock.calls[2]
+    const inflowCall = executeMock.mock.calls[1]
     const inflowValues = inflowCall[1] as string[]
     expect(inflowValues).toContain('2026-01-01T00:00:00.000Z')
     expect(inflowValues).toContain('2026-04-01T00:00:00.000Z')
@@ -246,23 +257,22 @@ describe('customers deals summary route', () => {
   })
 
   it('falls back to the dominant currency total when no base currency is configured', async () => {
+    resolveBaseCurrencyMock.mockResolvedValueOnce({ status: 'missing' })
     executeMock
-      // 1) no base currency
-      .mockResolvedValueOnce([])
-      // 2) open pipeline rows: USD dominant, EUR smaller
+      // 1) open pipeline rows: USD dominant, EUR smaller
       .mockResolvedValueOnce([
         { stage: 'qualification', currency: 'USD', total: '900', count: '3', owner_user_id: ownerA },
         { stage: 'qualification', currency: 'EUR', total: '100', count: '1', owner_user_id: ownerB },
       ])
-      // 3) inflow
+      // 2) inflow
       .mockResolvedValueOnce([])
-      // 4) won
+      // 3) won
       .mockResolvedValueOnce([])
-      // 5) win/loss
+      // 4) win/loss
       .mockResolvedValueOnce([{ current_won: '0', current_lost: '0', previous_won: '0', previous_lost: '0' }])
-      // 6) series
+      // 5) series
       .mockResolvedValueOnce([])
-      // 7) overdue
+      // 6) overdue
       .mockResolvedValueOnce([])
 
     const response = await GET(new Request('http://localhost/api/customers/deals/summary'))
@@ -287,23 +297,21 @@ describe('customers deals summary route', () => {
     fetchStuckDealIdsMock.mockResolvedValue([openStuckId, stuckDealId])
 
     executeMock
-      // 1) base currency
-      .mockResolvedValueOnce([{ code: 'USD' }])
-      // 2) open pipeline rows
+      // 1) open pipeline rows
       .mockResolvedValueOnce([
         { stage: 'qualification', currency: 'USD', total: '500', count: '1', owner_user_id: ownerA },
       ])
-      // 3) inflow
+      // 2) inflow
       .mockResolvedValueOnce([])
-      // 4) won
+      // 3) won
       .mockResolvedValueOnce([])
-      // 5) win/loss
+      // 4) win/loss
       .mockResolvedValueOnce([{ current_won: '0', current_lost: '0', previous_won: '0', previous_lost: '0' }])
-      // 6) series
+      // 5) series
       .mockResolvedValueOnce([])
-      // 7) overdue (none)
+      // 6) overdue (none)
       .mockResolvedValueOnce([])
-      // 8) open-status intersection: only `openStuckId` is still open; `stuckDealId` is terminal → excluded
+      // 7) open-status intersection: only `openStuckId` is still open; `stuckDealId` is terminal → excluded
       .mockResolvedValueOnce([{ id: openStuckId }])
 
     const response = await GET(new Request('http://localhost/api/customers/deals/summary'))

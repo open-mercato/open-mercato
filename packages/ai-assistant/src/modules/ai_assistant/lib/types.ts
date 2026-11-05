@@ -16,6 +16,8 @@ export interface McpToolContext {
   apiKeySecret?: string
   /** Session token for memory layer (deduplication of search/GET calls) */
   sessionId?: string
+  /** Pending action that the operator explicitly confirmed before this handler invocation. */
+  approvedPendingActionId?: string
   /**
    * Back-reference to the tool definition the handler is executing. Populated
    * by the runtime (`tool-executor`, `pending-action-executor`, the agent-tools
@@ -24,6 +26,16 @@ export interface McpToolContext {
    * `requiredFeatures` coverage at the route gate.
    */
   tool?: AiToolDefinition
+  /**
+   * Record versions captured when the operator previewed the pending action,
+   * keyed by the exact record id the preview loaded. Values are the tool's
+   * own version tokens (`updated_at` ISO timestamps for CRUD-backed records).
+   * Set only by the pending-action executor.
+   * Mutation tools pass them to `createAiApiOperationRunner().run({ expectedUpdatedAt })`
+   * (see `expectedRecordVersionFor`) so a record changed after the preview is
+   * refused with a conflict instead of being overwritten.
+   */
+  expectedRecordVersions?: Readonly<Record<string, string>>
 }
 
 /**
@@ -247,6 +259,17 @@ export type ToolInfo = {
   name: string
   description: string
   inputSchema: Record<string, unknown>
+  /** MCP capability hints advertised for the tool (see `buildMcpToolAnnotations`). */
+  annotations?: McpToolAnnotations
+}
+
+/** MCP `ToolAnnotations` values carried through remote and in-process clients. */
+export type McpToolAnnotations = {
+  title?: string
+  readOnlyHint?: boolean
+  destructiveHint?: boolean
+  idempotentHint?: boolean
+  openWorldHint?: boolean
 }
 
 /**

@@ -2,7 +2,12 @@ jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
   CrudForm: () => null,
 }))
 
-import { buildDefinitionsBatchPayload, buildEntityMetadataPayload, shouldRegisterEntityMetadata } from '../[entityId]/page'
+import {
+  buildDefinitionsBatchPayload,
+  buildEntityMetadataPayload,
+  getEntitySettingsNotice,
+  shouldRegisterEntityMetadata,
+} from '../[entityId]/page'
 
 describe('shouldRegisterEntityMetadata', () => {
   it('registers metadata for custom (user-defined) entities', () => {
@@ -11,6 +16,27 @@ describe('shouldRegisterEntityMetadata', () => {
 
   it('does not register metadata for code-declared system entities (#3115)', () => {
     expect(shouldRegisterEntityMetadata('code')).toBe(false)
+  })
+})
+
+describe('getEntitySettingsNotice', () => {
+  const fallbackTranslate = (_key: string, fallback?: unknown) =>
+    typeof fallback === 'string' ? fallback : _key
+
+  it('routes the system-entity notice through i18n with a code-declared key (#3151)', () => {
+    const keys: string[] = []
+    const recordingTranslate = (key: string, fallback?: unknown) => {
+      keys.push(key)
+      return typeof fallback === 'string' ? fallback : key
+    }
+    const notice = getEntitySettingsNotice('code', recordingTranslate as never)
+    expect(keys).toContain('entities.userEntities.form.systemEntityNotice')
+    expect(typeof notice).toBe('string')
+    expect(notice).toMatch(/cannot be edited/i)
+  })
+
+  it('returns no notice for custom entities', () => {
+    expect(getEntitySettingsNotice('custom', fallbackTranslate as never)).toBeUndefined()
   })
 })
 

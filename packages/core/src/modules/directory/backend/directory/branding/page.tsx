@@ -10,15 +10,20 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useOrganizationScopeDetail, useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { getCurrentOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/organizationEvents'
 
 type BrandingPayload = {
   organizationId: string
   organizationName: string
   tenantId: string
   logoUrl: string | null
+  logoPreserveAspectRatio: boolean
   updatedAt: string | null
 }
 
@@ -37,7 +42,10 @@ const BRANDING_ENTITY_ID = 'directory.organization'
 export default function OrganizationBrandingPage() {
   const t = useT()
   const queryClient = useQueryClient()
+  const { organizationId, tenantId } = useOrganizationScopeDetail()
+  const scopeVersion = useOrganizationScopeVersion()
   const [logoUrl, setLogoUrl] = React.useState('')
+  const [logoPreserveAspectRatio, setLogoPreserveAspectRatio] = React.useState(false)
   const [selectedFile, setSelectedFile] = React.useState<File | null>(null)
   const [filePreviewUrl, setFilePreviewUrl] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
@@ -48,7 +56,8 @@ export default function OrganizationBrandingPage() {
   })
 
   const { data, isLoading, error } = useQuery<BrandingPayload>({
-    queryKey: ['directory-organization-branding'],
+    queryKey: ['directory-organization-branding', organizationId, tenantId],
+    enabled: Boolean(organizationId),
     queryFn: () => readApiResultOrThrow<BrandingPayload>(
       BRANDING_API,
       undefined,
@@ -58,8 +67,10 @@ export default function OrganizationBrandingPage() {
 
   React.useEffect(() => {
     setLogoUrl(data?.logoUrl ?? '')
+    setLogoPreserveAspectRatio(data?.logoPreserveAspectRatio ?? false)
     setSelectedFile(null)
-  }, [data?.logoUrl])
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }, [scopeVersion, organizationId, tenantId, data?.organizationId, data?.logoPreserveAspectRatio, data?.logoUrl])
 
   React.useEffect(() => {
     if (!selectedFile || typeof URL === 'undefined') {
@@ -89,17 +100,27 @@ export default function OrganizationBrandingPage() {
       },
       { errorMessage: t('directory.branding.errors.upload', 'Failed to upload logo') },
     )
-    return upload?.item.thumbnailUrl ?? upload?.item.url ?? null
+    return upload?.item.url ?? upload?.item.thumbnailUrl ?? null
   }, [selectedFile, t])
 
-  const saveBranding = React.useCallback(async (nextLogoUrl?: string, options?: { skipUpload?: boolean }) => {
+  const saveBranding = React.useCallback(async (
+    nextLogoUrl?: string,
+    options?: { skipUpload?: boolean; logoPreserveAspectRatio?: boolean },
+  ) => {
     if (!data) return
     const shouldUpload = Boolean(selectedFile && !options?.skipUpload)
+    const resolvedLogoPreserveAspectRatio = options?.logoPreserveAspectRatio ?? logoPreserveAspectRatio
     setSaving(true)
     try {
       await runMutation({
         operation: async () => {
+          if (getCurrentOrganizationScopeVersion() !== scopeVersion) {
+            throw new Error('[internal] Organization scope changed during branding save')
+          }
           const uploadedLogoUrl = shouldUpload ? await uploadLogo(data.organizationId) : null
+          if (getCurrentOrganizationScopeVersion() !== scopeVersion) {
+            throw new Error('[internal] Organization scope changed during branding save')
+          }
           const resolvedLogoUrl = uploadedLogoUrl ?? nextLogoUrl ?? logoUrl.trim()
           const response = await withScopedApiRequestHeaders(
             buildOptimisticLockHeader(data.updatedAt),
@@ -108,7 +129,10 @@ export default function OrganizationBrandingPage() {
               {
                 method: 'PUT',
                 headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ logoUrl: resolvedLogoUrl || null }),
+                body: JSON.stringify({
+                  logoUrl: resolvedLogoUrl || null,
+                  logoPreserveAspectRatio: resolvedLogoPreserveAspectRatio,
+                }),
               },
               { errorMessage: t('directory.branding.errors.save', 'Failed to update organization branding') },
             ),
@@ -123,15 +147,19 @@ export default function OrganizationBrandingPage() {
         mutationPayload: {
           organizationId: data.organizationId,
           logoUrl: (nextLogoUrl ?? logoUrl.trim()) || null,
+          logoPreserveAspectRatio: resolvedLogoPreserveAspectRatio,
           hasUpload: shouldUpload,
         },
       })
+      if (getCurrentOrganizationScopeVersion() !== scopeVersion) return
       await queryClient.invalidateQueries({ queryKey: ['directory-organization-branding'] })
+      if (getCurrentOrganizationScopeVersion() !== scopeVersion) return
       window.dispatchEvent(new Event('om:refresh-sidebar'))
       setSelectedFile(null)
       if (fileInputRef.current) fileInputRef.current.value = ''
       flash(t('directory.branding.flash.saved', 'Organization branding updated'), 'success')
     } catch (err: unknown) {
+      if (getCurrentOrganizationScopeVersion() !== scopeVersion) return
       if (surfaceRecordConflict(err, t)) return
       const fallback = t('directory.branding.errors.save', 'Failed to update organization branding')
       const message = err instanceof Error ? err.message : fallback
@@ -139,12 +167,30 @@ export default function OrganizationBrandingPage() {
     } finally {
       setSaving(false)
     }
-  }, [data, logoUrl, queryClient, runMutation, selectedFile, t, uploadLogo])
+  }, [data, logoPreserveAspectRatio, logoUrl, queryClient, runMutation, scopeVersion, selectedFile, t, uploadLogo])
 
   const handleSubmit = React.useCallback((event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     void saveBranding()
   }, [saveBranding])
+
+  if (!organizationId) {
+    return (
+      <Page>
+        <PageHeader title={t('directory.branding.title', 'Organization branding')} />
+        <PageBody>
+          <Alert status="information">
+            <AlertDescription>
+              {t(
+                'directory.branding.organizationRequired',
+                'Branding is managed for one organization at a time. Select a single organization to continue.',
+              )}
+            </AlertDescription>
+          </Alert>
+        </PageBody>
+      </Page>
+    )
+  }
 
   if (isLoading) {
     return <LoadingMessage label={t('directory.branding.loading', 'Loading organization branding...')} />
@@ -177,7 +223,7 @@ export default function OrganizationBrandingPage() {
                   <img
                     src={currentPreviewUrl}
                     alt={t('directory.branding.previewAlt', '{{name}} logo preview', { name: data.organizationName })}
-                    className="h-full w-full object-contain"
+                    className={`h-full w-full ${logoPreserveAspectRatio ? 'object-contain' : 'rounded-full object-cover'}`}
                   />
                 ) : (
                   <ImagePlus className="size-10 text-muted-foreground" aria-hidden />
@@ -198,7 +244,7 @@ export default function OrganizationBrandingPage() {
                   ref={fileInputRef}
                   id="organization-logo-file"
                   type="file"
-                  accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                  accept="image/png,image/jpeg,image/webp"
                   onChange={(event) => {
                     const file = event.currentTarget.files?.[0]
                     if (!file) return
@@ -206,7 +252,7 @@ export default function OrganizationBrandingPage() {
                   }}
                 />
                 <p className="text-xs text-muted-foreground">
-                  {t('directory.branding.file.hint', 'PNG, JPG, WebP, or SVG works best. Uploaded files are stored as organization attachments.')}
+                  {t('directory.branding.file.hint', 'PNG, JPG, or WebP works best. Uploaded files are stored as organization attachments.')}
                 </p>
               </div>
 
@@ -225,6 +271,18 @@ export default function OrganizationBrandingPage() {
                 </p>
               </div>
 
+              <SwitchField
+                id="organization-logo-preserve-aspect-ratio"
+                label={t('directory.branding.aspectRatio.label', 'Keep the aspect ratio')}
+                description={t(
+                  'directory.branding.aspectRatio.description',
+                  'When disabled, the sidebar crops the logo into the standard icon shape.',
+                )}
+                checked={logoPreserveAspectRatio}
+                disabled={saving}
+                onCheckedChange={setLogoPreserveAspectRatio}
+              />
+
               <div className="flex flex-wrap items-center gap-2">
                 <Button type="submit" disabled={saving}>
                   {saving ? <Loader2 className="mr-2 size-4 animate-spin" aria-hidden /> : <Save className="mr-2 size-4" aria-hidden />}
@@ -238,7 +296,8 @@ export default function OrganizationBrandingPage() {
                     setSelectedFile(null)
                     if (fileInputRef.current) fileInputRef.current.value = ''
                     setLogoUrl('')
-                    void saveBranding('', { skipUpload: true })
+                    setLogoPreserveAspectRatio(false)
+                    void saveBranding('', { skipUpload: true, logoPreserveAspectRatio: false })
                   }}
                 >
                   <RotateCcw className="mr-2 size-4" aria-hidden />

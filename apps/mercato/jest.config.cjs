@@ -40,10 +40,13 @@ module.exports = {
       },
     ],
   },
-  setupFiles: ['<rootDir>/../../jest.setup.ts'],
+  setupFiles: [
+    '<rootDir>/../../jest.setup.ts',
+    '<rootDir>/jest.modules.setup.ts',
+  ],
   setupFilesAfterEnv: ['<rootDir>/../../jest.dom.setup.ts'],
   transformIgnorePatterns: [
-    '/node_modules/(?!(@mikro-orm|kysely|meilisearch|ai|@ai-sdk|ai-sdk-ollama|@workflow|@standard-schema)/)',
+    '/node_modules/(?!(sanitize-html|htmlparser2|domhandler|domutils|dom-serializer|domelementtype|entities|@mikro-orm|kysely|meilisearch|ai|@ai-sdk|ai-sdk-ollama|@workflow|@standard-schema|@tanstack/react-table|@tanstack/table-core|@tanstack/react-store|@tanstack/store)/)',
     '\\.pnp\\.[^\\/]+$',
   ],
   testMatch: ['<rootDir>/src/**/__tests__/**/*.test.(ts|tsx)'],

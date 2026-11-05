@@ -50,6 +50,7 @@ type ResourceSnapshot = {
   appearanceColor: string | null
   isActive: boolean
   availabilityRuleSetId: string | null
+  customFieldsetCode: string | null
   tags: string[]
   deletedAt: string | null
   customFields?: CustomFieldSnapshot | null
@@ -154,6 +155,7 @@ async function loadResourceSnapshot(em: EntityManager, id: string): Promise<Reso
     appearanceColor: resource.appearanceColor ?? null,
     isActive: resource.isActive,
     availabilityRuleSetId: resource.availabilityRuleSetId ?? null,
+    customFieldsetCode: resource.customFieldsetCode ?? null,
     tags,
     deletedAt: resource.deletedAt ? resource.deletedAt.toISOString() : null,
   }
@@ -173,6 +175,7 @@ async function syncResourcesResourceTags(em: EntityManager, params: {
   organizationId: string
   tenantId: string
   tagIds?: Array<string | null | undefined> | null
+  ignoreMissing?: boolean
 }) {
   if (params.tagIds === undefined) return
   const tagIds = normalizeTagIds(params.tagIds ?? [])
@@ -185,7 +188,7 @@ async function syncResourcesResourceTags(em: EntityManager, params: {
     organizationId: params.organizationId,
     tenantId: params.tenantId,
   })
-  if (tagsInScope.length !== tagIds.length) {
+  if (!params.ignoreMissing && tagsInScope.length !== tagIds.length) {
     throw new CrudHttpError(400, { error: 'One or more tags not found for this scope' })
   }
   const byId = new Map(tagsInScope.map((tag) => [tag.id, tag]))
@@ -235,6 +238,7 @@ const createResourceCommand: CommandHandler<ResourcesResourceCreateInput, { reso
       appearanceColor: parsed.appearanceColor ?? null,
       isActive: parsed.isActive ?? true,
       availabilityRuleSetId: parsed.availabilityRuleSetId ?? null,
+      customFieldsetCode: parsed.customFieldsetCode ?? null,
       createdAt: now,
       updatedAt: now,
     })
@@ -358,6 +362,7 @@ const createResourceCommand: CommandHandler<ResourcesResourceCreateInput, { reso
             appearanceColor: after.appearanceColor ?? null,
             isActive: after.isActive,
             availabilityRuleSetId: after.availabilityRuleSetId ?? null,
+            customFieldsetCode: after.customFieldsetCode ?? null,
             deletedAt: null,
             createdAt: new Date(),
             updatedAt: new Date(),
@@ -376,6 +381,7 @@ const createResourceCommand: CommandHandler<ResourcesResourceCreateInput, { reso
           record.appearanceColor = after.appearanceColor ?? null
           record.isActive = after.isActive
           record.availabilityRuleSetId = after.availabilityRuleSetId ?? null
+          record.customFieldsetCode = after.customFieldsetCode ?? null
           record.deletedAt = null
           record.updatedAt = new Date()
         }
@@ -386,6 +392,7 @@ const createResourceCommand: CommandHandler<ResourcesResourceCreateInput, { reso
         organizationId: (record as ResourcesResource).organizationId,
         tenantId: (record as ResourcesResource).tenantId,
         tagIds: after.tags,
+        ignoreMissing: true,
       }),
     ], { transaction: true })
     const resolvedRecord = record as ResourcesResource
@@ -471,6 +478,7 @@ const updateResourceCommand: CommandHandler<ResourcesResourceUpdateInput, { reso
         if (parsed.appearanceIcon !== undefined) record.appearanceIcon = parsed.appearanceIcon ?? null
         if (parsed.appearanceColor !== undefined) record.appearanceColor = parsed.appearanceColor ?? null
         if (parsed.availabilityRuleSetId !== undefined) record.availabilityRuleSetId = parsed.availabilityRuleSetId ?? null
+        if (parsed.customFieldsetCode !== undefined) record.customFieldsetCode = parsed.customFieldsetCode ?? null
         record.updatedAt = new Date()
         if (parsed.isActive !== undefined) record.isActive = parsed.isActive
       },
@@ -531,6 +539,7 @@ const updateResourceCommand: CommandHandler<ResourcesResourceUpdateInput, { reso
       'appearanceColor',
       'isActive',
       'availabilityRuleSetId',
+      'customFieldsetCode',
       'deletedAt',
     ])
     if (before.tags.join(',') !== after.tags.join(',')) {
@@ -583,6 +592,7 @@ const updateResourceCommand: CommandHandler<ResourcesResourceUpdateInput, { reso
         record.appearanceColor = before.appearanceColor ?? null
         record.isActive = before.isActive
         record.availabilityRuleSetId = before.availabilityRuleSetId ?? null
+        record.customFieldsetCode = before.customFieldsetCode ?? null
         record.deletedAt = before.deletedAt ? new Date(before.deletedAt) : null
         record.updatedAt = new Date()
       },
@@ -591,6 +601,7 @@ const updateResourceCommand: CommandHandler<ResourcesResourceUpdateInput, { reso
         organizationId: record.organizationId,
         tenantId: record.tenantId,
         tagIds: before.tags,
+        ignoreMissing: true,
       }),
     ], { transaction: true })
 
@@ -716,6 +727,7 @@ const deleteResourceCommand: CommandHandler<{ id?: string }, { resourceId: strin
             appearanceColor: before.appearanceColor ?? null,
             isActive: before.isActive,
             availabilityRuleSetId: before.availabilityRuleSetId ?? null,
+            customFieldsetCode: before.customFieldsetCode ?? null,
             deletedAt: null,
             createdAt: new Date(),
             updatedAt: new Date(),
@@ -734,6 +746,7 @@ const deleteResourceCommand: CommandHandler<{ id?: string }, { resourceId: strin
           record.appearanceColor = before.appearanceColor ?? null
           record.isActive = before.isActive
           record.availabilityRuleSetId = before.availabilityRuleSetId ?? null
+          record.customFieldsetCode = before.customFieldsetCode ?? null
           record.deletedAt = null
           record.updatedAt = new Date()
         }
@@ -744,6 +757,7 @@ const deleteResourceCommand: CommandHandler<{ id?: string }, { resourceId: strin
         organizationId: (record as ResourcesResource).organizationId,
         tenantId: (record as ResourcesResource).tenantId,
         tagIds: before.tags,
+        ignoreMissing: true,
       }),
     ], { transaction: true })
     const resolvedRecord = record as ResourcesResource

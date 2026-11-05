@@ -7,6 +7,7 @@ jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
 }))
 
 import { dealFormSchema } from '../DealForm'
+import { dealCreateSchema, DEAL_DESCRIPTION_MAX_LENGTH } from '../../../data/validators'
 
 describe('dealFormSchema', () => {
   it('rejects an empty title', () => {
@@ -62,6 +63,40 @@ describe('dealFormSchema', () => {
     if (empty.success) {
       expect(empty.data.valueCurrency).toBe('')
     }
+  })
+
+  it('accepts a description far longer than the previous 4000-character cap', () => {
+    const result = dealFormSchema.safeParse({
+      title: 'Long description',
+      description: 'x'.repeat(20000),
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects a description past DEAL_DESCRIPTION_MAX_LENGTH', () => {
+    const result = dealFormSchema.safeParse({
+      title: 'Too long',
+      description: 'x'.repeat(DEAL_DESCRIPTION_MAX_LENGTH + 1),
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const descriptionIssue = result.error.issues.find((issue) => issue.path[0] === 'description')
+      expect(descriptionIssue?.message).toBe('customers.people.detail.deals.descriptionTooLong')
+    }
+  })
+
+  it('shares its description limit with the deal API schema', () => {
+    const scope = {
+      organizationId: '11111111-1111-4111-8111-111111111111',
+      tenantId: '22222222-2222-4222-8222-222222222222',
+    }
+    const atLimit = 'x'.repeat(DEAL_DESCRIPTION_MAX_LENGTH)
+
+    expect(dealFormSchema.safeParse({ title: 'At limit', description: atLimit }).success).toBe(true)
+    expect(dealCreateSchema.safeParse({ ...scope, title: 'At limit', description: atLimit }).success).toBe(true)
+    expect(
+      dealCreateSchema.safeParse({ ...scope, title: 'Over limit', description: `${atLimit}x` }).success,
+    ).toBe(false)
   })
 
   it('passes personIds and companyIds arrays through', () => {

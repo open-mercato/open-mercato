@@ -5,6 +5,7 @@ const sendWorkspaceReadyEmail = jest.fn()
 const assertAllowedAppOrigin = jest.fn()
 const markCompleted = jest.fn()
 const runDeferredProvisioning = jest.fn()
+const originalSelfServiceOnboardingEnabled = process.env.SELF_SERVICE_ONBOARDING_ENABLED
 
 jest.mock('next/server', () => {
   const actual = jest.requireActual('next/server')
@@ -85,6 +86,7 @@ function buildRequest(args: { tenantId: string; cookie?: string }) {
 
 describe('onboarding status endpoint authorization', () => {
   beforeEach(() => {
+    process.env.SELF_SERVICE_ONBOARDING_ENABLED = 'true'
     findLatestByTenantId.mockReset()
     sendWorkspaceReadyEmail.mockReset()
     assertAllowedAppOrigin.mockReset()
@@ -103,6 +105,14 @@ describe('onboarding status endpoint authorization', () => {
       request.processingStartedAt = null
     })
     findLatestByTenantId.mockResolvedValue(makeRequest())
+  })
+
+  afterAll(() => {
+    if (originalSelfServiceOnboardingEnabled === undefined) {
+      delete process.env.SELF_SERVICE_ONBOARDING_ENABLED
+    } else {
+      process.env.SELF_SERVICE_ONBOARDING_ENABLED = originalSelfServiceOnboardingEnabled
+    }
   })
 
   it('returns 403 and does not look up tenant state when no om_login_tenant cookie is present', async () => {

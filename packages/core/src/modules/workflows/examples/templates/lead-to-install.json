@@ -1,0 +1,160 @@
+{
+  "id": "lead-to-install",
+  "nameKey": "workflows.templates.lead-to-install.name",
+  "descriptionKey": "workflows.templates.lead-to-install.description",
+  "category": "Customers",
+  "icon": "route",
+  "definition": {
+    "steps": [
+      {
+        "stepId": "start",
+        "stepName": "Start",
+        "stepType": "START",
+        "description": "New deal enters the pipeline"
+      },
+      {
+        "stepId": "enrich_lead",
+        "stepName": "Enrich Lead",
+        "stepType": "AUTOMATED",
+        "description": "Prepare pipeline bookkeeping before the first contact"
+      },
+      {
+        "stepId": "first_call",
+        "stepName": "First Call",
+        "stepType": "USER_TASK",
+        "description": "Call the lead and qualify the opportunity",
+        "userTaskConfig": {
+          "assignedTo": ["sales"],
+          "formSchema": {
+            "type": "object",
+            "required": ["outcome"],
+            "properties": {
+              "outcome": {
+                "enum": ["qualified", "callback", "not_interested"],
+                "type": "string",
+                "title": "Call outcome",
+                "description": "Result of the first call"
+              },
+              "notes": {
+                "type": "string",
+                "title": "Notes",
+                "description": "Call notes for the next step"
+              }
+            }
+          },
+          "slaDuration": "PT4H",
+          "escalationRules": [
+            { "trigger": "sla_breach", "action": "notify" }
+          ]
+        }
+      },
+      {
+        "stepId": "wait_contract_signed",
+        "stepName": "Wait for Signed Contract",
+        "stepType": "WAIT_FOR_SIGNAL",
+        "description": "Pause until the customer signs the contract",
+        "signalConfig": {
+          "signalName": "contract-signed",
+          "timeout": "P14D"
+        }
+      },
+      {
+        "stepId": "confirm_installation",
+        "stepName": "Confirm Installation Window",
+        "stepType": "USER_TASK",
+        "description": "Agree the installation date with the customer",
+        "userTaskConfig": {
+          "assignedTo": ["operations"],
+          "formSchema": {
+            "type": "object",
+            "required": ["installationDate"],
+            "properties": {
+              "installationDate": {
+                "type": "string",
+                "title": "Installation date",
+                "description": "Confirmed installation date (ISO 8601)"
+              }
+            }
+          },
+          "slaDuration": "P2D"
+        }
+      },
+      {
+        "stepId": "end",
+        "stepName": "Installation Scheduled",
+        "stepType": "END",
+        "description": "Lead converted and installation scheduled"
+      }
+    ],
+    "transitions": [
+      {
+        "transitionId": "start_to_enrich",
+        "transitionName": "Enrich",
+        "fromStepId": "start",
+        "toStepId": "enrich_lead",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "enrich_to_first_call",
+        "transitionName": "Queue First Call",
+        "fromStepId": "enrich_lead",
+        "toStepId": "first_call",
+        "trigger": "auto",
+        "priority": 100,
+        "activities": [
+          {
+            "activityId": "set_pipeline_stage",
+            "activityName": "Record Pipeline Stage",
+            "activityType": "SET_VARIABLE",
+            "config": {
+              "assignments": [
+                { "path": "pipelineStage", "value": "first_call" },
+                { "path": "dealId", "value": "{{context.dealId}}" }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "transitionId": "first_call_to_wait",
+        "transitionName": "Send Contract",
+        "fromStepId": "first_call",
+        "toStepId": "wait_contract_signed",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "wait_to_confirm",
+        "transitionName": "Contract Signed",
+        "fromStepId": "wait_contract_signed",
+        "toStepId": "confirm_installation",
+        "trigger": "signal",
+        "priority": 100
+      },
+      {
+        "transitionId": "confirm_to_end",
+        "transitionName": "Schedule Installation",
+        "fromStepId": "confirm_installation",
+        "toStepId": "end",
+        "trigger": "auto",
+        "priority": 100
+      }
+    ],
+    "triggers": [
+      {
+        "triggerId": "deal_created_trigger",
+        "name": "Deal Created Trigger",
+        "description": "Starts the lead-to-install flow when a deal is created",
+        "eventPattern": "customers.deal.created",
+        "config": {
+          "contextMapping": [
+            { "targetKey": "dealId", "sourceExpression": "payload.id" }
+          ]
+        },
+        "enabled": true,
+        "priority": 0
+      }
+    ]
+  }
+}

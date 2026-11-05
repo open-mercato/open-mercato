@@ -8,7 +8,7 @@ This guide explains how to deploy a branch to a QA environment and what to expec
 
 A PR labeled `needs-qa` **cannot be merged until it also carries `qa-approved`**, even when every other check is green. This is a label policy enforced by reviewers and the PR-automation tooling (`om-merge-buddy` / `om-approve-merge-pr` treat a `needs-qa` PR without `qa-approved` as not-mergeable), and may additionally be backed by a branch-protection rule that requires the `qa-approved` label; there is no longer a dedicated `merge-gate` CI workflow. The same policy blocks merge on `qa-failed`, `do-not-merge`, `blocked`, and a contradictory `needs-qa` + `skip-qa` pair. Once QA passes, add `qa-approved` (alongside the `qa` → `merge-queue` transition).
 
-**Self-QA exception:** manual QA is normally done by the dedicated QA reviewers. When they have no capacity, any engineer may self-QA — but only by checking the PR out, running it locally, clicking through the affected flow, and attaching proof to the PR (a screenshot showing it working, or a written confirmation of what was exercised). Then add **both** `qa-approved` (so the gate passes) and `qa-self-verified` (so the audit trail shows a non-QA engineer signed off via this exception). `skip-qa` remains the opt-out for genuinely low-risk, non-customer-facing changes — never combine it with `needs-qa`. See `AGENTS.md` → PR Workflow for the authoritative rules.
+**Self-QA exception:** manual QA is normally done by the dedicated QA reviewers. When they have no capacity, any engineer may self-QA — but only by checking the PR out, running it locally, clicking through the affected flow, and attaching proof to the PR (a screenshot showing it working, or a written confirmation of what was exercised). Then add **both** `qa-approved` (so the gate passes) and `qa-self-verified` (so the audit trail shows a non-QA engineer signed off via this exception). Those two labels need `triage` permission or higher: a contributor with `read` access (typical for fork-based PRs) can run the QA and post the evidence, but a maintainer has to apply the labels on top of it — the PR stays gated until they do. `skip-qa` remains the opt-out for genuinely low-risk, non-customer-facing changes — never combine it with `needs-qa`. See `AGENTS.md` → PR Workflow for the authoritative rules.
 
 ---
 
@@ -25,7 +25,7 @@ There are two ways to get a QA environment:
 
 For pull requests opened **directly from the repository** (i.e. by core contributors, not from forks), a dedicated preview environment is provisioned automatically in Dokploy when both conditions are met:
 
-- The PR targets the **`develop`** branch.
+- The PR targets the **`main`** branch.
 - The PR has the **`preview-env`** label.
 
 ### Preview URL
@@ -48,6 +48,7 @@ The URL is posted as a comment on the PR once the environment is ready.
 
 - Preview environments use a fresh database seeded with demo data, identical to slot-based deployments.
 - Only PRs from the main repository qualify — forks do not trigger preview deployments. Use a slot-based deployment instead (see below).
+- The preview compose file moved to `starters/docker/compose.preview.yml` (previously the repo-root `docker-compose.preview.yaml`) — the Dokploy application configuration must be updated to point at the new path when this change merges.
 
 ---
 
@@ -165,7 +166,7 @@ Any other app-specific secrets your tenant configuration requires can be added h
 ### 2. Build and start
 
 ```bash
-docker compose -f docker-compose.preview.yaml --env-file .env.preview up --build
+docker compose --project-directory . -f starters/docker/compose.preview.yml --env-file .env.preview up --build
 ```
 
 The first run builds the image from scratch — expect **10–30 minutes** before the app is ready. Subsequent runs that skip `--build` reuse the cached image and are faster, but the database always resets.
@@ -181,7 +182,7 @@ http://localhost:5000/backend
 ### 4. Stop and clean up
 
 ```bash
-docker compose -f docker-compose.preview.yaml down
+docker compose --project-directory . -f starters/docker/compose.preview.yml down
 ```
 
 > The container manages its own PostgreSQL instance internally — there are no external volumes to clean up.

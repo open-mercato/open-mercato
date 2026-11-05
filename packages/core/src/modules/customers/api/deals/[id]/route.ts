@@ -1,3 +1,4 @@
+import { enrichCustomerDetailResponse } from '../../../lib/detailResponseEnrichment'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -19,10 +20,9 @@ import type { ActionLogService } from '@open-mercato/core/modules/audit_logs/ser
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { normalizeCustomFieldResponse } from '@open-mercato/shared/lib/custom-fields/normalize'
 import { E } from '#generated/entities.ids.generated'
-import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
+import { denyCustomerDetailReadAsNotFound } from '../../../lib/detailReadAccess'
 import { decryptEntitiesWithFallbackScope } from '@open-mercato/shared/lib/encryption/subscriber'
 import { runWithCacheTenant } from '@open-mercato/cache'
 import {
@@ -47,15 +47,12 @@ function notFound(message: string) {
   return NextResponse.json({ error: message }, { status: 404 })
 }
 
-function forbidden(message: string) {
-  return NextResponse.json({ error: message }, { status: 403 })
-}
-
 type DealAssociation = {
   id: string
   label: string
   subtitle: string | null
   kind: 'person' | 'company'
+  isPrimary?: boolean
 }
 
 function normalizePersonAssociation(entity: CustomerEntity): { label: string; subtitle: string | null } {
@@ -415,23 +412,10 @@ export async function GET(request: Request, context: { params?: Record<string, u
     return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
   }
 
-  let rbac: RbacService | null = null
-  try {
-    rbac = (container.resolve('rbacService') as RbacService)
-  } catch {
-    rbac = null
-  }
-
-  if (!rbac || !auth?.sub) {
-    return forbidden('Access denied')
-  }
-  const hasFeature = await rbac.userHasAllFeatures(auth.sub, ['customers.deals.view'], {
-    tenantId: auth.tenantId ?? null,
-    organizationId: auth.orgId ?? null,
-  })
-  if (!hasFeature) {
-    return forbidden('Access denied')
-  }
+  // The API dispatcher already enforces `requireFeatures: ['customers.deals.view']`
+  // against the caller's effective (selected) organization before this handler
+  // runs, so no in-route feature re-check is needed. Re-checking here against the
+  // token org (auth.orgId) would wrongly 403 org-switched callers (#5012).
 
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
   const em = (container.resolve('em') as EntityManager)
@@ -453,9 +437,16 @@ export async function GET(request: Request, context: { params?: Record<string, u
     return notFound('Deal not found')
   }
 
-  if (!isOrganizationReadAccessAllowed({ scope, auth, organizationId: deal.organizationId })) {
-    return forbidden('Access denied')
-  }
+  // Existence oracle (issue #5504): a caller who holds customers.deals.view but
+  // whose scope excludes the record's organization must get the SAME response as
+  // for a non-existent id, so 403-when-present / 404-when-absent collapses to a
+  // uniform 404 not-found. The dispatcher already returns a uniform 403 for
+  // callers who lack the feature entirely.
+  const organizationReadDenied = denyCustomerDetailReadAsNotFound(
+    { scope, auth, organizationId: deal.organizationId },
+    'Deal not found',
+  )
+  if (organizationReadDenied) return organizationReadDenied
 
   const decryptionScope = {
     tenantId: deal.tenantId ?? auth.tenantId ?? null,
@@ -501,20 +492,11 @@ export async function GET(request: Request, context: { params?: Record<string, u
       })
     : null
 
+  let cachedBody: Record<string, unknown> | null = null
   if (detailCache && detailCacheKey) {
     try {
       const cached = await runWithCacheTenant(cacheTenantId, () => detailCache.get(detailCacheKey))
-      if (cached && typeof cached === 'object') {
-        const viewerInfo = await resolveViewer()
-        return NextResponse.json({
-          ...(cached as Record<string, unknown>),
-          viewer: {
-            userId: viewerUserId,
-            name: viewerInfo.name,
-            email: viewerInfo.email,
-          },
-        })
-      }
+      if (cached && typeof cached === 'object') cachedBody = cached as Record<string, unknown>
     } catch (err) {
       // A cache-backend read error must degrade to a fresh DB read, never a 500.
       debugCrudCache('get', {
@@ -524,6 +506,14 @@ export async function GET(request: Request, context: { params?: Record<string, u
       })
     }
   }
+  if (cachedBody) {
+    const viewerInfo = await resolveViewer()
+    return NextResponse.json(await enrichCustomerDetailResponse({
+      ...cachedBody,
+      viewer: { userId: viewerUserId, name: viewerInfo.name, email: viewerInfo.email },
+    }, 'deal', { auth, container, em, tenantId: cacheTenantId, organizationId: cacheOrganizationId }))
+  }
+
   // Issue #3175: the reads below only depend on the already-resolved deal +
   // organization scope + decryption scope, so they are grouped into Promise.all
   // batches instead of being awaited one after another. True dependencies stay
@@ -602,13 +592,19 @@ export async function GET(request: Request, context: { params?: Record<string, u
             )
           : [],
       ])
+      const primaryPersonIds = new Set(
+        personLinkRows
+          .filter((link) => link.isPrimary === true)
+          .map((link) => (typeof link.person === 'string' ? link.person : link.person?.id))
+          .filter((value): value is string => typeof value === 'string'),
+      )
       const previewPeopleMap = new Map(previewPeople.map((entity) => [entity.id, entity]))
       const previewCompaniesMap = new Map(previewCompanies.map((entity) => [entity.id, entity]))
       const people = linkedPersonIds.slice(0, 3).reduce<DealAssociation[]>((acc, personId) => {
         const entity = previewPeopleMap.get(personId) ?? null
         if (!entity || entity.deletedAt) return acc
         const { label, subtitle } = normalizePersonAssociation(entity)
-        acc.push({ id: entity.id, label, subtitle, kind: 'person' })
+        acc.push({ id: entity.id, label, subtitle, kind: 'person', isPrimary: primaryPersonIds.has(entity.id) })
         return acc
       }, [])
       const companies = linkedCompanyIds.slice(0, 3).reduce<DealAssociation[]>((acc, companyId) => {
@@ -654,7 +650,7 @@ export async function GET(request: Request, context: { params?: Record<string, u
       const entity = link.person as CustomerEntity | null
       if (!entity || entity.deletedAt) return acc
       const { label, subtitle } = normalizePersonAssociation(entity)
-      acc.push({ id: entity.id, label, subtitle, kind: 'person' })
+      acc.push({ id: entity.id, label, subtitle, kind: 'person', isPrimary: link.isPrimary === true })
       return acc
     }, [])
 
@@ -876,7 +872,7 @@ export async function GET(request: Request, context: { params?: Record<string, u
     }
   }
 
-  return NextResponse.json({ ...cacheableBody, viewer })
+  return NextResponse.json(await enrichCustomerDetailResponse({ ...cacheableBody, viewer }, 'deal', { auth, container, em, tenantId: cacheTenantId, organizationId: cacheOrganizationId }))
 }
 
 const dealDetailQuerySchema = z.object({
@@ -927,6 +923,7 @@ const dealDetailResponseSchema = z.object({
       label: z.string(),
       subtitle: z.string().nullable().optional(),
       kind: z.literal('person'),
+      isPrimary: z.boolean().optional(),
     }),
   ),
   companies: z.array(
@@ -969,8 +966,8 @@ export const openApi: OpenApiRouteDoc = {
       ],
       errors: [
         { status: 401, description: 'Unauthorized', schema: dealDetailErrorSchema },
-        { status: 403, description: 'Forbidden for tenant/organization scope', schema: dealDetailErrorSchema },
-        { status: 404, description: 'Deal not found', schema: dealDetailErrorSchema },
+        { status: 403, description: 'Forbidden — caller lacks the required feature', schema: dealDetailErrorSchema },
+        { status: 404, description: 'Deal not found, or its organization is not in the caller’s scope', schema: dealDetailErrorSchema },
       ],
     },
   },

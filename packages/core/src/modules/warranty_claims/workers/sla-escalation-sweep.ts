@@ -1,0 +1,450 @@
+import { randomUUID } from 'node:crypto'
+import type { FilterQuery } from '@mikro-orm/core'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
+import type { AwilixContainer } from 'awilix'
+import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { buildFeatureNotificationFromType, buildNotificationFromType } from '../../notifications/lib/notificationBuilder'
+import { resolveNotificationService } from '../../notifications/lib/notificationService'
+import {
+  WarrantyClaim,
+  WarrantyClaimSlaSignal,
+  type WarrantyClaimSlaSignalEventId,
+} from '../data/entities'
+import { emitWarrantyClaimsEvent } from '../events'
+import { businessMillisBetween, slaProgressPctFromDue } from '../lib/businessHours'
+import {
+  isSlaEscalationCandidate,
+  parseEscalationTiers,
+  tiersToFire,
+  type EscalationTier,
+} from '../lib/escalation'
+import { resolveEffectiveWarrantyClaimSettings } from '../lib/settings'
+import { SLA_EXCLUDED_STATUSES } from '../lib/deskFilters'
+import { notificationTypes } from '../notifications'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('warranty_claims')
+
+type SlaEscalationSweepPayload = {
+  scope?: {
+    organizationId?: string | null
+    tenantId?: string | null
+  }
+}
+
+type ResolverContainer = {
+  resolve: <T = unknown>(name: string) => T
+}
+
+type HandlerContext = JobContext & ResolverContainer & {
+  container?: ResolverContainer
+}
+
+type EscalateClaimCommandInput = {
+  id: string
+  organizationId: string
+  tenantId: string
+  toLevel: number
+  reassignToUserId?: string
+}
+
+type EscalateClaimCommandResult = {
+  claimId: string
+  escalationLevel: number
+  escalated: boolean
+}
+
+type SweepScope = {
+  tenantId: string
+  organizationId: string
+}
+
+// The active-SLA backlog grows with the tenant, so the sweep walks it in keyset
+// pages instead of decrypting every claim into memory in one query.
+const SWEEP_PAGE_SIZE = 500
+const SIGNAL_LEASE_MILLIS = 5 * 60 * 1000
+
+type SweepCursor = { slaDueAt: Date; id: string } | null
+
+function readCursor(claim: WarrantyClaim): SweepCursor {
+  return claim.slaDueAt ? { slaDueAt: claim.slaDueAt, id: claim.id } : null
+}
+
+// Keyset rather than offset: claims are mutated while the sweep runs, and
+// `slaDueAt` is not unique, so `(slaDueAt, id)` is the stable page boundary.
+function pageWhere(base: FilterQuery<WarrantyClaim>, cursor: SweepCursor): FilterQuery<WarrantyClaim> {
+  if (!cursor) return base
+  return {
+    $and: [
+      base,
+      {
+        $or: [
+          { slaDueAt: { $gt: cursor.slaDueAt } },
+          { slaDueAt: cursor.slaDueAt, id: { $gt: cursor.id } },
+        ],
+      },
+    ],
+  } as FilterQuery<WarrantyClaim>
+}
+
+export const metadata: WorkerMeta = {
+  queue: 'warranty_claims.sla_sweep',
+  id: 'warranty_claims:sla-escalation-sweep',
+  concurrency: 1,
+}
+
+function resolveContainer(ctx: HandlerContext): ResolverContainer {
+  return ctx.container ?? { resolve: ctx.resolve }
+}
+
+function readScope(payload: SlaEscalationSweepPayload): SweepScope | null {
+  const tenantId = payload.scope?.tenantId
+  const organizationId = payload.scope?.organizationId
+  if (typeof tenantId !== 'string' || tenantId.trim().length === 0) return null
+  if (typeof organizationId !== 'string' || organizationId.trim().length === 0) return null
+  return { tenantId: tenantId.trim(), organizationId: organizationId.trim() }
+}
+
+function claimEventPayload(claim: WarrantyClaim, scope: SweepScope): Record<string, unknown> {
+  return {
+    id: claim.id,
+    claimId: claim.id,
+    claimNumber: claim.claimNumber,
+    claimType: claim.claimType,
+    status: claim.status,
+    customerId: claim.customerId ?? null,
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+  }
+}
+
+function roundedPct(value: number): number {
+  return Math.round(value * 100) / 100
+}
+
+function slaSignalStamps(
+  eventId: WarrantyClaimSlaSignalEventId,
+  claim: WarrantyClaim,
+  now: Date,
+): Partial<Pick<WarrantyClaim, 'slaAtRiskNotifiedAt' | 'slaBreachedNotifiedAt'>> {
+  return eventId === 'warranty_claims.claim.sla_breached'
+    ? {
+        slaBreachedNotifiedAt: now,
+        slaAtRiskNotifiedAt: claim.slaAtRiskNotifiedAt ?? now,
+      }
+    : { slaAtRiskNotifiedAt: now }
+}
+
+async function reserveSlaSignal(
+  em: EntityManager,
+  eventId: WarrantyClaimSlaSignalEventId,
+  claim: WarrantyClaim,
+  scope: SweepScope,
+  progressPct: number,
+  elapsedBusinessMillis: number,
+  now: Date,
+): Promise<WarrantyClaimSlaSignal | null> {
+  const cycleKey = claim.slaDueAt?.toISOString()
+  if (!cycleKey) return null
+  const stamps = slaSignalStamps(eventId, claim, now)
+  const signal = await em.transactional(async (tx) => {
+    const affected = await tx.nativeUpdate(
+      WarrantyClaim,
+      {
+        id: claim.id,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        ...(eventId === 'warranty_claims.claim.sla_breached'
+          ? { slaBreachedNotifiedAt: null }
+          : { slaAtRiskNotifiedAt: null }),
+      },
+      stamps,
+    )
+    if (affected === 0) return null
+
+    const created = tx.create(WarrantyClaimSlaSignal, {
+      id: randomUUID(),
+      claimId: claim.id,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      eventId,
+      cycleKey,
+      payload: {
+        ...claimEventPayload(claim, scope),
+        progressPct: roundedPct(progressPct),
+        elapsedBusinessMillis,
+        slaDueAt: claim.slaDueAt?.toISOString() ?? null,
+      },
+    })
+    await tx.persist(created).flush()
+    return created
+  })
+  if (signal) Object.assign(claim, stamps)
+  return signal
+}
+
+async function acquireSlaSignalLease(
+  em: EntityManager,
+  signal: WarrantyClaimSlaSignal,
+): Promise<string | null> {
+  const leaseToken = randomUUID()
+  const now = new Date()
+  const affected = await em.nativeUpdate(
+    WarrantyClaimSlaSignal,
+    {
+      id: signal.id,
+      tenantId: signal.tenantId,
+      organizationId: signal.organizationId,
+      publishedAt: null,
+      $or: [
+        { leaseExpiresAt: null },
+        { leaseExpiresAt: { $lt: now } },
+      ],
+    },
+    {
+      leaseToken,
+      leaseExpiresAt: new Date(now.getTime() + SIGNAL_LEASE_MILLIS),
+    },
+  )
+  return affected === 0 ? null : leaseToken
+}
+
+async function publishSlaSignal(em: EntityManager, signal: WarrantyClaimSlaSignal): Promise<void> {
+  const leaseToken = await acquireSlaSignalLease(em, signal)
+  if (!leaseToken) return
+  try {
+    await emitWarrantyClaimsEvent(
+      signal.eventId,
+      { ...signal.payload, deliveryId: signal.id },
+      {
+        persistent: true,
+        tenantId: signal.tenantId,
+        organizationId: signal.organizationId,
+      },
+    )
+    const affected = await em.nativeUpdate(
+      WarrantyClaimSlaSignal,
+      { id: signal.id, leaseToken, publishedAt: null },
+      { publishedAt: new Date(), leaseToken: null, leaseExpiresAt: null },
+    )
+    if (affected === 0) {
+      throw new Error('[internal] SLA signal publication lease was lost')
+    }
+  } catch (error) {
+    await em.nativeUpdate(
+      WarrantyClaimSlaSignal,
+      { id: signal.id, leaseToken, publishedAt: null },
+      { leaseToken: null, leaseExpiresAt: null },
+    ).catch(() => undefined)
+    throw error
+  }
+}
+
+async function drainPendingSlaSignals(em: EntityManager, scope: SweepScope): Promise<void> {
+  const pending = await findWithDecryption(
+    em,
+    WarrantyClaimSlaSignal,
+    { tenantId: scope.tenantId, organizationId: scope.organizationId, publishedAt: null },
+    { orderBy: { createdAt: 'ASC' }, limit: SWEEP_PAGE_SIZE },
+    scope,
+  )
+  for (const signal of pending) {
+    try {
+      await publishSlaSignal(em, signal)
+    } catch (error) {
+      logger.warn('[warranty_claims:sla-escalation-sweep] pending signal failed', {
+        signalId: signal.id,
+        claimId: signal.claimId,
+        error: error instanceof Error ? error.message : error,
+      })
+    }
+  }
+}
+
+function buildCommandContext(container: ResolverContainer, scope: SweepScope): CommandRuntimeContext {
+  return {
+    container: container as unknown as AwilixContainer,
+    auth: null,
+    organizationScope: null,
+    selectedOrganizationId: scope.organizationId,
+    organizationIds: [scope.organizationId],
+    systemActor: true,
+  }
+}
+
+async function createEscalationNotification(
+  container: ResolverContainer,
+  claim: WarrantyClaim,
+  scope: SweepScope,
+  tierIndex: number,
+  progressPct: number,
+): Promise<void> {
+  const typeDef = notificationTypes.find((type) => type.type === 'warranty_claims.claim.escalated')
+  if (!typeDef) return
+
+  const notificationService = resolveNotificationService(container)
+  const common = {
+    bodyVariables: {
+      claimNumber: claim.claimNumber,
+      level: String(tierIndex),
+      progressPct: String(Math.round(progressPct)),
+    },
+    sourceEntityType: 'warranty_claims:warranty_claim',
+    sourceEntityId: claim.id,
+    linkHref: `/backend/warranty_claims/${claim.id}`,
+    groupKey: `warranty_claims.claim.escalated:${claim.id}:${tierIndex}`,
+  }
+
+  if (claim.assigneeUserId) {
+    await notificationService.create(buildNotificationFromType(typeDef, {
+      ...common,
+      recipientUserId: claim.assigneeUserId,
+    }), scope)
+  }
+
+  await notificationService.createForFeature(buildFeatureNotificationFromType(typeDef, {
+    ...common,
+    requiredFeature: 'warranty_claims.claim.manage',
+  }), scope)
+}
+
+async function runEscalationTier(
+  container: ResolverContainer,
+  scope: SweepScope,
+  claim: WarrantyClaim,
+  tierIndex: number,
+  tier: EscalationTier,
+  progressPct: number,
+): Promise<void> {
+  if (tier.action === 'notify') {
+    await createEscalationNotification(container, claim, scope, tierIndex, progressPct)
+  }
+  const commandBus = container.resolve<CommandBus>('commandBus')
+  const input: EscalateClaimCommandInput = {
+    id: claim.id,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    toLevel: tierIndex,
+    ...(tier.action === 'reassign' && tier.toUserId ? { reassignToUserId: tier.toUserId } : {}),
+  }
+  const { result } = await commandBus.execute<EscalateClaimCommandInput, EscalateClaimCommandResult>(
+    'warranty_claims.claim.escalate',
+    { input, ctx: buildCommandContext(container, scope) },
+  )
+  if (!result.escalated) return
+  if (tier.action === 'reassign' && tier.toUserId) {
+    claim.assigneeUserId = tier.toUserId
+  }
+}
+
+function logClaimSweepError(claimId: string, error: unknown): void {
+  logger.warn('[warranty_claims:sla-escalation-sweep] claim failed', {
+    claimId,
+    error: error instanceof Error ? error.message : error,
+  })
+}
+
+export default async function handle(
+  job: QueuedJob<SlaEscalationSweepPayload>,
+  ctx: HandlerContext,
+): Promise<void> {
+  const scope = readScope(job.payload)
+  if (!scope) return
+
+  const container = resolveContainer(ctx)
+  const em = ctx.resolve<EntityManager>('em')
+  try {
+    await drainPendingSlaSignals(em, scope)
+  } catch (error) {
+    logger.error('[warranty_claims:sla-escalation-sweep] pending signal drain failed', {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      error: error instanceof Error ? error.message : error,
+    })
+  }
+  const settings = await resolveEffectiveWarrantyClaimSettings(em, scope)
+  const tiers = parseEscalationTiers(settings.escalationTiers)
+  const now = new Date()
+
+  const baseWhere: FilterQuery<WarrantyClaim> = {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    deletedAt: null,
+    slaPausedAt: null,
+    slaDueAt: { $ne: null },
+    submittedAt: { $ne: null },
+    status: { $nin: [...SLA_EXCLUDED_STATUSES] },
+  }
+
+  let cursor: SweepCursor = null
+  for (;;) {
+    const claims = await findWithDecryption(
+      em,
+      WarrantyClaim,
+      pageWhere(baseWhere, cursor),
+      { orderBy: { slaDueAt: 'ASC', id: 'ASC' }, limit: SWEEP_PAGE_SIZE },
+      scope,
+    )
+    if (!claims.length) break
+
+    for (const claim of claims) {
+      if (!isSlaEscalationCandidate(claim)) continue
+      const submittedAt = claim.submittedAt
+      const slaDueAt = claim.slaDueAt
+      if (!submittedAt || !slaDueAt) continue
+      try {
+        const elapsedBusinessMillis = businessMillisBetween(submittedAt, now, settings.businessHours)
+        // Anchor progress on `slaDueAt` — the pause-shifted deadline the stats
+        // endpoint reads — so pause/resume and escalation share one time base.
+        const progressPct = slaProgressPctFromDue(now, slaDueAt, settings.slaHours, settings.businessHours)
+
+        if (
+          progressPct >= settings.slaAtRiskThresholdPct &&
+          progressPct < 100 &&
+          !claim.slaAtRiskNotifiedAt
+        ) {
+          const signal = await reserveSlaSignal(
+            em,
+            'warranty_claims.claim.sla_at_risk',
+            claim,
+            scope,
+            progressPct,
+            elapsedBusinessMillis,
+            now,
+          )
+          if (signal) await publishSlaSignal(em, signal)
+        }
+        if (progressPct >= 100 && !claim.slaBreachedNotifiedAt) {
+          const signal = await reserveSlaSignal(
+            em,
+            'warranty_claims.claim.sla_breached',
+            claim,
+            scope,
+            progressPct,
+            elapsedBusinessMillis,
+            now,
+          )
+          if (signal) await publishSlaSignal(em, signal)
+        }
+
+        const fire = tiersToFire(progressPct, claim.escalationLevel ?? 0, tiers)
+        for (const entry of fire) {
+          await runEscalationTier(container, scope, claim, entry.tierIndex, entry.tier, progressPct)
+        }
+      } catch (error) {
+        logClaimSweepError(claim.id, error)
+      }
+    }
+
+    if (claims.length < SWEEP_PAGE_SIZE) break
+    const nextCursor = readCursor(claims[claims.length - 1])
+    if (!nextCursor) break
+    cursor = nextCursor
+    // Release the decrypted page before fetching the next one; every write in
+    // the loop goes through `nativeUpdate` or its own command fork, so nothing
+    // depends on these entities staying managed.
+    em.clear()
+  }
+}

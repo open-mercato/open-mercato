@@ -12,6 +12,19 @@ import { expectOperation, undoOk } from '@open-mercato/core/helpers/integration/
  */
 
 const DEALS = '/api/customers/deals'
+const DAY_MS = 24 * 60 * 60 * 1000
+
+/**
+ * Fixture dates are derived from the run clock, never written as literals: a hardcoded
+ * expectedCloseAt would silently drift into the past and make this undo test's outcome
+ * depend on when it runs rather than on the behavior it asserts (#5060). Seconds and
+ * milliseconds are zeroed so the value round-trips through the API byte-for-byte.
+ */
+function futureCloseAtIso(fromEpochMs: number, daysAhead: number): string {
+  const date = new Date(fromEpochMs + daysAhead * DAY_MS)
+  date.setUTCSeconds(0, 0)
+  return date.toISOString()
+}
 
 function findStringByKeys(value: unknown, keys: readonly string[]): string | null {
   if (!value || typeof value !== 'object') return null
@@ -41,8 +54,8 @@ test.describe('TC-UNDO-003 customers.deals.update undo restores expectedCloseAt'
   test('update expectedCloseAt → undo restores the prior date from the audit-log snapshot', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const stamp = Date.now()
-    const beforeCloseAt = '2026-07-20T12:00:00.000Z'
-    const afterCloseAt = '2026-08-15T09:30:00.000Z'
+    const beforeCloseAt = futureCloseAtIso(stamp, 30)
+    const afterCloseAt = futureCloseAtIso(stamp, 60)
     let dealId: string | null = null
 
     try {

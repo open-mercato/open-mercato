@@ -86,6 +86,7 @@ export default function CreateCustomerRolePage() {
       <PageBody>
         <CrudForm<CreateCustomerRoleFormValues>
           title={t('customer_accounts.admin.roleCreate.title', 'Create Customer Role')}
+          titleHeadingLevel={1}
           backHref="/backend/customer_accounts/roles"
           fields={fields}
           groups={groups}

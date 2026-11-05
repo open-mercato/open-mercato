@@ -253,13 +253,14 @@ The cross-module ORM-relation and direct-business-logic-import bans already live
 
 ### ACL Grant Sync
 
-When adding features to `acl.ts`, also add them to `setup.ts` `defaultRoleFeatures` for `admin` and any other default roles that should see the module immediately (for example `employee`, portal/customer roles, or module-specific custom roles). Then run the idempotent sync command so existing tenants receive the new grants:
+When adding features to `acl.ts`, also add them to `setup.ts` — `defaultRoleFeatures` for staff roles (`admin`, `employee`, custom module roles), `defaultCustomerRoleFeatures` for portal roles. Both reach NEW tenants only; existing tenants need the matching idempotent sync command:
 
 ```bash
-yarn mercato auth sync-role-acls
+yarn mercato auth sync-role-acls                        # staff RoleAcl
+yarn mercato customer_accounts sync-customer-role-acls  # portal CustomerRoleAcl
 ```
 
-Do this automatically unless the user explicitly asks to leave role ACLs untouched. New tenants get `defaultRoleFeatures` during setup; existing tenants only receive newly declared grants after the sync command. Use `--tenant <tenantId>` only when the user asks to target one tenant.
+Run these automatically unless the user asks to leave ACLs untouched. Both are additive, wildcard-aware, and never create roles. Use `--tenant <tenantId>` only to target one tenant.
 
 ### Testing with Disabled Modules
 
@@ -502,9 +503,9 @@ When extending another module's data, add a separate extension entity — never 
 - RBAC is two-layered: Role ACLs and User ACLs per tenant
 - Features declared per module in `acl.ts`, naming: `<module>.<action>`
 - Server-side check: `rbacService.userHasAllFeatures(userId, features, { tenantId, organizationId })`
-- Special flags: `isSuperAdmin` (all features), organization visibility list
-- Treat wildcard grants as part of the ACL contract: `module.*` and `*` satisfy matching concrete features.
-- When a runtime helper evaluates raw granted feature arrays directly (for example nav builders, notification handlers, mutation guards, command interceptors, or AI tools), MUST use the shared wildcard-aware matcher instead of exact string comparisons.
+- Special flags: `isSuperAdmin` (all active features), organization visibility list
+- Policy order: invalid scope and nulled/disabled features deny before super-admin or wildcard grants.
+- For loaded ACL snapshots use shared `authorizeFeatures`; browser payloads use realm `getEffectiveFeatures` (concrete IDs only).
 
 ```typescript
 // acl.ts
@@ -520,13 +521,12 @@ When adding features to `acl.ts`, also add them to `setup.ts` `defaultRoleFeatur
 
 ## Encryption
 
-- Respect the feature flag: only encrypt/decrypt when tenant data encryption is enabled
-- Use `findWithDecryption`/`findOneWithDecryption` instead of `em.find`/`em.findOne`
-- Always supply `tenantId` and `organizationId` to decryption helpers
-- Do not hand-roll AES/KMS calls; rely on `TenantDataEncryptionService`
+- Only encrypt/decrypt when tenant data encryption is enabled
+- Use `findWithDecryption`/`findOneWithDecryption` (never `em.find`/`em.findOne`) with `tenantId` and `organizationId`
+- Never hand-roll AES/KMS; use `TenantDataEncryptionService`
 - Query index: keep `entity_indexes.doc` encrypted at rest; use `decryptIndexDocCustomFields`, `decryptIndexDocForSearch`
 - Vector search: `result_title`/`result_subtitle`/`result_icon` encrypted at rest
-- When adding GDPR-relevant fields, declare or update the module's `encryption.ts` `defaultEncryptionMaps` export
+- GDPR fields: declare in `encryption.ts` `defaultEncryptionMaps`; a deployed module also needs a `buildEncryptionMapBackfillSql` migration (empty `down()`), else existing tenants stay plaintext
 
 ## Command Side Effects
 
@@ -657,7 +657,7 @@ Run `yarn generate` or rely on `predev`/`prebuild`.
 
 ## Response Enrichers
 
-Response enrichers let a module add computed fields to another module's CRUD API responses (similar to GraphQL Federation).
+Response enrichers add computed fields to other modules' CRUD API responses.
 
 ### Creating an Enricher
 
@@ -668,7 +668,7 @@ import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-en
 
 const myEnricher: ResponseEnricher = {
   id: 'mymodule.customer-metrics',
-  targetEntity: 'customers.person',     // entity to enrich
+  targetEntity: 'customers.person',     // use '*' for all; context.targetEntity stays concrete
   features: ['mymodule.view'],           // required ACL features
   priority: 10,                          // higher runs first
   timeout: 2000,                         // ms, default 2000

@@ -31,6 +31,11 @@ export async function buildSchedulerJobsFilters(
 
   const isSuperAdmin = ctx.auth?.isSuperAdmin === true
 
+  if (Array.isArray(ctx.organizationIds) && ctx.organizationIds.length === 0) {
+    filters.id = { $eq: '00000000-0000-0000-0000-000000000000' }
+    return filters
+  }
+
   const rawOrgIds = Array.isArray(ctx.organizationIds)
     ? ctx.organizationIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
     : []

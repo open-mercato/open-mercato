@@ -132,6 +132,31 @@ export async function seedPendingActionInDb(input: SeedPendingActionInput): Prom
   });
 }
 
+export interface PendingActionDbState {
+  status: string;
+  resolvedByUserId: string | null;
+}
+
+/** Reads a pending action's lifecycle columns straight from Postgres (bypasses the owner-scoped routes). */
+export async function readPendingActionStateInDb(id: string): Promise<PendingActionDbState | null> {
+  return withClient(async (client) => {
+    const result = await client.query<{ status: string; resolved_by_user_id: string | null }>(
+      'select status, resolved_by_user_id from ai_pending_actions where id = $1',
+      [id],
+    );
+    const row = result.rows[0];
+    return row ? { status: row.status, resolvedByUserId: row.resolved_by_user_id } : null;
+  });
+}
+
+/** Reads a catalog product title straight from Postgres so assertions never hit a cached CRUD response. */
+export async function readCatalogProductTitleInDb(productId: string): Promise<string | null> {
+  return withClient(async (client) => {
+    const result = await client.query<{ title: string }>('select title from catalog_products where id = $1', [productId]);
+    return result.rows[0]?.title ?? null;
+  });
+}
+
 /** Hard-deletes a seeded pending action row (best-effort test cleanup). */
 export async function deletePendingActionInDb(id: string | null): Promise<void> {
   if (!id) return;
@@ -168,6 +193,54 @@ export async function deleteTenantAllowlistInDb(tenantId: string | null): Promis
   if (!tenantId) return;
   await withClient(async (client) => {
     await client.query('delete from ai_tenant_model_allowlists where tenant_id = $1', [tenantId]);
+  });
+}
+
+export interface SeedModerationFlagInput {
+  tenantId: string;
+  organizationId?: string | null;
+  agentId?: string;
+  userId?: string;
+  providerId?: string;
+  modelId?: string;
+  /** Defaults to a single flagged `hate` category. */
+  categories?: Record<string, { flagged: boolean; score: number }>;
+}
+
+/**
+ * Inserts an `ai_moderation_flags` audit row directly. A real flag is only ever
+ * born from the gate during a flagged LLM turn (needs a live moderation call),
+ * so seeding the row keeps audit-listing + tenant-isolation coverage
+ * deterministic and provider-free. Returns the new id for assertions/cleanup.
+ */
+export async function seedModerationFlagInDb(input: SeedModerationFlagInput): Promise<string> {
+  const categories = JSON.stringify(input.categories ?? { hate: { flagged: true, score: 0.97 } });
+  return withClient(async (client) => {
+    const result = await client.query<{ id: string }>(
+      `insert into ai_moderation_flags
+         (id, tenant_id, organization_id, agent_id, user_id, provider_id, model_id, categories, created_at)
+       values
+         (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7::jsonb, now())
+       returning id`,
+      [
+        input.tenantId,
+        input.organizationId ?? null,
+        input.agentId ?? 'it_agent.moderation_fixture',
+        input.userId ?? `it-user-${randomUUID()}`,
+        input.providerId ?? 'openai',
+        input.modelId ?? 'gpt-5-mini',
+        categories,
+      ],
+    );
+    return result.rows[0].id;
+  });
+}
+
+/** Hard-deletes every moderation-flag row for a tenant (best-effort cleanup). */
+export async function deleteModerationFlagsInDb(tenantId: string | null): Promise<void> {
+  if (!tenantId) return;
+  await withClient(async (client) => {
+    await client.query('delete from ai_moderation_flags where tenant_id = $1', [tenantId]);
   });
 }
 

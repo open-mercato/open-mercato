@@ -103,4 +103,53 @@ describe('sales document-history route authorization', () => {
       resourceId: DOCUMENT_ID,
     }))
   })
+
+  it('loads history under the "all organizations" scope by dropping the org filter', async () => {
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: null,
+      isSuperAdmin: true,
+    })
+    ;(resolveOrganizationScopeForRequest as jest.Mock).mockResolvedValue({
+      selectedId: null,
+      allowedIds: null,
+      filterIds: null,
+    })
+
+    const response = await GET(requestFor('order'))
+
+    expect(response.status).toBe(200)
+    // No concrete org is required — the RBAC check runs tenant-wide (super-admin)
+    // and the log query is scoped by tenant + resource only.
+    expect(mockRbac.userHasAllFeatures).toHaveBeenCalledWith('user-1', ['sales.orders.view'], {
+      tenantId: 'tenant-1',
+      organizationId: null,
+    })
+    expect(mockActionLogService.list).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: undefined,
+      resourceKind: 'sales.order',
+      resourceId: DOCUMENT_ID,
+    }))
+    const noteFilter = (findWithDecryption as jest.Mock).mock.calls[0][2]
+    expect(noteFilter).not.toHaveProperty('organizationId')
+  })
+
+  it('denies an explicit empty scope before RBAC, action-log, or note data calls', async () => {
+    ;(resolveOrganizationScopeForRequest as jest.Mock).mockResolvedValue({
+      selectedId: null,
+      allowedIds: [],
+      filterIds: [],
+      tenantId: 'tenant-1',
+    })
+
+    const response = await GET(requestFor('order'))
+
+    expect(response.status).toBe(403)
+    await expect(response.json()).resolves.toEqual({ error: 'Forbidden' })
+    expect(mockRbac.userHasAllFeatures).not.toHaveBeenCalled()
+    expect(mockActionLogService.list).not.toHaveBeenCalled()
+    expect(mockEm.fork).not.toHaveBeenCalled()
+    expect(findWithDecryption).not.toHaveBeenCalled()
+  })
 })

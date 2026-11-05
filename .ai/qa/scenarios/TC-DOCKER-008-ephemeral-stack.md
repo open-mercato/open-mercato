@@ -15,7 +15,7 @@ Verify that `yarn docker:ephemeral` starts the preview stack with a fresh databa
 ## Prerequisites
 - Docker Desktop is running
 - No existing Open Mercato preview containers running
-- `docker-compose.preview.yaml` present at repo root
+- `starters/docker/compose.preview.yml` present in the repo
 
 ## Test Steps
 | Step | Action | Expected Result |

@@ -1,8 +1,17 @@
 import type { EventBus } from '@open-mercato/events'
 import type { ReferenceUnitCode } from '@open-mercato/shared/lib/units/unitCodes'
-import type { SalesAdjustmentKind, SalesDocumentKind, SalesLineKind } from '../data/entities'
+import type {
+  SalesAdjustmentKind,
+  SalesAmountsMode,
+  SalesDocumentKind,
+  SalesLineKind,
+} from '../data/entities'
 
-export type { SalesAdjustmentKind, SalesDocumentKind, SalesLineKind }
+/**
+ * `SalesAmountsMode`: `computed` means core derives the amounts; `external` means
+ * they are the caller's, mirrored from another system, and are never recomputed.
+ */
+export type { SalesAdjustmentKind, SalesAmountsMode, SalesDocumentKind, SalesLineKind }
 
 export type NumericLike = number | string
 
@@ -32,6 +41,13 @@ export type SalesLineUomSnapshot = {
   }
 }
 
+/**
+ * How a caller-supplied `discountAmount` should be read: as a rate per unit, or
+ * as the total for the whole line. Persisted rows always hold a line total —
+ * see `discountAmountFromStoredRow`, which is a separate signal on purpose.
+ */
+export type SalesLineDiscountBasis = 'unit' | 'line'
+
 export type SalesLineSnapshot = {
   id?: string
   lineNumber?: number
@@ -50,9 +66,31 @@ export type SalesLineSnapshot = {
   unitPriceNet?: number | null
   unitPriceGross?: number | null
   discountAmount?: number | null
+  /**
+   * Caller-supplied ONLY. How to interpret a supplied `discountAmount`.
+   * Omitted means 'unit', which is the meaning the API has always documented.
+   * Entity-to-snapshot mappers MUST NOT set this: a populated value is what
+   * makes this a reliable *caller* signal.
+   */
+  discountAmountBasis?: SalesLineDiscountBasis | null
+  /**
+   * Set by entity-to-snapshot mappers ONLY. Marks `discountAmount` as
+   * reconstructed from a persisted row, so it is a line total and is NOT a
+   * caller assertion. Never persisted; never accepted from a request.
+   */
+  discountAmountFromStoredRow?: boolean
   discountPercent?: number | null
   taxRate?: number | null
   taxAmount?: number | null
+  /**
+   * Set by entity-to-snapshot mappers ONLY. Marks `totalNetAmount` /
+   * `totalGrossAmount` as reconstructed from a persisted row, so they are the
+   * engine's own previous output rather than a caller assertion. That is what
+   * keeps the #5644 reconciliation a *caller* signal: a stored net is expected
+   * to diverge on a row the discount contract heals on the next pass. Never
+   * persisted; never accepted from a request.
+   */
+  totalsFromStoredRow?: boolean
   totalNetAmount?: number | null
   totalGrossAmount?: number | null
   configuration?: Record<string, unknown> | null
@@ -60,6 +98,8 @@ export type SalesLineSnapshot = {
   metadata?: Record<string, unknown> | null
   customFieldSetId?: string | null
   customFields?: Record<string, unknown> | null
+  /** `external`: net, gross and tax are returned verbatim, never derived. Omitted means `computed`. */
+  amountsMode?: SalesAmountsMode | null
 }
 
 export type SalesAdjustmentDraft = {
@@ -126,6 +166,8 @@ export type SalesTotalsCalculationHook = (params: {
   context: SalesCalculationContext
   current: SalesDocumentCalculationResult
   eventBus?: EventBus | null
+  /** `external`: the supplied header is re-applied after every calculator, so none can move it. */
+  totalsMode?: SalesAmountsMode | null
 }) => SalesDocumentCalculationResult | Promise<SalesDocumentCalculationResult>
 
 export type SalesCalculationContext = {
@@ -153,4 +195,8 @@ export type CalculateDocumentOptions = {
     refundedTotalAmount?: number | null
   }
   eventBus?: EventBus | null
+  /** `external` makes {@link CalculateDocumentOptions.suppliedTotals} authoritative for the header. */
+  totalsMode?: SalesAmountsMode | null
+  /** The caller-asserted header, honoured verbatim when `totalsMode` is `external`. */
+  suppliedTotals?: Partial<SalesDocumentAmounts> | null
 }

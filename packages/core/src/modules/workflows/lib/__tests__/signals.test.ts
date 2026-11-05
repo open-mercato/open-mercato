@@ -8,12 +8,16 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
   findWithDecryption: jest.fn(),
 }))
+jest.mock('../workflow-executor', () => ({
+  dispatchAgentOutcomeForCurrentStep: jest.fn(),
+}))
 
 import {
   findOneWithDecryption,
   findWithDecryption,
 } from '@open-mercato/shared/lib/encryption/find'
 import { sendSignal, sendSignalByCorrelationKey, SignalError } from '../signal-handler'
+import { dispatchAgentOutcomeForCurrentStep } from '../workflow-executor'
 
 const mockFindOneWithDecryption = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
 const mockFindWithDecryption = findWithDecryption as jest.MockedFunction<typeof findWithDecryption>
@@ -35,6 +39,7 @@ describe('Workflow Signals - Phase 9.1', () => {
   const mockFindValidTransitions = jest.fn()
   const mockExecuteTransition = jest.fn()
   const mockExecuteWorkflow = jest.fn()
+  const mockCompleteWorkflow = jest.fn()
 
   const mockContainer = {
     resolve: jest.fn((token: string) => {
@@ -45,7 +50,10 @@ describe('Workflow Signals - Phase 9.1', () => {
           findValidTransitions: mockFindValidTransitions,
           executeTransition: mockExecuteTransition,
         }
-        case 'workflowExecutor': return { executeWorkflow: mockExecuteWorkflow }
+        case 'workflowExecutor': return {
+          executeWorkflow: mockExecuteWorkflow,
+          completeWorkflow: mockCompleteWorkflow,
+        }
         default: throw new Error(`Unexpected DI token in test: ${token}`)
       }
     }),
@@ -108,6 +116,8 @@ describe('Workflow Signals - Phase 9.1', () => {
     mockEm.flush.mockResolvedValue(undefined)
     mockExitStep.mockResolvedValue(undefined)
     mockExecuteWorkflow.mockResolvedValue({} as any)
+    mockCompleteWorkflow.mockResolvedValue(undefined)
+    ;(dispatchAgentOutcomeForCurrentStep as jest.Mock).mockResolvedValue(null)
     mockFindValidTransitions.mockResolvedValue([
       {
         transition: { toStepId: 'process', fromStepId: 'wait_approval', trigger: 'auto' },
@@ -515,6 +525,49 @@ describe('Workflow Signals - Phase 9.1', () => {
   })
 
   describe('Transition Execution', () => {
+    it('completes the instance when a resumed agent outcome is unhandled', async () => {
+      const agentInstance = { ...mockInstance, currentStepId: 'agent' }
+      const agentDefinition = {
+        ...mockDefinition,
+        definition: {
+          steps: [
+            {
+              stepId: 'agent',
+              stepType: 'AUTOMATED',
+              activities: [{ activityType: 'INVOKE_AGENT' }],
+            },
+          ],
+          transitions: [],
+        },
+      }
+      const agentStepInstance = { ...mockStepInstance, stepId: 'agent' }
+      mockFindOneWithDecryption
+        .mockResolvedValueOnce(agentInstance as any)
+        .mockResolvedValueOnce(agentDefinition as any)
+        .mockResolvedValueOnce(agentStepInstance as any)
+      ;(dispatchAgentOutcomeForCurrentStep as jest.Mock).mockResolvedValueOnce({
+        kind: 'failed',
+        error: 'unwired agent outcome',
+      })
+
+      await sendSignal(mockEm, mockContainer, {
+        instanceId,
+        signalName: 'agent_orchestrator.proposal.ready',
+        agentOutcome: 'rejected',
+        tenantId,
+        organizationId,
+      })
+
+      expect(mockCompleteWorkflow).toHaveBeenCalledWith(
+        mockEm,
+        mockContainer,
+        instanceId,
+        'FAILED',
+        { error: 'unwired agent outcome' },
+      )
+      expect(mockExecuteWorkflow).not.toHaveBeenCalled()
+    })
+
     it('should find and execute valid transitions after signal', async () => {
       mockFindOneWithDecryption
         .mockResolvedValueOnce({ ...mockInstance } as any)
@@ -547,7 +600,7 @@ describe('Workflow Signals - Phase 9.1', () => {
         expect.objectContaining({ id: instanceId }),
         'wait_approval',
         'process',
-        expect.any(Object)
+        expect.any(Object),
       )
     })
 

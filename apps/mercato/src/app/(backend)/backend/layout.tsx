@@ -1,23 +1,24 @@
 import { cookies, headers } from 'next/headers'
-import { backendRoutes } from '@/.mercato/generated/backend-routes.generated'
-import { findRouteManifestMatch, registerBackendRouteManifests } from '@open-mercato/shared/modules/registry'
+import { backendRouteMetadata } from '@/.mercato/generated/backend-route-metadata.generated'
+import { findRouteManifestMatch } from '@open-mercato/shared/modules/registry'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { AppShell } from '@open-mercato/ui/backend/AppShell'
-import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { resolveSupportedLocalesForRequest, resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { resolveForcedLocale } from '@open-mercato/shared/lib/i18n/locale'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
-import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import { profilePathPrefixes } from '@open-mercato/core/modules/auth/lib/profile-sections'
 import { APP_VERSION } from '@open-mercato/shared/lib/version'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { PageInjectionBoundary } from '@open-mercato/ui/backend/injection/PageInjectionBoundary'
+import { BrowserTelemetry } from '@open-mercato/telemetry/browser'
+import { resolveBrowserTelemetryConfig } from '@open-mercato/telemetry/browser/server'
 import { DemoFeedbackWidget } from '@/components/DemoFeedbackWidget'
 import { BackendHeaderChrome } from '@/components/BackendHeaderChrome'
 
-registerBackendRouteManifests(backendRoutes)
-
 function collectStaticSettingsPathPrefixes(): string[] {
   const prefixes = new Set<string>()
-  for (const route of backendRoutes) {
+  for (const route of backendRouteMetadata) {
     if (route.pageContext !== 'settings') continue
     const href = route.pattern ?? route.path ?? ''
     if (!href || href.includes('[')) continue
@@ -55,7 +56,11 @@ export default async function BackendLayout({
     path = '/backend' + (Array.isArray(slug) && slug.length > 0 ? `/${slug.join('/')}` : '')
   }
 
-  const { translate, locale, dict } = await resolveTranslations()
+  // This layout mounts its own `I18nProvider` inside the root layout's, so it has
+  // to resolve the served set itself: detecting against the process-wide set would
+  // let the admin subtree render a locale the root layout already rejected.
+  const supportedLocales = await resolveSupportedLocalesForRequest()
+  const { translate, locale, dict } = await resolveTranslations({ supportedLocales })
   const embeddingConfigured = Boolean(
     process.env.OPENAI_API_KEY ||
     process.env.GOOGLE_GENERATIVE_AI_API_KEY ||
@@ -69,7 +74,7 @@ export default async function BackendLayout({
     'Search requires configuring an embedding provider for semantic search.',
   )
 
-  const match = findRouteManifestMatch(backendRoutes, path)
+  const match = findRouteManifestMatch(backendRouteMetadata, path)
   const currentTitle = match?.route.titleKey
     ? translate(match.route.titleKey, match.route.title)
     : (match?.route.title ?? '')
@@ -87,8 +92,10 @@ export default async function BackendLayout({
   const grantedFeatures = Array.isArray(auth?.features)
     ? auth.features.filter((feature): feature is string => typeof feature === 'string')
     : []
-  const canManageUpgradeActions =
-    auth?.isSuperAdmin === true || hasAllFeatures(['configs.manage'], grantedFeatures)
+  const canManageUpgradeActions = authorizeFeatures(['configs.manage'], {
+    grantedFeatures,
+    unrestricted: auth?.isSuperAdmin === true,
+  })
   const baseProductName = translate('appShell.productName', 'Open Mercato')
   const productName = deployEnv && deployEnv !== 'local'
     ? `${baseProductName} (${deployEnv.charAt(0).toUpperCase() + deployEnv.slice(1)})`
@@ -101,8 +108,13 @@ export default async function BackendLayout({
     organizationId: auth?.orgId ?? null,
   }
 
+  // Resolved per request (this layout is force-dynamic), so browser RUM can be
+  // toggled per environment without a rebuild. Null keeps the SDK chunk from
+  // ever being requested.
+  const browserTelemetryConfig = resolveBrowserTelemetryConfig({ cookieHeader: cookieStore.toString() })
+
   return (
-    <I18nProvider locale={locale} dict={dict}>
+    <I18nProvider locale={locale} dict={dict} localeLocked={resolveForcedLocale(process.env) !== null} supportedLocales={supportedLocales}>
       <AppShell
         productName={productName}
         email={auth?.email}
@@ -135,6 +147,7 @@ export default async function BackendLayout({
           {children}
         </PageInjectionBoundary>
         {demoModeEnabled ? <DemoFeedbackWidget demoModeEnabled={demoModeEnabled} /> : null}
+        <BrowserTelemetry config={browserTelemetryConfig} />
       </AppShell>
     </I18nProvider>
   )

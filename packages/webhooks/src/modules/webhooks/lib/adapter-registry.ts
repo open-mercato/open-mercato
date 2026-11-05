@@ -3,6 +3,13 @@ const WEBHOOK_ENDPOINT_ADAPTERS_KEY = '__openMercatoWebhookEndpointAdapters__'
 export interface WebhookEndpointAdapter {
   readonly providerKey: string
   readonly subscribedEvents: string[]
+  /**
+   * Opt-in for adapters whose verified events intentionally cannot be mapped to
+   * tenant/organization scope. Unscoped events cannot be checked against the
+   * Custom Webhooks integration enabled state, so the inbound route rejects them
+   * by default unless an adapter explicitly declares this behavior.
+   */
+  readonly allowUnscopedInbound?: boolean
 
   formatPayload?(event: { type: string; data: unknown }): Promise<{
     url: string

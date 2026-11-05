@@ -269,6 +269,36 @@ describe('runAiAgentObject — generate mode', () => {
     const callArg = generateObjectMock.mock.calls[0][0] as { system: string }
     expect(callArg.system).toBe('System prompt base.\n\nHydrated record context.')
   })
+
+  it('hands resolvePageContext the authenticated caller id, not a browser-supplied one', async () => {
+    const schema = z.object({ name: z.string() })
+    const resolvePageContext = jest.fn(async (_input: AiAgentPageContextInput) => 'Hydrated record context.')
+    seedAgentRegistryForTests([
+      makeAgent({
+        id: 'catalog.extractor',
+        moduleId: 'catalog',
+        executionMode: 'object',
+        output: { schemaName: 'Out', schema },
+        resolvePageContext,
+      }),
+    ])
+
+    await runAiAgentObject({
+      agentId: 'catalog.extractor',
+      input: 'go',
+      authContext: { ...baseAuth, userId: 'authenticated-user' },
+      pageContext: {
+        entityType: 'catalog:product',
+        recordId: 'p-1',
+        userId: 'spoofed-user',
+      },
+      container: {} as never,
+    })
+
+    expect(resolvePageContext).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'authenticated-user' }),
+    )
+  })
 })
 
 describe('runAiAgentObject — stream mode', () => {

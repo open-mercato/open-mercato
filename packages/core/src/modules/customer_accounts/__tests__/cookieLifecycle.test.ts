@@ -15,6 +15,10 @@
 
 import { randomUUID } from 'crypto'
 
+jest.mock('@open-mercato/core/modules/customer_accounts/lib/tenantEligibility', () => ({
+  isCustomerTenantActive: jest.fn(async () => true),
+}))
+
 const tenantId = randomUUID()
 const orgId = randomUUID()
 
@@ -36,6 +40,7 @@ const customerUserService = {
   checkLockout: jest.fn(() => false),
   incrementFailedAttempts: jest.fn(async () => undefined),
   resetFailedAttempts: jest.fn(async () => undefined),
+  resetFailedAttemptsUnlessLocked: jest.fn(async () => true),
   updateLastLoginAt: jest.fn(async () => undefined),
 }
 
@@ -51,6 +56,7 @@ const customerSessionService = {
 
 const customerRbacService = {
   loadAcl: jest.fn(async () => ({ features: ['portal.view'], isPortalAdmin: false })),
+  getEffectiveFeatures: jest.fn(async () => ['portal.view']),
 }
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({

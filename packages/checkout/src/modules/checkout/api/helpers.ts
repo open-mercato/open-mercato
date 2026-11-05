@@ -8,6 +8,7 @@ import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { CHECKOUT_PASSWORD_COOKIE } from '../lib/constants'
 import { verifyCheckoutAccessToken } from '../lib/utils'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -105,6 +106,10 @@ export function requireCheckoutPasswordSession(
 export function handleCheckoutRouteError(error: unknown) {
   if (error instanceof CrudHttpError) {
     return NextResponse.json(error.body ?? { error: error.message }, { status: error.status })
+  }
+  const interceptorRejection = getCommandInterceptorHttpRejection(error)
+  if (interceptorRejection) {
+    return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
   }
   if (error instanceof z.ZodError) {
     const fieldErrors = error.issues.reduce<Record<string, string>>((result, issue) => {

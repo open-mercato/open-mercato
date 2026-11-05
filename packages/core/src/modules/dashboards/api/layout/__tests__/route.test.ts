@@ -12,7 +12,11 @@ const em = {
   flush: jest.fn(),
 }
 
-const rbac = { loadAcl: jest.fn() }
+const rbac = {
+  loadAcl: jest.fn(),
+  getEffectiveFeatures: jest.fn(),
+  userHasAllFeatures: jest.fn(),
+}
 
 const container = {
   resolve: jest.fn((name: string) => {
@@ -64,6 +68,8 @@ describe('dashboards layout route mutation guard', () => {
     em.create.mockImplementation((_entity: unknown, payload: Record<string, unknown>) => ({ id: 'rec', ...payload }))
     em.findOne.mockResolvedValue(null)
     rbac.loadAcl.mockResolvedValue({ isSuperAdmin: true, features: [] })
+    rbac.getEffectiveFeatures.mockResolvedValue(['dashboards.view', 'dashboards.configure'])
+    rbac.userHasAllFeatures.mockResolvedValue(true)
     validateCrudMutationGuardMock.mockResolvedValue({ ok: true, shouldRunAfterSuccess: true, metadata: { token: 'guard' } })
     runCrudMutationGuardAfterSuccessMock.mockResolvedValue(undefined)
   })

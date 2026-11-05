@@ -164,6 +164,7 @@ export default function SecurityUserForm({
   return (
     <CrudForm<SecurityUserCrudValues>
       title={t('security.admin.users.detail.title', 'User MFA detail')}
+      titleHeadingLevel={1}
       backHref="/backend/security/users"
       schema={schema}
       formId={formId}

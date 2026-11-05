@@ -45,13 +45,13 @@ describe('useDealClosure', () => {
     expect(updateCrudMock).toHaveBeenCalledWith('customers/deals', {
       id: 'deal-1',
       closureOutcome: 'lost',
-      status: 'loose',
+      status: 'lost',
       lossReasonId: 'reason-price',
     })
     expect(runMutationWithContext).toHaveBeenCalledWith(expect.any(Function), {
       id: 'deal-1',
       closureOutcome: 'lost',
-      status: 'loose',
+      status: 'lost',
       lossReasonId: 'reason-price',
       operation: 'closeLost',
     })
@@ -79,7 +79,7 @@ describe('useDealClosure', () => {
     expect(updateCrudMock).toHaveBeenCalledWith('customers/deals', {
       id: 'deal-1',
       closureOutcome: 'lost',
-      status: 'loose',
+      status: 'lost',
       lossReasonId: 'reason-price',
       lossNotes: 'Too expensive',
     })

@@ -1,20 +1,41 @@
-import { createModuleEvents } from '@open-mercato/shared/modules/events'
+import { createModuleEvents, type EventPayloadSchema } from '@open-mercato/shared/modules/events'
 
 /**
  * Sales Module Events
  *
  * Declares all events that can be emitted by the sales module.
  */
+
+/**
+ * Payload emitted by `commands/documents.ts` (`emitTotalsCalculated`) for
+ * `sales.document.totals.calculated`. Fields mirror the emit call exactly;
+ * `totals` is the calculation result object, declared as `object`.
+ */
+const totalsCalculatedPayloadSchema: EventPayloadSchema = {
+  fields: [
+    { path: 'documentKind', type: 'text' },
+    { path: 'documentId', type: 'text' },
+    { path: 'organizationId', type: 'text' },
+    { path: 'tenantId', type: 'text' },
+    { path: 'customerId', type: 'text', optional: true },
+    { path: 'totals', type: 'object' },
+    { path: 'lineCount', type: 'number' },
+  ],
+}
+
 const events = [
   // Orders
   { id: 'sales.order.created', label: 'Sales Order Created', entity: 'order', category: 'crud' },
   { id: 'sales.order.updated', label: 'Sales Order Updated', entity: 'order', category: 'crud' },
   { id: 'sales.order.deleted', label: 'Sales Order Deleted', entity: 'order', category: 'crud' },
+  { id: 'sales.order.confirmed', label: 'Sales Order Confirmed', entity: 'order', category: 'lifecycle' },
+  { id: 'sales.order.cancelled', label: 'Sales Order Cancelled', entity: 'order', category: 'lifecycle' },
 
   // Quotes
   { id: 'sales.quote.created', label: 'Quote Created', entity: 'quote', category: 'crud' },
   { id: 'sales.quote.updated', label: 'Quote Updated', entity: 'quote', category: 'crud' },
   { id: 'sales.quote.deleted', label: 'Quote Deleted', entity: 'quote', category: 'crud' },
+  { id: 'sales.quote.expiring', label: 'Quote Expiring', entity: 'quote', category: 'lifecycle' },
 
   // Invoices
   { id: 'sales.invoice.created', label: 'Invoice Created', entity: 'invoice', category: 'crud' },
@@ -57,7 +78,7 @@ const events = [
   { id: 'sales.channel.deleted', label: 'Sales Channel Deleted', entity: 'channel', category: 'crud' },
 
   // Lifecycle events - Document calculations
-  { id: 'sales.document.totals.calculated', label: 'Document Totals Calculated', category: 'lifecycle' },
+  { id: 'sales.document.totals.calculated', label: 'Document Totals Calculated', category: 'lifecycle', payloadSchema: totalsCalculatedPayloadSchema },
   { id: 'sales.document.calculate.before', label: 'Before Document Calculate', category: 'lifecycle', excludeFromTriggers: true },
   { id: 'sales.document.calculate.after', label: 'After Document Calculate', category: 'lifecycle', excludeFromTriggers: true },
 

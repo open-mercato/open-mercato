@@ -9,9 +9,14 @@ import { apiCall } from '../utils/apiCall'
 type FeatureCheckResponse = { granted: string[] }
 
 const OverrideUserFeaturesContext = createContext<readonly string[]>([])
+const OverrideRegistryRevisionContext = createContext<readonly ComponentOverride[]>([])
 
 export function useOverrideUserFeatures(): readonly string[] {
   return useContext(OverrideUserFeaturesContext)
+}
+
+export function useOverrideRegistryRevision(): readonly ComponentOverride[] {
+  return useContext(OverrideRegistryRevisionContext)
 }
 
 export function ComponentOverrideProvider({
@@ -26,6 +31,7 @@ export function ComponentOverrideProvider({
   registerComponentOverrides(overrides)
 
   React.useEffect(() => {
+    registerComponentOverrides(overrides)
     return () => {
       registerComponentOverrides([])
     }
@@ -58,9 +64,11 @@ export function ComponentOverrideProvider({
   }, [overrides])
 
   return (
-    <OverrideUserFeaturesContext.Provider value={userFeatures}>
-      {children}
-    </OverrideUserFeaturesContext.Provider>
+    <OverrideRegistryRevisionContext.Provider value={overrides}>
+      <OverrideUserFeaturesContext.Provider value={userFeatures}>
+        {children}
+      </OverrideUserFeaturesContext.Provider>
+    </OverrideRegistryRevisionContext.Provider>
   )
 }
 

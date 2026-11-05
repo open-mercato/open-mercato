@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import Link from 'next/link'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { InjectionWidgetModule } from '@open-mercato/shared/modules/widgets/injection'
 import { ProjectColorDot } from '../../../lib/timesheets-ui/ProjectColorDot'
@@ -40,14 +41,14 @@ function TimerSidebarIndicator() {
   if (!timer.running || !timer.entryId) return null
 
   return (
-    <a
-      href="/backend/staff/timesheets"
+    <Link
+      href="/backend/staff/time-tracking/timesheet"
       className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-muted transition-colors cursor-pointer"
       title={t('staff.timesheets.sidebar.timerRunning', 'Timer running — click to view')}
     >
       <span className="relative flex h-2.5 w-2.5 shrink-0">
-        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
-        <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-500" />
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-status-error-icon opacity-75" />
+        <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-status-error-icon" />
       </span>
       {timer.projectName ? (
         <span className="inline-flex items-center gap-1 truncate">
@@ -56,7 +57,7 @@ function TimerSidebarIndicator() {
         </span>
       ) : null}
       <span className="ml-auto font-mono tabular-nums shrink-0">{formatElapsed(elapsed)}</span>
-    </a>
+    </Link>
   )
 }
 

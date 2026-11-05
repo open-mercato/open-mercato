@@ -1,19 +1,43 @@
+import { randomUUID } from 'node:crypto'
 import { Client, Pool } from 'pg'
 import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isPrivateCrossProcessBroadcastEvent } from '@open-mercato/shared/modules/events'
 import type { EmitOptions, EventPayload } from './types'
 
 const BRIDGE_CHANNEL = 'om_event_bridge'
 const MAX_MESSAGE_BYTES = 7_000
 const RECONNECT_DELAY_MS = 1_000
+const TRUNCATED_ENTITY_REF_KEYS = ['id', 'entityId', 'entityType'] as const
+const TRUNCATED_AUDIENCE_SCALAR_KEYS = ['tenantId', 'organizationId', 'recipientUserId', 'recipientRoleId'] as const
+const TRUNCATED_AUDIENCE_LIST_KEYS = ['organizationIds', 'recipientUserIds', 'recipientRoleIds'] as const
+const CROSS_PROCESS_EVENT_INSTANCE_ID_KEY = '__openMercatoCrossProcessEventInstanceId__'
 
 const logger = createLogger('events')
+
+/**
+ * PIDs can collide across containers, so self-echo suppression must not rely
+ * on originPid alone. Every publisher stamps envelopes with this random
+ * per-process instance id; consumers prefer it and fall back to originPid
+ * only for envelopes published by older processes during a rolling deploy.
+ */
+function getCrossProcessEventInstanceId(): string {
+  const globalScope = globalThis as Record<string, unknown>
+  const existing = globalScope[CROSS_PROCESS_EVENT_INSTANCE_ID_KEY]
+  if (typeof existing === 'string' && existing.length > 0) return existing
+  const created = randomUUID()
+  globalScope[CROSS_PROCESS_EVENT_INSTANCE_ID_KEY] = created
+  return created
+}
+
+export const CROSS_PROCESS_EVENT_INSTANCE_ID = getCrossProcessEventInstanceId()
 
 type BridgeEnvelope = {
   event: string
   payload: EventPayload
   options?: EmitOptions
   originPid: number
+  originInstanceId?: string
 }
 
 type CrossProcessEventListener = (envelope: BridgeEnvelope) => void | Promise<void>
@@ -158,20 +182,61 @@ export async function publishCrossProcessEvent(
   const pool = getPublisherPool()
   if (!pool) return
 
+  const bridgeOptions = options
+    && Object.prototype.hasOwnProperty.call(options, 'tenantId')
+    && options.tenantId === undefined
+    ? { ...options, tenantId: null }
+    : options
+
   const envelope: BridgeEnvelope = {
     event,
     payload,
-    options,
+    options: bridgeOptions,
     originPid: process.pid,
+    originInstanceId: CROSS_PROCESS_EVENT_INSTANCE_ID,
   }
 
-  const serialized = JSON.stringify(envelope)
-  if (Buffer.byteLength(serialized, 'utf8') > MAX_MESSAGE_BYTES) {
+  const serialized = serializeWithinLimit(envelope)
+  if (!serialized) {
     logger.warn('Cross-process event dropped: payload exceeds size limit', { event, maxBytes: MAX_MESSAGE_BYTES })
     return
   }
 
   await pool.query('SELECT pg_notify($1, $2)', [BRIDGE_CHANNEL, serialized])
+}
+
+function fitsMessageLimit(serialized: string): boolean {
+  return Buffer.byteLength(serialized, 'utf8') <= MAX_MESSAGE_BYTES
+}
+
+/** Oversize browser-facing envelopes degrade to a scoped entity ref; private coordination is never reshaped, only dropped. */
+function serializeWithinLimit(envelope: BridgeEnvelope): string | null {
+  const serialized = JSON.stringify(envelope)
+  if (fitsMessageLimit(serialized)) return serialized
+  if (isPrivateCrossProcessBroadcastEvent(envelope.event)) return null
+  const truncated = JSON.stringify({ ...envelope, payload: buildTruncatedPayload(envelope.payload) })
+  if (!fitsMessageLimit(truncated)) return null
+  logger.warn('Cross-process event truncated: payload exceeds size limit', {
+    event: envelope.event,
+    maxBytes: MAX_MESSAGE_BYTES,
+  })
+  return truncated
+}
+
+function buildTruncatedPayload(payload: EventPayload): EventPayload {
+  const source = (payload ?? {}) as Record<string, unknown>
+  const truncated: Record<string, unknown> = { truncated: true }
+  for (const key of [...TRUNCATED_ENTITY_REF_KEYS, ...TRUNCATED_AUDIENCE_SCALAR_KEYS]) {
+    const value = source[key]
+    if (typeof value === 'string' && value.trim().length > 0) truncated[key] = value.trim()
+  }
+  for (const key of TRUNCATED_AUDIENCE_LIST_KEYS) {
+    const value = source[key]
+    if (!Array.isArray(value)) continue
+    const scopes = value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+    if (scopes.length > 0) truncated[key] = scopes
+  }
+  return truncated
 }
 
 export function registerCrossProcessEventListener(listener: CrossProcessEventListener): () => void {

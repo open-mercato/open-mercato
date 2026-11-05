@@ -30,6 +30,8 @@ type ActivityHistorySectionProps = {
   /** Optional guarded-mutation runner so per-row mutations route through the parent's
    * `useGuardedMutation` and emit retry-last-mutation context. */
   runMutation?: GuardedMutationRunner
+  /** Interaction type hidden from the history by default ('task' unless overridden); pass null to show every type. */
+  excludeInteractionType?: string | null
 }
 
 type InteractionListResponse = {
@@ -71,8 +73,8 @@ function computeRangeStart(range: '7d' | '30d' | '90d'): Date {
   return date
 }
 
-function toTimelineTimestamp(activity: InteractionSummary): string {
-  return activity.occurredAt ?? activity.scheduledAt ?? activity.createdAt
+function toTimelineTimestamp(activity: InteractionSummary): string | null {
+  return activity.occurredAt ?? activity.scheduledAt ?? null
 }
 
 function normalizeLegacyActivity(activity: ActivitySummary): InteractionSummary {
@@ -114,9 +116,17 @@ function sortTimelineActivities(items: InteractionSummary[]): InteractionSummary
     const rightIsUpcoming = rightIsPlanned && rightScheduled >= now
 
     if (leftIsUpcoming !== rightIsUpcoming) return leftIsUpcoming ? -1 : 1
-    if (leftIsUpcoming && rightIsUpcoming) return leftScheduled - rightScheduled
+    if (leftIsUpcoming && rightIsUpcoming) {
+      return leftScheduled - rightScheduled || left.id.localeCompare(right.id)
+    }
 
-    const compare = toTimelineTimestamp(right).localeCompare(toTimelineTimestamp(left))
+    const leftTime = toTimelineTimestamp(left)
+    const rightTime = toTimelineTimestamp(right)
+    if (!leftTime || !rightTime) {
+      if (leftTime !== rightTime) return leftTime ? -1 : 1
+      return right.id.localeCompare(left.id)
+    }
+    const compare = rightTime.localeCompare(leftTime)
     if (compare !== 0) return compare
     return right.id.localeCompare(left.id)
   })
@@ -150,7 +160,9 @@ function matchesSearch(activity: InteractionSummary, query: string): boolean {
 }
 
 function isWithinRange(activity: InteractionSummary, start: Date): boolean {
-  const timestamp = new Date(toTimelineTimestamp(activity))
+  const value = toTimelineTimestamp(activity)
+  if (!value) return false
+  const timestamp = new Date(value)
   if (Number.isNaN(timestamp.getTime())) return false
   return timestamp >= start
 }
@@ -170,6 +182,7 @@ export function ActivityHistorySection({
   refreshKey = 0,
   onEditActivity,
   runMutation,
+  excludeInteractionType = 'task',
 }: ActivityHistorySectionProps) {
   const t = useT()
   const [searchInput, setSearchInput] = React.useState('')
@@ -231,14 +244,14 @@ export function ActivityHistorySection({
       let firstPageHasMore = false
       let pagesLoaded = 0
 
-      const taskFilterActive = activeTypes.includes('task')
+      const excludedFilterActive = excludeInteractionType ? activeTypes.includes(excludeInteractionType) : true
       do {
         const params = new URLSearchParams({
           entityId,
           limit: String(pageSize),
           from: rangeStart,
         })
-        if (!taskFilterActive) params.set('excludeInteractionType', 'task')
+        if (excludeInteractionType && !excludedFilterActive) params.set('excludeInteractionType', excludeInteractionType)
         if (activeTypes.length > 0) params.set('type', activeTypes.join(','))
         if (search) params.set('search', search)
         if (sortMode === 'recent') {
@@ -310,7 +323,7 @@ export function ActivityHistorySection({
     } finally {
       if (!isStale()) setLoading(false)
     }
-  }, [activeTypes, dateRange, entityId, loadedPages, search, sortMode, t, useCanonicalInteractions])
+  }, [activeTypes, dateRange, entityId, excludeInteractionType, loadedPages, search, sortMode, t, useCanonicalInteractions])
 
   React.useEffect(() => {
     const controller = new AbortController()
@@ -448,9 +461,11 @@ export function ActivityHistorySection({
         ) : (
           <div className="space-y-4">
             {activities.map((activity, index) => {
-              const currentYear = new Date(toTimelineTimestamp(activity)).getFullYear()
-              const previousYear = index > 0 ? new Date(toTimelineTimestamp(activities[index - 1])).getFullYear() : null
-              const showYearSeparator = previousYear !== null && currentYear !== previousYear
+              const currentDate = toTimelineTimestamp(activity)
+              const previousDate = index > 0 ? toTimelineTimestamp(activities[index - 1]) : null
+              const currentYear = currentDate ? new Date(currentDate).getFullYear() : null
+              const previousYear = previousDate ? new Date(previousDate).getFullYear() : null
+              const showYearSeparator = currentYear !== null && previousYear !== null && currentYear !== previousYear
               return (
                 <React.Fragment key={activity.id}>
                   {showYearSeparator ? (

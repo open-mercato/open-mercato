@@ -9,6 +9,7 @@ import { changePasswordSchema } from '../../../data/validators'
 import { buildSecurityOpenApi, securityErrorSchema } from '../../openapi'
 import { localizeSecurityApiBody } from '../../i18n'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 
 const logger = createLogger('security').child({ component: 'profile-password' })
 
@@ -70,6 +71,10 @@ export async function PUT(req: Request) {
   } catch (error) {
     if (error instanceof CrudHttpError) {
       return NextResponse.json(await localizeSecurityApiBody(error.body), { status: error.status })
+    }
+    const interceptorRejection = getCommandInterceptorHttpRejection(error)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
     }
     logger.error('Profile password update failed', { err: error })
     return NextResponse.json(

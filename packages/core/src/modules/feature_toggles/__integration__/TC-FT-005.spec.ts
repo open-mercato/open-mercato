@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, request as playwrightRequest, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
   createFeatureToggleFixture,
@@ -13,6 +13,9 @@ test.describe('TC-FT-005: Authorization and permission enforcement on global tog
     const employeeToken = await getAuthToken(request, 'employee')
     const identifier = uniqueToggleIdentifier('qa_auth')
     let toggleId: string | null = null
+    const unauthenticatedRequest = await playwrightRequest.newContext({
+      baseURL: process.env.BASE_URL?.trim() || 'http://localhost:3000',
+    })
 
     try {
       toggleId = await createFeatureToggleFixture(request, superadminToken, {
@@ -22,10 +25,10 @@ test.describe('TC-FT-005: Authorization and permission enforcement on global tog
         defaultValue: true,
       })
 
-      const unauthenticatedListResponse = await rawApiRequest(request, 'GET', '/api/feature_toggles/global')
+      const unauthenticatedListResponse = await rawApiRequest(unauthenticatedRequest, 'GET', '/api/feature_toggles/global')
       expect(unauthenticatedListResponse.status()).toBe(401)
 
-      const unauthenticatedCreateResponse = await rawApiRequest(request, 'POST', '/api/feature_toggles/global', {
+      const unauthenticatedCreateResponse = await rawApiRequest(unauthenticatedRequest, 'POST', '/api/feature_toggles/global', {
         data: {
           identifier: uniqueToggleIdentifier('qa_auth_no_token'),
           name: 'QA Auth No Token',
@@ -106,6 +109,7 @@ test.describe('TC-FT-005: Authorization and permission enforcement on global tog
       )
       expect(detailAfterDeleteResponse.status()).toBe(404)
     } finally {
+      await unauthenticatedRequest.dispose()
       await deleteFeatureToggleIfExists(request, superadminToken, toggleId)
     }
   })

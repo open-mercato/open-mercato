@@ -45,6 +45,15 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn((...args: unknown[]) => mockFindWithDecryption(...args)),
 }))
 
+jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
+  resolveOrganizationScopeForRequest: jest.fn(async () => ({
+    selectedId: 'org-1',
+    filterIds: ['org-1'],
+    allowedIds: ['org-1'],
+    tenantId: '123e4567-e89b-12d3-a456-426614174001',
+  })),
+}))
+
 jest.mock('@open-mercato/shared/lib/commands/flush', () => ({
   withAtomicFlush: jest.fn(async (_em: unknown, phases: Array<() => unknown>) => {
     for (const phase of phases) await phase()

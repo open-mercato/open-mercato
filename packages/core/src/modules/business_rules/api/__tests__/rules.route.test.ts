@@ -1,6 +1,7 @@
 /** @jest-environment node */
 
 import { describe, test, expect, beforeEach, jest } from '@jest/globals'
+import { registerModules } from '@open-mercato/shared/lib/modules/registry'
 import { createAuthMock, createMockCache, createMockContainer, createMockEntityManager } from './test-helpers'
 import * as ruleEngine from '../../lib/rule-engine'
 
@@ -28,9 +29,17 @@ const mockGetAuthFromRequest = createAuthMock()
 const mockEm = createMockEntityManager()
 const mockCache = createMockCache()
 const mockContainer = createMockContainer(mockEm, mockCache)
+const mockUserHasAllFeatures = jest.fn(async () => true)
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => mockContainer),
+}))
+
+const mockAssertActorCanGrantRoles = jest.fn(async (_input: unknown) => undefined)
+
+jest.mock('../../../auth/lib/grantChecks', () => ({
+  assertActorCanGrantRoles: jest.fn((input: unknown) => mockAssertActorCanGrantRoles(input)),
+  isUserEffectivelySuperAdmin: jest.fn(async () => false),
 }))
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
@@ -65,6 +74,24 @@ let PUT: RouteModule['PUT']
 let DELETE: RouteModule['DELETE']
 let metadata: RouteModule['metadata']
 
+const routeHandler = async () => new Response('{}')
+
+function registerBusinessRuleRouteOptions() {
+  registerModules([
+    {
+      id: 'business_rules',
+      info: { title: 'Business Rules' },
+      apis: [
+        {
+          path: '/api/business_rules/rules',
+          handlers: { GET: routeHandler },
+          docs: { methods: { GET: { summary: 'List business rules' } } },
+        },
+      ],
+    },
+  ] as any)
+}
+
 beforeAll(async () => {
   const routeModule = await import('../rules/route')
   GET = routeModule.GET
@@ -81,6 +108,21 @@ describe('Business Rules API - /api/business_rules/rules', () => {
   beforeEach(() => {
     mockCache.clearAll()
     jest.clearAllMocks()
+    registerBusinessRuleRouteOptions()
+    mockUserHasAllFeatures.mockResolvedValue(true)
+    mockAssertActorCanGrantRoles.mockResolvedValue(undefined)
+    mockEm.find.mockImplementation(async (Entity: any, query: any) => {
+      if (Entity?.name === 'Role' && Array.isArray(query?.id?.$in)) {
+        return query.id.$in.map((id: string) => ({ id, tenantId: validTenantId }))
+      }
+      return []
+    })
+    mockContainer.resolve.mockImplementation((token: string) => {
+      if (token === 'em') return mockEm
+      if (token === 'cache') return mockCache
+      if (token === 'rbacService') return { userHasAllFeatures: mockUserHasAllFeatures }
+      return undefined
+    })
     mockGetAuthFromRequest.mockResolvedValue({
       sub: 'user-1',
       email: 'user@example.com',
@@ -409,6 +451,68 @@ describe('Business Rules API - /api/business_rules/rules', () => {
       expect(body.error).not.toMatch(/insert into|null value|not-null constraint|condition_expression|relation ".+"/i)
       expect(consoleError).toHaveBeenCalled()
       consoleError.mockRestore()
+    })
+
+    test('should return 409 when Rule ID already exists for the tenant', async () => {
+      const newRule = {
+        ruleId: 'QA_DUP_1',
+        ruleName: 'Duplicate Rule',
+        ruleType: 'ACTION',
+        entityType: 'QaDup',
+        conditionExpression: { field: 'status', operator: '=', value: 'ACTIVE' },
+      }
+
+      const uniqueViolation = Object.assign(
+        new Error(
+          'duplicate key value violates unique constraint "business_rules_rule_id_tenant_id_unique"'
+        ),
+        { code: '23505' }
+      )
+
+      mockEm.create.mockReturnValue({ id: '723e4567-e89b-12d3-a456-426614174009', ...newRule })
+      mockEm.flush.mockRejectedValue(uniqueViolation)
+      mockLogger.error.mockClear()
+
+      const request = new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'POST',
+        body: JSON.stringify(newRule),
+      })
+      const response = await POST(request)
+
+      expect(response.status).toBe(409)
+      const body = await response.json()
+      expect(body.error).toContain('QA_DUP_1')
+      expect(mockLogger.error).not.toHaveBeenCalled()
+    })
+
+    test('should return 409 when reusing the Rule ID of a soft-deleted rule', async () => {
+      const newRule = {
+        ruleId: 'QA_DUP_1',
+        ruleName: 'Rule After Delete',
+        ruleType: 'ACTION',
+        entityType: 'QaDup',
+        conditionExpression: { field: 'status', operator: '=', value: 'ACTIVE' },
+      }
+
+      const uniqueViolation = Object.assign(
+        new Error(
+          'duplicate key value violates unique constraint "business_rules_rule_id_tenant_id_unique"'
+        ),
+        { code: '23505' }
+      )
+
+      mockEm.create.mockReturnValue({ id: '823e4567-e89b-12d3-a456-426614174010', ...newRule })
+      mockEm.flush.mockRejectedValue(uniqueViolation)
+
+      const request = new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'POST',
+        body: JSON.stringify(newRule),
+      })
+      const response = await POST(request)
+
+      expect(response.status).toBe(409)
+      const body = await response.json()
+      expect(body.error).not.toBe(enStrings['business_rules.errors.createFailed'])
     })
   })
 
@@ -950,6 +1054,175 @@ describe('Business Rules API - /api/business_rules/rules', () => {
       const body = await response.json()
       expect(body.error).toContain('url')
     })
+
+    test('should accept CALL_OPEN_MERCATO with endpoint, method, and API key profile', async () => {
+      const openMercatoAction = {
+        type: 'CALL_OPEN_MERCATO',
+        config: {
+          endpoint: '/api/business_rules/rules',
+          method: 'GET',
+          apiKeyId: '123e4567-e89b-12d3-a456-426614174010',
+          body: { source: 'test' },
+        },
+      }
+
+      const newRule = {
+        ruleId: 'RULE-CALL-OM',
+        ruleName: 'Call OpenMercato',
+        ruleType: 'ACTION',
+        entityType: 'WorkOrder',
+        conditionExpression: { field: 'status', operator: '=', value: 'PENDING' },
+        successActions: [openMercatoAction],
+      }
+
+      mockEm.findOne.mockImplementation(async (Entity: any) => {
+        if (Entity?.name === 'ApiKey') {
+          return {
+            id: '123e4567-e89b-12d3-a456-426614174010',
+            tenantId: validTenantId,
+            organizationId: validOrgId,
+            rolesJson: ['role-1'],
+            expiresAt: null,
+            deletedAt: null,
+          }
+        }
+        return null
+      })
+      mockEm.create.mockReturnValue({ id: '223e4567-e89b-12d3-a456-426614174004', ...newRule, tenantId: validTenantId, organizationId: validOrgId })
+      mockEm.flush.mockResolvedValue(undefined)
+
+      const request = new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'POST',
+        body: JSON.stringify(newRule),
+      })
+      const response = await POST(request)
+
+      expect(response.status).toBe(201)
+      expect(mockUserHasAllFeatures).toHaveBeenCalledWith(
+        'user-1',
+        ['api_keys.create'],
+        { tenantId: validTenantId, organizationId: validOrgId },
+      )
+    })
+
+    test('should reject CALL_OPEN_MERCATO with missing required config fields without treating it as CALL_WEBHOOK', async () => {
+      const newRule = {
+        ruleId: 'RULE-CALL-OM-MISSING',
+        ruleName: 'Call OpenMercato Missing',
+        ruleType: 'ACTION',
+        entityType: 'WorkOrder',
+        conditionExpression: { field: 'status', operator: '=', value: 'PENDING' },
+        successActions: [{ type: 'CALL_OPEN_MERCATO', config: {} }],
+      }
+
+      const request = new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'POST',
+        body: JSON.stringify(newRule),
+      })
+      const response = await POST(request)
+
+      expect(response.status).toBe(400)
+      const body = await response.json()
+      expect(body.error).toContain('endpoint')
+      expect(body.error).toContain('method')
+      expect(body.error).toContain('apiKeyId')
+      expect(body.error).not.toContain('url')
+    })
+
+    test('should reject CALL_OPEN_MERCATO when the selected API key profile is unavailable', async () => {
+      const newRule = {
+        ruleId: 'RULE-CALL-OM-UNKNOWN-KEY',
+        ruleName: 'Call OpenMercato Unknown Key',
+        ruleType: 'ACTION',
+        entityType: 'WorkOrder',
+        conditionExpression: { field: 'status', operator: '=', value: 'PENDING' },
+        successActions: [
+          {
+            type: 'CALL_OPEN_MERCATO',
+            config: {
+              endpoint: '/api/business_rules/rules',
+              method: 'GET',
+              apiKeyId: '123e4567-e89b-12d3-a456-426614174099',
+            },
+          },
+        ],
+      }
+
+      mockEm.findOne.mockResolvedValue(null)
+
+      const request = new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'POST',
+        body: JSON.stringify(newRule),
+      })
+      const response = await POST(request)
+
+      expect(response.status).toBe(400)
+      const body = await response.json()
+      expect(body.error).toContain('selected API key profile is not available')
+    })
+
+    test('should reject CALL_OPEN_MERCATO when the API key profile id is malformed', async () => {
+      const newRule = {
+        ruleId: 'RULE-CALL-OM-MALFORMED-KEY',
+        ruleName: 'Call OpenMercato Malformed Key',
+        ruleType: 'ACTION',
+        entityType: 'WorkOrder',
+        conditionExpression: { field: 'status', operator: '=', value: 'PENDING' },
+        successActions: [
+          {
+            type: 'CALL_OPEN_MERCATO',
+            config: {
+              endpoint: '/api/business_rules/rules',
+              method: 'GET',
+              apiKeyId: 'not-a-uuid',
+            },
+          },
+        ],
+      }
+
+      const request = new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'POST',
+        body: JSON.stringify(newRule),
+      })
+      const response = await POST(request)
+
+      expect(response.status).toBe(400)
+      const body = await response.json()
+      expect(body.error).toContain('selected API key profile is not available')
+      expect(mockEm.findOne).not.toHaveBeenCalled()
+    })
+
+    test('should require api_keys.create when configuring CALL_OPEN_MERCATO', async () => {
+      mockUserHasAllFeatures.mockResolvedValue(false)
+
+      const newRule = {
+        ruleId: 'RULE-CALL-OM-FORBIDDEN',
+        ruleName: 'Call OpenMercato Forbidden',
+        ruleType: 'ACTION',
+        entityType: 'WorkOrder',
+        conditionExpression: { field: 'status', operator: '=', value: 'PENDING' },
+        successActions: [
+          {
+            type: 'CALL_OPEN_MERCATO',
+            config: {
+              endpoint: '/api/business_rules/rules',
+              method: 'GET',
+              apiKeyId: '123e4567-e89b-12d3-a456-426614174010',
+            },
+          },
+        ],
+      }
+
+      const request = new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'POST',
+        body: JSON.stringify(newRule),
+      })
+      const response = await POST(request)
+
+      expect(response.status).toBe(403)
+      const body = await response.json()
+      expect(body.requiredFeatures).toEqual(['api_keys.create'])
+    })
   })
 
   describe('Validation - PUT/Update', () => {
@@ -995,6 +1268,279 @@ describe('Business Rules API - /api/business_rules/rules', () => {
       expect(response.status).toBe(400)
       const body = await response.json()
       expect(body.error).toContain('eventName')
+    })
+
+    test('should reject unavailable CALL_OPEN_MERCATO API key profile on update', async () => {
+      mockEm.findOne.mockImplementation(async (Entity: any) => {
+        if (Entity?.name === 'ApiKey') return null
+        return {
+          id: '123e4567-e89b-12d3-a456-426614174000',
+          ruleId: 'RULE-OM-UPDATE',
+          tenantId: validTenantId,
+          organizationId: validOrgId,
+          deletedAt: null,
+        }
+      })
+
+      const updateData = {
+        id: '123e4567-e89b-12d3-a456-426614174000',
+        successActions: [
+          {
+            type: 'CALL_OPEN_MERCATO',
+            config: {
+              endpoint: '/api/business_rules/rules',
+              method: 'GET',
+              apiKeyId: '123e4567-e89b-12d3-a456-426614174099',
+            },
+          },
+        ],
+      }
+
+      const request = new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'PUT',
+        body: JSON.stringify(updateData),
+      })
+      const response = await PUT(request)
+
+      expect(response.status).toBe(400)
+      const body = await response.json()
+      expect(body.error).toContain('selected API key profile is not available')
+    })
+
+    test('should require api_keys.create to update a rule that already has a CALL_OPEN_MERCATO action', async () => {
+      mockUserHasAllFeatures.mockResolvedValue(false)
+      mockEm.findOne.mockImplementation(async () => ({
+        id: '123e4567-e89b-12d3-a456-426614174000',
+        ruleId: 'RULE-OM-STORED',
+        tenantId: validTenantId,
+        organizationId: validOrgId,
+        deletedAt: null,
+        successActions: [
+          {
+            type: 'CALL_OPEN_MERCATO',
+            config: {
+              endpoint: '/api/business_rules/rules',
+              method: 'GET',
+              apiKeyId: '123e4567-e89b-12d3-a456-426614174010',
+            },
+          },
+        ],
+        failureActions: null,
+      }))
+
+      const request = new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'PUT',
+        body: JSON.stringify({
+          id: '123e4567-e89b-12d3-a456-426614174000',
+          entityType: 'Order',
+          eventType: 'afterCreate',
+          enabled: true,
+        }),
+      })
+      const response = await PUT(request)
+
+      expect(response.status).toBe(403)
+      const body = await response.json()
+      expect(body.requiredFeatures).toEqual(['api_keys.create'])
+      expect(mockEm.flush).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('CALL_OPEN_MERCATO API key profile grant ceiling', () => {
+    const privilegedKeyId = '123e4567-e89b-42d3-a456-426614174077'
+    const ruleId = '123e4567-e89b-42d3-a456-426614174000'
+    const privilegedAction = {
+      type: 'CALL_OPEN_MERCATO',
+      config: {
+        endpoint: '/api/business_rules/rules',
+        method: 'GET',
+        apiKeyId: privilegedKeyId,
+      },
+    }
+    const privilegedKey = {
+      id: privilegedKeyId,
+      name: 'Privileged integration key',
+      tenantId: validTenantId,
+      organizationId: validOrgId,
+      rolesJson: ['role-superadmin'],
+      expiresAt: null,
+      deletedAt: null,
+    }
+
+    function denyGrant() {
+      mockAssertActorCanGrantRoles.mockImplementation(async () => {
+        const { forbidden } = jest.requireActual('@open-mercato/shared/lib/crud/errors') as typeof import('@open-mercato/shared/lib/crud/errors')
+        throw forbidden('Not allowed to grant')
+      })
+    }
+
+    function storedRule(overrides: Record<string, unknown> = {}) {
+      return {
+        id: ruleId,
+        ruleId: 'RULE-OM-PRIVILEGED',
+        tenantId: validTenantId,
+        organizationId: validOrgId,
+        deletedAt: null,
+        createdBy: 'superadmin-user',
+        updatedBy: null,
+        successActions: [privilegedAction],
+        failureActions: null,
+        ...overrides,
+      }
+    }
+
+    test('POST rejects a profile whose roles the author cannot grant', async () => {
+      denyGrant()
+      mockEm.findOne.mockImplementation(async (Entity: any) => (Entity?.name === 'ApiKey' ? privilegedKey : null))
+
+      const response = await POST(new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'POST',
+        body: JSON.stringify({
+          ruleId: 'RULE-OM-BORROW',
+          ruleName: 'Borrow privileged roles',
+          ruleType: 'ACTION',
+          entityType: 'WorkOrder',
+          conditionExpression: { field: 'status', operator: '=', value: 'PENDING' },
+          successActions: [privilegedAction],
+        }),
+      }))
+
+      expect(response.status).toBe(400)
+      const body = await response.json()
+      expect(body.error).toContain('roles you cannot grant')
+      expect(mockEm.flush).not.toHaveBeenCalled()
+      expect(mockAssertActorCanGrantRoles).toHaveBeenCalledWith(expect.objectContaining({
+        actorUserId: 'user-1',
+        tenantId: validTenantId,
+        requireBoundRbac: true,
+        roles: [expect.objectContaining({ id: 'role-superadmin' })],
+      }))
+    })
+
+    test('POST rejects AI session and one-time keys as profiles', async () => {
+      for (const reservedKey of [
+        { ...privilegedKey, name: '__session_abc__', sessionToken: 'sess_abc' },
+        { ...privilegedKey, name: '__onetime__' },
+        { ...privilegedKey, name: '__business_rule_RULE-1__' },
+      ]) {
+        mockEm.findOne.mockImplementation(async (Entity: any) => (Entity?.name === 'ApiKey' ? reservedKey : null))
+        const response = await POST(new Request('http://localhost:3000/api/business_rules/rules', {
+          method: 'POST',
+          body: JSON.stringify({
+            ruleId: 'RULE-OM-RESERVED',
+            ruleName: 'Reserved key',
+            ruleType: 'ACTION',
+            entityType: 'WorkOrder',
+            successActions: [privilegedAction],
+          }),
+        }))
+        expect(response.status).toBe(400)
+        const body = await response.json()
+        expect(body.error).toContain('selected API key profile is not available')
+      }
+    })
+
+    test('PUT rejects a condition-only edit of a stored privileged action by an author who cannot grant its roles', async () => {
+      denyGrant()
+      mockEm.findOne.mockImplementation(async (Entity: any) => (Entity?.name === 'ApiKey' ? privilegedKey : storedRule()))
+
+      const response = await PUT(new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'PUT',
+        body: JSON.stringify({
+          id: ruleId,
+          conditionExpression: { field: 'status', operator: '=', value: 'ANY' },
+        }),
+      }))
+
+      expect(response.status).toBe(400)
+      const body = await response.json()
+      expect(body.error).toContain('roles you cannot grant')
+      expect(mockEm.flush).not.toHaveBeenCalled()
+    })
+
+    test('PUT still lets an author who cannot grant the roles disable the rule', async () => {
+      denyGrant()
+      const rule = storedRule()
+      mockEm.findOne.mockImplementation(async (Entity: any) => (Entity?.name === 'ApiKey' ? privilegedKey : rule))
+      mockEm.flush.mockResolvedValue(undefined)
+
+      const response = await PUT(new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'PUT',
+        body: JSON.stringify({ id: ruleId, enabled: false }),
+      }))
+
+      expect(response.status).toBe(200)
+      expect(mockAssertActorCanGrantRoles).not.toHaveBeenCalled()
+    })
+
+    test('PUT treats a full edit-form payload that only switches the rule off as a disable', async () => {
+      denyGrant()
+      const effectiveFrom = new Date('2026-01-01T00:00:00.000Z')
+      const rule = storedRule({
+        ruleName: 'Privileged lookup',
+        enabled: true,
+        priority: 100,
+        conditionExpression: { operator: 'AND', rules: [{ value: 'ACTIVE', operator: '=', field: 'status' }] },
+        effectiveFrom,
+      })
+      mockEm.findOne.mockImplementation(async (Entity: any) => (Entity?.name === 'ApiKey' ? privilegedKey : rule))
+      mockEm.flush.mockResolvedValue(undefined)
+      const formPayload = {
+        id: ruleId,
+        ruleId: 'RULE-OM-PRIVILEGED',
+        ruleName: 'Privileged lookup',
+        conditionExpression: { operator: 'AND', rules: [{ field: 'status', operator: '=', value: 'ACTIVE' }] },
+        successActions: [{ config: { apiKeyId: privilegedKeyId, method: 'GET', endpoint: '/api/business_rules/rules' }, type: 'CALL_OPEN_MERCATO' }],
+        failureActions: null,
+        priority: 100,
+        effectiveFrom: effectiveFrom.toISOString(),
+        enabled: false,
+      }
+
+      const disableResponse = await PUT(new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'PUT',
+        body: JSON.stringify(formPayload),
+      }))
+      expect(disableResponse.status).toBe(200)
+      expect(mockAssertActorCanGrantRoles).not.toHaveBeenCalled()
+
+      const renameResponse = await PUT(new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'PUT',
+        body: JSON.stringify({ ...formPayload, ruleName: 'Renamed while disabling' }),
+      }))
+      expect(renameResponse.status).toBe(400)
+      expect((await renameResponse.json()).error).toContain('roles you cannot grant')
+    })
+
+    test('PUT only re-checks the grant ceiling of stored actions, so an unrelated edit is not blocked by a stale endpoint', async () => {
+      const rule = storedRule({
+        successActions: [{ ...privilegedAction, config: { ...privilegedAction.config, endpoint: '/api/removed/endpoint' } }],
+      })
+      mockEm.findOne.mockImplementation(async (Entity: any) => (Entity?.name === 'ApiKey' ? privilegedKey : rule))
+      mockEm.flush.mockResolvedValue(undefined)
+
+      const response = await PUT(new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'PUT',
+        body: JSON.stringify({ id: ruleId, ruleName: 'Renamed rule' }),
+      }))
+
+      expect(response.status).toBe(200)
+      expect(mockAssertActorCanGrantRoles).toHaveBeenCalledTimes(1)
+    })
+
+    test('PUT records the saving user as the rule author', async () => {
+      const rule = storedRule({ updatedBy: 'previous-editor' })
+      mockEm.findOne.mockImplementation(async (Entity: any) => (Entity?.name === 'ApiKey' ? privilegedKey : rule))
+      mockEm.flush.mockResolvedValue(undefined)
+
+      const response = await PUT(new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'PUT',
+        body: JSON.stringify({ id: ruleId, priority: 5 }),
+      }))
+
+      expect(response.status).toBe(200)
+      expect(rule.updatedBy).toBe('user-1')
+      expect(mockAssertActorCanGrantRoles).toHaveBeenCalledWith(expect.objectContaining({ actorUserId: 'user-1' }))
     })
   })
 })
