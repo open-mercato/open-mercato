@@ -725,6 +725,12 @@ document-level fields beside them would put two different meanings of "total" in
 line commands must reject a supplied `amountsMode` rather than silently ignore it — silently ignoring an
 accepted field is the exact failure #5644 exists to name.
 
+The document-level `totalsMode` field follows the older quote-create compatibility contract instead:
+`quoteCreateSchema` does not declare it and therefore strips it. A valid quote update carrying the same
+order-only field also ignores it while applying the supported edit, so create and update remain
+consistent without narrowing a previously accepted request. This does not opt quotes into external mode;
+quote responses still expose no mode and all quote calculations remain computed.
+
 Omitting the field reproduces today's behaviour exactly, so no existing caller changes.
 
 New error keys, routed through i18n per the project rule:
@@ -1167,6 +1173,8 @@ positional rather than gated.
 
 ### 2026-10-30
 
+- Recorded the #8240 compatibility rule for an order-only `totalsMode` on quotes: valid create and update
+  requests both ignore it, preserving the existing create contract while quotes remain computed.
 - Recorded the delegated defaults for the three product decisions, matching the implemented and tested
   order-only mode, return-header preservation and registry re-application behavior.
 - Replaced stale spec-only/pending-decision status with implementation-review status. Normal independent
