@@ -195,7 +195,7 @@ export async function saveAndReopenTask(page: Page, fixture: BoardFixture, local
   const payload: unknown = submitted.postDataJSON()
   expect(payload).toEqual({ title, timeProjectId: fixture.projectId, taskStatusId: statusId, assigneeStaffMemberId: fixture.memberId })
   expect(response.status()).toBe(201)
-  const created: unknown = await response.json()
+  const created = await readJsonSafe<unknown>(response)
   const taskId = expectId(created && typeof created === 'object' && 'id' in created ? created.id : null, 'The submitted task should have an id')
   const assertDrawer = async () => {
     const drawer = page.getByRole('dialog', { name: title, exact: true })

@@ -3,6 +3,7 @@ import { expect, request as playwrightRequest, type APIRequestContext } from '@p
 import { apiRequest, getAuthToken, withCredentialIsolatedRequest } from '@open-mercato/core/helpers/integration/api'
 import { createOrganizationFixture, createRoleFixture, createUserFixture, deleteOrganizationIfExists, deleteRoleIfExists, deleteUserIfExists, setRoleAclFeatures } from '@open-mercato/core/helpers/integration/authFixtures'
 import { expectId, getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { createTestTimeProject } from '../fixtures'
 
 export const TASKS_PATH = '/api/staff/timesheets/tasks'
@@ -94,7 +95,17 @@ export async function createBoardFixture(provisionRequest: APIRequestContext, pe
         const response = await apiRequest(request, 'DELETE', `${PROJECTS_PATH}/${project.id}/employees?id=${assignmentId}`, { token: adminToken })
         expect(response.ok(), 'The owned membership should be removed').toBe(true)
       })
-      const defaultStatusId = await createRecord(STATUSES_PATH, { timeProjectId: project.id, name: `Ready ${suffix}`, slug: `ready-${suffix.toLowerCase()}`, isDefault: true, position: 500 })
+      const statusesResponse = await apiRequest(request, 'GET', `${STATUSES_PATH}?timeProjectId=${project.id}&pageSize=100`, { token: adminToken })
+      expect(statusesResponse.status()).toBe(200)
+      const statuses = await readJsonSafe<{ items: Array<{ id: string; is_default: boolean; updated_at: string }> }>(statusesResponse)
+      const defaults = statuses?.items.filter((status) => status.is_default) ?? []
+      expect(defaults, 'The owned new project must supply one default column').toHaveLength(1)
+      const defaultStatusId = expectId(defaults[0]?.id, 'The owned project default must have an id')
+      const renamed = await apiRequest(request, 'PUT', STATUSES_PATH, {
+        token: adminToken, data: { id: defaultStatusId, name: `Ready ${suffix}` },
+        headers: buildOptimisticLockHeader(defaults[0].updated_at),
+      })
+      expect(renamed.status(), 'The owned default column must have the scenario name').toBe(200)
       const chosenStatusId = await createRecord(STATUSES_PATH, { timeProjectId: project.id, name: `Working ${suffix}`, slug: `working-${suffix.toLowerCase()}`, position: 1500 })
       projects.push({ ...project, defaultStatusId, chosenStatusId })
       cleanupSteps.push(async () => {
