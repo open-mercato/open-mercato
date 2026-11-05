@@ -80,7 +80,7 @@ test('CI orchestration changes select the full integration suite without includi
   }
 })
 
-function runValidationSteps({ eventName = 'pull_request', changedPath = 'README.md', createParent = true } = {}) {
+function runValidationSteps({ eventName = 'pull_request', changedPath = 'README.md', createParent = true, forceFullSuite = false } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ci-validation-scope-'))
   try {
     const git = (...argumentsList) => {
@@ -115,7 +115,12 @@ function runValidationSteps({ eventName = 'pull_request', changedPath = 'README.
       const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', script], {
         cwd: root,
         encoding: 'utf8',
-        env: { ...process.env, PATH: `${binDir}${path.delimiter}${process.env.PATH}`, YARN_CALLS_FILE: callsFile },
+        env: {
+          ...process.env,
+          FORCE_FULL_SUITE: String(forceFullSuite),
+          PATH: `${binDir}${path.delimiter}${process.env.PATH}`,
+          YARN_CALLS_FILE: callsFile,
+        },
         timeout: 10000,
       })
       assert.equal(result.status, 0, `${stepName}: ${result.stderr}`)
@@ -136,6 +141,12 @@ test('documentation and module PRs preserve affected-package validation', () => 
       'turbo run typecheck --filter=[origin/main]...',
       'turbo run test --filter=[origin/main]...',
     ])
+  }
+})
+
+test('forced full-suite PRs run full typecheck and unit gates', () => {
+  for (const changedPath of ['README.md', 'packages/core/src/modules/customers/index.ts']) {
+    assert.deepEqual(runValidationSteps({ changedPath, forceFullSuite: true }), ['typecheck', 'test'])
   }
 })
 
