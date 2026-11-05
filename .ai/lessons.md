@@ -18,6 +18,15 @@ This catalog indexes 148 focused lessons. Route the task first, then read only r
 
 ## Catalog
 
+<<<<<<< HEAD
+=======
+- [Enforce loopback for anonymous development services](lessons/enforce-loopback-for-anonymous-development-services.md) — area:architecture,testing; module:create_app,starter; topic:docker-compose,network-security,local-development,registry
+
+- [Scoped option loaders must distinguish failure from empty results](lessons/scoped-option-loaders-must-distinguish-failure-from-empty.md) — area:backend-ui,testing; module:customer_accounts,ui; topic:error-states,data-scoping,ui-components
+
+- [Content Security Policy must cover srcDoc previews](lessons/content-security-policy-must-cover-srcdoc-previews.md) — area:backend-ui,testing,integration; module:ecommerce,ui,shared,documents; topic:content-security-policy,srcdoc,nonces,security-regression,configured-origins
+
+>>>>>>> 08a0a5b79 (fix(dev): bound Verdaccio uploads and default to loopback (#8655))
 - [Serialize deprovisioning with final session issuance](lessons/serialize-deprovisioning-with-session-issuance.md) — area:module-data,testing; module:auth,sso; topic:security,concurrency,session-revocation,tenant-isolation
 - [Assert auth redirect responses before following them](lessons/assert-auth-redirects-before-following-them.md) — area:integration,testing; module:auth,sso; topic:testing,api-contracts,redirects,session-revocation
 
