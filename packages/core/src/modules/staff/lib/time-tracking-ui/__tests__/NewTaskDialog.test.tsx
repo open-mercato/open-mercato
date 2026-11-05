@@ -109,18 +109,19 @@ const statuses: BoardStatus[] = [
 function renderDialog(props: Partial<React.ComponentProps<typeof NewTaskDialog>> = {}) {
   const onOpenChange = props.onOpenChange ?? jest.fn()
   const onCreated = props.onCreated ?? jest.fn()
-  const utils = render(
-    <NewTaskDialog
-      open
-      onOpenChange={onOpenChange}
-      timeProjectId={PROJECT_ID}
-      statuses={statuses}
-      assigneeStaffMemberId={null}
-      onCreated={onCreated}
-      {...props}
-    />,
-  )
-  return { ...utils, onOpenChange, onCreated }
+  const dialogProps = {
+    open: true,
+    onOpenChange,
+    timeProjectId: PROJECT_ID,
+    statuses,
+    assigneeStaffMemberId: null,
+    onCreated,
+    ...props,
+  }
+  const utils = render(<NewTaskDialog {...dialogProps} />)
+  const rerenderDialog = (nextProps: Partial<React.ComponentProps<typeof NewTaskDialog>>) =>
+    utils.rerender(<NewTaskDialog {...dialogProps} {...nextProps} />)
+  return { ...utils, onOpenChange, onCreated, rerenderDialog }
 }
 
 function titleInput() {
@@ -186,5 +187,120 @@ describe('NewTaskDialog — keyboard submit', () => {
     fireEvent.keyDown(screen.getByTestId('board-new-task-dialog'), { key: 'Enter', metaKey: true })
 
     await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalled())
+  })
+})
+
+describe('NewTaskDialog — draft lifecycle (#7392)', () => {
+  const inProgressStatus: BoardStatus = {
+    ...statuses[0],
+    id: '44444444-4444-4444-8444-444444444444',
+    name: 'In progress',
+    slug: 'in-progress',
+    position: 1,
+    isDefault: false,
+  }
+  const boardStatuses = [...statuses, inProgressStatus]
+
+  it('preserves the title and chosen status through a same-project status refetch', async () => {
+    const { rerenderDialog } = renderDialog({ statuses: boardStatuses })
+    fireEvent.change(titleInput(), { target: { value: 'Draft before scope settlement' } })
+    fireEvent.change(screen.getByTestId('board-new-task-status'), { target: { value: inProgressStatus.id } })
+
+    rerenderDialog({ statuses: [] })
+    expect(titleInput()).toHaveValue('Draft before scope settlement')
+
+    rerenderDialog({ statuses: boardStatuses.map((status) => ({ ...status })) })
+    expect(titleInput()).toHaveValue('Draft before scope settlement')
+    expect(screen.getByTestId('board-new-task-status')).toHaveValue(inProgressStatus.id)
+
+    fireEvent.click(submitButton())
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalledWith(
+      '/api/staff/timesheets/tasks',
+      expect.objectContaining({
+        body: JSON.stringify({
+          timeProjectId: PROJECT_ID,
+          taskStatusId: inProgressStatus.id,
+          title: 'Draft before scope settlement',
+          assigneeStaffMemberId: null,
+        }),
+      }),
+      expect.anything(),
+    ))
+  })
+
+  it('chooses the loaded default without clearing a title typed before statuses arrive', () => {
+    const { rerenderDialog } = renderDialog({ statuses: [] })
+    fireEvent.change(titleInput(), { target: { value: 'Draft before statuses load' } })
+    expect(submitButton()).toBeDisabled()
+
+    rerenderDialog({ statuses: [inProgressStatus, ...statuses] })
+    expect(titleInput()).toHaveValue('Draft before statuses load')
+    expect(screen.getByTestId('board-new-task-status')).toHaveValue(STATUS_ID)
+    expect(submitButton()).not.toBeDisabled()
+  })
+
+  it('keeps a valid selection when another status becomes the default', () => {
+    const { rerenderDialog } = renderDialog({ statuses: boardStatuses })
+    fireEvent.change(titleInput(), { target: { value: 'Keep the original status' } })
+
+    rerenderDialog({ statuses: boardStatuses.map((status) => ({
+      ...status,
+      isDefault: status.id === inProgressStatus.id,
+    })) })
+    expect(titleInput()).toHaveValue('Keep the original status')
+    expect(screen.getByTestId('board-new-task-status')).toHaveValue(STATUS_ID)
+  })
+
+  it('replaces a removed selection with a valid status without clearing the title', () => {
+    const { rerenderDialog } = renderDialog({ statuses: boardStatuses })
+    fireEvent.change(titleInput(), { target: { value: 'Keep this title' } })
+    fireEvent.change(screen.getByTestId('board-new-task-status'), { target: { value: inProgressStatus.id } })
+
+    rerenderDialog({ statuses })
+    expect(titleInput()).toHaveValue('Keep this title')
+    expect(screen.getByTestId('board-new-task-status')).toHaveValue(STATUS_ID)
+  })
+
+  it('uses the first available status when the loaded list has no default', () => {
+    const { rerenderDialog } = renderDialog({ statuses: [] })
+    rerenderDialog({ statuses: [inProgressStatus] })
+    expect(screen.getByTestId('board-new-task-status')).toHaveValue(inProgressStatus.id)
+  })
+
+  it('starts a fresh draft when reopened for the same project', () => {
+    const { rerenderDialog } = renderDialog({ statuses: boardStatuses })
+    fireEvent.change(titleInput(), { target: { value: 'Discarded draft' } })
+    fireEvent.change(screen.getByTestId('board-new-task-status'), { target: { value: inProgressStatus.id } })
+
+    rerenderDialog({ open: false })
+    rerenderDialog({ open: true })
+    expect(titleInput()).toHaveValue('')
+    expect(screen.getByTestId('board-new-task-status')).toHaveValue(STATUS_ID)
+  })
+
+  it('resets for a different project even when the status IDs have not changed', () => {
+    const { rerenderDialog } = renderDialog({ statuses: boardStatuses })
+    fireEvent.change(titleInput(), { target: { value: 'Previous project draft' } })
+    fireEvent.change(screen.getByTestId('board-new-task-status'), { target: { value: inProgressStatus.id } })
+
+    rerenderDialog({ timeProjectId: '55555555-5555-4555-8555-555555555555' })
+    expect(titleInput()).toHaveValue('')
+    expect(screen.getByTestId('board-new-task-status')).toHaveValue(STATUS_ID)
+  })
+
+  it('does not reuse a previous project status while the new project loads', () => {
+    const { rerenderDialog } = renderDialog()
+    fireEvent.change(titleInput(), { target: { value: 'Previous project draft' } })
+    const nextProjectId = '55555555-5555-4555-8555-555555555555'
+
+    rerenderDialog({ timeProjectId: nextProjectId, statuses: [] })
+    expect(titleInput()).toHaveValue('')
+    fireEvent.change(titleInput(), { target: { value: 'New project draft' } })
+    expect(screen.getByTestId('board-new-task-status')).toHaveValue('')
+    expect(submitButton()).toBeDisabled()
+
+    rerenderDialog({ timeProjectId: nextProjectId, statuses: [inProgressStatus] })
+    expect(titleInput()).toHaveValue('New project draft')
+    expect(screen.getByTestId('board-new-task-status')).toHaveValue(inProgressStatus.id)
   })
 })
