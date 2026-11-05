@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 175 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 181 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -18,6 +18,10 @@ This catalog indexes 175 focused lessons. Route the task first, then read only r
 
 ## Catalog
 
+- [Archive rotated context as one batch](lessons/archive-rotated-context-as-one-batch.md) — area:ai-workflow,testing; module:platform; topic:context-budget,archival,file-count,regression-testing
+
+- [Enforce loopback for anonymous development services](lessons/enforce-loopback-for-anonymous-development-services.md) — area:architecture,testing; module:create_app,starter; topic:docker-compose,network-security,local-development,registry
+
 - [Scoped option loaders must distinguish failure from empty results](lessons/scoped-option-loaders-must-distinguish-failure-from-empty.md) — area:backend-ui,testing; module:customer_accounts,ui; topic:error-states,data-scoping,ui-components
 
 - [Content Security Policy must cover srcDoc previews](lessons/content-security-policy-must-cover-srcdoc-previews.md) — area:backend-ui,testing,integration; module:ecommerce,ui,shared,documents; topic:content-security-policy,srcdoc,nonces,security-regression,configured-origins
@@ -25,6 +29,7 @@ This catalog indexes 175 focused lessons. Route the task first, then read only r
 - [Serialize deprovisioning with final session issuance](lessons/serialize-deprovisioning-with-session-issuance.md) — area:module-data,testing; module:auth,sso; topic:security,concurrency,session-revocation,tenant-isolation
 - [Assert auth redirect responses before following them](lessons/assert-auth-redirects-before-following-them.md) — area:integration,testing; module:auth,sso; topic:testing,api-contracts,redirects,session-revocation
 - [Verify integration fixture cleanup against the actual endpoint](lessons/verify-integration-fixture-cleanup-contracts.md) — area:testing,integration; module:resources,entities,customers,sales,warranty_claims,channel_discord; topic:testing,fixture-cleanup,fixture-setup,api-contracts,schema-validation,proposal-origin
+- [Realtime detail refreshes must preserve drafts and reject stale responses](lessons/realtime-detail-refreshes-preserve-drafts-and-response-order.md) — area:backend-ui,testing; module:warranty_claims,ui,events; topic:events,realtime,request-ordering,testing,telemetry
 
 ### architecture
 
@@ -52,7 +57,7 @@ This catalog indexes 175 focused lessons. Route the task first, then read only r
 - [Keep standalone template module lists aligned with template package dependencies](lessons/keep-standalone-template-module-lists-aligned-with.md) — area:architecture; module:create_app,cli; topic:generated-files,package-runtime,template-sync
 - [Module-registered schedules can only target workers owned by the same module](lessons/module-schedules-can-only-target-workers-owned-by-the-same-module.md) — area:architecture,integration; module:scheduler,queue,payment_gateways; topic:workers,module-boundaries,provider-lifecycle
 - [Never guard sensitive routes with `requireRoles` on mutable role names](lessons/never-guard-sensitive-routes-with-requireroles-on.md) — area:architecture; module:auth; topic:access-control,data-scoping
-- [Package build scripts must rewrite side-effect ESM imports and declared watch entrypoints must exist](lessons/package-build-scripts-must-rewrite-side-effect-esm.md) — area:architecture,integration; module:checkout; topic:build-output,module-boundaries,package-runtime
+- [Package build scripts must rewrite side-effect ESM imports and declared watch entrypoints must exist](lessons/package-build-scripts-must-rewrite-side-effect-esm.md) — area:architecture,integration; module:checkout; topic:build-output,module-boundaries,package-runtime,json-assets
 - [Pin coupled dependency trains below the release-age gate before publishing](lessons/pin-coupled-dependency-trains-below-the-release-age-gate.md) — area:architecture,integration,testing; module:documents,create_app; topic:package-runtime,dependency-security,testing
 - [Prefer relative intra-package imports inside package CLI/runtime entrypoints](lessons/prefer-relative-intra-package-imports-inside-package.md) — area:architecture; module:cli; topic:package-runtime,runtime-startup,testing
 - [Standalone module discovery must treat published `src/modules` as canonical over `dist/modules`](lessons/standalone-module-discovery-must-treat-published-src.md) — area:architecture,framework-context,umes; module:create_app,events,cli; topic:build-output,events,generated-files
@@ -96,6 +101,7 @@ This catalog indexes 175 focused lessons. Route the task first, then read only r
 - [Hand-written custom routes resolve org scope via `resolveOrganizationScopeForRequest`, not `auth.orgId`](lessons/custom-routes-resolve-org-scope-via-the-directory-helper.md) — area:architecture,module-data; module:eudr,directory,customers; topic:data-scoping,access-control
 - [MikroORM 6 does NOT generate UUIDs client-side — assign PKs before referencing](lessons/mikroorm-6-does-not-generate-uuids-client-side-assign.md) — area:module-data; module:cli,shared; topic:data-integrity,testing,validation-errors
 - [MikroORM string defaults must be plain values, not pre-quoted SQL fragments](lessons/mikroorm-string-defaults-must-be-plain-values-not-pre.md) — area:module-data; module:entities; topic:generated-files,database-migrations,runtime-startup
+- [Type Kysely tables on generic transaction managers](lessons/type-kysely-tables-on-generic-transaction-managers.md) — area:module-data,testing; module:shared,entities; topic:kysely,transactions,typechecking
 - [Normalize raw SQL result types before JSON responses](lessons/normalize-raw-sql-result-types-before-json-responses.md) — area:module-data; module:platform; topic:testing,type-normalization
 - [JSON column defaults, twice-parsed command inputs, and scale-padded numerics](lessons/orm-json-defaults-double-parsed-inputs-and-numeric-padding.md) — area:module-data,debugging; module:eudr; topic:database-migrations,command-pattern,generated-files
 - [Organization-scoped routes must resolve request selection and reject invalid explicit writes](lessons/organization-scoped-routes-must-resolve-request-selection.md) — area:module-data,integration,debugging; module:entities,directory,auth; topic:data-scoping,access-control,route-coverage
@@ -148,7 +154,7 @@ This catalog indexes 175 focused lessons. Route the task first, then read only r
 - [New progress UI must use SSE, not fresh polling loops](lessons/new-progress-ui-must-use-sse-not-fresh-polling-loops.md) — area:backend-ui,module-data,integration; module:events,progress,ui; topic:data-import,events,realtime
 - [Optional chrome fetches must suppress auth redirects](lessons/optional-chrome-fetches-must-suppress-auth-redirects.md) — area:backend-ui,umes; module:auth,notifications,ui; topic:access-control,testing,ui-components
 - [Out-of-band bumps in browser optimistic-lock tests must not change the row's visible name](lessons/out-of-band-bumps-in-browser-optimistic-lock-tests-must.md) — area:backend-ui,integration,testing; module:ui,webhooks,cli; topic:concurrency,data-scoping,optimistic-locking
-- [Portaled confirmations must stay inside their parent dialog's React tree](lessons/portaled-confirmations-must-stay-inside-their-parent.md) — area:backend-ui,module-data; module:ui; topic:events,ui-components
+- [Portaled overlays must stay inside their owning dialog](lessons/portaled-confirmations-must-stay-inside-their-parent.md) — area:backend-ui,module-data; module:ui; topic:events,ui-components
 - [Route-aware backend chrome should use route manifests, not the full module registry](lessons/route-aware-backend-chrome-should-use-route-manifests.md) — area:backend-ui,architecture; module:ui,events; topic:events,generated-files,regeneration
 - [Shared candidate sets must stay identical across display and validation consumers](lessons/shared-candidate-sets-must-stay-identical-across-display.md) — area:backend-ui,testing; module:customers; topic:filters,testing,ui-components
 - [Sidebar hydration must preserve the exact RBAC inclusion semantics of the server layout](lessons/sidebar-hydration-must-preserve-the-exact-rbac.md) — area:backend-ui,debugging; module:ui; topic:access-control,data-scoping,generated-files
@@ -156,7 +162,7 @@ This catalog indexes 175 focused lessons. Route the task first, then read only r
 
 ### integration
 
-- [Documents module: collaboration runtime and data exposure](lessons/a-collaboration-sidecar-runs-outside-the-app-runtime.md) — area:integration,backend-ui,module-data; module:documents,search,auth; topic:realtime,access-control,data-scoping
+- [Documents module: collaboration runtime and data exposure](lessons/a-collaboration-sidecar-runs-outside-the-app-runtime.md) — area:integration,backend-ui,module-data; module:documents,search,auth; topic:realtime,access-control,data-scoping,durable-saves
 - [Akeneo base-field imports must not fall back across locales or channels](lessons/akeneo-base-field-imports-must-not-fall-back-across.md) — area:integration,debugging; module:data_sync,catalog; topic:data-import,data-scoping,testing
 - [Akeneo media identifiers can be slash-delimited path params](lessons/akeneo-media-identifiers-can-be-slash-delimited-path.md) — area:integration; module:data_sync,cli; topic:data-import,media
 - [Akeneo variant reuse must be scoped to the current product, not global SKU matches](lessons/akeneo-variant-reuse-must-be-scoped-to-the-current.md) — area:integration,debugging; module:catalog,data_sync; topic:data-import,data-scoping
@@ -173,7 +179,9 @@ This catalog indexes 175 focused lessons. Route the task first, then read only r
 - [Provider sandboxes may sign notifications with a separate CA](lessons/provider-sandboxes-may-sign-with-a-separate-ca.md) — area:integration; module:payment_gateways,gateway_tpay; topic:network-security,webhooks
 - [Security caches must outlive request-scoped providers and cover reserved IPv6 space](lessons/security-caches-must-outlive-request-scoped-providers.md) — area:integration,umes; module:cache,auth,cli; topic:data-scoping,network-security,provider-lifecycle
 - [Shared security-default changes require a complete consumer audit](lessons/shared-security-default-changes-require-a-complete.md) — area:integration,testing,module-data; module:shared,auth,cache,events,example,create_app,sso,api_keys; topic:access-control,data-scoping,events,testing
-- [Stabilize flaky integration tests by finding the hang, not by raising the timeout](lessons/stabilize-flaky-integration-tests-by-finding-the-hang.md) — area:integration,testing,backend-ui,module-data,debugging; module:events,queue,ui,auth,example,record_locks,warranty_claims,customers,phone_calls,search,cache,query_index,sales,sync_excel,workflows,data_sync,communication_channels,forms,security,cart; topic:events,testing,workers,hydration,component-overrides,timers
+- [Stabilize flaky integration tests by finding the hang, not by raising the timeout](lessons/stabilize-flaky-integration-tests-by-finding-the-hang.md) — area:integration,testing,backend-ui,module-data,debugging; module:events,queue,ui,auth,example,record_locks,warranty_claims,customers,phone_calls,search,cache,query_index,sales,sync_excel,workflows,data_sync,communication_channels,forms,security,documents,cart,catalog; topic:events,testing,workers,hydration,component-overrides,timers
+- [Use the confirmation dialog's explicit accessibility role](lessons/confirm-dialog-locators-use-alertdialog.md) — area:backend-ui,integration,testing; module:ui,warranty_claims; topic:accessibility,ui-components,testing
+- [Stabilize long claim desk flows with bounded interactions and teardown](lessons/stabilize-long-claim-desk-flows-with-bounded-interactions.md) — area:integration,testing,backend-ui; module:warranty_claims,ui; topic:testing,workers,component-overrides,concurrency,accessibility
 - [Standalone integration activation must match the asserted runtime surface](lessons/standalone-integration-activation-must-match-the-asserted.md) — area:integration,architecture,testing; module:create_app,example,design_system,auth; topic:access-control,component-overrides,generated-files,testing
 - [Standalone CI runners must mirror webhook-security env from parity scripts](lessons/standalone-ci-runners-must-mirror-webhook-security-env.md) — area:integration,architecture,testing; module:webhooks,create_app,checkout; topic:events,generated-files,database-migrations
 - [Store integration registry state in `globalThis` for standalone workers](lessons/store-integration-registry-state-in-globalthis-for.md) — area:integration,architecture,testing; module:integrations,shared,create_app; topic:generated-files,module-boundaries,database-migrations
@@ -218,7 +226,7 @@ This catalog indexes 175 focused lessons. Route the task first, then read only r
 - [Tests asserting `Intl` output must pin the locale and the calendar date](lessons/tests-asserting-intl-output-must-pin-locale-and-date.md) — area:testing,debugging,backend-ui; module:platform; topic:testing,i18n,ui-components
 - [Toggling Playwright request interception strands in-flight requests](lessons/toggling-playwright-request-interception-strands-in.md) — area:testing,debugging,integration; module:platform,example,create_app; topic:testing,template-sync,dev-runtime
 - [Use cryptographic randomness in auth-adjacent test helpers](lessons/use-cryptographic-randomness-in-auth-adjacent-test.md) — area:testing,integration,module-data; module:auth,cache,communication_channels; topic:data-scoping,generated-files,filters
-- [Use the bundled Node runtime for sandboxed macOS verification](lessons/use-the-bundled-node-runtime-for-sandboxed-macos.md) — area:testing,debugging; module:platform,create_app; topic:testing,node-runtime
+- [Use the bundled Node runtime for sandboxed macOS verification](lessons/use-the-bundled-node-runtime-for-sandboxed-macos.md) — area:testing,debugging; module:platform,create_app; topic:testing,node-runtime,engine-version,sandbox,temporary-directories
 - [When a task brief requires Playwright coverage, unit tests are not a substitute](lessons/when-a-task-brief-requires-playwright-coverage-unit.md) — area:testing; module:events,search; topic:events,module-boundaries,testing
 
 ### framework-context

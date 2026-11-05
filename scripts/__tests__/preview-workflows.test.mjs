@@ -163,6 +163,19 @@ test('published standalone lanes verify the disabled baseline before activating 
   }
 })
 
+test('published standalone test processes drain queues when app workers are disabled', () => {
+  for (const workflowPath of [snapshotWorkflowPath, npmSnapshotPreviewWorkflowPath]) {
+    const workflow = parse(readText(workflowPath))
+    const steps = workflow.jobs['standalone-integration'].steps
+    const configure = steps.find((step) => step.name === 'Configure standalone app environment')
+    const integration = steps.find((step) => step.name === 'Run integration tests')
+
+    assert.match(configure.run, /^AUTO_SPAWN_WORKERS=false$/m, workflowPath)
+    assert.equal(integration.env.AUTO_SPAWN_WORKERS, 'false', workflowPath)
+    assert.equal(integration.env.OM_TEST_APP_ROOT, '/tmp/standalone-app', workflowPath)
+  }
+})
+
 test('develop snapshot standalone initialization replaces the scaffold database URL', () => {
   const workflow = readText(snapshotWorkflowPath)
   const configureStart = stepIndex(workflow, 'Configure standalone app environment')
