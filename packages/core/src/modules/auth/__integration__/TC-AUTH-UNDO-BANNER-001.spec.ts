@@ -47,6 +47,7 @@ for (const canUndo of [false, true]) {
       const chromeResponse = page.waitForResponse((candidate) => candidate.url().includes('/api/auth/admin/nav') && candidate.request().method() === 'GET')
       await page.goto('/backend/roles')
       await chromeResponse
+      await expect(page.getByTestId('backend-chrome-ready')).toHaveAttribute('data-ready', 'true')
       const undo = page.getByRole('button', { name: /^(Undo|Cofnij)$/ })
       if (canUndo) {
         await expect(undo).toBeVisible()
