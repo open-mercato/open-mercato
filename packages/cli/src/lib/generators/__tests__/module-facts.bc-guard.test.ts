@@ -196,20 +196,13 @@ describe('module-facts BC resolve guard (T2)', () => {
     // so uniform growth across all four is the evidence that this is repo size,
     // not a duplicated payload. The headroom ratio is kept at the ~1.15 the
     // previous raise used, so the guard keeps the same detection power it had.
-    //
-    // Re-measured again on the staff timer-correctness union (#6409). `main` had
-    // grown to within 0.2% of all four caps (5,545,080 · 2,426,282 · 2,099,553 ·
-    // 2,288,794), so any additive PR now tripped the markdown cap; #6409 itself
-    // adds 2,226 · 712 · 762 · 771 bytes. Growth since the last measurement is
-    // again uniform (+15.0% / +14.9% / +15.4% / +15.3%), and the ~1.15 headroom
-    // ratio is restored on the merged tree.
     expect(Buffer.byteLength(completeJson)).toBeLessThan(6_380_000)
-    // Measured on the merged tree (`yarn jest module-facts.bc-guard`):
-    //   completeJson 5,547,306 · legacy delta 2,426,994 · markdown 2,100,315 ·
-    //   directory markdown 2,289,565.
-    // (Previous, on the agent_orchestrator union: 4,823,226 · 2,111,784 ·
-    //   1,820,787 · 1,985,779.)
-    expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(2_795_000)
+    // Measured on the current merged tree (`yarn jest module-facts.bc-guard`):
+    //   completeJson 5,547,284 · legacy delta 2,425,489 · markdown 2,100,437 ·
+    //   directory markdown 2,289,693.
+    // The four measures grew uniformly since the previous baseline
+    // (+15.0% / +14.9% / +15.4% / +15.3%), preserving the linear-growth signal.
+    expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(2_790_000)
     // Markdown cap raised with the source-link contract: entities, events, ACL
     // features, DI tokens, search entities, notifications, UMES hosts and UMES
     // contributions all render a resolved Source cell, and contribution
@@ -220,7 +213,7 @@ describe('module-facts BC resolve guard (T2)', () => {
     // the union measurement, and a cap that close has stopped detecting blow-ups
     // and started rejecting the next additive module — the failure mode the note
     // above warns about, one merge away.
-    expect(directoryMarkdownBytes).toBeLessThan(2_635_000)
+    expect(directoryMarkdownBytes).toBeLessThan(2_640_000)
   })
 
   it('keeps every shipped directory section resumable and every advertised subsection anchor exact', () => {
