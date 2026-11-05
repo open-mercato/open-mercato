@@ -249,7 +249,7 @@ export function useInteractions({
         )
         await refresh()
       } catch (err) {
-        if (surfaceRecordConflict(err, t)) { await refresh(); return }
+        if (surfaceRecordConflict(err, t)) await refresh()
         throw err
       } finally {
         setIsMutating(false)
@@ -278,7 +278,7 @@ export function useInteractions({
         )
         await refresh()
       } catch (err) {
-        if (surfaceRecordConflict(err, t)) { await refresh(); return }
+        if (surfaceRecordConflict(err, t)) await refresh()
         throw err
       } finally {
         setPendingId(null)
@@ -308,7 +308,7 @@ export function useInteractions({
         )
         await refresh()
       } catch (err) {
-        if (surfaceRecordConflict(err, t)) { await refresh(); return }
+        if (surfaceRecordConflict(err, t)) await refresh()
         throw err
       } finally {
         setPendingId(null)
@@ -340,7 +340,6 @@ export function useInteractions({
         // the unified conflict bar and re-syncs the list instead of a raw error (#2055).
         if (surfaceRecordConflict(err, t)) {
           await refresh()
-          return
         }
         throw err
       } finally {

@@ -20,6 +20,7 @@ export type DocumentEditorIslandProps = {
   documentUpdatedAt?: string | null
   readOnly: boolean
   onEditorReady?: (editor: Editor | null) => void
+  onSaveReady?: (save: (() => Promise<boolean>) | null) => void
   onComment?: (anchor: CommentAnchor) => void
   onContentConflict?: () => void
   onTitleChange?: (title: string, updatedAt: string | null) => void

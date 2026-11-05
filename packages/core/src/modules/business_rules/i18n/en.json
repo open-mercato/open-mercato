@@ -240,7 +240,7 @@
   "business_rules.rules.form.placeholders.entityType": "Start typing to see suggestions",
   "business_rules.rules.form.placeholders.eventType": "Start typing to see suggestions",
   "business_rules.rules.form.placeholders.ruleCategory": "e.g., Pricing, Workflow, Data Quality",
-  "business_rules.rules.form.placeholders.ruleId": "AUTO_GENERATED_ID",
+  "business_rules.rules.form.placeholders.ruleId": "ORDER_APPROVAL_CHECK",
   "business_rules.rules.form.placeholders.ruleName": "Enter a descriptive rule name",
   "business_rules.rules.form.priority": "Priority",
   "business_rules.rules.form.ruleCategory": "Category",

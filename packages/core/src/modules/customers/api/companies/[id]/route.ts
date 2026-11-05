@@ -1,3 +1,4 @@
+import { enrichCustomerDetailResponse } from '../../../lib/detailResponseEnrichment'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -37,6 +38,7 @@ import {
   mapInteractionRecordToTodoSummary,
 } from '../../../lib/interactionCompatibility'
 import { resolveCustomerInteractionFeatureFlags } from '../../../lib/interactionFeatureFlags'
+import { countCustomerTodos } from '../../../lib/todoCompatibility'
 import { hydrateCanonicalInteractions } from '../../../lib/interactionReadModel'
 import { buildEmailVisibilityMikroFilter } from '../../../lib/visibilityFilter'
 import { listGrantsForViewer, listSharedChannelIds } from '../../../lib/conversationShares'
@@ -524,7 +526,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     : null
   if (cache && cacheKey) {
     const cached = await runWithCacheTenant(cacheTenantId, () => cache.get(cacheKey))
-    if (cached) return NextResponse.json(cached)
+    if (cached) return NextResponse.json(await enrichCustomerDetailResponse(cached as Record<string, unknown>, 'company', { auth, container, em, tenantId: companyScope.tenantId, organizationId: companyScope.organizationId }))
   }
 
   const shouldLoadCanonicalInteractions = includeInteractions || includeActivities || includeTodos
@@ -894,19 +896,11 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       deletedAt: null,
       ...emailVisibilityFilter,
     }),
-    interactionFlags.unified
-      ? em.count(CustomerInteraction, {
-          entity: company.id,
-          organizationId: company.organizationId,
-          tenantId: company.tenantId,
-          deletedAt: null,
-          interactionType: 'task',
-        })
-      : em.count(CustomerTodoLink, {
-          entity: company.id,
-          organizationId: company.organizationId,
-          tenantId: company.tenantId,
-        }),
+    countCustomerTodos(em, {
+      entityId: company.id,
+      organizationId: company.organizationId,
+      tenantId: company.tenantId,
+    }, interactionFlags.unified),
     includeComments
       ? Promise.resolve(comments.length)
       : em.count(CustomerComment, {
@@ -1211,7 +1205,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     }
   }
 
-  return NextResponse.json(payload)
+  return NextResponse.json(await enrichCustomerDetailResponse(payload, 'company', { auth, container, em, tenantId: companyScope.tenantId, organizationId: companyScope.organizationId }))
 }
 
 const companyDetailQuerySchema = z.object({

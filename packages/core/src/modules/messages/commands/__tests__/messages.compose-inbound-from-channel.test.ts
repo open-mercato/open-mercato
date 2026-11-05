@@ -134,7 +134,11 @@ describe('messages.messages.compose — channel-ingested message (#6093)', () =>
     expect(event.recipientUserIds).toEqual([assigneeId])
   })
 
-  it('still forces email delivery for a public message a user composes', async () => {
+  it('honors an explicit sendViaEmail=false on a public message a user composes (#6090)', async () => {
+    // Forcing email delivery for public visibility now lives in the
+    // `POST /api/messages` route, which is the only user-facing entry point.
+    // The command honors the caller so internal callers (ingest, send-as-user)
+    // are not echoed through the tenant system email channel.
     const { command, ctx, createdMessage, sentEvent } = createHarness()
 
     await command.execute(
@@ -147,9 +151,9 @@ describe('messages.messages.compose — channel-ingested message (#6093)', () =>
       ctx,
     )
 
-    expect(createdMessage()?.sendViaEmail).toBe(true)
+    expect(createdMessage()?.sendViaEmail).toBe(false)
     const event = sentEvent()
-    expect(event.sendViaEmail).toBe(true)
+    expect(event.sendViaEmail).toBe(false)
     expect(event.inboundFromChannel).toBe(false)
   })
 })

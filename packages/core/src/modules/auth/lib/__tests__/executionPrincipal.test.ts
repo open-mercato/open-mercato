@@ -164,6 +164,29 @@ describe('provisionExecutionPrincipal', () => {
     expect(storeFor('UserRole')).toHaveLength(1)
   })
 
+  it('creates live ACL and membership rows without reviving revoked history', async () => {
+    const input = { principalKey: 'workflow:def-1', features: ['a.view'] }
+    const first = await provisionExecutionPrincipal(container, SCOPE, input)
+    const revokedAcl = storeFor('RoleAcl')[0]
+    const revokedLink = storeFor('UserRole')[0]
+    const revokedAt = new Date()
+    revokedAcl.deletedAt = revokedAt
+    revokedLink.deletedAt = revokedAt
+    revokedAcl.featuresJson = ['revoked.secret']
+
+    const second = await provisionExecutionPrincipal(container, SCOPE, input)
+
+    expect(second).toEqual(first)
+    expect(storeFor('RoleAcl')).toHaveLength(2)
+    expect(storeFor('UserRole')).toHaveLength(2)
+    expect(revokedAcl.deletedAt).toBe(revokedAt)
+    expect(revokedAcl.featuresJson).toEqual(['revoked.secret'])
+    expect(revokedLink.deletedAt).toBe(revokedAt)
+    expect(storeFor('RoleAcl')[1].featuresJson).toEqual(['a.view'])
+    expect(storeFor('RoleAcl')[1].deletedAt ?? null).toBeNull()
+    expect(storeFor('UserRole')[1].deletedAt ?? null).toBeNull()
+  })
+
   it('REPLACES the role ACL so a grant can be narrowed, and clears a stale super-admin flag', async () => {
     await provisionExecutionPrincipal(container, SCOPE, {
       principalKey: 'workflow:def-1',

@@ -65,6 +65,17 @@ function createCoreWorkspacePackage(rootDir: string, relativeDir: string): strin
   return coreDir
 }
 
+const commentedModulesSource = [
+  '// Central place to enable modules.',
+  'export const enabledModules = [',
+  '  // customer_groups stays disabled by default.',
+  "  // { id: 'customer_groups', from: '@open-mercato/core' },",
+  '',
+  '  /* Block comment kept by module add. */',
+  ']',
+  '',
+].join('\n')
+
 function createMonorepoFixture(rootDir: string): string {
   writeFile(
     path.join(rootDir, 'package.json'),
@@ -97,7 +108,7 @@ function createMonorepoFixture(rootDir: string): string {
       2,
     ),
   )
-  writeFile(path.join(appDir, 'src', 'modules.ts'), 'export const enabledModules = []\n')
+  writeFile(path.join(appDir, 'src', 'modules.ts'), commentedModulesSource)
   return appDir
 }
 
@@ -152,7 +163,12 @@ test.describe('TC-INT-007: CLI official module install and eject flows', () => {
         dependencies?: Record<string, string>
       }
 
-      expect(modulesSource).toContain("{ id: 'test_package', from: '@open-mercato/test-package' }")
+      expect(modulesSource).toBe(
+        commentedModulesSource.replace(
+          '  /* Block comment kept by module add. */\n',
+          "  /* Block comment kept by module add. */\n  { id: 'test_package', from: '@open-mercato/test-package' },\n",
+        ),
+      )
       expect(cssSource).toContain('node_modules/@open-mercato/test-package/src/**/*.{ts,tsx}')
       expect(appPackageJson.dependencies?.['@open-mercato/test-package']).toBeTruthy()
     } finally {
@@ -221,6 +237,28 @@ test.describe('TC-INT-007: CLI official module install and eject flows', () => {
       fs.rmSync(path.join(appDir, 'src', 'modules', 'test_package'), { recursive: true, force: true })
       runMercato(['eject', 'test_package'], appDir)
       expect(readFile(path.join(appDir, 'src', 'modules.ts'))).toContain("{ id: 'test_package', from: '@app' }")
+    } finally {
+      fs.rmSync(appDir, { recursive: true, force: true })
+    }
+  })
+
+  test('module add and module enable exit 0 without changes when the module is already enabled', () => {
+    const appDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mercato-cli-standalone-rerun-'))
+
+    try {
+      createStandaloneFixture(appDir)
+      runCommand(yarnBinary(), ['install'], appDir)
+      const packageSpec = `@open-mercato/test-package@file:${fixtureModulePackage}`
+
+      runMercato(['module', 'add', packageSpec], appDir)
+      const modulesSource = readFile(path.join(appDir, 'src', 'modules.ts'))
+
+      const addOutput = runMercato(['module', 'add', packageSpec], appDir)
+      const enableOutput = runMercato(['module', 'enable', '@open-mercato/test-package'], appDir)
+
+      expect(addOutput).toContain('is already enabled in modules.ts. Nothing to change.')
+      expect(enableOutput).toContain('is already enabled in modules.ts. Nothing to change.')
+      expect(readFile(path.join(appDir, 'src', 'modules.ts'))).toBe(modulesSource)
     } finally {
       fs.rmSync(appDir, { recursive: true, force: true })
     }

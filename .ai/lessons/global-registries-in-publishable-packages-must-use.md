@@ -1,6 +1,6 @@
 ---
 title: "Global registries in publishable packages must use `globalThis`, not module-local state"
-modules: ["shared","create_app"]
+modules: ["shared","create_app","query_index"]
 areas: ["architecture","module-data"]
 topics: ["events","module-boundaries","package-runtime"]
 ---
@@ -14,3 +14,5 @@ topics: ["events","module-boundaries","package-runtime"]
 **Rule**: Any publishable cross-package registry that must be visible across bootstrap, API routes, and request containers must persist via `globalThis` with a stable key. Do not store bootstrap-critical registries only in module-local variables.
 
 **Applies to**: ORM/entity registries, DI registrars, module registries, and other standalone-sensitive bootstrap state in `@open-mercato/*` packages.
+
+**Verification**: Load two isolated module instances in one process. Register a non-core value through one and read it through the other; reset through the second and verify the first sees only core seeds. Tenant-global catalogue declarations use this regression.

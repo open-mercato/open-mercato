@@ -38,9 +38,25 @@ export function TaskDialog({ open, mode, onOpenChange, initialValues, onSubmit, 
     [onOpenChange, onSubmit],
   )
 
+  const handleKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+        event.preventDefault()
+        event.currentTarget.querySelector('form')?.requestSubmit()
+      }
+      if (event.key === 'Escape') {
+        if (event.defaultPrevented) return
+        if (event.target instanceof Node && !event.currentTarget.contains(event.target)) return
+        event.preventDefault()
+        handleCancel()
+      }
+    },
+    [handleCancel],
+  )
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="sm:max-w-2xl" onKeyDown={handleKeyDown}>
         <DialogHeader>
           <DialogTitle>{dialogTitle}</DialogTitle>
           {contextMessage ? <DialogDescription>{contextMessage}</DialogDescription> : null}

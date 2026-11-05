@@ -54,6 +54,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { findWorkflowDefinition } from './find-definition'
 import { validateAgainstPorts } from './port-contract'
 import type { WorkflowIoContract } from '../data/validators'
+import { safeGetNestedValue, safeSetNestedValue } from './safe-mapping-path'
 
 const logger = createLogger('workflows')
 
@@ -222,6 +223,21 @@ async function emitStepMilestone(em: EntityManager, stepInstance: StepInstance):
   }
 }
 
+/**
+ * `step_instances.execution_time_ms` is a Postgres `integer`, so a step that
+ * lasted 2^31 ms (~24.86 days) or longer cannot be stored there — the flush
+ * that completes the step would throw after its task already committed,
+ * stranding the run. Such a duration persists as `null` (every reader already
+ * falls back to `exitedAt - enteredAt`); the exact value still travels on the
+ * `STEP_EXITED` event, whose payload is jsonb.
+ */
+export const MAX_PERSISTED_EXECUTION_TIME_MS = 2_147_483_647
+
+export function toPersistableExecutionTimeMs(executionTimeMs: number | null): number | null {
+  if (executionTimeMs === null || !Number.isFinite(executionTimeMs)) return null
+  return Math.abs(executionTimeMs) > MAX_PERSISTED_EXECUTION_TIME_MS ? null : executionTimeMs
+}
+
 export async function exitStep(
   em: EntityManager,
   stepInstance: StepInstance,
@@ -239,7 +255,7 @@ export async function exitStep(
   stepInstance.status = 'COMPLETED'
   stepInstance.outputData = outputData || null
   stepInstance.exitedAt = now
-  stepInstance.executionTimeMs = executionTimeMs
+  stepInstance.executionTimeMs = toPersistableExecutionTimeMs(executionTimeMs)
   stepInstance.updatedAt = now
 
   await em.flush()
@@ -1664,34 +1680,6 @@ async function logStepEvent(
 }
 
 /**
- * Get nested value from object using dot notation
- *
- * @param obj - Source object
- * @param path - Dot-notation path (e.g., "user.email")
- * @returns Value at path or undefined
- */
-function getNestedValue(obj: any, path: string): any {
-  return path.split('.').reduce((current, key) => current?.[key], obj)
-}
-
-/**
- * Set nested value in object using dot notation
- *
- * @param obj - Target object
- * @param path - Dot-notation path (e.g., "user.email")
- * @param value - Value to set
- */
-function setNestedValue(obj: any, path: string, value: any): void {
-  const keys = path.split('.')
-  const lastKey = keys.pop()!
-  const target = keys.reduce((current, key) => {
-    if (!(key in current)) current[key] = {}
-    return current[key]
-  }, obj)
-  target[lastKey] = value
-}
-
-/**
  * Map data from source context using mapping configuration
  *
  * @param sourceContext - Source data object
@@ -1705,9 +1693,9 @@ function mapInputData(
   const result: Record<string, any> = {}
 
   for (const [targetKey, sourcePath] of Object.entries(mapping)) {
-    const value = getNestedValue(sourceContext, sourcePath)
+    const value = safeGetNestedValue(sourceContext, sourcePath)
     if (value !== undefined) {
-      setNestedValue(result, targetKey, value)
+      safeSetNestedValue(result, targetKey, value)
     }
   }
 
@@ -1729,9 +1717,9 @@ function mapOutputData(
   const result: Record<string, any> = {}
 
   for (const [targetKey, sourcePath] of Object.entries(mapping)) {
-    const value = getNestedValue(childContext, sourcePath)
+    const value = safeGetNestedValue(childContext, sourcePath)
     if (value !== undefined) {
-      setNestedValue(result, targetKey, value)
+      safeSetNestedValue(result, targetKey, value)
     }
   }
 

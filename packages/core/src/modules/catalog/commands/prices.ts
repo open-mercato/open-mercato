@@ -287,6 +287,24 @@ function resolveAmountInputFromParsed(
   return null
 }
 
+function hasAmountChanged(incoming: unknown, current: string | null | undefined): incoming is number {
+  if (typeof incoming !== 'number' || !Number.isFinite(incoming)) return false
+  return numericStringToNumber(current) !== incoming
+}
+
+function resolveAmountInputForUpdate(
+  parsed: Partial<Pick<PriceCreateInput, 'unitPriceNet' | 'unitPriceGross'>>,
+  record: CatalogProductPrice
+): PriceAmountInput | null {
+  if (hasAmountChanged(parsed.unitPriceNet, record.unitPriceNet)) {
+    return { amount: parsed.unitPriceNet, mode: 'net' }
+  }
+  if (hasAmountChanged(parsed.unitPriceGross, record.unitPriceGross)) {
+    return { amount: parsed.unitPriceGross, mode: 'gross' }
+  }
+  return resolveAmountInputFromParsed(parsed)
+}
+
 function resolveAmountInputFromRecord(record: CatalogProductPrice): PriceAmountInput | null {
   const net = numericStringToNumber(record.unitPriceNet)
   if (net !== null) return { amount: net, mode: 'net' }
@@ -644,7 +662,7 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
     ensureSameTenant(targetPriceKind, targetProduct.tenantId)
 
     const taxCalculationService = ctx.container.resolve<TaxCalculationService>('taxCalculationService')
-    const amountInput = resolveAmountInputFromParsed(parsed)
+    const amountInput = resolveAmountInputForUpdate(parsed, record)
     const hasNetInput = Object.prototype.hasOwnProperty.call(parsed, 'unitPriceNet')
     const hasGrossInput = Object.prototype.hasOwnProperty.call(parsed, 'unitPriceGross')
     const hasTaxRateInput = Object.prototype.hasOwnProperty.call(parsed, 'taxRate')

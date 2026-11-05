@@ -1,4 +1,4 @@
-import { registerSalesTotalsCalculator, rebuildDocumentResult } from '../calculations'
+import { isExternalAmountsMode, registerSalesTotalsCalculator, rebuildDocumentResult } from '../calculations'
 import type { SalesAdjustmentDraft, SalesDocumentCalculationResult } from '../types'
 import {
   getPaymentProvider,
@@ -180,7 +180,10 @@ export function ensureProviderTotalsCalculator() {
   if (totalsRegistered) return
   totalsRegistered = true
 
-  registerSalesTotalsCalculator(async ({ documentKind, lines, context, current, eventBus }) => {
+  registerSalesTotalsCalculator(async ({ documentKind, lines, context, current, eventBus, totalsMode }) => {
+    // A provider charge here could not move the caller's header, so it would show
+    // in the breakdown and be absent from the total.
+    if (isExternalAmountsMode(totalsMode)) return current
     const metadata = (context.metadata ?? {}) as Record<string, unknown>
     const shippingMethod = (metadata.shippingMethod ?? null) as ShippingMethodContext | null
     const paymentMethod = (metadata.paymentMethod ?? null) as PaymentMethodContext | null

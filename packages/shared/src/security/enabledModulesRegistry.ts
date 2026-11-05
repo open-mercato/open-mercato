@@ -120,9 +120,10 @@ export function getOwningModuleId(featureId: string): string {
     if (direct) return direct
     if (featureId.endsWith('.*')) {
       const prefix = featureId.slice(0, -2)
-      const fromPrefix = registry.prefixToModule.get(prefix)
+      const namespace = prefix.split('.')[0]
+      const fromPrefix = registry.prefixToModule.get(prefix) ?? registry.prefixToModule.get(namespace)
       if (fromPrefix) return fromPrefix
-      return prefix
+      return namespace
     }
   }
   const dot = featureId.indexOf('.')

@@ -4,6 +4,7 @@ import {
   verifyAuthenticationResponse,
   verifyRegistrationResponse,
 } from '@simplewebauthn/server'
+import { ZodError } from 'zod'
 import { PasskeyProvider } from '../providers/PasskeyProvider'
 import { defaultSecurityModuleConfig } from '../security-config'
 
@@ -86,10 +87,65 @@ describe('PasskeyProvider', () => {
     })
 
     expect(generateRegistrationOptionsMock).toHaveBeenCalled()
-    expect(verifyRegistrationResponseMock).toHaveBeenCalled()
+    expect(verifyRegistrationResponseMock).toHaveBeenCalledWith(expect.objectContaining({
+      expectedChallenge: 'setup-challenge',
+      expectedRPID: 'localhost',
+      expectedOrigin: expect.any(Array),
+      requireUserVerification: false,
+    }))
     expect(confirmation.metadata.credentialId).toBe('cred-123')
     expect(confirmation.metadata.credentialPublicKey).toBe('AQIDBA')
     expect(confirmation.metadata.counter).toBe(0)
+  })
+
+  test('rejects a client-supplied public key even with the current setup challenge', async () => {
+    const provider = new PasskeyProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
+    const setup = await provider.setup('user-1', { label: 'Unverified key' })
+
+    await expect(provider.confirmSetup('user-1', setup.setupId, {
+      credentialId: 'unverified-key',
+      publicKey: 'AQIDBA',
+      challenge: setup.clientData.challenge,
+      transports: ['internal'],
+    })).rejects.toBeInstanceOf(ZodError)
+    expect(verifyRegistrationResponseMock).not.toHaveBeenCalled()
+  })
+
+  test.each([undefined, null, 'invalid', [], { response: null }, { response: [] }])(
+    'rejects malformed registration payload %j before verification',
+    async (payload) => {
+      const provider = new PasskeyProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
+      const setup = await provider.setup('user-1', {})
+
+      await expect(provider.confirmSetup('user-1', setup.setupId, payload)).rejects.toBeInstanceOf(ZodError)
+      expect(verifyRegistrationResponseMock).not.toHaveBeenCalled()
+    },
+  )
+
+  test('rejects registration when the verifier does not verify it', async () => {
+    const provider = new PasskeyProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
+    const setup = await provider.setup('user-1', {})
+    verifyRegistrationResponseMock.mockResolvedValueOnce({ verified: false } as never)
+
+    await expect(provider.confirmSetup('user-1', setup.setupId, { response: {} }))
+      .rejects.toThrow('Passkey registration verification failed')
+  })
+
+  test('retains setup user binding and expiration before registration verification', async () => {
+    const provider = new PasskeyProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
+    const now = Date.now()
+    const timeSpy = jest.spyOn(Date, 'now').mockReturnValue(now)
+    try {
+      const setup = await provider.setup('user-1', {})
+      await expect(provider.confirmSetup('user-2', setup.setupId, { response: {} }))
+        .rejects.toThrow('Passkey setup session not found')
+      timeSpy.mockReturnValue(now + defaultSecurityModuleConfig.webauthn.setupTtlMs + 1)
+      await expect(provider.confirmSetup('user-1', setup.setupId, { response: {} }))
+        .rejects.toThrow('Passkey setup session expired')
+      expect(verifyRegistrationResponseMock).not.toHaveBeenCalled()
+    } finally {
+      timeSpy.mockRestore()
+    }
   })
 
   test('uses the user email as the default WebAuthn user name and display name', async () => {

@@ -13,8 +13,9 @@
 import { EntityManager, LockMode } from '@mikro-orm/core'
 import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
+  UserTask,
   WorkflowDefinition,
   WorkflowInstance,
   WorkflowEvent,
@@ -1487,6 +1488,28 @@ export async function completeWorkflow(
   }
 
   // Original completion logic (no compensation needed or status is COMPLETED/CANCELLED)
+
+  // A cancelled run has no recovery path, so its open tasks can never become
+  // actionable again: close them in the same flush as the status. CANCELLED
+  // only — a FAILED run parked on a task is retried against that same task.
+  // Loaded before the run is mutated so no read sits between a scalar change
+  // and the flush that persists it.
+  const cancelledTasks =
+    status === 'CANCELLED'
+      ? await findWithDecryption(
+          em as PostgreSqlEntityManager,
+          UserTask,
+          {
+            workflowInstanceId: instance.id,
+            tenantId: instance.tenantId,
+            organizationId: instance.organizationId,
+            status: { $in: ['PENDING', 'IN_PROGRESS'] },
+          },
+          undefined,
+          { tenantId: instance.tenantId, organizationId: instance.organizationId }
+        )
+      : []
+
   const now = new Date()
   instance.status = status
   instance.updatedAt = now
@@ -1514,7 +1537,26 @@ export async function completeWorkflow(
 
   await writeRunOutcome(em, instance, status)
 
+  for (const task of cancelledTasks) {
+    task.status = 'CANCELLED'
+    task.updatedAt = now
+  }
+
   await em.flush()
+
+  // Logged before the terminal event so WORKFLOW_CANCELLED stays last in the
+  // run's timeline.
+  for (const task of cancelledTasks) {
+    await logWorkflowEvent(em, {
+      workflowInstanceId: instanceId,
+      stepInstanceId: task.stepInstanceId,
+      ...(task.branchInstanceId ? { branchInstanceId: task.branchInstanceId } : {}),
+      eventType: 'USER_TASK_CANCELLED',
+      eventData: { taskId: task.id, taskName: task.taskName, reason: 'workflow-cancelled' },
+      tenantId: instance.tenantId,
+      organizationId: instance.organizationId,
+    })
+  }
 
   // Log completion event
   const eventType =
@@ -2044,6 +2086,7 @@ async function logWorkflowEvent(
   event: {
     workflowInstanceId: string
     stepInstanceId?: string
+    branchInstanceId?: string
     eventType: string
     eventData: any
     userId?: string

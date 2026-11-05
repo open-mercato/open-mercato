@@ -5,10 +5,13 @@ import os from 'node:os'
 import path from 'node:path'
 
 import {
+  BUILDING_MANUAL_COMMAND,
   assertShellSafePath,
+  detectBuildingLauncher,
   detectSplashCodingTools,
   isCodingFlowEnabled,
   isShellSafePathString,
+  resolveBuildingProjectDirectory,
   sanitizeLaunchDirectory,
 } from '../dev-splash-coding-flow.mjs'
 
@@ -232,4 +235,90 @@ test('sanitizeLaunchDirectory falls back to cwd for invalid input but accepts sa
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true })
   }
+})
+
+test('resolveBuildingProjectDirectory prefers the runtime project root with a package manifest', () => {
+  const tempDir = makeTempDir('dev-splash-building-root-')
+  const projectDir = path.join(tempDir, 'project')
+  const nestedDir = path.join(projectDir, 'apps', 'mercato', 'src')
+  fs.mkdirSync(nestedDir, { recursive: true })
+  fs.writeFileSync(path.join(projectDir, 'package.json'), '{}\n')
+
+  try {
+    assert.equal(
+      resolveBuildingProjectDirectory({ projectDir, launchDir: nestedDir }),
+      path.resolve(projectDir),
+    )
+    assert.equal(
+      resolveBuildingProjectDirectory({ projectDir: path.join(projectDir, 'scripts-missing'), launchDir: nestedDir }),
+      path.resolve(projectDir),
+    )
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
+test('resolveBuildingProjectDirectory stops at the nearest package manifest (generated app, worktree)', () => {
+  const tempDir = makeTempDir('dev-splash-building-nearest-')
+  const outerDir = path.join(tempDir, 'outer')
+  const appDir = path.join(outerDir, 'my-app')
+  fs.mkdirSync(appDir, { recursive: true })
+  fs.writeFileSync(path.join(outerDir, 'package.json'), '{}\n')
+  fs.writeFileSync(path.join(appDir, 'package.json'), '{}\n')
+
+  try {
+    assert.equal(resolveBuildingProjectDirectory({ projectDir: appDir }), path.resolve(appDir))
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
+test('resolveBuildingProjectDirectory ignores unsafe candidates and falls back to the launch directory', () => {
+  const tempDir = makeTempDir('dev-splash-building-unsafe-')
+  try {
+    assert.equal(
+      resolveBuildingProjectDirectory({ projectDir: '/tmp/$(touch pwned)', launchDir: tempDir }),
+      resolveBuildingProjectDirectory({ launchDir: tempDir }),
+    )
+    assert.equal(resolveBuildingProjectDirectory({}), resolveBuildingProjectDirectory({ launchDir: process.cwd() }))
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
+test('detectBuildingLauncher reports npx_missing when npx is not on PATH', () => {
+  const launcher = detectBuildingLauncher({ env: { PATH: '' }, platform: 'linux' })
+  assert.deepEqual(launcher, { available: false, reason: 'npx_missing', npxPath: null })
+})
+
+test('detectBuildingLauncher reports terminal_missing on Linux without a terminal emulator', () => {
+  const tempDir = makeTempDir('dev-splash-building-no-terminal-')
+  fs.writeFileSync(path.join(tempDir, 'npx'), '#!/bin/sh\n')
+  try {
+    const launcher = detectBuildingLauncher({ env: { PATH: tempDir }, platform: 'linux' })
+    assert.equal(launcher.available, false)
+    assert.equal(launcher.reason, 'terminal_missing')
+    assert.equal(launcher.npxPath, path.join(tempDir, 'npx'))
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
+test('detectBuildingLauncher resolves npx.cmd through PATHEXT on Windows', () => {
+  const tempDir = makeTempDir('dev-splash-building-win-')
+  fs.writeFileSync(path.join(tempDir, 'npx.cmd'), '@echo off\r\n')
+  try {
+    const launcher = detectBuildingLauncher({
+      env: { Path: tempDir, PATHEXT: '.COM;.EXE;.BAT;.CMD' },
+      platform: 'win32',
+    })
+    assert.equal(launcher.available, true)
+    assert.match(launcher.npxPath, /npx\.cmd$/i)
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
+test('building manual command stays the plain cezar-run invocation', () => {
+  assert.equal(BUILDING_MANUAL_COMMAND, 'npx cezar-run')
 })

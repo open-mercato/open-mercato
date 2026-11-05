@@ -8,6 +8,7 @@ const projectRoot = path.resolve(__dirname, '..', '..', '..');
 const qaTestResultsRoot = path.join(projectRoot, '.ai', 'qa', 'test-results');
 const normalizePath = (value: string) => value.split(path.sep).join('/');
 const STATIC_TEST_IGNORES = [
+  `${normalizePath(path.join(projectRoot, 'apps', 'mercato', '.mercato'))}/**`,
   `${normalizePath(path.join(projectRoot, '.claude'))}/**`,
   `${normalizePath(path.join(projectRoot, '.codex'))}/**`,
   // Exclude stale worktrees used by auto-create-pr / auto-continue-pr /

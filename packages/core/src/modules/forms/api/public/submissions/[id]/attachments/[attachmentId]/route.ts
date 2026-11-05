@@ -13,10 +13,15 @@ import { NextResponse, type NextRequest } from 'next/server'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { FormAttachment } from '../../../../../../data/entities'
 import type { AttachmentService } from '../../../../../../services/attachment-service'
+import type { FormVersionCompiler } from '../../../../../../services/form-version-compiler'
+import type { RolePolicyService } from '../../../../../../services/role-policy-service'
 import { resolveRuntimePrincipal } from '../../../../../../lib/runtime-principal'
 import {
   mapAttachmentError,
+  resolveAttachmentRolePolicy,
   SANDBOXED_DOWNLOAD_HEADERS,
 } from '../../../../../attachment-helpers'
 import { buildPublicRateLimitKey, enforcePublicRateLimit } from '../../../../rate-limit'
@@ -47,6 +52,26 @@ export async function GET(
   if (!principal) return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 })
 
   try {
+    const scope = { organizationId: principal.organizationId, tenantId: principal.tenantId }
+    const policy = await resolveAttachmentRolePolicy(em, {
+      ...scope,
+      submissionId,
+      role: principal.role,
+    }, container.resolve('formVersionCompiler') as FormVersionCompiler,
+    container.resolve('formsRolePolicyService') as RolePolicyService)
+    if (!policy) return NextResponse.json({ error: 'NOT_FOUND' }, { status: 404 })
+
+    const attachment = await findOneWithDecryption(em, FormAttachment, {
+      id: attachmentId,
+      submissionId,
+      organizationId: principal.organizationId,
+      kind: 'user_upload',
+      removedAt: null,
+    }, { fields: ['fieldKey'] }, scope)
+    if (!attachment || !policy.canRead(attachment.fieldKey)) {
+      return NextResponse.json({ error: 'NOT_FOUND' }, { status: 404 })
+    }
+
     const result = await service.readUpload({
       organizationId: principal.organizationId,
       tenantId: principal.tenantId,
@@ -69,7 +94,7 @@ export async function GET(
 
 const getMethodDoc: OpenApiMethodDoc = {
   summary: 'Download a submission attachment (public/anonymous)',
-  description: 'Streams the decrypted user-upload bytes for the owning participant. Authorized via access token or portal session.',
+  description: 'Streams decrypted user-upload bytes only when the participant role can read the attachment field in the submission’s pinned version. Authorized via access token or portal session.',
   tags: ['Forms Public Runtime'],
   responses: [{ status: 200, description: 'Attachment stream', mediaType: 'application/octet-stream' }],
   errors: [

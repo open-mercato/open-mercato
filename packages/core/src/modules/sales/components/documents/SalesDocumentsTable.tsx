@@ -619,6 +619,11 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
     setPage(1)
   }, [])
 
+  const handleSortingChange = React.useCallback((nextSorting: SortingState) => {
+    setSorting(nextSorting)
+    setPage(1)
+  }, [])
+
   const handleRefresh = React.useCallback(() => {
     setReloadToken((token) => token + 1)
   }, [])
@@ -784,8 +789,10 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
           )}
           columns={columns}
           data={rows}
+          sortable
+          manualSorting
           sorting={sorting}
-          onSortingChange={setSorting}
+          onSortingChange={handleSortingChange}
           isLoading={isLoading}
           searchValue={search}
           onSearchChange={handleSearchChange}

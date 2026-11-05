@@ -175,6 +175,7 @@ async function syncResourcesResourceTags(em: EntityManager, params: {
   organizationId: string
   tenantId: string
   tagIds?: Array<string | null | undefined> | null
+  ignoreMissing?: boolean
 }) {
   if (params.tagIds === undefined) return
   const tagIds = normalizeTagIds(params.tagIds ?? [])
@@ -187,7 +188,7 @@ async function syncResourcesResourceTags(em: EntityManager, params: {
     organizationId: params.organizationId,
     tenantId: params.tenantId,
   })
-  if (tagsInScope.length !== tagIds.length) {
+  if (!params.ignoreMissing && tagsInScope.length !== tagIds.length) {
     throw new CrudHttpError(400, { error: 'One or more tags not found for this scope' })
   }
   const byId = new Map(tagsInScope.map((tag) => [tag.id, tag]))
@@ -391,6 +392,7 @@ const createResourceCommand: CommandHandler<ResourcesResourceCreateInput, { reso
         organizationId: (record as ResourcesResource).organizationId,
         tenantId: (record as ResourcesResource).tenantId,
         tagIds: after.tags,
+        ignoreMissing: true,
       }),
     ], { transaction: true })
     const resolvedRecord = record as ResourcesResource
@@ -599,6 +601,7 @@ const updateResourceCommand: CommandHandler<ResourcesResourceUpdateInput, { reso
         organizationId: record.organizationId,
         tenantId: record.tenantId,
         tagIds: before.tags,
+        ignoreMissing: true,
       }),
     ], { transaction: true })
 
@@ -754,6 +757,7 @@ const deleteResourceCommand: CommandHandler<{ id?: string }, { resourceId: strin
         organizationId: (record as ResourcesResource).organizationId,
         tenantId: (record as ResourcesResource).tenantId,
         tagIds: before.tags,
+        ignoreMissing: true,
       }),
     ], { transaction: true })
     const resolvedRecord = record as ResourcesResource

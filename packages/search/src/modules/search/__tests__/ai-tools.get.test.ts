@@ -124,6 +124,62 @@ describe('search_get tool', () => {
     expect(result.record.date_of_birth).toBeUndefined()
   })
 
+  describe.each(['cf_', 'cf:'])('custom fields with the %s prefix', (prefix) => {
+    it.each([false, true])('strips sensitive values when isSuperAdmin is %s', async (isSuperAdmin) => {
+      const rawRecord = {
+        id: 'rec-1',
+        first_name: 'Jane',
+        primary_email: 'jane@example.com',
+        ssn: '123-45-6789',
+        [`${prefix}primary_email`]: 'private@example.com',
+        [`${prefix}primary_phone`]: '+1555',
+        [`${prefix}ssn`]: '987-65-4321',
+        [`${prefix}date_of_birth`]: '1990-01-01',
+        [`${prefix}interests`]: ['reading', 'travel'],
+        [`${prefix}score`]: 0,
+        [`${prefix}subscribed`]: false,
+        [`${prefix}notes`]: null,
+        legacy_cf_ssn: 'visible legacy field',
+      }
+      const { ctx } = makeCtx(rawRecord, { isSuperAdmin })
+
+      const result = await getTool.handler(
+        { entityType: 'customers:customer_person_profile', recordId: 'rec-1' },
+        ctx,
+      ) as { record: Record<string, unknown>; customFields?: Record<string, unknown> }
+
+      expect(result.record).toEqual({
+        id: 'rec-1',
+        first_name: 'Jane',
+        legacy_cf_ssn: 'visible legacy field',
+      })
+      expect(result.customFields).toEqual({
+        interests: ['reading', 'travel'],
+        score: 0,
+        subscribed: false,
+        notes: null,
+      })
+      expect(rawRecord[`${prefix}ssn`]).toBe('987-65-4321')
+    })
+
+    it('omits customFields when every custom field is sensitive', async () => {
+      const { ctx } = makeCtx({
+        id: 'rec-1',
+        first_name: 'Jane',
+        [`${prefix}primary_email`]: 'private@example.com',
+        [`${prefix}ssn`]: '123-45-6789',
+      })
+
+      const result = await getTool.handler(
+        { entityType: 'customers:customer_person_profile', recordId: 'rec-1' },
+        ctx,
+      ) as { record: Record<string, unknown>; customFields?: Record<string, unknown> }
+
+      expect(result.record).toEqual({ id: 'rec-1', first_name: 'Jane' })
+      expect(result.customFields).toBeUndefined()
+    })
+  })
+
   it('honors wildcard grants and super admins', async () => {
     const wildcard = makeCtx({ id: 'rec-1', first_name: 'Jane' }, { userFeatures: ['*'] })
     const wildcardResult = await getTool.handler(

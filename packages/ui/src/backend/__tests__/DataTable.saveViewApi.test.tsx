@@ -29,6 +29,7 @@ const savedPayloads: Array<Record<string, unknown>> = []
 // Flipped by the one case that needs the perspectives permission check to stay
 // in flight; every other case answers it from seeded query data.
 let holdFeatureCheck = false
+let rejectSaveAsDuplicateName = false
 const mockApiCall = jest.fn(async (input: unknown, init?: { method?: string; body?: string }) => {
   const url = String(input)
   const method = (init?.method ?? 'GET').toUpperCase()
@@ -38,6 +39,16 @@ const mockApiCall = jest.fn(async (input: unknown, init?: { method?: string; bod
   if (url.includes('/api/perspectives/') && method === 'POST') {
     const payload = JSON.parse(init?.body ?? '{}') as Record<string, unknown>
     savedPayloads.push(payload)
+    if (rejectSaveAsDuplicateName) {
+      const body = JSON.stringify({ error: 'View with this name already exists', code: 'duplicate_name' })
+      return {
+        ok: false,
+        status: 409,
+        result: undefined,
+        response: { ok: false, status: 409, text: async () => body } as unknown as Response,
+        cacheStatus: null as const,
+      }
+    }
     return {
       ok: true,
       status: 200,
@@ -225,6 +236,7 @@ describe('DataTable public save-view API', () => {
   beforeEach(() => {
     savedPayloads.length = 0
     holdFeatureCheck = false
+    rejectSaveAsDuplicateName = false
     mockFlash.mockClear()
     mockApiCall.mockClear()
     // DataTable persists the applied view to localStorage + a cookie, and jsdom
@@ -421,9 +433,23 @@ describe('DataTable public save-view API', () => {
     expect(result).toEqual({ ok: true, perspectiveId: 'persp-new' })
     expect(savedPayloads).toHaveLength(1)
     expect(savedPayloads[0].name).toBe('Wide view')
+    expect(savedPayloads[0].createOnly).toBe(true)
     expect((savedPayloads[0].settings as { searchValue?: string }).searchValue).toBe('acme')
     // A completed save re-baselines the view, so nothing stays flagged as unsaved.
     await waitFor(() => expect(apiRef.current?.getDirtyState().isDirty).toBe(false))
+  })
+
+  it('reports a failed save instead of overwriting when the new name is already taken', async () => {
+    rejectSaveAsDuplicateName = true
+    const apiRef = React.createRef<DataTableViewApi | null>() as React.MutableRefObject<DataTableViewApi | null>
+    renderTable({ apiRef })
+    await waitFor(() => expect(apiRef.current).not.toBeNull())
+
+    const result = await act(async () => apiRef.current!.saveCurrentView({ name: 'My view' }))
+
+    expect(result).toMatchObject({ ok: false, reason: 'failed', error: { code: 'duplicate_name', status: 409 } })
+    expect(savedPayloads).toHaveLength(1)
+    expect(savedPayloads[0].createOnly).toBe(true)
   })
 
   it('updates the active view in place when no name is supplied', async () => {
@@ -440,6 +466,7 @@ describe('DataTable public save-view API', () => {
     expect(result).toEqual({ ok: true, perspectiveId: 'persp-new' })
     expect(savedPayloads).toHaveLength(1)
     expect(savedPayloads[0].perspectiveId).toBe('persp-1')
+    expect(savedPayloads[0].createOnly).toBeUndefined()
     expect(savedPayloads[0].name).toBe('My view')
     expect((savedPayloads[0].settings as { searchValue?: string }).searchValue).toBe('other')
   })

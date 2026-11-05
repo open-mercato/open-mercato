@@ -9,6 +9,7 @@ import * as React from 'react'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { registerCoreInjectionWidgets, registerCoreInjectionTables } from '@open-mercato/shared/modules/widgets/injection-loader'
 
 import TimesheetProjectDetailPage from '../page'
 
@@ -93,6 +94,8 @@ function renderWithQueryClient(children: React.ReactElement) {
 }
 
 beforeEach(() => {
+  registerCoreInjectionWidgets([])
+  registerCoreInjectionTables([])
   jest.clearAllMocks()
 
   apiCallMock.mockImplementation(async (url: string) => {

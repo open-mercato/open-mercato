@@ -95,17 +95,6 @@ export default async function handler(
   const metaJson = (link.channelMetadata ?? null) as Record<string, unknown> | null
   const payloadJson = (link.channelPayload ?? null) as Record<string, unknown> | null
 
-  // ── (1b) Resolve when the email actually happened ─────────────────────
-  //
-  // `link.createdAt` is when the hub ingested the message, which for a history
-  // import is the import minute, not the day the mail arrived (#6095). The hub
-  // carries the provider's own timestamp on the event payload, so take it from
-  // there: reading the communication_channels ExternalMessage row here would
-  // cross the storage boundary (Cross-Module Coupling in AGENTS.md) and add a
-  // peer-table query per event. Resolved once and threaded through every branch
-  // below so the address-match and threading-inheritance paths agree.
-  const occurredAt = resolveOccurredAt(payload, link)
-
   // ── (2) Resolve the channel to get its owner userId ───────────────────
   //
   // The channel.userId is needed for two purposes:
@@ -129,6 +118,8 @@ export default async function handler(
     )) as { userId?: string | null } | null
     channelUserId = channel?.userId ?? null
   }
+
+  const occurredAt = await resolveEmailOccurredAt(em, link, tenantId, organizationId, payload)
 
   // ── (3) Collect recipient addresses ───────────────────────────────────
   //
@@ -281,7 +272,7 @@ async function handleThreadingInheritance(
   channelId: string | null,
   metaJson: Record<string, unknown> | null,
   payloadJson: Record<string, unknown> | null,
-  occurredAt: Date,
+  occurredAt: Date | null,
 ): Promise<void> {
   // ── Primary: inherit Person(s) from the hub's authoritative thread ──────
   //
@@ -474,34 +465,32 @@ async function handleThreadingInheritance(
   )
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────
-
-/**
- * When the linked email happened, for `CustomerInteraction.occurredAt` (#6095).
- *
- * Preference order:
- *   1. `payload.providerTimestamp` — the provider's own receive/send time, put
- *      on the hub event by ingest / delivery;
- *   2. `MessageChannelLink.createdAt` — the ingest time, the only date this
- *      handler knew before #6095, and the compatibility path for events that
- *      were enqueued before the field existed;
- *   3. now, for a link row with no usable `createdAt` (test stubs).
- */
-function resolveOccurredAt(
-  payload: LinkChannelMessagePayload,
+async function resolveEmailOccurredAt(
+  em: EntityManager,
   link: Record<string, unknown>,
-): Date {
-  const ingestedAt = link.createdAt instanceof Date ? link.createdAt : new Date()
+  tenantId: string,
+  organizationId: string | null,
+  payload: LinkChannelMessagePayload,
+): Promise<Date | null> {
+  const message = typeof link.messageId === 'string'
+    ? await findOneWithDecryption(
+        em,
+        'Message' as never,
+        { id: link.messageId, tenantId, organizationId, deletedAt: null } as never,
+        undefined,
+        { tenantId, organizationId },
+      ) as { sentAt?: Date | null } | null
+    : null
+
+  if (message) return message.sentAt ?? null
   const carried = payload.providerTimestamp
-  if (carried instanceof Date) {
-    return Number.isNaN(carried.getTime()) ? ingestedAt : carried
-  }
-  if (typeof carried === 'string' && carried) {
-    const parsed = new Date(carried)
-    if (!Number.isNaN(parsed.getTime())) return parsed
-  }
-  return ingestedAt
+  const providerTimestamp = carried instanceof Date
+    ? carried
+    : typeof carried === 'string' && carried ? new Date(carried) : null
+  return providerTimestamp && !Number.isNaN(providerTimestamp.getTime()) ? providerTimestamp : null
 }
+
+// ── Helpers ───────────────────────────────────────────────────────────────
 
 interface InteractionData {
   linkId: string
@@ -511,7 +500,7 @@ interface InteractionData {
   title: string | null
   body: string | null
   authorUserId: string | null
-  occurredAt: Date
+  occurredAt: Date | null
   visibility: 'private' | 'shared'
   channelProviderKey: string | null
   /**

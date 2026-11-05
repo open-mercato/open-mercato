@@ -8,7 +8,10 @@
 
 import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { FormSubmission, FormVersion } from '../data/entities'
+import type { FormVersionCompiler } from '../services/form-version-compiler'
+import type { RolePolicyResolution, RolePolicyService } from '../services/role-policy-service'
 import { AttachmentServiceError, isAttachmentServiceError } from '../services/attachment-service'
 import { resolveMaxUploadBytes } from '../services/upload-validation'
 
@@ -32,6 +35,37 @@ export function mapAttachmentError(error: unknown): NextResponse {
   }
   const message = error instanceof Error ? error.message : 'Unknown error'
   return NextResponse.json({ error: 'INTERNAL_ERROR', message }, { status: 500 })
+}
+
+export async function resolveAttachmentRolePolicy(
+  em: EntityManager,
+  args: { organizationId: string; tenantId: string; submissionId: string; role: string | null },
+  compiler: FormVersionCompiler,
+  rolePolicy: RolePolicyService,
+): Promise<RolePolicyResolution | null> {
+  if (!args.role) return null
+
+  const scope = { organizationId: args.organizationId, tenantId: args.tenantId }
+  const submission = await findOneWithDecryption(em, FormSubmission, {
+    id: args.submissionId,
+    ...scope,
+    deletedAt: null,
+  }, undefined, scope)
+  if (!submission) return null
+
+  const version = await findOneWithDecryption(em, FormVersion, {
+    id: submission.formVersionId,
+    ...scope,
+  }, undefined, scope)
+  if (!version) return null
+
+  const compiled = compiler.compile({
+    id: version.id,
+    updatedAt: version.updatedAt,
+    schema: version.schema,
+    uiSchema: version.uiSchema,
+  })
+  return rolePolicy.resolve(compiled, args.role)
 }
 
 /**

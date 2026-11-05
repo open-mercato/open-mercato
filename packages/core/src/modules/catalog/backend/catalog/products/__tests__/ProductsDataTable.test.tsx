@@ -104,6 +104,7 @@ jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => mockTranslate,
+  useLocale: () => 'en',
 }))
 
 jest.mock('lucide-react', () => ({
@@ -150,7 +151,7 @@ describe('ProductsDataTable', () => {
     ;(buildCrudExportUrl as jest.Mock).mockImplementation((_path: string, params: Record<string, string>) =>
       `export?${new URLSearchParams(params).toString()}`,
     )
-    ;(useCustomFieldDefs as jest.Mock).mockReturnValue({ data: [], isLoading: false })
+    ;(useCustomFieldDefs as jest.Mock).mockReturnValue({ data: [], isLoading: false, refetch: jest.fn(async () => ({})) })
     ;(applyCustomFieldVisibility as jest.Mock).mockImplementation((cols) => cols)
     ;(useOrganizationScopeVersion as jest.Mock).mockReturnValue(1)
   })

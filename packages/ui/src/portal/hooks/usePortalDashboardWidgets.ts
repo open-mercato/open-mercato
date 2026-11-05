@@ -2,7 +2,11 @@
 
 import * as React from 'react'
 import type { InjectionSpotId } from '@open-mercato/shared/modules/widgets/injection'
-import { loadInjectionWidgetsForSpot, type LoadedInjectionWidget } from '@open-mercato/shared/modules/widgets/injection-loader'
+import {
+  loadInjectionWidgetsForSpot,
+  subscribeToInjectionRegistryChanges,
+  type LoadedInjectionWidget,
+} from '@open-mercato/shared/modules/widgets/injection-loader'
 import { hasAllFeatures } from '@open-mercato/shared/security/features'
 import { apiCall } from '../../backend/utils/apiCall'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -61,6 +65,9 @@ export function usePortalDashboardWidgets(spotId: InjectionSpotId): {
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [grantedFeatures, setGrantedFeatures] = React.useState<Set<string>>(new Set())
+  const [registryVersion, setRegistryVersion] = React.useState(0)
+
+  React.useEffect(() => subscribeToInjectionRegistryChanges(() => setRegistryVersion((version) => version + 1)), [])
 
   React.useEffect(() => {
     let mounted = true
@@ -90,7 +97,7 @@ export function usePortalDashboardWidgets(spotId: InjectionSpotId): {
     return () => {
       mounted = false
     }
-  }, [spotId])
+  }, [spotId, registryVersion])
 
   const grantedFeatureList = React.useMemo(() => Array.from(grantedFeatures), [grantedFeatures])
 
