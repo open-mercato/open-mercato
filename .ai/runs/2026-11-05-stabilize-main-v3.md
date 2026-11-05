@@ -19,7 +19,7 @@ PR: #8834
 
 - [x] 1.2 Disambiguate alert dismiss buttons in API-key and column chooser tests — 911323266
 
-- [ ] 1.3 Separate customer-group list assertions from create navigation
+- [x] 1.3 Separate customer-group list assertions from create navigation — c5328ce52
 
 ### Phase 2: Verify
 - [ ] 2.1 Pass full stabilization CI and record review evidence
