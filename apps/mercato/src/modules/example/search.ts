@@ -40,7 +40,6 @@ function buildTodoPresenter(
       ? t('example.search.todo.subtitle.done', 'Completed')
       : t('example.search.todo.subtitle.open', 'Open'),
     icon: 'check-square',
-    badge: t('example.search.todo.badge', 'Todo'),
   }
 }
 
