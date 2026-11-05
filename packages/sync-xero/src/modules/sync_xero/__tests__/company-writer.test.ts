@@ -661,6 +661,29 @@ describe('createXeroContactWriter', () => {
       expect(unchanged.action).toBe('skip')
     })
 
+    it('re-creates a mapped row a user deleted after the page was read, instead of failing the run', async () => {
+      const entityId = mappedCompany('c1')
+      addresses.set('a-street', { id: 'a-street', entityId, addressLine1: '1 High Street', city: 'Leeds', postalCode: 'SW1A 1AA', country: 'GB' })
+      addressMappings.set(`${externalIdOf('c1')}:STREET`, 'a-street')
+      failNextCommand = new CrudHttpError(404, { error: 'Address not found' })
+
+      const [item] = await writePage(createWriter(), [record('c1', { Addresses: [street] })])
+
+      expect(commands.map((command) => command.id)).toEqual(['customers.addresses.update', 'customers.addresses.create'])
+      expect(addressMappings.get(`${externalIdOf('c1')}:STREET`)).not.toBe('a-street')
+      expect(item).toMatchObject({ action: 'update', data: { localId: entityId } })
+    })
+
+    it('fails the run when a mapped address update fails for any other reason', async () => {
+      const entityId = mappedCompany('c1')
+      addresses.set('a-street', { id: 'a-street', entityId, addressLine1: '1 High Street', city: 'Leeds', postalCode: 'SW1A 1AA', country: 'GB' })
+      addressMappings.set(`${externalIdOf('c1')}:STREET`, 'a-street')
+      failNextCommand = new CrudHttpError(500, { error: 'Database unavailable' })
+
+      await expect(writePage(createWriter(), [record('c1', { Addresses: [street] })])).rejects.toBeInstanceOf(CrudHttpError)
+      expect(commands.map((command) => command.id)).toEqual(['customers.addresses.update'])
+    })
+
     it('re-creates a row a user moved to another customer and never touches the user\'s own rows', async () => {
       const entityId = mappedCompany('c1')
       addresses.set('a-moved', { id: 'a-moved', entityId: 'e-someone-else', addressLine1: 'Old line' })

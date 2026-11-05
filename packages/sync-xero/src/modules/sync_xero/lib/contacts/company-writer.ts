@@ -101,7 +101,7 @@ function isRejectedInput(error: unknown): boolean {
   return isCrudHttpError(error) && (error.status === 400 || error.status === 422)
 }
 
-function isMissingCompany(error: unknown): boolean {
+function isMissingRow(error: unknown): boolean {
   return isCrudHttpError(error) && error.status === 404
 }
 
@@ -154,7 +154,7 @@ export function createXeroContactWriter(deps: XeroContactWriterDeps): XeroContac
 
   /**
    * App Spec § 6.2a "Addresses": per Xero address type, the mapped row is updated where a value
-   * differs while it still belongs to the Company; otherwise a row is created (never primary) and
+   * differs while it still exists and belongs to the Company; otherwise a row is created (never primary) and
    * the mapping re-pointed to it. Every other address row of the Company is the user's.
    */
   async function writeAddresses(contact: XeroContact, entityId: string): Promise<boolean> {
@@ -162,11 +162,11 @@ export function createXeroContactWriter(deps: XeroContactWriterDeps): XeroContac
     for (const address of mapXeroAddresses(contact)) {
       const addressExternalId = formatAddressExternalId(xeroOrganisationId, contact.ContactID, address.addressType)
       const mappedAddressId = pageAddresses.addressIdByExternalId.get(addressExternalId) ?? null
-      const current = mappedAddressId ? pageAddresses.addresses.get(mappedAddressId) ?? null : null
-      if (current && current.entityId === entityId) {
-        const update = diffAddress(address, current)
-        if (!update) continue
-        await execute('customers.addresses.update', { id: current.id, organizationId: scope.organizationId, tenantId: scope.tenantId, ...update })
+      const known = mappedAddressId ? pageAddresses.addresses.get(mappedAddressId) ?? null : null
+      const current = known && known.entityId === entityId ? known : null
+      const update = current ? diffAddress(address, current) : null
+      if (current && !update) continue
+      if (current && update && (await updateExistingAddress(current.id, update))) {
         pageAddresses.addresses.set(current.id, { ...current, ...update })
       } else {
         const created = await execute<{ addressId: string }>('customers.addresses.create', {
@@ -200,6 +200,16 @@ export function createXeroContactWriter(deps: XeroContactWriterDeps): XeroContac
     return written
   }
 
+  async function updateExistingAddress(addressId: string, update: Record<string, unknown>): Promise<boolean> {
+    try {
+      await execute('customers.addresses.update', { id: addressId, organizationId: scope.organizationId, tenantId: scope.tenantId, ...update })
+      return true
+    } catch (error) {
+      if (isMissingRow(error)) return false
+      throw error
+    }
+  }
+
   async function updateCompany(company: MappedXeroCompany, contact: XeroContact, externalId: string, entityId: string): Promise<ImportItem> {
     const current = await snapshotOf(entityId)
     if (!current) return refuseDeleted(externalId, entityId)
@@ -218,7 +228,7 @@ export function createXeroContactWriter(deps: XeroContactWriterDeps): XeroContac
       await execute('customers.companies.update', { id: entityId, ...input })
       return true
     } catch (error) {
-      if (isMissingCompany(error)) return false
+      if (isMissingRow(error)) return false
       throw error
     }
   }
