@@ -26,7 +26,7 @@
 - **Phase 4:** scaffolder output that names what a preset leaves out, and a read-only Modules page in settings.
 
 **Concerns:**
-- An independent scope review returned SPLIT (see Q1). The decision to keep one spec is the maintainer's and is open.
+- An independent scope review returned SPLIT (see Q1). The maintainer decided to keep one spec with four separately shipped phases.
 - Phase 2 builds on `ModuleInfo.optionalRequires`, which is defined in PR #6863 and not merged.
 - Phase 3 builds on the module index and resolver that the module-sets spec owns and that are not implemented.
 - Phase 2 introduces a "platform kernel" list (Q10). It is a new concept and needs maintainer confirmation.
@@ -37,7 +37,7 @@ The Open Questions gate was answered with conservative defaults because this spe
 
 | # | Question | Default applied | Why | Confirm |
 |---|---|---|---|---|
-| Q1 | One spec or several? | One spec, four phases, one implementation PR per phase. | The requester asked for one spec. An independent scope review returned **SPLIT** along the four phases: only Phase 2 and part of Phase 3 consume the coupling graph, Phase 1 depends on nothing here, and Phase 4 needs only `optionalRequires` metadata. The module-sets spec kept one document under the same verdict. | ⚠ needs maintainer |
+| Q1 | One spec or several? | One spec, four phases, one implementation PR per phase. | The requester asked for one spec. An independent scope review returned **SPLIT** along the four phases: only Phase 2 and part of Phase 3 consume the coupling graph, Phase 1 depends on nothing here, and Phase 4 needs only `optionalRequires` metadata. The module-sets spec kept one document under the same verdict. | confirmed by the maintainer, 2026-11-05: "Keep one spec" |
 | Q2 | Which field declares an optional dependency? | `ModuleInfo.optionalRequires?: string[]`, exactly as PR #6863 defines it. This spec adds no competing field. If #6863 has not merged when Phase 2 starts, Phase 2 lands the same change (the type field, the generator comments, the `optionalRequires` module fact and its test) as its first commit, coordinated with that PR's author. | Two fields for one concept would be a permanent contract mistake. | ok |
 | Q3 | Where does the text "what is lost without the peer" live? | An i18n key `<moduleId>.optionalRequires.<peerId>` in the declaring module's locale files. The coupling check requires it for every `optionalRequires` entry. | No further change to `ModuleInfo`, the text is translatable, and the CLI reads the `en` value statically. | ok |
 | Q4 | Which rules block? | R1 (declaration) and R5 (direction) block from day one against a committed baseline. R2 (guard evidence) blocks from day one, because every `optionalRequires` entry is new. R4 (test metadata) blocks for modules in shipped presets once Phase 2 lands and is advisory elsewhere. | `yarn check:pagination-capped` and `yarn check:time-bombs:fail` are the precedents: a script, an allowlist file and a dedicated CI step. | ok |
@@ -636,11 +636,11 @@ The tooling, the endpoint and the page perform no writes and read no tenant data
 
 ### Non-Compliant Items
 
-None against AGENTS rules. One process item is open: the scope-cohesion review returned SPLIT (Q1), and the spec checklist routes that verdict to the maintainer.
+None against AGENTS rules. The scope-cohesion review returned SPLIT (Q1); the spec checklist routes that verdict to the maintainer, who decided to keep one spec.
 
 ### Verdict
 
-- **Blocked on two maintainer decisions**: Q1 (one spec or four) and Q10 (the platform kernel). With those confirmed the spec is ready for implementation; Phase 2 additionally waits for the `optionalRequires` outcome in Q2.
+- **Blocked on one maintainer decision**: Q10 (the platform kernel). With that confirmed the spec is ready for implementation; Phase 2 additionally waits for the `optionalRequires` outcome in Q2.
 
 ## Changelog
 
@@ -656,3 +656,6 @@ None against AGENTS rules. One process item is open: the scope-cohesion review r
 - **Commands**: Passed. No mutation is introduced.
 - **Risks**: Revised. The review found that the first draft's declaration rule forced `requires` cycles, that the crawl could not catch the evidence defects, that `null` from the client hook would hide features in apps with an older shell, and that the enforcement path and compatibility table were misdescribed. This revision adds the platform kernel, the direction rule R5, the resolution table, the golden paths, the chrome-payload fallback, a dedicated CI step and the corrected compatibility table, and removes the request-time hint.
 - **Verdict**: Needs maintainer decisions on Q1 (scope: the review's verdict is SPLIT) and Q10.
+
+### 2026-11-05 — Q1 decided
+- The maintainer answered Q1: keep one spec, four phases, one implementation PR per phase. Q10 (the platform kernel) is the remaining open decision.
