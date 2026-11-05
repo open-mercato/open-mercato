@@ -20,15 +20,17 @@ Repository-wide validation requires installed dependencies and build infrastruct
 
 ## Progress
 
+PR: #8778
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Compatibility
 
-- [ ] 1.1 Verify compatibility, installed path, release age and deduplication
+- [x] 1.1 Verify compatibility, installed path, release age and deduplication — cdfd2b23d
 
 ### Phase 2: Remediation
 
-- [ ] 2.1 Update resolution and add dependency regression coverage
+- [x] 2.1 Update resolution and add dependency regression coverage — f698916f7
 
 ### Phase 3: Verification
 
