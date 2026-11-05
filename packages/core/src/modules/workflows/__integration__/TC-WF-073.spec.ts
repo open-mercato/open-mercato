@@ -6,6 +6,7 @@ import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixt
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import {
   buildSignalDefinitionPayload,
+  cancelWorkflowInstanceIfExists,
   createWorkflowDefinitionFixture,
   pollWorkflowInstance,
   startWorkflowInstanceFixture,
@@ -41,7 +42,7 @@ async function openAction(page: Page, fixture: Fixture, action: string, actionsL
   await expect(row).toHaveCount(1)
   await row.getByRole('button', { name: actionsLabel, exact: true }).click()
   await page.getByRole('menuitem', { name: action, exact: true }).click()
-  const dialog = page.getByRole('dialog')
+  const dialog = page.getByRole('alertdialog')
   await expect(dialog).toBeVisible()
   return dialog
 }
@@ -76,7 +77,7 @@ for (const locale of ['en', 'pl'] as const) {
               transitions: [{
                 transitionId: 'fail', fromStepId: 'start', toStepId: 'end', trigger: 'auto',
                 activities: [{
-                  activityId: 'fail', activityType: 'EXECUTE_FUNCTION',
+                  activityId: 'fail', activityName: 'Fail deterministically', activityType: 'EXECUTE_FUNCTION',
                   config: { functionName: `qa.missing.${randomUUID()}` },
                   retryPolicy: { maxAttempts: 1, initialIntervalMs: 0, backoffCoefficient: 1, maxIntervalMs: 0 },
                 }],
@@ -145,9 +146,16 @@ for (const locale of ['en', 'pl'] as const) {
           }
         }
       } finally {
-        const instanceIds = fixtures.flatMap((fixture) => fixture.instanceId ? [fixture.instanceId] : [])
+        const knownInstanceIds = fixtures.flatMap((fixture) => fixture.instanceId ? [fixture.instanceId] : [])
         const definitionIds = fixtures.map((fixture) => fixture.definitionId)
         await withClient(async (client) => {
+          const createdInstances = await client.query<{ id: string }>(
+            'select id from workflow_instances where definition_id = any($1::uuid[])', [definitionIds],
+          )
+          const instanceIds = [...new Set([...knownInstanceIds, ...createdInstances.rows.map((record) => record.id)])]
+          for (const instanceId of instanceIds) {
+            await cancelWorkflowInstanceIfExists(request, token, instanceId)
+          }
           await client.query('begin')
           try {
             for (const table of ['workflow_events', 'user_tasks', 'step_instances', 'workflow_branch_instances']) {
