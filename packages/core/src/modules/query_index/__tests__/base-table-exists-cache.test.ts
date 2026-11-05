@@ -2,18 +2,26 @@ import { HybridQueryEngine, clearBaseTableExistsCache, baseTableExistsCacheSize 
 
 function buildEngine(existingTables: Set<string>) {
   const tableProbeCalls: string[] = []
+  type ProbeQuery = {
+    where: (column: unknown, operator?: string, value?: string) => ProbeQuery
+    executeTakeFirst: () => Promise<{ one: number } | undefined>
+  }
   const db = {
-    selectFrom: (table: string) => ({
-      select: () => ({
-        where: (_column: string, _op: string, value: string) => ({
-          executeTakeFirst: async () => {
-            if (table !== 'information_schema.tables') return undefined
-            tableProbeCalls.push(value)
-            return existingTables.has(value) ? { one: 1 } : undefined
-          },
-        }),
-      }),
-    }),
+    selectFrom: (table: string) => {
+      let selectedTable = ''
+      const query: ProbeQuery = {
+        where: (column, _operator, value) => {
+          if (column === 'table_name') selectedTable = value ?? ''
+          return query
+        },
+        executeTakeFirst: async () => {
+          if (table !== 'information_schema.tables') return undefined
+          tableProbeCalls.push(selectedTable)
+          return existingTables.has(selectedTable) ? { one: 1 } : undefined
+        },
+      }
+      return { select: () => query }
+    },
   }
   const em = { getKysely: () => db }
   const engine = new HybridQueryEngine(em as never, {} as never)

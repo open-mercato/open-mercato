@@ -568,3 +568,294 @@ describe('breach routing (spec §6.1 §4)', () => {
     )
   })
 })
+
+/**
+ * A task outlives its run, and its SLA jobs were scheduled once at creation.
+ * On a closed run the breach is still a fact worth recording — a FAILED run can
+ * be retried and its reminders, notify and reassign must not have been dropped
+ * — but the two arms that write to or advance the INSTANCE are skipped.
+ */
+describe('breach handling on a closed run', () => {
+  const stepId = 'review'
+  const mockFindDefinition = findDefinitionForInstance as jest.MockedFunction<
+    typeof findDefinitionForInstance
+  >
+
+  const normalRoute = {
+    transitionId: 't_approved',
+    fromStepId: stepId,
+    toStepId: 'fulfil',
+    trigger: 'auto',
+  }
+  const breachRoute = {
+    transitionId: 't_breach',
+    fromStepId: stepId,
+    toStepId: 'escalation',
+    trigger: 'auto',
+    kind: SLA_BREACH_TRANSITION_KIND,
+  }
+
+  let task: Record<string, unknown>
+  let instance: Record<string, unknown>
+  let mockEm: jest.Mocked<EntityManager>
+  let mockLogWorkflowEvent: jest.Mock
+  let mockExitStep: jest.Mock
+  let mockExecuteTransition: jest.Mock
+  let mockExecuteWorkflow: jest.Mock
+  let mockContainer: { resolve: (token: string) => unknown }
+
+  const jobOptions = {
+    userTaskId: taskId,
+    stepInstanceId,
+    workflowInstanceId: instanceId,
+    phase: 'breach' as const,
+    deadlineAt: '2026-07-28T14:00:00.000Z',
+    tenantId,
+    organizationId,
+  }
+
+  const setUserTaskDefinition = (onBreach: unknown, transitions: unknown[]) => {
+    mockFindDefinition.mockResolvedValue({
+      definition: {
+        steps: [{ stepId, stepType: 'USER_TASK', userTaskConfig: { onBreach } }],
+        transitions,
+      },
+    } as never)
+  }
+
+  const setAgentDefinition = (onBreach: unknown) => {
+    mockFindDefinition.mockResolvedValue({
+      definition: {
+        steps: [
+          {
+            stepId,
+            stepType: 'AUTOMATED',
+            activities: [
+              {
+                activityType: 'INVOKE_AGENT',
+                config: { agentId: 'deal_enricher', review: { onBreach } },
+              },
+            ],
+          },
+        ],
+        transitions: [],
+      },
+    } as never)
+  }
+
+  const breachEventData = (): Record<string, unknown> => {
+    const call = mockLogWorkflowEvent.mock.calls.find(
+      (args) => (args[1] as { eventType?: string }).eventType === 'USER_TASK_DEADLINE_BREACHED'
+    )
+    return (call?.[1] as { eventData: Record<string, unknown> }).eventData
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    task = {
+      id: taskId,
+      taskName: 'Approve the order',
+      status: 'PENDING',
+      assignedTo: 'user-1',
+      assignedToRoles: null,
+      claimedBy: null,
+      claimedAt: null,
+      escalatedAt: null,
+      escalatedTo: null,
+      reassignedAt: null,
+      reassignReason: null,
+      entityBindings: null,
+      updatedAt: new Date(),
+    }
+    instance = {
+      id: instanceId,
+      workflowId: 'order-approval',
+      status: 'FAILED',
+      currentStepId: stepId,
+      context: { orderId: 'order-1' },
+      metadata: { labels: { source: 'test' } },
+    }
+
+    mockLogWorkflowEvent = jest.fn<() => Promise<unknown>>().mockResolvedValue({})
+    mockExitStep = jest.fn<() => Promise<unknown>>().mockResolvedValue(undefined)
+    mockExecuteTransition = jest
+      .fn<() => Promise<unknown>>()
+      .mockResolvedValue({ success: true })
+    mockExecuteWorkflow = jest.fn<() => Promise<unknown>>().mockResolvedValue({})
+
+    mockContainer = {
+      resolve: (token: string) => {
+        switch (token) {
+          case 'eventLogger':
+            return { logWorkflowEvent: mockLogWorkflowEvent }
+          case 'stepHandler':
+            return { exitStep: mockExitStep }
+          case 'transitionHandler':
+            return { executeTransition: mockExecuteTransition }
+          case 'workflowExecutor':
+            return { executeWorkflow: mockExecuteWorkflow }
+          default:
+            throw new Error(`Unexpected DI token in test: ${token}`)
+        }
+      },
+    }
+
+    mockEm = {
+      findOne: jest.fn((entity: unknown) => {
+        if (entity === UserTask) return Promise.resolve(task)
+        if (entity === StepInstance) {
+          return Promise.resolve({ id: stepInstanceId, stepId, status: 'ACTIVE' })
+        }
+        if (entity === WorkflowInstance) return Promise.resolve(instance)
+        return Promise.resolve(null)
+      }),
+      nativeUpdate: jest.fn<() => Promise<number>>().mockResolvedValue(1),
+      flush: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    } as unknown as jest.Mocked<EntityManager>
+
+    mockEmit.mockResolvedValue(undefined as never)
+  })
+
+  test.each(['FAILED', 'CANCELLED', 'COMPLETED', 'COMPENSATING', 'COMPENSATED'])(
+    'a wired breach route is not followed on a %s run, and the breach is still recorded',
+    async (status) => {
+      instance.status = status
+      setUserTaskDefinition(null, [normalRoute, breachRoute])
+
+      const outcome = await runTaskSlaJob(mockEm, mockContainer as never, jobOptions)
+
+      expect(outcome).toBe('breached')
+      expect(mockEm.nativeUpdate).toHaveBeenCalledTimes(1)
+      expect(task.escalatedAt).toBeInstanceOf(Date)
+      expect(task.status).toBe('PENDING')
+      expect(mockEm.flush).not.toHaveBeenCalled()
+      expect(mockExitStep).not.toHaveBeenCalled()
+      expect(mockExecuteTransition).not.toHaveBeenCalled()
+      expect(mockExecuteWorkflow).not.toHaveBeenCalled()
+      expect(instance.status).toBe(status)
+      expect(instance.currentStepId).toBe(stepId)
+      expect(breachEventData()).toMatchObject({
+        taskId,
+        onBreach: 'route_skipped_closed_run',
+        transitionId: 't_breach',
+      })
+      expect(breachEventData()).not.toHaveProperty('toStepId')
+      expect(mockEmit).toHaveBeenCalledWith(
+        'workflows.task.deadline_breached',
+        expect.objectContaining({ taskId }),
+        { persistent: true }
+      )
+    }
+  )
+
+  test('an onBreach route binding is not followed on a closed run either', async () => {
+    instance.status = 'CANCELLED'
+    setUserTaskDefinition({ action: 'route', transitionId: 't_approved' }, [normalRoute])
+
+    await runTaskSlaJob(mockEm, mockContainer as never, jobOptions)
+
+    expect(task.status).toBe('PENDING')
+    expect(mockExecuteTransition).not.toHaveBeenCalled()
+    expect(breachEventData()).toMatchObject({
+      onBreach: 'route_skipped_closed_run',
+      transitionId: 't_approved',
+    })
+  })
+
+  test.each(['FAILED', 'CANCELLED'])(
+    'attention does not mark a %s run, and the breach is still recorded',
+    async (status) => {
+      instance.status = status
+      setAgentDefinition({ action: 'attention' })
+
+      const outcome = await runTaskSlaJob(mockEm, mockContainer as never, jobOptions)
+
+      expect(outcome).toBe('breached')
+      expect(task.escalatedAt).toBeInstanceOf(Date)
+      expect(task.status).toBe('PENDING')
+      expect(instance.metadata).toEqual({ labels: { source: 'test' } })
+      expect(instance.status).toBe(status)
+      expect(mockEm.flush).not.toHaveBeenCalled()
+      expect(mockExecuteTransition).not.toHaveBeenCalled()
+      expect(breachEventData()).toMatchObject({ onBreach: 'attention_skipped_closed_run', stepId })
+    }
+  )
+
+  test('reassign still applies on a FAILED run, so a retry finds the new owner', async () => {
+    setUserTaskDefinition({ action: 'reassign', reassignTo: 'supervisors' }, [normalRoute])
+
+    await runTaskSlaJob(mockEm, mockContainer as never, jobOptions)
+
+    expect(task.assignedTo).toBeNull()
+    expect(task.assignedToRoles).toEqual(['supervisors'])
+    expect(task.reassignReason).toBe('sla_breach')
+    expect(breachEventData()).toMatchObject({ onBreach: 'reassigned' })
+    expect(mockEmit).toHaveBeenCalledWith(
+      'workflows.task.assigned',
+      expect.objectContaining({ taskId }),
+      { persistent: true }
+    )
+  })
+
+  test('notify still applies on a FAILED run', async () => {
+    setUserTaskDefinition({ action: 'notify' }, [normalRoute])
+
+    await runTaskSlaJob(mockEm, mockContainer as never, jobOptions)
+
+    expect(breachEventData()).toMatchObject({ onBreach: 'notified' })
+    expect(mockExecuteTransition).not.toHaveBeenCalled()
+  })
+
+  test('a reminder still fires on a FAILED run', async () => {
+    const outcome = await runTaskSlaJob(mockEm, mockContainer as never, {
+      ...jobOptions,
+      phase: 'reminder',
+      deadlineAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    })
+
+    expect(outcome).toBe('reminded')
+    expect(mockLogWorkflowEvent).toHaveBeenCalledWith(
+      mockEm,
+      expect.objectContaining({ eventType: 'USER_TASK_REMINDER_DUE' })
+    )
+    expect(mockEmit).toHaveBeenCalledWith(
+      'workflows.task.reminder_due',
+      expect.objectContaining({ taskId }),
+      { persistent: true }
+    )
+  })
+
+  test('control: a PAUSED run still follows its breach route', async () => {
+    instance.status = 'PAUSED'
+    setUserTaskDefinition(null, [normalRoute, breachRoute])
+
+    await runTaskSlaJob(mockEm, mockContainer as never, jobOptions)
+
+    expect(task.status).toBe('ESCALATED')
+    expect(mockExitStep).toHaveBeenCalledTimes(1)
+    expect(mockExecuteTransition).toHaveBeenCalledWith(
+      mockEm,
+      mockContainer,
+      instance,
+      stepId,
+      'escalation',
+      expect.objectContaining({ transitionId: 't_breach' }),
+    )
+    expect(mockExecuteWorkflow).toHaveBeenCalledTimes(1)
+    expect(breachEventData()).toMatchObject({ onBreach: 'routed', toStepId: 'escalation' })
+  })
+
+  test('control: a PAUSED run is still marked for attention', async () => {
+    instance.status = 'PAUSED'
+    setAgentDefinition({ action: 'attention' })
+
+    await runTaskSlaJob(mockEm, mockContainer as never, jobOptions)
+
+    expect(instance.metadata).toMatchObject({
+      labels: { source: 'test' },
+      attention: expect.objectContaining({ reason: 'DISPOSITION_SLA_BREACH', stepId }),
+    })
+    expect(instance.status).toBe('PAUSED')
+    expect(breachEventData()).toMatchObject({ onBreach: 'attention' })
+  })
+})

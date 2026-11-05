@@ -60,18 +60,18 @@ Add a `decrypt-database` command to the existing `entities` module CLI (`package
 
    `decryptWithAesGcm` MUST throw a typed `TenantDataEncryptionError` (defined as `class TenantDataEncryptionError extends Error { code: TenantDataEncryptionErrorCode }`). The error codes form an exhaustive enum:
    - `AUTH_FAILED` — AES-GCM authentication-tag mismatch: value is plaintext → skip field, no update.
-   - `MALFORMED_PAYLOAD` — bad base64/hex encoding or unexpected payload structure → **warn, increment per-scope `malformedPayloadCount`, skip field**. These values may be corrupted ciphertexts rather than plaintext.
+   - `MALFORMED_PAYLOAD` — bad base64/hex encoding or unexpected payload structure → **warn, increment per-scope `malformedPayloadCount`, skip field, and exit non-zero after the sweep**. These values may be corrupted ciphertexts rather than plaintext, so map deactivation must not proceed.
    - `KMS_UNAVAILABLE` — KMS service unreachable → rollback current batch and abort run.
    - `WRONG_KEY` — DEK returned by KMS does not decrypt the envelope → rollback current batch and abort run.
    - `DECRYPT_INTERNAL` — any other unexpected internal failure → rollback current batch and abort run.
 
    **Any non-`TenantDataEncryptionError` exception thrown by `decryptWithAesGcm`** (e.g. a raw `Error`, a string, an unexpected library error) MUST be treated as `DECRYPT_INTERNAL` — rollback current batch and abort run. This prevents silent data loss from unclassified exceptions.
 
-   Only `AUTH_FAILED` is definitively treated as "value is already plaintext". `MALFORMED_PAYLOAD` is counted and surfaced in the summary so the operator is aware that some payloads may be corrupted. All other codes (including unclassified exceptions mapped to `DECRYPT_INTERNAL`) cause the batch to rollback and abort.
+   Only `AUTH_FAILED` is definitively treated as "value is already plaintext". `MALFORMED_PAYLOAD` is counted and surfaced in the summary, then makes the command exit non-zero after the sweep. All other codes (including unclassified exceptions mapped to `DECRYPT_INTERNAL`) cause the batch to rollback and abort.
 
 4. Decrypts via `decryptWithAesGcm` using the tenant DEK obtained from `createKmsService()`.
 5. Writes the plaintext value back using raw SQL (same pattern as `rotate-encryption-key`). JSON.parse is attempted on the decrypted string; if JSON.parse returns a non-string primitive (number, boolean, object, array), the raw string is written instead to avoid type mismatches with text columns.
-6. Clears hash-field columns (`hashField` entries in `EncryptionMap.fieldsJson`) by setting them to `NULL` **only if `rowDecrypted = true`**. Hash fields are never nulled on rows where all field values were already plaintext. If a `hashField` column does not exist in the table, the command emits a warning and skips that specific hash column rather than aborting the run. Missing hash field columns are reported in the final summary.
+6. Clears hash-field columns (`hashField` entries in `EncryptionMap.fieldsJson`) by setting them to `NULL` **only if `rowDecrypted = true`**. Hash fields are never nulled on rows where all field values were already plaintext. If any mapped field or `hashField` column does not exist in metadata, preflight fails before reading or updating rows so the command cannot report success while leaving ciphertext or stale hashes behind.
 7. Optionally (via `--deactivate-maps`) sets `EncryptionMap.isActive = false` and `deletedAt = now()` for all **processed maps** — defined as every map included in the run's selected map set after applying `--tenant`, `--org`, and `--entity` filters, regardless of whether any rows were actually updated. When `--org` is provided, global maps (`organization_id IS NULL`) are always included in the processed set, because they were part of the selected map set and apply to tenant-wide rows.
 8. Prints a final summary and a post-step reminder to set `TENANT_DATA_ENCRYPTION=false`.
 
@@ -82,10 +82,10 @@ Add a `decrypt-database` command to the existing `entities` module CLI (`package
 | Reuse `decryptWithAesGcm` + raw SQL (not ORM) | Mirrors `rotate-encryption-key`; avoids ORM subscriber re-encryption side effects |
 | Decrypt-then-authenticate instead of regex/format heuristic | AES-GCM authentication-tag failure is the only reliable signal that a value is encrypted. Regex on `salt:iv:ciphertext:v1` format is fragile: plaintext could accidentally match; format versioning could change. Try-decrypt-catch-auth-fail is deterministic and format-version-agnostic. |
 | Typed `TenantDataEncryptionError` with exhaustive enum + fallback | `AUTH_FAILED` → treat as plaintext. `MALFORMED_PAYLOAD` → warn + count. `KMS_UNAVAILABLE`, `WRONG_KEY`, `DECRYPT_INTERNAL` → abort batch. Any non-`TenantDataEncryptionError` exception → treat as `DECRYPT_INTERNAL`. Ambiguous catch-all is unsafe. |
-| `MALFORMED_PAYLOAD` warns and counts rather than silently skipping | A base64-decode failure could mean a genuinely corrupted ciphertext. Counting and surfacing in the summary ensures the operator can investigate rather than assuming all is clean. |
+| `MALFORMED_PAYLOAD` warns, counts, and exits non-zero after the sweep | A base64-decode failure could mean corrupted ciphertext. The command reports every occurrence but refuses map deactivation or a successful exit until the operator resolves it. |
 | NULL field values skipped unconditionally | NULL is not an encrypted value; attempting decrypt on null would produce an unclassified error. Skip silently without warning. |
 | Null hash fields **only when `rowDecrypted = true`** | Nulling hash fields on rows already containing plaintext would destroy hash indexes on partially-migrated tenants. Conditional null is safe in all deployment states. |
-| Warn + skip missing `hashField` columns | Schema drift is possible on long-lived tenants. Hard fail would abort the run for one missing column; warn + skip preserves progress. |
+| Fail preflight on missing mapped or `hashField` columns | Schema drift must not let a destructive maintenance command report success while leaving ciphertext or stale lookup hashes behind. Resolve the map metadata before any row is read or changed. |
 | `malformedPayloadCount` per-scope + global aggregate | Per-scope counts (logged in `--debug`) help the operator locate problematic tables/columns. Global total + top-N table:column summary surfaced in the final summary. |
 | Keyset pagination (`id > lastId ORDER BY id LIMIT n`) | Offset pagination degrades on large tables; keyset is O(log n) and safe across long-running commands. For UUID PKs (standard in Open Mercato), ordering is lexicographic — deterministic, not insertion-ordered. Concurrent inserts during a long run may not be covered by the current pass; the command is idempotent — run it again to catch any missed rows. An index on `(tenant_id, organization_id, id)` is **recommended** for large tables; without it the DB may fall back to a sequential scan per batch (slow but correct). |
 | Distinct org scopes from `encryption_maps`, not entity tables | Fast and complete. If a map has no org, it covers global records. |
@@ -94,7 +94,7 @@ Add a `decrypt-database` command to the existing `entities` module CLI (`package
 | Separate `--deactivate-maps` flag (not default) | Operator may want to verify decryption before committing to disable; decouples the two concerns. |
 | "Processed map" = map in the selected set, not "map with updated rows" | Deactivation should not depend on whether any rows changed — a tenant already in plaintext still benefits from removing map overhead. |
 | Global maps always processed when `--org` is provided | Global maps apply to tenant-wide rows and are part of the selected map set; deactivating only per-org maps while leaving global maps active would leave overhead and potential confusion. |
-| `--check` reports both encrypted candidates and malformed payloads | Active map count alone doesn't reveal ciphertexts. Sampling gives "estimated encrypted candidates" + "malformed payloads" — both surfaced so the operator has a complete picture. Labeled as an estimate. |
+| `--check` reports both encrypted candidates and malformed payloads | Active map count alone doesn't reveal ciphertexts. Sampling gives "estimated encrypted candidates" + "malformed payloads" — both surfaced so the operator has a complete picture. Labeled as an estimate. Unavailable DEKs or failed sample queries are reported after the sweep and make the check exit non-zero. |
 | JSON.parse result must be string | Encrypted values are always serialized strings. If JSON.parse returns non-string, write the raw string to avoid type mismatch on text columns. |
 | Do not toggle `TENANT_DATA_ENCRYPTION` env var | Env var lives in infrastructure config; CLI cannot reliably change it across all replicas. |
 
@@ -151,10 +151,13 @@ CLI invocation
        print: "estimated encrypted candidates (sampled): N"
        print: "malformed payloads (sampled): M" (⚠ if M > 0: may indicate corruption)
        print: "not a proof of absence — run full command + rerun --check to confirm"
-       exit 0
+       if any DEK lookup or sample query failed: print every affected entity/scope and exit non-zero
+       otherwise exit 0
   └─ createRequestContainer() → em, conn
   └─ createKmsService() → KmsService
   └─ em.find(EncryptionMap, { tenantId, isActive: true, deletedAt: null })
+       preflight every selected map: mapped fields, hash fields, table metadata, and tenant scope must resolve
+       if any resolvable map is inconsistent: report all affected map ids and abort before reading rows
        totalMalformedPayloadCount = 0; malformedByLocation = Map<"table:column", count>
        for each map:
          resolveScopes(tenantId, organizationId):
@@ -188,14 +191,14 @@ CLI invocation
                        treat as DECRYPT_INTERNAL → ROLLBACK; abort batch and run with error
                    if rowDecrypted:
                      for each hashField:
-                       if column exists: accumulate UPDATE SET hash_col = NULL
-                       else: warn + skip; record in summary as "skipped missing column"
+                       accumulate UPDATE SET hash_col = NULL  -- column existence was proved by preflight
                    if not dry-run AND (plaintext fields | hash nulls) exist: execute UPDATE
                COMMIT
                if --debug: log batch duration, scopeMalformedCount; if batch > 30s → recommend smaller --batch-size
                if sleep-ms > 0: sleep(sleep-ms)
              processed += batch count
              totalMalformedPayloadCount += scopeMalformedCount
+  └─ if totalMalformedPayloadCount > 0: print summary, exit non-zero, and leave maps active
   └─ if --deactivate-maps and not dry-run:
        -- "processed maps" = all maps in selected set after --tenant/--org/--entity filters
        -- (not conditional on rows being updated; plaintext-already tenants still benefit)
@@ -277,7 +280,8 @@ No user-facing UI strings. CLI output is English-only (consistent with existing 
    - Count `encryptedCandidatesSampled` (rows with at least one `AUTH_SUCCESS`) and `malformedPayloadCountSampled` (fields throwing `MALFORMED_PAYLOAD`)
    - Print: `"estimated encrypted candidates (sampled): N"` and `"malformed payloads (sampled): M"` (with `⚠` if M > 0)
    - Print: `"not a proof of absence — run full command + rerun --check to confirm"`
-   - Exit 0
+   - Continue past unavailable DEKs and failed sample queries so every affected entity/scope is reported
+   - Exit non-zero after the sweep when any entity/scope could not be inspected; otherwise exit 0
 
 3. **Load EncryptionMap records** for scope (`tenantId`, optional `organizationId`, optional `entityId` filter)
 
@@ -289,10 +293,10 @@ No user-facing UI strings. CLI output is English-only (consistent with existing 
        - `value == null` → skip silently (no update, no warning)
        - `AUTH_SUCCESS` → write plaintext (if JSON.parse returns non-string type, write raw string)
        - `AUTH_FAILED` → skip (plaintext)
-       - `MALFORMED_PAYLOAD` → warn + increment `scopeMalformedCount` + record `table:column` in `malformedByLocation` + skip
+       - `MALFORMED_PAYLOAD` → warn + increment `scopeMalformedCount` + record `table:column` in `malformedByLocation` + skip; the completed sweep exits non-zero and leaves maps active
        - `KMS_UNAVAILABLE | WRONG_KEY | DECRYPT_INTERNAL` → ROLLBACK + abort
        - Any non-`TenantDataEncryptionError` exception → treat as `DECRYPT_INTERNAL` → ROLLBACK + abort
-     - If `rowDecrypted = true`: collect `NULL` for every `hashField`; if column missing → warn + skip
+     - Preflight resolves every mapped field and `hashField`; any missing column aborts before row reads or writes. If `rowDecrypted = true`, collect `NULL` for every resolved `hashField`.
      - If updates exist and not `--dry-run`: execute raw-SQL `UPDATE`
    - Commit batch; in `--debug`: log batch duration + `scopeMalformedCount`; if > 30 s recommend smaller `--batch-size`; if `--sleep-ms > 0`: sleep
 
@@ -303,8 +307,7 @@ No user-facing UI strings. CLI output is English-only (consistent with existing 
    - Rows updated (subset that required changes — may be less than fetched)
    - Entities processed
    - Hash fields cleared
-   - Hash fields skipped due to missing columns (with column names)
-   - `totalMalformedPayloadCount` (global aggregate across all scopes) — if > 0: print `⚠ N field values returned MALFORMED_PAYLOAD and were skipped; these may be corrupted ciphertexts. Investigate before assuming decryption is complete.`
+   - `totalMalformedPayloadCount` (global aggregate across all scopes) — if > 0: print `⚠ N field values returned MALFORMED_PAYLOAD and were skipped; these may be corrupted ciphertexts. Investigate before assuming decryption is complete.`, exit non-zero, and leave encryption maps active
    - In `--debug`: also print top-N `table:column` locations by `malformedPayloadCount` to help locate problematic fields without log excavation
 
 7. **Post-step reminder** printed after completion:
@@ -351,16 +354,17 @@ No user-facing UI strings. CLI output is English-only (consistent with existing 
   - `--confirm` mismatch: assert command aborts with a clear error before touching data
   - `--check` mode: assert env value + map count + sampling estimates printed; no rows changed; output labeled "estimated … (sampled)"
   - `--check` with a `MALFORMED_PAYLOAD` value seeded: assert `malformedPayloadCountSampled > 0` reported with `⚠`
+  - `--check` with an unavailable DEK or failed sample query: assert the sweep prints its estimates, identifies the affected entity/scope, and exits non-zero
   - Run with `--dry-run`; assert no rows changed, summary correct
   - Run without `--dry-run`; assert rows are plaintext in the DB
   - Assert hash fields set to `NULL` for decrypted rows
   - Seed a row with already-plaintext values (mixed-mode tenant); assert hash fields NOT nulled for that row
   - Seed a row with a NULL field value; assert field skipped silently (no warning, no update for that field)
   - Run again; assert idempotency (zero updates on second run — `AUTH_FAILED` → all fields treated as plaintext)
-  - Simulate `MALFORMED_PAYLOAD`: assert field skipped, `totalMalformedPayloadCount` in summary, `⚠` warning printed
+  - Simulate `MALFORMED_PAYLOAD`: assert field skipped, `totalMalformedPayloadCount` in summary, `⚠` warning printed, non-zero exit, and maps left active
   - Simulate non-`TenantDataEncryptionError` exception from `decryptWithAesGcm`: assert treated as `DECRYPT_INTERNAL` → batch rolled back, run aborted
   - Simulate `KMS_UNAVAILABLE`: assert ROLLBACK, run aborts with error, no partial commit
-  - Simulate missing `hashField` column: assert warn + skip, column listed in summary
+  - Simulate missing mapped or `hashField` column: assert preflight exits non-zero before reading or updating rows
   - With `--deactivate-maps` and `--org` provided: assert that org maps **and** global maps deactivated; maps for other orgs untouched
   - With `--deactivate-maps` and no `--org`: assert all active maps for tenant deactivated; assert restart warning printed
   - With `--deactivate-maps` on an already-plaintext tenant: assert maps are still deactivated (deactivation not conditional on rows updated)
@@ -378,8 +382,8 @@ No user-facing UI strings. CLI output is English-only (consistent with existing 
 - **Interrupted run**: If the process crashes mid-batch, the in-progress batch is rolled back atomically, and all prior committed batches are already plaintext. The next run safely skips already-plaintext rows (`AUTH_FAILED` → skip) — idempotent by design.
 - **JSON field corruption**: Decrypted value is parsed as JSON before writing. If JSON.parse returns a non-string type, the raw string is written. If parsing fails entirely, the raw string is written (same fallback as `rotate-encryption-key`).
 - **NULL column values**: NULL is skipped unconditionally (no update, no warning). Attempting decrypt on null would produce an unclassified exception; skipping is both safe and correct.
-- **Hash field orphaning**: Hash fields nulled only when `rowDecrypted = true`. Missing columns warned and skipped.
-- **Corrupted ciphertexts (`MALFORMED_PAYLOAD`)**: Values that fail base64/hex decoding are skipped with a warning and counted. Final summary warns if count > 0. In `--debug` mode, the top-N `table:column` locations are printed to help locate problematic fields.
+- **Hash field orphaning**: Hash fields are nulled only when `rowDecrypted = true`. Missing mapped or hash columns fail preflight before any row is read or changed.
+- **Corrupted ciphertexts (`MALFORMED_PAYLOAD`)**: Values that fail base64/hex decoding are skipped with a warning and counted. Final summary warns if count > 0, then exits non-zero and leaves encryption maps active. In `--debug` mode, the top-N `table:column` locations are printed to help locate problematic fields.
 - **Unclassified exceptions**: Any exception that is not a `TenantDataEncryptionError` is treated as `DECRYPT_INTERNAL` — batch is rolled back and the run aborts. This prevents unknown error types from silently bypassing the abort logic.
 
 #### Irreversible Plaintext Write
@@ -393,15 +397,15 @@ No user-facing UI strings. CLI output is English-only (consistent with existing 
 - **Scenario**: Hash fields left non-null after decryption; equality queries using hash index match wrong records.
 - **Severity**: High
 - **Affected area**: `auth:user` email lookup; any entity using `hashField` in `EncryptionMap`
-- **Mitigation**: Command conditionally NULLs `hashField` columns — only when `rowDecrypted = true`. Missing hash columns warned and skipped.
+- **Mitigation**: Command conditionally NULLs `hashField` columns — only when `rowDecrypted = true`. Missing hash columns fail preflight before writes.
 - **Residual risk**: None — hash columns are cleared as part of normal decryption; partially-migrated tenants protected by conditional null logic.
 
 #### Corrupted Ciphertext Silently Left in Place
 - **Scenario**: A field value is a malformed/truncated ciphertext; `MALFORMED_PAYLOAD` is thrown; field is skipped; operator may believe decryption was complete.
 - **Severity**: Medium
 - **Affected area**: Any entity field with storage corruption
-- **Mitigation**: `totalMalformedPayloadCount` prominently reported in summary with `⚠`; `--debug` shows top-N `table:column` locations; `--check` sampling after the run also reports `malformedPayloadCountSampled`
-- **Residual risk**: Operator ignores the warning — corrupted values remain; manual inspection required
+- **Mitigation**: `totalMalformedPayloadCount` is prominently reported with `⚠`; `--debug` shows top-N `table:column` locations; the command exits non-zero and refuses map deactivation; `--check` sampling also reports `malformedPayloadCountSampled`
+- **Residual risk**: Corrupted values remain for manual inspection, but automation cannot interpret the run as complete
 
 ### Cascading Failures & Side Effects
 
@@ -484,10 +488,10 @@ No user-facing UI strings. CLI output is English-only (consistent with existing 
 | Risks cover all write operations | Pass | Row update, map deactivation, runtime cache mismatch, and large-table perf all documented |
 | Idempotency guaranteed | Pass | `AUTH_FAILED` → skip; ROLLBACK on abort; prior committed batches safe; second run recommended after concurrent inserts |
 | Hash-field clearing is conditional | Pass | Nulled only when `rowDecrypted = true` |
-| Hash-field missing column handled | Pass | Warn + skip; reported in summary |
+| Hash-field missing column handled | Pass | Preflight fails before reading or updating rows |
 | NULL field values handled | Pass | Skip silently; no warning; no update |
 | `MALFORMED_PAYLOAD` surfaces to operator | Pass | Counted per-scope; aggregated globally; top-N locations in `--debug`; `⚠` in summary |
-| `--check` reports malformed payloads separately | Pass | `malformedPayloadCountSampled` printed with `⚠` if > 0 |
+| `--check` reports malformed payloads separately | Pass | `malformedPayloadCountSampled` printed with `⚠` if > 0; incomplete DEK/query coverage exits non-zero |
 | Non-`TenantDataEncryptionError` exceptions handled | Pass | Treated as `DECRYPT_INTERNAL` → ROLLBACK + abort |
 | `--confirm` is non-interactive | Pass | TLDR, body, and Design Decisions consistent |
 | Org-scope covers null organization_id | Pass | Sourced from maps table; includes NULL scope |
@@ -516,6 +520,10 @@ None.
 ---
 
 ## Changelog
+
+### 2026-10-27 (rev 6)
+- Aligned the spec with fail-closed implementation behavior: malformed ciphertext and missing mapped columns prevent a successful run and map deactivation.
+- `--check` now completes its diagnostic sweep but exits non-zero when a DEK is unavailable or a sample query fails, with regression coverage for both paths.
 
 ### 2026-02-19 (rev 5)
 - **NULL field values**: explicit `if value == null: skip silently` added to algorithm, pseudocode, and test matrix

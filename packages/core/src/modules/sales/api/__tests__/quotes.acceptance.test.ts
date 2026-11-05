@@ -8,6 +8,7 @@ import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictiona
 import { hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
 import { LockMode } from '@mikro-orm/core'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
+import { createSalesDocumentLockKyselyFixture } from '../../commands/__tests__/salesDocumentLockFixture'
 
 const mockCommandBus = { execute: jest.fn() }
 const mockRateLimiterService = { trustProxyDepth: 1, consume: jest.fn() }
@@ -21,6 +22,7 @@ const mockEm: Record<string, jest.Mock> = {
   commit: jest.fn().mockResolvedValue(undefined),
   rollback: jest.fn().mockResolvedValue(undefined),
   transactional: jest.fn().mockImplementation(async (callback: (trx: any) => Promise<unknown>) => callback(mockEm)),
+  getKysely: jest.fn(() => createSalesDocumentLockKyselyFixture('quote-lock')),
 }
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({

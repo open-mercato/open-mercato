@@ -228,7 +228,7 @@ Content-Type: application/json
 }
 ```
 
-**Feature:** `progress.update`
+**Feature:** `progress.update` — for jobs the caller started; updating another user's job also requires `progress.manage` (otherwise `404`).
 
 ### Cancel Job
 
@@ -236,7 +236,7 @@ Content-Type: application/json
 DELETE /api/progress/jobs/:id
 ```
 
-**Feature:** `progress.cancel`
+**Feature:** `progress.cancel` — for jobs the caller started; cancelling another user's job also requires `progress.manage` (otherwise `400`).
 
 Pending jobs are cancelled immediately. Running jobs have `cancelRequestedAt` set — the worker should poll `isCancellationRequested()` and stop cooperatively.
 
@@ -293,9 +293,9 @@ Features declared in `acl.ts`:
 |---------|-------------|
 | `progress.view` | View progress jobs and active status |
 | `progress.create` | Create new progress jobs |
-| `progress.update` | Update progress on running jobs |
-| `progress.cancel` | Cancel running/pending jobs |
-| `progress.manage` | Full management access |
+| `progress.update` | Update progress on running jobs the caller started |
+| `progress.cancel` | Cancel running/pending jobs the caller started |
+| `progress.manage` | Update and cancel jobs started by other users |
 
 Default role assignments in `setup.ts`:
 

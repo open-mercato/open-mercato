@@ -20,12 +20,9 @@ if (!TEST_APP_ROOT) {
 }
 
 /**
- * The drained count is returned rather than discarded because it distinguishes the two ways this
- * batch can reach a terminal state. `ephemeral-integration` runs the app with AUTO_SPAWN_WORKERS
- * defaulting to true, so the server's own worker competes with this drain for the same job: 0
- * means the server had already claimed it and this drain was a no-op, 1 means this process ran the
- * batch. #6008 turns on whether both of them ran it, and that is invisible from the job row alone
- * — the drain child's own logs are suppressed unless OM_DRAIN_DEBUG=1.
+ * The shared helper observes the app's managed worker instead of starting a second consumer, or
+ * drains in the correct app context when automatic workers are disabled. The returned count stays
+ * in failure messages so a worker-mode mismatch remains diagnosable.
  */
 async function waitForProgressJob(
   request: APIRequestContext,

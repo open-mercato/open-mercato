@@ -73,10 +73,10 @@ export function resolveLineDiscountDisplay(
 ): LineDiscountDisplay | null {
   const amount = normalizeNumber(line.discountAmount, 0)
   const percent = normalizeNumber(line.discountPercent, 0)
-  if (amount > 0) {
+  if (amount !== 0) {
     return {
       amount,
-      percent: percentAccountsForAmount(line, percent, amount) ? percent : null,
+      percent: amount > 0 && percentAccountsForAmount(line, percent, amount) ? percent : null,
     }
   }
   if (percent > 0) return { amount: null, percent }

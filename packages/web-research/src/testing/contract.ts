@@ -1,6 +1,6 @@
 import type { AdapterContext, AdapterModule, SearchAdapter } from '../contract/adapter'
 import { silentLogger, type HttpClient, type HttpResponse } from '../contract/http'
-import { CONTRACT_VERSION } from '../contract/version'
+import { isSupportedContractVersion } from '../contract/version'
 import type { SearchRequest } from '../contract/results'
 
 export type StubResponse = Partial<HttpResponse> & { readonly body: string }
@@ -80,7 +80,7 @@ export function describeAdapterContract<TOptions>(
 
   describe(`${module.id} adapter contract`, () => {
     it('declares the contract version it was built against', () => {
-      expect(module.contractVersion).toBe(CONTRACT_VERSION)
+      expect(isSupportedContractVersion(module.contractVersion)).toBe(true)
     })
 
     it('exposes a stable id and kind', () => {

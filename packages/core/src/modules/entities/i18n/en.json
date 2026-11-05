@@ -196,6 +196,7 @@
   "entities.nav.systemEntities": "System Entities",
   "entities.nav.userEntities": "User Entities",
   "entities.nav.userEntities.create": "Create Entity",
+  "entities.records.errors.alreadyExists": "A record with this ID already exists. Use PUT to update it.",
   "entities.settings.description": "Manage global custom entity configurations.",
   "entities.settings.errors.conflict": "Settings were modified by another user. Please reload.",
   "entities.settings.errors.loadFailed": "Failed to load settings",

@@ -39,13 +39,13 @@ import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects } from '@ope
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
-import { StaffTimeTask, StaffTimeTaskComment } from '../data/entities'
+import { StaffTimeTask, StaffTimeTaskComment, type StaffTimeTaskCommentVisibility } from '../data/entities'
 import { staffTimeTaskCommentCrudEvents } from '../lib/crud'
 import {
   staffTimeTaskCommentCreateSchema,
-  staffTimeTaskCommentUpdateSchema,
+  staffTimeTaskCommentUpdateRequestSchema,
   type StaffTimeTaskCommentCreateInput,
-  type StaffTimeTaskCommentUpdateInput,
+  type StaffTimeTaskCommentUpdateRequestInput,
 } from '../data/validators'
 import {
   applyScopeToWhere,
@@ -96,6 +96,43 @@ const commentCrudIndexer: CrudIndexerConfig<StaffTimeTaskComment> = {
  */
 const commentCrudEvents: CrudEventsConfig<StaffTimeTaskComment> = staffTimeTaskCommentCrudEvents
 
+/**
+ * The comment CRUD events carry `portalVisible`: true when the comment is visible to
+ * the customer before OR after the change, so publishing, retracting and deleting a
+ * reply all refresh the portal. Internal notes never set it.
+ */
+function commentEvents(portalVisible: boolean): CrudEventsConfig<StaffTimeTaskComment> {
+  const base = staffTimeTaskCommentCrudEvents
+  return {
+    ...base,
+    buildPayload: (context) => ({
+      ...((base.buildPayload ? base.buildPayload(context) : {}) as Record<string, unknown>),
+      portalVisible,
+    }),
+  }
+}
+
+export const TASK_COMMENT_CUSTOMER_IMMUTABLE_CODE = 'task_comment_customer_immutable'
+export const TASK_COMMENT_VISIBILITY_INVALID_CODE = 'task_comment_visibility_invalid'
+
+function customerCommentImmutableError(translate: Translate): CrudHttpError {
+  return new CrudHttpError(403, {
+    code: TASK_COMMENT_CUSTOMER_IMMUTABLE_CODE,
+    error: translate(
+      'staff.time_tracking.taskComments.errors.customerImmutable',
+      'Messages written by the customer cannot be edited or deleted.',
+    ),
+  })
+}
+
+function visibilityInvalidError(translate: Translate): CrudHttpError {
+  const message = translate(
+    'staff.time_tracking.taskComments.errors.visibilityPortalOnly',
+    'Only customer support tickets can carry replies visible to the customer.',
+  )
+  return new CrudHttpError(422, { code: TASK_COMMENT_VISIBILITY_INVALID_CODE, error: message, fieldErrors: { visibility: message } })
+}
+
 type Translate = (key: string, fallback: string) => string
 
 type CommentSnapshot = {
@@ -105,6 +142,8 @@ type CommentSnapshot = {
   taskId: string
   body: string
   authorUserId: string | null
+  visibility: StaffTimeTaskCommentVisibility
+  authorKind: string
   createdAt: string | null
   deletedAt: string | null
 }
@@ -129,6 +168,8 @@ function toCommentSnapshot(comment: StaffTimeTaskComment): CommentSnapshot {
     taskId: comment.taskId,
     body: comment.body,
     authorUserId: comment.authorUserId ?? null,
+    visibility: comment.visibility ?? 'internal',
+    authorKind: comment.authorKind ?? 'staff',
     createdAt: comment.createdAt ? comment.createdAt.toISOString() : null,
     deletedAt: comment.deletedAt ? comment.deletedAt.toISOString() : null,
   }
@@ -211,6 +252,7 @@ async function requireEditableComment(
   ctx: CommandRuntimeContext,
   translate: Translate,
 ): Promise<void> {
+  if (comment.authorKind === 'customer') throw customerCommentImmutableError(translate)
   const actorId = stampAuthorUserId(ctx)
   if (actorId && comment.authorUserId === actorId) return
   if (await callerCanManageAll(ctx)) return
@@ -257,7 +299,10 @@ const createTaskCommentCommand: CommandHandler<
     await withAtomicFlush(
       em,
       [
-        () => requireTaskInScope(em, parsed.taskId, scope, translate),
+        async () => {
+          const task = await requireTaskInScope(em, parsed.taskId, scope, translate)
+          if (parsed.visibility === 'customer' && task.source !== 'portal') throw visibilityInvalidError(translate)
+        },
         () => {
           created = em.create(StaffTimeTaskComment, {
             tenantId: parsed.tenantId,
@@ -265,6 +310,8 @@ const createTaskCommentCommand: CommandHandler<
             taskId: parsed.taskId,
             body: parsed.body,
             authorUserId,
+            visibility: parsed.visibility ?? 'internal',
+            authorKind: 'staff',
             createdAt: new Date(),
             updatedAt: new Date(),
             deletedAt: null,
@@ -283,7 +330,7 @@ const createTaskCommentCommand: CommandHandler<
       action: 'created',
       entity: record,
       identifiers: { id: record.id, organizationId: record.organizationId, tenantId: record.tenantId },
-      events: commentCrudEvents,
+      events: commentEvents(record.visibility === 'customer'),
       indexer: commentCrudIndexer,
     })
 
@@ -340,19 +387,19 @@ const createTaskCommentCommand: CommandHandler<
       action: 'deleted',
       entity: comment,
       identifiers: { id: comment.id, organizationId: comment.organizationId, tenantId: comment.tenantId },
-      events: commentCrudEvents,
+      events: commentEvents(comment.visibility === 'customer'),
       indexer: commentCrudIndexer,
     })
   },
 }
 
 const updateTaskCommentCommand: CommandHandler<
-  StaffTimeTaskCommentUpdateInput,
+  StaffTimeTaskCommentUpdateRequestInput,
   { commentId: string; taskId: string }
 > = {
   id: staffTimeTaskCommentCommandIds.update,
   async prepare(rawInput, ctx) {
-    const parsed = staffTimeTaskCommentUpdateSchema.safeParse(rawInput)
+    const parsed = staffTimeTaskCommentUpdateRequestSchema.safeParse(rawInput)
     if (!parsed.success) return {}
     const em = ctx.container.resolve('em') as EntityManager
     const before = await loadCommentSnapshot(em, parsed.data.id, staffSnapshotScopeFromContext(ctx))
@@ -360,7 +407,7 @@ const updateTaskCommentCommand: CommandHandler<
     return { before: { snapshot: before } }
   },
   async execute(rawInput, ctx) {
-    const parsed = staffTimeTaskCommentUpdateSchema.parse(rawInput)
+    const parsed = staffTimeTaskCommentUpdateRequestSchema.parse(rawInput)
     const { translate } = await resolveTranslations()
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const scope = commandActorScope(ctx)
@@ -374,12 +421,18 @@ const updateTaskCommentCommand: CommandHandler<
     ensureOrganizationScope(ctx, comment.organizationId)
     assertCommentVersion(ctx, comment)
     await requireEditableComment(comment, ctx, translate)
+    const visibilityBefore = comment.visibility ?? 'internal'
+    if (parsed.visibility === 'customer' && visibilityBefore !== 'customer') {
+      const task = await requireTaskInScope(em, comment.taskId, scope, translate)
+      if (task.source !== 'portal') throw visibilityInvalidError(translate)
+    }
 
     await withAtomicFlush(
       em,
       [
         () => {
-          comment.body = parsed.body
+          if (parsed.body !== undefined) comment.body = parsed.body
+          if (parsed.visibility !== undefined) comment.visibility = parsed.visibility
           comment.updatedAt = new Date()
         },
       ],
@@ -391,7 +444,7 @@ const updateTaskCommentCommand: CommandHandler<
       action: 'updated',
       entity: comment,
       identifiers: { id: comment.id, organizationId: comment.organizationId, tenantId: comment.tenantId },
-      events: commentCrudEvents,
+      events: commentEvents(visibilityBefore === 'customer' || comment.visibility === 'customer'),
       indexer: commentCrudIndexer,
     })
 
@@ -417,7 +470,7 @@ const updateTaskCommentCommand: CommandHandler<
       changes: buildChanges(
         before as unknown as Record<string, unknown>,
         after as unknown as Record<string, unknown>,
-        ['body'],
+        ['body', 'visibility'],
       ),
       payload: {
         undo: { before, after } satisfies CommentUndoPayload,
@@ -440,6 +493,7 @@ const updateTaskCommentCommand: CommandHandler<
       [
         () => {
           comment.body = before.body
+          comment.visibility = before.visibility ?? 'internal'
           comment.updatedAt = new Date()
         },
       ],
@@ -451,7 +505,7 @@ const updateTaskCommentCommand: CommandHandler<
       action: 'updated',
       entity: comment,
       identifiers: { id: comment.id, organizationId: comment.organizationId, tenantId: comment.tenantId },
-      events: commentCrudEvents,
+      events: commentEvents(true),
       indexer: commentCrudIndexer,
     })
   },
@@ -505,7 +559,7 @@ const deleteTaskCommentCommand: CommandHandler<{ id?: string }, { commentId: str
       action: 'deleted',
       entity: comment,
       identifiers: { id: comment.id, organizationId: comment.organizationId, tenantId: comment.tenantId },
-      events: commentCrudEvents,
+      events: commentEvents(comment.visibility === 'customer'),
       indexer: commentCrudIndexer,
     })
 
@@ -551,6 +605,7 @@ const deleteTaskCommentCommand: CommandHandler<{ id?: string }, { commentId: str
               taskId: before.taskId,
               body: before.body,
               authorUserId: before.authorUserId,
+              visibility: before.visibility ?? 'internal',
               createdAt: before.createdAt ? new Date(before.createdAt) : new Date(),
               updatedAt: new Date(),
               deletedAt: null,
@@ -572,7 +627,7 @@ const deleteTaskCommentCommand: CommandHandler<{ id?: string }, { commentId: str
       action: 'created',
       entity: comment,
       identifiers: { id: before.id, organizationId: before.organizationId, tenantId: before.tenantId },
-      events: commentCrudEvents,
+      events: commentEvents(before.visibility === 'customer'),
       indexer: commentCrudIndexer,
     })
   },

@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
+import { enUS } from 'date-fns/locale/en-US'
 import { DateRangePicker } from '../date-range-picker'
 import { defaultDateRangePresets } from '../date-picker-helpers'
 
@@ -169,5 +170,54 @@ describe('defaultDateRangePresets()', () => {
     const now = Date.now()
     expect(range.start.getTime()).toBeLessThanOrEqual(now)
     expect(range.end.getTime()).toBeGreaterThanOrEqual(now)
+  })
+})
+
+describe('DateRangePicker under a non-English app locale', () => {
+  function renderInLocale(ui: React.ReactElement, locale: string) {
+    return render(<I18nProvider locale={locale} dict={{}}>{ui}</I18nProvider>)
+  }
+
+  function firstGridDay(): Date {
+    const iso = screen.getAllByRole('gridcell')[0].getAttribute('data-day')
+    if (!iso) throw new Error('first grid cell has no data-day')
+    const [year, month, day] = iso.split('-').map(Number)
+    return new Date(year, month - 1, day)
+  }
+
+  // #6852: the range picker never resolved the app locale, so list filters rendered an
+  // English, Sunday-first calendar and an English footer range on a Polish interface.
+  it('follows the app locale when no explicit locale prop is passed', async () => {
+    renderInLocale(
+      <DateRangePicker
+        value={{ start: new Date(2026, 11, 10), end: new Date(2027, 0, 15) }}
+        onChange={() => {}}
+      />,
+      'pl',
+    )
+    expect(getTrigger()).toHaveTextContent('10 gru 2026 – 15 sty 2027')
+    await openPopover()
+    expect(firstGridDay().getDay()).toBe(1)
+    const navLabels = screen
+      .getAllByRole('button')
+      .map((button) => button.getAttribute('aria-label') ?? '')
+      .filter((label) => /^Go to (previous|next) month: /.test(label))
+    expect(navLabels).toHaveLength(2)
+    navLabels.forEach((label) => expect(label).not.toMatch(/January|February|March|April|May|June|July|August|September|October|November|December/))
+    expect(screen.getByText('Range: 10 gru 2026 – 15 sty 2027')).toBeInTheDocument()
+  })
+
+  it('keeps an explicit locale prop over the app locale', async () => {
+    renderInLocale(
+      <DateRangePicker
+        value={{ start: new Date(2026, 4, 1), end: new Date(2026, 4, 9) }}
+        onChange={() => {}}
+        locale={enUS}
+      />,
+      'pl',
+    )
+    expect(getTrigger()).toHaveTextContent('May 1, 2026 – May 9, 2026')
+    await openPopover()
+    expect(firstGridDay().getDay()).toBe(0)
   })
 })

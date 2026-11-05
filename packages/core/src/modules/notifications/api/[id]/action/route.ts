@@ -97,6 +97,14 @@ export const openApi = {
           },
         },
       },
+      403: {
+        description: 'The stored action command is not declared by the notification type with the same action id and command, or the user lacks the features the declared action requires (`code: notification_action_forbidden`)',
+        content: {
+          'application/json': {
+            schema: actionConflictResponseSchema,
+          },
+        },
+      },
       400: {
         description: 'Action not found or failed',
         content: {

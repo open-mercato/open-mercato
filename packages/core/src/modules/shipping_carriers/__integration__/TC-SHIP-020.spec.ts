@@ -3,6 +3,7 @@ import { expect, test } from '@playwright/test'
 import { getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { createOrganizationFixture, deleteOrganizationIfExists } from '@open-mercato/core/helpers/integration/authFixtures'
 import { getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue'
 import {
   deleteCarrierShipmentInDb,
   deleteCarrierWebhookClaimsInDb,
@@ -54,6 +55,7 @@ test.describe('TC-SHIP-020: Ambiguous signed webhook shipments', () => {
       })
       expect(uniqueResponse.status()).toBe(202)
       expect(await readJsonSafe(uniqueResponse)).toEqual({ received: true, queued: true })
+      await drainIntegrationQueue('shipping-carriers-webhook')
       await expect.poll(() => hasCarrierWebhookClaimInDb(acceptedEventId, 'mock_carrier')).toBe(true)
       await expect.poll(async () => (await getCarrierShipmentRowFromDb(shipmentIds[0]))?.unifiedStatus).toBe('delivered')
     } finally {

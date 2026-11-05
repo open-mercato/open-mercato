@@ -4,6 +4,7 @@ import {
   draftRounding,
   formatSignedMinutes,
   isSettingsDraftDirty,
+  rebaseSettingsDraft,
   settingsDraftErrors,
   toSettingsDraft,
   toSettingsPayload,
@@ -16,6 +17,7 @@ const settings: TimeTrackingSettings = {
   targets: { dailyHours: 8 },
   warnings: { overlap: true, runningTimer: true },
   access: { assignmentGraceDays: 14 },
+  support: { referencePrefix: 'SUP' },
 }
 
 describe('buildRoundingExamples', () => {
@@ -129,5 +131,35 @@ describe('settings draft', () => {
     expect(toSettingsPayload(toSettingsDraft(DEFAULT_TIME_TRACKING_SETTINGS))).toEqual(
       DEFAULT_TIME_TRACKING_SETTINGS,
     )
+  })
+})
+
+describe('rebaseSettingsDraft', () => {
+  it('takes a value another tab saved while keeping the fields the user edited', () => {
+    const previous = toSettingsDraft(settings)
+    const draft = { ...previous, roundingUnitMinutes: 5 as const, dailyHoursText: '7' }
+    const next = toSettingsDraft({ ...settings, support: { referencePrefix: 'HELP' } })
+
+    const rebased = rebaseSettingsDraft(draft, previous, next)
+
+    expect(rebased.supportReferencePrefix).toBe('HELP')
+    expect(rebased.roundingUnitMinutes).toBe(5)
+    expect(rebased.dailyHoursText).toBe('7')
+    expect(toSettingsPayload(rebased)?.support).toEqual({ referencePrefix: 'HELP' })
+  })
+
+  it('keeps an edit of the same field over the saved value', () => {
+    const previous = toSettingsDraft(settings)
+    const draft = { ...previous, supportReferencePrefix: 'MINE' }
+    const next = toSettingsDraft({ ...settings, support: { referencePrefix: 'HELP' } })
+
+    expect(rebaseSettingsDraft(draft, previous, next).supportReferencePrefix).toBe('MINE')
+  })
+
+  it('is clean against the new baseline when nothing was edited', () => {
+    const previous = toSettingsDraft(settings)
+    const next = toSettingsDraft({ ...settings, support: { referencePrefix: 'HELP' } })
+
+    expect(isSettingsDraftDirty(rebaseSettingsDraft(previous, previous, next), next)).toBe(false)
   })
 })

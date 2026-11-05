@@ -5,6 +5,9 @@
  */
 
 import { NextRequest } from 'next/server'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { createFallbackTranslator, createTranslator } from '@open-mercato/shared/lib/i18n/translate'
+import polishTranslations from '../../i18n/pl.json'
 import { GET as listDefinitions, POST as createDefinition } from '../definitions/route'
 import {
   GET as getDefinition,
@@ -15,6 +18,12 @@ import { WorkflowDefinition, WorkflowInstance } from '../../data/entities'
 import { registerCodeWorkflows, clearCodeWorkflowRegistry } from '../../lib/code-registry'
 import { codeWorkflowUuid } from '../../lib/find-definition'
 import { workflowsConfig } from '../../workflows'
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn().mockResolvedValue({
+    translate: (_key: string, fallback?: string) => fallback ?? _key,
+  }),
+}))
 
 // Mock dependencies
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
@@ -462,6 +471,55 @@ describe('Workflow Definitions API', () => {
       })
     })
 
+    test('rejects unsafe mapping targets at the create authoring boundary', async () => {
+      jest.mocked(resolveTranslations).mockResolvedValueOnce({
+        locale: 'pl',
+        dict: polishTranslations,
+        t: createTranslator(polishTranslations),
+        translate: createFallbackTranslator(polishTranslations),
+      })
+      const definition = {
+        ...validDefinition.definition,
+        steps: [
+          validDefinition.definition.steps[0],
+          {
+            stepId: 'sub',
+            stepName: 'Sub-workflow',
+            stepType: 'SUB_WORKFLOW',
+            config: {
+              subWorkflowId: 'child',
+              inputMapping: JSON.parse('{"__proto__.workflowPolluted":"payload.value"}'),
+            },
+          },
+          validDefinition.definition.steps[1],
+        ],
+        transitions: [
+          { transitionId: 'start-sub', fromStepId: 'start', toStepId: 'sub', trigger: 'auto' },
+          { transitionId: 'sub-end', fromStepId: 'sub', toStepId: 'end', trigger: 'auto' },
+        ],
+      }
+      const request = new NextRequest('http://localhost/api/workflows/definitions', {
+        method: 'POST',
+        body: JSON.stringify({ ...validDefinition, definition }),
+      })
+
+      const response = await createDefinition(request)
+      const data = await response.json()
+
+      expect(response.status).toBe(400)
+      expect(data.details[0].message).toBe(polishTranslations['workflows.validation.unsafeMappingTarget'])
+      expect(data).toMatchObject({
+        error: 'Validation failed',
+        details: [
+          {
+            path: ['definition', 'steps', 1, 'config', 'inputMapping', '__proto__.workflowPolluted'],
+            code: 'custom',
+          },
+        ],
+      })
+      expect(mockEm.create).not.toHaveBeenCalled()
+    })
+
     test('should prevent duplicate workflowId', async () => {
       mockEm.findOne.mockResolvedValue({
         id: 'existing-def',
@@ -873,6 +931,60 @@ describe('Workflow Definitions API', () => {
         got: 'string',
       })
       expect(typeof data.details[0].message).toBe('string')
+    })
+
+    test('rejects unsafe mapping targets at the update authoring boundary', async () => {
+      jest.mocked(resolveTranslations).mockResolvedValueOnce({
+        locale: 'pl',
+        dict: polishTranslations,
+        t: createTranslator(polishTranslations),
+        translate: createFallbackTranslator(polishTranslations),
+      })
+      const unsafeDefinition = {
+        steps: [
+          mockDefinition.definition.steps[0],
+          {
+            stepId: 'sub',
+            stepName: 'Sub-workflow',
+            stepType: 'SUB_WORKFLOW',
+            config: {
+              subWorkflowId: 'child',
+              outputMapping: JSON.parse('{"constructor.prototype.workflowPolluted":"branches.a"}'),
+            },
+          },
+          mockDefinition.definition.steps[1],
+        ],
+        transitions: [
+          { transitionId: 'start-sub', fromStepId: 'start', toStepId: 'sub', trigger: 'auto' },
+          { transitionId: 'sub-end', fromStepId: 'sub', toStepId: 'end', trigger: 'auto' },
+        ],
+      }
+      const request = new NextRequest('http://localhost/api/workflows/definitions/def-1', {
+        method: 'PUT',
+        body: JSON.stringify({ definition: unsafeDefinition }),
+      })
+
+      const response = await updateDefinition(request, { params: Promise.resolve({ id: 'def-1' }) })
+      const data = await response.json()
+
+      expect(response.status).toBe(400)
+      expect(data.details[0].message).toBe(polishTranslations['workflows.validation.unsafeMappingTarget'])
+      expect(data.details).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: [
+              'definition',
+              'steps',
+              1,
+              'config',
+              'outputMapping',
+              'constructor.prototype.workflowPolluted',
+            ],
+            code: 'custom',
+          }),
+        ]),
+      )
+      expect(mockEm.flush).not.toHaveBeenCalled()
     })
 
     test('should allow partial updates', async () => {

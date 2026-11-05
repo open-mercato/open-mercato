@@ -322,14 +322,14 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
         )?.threadId ?? input.parentMessageId
         : undefined
 
-      const isPublicVisibility = input.visibility === 'public'
-      // #6093: a channel-ingested message was RECEIVED, not sent. Ingest passes
-      // `sendViaEmail: false` on purpose; forcing it for public visibility would
-      // mail the assignee a copy and echo the message to its external sender
-      // (#6089) the moment the recipients waiver lets it compose. #6090 removes
-      // the forcing for every caller; until then it is skipped here for the
-      // ingest path only.
-      const sendViaEmail = isPublicVisibility && !input.inboundFromChannel ? true : input.sendViaEmail
+      // Honor the caller's explicit `sendViaEmail` (#6089, #6090). The messages API
+      // route forces email delivery for public messages a user composes; internal
+      // callers (communication_channels inbound ingest, send-as-user) compose
+      // `visibility: 'public'` with `sendViaEmail: false` on purpose. Forcing it
+      // here echoed every inbound email back to its sender through the tenant
+      // system email channel and made send-as-user deliver twice.
+      const sendViaEmail = input.sendViaEmail
+      const sentAt = input.sentAt === undefined ? new Date() : input.sentAt
       const message = trx.create(Message, {
         type: input.type,
         visibility: input.visibility ?? null,
@@ -348,7 +348,7 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
         isDraft: input.isDraft ?? false,
         // #6095: channel ingest passes the provider's timestamp so an imported
         // mailbox sorts by when the mail was received, not when it was imported.
-        sentAt: input.isDraft ? null : input.sentAt ?? new Date(),
+        sentAt: input.isDraft ? null : sentAt,
         actionData: input.actionData as MessageActionData | undefined,
         sendViaEmail,
         idempotencyKey: input.idempotencyKey ?? null,
@@ -435,8 +435,7 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
         messageId,
         senderUserId: input.userId,
         recipientUserIds: input.recipients.map((recipient) => recipient.userId),
-        sendViaEmail:
-          input.visibility === 'public' && !input.inboundFromChannel ? true : input.sendViaEmail,
+        sendViaEmail: input.sendViaEmail,
         inboundFromChannel: input.inboundFromChannel === true,
         externalEmail: responseExternalEmail,
         tenantId: input.tenantId,

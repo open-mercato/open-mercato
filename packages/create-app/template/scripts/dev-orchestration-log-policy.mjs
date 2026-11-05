@@ -113,3 +113,41 @@ export function isIgnorableTurboLine(line) {
   }
   return false
 }
+
+const SUMMARY_BOX_CHARS = /[╔║╚]/
+
+// Compact mode captures `mercato init` output into the log file only, which
+// used to hide the "Users created" box with the login credentials. Returns the
+// LAST double-line box (╔ … ╚) from the captured lines, with any turbo task
+// prefix stripped, or [] when the output has none.
+export function extractInitSummaryBox(lines) {
+  if (!Array.isArray(lines)) return []
+  const plain = lines.map((line) => stripAnsi(String(line ?? '')).replace(/\s+$/, ''))
+  let start = -1
+  for (let index = plain.length - 1; index >= 0; index -= 1) {
+    if (plain[index].includes('╔')) {
+      start = index
+      break
+    }
+  }
+  if (start === -1) return []
+  const box = []
+  for (let index = start; index < plain.length; index += 1) {
+    const line = plain[index]
+    const column = line.search(SUMMARY_BOX_CHARS)
+    if (column === -1) return []
+    box.push(line.slice(column))
+    if (line.includes('╚')) return box
+  }
+  return []
+}
+
+// What compact setup echoes after `mercato init`: the credentials box on a
+// first run, or the "already initialized" notice when a re-run kept the data.
+export function extractInitSummaryLines(lines) {
+  const box = extractInitSummaryBox(lines)
+  if (box.length > 0) return box
+  if (!Array.isArray(lines)) return []
+  const kept = lines.map((line) => normalize(line)).find((line) => line.includes('Database already initialized'))
+  return kept ? [kept] : []
+}

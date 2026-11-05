@@ -8,6 +8,7 @@ describe('customer list sorting', () => {
     expect(resolveCustomerListSortField('lifecycleStage')).toBe('lifecycleStage')
     expect(resolveCustomerListSortField('source')).toBe('source')
     expect(resolveCustomerListSortField('nextInteractionAt')).toBe('nextInteractionAt')
+    expect(resolveCustomerListSortField('createdAt')).toBe('createdAt')
   })
 
   it('normalizes custom field column ids to query-engine selectors', () => {

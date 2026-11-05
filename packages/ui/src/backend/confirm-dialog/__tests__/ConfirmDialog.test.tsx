@@ -156,4 +156,36 @@ describe('ConfirmDialog', () => {
     expect(firstOpenChange).not.toHaveBeenCalled()
     expect(secondOpenChange).toHaveBeenCalledWith(false)
   })
+
+  it('prevents the native cancel default so the dialog can reopen after Escape', () => {
+    const onOpenChange = jest.fn()
+    const renderDialog = (open: boolean) => (
+      <ConfirmDialog
+        open={open}
+        onOpenChange={onOpenChange}
+        onConfirm={() => undefined}
+        title="Discard unsaved changes?"
+        confirmText="Discard"
+        cancelText="Cancel"
+      />
+    )
+
+    const { rerender } = renderWithProviders(renderDialog(true))
+    const dialog = screen.getByRole('alertdialog')
+    expect(dialog).toHaveAttribute('open')
+
+    // Simulate the browser's own Escape-to-cancel default action, which
+    // jsdom does not emit automatically.
+    const cancelEvent = new Event('cancel', { cancelable: true })
+    dialog.dispatchEvent(cancelEvent)
+
+    expect(cancelEvent.defaultPrevented).toBe(true)
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+
+    rerender(renderDialog(false))
+    expect(dialog).not.toHaveAttribute('open')
+
+    rerender(renderDialog(true))
+    expect(dialog).toHaveAttribute('open')
+  })
 })

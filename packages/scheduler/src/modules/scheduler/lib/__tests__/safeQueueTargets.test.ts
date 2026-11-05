@@ -67,6 +67,24 @@ beforeAll(() => {
         },
       ],
     },
+    {
+      id: 'gamma_module',
+      workers: [
+        {
+          id: 'gamma-module:workers:scheduled',
+          queue: 'gamma-module-scheduled',
+          concurrency: 1,
+          handler: async () => {},
+        },
+        {
+          id: 'gamma-module:workers:safe',
+          queue: 'gamma-module-safe',
+          concurrency: 1,
+          schedulerSafe: true,
+          handler: async () => {},
+        },
+      ],
+    },
   ] as never)
 })
 
@@ -78,6 +96,7 @@ describe('listSchedulerSafeQueueTargets', () => {
   it('returns only queues whose workers ALL opted into scheduling, deduplicated and sorted', () => {
     expect(listSchedulerSafeQueueTargets()).toEqual([
       { queue: 'alpha-safe', moduleId: 'alpha', requiredFeatures: [] },
+      { queue: 'gamma-module-safe', moduleId: 'gamma_module', requiredFeatures: [] },
       { queue: 'gated-queue', moduleId: 'alpha', requiredFeatures: ['orders.export'] },
     ])
   })
@@ -158,6 +177,22 @@ describe('canDispatchScheduleQueueTarget', () => {
       sourceType: 'module',
       sourceModule: 'alpha',
     })).toBe(true)
+  })
+
+  it('resolves ownership from the registry when the worker id is spelled differently', () => {
+    expect(canDispatchScheduleQueueTarget({
+      targetQueue: 'gamma-module-scheduled',
+      sourceType: 'module',
+      sourceModule: 'gamma_module',
+    })).toBe(true)
+  })
+
+  it('does not accept the worker id prefix as a module id', () => {
+    expect(canDispatchScheduleQueueTarget({
+      targetQueue: 'gamma-module-scheduled',
+      sourceType: 'module',
+      sourceModule: 'gamma-module',
+    })).toBe(false)
   })
 
   it('fails closed on pre-upgrade/forged module rows (#5213 B1)', () => {
