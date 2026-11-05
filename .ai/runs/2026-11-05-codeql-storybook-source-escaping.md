@@ -20,12 +20,13 @@ Generate JSX attributes as expressions, escape markup delimiters in emitted Java
 The checkout has no node_modules. /tmp writes fail with quota exceeded; use a workspace TMPDIR. Full validation may require dependency installation; incomplete verification leaves the PR draft. Existing PRs #8741 and #8717 already cover Mermaid/Hono/ip-address and are excluded. Other Dependabot packages are deferred by this run's one-group scope, not declared fixed.
 
 ## Progress
+PR: #8747
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Remediation
 
-- [ ] 1.1 Correct generated variant source and test literal round trips and hostile markup.
+- [x] 1.1 Correct generated variant source and test literal round trips and hostile markup. — 9c2b5fa619
 
 ### Phase 2: Verification and review
 
