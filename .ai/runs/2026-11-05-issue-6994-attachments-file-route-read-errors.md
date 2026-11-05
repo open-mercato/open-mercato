@@ -46,14 +46,14 @@ Make `GET /api/attachments/file/<id>` return 404 `STORAGE_FILE_MISSING` for a mi
 
 ### Phase 2: Compatibility record
 
-- [ ] 2.1 Add spec documenting file-route read-error semantics with Migration & Backward Compatibility
-- [ ] 2.2 Cross-reference the new spec from the attachment storage-validation spec
-- [ ] 2.3 Reference the spec in the PR description
+- [x] 2.1 Add spec documenting file-route read-error semantics with Migration & Backward Compatibility — 4ed6eb07a3
+- [x] 2.2 Cross-reference the new spec from the attachment storage-validation spec — 4ed6eb07a3
+- [x] 2.3 Reference the spec in the PR description — PR body
 
 ### Phase 3: HTTP integration coverage
 
-- [ ] 3.1 Integration test: missing backing file returns 404 STORAGE_FILE_MISSING
-- [ ] 3.2 Integration test: non-missing read fault returns 500 STORAGE_READ_FAILED with a redacted body
+- [x] 3.1 Integration test: missing backing file returns 404 STORAGE_FILE_MISSING — 221ff79abf
+- [x] 3.2 Integration test: non-missing read fault returns 500 STORAGE_READ_FAILED with a redacted body — 221ff79abf
 
 ### Phase 4: Finalize
 
