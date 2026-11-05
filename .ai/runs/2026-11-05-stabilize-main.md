@@ -20,11 +20,13 @@ CI may reveal additional independent failures. Existing ci-full support makes a 
 
 ## Progress
 
+PR: #8739
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Diagnose and repair
 
-- [ ] 1.1 Diagnose the failure using logs and independent read-only analysis.
+- [x] 1.1 Diagnose the failure using logs and independent read-only analysis.
 - [ ] 1.2 Implement a focused regression fix and appropriate tests.
 
 ### Phase 2: Validate and review
