@@ -364,6 +364,22 @@ provider-unhealthy, timeout) — never a crash.
 
 ## Migration & Backward Compatibility
 
+The #7234 correction applies domain policy to provider-synthesized answers in both
+the agent `web_search` response and the preview route's top-level answer. Either
+nonempty domain list makes that answer `null`: fused result URLs cannot establish
+which sources contributed to provider prose, including sources fusion already dropped.
+Allowed results remain available. `diagnostics.answerWithheld: 'domain_policy'`
+explains when non-null prose was withheld, for live and cached engine outputs.
+With empty domain lists, answers retain their existing behavior. The privileged
+preview's raw `byAdapter` comparison remains available to `agents.manage`; it is
+never included in agent context. The existing nullable answer type, tool IDs,
+route schemas, ACLs, egress guards and stored settings are unchanged. No data
+migration or cache purge is needed. Clients must already handle a null answer;
+keep domain restrictions in place and work from the permitted result sources.
+Handler integration coverage in `webSearchAnswerPolicy.integration.test.ts` covers
+both entry points with denied-only/mixed/allowed-only fused hits, active allow/deny
+rules, cached output, no answer, no policy and privileged raw comparison isolation.
+
 The #7548 security fix preserves tool IDs, input schemas and result fields. Inline content now
 uses the final fetched URL in the existing `url` field, and agent domain rules apply before
 page egress as well as to returned results. Adapter service requests retain their separate
@@ -435,6 +451,9 @@ Notes: `tsconfig.json` sets `types: ["node"]` — this pure-lib package pulls no
 
 ## Changelog
 
+- 2026-11-01 — Corrected #7234 independently: suppress unattributed synthesized answers
+  under domain policies at the agent and preview boundaries, with explicit diagnostics
+  and handler-level regressions. Finding and prior proof of concept: @AHKSammich (#7323).
 - 2026-10-29 — Closed redirect policy bypass #7548: authorize inline/direct page reads before
   each HTTP hop, retain final URL attribution, bypass restricted result caches, and fail closed
   for browser content navigation with domain restrictions. Added socket-backed tool integration
