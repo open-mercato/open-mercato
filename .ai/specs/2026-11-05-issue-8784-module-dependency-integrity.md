@@ -29,11 +29,11 @@
 - An independent scope review returned SPLIT (see Q1). The maintainer decided to keep one spec with four separately shipped phases.
 - Phase 2 builds on `ModuleInfo.optionalRequires`, which is defined in PR #6863 and not merged.
 - Phase 3 builds on the module index and resolver that the module-sets spec owns and that are not implemented.
-- Phase 2 introduces a "platform kernel" list (Q10). It is a new concept and needs maintainer confirmation.
+- Phase 2 introduces a "platform kernel" list (Q10), a new concept that the maintainer confirmed. The coupling check's first report verifies its seed membership.
 
 ## Resolved assumptions (autonomous defaults)
 
-The Open Questions gate was answered with conservative defaults because this spec was authored autonomously. Rows marked ⚠ need a maintainer decision before the spec PR leaves draft.
+The Open Questions gate was answered with conservative defaults because this spec was authored autonomously. Q1 and Q10 were flagged for the maintainer and have been decided; the other rows can still be overridden in review.
 
 | # | Question | Default applied | Why | Confirm |
 |---|---|---|---|---|
@@ -46,7 +46,7 @@ The Open Questions gate was answered with conservative defaults because this spe
 | Q7 | Does anything name a module that is not enabled at request time? | No. Neither the API dispatcher nor `apiCall` changes. | A path-prefix guess is unreliable (`api_docs` serves `/api/version`), and the dispatcher has a byte-identical template mirror. `module doctor` covers the need. | ok |
 | Q8 | How does this relate to per-tenant module availability (PR #7148)? | This spec covers deployment-level enablement only. UI that depends on a peer module gates on one of the peer's features, which composes with #7148 because both mechanisms deny the peer's features. | A module can be enabled in the deployment and unavailable for one tenant. | ok |
 | Q9 | Who owns the module index, the resolver and the preset closure test? | The module-sets spec owns the index and the resolver. Whichever work lands first creates `packages/cli/src/lib/module-index.ts` in the shape that spec defines and replaces the regex closure test; the other extends it. Both specs carry a changelog note. | One enumeration of installed modules, one closure algorithm, one preset test. | ok |
-| Q10 | How do always-present, mutually dependent modules satisfy the declaration rule? | Through an explicit **platform kernel** list. References to a kernel module need no declaration, and tools require every kernel module to be enabled. Seed: `auth`, `directory`, `api_keys`, confirmed by the extractor's first report. | Declaring these edges in `requires` creates cycles (`auth` and `directory` import each other; `auth` needs `api_keys`, which requires `auth`). The module-sets resolver rejects cycles, and the Catalog spec declined a reverse edge for the same reason. | ⚠ needs maintainer |
+| Q10 | How do always-present, mutually dependent modules satisfy the declaration rule? | Through an explicit **platform kernel** list. References to a kernel module need no declaration, and tools require every kernel module to be enabled. Seed: `auth`, `directory`, `api_keys`, confirmed by the extractor's first report. | Declaring these edges in `requires` creates cycles (`auth` and `directory` import each other; `auth` needs `api_keys`, which requires `auth`). The module-sets resolver rejects cycles, and the Catalog spec declined a reverse edge for the same reason. | confirmed by the maintainer, 2026-11-05: "Confirm kernel" |
 
 ## Overview
 
@@ -523,7 +523,7 @@ The tooling, the endpoint and the page perform no writes and read no tenant data
 - **Severity**: Medium
 - **Affected area**: The declaration rule.
 - **Mitigation**: Membership has two stated conditions, the list is a reviewed constant, and a change requires an update to this spec. Tools fail when a kernel module is not enabled, so adding a module has a visible cost.
-- **Residual risk**: The seed list is unconfirmed until the extractor's first report (Q10).
+- **Residual risk**: The maintainer confirmed the concept and the seed (Q10). The extractor's first report still has to show that the seed matches the code.
 
 #### The baseline is large and long-lived
 - **Scenario**: The first run records a few hundred module pairs. A rough count during review found about 200 pairs with value imports while 24 modules declare any `requires`.
@@ -640,7 +640,7 @@ None against AGENTS rules. The scope-cohesion review returned SPLIT (Q1); the sp
 
 ### Verdict
 
-- **Blocked on one maintainer decision**: Q10 (the platform kernel). With that confirmed the spec is ready for implementation; Phase 2 additionally waits for the `optionalRequires` outcome in Q2.
+- **Fully compliant**: Approved for specification review. Both flagged decisions (Q1 and Q10) are made. Phase 2 waits for the `optionalRequires` outcome in Q2.
 
 ## Changelog
 
@@ -659,3 +659,6 @@ None against AGENTS rules. The scope-cohesion review returned SPLIT (Q1); the sp
 
 ### 2026-11-05 — Q1 decided
 - The maintainer answered Q1: keep one spec, four phases, one implementation PR per phase. Q10 (the platform kernel) is the remaining open decision.
+
+### 2026-11-05 — Q10 decided
+- The maintainer confirmed the platform kernel (Q10) with the seed `auth`, `directory` and `api_keys`. No maintainer decision remains open, and the spec PR leaves draft.
