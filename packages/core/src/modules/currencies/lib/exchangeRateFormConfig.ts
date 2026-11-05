@@ -81,7 +81,7 @@ export function exchangeRateGroups(
         },
         {
           id: 'date',
-          type: 'datetime-local',
+          type: 'date',
           label: t('exchangeRates.form.field.date'),
           required: true,
           description: t('exchangeRates.form.field.dateHelp'),
@@ -155,13 +155,16 @@ export function validateExchangeRateForm(
     })
   }
 
-  const date = values.date ? new Date(String(values.date)) : null
+  const parsedDate = values.date ? new Date(String(values.date)) : null
 
-  if (!date || isNaN(date.getTime())) {
+  if (!parsedDate || isNaN(parsedDate.getTime())) {
     throw createCrudFormError(t('exchangeRates.form.errors.invalidDate'), {
       date: t('exchangeRates.form.errors.invalidDate'),
     })
   }
+
+  const date = new Date(parsedDate)
+  date.setUTCHours(0, 0, 0, 0)
 
   const source = String(values.source || '').trim()
   if (!source || source.length < 2) {

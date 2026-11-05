@@ -81,7 +81,7 @@ const pages = [
     },
     expectedFields: {
       fromCurrencyCode: 'EUR', toCurrencyCode: 'USD', rate: '1.12500000',
-      date: '2026-10-13T09:30:00.000Z', source: 'Manual', type: 'buy', isActive: false,
+      date: '2026-10-13T00:00:00.000Z', source: 'Manual', type: 'buy', isActive: false,
     },
   },
 ]
