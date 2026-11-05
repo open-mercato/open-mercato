@@ -10,6 +10,8 @@ import {
 } from '@open-mercato/core/helpers/integration/authFixtures';
 import { createDealFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures';
 import { getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
+import { AI_RAW_TOOL_AGENT_ID } from '../../lib/pending-action-types';
+import { seedPendingActionInDb } from './aiAssistantFixtures';
 
 /**
  * Shared fixtures for the MCP exposure / audit / mutation-mode specs
@@ -126,19 +128,29 @@ export async function executeTool(
   });
 }
 
+/**
+ * Queues a deal stage change the way an MCP server does in `approval` mode: a raw-tool
+ * pending action on the `mcp` channel owned by the token's user (or by an API key).
+ * `/tools/execute` refuses mutation tools outright, so it cannot queue rows.
+ */
 export async function queueDealStageChange(
-  request: APIRequestContext,
+  _request: APIRequestContext,
   token: string,
   dealId: string,
-): Promise<{ pendingActionId: string; body: PendingApprovalResponse }> {
-  const response = await executeTool(request, token, DEAL_MUTATION_TOOL, {
-    dealId,
-    toStage: DEAL_TARGET_STATUS,
+  options: { apiKeyId?: string | null } = {},
+): Promise<{ pendingActionId: string }> {
+  const scope = getTokenScope(token);
+  const seeded = await seedPendingActionInDb({
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId || null,
+    createdByUserId: scope.userId,
+    agentId: AI_RAW_TOOL_AGENT_ID,
+    toolName: DEAL_MUTATION_TOOL,
+    normalizedInput: { dealId, toStage: DEAL_TARGET_STATUS },
+    channel: 'mcp',
+    apiKeyId: options.apiKeyId ?? null,
   });
-  const body = await readJsonSafe<PendingApprovalResponse>(response);
-  expect(response.status(), `approval mode should queue the write (body: ${JSON.stringify(body)})`).toBe(202);
-  expect(typeof body?.pendingActionId).toBe('string');
-  return { pendingActionId: body!.pendingActionId!, body: body! };
+  return { pendingActionId: seeded.id };
 }
 
 export async function readPendingAction(

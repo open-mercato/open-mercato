@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { toQueryValueList } from '@open-mercato/shared/lib/crud/query-params'
 import { documentOcrModeSchema, documentSectionKindSchema } from '../lib/documentStructure/types'
+import type { AttachmentAccessResolver } from '../lib/access-types'
 
 export const DOCUMENT_SECTIONS_REQUIRE_STRUCTURE_MESSAGE =
   'Document sections can only be indexed when document structure extraction is enabled.'
@@ -125,3 +126,48 @@ export const documentStructureRequestSchema = z.object({
 export type DocumentStructureQuery = z.infer<typeof documentStructureQuerySchema>
 export type DocumentSectionsQuery = z.infer<typeof documentSectionsQuerySchema>
 export type DocumentStructureRequestInput = z.infer<typeof documentStructureRequestSchema>
+
+export const attachmentStorageConfigurationSchema = z.custom<Record<string, unknown>>((value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const prototype = Object.getPrototypeOf(value)
+  return prototype === Object.prototype || prototype === null
+})
+
+export const attachmentStorageScopeSchema = z.object({
+  tenantId: z.string(),
+  organizationId: z.string(),
+}).refine((scope) => Boolean(scope.tenantId.trim()) === Boolean(scope.organizationId.trim()))
+
+export const attachmentAccessActionSchema = z.enum(['read', 'render', 'metadata', 'reassign', 'delete', 'export'])
+export const attachmentAccessSubjectFeaturesSchema = z.array(z.string())
+export const attachmentAccessSelectorSchema = z.string().min(1).max(200).regex(/^(?:\*|[^*\s]+(?:\.\*)?)$/)
+const resolverIdSchema = z.string().min(3).max(200).regex(/^[a-zA-Z0-9_-]+\.[a-zA-Z0-9_.-]+$/)
+
+export const attachmentAccessRequirementSchema = z.object({
+  resolverId: resolverIdSchema,
+  targetEntity: attachmentAccessSelectorSchema,
+}).strict()
+
+export const protectedAttachmentTargetSchema = attachmentAccessRequirementSchema.extend({
+  targetPartition: attachmentAccessSelectorSchema,
+})
+
+export const attachmentAccessResolverSchema = z.object({
+  id: resolverIdSchema,
+  targetPartition: attachmentAccessSelectorSchema,
+  targetEntity: attachmentAccessSelectorSchema.optional(),
+  actions: z.array(attachmentAccessActionSchema).min(1).optional(),
+  priority: z.number().finite().optional(),
+  timeoutMs: z.number().int().min(1).max(15_000).optional(),
+  resolve: z.custom<AttachmentAccessResolver['resolve']>((value) => typeof value === 'function'),
+}).strict()
+
+export const attachmentAccessRequirementsSchema = z.array(attachmentAccessRequirementSchema)
+export const attachmentAccessDecisionSchema = z.discriminatedUnion('ok', [
+  z.object({ ok: z.literal(true) }).strict(),
+  z.object({
+    ok: z.literal(false),
+    status: z.union([z.literal(401), z.literal(403), z.literal(404), z.literal(504)]),
+    reason: z.string().min(1).max(200).regex(/^[a-zA-Z0-9_.:-]+$/),
+  }).strict(),
+])

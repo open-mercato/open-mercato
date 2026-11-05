@@ -45,7 +45,11 @@ const mockEm = {
   persist: jest.fn(function persist(this: any) { return this }),
   remove: jest.fn(function remove(this: any) { return this }),
   flush: jest.fn(async () => {}),
-  transactional: jest.fn(async (work: (tx: any) => unknown) => work(mockEm)),
+  transactional: jest.fn(async (work: (tx: any) => unknown) => {
+    const result = await work(mockEm)
+    await mockEm.commit()
+    return result
+  }),
   find: jest.fn(),
   count: jest.fn(async () => 0),
   getKysely: jest.fn(() => buildUsageKysely(0)),
@@ -656,7 +660,7 @@ describe('attachments API', () => {
       mockEm.find.mockClear()
       const res = await list(new Request(`http://x/api/attachments?entityId=example:todo&recordId=r1&${query}`))
       expect(res.status).toBe(200)
-      const options = mockEm.find.mock.calls[0]?.[2] as { limit?: number } | undefined
+      const options = mockEm.find.mock.calls.find(([, filter]) => filter?.entityId === 'example:todo')?.[2] as { limit?: number } | undefined
       expect(typeof options?.limit).toBe('number')
       expect(options!.limit!).toBeLessThanOrEqual(100)
     }
@@ -702,6 +706,7 @@ describe('attachments API', () => {
       isSuperAdmin: true,
     }))
     mockEm.findOne.mockImplementation(async (entity: any) => {
+      if (entity?.name === 'AttachmentPartition') return partitions[0]
       if (entity?.name === 'Attachment') {
         return {
           id: 'att-1',
@@ -720,6 +725,7 @@ describe('attachments API', () => {
     expect(mockEm.findOne).toHaveBeenCalledWith(
       expect.any(Function),
       { id: 'att-1', tenantId: 't1' },
+      expect.objectContaining({ refresh: true }),
     )
     expect(mockEm.remove).toHaveBeenCalled()
     expect(mockPurgeDocumentStructure).toHaveBeenCalledWith(
@@ -732,7 +738,13 @@ describe('attachments API', () => {
     )
   })
 
-  describe('DELETE with stored objects shared between attachment rows', () => {
+  describe.each(['legacy', 'strict'])('DELETE with shared stored objects under %s policy', (policy) => {
+    const previousPolicy = process.env.OM_ATTACHMENT_STORAGE_POLICY
+    beforeEach(() => { process.env.OM_ATTACHMENT_STORAGE_POLICY = policy })
+    afterEach(() => {
+      if (previousPolicy === undefined) delete process.env.OM_ATTACHMENT_STORAGE_POLICY
+      else process.env.OM_ATTACHMENT_STORAGE_POLICY = previousPolicy
+    })
     const storedAttachment = {
       id: 'att-1',
       tenantId: 't1',
@@ -824,4 +836,98 @@ describe('attachments API', () => {
       expect.any(Object),
     )
   })
+  describe('strict storage policy', () => {
+    const previousPolicy = process.env.OM_ATTACHMENT_STORAGE_POLICY
+    beforeEach(() => { process.env.OM_ATTACHMENT_STORAGE_POLICY = 'strict' })
+    afterEach(() => {
+      if (previousPolicy === undefined) delete process.env.OM_ATTACHMENT_STORAGE_POLICY
+      else process.env.OM_ATTACHMENT_STORAGE_POLICY = previousPolicy
+    })
+
+    it.each([
+      ['null driver', { storageDriver: null, configJson: {} }, 'driver_missing'],
+      ['unknown driver', { storageDriver: 'unregistered', configJson: {} }, 'unknown_driver'],
+      ['malformed configuration', { storageDriver: 'local', configJson: ['secret-sentinel'] }, 'invalid_config'],
+    ])('rejects upload with %s before writing files', async (_description, invalid, reason) => {
+      mockEm.findOne.mockImplementation(async (entity: { name?: string }, where: Record<string, unknown>) => {
+        if (entity.name === 'AttachmentPartition') return { ...partitions[0], ...invalid }
+        return defaultFindOneImpl(entity, where)
+      })
+      const { POST } = await loadHandlers()
+      const response = await POST(new Request('http://x/api/attachments', {
+        method: 'POST', body: fdWith(new File(['bytes'], 'proof.pdf', { type: 'application/pdf' })),
+      }))
+      expect(response.status).toBe(503)
+      expect(await response.json()).toEqual({
+        error: 'Attachment storage configuration is unavailable.',
+        code: 'ATTACHMENT_STORAGE_CONFIGURATION_INVALID', reason,
+      })
+      expect(fsp.writeFile).not.toHaveBeenCalled()
+      expect(mockEm.create).not.toHaveBeenCalled()
+    })
+
+    it('does not replace a missing requested partition with the default local partition', async () => {
+      const { POST } = await loadHandlers()
+      const response = await POST(new Request('http://x/api/attachments', {
+        method: 'POST', body: fdWith(new File(['bytes'], 'proof.pdf', { type: 'application/pdf' }), {
+          partitionCode: 'missing-partition',
+        }),
+      }))
+      expect(response.status).toBe(503)
+      expect(await response.json()).toMatchObject({ reason: 'partition_missing' })
+      expect(fsp.writeFile).not.toHaveBeenCalled()
+      expect(mockEm.persist).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      { referenceIds: ['protected'] },
+      { referenceIds: ['protected', 'attachment-copy'] },
+    ])('retains metadata and bytes when deletion configuration is rejected with references $referenceIds', async ({ referenceIds }) => {
+      mockEm.getKysely.mockReturnValue(buildUsageKysely(0, referenceIds))
+      mockEm.findOne.mockImplementation(async (entity: { name?: string }) => entity.name === 'Attachment'
+        ? { id: 'protected', tenantId: 't1', organizationId: 'org', partitionCode: 'privateAttachments', storagePath: 'private/file' }
+        : { ...partitions[0], storageDriver: 'unregistered' })
+      const { DELETE } = await loadHandlers()
+      const response = await DELETE(new Request('http://x/api/attachments?id=protected', { method: 'DELETE' }))
+      expect(response.status).toBe(503)
+      expect(await response.json()).toMatchObject({ reason: 'unknown_driver' })
+      expect(mockEm.remove).not.toHaveBeenCalled()
+      expect(mockEm.flush).not.toHaveBeenCalled()
+      expect(mockEm.begin).not.toHaveBeenCalled()
+      expect(mockEm.commit).not.toHaveBeenCalled()
+      expect(fsp.rm).not.toHaveBeenCalled()
+    })
+
+    it('routes a valid registered provider upload through the real factory', async () => {
+      const { registerExternalStorageDriver } = await import('../../lib/drivers/driverFactory')
+      const { registerStorageDriverValidator } = await import('../../lib/drivers/storageValidation')
+      const store = jest.fn(async () => ({ storagePath: 'provider/proof.pdf' }))
+      const construct = jest.fn(() => ({
+        key: 'route-proof', store,
+        read: async () => ({ buffer: Buffer.from('bytes') }),
+        delete: async () => undefined,
+        toLocalPath: async () => ({ filePath: '/unused', cleanup: async () => undefined }),
+      }))
+      registerExternalStorageDriver('route-proof', construct)
+      const validate = jest.fn(({ config }: { config: Readonly<Record<string, unknown>> }) => config.bucket === 'valid')
+      const unregister = registerStorageDriverValidator('route-proof', validate)
+      mockEm.findOne.mockImplementation(async (entity: { name?: string }, where: Record<string, unknown>) => entity.name === 'AttachmentPartition'
+        ? { ...partitions[0], storageDriver: 'route-proof', configJson: { bucket: 'valid' }, requiresOcr: false }
+        : defaultFindOneImpl(entity, where))
+      try {
+        const { POST } = await loadHandlers()
+        const response = await POST(new Request('http://x/api/attachments', {
+          method: 'POST', body: fdWith(new File(['bytes'], 'proof.pdf', { type: 'application/pdf' })),
+        }))
+        expect(response.status).toBe(200)
+        expect(construct).toHaveBeenCalledTimes(1)
+        expect(store).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 't1', orgId: 'org' }))
+        expect(validate).toHaveBeenCalledWith(expect.objectContaining({ scope: { tenantId: 't1', organizationId: 'org' } }))
+        expect(fsp.writeFile).not.toHaveBeenCalled()
+      } finally {
+        unregister()
+      }
+    })
+  })
+
 })

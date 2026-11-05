@@ -23,6 +23,21 @@ import {
 } from './lib/batch'
 import { createSearchTokenGateQueryEngine } from './lib/search-entity-policy'
 import { reindexEntity, DEFAULT_REINDEX_PARTITIONS } from './lib/reindexer'
+import type { ReindexJobResult } from './lib/reindexer'
+
+/**
+ * A refused sweep returns processed 0 / total 0, which the progress reporting below prints
+ * as `0 / 0 (0.00%)` - indistinguishable from a run that found nothing. Say why instead.
+ */
+function warnIfReindexRefused(entityType: string, result: ReindexJobResult): void {
+  if (!result.refused) return
+  const detail = result.refused === 'no-tenant-column'
+    ? 'the source table has no tenant_id column and the entity type is not declared tenant-global'
+    : result.refused === 'declared-global-but-org-scoped'
+      ? 'the entity type is declared tenant-global but its table carries an organization_id column'
+      : "the source table's columns could not be read, so no scope could be proven (usually transient)"
+  console.warn(`  -> ${entityType}: reindex REFUSED, nothing was indexed - ${detail}`)
+}
 import { purgeIndexScope } from './lib/purge'
 import { refreshCoverageSnapshot } from './lib/coverage'
 import { flattenSystemEntityIds } from '@open-mercato/shared/lib/entities/system-entities'
@@ -478,7 +493,7 @@ async function verifyAndRepairIndexCoverage(
         })
       }
     } else {
-      await reindexEntity(em, {
+      const repairResult = await reindexEntity(em, {
         entityType: options.entityType,
         tenantId: options.tenantId,
         organizationId: options.organizationId,
@@ -487,6 +502,7 @@ async function verifyAndRepairIndexCoverage(
         emitVectorizeEvents: false,
         resetCoverage: false,
       })
+      warnIfReindexRefused(options.entityType, repairResult)
     }
   } catch (error) {
     console.warn(
@@ -855,6 +871,7 @@ const reindex: ModuleCli = {
               if (progressBar) {
                 (progressBar as ProgressBarHandle).complete()
               }
+              warnIfReindexRefused(entity, partitionStats)
               if (!useBar && groupedProgress) {
                 groupedProgress.onProgress(part, { processed: partitionStats.processed, total: partitionStats.total })
               } else if (!useBar) {
@@ -1001,6 +1018,7 @@ const reindex: ModuleCli = {
               if (progressBar) {
                 (progressBar as ProgressBarHandle).complete()
               }
+              warnIfReindexRefused(id, result)
               if (!useBar && groupedProgress) {
                 groupedProgress.onProgress(part, { processed: result.processed, total: result.total })
               } else if (!useBar) {

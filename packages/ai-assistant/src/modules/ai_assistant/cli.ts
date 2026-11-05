@@ -2,6 +2,7 @@ import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resetServerLoggerCache } from '@open-mercato/shared/lib/logger'
 import { installNextSubpathResolveHook } from './lib/next-subpath-resolve-hook'
+import { resolveMcpHost } from './lib/mcp-host-resolution'
 /**
  * Ensure app bootstrap is called before creating DI container.
  * Uses the shared generated-bootstrap loader so the command works both from
@@ -208,6 +209,10 @@ const mcpServeHttp: ModuleCli = {
       printExposureError('mcp:serve-http', exposure.error)
       return
     }
+    const host = resolveMcpHost(
+      typeof args.host === 'string' ? args.host : undefined,
+      process.env.MCP_HTTP_HOST,
+    )
 
     await ensureBootstrap()
     const container = await createRequestContainer()
@@ -223,6 +228,7 @@ const mcpServeHttp: ModuleCli = {
       container,
       port,
       cliArgs: exposure.cliArgs,
+      host,
     })
   },
 }

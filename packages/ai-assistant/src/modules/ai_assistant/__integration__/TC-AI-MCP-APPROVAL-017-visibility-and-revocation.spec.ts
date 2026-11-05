@@ -21,7 +21,6 @@ import {
   DEAL_INITIAL_STATUS,
   DEAL_MUTATION_TOOL,
   DEAL_TARGET_STATUS,
-  EXECUTE_PATH,
   FIXTURE_PASSWORD,
   REQUESTER_FEATURES,
   createOpenDeal,
@@ -32,7 +31,6 @@ import {
   readDealStatus,
   readPendingAction,
   uniqueStamp,
-  type PendingApprovalResponse,
   type ScopedUserFixture,
 } from './helpers/mcpFixtures';
 
@@ -226,15 +224,7 @@ test.describe('TC-AI-MCP-APPROVAL-017: pending-action visibility and requester r
       expect(typeof key?.secret === 'string' && key.secret.length > 0).toBe(true);
       dealId = await createOpenDeal(request, adminToken);
 
-      const queued = await request.fetch(EXECUTE_PATH, {
-        method: 'POST',
-        headers: { 'x-api-key': key!.secret!, 'Content-Type': 'application/json' },
-        data: JSON.stringify({ toolName: DEAL_MUTATION_TOOL, args: { dealId, toStage: DEAL_TARGET_STATUS } }),
-      });
-      const queuedBody = await readJsonSafe<PendingApprovalResponse>(queued);
-      expect(queued.status(), `API key call should queue the write (body: ${JSON.stringify(queuedBody)})`).toBe(202);
-      pendingActionId = queuedBody?.pendingActionId ?? null;
-      expect(typeof pendingActionId).toBe('string');
+      pendingActionId = (await queueDealStageChange(request, adminToken, dealId, { apiKeyId })).pendingActionId;
 
       const queuedDetail = await readPendingAction(request, approver.token, pendingActionId!);
       expect(queuedDetail.body?.requester?.apiKeyId).toBe(apiKeyId);

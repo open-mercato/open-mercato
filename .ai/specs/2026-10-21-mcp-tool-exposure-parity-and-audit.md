@@ -787,3 +787,8 @@ Docs to update in the same change: `apps/docs/docs/framework/ai-assistant/mcp.md
   - `outputSchema` is not advertised for mutation tools (pending-approval results would fail the SDK's output validation).
   - The chat route has no object branch on this base, so `run-object` is the only route that delegates.
   - Agent-tool timeouts are raced (the runtime takes no abort signal).
+
+### 2026-11-05
+
+- Merged with `main` after issue #3805 (`.ai/specs/2026-10-31-issue-3805-direct-tool-mutation-approval.md`). `POST /api/ai_assistant/tools/execute` refuses every `isMutation: true` tool with `403 { success: false, error }` in all mutation modes and audits the refusal (`outcome: denied`, `errorCode: DIRECT_MUTATION_DENIED`). `OM_MCP_MUTATION_MODE` now governs the MCP servers only; the `/tools/execute` 202 and deny-code contracts above are superseded. The env mode is still passed to `executeTool` so agent tools keep their channel policy.
+- Integration: TC-AI-MCP-APPROVAL-016 now asserts the refusal under every mode; TC-AI-MCP-APPROVAL-015/017 queue raw-tool `mcp` rows through the DB fixture instead of `/tools/execute`.

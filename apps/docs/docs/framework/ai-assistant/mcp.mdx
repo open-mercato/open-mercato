@@ -24,13 +24,22 @@ The server runs in one of two modes depending on how you intend to use it:
 | Alias for | `mercato ai_assistant mcp:dev` | `mercato ai_assistant mcp:serve-http` |
 | Use for | Claude Code / local testing | In-app web chat |
 | Port | **3001** (override with `MCP_DEV_PORT`) | — |
+| Bind address | **`127.0.0.1`** (loopback) — override with `MCP_DEV_HOST` | **`127.0.0.1`** (loopback) — override with `MCP_HTTP_HOST` env var or `--host` flag |
 | Endpoint | `http://localhost:3001/mcp` | — |
 | Health | `http://localhost:3001/health` | — |
 | Auth | A single API key, read **once** at startup | Two-tier: server key + per-user session tokens, checked per tool call |
 | Key source | `.mcp.json` → `mcpServers.open-mercato.headers.x-api-key` (no env fallback) | `MCP_SERVER_API_KEY` env var + session tokens |
 
+:::caution Loopback by default — think before widening it
+Both servers bind to `127.0.0.1` unless you explicitly override the host. The one exception is `yarn dev` on native Linux, which binds `0.0.0.0` so the OpenCode container can reach the host over the bridge IP (Docker Desktop keeps loopback); `MCP_HTTP_HOST` overrides either way. The dev server especially: it authenticates a single API key **once** at startup and reuses that same superadmin-equivalent context for every request afterward, with no per-request ACL re-check. Exposing either server beyond loopback (a LAN, a misconfigured firewall, a cloud security group) turns a leaked or brute-forced key into admin-equivalent access to tenant data. Only widen the bind address for a deployment topology that genuinely needs it (e.g. a Docker bridge address), and pair it with a firewall and a strong, rotated `MCP_SERVER_API_KEY`.
+:::
+
 :::note
 You do **not** need `MCP_SERVER_API_KEY` for `mcp:dev`. The `MCP_SERVER_API_KEY not set` message on the in-app AI Assistant **Settings page** is only a status badge for the production/web-chat path — it does **not** block Claude Code connecting via `mcp:dev`.
+:::
+
+:::note Managed MCP during `yarn dev`
+The root and standalone `yarn dev` launchers manage `mcp:serve-http` separately from the direct commands above. `MCP_PORT` is their preferred port: when another process already owns it, the launcher selects a free port and prints the resulting endpoint. That endpoint is propagated to the managed app and to a running OpenCode compose service. Explicit external `MCP_URL` and `OPENCODE_MCP_URL` values are never replaced.
 :::
 
 :::info Route modules outside Next.js
@@ -348,7 +357,7 @@ A call to an agent tool writes the usual `access_logs` row (see [Audit of MCP to
 
 ## Exposure, audit and mutation modes
 
-These controls apply to all three MCP servers (`mcp:dev`, `mcp:serve-http`, stdio `mcp:serve`). The mutation mode also applies to `POST /api/ai_assistant/tools/execute`, which is the same kind of channel: a raw tool call with no agent in between. The allowlist, denylist and agent-tool switch do **not** apply to `/tools/execute`: it can call any registered tool the caller's features allow, but the mutation mode still decides whether a mutation tool runs, is refused, or is queued for approval.
+These controls apply to all three MCP servers (`mcp:dev`, `mcp:serve-http`, stdio `mcp:serve`). None of them apply to `POST /api/ai_assistant/tools/execute`. That endpoint runs only read tools: it refuses every `isMutation: true` tool with `403 { success: false, error }` before the handler runs, whatever the mutation mode, and writes a `denied` audit row. Mutations go through the agent chat or `run-object` dispatcher, or through an MCP server under the mutation mode below. The allowlist, denylist and agent-tool switch do not filter `/tools/execute` either: it can call any registered read tool the caller's features allow.
 
 ### Exposure config {#exposure-config}
 
@@ -431,23 +440,22 @@ AUDIT_LOGS_CORE_RESOURCE_KINDS_EXTRA=ai_assistant.mcp_tool_call
 
 ### Mutation modes
 
-`OM_MCP_MUTATION_MODE` (or `--mutation-mode`) decides what happens when an MCP client or `/tools/execute` calls a tool with `isMutation: true`:
+`OM_MCP_MUTATION_MODE` (or `--mutation-mode`) decides what happens when an MCP client calls a tool with `isMutation: true` (`/tools/execute` always refuses them):
 
 | Mode | Behaviour |
 |------|-----------|
 | `direct` (default) | The tool handler runs immediately, as before. |
-| `deny` | Mutation tools are hidden from `tools/list`. A call returns `MUTATION_REQUIRES_APPROVAL`; `/tools/execute` answers `403 { success: false, error, code: "MUTATION_REQUIRES_APPROVAL" }`. |
+| `deny` | Mutation tools are hidden from `tools/list`. A call returns `MUTATION_REQUIRES_APPROVAL`. |
 | `approval` | The call is validated (exposure, the tool's `requiredFeatures`, input schema) and stored as a pending action; the handler does **not** run. A human approves or rejects it later. |
 
 :::warning Use `approval` in production
-`direct` stays the default for backward compatibility, but it lets any API key with the right features write data with no human in the loop. Set `OM_MCP_MUTATION_MODE=approval` for production deployments that expose write tools over MCP or `/tools/execute`, or `deny` when MCP clients should be read-only.
+`direct` stays the default for backward compatibility, but it lets any API key with the right features write data with no human in the loop. Set `OM_MCP_MUTATION_MODE=approval` for production deployments that expose write tools over MCP, or `deny` when MCP clients should be read-only.
 :::
 
 In `approval` mode:
 
 - An MCP `tools/call` returns a normal (non-error) result whose structured content is `{ status: "pending_approval", pendingActionId, expiresAt, approvalPath, ... }`.
-- `POST /api/ai_assistant/tools/execute` returns `202 { success: true, status: "pending_approval", pendingActionId, expiresAt }`.
-- When no requesting user can be resolved (for example an API key with neither a session user nor a creator), the call is refused with `MUTATION_REQUESTER_UNRESOLVED` (`403` on `/tools/execute`).
+- When no requesting user can be resolved (for example an API key with neither a session user nor a creator), the call is refused with `MUTATION_REQUESTER_UNRESOLVED`.
 - The requester is the session user when the call carries a session token (`_sessionToken`); such rows store no API key, so the approval re-check follows that user's ACL. Only API-key principals record `apiKeyId`, and deleting or expiring that key fails the approval with `requester_revoked`.
 - Repeating an identical call while its row is still `pending` returns the same row. Once the row was approved, rejected, failed or expired, the same call queues a new row.
 - Pending rows expire after `OM_MCP_PENDING_ACTION_TTL_SECONDS` (default `86400`, 24 hours). Chat-created rows keep `AI_PENDING_ACTION_TTL_SECONDS`.
@@ -456,7 +464,7 @@ In `approval` mode:
 
 ### Approving pending actions
 
-Pending MCP and `/tools/execute` actions are approved on the **Pending AI actions** page at `/backend/config/ai-assistant/pending-actions`. It lists rows with their tool, target, requester, channel, and expiry; the detail view shows the mutation preview and **Approve** / **Reject** (with an optional reason) buttons.
+Pending MCP actions are approved on the **Pending AI actions** page at `/backend/config/ai-assistant/pending-actions`. It lists rows with their tool, target, requester, channel, and expiry; the detail view shows the mutation preview and **Approve** / **Reject** (with an optional reason) buttons.
 
 - **Who can act.** The requester, and any user in the same tenant and organization with the `ai_assistant.pending_actions.approve` feature (granted to `admin` by default). Everyone else gets `404`. Chat-created rows stay owner-only.
 - **Notifications.** A new row notifies the requester and every approver in the backoffice (`ai_assistant.pending_action.awaiting_approval`); the notifications are removed when the row is approved, rejected, or expires.
@@ -471,7 +479,7 @@ Pending MCP and `/tools/execute` actions are approved on the **Pending AI action
 |----------|---------|---------|
 | `OM_MCP_TOOL_ALLOWLIST` | unset | Comma-separated tool names or `prefix*` globs to expose. Unset exposes every tool. |
 | `OM_MCP_TOOL_DENYLIST` | unset | Comma-separated tool names or `prefix*` globs to hide. Wins over the allowlist. |
-| `OM_MCP_MUTATION_MODE` | `direct` | `direct`, `deny`, or `approval`. Also applies to `/api/ai_assistant/tools/execute`. Recommended in production: `approval`. |
+| `OM_MCP_MUTATION_MODE` | `direct` | `direct`, `deny`, or `approval`. MCP servers only; `/api/ai_assistant/tools/execute` always refuses mutation tools. Recommended in production: `approval`. |
 | `OM_MCP_AGENT_TOOLS` | `true` | Set to `false` to hide tools that wrap AI agents. |
 | `OM_MCP_PENDING_ACTION_TTL_SECONDS` | `86400` | Expiry of pending actions created by MCP and `/tools/execute`. |
 | `AUDIT_LOGS_CORE_RESOURCE_KINDS_EXTRA` | unset | Add `ai_assistant.mcp_tool_call` to keep MCP audit rows for the core retention window. |
@@ -571,7 +579,7 @@ Fix it by adding the route's feature(s) to the tool — **never** by weakening t
 | `MCP_SERVER_API_KEY not set` badge in the app | Only concerns the production `mcp:serve` / in-app web-chat path | Ignore it for `mcp:dev` + Claude Code; set `MCP_SERVER_API_KEY` only if you run `yarn mcp:serve` |
 | `execute` / API-backed tools fail to reach data | The Next.js app isn't running | Run `yarn dev` (the app on port 3000; override the base URL via `APP_URL` / `NEXT_PUBLIC_APP_URL`) |
 | A tool is missing although the key has its features | The exposure config hides it (allowlist/denylist, `deny` mode for mutation tools, or `OM_MCP_AGENT_TOOLS=false`) | Run `mcp:list-tools --effective` and check the `OM_MCP_*` env vars and CLI flags |
-| A write returns `pending_approval` (or `202` on `/tools/execute`) | `OM_MCP_MUTATION_MODE=approval` | Approve it on **Pending AI actions** (`/backend/config/ai-assistant/pending-actions`) |
+| A write returns `pending_approval` | `OM_MCP_MUTATION_MODE=approval` | Approve it on **Pending AI actions** (`/backend/config/ai-assistant/pending-actions`) |
 | Claude Code doesn't see updated tools after a change | Stale server or stale connection | `yarn generate`, restart `yarn mcp:dev`, then reconnect via `/mcp` in Claude Code |
 
 ### Notes

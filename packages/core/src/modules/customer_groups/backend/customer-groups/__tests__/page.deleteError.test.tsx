@@ -20,6 +20,7 @@ jest.mock('next/link', () => ({ children, href }: { children: React.ReactNode; h
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => mockTranslate,
+  useLocale: () => 'en',
 }))
 
 jest.mock('@open-mercato/ui/backend/Page', () => ({

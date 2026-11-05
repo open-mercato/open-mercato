@@ -27,7 +27,8 @@ import {
  * Source: spec `.ai/specs/2026-10-21-mcp-tool-exposure-parity-and-audit.md`.
  *
  * Surfaces under test:
- *   - /api/ai_assistant/tools/execute              (POST -> 202 queue)
+ *   - raw-tool `mcp` pending actions (seeded as the MCP approval branch writes them;
+ *     `/tools/execute` refuses mutation tools, so it no longer queues rows)
  *   - /api/ai_assistant/ai/actions/{id}             (GET)
  *   - /api/ai_assistant/ai/actions/{id}/confirm     (POST, approver)
  *   - /api/ai_assistant/ai/actions/{id}/cancel      (POST, approver with reason)
@@ -83,7 +84,7 @@ test.describe('TC-AI-MCP-APPROVAL-015: approval mode flow', () => {
       const approverView = await readPendingAction(request, approver.token, pendingActionId);
       expect(approverView.status).toBe(200);
       expect(approverView.body?.status).toBe('pending');
-      expect(approverView.body?.channel).toBe('tools-api');
+      expect(approverView.body?.channel).toBe('mcp');
       expect(approverView.body?.requester?.userId).toBe(requester.userId);
 
       const confirm = await apiRequest(request, 'POST', `${ACTIONS_PATH}/${pendingActionId}/confirm`, {

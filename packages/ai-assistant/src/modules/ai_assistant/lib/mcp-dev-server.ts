@@ -1,4 +1,5 @@
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { timingSafeEqual } from 'node:crypto'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
@@ -37,6 +38,7 @@ import {
   type McpAuditIdentity,
   type McpAuditOutcome,
 } from './mcp-audit'
+import { isLoopbackHost, resolveMcpHost } from './mcp-host-resolution'
 import type { McpToolContext, McpToolDefinition } from './types'
 import type { SearchService } from '@open-mercato/search/service'
 
@@ -46,6 +48,19 @@ const DEFAULT_PORT = 3001
 
 const log = (message: string, ...args: unknown[]) => {
   logger.info(message, args.length > 0 ? { details: args.map((arg) => String(arg)).join(' ') } : undefined)
+}
+
+/**
+ * Constant-time API-key comparison, length-guarded (`timingSafeEqual` throws on a length
+ * mismatch rather than reporting `false`). A plain `!==` short-circuits at the first
+ * differing byte, leaking a timing side channel an attacker can use to recover the key
+ * one byte at a time — AGENTS.md mandates constant-time comparison for this class of check.
+ */
+export function isMatchingApiKey(expected: string, provided: string): boolean {
+  const expectedBuffer = Buffer.from(expected)
+  const providedBuffer = Buffer.from(provided)
+  if (expectedBuffer.length !== providedBuffer.length) return false
+  return timingSafeEqual(expectedBuffer, providedBuffer)
 }
 
 /**
@@ -255,6 +270,12 @@ export async function runMcpDevServer(options: McpDevServerOptions = {}): Promis
   const exposureConfig = options.exposureConfig ?? resolveMcpExposureConfig(process.env, options.cliArgs ?? {})
   const apiKey = await getApiKeyFromMcpJson()
   const port = parseInt(process.env.MCP_DEV_PORT ?? '', 10) || DEFAULT_PORT
+  // Loopback by default: this server authenticates once at startup and reuses a single,
+  // superadmin-equivalent context for every request for the life of the process (no
+  // per-request ACL re-resolution), so exposing it beyond loopback turns a leaked/brute-forced
+  // API key into admin-equivalent access to tenant data. Opt in explicitly if the dev port
+  // genuinely needs to be reachable off-host (e.g. a Docker bridge).
+  const host = resolveMcpHost(undefined, process.env.MCP_DEV_HOST)
   const debug = process.env.MCP_DEBUG === 'true'
 
   if (!apiKey) {
@@ -421,8 +442,8 @@ export async function runMcpDevServer(options: McpDevServerOptions = {}): Promis
       return
     }
 
-    // Validate against the configured API key
-    if (providedApiKey !== apiKey) {
+    // Validate against the configured API key (constant-time; see isMatchingApiKey)
+    if (!isMatchingApiKey(apiKey, providedApiKey)) {
       res.writeHead(401, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ error: 'Invalid API key' }))
       return
@@ -508,10 +529,13 @@ export async function runMcpDevServer(options: McpDevServerOptions = {}): Promis
   log(`Endpoint: http://localhost:${port}/mcp`)
   log(`Health: http://localhost:${port}/health`)
   log(`Mode: Development (API key auth, no session tokens)`)
+  if (!isLoopbackHost(host)) {
+    log(`WARNING: binding to ${host} instead of loopback — this server grants admin-equivalent access to any caller who passes the single API-key check`)
+  }
 
   return new Promise<void>((resolve) => {
-    httpServer.listen(port, () => {
-      log(`Server listening on port ${port}`)
+    httpServer.listen(port, host, () => {
+      log(`Server listening on ${host}:${port}`)
       log('Ready for Claude Code connections')
     })
 

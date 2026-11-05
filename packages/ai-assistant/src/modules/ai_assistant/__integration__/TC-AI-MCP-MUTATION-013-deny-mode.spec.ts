@@ -19,8 +19,9 @@ import {
  * Surface under test: /api/ai_assistant/tools/execute (POST).
  *
  * In deny mode a mutation tool called through `/tools/execute` answers
- * 403 `{ success: false, code: 'MUTATION_REQUIRES_APPROVAL' }` and the handler
- * never runs, so the target record stays unchanged.
+ * 403 `{ success: false, error }` and the handler never runs, so the target
+ * record stays unchanged. The endpoint refuses mutation tools in every mode
+ * (issue #3805, TC-AI-MCP-APPROVAL-016); this spec pins the deny-mode run.
  *
  * Mode gating: the mutation mode is read from the app server's environment and
  * is fixed for the whole run, so this spec only runs when the app was started
@@ -52,7 +53,6 @@ test.describe('TC-AI-MCP-MUTATION-013: deny mutation mode', () => {
       expect(response.status()).toBe(403);
       const body = await readJsonSafe<{ success?: boolean; code?: string; error?: string }>(response);
       expect(body?.success).toBe(false);
-      expect(body?.code).toBe('MUTATION_REQUIRES_APPROVAL');
       expect(typeof body?.error).toBe('string');
 
       expect(await readDealStatus(request, adminToken, dealId)).toBe(DEAL_INITIAL_STATUS);

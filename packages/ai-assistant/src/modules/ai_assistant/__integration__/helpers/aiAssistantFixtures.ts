@@ -82,6 +82,8 @@ export interface SeedPendingActionInput {
   normalizedInput?: Record<string, unknown>;
   executionResult?: Record<string, unknown> | null;
   idempotencyKey?: string;
+  channel?: 'agent' | 'mcp' | 'tools-api';
+  apiKeyId?: string | null;
 }
 
 export interface SeededPendingAction {
@@ -109,11 +111,11 @@ export async function seedPendingActionInDb(input: SeedPendingActionInput): Prom
       `insert into ai_pending_actions
          (id, tenant_id, organization_id, agent_id, tool_name, normalized_input,
           field_diff, attachment_ids, idempotency_key, created_by_user_id, status,
-          queue_mode, execution_result, created_at, expires_at)
+          queue_mode, execution_result, created_at, expires_at, channel, api_key_id)
        values
          (gen_random_uuid(), $1, $2, $3, $4, $5::jsonb,
           '[]'::jsonb, '[]'::jsonb, $6, $7, $8,
-          'inline', $9::jsonb, now(), now() + make_interval(mins => $10::int))
+          'inline', $9::jsonb, now(), now() + make_interval(mins => $10::int), $11, $12)
        returning id`,
       [
         input.tenantId,
@@ -126,9 +128,36 @@ export async function seedPendingActionInDb(input: SeedPendingActionInput): Prom
         status,
         executionResult,
         expiresInMinutes,
+        input.channel ?? 'agent',
+        input.apiKeyId ?? null,
       ],
     );
     return { id: result.rows[0].id, idempotencyKey };
+  });
+}
+
+export interface PendingActionDbState {
+  status: string;
+  resolvedByUserId: string | null;
+}
+
+/** Reads a pending action's lifecycle columns straight from Postgres (bypasses the owner-scoped routes). */
+export async function readPendingActionStateInDb(id: string): Promise<PendingActionDbState | null> {
+  return withClient(async (client) => {
+    const result = await client.query<{ status: string; resolved_by_user_id: string | null }>(
+      'select status, resolved_by_user_id from ai_pending_actions where id = $1',
+      [id],
+    );
+    const row = result.rows[0];
+    return row ? { status: row.status, resolvedByUserId: row.resolved_by_user_id } : null;
+  });
+}
+
+/** Reads a catalog product title straight from Postgres so assertions never hit a cached CRUD response. */
+export async function readCatalogProductTitleInDb(productId: string): Promise<string | null> {
+  return withClient(async (client) => {
+    const result = await client.query<{ title: string }>('select title from catalog_products where id = $1', [productId]);
+    return result.rows[0]?.title ?? null;
   });
 }
 

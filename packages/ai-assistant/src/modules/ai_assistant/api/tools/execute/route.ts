@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { executeTool } from '../../../lib/tool-executor'
 import { loadAllModuleTools } from '../../../lib/tool-loader'
 import { getToolRegistry } from '../../../lib/tool-registry'
@@ -31,27 +32,19 @@ export const openApi: OpenApiRouteDoc = {
   summary: 'Execute AI tool',
   methods: {
     POST: {
-      summary: 'Execute a specific MCP tool by name',
+      summary: 'Execute a specific read-only MCP tool by name',
+      description: 'Mutation tools must use the agent chat or run-object dispatcher and its mutation approval policy.',
       responses: [
         {
           status: 200,
           description:
             'Tool executed. Returns `{ success: true, result }`. For an agent tool `result` is `{ result, agentId, runId, agentRunId }`.',
         },
-        {
-          status: 202,
-          description:
-            'Mutation queued for approval because `OM_MCP_MUTATION_MODE=approval`. Returns `{ success: true, status: "pending_approval", pendingActionId, expiresAt }`; the tool handler did not run.',
-        },
       ],
       errors: [
         { status: 400, description: 'Missing tool name, unknown tool, invalid input, or tool execution error.' },
         { status: 401, description: 'Unauthenticated.' },
-        {
-          status: 403,
-          description:
-            'Caller lacks the tool features, the tool is a mutation blocked by `OM_MCP_MUTATION_MODE` (`{ success: false, error, code: "MUTATION_REQUIRES_APPROVAL" }`), or approval mode could not resolve a requesting user (`code: "MUTATION_REQUESTER_UNRESOLVED"`).',
-        },
+        { status: 403, description: 'Mutation tools cannot execute directly, or caller lacks tool permissions.' },
         { status: 500, description: 'Unexpected failure while executing the tool.' },
       ],
     },
@@ -140,6 +133,16 @@ export async function POST(req: NextRequest) {
     // Ensure tools are loaded
     await loadAllModuleTools()
 
+    const tool = getToolRegistry().getTool(toolName) as AiToolDefinition | undefined
+    if (tool?.isMutation === true) {
+      await audit('denied', 'DIRECT_MUTATION_DENIED')
+      const { t } = await resolveTranslations()
+      return NextResponse.json(
+        { success: false, error: t('ai_assistant.errors.directMutationDenied') },
+        { status: 403 }
+      )
+    }
+
     // Build tool context
     const toolContext: McpToolContext = {
       tenantId: auth.tenantId,
@@ -161,16 +164,7 @@ export async function POST(req: NextRequest) {
       correlationId,
     })
 
-    if (result.pendingApproval) {
-      const { pendingActionId, expiresAt } = result.pendingApproval
-      await audit(mapToolResultToAuditOutcome(result), null, [pendingActionId])
-      return NextResponse.json(
-        { success: true, status: 'pending_approval', pendingActionId, expiresAt },
-        { status: 202 }
-      )
-    }
-
-    const registeredTool = getToolRegistry().getTool(toolName) as AiToolDefinition | undefined
+    const registeredTool = tool
     const toolResultValue = result.success ? result.result : undefined
     await audit(
       mapToolResultToAuditOutcome(result),

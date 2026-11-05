@@ -27,6 +27,10 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   })),
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(async () => ({ t: (key: string) => key })),
+}))
+
 jest.mock('../../../../lib/tool-executor', () => ({
   executeTool: (...args: unknown[]) => executeToolMock(...args),
 }))
@@ -56,7 +60,7 @@ describe('POST /api/ai_assistant/tools/execute — audit', () => {
     jest.clearAllMocks()
     accessLogEntries.length = 0
     authMock.mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
-    getToolMock.mockReturnValue({ name: 'customers.update_person', isMutation: true })
+    getToolMock.mockReturnValue({ name: 'customers.get_person', isMutation: false })
   })
 
   it('writes one tools-api row with the header correlation id and keeps the response body', async () => {
@@ -64,7 +68,7 @@ describe('POST /api/ai_assistant/tools/execute — audit', () => {
 
     const response = await POST(
       buildRequest(
-        { toolName: 'customers.update_person', args: { name: SECRET_ARG_VALUE } },
+        { toolName: 'customers.get_person', args: { name: SECRET_ARG_VALUE } },
         { 'x-correlation-id': 'corr-tools-1' },
       ),
     )
@@ -76,7 +80,7 @@ describe('POST /api/ai_assistant/tools/execute — audit', () => {
       tenantId: 'tenant-1',
       organizationId: 'org-1',
       actorUserId: 'user-1',
-      resourceId: 'customers.update_person',
+      resourceId: 'customers.get_person',
       context: {
         channel: 'tools-api',
         mcpServer: null,
@@ -84,7 +88,7 @@ describe('POST /api/ai_assistant/tools/execute — audit', () => {
         apiKeyId: null,
         outcome: 'ok',
         errorCode: null,
-        isMutation: true,
+        isMutation: false,
         correlationId: 'corr-tools-1',
         argKeys: ['name'],
       },
@@ -103,7 +107,7 @@ describe('POST /api/ai_assistant/tools/execute — audit', () => {
     })
     executeToolMock.mockResolvedValue({ success: false, error: 'denied', errorCode: 'UNAUTHORIZED' })
 
-    const response = await POST(buildRequest({ toolName: 'customers.update_person', args: {} }))
+    const response = await POST(buildRequest({ toolName: 'customers.get_person', args: {} }))
 
     expect(response.status).toBe(403)
     expect(await response.json()).toEqual({ success: false, error: 'denied' })
@@ -122,7 +126,7 @@ describe('POST /api/ai_assistant/tools/execute — audit', () => {
     executeToolMock.mockRejectedValue(new Error('boom'))
     jest.spyOn(console, 'error').mockImplementation(() => {})
 
-    const response = await POST(buildRequest({ toolName: 'customers.update_person', args: {} }))
+    const response = await POST(buildRequest({ toolName: 'customers.get_person', args: {} }))
 
     expect(response.status).toBe(500)
     expect(accessLogEntries).toHaveLength(1)
@@ -187,7 +191,7 @@ describe('POST /api/ai_assistant/tools/execute — audit', () => {
   })
 })
 
-describe('POST /api/ai_assistant/tools/execute — mutation mode', () => {
+describe('POST /api/ai_assistant/tools/execute — mutation tools', () => {
   const originalMutationMode = process.env.OM_MCP_MUTATION_MODE
 
   beforeEach(() => {
@@ -202,91 +206,55 @@ describe('POST /api/ai_assistant/tools/execute — mutation mode', () => {
     else process.env.OM_MCP_MUTATION_MODE = originalMutationMode
   })
 
-  it('passes the tools-api channel and the env mutation mode to executeTool', async () => {
-    process.env.OM_MCP_MUTATION_MODE = 'deny'
+  it.each([undefined, 'direct', 'deny', 'approval'])(
+    'refuses a mutation tool with 403 and audits the denial when OM_MCP_MUTATION_MODE=%s',
+    async (mode) => {
+      if (mode === undefined) delete process.env.OM_MCP_MUTATION_MODE
+      else process.env.OM_MCP_MUTATION_MODE = mode
+
+      const response = await POST(
+        buildRequest({ toolName: 'customers.update_person', args: { name: SECRET_ARG_VALUE } }, { 'x-correlation-id': 'corr-deny-1' }),
+      )
+
+      expect(response.status).toBe(403)
+      expect(await response.json()).toEqual({
+        success: false,
+        error: 'ai_assistant.errors.directMutationDenied',
+      })
+      expect(executeToolMock).not.toHaveBeenCalled()
+      expect(accessLogEntries).toHaveLength(1)
+      expect(accessLogEntries[0].context).toMatchObject({
+        channel: 'tools-api',
+        outcome: 'denied',
+        errorCode: 'DIRECT_MUTATION_DENIED',
+        isMutation: true,
+        correlationId: 'corr-deny-1',
+      })
+      expect(JSON.stringify(accessLogEntries[0])).not.toContain(SECRET_ARG_VALUE)
+    },
+  )
+
+  it('runs read tools with the tools-api channel and the env mutation mode for agent-tool policy', async () => {
+    process.env.OM_MCP_MUTATION_MODE = 'approval'
+    getToolMock.mockReturnValue({ name: 'customers.get_person', isMutation: false })
     executeToolMock.mockResolvedValue({ success: true, result: {} })
 
-    await POST(buildRequest({ toolName: 'customers.update_person', args: {} }))
+    await POST(buildRequest({ toolName: 'customers.get_person', args: {} }))
 
     expect(executeToolMock).toHaveBeenCalledWith(
-      'customers.update_person',
+      'customers.get_person',
       {},
       expect.any(Object),
       {
         channel: 'tools-api',
-        mutationMode: 'deny',
+        mutationMode: 'approval',
         requester: { userId: 'user-1', apiKeyId: null },
         correlationId: expect.any(String),
       },
     )
   })
 
-  it('defaults to direct mode when OM_MCP_MUTATION_MODE is unset', async () => {
-    delete process.env.OM_MCP_MUTATION_MODE
-    executeToolMock.mockResolvedValue({ success: true, result: {} })
-
-    await POST(buildRequest({ toolName: 'customers.update_person', args: {} }))
-
-    expect(executeToolMock.mock.calls[0][3]).toMatchObject({ channel: 'tools-api', mutationMode: 'direct' })
-  })
-
-  it('returns 403 with the MUTATION_REQUIRES_APPROVAL code in deny mode', async () => {
-    process.env.OM_MCP_MUTATION_MODE = 'deny'
-    executeToolMock.mockResolvedValue({
-      success: false,
-      error: 'mutation blocked',
-      errorCode: 'MUTATION_REQUIRES_APPROVAL',
-    })
-
-    const response = await POST(buildRequest({ toolName: 'customers.update_person', args: {} }))
-
-    expect(response.status).toBe(403)
-    expect(await response.json()).toEqual({
-      success: false,
-      error: 'mutation blocked',
-      code: 'MUTATION_REQUIRES_APPROVAL',
-    })
-    expect(accessLogEntries).toHaveLength(1)
-    expect(accessLogEntries[0].context).toMatchObject({
-      outcome: 'mutation_denied',
-      errorCode: 'MUTATION_REQUIRES_APPROVAL',
-      isMutation: true,
-    })
-  })
-
-  it('returns 202 with the pending action when approval mode queues the call', async () => {
-    process.env.OM_MCP_MUTATION_MODE = 'approval'
-    executeToolMock.mockResolvedValue({
-      success: true,
-      pendingApproval: { pendingActionId: 'pa-1', expiresAt: '2026-10-23T00:00:00.000Z' },
-      result: { status: 'pending_approval', pendingActionId: 'pa-1' },
-    })
-
-    const response = await POST(
-      buildRequest({ toolName: 'customers.update_person', args: {} }, { 'x-correlation-id': 'corr-approve-1' }),
-    )
-
-    expect(response.status).toBe(202)
-    expect(await response.json()).toEqual({
-      success: true,
-      status: 'pending_approval',
-      pendingActionId: 'pa-1',
-      expiresAt: '2026-10-23T00:00:00.000Z',
-    })
-    expect(executeToolMock.mock.calls[0][3]).toMatchObject({
-      mutationMode: 'approval',
-      correlationId: 'corr-approve-1',
-    })
-    expect(accessLogEntries).toHaveLength(1)
-    expect(accessLogEntries[0].context).toMatchObject({
-      outcome: 'pending_approval',
-      errorCode: null,
-      pendingActionIds: ['pa-1'],
-    })
-  })
-
   it('passes the API key owner as requester instead of the api_key subject', async () => {
-    process.env.OM_MCP_MUTATION_MODE = 'approval'
     authMock.mockResolvedValue({
       sub: 'api_key:key-1',
       tenantId: 'tenant-1',
@@ -295,34 +263,13 @@ describe('POST /api/ai_assistant/tools/execute — mutation mode', () => {
       keyId: 'key-1',
       userId: 'owner-1',
     })
+    getToolMock.mockReturnValue({ name: 'customers.get_person', isMutation: false })
     executeToolMock.mockResolvedValue({ success: true, result: {} })
 
-    await POST(buildRequest({ toolName: 'customers.update_person', args: {} }))
+    await POST(buildRequest({ toolName: 'customers.get_person', args: {} }))
 
     expect(executeToolMock.mock.calls[0][3]).toMatchObject({
       requester: { userId: 'owner-1', apiKeyId: 'key-1' },
-    })
-  })
-
-  it('returns 403 with MUTATION_REQUESTER_UNRESOLVED when no requester resolves', async () => {
-    process.env.OM_MCP_MUTATION_MODE = 'approval'
-    executeToolMock.mockResolvedValue({
-      success: false,
-      error: 'no requester',
-      errorCode: 'MUTATION_REQUESTER_UNRESOLVED',
-    })
-
-    const response = await POST(buildRequest({ toolName: 'customers.update_person', args: {} }))
-
-    expect(response.status).toBe(403)
-    expect(await response.json()).toEqual({
-      success: false,
-      error: 'no requester',
-      code: 'MUTATION_REQUESTER_UNRESOLVED',
-    })
-    expect(accessLogEntries[0].context).toMatchObject({
-      outcome: 'mutation_denied',
-      errorCode: 'MUTATION_REQUESTER_UNRESOLVED',
     })
   })
 })

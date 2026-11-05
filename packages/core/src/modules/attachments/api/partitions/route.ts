@@ -9,6 +9,7 @@ import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { Attachment, AttachmentPartition } from '../../data/entities'
 import { ensureDefaultPartitions, DEFAULT_ATTACHMENT_PARTITIONS, sanitizePartitionCode, isPartitionSettingsLocked } from '../../lib/partitions'
 import { resolvePartitionEnvKey } from '../../lib/partitionEnv'
+import { getDeclaredAttachmentAccessRequirements } from '../../lib/access-protection'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveDefaultAttachmentOcrEnabled } from '../../lib/ocrConfig'
 import { enqueueDocumentSectionSearch, type DocumentStructureQueueContainer } from '../../lib/documentStructure/queue'
@@ -168,6 +169,7 @@ export async function POST(req: Request) {
   }
   const entry = em.create(AttachmentPartition, {
     code,
+    accessResolverRequirements: getDeclaredAttachmentAccessRequirements(code),
     title: parsed.data.title.trim(),
     description: parsed.data.description?.trim() ?? null,
     storageDriver: parsed.data.storageDriver ?? 'local',

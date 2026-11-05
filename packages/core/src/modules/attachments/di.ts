@@ -1,3 +1,4 @@
+import { createAttachmentAccessContext } from './lib/access-runner'
 import { asFunction, asValue } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
@@ -18,6 +19,7 @@ import {
 import { enqueueDocumentStructureExtraction } from './lib/documentStructure/queue'
 
 export function register(container: AppContainer) {
+  const accessContext = () => createAttachmentAccessContext(container)
   container.register({
     attachmentQuotaRecoveryScheduler: asValue(scheduleAttachmentQuotaRecovery),
     [DOCUMENT_STRUCTURE_ENGINES_DI_KEY]: asFunction(() => createDocumentStructureEngineRegistry()).singleton(),
@@ -35,7 +37,7 @@ export function register(container: AppContainer) {
       .scoped()
       .proxy(),
     attachmentTargetAccessService: asFunction(({ em }: { em: ConstructorParameters<typeof StorageDriverFactory>[0] }) =>
-      new AttachmentTargetAccessService(em),
+      new AttachmentTargetAccessService(em, accessContext),
     )
       .scoped()
       .proxy(),
@@ -77,6 +79,7 @@ export function register(container: AppContainer) {
       cradle.em,
       cradle.storageDriverFactory,
       () => cradle.attachmentScopedUploadService ?? null,
+      accessContext,
     ))
       .scoped()
       .proxy(),

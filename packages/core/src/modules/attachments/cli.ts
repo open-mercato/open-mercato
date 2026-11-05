@@ -18,6 +18,7 @@ import { enqueueDocumentSectionSearch, enqueueDocumentStructureExtraction } from
 import { fanOutPartitionSectionSearch } from './lib/documentStructure/sectionSearchSync'
 import { runDocumentStructureBackfill } from './lib/documentStructure/backfill'
 import { documentOcrModeSchema } from './lib/documentStructure/types'
+import { isAttachmentStorageConfigurationError } from './lib/drivers/storageValidation'
 import { removeAttachmentRecord } from './lib/storageReferences'
 
 type ParsedArgs = Record<string, string | boolean>
@@ -108,6 +109,7 @@ const deleteAttachments: ModuleCli = {
         console.log(`Not found: ${missing.join(', ')}`)
       }
     } catch (err) {
+      if (isAttachmentStorageConfigurationError(err)) throw err
       console.error('[attachments] delete command failed:', err)
     }
   },
