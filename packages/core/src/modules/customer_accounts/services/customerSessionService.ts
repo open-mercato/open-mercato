@@ -3,6 +3,7 @@ import { CustomerUser, CustomerUserSession } from '@open-mercato/core/modules/cu
 import { generateSecureToken, hashToken } from '@open-mercato/core/modules/customer_accounts/lib/tokenGenerator'
 import { signAudienceJwt } from '@open-mercato/shared/lib/auth/jwt'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { isCustomerTenantActive } from '@open-mercato/core/modules/customer_accounts/lib/tenantEligibility'
 
 export const CUSTOMER_JWT_AUDIENCE = 'customer'
 const CUSTOMER_JWT_TTL_SECONDS = 60 * 60 * 8
@@ -90,6 +91,7 @@ export class CustomerSessionService {
     if (!session) return null
     const user = session.user as CustomerUser
     if (!user || user.deletedAt || !user.isActive) return null
+    if (!(await isCustomerTenantActive(this.em, user.tenantId))) return null
 
     await this.em.nativeUpdate(CustomerUserSession, { id: session.id }, { lastUsedAt: new Date() })
     const jwt = this.signCustomerJwt(user, resolvedFeatures, session.id)

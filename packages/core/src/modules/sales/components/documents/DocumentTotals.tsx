@@ -17,9 +17,20 @@ type DocumentTotalsProps = {
   currency: string | null | undefined
   items: DocumentTotalItem[]
   className?: string
+  /** Marks the header as caller-asserted, e.g. "Amounts from source". */
+  sourceBadge?: { label: string; hint?: string } | null
+  /** Rendered under the table — the explicit action that leaves the source-owned mode. */
+  footerAction?: React.ReactNode
 }
 
-export function DocumentTotals({ title, currency, items, className }: DocumentTotalsProps) {
+export function DocumentTotals({
+  title,
+  currency,
+  items,
+  className,
+  sourceBadge,
+  footerAction,
+}: DocumentTotalsProps) {
   const t = useT()
   const emphasizedRows = items.filter((item) => item.emphasize)
   const heading = title ?? t('sales.documents.detail.totals.title')
@@ -56,7 +67,17 @@ export function DocumentTotals({ title, currency, items, className }: DocumentTo
     <div className={cn('space-y-3', className)}>
       <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
         <div className="flex items-center justify-between border-b bg-muted/50 px-4 py-3">
-          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{heading}</span>
+          <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            {heading}
+            {sourceBadge ? (
+              <span
+                title={sourceBadge.hint}
+                className="rounded-full bg-status-info-bg px-2 py-0.5 text-xs font-semibold normal-case tracking-normal text-status-info-text"
+              >
+                {sourceBadge.label}
+              </span>
+            ) : null}
+          </span>
           {currency ? (
             <span className="rounded-full border border-border/70 bg-background/80 px-3 py-1 text-xs font-semibold tracking-wide text-foreground">
               {currency}
@@ -112,6 +133,9 @@ export function DocumentTotals({ title, currency, items, className }: DocumentTo
               {expanded ? t('sales.documents.detail.totals.hideDetails') : t('sales.documents.detail.totals.showDetails')}
             </button>
           </div>
+        ) : null}
+        {footerAction ? (
+          <div className="flex items-center justify-end border-t bg-muted/30 px-4 py-3">{footerAction}</div>
         ) : null}
       </div>
     </div>

@@ -151,3 +151,17 @@ psql "postgresql://postgres:postgres@localhost:55432/open-mercato" -c "select 1;
 ```
 
 If this succeeds but `:5432` still fails, keep using the alternate port (or stop the other local PostgreSQL service that occupies `5432`).
+
+## Module install fails with `YN0016` (quarantined) {#yn0016-quarantined}
+
+`yarn mercato module add` or `yarn add` stops with Yarn error `YN0016` and a message that the versions satisfying the requested range are quarantined.
+
+### Cause
+
+Apps created with `create-mercato-app` set `npmMinimalAgeGate: 5d` in `.yarnrc.yml`. Yarn refuses versions of packages outside `@open-mercato/*` that were published less than 5 days ago. The `@open-mercato/*` scope is preapproved, so official releases install on the day they ship.
+
+### Fix
+
+- Open the module page on [modules.openmercato.com](https://modules.openmercato.com). **Installable from** shows the date the fresh release clears the gate, and the install box shows the exact version you can install today.
+- Install that version, or wait until the date on the page.
+- If you have reviewed the release and need it now, install it from its GitHub repository (see [Publishing Custom Modules](../framework/modules/publishing-custom-modules)) or add the package to `npmPreapprovedPackages` in `.yarnrc.yml` deliberately. Both skip the supply-chain cooldown for that package.
