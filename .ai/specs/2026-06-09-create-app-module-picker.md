@@ -204,8 +204,12 @@ Fetch contract (`fetch-catalog.ts`):
   `<pkg>` an npm name (at most 214 characters), `<version>` an exact semver and `<id>` a module id (at most 64).
   One step must install or enable something (a lone `yarn generate` does not). Any other command (extra
   arguments or flags, ranges, dist-tags, quotes, `!`, globs, other separators) leaves the module without an install
-  command for the line. The returned command is rebuilt from the parsed tokens, so it is byte-identical to what
-  was validated.
+  command for the line. The command must also fit its entry: every package it names is the entry's `from` or
+  an `@open-mercato/*` package, `--allow-third-party` is on a `module add` exactly when its package is outside
+  `@open-mercato/` (the catalog's rule), and `OM_ENABLE_ENTERPRISE_*` flags belong to `@open-mercato/enterprise`
+  only. The grammar is narrower than the catalog's own `NpmName` (no `~`, no leading `-`) and needs a version on
+  every package, so a versionless or `~` spec drops out of the picker rather than reaching the user. The returned
+  command is rebuilt from the parsed tokens, so it is byte-identical to what was validated.
 - Selectable = `source !== 'core'`, `verifiedOn` contains the line and the line has an install command; the
   item carries that command as its `install`. Core modules are the presets' job
   (Phase 2); a core ID passed to `--modules` is answered with its `module enable` command, or "the preset
@@ -437,7 +441,8 @@ the `build.mjs` snapshot step, `scripts/lib/official-modules.mjs` `generatedPath
   out.
 - `parseInstallCommand`: every catalog shape accepted and rebuilt byte-identically; extra tokens, ranges, tags,
   quotes, `!`, globs, other `.env` writes, empty steps and a lone `yarn generate` rejected; every command of the
-  verified modules in a dated copy of the live `picker.json` (`__fixtures__/picker-live-2026-11-05.json`) accepted.
+  verified modules in a dated copy of the live `picker.json` (`__fixtures__/picker-live-2026-11-05.json`) accepted;
+  packages, `--allow-third-party` and enterprise flags that do not fit the entry rejected by `installCommandFor`.
 - `fetchPickerCatalog`: default URL, `OM_MODULES_PICKER_URL`, retry after a network error and after a 5xx,
   no retry after a 404, unsupported body, hanging request cut by the timeout.
 - `resolveCatalogSelection`: ID, npm name and locator matches; unknown and unverified requests; required

@@ -960,18 +960,20 @@ test('runCatalogStep answers a core module ID with core, not with the package th
   assert.deepEqual((await runCatalogStep(byName.options)).commands, [WORK_A, DURABLE_SYNC])
 })
 
-for (const command of [
-  'yarn mercato module add @open-mercato/gateway-stripe@0.9.0',
-  'yarn mercato module enable @open-mercato/core --module sales',
-  'yarn add @open-mercato/storage-s3@0.9.0 && echo OM_ENABLE_STORAGE_S3=true >> .env && yarn generate',
-  'yarn mercato module add @publisher-a/work@1.0.0 --allow-third-party --module durable_work && yarn mercato module add @publisher-a/work@1.0.0 --allow-third-party --module other_mod',
-  'yarn mercato module add @publisher-a/work@1.0.0 --module durable_work',
-  'yarn add @open-mercato/web-research-core@0.9.0 @open-mercato/web-research-brave@0.9.0 && yarn generate',
-  'yarn add @open-mercato/channel-smtp@0.10.1-develop.7749.1.ea3edf75e3',
-  'echo OM_ENABLE_ENTERPRISE_MODULES=true >> .env && echo OM_ENABLE_ENTERPRISE_MODULES_SSO=true >> .env && yarn generate',
-]) {
+for (const [from, command] of [
+  ['@open-mercato/gateway-stripe', 'yarn mercato module add @open-mercato/gateway-stripe@0.9.0'],
+  ['@open-mercato/core', 'yarn mercato module enable @open-mercato/core --module sales'],
+  ['@open-mercato/storage-s3', 'yarn add @open-mercato/storage-s3@0.9.0 && echo OM_ENABLE_STORAGE_S3=true >> .env && yarn generate'],
+  ['@publisher-a/work', 'yarn mercato module add @publisher-a/work@1.0.0 --allow-third-party --module durable_work && yarn mercato module add @publisher-a/work@1.0.0 --allow-third-party --module other_mod'],
+  ['@open-mercato/ai-assistant', 'yarn mercato module add @open-mercato/ai-assistant@0.9.0 --module ai_assistant'],
+  ['@open-mercato/web-research-brave', 'yarn add @open-mercato/web-research-core@0.9.0 @open-mercato/web-research-brave@0.9.0 && yarn generate'],
+  ['@publisher-a/adapter', 'yarn add @open-mercato/web-research@0.9.0 @publisher-a/adapter@1.0.0 && yarn generate'],
+  ['@open-mercato/channel-smtp', 'yarn add @open-mercato/channel-smtp@0.10.1-develop.7749.1.ea3edf75e3'],
+  ['@open-mercato/enterprise', 'echo OM_ENABLE_ENTERPRISE_MODULES=true >> .env && echo OM_ENABLE_ENTERPRISE_MODULES_SSO=true >> .env && yarn generate'],
+] as const) {
   test(`installCommandFor accepts ${command}`, () => {
-    const entry = index.modules[0]!
+    const entry = { ...index.modules[0]!, from }
+    assert.equal(parseInstallCommand(command), command)
     assert.equal(installCommandFor({ ...entry, install: command, installByLine: null }, '0.9', index.lines), command)
     assert.equal(installCommandFor({ ...entry, installByLine: { '0.8': command } }, '0.8', index.lines), command)
   })
@@ -1019,10 +1021,35 @@ for (const command of [
   'yarn mercato module add @open-mercato/gateway-stripe@0.9.0 ',
   `yarn add @scope/${'a'.repeat(214)}@1.0.0`,
   `yarn mercato module enable @open-mercato/core --module ${'a'.repeat(65)}`,
+  `yarn add ${Array.from({ length: 300 }, (_, position) => `@open-mercato/p${position}@1.0.0`).join(' ')}`,
   '',
+  ...['; echo injected', '& echo injected', '&& echo injected', '| cat', '`id`', '$(id)', '> output', '< input', '$HOME', '\\; echo injected', '\necho injected', '\n', '\r']
+    .map((suffix) => `yarn mercato module add @open-mercato/gateway-stripe@0.9.0 ${suffix}`),
+  ...[';', '|', '`id`', '$(id)', '>', '\n']
+    .map((suffix) => `yarn mercato module add @open-mercato/gateway-stripe@0.9.0${suffix}`),
 ]) {
   test(`installCommandFor rejects ${JSON.stringify(command)} without a latest-line fallback`, () => {
     const entry = index.modules[0]!
+    assert.equal(parseInstallCommand(command), null)
+    assert.equal(installCommandFor({ ...entry, install: command, installByLine: null }, '0.9', index.lines), null)
+    assert.equal(installCommandFor({ ...entry, installByLine: { '0.9': command } }, '0.9', index.lines), null)
+  })
+}
+
+for (const [from, command] of [
+  ['@open-mercato/gateway-stripe', 'yarn add evil-pkg@1.0.0'],
+  ['@open-mercato/gateway-stripe', 'yarn add @open-mercato/gateway-stripe@0.9.0 evil-pkg@1.0.0'],
+  ['@open-mercato/gateway-stripe', 'yarn mercato module add @evil/pkg@1.0.0 --allow-third-party'],
+  ['@open-mercato/core', 'yarn mercato module enable @evil/pkg --module sales'],
+  ['@publisher-a/work', 'yarn mercato module add @publisher-a/work@1.0.0'],
+  ['@publisher-a/work', 'yarn mercato module add @publisher-a/work@1.0.0 --module durable_work'],
+  ['@open-mercato/gateway-stripe', 'yarn mercato module add @open-mercato/gateway-stripe@0.9.0 --allow-third-party'],
+  ['@open-mercato/gateway-stripe', 'yarn mercato module add @open-mercato/gateway-stripe@0.9.0 && echo OM_ENABLE_ENTERPRISE_MODULES=true >> .env'],
+  ['@open-mercato/storage-s3', 'echo OM_ENABLE_ENTERPRISE_MODULES=true >> .env && yarn generate'],
+] as const) {
+  test(`installCommandFor rejects ${command} for an entry from ${from}`, () => {
+    assert.equal(parseInstallCommand(command), command, 'the grammar alone accepts it')
+    const entry = { ...index.modules[0]!, from }
     assert.equal(installCommandFor({ ...entry, install: command, installByLine: null }, '0.9', index.lines), null)
     assert.equal(installCommandFor({ ...entry, installByLine: { '0.9': command } }, '0.9', index.lines), null)
   })
@@ -1072,11 +1099,11 @@ test('every install command of a verified module in the live picker.json (fetche
   )
 })
 
-test('parseInstallCommand accepts every command of the live picker.json, verified or not', () => {
+test('installCommandFor accepts every command of the live picker.json, verified or not', () => {
   const live = parsePickerIndex(livePicker()) as PickerIndex
   for (const entry of live.modules) {
     for (const command of [entry.install, ...Object.values(entry.installByLine ?? {})]) {
-      assert.equal(parseInstallCommand(command), command, `${entry.id}: ${command}`)
+      assert.equal(installCommandFor({ ...entry, install: command, installByLine: null }, live.lines[0]!, live.lines), command, `${entry.id}: ${command}`)
     }
   }
 })
