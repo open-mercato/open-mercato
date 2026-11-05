@@ -6,7 +6,7 @@ Stop ordinary PR label changes from scheduling CI, and make full validation auto
 
 ## Scope
 
-Update the existing CI workflow, focused workflow regression tests, and contributor guidance. Preserve required job names, push branches, normal PR affected selection, audit policy, and PR-versus-branch cancellation behavior. No separate privileged dispatcher, new dependency, production code, or branch-protection change.
+Update the existing CI workflow, focused workflow regression tests, contributor guidance, and one lesson recording the corrected stabilization-only intent. Preserve required job names, push branches, normal PR affected selection, audit policy, and PR-versus-branch cancellation behavior. No separate privileged dispatcher, new dependency, production code, or branch-protection change.
 
 The proposed policy uses same-repository `stabilize/*` branches for stabilization PRs. These run full typecheck, unit tests, and 15 integration shards from the first eligible PR event. Labels, including legacy `ci-full`, do not schedule work or grant full scope to ordinary PRs. Existing historical `fix/stabilize-*` branches must use the documented branch convention for future stabilization work.
 
@@ -45,6 +45,16 @@ Use the repository's GitHub-checks-first review policy, with narrow local fallba
 
 Runner: local Docker CLI with a disposable Linux `node:24` container (read-only checkout, network disabled). All 51 focused CI/concurrency/coverage/audit tests passed. The direct macOS run passed 21/23 but could not execute two existing Linux workflow branches using GNU grep/paste; the actual workflow scripts passed all cases under Linux. `git diff --check` passed. Full build/typecheck/unit/integration evidence is supplied by GitHub CI, not inferred from these focused tests.
 
+## Review and Handoff
+
+Independent code review approved the implementation with no findings. The main ruleset still requires `scope`, `guard`, `prepare`, `lint`, `ds-lint`, `test`, `audit-scope`, and `documents-multi-instance`; their names remain unchanged. The legacy branch-protection endpoint returns 404, but the main ruleset was read explicitly. No rule or approval was bypassed.
+
+Validation source: GitHub checks plus the focused Linux fallback. Last inspected CI run was https://github.com/open-mercato/open-mercato/actions/runs/42036316936 at bef8c9256: lint, DS lint, audit-scope, scope, guard, and CLA had passed; prepare and JavaScript/TypeScript CodeQL were still running, with downstream test/integration pending. The completion-document push starts final-head CI; no earlier success is treated as evidence for that new head. The configured build/generate/rebuild/i18n/typecheck/unit/app-build gate is not claimed complete.
+
+The lesson catalog passes the direct Node entrypoint. Its Yarn launcher could not find a worktree node_modules state file, so no dependency install or broad local gate was attempted. The equivalent command `node packages/create-app/agentic/shared/scripts/check-lessons.mjs --root .` passed.
+
+Final authoring status: implementation and regression coverage are complete; publish the PR ready for maintainer review, disclose pending required checks, and do not merge. GitHub prevents author self-approval, so the review assessment is a COMMENTED review and the pipeline remains `review`. The next reviewer owns final-head CI and approval. Release the claim and remove this run's temporary worktree after publishing this record.
+
 ## Progress
 
 PR: #8788
@@ -58,5 +68,5 @@ PR: #8788
 
 ### Phase 2: Verify and publish
 
-- [ ] 2.1 Run focused validation, inspect GitHub checks, and perform an independent review; resolve actionable findings.
-- [ ] 2.2 Publish the final PR explanation, validation limits, and handoff; release the automation claim and clean up its worktree.
+- [x] 2.1 Run focused validation, inspect GitHub checks, and perform an independent review; resolve actionable findings. — dad929c5a
+- [x] 2.2 Publish the final PR explanation, validation limits, and handoff; release the automation claim and clean up its worktree.
