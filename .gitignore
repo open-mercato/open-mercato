@@ -159,6 +159,9 @@ docker/opencode/opencode.jsonc
 .ai/qa/test-env-boot.log
 .ai/qa/artifacts_*/
 .ai/qa/email-capture.jsonl
+# om-auto-merge-buddy local scheduling state, merge journals and run logs
+.ai/meta/
+.ai/runs/merge-buddy/
 # entrypoint scripts om-prepare-test-env compiles are bound to the machine that
 # generated them (shell, ports, process tools) — keep them local, never commit
 .ai/scripts/test-env-*

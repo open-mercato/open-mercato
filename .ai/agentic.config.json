@@ -26,11 +26,21 @@
     "risk": ["risk-low", "risk-medium", "risk-high"]
   },
   "qaGate": true,
+  "ci": { "maxWaitMinutes": 40 },
+  "autofix": { "label": "cez-autofix", "eligibility": { "lookbackDays": 30, "analyzeLimit": 100, "limit": 20, "excludeLabels": ["blocked", "do-not-fix"] } },
   "automerge": {
+    "label": "automerge",
+    "mode": "prepare-and-merge",
+    "requireIndependentReview": false,
+    "defaultToHumanQa": false,
     "humanOnlyLabels": ["feature"],
     "humanOnlyAuthors": ["zielivia"],
-    "complexQa": "always"
+    "complexQa": "always",
+    "windowMinutes": 120,
+    "maxAttempts": 3
   },
+  "engine": { "loopStepThreshold": 20, "executorTier": "standard", "stepReview": "final" },
+  "closeKeywords": [],
   "paths": {
     "runs": ".ai/runs",
     "analysis": ".ai/analysis",
