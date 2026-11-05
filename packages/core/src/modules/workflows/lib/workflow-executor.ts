@@ -448,6 +448,7 @@ export async function executeWorkflow(
             errors.push(branchResult.error || 'Parallel branch failed')
             await completeWorkflow(trx, container, instanceId, 'FAILED', {
               error: branchResult.error || 'Parallel branch failed',
+              details: branchResult.details,
             })
             return {
               status: 'FAILED',
@@ -735,7 +736,8 @@ export async function executeWorkflow(
                 trx,
                 currentInstance,
                 transitionResult.failedStepId,
-                rejectionMessage
+                rejectionMessage,
+                transitionResult.details
               )
               events.push({
                 eventType: 'ERROR_PARKED',
@@ -762,6 +764,7 @@ export async function executeWorkflow(
 
             await completeWorkflow(trx, container, instanceId, 'FAILED', {
               error: rejectionMessage,
+              details: transitionResult.details,
             })
             events.push({
               eventType: 'WORKFLOW_FAILED',
@@ -902,7 +905,7 @@ export async function executeWorkflow(
         if (instance && instance.status === 'RUNNING') {
           instance.status = 'FAILED'
           instance.errorMessage = errorMessage
-          instance.errorDetails = error instanceof WorkflowExecutionError ? error.details : undefined
+          instance.errorDetails = error instanceof WorkflowExecutionError ? error.details ?? null : null
           instance.updatedAt = new Date()
           await writeRunOutcome(trx, instance, 'FAILED')
           await trx.flush()
@@ -1281,12 +1284,14 @@ async function parkInstanceForAttention(
   em: EntityManager,
   instance: WorkflowInstance,
   failedStepId: string,
-  error: string
+  error: string,
+  details?: unknown
 ): Promise<void> {
   const now = new Date()
   instance.status = 'PAUSED'
   instance.pausedAt = now
   instance.errorMessage = error
+  instance.errorDetails = details ?? null
   instance.metadata = {
     ...(instance.metadata || {}),
     attention: {
@@ -1332,7 +1337,7 @@ async function persistFailedStatusAfterRollback(
     if (!instance || instance.status !== 'RUNNING') return
     instance.status = 'FAILED'
     instance.errorMessage = errorMessage
-    instance.errorDetails = errorDetails
+    instance.errorDetails = errorDetails ?? null
     instance.updatedAt = new Date()
     await writeRunOutcome(trx, instance, 'FAILED')
     await trx.flush()
@@ -1443,7 +1448,7 @@ export async function completeWorkflow(
         // Set error message before compensation
         if (result?.error) {
           instance.errorMessage = result.error
-          instance.errorDetails = result.details
+          instance.errorDetails = result.details ?? null
           await em.flush()
         }
 
@@ -1526,7 +1531,7 @@ export async function completeWorkflow(
       instance.completedAt = now
       if (result?.error) {
         instance.errorMessage = result.error
-        instance.errorDetails = result.details
+        instance.errorDetails = result.details ?? null
       }
       break
 

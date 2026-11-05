@@ -163,7 +163,7 @@ test.describe('TC-WF-069: absolute user-task deadline (deadline.at) from the run
         const reviewStep = steps.find((step) => step.stepId === 'review')
         expect(reviewStep?.status, `${label}: the USER_TASK step is FAILED`).toBe('FAILED')
         const errorData = reviewStep?.errorData as
-          | { error?: string; details?: { stepId?: string; deadlineAt?: string; resolved?: string } }
+          | { error?: string; details?: Record<string, unknown> }
           | null
           | undefined
         expect(errorData?.error ?? '', `${label}: the step error is the deadline error`).toContain(
@@ -173,6 +173,10 @@ test.describe('TC-WF-069: absolute user-task deadline (deadline.at) from the run
           stepId: 'review',
           deadlineAt: DEADLINE_TEMPLATE,
           resolved,
+          i18n: {
+            key: 'workflows.validation.taskDeadline.invalidResolvedAt',
+            params: { authored: DEADLINE_TEMPLATE, resolved },
+          },
         })
 
         const stepFailed = await listWorkflowInstanceEvents(request, token, instanceId, { eventType: 'STEP_FAILED' })

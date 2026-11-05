@@ -16,6 +16,13 @@ jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => 
   resolveOrganizationScopeForRequest: jest.fn(),
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(async () => ({
+    translate: (key: string, fallback: string, params: Record<string, string>) =>
+      key === 'workflows.some.key' ? `po polsku: ${params.value}` : fallback,
+  })),
+}))
+
 const enqueue = jest.fn()
 jest.mock('@open-mercato/queue', () => ({
   createModuleQueue: jest.fn(() => ({ enqueue })),
@@ -115,6 +122,23 @@ describe('GET /api/workflows/instances/failure-queue', () => {
     expect(body.groups).toHaveLength(2)
     expect(body.groups[0].count).toBe(2)
     expect(body.data).toHaveLength(3)
+  })
+
+  test('a keyed failure labels its group in the reader\'s locale and groups on the persisted text', async () => {
+    const errorDetails = { i18n: { key: 'workflows.some.key', params: { value: 'x' } } }
+    mockEm.find.mockResolvedValue([
+      row({ id: 'a', errorMessage: 'Bad "x"', errorDetails }),
+      row({ id: 'b', errorMessage: 'Bad "y"', errorDetails }),
+    ])
+    mockEm.count.mockResolvedValue(2)
+
+    const response = await listFailureQueue(
+      new NextRequest('http://localhost/api/workflows/instances/failure-queue')
+    )
+    const body = await response.json()
+
+    expect(body.groups).toHaveLength(1)
+    expect(body.groups[0]).toMatchObject({ key: 'Bad {value}', label: 'po polsku: x', count: 2 })
   })
 
   test('narrowing to a group filters the rows and the reported total', async () => {

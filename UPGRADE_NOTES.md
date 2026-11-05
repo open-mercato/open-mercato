@@ -1502,7 +1502,14 @@ still parses and runs unchanged.
 - `taskDeadlineSchema` / `TaskDeadline` (`data/task-primitives`, re-exported from `data/validators`);
 - `userTaskConfigSchema` / `UserTaskConfig` (`data/validators`) — `deadline?: TaskDeadline`;
 - `TaskDeadlinePersistence` and `resolveTaskDeadlinePersistence(config, edited)`
-  (`lib/task-inspector-config`) — same signature, same return type, same behavior.
+  (`lib/task-inspector-config`) — same signature, same return type, same behavior;
+- every schema result that nests them: `workflowStepSchema`, `workflowDefinitionDataSchema`,
+  `createWorkflowDefinitionSchema`, `updateWorkflowDefinitionSchema`,
+  `createWorkflowDefinitionInputSchema` and `updateWorkflowDefinitionInputSchema` with their
+  `…CheckedSchema` variants, the inferred `CreateWorkflowDefinitionInput`,
+  `UpdateWorkflowDefinitionInput`, `CreateWorkflowDefinitionApiInput` and
+  `UpdateWorkflowDefinitionApiInput`, and the response schemas in `api/openapi`
+  (`workflowDefinitionResponseSchema` and its list/detail/mutation/reset wrappers).
 
 The absolute form lives on NEW, additive exports, each a strict superset of its legacy counterpart:
 
@@ -1512,22 +1519,37 @@ The absolute form lives on NEW, additive exports, each a strict superset of its 
 | `userTaskConfigSchema` / `UserTaskConfig` | `userTaskConfigSpecSchema` / `UserTaskConfigSpec` |
 | `TaskDeadlinePersistence` | `TaskDeadlineSpecPersistence` |
 | `resolveTaskDeadlinePersistence` | `resolveTaskDeadlineSpecPersistence` |
+| `workflowStepSchema` | `workflowStepSpecSchema` / `WorkflowStepSpec` |
+| `workflowDefinitionDataSchema` | `workflowDefinitionDataSpecSchema` / `WorkflowDefinitionDataSpec` |
+| `createWorkflowDefinitionInputSchema` / `…CheckedSchema` / `CreateWorkflowDefinitionApiInput` | `createWorkflowDefinitionInputSpecSchema` / `…SpecCheckedSchema` / `CreateWorkflowDefinitionSpecApiInput` |
+| `updateWorkflowDefinitionInputSchema` / `…CheckedSchema` / `UpdateWorkflowDefinitionApiInput` | `updateWorkflowDefinitionInputSpecSchema` / `…SpecCheckedSchema` / `UpdateWorkflowDefinitionSpecApiInput` |
+| `workflowDefinitionResponseSchema` and its list/detail/mutation/reset wrappers | `workflowDefinitionSpecResponseSchema` and its list/detail/mutation/reset wrappers |
 
-`workflowStepSchema.userTaskConfig` — what the definition API and the engine validate — uses
-`userTaskConfigSpecSchema`, so the request-input types inferred from it
-(`CreateWorkflowDefinitionInput`, `UpdateWorkflowDefinitionInput`, …) accept the `at` form; that is a
-widening of what a request may carry, not of any type a consumer reads. `readTaskDeadlineDraft`,
-`resolveTaskDeadlineDuration` and `resolveTaskDeadline` accept either config (a widened parameter).
+The definition API, the engine, the Studio, the AI authoring tools and the code-workflow registry
+validate with the extended schemas, and the definition routes' OpenAPI documents them.
+`readTaskDeadlineDraft`, `resolveTaskDeadlineDuration` and `resolveTaskDeadline` accept either config
+(a widened parameter).
 
-**Migration:** none required. The legacy exports are not deprecated and have no removal window — they
-stay the duration-only view. Code that reads a stored step's `userTaskConfig` and wants to honour an
-absolute deadline should type it as `UserTaskConfigSpec` and check which of `deadline.duration` /
-`deadline.at` is set; such code must not assume `deadline.duration` exists on a definition authored
-with `at`.
+**Behavior of the legacy schemas:** exactly what it was before this feature — they refuse an `at`
+deadline. `workflowDefinitionDataSchema.parse()` therefore throws on a stored definition authored with
+`at`, where before this feature such a definition could not exist. The bundled workflow templates also
+stay duration-only: `workflowTemplateFileSchema` and `workflowTemplateSchema` are unchanged.
+
+**Migration:** none required for code that keeps using the legacy exports. Those exports are not
+deprecated and have no removal window — they stay the duration-only view. Code that reads or validates
+a stored definition and must also handle an absolute deadline switches to the extended schema and types
+in the table above, and checks which of `deadline.duration` / `deadline.at` is set.
 
 The deadline validation messages carry i18n keys (`workflows.validation.taskDeadline.*`) and are
 localized in the definition API's `details[]` and the Studio Problems / Code view. The English text in
 `details[].message` is unchanged when no locale dictionary is available.
+
+A value that only fails at runtime (`dueDate: 'soon'`) keeps its English `errorMessage` for logs and
+failure grouping, and additionally carries `errorDetails.i18n = { key, params }` (also on the step's
+`errorData.details`). The run detail, mobile overview, step inspector and failure queue render it in
+the reader's locale; API clients can do the same from that key. `instance.errorDetails` is now written
+as `null`, instead of being left untouched, when a failure carries no details, so a message can never
+pair with the details of an earlier failure.
 
 ### Payment gateway webhooks: opt-in transport, locator and response options; ambiguous matches are rejected
 

@@ -50,6 +50,12 @@ import {
   type TaskInterpolate,
 } from './task-resolution'
 import { scheduleUserTaskSla } from './task-sla'
+import { TASK_DEADLINE_MESSAGES } from '../data/task-primitives'
+import {
+  buildRuntimeErrorMessageDetail,
+  formatRuntimeErrorFallback,
+  readRuntimeErrorMessageRef,
+} from './runtime-error-message'
 import type { TaskQuickActionInput } from './task-quick-action'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { findWorkflowDefinition } from './find-definition'
@@ -80,6 +86,8 @@ export interface StepExecutionResult {
   nextSteps?: string[] // For parallel forks (Phase 7)
   waitReason?: 'USER_TASK' | 'SIGNAL' | 'TIMER' | 'FORK' | 'CONDITION'
   error?: string
+  /** Set only for an error naming its translation (`lib/runtime-error-message.ts`). */
+  details?: unknown
 }
 
 export class StepExecutionError extends Error {
@@ -433,9 +441,11 @@ export async function executeStep(
       logger.error('Failed to update step instance with error', { err: updateError })
     }
 
+    const details = error instanceof StepExecutionError ? error.details : undefined
     return {
       status: 'FAILED',
       error: errorMessage,
+      ...(readRuntimeErrorMessageRef(details) ? { details } : {}),
     }
   }
 }
@@ -843,10 +853,12 @@ function resolveUserTaskDeadline(stepId: string, deadline: ResolvedTaskDeadline)
     if (deadline.dueDate) return deadline.dueDate
     const rendered = deadline.resolved instanceof Date ? deadline.resolved.toISOString() : String(deadline.resolved)
     const resolved = rendered.length > 64 ? `${rendered.slice(0, 64)}…` : rendered
+    const { key, fallback } = TASK_DEADLINE_MESSAGES.invalidResolvedAt
+    const params = { authored: deadline.authored, resolved }
     throw new StepExecutionError(
-      `Invalid user task deadline "at": "${deadline.authored}" resolved to "${resolved}", which is not an ISO date (YYYY-MM-DD) or an ISO datetime with a timezone offset or Z`,
+      formatRuntimeErrorFallback(fallback, params),
       'INVALID_USER_TASK_DEADLINE',
-      { stepId, deadlineAt: deadline.authored, resolved }
+      { stepId, deadlineAt: deadline.authored, resolved, ...buildRuntimeErrorMessageDetail(key, params) }
     )
   }
   try {

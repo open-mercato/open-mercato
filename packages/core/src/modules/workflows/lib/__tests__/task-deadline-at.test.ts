@@ -4,7 +4,7 @@ import { interpolateVariables } from '../activity-executor'
 import { parseAbsoluteDeadline } from '../duration'
 import { resolveTaskDeadline, resolveTaskDeadlineDuration } from '../task-resolution'
 import { computeTaskSlaSchedule, scheduleUserTaskSla } from '../task-sla'
-import { taskDeadlineSchema, taskDeadlineSpecSchema, workflowStepSchema } from '../../data/validators'
+import { taskDeadlineSchema, taskDeadlineSpecSchema, workflowStepSpecSchema } from '../../data/validators'
 import { agentReviewConfigSchema } from '../../data/activity-config-schemas'
 import type { WorkflowDefinition, WorkflowInstance } from '../../data/entities'
 
@@ -88,7 +88,7 @@ describe('taskDeadlineSpecSchema', () => {
   })
 
   test('a step declaring both forms fails save-time validation', () => {
-    const result = workflowStepSchema.safeParse({
+    const result = workflowStepSpecSchema.safeParse({
       stepId: 'review',
       stepName: 'Review',
       stepType: 'USER_TASK',
@@ -185,7 +185,7 @@ describe('USER_TASK creation with deadline.at', () => {
       nativeDelete: jest.fn(),
     } as any
 
-    const step = workflowStepSchema.parse({
+    const step = workflowStepSpecSchema.parse({
       stepId: 'sign-deed',
       stepName: 'Sign the deed',
       stepType: 'USER_TASK',
@@ -260,6 +260,15 @@ describe('USER_TASK creation with deadline.at', () => {
 
     expect(result.status).toBe('FAILED')
     expect(result.error).toContain('resolved to "soon"')
+    expect(result.details).toEqual({
+      stepId: 'sign-deed',
+      deadlineAt: '{{context.dueAt}}',
+      resolved: 'soon',
+      i18n: {
+        key: 'workflows.validation.taskDeadline.invalidResolvedAt',
+        params: { authored: '{{context.dueAt}}', resolved: 'soon' },
+      },
+    })
   })
 
   test('a long resolved value is truncated in the step error', async () => {
@@ -285,6 +294,15 @@ describe('USER_TASK creation with deadline.at', () => {
 
     expect(result.status).toBe('FAILED')
     expect(result.error).toContain('resolved to "soon"')
+    expect(result.details).toEqual({
+      stepId: 'sign-deed',
+      deadlineAt: '{{context.dueAt}}',
+      resolved: 'soon',
+      i18n: {
+        key: 'workflows.validation.taskDeadline.invalidResolvedAt',
+        params: { authored: '{{context.dueAt}}', resolved: 'soon' },
+      },
+    })
     expect(simulated).toBeUndefined()
   })
 

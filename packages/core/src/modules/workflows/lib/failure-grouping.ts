@@ -33,6 +33,8 @@ export type TriageInstanceInput = {
   workflowId: string
   status: string
   errorMessage?: string | null
+  /** `errorMessage` in the reader's locale, for a group's label; never its key. */
+  localizedErrorMessage?: string | null
   /** `metadata.attention.reason` when the instance was parked by a directive. */
   attentionReason?: string | null
   /** The run's verdict; a `partial_failure` carries no `errorMessage` of its own. */
@@ -113,7 +115,7 @@ export function groupFailures(instances: readonly TriageInstanceInput[]): Failur
     }
     groups.set(key, {
       key,
-      label: truncate(message ?? UNCLASSIFIED_LABEL),
+      label: truncate(instance.localizedErrorMessage ?? message ?? UNCLASSIFIED_LABEL),
       count: 1,
       workflowIds: [instance.workflowId],
       instanceIds: [instance.id],

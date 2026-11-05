@@ -40,6 +40,11 @@ export const TASK_DEADLINE_MESSAGES = {
     key: 'workflows.validation.taskDeadline.invalidAt',
     fallback: 'Deadline "at" must be an ISO date (YYYY-MM-DD) or an ISO datetime with a timezone offset or Z',
   },
+  invalidResolvedAt: {
+    key: 'workflows.validation.taskDeadline.invalidResolvedAt',
+    fallback:
+      'Invalid user task deadline "at": "{authored}" resolved to "{resolved}", which is not an ISO date (YYYY-MM-DD) or an ISO datetime with a timezone offset or Z',
+  },
 } as const
 
 export const TASK_DEADLINE_AT_ERROR = TASK_DEADLINE_MESSAGES.invalidAt.fallback
