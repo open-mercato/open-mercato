@@ -11,6 +11,7 @@ const bookIcon = React.createElement(
 
 export const metadata = {
   requireAuth: true,
+  requireFeatures: ['api_docs.view'],
   pageTitle: 'API documentation',
   pageTitleKey: 'api_docs.nav.title',
   pageGroup: 'Developers',

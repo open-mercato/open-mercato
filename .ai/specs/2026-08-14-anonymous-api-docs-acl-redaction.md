@@ -22,8 +22,8 @@ The [OpenAPI Specification](https://spec.openapis.org/oas/v3.1.1.html#specificat
 
 - Keep `/api/docs/openapi` and `/api/docs/markdown` unauthenticated and publicly reachable.
 - Preserve `x-require-auth`, OpenAPI `security`, and inferred `401` responses for anonymous callers.
-- Do not add an `api_docs.view` ACL feature, alter tenant role grants, or change operation visibility.
-- Do not change the backend API-docs resource page or introduce a new client-side authorization mechanism.
+- Public exports keep their existing optional-authentication policy. The backend resource page has the separate staff permission described below.
+- Do not introduce a new client-side authorization mechanism.
 
 ## 📝 Architecture
 
@@ -144,12 +144,31 @@ There is no persistent state and no migration. A code rollback restores the prev
 
 ## Migration & Backward Compatibility
 
-This change is additive and default-preserving:
+### Backend resource-page authorization (#3810, 2026-11-04)
+
+The backend `/backend/docs` resource page requires authenticated staff with
+`api_docs.view`. The module declares this additive feature and grants it to the
+default `admin` role through `setup.ts`; existing superadministrator bypass
+continues through the shared feature policy. Employees and custom roles need an
+explicit grant. Navigation uses the same metadata and shared wildcard policy.
+This restriction does not gate the public Explorer or JSON/Markdown exports.
+
+Existing tenants must run `yarn mercato auth sync-role-acls` to sync admin defaults
+or grant `api_docs.view` to intended custom roles. No database migration, environment
+variable, startup command, or public document schema changes. Access without the
+new grant stops working intentionally; operators should grant only intended staff.
+Regression coverage exercises explicit/module/global wildcard grants, denied
+staff, default roles, superadmin policy, and navigation filtering. Browser QA must
+also verify direct navigation with and without the grant.
+
+
+The original anonymous-export redaction remains additive and default-preserving;
+the backend permission follow-up has the separate migration above:
 
 - `OpenApiDocumentOptions.includeAccessControlMetadata` is a new optional field, so existing TypeScript callers compile unchanged.
 - Omitting the field is equivalent to `true`, preserving every existing non-docs caller's output.
 - Public route URLs, methods, authentication requirement, status codes, and document structure remain stable. Anonymous representations intentionally omit only ACL feature/role identifiers.
-- No event ID, widget spot, DI key, ACL feature ID, notification ID, CLI command, schema, migration, or import path changes.
+- The original export-redaction scope changes no event ID, widget spot, DI key, ACL feature ID, notification ID, CLI command, schema, migration, or import path.
 - The create-app template receives the same route behavior in the same change.
 - No deprecation bridge or `UPGRADE_NOTES.md` entry is required because nothing is removed, renamed, or reinterpreted for existing builder callers.
 
@@ -214,6 +233,10 @@ None.
 Fully compliant: approved for implementation.
 
 ## Changelog
+
+### 2026-11-04
+
+- Added the separate backend resource-page permission and admin defaults for #3810; public exports keep their existing policy. Existing tenants must sync role grants.
 
 ### 2026-08-14
 

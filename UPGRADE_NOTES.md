@@ -1,5 +1,15 @@
 # Upgrade Notes
 
+## Backend API documentation permission (#3810)
+
+`/backend/docs` now requires `api_docs.view`. Staff without that feature lose the
+backend resource page and its navigation entry; public `/docs/api` and JSON/Markdown
+exports keep their current policy. Existing tenants: run
+`yarn mercato auth sync-role-acls` for default admins, or explicitly grant the
+feature to intended custom roles. Superadministrator access is preserved. Clients
+that link to the backend page must allow for permission denial. No database
+migration, environment change, or startup-command change is required.
+
 ## Agent search answers honor domain policy (#7234)
 
 When an allow-list or deny-list is configured, agent `web_search` and the settings
