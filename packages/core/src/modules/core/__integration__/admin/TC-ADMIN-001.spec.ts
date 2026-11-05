@@ -53,7 +53,8 @@ test.describe('TC-ADMIN-001: Create API Key', () => {
       await expect(page.getByText(/Prefix: omk_/)).toBeVisible();
 
       // Close the key dialog
-      await page.getByRole('button', { name: 'Close' }).click();
+      await page.getByRole('main').getByRole('button', { name: 'Close', exact: true }).filter({ hasText: /^Close$/ }).click();
+      await expect(page).toHaveURL(/\/backend\/api-keys$/);
 
       // Navigate back to list
       await page.goto('/backend/api-keys');
