@@ -42,6 +42,20 @@ async function readCapturedEmails(): Promise<CapturedEmail[]> {
   }
 }
 
+/**
+ * Invite links come from `urlForCustomerOrg`: `<base>/<orgSlug>/portal/invite?token=` by
+ * default, but `https://<hostname>/invite?token=` once the organization has an active custom
+ * domain. Match the path suffix so the spec does not depend on the org's domain state.
+ */
+function isInviteLink(link: string): boolean {
+  try {
+    const url = new URL(link)
+    return url.pathname.endsWith('/invite') && url.searchParams.has('token')
+  } catch {
+    return false
+  }
+}
+
 /** Wait for the invitation email this test just triggered and return its raw token. */
 async function waitForInviteToken(to: string, alreadySeen: Set<string>): Promise<string> {
   const deadline = Date.now() + 10_000
@@ -49,7 +63,7 @@ async function waitForInviteToken(to: string, alreadySeen: Set<string>): Promise
     const tokens = (await readCapturedEmails())
       .filter((entry) => entry.to?.toLowerCase() === to.toLowerCase())
       .flatMap((entry) => entry.links ?? [])
-      .filter((link) => link.includes('/portal/invite?token='))
+      .filter(isInviteLink)
       .map((link) => new URL(link).searchParams.get('token'))
       .filter((token): token is string => !!token && !alreadySeen.has(token))
     if (tokens.length > 0) {

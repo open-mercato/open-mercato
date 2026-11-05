@@ -81,50 +81,61 @@ npx create-mercato-app my-app
 cd my-app
 ```
 
-This scaffolds a new standalone app. Before starting, configure the environment:
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env` and set at minimum:
-
-```env
-DATABASE_URL=postgres://postgres:postgres@localhost:5432/open-mercato
-JWT_SECRET=change-me-dev-secret
-REDIS_URL=redis://localhost:6379
-```
-
-Generate a strong `JWT_SECRET`:
-
-```bash
-openssl rand -hex 32
-```
-
-Start the infrastructure services:
-
-```bash
-docker compose up -d
-```
+This scaffolds a new standalone app with a `.env.example` and a `docker-compose.yml` for PostgreSQL, Redis and Meilisearch.
 
 ---
 
 ## Bootstrap and start
 
+With Docker Desktop (or another Docker engine) running:
+
 ```bash
-yarn install   # needed before the first yarn setup, see #6849
 yarn setup
 ```
 
-`yarn setup` installs dependencies, builds packages, generates registries, and runs `yarn initialize` (migrations + seeding). The admin credentials are printed at the end.
+`yarn setup` does the whole first run:
 
-Then start the app:
+1. Copies `.env.example` to `.env` when `.env` does not exist yet. An existing `.env` is never overwritten.
+2. Checks Docker: the `docker` CLI, the Compose v2 plugin and a running engine. If one is missing it stops and says what to fix. It never installs Docker or asks for sudo.
+3. Checks that ports `5432` (PostgreSQL), `6379` (Redis) and `7700` (Meilisearch) are free, starts the containers and waits until their healthchecks pass. Containers that already run are reused and their data is kept.
+4. Installs dependencies, generates registries, runs migrations and `yarn initialize`. The first run seeds data and prints the admin credentials; later runs keep the existing database.
+5. Starts the dev server.
 
-```bash
-yarn dev
+Open **http://localhost:3000/backend** and sign in with the credentials printed during setup. Next time, start the app with `yarn dev` (run `yarn infra:up` first if the containers are stopped).
+
+Before using the app for anything other than local development, replace `JWT_SECRET` in `.env` with a strong value, for example from `openssl rand -hex 32`.
+
+### Port already in use
+
+If a native PostgreSQL (for example from Homebrew) already listens on `5432`, `yarn setup` stops with exit code 2 and names the port. Either stop that service, or pick another port in `.env` and keep `DATABASE_URL` in step:
+
+```env
+POSTGRES_PORT=5433
+DATABASE_URL=postgres://postgres:postgres@localhost:5433/open-mercato
 ```
 
-Open **http://localhost:3000/backend** and sign in with the credentials printed during setup.
+`REDIS_PORT` and `MEILISEARCH_PORT` work the same way.
+
+### Using your own services instead of Docker
+
+Already running PostgreSQL, Redis and Meilisearch (for example the Homebrew setup above)? Point `.env` at them and skip the containers:
+
+```bash
+cp .env.example .env
+# set DATABASE_URL, REDIS_URL and the Meilisearch settings to your services
+yarn setup --no-infra
+```
+
+`--no-infra` makes no Docker calls and keeps your URLs. It works with every setup variant (`setup:classic`, `setup:reinstall`, `setup:reinstall:classic`).
+
+### Infrastructure commands
+
+```bash
+yarn infra:up                    # start the containers and wait until they are healthy
+yarn infra:down                  # stop them; data volumes are kept
+yarn infra:down --volumes --yes  # stop them and DELETE the local database and search data
+yarn setup --reinstall           # wipe the database and seed it again
+```
 
 On Linux containers and sandbox environments where the process cannot raise host inotify limits, `yarn dev` automatically warns and uses Next.js Webpack so the app can still start. To force a choice, set `OM_DEV_BUNDLER=webpack` or `OM_DEV_BUNDLER=turbopack` before running `yarn dev`.
 
@@ -222,44 +233,27 @@ Then set `DATABASE_URL` manually (see below).
 
 ---
 
-## Create and configure the app
+## Create the app and start it
 
 ```bash
 npx create-mercato-app my-app
 cd my-app
-cp .env.example .env
-```
-
-Edit `.env`:
-
-```env
-DATABASE_URL=postgres://postgres:postgres@localhost:5432/open-mercato
-JWT_SECRET=change-me-dev-secret
-REDIS_URL=redis://localhost:6379
-```
-
-Start the infrastructure services:
-
-```bash
-docker compose up -d
-```
-
----
-
-## Bootstrap and start
-
-```bash
-yarn install   # needed before the first yarn setup, see #6849
 yarn setup
 ```
 
-Then:
+With Docker running, `yarn setup` copies `.env.example` to `.env` if needed, checks Docker, starts PostgreSQL, Redis and Meilisearch, waits until they are healthy, then installs, migrates, initializes and starts the dev server. If your user cannot reach the Docker engine, it stops and tells you to add yourself to the `docker` group; it never asks for sudo itself. The macOS tab explains port conflicts and the infrastructure commands in detail; they work the same on Linux.
+
+Using the native PostgreSQL above (and your own Redis and Meilisearch) instead of Docker:
 
 ```bash
-yarn dev
+cp .env.example .env
+# set DATABASE_URL (for example postgres://postgres:<password>@localhost:5432/open-mercato), REDIS_URL and the Meilisearch settings
+yarn setup --no-infra
 ```
 
-Open **http://localhost:3000/backend** and sign in with the credentials printed during setup.
+`--no-infra` makes no Docker calls and keeps your URLs.
+
+Open **http://localhost:3000/backend** and sign in with the credentials printed during setup. Next time, run `yarn dev` (with `yarn infra:up` first if the containers are stopped).
 
 ---
 
@@ -356,46 +350,36 @@ docker compose up -d redis
 
 Install [Docker Desktop for Windows](https://docs.docker.com/desktop/setup/install/windows-install/) with the **WSL 2 backend** enabled (Settings → General → "Use the WSL 2 based engine").
 
-After scaffolding the app, start all services:
-
-```powershell
-docker compose up -d
-```
+`yarn setup` starts and health-checks all services for you after scaffolding (see below).
 
 ---
 
-## Create and configure the app
+## Create the app and start it
 
 ```powershell
 npx create-mercato-app my-app
 cd my-app
-Copy-Item .env.example .env
 ```
 
-Edit `.env`:
-
-```env
-DATABASE_URL=postgres://postgres:<password>@localhost:5432/open-mercato
-JWT_SECRET=change-me-dev-secret
-REDIS_URL=redis://localhost:6379
-```
-
----
-
-## Bootstrap and start
+**With Docker Desktop (Option B):**
 
 ```powershell
-yarn install   # needed before the first yarn setup, see #6849
 yarn setup
 ```
 
-Then:
+It copies `.env.example` to `.env` if needed, checks that Docker Desktop is running, starts PostgreSQL, Redis and Meilisearch, waits until they are healthy, then installs, migrates, initializes and starts the dev server. If a port is taken (for example by a native PostgreSQL on `5432`, or by a port range Windows reserved for Hyper-V), it stops and names the port; set `POSTGRES_PORT` (and the port in `DATABASE_URL`), `REDIS_PORT` or `MEILISEARCH_PORT` in `.env` and run it again.
+
+**With native PostgreSQL (Option A):**
 
 ```powershell
-yarn dev
+Copy-Item .env.example .env
+# set DATABASE_URL=postgres://postgres:<password>@localhost:5432/open-mercato, REDIS_URL and the Meilisearch settings
+yarn setup --no-infra
 ```
 
-Open **http://localhost:3000/backend** and sign in with the credentials printed during setup.
+`--no-infra` makes no Docker calls and keeps your URLs.
+
+Open **http://localhost:3000/backend** and sign in with the credentials printed during setup. Next time, run `yarn dev` (with `yarn infra:up` first if the containers are stopped).
 
 ---
 

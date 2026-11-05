@@ -150,6 +150,10 @@ function safeStringify(value: unknown): string {
  * Attachments are NOT included — the attachment set is captured separately on
  * the pending row so that re-uploading the same file set with a different
  * tool-call object never accidentally collides.
+ *
+ * When `userId` is supplied it joins the hash, so two users proposing the
+ * same call in a shared conversation get separate rows (each resolvable only
+ * by its creator). Omitting it keeps the previous digest.
  */
 export function computeMutationIdempotencyKey(input: {
   tenantId: string
@@ -158,6 +162,7 @@ export function computeMutationIdempotencyKey(input: {
   conversationId: string | null
   toolName: string
   normalizedInput: Record<string, unknown>
+  userId?: string | null
 }): string {
   const canonical = safeStringify({
     tenant: input.tenantId,
@@ -166,6 +171,7 @@ export function computeMutationIdempotencyKey(input: {
     conversation: input.conversationId ?? null,
     tool: input.toolName,
     input: input.normalizedInput ?? {},
+    ...(input.userId ? { user: input.userId } : {}),
   })
   return createHash('sha256').update(canonical).digest('hex')
 }
@@ -447,6 +453,7 @@ export async function prepareMutation(
     conversationId,
     toolName: tool.name,
     normalizedInput,
+    userId: ctx.userId,
   })
 
   const { row: pendingAction, reused } = await repo.create(
