@@ -2028,6 +2028,7 @@
   "workflows.validation.required": "이 필드는 필수입니다",
   "workflows.validation.taskDeadline.bothForms": "기한은 기간 또는 절대 \"at\" 중 하나여야 하며 둘 다일 수 없습니다",
   "workflows.validation.taskDeadline.invalidAt": "기한 \"at\"은 ISO 날짜(YYYY-MM-DD) 또는 시간대 오프셋이나 Z가 포함된 ISO 날짜/시간이어야 합니다",
+  "workflows.validation.taskDeadline.invalidResolvedAt": "잘못된 작업 마감일 \"at\": \"{authored}\"이(가) \"{resolved}\"(으)로 해석되었으며, 이는 ISO 날짜(YYYY-MM-DD)나 시간대 오프셋 또는 Z가 포함된 ISO 날짜/시간이 아닙니다",
   "workflows.validation.taskDeadline.missingForm": "기한에는 기간 또는 절대 \"at\"이 필요합니다",
   "workflows.validation.timerDurationOrUntilRequired": "Wait For Timer requires either \"Duration\" or \"Wait Until\".",
   "workflows.validation.timerDurationXorUntil": "Wait For Timer accepts \"Duration\" or \"Wait Until\", not both. Clear one of them.",

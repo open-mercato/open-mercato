@@ -2028,6 +2028,7 @@
   "workflows.validation.required": "Dieses Feld ist erforderlich",
   "workflows.validation.taskDeadline.bothForms": "Eine Frist ist entweder eine Dauer oder ein absolutes \"at\", nicht beides",
   "workflows.validation.taskDeadline.invalidAt": "Frist \"at\" muss ein ISO-Datum (JJJJ-MM-TT) oder eine ISO-Datums-/Uhrzeitangabe mit Zeitzonen-Offset oder Z sein",
+  "workflows.validation.taskDeadline.invalidResolvedAt": "Ungültige Aufgabenfrist \"at\": \"{authored}\" ergab \"{resolved}\", was weder ein ISO-Datum (JJJJ-MM-TT) noch ein ISO-Zeitstempel mit Zeitzonen-Offset oder Z ist",
   "workflows.validation.taskDeadline.missingForm": "Eine Frist benötigt eine Dauer oder ein absolutes \"at\"",
   "workflows.validation.timerDurationOrUntilRequired": "„Auf Timer warten“ erfordert entweder „Dauer“ oder „Warten bis“.",
   "workflows.validation.timerDurationXorUntil": "„Auf Timer warten“ akzeptiert „Dauer“ oder „Warten bis“, nicht beides. Löschen Sie eines davon.",

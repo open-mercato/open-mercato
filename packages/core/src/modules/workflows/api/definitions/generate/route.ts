@@ -44,7 +44,7 @@ import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/di
 import type { WorkflowDefinitionData } from '../../../data/entities'
 import {
   transitionTriggerSchema,
-  workflowDefinitionDataSchema,
+  workflowDefinitionDataSpecSchema,
   workflowStepTypeSchema,
 } from '../../../data/validators'
 import { listActivityTypes } from '../../../lib/activity-registry'
@@ -223,7 +223,7 @@ export async function POST(request: NextRequest) {
       isSuperAdmin: acl?.isSuperAdmin ?? false,
     }
     const parseDefinition = (value: unknown) => {
-      const parsed = workflowDefinitionDataSchema.safeParse(value)
+      const parsed = workflowDefinitionDataSpecSchema.safeParse(value)
       if (parsed.success) return { ok: true as const, definition: parsed.data as WorkflowDefinitionData }
       return {
         ok: false as const,

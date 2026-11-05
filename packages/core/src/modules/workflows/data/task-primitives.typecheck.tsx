@@ -12,12 +12,31 @@
 // `TaskDeadlineSpec`. `TaskDeadline` — re-exported from `data/validators` — must
 // keep `duration` as a required `string`, so consumer code reading
 // `deadline.duration` as a `string` keeps compiling (BACKWARD_COMPATIBILITY.md).
+// The same holds for every schema RESULT that nests it: a parsed step or
+// definition, the definition API inputs, and the definition response schemas.
+import type { z } from 'zod'
 import type { TaskDeadline, TaskDeadlineSpec } from './task-primitives'
 import type {
+  CreateWorkflowDefinitionApiInput,
+  CreateWorkflowDefinitionInput,
+  CreateWorkflowDefinitionSpecApiInput,
   TaskDeadline as ValidatorsTaskDeadline,
+  UpdateWorkflowDefinitionApiInput,
+  UpdateWorkflowDefinitionInput,
+  UpdateWorkflowDefinitionSpecApiInput,
   UserTaskConfig,
   UserTaskConfigSpec,
+  WorkflowDefinitionDataSpec,
+  WorkflowStepSpec,
 } from './validators'
+import { workflowDefinitionDataSchema, workflowStepSchema } from './validators'
+import type {
+  workflowDefinitionDetailResponseSchema,
+  workflowDefinitionListResponseSchema,
+  workflowDefinitionMutationResponseSchema,
+  workflowDefinitionResetResponseSchema,
+  workflowDefinitionResponseSchema,
+} from '../api/openapi'
 import type { TaskDeadlinePersistence, TaskDeadlineSpecPersistence } from '../lib/task-inspector-config'
 import { resolveTaskDeadlinePersistence } from '../lib/task-inspector-config'
 
@@ -81,6 +100,96 @@ const absoluteConfigSpec: UserTaskConfigSpec = { deadline: { at: '{{context.dueD
 const absoluteConfigIsNotLegacy: UserTaskConfig = { deadline: { at: '{{context.dueDate}}' } }
 const legacyPersistenceIsASpec: TaskDeadlineSpecPersistence = {} as TaskDeadlinePersistence
 
+// 10. The enclosing schema RESULTS are unchanged: a consumer parsing with them
+//     narrows the deadline and reads `duration` as a `string`, and may assign the
+//     parsed config to `UserTaskConfig`.
+type StepDeadline<Step extends { userTaskConfig?: { deadline?: unknown } }> = NonNullable<
+  Step['userTaskConfig']
+>['deadline']
+type DefinitionDeadline<Definition extends { steps: Array<{ userTaskConfig?: { deadline?: unknown } }> }> =
+  StepDeadline<Definition['steps'][number]>
+
+function readParsedStepDuration(raw: unknown): string | null {
+  const step = workflowStepSchema.parse(raw)
+  if (!step.userTaskConfig?.deadline) return null
+  const config: UserTaskConfig = step.userTaskConfig
+  const duration: string = step.userTaskConfig.deadline.duration
+  return config.deadline?.duration === duration ? duration : null
+}
+function readParsedDefinitionDuration(raw: unknown): string | null {
+  const definition = workflowDefinitionDataSchema.parse(raw)
+  const config: UserTaskConfig | undefined = definition.steps[0]?.userTaskConfig
+  const duration: string | undefined = definition.steps[0]?.userTaskConfig?.deadline?.duration
+  return config?.deadline?.duration === duration ? (duration ?? null) : null
+}
+
+type Legacy = TaskDeadline | undefined
+const createInputIsLegacy: MutuallyAssignable<DefinitionDeadline<CreateWorkflowDefinitionInput['definition']>, Legacy> = true
+const updateInputIsLegacy: MutuallyAssignable<
+  DefinitionDeadline<NonNullable<UpdateWorkflowDefinitionInput['definition']>>,
+  Legacy
+> = true
+const createApiInputIsLegacy: MutuallyAssignable<
+  DefinitionDeadline<CreateWorkflowDefinitionApiInput['definition']>,
+  Legacy
+> = true
+const updateApiInputIsLegacy: MutuallyAssignable<
+  DefinitionDeadline<NonNullable<UpdateWorkflowDefinitionApiInput['definition']>>,
+  Legacy
+> = true
+
+type ResponseRow = z.infer<typeof workflowDefinitionResponseSchema>
+const responseIsLegacy: MutuallyAssignable<DefinitionDeadline<ResponseRow['definition']>, Legacy> = true
+const listResponseIsLegacy: MutuallyAssignable<
+  z.infer<typeof workflowDefinitionListResponseSchema>['data'][number],
+  ResponseRow
+> = true
+const detailResponseIsLegacy: MutuallyAssignable<
+  z.infer<typeof workflowDefinitionDetailResponseSchema>['data'],
+  ResponseRow
+> = true
+const mutationResponseIsLegacy: MutuallyAssignable<
+  z.infer<typeof workflowDefinitionMutationResponseSchema>['data'],
+  ResponseRow
+> = true
+const resetResponseIsLegacy: MutuallyAssignable<
+  z.infer<typeof workflowDefinitionResetResponseSchema>['data'],
+  ResponseRow | null
+> = true
+
+// 11. The extended results are the only ones carrying the absolute form, and
+//     each accepts every legacy value.
+const stepSpecCarriesAt: MutuallyAssignable<StepDeadline<WorkflowStepSpec>, TaskDeadlineSpec | undefined> = true
+const definitionSpecCarriesAt: MutuallyAssignable<
+  DefinitionDeadline<WorkflowDefinitionDataSpec>,
+  TaskDeadlineSpec | undefined
+> = true
+const legacyDefinitionIsASpec: WorkflowDefinitionDataSpec = {} as ReturnType<typeof workflowDefinitionDataSchema.parse>
+const createSpecCarriesAt: MutuallyAssignable<
+  DefinitionDeadline<CreateWorkflowDefinitionSpecApiInput['definition']>,
+  TaskDeadlineSpec | undefined
+> = true
+const updateSpecCarriesAt: MutuallyAssignable<
+  DefinitionDeadline<NonNullable<UpdateWorkflowDefinitionSpecApiInput['definition']>>,
+  TaskDeadlineSpec | undefined
+> = true
+
+void readParsedStepDuration
+void readParsedDefinitionDuration
+void createInputIsLegacy
+void updateInputIsLegacy
+void createApiInputIsLegacy
+void updateApiInputIsLegacy
+void responseIsLegacy
+void listResponseIsLegacy
+void detailResponseIsLegacy
+void mutationResponseIsLegacy
+void resetResponseIsLegacy
+void stepSpecCarriesAt
+void definitionSpecCarriesAt
+void legacyDefinitionIsASpec
+void createSpecCarriesAt
+void updateSpecCarriesAt
 void configDeadlineIsLegacy
 void persistenceDeadlineIsLegacy
 void persistenceReturnIsLegacy

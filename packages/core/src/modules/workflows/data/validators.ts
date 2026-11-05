@@ -666,13 +666,13 @@ export const workflowErrorHandlerSchema = z.object({
 export type WorkflowErrorHandlerConfig = z.infer<typeof workflowErrorHandlerSchema>
 
 // Step definition
-export const workflowStepSchema = z.object({
+const workflowStepObjectSchema = z.object({
   stepId: z.string().min(1).max(100).regex(/^[a-z0-9_-]+$/, 'Step ID must contain only lowercase letters, numbers, hyphens, and underscores'),
   stepName: z.string().min(1).max(255),
   stepType: workflowStepTypeSchema,
   description: z.string().max(1000).optional(),
   config: z.record(z.string(), z.any()).optional(),
-  userTaskConfig: userTaskConfigSpecSchema.optional(),
+  userTaskConfig: userTaskConfigSchema.optional(),
   subWorkflowConfig: subWorkflowConfigSchema.optional(),
   signalConfig: z.object({
     signalName: z.string().min(1),
@@ -708,7 +708,12 @@ export const workflowStepSchema = z.object({
   // this object entirely; it exists so a conversion never destroys authored
   // configuration and a conversion back can recover it.
   metadata: z.record(z.string(), z.any()).optional(),
-}).superRefine((step, ctx) => {
+})
+
+function refineWorkflowStep(
+  step: Pick<z.infer<typeof workflowStepObjectSchema>, 'stepType' | 'config'>,
+  ctx: z.RefinementCtx,
+): void {
   if (step.stepType === 'WAIT_FOR_CONDITION') {
     refineWaitForConditionStep(step.config || {}, ctx)
     return
@@ -755,7 +760,23 @@ export const workflowStepSchema = z.object({
       })
     }
   }
-})
+}
+
+export const workflowStepSchema = workflowStepObjectSchema.superRefine(refineWorkflowStep)
+
+/**
+ * The step the engine validates and runs (#7181): `workflowStepSchema` whose
+ * `userTaskConfig.deadline` may also be an absolute `at`.
+ *
+ * Additive on purpose. `workflowStepSchema` and every schema nesting it keep
+ * their duration-only result, so a consumer parsing with them can still read
+ * `deadline.duration` as a `string` (BACKWARD_COMPATIBILITY.md §2-3, guarded by
+ * `task-primitives.typecheck.tsx`). Every value it accepts, this accepts too.
+ */
+export const workflowStepSpecSchema = workflowStepObjectSchema
+  .extend({ userTaskConfig: userTaskConfigSpecSchema.optional() })
+  .superRefine(refineWorkflowStep)
+export type WorkflowStepSpec = z.infer<typeof workflowStepSpecSchema>
 
 // Transition condition (reference to business rule)
 export const transitionConditionSchema = z.object({
@@ -1050,9 +1071,11 @@ export const contextSchemaSchema = z.object({
 
 export type WorkflowContextSchema = z.infer<typeof contextSchemaSchema>
 
+const WORKFLOW_MIN_STEPS_ERROR = 'Workflow must have at least START and END steps'
+
 // Workflow definition data (JSONB structure)
-export const workflowDefinitionDataSchema = z.object({
-  steps: z.array(workflowStepSchema).min(2, 'Workflow must have at least START and END steps'),
+const workflowDefinitionDataObjectSchema = z.object({
+  steps: z.array(workflowStepSchema).min(2, WORKFLOW_MIN_STEPS_ERROR),
   transitions: z.array(workflowTransitionSchema).min(1, 'Workflow must have at least one transition'),
   triggers: z.array(workflowDefinitionTriggerSchema).optional(), // Event triggers for automatic workflow start
   contextSchema: contextSchemaSchema.optional(), // Declared typed-input contract (spec §3.1) — canonical input contract
@@ -1062,7 +1085,16 @@ export const workflowDefinitionDataSchema = z.object({
   queries: z.array(z.any()).optional(), // For Phase 7
   signals: z.array(z.any()).optional(), // For Phase 9
   timers: z.array(z.any()).optional(), // For Phase 9
-}).superRefine((definition, ctx) => {
+})
+
+const workflowDefinitionDataSpecObjectSchema = workflowDefinitionDataObjectSchema.extend({
+  steps: z.array(workflowStepSpecSchema).min(2, WORKFLOW_MIN_STEPS_ERROR),
+})
+
+function refineWorkflowDefinitionData(
+  definition: z.infer<typeof workflowDefinitionDataSpecObjectSchema>,
+  ctx: z.RefinementCtx,
+): void {
   for (const issue of validateParallelForkJoin(definition as ForkJoinDefinitionLike)) {
     ctx.addIssue({
       code: 'custom',
@@ -1085,7 +1117,18 @@ export const workflowDefinitionDataSchema = z.object({
       message: `WAIT_FOR_CONDITION step "${step.stepId}" requires at least one outgoing transition`,
     })
   })
-})
+}
+
+export const workflowDefinitionDataSchema = workflowDefinitionDataObjectSchema.superRefine(refineWorkflowDefinitionData)
+
+/**
+ * The definition the routes, the engine and the Studio validate (#7181): its
+ * steps are `workflowStepSpecSchema`, so a USER_TASK deadline may be an absolute
+ * `at`. `workflowDefinitionDataSchema` stays the duration-only result.
+ */
+export const workflowDefinitionDataSpecSchema =
+  workflowDefinitionDataSpecObjectSchema.superRefine(refineWorkflowDefinitionData)
+export type WorkflowDefinitionDataSpec = z.infer<typeof workflowDefinitionDataSpecSchema>
 
 // Pinned per-step sample envelope (spec §3.6). Samples are stored verbatim
 // with no redaction layer in Phase 2a — the editor surfaces an explicit
@@ -1278,6 +1321,17 @@ export type CreateWorkflowDefinitionApiInput = z.infer<typeof createWorkflowDefi
 export const createWorkflowDefinitionInputCheckedSchema =
   createWorkflowDefinitionInputSchema.superRefine(componentHasNoTriggers)
 
+// What the definition API accepts: the create input over the `at`-capable
+// definition. The two above stay the duration-only result.
+export const createWorkflowDefinitionInputSpecSchema = createWorkflowDefinitionInputSchema.extend({
+  definition: workflowDefinitionDataSpecSchema,
+})
+
+export type CreateWorkflowDefinitionSpecApiInput = z.infer<typeof createWorkflowDefinitionInputSpecSchema>
+
+export const createWorkflowDefinitionInputSpecCheckedSchema =
+  createWorkflowDefinitionInputSpecSchema.superRefine(componentHasNoTriggers)
+
 export const updateWorkflowDefinitionSchema = createWorkflowDefinitionSchema.partial().extend({
   id: uuid,
 })
@@ -1309,6 +1363,17 @@ export type UpdateWorkflowDefinitionApiInput = z.infer<typeof updateWorkflowDefi
 // Validation variant that also enforces the component-has-no-triggers rule.
 export const updateWorkflowDefinitionInputCheckedSchema =
   updateWorkflowDefinitionInputSchema.superRefine(componentHasNoTriggers)
+
+// What the definition API accepts: the update input over the `at`-capable
+// definition. The two above stay the duration-only result.
+export const updateWorkflowDefinitionInputSpecSchema = updateWorkflowDefinitionInputSchema.extend({
+  definition: workflowDefinitionDataSpecSchema.optional(),
+})
+
+export type UpdateWorkflowDefinitionSpecApiInput = z.infer<typeof updateWorkflowDefinitionInputSpecSchema>
+
+export const updateWorkflowDefinitionInputSpecCheckedSchema =
+  updateWorkflowDefinitionInputSpecSchema.superRefine(componentHasNoTriggers)
 
 export const workflowDefinitionFilterSchema = z.object({
   workflowId: z.string().optional(),

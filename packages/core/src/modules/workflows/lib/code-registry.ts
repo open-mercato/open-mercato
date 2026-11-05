@@ -10,7 +10,7 @@
 
 import type { CodeWorkflowDefinition } from '@open-mercato/shared/modules/workflows'
 import { registerCodeWorkflowEntries } from '@open-mercato/shared/modules/workflows/code-registry'
-import { workflowDefinitionDataSchema } from '../data/validators'
+import { workflowDefinitionDataSpecSchema } from '../data/validators'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('workflows')
@@ -29,7 +29,7 @@ export {
 export function registerCodeWorkflows(workflows: CodeWorkflowDefinition[]): void {
   const valid: CodeWorkflowDefinition[] = []
   for (const wf of workflows) {
-    const validation = workflowDefinitionDataSchema.safeParse(wf.definition)
+    const validation = workflowDefinitionDataSpecSchema.safeParse(wf.definition)
     if (!validation.success) {
       logger.warn('Code workflow failed validation', {
         workflowId: wf.workflowId,

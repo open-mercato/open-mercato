@@ -747,7 +747,7 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
   the same payload, an unknown payload is refused with the same message, and the paste is ONE undo
   entry. The Copy button copies the WHOLE definition JSON — the document, not a fragment.
 - **The issue list is the Problems panel's list.** Both call the page's `evaluateWorkflowIssues`
-  (graph errors + `workflowDefinitionDataSchema` + activity-config and context-ref warnings through
+  (graph errors + `workflowDefinitionDataSpecSchema` + activity-config and context-ref warnings through
   `collectValidationIssues`), so the two surfaces can never disagree about what is wrong. Severity
   pairs its DS token with an icon AND an `sr-only` name, per the §4.6 colour-only rule.
 - The view is reachable from the toolbar and from the Cmd+K palette (`view.toggleCodeView`); while it

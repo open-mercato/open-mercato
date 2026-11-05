@@ -1,7 +1,12 @@
 import { describe, test, expect } from '@jest/globals'
 import { createFallbackTranslator } from '@open-mercato/shared/lib/i18n/translate'
 import { TASK_DEADLINE_MESSAGES } from '../../data/task-primitives'
-import { userTaskConfigSchema, userTaskConfigSpecSchema, workflowStepSchema } from '../../data/validators'
+import {
+  userTaskConfigSchema,
+  userTaskConfigSpecSchema,
+  workflowStepSchema,
+  workflowStepSpecSchema,
+} from '../../data/validators'
 import { normalizeDefinitionValidationIssues, readIssueMessageKey } from '../definition-error-body'
 import { collectValidationIssues } from '../collect-validation-issues'
 import en from '../../i18n/en.json'
@@ -26,7 +31,7 @@ function userTaskStep(deadline: Record<string, unknown>) {
 }
 
 function parseIssues(deadline: Record<string, unknown>) {
-  const parsed = workflowStepSchema.safeParse(userTaskStep(deadline))
+  const parsed = workflowStepSpecSchema.safeParse(userTaskStep(deadline))
   if (parsed.success) throw new Error('[internal] expected the deadline to be rejected')
   return parsed.error
 }
@@ -88,7 +93,8 @@ describe('legacy userTaskConfigSchema keeps its duration-only deadline', () => {
     const config = { assignedTo: 'admin', deadline: { at: '2026-10-20' } }
     expect(userTaskConfigSpecSchema.safeParse(config).success).toBe(true)
     expect(userTaskConfigSchema.safeParse(config).success).toBe(false)
-    expect(workflowStepSchema.safeParse(userTaskStep({ at: '2026-10-20' })).success).toBe(true)
+    expect(workflowStepSpecSchema.safeParse(userTaskStep({ at: '2026-10-20' })).success).toBe(true)
+    expect(workflowStepSchema.safeParse(userTaskStep({ at: '2026-10-20' })).success).toBe(false)
   })
 
   test('every legacy config parses identically through both schemas', () => {

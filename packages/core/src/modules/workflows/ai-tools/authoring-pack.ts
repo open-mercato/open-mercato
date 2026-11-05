@@ -11,7 +11,7 @@
  *  - `list_activity_types`  → `listActivityTypes()` + the OpenAPI `zodToJsonSchema`
  *  - `get_context_schema`   → the context-schema route's own resolver + ledger
  *  - `validate_definition`  → `evaluateWorkflowDefinition` (Problems panel + 400 body)
- *  - `create_definition`    → `createWorkflowDefinitionInputCheckedSchema` (the route's gate)
+ *  - `create_definition`    → `createWorkflowDefinitionInputSpecCheckedSchema` (the route's gate)
  *  - `update_definition`    → the per-user `workflow_definition_drafts` layer
  *  - `start_test_run`       → `startWorkflow({ isDryRun: true })` + `buildWouldDoReport`
  *
@@ -36,8 +36,8 @@ import {
   type WorkflowDefinitionData,
 } from '../data/entities'
 import {
-  createWorkflowDefinitionInputCheckedSchema,
-  workflowDefinitionDataSchema,
+  createWorkflowDefinitionInputSpecCheckedSchema,
+  workflowDefinitionDataSpecSchema,
 } from '../data/validators'
 import { workflowDraftGenerationSchema } from '../lib/ai-authoring'
 import { isComponentKind } from '../lib/component-guard'
@@ -368,7 +368,7 @@ const createDefinitionTool: WorkflowsAiToolDefinition<
     // The exact gate the POST /api/workflows/definitions route applies, so an
     // agent-authored payload is rejected for exactly the same reasons, with
     // exactly the same structured issues, as a human-authored one.
-    const validation = createWorkflowDefinitionInputCheckedSchema.safeParse({
+    const validation = createWorkflowDefinitionInputSpecCheckedSchema.safeParse({
       workflowId: input.workflowId,
       workflowName: input.workflowName,
       description: input.description,
@@ -482,7 +482,7 @@ const updateDefinitionTool: WorkflowsAiToolDefinition<
       )
     }
 
-    const parsed = workflowDefinitionDataSchema.safeParse(input.definition)
+    const parsed = workflowDefinitionDataSpecSchema.safeParse(input.definition)
     if (!parsed.success) {
       return failure(...normalizeDefinitionValidationIssues(parsed.error))
     }
@@ -729,7 +729,7 @@ const startTestRunTool: WorkflowsAiToolDefinition<z.infer<typeof startTestRunInp
  *
  * This mirrors `api/definitions/generate/route.ts` step for step — reshape the
  * draft's `{ steps, transitions, contextSchema }` into a definition, parse it
- * through the one `workflowDefinitionDataSchema`, then run the same
+ * through the one `workflowDefinitionDataSpecSchema`, then run the same
  * `evaluateWorkflowDefinition` Problems pass — but is gated on
  * `definitions.create` (what the draft path itself requires) rather than the
  * broader `validate_definition` tool's `definitions.view`. It is READ-ONLY: it
@@ -757,7 +757,7 @@ const validateWorkflowDraftTool: WorkflowsAiToolDefinition<
       ...(input.contextSchema ? { contextSchema: input.contextSchema } : {}),
     }
 
-    const parsed = workflowDefinitionDataSchema.safeParse(candidate)
+    const parsed = workflowDefinitionDataSpecSchema.safeParse(candidate)
     if (!parsed.success) {
       return failure(
         ...parsed.error.issues.map((zodIssue) =>

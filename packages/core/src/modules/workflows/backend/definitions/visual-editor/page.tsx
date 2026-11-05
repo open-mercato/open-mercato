@@ -86,7 +86,7 @@ import type { Activity } from '../../../components/fields/ActivityArrayEditor'
 import { applyRouteOrder, canNormalizeRoutePriorities, normalizeRoutePriorities, readRouteOrder, type RouteOrderEntry } from '../../../lib/route-priority'
 import { classifyConnection, applyInputMappingToNodes, buildDataMappingEdge } from '../../../lib/data-edge-mapping'
 import { reattachWorkflowEdge, type EdgeReattachRejection } from '../../../lib/edge-reattachment'
-import { workflowDefinitionDataSchema, type WorkflowIoContract } from '../../../data/validators'
+import { workflowDefinitionDataSpecSchema, type WorkflowIoContract } from '../../../data/validators'
 import { collectActivityConfigWarnings } from '../../../data/activity-config-warnings'
 import {
   applyIfElseRoutes,
@@ -1773,7 +1773,7 @@ export default function VisualEditorPage() {
 
     try {
       const definitionData = graphToDefinition(nodes, edges, { includePositions: true })
-      const result = workflowDefinitionDataSchema.safeParse(definitionData)
+      const result = workflowDefinitionDataSpecSchema.safeParse(definitionData)
       if (!result.success) {
         zodIssues = result.error.issues
       }
@@ -1876,7 +1876,7 @@ export default function VisualEditorPage() {
   // pasted one, which is to say none.
   const definitionApplyGate = useMemo(() => ({
     parseDefinition: (parsed: unknown) => {
-      const result = workflowDefinitionDataSchema.safeParse(parsed)
+      const result = workflowDefinitionDataSpecSchema.safeParse(parsed)
       if (result.success) return { ok: true as const, definition: result.data as WorkflowDefinitionData }
       return {
         ok: false as const,
@@ -2085,7 +2085,7 @@ export default function VisualEditorPage() {
       errorHandler,
     })
 
-    const schemaResult = workflowDefinitionDataSchema.safeParse(definitionData)
+    const schemaResult = workflowDefinitionDataSpecSchema.safeParse(definitionData)
     const issues = collectValidationIssues({
       graphErrors,
       zodIssues: schemaResult.success ? [] : schemaResult.error.issues,
@@ -2497,7 +2497,7 @@ export default function VisualEditorPage() {
       interpolation,
       errorHandler,
     })
-    if (!workflowDefinitionDataSchema.safeParse(definitionData).success) return
+    if (!workflowDefinitionDataSpecSchema.safeParse(definitionData).success) return
 
     const metadataPayload = buildMetadataPayload({ loadedMetadata, tags, category, icon, definition: definitionData, annotations })
 

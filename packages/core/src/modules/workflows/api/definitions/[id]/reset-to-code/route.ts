@@ -16,7 +16,7 @@ import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/di
 import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { WorkflowDefinition, WorkflowInstance } from '../../../../data/entities'
 import { serializeCodeWorkflowDefinition } from '../../serialize'
-import { workflowDefinitionResetResponseSchema, workflowErrorSchema } from '../../../openapi'
+import { workflowDefinitionSpecResetResponseSchema, workflowErrorSchema } from '../../../openapi'
 import { getCodeWorkflow } from '../../../../lib/code-registry'
 import { invalidateTriggerCache } from '../../../../lib/event-trigger-service'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -226,7 +226,7 @@ export const openApi = {
         {
           status: 200,
           description: 'Workflow definition reset to code version',
-          schema: workflowDefinitionResetResponseSchema,
+          schema: workflowDefinitionSpecResetResponseSchema,
           example: {
             data: {
               id: 'code:checkout-flow',
