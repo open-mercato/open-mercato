@@ -836,6 +836,10 @@ jobs:
           node --require ./scripts/typescript-js-require-hook.cjs node_modules/eslint/bin/eslint.js --config eslint.ds.config.mjs packages/core/src/modules/scaffold_ci --max-warnings 0
           yarn typecheck
           rm -rf packages/core/src/modules/scaffold_ci
+          # The probe's create page uses the `plus` icon string, which the ui
+          # build adds to the committed icon registry. Restore it so the check
+          # below only fails on files the scaffold itself left behind.
+          git checkout -- packages/ui/src/backend/icons/lucideRegistry.generated.tsx
           if [ -n "$(git status --porcelain)" ]; then
             echo "Scaffold CI probe left the tree dirty:"
             git status --porcelain

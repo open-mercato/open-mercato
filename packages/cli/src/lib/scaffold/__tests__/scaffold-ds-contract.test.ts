@@ -192,7 +192,7 @@ describe('guardian checklist markers', () => {
     expect(violations).toEqual([])
   })
 
-  it('routes every user-facing string through t() with i18n keys emitted to all four locales', () => {
+  it('routes every user-facing string through t() with i18n keys emitted to every app locale', () => {
     for (const [relPath, contents] of pageFiles()) {
       expect(contents).toContain('useT()')
       // No literal JSX text nodes — all copy is {t('key', 'Fallback')}.
@@ -201,7 +201,7 @@ describe('guardian checklist markers', () => {
     }
 
     const en = JSON.parse(fileOrThrow('i18n/en.json')) as Record<string, string>
-    for (const locale of ['pl', 'es', 'de']) {
+    for (const locale of ['pl', 'es', 'de', 'ko']) {
       const dict = JSON.parse(fileOrThrow(`i18n/${locale}.json`)) as Record<string, string>
       expect(Object.keys(dict).sort()).toEqual(Object.keys(en).sort())
     }

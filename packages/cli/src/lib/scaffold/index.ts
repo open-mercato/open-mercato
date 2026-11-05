@@ -333,7 +333,7 @@ function renderI18nJson(entries: Record<string, string>): string {
   return `${JSON.stringify(sorted, null, 2)}\n`
 }
 
-export const NON_ENGLISH_LOCALES = ['pl', 'es', 'de'] as const
+export const NON_ENGLISH_LOCALES = ['pl', 'es', 'de', 'ko'] as const
 
 export function buildScaffoldPlan(options: ScaffoldOptions, target: ScaffoldTarget): ScaffoldPlan {
   const vars = buildTemplateVars(options)

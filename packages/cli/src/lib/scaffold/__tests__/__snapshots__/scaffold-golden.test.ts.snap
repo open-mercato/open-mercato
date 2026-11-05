@@ -335,7 +335,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -823,6 +823,53 @@ exports[`scaffold golden files emits the full DS-compliant UI slice for every fi
 "
 `;
 
+exports[`scaffold golden files emits the full DS-compliant UI slice for every field type (app target): i18n/ko.json 1`] = `
+"{
+  "inventory_items.create.success": "Stock item created",
+  "inventory_items.create.title": "Create stock item",
+  "inventory_items.delete.confirmDescription": "This action cannot be undone.",
+  "inventory_items.delete.confirmTitle": "Delete stock item?",
+  "inventory_items.delete.error": "Failed to delete stock item",
+  "inventory_items.delete.success": "Stock item deleted",
+  "inventory_items.detail.actions.delete": "Delete",
+  "inventory_items.detail.loadError": "Failed to load stock item",
+  "inventory_items.detail.loading": "Loading stock item",
+  "inventory_items.detail.notFound": "Stock item not found",
+  "inventory_items.detail.tabs.label": "Stock item sections",
+  "inventory_items.detail.tabs.overview": "Overview",
+  "inventory_items.detail.title": "Stock item details",
+  "inventory_items.detail.updateSuccess": "Stock item updated",
+  "inventory_items.fields.archived": "Archived",
+  "inventory_items.fields.dueDate": "Due date",
+  "inventory_items.fields.name": "Name",
+  "inventory_items.fields.quantity": "Quantity",
+  "inventory_items.fields.severity": "Severity",
+  "inventory_items.fields.severity.options.high": "High",
+  "inventory_items.fields.severity.options.low": "Low",
+  "inventory_items.fields.status": "Status",
+  "inventory_items.fields.status.options.closed": "Closed",
+  "inventory_items.fields.status.options.in_progress": "In progress",
+  "inventory_items.fields.status.options.open": "Open",
+  "inventory_items.fields.summary": "Summary",
+  "inventory_items.form.groups.attributes": "Attributes",
+  "inventory_items.form.groups.details": "Details",
+  "inventory_items.form.submit": "Save",
+  "inventory_items.list.actions.create": "Create stock item",
+  "inventory_items.list.actions.delete": "Delete",
+  "inventory_items.list.actions.edit": "Edit",
+  "inventory_items.list.boolean.no": "No",
+  "inventory_items.list.boolean.yes": "Yes",
+  "inventory_items.list.empty.description": "Create your first stock item to get started.",
+  "inventory_items.list.empty.title": "No inventory items yet",
+  "inventory_items.list.loadError": "Failed to load inventory items",
+  "inventory_items.list.searchPlaceholder": "Search inventory items",
+  "inventory_items.list.title": "Inventory items",
+  "inventory_items.nav.group": "Inventory items",
+  "inventory_items.nav.title": "Inventory items"
+}
+"
+`;
+
 exports[`scaffold golden files emits the full DS-compliant UI slice for every field type (app target): i18n/pl.json 1`] = `
 "{
   "inventory_items.create.success": "Stock item created",
@@ -1219,7 +1266,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -1524,6 +1571,41 @@ exports[`scaffold golden files omits statusMap and StatusBadge when no select fi
 `;
 
 exports[`scaffold golden files omits statusMap and StatusBadge when no select field is named status: no-status i18n/es.json 1`] = `
+"{
+  "notes.create.success": "Note created",
+  "notes.create.title": "Create note",
+  "notes.delete.confirmDescription": "This action cannot be undone.",
+  "notes.delete.confirmTitle": "Delete note?",
+  "notes.delete.error": "Failed to delete note",
+  "notes.delete.success": "Note deleted",
+  "notes.detail.actions.delete": "Delete",
+  "notes.detail.loadError": "Failed to load note",
+  "notes.detail.loading": "Loading note",
+  "notes.detail.notFound": "Note not found",
+  "notes.detail.tabs.label": "Note sections",
+  "notes.detail.tabs.overview": "Overview",
+  "notes.detail.title": "Note details",
+  "notes.detail.updateSuccess": "Note updated",
+  "notes.fields.body": "Body",
+  "notes.fields.title": "Title",
+  "notes.form.groups.attributes": "Attributes",
+  "notes.form.groups.details": "Details",
+  "notes.form.submit": "Save",
+  "notes.list.actions.create": "Create note",
+  "notes.list.actions.delete": "Delete",
+  "notes.list.actions.edit": "Edit",
+  "notes.list.empty.description": "Create your first note to get started.",
+  "notes.list.empty.title": "No notes yet",
+  "notes.list.loadError": "Failed to load notes",
+  "notes.list.searchPlaceholder": "Search notes",
+  "notes.list.title": "Notes",
+  "notes.nav.group": "Notes",
+  "notes.nav.title": "Notes"
+}
+"
+`;
+
+exports[`scaffold golden files omits statusMap and StatusBadge when no select field is named status: no-status i18n/ko.json 1`] = `
 "{
   "notes.create.success": "Note created",
   "notes.create.title": "Create note",

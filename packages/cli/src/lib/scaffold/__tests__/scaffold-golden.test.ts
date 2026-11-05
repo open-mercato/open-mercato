@@ -51,6 +51,7 @@ describe('scaffold golden files', () => {
       'i18n/de.json',
       'i18n/en.json',
       'i18n/es.json',
+      'i18n/ko.json',
       'i18n/pl.json',
       'index.ts',
       'setup.ts',
@@ -65,6 +66,7 @@ describe('scaffold golden files', () => {
     expect(tree.get('i18n/pl.json')).toBe(tree.get('i18n/en.json'))
     expect(tree.get('i18n/es.json')).toBe(tree.get('i18n/en.json'))
     expect(tree.get('i18n/de.json')).toBe(tree.get('i18n/en.json'))
+    expect(tree.get('i18n/ko.json')).toBe(tree.get('i18n/en.json'))
     expect(run.output).toContain('needs translation')
   })
 

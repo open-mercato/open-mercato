@@ -103,7 +103,8 @@ For `mercato module scaffold tickets --entity ticket --fields "subject:text:requ
     ├── en.json                  # all keys used by generated pages
     ├── pl.json
     ├── es.json
-    └── de.json
+    ├── de.json
+    └── ko.json
 ```
 
 `acl.ts`, `setup.ts`, and `index.ts` are generated only when absent (the UI slice must reference real feature IDs); when the module already exists, the command appends nothing and instead reports the feature IDs the pages expect.
@@ -129,7 +130,7 @@ For `mercato module scaffold tickets --entity ticket --fields "subject:text:requ
 
 **`page.meta.ts`** — list page carries the full nav contract observed in `people/page.meta.ts`: `requireAuth: true`, `requireFeatures: ['<module>.view']`, `pageTitle`/`pageTitleKey`, `pageGroup`/`pageGroupKey`, `pageOrder`, `icon` (lucide name), `breadcrumb` with `labelKey`. Create/detail metas carry `requireAuth`, the matching feature (`<module>.create` / `<module>.view`), and breadcrumb chains back to the list.
 
-**i18n** — `en.json` is fully authored from the field DSL (labels, empty-state copy, flash messages, confirm dialog, tab labels, nav keys). `pl.json`, `es.json`, `de.json` are generated with the identical key set and English values, and the command's summary explicitly lists them as "needs translation" (this satisfies `yarn i18n:check-hardcoded` — all page strings go through `useT()` — while `yarn i18n:check-values` remains the advisory nudge to translate, per the Phase-1 i18n audit spec).
+**i18n** — `en.json` is fully authored from the field DSL (labels, empty-state copy, flash messages, confirm dialog, tab labels, nav keys). `pl.json`, `es.json`, `de.json`, `ko.json` are generated with the identical key set and English values, and the command's summary explicitly lists them as "needs translation" (this satisfies `yarn i18n:check-hardcoded` — all page strings go through `useT()` — while `yarn i18n:check-values` remains the advisory nudge to translate, per the Phase-1 i18n audit spec).
 
 ### Template source of truth
 
@@ -263,3 +264,4 @@ Manual QA: boot `yarn dev`, confirm the scaffolded module appears in the sidebar
 
 - 2026-07-05 — Initial draft (DS DX roadmap item 4: executable DS-compliant UI scaffolding).
 - 2026-07-18 — Phases 1–2 implemented: `packages/cli/src/lib/scaffold/` (orchestrator, field DSL, targets with a marked Phase-3 standalone seam, templates), `module scaffold` dispatch in `mercato.ts`, golden-snapshot + DS-contract tests (programmatic `eslint.ds.config.mjs` run, zero errors/warnings, guardian checklist markers, hostile-input cases, determinism), CI scaffold-and-lint step. Deviations: templates ship as TS string-constant modules rather than loose `.tpl` assets (`build.mjs` bundles only `src/**/*.ts`); the CI probe targets `packages/core` as `scaffold_ci` (`__scaffold_ci__` fails the module-id grammar and the DS lint config scopes `files` to `packages/**`); list/detail deletes wrap `deleteCrud` in `useGuardedMutation` + the optimistic-lock header per the workspace coverage guard; the detail `overview` tab hosts the CrudForm edit surface directly. Phases 3–4 (standalone targets, skill/doc refresh) pending.
+- 2026-11-05 — Refreshed onto current `main`: generated list page imports `LegacyColumnDef` from `@tanstack/react-table/legacy`, locale output gains `ko.json`, delete flows pass `formId` + `retryLastMutation` in the guarded-mutation context, and the CI probe restores the generated icon registry before its clean-tree check. The shared `lint:ds` script and CI cache-key changes are dropped (already on `main` / not needed).
