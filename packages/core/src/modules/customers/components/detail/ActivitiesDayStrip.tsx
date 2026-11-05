@@ -354,8 +354,11 @@ function DayCard({ day, isActive, isToday, busyness, label, dayName, onSelect }:
     <Button
       type="button"
       variant="ghost"
-      onClick={onSelect}
-      onFocus={(event) => event.currentTarget.scrollIntoView({ block: 'nearest', inline: 'nearest' })}
+      onClick={(event) => {
+        event.currentTarget.scrollIntoView({ behavior: 'instant', block: 'nearest', inline: 'nearest' })
+        onSelect()
+      }}
+      onFocus={(event) => event.currentTarget.scrollIntoView({ behavior: 'instant', block: 'nearest', inline: 'nearest' })}
       aria-pressed={isActive}
       aria-label={`${dayName} ${dayNumber}`}
       className={cn(
