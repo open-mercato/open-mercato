@@ -5,7 +5,7 @@ import { useDroppable } from '@dnd-kit/core'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import type {
   DealTimelineCell,
@@ -14,6 +14,7 @@ import type {
   DealTimelineLane,
 } from '../../../../../lib/dealsTimelineTypes'
 import { TimelineDealCard, isTimelineDealOverdue } from './TimelineDealCard'
+import { pluralCategory } from '../../../../../lib/calendar/labels'
 
 export const TIMELINE_CELL_DROPPABLE_PREFIX = 'timeline-cell:'
 
@@ -24,6 +25,20 @@ export function timelineCellDroppableId(laneKey: string, column: number): string
 export function formatTimelineCount(t: ReturnType<typeof useT>, count: number, partial: boolean): string {
   if (partial) return translateWithFallback(t, 'customers.deals.timeline.partialCount', '{count}+', { count })
   return String(count)
+}
+
+export function formatTimelineDealCount(
+  t: ReturnType<typeof useT>,
+  locale: string,
+  count: number,
+  partial: boolean,
+): string {
+  const params = { count: formatTimelineCount(t, count, partial) }
+  const key = `customers.deals.timeline.lane.count.${pluralCategory(locale, count)}`
+  const resolved = t(key, params)
+  return resolved === key
+    ? translateWithFallback(t, 'customers.deals.timeline.lane.count.other', '{count} deals', params)
+    : resolved
 }
 
 export type TimelineLaneDisplay = {
@@ -148,14 +163,13 @@ export function TimelineLane({
   renderMore,
 }: TimelineLaneProps): React.ReactElement {
   const t = useT()
+  const locale = useLocale()
   const cellByColumn = React.useMemo(() => {
     const map = new Map<number, DealTimelineCell>()
     for (const cell of lane.cells) map.set(cell.column, cell)
     return map
   }, [lane.cells])
-  const countLabel = translateWithFallback(t, 'customers.deals.timeline.lane.count', '{count} deals', {
-    count: formatTimelineCount(t, lane.total, lane.partial),
-  })
+  const countLabel = formatTimelineDealCount(t, locale, lane.total, lane.partial)
   const toggleLabel = collapsed
     ? translateWithFallback(t, 'customers.deals.timeline.lane.expand', 'Expand {lane}', { lane: display.label })
     : translateWithFallback(t, 'customers.deals.timeline.lane.collapse', 'Collapse {lane}', { lane: display.label })
@@ -201,9 +215,7 @@ export function TimelineLane({
               } ${overdue ? 'font-semibold text-status-error-text' : 'text-muted-foreground'}`}
             >
               {cell.total > 0
-                ? translateWithFallback(t, 'customers.deals.timeline.lane.count', '{count} deals', {
-                    count: formatTimelineCount(t, cell.total, cell.partial),
-                  })
+                ? formatTimelineDealCount(t, locale, cell.total, cell.partial)
                 : ''}
             </div>
           )

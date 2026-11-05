@@ -58,8 +58,9 @@ const MUTATION_CONTEXT_ID = 'customers-deals-timeline:drawer'
 export type DealStatusKind = 'open' | 'won' | 'lost'
 
 export function resolveDealStatusKind(status: string | null | undefined): DealStatusKind {
-  if (isWonDealStatus(status)) return 'won'
-  if (isLostDealStatus(status) || !isOpenDealStatus(status)) return 'lost'
+  const normalized = status?.toLowerCase()
+  if (isWonDealStatus(normalized)) return 'won'
+  if (isLostDealStatus(normalized) || !isOpenDealStatus(normalized)) return 'lost'
   return 'open'
 }
 
@@ -74,7 +75,7 @@ export function isDealOverdue(
   expectedCloseAt: string | null | undefined,
   today: Date = new Date(),
 ): boolean {
-  if (!isOpenDealStatus(status)) return false
+  if (!isOpenDealStatus(status?.toLowerCase())) return false
   const closeKey = toUtcDateKey(expectedCloseAt ?? null)
   const todayKey = toUtcDateKey(today)
   if (!closeKey || !todayKey) return false

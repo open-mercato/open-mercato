@@ -169,8 +169,8 @@ function fakeQuery(_entity: string, args: QueryArgs) {
 }
 
 function readInIds(where: Record<string, unknown>, key: string): string[] {
-  const condition = where[key] as { $in?: string[] } | undefined
-  return condition?.$in ?? []
+  const condition = where[key] as { $in?: string[]; id?: { $in?: string[] } } | undefined
+  return condition?.$in ?? condition?.id?.$in ?? []
 }
 
 function fakeFind(_em: unknown, entity: unknown, where: Record<string, unknown>) {
@@ -401,9 +401,26 @@ describe('customers deals timeline route', () => {
       makeDeal({ expected_close_at: twoWeeksAhead }),
     ]
     const body = await grid(`from=${lastWeek}`)
-    expect(body.overdueBefore).toEqual({ count: 2, latestExpectedCloseAt: addDays(lastWeek, -3) })
+    expect(body.overdueBefore).toEqual({ count: 2, latestExpectedCloseAt: addDays(lastWeek, -3), before: lastWeek })
     expect(body.undatedCount).toBe(1)
     expect(body.adjacent).toEqual({ previous: addDays(lastWeek, -3), next: twoWeeksAhead })
+  })
+
+  it('counts overdue deals before today when the window starts in the future', async () => {
+    const futureWeek = addDays(thisWeek, 28)
+    deals = [
+      makeDeal({ expected_close_at: addDays(lastWeek, -3) }),
+      makeDeal({ expected_close_at: addDays(futureWeek, -1) }),
+    ]
+    const body = await grid(`from=${futureWeek}`)
+    expect(body.overdueBefore).toMatchObject({ count: 1, before: toUtcDateKey(new Date()) })
+  })
+
+  it('scopes deal links by tenant and organization', async () => {
+    deals = [makeDeal({ expected_close_at: thisWeek })]
+    await grid(`from=${lastWeek}`)
+    const linkCall = findWithDecryptionMock.mock.calls.find(([, entity]) => entity === CustomerDealCompanyLink)
+    expect(linkCall?.[2]).toMatchObject({ deal: { tenantId: expect.any(String), id: { $in: expect.any(Array) } } })
   })
 
   it('tells first run apart from filtered or closed-only organizations', async () => {

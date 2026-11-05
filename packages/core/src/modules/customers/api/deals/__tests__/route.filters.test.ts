@@ -439,12 +439,12 @@ describe('customers deals list contradiction check', () => {
   const params = (query: string) => new URLSearchParams(query)
 
   it('rejects false combined with a close date range', () => {
-    expect(findDealListQueryContradiction(params('hasExpectedCloseAt=false&expectedCloseAtFrom=2026-11-01'))).not.toBeNull()
-    expect(findDealListQueryContradiction(params('hasExpectedCloseAt=false&expectedCloseAtTo=2026-11-01'))).not.toBeNull()
+    expect(findDealListQueryContradiction(params('hasExpectedCloseAt=false&expectedCloseAtFrom=2026-11-01'))).toBe('undated_with_close_date_range')
+    expect(findDealListQueryContradiction(params('hasExpectedCloseAt=false&expectedCloseAtTo=2026-11-01'))).toBe('undated_with_close_date_range')
   })
 
   it('rejects false combined with isOverdue unless needsAttention is set', () => {
-    expect(findDealListQueryContradiction(params('hasExpectedCloseAt=false&isOverdue=true'))).not.toBeNull()
+    expect(findDealListQueryContradiction(params('hasExpectedCloseAt=false&isOverdue=true'))).toBe('undated_with_overdue')
     expect(findDealListQueryContradiction(params('hasExpectedCloseAt=false&isOverdue=true&needsAttention=true'))).toBeNull()
     expect(findDealListQueryContradiction(params('hasExpectedCloseAt=false&needsAttention=true'))).toBeNull()
   })
@@ -457,6 +457,7 @@ describe('customers deals list contradiction check', () => {
   it('returns 400 from the list GET handler', async () => {
     const response = await GET(new Request('https://example.test/api/customers/deals?hasExpectedCloseAt=false&isOverdue=true'))
     expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toMatchObject({ code: 'undated_with_overdue', error: expect.any(String) })
   })
 })
 

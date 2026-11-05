@@ -19,6 +19,11 @@ jest.mock('next/navigation', () => ({
 }))
 
 const OWNER = '11111111-1111-4111-8111-111111111111'
+const PIPELINE = '22222222-2222-4222-8222-222222222222'
+const PERSON_A = '33333333-3333-4333-8333-333333333333'
+const PERSON_B = '44444444-4444-4444-8444-444444444444'
+const COMPANY = '55555555-5555-4555-8555-555555555555'
+const DEAL = '66666666-6666-4666-8666-666666666666'
 
 describe('timeline URL state', () => {
   it('parses defaults from an empty URL', () => {
@@ -35,23 +40,34 @@ describe('timeline URL state', () => {
 
   it('round-trips every parameter and aligns `from` to its bucket', () => {
     const params = new URLSearchParams(
-      `bucket=month&groupBy=stage&from=2026-11-17&search=lims&status=open,in_progress&pipelineId=p1&ownerUserId=${OWNER}&personId=a&personId=b&companyId=c&closed=all&deal=d1`,
+      `bucket=month&groupBy=stage&from=2026-11-17&search=lims&status=open,in_progress&pipelineId=${PIPELINE}&ownerUserId=${OWNER}&personId=${PERSON_A}&personId=${PERSON_B}&companyId=${COMPANY}&closed=all&deal=${DEAL}`,
     )
     const state = parseTimelineUrlState(params)
     expect(state.bucket).toBe('month')
     expect(state.groupBy).toBe('stage')
     expect(state.from).toBe('2026-11-01')
-    expect(state.dealId).toBe('d1')
+    expect(state.dealId).toBe(DEAL)
     expect(state.filters).toEqual({
       search: 'lims',
       status: ['open', 'in_progress'],
-      pipelineId: 'p1',
+      pipelineId: PIPELINE,
       ownerUserId: [OWNER],
-      personId: ['a', 'b'],
-      companyId: ['c'],
+      personId: [PERSON_A, PERSON_B],
+      companyId: [COMPANY],
       excludeClosed: false,
     })
     expect(parseTimelineUrlState(buildTimelineSearchParams(state))).toEqual(state)
+  })
+
+  it('drops ids that are not UUIDs', () => {
+    const state = parseTimelineUrlState(
+      new URLSearchParams(`pipelineId=nope&ownerUserId=${OWNER},bad&personId=x&companyId=${COMPANY}&deal=d1`),
+    )
+    expect(state.filters.pipelineId).toBeNull()
+    expect(state.filters.ownerUserId).toEqual([OWNER])
+    expect(state.filters.personId).toEqual([])
+    expect(state.filters.companyId).toEqual([COMPANY])
+    expect(state.dealId).toBeNull()
   })
 
   it('ignores invalid bucket, grouping and dates', () => {

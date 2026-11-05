@@ -64,7 +64,7 @@ export type DealTimelineResponse = {
   to: string
   columns: DealTimelineColumnResponse[]
   lanes: DealTimelineLane[]
-  overdueBefore: { count: number; latestExpectedCloseAt: string | null }
+  overdueBefore: { count: number; latestExpectedCloseAt: string | null; before: string }
   undatedCount: number
   adjacent: { previous: string | null; next: string | null }
   scopeHasDeals: boolean

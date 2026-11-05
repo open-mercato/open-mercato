@@ -7,7 +7,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import type { DealTimelineCellResponse, DealTimelineItem } from '../../../../../lib/dealsTimelineTypes'
 import {
@@ -18,6 +18,7 @@ import {
   timelineClosedLabel,
 } from './TimelineDealCard'
 import { TIMELINE_QUERY_ROOT } from './useRescheduleDeal'
+import { formatTimelineDealCount } from './TimelineLane'
 
 const CELL_PAGE_SIZE = 50
 
@@ -49,6 +50,7 @@ export function TimelineCellPopover({
   children,
 }: TimelineCellPopoverProps): React.ReactElement {
   const t = useT()
+  const locale = useLocale()
   const listRef = React.useRef<HTMLUListElement | null>(null)
   const query = useInfiniteQuery({
     queryKey: [...TIMELINE_QUERY_ROOT, 'cell', baseParams, laneKey, column],
@@ -96,7 +98,7 @@ export function TimelineCellPopover({
           <span className="truncate text-sm font-semibold text-foreground">{title}</span>
           {total !== null ? (
             <span className="shrink-0 text-xs text-muted-foreground">
-              {translateWithFallback(t, 'customers.deals.timeline.lane.count', '{count} deals', { count: total })}
+              {formatTimelineDealCount(t, locale, total, false)}
             </span>
           ) : null}
         </div>

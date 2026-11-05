@@ -140,7 +140,7 @@ function TimelineDealCardImpl({
   }
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'Enter') {
+    if (event.key === 'Enter' && !isDragging) {
       event.preventDefault()
       onOpen(item, event.currentTarget)
       return
@@ -163,6 +163,7 @@ function TimelineDealCardImpl({
       onKeyDown={handleKeyDown}
       role="button"
       tabIndex={0}
+      aria-disabled={undefined}
       aria-label={ariaLabel}
       aria-roledescription={translateWithFallback(t, 'customers.deals.timeline.card.roledescription', 'deal card')}
       title={!canDrag && dragDisabledHint ? dragDisabledHint : undefined}

@@ -737,16 +737,29 @@ const { POST, PUT, DELETE } = crud
 
 export { POST, PUT, DELETE }
 
-export function findDealListQueryContradiction(searchParams: URLSearchParams): string | null {
+export type DealListQueryContradiction = 'undated_with_close_date_range' | 'undated_with_overdue'
+
+const DEAL_LIST_CONTRADICTION_MESSAGES: Record<DealListQueryContradiction, { key: string; fallback: string }> = {
+  undated_with_close_date_range: {
+    key: 'customers.errors.deal_list_undated_with_close_date_range',
+    fallback: 'Deals without a close date cannot be filtered by a close date range.',
+  },
+  undated_with_overdue: {
+    key: 'customers.errors.deal_list_undated_with_overdue',
+    fallback: 'Deals without a close date cannot be filtered as overdue.',
+  },
+}
+
+export function findDealListQueryContradiction(searchParams: URLSearchParams): DealListQueryContradiction | null {
   const hasExpectedCloseAt = parseBooleanFromUnknown(searchParams.get('hasExpectedCloseAt'))
   if (hasExpectedCloseAt !== false) return null
   if (searchParams.get('expectedCloseAtFrom') || searchParams.get('expectedCloseAtTo')) {
-    return 'hasExpectedCloseAt=false cannot be combined with an expected close date range'
+    return 'undated_with_close_date_range'
   }
   const isOverdue = parseBooleanFromUnknown(searchParams.get('isOverdue'))
   const needsAttention = parseBooleanFromUnknown(searchParams.get('needsAttention'))
   if (isOverdue === true && needsAttention !== true) {
-    return 'hasExpectedCloseAt=false cannot be combined with isOverdue'
+    return 'undated_with_overdue'
   }
   return null
 }
@@ -754,7 +767,9 @@ export function findDealListQueryContradiction(searchParams: URLSearchParams): s
 export async function GET(request: Request) {
   const contradiction = findDealListQueryContradiction(new URL(request.url).searchParams)
   if (contradiction) {
-    return NextResponse.json({ error: contradiction }, { status: 400 })
+    const { t } = await resolveTranslations()
+    const message = DEAL_LIST_CONTRADICTION_MESSAGES[contradiction]
+    return NextResponse.json({ error: t(message.key, message.fallback), code: contradiction }, { status: 400 })
   }
   return crud.GET(request)
 }

@@ -35,13 +35,18 @@ export default function DealsTimelinePage(): React.ReactElement {
   const urlSearch = state.filters.search ?? ''
   const [search, setSearch] = React.useState(urlSearch)
 
+  const pushedSearchRef = React.useRef(urlSearch.trim())
+
   React.useEffect(() => {
+    if (urlSearch.trim() === pushedSearchRef.current) return
+    pushedSearchRef.current = urlSearch.trim()
     setSearch(urlSearch)
   }, [urlSearch])
 
   React.useEffect(() => {
     if (search.trim() === urlSearch.trim()) return
     const handle = window.setTimeout(() => {
+      pushedSearchRef.current = search.trim()
       update({ filters: { ...state.filters, search: search.trim() || undefined } })
     }, SEARCH_DEBOUNCE_MS)
     return () => window.clearTimeout(handle)

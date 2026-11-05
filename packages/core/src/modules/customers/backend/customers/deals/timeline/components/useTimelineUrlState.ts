@@ -26,6 +26,17 @@ export type TimelineUrlState = {
 
 const LIST_PARAMS = ['status', 'ownerUserId', 'personId', 'companyId'] as const
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+function readUuid(value: string | null | undefined): string | null {
+  const trimmed = value?.trim()
+  return trimmed && UUID_PATTERN.test(trimmed) ? trimmed : null
+}
+
+function readUuidList(params: URLSearchParams, key: string): string[] {
+  return readList(params, key).filter((value) => UUID_PATTERN.test(value))
+}
+
 function readList(params: URLSearchParams, key: string): string[] {
   const out = new Set<string>()
   for (const raw of params.getAll(key)) {
@@ -99,15 +110,15 @@ export function parseTimelineUrlState(params: URLSearchParams): TimelineUrlState
   const fromRaw = params.get('from')?.trim() ?? ''
   const from = fromRaw && isValidDateKey(fromRaw) ? alignToBucketStart(fromRaw, bucket) : null
   const search = params.get('search')?.trim() || undefined
-  const pipelineId = params.get('pipelineId')?.trim() || null
-  const dealId = params.get('deal')?.trim() || null
+  const pipelineId = readUuid(params.get('pipelineId'))
+  const dealId = readUuid(params.get('deal'))
   const filters = normalizeTimelineFilters({
     search,
     status: readList(params, 'status'),
     pipelineId,
-    ownerUserId: readList(params, 'ownerUserId'),
-    personId: readList(params, 'personId'),
-    companyId: readList(params, 'companyId'),
+    ownerUserId: readUuidList(params, 'ownerUserId'),
+    personId: readUuidList(params, 'personId'),
+    companyId: readUuidList(params, 'companyId'),
     excludeClosed: params.get('closed') !== 'all',
   })
   return { bucket, groupBy, from, filters, dealId }

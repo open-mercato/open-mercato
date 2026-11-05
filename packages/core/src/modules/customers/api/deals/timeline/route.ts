@@ -58,6 +58,7 @@ export const metadata = {
 export const TIMELINE_COLUMN_CAP = 300
 export const TIMELINE_RESPONSE_CARD_CAP = 240
 const LIGHT_PASS_PAGE_SIZE = 100
+const LIGHT_PASS_CONCURRENCY = 2
 const PIPELINES_VIEW_FEATURE = 'customers.pipelines.view'
 
 const booleanQueryParam = z.preprocess((value) => {
@@ -146,7 +147,7 @@ const timelineResponseSchema = z.object({
       ),
     }),
   ),
-  overdueBefore: z.object({ count: z.number(), latestExpectedCloseAt: z.string().nullable() }),
+  overdueBefore: z.object({ count: z.number(), latestExpectedCloseAt: z.string().nullable(), before: z.string() }),
   undatedCount: z.number(),
   adjacent: z.object({ previous: z.string().nullable(), next: z.string().nullable() }),
   scopeHasDeals: z.boolean(),
@@ -352,6 +353,18 @@ async function runLightPass(
   return { column, total: Math.max(total, rows.length), truncated: total > rows.length, rows }
 }
 
+async function runInBatches<Input, Output>(
+  inputs: Input[],
+  batchSize: number,
+  run: (input: Input) => Promise<Output>,
+): Promise<Output[]> {
+  const results: Output[] = []
+  for (let index = 0; index < inputs.length; index += batchSize) {
+    results.push(...(await Promise.all(inputs.slice(index, index + batchSize).map(run))))
+  }
+  return results
+}
+
 async function loadItems(
   em: EntityManager,
   ids: string[],
@@ -361,6 +374,7 @@ async function loadItems(
   const byId = new Map<string, DealTimelineItem>()
   if (!ids.length) return byId
   const orgFilter = scope.organizationIds ? { organizationId: { $in: scope.organizationIds } } : {}
+  const dealScope = { id: { $in: ids }, tenantId: scope.tenantId, ...orgFilter }
   const [deals, companyLinks, personLinks] = await Promise.all([
     findWithDecryption(
       em,
@@ -372,14 +386,14 @@ async function loadItems(
     findWithDecryption(
       em,
       CustomerDealCompanyLink,
-      { deal: { $in: ids } },
+      { deal: dealScope },
       { populate: ['company'], orderBy: { createdAt: 'asc', id: 'asc' } },
       decryptionScope,
     ),
     findWithDecryption(
       em,
       CustomerDealPersonLink,
-      { deal: { $in: ids } },
+      { deal: dealScope },
       { populate: ['person'], orderBy: { createdAt: 'asc', id: 'asc' } },
       decryptionScope,
     ),
@@ -496,7 +510,12 @@ async function userHasPipelinesView(
   }
 }
 
+function overdueBoundFor(windowFrom: string, todayKey: string): string {
+  return compareDateKeys(windowFrom, todayKey) < 0 ? windowFrom : todayKey
+}
+
 function emptyGrid(query: TimelineQuery, columns: DealTimelineColumn[]) {
+  const todayKey = toUtcDateKey(new Date()) as string
   return {
     bucket: query.bucket,
     groupBy: query.groupBy,
@@ -505,7 +524,7 @@ function emptyGrid(query: TimelineQuery, columns: DealTimelineColumn[]) {
     to: columns[columns.length - 1].to,
     columns: columns.map((column) => ({ ...column, total: 0, truncated: false })),
     lanes: [],
-    overdueBefore: { count: 0, latestExpectedCloseAt: null },
+    overdueBefore: { count: 0, latestExpectedCloseAt: null, before: overdueBoundFor(columns[0].from, todayKey) },
     undatedCount: 0,
     adjacent: { previous: null, next: null },
     scopeHasDeals: false,
@@ -648,11 +667,13 @@ export async function GET(req: Request) {
 
   const windowFrom = columns[0].from
   const windowTo = columns[columns.length - 1].to
-  const overdueBound = compareDateKeys(windowFrom, todayKey) < 0 ? windowFrom : todayKey
+  const overdueBound = overdueBoundFor(windowFrom, todayKey)
   const openFilters = mergeFieldCondition(baseFilters, 'status', { $nin: closedStatuses })
 
   const [columnPasses, overdueRes, undatedRes, previousRes, nextRes, scopeRes] = await Promise.all([
-    Promise.all(columns.map((column) => runLightPass(queryEngine, queryScope, baseFilters, column, query.groupBy))),
+    runInBatches(columns, LIGHT_PASS_CONCURRENCY, (column) =>
+      runLightPass(queryEngine, queryScope, baseFilters, column, query.groupBy),
+    ),
     runQuery(queryEngine, queryScope, mergeFieldCondition(openFilters, 'expected_close_at', { $lt: dateKeyToUtcDate(overdueBound) }), {
       fields: ['id', 'expected_close_at'],
       sort: [{ field: 'expected_close_at', dir: SortDir.Desc }, { field: 'id', dir: SortDir.Asc }],
@@ -807,6 +828,7 @@ export async function GET(req: Request) {
     lanes,
     overdueBefore: {
       count: overdueRes.total,
+      before: overdueBound,
       latestExpectedCloseAt: toUtcDateKey(toIsoStringOrNull(overdueRes.rows[0]?.expected_close_at) ?? null),
     },
     undatedCount: undatedRes.total,

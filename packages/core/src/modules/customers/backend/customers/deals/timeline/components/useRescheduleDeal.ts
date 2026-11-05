@@ -102,6 +102,44 @@ export function moveDealInTimeline(
   return { ...data, lanes, columns }
 }
 
+export function restoreDealInTimeline(
+  data: DealTimelineResponse,
+  original: TimelineDealLocation & { item: DealTimelineItem },
+): DealTimelineResponse {
+  if (findTimelineDeal(data, original.item.id)) {
+    const restored = moveDealInTimeline(data, original.item.id, original.item.expectedCloseAt ?? '')
+    const lanes = restored.lanes.map((lane) =>
+      lane.key !== original.laneKey
+        ? lane
+        : {
+            ...lane,
+            cells: lane.cells.map((cell) => ({
+              ...cell,
+              items: cell.items.map((entry) => (entry.id === original.item.id ? original.item : entry)),
+            })),
+          },
+    )
+    return { ...restored, lanes }
+  }
+  if (!data.lanes.some((lane) => lane.key === original.laneKey)) return data
+  const lanes = data.lanes.map((lane) => {
+    if (lane.key !== original.laneKey) return lane
+    const hasCell = lane.cells.some((cell) => cell.column === original.column)
+    const cells = (hasCell ? lane.cells : [...lane.cells, { column: original.column, total: 0, partial: false, items: [] }])
+      .map((cell) =>
+        cell.column === original.column
+          ? { ...cell, total: cell.total + 1, items: [...cell.items, original.item].sort(compareTimelineItems) }
+          : cell,
+      )
+      .sort((left, right) => left.column - right.column)
+    return { ...lane, cells, total: lane.total + 1 }
+  })
+  const columns = data.columns.map((column) =>
+    column.index === original.column ? { ...column, total: column.total + 1 } : column,
+  )
+  return { ...data, lanes, columns }
+}
+
 export type RescheduleRequest = {
   item: Pick<DealTimelineItem, 'id' | 'updatedAt'>
   expectedCloseAt: string
@@ -113,19 +151,23 @@ export type RescheduleDeps = {
   queryKey: QueryKey
   getData: (key: QueryKey) => DealTimelineResponse | undefined
   setData: (key: QueryKey, data: DealTimelineResponse | undefined) => void
+  cancel?: (key: QueryKey) => Promise<void>
   send: (request: RescheduleRequest) => Promise<unknown>
   isConflict: (error: unknown) => boolean
   onError: (error: unknown) => void
 }
 
 export async function runReschedule(deps: RescheduleDeps, request: RescheduleRequest): Promise<RescheduleOutcome> {
+  if (deps.cancel) await deps.cancel(deps.queryKey)
   const snapshot = deps.getData(deps.queryKey)
+  const original = findTimelineDeal(snapshot, request.item.id)
   if (snapshot) deps.setData(deps.queryKey, moveDealInTimeline(snapshot, request.item.id, request.expectedCloseAt))
   try {
     await deps.send(request)
     return 'success'
   } catch (error) {
-    deps.setData(deps.queryKey, snapshot)
+    const current = deps.getData(deps.queryKey)
+    if (current && original) deps.setData(deps.queryKey, restoreDealInTimeline(current, original))
     if (deps.isConflict(error)) return 'conflict'
     deps.onError(error)
     return 'error'
@@ -161,6 +203,7 @@ export function useRescheduleDeal(queryKey: QueryKey) {
           queryKey,
           getData: (key) => queryClient.getQueryData<DealTimelineResponse>(key),
           setData: (key, data) => queryClient.setQueryData(key, data),
+          cancel: (key) => queryClient.cancelQueries({ queryKey: key }),
           send: ({ item, expectedCloseAt }) =>
             runMutation({
               operation: () =>

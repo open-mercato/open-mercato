@@ -56,7 +56,7 @@ function fixture(): DealTimelineResponse {
         ],
       },
     ],
-    overdueBefore: { count: 0, latestExpectedCloseAt: null },
+    overdueBefore: { count: 0, latestExpectedCloseAt: null, before: '2026-10-26' },
     undatedCount: 0,
     adjacent: { previous: null, next: null },
     scopeHasDeals: true,
@@ -147,6 +147,48 @@ describe('runReschedule', () => {
     expect(outcome).toBe('error')
     expect(onError).toHaveBeenCalledWith(failure)
     expect(findTimelineDeal(store.data, 'a')?.item.expectedCloseAt).toBe('2026-10-27')
+  })
+
+  it('cancels in-flight timeline queries before the optimistic write', async () => {
+    const calls: string[] = []
+    const { deps: config } = deps({
+      cancel: jest.fn(async () => {
+        calls.push('cancel')
+      }),
+      send: jest.fn(async () => {
+        calls.push('send')
+      }),
+    })
+    await runReschedule(config, { item: { id: 'a', updatedAt: 'v1' }, expectedCloseAt: '2026-11-03' })
+    expect(calls).toEqual(['cancel', 'send'])
+  })
+
+  it('reverts only the failed deal and keeps a concurrent optimistic move', async () => {
+    let rejectFirst: (error: unknown) => void = () => undefined
+    const firstSend = new Promise<unknown>((_resolve, reject) => {
+      rejectFirst = reject
+    })
+    const send = jest
+      .fn()
+      .mockImplementationOnce(() => firstSend)
+      .mockResolvedValueOnce(undefined)
+    const { deps: config, store } = deps({ send })
+    const first = runReschedule(config, { item: { id: 'a', updatedAt: 'v1' }, expectedCloseAt: '2026-11-03' })
+    await Promise.resolve()
+    await runReschedule(config, { item: { id: 'c', updatedAt: 'v1' }, expectedCloseAt: '2026-11-10' })
+    rejectFirst(new Error('blocked'))
+    await expect(first).resolves.toBe('error')
+    expect(findTimelineDeal(store.data, 'a')).toMatchObject({ column: 0, item: { expectedCloseAt: '2026-10-27' } })
+    expect(findTimelineDeal(store.data, 'c')).toMatchObject({ column: 2, item: { expectedCloseAt: '2026-11-10' } })
+    expect(store.data?.columns.map((column) => column.total)).toEqual([2, 0, 1])
+  })
+
+  it('restores a deal that was moved out of the window', async () => {
+    const { deps: config, store } = deps({ send: jest.fn().mockRejectedValue(new Error('nope')) })
+    await runReschedule(config, { item: { id: 'b', updatedAt: 'v1' }, expectedCloseAt: '2027-01-04' })
+    expect(findTimelineDeal(store.data, 'b')).toMatchObject({ column: 0, item: { expectedCloseAt: '2026-10-29' } })
+    expect(store.data?.lanes[0].total).toBe(3)
+    expect(store.data?.columns.map((column) => column.total)).toEqual([2, 1, 0])
   })
 })
 

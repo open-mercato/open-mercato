@@ -53,6 +53,21 @@ function readErrorCode(error: unknown): string | null {
   return null
 }
 
+export function timelineSavedViewSignature(view: DealTimelineSavedView): string {
+  const sorted = (values: string[]) => [...values].sort()
+  return JSON.stringify({
+    status: sorted(view.status),
+    pipelineId: view.pipelineId ?? null,
+    ownerUserId: sorted(view.ownerUserId),
+    personId: sorted(view.personId),
+    companyId: sorted(view.companyId),
+    excludeClosed: view.excludeClosed,
+    groupBy: view.groupBy,
+    bucket: view.bucket,
+    search: view.search?.trim() || null,
+  })
+}
+
 export type TimelineSavedViewsProps = {
   currentView: DealTimelineSavedView
   onApply: (view: DealTimelineSavedView) => void
@@ -66,7 +81,9 @@ export function TimelineSavedViews({ currentView, onApply }: TimelineSavedViewsP
     contextId: SAVED_VIEWS_CONTEXT_ID,
     blockedMessage: translateWithFallback(t, 'ui.forms.flash.saveBlocked', 'Save blocked by validation'),
   })
-  const [activeId, setActiveId] = React.useState<string | null>(null)
+  const [applied, setApplied] = React.useState<{ id: string; signature: string } | null>(null)
+  const currentSignature = React.useMemo(() => timelineSavedViewSignature(currentView), [currentView])
+  const activeId = applied && applied.signature === currentSignature ? applied.id : null
   const [creating, setCreating] = React.useState(false)
   const [newName, setNewName] = React.useState('')
   const [nameError, setNameError] = React.useState<string | null>(null)
@@ -160,7 +177,7 @@ export function TimelineSavedViews({ currentView, onApply }: TimelineSavedViewsP
     try {
       const call = await save({ name, settings: buildDealTimelinePerspectiveSettings(currentView) })
       const created = call.result?.perspective
-      if (created?.id) setActiveId(created.id)
+      if (created?.id) setApplied({ id: created.id, signature: currentSignature })
       setCreating(false)
       setNewName('')
       flash(translateWithFallback(t, 'customers.deals.timeline.savedViews.saved', 'View saved.'), 'success')
@@ -170,7 +187,7 @@ export function TimelineSavedViews({ currentView, onApply }: TimelineSavedViewsP
     } finally {
       setSaving(false)
     }
-  }, [currentView, duplicateMessage, handleWriteError, newName, reload, save, t])
+  }, [currentSignature, currentView, duplicateMessage, handleWriteError, newName, reload, save, t])
 
   const handleRename = React.useCallback(
     async (perspective: PerspectiveRecord) => {
@@ -237,7 +254,7 @@ export function TimelineSavedViews({ currentView, onApply }: TimelineSavedViewsP
           },
           mutationPayload: { id: perspective.id },
         })
-        if (activeId === perspective.id) setActiveId(null)
+        if (applied?.id === perspective.id) setApplied(null)
         await reload()
       } catch (error) {
         handleWriteError(error, () => undefined)
@@ -245,7 +262,7 @@ export function TimelineSavedViews({ currentView, onApply }: TimelineSavedViewsP
         setDeletingId(null)
       }
     },
-    [activeId, confirm, handleWriteError, reload, retryLastMutation, runMutation, t],
+    [applied, confirm, handleWriteError, reload, retryLastMutation, runMutation, t],
   )
 
   const handleActivate = React.useCallback(
@@ -257,7 +274,7 @@ export function TimelineSavedViews({ currentView, onApply }: TimelineSavedViewsP
           droppedFields: parsed.droppedFields,
         })
       }
-      setActiveId(perspective.id)
+      setApplied({ id: perspective.id, signature: timelineSavedViewSignature(parsed.view) })
       onApply(parsed.view)
     },
     [onApply],

@@ -190,7 +190,11 @@ export type DealsTimelineBoardProps = {
 }
 
 type PopoverState = { laneKey: string; column: number; focusDealId: string | null } | null
-type MoveNotice = { dealId: string; date: string } | null
+type MoveNotice = { dealId: string; date: string; laneKey: string | null } | null
+
+type PendingReveal = { dealId: string; date: string; laneKey: string | null; targetFrom: string }
+
+type PendingDrawerFocus = { kind: 'card'; dealId: string } | { kind: 'showDeal' }
 type ActiveDrag = { laneKey: string; column: number; item: DealTimelineItem } | null
 
 export function DealsTimelineBoard({ state, update, permissions }: DealsTimelineBoardProps): React.ReactElement {
@@ -262,6 +266,11 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
   const stageToneById = React.useMemo(() => {
     const map = new Map<string, string>()
     for (const stage of stagesQuery.data ?? []) map.set(stage.id, toneAccentClass(stage.color ?? null))
+    return map
+  }, [stagesQuery.data])
+  const stageLabelById = React.useMemo(() => {
+    const map = new Map<string, string>()
+    for (const stage of stagesQuery.data ?? []) map.set(stage.id, stage.label)
     return map
   }, [stagesQuery.data])
 
@@ -340,7 +349,9 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
 
   const [popover, setPopover] = React.useState<PopoverState>(null)
   const [moveNotice, setMoveNotice] = React.useState<MoveNotice>(null)
-  const [pendingReveal, setPendingReveal] = React.useState<{ dealId: string; date: string } | null>(null)
+  const [pendingReveal, setPendingReveal] = React.useState<PendingReveal | null>(null)
+  const pendingDrawerFocusRef = React.useRef<PendingDrawerFocus | null>(null)
+  const focusShowDealOnCloseRef = React.useRef(false)
   const [drawerRefreshToken, setDrawerRefreshToken] = React.useState(0)
   const returnFocusRef = React.useRef<HTMLElement | null>(null)
   const drawerPushedRef = React.useRef(false)
@@ -354,37 +365,51 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
     return true
   }, [])
 
+  const drawerOpen = !!state.dealId
+
   const afterReschedule = React.useCallback(
-    (dealId: string, date: string) => {
+    (dealId: string, date: string, knownLaneKey: string | null = null) => {
       const current = queryClient.getQueryData<DealTimelineResponse>(queryKey)
       const location = findTimelineDeal(current, dealId)
+      const laneKey = location?.laneKey ?? knownLaneKey
       const dateLabel = formatTimelineDate(date) ?? date
       if (location && location.position < TIMELINE_PER_CELL) {
         flash(
           translateWithFallback(t, 'customers.deals.timeline.reschedule.success', 'Close date moved to {date}', { date: dateLabel }),
           'success',
         )
+        if (drawerOpen) {
+          pendingDrawerFocusRef.current = { kind: 'card', dealId }
+          return
+        }
         window.requestAnimationFrame(() => focusCard(dealId))
         return
       }
-      setMoveNotice({ dealId, date })
+      if (drawerOpen) pendingDrawerFocusRef.current = { kind: 'showDeal' }
+      else focusShowDealOnCloseRef.current = true
+      setMoveNotice({ dealId, date, laneKey })
     },
-    [focusCard, queryClient, queryKey, t],
+    [drawerOpen, focusCard, queryClient, queryKey, t],
   )
 
   React.useEffect(() => {
-    if (moveNotice) showDealRef.current?.focus()
-  }, [moveNotice])
+    if (!moveNotice || drawerOpen || !focusShowDealOnCloseRef.current) return
+    focusShowDealOnCloseRef.current = false
+    showDealRef.current?.focus()
+  }, [drawerOpen, moveNotice])
 
   const handleShowDeal = React.useCallback(() => {
     if (!moveNotice) return
-    setPendingReveal(moveNotice)
+    const visibleColumn = data ? bucketIndexFor(moveNotice.date, data.columns) : -1
+    const targetFrom = data && visibleColumn >= 0 ? data.from : alignToBucketStart(moveNotice.date, bucket)
+    setPendingReveal({ ...moveNotice, targetFrom })
     setMoveNotice(null)
-    update({ from: alignToBucketStart(moveNotice.date, bucket) })
-  }, [bucket, moveNotice, update])
+    if (!data || targetFrom !== data.from) update({ from: targetFrom })
+  }, [bucket, data, moveNotice, update])
 
   React.useEffect(() => {
     if (!pendingReveal || !data || timelineQuery.isFetching) return
+    if (data.from !== pendingReveal.targetFrom) return
     const location = findTimelineDeal(data, pendingReveal.dealId)
     setPendingReveal(null)
     if (location && location.position < TIMELINE_PER_CELL) {
@@ -393,8 +418,9 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
     }
     const column = bucketIndexFor(pendingReveal.date, data.columns)
     if (column < 0) return
-    const lane = location
-      ? data.lanes.find((candidate) => candidate.key === location.laneKey)
+    const laneKey = location?.laneKey ?? pendingReveal.laneKey
+    const lane = laneKey
+      ? data.lanes.find((candidate) => candidate.key === laneKey)
       : data.lanes.find((candidate) =>
           candidate.cells.some((cell) => cell.column === column && cell.total > TIMELINE_PER_CELL),
         )
@@ -419,6 +445,15 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
   )
 
   const closeDrawer = React.useCallback(() => {
+    const pendingFocus = pendingDrawerFocusRef.current
+    pendingDrawerFocusRef.current = null
+    if (pendingFocus?.kind === 'card') {
+      returnFocusRef.current =
+        document.querySelector<HTMLElement>(`[data-timeline-card][data-deal-id="${CSS.escape(pendingFocus.dealId)}"]`) ??
+        returnFocusRef.current
+    } else if (pendingFocus?.kind === 'showDeal') {
+      returnFocusRef.current = showDealRef.current
+    }
     if (drawerPushedRef.current) {
       drawerPushedRef.current = false
       router.back()
@@ -443,9 +478,10 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
 
   const handleDrawerRescheduled = React.useCallback(
     (result: { dealId: string; expectedCloseAt: string }) => {
-      void invalidateTimeline().then(() => afterReschedule(result.dealId, result.expectedCloseAt))
+      const laneKey = findTimelineDeal(queryClient.getQueryData<DealTimelineResponse>(queryKey), result.dealId)?.laneKey ?? null
+      void invalidateTimeline().then(() => afterReschedule(result.dealId, result.expectedCloseAt, laneKey))
     },
-    [afterReschedule, invalidateTimeline],
+    [afterReschedule, invalidateTimeline, queryClient, queryKey],
   )
 
   const [activeDrag, setActiveDrag] = React.useState<ActiveDrag>(null)
@@ -453,7 +489,7 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, {
-      keyboardCodes: { start: ['Space'], cancel: ['Escape'], end: ['Space', 'Enter'] },
+      keyboardCodes: { start: ['Space'], cancel: ['Escape'], end: ['Space'] },
       coordinateGetter: timelineKeyboardCoordinates,
     }),
   )
@@ -488,7 +524,7 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
       const nextDate = shiftCloseDate(drag.item.expectedCloseAt, bucket, delta)
       void reschedule({ item: drag.item, expectedCloseAt: nextDate }).then((outcome) => {
         if (state.dealId === drag.item.id) setDrawerRefreshToken((value) => value + 1)
-        if (outcome === 'success') afterReschedule(drag.item.id, nextDate)
+        if (outcome === 'success') afterReschedule(drag.item.id, nextDate, drag.laneKey)
         else window.requestAnimationFrame(() => focusCard(drag.item.id))
       })
     },
@@ -620,6 +656,7 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
   )
   const columns = data && data.bucket === bucket ? data.columns : placeholderColumns
   const gridTemplate = `minmax(12rem, 14rem) repeat(${columns.length}, minmax(12rem, 1fr))`
+  const gridMinWidth = `${12 + columns.length * 12}rem`
   const rangeLabel = columns.length
     ? `${shortRangeFormatter.format(utcDate(columns[0].from))} – ${shortRangeFormatter.format(
         utcDate(addDays(columns[columns.length - 1].to, -1)),
@@ -890,7 +927,7 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
             <AlertTriangle className="size-4" aria-hidden="true" />
             {translateWithFallback(t, 'customers.deals.timeline.overdueBefore', '{count} overdue before {date}', {
               count: data.overdueBefore.count,
-              date: formatTimelineDate(data.from) ?? data.from,
+              date: formatTimelineDate(data.overdueBefore.before) ?? data.overdueBefore.before,
             })}
           </Button>
         </div>
@@ -965,7 +1002,7 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
             onKeyDown={handleKeyNavigation}
             className={`overflow-x-auto rounded-lg border border-border transition-opacity ${isRefreshing ? 'opacity-60' : ''}`}
           >
-            <div className="min-w-max">
+            <div className="w-full" style={{ minWidth: gridMinWidth }}>
               <div role="row" className="grid border-b border-border bg-muted/40" style={{ gridTemplateColumns: gridTemplate }}>
                 <div role="columnheader" className="sticky left-0 z-10 border-r border-border bg-muted px-2 py-2 text-xs font-semibold uppercase text-muted-foreground">
                   {groupBy === 'owner'
@@ -1096,7 +1133,7 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
       )}
 
       <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-        <StageLegend data={data} stageToneById={stageToneById} />
+        <StageLegend data={data} stageToneById={stageToneById} stageLabelById={stageLabelById} />
         {data && data.undatedCount > 0 ? (
           <Link href={undatedHref} className="font-medium text-accent-indigo hover:underline">
             {translateWithFallback(t, 'customers.deals.timeline.undated', '{count} deals have no close date', {
@@ -1123,9 +1160,11 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
 function StageLegend({
   data,
   stageToneById,
+  stageLabelById,
 }: {
   data: DealTimelineResponse | null
   stageToneById: Map<string, string>
+  stageLabelById: Map<string, string>
 }): React.ReactElement | null {
   const t = useT()
   const entries = React.useMemo(() => {
@@ -1136,12 +1175,12 @@ function StageLegend({
           if (!item.pipelineStageId || seen.has(item.pipelineStageId)) continue
           const accent = stageToneById.get(item.pipelineStageId)
           if (!accent) continue
-          seen.set(item.pipelineStageId, { label: item.pipelineStage ?? '', accent })
+          seen.set(item.pipelineStageId, { label: stageLabelById.get(item.pipelineStageId) ?? item.pipelineStage ?? '', accent })
         }
       }
     }
     return Array.from(seen.entries()).filter(([, entry]) => entry.label)
-  }, [data, stageToneById])
+  }, [data, stageToneById, stageLabelById])
   if (!entries.length) return <span />
   return (
     <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground" aria-label={translateWithFallback(t, 'customers.deals.timeline.legend', 'Stages')}>

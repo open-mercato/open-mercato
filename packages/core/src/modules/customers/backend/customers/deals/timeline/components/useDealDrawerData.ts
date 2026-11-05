@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { toUtcDateKey } from '../../../../../lib/dealsTimeline'
 import type { DealTimelineAssociation } from '../../../../../lib/dealsTimelineTypes'
 
@@ -197,30 +198,32 @@ export function useDealDrawerData(dealId: string | null): {
   return { state, reload: load }
 }
 
-let permissionsPromise: Promise<string[]> | null = null
+const permissionsPromises = new Map<number, Promise<string[]>>()
 
 export function resetDealDrawerPermissionsCache(): void {
-  permissionsPromise = null
+  permissionsPromises.clear()
 }
 
-async function loadGrantedFeatures(): Promise<string[]> {
-  if (!permissionsPromise) {
-    permissionsPromise = apiCall<{ granted?: unknown[] }>('/api/auth/feature-check', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ features: DEAL_DRAWER_FEATURES }),
+async function loadGrantedFeatures(scopeVersion: number): Promise<string[]> {
+  const cached = permissionsPromises.get(scopeVersion)
+  if (cached) return cached
+  const promise = apiCall<{ granted?: unknown[] }>('/api/auth/feature-check', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ features: DEAL_DRAWER_FEATURES }),
+  })
+    .then((call) =>
+      call.ok && Array.isArray(call.result?.granted)
+        ? call.result.granted.filter((feature): feature is string => typeof feature === 'string')
+        : [],
+    )
+    .catch(() => {
+      permissionsPromises.delete(scopeVersion)
+      return []
     })
-      .then((call) =>
-        call.ok && Array.isArray(call.result?.granted)
-          ? call.result.granted.filter((feature): feature is string => typeof feature === 'string')
-          : [],
-      )
-      .catch(() => {
-        permissionsPromise = null
-        return []
-      })
-  }
-  return permissionsPromise
+  permissionsPromises.clear()
+  permissionsPromises.set(scopeVersion, promise)
+  return promise
 }
 
 export function resolveDealDrawerPermissions(granted: string[]): Omit<DealDrawerPermissions, 'isLoading'> {
@@ -240,14 +243,15 @@ export function useDealDrawerPermissions(): DealDrawerPermissions {
     canScheduleFollowUp: false,
     isLoading: true,
   })
+  const scopeVersion = useOrganizationScopeVersion()
   React.useEffect(() => {
     let cancelled = false
-    void loadGrantedFeatures().then((granted) => {
+    void loadGrantedFeatures(scopeVersion).then((granted) => {
       if (!cancelled) setPermissions({ ...resolveDealDrawerPermissions(granted), isLoading: false })
     })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [scopeVersion])
   return permissions
 }
