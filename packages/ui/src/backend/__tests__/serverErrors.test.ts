@@ -3,6 +3,7 @@ import {
   normalizeCrudServerError,
   raiseCrudError,
   readJsonSafe,
+  resolveFieldIssueTranslation,
 } from '../utils/serverErrors'
 
 describe('serverErrors helpers', () => {
@@ -26,6 +27,33 @@ describe('serverErrors helpers', () => {
       password: 'Too small: expected string to have >=6 characters',
     })
     expect(result.message).toBe('Too small: expected string to have >=6 characters')
+  })
+
+  it('captures the Zod issue code and params alongside the field error message', () => {
+    const error = {
+      error: 'Invalid input',
+      details: [
+        {
+          origin: 'string',
+          code: 'too_big',
+          maximum: 120,
+          path: ['lastName'],
+          message: 'Too big: expected string to have <=120 characters',
+        },
+      ],
+    }
+
+    const result = mapCrudServerErrorToFormErrors(error, { customEntity: false })
+    expect(result.fieldErrors).toEqual({
+      lastName: 'Too big: expected string to have <=120 characters',
+    })
+    expect(result.fieldIssues).toEqual({
+      lastName: {
+        code: 'too_big',
+        message: 'Too big: expected string to have <=120 characters',
+        params: { maximum: 120, origin: 'string' },
+      },
+    })
   })
 
   it('keeps provided fieldErrors when available', () => {
@@ -157,5 +185,28 @@ describe('serverErrors helpers', () => {
     const response = new Response('not json', { status: 200 })
     const result = await readJsonSafe<{ ok: boolean }>(response, { ok: true })
     expect(result).toEqual({ ok: true })
+  })
+
+  it('resolveFieldIssueTranslation maps a known Zod code to a localizable key with params', () => {
+    const translation = resolveFieldIssueTranslation(
+      { code: 'too_big', message: 'Too big: expected string to have <=120 characters', params: { maximum: 120 } },
+      'Too big: expected string to have <=120 characters',
+    )
+    expect(translation).toEqual({
+      key: 'ui.forms.errors.tooBig',
+      fallback: 'Too big: expected string to have <=120 characters',
+      params: { maximum: 120 },
+    })
+  })
+
+  it('resolveFieldIssueTranslation falls back to the raw message for an unmapped or missing code', () => {
+    expect(resolveFieldIssueTranslation({ code: 'custom', message: 'Some custom check failed' }, 'Some custom check failed')).toEqual({
+      key: '',
+      fallback: 'Some custom check failed',
+    })
+    expect(resolveFieldIssueTranslation(undefined, 'stable.i18n.key')).toEqual({
+      key: '',
+      fallback: 'stable.i18n.key',
+    })
   })
 })

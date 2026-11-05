@@ -23,6 +23,7 @@ import { act, fireEvent, waitFor } from '@testing-library/react'
 import { z } from 'zod'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { CrudForm, type CrudField } from '../CrudForm'
+import { createCrudFormError } from '../utils/serverErrors'
 
 describe('CrudForm validation state', () => {
   it('renders each custom field error through exactly one declared owner', async () => {
@@ -250,6 +251,61 @@ describe('CrudForm validation state', () => {
     })
 
     expect(await findByText('This field is required')).toBeInTheDocument()
+  })
+
+  it('shows a top-level banner and a localized field message when the server rejects with field details', async () => {
+    const fields: CrudField[] = [
+      { id: 'lastName', label: 'Last name', type: 'text' },
+    ]
+
+    const serverError = createCrudFormError('Invalid input', undefined, {
+      status: 400,
+      details: [
+        {
+          origin: 'string',
+          code: 'too_big',
+          maximum: 120,
+          path: ['lastName'],
+          message: 'Too big: expected string to have <=120 characters',
+        },
+      ],
+    })
+
+    const { container, getByText, queryByText } = renderWithProviders(
+      <CrudForm
+        title="Form"
+        fields={fields}
+        onSubmit={() => {
+          throw serverError
+        }}
+      />,
+      {
+        dict: {
+          'ui.forms.actions.save': 'Save',
+          'ui.forms.errors.highlighted': 'Please fix the highlighted errors.',
+          'ui.forms.errors.tooBig': 'Value exceeds the maximum of {{maximum}}.',
+          'ui.forms.flash.saveError': 'Save failed',
+        },
+      },
+    )
+
+    const form = container.querySelector('form')
+    expect(form).not.toBeNull()
+
+    await act(async () => {
+      fireEvent.submit(form as HTMLFormElement)
+    })
+
+    // The banner stays visible even though a field error exists — it must not
+    // be hidden by `formError && !Object.keys(errors).length`.
+    await waitFor(() => {
+      expect(container.querySelector('.text-sm.text-status-error-text')).toHaveTextContent(
+        'Please fix the highlighted errors.',
+      )
+    })
+    expect(getByText('Value exceeds the maximum of 120.')).toBeInTheDocument()
+    // The raw, untranslatable Zod message must not leak to the UI.
+    expect(queryByText('Too big: expected string to have <=120 characters')).toBeNull()
   })
 
   it('does not validate date picker fields when the trigger blurs', async () => {
