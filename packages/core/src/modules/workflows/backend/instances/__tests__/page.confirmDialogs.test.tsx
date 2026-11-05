@@ -24,6 +24,7 @@ const mockConfirm = jest.fn<Promise<boolean>, [ConfirmOptions]>()
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => mockTranslate,
+  useLocale: () => 'en',
 }))
 
 jest.mock('@tanstack/react-query', () => ({
