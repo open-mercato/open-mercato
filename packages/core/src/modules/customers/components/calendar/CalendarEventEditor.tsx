@@ -9,6 +9,7 @@ import { extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/op
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { CrudForm, type CrudFormGroup, type CrudFormGroupComponentProps } from '@open-mercato/ui/backend/CrudForm'
 import { useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
@@ -206,7 +207,6 @@ const EditorBody = React.memo(function EditorBody({
   )
   const capabilities = React.useMemo(() => ({ resourcesEnabled, staffEnabled }), [resourcesEnabled, staffEnabled])
 
-  useEditorLabelResolution(open, form, update)
   // Probe against the owner the interaction will actually be SAVED with so the
   // editor warning matches the grid's post-save conflict rings: tasks own via
   // their assignee, other kinds stay ownerless on create / keep the existing
@@ -329,6 +329,7 @@ export function CalendarEventEditor({
   onSaved,
 }: CalendarEventEditorProps) {
   const t = useT()
+  const activeOrgId = useCurrentOrganization()?.id ?? null
   const [saving, setSaving] = React.useState(false)
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const dirtyRef = React.useRef(false)
@@ -388,12 +389,24 @@ export function CalendarEventEditor({
     wasOpenRef.current = open
   }, [open])
   const formKey = `${mode}:${item?.id ?? 'new'}:${openSeq}:${autoSelectedCreateType?.key ?? 'default'}`
+  const labelScopeKey = JSON.stringify([formKey, activeOrgId, item?.entityId, item?.dealId, item?.ownerUserId])
+  const [resolvedLabels, setResolvedLabels] = React.useState<{
+    scopeKey: string
+    values: Partial<EditorFormState>
+  } | null>(null)
+  const updateInitialLabels = React.useCallback((patch: Partial<EditorFormState>) => {
+    setResolvedLabels((previous) => ({
+      scopeKey: labelScopeKey,
+      values: { ...(previous?.scopeKey === labelScopeKey ? previous.values : {}), ...patch },
+    }))
+  }, [labelScopeKey])
 
   const initialValues = React.useMemo<Record<string, unknown>>(() => {
     if (isEdit && item) {
       return {
         ...parseItemToFormState(item),
         ...customFieldInitialValues(item),
+        ...(resolvedLabels?.scopeKey === labelScopeKey ? resolvedLabels.values : {}),
         id: item.id,
         updatedAt: item.updatedAt ?? undefined,
       }
@@ -406,7 +419,8 @@ export function CalendarEventEditor({
       category: autoSelectedCreateType.key,
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openSeq re-seeds defaults per dialog open
-  }, [isEdit, item, defaultDate, defaultRange, openSeq, autoSelectedCreateType])
+  }, [isEdit, item, defaultDate, defaultRange, openSeq, autoSelectedCreateType, labelScopeKey, resolvedLabels])
+  useEditorLabelResolution(open, formStateOfValues(initialValues), updateInitialLabels)
   const initialTypeKey = String(initialValues.category ?? initialValues.kind ?? 'meeting')
   React.useEffect(() => { setSelectedTypeKey(initialTypeKey) }, [initialTypeKey, formKey])
   const selectedDefinition = selectedEventType(catalog.items, selectedTypeKey)

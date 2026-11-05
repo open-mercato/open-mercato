@@ -5,6 +5,7 @@ import { sanitizeRichTextHtml } from '@open-mercato/shared/lib/html/sanitizeRich
 import { SortDir, type QueryEngine, type Where } from '@open-mercato/shared/lib/query/types'
 import { E } from '#generated/entities.ids.generated'
 import { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
+import { deriveQuantityRules } from '@open-mercato/core/modules/availability/lib/quantityRules'
 import {
   CatalogProduct,
   CatalogProductCategory,
@@ -630,11 +631,7 @@ export async function getStorefrontProductDetail(
     ),
     variants,
     selectedVariantId: selectedVariant?.id ?? null,
-    quantityRules: {
-      minOrderQuantity: policy?.minOrderQuantity?.value ?? toNumber(product.minOrderQty),
-      maxOrderQuantity: policy?.maxOrderQuantity?.value ?? toNumber(product.maxOrderQty),
-      quantityIncrement: policy?.quantityIncrement?.value ?? toNumber(product.orderQtyIncrement),
-    },
+    quantityRules: deriveQuantityRules(policy, product),
     priceTiers: selectedVariant ? selectedVariant.priceTiers : productPricing?.priceTiers ?? [],
     relatedProducts: relatedListItems(related, {
       locales,
