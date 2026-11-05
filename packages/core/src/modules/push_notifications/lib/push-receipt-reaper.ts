@@ -1,3 +1,6 @@
+import { createHash } from 'node:crypto'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import type { UserDevice } from '@open-mercato/core/modules/devices/data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { raw, type EntityName } from '@mikro-orm/core'
 import type { ChannelAdapter } from '@open-mercato/core/modules/communication_channels/lib/adapter'
@@ -181,7 +184,7 @@ export async function checkPushReceipts(
 
     // Persist the receipt-checked marks first, then run the device deactivations AFTER the flush so a
     // command that reads on the same EntityManager can never discard the pending scalar marks.
-    const toDeactivate: Array<{ id: string; tenantId: string; userId: string; organizationId: string | null }> = []
+    const toDeactivate: PushNotificationDelivery[] = []
     for (const outcome of outcomes) {
       const deliveries = byTicket.get(outcome.ticketId)
       if (!deliveries) continue
@@ -190,19 +193,34 @@ export async function checkPushReceipts(
         checked += 1
         if (outcome.unregistered) {
           delivery.lastError = DEVICE_UNREGISTERED
-          toDeactivate.push({
-            id: delivery.userDeviceId,
-            tenantId: delivery.tenantId,
-            userId: delivery.userId,
-            organizationId: delivery.organizationId ?? null,
-          })
+          toDeactivate.push(delivery)
           unregistered += 1
         }
       }
     }
     await em.flush()
-    for (const input of toDeactivate) {
-      await softDeleteUnregisteredDevice(resolve, input)
+    const DeviceRef = resolve('UserDevice') as EntityName<UserDevice>
+    for (const delivery of toDeactivate) {
+      const device = await findOneWithDecryption(em, DeviceRef, {
+        id: delivery.userDeviceId,
+        tenantId: delivery.tenantId,
+        organizationId: delivery.organizationId ?? null,
+        userId: delivery.userId,
+        deletedAt: null,
+      }, { refresh: true })
+      if (!device?.pushToken || device.pushToken.slice(-8) !== delivery.tokenSnapshot ||
+          (device.pushProvider && device.pushProvider !== delivery.provider) || !delivery.sentAt ||
+          (device.pushTokenUpdatedAt && device.pushTokenUpdatedAt > delivery.sentAt)) continue
+      await softDeleteUnregisteredDevice(resolve, {
+        id: device.id,
+        tenantId: device.tenantId,
+        organizationId: device.organizationId ?? null,
+        userId: device.userId,
+        expectedPushToken: {
+          hash: createHash('sha256').update(device.pushToken).digest('hex'),
+          updatedAt: device.pushTokenUpdatedAt ?? null,
+        },
+      })
     }
   }
 

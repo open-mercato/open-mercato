@@ -1390,6 +1390,7 @@
   "sales.quotes.send.cancel": "취소",
   "sales.quotes.send.canceled": "취소된 견적은 전송할 수 없습니다.",
   "sales.quotes.send.description": "이메일이 다음 주소로 전송됩니다:",
+  "sales.quotes.send.emailFailed": "견적이 전송됨으로 표시되었지만 이메일을 전달하지 못했습니다.",
   "sales.quotes.send.failed": "견적을 전송하지 못했습니다.",
   "sales.quotes.send.missingEmail": "견적을 전송하려면 고객 이메일이 필요합니다.",
   "sales.quotes.send.noEmail": "이메일 없음",

@@ -20,9 +20,19 @@ import { quoteSendSchema } from '../../../data/validators'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import { resolveStatusEntryIdByValue } from '../../../lib/statusHelpers'
 import { QuoteSentEmail } from '../../../emails/QuoteSentEmail'
+import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('sales')
+
+function reportQuoteSendError(error: unknown, code: 'sales.quote_email_failed' | 'sales.quote_send_failed'): void {
+  try {
+    getTelemetryRuntime()?.reportError(error, { module: 'sales', code })
+  } catch (reportFailure) {
+    logger.warn('sales.quotes.send.reportFailed', { err: reportFailure })
+  }
+}
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['sales.quotes.manage'] },
@@ -154,6 +164,15 @@ export async function POST(req: Request) {
       tx.persist(quote)
     })
 
+    await invalidateCrudCache(
+      ctx.container,
+      'sales.quote',
+      { id: quote.id, tenantId: quote.tenantId, organizationId: quote.organizationId },
+      ctx.auth?.tenantId ?? null,
+      'updated',
+    )
+    await guardResult.runAfterSuccess()
+
     const appUrl = process.env.APP_URL || ''
     const url = appUrl ? `${appUrl.replace(/\/$/, '')}/quote/${rawAcceptanceToken}` : `/quote/${rawAcceptanceToken}`
 
@@ -176,16 +195,22 @@ export async function POST(req: Request) {
       footer: translate('sales.quotes.email.footer', 'Open Mercato'),
     }
 
-    // Side effect after commit: an email failure must not roll back the send state.
-    await sendEmail({
-      to: email,
-      subject: translate('sales.quotes.email.subject', 'Quote {quoteNumber}', { quoteNumber: quote.quoteNumber }),
-      react: QuoteSentEmail({ url, copy }),
-      tenantId: quote.tenantId,
-      organizationId: quote.organizationId,
-    })
-
-    await guardResult.runAfterSuccess()
+    try {
+      await sendEmail({
+        to: email,
+        subject: translate('sales.quotes.email.subject', 'Quote {quoteNumber}', { quoteNumber: quote.quoteNumber }),
+        react: QuoteSentEmail({ url, copy }),
+        tenantId: quote.tenantId,
+        organizationId: quote.organizationId,
+      })
+    } catch (err) {
+      logger.error('sales.quotes.send email failed', { err })
+      reportQuoteSendError(err, 'sales.quote_email_failed')
+      return NextResponse.json({
+        error: translate('sales.quotes.send.emailFailed', 'Quote marked as sent, but the email could not be delivered.'),
+        quoteSent: true,
+      }, { status: 400 })
+    }
 
     return NextResponse.json({ ok: true })
   } catch (err) {
@@ -194,6 +219,7 @@ export async function POST(req: Request) {
     }
     const { translate } = await resolveTranslations()
     logger.error('sales.quotes.send failed', { err })
+    reportQuoteSendError(err, 'sales.quote_send_failed')
     return NextResponse.json(
       { error: translate('sales.quotes.send.failed', 'Failed to send quote.') },
       { status: 400 }
@@ -213,7 +239,7 @@ export const openApi: OpenApiRouteDoc = {
       },
       responses: [
         { status: 200, description: 'Email queued', schema: z.object({ ok: z.literal(true) }) },
-        { status: 400, description: 'Invalid payload', schema: z.object({ error: z.string() }) },
+        { status: 400, description: 'Invalid payload', schema: z.object({ error: z.string(), quoteSent: z.literal(true).optional() }) },
         { status: 401, description: 'Unauthorized', schema: z.object({ error: z.string() }) },
         { status: 403, description: 'Forbidden', schema: z.object({ error: z.string() }) },
         { status: 404, description: 'Not found', schema: z.object({ error: z.string() }) },

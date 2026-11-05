@@ -1390,6 +1390,7 @@
   "sales.quotes.send.cancel": "Cancelar",
   "sales.quotes.send.canceled": "No se pueden enviar cotizaciones canceladas.",
   "sales.quotes.send.description": "El correo se enviará a:",
+  "sales.quotes.send.emailFailed": "La cotización se marcó como enviada, pero no se pudo entregar el correo electrónico.",
   "sales.quotes.send.failed": "No se pudo enviar la cotización.",
   "sales.quotes.send.missingEmail": "Se requiere el correo del cliente para enviar una cotización.",
   "sales.quotes.send.noEmail": "Sin correo",
