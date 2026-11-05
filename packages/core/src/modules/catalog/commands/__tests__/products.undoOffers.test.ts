@@ -1,4 +1,4 @@
-export {}
+import { LockMode } from '@mikro-orm/core'
 
 const registerCommand = jest.fn()
 const findWithDecryption = jest.fn()
@@ -153,7 +153,7 @@ function createHarness(current: OfferRow[], elsewhere: OfferRow[] = []) {
     return [...rows, ...elsewhere].filter((row) => ids.includes(row.id))
   })
   const byId = (id: string) => rows.find((row) => row.id === id)
-  return { ctx, removed, created, byId, events }
+  return { ctx, em, removed, created, byId, events }
 }
 
 async function undoUpdate(
@@ -179,6 +179,17 @@ describe('catalog.products.update undo — offers', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     jest.resetModules()
+  })
+
+  it('reads the product offers under a row lock before comparing them', async () => {
+    const offerA = offer('offer-a', 'web')
+    const { em } = await undoUpdate([], [offerA], [offerA])
+    const offerRead = em.find.mock.calls.find(
+      ([entity]: [unknown]) => (entity as { name?: string }).name === 'CatalogOffer',
+    )
+    expect(offerRead?.[2]).toEqual(
+      expect.objectContaining({ lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true }),
+    )
   })
 
   it('keeps an offer that was added after the update', async () => {

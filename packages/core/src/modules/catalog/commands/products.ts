@@ -17,7 +17,7 @@ import {
   emitCrudUndoSideEffects,
 } from "@open-mercato/shared/lib/commands/helpers";
 import type { EntityManager, FilterQuery } from "@mikro-orm/postgresql";
-import { UniqueConstraintViolationException } from "@mikro-orm/core";
+import { LockMode, UniqueConstraintViolationException } from "@mikro-orm/core";
 import { resolveTranslations } from "@open-mercato/shared/lib/i18n/server";
 import { CrudHttpError } from "@open-mercato/shared/lib/crud/errors";
 import type {
@@ -785,7 +785,15 @@ async function restoreOffersFromSnapshot(
   snapshot: OfferSnapshot[] | null | undefined,
   baseline: OfferSnapshot[] | null | undefined,
 ): Promise<void> {
-  const existing = await em.find(CatalogOffer, { product });
+  const existing = await em.find(
+    CatalogOffer,
+    { product },
+    {
+      lockMode: LockMode.PESSIMISTIC_WRITE,
+      refresh: true,
+      orderBy: { id: "asc" },
+    },
+  );
   const list = Array.isArray(snapshot) ? snapshot : [];
   const hasBaseline = Array.isArray(baseline);
   const baselineById = new Map(
