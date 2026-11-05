@@ -22,7 +22,7 @@ Risks: previewing unsafe values, mismatching historical names, changed click beh
 
 ### Phase 2: Reach and verify actions
 - [x] 2.1 Sticky row actions with preserved eligibility and interactions — 7b4ff44607
-- [ ] 2.2 Integration coverage, configured validation, review and UI evidence
+- [x] 2.2 Integration coverage, configured validation, review and UI evidence — verified on 45ded932; source 923acf465b
 
 ## Validation
 Runner: local. No running compose app; fullapp compose probe requires missing JWT_SECRET. No env values printed.
@@ -45,3 +45,8 @@ Corrected candidate `6766182d1d`: the prepared-clone tracked hook and first six 
 
 
 Pinned-main continuation: normal merge `923acf465b584d62903f75de4a7858a570dccb07` incorporates canonical main `8687fc8e`; the scoped implementation diff remains 14 files. Immutable install, normal merge hooks, 12 row-action regression cases and the first six configured gate commands passed. First full test attempt failed after70.073s on a native UI worker SIGSEGV. The authorized unchanged ScheduleToolbar diagnostic passed10tests; the single authorized full rerun failed after255.089s on two native core worker SIGSEGVs. UI324suites/2929tests and docsbuild/24tests passed in that rerun; core2690suites/27070tests passed, with15suites/241tests skipped by existing configuration. Native crash reports identify V8 garbage-collection fault frames, without proving their cause. Source and lock stayed unchanged. App build and fresh UI verification were not run after failure; no further retries or platform changes. Exact commands, failures and cleanup are in the November5 review. Step2.2 remains blocked and unchecked; no implementation PR.
+
+
+Final supported-runtime continuation: unchanged candidate `45ded932` passed all eight configured commands on official Node 24.22.2 / Yarn 4.17.1, with normal repository caches and no policy changes. Full tests completed all 51 workspace tasks; the app build was uncached. The unchanged fresh native integration scenario passed one test at retry 0 (3.117s; managed command 286.826s), and its 1280×800 screenshot was inspected. Owned runtime cleanup was positively verified. Earlier failures remain historical evidence above. Exact commands, results, runtime provenance, teardown behavior and coverage limits are recorded in the November5 review. The UI evidence is scoped and does not grant `qa-approved`.
+
+Final independent source/evidence review: approve, no unresolved findings. Publication and GitHub review/QA state are recorded in the implementation PR description; this plan completion does not grant merge or QA approval.

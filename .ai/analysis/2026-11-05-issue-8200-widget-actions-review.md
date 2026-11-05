@@ -83,3 +83,38 @@ The full rerun passed all 324 UI suites / 2,929 tests. Docs built successfully a
 Both full attempts used unchanged commit `923acf46` and lockfile SHA256 `fbb8a9f0330defb7ba4df41b0b513ecf670a04b71a558e1a6b5f79473b1f22f5`. The failing suite paths have no implementation diff against pinned main; a separate full baseline execution was not performed. All owned processes exited and the foreground results were collected. No further retries, platform provisioning, app build or browser run followed the repeated crash.
 
 The feature remains blocked at the configured validation gate. Fresh UI evidence, implementation PR publication and post-publication review remain unexecuted. The prior passing UI run is historical evidence only. No root cause, gate waiver, QA approval or publication readiness is claimed.
+
+## Final supported-runtime validation and fresh UI evidence
+
+The previous blocked attempts above are preserved as history. Validation was resumed on unchanged candidate `45ded932e40d2f8481a26acf23ddc451b50ea365` (source identical to `923acf46`) using the official Node 24.22.2 darwin-arm64 release and Yarn 4.17.1. Its archive checksum and release signature were verified independently before execution. Node's [V8 backport](https://github.com/nodejs/node/commit/fb0d0ca289) describes the same arm64 internal-frame/root-scanning crash pattern; the corrected guard is present in the [24.22.2 tagged source](https://github.com/nodejs/node/blob/v24.22.2/deps/v8/src/builtins/arm64/builtins-arm64.cc). This complete run had no recurrence; it does not establish that every possible native crash is resolved.
+
+Runner: local, with the task-private short `TMPDIR`, `TMP`, `TEMP` and Playwright socket directory. Normal `yarn install --immutable` passed in 8.071s. External `NODE_OPTIONS` was absent. Repository heap, worker, concurrency, retry, assertion and security policies were unchanged. Source and lockfile stayed clean and identical throughout.
+
+| Configured command, in order | Result | Wall time |
+| --- | --- | --- |
+| `yarn build:packages` | Passed; 42/42 cached tasks | 0.886s |
+| `yarn generate` | Passed | 9.291s |
+| `yarn build:packages` | Passed; 42/42 cached tasks | 0.490s |
+| `yarn i18n:check-sync` | Passed | 1.063s |
+| `yarn i18n:check-usage` | Passed; unused-key advisories retained | 141.812s |
+| `yarn typecheck` | Passed; 42/42 cached tasks | 0.499s |
+| `yarn test` | Passed; 51/51 workspace tasks, 5 cached | 273.050s |
+| `yarn build:app` | Passed; uncached app build | 88.996s |
+
+The full test run passed all 16 audit-log suites, including the real DataTable/widget regression. Core passed 2,692 suites / 27,078 tests, with 15 suites / 241 tests skipped by existing configuration. UI passed 324 suites / 2,929 tests. Create-app passed 1,114 tests with six configured skips. The parent independently inspected the raw stage records and accepted the configured gate.
+
+Fresh UI command on the same candidate and runtime:
+
+```sh
+yarn test:integration:ephemeral TC-AUD-8200-row-identification --no-reuse-env --screenshots --verbose
+```
+
+The managed command passed with exit 0 in 286.826s. Playwright reported one expected pass, zero unexpected/flaky/skipped tests and no errors; the scenario itself took 3.117s at retry 0. It created its own scoped organization fixtures and verified historical names, bounded summaries, Polish states, second-precision timestamps, sticky controls through horizontal scrolling, keyboard undo of the selected record, redo, and the other record remaining unchanged. Fixtures were removed in `finally`.
+
+The fresh 1280×800 screenshot was visually inspected: four fixture rows show names and one-line summaries, with undo icons visible at the sticky right edge. Long content is ellipsized; state/timestamp columns are outside this particular screenshot but were asserted by the browser test. Screenshot SHA256: `172731e505eb38891dc819e686c0ccbc4965e2fbc62ef7121d26e8cb702aa5b6`. The old November 4 image remains historical evidence, not the corrected candidate's screenshot. Fresh evidence is retained separately for the PR description.
+
+Coverage limits: this live scenario used Chromium, a superadmin, Polish and a laptop viewport. Mobile, other roles/locales, loading/error/empty states and a live contributed-widget menu were not separately exercised in this run. Permission, pending-operation and widget composition combinations are covered by the real DataTable unit tests. This is scoped automated UI evidence, not manual QA approval or a complete complex QA matrix.
+
+The log emits a production-server exit-143 message after the passing result and shutdown/SIGTERM messages. The outer command exited 0 and Playwright reported no errors; the managed teardown sends SIGTERM to the app. Subsequent positive checks found the owned process group, observed app/worker PIDs, listener, disposable database, Ryuk and environment descriptors gone. Unrelated containers were untouched. Raw logs and provenance remain outside the publication worktree; no credentials or local runtime scripts are included in this change.
+
+A fresh independent read-only source/evidence review approved the unchanged implementation with no remaining source findings after inspecting every configured gate result, native UI results and the actual screenshot. It did not rerun the gate and is not a GitHub approval or QA sign-off. The final evidence-only documentation commit does not change the tested implementation.
