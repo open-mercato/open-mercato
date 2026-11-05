@@ -1,6 +1,7 @@
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { ProgressService } from '../../progress/lib/progressService'
 import {
@@ -50,10 +51,11 @@ export default async function handle(
   } catch (error) {
     const progressService = container.resolve('progressService') as ProgressService
     try {
+      const { translate } = await resolveTranslations()
       await progressService.failJob(
         bulkPayload.progressJobId,
         {
-          errorMessage: error instanceof Error ? error.message : 'Bulk AI categorization failed',
+          errorMessage: translate('catalog.aiCategorization.bulk.errors.workerFailed', 'Bulk AI categorization failed'),
         },
         {
           tenantId: bulkPayload.scope.tenantId,

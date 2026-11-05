@@ -12,6 +12,12 @@ jest.mock('../../lib/aiCategorization/bulkCategorize', () => ({
   categorizeProductsWithProgress: (...args: unknown[]) => mockCategorize(...args),
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(async () => ({
+    translate: (_key: string, fallback?: string) => fallback ?? _key,
+  })),
+}))
+
 import handle, { metadata } from '../catalog-product-ai-categorize'
 
 const payload = {
@@ -38,10 +44,14 @@ describe('catalog:product-ai-categorize worker', () => {
     expect(mockFailJob).not.toHaveBeenCalled()
   })
 
-  it('fails the progress job and does not rethrow, so the queue never repeats paid model calls', async () => {
-    mockCategorize.mockRejectedValue(new Error('kaboom'))
+  it('fails the progress job with a generic translated message, never the raw error text, so UI does not leak internals', async () => {
+    mockCategorize.mockRejectedValue(new Error('kaboom: pg connection string postgres://user:pass@host/db'))
     await expect(handle({ id: 'q1', payload, createdAt: new Date().toISOString() }, {} as never)).resolves.toBeUndefined()
-    expect(mockFailJob).toHaveBeenCalledWith('job-1', { errorMessage: 'kaboom' }, expect.objectContaining({ tenantId: 't' }))
+    expect(mockFailJob).toHaveBeenCalledWith(
+      'job-1',
+      { errorMessage: 'Bulk AI categorization failed' },
+      expect.objectContaining({ tenantId: 't' }),
+    )
   })
 
   it('still does not rethrow when marking the progress job failed also throws', async () => {
