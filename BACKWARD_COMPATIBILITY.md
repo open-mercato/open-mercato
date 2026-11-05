@@ -634,3 +634,11 @@ STABLE tools/execute writes bypass approval; no bridge. [Migrate](UPGRADE_NOTES.
 ## SCIM rate limiting (2026-10-27)
 
 SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: ApiRouteBeforeAuth` is additive. See [contract and migration](.ai/specs/enterprise/implemented/SPEC-ENT-004-2026-02-19-sso-directory-sync.md#migration--backward-compatibility).
+
+
+## 2026-11-05 — #8760
+
+STABLE HTTP: private file/image bytes require `attachments.view`. A bridge keeps
+the same-scope read bypass. Public/owner policy stays. [Client/operator migration](UPGRADE_NOTES.md);
+[spec](.ai/specs/2026-11-05-private-attachment-read-permission.md).
+Named human security waiver pending; merge blocked.

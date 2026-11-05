@@ -35,7 +35,7 @@ const mockEm = {
 }
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => ({
-    resolve: (key: string) => key === 'em' ? mockEm : key === 'storageDriverFactory' ? { resolveForPartition: mockResolveDriver } : key === 'rbacService' ? { loadAcl: async () => ({ isSuperAdmin: false, organizations: null }), getEffectiveFeatures: async () => ['documents.view'] } : null,
+    resolve: (key: string) => key === 'em' ? mockEm : key === 'storageDriverFactory' ? { resolveForPartition: mockResolveDriver } : key === 'rbacService' ? { loadAcl: async () => ({ isSuperAdmin: false, organizations: null }), getEffectiveFeatures: async () => ['documents.view', 'attachments.view'] } : null,
   })),
 }))
 jest.mock('@open-mercato/core/modules/attachments/lib/drivers', () => ({
