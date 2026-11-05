@@ -17,7 +17,7 @@ import {
   undoAction,
 } from './helpers/auditLogsApi'
 
-const CONCURRENT_REDOS = 6
+const CONCURRENT_REQUESTS = 6
 const UPDATE_COMMAND_ID = 'dictionaries.entries.update'
 
 type Fixtures = {
@@ -27,11 +27,12 @@ type Fixtures = {
   dictionaryId: string | null
 }
 
-type UndoneUpdate = {
+type EntryUpdate = {
   token: string
   entryId: string
   entryPath: string
   updateLogId: string
+  undoToken: string
   redoneLabel: string
 }
 
@@ -39,11 +40,11 @@ function emptyFixtures(): Fixtures {
   return { superToken: null, roleId: null, userId: null, dictionaryId: null }
 }
 
-async function createUndoneEntryUpdate(
+async function createEntryUpdate(
   request: APIRequestContext,
   fixtures: Fixtures,
   stamp: string,
-): Promise<UndoneUpdate> {
+): Promise<EntryUpdate> {
   const password = 'Aud014!Pass1'
   const email = `qa-aud-redo-race-${stamp}@acme.com`
   const superToken = await getAuthToken(request, 'superadmin')
@@ -85,10 +86,33 @@ async function createUndoneEntryUpdate(
   expect(updateLog, 'the update writes an undoable action log').toBeTruthy()
   expect(typeof updateLog!.undoToken === 'string' && updateLog!.undoToken.length > 0).toBe(true)
 
-  const undo = await undoAction(request, token, updateLog!.undoToken!)
-  expect(undo.status(), 'the update can be undone').toBe(200)
+  return {
+    token,
+    entryId: created.entryId,
+    entryPath,
+    updateLogId: updateLog!.id,
+    undoToken: updateLog!.undoToken!,
+    redoneLabel,
+  }
+}
 
-  return { token, entryId: created.entryId, entryPath, updateLogId: updateLog!.id, redoneLabel }
+async function createUndoneEntryUpdate(
+  request: APIRequestContext,
+  fixtures: Fixtures,
+  stamp: string,
+): Promise<EntryUpdate> {
+  const update = await createEntryUpdate(request, fixtures, stamp)
+  const undo = await undoAction(request, update.token, update.undoToken)
+  expect(undo.status(), 'the update can be undone').toBe(200)
+  return update
+}
+
+async function listEntryLogIds(request: APIRequestContext, token: string, entryId: string): Promise<Set<string>> {
+  const { body } = await listActionLogs(request, token, {
+    resourceKind: DICTIONARY_ENTRY_RESOURCE_KIND,
+    resourceId: entryId,
+  })
+  return new Set((body?.items ?? []).map((item) => item.id))
 }
 
 async function cleanupFixtures(request: APIRequestContext, fixtures: Fixtures) {
@@ -107,12 +131,16 @@ async function cleanupFixtures(request: APIRequestContext, fixtures: Fixtures) {
  *   - POST /api/audit_logs/audit-logs/actions/redo
  *   - POST /api/audit_logs/audit-logs/actions/undo
  *   - GET  /api/audit_logs/audit-logs/actions
+ *   - PATCH/DELETE /api/dictionaries/:dictionaryId/entries/:entryId
+ *   - GET  /api/dictionaries/:dictionaryId/entries
  *
  * Dictionary entry updates replay through the default (non-atomic) redo path.
  * Several redo requests fired at once for the same undone log must claim the
  * source log atomically: exactly one replays the command and records a new
- * action log, every other request is rejected and records nothing. A redo
- * whose command fails must release its claim so the log stays redoable. A
+ * action log, every other request is rejected and records nothing. Concurrent
+ * undos of one token likewise undo once, and a request that loses the undo
+ * claim must not release the winner's claim. A redo whose command fails must
+ * release its claim so the log stays redoable. A
  * dedicated self-scoped user owns the action so parallel specs undoing as
  * superadmin cannot change which log is the latest undone one.
  */
@@ -123,18 +151,14 @@ test.describe('TC-AUD-014: concurrent redo claims the source log once', () => {
     try {
       const { token, entryId, updateLogId, redoneLabel } = await createUndoneEntryUpdate(request, fixtures, `${Date.now()}a`)
 
-      const { body: beforeRedo } = await listActionLogs(request, token, {
-        resourceKind: DICTIONARY_ENTRY_RESOURCE_KIND,
-        resourceId: entryId,
-      })
-      const logIdsBeforeRedo = new Set((beforeRedo?.items ?? []).map((item) => item.id))
+      const logIdsBeforeRedo = await listEntryLogIds(request, token, entryId)
 
       const responses = await Promise.all(
-        Array.from({ length: CONCURRENT_REDOS }, () => redoAction(request, token, updateLogId)),
+        Array.from({ length: CONCURRENT_REQUESTS }, () => redoAction(request, token, updateLogId)),
       )
       const statuses = responses.map((response) => response.status())
       expect(statuses.filter((status) => status === 200), 'exactly one concurrent redo succeeds').toHaveLength(1)
-      expect(statuses.filter((status) => status === 400), 'every other concurrent redo is rejected').toHaveLength(CONCURRENT_REDOS - 1)
+      expect(statuses.filter((status) => status === 400), 'every other concurrent redo is rejected').toHaveLength(CONCURRENT_REQUESTS - 1)
 
       const { body: afterRedo } = await listActionLogs(request, token, {
         resourceKind: DICTIONARY_ENTRY_RESOURCE_KIND,
@@ -152,6 +176,30 @@ test.describe('TC-AUD-014: concurrent redo claims the source log once', () => {
       const entriesBody = (await entries.json()) as { items?: Array<{ id: string; label: string }> }
       const entry = (entriesBody.items ?? []).find((item) => item.id === entryId)
       expect(entry?.label, 'the redo re-applied the update').toBe(redoneLabel)
+    } finally {
+      await cleanupFixtures(request, fixtures)
+    }
+  })
+
+  test('only one of several concurrent undo requests undoes the command', async ({ request }) => {
+    const fixtures = emptyFixtures()
+
+    try {
+      const { token, entryId, updateLogId, undoToken } = await createEntryUpdate(request, fixtures, `${Date.now()}c`)
+      const logIdsBeforeUndo = await listEntryLogIds(request, token, entryId)
+
+      const responses = await Promise.all(
+        Array.from({ length: CONCURRENT_REQUESTS }, () => undoAction(request, token, undoToken)),
+      )
+      const statuses = responses.map((response) => response.status())
+      expect(statuses.filter((status) => status === 200), 'exactly one concurrent undo succeeds').toHaveLength(1)
+
+      const logIdsAfterUndo = await listEntryLogIds(request, token, entryId)
+      const newLogIds = [...logIdsAfterUndo].filter((id) => !logIdsBeforeUndo.has(id))
+      expect(newLogIds, 'the concurrent undos record exactly one undo trace').toHaveLength(1)
+
+      const source = await findActionLog(request, token, { resourceId: entryId, logId: updateLogId })
+      expect(source?.executionState, 'the source log ends up undone').toBe('undone')
     } finally {
       await cleanupFixtures(request, fixtures)
     }

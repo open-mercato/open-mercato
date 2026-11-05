@@ -856,8 +856,10 @@ export class CommandBus {
     if (!claimed) throw new Error('[internal] Redo source already consumed')
     return async () => {
       try {
-        if (transactionalEm) await releaseClaim(sourceLogId, transactionalEm)
-        else await releaseClaim(sourceLogId)
+        const released = transactionalEm
+          ? await releaseClaim(sourceLogId, transactionalEm)
+          : await releaseClaim(sourceLogId)
+        if (!released) logger.warn('Redo source claim was not held at release', { commandId, sourceLogId })
       } catch (releaseErr) {
         logger.error('Failed to release redo source claim', { commandId, sourceLogId, err: releaseErr })
         getTelemetryRuntime()?.reportError(releaseErr, {
