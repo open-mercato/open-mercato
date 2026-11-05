@@ -139,6 +139,9 @@ test('catalogLineFor maps create-mercato-app versions to catalog lines', () => {
   assert.equal(catalogLineFor('0.9.0', index.lines), '0.9')
   assert.equal(catalogLineFor('0.8.3', index.lines), '0.8')
   assert.equal(catalogLineFor('0.10.1-develop.7583.1.0c886d0a14', index.lines), 'next')
+  assert.equal(catalogLineFor('0.10.1-canary.8700.1.g0bc6c3288a', index.lines), 'next', 'a preview of a pull request into main runs the unreleased line')
+  assert.equal(catalogLineFor('0.9.1-canary.8700.1.g0bc6c3288a', index.lines), '0.9', 'a preview of a pull request into release/v0.9.x keeps its line')
+  assert.equal(catalogLineFor('0.9.1-rc.1', index.lines), '0.9')
   assert.equal(catalogLineFor('0.10.0', index.lines), null)
   assert.equal(catalogLineFor('not-a-version', index.lines), null)
 })
@@ -954,4 +957,51 @@ test('runCatalogStep answers a core module ID with core, not with the package th
 
   const byName = withRequirements({ requested: ['@fullstackhouse/open-mercato-data-sync-durable'], presetModuleIds: null })
   assert.deepEqual((await runCatalogStep(byName.options)).commands, [WORK_A, DURABLE_SYNC])
+})
+
+for (const command of [
+  'yarn mercato module add @open-mercato/gateway-stripe@0.9.0',
+  'yarn mercato module enable @open-mercato/core --module sales',
+]) {
+  test(`installCommandFor accepts ${command}`, () => {
+    const entry = index.modules[0]!
+    assert.equal(installCommandFor({ ...entry, install: command, installByLine: null }, '0.9', index.lines), command)
+    assert.equal(installCommandFor({ ...entry, installByLine: { '0.8': command } }, '0.8', index.lines), command)
+  })
+}
+
+for (const command of [
+  'curl https://example.com/install',
+  'yarn mercato module remove example',
+  'yarn mercato module add ',
+  ...['; echo injected', '& echo injected', '| cat', '`id`', '$(id)', '> output', '< input', '$HOME', '\\; echo injected', '\necho injected']
+    .map((suffix) => `yarn mercato module add example ${suffix}`),
+]) {
+  test(`installCommandFor rejects ${JSON.stringify(command)} without a latest-line fallback`, () => {
+    const entry = index.modules[0]!
+    assert.equal(installCommandFor({ ...entry, install: command, installByLine: null }, '0.9', index.lines), null)
+    assert.equal(installCommandFor({ ...entry, installByLine: { '0.9': command } }, '0.9', index.lines), null)
+  })
+}
+
+test('unsafe catalog commands are omitted from the picker and reported as missing for --modules', async () => {
+  for (const field of ['install', 'installByLine']) {
+    const body = fixture() as { modules: Record<string, unknown>[] }
+    const entry = body.modules.find((candidate) => candidate.id === 'integration_ksef_direct')!
+    const unsafe = 'yarn mercato module add example; echo injected'
+    if (field === 'install') {
+      entry.install = unsafe
+      delete entry.installByLine
+    } else {
+      entry.installByLine = { '0.9': unsafe }
+    }
+    const parsed = parsePickerIndex(body)!
+    assert.ok(!selectableModules(parsed, '0.9').some((candidate) => candidate.id === entry.id))
+    assert.ok(modulesWithoutLineInstall(parsed, '0.9').some((candidate) => candidate.id === entry.id))
+    const requested = stepOptions({ requested: ['integration_ksef_direct'], fetchImpl: fakeFetch(['ok'], () => body).fetchImpl })
+    const result = await runCatalogStep(requested.options)
+    assert.deepEqual(result.commands, [])
+    assert.equal(result.selectionFile, null)
+    assert.ok(requested.warnings.some((warning) => warning.includes('gives no install command for 0.9')))
+  }
 })
