@@ -27,10 +27,14 @@ PR: #8739
 ### Phase 1: Diagnose and repair
 
 - [x] 1.1 Diagnose the failure using logs and independent read-only analysis.
-- [ ] 1.2 Implement a focused regression fix and appropriate tests.
+- [x] 1.2 Implement a focused regression fix and appropriate tests.
 
 ### Phase 2: Validate and review
 
-- [ ] 2.1 Run configured validation and full 15-shard PR CI; fix any proven failures.
-- [ ] 2.2 Obtain an independent final review through cezar and address findings.
-- [ ] 2.3 Mark the completed PR ready and apply automerge only after green CI.
+- [x] 2.1 Run configured validation and full 15-shard PR CI; fix any proven failures.
+- [x] 2.2 Obtain an independent final review through cezar and address findings.
+- [x] 2.3 Mark the completed PR ready and apply automerge only after green CI.
+
+## Verification evidence
+
+Full CI run https://github.com/open-mercato/open-mercato/actions/runs/41955683440 passed at 3fa8eeca35, including all 15 integration shards and merge-coverage. The test-only fix is commit 92ef52988d. Independent cezar final review d0e9e280 approved 3fa8eeca35 with no findings; parent verified the diff and checks. GitHub rejected formal self-approval; verdict recorded in PR comment. Local installation was blocked by disk quota; validation source is GitHub checks, following the repo review override. Separate license/cla status remains pending and was not bypassed. PR promoted to ready and automerge requested after successful full CI. No merge performed by this run.
