@@ -30,7 +30,7 @@ Concurrency claims must use refreshed database state under lock, preserve owner/
 
 ### Phase 1: Exclusive confirmation
 
-- [ ] 1.1 Add regression coverage and a locked expected-state transition; only the winner invokes the handler.
+- [x] 1.1 Add regression coverage and a locked expected-state transition; only the winner invokes the handler. — d441ecf5a9
 - [ ] 1.2 Add self-contained concurrent confirmation integration coverage and document the existing approval lifecycle.
 
 ### Phase 2: Verification and review
