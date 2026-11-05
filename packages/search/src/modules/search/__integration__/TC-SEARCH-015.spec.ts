@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { expect, test } from '@playwright/test'
 import { getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
@@ -15,7 +16,7 @@ test('TC-SEARCH-015: Polish settings show environment hints and isolated unavail
   test.setTimeout(120_000)
   const token = await getAuthToken(request, 'admin')
   const { organizationId } = getTokenContext(token)
-  const stamp = `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  const stamp = randomUUID()
   const email = `search-diagnostics-${stamp}@example.com`
   const password = `Search-015-${stamp}!`
   let roleId: string | null = null
