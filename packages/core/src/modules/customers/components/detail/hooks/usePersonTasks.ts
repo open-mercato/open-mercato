@@ -8,6 +8,7 @@ import type { TodoLinkSummary } from '../types'
 import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { hasMoreFromPage } from '@open-mercato/shared/lib/pagination/load-more'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { CUSTOMER_INTERACTION_TASK_SOURCE } from '../../../lib/interactionCompatibility'
 
 const DEFAULT_TODO_SOURCE = CUSTOMER_INTERACTION_TASK_SOURCE
@@ -230,6 +231,10 @@ export function usePersonTasks({
         if (typeof error !== 'object' || error === null || !('status' in error) || error.status !== 403) {
           throw error
         }
+        getTelemetryRuntime()?.reportError(error, {
+          module: 'customers',
+          code: 'customers.person_tasks_legacy_fallback',
+        })
         return readPage('/api/customers/todos')
       }
     },

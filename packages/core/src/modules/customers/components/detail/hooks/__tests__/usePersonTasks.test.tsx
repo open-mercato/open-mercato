@@ -2,6 +2,7 @@
  * @jest-environment jsdom
  */
 import { act, renderHook, waitFor } from '@testing-library/react'
+import { registerTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { usePersonTasks } from '../usePersonTasks'
 import type { TodoLinkSummary } from '../../types'
 
@@ -227,8 +228,19 @@ describe('usePersonTasks load-more termination', () => {
 })
 
 describe('usePersonTasks merged customer task reads', () => {
+  const reportError = jest.fn()
+  let disposeTelemetry: () => void
+
   beforeEach(() => {
     jest.clearAllMocks()
+    disposeTelemetry = registerTelemetryRuntime({
+      canUseGlobalTracePropagation: () => false,
+      captureTraceContext: () => ({}),
+      continueTrace: (_carrier, _name, operation) => operation(),
+      recordHttpDuration: () => {},
+      reportError,
+      shutdown: async () => {},
+    })
     readApiResultOrThrowMock.mockReset()
     apiCallOrThrowMock.mockResolvedValue({ result: {} })
     buildOptimisticLockHeaderMock.mockImplementation((updatedAt: string) => ({
@@ -238,6 +250,8 @@ describe('usePersonTasks merged customer task reads', () => {
       (_headers: Record<string, string>, operation: () => Promise<unknown>) => operation(),
     )
   })
+
+  afterEach(() => disposeTelemetry())
 
   it('loads the same native tasks as the global list, scoped to the person', async () => {
     const updatedAt = '2026-10-16T10:00:00.000Z'
@@ -314,8 +328,9 @@ describe('usePersonTasks merged customer task reads', () => {
 
   it('preserves legacy reads for roles without the interactions-view permission', async () => {
     const legacyRow = { ...makeRows(1)[0], todoSource: 'example:todo' }
+    const forbidden = Object.assign(new Error('Forbidden'), { status: 403 })
     readApiResultOrThrowMock
-      .mockRejectedValueOnce(Object.assign(new Error('Forbidden'), { status: 403 }))
+      .mockRejectedValueOnce(forbidden)
       .mockResolvedValueOnce({ items: [legacyRow], total: 1, page: 1, pageSize: PAGE_SIZE })
 
     const { result } = await renderTasks()
@@ -334,15 +349,39 @@ describe('usePersonTasks merged customer task reads', () => {
     )
     expect(result.current.tasks).toEqual([expect.objectContaining({ id: legacyRow.id, todoSource: 'example:todo' })])
     expect(result.current.error).toBeNull()
+    expect(reportError).toHaveBeenCalledTimes(1)
+    expect(reportError).toHaveBeenCalledWith(forbidden, {
+      module: 'customers',
+      code: 'customers.person_tasks_legacy_fallback',
+    })
   })
 
-  it('surfaces other read failures without falling back to an incomplete task set', async () => {
-    readApiResultOrThrowMock.mockRejectedValue(Object.assign(new Error('Task service unavailable'), { status: 500 }))
+  it('preserves the legacy fallback with telemetry disabled', async () => {
+    disposeTelemetry()
+    readApiResultOrThrowMock
+      .mockRejectedValueOnce(Object.assign(new Error('Forbidden'), { status: 403 }))
+      .mockResolvedValueOnce({ items: makeRows(1), total: 1, page: 1, pageSize: PAGE_SIZE })
+
+    const { result } = await renderTasks()
+
+    expect(result.current.tasks).toHaveLength(1)
+    expect(result.current.error).toBeNull()
+    expect(reportError).not.toHaveBeenCalled()
+  })
+
+  it.each([401, 404, 500])('rethrows %s read failures without falling back to an incomplete task set', async (status) => {
+    const failure = Object.assign(new Error('Task service unavailable'), { status })
+    readApiResultOrThrowMock.mockRejectedValue(failure)
 
     const { result } = await renderTasks()
 
     expect(readApiResultOrThrowMock).toHaveBeenCalledTimes(1)
     expect(result.current.error).toBe('Task service unavailable')
+    await act(async () => {
+      await expect(result.current.refresh()).rejects.toBe(failure)
+    })
+    expect(readApiResultOrThrowMock).toHaveBeenCalledTimes(2)
+    expect(reportError).not.toHaveBeenCalled()
   })
 })
 
