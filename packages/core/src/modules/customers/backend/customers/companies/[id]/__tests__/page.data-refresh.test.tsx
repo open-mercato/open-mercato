@@ -7,11 +7,18 @@
 // tile) without a reload and without dropping the page back to its spinner.
 
 import * as React from 'react'
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import CompanyDetailPage from '../page'
 
 const readApiResultOrThrowMock = jest.fn()
+const reportErrorMock = jest.fn()
+let telemetryEnabled = true
+let latestActivitiesRefresh: (() => void | Promise<void>) | undefined
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => (telemetryEnabled ? { reportError: reportErrorMock } : undefined),
+}))
 
 jest.mock('next/link', () => ({
   __esModule: true,
@@ -81,11 +88,14 @@ jest.mock('@open-mercato/ui/backend/messages', () => ({
 }))
 
 jest.mock('../../../../../components/detail/ActivitiesSection', () => ({
-  ActivitiesSection: ({ onDataRefresh }: { onDataRefresh?: () => void | Promise<void> }) => (
-    <button type="button" data-testid="activities-refresh" onClick={() => { void onDataRefresh?.() }}>
-      refresh
-    </button>
-  ),
+  ActivitiesSection: ({ onDataRefresh }: { onDataRefresh?: () => void | Promise<void> }) => {
+    latestActivitiesRefresh = onDataRefresh
+    return (
+      <button type="button" data-testid="activities-refresh" onClick={() => { void onDataRefresh?.() }}>
+        refresh
+      </button>
+    )
+  },
 }))
 jest.mock('../../../../../components/detail/TagsSection', () => ({ TagsSection: () => null }))
 jest.mock('../../../../../components/detail/DealsSection', () => ({ DealsSection: () => null }))
@@ -129,9 +139,9 @@ jest.mock('../../../../../components/detail/InlineEditors', () => ({
 
 const companyId = '2408107d-0000-4000-8000-000000000001'
 
-function overview(nextInteractionName: string) {
+function overview(nextInteractionName: string, id: string = companyId) {
   return {
-    company: { id: companyId, displayName: 'Harborview Analytics', nextInteractionName },
+    company: { id, displayName: 'Harborview Analytics', nextInteractionName },
     profile: null,
     customFields: {},
     tags: [],
@@ -147,6 +157,9 @@ function overview(nextInteractionName: string) {
 describe('CustomerCompanyDetailPage — refresh after activity changes (#7205)', () => {
   beforeEach(() => {
     readApiResultOrThrowMock.mockReset()
+    reportErrorMock.mockReset()
+    telemetryEnabled = true
+    latestActivitiesRefresh = undefined
   })
 
   it('refetches the overview when the Activities section requests a refresh', async () => {
@@ -169,10 +182,15 @@ describe('CustomerCompanyDetailPage — refresh after activity changes (#7205)',
     expect(screen.getByTestId('activities-refresh')).toBeInTheDocument()
   })
 
-  it('keeps the current overview when the refresh fails', async () => {
+  it.each([
+    ['enabled', true],
+    ['absent', false],
+  ])('keeps the current overview when the refresh fails (telemetry %s)', async (_label, enabled) => {
+    telemetryEnabled = enabled
+    const failure = Object.assign(new Error('Network down'), { status: 500 })
     readApiResultOrThrowMock
       .mockResolvedValueOnce(overview('Call A'))
-      .mockRejectedValueOnce(Object.assign(new Error('Network down'), { status: 500 }))
+      .mockRejectedValueOnce(failure)
     renderWithProviders(<CompanyDetailPage params={{ id: companyId }} />)
 
     expect(await screen.findByTestId('next-interaction')).toHaveTextContent('Call A')
@@ -182,8 +200,46 @@ describe('CustomerCompanyDetailPage — refresh after activity changes (#7205)',
     await waitFor(() => {
       expect(readApiResultOrThrowMock).toHaveBeenCalledTimes(2)
     })
-    expect(screen.getByTestId('next-interaction')).toHaveTextContent('Call A')
+    await waitFor(() => {
+      expect(screen.getByTestId('next-interaction')).toHaveTextContent('Call A')
+    })
     expect(screen.queryByTestId('error-message')).not.toBeInTheDocument()
+    if (enabled) {
+      expect(reportErrorMock).toHaveBeenCalledTimes(1)
+      expect(reportErrorMock).toHaveBeenCalledWith(failure, expect.objectContaining({
+        module: 'customers',
+        code: 'customers.company_overview_refresh_failed',
+      }))
+    } else {
+      expect(reportErrorMock).not.toHaveBeenCalled()
+    }
+  })
+
+  it('ignores a refresh callback retained from the previous company', async () => {
+    const otherCompanyId = '2408107d-0000-4000-8000-000000000002'
+    readApiResultOrThrowMock
+      .mockResolvedValueOnce(overview('Call A'))
+      .mockResolvedValueOnce(overview('Call B', otherCompanyId))
+      .mockResolvedValue(overview('Stale A'))
+    const { rerender } = renderWithProviders(<CompanyDetailPage params={{ id: companyId }} />)
+    expect(await screen.findByTestId('next-interaction')).toHaveTextContent('Call A')
+    fireEvent.click(screen.getByTestId('tab-activities'))
+    await screen.findByTestId('activities-refresh')
+    // Mark done on company A is still in flight and holds A's refresh callback.
+    const retainedRefresh = latestActivitiesRefresh
+    expect(retainedRefresh).toBeDefined()
+
+    rerender(<CompanyDetailPage params={{ id: otherCompanyId }} />)
+    await waitFor(() => {
+      expect(screen.getByTestId('next-interaction')).toHaveTextContent('Call B')
+    })
+
+    await act(async () => {
+      await retainedRefresh?.()
+    })
+    expect(screen.getByTestId('next-interaction')).toHaveTextContent('Call B')
+    expect(readApiResultOrThrowMock).toHaveBeenCalledTimes(2)
+    expect(screen.queryByTestId('record-not-found')).not.toBeInTheDocument()
   })
 
   it.each([

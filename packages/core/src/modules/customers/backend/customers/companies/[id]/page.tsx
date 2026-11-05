@@ -40,6 +40,7 @@ import { InlineDictionaryEditor, renderMultilineMarkdownDisplay } from '../../..
 import { formatTemplate } from '../../../../components/detail/utils'
 import { coerceDisplayName } from '../../../../lib/displayName'
 import { isDetailNotFoundStatus } from '@open-mercato/core/modules/customers/lib/detailHelpers'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import {
   CompanyPeopleSection,
@@ -289,6 +290,11 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
   const loadRequestRef = React.useRef(0)
   // The company whose overview is on screen; null while an error or not-found state replaces it.
   const loadedCompanyIdRef = React.useRef<string | null>(null)
+  // The company the page currently targets. A child may still hold a previous
+  // company's loadData (e.g. a Mark done that resolves after navigation); such
+  // a call must not start a request that would replace this company's overview.
+  const activeCompanyIdRef = React.useRef(id)
+  activeCompanyIdRef.current = id
   const loadData = React.useCallback(async () => {
     if (!id) {
       setIsNotFound(true)
@@ -296,6 +302,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       return
     }
     const companyId = id
+    if (activeCompanyIdRef.current !== companyId) return
     const requestId = ++loadRequestRef.current
     // A refresh of the company already on screen keeps the page (and any
     // unsaved inline drafts) mounted instead of flipping back to the spinner.
@@ -328,6 +335,13 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
         loadedCompanyIdRef.current = null
         setError(message)
         setData(null)
+      } else {
+        // Background refresh: keep the overview on screen, but report the failure.
+        getTelemetryRuntime()?.reportError(err, {
+          module: 'customers',
+          code: 'customers.company_overview_refresh_failed',
+          attributes: { companyId },
+        })
       }
     } finally {
       if (requestId === loadRequestRef.current) setIsLoading(false)
