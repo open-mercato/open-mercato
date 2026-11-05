@@ -736,6 +736,11 @@ Two test cases were realized differently from the § Testing Strategy table. Bot
 
 ## Changelog
 
+### 2026-11-05 — review fix: Stop no longer waits on a post-save read (`om-auto-fix-pr`)
+
+- **A stalled read after a saved note no longer blocks Stop.** The running-note save awaited the active-timer refresh (and its project-display lookup) before reporting the note saved, and Stop joins that save, so a refresh that never settled kept Stop from ever sending `timer-stop`. The save now reports its outcome as soon as the `PUT` settles; the version re-read runs after it, still keeping the note field disabled so the next edit is sent on the new `updatedAt`, but bounded by the module's `REQUEST_TIMEOUT_MS` (12 s) so a stalled read re-enables the field. `timer-stop` sends no version header, so Stop never needed that read. The refresh after a successful stop is bounded the same way, so a stalled read cannot leave Stop disabled or skip `onTimerStopped`.
+- Tests: `TimerBar.stopIndependentOfNote.test.tsx` — Stop with a stalled refresh after a saved note, Stop joining a blur save whose refresh is pending, and the next edit carrying the refreshed version.
+
 ### 2026-10-30 — QA retest fixes, #8236 (`om-auto-fix-pr`)
 
 - **Stop always stops the timer.** Saving an edited note and stopping are separate writes, and a note that cannot be saved (an optimistic-lock or record-lock conflict, a record lock held by someone else, a widget blocking the save, a failed request) no longer cancels the stop. The timer stops, the typed text stays in the field, and a `staff.timesheets.my.timer.stoppedNoteNotSaved` warning says the note was not saved onto the stopped entry; a conflict bar the failed note save had raised is dismissed. A stop that itself fails is still reported, with the note failure surfaced alongside. Supersedes the earlier "a failed note save keeps the timer running" rule.

@@ -302,6 +302,122 @@ describe('TimerBar — Stop does not depend on the note save', () => {
   })
 })
 
+describe('TimerBar — Stop does not wait for the read that follows a saved note', () => {
+  const STALLED_READ_BOUND_MS = 12_000
+
+  function stallEveryRefresh() {
+    mockRefresh.mockImplementation(() => new Promise<MockTimerState>(() => undefined))
+  }
+
+  function respondOk() {
+    apiCallOrThrowMock.mockImplementation(async () => ({ ok: true, result: { ok: true } }))
+  }
+
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  it('sends timer-stop when the refresh after a saved note never settles, and does not report the note as unsaved', async () => {
+    jest.useFakeTimers()
+    stallEveryRefresh()
+    respondOk()
+    const onTimerStopped = jest.fn()
+
+    renderTimerBar(onTimerStopped)
+    await waitFor(() => expect(noteInput()).toHaveValue('Build task'))
+
+    fireEvent.change(noteInput(), { target: { value: 'Build task, reviewed' } })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Stop timer' }))
+    })
+
+    await waitFor(() => expect(stopCalls()).toHaveLength(1))
+    expect(notesPutCalls()).toHaveLength(1)
+    expect(JSON.parse(String((notesPutCalls()[0][1] as { body?: string }).body))).toEqual({
+      id: 'entry-1',
+      notes: 'Build task, reviewed',
+    })
+    expect(stopCalls()[0][0]).toBe('/api/staff/timesheets/time-entries/entry-1/timer-stop')
+    expect(flashMock).not.toHaveBeenCalledWith(expect.stringContaining('Timer stopped, but'), 'warning')
+    expect(noteInput()).toHaveValue('')
+
+    await act(async () => {
+      jest.advanceTimersByTime(STALLED_READ_BOUND_MS)
+    })
+
+    await waitFor(() => expect(onTimerStopped).toHaveBeenCalledTimes(1))
+    expect(noteInput()).not.toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Stop timer' })).not.toBeDisabled()
+    expect(flashMock).not.toHaveBeenCalled()
+  })
+
+  it('sends timer-stop after a blur save whose refresh is still pending', async () => {
+    jest.useFakeTimers()
+    stallEveryRefresh()
+    respondOk()
+
+    renderTimerBar()
+    await waitFor(() => expect(noteInput()).toHaveValue('Build task'))
+
+    fireEvent.change(noteInput(), { target: { value: 'Typed, then blurred' } })
+    await act(async () => {
+      fireEvent.blur(noteInput())
+    })
+    await waitFor(() => expect(mockRefresh).toHaveBeenCalledTimes(1))
+    expect(notesPutCalls()).toHaveLength(1)
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Stop timer' }))
+    })
+
+    await waitFor(() => expect(stopCalls()).toHaveLength(1))
+    expect(notesPutCalls()).toHaveLength(1)
+    expect(flashMock).not.toHaveBeenCalledWith(expect.stringContaining('Timer stopped, but'), 'warning')
+
+    await act(async () => {
+      jest.advanceTimersByTime(STALLED_READ_BOUND_MS)
+    })
+    await waitFor(() => expect(noteInput()).not.toBeDisabled())
+  })
+
+  it('keeps the note field disabled until the version refresh settles, then saves the next edit on the new version', async () => {
+    let resolveRefresh: (state: MockTimerState) => void = () => undefined
+    mockRefresh.mockImplementation(
+      () =>
+        new Promise<MockTimerState>((resolve) => {
+          resolveRefresh = resolve
+        }),
+    )
+    respondOk()
+
+    renderTimerBar()
+    await waitFor(() => expect(noteInput()).toHaveValue('Build task'))
+
+    fireEvent.change(noteInput(), { target: { value: 'First edit' } })
+    await act(async () => {
+      fireEvent.keyDown(noteInput(), { key: 'Enter' })
+    })
+    await waitFor(() => expect(mockRefresh).toHaveBeenCalledTimes(1))
+    expect(noteInput()).toBeDisabled()
+
+    await act(async () => {
+      mockTimerStore.set({ notes: 'First edit', updatedAt: '2026-01-01T08:05:00.000Z' })
+      resolveRefresh(mockTimerStore.state)
+    })
+    await waitFor(() => expect(noteInput()).not.toBeDisabled())
+
+    const withScopedApiRequestHeadersMock = jest.requireMock('@open-mercato/ui/backend/utils/apiCall')
+      .withScopedApiRequestHeaders as jest.Mock
+    withScopedApiRequestHeadersMock.mockClear()
+    fireEvent.change(noteInput(), { target: { value: 'Second edit' } })
+    await act(async () => {
+      fireEvent.keyDown(noteInput(), { key: 'Enter' })
+    })
+    await waitFor(() => expect(notesPutCalls()).toHaveLength(2))
+    expect(JSON.stringify(withScopedApiRequestHeadersMock.mock.calls[0][0])).toContain('2026-01-01T08:05:00.000Z')
+  })
+})
+
 describe('TimerBar — guarded writes do not open a record-lock editing session', () => {
   it('sends start, note and stop writes without a record-lock resource', async () => {
     apiCallOrThrowMock.mockImplementation(async (url: string) => {

@@ -25,6 +25,7 @@ import { useTimesheetPreference } from './useTimesheetPreference'
 import { resolveSeedProjectId } from './resolveSeedProjectId'
 import { startTimerEntry } from './startTimer'
 import { isConflictError, isRecordLockedError, resolveTimerActionError } from './timerErrors'
+import { REQUEST_TIMEOUT_MS } from './readApiResultWithTimeout'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('staff')
@@ -74,6 +75,26 @@ function formatElapsed(seconds: number): string {
   const m = Math.floor((seconds % 3600) / 60)
   const s = seconds % 60
   return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+}
+
+/**
+ * Waits for `work` for at most `timeoutMs`, resolving `true` when it settled in
+ * time and `false` when the deadline passed first. `work` keeps running either way.
+ */
+async function settleWithin(work: Promise<unknown>, timeoutMs: number): Promise<boolean> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+  const deadline = new Promise<false>((resolve) => {
+    timeoutId = setTimeout(() => resolve(false), timeoutMs)
+  })
+  const settled = work.then(
+    () => true as const,
+    () => true as const,
+  )
+  try {
+    return await Promise.race([settled, deadline])
+  } finally {
+    clearTimeout(timeoutId)
+  }
 }
 
 function getToday(): string {
@@ -462,6 +483,29 @@ function DefaultTimerBar({
     )
   }, [adoptLatestNote, t])
 
+  /**
+   * A note save bumps the entry's version, so the field stays disabled until the
+   * re-read brings the new one in; an edit sent on the stale version would trip a
+   * false optimistic-lock conflict. This runs after the save has settled and is
+   * bounded: it is a read, so it must never hold back the save's outcome (which
+   * Stop waits for) or keep the field disabled when the request stalls.
+   */
+  const syncNoteVersionAfterSave = useCallback(async () => {
+    try {
+      const settled = await settleWithin(
+        refreshActiveTimer().catch((refreshErr: unknown) => {
+          logger.warn('staff.timesheets.timer.refreshAfterNoteSaveFailed', { err: refreshErr })
+        }),
+        REQUEST_TIMEOUT_MS,
+      )
+      if (!settled) {
+        logger.warn('staff.timesheets.timer.refreshAfterNoteSaveTimedOut', { timeoutMs: REQUEST_TIMEOUT_MS })
+      }
+    } finally {
+      setIsSavingDescription(false)
+    }
+  }, [refreshActiveTimer])
+
   const persistRunningDescription = useCallback(async (
     entryId: string,
     normalizedDescription: string,
@@ -487,19 +531,14 @@ function DefaultTimerBar({
         },
         mutationPayload: notesPayload,
       })
-      setPersistedDescription(normalizedDescription)
-      // The save bumped the entry's version; without re-reading it the next note
-      // edit would send the stale one and trip a false optimistic-lock conflict.
-      await refreshActiveTimer().catch((refreshErr: unknown) => {
-        logger.warn('staff.timesheets.timer.refreshAfterNoteSaveFailed', { err: refreshErr })
-      })
-      return NOTE_SAVED
     } catch (error) {
-      return { ok: false, error }
-    } finally {
       setIsSavingDescription(false)
+      return { ok: false, error }
     }
-  }, [runMutation, staffMemberId, retryLastMutation, refreshActiveTimer])
+    setPersistedDescription(normalizedDescription)
+    void syncNoteVersionAfterSave()
+    return NOTE_SAVED
+  }, [runMutation, staffMemberId, retryLastMutation, syncNoteVersionAfterSave])
 
   const saveRunningDescription = useCallback((): Promise<NoteSaveOutcome> => {
     // Clicking Stop right after editing the note fires the input's blur save and
@@ -603,9 +642,15 @@ function DefaultTimerBar({
           'warning',
         )
       }
-      await activeTimer.refresh().catch((refreshErr: unknown) => {
-        logger.warn('staff.timesheets.timer.refreshAfterStopFailed', { err: refreshErr })
-      })
+      const refreshed = await settleWithin(
+        activeTimer.refresh().catch((refreshErr: unknown) => {
+          logger.warn('staff.timesheets.timer.refreshAfterStopFailed', { err: refreshErr })
+        }),
+        REQUEST_TIMEOUT_MS,
+      )
+      if (!refreshed) {
+        logger.warn('staff.timesheets.timer.refreshAfterStopTimedOut', { timeoutMs: REQUEST_TIMEOUT_MS })
+      }
       onTimerStopped()
     } finally {
       stopInProgressRef.current = false
