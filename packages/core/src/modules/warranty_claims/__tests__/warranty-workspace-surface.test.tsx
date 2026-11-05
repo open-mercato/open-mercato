@@ -42,6 +42,8 @@ describe('WarrantyWorkspace embedded table surfaces', () => {
     try {
       const workspaceContent = container.querySelector('section')?.lastElementChild
       const utilities = workspaceContent?.className.split(/\s+/) ?? []
+      expect(workspaceContent?.querySelectorAll('[data-slot=table-header]')).toHaveLength(1)
+      expect(utilities).toContain('[&_[data-slot=table-header]]:bg-card')
       const headerSelector = '[data-slot=table-head][class*=sticky]'
       const pinnedHeaders = workspaceContent?.querySelectorAll(headerSelector)
       expect(pinnedHeaders).toHaveLength(2)
