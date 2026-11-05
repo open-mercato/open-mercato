@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { login } from '@open-mercato/core/helpers/integration/auth'
-import english from '../i18n/en.json'
-import polish from '../i18n/pl.json'
+import english from '../i18n/en.json' with { type: 'json' }
+import polish from '../i18n/pl.json' with { type: 'json' }
 
 for (const [locale, dictionary] of [['en', english], ['pl', polish]] as const) {
   test(`custom entity help is localized in ${locale} on desktop and mobile`, async ({ page, baseURL }) => {
