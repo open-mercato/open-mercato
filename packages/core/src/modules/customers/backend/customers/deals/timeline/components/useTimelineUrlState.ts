@@ -162,15 +162,21 @@ export function useTimelineUrlState() {
   const state = React.useMemo(() => parseTimelineUrlState(new URLSearchParams(paramsKey)), [paramsKey])
   const stateRef = React.useRef(state)
   stateRef.current = state
+  const pendingStateRef = React.useRef<TimelineUrlState | null>(null)
+
+  React.useEffect(() => {
+    pendingStateRef.current = null
+  }, [paramsKey])
 
   const update = React.useCallback(
     (patch: TimelineUrlStatePatch, options?: { history?: 'push' | 'replace' }) => {
-      const current = stateRef.current
+      const current = pendingStateRef.current ?? stateRef.current
       const next: TimelineUrlState = {
         ...current,
         ...patch,
         filters: patch.filters ? normalizeTimelineFilters(patch.filters) : current.filters,
       }
+      pendingStateRef.current = next
       const query = buildTimelineSearchParams(next).toString()
       const href = query ? `${pathname}?${query}` : pathname
       if (options?.history === 'push') router.push(href, { scroll: false })

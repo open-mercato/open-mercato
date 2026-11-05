@@ -162,12 +162,25 @@ function isPerspectivesState(value: unknown): value is PerspectivesState {
  *   because there is no reliable mapping back to the new operator model;
  *   the user sees an empty tree and can recreate.
  */
+function isVersionedNamespacedFilters(record: Record<string, unknown>): boolean {
+  const entries = Object.values(record)
+  if (entries.length === 0) return false
+  return entries.every(
+    (entry) =>
+      !!entry
+      && typeof entry === 'object'
+      && !Array.isArray(entry)
+      && typeof (entry as Record<string, unknown>).v === 'number',
+  )
+}
+
 export function maybeMigrateLegacyFilterValues(settings: PerspectiveSettings): PerspectiveSettings {
   const filters = settings.filters
   if (!filters || typeof filters !== 'object') return settings
   const record = filters as Record<string, unknown>
   if ('v' in record && record.v === 2) return settings
   if ('root' in record) return settings
+  if (isVersionedNamespacedFilters(record)) return settings
   logger.warn('Dropping legacy filterValues shape; please re-create the perspective with the new filter UI.')
   return { ...settings, filters: undefined }
 }
