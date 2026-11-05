@@ -8,6 +8,7 @@ import type {
   IndexableRecord,
   PresenterEnricherFn,
 } from './types'
+import { getSearchModuleConfigs } from '@open-mercato/shared/modules/search'
 import { mergeAndRankResults } from './lib/merger'
 import { searchError } from './lib/debug'
 
@@ -123,6 +124,7 @@ export class SearchService {
   private readonly fallbackStrategy: SearchStrategyId | undefined
   private readonly mergeConfig: ResultMergeConfig
   private readonly presenterEnricher?: PresenterEnricherFn
+  private readonly resolveEntityStrategies?: SearchServiceOptions['resolveEntityStrategies']
   private readonly availabilityCache = new Map<SearchStrategyId, { value: boolean; expiresAt: number }>()
   private readonly availabilityInflight = new Map<SearchStrategyId, Promise<boolean>>()
   private readonly availabilityCacheTtlMs: number
@@ -136,6 +138,7 @@ export class SearchService {
     this.fallbackStrategy = options.fallbackStrategy
     this.mergeConfig = options.mergeConfig ?? DEFAULT_MERGE_CONFIG
     this.presenterEnricher = options.presenterEnricher
+    this.resolveEntityStrategies = options.resolveEntityStrategies
     this.availabilityCacheTtlMs = options.availabilityCacheTtlMs ?? STRATEGY_AVAILABILITY_CACHE_TTL_MS
   }
 
@@ -256,7 +259,9 @@ export class SearchService {
    * @param record - Record to index
    */
   async index(record: IndexableRecord): Promise<void> {
-    const strategies = await this.getAvailableStrategies()
+    const strategies = (await this.getAvailableStrategies()).filter((strategy) =>
+      this.isIndexStrategyAllowed(record.entityId, strategy.id),
+    )
 
     if (strategies.length === 0) {
       return
@@ -301,12 +306,14 @@ export class SearchService {
 
     const results = await Promise.allSettled(
       strategies.map((strategy) => {
+        const allowedRecords = records.filter((record) => this.isIndexStrategyAllowed(record.entityId, strategy.id))
+        if (allowedRecords.length === 0) return Promise.resolve()
         if (strategy.bulkIndex) {
-          return strategy.bulkIndex(records)
+          return strategy.bulkIndex(allowedRecords)
         }
         // Fallback to individual indexing, bounded so a strategy without a batch
         // implementation cannot turn one batch job into hundreds of concurrent writes.
-        return mapWithConcurrency(records, BULK_INDEX_FALLBACK_CONCURRENCY, (record) =>
+        return mapWithConcurrency(allowedRecords, BULK_INDEX_FALLBACK_CONCURRENCY, (record) =>
           this.executeStrategyIndex(strategy, record),
         )
       }),
@@ -513,6 +520,20 @@ export class SearchService {
     })()
     this.availabilityInflight.set(strategy.id, probe)
     return probe
+  }
+
+  private isIndexStrategyAllowed(entityId: string, strategyId: SearchStrategyId): boolean {
+    if (this.resolveEntityStrategies) {
+      const allowedStrategies = this.resolveEntityStrategies(entityId)
+      return allowedStrategies === undefined || allowedStrategies.includes(strategyId)
+    }
+    let allowedStrategies: SearchStrategyId[] | undefined
+    for (const moduleConfig of getSearchModuleConfigs()) {
+      for (const entityConfig of moduleConfig.entities) {
+        if (entityConfig.entityId === entityId) allowedStrategies = entityConfig.strategies
+      }
+    }
+    return allowedStrategies === undefined || allowedStrategies.includes(strategyId)
   }
 
   /**

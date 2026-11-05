@@ -15,7 +15,10 @@
     "test": "jest --config jest.config.cjs --forceExit"
   },
   "exports": {
-    ".": "./dist/index.js",
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
     "./modules/ai_assistant": {
       "types": "./src/modules/ai_assistant/index.ts",
       "default": "./dist/modules/ai_assistant/index.js"
