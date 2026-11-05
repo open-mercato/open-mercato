@@ -27,7 +27,7 @@ import type { AiActionConfirmedPayload } from '../events'
 import type { AiAgentDefinition } from './ai-agent-definition'
 import type { AiToolDefinition, McpToolContext } from './types'
 import { hasRequiredFeatures } from './auth'
-import { resolveToolFeaturesDeniedMessage } from './pending-action-messages'
+import { resolvePendingActionAlreadyResolvedMessage, resolveToolFeaturesDeniedMessage } from './pending-action-messages'
 import type {
   AiPendingActionExecutionResult,
   AiPendingActionFailedRecord,
@@ -431,7 +431,7 @@ export async function executePendingActionConfirm(
       ok: false,
       action: current,
       executionResult: current.executionResult ?? {
-        error: { code: 'invalid_status', message: `Action is in status "${current.status}".` },
+        error: { code: 'invalid_status', message: await resolvePendingActionAlreadyResolvedMessage() },
       },
       cause: error,
     }

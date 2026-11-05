@@ -149,6 +149,36 @@ describe('executePendingActionConfirm', () => {
     expect(repo.current.executionResult).toEqual({ recordId: 'p-1' })
   })
 
+  it.each(['cancelled', 'expired', 'failed'] as const)('localizes a lost claim to %s without invoking a handler or emitting', async (status) => {
+    registerModules([
+      { id: 'ai_assistant', translations: { pl: plTranslations } },
+    ] as unknown as Parameters<typeof registerModules>[0])
+    requestHeaders.acceptLanguage = 'pl'
+    try {
+      const repo = makeRepoStub(makeAction({ status }))
+      const handler = jest.fn()
+      const emitEvent = jest.fn()
+      const result = await executePendingActionConfirm({
+        action: makeAction(),
+        agent: makeAgent(),
+        tool: makeTool({ handler }),
+        ctx: makeCtx(),
+        repo: repo as unknown as AiPendingActionRepository,
+        emitEvent,
+      })
+      expect(result.ok).toBe(false)
+      expect(result.action.status).toBe(status)
+      expect(result.executionResult.error).toEqual({
+        code: 'invalid_status',
+        message: plTranslations['ai_assistant.chat.mutation_cards.confirmation.invalidStatusBody'],
+      })
+      expect(handler).not.toHaveBeenCalled()
+      expect(emitEvent).not.toHaveBeenCalled()
+    } finally {
+      requestHeaders.acceptLanguage = ''
+    }
+  })
+
   it('transitions pending → confirmed → executing → confirmed on handler success and emits typed ai.action.confirmed', async () => {
     const repo = makeRepoStub(makeAction())
     const emitEvent = jest.fn().mockResolvedValue(undefined)
