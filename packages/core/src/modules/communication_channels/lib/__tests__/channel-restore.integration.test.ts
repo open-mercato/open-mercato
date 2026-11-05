@@ -28,7 +28,9 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => {
 const lockContender: { waiting: (() => void) | null } = { waiting: null }
 
 jest.mock('@open-mercato/shared/lib/db/advisoryLock', () => {
-  const actual = jest.requireActual('@open-mercato/shared/lib/db/advisoryLock')
+  const actual = jest.requireActual<typeof import('@open-mercato/shared/lib/db/advisoryLock')>(
+    '@open-mercato/shared/lib/db/advisoryLock',
+  )
   return {
     ...actual,
     withAdvisoryXactLock: (...args: Parameters<typeof actual.withAdvisoryXactLock>) => {

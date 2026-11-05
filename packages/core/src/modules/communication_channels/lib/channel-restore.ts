@@ -1,5 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { conflict } from '@open-mercato/shared/lib/crud/errors'
 import { withAdvisoryXactLock } from '@open-mercato/shared/lib/db/advisoryLock'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -154,12 +154,12 @@ export async function assertChannelRestorable(
   const duplicate = await findActiveDuplicateChannel(em, channel, record)
   if (!duplicate) return
   const { translate } = await resolveTranslations()
-  throw new CrudHttpError(409, {
-    error: translate(
+  throw conflict(
+    translate(
       'communication_channels.errors.undoRestoreDuplicate',
       'This channel was connected again after it was deleted. Delete the newer connection before undoing this delete.',
     ),
-  })
+  )
 }
 
 /**
