@@ -39,13 +39,10 @@ async function expectAnnouncedRecipient(page: Page, email: string): Promise<void
 
 async function expectNoRecipient(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'Actions', exact: true }).hover()
-  await page.getByRole('menuitem', { name: 'Send to customer', exact: true }).click()
-  const dialog = page.getByRole('dialog', { name: 'Send quote to customer' })
-  await expect(dialog).toBeVisible()
-  await expect(dialog.getByText('Email will be sent to: No email'), 'the dialog has no recipient').toBeVisible()
-  await expect(dialog.getByRole('button', { name: 'Send quote', exact: true }), 'sending needs a recipient').toBeDisabled()
-  await page.keyboard.press('Escape')
-  await expect(dialog).toBeHidden()
+  await expect(
+    page.getByRole('menuitem', { name: 'Send to customer', exact: true }),
+    'sending needs a recipient',
+  ).toBeDisabled()
 }
 
 async function saveCustomerCard(page: Page): Promise<void> {
