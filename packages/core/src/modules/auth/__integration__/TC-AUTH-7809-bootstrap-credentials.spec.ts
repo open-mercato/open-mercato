@@ -69,7 +69,7 @@ test.describe('TC-AUTH-7809: Initialized bootstrap credentials', () => {
           headers: { Cookie: `auth_token=${token}` },
           maxRedirects: 0,
         })))
-        expect(logouts.every((result) => result.status === 'fulfilled' && result.value.status() === 307),
+        expect(logouts.every((result) => result.status === 'fulfilled' && result.value.status() === 303),
           'Revoke every session issued by this test').toBe(true)
       }
     })
