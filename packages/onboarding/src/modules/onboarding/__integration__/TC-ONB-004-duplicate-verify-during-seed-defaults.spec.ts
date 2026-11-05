@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { expect, test, type APIRequestContext } from '@playwright/test';
-import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures';
+import { withClient, type IntegrationDbClient } from '@open-mercato/core/helpers/integration/dbFixtures';
 import { lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes';
 
 export const integrationMeta = {
@@ -139,10 +139,60 @@ async function warmUpRoutes(request: APIRequestContext): Promise<void> {
   await pollOnboardingStatus(request, randomUUID());
 }
 
-async function deleteOnboardingRequest(requestId: string): Promise<void> {
+async function purgeOnboardingFixture(email: string, knownTenantId: string | null): Promise<void> {
   await withClient(async (client) => {
-    await client.query('delete from onboarding_requests where id = $1', [requestId]);
+    const requests = await client.query<{ tenant_id: string | null }>(
+      'select tenant_id from onboarding_requests where email_hash = any($1::text[])',
+      [lookupHashCandidates(email)],
+    );
+    const tenantIds = new Set<string>();
+    if (knownTenantId) tenantIds.add(knownTenantId);
+    for (const row of requests.rows) if (row.tenant_id) tenantIds.add(row.tenant_id);
+    for (const tenantId of tenantIds) await purgeTenantWorkspace(client, tenantId);
+    await client.query('delete from onboarding_requests where email_hash = any($1::text[])', [lookupHashCandidates(email)]);
   });
+}
+
+async function purgeTenantWorkspace(client: IntegrationDbClient, tenantId: string): Promise<void> {
+  const untenantedChildren = await client.query<{ child: string; child_column: string; parent: string; parent_column: string }>(
+    `select child.relname as child, child_col.attname as child_column, parent.relname as parent, parent_col.attname as parent_column
+       from pg_constraint fk
+       join pg_class child on child.oid = fk.conrelid
+       join pg_class parent on parent.oid = fk.confrelid
+       join pg_attribute child_col on child_col.attrelid = fk.conrelid and child_col.attnum = fk.conkey[1]
+       join pg_attribute parent_col on parent_col.attrelid = fk.confrelid and parent_col.attnum = fk.confkey[1]
+      where fk.contype = 'f'
+        and array_length(fk.conkey, 1) = 1
+        and fk.connamespace = current_schema()::regnamespace
+        and not exists (select 1 from pg_attribute a where a.attrelid = fk.conrelid and a.attname = 'tenant_id' and not a.attisdropped)
+        and exists (select 1 from pg_attribute a where a.attrelid = fk.confrelid and a.attname = 'tenant_id' and not a.attisdropped)`,
+  );
+  for (const link of untenantedChildren.rows) {
+    await client.query(
+      `delete from "${link.child}" where "${link.child_column}" in (select "${link.parent_column}" from "${link.parent}" where tenant_id = $1)`,
+      [tenantId],
+    );
+  }
+  const tenantTables = await client.query<{ table_name: string }>(
+    `select table_name from information_schema.columns
+      where table_schema = current_schema() and column_name = 'tenant_id'
+        and table_name in (select table_name from information_schema.tables where table_schema = current_schema() and table_type = 'BASE TABLE')`,
+  );
+  let pending = tenantTables.rows.map((row) => row.table_name);
+  for (let pass = 0; pending.length > 0 && pass < 20; pass += 1) {
+    const blocked: string[] = [];
+    for (const table of pending) {
+      try {
+        await client.query(`delete from "${table}" where tenant_id = $1`, [tenantId]);
+      } catch (error) {
+        if ((error as { code?: string }).code !== '23503') throw error;
+        blocked.push(table);
+      }
+    }
+    pending = blocked;
+  }
+  if (pending.length > 0) throw new Error(`[internal] could not purge tenant ${tenantId} from: ${pending.join(', ')}`);
+  await client.query('delete from tenants where id = $1', [tenantId]);
 }
 
 function pollOnboardingStatus(request: APIRequestContext, tenantId: string) {
@@ -159,51 +209,56 @@ test.describe('TC-ONB-004: duplicate verify while seedDefaults is still running'
     const token = `integration-duplicate-verify-${randomUUID().replace(/-/g, '')}`;
     const verifyUrl = `${BASE_URL}/api/onboarding/onboarding/verify?token=${encodeURIComponent(token)}`;
 
-    await submitOnboarding(request, email, `QA Duplicate Verify ${unique}`);
-    const requestId = await replaceVerificationToken(email, token);
-    await warmUpRoutes(request);
-
-    const lock = await holdCurrenciesWriteLock();
-    let lockReleased = false;
-    let originalVerify: ReturnType<APIRequestContext['get']> | null = null;
+    let tenantId: string | null = null;
     try {
-      originalVerify = request.get(verifyUrl, { maxRedirects: 0, timeout: 120_000 });
-      const tenantId = await waitForSeedDefaultsBlocked(requestId, lock.pid);
-      const blockedAt = Date.now();
+      await submitOnboarding(request, email, `QA Duplicate Verify ${unique}`);
+      const requestId = await replaceVerificationToken(email, token);
+      await warmUpRoutes(request);
 
-      const duplicate = await request.get(verifyUrl, { maxRedirects: 0 });
-      expect(duplicate.status()).toBe(307);
-      expect(duplicate.headers()['location']).toContain(`/onboarding/preparing?tenant=${tenantId}`);
+      const lock = await holdCurrenciesWriteLock();
+      let lockReleased = false;
+      let originalVerify: ReturnType<APIRequestContext['get']> | null = null;
+      try {
+        originalVerify = request.get(verifyUrl, { maxRedirects: 0, timeout: 120_000 });
+        const blockedTenantId = await waitForSeedDefaultsBlocked(requestId, lock.pid);
+        tenantId = blockedTenantId;
+        const blockedAt = Date.now();
 
-      const statusResponse = await pollOnboardingStatus(request, tenantId);
-      expect(statusResponse.status()).toBe(200);
-      const statusBody = await statusResponse.json();
-      expect(statusBody.status, 'status poll must not complete a live request').toBe('processing');
-      expect(statusBody.ready).toBe(false);
+        const duplicate = await request.get(verifyUrl, { maxRedirects: 0 });
+        expect(duplicate.status()).toBe(307);
+        expect(duplicate.headers()['location']).toContain(`/onboarding/preparing?tenant=${blockedTenantId}`);
 
-      const midFlight = await readRequestState(requestId);
-      expect(midFlight.status, 'duplicate verify must not complete a live request').toBe('processing');
-      expect(midFlight.completed_at).toBeNull();
-      expect(midFlight.preparation_started_at, 'seedExamples must not start before seedDefaults finish').toBeNull();
-      expect(
-        Date.now() - blockedAt,
-        'mid-flight checks must finish before the stalled seedDefaults hook times out',
-      ).toBeLessThan(SEED_DEFAULTS_HOOK_TIMEOUT_MS);
+        const statusResponse = await pollOnboardingStatus(request, blockedTenantId);
+        expect(statusResponse.status()).toBe(200);
+        const statusBody = await statusResponse.json();
+        expect(statusBody.status, 'status poll must not complete a live request').toBe('processing');
+        expect(statusBody.ready).toBe(false);
 
-      await lock.release();
-      lockReleased = true;
+        const midFlight = await readRequestState(requestId);
+        expect(midFlight.status, 'duplicate verify must not complete a live request').toBe('processing');
+        expect(midFlight.completed_at).toBeNull();
+        expect(midFlight.preparation_started_at, 'seedExamples must not start before seedDefaults finish').toBeNull();
+        expect(
+          Date.now() - blockedAt,
+          'mid-flight checks must finish before the stalled seedDefaults hook times out',
+        ).toBeLessThan(SEED_DEFAULTS_HOOK_TIMEOUT_MS);
 
-      const original = await originalVerify;
-      expect(original.status()).toBe(307);
-      expect(original.headers()['location']).toContain(`/onboarding/preparing?tenant=${tenantId}`);
+        await lock.release();
+        lockReleased = true;
 
-      const finalState = await waitForPreparationComplete(request, requestId, tenantId);
-      expect(finalState.status).toBe('completed');
-      expect(finalState.preparation_completed_at, 'workspace preparation should complete').toBeTruthy();
+        const original = await originalVerify;
+        expect(original.status()).toBe(307);
+        expect(original.headers()['location']).toContain(`/onboarding/preparing?tenant=${blockedTenantId}`);
+
+        const finalState = await waitForPreparationComplete(request, requestId, blockedTenantId);
+        expect(finalState.status).toBe('completed');
+        expect(finalState.preparation_completed_at, 'workspace preparation should complete').toBeTruthy();
+      } finally {
+        if (!lockReleased) await lock.release();
+        if (originalVerify) await originalVerify.catch(() => undefined);
+      }
     } finally {
-      if (!lockReleased) await lock.release();
-      if (originalVerify) await originalVerify.catch(() => undefined);
-      await deleteOnboardingRequest(requestId);
+      await purgeOnboardingFixture(email, tenantId);
     }
   });
 });
