@@ -60,7 +60,7 @@ Add a `decrypt-database` command to the existing `entities` module CLI (`package
 3. For each database row, attempts to decrypt each field value using `decryptWithAesGcm`. **NULL values are skipped unconditionally** — `if value == null: skip field` (no update, no warning). For non-null values, AES-GCM authentication-tag verification is the authoritative signal: if decryption succeeds, the value was encrypted; if it fails, the **error code** determines the action.
 
    `decryptWithAesGcm` MUST throw a typed `TenantDataEncryptionError` (defined as `class TenantDataEncryptionError extends Error { code: TenantDataEncryptionErrorCode }`). The error codes form an exhaustive enum:
-   - `AUTH_FAILED` — AES-GCM authentication-tag mismatch: value is plaintext → skip field, no update.
+   - `AUTH_FAILED` — AES-GCM authentication-tag mismatch: skip only values without an encrypted envelope; a structurally valid envelope that fails authentication aborts without declaring completion.
    - `MALFORMED_PAYLOAD` — bad base64/hex encoding or unexpected payload structure → **warn, increment per-scope `malformedPayloadCount`, skip field, and exit non-zero after the sweep**. These values may be corrupted ciphertexts rather than plaintext, so map deactivation must not proceed.
    - `KMS_UNAVAILABLE` — KMS service unreachable → rollback current batch and abort run.
    - `WRONG_KEY` — DEK returned by KMS does not decrypt the envelope → rollback current batch and abort run.
@@ -68,7 +68,7 @@ Add a `decrypt-database` command to the existing `entities` module CLI (`package
 
    **Any non-`TenantDataEncryptionError` exception thrown by `decryptWithAesGcm`** (e.g. a raw `Error`, a string, an unexpected library error) MUST be treated as `DECRYPT_INTERNAL` — rollback current batch and abort run. This prevents silent data loss from unclassified exceptions.
 
-   Only `AUTH_FAILED` is definitively treated as "value is already plaintext". `MALFORMED_PAYLOAD` is counted and surfaced in the summary, then makes the command exit non-zero after the sweep. All other codes (including unclassified exceptions mapped to `DECRYPT_INTERNAL`) cause the batch to rollback and abort.
+   `AUTH_FAILED` is treated as plaintext only when the value lacks a structurally valid encrypted envelope. Wrong-key or tampered envelopes abort both normal decryption and `--check`. `MALFORMED_PAYLOAD` is counted and surfaced in the summary, then makes the command exit non-zero after the sweep. All other codes (including unclassified exceptions mapped to `DECRYPT_INTERNAL`) cause the batch to rollback and abort.
 
 4. Decrypts via `decryptWithAesGcm` using the tenant DEK obtained from `createKmsService()`.
 5. Writes the plaintext value back using raw SQL (same pattern as `rotate-encryption-key`). JSON.parse is attempted on the decrypted string; if JSON.parse returns a non-string primitive (number, boolean, object, array), the raw string is written instead to avoid type mismatches with text columns.
@@ -82,14 +82,14 @@ Add a `decrypt-database` command to the existing `entities` module CLI (`package
 |----------|-----------|
 | Reuse `decryptWithAesGcm` + raw SQL (not ORM) | Mirrors `rotate-encryption-key`; avoids ORM subscriber re-encryption side effects |
 | Decrypt-then-authenticate instead of regex/format heuristic | AES-GCM authentication-tag failure is the only reliable signal that a value is encrypted. Regex on `salt:iv:ciphertext:v1` format is fragile: plaintext could accidentally match; format versioning could change. Try-decrypt-catch-auth-fail is deterministic and format-version-agnostic. |
-| Typed `TenantDataEncryptionError` with exhaustive enum + fallback | `AUTH_FAILED` → treat as plaintext. `MALFORMED_PAYLOAD` → warn + count. `KMS_UNAVAILABLE`, `WRONG_KEY`, `DECRYPT_INTERNAL` → abort batch. Any non-`TenantDataEncryptionError` exception → treat as `DECRYPT_INTERNAL`. Ambiguous catch-all is unsafe. |
+| Typed `TenantDataEncryptionError` with exhaustive enum + fallback | `AUTH_FAILED` → skip non-envelope plaintext; abort on an encrypted envelope. `MALFORMED_PAYLOAD` → warn + count. `KMS_UNAVAILABLE`, `WRONG_KEY`, `DECRYPT_INTERNAL` → abort batch. Any non-`TenantDataEncryptionError` exception → treat as `DECRYPT_INTERNAL`. Ambiguous catch-all is unsafe. |
 | `MALFORMED_PAYLOAD` warns, counts, and exits non-zero after the sweep | A base64-decode failure could mean corrupted ciphertext. The command reports every occurrence but refuses map deactivation or a successful exit until the operator resolves it. |
 | NULL field values skipped unconditionally | NULL is not an encrypted value; attempting decrypt on null would produce an unclassified error. Skip silently without warning. |
 | Null hash fields **only when `rowDecrypted = true`** | Nulling hash fields on rows already containing plaintext would destroy hash indexes on partially-migrated tenants. Conditional null is safe in all deployment states. |
 | Fail preflight on missing mapped or `hashField` columns | Schema drift must not let a destructive maintenance command report success while leaving ciphertext or stale lookup hashes behind. Resolve the map metadata before any row is read or changed. |
 | `malformedPayloadCount` per-scope + global aggregate | Per-scope counts (logged in `--debug`) help the operator locate problematic tables/columns. Global total + top-N table:column summary surfaced in the final summary. |
 | Keyset pagination (`id > lastId ORDER BY id LIMIT n`) | Offset pagination degrades on large tables; keyset is O(log n) and safe across long-running commands. For UUID PKs (standard in Open Mercato), ordering is lexicographic — deterministic, not insertion-ordered. Concurrent inserts during a long run may not be covered by the current pass; the command is idempotent — run it again to catch any missed rows. An index on `(tenant_id, organization_id, id)` is **recommended** for large tables; without it the DB may fall back to a sequential scan per batch (slow but correct). |
-| Distinct org scopes from `encryption_maps`, not entity tables | Fast and complete. If a map has no org, it covers global records. |
+| Distinct org scopes from actual tenant entity rows | Includes organizations covered by tenant-wide fallback plus the null-organization scope. |
 | Batch transactional updates with single-connection constraint | All UPDATEs in a batch run on the same connection inside the explicit transaction; no interleaving with implicit autocommit queries. Short per-batch transactions + optional sleep reduce prod write amplification. |
 | `--confirm <tenantUuid>` with no interactive fallback | Operator must type the exact tenant UUID. Deterministic for CI pipelines and runbooks; prevents copy-paste accidents. |
 | Separate `--deactivate-maps` flag (not default) | Operator may want to verify decryption before committing to disable; decouples the two concerns. |
@@ -165,7 +165,7 @@ CLI invocation
          resolveScopes(tenantId, organizationId):
            - if --org provided: single scope [organizationId]
            - if --org absent: all distinct organization_id values from encryption_maps for tenant
-                              + NULL scope (global records) — sourced from maps table, not entity tables
+                              + NULL scope (global records) — sourced from actual tenant entity rows
            for each scope:
              lastId = null; processed = 0; scopeMalformedCount = 0
              loop:
@@ -183,7 +183,7 @@ CLI invocation
                        parsed = JSON.parse(plaintext) if result is string; else raw plaintext
                        accumulate UPDATE SET col = parsed
                        rowDecrypted = true
-                     catch TenantDataEncryptionError where code == AUTH_FAILED:
+                     catch TenantDataEncryptionError where code == AUTH_FAILED and value is not an encrypted envelope:
                        value is plaintext → skip
                      catch TenantDataEncryptionError where code == MALFORMED_PAYLOAD:
                        scopeMalformedCount++; malformedByLocation["table:col"]++; warn in log; skip field
@@ -286,13 +286,13 @@ No user-facing UI strings. CLI output is English-only (consistent with existing 
 3. **Load EncryptionMap records** for scope (`tenantId`, optional `organizationId`, optional `entityId` filter)
 
 4. **Implement `processDecryptScope`** (mirrors `processScope` in `rotateEncryptionKey`):
-   - Resolve org scopes: if `--org` provided → `[organizationId]`; if absent → all distinct `organization_id` values from `encryption_maps` + `null` — sourced from the maps table, not entity tables
+   - Resolve org scopes: if `--org` provided → `[organizationId]`; if absent → all distinct `organization_id` values from actual tenant entity rows + `null`
    - Use keyset pagination: `WHERE tenant_id = ? AND organization_id IS NOT DISTINCT FROM ? AND id > $lastId ORDER BY id LIMIT $batchSize`; repeat until no rows returned. An index on `(tenant_id, organization_id, id)` per entity table is **recommended** for large tables (slow but correct without it). Because UUID keyset order is lexicographic (not insertion-ordered), concurrent inserts during a long run may not be covered in the current pass — the command is idempotent; **run it again after the first pass to catch any rows inserted concurrently**.
    - Per batch, open a transaction; **all UPDATEs MUST run on the same connection inside the explicit transaction; no autocommit queries interleaved**:
      - For each field:
        - `value == null` → skip silently (no update, no warning)
        - `AUTH_SUCCESS` → write plaintext (if JSON.parse returns non-string type, write raw string)
-       - `AUTH_FAILED` → skip (plaintext)
+       - `AUTH_FAILED` → skip non-envelope plaintext; abort for a structurally valid encrypted envelope
        - `MALFORMED_PAYLOAD` → warn + increment `scopeMalformedCount` + record `table:column` in `malformedByLocation` + skip; the completed sweep exits non-zero and leaves maps active
        - `KMS_UNAVAILABLE | WRONG_KEY | DECRYPT_INTERNAL` → ROLLBACK + abort
        - Any non-`TenantDataEncryptionError` exception → treat as `DECRYPT_INTERNAL` → ROLLBACK + abort
@@ -356,7 +356,7 @@ No user-facing UI strings. CLI output is English-only (consistent with existing 
   - Assert hash fields set to `NULL` for decrypted rows
   - Seed a row with already-plaintext values (mixed-mode tenant); assert hash fields NOT nulled for that row
   - Seed a row with a NULL field value; assert field skipped silently (no warning, no update for that field)
-  - Run again; assert idempotency (zero updates on second run — `AUTH_FAILED` → all fields treated as plaintext)
+  - Run again; assert idempotency (zero updates on second run — `AUTH_FAILED` → non-envelope plaintext fields skipped)
   - Simulate `MALFORMED_PAYLOAD`: assert field skipped, `totalMalformedPayloadCount` in summary, `⚠` warning printed, non-zero exit, and maps left active
   - Simulate non-`TenantDataEncryptionError` exception from `decryptWithAesGcm`: assert treated as `DECRYPT_INTERNAL` → batch rolled back, run aborted
   - Simulate `KMS_UNAVAILABLE`: assert ROLLBACK, run aborts with error, no partial commit
@@ -375,7 +375,7 @@ No user-facing UI strings. CLI output is English-only (consistent with existing 
 
 ### Data Integrity Failures
 
-- **Interrupted run**: If the process crashes mid-batch, the in-progress batch is rolled back atomically, and all prior committed batches are already plaintext. The next run safely skips already-plaintext rows (`AUTH_FAILED` → skip) — idempotent by design.
+- **Interrupted run**: If the process crashes mid-batch, the in-progress batch is rolled back atomically, and all prior committed batches are already plaintext. The next run safely skips already-plaintext rows (`AUTH_FAILED` on non-envelope plaintext → skip) — idempotent by design.
 - **JSON field corruption**: Decrypted value is parsed as JSON before writing. If JSON.parse returns a non-string type, the raw string is written. If parsing fails entirely, the raw string is written (same fallback as `rotate-encryption-key`).
 - **NULL column values**: NULL is skipped unconditionally (no update, no warning). Attempting decrypt on null would produce an unclassified exception; skipping is both safe and correct.
 - **Hash field orphaning**: Hash fields are nulled only when `rowDecrypted = true`. Missing mapped or hash columns fail preflight before any row is read or changed.
@@ -482,7 +482,7 @@ No user-facing UI strings. CLI output is English-only (consistent with existing 
 |-------|--------|-------|
 | Data models match implementation | Pass | Uses existing `EncryptionMap` entity; no new schema |
 | Risks cover all write operations | Pass | Row update, map deactivation, runtime cache mismatch, and large-table perf all documented |
-| Idempotency guaranteed | Pass | `AUTH_FAILED` → skip; ROLLBACK on abort; prior committed batches safe; second run recommended after concurrent inserts |
+| Idempotency guaranteed | Pass | `AUTH_FAILED` on non-envelope plaintext → skip; ROLLBACK on abort; prior committed batches safe; second run recommended after concurrent inserts |
 | Hash-field clearing is conditional | Pass | Nulled only when `rowDecrypted = true` |
 | Hash-field missing column handled | Pass | Preflight fails before reading or updating rows |
 | NULL field values handled | Pass | Skip silently; no warning; no update |
@@ -490,12 +490,12 @@ No user-facing UI strings. CLI output is English-only (consistent with existing 
 | `--check` reports malformed payloads separately | Pass | `malformedPayloadCountSampled` printed with `⚠` if > 0; incomplete DEK/query coverage exits non-zero |
 | Non-`TenantDataEncryptionError` exceptions handled | Pass | Treated as `DECRYPT_INTERNAL` → ROLLBACK + abort |
 | `--confirm` is non-interactive | Pass | TLDR, body, and Design Decisions consistent |
-| Org-scope covers null organization_id | Pass | Sourced from maps table; includes NULL scope |
+| Org-scope covers null organization_id | Pass | Discovered from actual tenant entity rows; includes NULL scope |
 | Safety gate identifies target by value | Pass | `--confirm <tenantUuid>` must match `--tenant` exactly |
 | Batch single-connection constraint documented | Pass | Data flow and Design Decisions both state no autocommit interleaving |
 | Summary distinguishes rows fetched vs updated | Pass | Both counters in final output |
 | `--deactivate-maps` retires only validated scope | Pass | Offline confirmation, refreshed policies, bounded final sweep and exact policy-ID update; partial org runs preserve tenant-wide fallback |
-| Global maps deactivated when `--org` provided | Pass | `OR organization_id IS NULL` in WHERE; rationale documented |
+| Tenant-wide fallback preserved when `--org` provided | Pass | Only organization-specific policy IDs may retire; tenant-wide policies remain active |
 | "Processed map" defined precisely | Pass | Map in selected set after filters; not conditioned on rows updated |
 | `--check` labeled as estimate | Pass | "estimated … (sampled)" + "not a proof of absence" |
 | `--check` fully in Phase 1; Phase 2 is maps-only | Pass | Phase structure clean |
@@ -516,6 +516,12 @@ None.
 ---
 
 ## Changelog
+
+### 2026-11-05 — QA regression fixes
+
+- Reject structurally valid AES-GCM envelopes that fail authenticated decryption in normal, preview, check, and retirement modes. Preserve non-envelope plaintext idempotency.
+- Correct canonical offline-retirement examples, actual-row organization discovery, and organization-only fallback preservation.
+- Add real-AES unit regressions and disposable PostgreSQL coverage for wrong keys, confirmation failures, preview safety, and plaintext reruns alongside the existing CAS and final-sweep matrix.
 
 ### 2026-11-02 — Offline maintenance safety
 

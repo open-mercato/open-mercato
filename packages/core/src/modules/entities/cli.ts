@@ -983,8 +983,9 @@ const decryptDatabase: ModuleCli = {
               try {
                 decryptWithAesGcmStrict(String(rawValue), dek.key)
                 rowHasEncrypted = true
-              } catch (e: any) {
-                if (e instanceof TenantDataEncryptionError && e.code === TenantDataEncryptionErrorCode.MALFORMED_PAYLOAD) {
+              } catch (error: unknown) {
+                if (isEncryptedPayloadShape(rawValue)) throw error
+                if (error instanceof TenantDataEncryptionError && error.code === TenantDataEncryptionErrorCode.MALFORMED_PAYLOAD) {
                   malformedPayloadCountSampled++
                 }
               }
@@ -1095,20 +1096,20 @@ const decryptDatabase: ModuleCli = {
                   }
                   updates[col] = valueToWrite
                   rowDecrypted = true
-                } catch (e: any) {
-                  if (e instanceof TenantDataEncryptionError) {
-                    if (e.code === TenantDataEncryptionErrorCode.AUTH_FAILED) {
-                      // Value is plaintext — skip silently
-                    } else if (e.code === TenantDataEncryptionErrorCode.MALFORMED_PAYLOAD) {
+                } catch (error: unknown) {
+                  if (error instanceof TenantDataEncryptionError) {
+                    if (error.code === TenantDataEncryptionErrorCode.AUTH_FAILED) {
+                      if (isEncryptedPayloadShape(rawValue)) throw error
+                    } else if (error.code === TenantDataEncryptionErrorCode.MALFORMED_PAYLOAD) {
                       scopeMalformedCount++
                       const locationKey = `${tableName}:${col}`
                       malformedByLocation.set(locationKey, (malformedByLocation.get(locationKey) ?? 0) + 1)
                       console.warn(`⚠ MALFORMED_PAYLOAD for ${entityId} field "${col}" row ${row[pk]}; skipping field.`)
                     } else {
-                      throw e
+                      throw error
                     }
                   } else {
-                    throw e
+                    throw error
                   }
                 }
               }

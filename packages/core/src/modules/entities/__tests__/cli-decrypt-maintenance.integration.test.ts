@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { Pool, type PoolClient } from 'pg'
 import { EncryptionMap } from '../data/entities'
-import { encryptWithAesGcm, isEncryptedPayloadShape } from '@open-mercato/shared/lib/encryption/aes'
+import { encryptWithAesGcm, isEncryptedPayloadShape, TenantDataEncryptionErrorCode } from '@open-mercato/shared/lib/encryption/aes'
 import { registerEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 
 const databaseUrl = process.env.OM_ENCRYPTION_MAINTENANCE_TEST_DATABASE_URL
@@ -115,6 +115,69 @@ describePostgres('offline encryption maintenance in PostgreSQL', () => {
     await pool.query(`INSERT INTO access_logs (id, tenant_id, organization_id, resource_id) VALUES ($1, $2, $3, $4)`, [id, tenantId, organizationId, ciphertext])
     return ciphertext
   }
+
+  test.each([{ flags: [] }, { flags: ['--check'] }, { flags: ['--dry-run'] }, { flags: ['--deactivate-maps'] }])('rejects wrong-DEK ciphertext with flags %j without changing rows or policies', async ({ flags }) => {
+    const ciphertext = encryptWithAesGcm('wrong-key-secret', Buffer.alloc(32, 61).toString('base64')).value
+    await pool.query(`INSERT INTO access_logs VALUES ('wrong-key', $1, 'org-a', $2, 'original-hash')`, [tenantId, ciphertext])
+    const logSpy = jest.spyOn(console, 'log').mockImplementation()
+    try {
+      await expect(run(flags)).rejects.toMatchObject({ code: TenantDataEncryptionErrorCode.AUTH_FAILED })
+      expect((await pool.query(`SELECT resource_id, resource_hash FROM access_logs`)).rows).toEqual([
+        { resource_id: ciphertext, resource_hash: 'original-hash' },
+      ])
+      expect((await pool.query(`SELECT is_active FROM encryption_maps`)).rows[0].is_active).toBe(true)
+      expect(logSpy.mock.calls.flat().join('\n')).not.toContain('Decryption complete')
+    } finally {
+      logSpy.mockRestore()
+    }
+  })
+
+  test('authentication failure rolls back earlier row updates in the same batch and leaves policies active', async () => {
+    const original = await insert('a-valid', 'org-a')
+    const ciphertext = encryptWithAesGcm('wrong-key-secret', Buffer.alloc(32, 61).toString('base64')).value
+    await pool.query(`INSERT INTO access_logs VALUES ('z-wrong', $1, 'org-a', $2, NULL)`, [tenantId, ciphertext])
+    await expect(run(['--deactivate-maps'])).rejects.toMatchObject({ code: TenantDataEncryptionErrorCode.AUTH_FAILED })
+    expect((await pool.query(`SELECT resource_id FROM access_logs WHERE id = 'a-valid'`)).rows[0].resource_id).toBe(original)
+    expect((await pool.query(`SELECT is_active FROM encryption_maps`)).rows[0].is_active).toBe(true)
+  })
+
+  test('a changed policy prevents retirement after row decryption', async () => {
+    await insert('one', 'org-a')
+    beforeTransaction = async () => {
+      await pool.query(`UPDATE encryption_maps SET fields_json = '[]'::jsonb`)
+    }
+    await expect(run(['--deactivate-maps'])).rejects.toThrow('policies changed')
+    expect((await pool.query(`SELECT is_active FROM encryption_maps`)).rows[0].is_active).toBe(true)
+  })
+
+  test('plaintext remains unchanged across normal and check reruns', async () => {
+    await pool.query(`INSERT INTO access_logs VALUES ('plain', $1, 'org-a', 'already-plain', 'original-hash')`, [tenantId])
+    await run()
+    await run(['--check'])
+    await run()
+    expect((await pool.query(`SELECT resource_id, resource_hash FROM access_logs`)).rows).toEqual([
+      { resource_id: 'already-plain', resource_hash: 'original-hash' },
+    ])
+  })
+
+  test('dry-run preserves ciphertext and active policies', async () => {
+    const ciphertext = await insert('one', 'org-a')
+    await run(['--dry-run', '--deactivate-maps'])
+    expect((await pool.query(`SELECT resource_id FROM access_logs`)).rows[0].resource_id).toBe(ciphertext)
+    expect((await pool.query(`SELECT is_active FROM encryption_maps`)).rows[0].is_active).toBe(true)
+  })
+
+  test.each([
+    ['--tenant', tenantId, '--confirm', 'wrong-tenant'],
+    ['--tenant', tenantId, '--confirm', tenantId, '--deactivate-maps'],
+    ['--tenant', tenantId, '--confirm', tenantId, '--deactivate-maps', '--confirm-offline-maintenance', 'wrong-tenant'],
+  ])('rejects unsafe confirmation arguments %j before writes', async (...flags) => {
+    const ciphertext = await insert('one', 'org-a')
+    const commands = (await import('../cli')).default
+    await expect(commands.find((candidate) => candidate.command === 'decrypt-database')!.run(flags)).rejects.toThrow()
+    expect((await pool.query(`SELECT resource_id FROM access_logs`)).rows[0].resource_id).toBe(ciphertext)
+    expect((await pool.query(`SELECT is_active FROM encryption_maps`)).rows[0].is_active).toBe(true)
+  })
 
   test('decrypts actual organization and global rows before retiring their tenant-wide fallback', async () => {
     await insert('one', 'org-a')
