@@ -6,10 +6,8 @@ import {
   withCredentialIsolatedRequest,
 } from '@open-mercato/core/helpers/integration/api'
 import {
-  createOrganizationFixture,
   createRoleFixture,
   createUserFixture,
-  deleteOrganizationIfExists,
   deleteRoleIfExists,
   deleteUserIfExists,
 } from '@open-mercato/core/helpers/integration/authFixtures'
@@ -50,6 +48,16 @@ async function countActiveAssignments(roleId: string): Promise<number> {
   })
 }
 
+async function findUserIdByEmail(email: string): Promise<string | null> {
+  return withClient(async (client) => {
+    const result = await client.query<{ id: string }>(
+      'select id from users where email = $1 and deleted_at is null',
+      [email],
+    )
+    return result.rows[0]?.id ?? null
+  })
+}
+
 async function assignRole(request: APIRequestContext, token: string, userId: string, roleId: string): Promise<void> {
   const response = await apiRequest(request, 'PUT', '/api/auth/users', {
     token,
@@ -84,10 +92,12 @@ async function waitUntilBlockedCount(
   throw new Error('[internal] Race contenders did not reach the role row lock')
 }
 
+type AssignmentRequest = { method: 'POST' | 'PUT'; data: Record<string, unknown> }
+
 async function raceRoleUpdateBehindAssignment(
   token: string,
   roleId: string,
-  userId: string,
+  assignment: AssignmentRequest,
   roleUpdate: Record<string, unknown>,
   firstInQueue: 'assignment' | 'update' = 'assignment',
 ): Promise<{
@@ -102,9 +112,9 @@ async function raceRoleUpdateBehindAssignment(
         try {
           const blockerPid = Number((await blocker.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0]?.pid)
           await blocker.query('select id from roles where id = $1 for update', [roleId])
-          const startAssignment = (): Promise<APIResponse> => apiRequest(assignmentRequest, 'PUT', '/api/auth/users', {
+          const startAssignment = (): Promise<APIResponse> => apiRequest(assignmentRequest, assignment.method, '/api/auth/users', {
             token,
-            data: { id: userId, roles: [roleId] },
+            data: assignment.data,
             timeout: RACE_TIMEOUT_MS,
             retryTransport: false,
           })
@@ -164,7 +174,7 @@ test.describe('TC-AUTH-073: role rename, tenant move and their undo recheck assi
         roles: [],
       })
 
-      const result = await raceRoleUpdateBehindAssignment(superadminToken, roleId, userId, {
+      const result = await raceRoleUpdateBehindAssignment(superadminToken, roleId, { method: 'PUT', data: { id: userId, roles: [roleId] } }, {
         name: `${roleName}-renamed`,
       })
 
@@ -201,7 +211,7 @@ test.describe('TC-AUTH-073: role rename, tenant move and their undo recheck assi
       })
       foreignTenantId = await createTenant(request, superadminToken, `QA AUTH-073 tenant ${stamp}`)
 
-      const result = await raceRoleUpdateBehindAssignment(superadminToken, roleId, userId, {
+      const result = await raceRoleUpdateBehindAssignment(superadminToken, roleId, { method: 'PUT', data: { id: userId, roles: [roleId] } }, {
         tenantId: foreignTenantId,
       })
 
@@ -217,7 +227,7 @@ test.describe('TC-AUTH-073: role rename, tenant move and their undo recheck assi
     }
   })
 
-  test('rejects an assignment that resumes after a tenant move committed under the role lock', async ({ request }) => {
+  test('rejects a role assignment that resumes after a tenant move committed under the role lock', async ({ request }) => {
     test.setTimeout(RACE_TIMEOUT_MS * 4)
     const superadminToken = await getAuthToken(request, 'superadmin')
     const adminToken = await getAuthToken(request, 'admin')
@@ -225,23 +235,20 @@ test.describe('TC-AUTH-073: role rename, tenant move and their undo recheck assi
     const tenantId = expectId(adminScope.tenantId, 'Admin token should include tenant id')
     const organizationId = expectId(adminScope.organizationId, 'Admin token should include organization id')
     const stamp = `${Date.now()}-${randomInt(1_000_000)}`
+    const email = `qa-auth-073-move-first-${stamp}@example.com`
     let roleId: string | null = null
     let userId: string | null = null
     let foreignTenantId: string | null = null
 
     try {
       roleId = await createRoleFixture(request, superadminToken, { name: `qa-auth-073-move-first-${stamp}`, tenantId })
-      userId = await createUserFixture(request, superadminToken, {
-        email: `qa-auth-073-move-first-${stamp}@example.com`,
-        password: 'StrongSecret123!',
-        organizationId,
-        roles: [],
-      })
       foreignTenantId = await createTenant(request, superadminToken, `QA AUTH-073 move-first tenant ${stamp}`)
 
-      const result = await raceRoleUpdateBehindAssignment(superadminToken, roleId, userId, {
-        tenantId: foreignTenantId,
-      }, 'update')
+      const result = await raceRoleUpdateBehindAssignment(superadminToken, roleId, {
+        method: 'POST',
+        data: { email, password: 'StrongSecret123!', organizationId, roles: [roleId] },
+      }, { tenantId: foreignTenantId }, 'update')
+      userId = await findUserIdByEmail(email)
 
       expect(result.update.status, result.update.body).toBe(200)
       expect(result.assignment.status, result.assignment.body).toBe(400)
@@ -249,6 +256,7 @@ test.describe('TC-AUTH-073: role rename, tenant move and their undo recheck assi
       expect(await countActiveAssignments(roleId)).toBe(0)
       expect((await readRole(roleId)).tenant_id).toBe(foreignTenantId)
     } finally {
+      userId = userId ?? await findUserIdByEmail(email)
       await deleteUserIfExists(request, superadminToken, userId)
       await deleteRoleIfExists(request, superadminToken, roleId)
       await deleteGeneralEntityIfExists(request, superadminToken, '/api/directory/tenants', foreignTenantId)
@@ -299,30 +307,28 @@ test.describe('TC-AUTH-073: role rename, tenant move and their undo recheck assi
   test('rejects undoing a tenant move after a user was assigned in the destination tenant', async ({ request }) => {
     skipIfUndoTestsDisabled()
     const superadminToken = await getAuthToken(request, 'superadmin')
+    const superadminTenantId = expectId(getTokenScope(superadminToken).tenantId, 'Superadmin token should include tenant id')
     const adminToken = await getAuthToken(request, 'admin')
-    const tenantId = expectId(getTokenScope(adminToken).tenantId, 'Admin token should include tenant id')
+    const adminScope = getTokenScope(adminToken)
+    const organizationId = expectId(adminScope.organizationId, 'Admin token should include organization id')
+    expect(adminScope.tenantId).toBe(superadminTenantId)
     const stamp = `${Date.now()}-${randomInt(1_000_000)}`
     let roleId: string | null = null
     let userId: string | null = null
     let foreignTenantId: string | null = null
-    let foreignOrganizationId: string | null = null
 
     try {
-      roleId = await createRoleFixture(request, superadminToken, { name: `qa-auth-073-undo-move-${stamp}`, tenantId })
       foreignTenantId = await createTenant(request, superadminToken, `QA AUTH-073 undo tenant ${stamp}`)
-      foreignOrganizationId = await createOrganizationFixture(request, superadminToken, {
-        name: `QA AUTH-073 undo org ${stamp}`,
-        tenantId: foreignTenantId,
-      })
+      roleId = await createRoleFixture(request, superadminToken, { name: `qa-auth-073-undo-move-${stamp}`, tenantId: foreignTenantId })
       userId = await createUserFixture(request, superadminToken, {
         email: `qa-auth-073-undo-move-${stamp}@example.com`,
         password: 'StrongSecret123!',
-        organizationId: foreignOrganizationId,
+        organizationId,
         roles: [],
       })
       const moveResponse = await apiRequest(request, 'PUT', '/api/auth/roles', {
         token: superadminToken,
-        data: { id: roleId, tenantId: foreignTenantId },
+        data: { id: roleId, tenantId: superadminTenantId },
       })
       expect(moveResponse.status(), await moveResponse.text()).toBe(200)
       const operation = expectOperation(moveResponse, 'role tenant move')
@@ -332,12 +338,11 @@ test.describe('TC-AUTH-073: role rename, tenant move and their undo recheck assi
 
       expect(undoResponse.status(), await undoResponse.text()).toBe(409)
       expect(await undoResponse.text()).toContain('Role cannot be moved to another tenant while users are assigned')
-      expect((await readRole(roleId)).tenant_id).toBe(foreignTenantId)
+      expect((await readRole(roleId)).tenant_id).toBe(superadminTenantId)
       expect(await countActiveAssignments(roleId)).toBe(1)
     } finally {
       await deleteUserIfExists(request, superadminToken, userId)
       await deleteRoleIfExists(request, superadminToken, roleId)
-      await deleteOrganizationIfExists(request, superadminToken, foreignOrganizationId)
       await deleteGeneralEntityIfExists(request, superadminToken, '/api/directory/tenants', foreignTenantId)
     }
   })
