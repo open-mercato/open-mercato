@@ -322,7 +322,9 @@ export async function POST(req: Request) {
           : `Reindex all entities (${useQueue ? 'queued' : 'sync'})`,
       })
       const jobsEnqueued = result.jobsEnqueued ?? 0
-      if (!result.success) {
+      if (useQueue && jobsEnqueued > 0) {
+        keepLockForQueuedWorkers = true
+      } else if (!result.success) {
         await failReindexProgress({
           em,
           progressService,
@@ -331,7 +333,7 @@ export async function POST(req: Request) {
           organizationId: auth.orgId ?? null,
           errorMessage: result.errors[0]?.error ?? 'Fulltext reindex failed',
         })
-      } else if (!useQueue || jobsEnqueued === 0) {
+      } else {
         await completeReindexProgress({
           em,
           progressService,
@@ -345,8 +347,6 @@ export async function POST(req: Request) {
             errors: result.errors.length,
           },
         })
-      } else {
-        keepLockForQueuedWorkers = true
       }
 
       // Get updated stats from all strategies

@@ -72,6 +72,7 @@ describe('POST /api/search/reindex', () => {
     mockAuth()
     mockGetReindexLockStatus.mockResolvedValue(null)
     mockAcquireReindexLock.mockResolvedValue({ acquired: true })
+    mockClearReindexLock.mockResolvedValue(undefined)
   })
 
   test('clears the fulltext lock when no indexable strategy is configured', async () => {
@@ -227,6 +228,86 @@ describe('POST /api/search/reindex', () => {
     expect(driver.bulkIndex).not.toHaveBeenCalled()
     expect(enqueue).not.toHaveBeenCalled()
     expect(queryEngine.query).not.toHaveBeenCalled()
+  })
+
+  test('keeps the lock and progress with queued workers when one entity fails its scoped clear, so a retry stays excluded', async () => {
+    const mockDb = { db: true }
+    const mockEm = { getKysely: jest.fn(() => mockDb) }
+    let lockHeld = false
+    mockAcquireReindexLock.mockImplementation(async () => {
+      lockHeld = true
+      return { acquired: true }
+    })
+    mockClearReindexLock.mockImplementation(async () => {
+      lockHeld = false
+    })
+    mockGetReindexLockStatus.mockImplementation(async () => (lockHeld
+      ? { type: 'fulltext', action: 'reindex', startedAt: new Date().toISOString(), processedCount: 0, totalCount: 1 }
+      : null))
+    const driver: FullTextSearchDriver = {
+      id: 'meilisearch',
+      ensureReady: jest.fn(async () => {}),
+      isHealthy: jest.fn(async () => true),
+      search: jest.fn(async () => []),
+      index: jest.fn(async () => {}),
+      delete: jest.fn(async () => {}),
+      bulkIndex: jest.fn(async () => {}),
+      purge: jest.fn(async (entityId: string) => {
+        if (entityId === 'test:product') throw new Error('purge unavailable')
+      }),
+      recreateIndex: jest.fn(async () => {}),
+    }
+    const strategy = new FullTextSearchStrategy(driver)
+    const queryEngine = {
+      query: jest.fn(async () => ({ items: [{ id: 'c-1', organization_id: 'org-456' }], total: 1 })),
+    } as unknown as QueryEngine
+    const enqueue = jest.fn(async () => 'job-1')
+    const searchIndexer = new SearchIndexer(
+      new SearchService({ strategies: [strategy] }),
+      [{ entities: [{ entityId: 'test:product', enabled: true }, { entityId: 'test:customer', enabled: true }] }],
+      { queryEngine, fulltextQueue: { enqueue } as unknown as SearchIndexerOptions['fulltextQueue'] },
+    )
+    const mockContainer = {
+      resolve: jest.fn((name: string) => {
+        if (name === 'em') return mockEm
+        if (name === 'progressService') return { progress: true }
+        if (name === 'searchStrategies') return [strategy]
+        if (name === 'searchIndexer') return searchIndexer
+        throw new Error(`Unknown service: ${name}`)
+      }),
+      dispose: jest.fn().mockResolvedValue(undefined),
+    }
+    mockCreateRequestContainer.mockResolvedValue(mockContainer)
+
+    const res = await fulltextReindexPost(makeRequest({ action: 'reindex' }))
+    const body = await res.json()
+
+    expect(body.ok).toBe(false)
+    expect(body.error).toBe('Reindex did not complete. Check the search activity log for details.')
+    expect(body.result).toEqual(expect.objectContaining({
+      jobsEnqueued: 1,
+      errors: [{ entityId: 'test:product', error: 'purge unavailable' }],
+    }))
+    expect(enqueue).toHaveBeenCalledTimes(1)
+    expect(enqueue).toHaveBeenCalledWith(expect.objectContaining({
+      jobType: 'batch-index',
+      records: [{ entityId: 'test:customer', recordId: 'c-1' }],
+    }))
+    expect(mockEnsureReindexProgressJob).toHaveBeenCalledWith(expect.objectContaining({ totalCount: 1 }))
+    expect(mockFailReindexProgress).not.toHaveBeenCalled()
+    expect(mockCompleteReindexProgress).not.toHaveBeenCalled()
+    expect(mockClearReindexLock).not.toHaveBeenCalled()
+    expect(mockRecordIndexerError).toHaveBeenCalledWith(
+      { em: mockEm },
+      expect.objectContaining({ entityType: 'test:product' }),
+    )
+
+    const retry = await fulltextReindexPost(makeRequest({ action: 'reindex' }))
+
+    expect(retry.status).toBe(409)
+    expect(mockAcquireReindexLock).toHaveBeenCalledTimes(1)
+    expect(enqueue).toHaveBeenCalledTimes(1)
+    expect(mockEnsureReindexProgressJob).toHaveBeenCalledTimes(1)
   })
 
   test('cancel removes only current tenant and organization fulltext queue jobs', async () => {
