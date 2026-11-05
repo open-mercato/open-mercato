@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import { useOptionalT } from '@open-mercato/shared/lib/i18n/context'
 import { Alert, type AlertStatus } from '../primitives/alert'
 
 export type FlashKind = 'success' | 'error' | 'warning' | 'info'
@@ -191,6 +192,7 @@ function useLocationKey() {
 }
 
 function FlashMessagesInner() {
+  const translate = useOptionalT()
   const [msg, setMsg] = React.useState<string | null>(null)
   const [kind, setKind] = React.useState<FlashKind>('info')
   const isPrimaryHost = useIsPrimaryFlashHost()
@@ -272,6 +274,7 @@ function FlashMessagesInner() {
           status={flashKindToAlertStatus[kind]}
           size="sm"
           dismissible
+          dismissAriaLabel={translate ? translate('common.close', 'Close') : 'Close'}
           onDismiss={handleDismiss}
           className="shadow-md"
         >
