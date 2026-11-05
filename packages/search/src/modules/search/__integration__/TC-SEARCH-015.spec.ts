@@ -7,7 +7,7 @@ import { getTokenContext } from '@open-mercato/core/helpers/integration/generalF
 import { acknowledgeGlobalNotices } from '@open-mercato/core/helpers/integration/auth'
 import { createTranslator } from '@open-mercato/shared/lib/i18n/translate'
 import { localizeProviderAvailability } from '../lib/provider-diagnostics'
-import pl from '../i18n/pl.json'
+import pl from '../i18n/pl.json' with { type: 'json' }
 
 export const integrationMeta = { dependsOnModules: ['search', 'auth'] }
 
