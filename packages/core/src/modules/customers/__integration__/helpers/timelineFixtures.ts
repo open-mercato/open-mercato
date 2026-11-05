@@ -185,6 +185,7 @@ export async function openTimeline(page: Page, query: string, options: { expectG
     await expect(page.getByRole('heading', { name: 'Deals Timeline' })).toBeVisible({ timeout: 30_000 });
   } else {
     await expect(page.getByRole('grid')).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator('[role="grid"][aria-busy="true"]')).toHaveCount(0, { timeout: 60_000 });
   }
   await dismissDevRuntimeNotice(page);
 }
