@@ -2,6 +2,11 @@ import handler, { POLL_CHANNEL_MAX_ATTEMPTS, metadata, type PollChannelJobPayloa
 import type { QueuedJob } from '@open-mercato/queue'
 import { ChannelIngestDeadLetter } from '../../data/entities'
 
+const mockReportError = jest.fn()
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
+}))
+
 const enqueueMock = jest.fn(async () => 'next-job')
 jest.mock('../../lib/queue', () => {
   const actual = jest.requireActual('../../lib/queue')
@@ -33,6 +38,7 @@ describe('poll-channel worker metadata', () => {
 
 describe('poll-channel worker behaviour', () => {
   beforeEach(() => {
+    mockReportError.mockReset()
     enqueueMock.mockClear()
     emitMock.mockClear()
   })
@@ -155,6 +161,120 @@ describe('poll-channel worker behaviour', () => {
       expect.objectContaining({ channelId: 'c' }),
       expect.objectContaining({ persistent: true }),
     )
+  })
+
+  it.each([false, true])('recovers a 401 and reports it when telemetry throws=%s', async (telemetryThrows) => {
+    if (telemetryThrows) {
+      mockReportError.mockImplementation(() => { throw new Error('telemetry unavailable') })
+    }
+    const channel = {
+      id: 'c',
+      isActive: true,
+      status: 'connected',
+      providerKey: 'msgraph',
+      channelType: 'email',
+      capabilities: { realtimePush: false },
+      lastError: 'previous error',
+    }
+    const err = new Error('Lifetime validation failed, the token is expired.') as Error & { status?: number }
+    err.status = 401
+    const refreshCredentials = jest.fn(async () => ({ credentials: { accessToken: 'fresh' } }))
+    const fetchHistory = jest
+      .fn()
+      .mockRejectedValueOnce(err)
+      .mockResolvedValueOnce({ messages: [] })
+    const { ctx } = makeCtx(channel, { providerKey: 'msgraph', refreshCredentials }, fetchHistory)
+    await handler(makeJob(), ctx)
+    expect(mockReportError).toHaveBeenCalledWith(err, {
+      module: 'communication_channels',
+      code: 'communication_channels.poll_authentication_failed',
+      attributes: { channelId: 'c', providerKey: 'msgraph' },
+    })
+    expect(refreshCredentials).toHaveBeenCalledTimes(1)
+    expect(fetchHistory).toHaveBeenCalledTimes(2)
+    expect(fetchHistory.mock.calls[1][0].credentials).toEqual({ accessToken: 'fresh' })
+    expect(channel.status).toBe('connected')
+    expect(channel.lastError).toBeNull()
+    expect(emitMock).not.toHaveBeenCalledWith(
+      'communication_channels.channel.requires_reauth',
+      expect.anything(),
+      expect.anything(),
+    )
+  })
+
+  it('marks channel requires_reauth when the forced refresh after a 401 is refused', async () => {
+    const channel = {
+      id: 'c',
+      isActive: true,
+      status: 'connected',
+      providerKey: 'msgraph',
+      channelType: 'email',
+      capabilities: { realtimePush: false },
+      lastError: null,
+    }
+    const err = new Error('Unauthorized') as Error & { status?: number }
+    err.status = 401
+    const refreshCredentials = jest.fn(async () => {
+      throw new Error('AADSTS70000: The provided grant has expired.')
+    })
+    const fetchHistory = jest.fn(async () => {
+      throw err
+    })
+    const { ctx } = makeCtx(channel, { providerKey: 'msgraph', refreshCredentials }, fetchHistory)
+    await handler(makeJob(), ctx)
+    expect(refreshCredentials).toHaveBeenCalledTimes(1)
+    expect(fetchHistory).toHaveBeenCalledTimes(1)
+    expect(channel.status).toBe('requires_reauth')
+    expect(channel.lastError).toBe('Unauthorized')
+  })
+
+  it('stops after one forced refresh when the retried page also returns 401', async () => {
+    const channel = {
+      id: 'c',
+      isActive: true,
+      status: 'connected',
+      providerKey: 'msgraph',
+      capabilities: { realtimePush: false },
+      lastError: null,
+    }
+    const error = Object.assign(new Error('Unauthorized'), { status: 401 })
+    const refreshCredentials = jest.fn(async () => ({ credentials: { accessToken: 'fresh' } }))
+    const fetchHistory = jest.fn().mockRejectedValue(error)
+    const { ctx } = makeCtx(channel, { providerKey: 'msgraph', refreshCredentials }, fetchHistory)
+
+    await handler(makeJob(), ctx)
+
+    expect(refreshCredentials).toHaveBeenCalledTimes(1)
+    expect(fetchHistory).toHaveBeenCalledTimes(2)
+    expect(fetchHistory.mock.calls[1][0]).toEqual({
+      ...fetchHistory.mock.calls[0][0],
+      credentials: { accessToken: 'fresh' },
+    })
+    expect(channel.status).toBe('requires_reauth')
+    expect(emitMock.mock.calls.filter(([event]) => event === 'communication_channels.channel.requires_reauth')).toHaveLength(1)
+    expect(enqueueMock).not.toHaveBeenCalled()
+  })
+
+  it('does not force a credential refresh for a transient provider error', async () => {
+    const channel = {
+      id: 'c',
+      isActive: true,
+      status: 'connected',
+      providerKey: 'msgraph',
+      capabilities: { realtimePush: false },
+      lastError: null,
+    }
+    const error = Object.assign(new Error('Unavailable'), { status: 503 })
+    const refreshCredentials = jest.fn(async () => ({ credentials: { accessToken: 'fresh' } }))
+    const fetchHistory = jest.fn().mockRejectedValue(error)
+    const { ctx } = makeCtx(channel, { providerKey: 'msgraph', refreshCredentials }, fetchHistory)
+
+    await handler(makeJob(), ctx)
+
+    expect(refreshCredentials).not.toHaveBeenCalled()
+    expect(fetchHistory).toHaveBeenCalledTimes(1)
+    expect(enqueueMock).toHaveBeenCalledTimes(1)
+    expect(channel.status).not.toBe('requires_reauth')
   })
 
   it('re-enqueues on transient failure when attempts remain', async () => {

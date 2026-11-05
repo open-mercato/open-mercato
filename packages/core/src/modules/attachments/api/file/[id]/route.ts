@@ -1,3 +1,5 @@
+import { withAttachmentStorageErrors } from '@open-mercato/core/modules/attachments/lib/storageErrors'
+import { assertAttachmentStoragePartitionExists } from '@open-mercato/core/modules/attachments/lib/drivers/storageValidation'
 import { createAttachmentAccessContext, evaluateAttachmentAccess } from '../../../lib/access-runner'
 import { attachmentAccessErrorResponse } from '../../../lib/access-errors'
 import { NextRequest, NextResponse } from "next/server";
@@ -23,7 +25,7 @@ export const metadata = {
   GET: { requireAuth: false },
 };
 
-export async function GET(
+async function readAttachmentFile(
   req: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
@@ -64,6 +66,7 @@ export async function GET(
   const partition = await em.findOne(AttachmentPartition, {
     code: attachment.partitionCode,
   });
+  assertAttachmentStoragePartitionExists(Boolean(partition))
   if (!partition) {
     return NextResponse.json(
       { error: "Partition misconfigured" },
@@ -115,6 +118,8 @@ export async function GET(
   return new NextResponse(responseBody, { status: 200, headers });
 }
 
+export const GET = withAttachmentStorageErrors(readAttachmentFile)
+
 export const openApi: OpenApiRouteDoc = {
   tag: attachmentsTag,
   summary: "Download attachment file",
@@ -131,6 +136,7 @@ export const openApi: OpenApiRouteDoc = {
         },
       ],
       errors: [
+        { status: 503, description: 'Attachment storage configuration rejected by policy', schema: attachmentErrorSchema },
         {
           status: 400,
           description: "Missing attachment ID",
