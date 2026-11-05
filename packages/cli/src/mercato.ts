@@ -11,6 +11,7 @@ import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
 import { getRedisUrl, getRedisUrlOrThrow, parseRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import { resolveInitDerivedSecrets } from './lib/init-secrets'
 import { decideExistingDatabase, formatSkipIfInitializedMessage } from './lib/init-existing-database'
+import { assertEphemeralDatabaseConnection, assertEphemeralDatabaseOwnership, readEphemeralDatabaseGuard } from './lib/testing/ephemeral-database-guard'
 import {
   resolveAutoSpawnWorkersMode,
   resolveLazySpawnMode,
@@ -1024,6 +1025,18 @@ export async function run(argv = process.argv) {
     try {
       const initArgs = parts.slice(1).filter(Boolean)
       const reinstall = initArgs.includes('--reinstall') || initArgs.includes('-r')
+      const ephemeralDatabaseGuard = readEphemeralDatabaseGuard(initArgs)
+      if (ephemeralDatabaseGuard) {
+        assertEphemeralDatabaseConnection(ephemeralDatabaseGuard, process.env.DATABASE_URL)
+        const { Client } = await import('pg')
+        const verificationClient = new Client({ connectionString: process.env.DATABASE_URL, ssl: getSslConfig(), connectionTimeoutMillis: 5000 })
+        try {
+          await verificationClient.connect()
+          await assertEphemeralDatabaseOwnership(ephemeralDatabaseGuard, verificationClient)
+        } finally {
+          await verificationClient.end()
+        }
+      }
       process.env.OM_INIT_FLOW = 'true'
       if (reinstall) {
         process.env.OM_INIT_REINSTALL = 'true'
@@ -1092,11 +1105,15 @@ export async function run(argv = process.argv) {
           console.error('DATABASE_URL is not set. Aborting reinstall.')
           return 1
         }
-        const dbExists = await ensureDatabaseExists(dbUrl)
+        const dbExists = ephemeralDatabaseGuard ? true : await ensureDatabaseExists(dbUrl)
         if (!dbExists) return 1
         const client = new Client({ connectionString: dbUrl, ssl: getSslConfig() })
         try {
           await client.connect()
+          if (ephemeralDatabaseGuard) {
+            assertEphemeralDatabaseConnection(ephemeralDatabaseGuard, dbUrl)
+            await assertEphemeralDatabaseOwnership(ephemeralDatabaseGuard, client)
+          }
           // Collect all user tables in the configured schema (uses search_path from DATABASE_URL)
           const res = await client.query(`SELECT tablename FROM pg_tables WHERE schemaname = current_schema()`)
           const dropTargets = new Set<string>((res.rows || []).map((r: any) => String(r.tablename)))
@@ -1134,7 +1151,7 @@ export async function run(argv = process.argv) {
         // a stray ioredis client with auto-reconnect would otherwise spam
         // ETIMEDOUT errors for the rest of the process lifetime.
         const redisUrl = getRedisUrl()
-        if (redisUrl) {
+        if (redisUrl && !ephemeralDatabaseGuard) {
           const Redis = (await import('ioredis')).default
           const redis = new Redis({
             ...parseRedisUrl(redisUrl),
@@ -1155,6 +1172,8 @@ export async function run(argv = process.argv) {
           } finally {
             try { redis.disconnect() } catch {}
           }
+        } else if (ephemeralDatabaseGuard) {
+          console.log('[internal] Redis flush skipped: ephemeral database initialization does not own Redis.')
         } else {
           console.log('   Redis flush skipped (REDIS_URL not configured).')
         }
@@ -1170,7 +1189,7 @@ export async function run(argv = process.argv) {
         }
 
         const { Client } = await import('pg')
-        const dbExists = await ensureDatabaseExists(dbUrl)
+        const dbExists = ephemeralDatabaseGuard ? true : await ensureDatabaseExists(dbUrl)
         if (!dbExists) return 1
         const client = new Client({ connectionString: dbUrl, ssl: getSslConfig() })
         try {
