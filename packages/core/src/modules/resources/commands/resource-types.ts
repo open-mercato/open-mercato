@@ -177,7 +177,12 @@ const createResourceTypeCommand: CommandHandler<ResourcesResourceTypeCreateInput
       await withAtomicFlush(em, [
         async () => {
           await lockResourceType(em, resourceType.id)
-          const isLive = await em.count(ResourcesResourceType, { id: resourceType.id, deletedAt: null }) > 0
+          const isLive = await em.count(ResourcesResourceType, {
+            id: resourceType.id,
+            tenantId: resourceType.tenantId,
+            organizationId: resourceType.organizationId,
+            deletedAt: null,
+          }) > 0
           if (!isLive) return
           await assertNoAssignedResources(em, resourceType, 409)
           resourceType.deletedAt = new Date()

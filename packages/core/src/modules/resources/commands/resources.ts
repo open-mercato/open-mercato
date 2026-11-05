@@ -252,7 +252,13 @@ async function assertResourceTypeRestorable(
 ): Promise<void> {
   if (!resourceTypeId) return
   await lockResourceType(em, resourceTypeId)
-  if (record && await em.count(ResourcesResource, { id: record.id, resourceTypeId, deletedAt: null }) > 0) return
+  if (record && await em.count(ResourcesResource, {
+    id: record.id,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    resourceTypeId,
+    deletedAt: null,
+  }) > 0) return
   if (await countResourceTypes(em, resourceTypeId, scope, 'live') > 0) return
   if (await countResourceTypes(em, resourceTypeId, scope, 'deleted') === 0) {
     throw await resourceTypeUnavailableError(409)
