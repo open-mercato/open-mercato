@@ -729,17 +729,6 @@ describe('SearchService', () => {
     })
   })
 })
-<<<<<<< HEAD
-=======
-
-jest.mock('@open-mercato/core/modules/query_index/lib/search-scope', () => ({
-  buildQueryIndexSearchScopePredicate: () => jest.requireActual('kysely').sql`true`,
-  filterQueryIndexSearchRecords: async (_database: unknown, _scope: unknown, records: unknown[]) => records,
-  resolveQueryIndexSearchScope: jest.fn(async () => ({
-    blockedEntityTypes: [],
-    tenantGlobalEntityTypes: jest.requireActual('@open-mercato/core/modules/query_index/lib/tenant-global').listTenantGlobalEntityTypes(),
-  })),
-}))
 
 describe('entity strategy pins on writes', () => {
   afterEach(() => registerSearchModuleConfigs([]))
@@ -822,4 +811,3 @@ describe('entity strategy pins on writes', () => {
     expect(vector.delete).toHaveBeenCalledWith('test:entity', 'rec-123', 'tenant-123')
   })
 })
->>>>>>> 2d89db94c (fix(search): honor entity strategy restrictions on writes (#8758))
