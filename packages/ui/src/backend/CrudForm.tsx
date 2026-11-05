@@ -445,6 +445,7 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   readOnlyOverlay?: React.ReactNode
   // Optional mapping of entityId -> form value key storing the selected fieldset code
   customFieldsetBindings?: Record<string, { valueKey: string }>
+  resolveCustomFieldText?: (text: string, context: { entityId: string; path: string }) => string
   /**
    * How the custom-fields "Manage fields" affordance behaves:
    * - 'inline' (default) — opens the embedded fieldset quick-editor dialog.
@@ -845,6 +846,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
   readOnly = false,
   readOnlyOverlay,
   customFieldsetBindings,
+  resolveCustomFieldText,
   customFieldsManageMode = 'inline',
   injectionSpotId,
   legacyInjectionSpotId,
@@ -1763,11 +1765,10 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
     })
   }, [customFieldsetBindings, resolvedEntityIds, values])
 
-  const fieldsetsByEntity = cfMetadata?.fieldsetsByEntity ?? {}
-  const entitySettings = cfMetadata?.entitySettings ?? {}
-
   const { cfFields, customFieldLayout } = React.useMemo(() => {
     if (!cfDefinitions.length) return { cfFields: [], customFieldLayout: [] as CustomFieldEntityLayout[] }
+    const fieldsetsByEntity = cfMetadata?.fieldsetsByEntity ?? {}
+    const entitySettings = cfMetadata?.entitySettings ?? {}
     const aggregated: CrudField[] = []
     const layout: CustomFieldEntityLayout[] = []
     const defsByEntity = new globalThis.Map<string, CustomFieldDefDto[]>()
@@ -1845,9 +1846,29 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
 
     const entityIds = resolvedEntityIds.length ? resolvedEntityIds : Array.from(defsByEntity.keys())
     entityIds.forEach((entityId) => {
-      const defsForEntity = defsByEntity.get(entityId) ?? []
+      const resolveText = (text: string | undefined, path: string) =>
+        text && resolveCustomFieldText ? resolveCustomFieldText(text, { entityId, path }) : text
+      const defsForEntity = (defsByEntity.get(entityId) ?? []).map((definition) => ({
+        ...definition,
+        label: resolveText(definition.label, `fields.${definition.key}.label`),
+        description: resolveText(definition.description, `fields.${definition.key}.description`),
+        group: definition.group ? {
+          ...definition.group,
+          title: resolveText(definition.group.title, `fields.${definition.key}.group.title`),
+          hint: resolveText(definition.group.hint, `fields.${definition.key}.group.hint`),
+        } : undefined,
+      }))
       if (!defsForEntity.length) return
-      const availableFieldsets = fieldsetsByEntity[entityId] ?? []
+      const availableFieldsets = (fieldsetsByEntity[entityId] ?? []).map((fieldset) => ({
+        ...fieldset,
+        label: resolveText(fieldset.label, `fieldsets.${fieldset.code}.label`) ?? fieldset.label,
+        description: resolveText(fieldset.description, `fieldsets.${fieldset.code}.description`),
+        groups: fieldset.groups?.map((group) => ({
+          ...group,
+          title: resolveText(group.title, `fieldsets.${fieldset.code}.groups.${group.code}.title`),
+          hint: resolveText(group.hint, `fieldsets.${fieldset.code}.groups.${group.code}.hint`),
+        })),
+      }))
       const hasFieldsets = availableFieldsets.length > 0
       const singleFieldsetPerRecord =
         entitySettings[entityId]?.singleFieldsetPerRecord !== false
@@ -1949,9 +1970,9 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
     cfDefinitions,
     cfFieldsetSelections,
     customEntity,
+    resolveCustomFieldText,
     customFieldsLabel,
-    entitySettings,
-    fieldsetsByEntity,
+    cfMetadata,
     resolvedEntityIds,
   ])
 
@@ -3723,6 +3744,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
     manageFieldsetLabel,
     placedCustomFieldIds,
     renderFields,
+    t,
   ])
 
   const fieldsetManagerDialog = (

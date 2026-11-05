@@ -7,7 +7,12 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { detectDocker, resolveRepoRoot, runCompose, runCaptureSync } from './compose.mjs'
+import { composeArgs, detectDocker, resolveRepoRoot, runCompose, runCaptureSync } from './compose.mjs'
+import { resolveStackPorts } from './constants.mjs'
+import { readEnvValue } from './env-file.mjs'
+import { formatInfraProblem, startInfraServices } from './infra-preflight.mjs'
+
+const LOOPBACK_DATABASE_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]', 'host.docker.internal'])
 
 export function ensureMcpSharedDir(repoRoot) {
   // Pre-create the bind-mount source so dockerd never creates it root-owned
@@ -29,6 +34,74 @@ export function infraUp(repoRooot, { profiles = [] } = {}) {
   // ensureOpencodeImage) — this file never builds.
   upArgs.push('up', '-d', '--wait')
   return runCompose(repoRoot, upArgs).status ?? 1
+}
+
+export const INFRA_SERVICE_PORT_KEYS = {
+  postgres: 'POSTGRES_PORT',
+  redis: 'REDIS_PORT',
+  meilisearch: 'MEILISEARCH_PORT',
+  opencode: 'OPENCODE_PORT',
+}
+
+export function infraServices(repoRoot, env = process.env) {
+  const ports = resolveStackPorts(repoRoot, env)
+  return Object.entries(INFRA_SERVICE_PORT_KEYS).map(([service, envKey]) => ({ service, port: ports[service], envKey }))
+}
+
+export function externalDatabaseHost(repoRoot, env = process.env) {
+  const raw = env.DATABASE_URL ?? readEnvValue(path.join(repoRoot, 'apps', 'mercato', '.env'), 'DATABASE_URL')
+  if (!raw) return null
+  try {
+    const host = new URL(raw).hostname.toLowerCase()
+    return host && !LOOPBACK_DATABASE_HOSTS.has(host) ? host : null
+  } catch {
+    return null
+  }
+}
+
+// infraUp plus the shared preflight: distinguishes missing CLI / compose,
+// stopped daemon, port conflicts, and failed healthchecks instead of a bare
+// non-zero compose exit. Returns { ok, problem? }; never touches volumes.
+export async function startInfra(repoRoot, { profiles = [], env = process.env, log = console.log, beforeUp, startImpl = startInfraServices } = {}) {
+  ensureMcpSharedDir(repoRoot)
+  const externalHost = externalDatabaseHost(repoRoot, env)
+  if (externalHost) {
+    log(`   DATABASE_URL points at ${externalHost}; it is kept as is. Use --no-infra to skip the local containers.`)
+  }
+  return startImpl({
+    composeArgs: (extra) => composeArgs(repoRoot, extra),
+    services: infraServices(repoRoot),
+    upArgs: profiles.flatMap((profile) => ['--profile', profile]),
+    cwd: repoRoot,
+    beforeUp,
+    log,
+  })
+}
+
+// `--no-infra` promises zero Docker calls for the whole run, including the dev
+// runtime the starter launches afterwards (scripts/dev.mjs honors the flag).
+export function devRuntimeArgs(passthrough, { noInfra = false } = {}) {
+  return noInfra && !passthrough.includes('--no-infra') ? [...passthrough, '--no-infra'] : passthrough
+}
+
+export function resolveUpMode(selectedMode, { noInfra = false } = {}) {
+  return noInfra && selectedMode === 'docker' ? 'hybrid' : selectedMode
+}
+
+// Monorepo layout: DATABASE_URL lives in apps/mercato/.env, and the compose
+// file pins container names (${MERCATO_STACK:-mercato}-*), so a second checkout
+// clashes on names as well as ports.
+export const MONOREPO_PORT_CONFLICT_HINTS = [
+  'Ports held by mercato-* containers of another checkout of this repo? Stop them there (yarn infra:down), or give this checkout its own stack: MERCATO_STACK=<name> plus free *_PORT values in .env (changing ports alone still collides on the container names; see docker/README.md).',
+]
+
+export function describeInfraProblem(problem, options = {}) {
+  return formatInfraProblem(problem, {
+    optOutCommand: 'yarn setup --no-infra',
+    databaseUrlFile: 'apps/mercato/.env',
+    portConflictHints: MONOREPO_PORT_CONFLICT_HINTS,
+    ...options,
+  })
 }
 
 export function infraDown(repoRoot, { volumes = false } = {}) {
