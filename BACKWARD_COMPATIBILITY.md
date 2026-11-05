@@ -635,13 +635,6 @@ STABLE tools/execute writes bypass approval; no bridge. [Migrate](UPGRADE_NOTES.
 
 SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: ApiRouteBeforeAuth` is additive. See [contract and migration](.ai/specs/enterprise/implemented/SPEC-ENT-004-2026-02-19-sso-directory-sync.md#migration--backward-compatibility).
 
+## Comment authors (2026-11-05, #8759) — NOT APPROVED
 
-## Customer comment update attribution (2026-11-05, #8759) — proposed exception, NOT APPROVED
-
-**Surface and classification:** STABLE command/API behavior of `customers.comments.update` and `PUT /api/customers/comments`. Ordinary staff and API keys no longer change or clear stored authors via `authorUserId`; authorized body edits still succeed. Omission preserves attribution for every actor. Non-API-key superadmins retain explicit correction to an active same-tenant user (including a different home organization), or explicit null clearing. Update-schema acceptance of null is additive; creation and response shapes are unchanged.
-
-**Qualifying argument:** continued acceptance of unrestricted author assignment is itself the attribution-forgery vulnerability. Retaining that branch behind a bridge, alias or toggle leaves it exploitable for the deprecation window. The proposed removal is limited to unauthorized attribution changes; normal editing, scoped privileged correction and historical undo/redo remain supported.
-
-**Migration:** clients should omit `authorUserId` for body edits and use an explicitly authorized non-key superadmin session for intentional corrections. Operators need no startup or database migration; existing authors/history are not rewritten and earlier attribution changes should be checked against independent evidence. See [client/operator upgrade notes](UPGRADE_NOTES.md#customer-comment-update-attribution-8759) and [the focused spec](.ai/specs/2026-11-05-customer-comment-author-attribution.md#migration--backward-compatibility).
-
-**Approval status:** this records a proposed Emergency Security Exception only. No named human maintainer has approved waiving steps 1–3. [PR #8782](https://github.com/open-mercato/open-mercato/pull/8782) remains blocked until a human maintainer signs off by name acknowledging that waiver. This entry and automated review do not grant approval.
+STABLE command/API: unrestricted reassignment enables forgery; bridging retains it. Author corrections require non-key superadmins. [Client/operator migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759). Steps 1–3 waiver pending named human maintainer approval; #8782 blocked.
