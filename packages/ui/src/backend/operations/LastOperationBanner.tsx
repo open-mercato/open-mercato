@@ -7,10 +7,14 @@ import { apiCall } from '../utils/apiCall'
 import { flash } from '../FlashMessages'
 import { useLastOperation, markUndoSuccess, dismissOperation, operationStackConstants } from './store'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { hasFeature } from '@open-mercato/shared/security/features'
+import { useBackendChrome } from '../BackendChromeProvider'
 
 export function LastOperationBanner() {
   const t = useT()
   const operation = useLastOperation()
+  const { payload, isReady } = useBackendChrome()
+  const canUndo = isReady && hasFeature(payload?.grantedFeatures, 'audit_logs.undo_self')
   const [pendingToken, setPendingToken] = React.useState<string | null>(null)
   const router = useRouter()
 
@@ -18,14 +22,14 @@ export function LastOperationBanner() {
   const isPending = undoToken !== null && pendingToken === undoToken
 
   React.useEffect(() => {
-    if (!undoToken || isPending) return
+    if (!undoToken || isPending || !canUndo) return
     const timer = setTimeout(() => {
       dismissOperation(undoToken)
     }, operationStackConstants.LAST_OPERATION_AUTO_DISMISS_MS)
     return () => clearTimeout(timer)
-  }, [undoToken, isPending])
+  }, [undoToken, isPending, canUndo])
 
-  if (!operation) return null
+  if (!operation || !canUndo) return null
 
   const rawLabel = operation.actionLabel ?? operation.commandId
   const translatedLabel = t(rawLabel)
@@ -33,7 +37,7 @@ export function LastOperationBanner() {
 
   async function handleUndo() {
     const undoToken = operation?.undoToken
-    if (!undoToken || isPending) return
+    if (!undoToken || isPending || !canUndo) return
     const tokens = operation.bulkUndoTokens && operation.bulkUndoTokens.length > 0
       ? operation.bulkUndoTokens
       : [undoToken]
@@ -89,6 +93,7 @@ export function LastOperationBanner() {
         </span>
       </div>
       <Button
+        type="button"
         variant="outline"
         size="sm"
         onClick={() => { void handleUndo() }}
