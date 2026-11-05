@@ -24,6 +24,7 @@ import { StorageDriverFactory } from '../lib/drivers'
 import { OcrService, shouldUseLlmOcr } from '../lib/ocrService'
 import { clearAttachmentThumbnailCache } from '../lib/thumbnailCache'
 import { lockAttachmentStorageReferences, resolveAttachmentStorageRelease } from '../lib/storageReferences'
+import { enqueuePurgedSectionSearchDelete, purgeDocumentStructure } from '../lib/documentStructure/purge'
 import { assertAttachmentScopeInvariant } from '../lib/access'
 import { resolveAttachmentRequestScope } from '../lib/requestScope'
 import {
@@ -758,11 +759,16 @@ async function deleteAttachment(req: Request) {
     const driver = record.storagePath ? await storageDriverFactory.resolveForPartition(record.partitionCode, {
       tenantId: record.tenantId ?? auth.tenantId!, organizationId: record.organizationId ?? orgId ?? '',
     }) : null
+    const purgeScope = { tenantId: record.tenantId ?? null, organizationId: record.organizationId ?? null }
+    const purge = await purgeDocumentStructure(tx, { attachmentId: record.id, ...purgeScope }, { flush: false })
     tx.remove(record)
     await tx.flush()
-    return { record, driver, guard, releaseStorage: removal.releaseStorage }
+    return { record, driver, guard, releaseStorage: removal.releaseStorage, purgeScope, indexedSectionIds: purge.indexedSectionIds }
   })
   const { record } = outcome
+  if (outcome.indexedSectionIds.length > 0) {
+    await enqueuePurgedSectionSearchDelete(outcome.purgeScope, outcome.indexedSectionIds)
+  }
   await clearAttachmentThumbnailCache(record.partitionCode, record.id).catch((error) => {
     logger.error('Failed to cleanup cached thumbnails', { err: error })
   })

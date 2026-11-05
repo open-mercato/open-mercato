@@ -76,6 +76,17 @@ function createFakeEm() {
       inTransaction = false
     }),
     isInTransaction: jest.fn(() => inTransaction),
+    transactional: jest.fn(async <T>(callback: (tx: unknown) => Promise<T>): Promise<T> => {
+      await em.begin()
+      try {
+        const result = await callback(em)
+        await em.commit()
+        return result
+      } catch (error) {
+        await em.rollback()
+        throw error
+      }
+    }),
   }
   return em
 }
