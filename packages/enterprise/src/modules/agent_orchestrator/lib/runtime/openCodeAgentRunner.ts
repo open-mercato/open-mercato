@@ -34,6 +34,7 @@ import type { IngestTraceCommandInput } from '../../commands/trace'
 import type { IngestTraceResult } from '../trace/traceIngestionService'
 import type { TraceSpanIngest } from '../../data/validators'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'opencode-agent-runner' })
 
@@ -315,6 +316,11 @@ export class OpenCodeAgentRunner {
             await failRun(this.commandBus, commandCtx, { runId, errorMessage: `${err.code}: ${err.reason}` })
             throw err
           }
+          logger.warn('attachment staging failed', { agentId, runId, error: err instanceof Error ? err.message : String(err) })
+          getTelemetryRuntime()?.reportError(err, {
+            module: 'agent_orchestrator', code: 'agent_orchestrator.attachment_staging_failed',
+            attributes: { agentId, runId },
+          })
           const detail = 'attachment input unavailable'
           await failRun(this.commandBus, commandCtx, { runId, errorMessage: `attachment staging failed: ${detail}` })
           throw new OpenCodeRunFailedError(agentId, `attachment staging failed: ${detail}`)

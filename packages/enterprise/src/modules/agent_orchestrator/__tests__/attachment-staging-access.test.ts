@@ -9,6 +9,8 @@ import { AttachmentStorageConfigurationError, registerAttachmentAccessResolvers,
 import { Document, DocumentShare } from '../../../../../documents/src/modules/documents/data/entities'
 import { attachmentAccessResolvers, protectedAttachmentTargets } from '../../../../../documents/src/modules/documents/data/attachment-access'
 import { OpenCodeAgentRunner, type OpenCodeRunnerClient } from '../lib/runtime/openCodeAgentRunner'
+import { registerLoggerExtension } from '@open-mercato/shared/lib/logger'
+import { registerTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { InMemoryAgentRunSessionStore } from '../lib/runtime/agentRunSessionStore'
 import { stageAttachments } from '../lib/runtime/attachmentStager'
 import type { AgentRegistryEntry } from '../lib/sdk/defineAgent'
@@ -211,11 +213,38 @@ describe('attachment staging owner policy through the real service and Documents
 
   it('redacts unexpected service error messages from persisted failure and thrown error', async () => {
     const test = harness()
-    test.container.register({ attachmentService: asValue({ readScoped: async () => { throw new Error('secret-policy-credentials') } }) })
-    const error = await test.runner.run(entry, { __files: files }, { ...scope, userId }).catch((caught: unknown) => caught)
-    expect(JSON.stringify([error, test.calls])).not.toContain('secret-policy-credentials')
-    expect(test.resolveForPartition).not.toHaveBeenCalled()
-    expect(writeFile).not.toHaveBeenCalled()
-    expect(test.client.sendMessage).not.toHaveBeenCalled()
+    const stagingError = new Error('secret-policy-credentials')
+    const reportError = jest.fn()
+    const logRecord = jest.fn()
+    const unregisterLogger = registerLoggerExtension({ emit: logRecord })
+    const unregisterTelemetry = registerTelemetryRuntime({
+      canUseGlobalTracePropagation: () => false,
+      captureTraceContext: () => ({}),
+      continueTrace: (_carrier, _spanName, callback) => callback(),
+      recordHttpDuration: () => undefined,
+      reportError,
+      shutdown: async () => undefined,
+    })
+    try {
+      test.container.register({ attachmentService: asValue({ readScoped: async () => { throw stagingError } }) })
+      const error = await test.runner.run(entry, { __files: files }, { ...scope, userId }).catch((caught: unknown) => caught)
+      expect(error).toMatchObject({ message: expect.stringContaining('attachment staging failed: attachment input unavailable') })
+      expect(JSON.stringify([error, test.calls])).not.toContain('secret-policy-credentials')
+      expect(reportError).toHaveBeenCalledTimes(1)
+      expect(reportError).toHaveBeenCalledWith(stagingError, {
+        module: 'agent_orchestrator', code: 'agent_orchestrator.attachment_staging_failed',
+        attributes: { agentId: entry.id, runId: 'run-access' },
+      })
+      expect(logRecord).toHaveBeenCalledWith(expect.objectContaining({
+        namespace: 'agent_orchestrator', level: 'warn', message: 'attachment staging failed',
+        fields: expect.objectContaining({ agentId: entry.id, runId: 'run-access', error: stagingError.message }),
+      }))
+      expect(test.resolveForPartition).not.toHaveBeenCalled()
+      expect(writeFile).not.toHaveBeenCalled()
+      expect(test.client.sendMessage).not.toHaveBeenCalled()
+    } finally {
+      unregisterTelemetry()
+      unregisterLogger()
+    }
   })
 })
