@@ -9,6 +9,7 @@ const readApiResultOrThrowMock = jest.fn()
 const apiCallOrThrowMock = jest.fn()
 const withScopedApiRequestHeadersMock = jest.fn()
 const buildOptimisticLockHeaderMock = jest.fn()
+const reportErrorMock = jest.fn()
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCallOrThrow: (...args: unknown[]) => apiCallOrThrowMock(...args),
@@ -18,6 +19,10 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
 
 jest.mock('@open-mercato/ui/backend/utils/optimisticLock', () => ({
   buildOptimisticLockHeader: (...args: unknown[]) => buildOptimisticLockHeaderMock(...args),
+}))
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: (...args: unknown[]) => reportErrorMock(...args) }),
 }))
 
 const PAGE_SIZE = 3
@@ -332,6 +337,10 @@ describe('usePersonTasks merged customer task reads', () => {
       undefined,
       expect.any(Object),
     )
+    expect(reportErrorMock).toHaveBeenCalledWith(expect.objectContaining({ status: 403 }), {
+      module: 'customers',
+      code: 'customers.person_tasks_legacy_fallback',
+    })
     expect(result.current.tasks).toEqual([expect.objectContaining({ id: legacyRow.id, todoSource: 'example:todo' })])
     expect(result.current.error).toBeNull()
   })

@@ -276,20 +276,21 @@ export async function ensureFallback(
   return { ruleId: body.ruleId, timeProjectId: body.timeProjectId, created: body.created === true }
 }
 
-export async function ensureSeededFallback(
+export async function createCustomerFreeProject(
   request: APIRequestContext,
   admin: string,
-): Promise<{ ruleId: string; timeProjectId: string; created: boolean }> {
-  const fallback = await ensureFallback(request, admin)
-  const projectName = 'Customer support'
-  const query = new URLSearchParams({ q: projectName, projectType: 'internal', pageSize: '100' })
-  const body = await okJson<{ items?: Array<{ id: string; name: string; project_type: string }> }>(
-    await apiRequest(request, 'GET', `/api/staff/timesheets/time-projects?${query}`, { token: admin }),
-    'find seeded support project',
-  )
-  const projects = (body.items ?? []).filter((project) => project.name === projectName && project.project_type === 'internal')
-  expect(projects, 'exactly one seeded internal support project should be listed').toHaveLength(1)
-  return { ...fallback, timeProjectId: projects[0].id }
+  cleanup: Cleanup,
+  label: string,
+): Promise<TestTimeProjectFixture> {
+  const project = await createProject(request, admin, cleanup, label)
+  const detached = await setProjectFields(request, admin, project.id, {
+    customerId: null,
+    customerSnapshot: null,
+  })
+  expect(detached.ok(), `detach project customer failed: ${detached.status()}`).toBeTruthy()
+  const statuses = await listProjectStatuses(request, admin, project.id)
+  expect(statuses.length, 'customer-free support project should have task statuses').toBeGreaterThan(0)
+  return project
 }
 
 /**
