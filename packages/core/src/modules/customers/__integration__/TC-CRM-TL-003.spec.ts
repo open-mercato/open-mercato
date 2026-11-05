@@ -412,6 +412,7 @@ test.describe('TC-CRM-TL-003: deals timeline rescheduling', () => {
       await expect(drawer).toBeVisible();
       await page.keyboard.press('Escape');
       await expect(drawer).toBeHidden();
+      await expect(page).not.toHaveURL(/[?&]deal=/);
       await waitForPointerReady(page);
       await expectDraggable(timelineCard(page, dealId));
       await dragCardTo(page, timelineCard(page, dealId), timelineCell(page, adminUserId, 2));
@@ -567,6 +568,7 @@ test.describe('TC-CRM-TL-003: deals timeline rescheduling', () => {
 
       await page.keyboard.press('Escape');
       await expect(drawer).toBeHidden();
+      await expect(page).not.toHaveURL(/[?&]deal=/);
       await waitForPointerReady(page);
       const wonBefore = await wonThisQuarterCount(request, token);
       const puts = trackDealPuts(page);
