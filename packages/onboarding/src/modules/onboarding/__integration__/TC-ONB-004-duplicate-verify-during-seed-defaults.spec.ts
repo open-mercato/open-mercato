@@ -21,6 +21,8 @@ const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000';
 const ONBOARDING_PASSWORD = 'DuplicateVerify123!';
 const PREPARATION_DEADLINE_MS = 180_000;
 const SEED_DEFAULTS_HOOK_TIMEOUT_MS = 15_000;
+const BACKGROUND_SETTLE_DEADLINE_MS = 240_000;
+const BACKGROUND_QUIET_MS = 10_000;
 
 function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
@@ -148,9 +150,78 @@ async function purgeOnboardingFixture(email: string, knownTenantId: string | nul
     const tenantIds = new Set<string>();
     if (knownTenantId) tenantIds.add(knownTenantId);
     for (const row of requests.rows) if (row.tenant_id) tenantIds.add(row.tenant_id);
-    for (const tenantId of tenantIds) await purgeTenantWorkspace(client, tenantId);
+    for (const tenantId of tenantIds) await purgeTenantWhenSettled(client, tenantId);
     await client.query('delete from onboarding_requests where email_hash = any($1::text[])', [lookupHashCandidates(email)]);
   });
+}
+
+async function purgeTenantWhenSettled(client: IntegrationDbClient, tenantId: string): Promise<void> {
+  const deadline = Date.now() + BACKGROUND_SETTLE_DEADLINE_MS;
+  while (true) {
+    await waitForTenantBackgroundWork(client, tenantId, deadline);
+    await purgeTenantWorkspace(client, tenantId);
+    await new Promise((resolve) => setTimeout(resolve, BACKGROUND_QUIET_MS));
+    const leftovers = await countTenantRows(client, tenantId);
+    if (leftovers === 0) return;
+    if (Date.now() >= deadline) {
+      throw new Error(`[internal] background work kept writing ${leftovers} rows for purged tenant ${tenantId}`);
+    }
+  }
+}
+
+const BACKGROUND_ACTIVITY_SOURCES = [
+  { table: 'entity_index_jobs', activity: 'greatest(started_at, heartbeat_at, finished_at)', busy: 'finished_at is null' },
+  { table: 'progress_jobs', activity: 'updated_at', busy: 'finished_at is null' },
+  { table: 'entity_index_coverage', activity: 'refreshed_at', busy: null },
+  { table: 'indexer_status_logs', activity: 'occurred_at', busy: null },
+  { table: 'entity_indexes', activity: 'updated_at', busy: null },
+  { table: 'search_tokens', activity: 'created_at', busy: null },
+];
+
+async function waitForTenantBackgroundWork(client: IntegrationDbClient, tenantId: string, deadline: number): Promise<void> {
+  const existing = await client.query<{ table_name: string }>(
+    'select table_name from information_schema.tables where table_schema = current_schema() and table_name = any($1::text[])',
+    [BACKGROUND_ACTIVITY_SOURCES.map((source) => source.table)],
+  );
+  const present = new Set(existing.rows.map((row) => row.table_name));
+  const sources = BACKGROUND_ACTIVITY_SOURCES.filter((source) => present.has(source.table));
+  if (sources.length === 0) return;
+  const busySql = sources
+    .filter((source) => source.busy)
+    .map((source) => `exists (select 1 from "${source.table}" where tenant_id = $1 and ${source.busy})`)
+    .join(' or ') || 'false';
+  const activitySql = sources
+    .map((source) => `(select max(${source.activity}) from "${source.table}" where tenant_id = $1)`)
+    .join(', ');
+  while (Date.now() < deadline) {
+    const result = await client.query<{ busy: boolean; last_activity: Date | null }>(
+      `select ${busySql} as busy, greatest(${activitySql}) as last_activity`,
+      [tenantId],
+    );
+    const { busy, last_activity: lastActivity } = result.rows[0];
+    const quiet = !lastActivity || Date.now() - new Date(lastActivity).getTime() >= BACKGROUND_QUIET_MS;
+    if (!busy && quiet) return;
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+}
+
+async function listTenantTables(client: IntegrationDbClient): Promise<string[]> {
+  const result = await client.query<{ table_name: string }>(
+    `select table_name from information_schema.columns
+      where table_schema = current_schema() and column_name = 'tenant_id'
+        and table_name in (select table_name from information_schema.tables where table_schema = current_schema() and table_type = 'BASE TABLE')`,
+  );
+  return result.rows.map((row) => row.table_name);
+}
+
+async function countTenantRows(client: IntegrationDbClient, tenantId: string): Promise<number> {
+  let total = 0;
+  for (const table of await listTenantTables(client)) {
+    const result = await client.query<{ count: number }>(`select count(*)::int as count from "${table}" where tenant_id = $1`, [tenantId]);
+    total += result.rows[0].count;
+  }
+  const tenant = await client.query<{ count: number }>('select count(*)::int as count from tenants where id = $1', [tenantId]);
+  return total + tenant.rows[0].count;
 }
 
 async function purgeTenantWorkspace(client: IntegrationDbClient, tenantId: string): Promise<void> {
@@ -173,12 +244,7 @@ async function purgeTenantWorkspace(client: IntegrationDbClient, tenantId: strin
       [tenantId],
     );
   }
-  const tenantTables = await client.query<{ table_name: string }>(
-    `select table_name from information_schema.columns
-      where table_schema = current_schema() and column_name = 'tenant_id'
-        and table_name in (select table_name from information_schema.tables where table_schema = current_schema() and table_type = 'BASE TABLE')`,
-  );
-  let pending = tenantTables.rows.map((row) => row.table_name);
+  let pending = await listTenantTables(client);
   for (let pass = 0; pending.length > 0 && pass < 20; pass += 1) {
     const blocked: string[] = [];
     for (const table of pending) {
@@ -203,7 +269,7 @@ function pollOnboardingStatus(request: APIRequestContext, tenantId: string) {
 
 test.describe('TC-ONB-004: duplicate verify while seedDefaults is still running', () => {
   test('neither a duplicate verify nor a status poll completes the request before seedDefaults finish', async ({ request }) => {
-    test.setTimeout(PREPARATION_DEADLINE_MS + 120_000);
+    test.setTimeout(PREPARATION_DEADLINE_MS + BACKGROUND_SETTLE_DEADLINE_MS + 120_000);
     const unique = randomUUID().slice(0, 8);
     const email = `qa-onboarding-duplicate-verify-${unique}@example.test`;
     const token = `integration-duplicate-verify-${randomUUID().replace(/-/g, '')}`;
