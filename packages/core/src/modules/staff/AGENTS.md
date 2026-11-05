@@ -4,6 +4,10 @@ The `staff` module is **optional** and slated for extraction into a standalone `
 
 See [`.ai/specs/implemented/2026-05-08-staff-decouple-from-core.md`](../../../../../.ai/specs/implemented/2026-05-08-staff-decouple-from-core.md) for the decoupling plan, and [`BACKWARD_COMPATIBILITY.md`](../../../../../BACKWARD_COMPATIBILITY.md) for the contract-surface taxonomy referenced below.
 
+## Always
+
+- Preserve unsaved project-team drafts across translation-context updates. Tie data reloads to the project, organization scope, opening the drawer, or an explicit retry; read the current translator for asynchronous error copy without making translator identity a reload trigger.
+
 ## MUST Rules
 
 1. **MUST NOT import staff entities (`StaffTeam`, `StaffTeamMember`, etc.) from non-staff core modules.** Use the public surfaces below.
@@ -85,6 +89,7 @@ The consulting suite added the routes below. The URL namespace stays `staff/time
 | `GET/POST/PUT/DELETE /tasks`, `PATCH /tasks/[id]/status`, `GET/POST/PUT/DELETE /tasks/[id]/comments` | `tasks.view` / `tasks.manage` | Tasks are depth-1 (a subtask is a child task, D-2). Every query is intersected with `resolveProjectAccess`. `?tagIds=` narrows to tasks carrying **every** listed tag. |
 | `GET/POST/PUT/DELETE /task-statuses` | `tasks.view` / `tasks.manage` | Per-project Kanban columns (D-1), seeded when a project is created. |
 | `GET/POST/PUT/DELETE /tags`, `POST/DELETE /tags/{task,entry}-assignments` | `tasks.view` / `tasks.manage` | Refuses to tag an entry locked in a closed report. |
+| `GET /time-entries?includeTotals=true` | `view` | Adds an optional `totals` (`entryCount`, `durationMinutes`, `roundedMinutes`; `money` per currency only for `rates.view`) over the WHOLE filtered set, computed by `lib/timesheets/timeEntryTotals.ts` from the same `buildScopedTimeEntryListFilters` output. `money` is grouped in SQL but priced per group by `entryAmount` and summed in cents, so it always equals the summed row `cost` — never price it in SQL, whose exact-decimal rounding disagrees with `entryAmount` on half cents. A filter operator the aggregate cannot compile throws, is reported as `staff.time_entry_totals_failed`, and `totals` is omitted — extend `compileTimeEntryFilters` when the list filters grow. The entries page renders it inside the table via the `data-table:staff.time_entries.list:footer` widget. |
 | `POST /time-entries/[id]/duplicate`, `POST /time-entries/copy-day`, `GET /time-entries/overlaps` | `manage_own` / `view` | Overlaps is advisory and midnight-aware (D-8); copy-day refuses a non-empty target unless `allowDuplicates`. |
 | `GET/POST/PUT/DELETE /reports`, `POST /reports/preview`, `GET /reports/[id]/sheet`, `POST /reports/[id]/{close,unlock}`, `GET /reports/[id]/export` | `reports.view` / `reports.manage` / `reports.unlock` | Close freezes per-entry values and locks the entries; unlock requires a reason. Export never locks. |
 | `GET /my-work` | `view` | Screen 1 aggregate; always the caller's own, no `staffMemberId` parameter exists. |

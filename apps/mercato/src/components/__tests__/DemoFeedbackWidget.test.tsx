@@ -6,6 +6,7 @@ import '@testing-library/jest-dom'
 import { render, screen } from '@testing-library/react'
 import { DemoFeedbackWidget } from '../DemoFeedbackWidget'
 import { HIDE_CONTACT_FLAG_KEY } from '../demoFeedbackFlag'
+import { ContentSecurityPolicyProvider } from '@open-mercato/ui/theme/ContentSecurityPolicyProvider'
 
 jest.mock('next/image', () => ({
   __esModule: true,
@@ -25,6 +26,12 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
 }))
 
 describe('DemoFeedbackWidget', () => {
+  it('uses the document nonce for its animation stylesheet', () => {
+    render(<ContentSecurityPolicyProvider nonce="trustedDocumentNonce"><DemoFeedbackWidget demoModeEnabled={true} /></ContentSecurityPolicyProvider>)
+    const stylesheet = Array.from(document.querySelectorAll('style')).find((style) => style.textContent?.includes('@keyframes subtle-bounce'))
+    expect(stylesheet?.nonce).toBe('trustedDocumentNonce')
+  })
+
   afterEach(() => {
     window.localStorage.clear()
     document.body.querySelectorAll('[data-open-surface]').forEach((node) => node.remove())
