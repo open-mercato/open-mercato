@@ -6,7 +6,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
-import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
+import { CheckboxField } from '@open-mercato/ui/primitives/checkbox-field'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import type { CustomerFieldDefinitionInput } from '../data/validators'
 import { getLocalizedDefaultCheckoutCustomerFields } from '../lib/defaults'
@@ -227,13 +227,13 @@ export function CustomerFieldsEditor({ value, onChange, errors }: Props) {
                       {kindError ? <p className="text-xs text-destructive">{kindError}</p> : null}
                     </div>
 
-                    <label className="flex h-9 items-center gap-2 whitespace-nowrap rounded-md border border-border/70 bg-muted/30 px-3 text-sm">
-                      <Checkbox
-                        checked={field.required}
-                        onCheckedChange={(checked) => updateField(index, { required: checked === true })}
-                      />
-                      {t('checkout.customerFieldsEditor.columns.required')}
-                    </label>
+                    <CheckboxField
+                      size="md"
+                      label={t('checkout.customerFieldsEditor.columns.required')}
+                      containerClassName="h-9 whitespace-nowrap rounded-md border border-border/70 bg-muted/30 px-3"
+                      checked={field.required}
+                      onCheckedChange={(checked) => updateField(index, { required: checked === true })}
+                    />
 
                     <div className="flex justify-end gap-2">
                       {!field.fixed ? (

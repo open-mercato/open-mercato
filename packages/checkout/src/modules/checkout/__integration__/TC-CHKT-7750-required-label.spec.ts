@@ -18,19 +18,19 @@ test.describe('Required customer field labels fit their controls', () => {
         for (const control of await requiredControls.all()) {
           await expect(control).toBeVisible()
           await expect.poll(async () => control.evaluate((element) => {
-            const label = element.closest('label')
-            if (!label) return false
-            const textNode = label.lastChild
-            if (!textNode || textNode.nodeType !== Node.TEXT_NODE) return false
+            const container = element.parentElement
+            const label = container?.querySelector('label')
+            if (!container || !label || label.htmlFor !== element.id) return false
             const range = document.createRange()
-            range.selectNodeContents(textNode)
+            range.selectNodeContents(label)
             const content = range.getBoundingClientRect()
             const checkbox = element.getBoundingClientRect()
-            const border = label.getBoundingClientRect()
+            const border = container.getBoundingClientRect()
             return content.left >= border.left && content.right <= border.right
               && content.top >= border.top && content.bottom <= border.bottom
               && checkbox.left >= border.left && checkbox.right <= border.right
               && checkbox.top >= border.top && checkbox.bottom <= border.bottom
+              && checkbox.width === 20 && checkbox.height === 20
           })).toBe(true)
         }
       }
