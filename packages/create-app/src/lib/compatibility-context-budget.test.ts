@@ -47,3 +47,21 @@ test('compatibility cases fit their exact required files without broad read or i
     fs.rmSync(fixture, { recursive: true, force: true })
   }
 })
+
+test('OMH-057 accommodates the measured compatibility footprint without broader access', () => {
+  const record = cases.find(record => record.id === 'OMH-057')
+  assert.ok(record)
+  const measuredRequiredBytes = 123363
+  assert.ok(record.maxTotalContextBytes >= measuredRequiredBytes)
+  assert.ok(record.maxTotalContextBytes - measuredRequiredBytes <= 4096)
+  assert.equal(record.maxInitialContextBytes, 40960)
+  assert.deepEqual(record.context.required, [
+    'AGENTS.md',
+    '.ai/guides/contracts.md',
+    '.ai/guides/testing-debugging.md',
+    '.ai/skills/om-troubleshooter/SKILL.md',
+    '.ai/guides/upstream/BACKWARD_COMPATIBILITY.md',
+  ])
+  assert.equal(record.context.allowedExtra, undefined)
+  assert.deepEqual(record.context.forbidden, ['.env*', '.git/**'])
+})
