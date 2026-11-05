@@ -68,3 +68,31 @@ test('a per-service bind override must fall back to the loopback default', () =>
   assert.equal(LOOPBACK_PREFIX.test('${OM_VERDACCIO_BIND_ADDRESS:-0.0.0.0}:${VERDACCIO_PORT:-4873}:4873'), false)
   assert.equal(LOOPBACK_PREFIX.test('0.0.0.0:${POSTGRES_PORT:-5432}:5432'), false)
 })
+
+// Verdaccio writes VERDACCIO_PUBLIC_URL into every dist.tarball URL, overriding
+// the request host, and Yarn downloads tarballs from that URL. Moving only the
+// listening address (OM_VERDACCIO_BIND_ADDRESS) would keep advertising
+// localhost, so a container install would fetch tarballs from itself. The
+// public URL must be overridable alongside the bind address.
+const VERDACCIO_COMPOSE_FILES = ['starters/docker/compose.infra.yml', 'docker-compose.yml']
+
+for (const file of VERDACCIO_COMPOSE_FILES) {
+  test(`${file} lets the advertised Verdaccio tarball URL follow the registry route`, () => {
+    const content = fs.readFileSync(path.resolve(ROOT, file), 'utf8')
+    const publicUrls = content
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith('VERDACCIO_PUBLIC_URL:'))
+    assert.deepEqual(publicUrls, ['VERDACCIO_PUBLIC_URL: ${OM_VERDACCIO_PUBLIC_URL:-http://localhost:4873}'])
+  })
+}
+
+test('the native-Linux registry route documents the root .env and the host VERDACCIO_URL export', () => {
+  const readme = fs.readFileSync(path.resolve(ROOT, 'docker/README.md'), 'utf8')
+  const section = readme.slice(readme.indexOf('### Local Verdaccio for standalone fullapp builds on native Linux'))
+  assert.match(section, /`\.env` at the \*\*repository root\*\*/)
+  assert.match(section, /OM_VERDACCIO_BIND_ADDRESS=172\.17\.0\.1/)
+  assert.match(section, /OM_VERDACCIO_PUBLIC_URL=http:\/\/172\.17\.0\.1:4873/)
+  assert.match(section, /export VERDACCIO_URL=http:\/\/172\.17\.0\.1:4873/)
+  assert.doesNotMatch(section, /\.env next to the infra compose file/)
+})

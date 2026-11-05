@@ -161,21 +161,43 @@ Desktop that reaches the loopback-bound registry. On native Linux,
 `host.docker.internal` maps to the Docker bridge gateway, which a `127.0.0.1`
 binding does not serve.
 
-Bind only the registry to the bridge gateway. It stays reachable from the host
+Bind only the registry to the bridge gateway, and make Verdaccio advertise
+that address in package metadata. Verdaccio builds every `dist.tarball` URL
+from `VERDACCIO_PUBLIC_URL` (it overrides the request host), and Yarn downloads
+tarballs from that URL, so a `localhost` value would send a container's
+install to the container itself. The bridge address is reachable from the host
 and from containers, and is not published on public interfaces:
 
 ```bash
 # Docker bridge gateway address, usually 172.17.0.1
 ip -4 -o addr show docker0 | awk '{print $4}' | cut -d/ -f1
+```
 
-# .env next to the infra compose file
+Put the overrides in the `.env` at the **repository root**. `yarn infra:up`
+and the `docker compose --project-directory . -f starters/docker/compose.infra.yml`
+command above read the root `.env`, not one next to the compose file:
+
+```bash
+# <repo root>/.env
 OM_VERDACCIO_BIND_ADDRESS=172.17.0.1
-# host-side registry scripts then need the same address
-VERDACCIO_URL=http://172.17.0.1:4873
+OM_VERDACCIO_PUBLIC_URL=http://172.17.0.1:4873
+```
+
+Host-side registry commands (`yarn registry:setup-user`, `yarn registry:publish`,
+`yarn test:create-app`, `yarn test:create-app:integration`) read `VERDACCIO_URL`
+from the process environment, not from `.env`. Export it in the shell that
+runs them:
+
+```bash
+export VERDACCIO_URL=http://172.17.0.1:4873
+yarn registry:publish
 ```
 
 Scaffold with `--registry http://172.17.0.1:4873` instead of `--verdaccio` so
 the generated `.yarnrc.yml` already points at an address containers can reach.
+Recreate the registry container after changing `OM_VERDACCIO_PUBLIC_URL`
+(`docker compose ... up -d verdaccio`); Verdaccio rewrites tarball URLs when it
+serves metadata, so packages published earlier pick up the new address.
 The registry config allows anonymous publish of `@open-mercato/*`, so do not
 bind it to `0.0.0.0` on a machine reachable from the internet.
 
