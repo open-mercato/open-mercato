@@ -861,7 +861,7 @@ export const createDisplayNameSection = (t: Translator) =>
     }
 
     return (
-      <div className="rounded-lg border bg-muted/30 p-4">
+      <div className="min-w-0 overflow-hidden rounded-lg border bg-muted/30 p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
