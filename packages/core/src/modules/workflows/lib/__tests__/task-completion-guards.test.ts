@@ -543,19 +543,38 @@ describe('guard target scoping', () => {
     expect(taskCompletionGuardApplies(selectingGuard(), target)).toBe(false)
   })
 
-  test('a definition owned by another tenant cannot supply the form key', async () => {
+  test('reads the pinned definition inside the task scope', async () => {
     const task = makeTask()
     const { em } = makeEm(task)
-    findDefinitionForInstance.mockImplementation(async () => ({
-      tenantId: FOREIGN_TENANT,
-      definition: {
-        steps: [{ stepId: 'review', stepType: 'USER_TASK', userTaskConfig: { formKey: 'contract-review' } }],
-        transitions: [],
-      },
-    }))
 
-    const target = await loadTaskCompletionGuardTarget(em, task as unknown as UserTask)
+    await loadTaskCompletionGuardTarget(em, task as unknown as UserTask)
 
-    expect(target.formKey).toBeNull()
+    expect(findDefinitionForInstance).toHaveBeenCalledWith(em, expect.anything(), {
+      tenantId: TENANT,
+      organizationId: ORG,
+    })
+  })
+
+  test.each([
+    ['tenant', { tenantId: FOREIGN_TENANT }],
+    ['organization', { organizationId: FOREIGN_ORG }],
+  ])('completing refuses an instance in another %s instead of skipping its guards', async (_label, foreign) => {
+    const task = makeTask()
+    const { em, instance, flush } = makeEm(task)
+    Object.assign(instance, foreign)
+    const guard = selectingGuard()
+    registerTaskCompletionGuards([{ moduleId: 'host', guards: [guard] }])
+
+    await expect(
+      completeUserTask(em, container, {
+        taskId: TASK_ID,
+        formData: {},
+        userId: USER,
+        scope: { tenantId: TENANT, organizationId: ORG },
+      }),
+    ).rejects.toMatchObject({ code: 'INSTANCE_NOT_FOUND' })
+    expect(guard.evaluate).not.toHaveBeenCalled()
+    expect(task.status).toBe('PENDING')
+    expect(flush).not.toHaveBeenCalled()
   })
 })

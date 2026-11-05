@@ -238,7 +238,10 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
   caller's locale — the command as `CrudHttpError(409, body)`.
 - **The guard target is read inside the task's scope.** `loadTaskCompletionGuardTarget` filters the
   instance, step instance and definition by the task's tenant + organization; a new caller of
-  `loadTaskDecisionContext` MUST pass the task's `scope`.
+  `loadTaskDecisionContext` MUST pass the task's `scope`, and a definition read that feeds guard
+  selectors MUST use `findDefinitionForInstance(em, instance, scope)` so the predicate is on the query.
+  `completeUserTask` reads the instance in that same scope, so a foreign reference refuses with
+  `INSTANCE_NOT_FOUND` instead of skipping its guards.
 - **Mirrored in `canComplete`.** The task detail route evaluates the same guards in `preview` mode on a
   never-flushed `em.fork()`, ONLY when visibility already allows completion, and feeds the veto into
   `resolveTaskAffordances` (`actBlockedReason: 'completion-guard'` + `completionGuard`). The portal

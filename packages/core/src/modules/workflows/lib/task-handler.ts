@@ -210,7 +210,13 @@ export async function completeUserTask(
     )
   }
 
-  const instance = await em.findOne(WorkflowInstance, task.workflowInstanceId)
+  // Same scope the guard target is read in: an instance outside it must refuse
+  // here, or its guards would see no selectors and be skipped.
+  const instance = await em.findOne(WorkflowInstance, {
+    id: task.workflowInstanceId,
+    tenantId: task.tenantId,
+    organizationId: task.organizationId,
+  })
   if (!instance) {
     throw new UserTaskError(
       'Workflow instance not found',

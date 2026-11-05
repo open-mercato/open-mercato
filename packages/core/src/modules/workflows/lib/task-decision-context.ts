@@ -45,9 +45,10 @@ export const EMPTY_TASK_DECISION_CONTEXT: TaskDecisionContext = {
  * definition has gone missing still completes through the plain form, which is
  * exactly how every task behaved before decisions existed.
  *
- * With `scope`, every read carries the task's tenant and organization, so a
- * reference into another scope resolves to nothing instead of supplying its
- * step, form key or decisions.
+ * With `scope`, the instance and step reads carry the task's tenant and
+ * organization, so a reference into another scope resolves to nothing instead of
+ * supplying its step, form key or decisions. The definition is always read inside
+ * the resolved instance's own tenant and organization.
  */
 export async function loadTaskDecisionContext(
   em: EntityManager,
@@ -61,9 +62,10 @@ export async function loadTaskDecisionContext(
   const stepInstance = await em.findOne(StepInstance, { id: task.stepInstanceId, ...scopeWhere })
   if (!stepInstance) return EMPTY_TASK_DECISION_CONTEXT
 
-  const resolvedDefinition = await findDefinitionForInstance(em, instance)
-  const definition =
-    resolvedDefinition && scope && resolvedDefinition.tenantId !== scope.tenantId ? null : resolvedDefinition
+  const definition = await findDefinitionForInstance(em, instance, {
+    tenantId: instance.tenantId,
+    organizationId: instance.organizationId,
+  })
   if (!definition) return { stepId: stepInstance.stepId, decisions: [], formKey: null }
 
   const formKey = readAuthoredTaskFormKey(definition.definition, stepInstance.stepId)
