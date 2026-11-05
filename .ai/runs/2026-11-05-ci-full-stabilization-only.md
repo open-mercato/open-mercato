@@ -41,14 +41,20 @@ Source doc: .ai/runs/2026-11-03-stabilize-main-ci-full.md
 
 Use the repository's GitHub-checks-first review policy, with narrow local fallback for the changed workflow tests. Record runner choice and exact results. The configured runtime gate remains required evidence before merge; no label grants review or QA approval.
 
+## Local Verification
+
+Runner: local Docker CLI with a disposable Linux `node:24` container (read-only checkout, network disabled). All 51 focused CI/concurrency/coverage/audit tests passed. The direct macOS run passed 21/23 but could not execute two existing Linux workflow branches using GNU grep/paste; the actual workflow scripts passed all cases under Linux. `git diff --check` passed. Full build/typecheck/unit/integration evidence is supplied by GitHub CI, not inferred from these focused tests.
+
 ## Progress
+
+PR: #8788
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Fix scheduling and scope
 
-- [ ] 1.1 Remove label-triggered CI, restore per-ref concurrency, and scope full validation to stabilization PRs.
-- [ ] 1.2 Add behavioral regression tests and document the stabilization convention and label migration.
+- [x] 1.1 Remove label-triggered CI, restore per-ref concurrency, and scope full validation to stabilization PRs. — dad929c5a
+- [x] 1.2 Add behavioral regression tests and document the stabilization convention and label migration. — dad929c5a
 
 ### Phase 2: Verify and publish
 
