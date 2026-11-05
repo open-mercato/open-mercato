@@ -995,10 +995,11 @@ function DefaultTimeEntryDialog({
     triggerEntryFormEvent,
   ])
   const roundedMinutes = roundMinutes(durationMinutes ?? 0, settings.rounding)
-  const rate = applicableRate({ rateOverrideAmount: rateOverrideAmountExact }, { hourlyRate: project?.hourlyRate ?? null })
+  const projectRate = { hourlyRate: project?.hourlyRateExact ?? project?.hourlyRate ?? null }
+  const rate = applicableRate({ rateOverrideAmount: rateOverrideAmountExact }, projectRate)
   const cost = entryAmountExact(
     { isBillable, roundedMinutes, rateOverrideAmount: rateOverrideAmountExact },
-    { hourlyRate: project?.hourlyRate ?? null },
+    projectRate,
     null,
     amountDecimalPlaces,
   )

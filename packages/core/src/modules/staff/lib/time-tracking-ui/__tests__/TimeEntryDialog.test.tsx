@@ -630,8 +630,9 @@ describe('TimeEntryDialog — money', () => {
 
   function installCurrencyEntry(
     currencyCode: string,
-    rate: string,
+    rate: string | null,
     configuredCurrencies: Array<{ code: string; decimalPlaces: number }>,
+    projectRate?: string,
   ) {
     entryRows = [{
       id: ENTRY_ID,
@@ -649,7 +650,11 @@ describe('TimeEntryDialog — money', () => {
     mockApiCall.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
       if (url.includes('/timesheets/time-projects')) {
-        const rows = projectRows.map((row) => ({ ...row, currency_code: currencyCode }))
+        const rows = projectRows.map((row) => ({
+          ...row,
+          currency_code: currencyCode,
+          ...(projectRate === undefined ? {} : { hourly_rate: projectRate }),
+        }))
         return ok({ items: rows, total: rows.length }) as never
       }
       if (url.includes('/api/currencies/currencies')) {
@@ -703,6 +708,22 @@ describe('TimeEntryDialog — money', () => {
     await waitFor(() => expect(cost.value).toBe(formatCurrency(saved, 'JPY', undefined, 0)))
     expect(cost.value).toBe(formatCurrency('0', 'JPY'))
     expect(cost.value).not.toBe(formatCurrency('1', 'JPY'))
+  })
+
+  it('previews the cost from the exact project rate when no override is set', async () => {
+    installCurrencyEntry('KWD', null, [{ code: 'KWD', decimalPlaces: 3 }], '1.234499999999999999')
+    const saved = entryAmountExact(
+      { isBillable: true, roundedMinutes: 60, rateOverrideAmount: null },
+      { hourlyRate: '1.234499999999999999' },
+      null,
+      3,
+    )
+    expect(saved).toBe('1.234')
+
+    const cost = await renderedCost()
+
+    await waitFor(() => expect(cost.value).toBe(formatCurrency(saved, 'KWD', undefined, 3)))
+    expect(cost.value).not.toBe(formatCurrency('1.235', 'KWD', undefined, 3))
   })
 
   it('hides rates and cost without staff.timesheets.rates.view', async () => {

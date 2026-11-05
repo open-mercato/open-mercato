@@ -344,6 +344,8 @@ export type ProjectOption = {
   name: string
   customerName: string | null
   hourlyRate: number | null
+  /** `hourlyRate` as an exact decimal string. */
+  hourlyRateExact?: string | null
   currencyCode: string | null
   billableByDefault: boolean | null
 }
@@ -374,6 +376,7 @@ export function toProjectOption(row: ApiRow): ProjectOption | null {
     name: readRowString(row, 'name') ?? id,
     customerName,
     hourlyRate: readRowNumber(row, 'hourly_rate', 'hourlyRate'),
+    hourlyRateExact: readRowDecimal(row, 'hourly_rate', 'hourlyRate'),
     currencyCode: readRowString(row, 'currency_code', 'currencyCode'),
     billableByDefault:
       typeof row.billable_by_default === 'boolean'
