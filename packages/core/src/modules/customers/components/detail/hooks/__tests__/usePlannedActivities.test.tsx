@@ -24,6 +24,10 @@ jest.mock('@open-mercato/ui/backend/conflicts', () => ({
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (key: string, fallback?: string) => fallback ?? key,
 }))
+const reportErrorMock = jest.fn()
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: (...args: unknown[]) => reportErrorMock(...args) }),
+}))
 
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import { plannedActivitiesUrl, usePlannedActivities } from '../usePlannedActivities'
@@ -39,6 +43,7 @@ describe('usePlannedActivities', () => {
     flashMock.mockClear()
     surfaceRecordConflictMock.mockReset()
     surfaceRecordConflictMock.mockReturnValue(false)
+    reportErrorMock.mockClear()
   })
 
   it('scopes the open list to the owning record and excludes terminal statuses, not custom open ones', () => {
@@ -138,8 +143,9 @@ describe('usePlannedActivities', () => {
     })
   })
 
-  it('falls back to an empty list when the load fails', async () => {
-    readApiResultOrThrowMock.mockRejectedValue(new Error('offline'))
+  it('reports a failed first load instead of an empty list', async () => {
+    const failure = new Error('offline')
+    readApiResultOrThrowMock.mockRejectedValue(failure)
     const { result } = renderHook(() => usePlannedActivities({
       scope: { entityId: 'person-1' },
       runMutationWithContext,
@@ -147,5 +153,65 @@ describe('usePlannedActivities', () => {
     }))
     await act(async () => { await result.current.loadPlannedActivities() })
     expect(result.current.plannedActivities).toEqual([])
+    expect(result.current.plannedLoadFailed).toBe(true)
+    expect(reportErrorMock).toHaveBeenCalledWith(failure, { module: 'customers', code: 'customers.planned_activities_load_failed' })
+  })
+
+  it('keeps the loaded rows when a refresh fails and clears the failure once it succeeds', async () => {
+    const first = { id: 'int-1', interactionType: 'call', status: 'planned' }
+    const second = { id: 'int-2', interactionType: 'call', status: 'planned' }
+    readApiResultOrThrowMock.mockResolvedValueOnce({ items: [first, second] })
+    const { result } = renderHook(() => usePlannedActivities({
+      scope: { entityId: 'person-1' },
+      runMutationWithContext,
+      logContext: 'test',
+    }))
+    await act(async () => { await result.current.loadPlannedActivities() })
+
+    readApiResultOrThrowMock.mockRejectedValueOnce(new Error('offline'))
+    await act(async () => { await result.current.loadPlannedActivities() })
+    expect(result.current.plannedActivities).toEqual([first, second])
+    expect(result.current.plannedLoadFailed).toBe(true)
+
+    readApiResultOrThrowMock.mockResolvedValueOnce({ items: [second] })
+    await act(async () => { await result.current.loadPlannedActivities() })
+    expect(result.current.plannedActivities).toEqual([second])
+    expect(result.current.plannedLoadFailed).toBe(false)
+  })
+
+  it('does not carry rows or a failure over to another record', async () => {
+    readApiResultOrThrowMock.mockResolvedValueOnce({ items: [{ id: 'int-1', interactionType: 'call', status: 'planned' }] })
+    const { result, rerender } = renderHook(({ entityId }) => usePlannedActivities({
+      scope: { entityId },
+      runMutationWithContext,
+      logContext: 'test',
+    }), { initialProps: { entityId: 'person-1' } })
+    await act(async () => { await result.current.loadPlannedActivities() })
+    readApiResultOrThrowMock.mockRejectedValueOnce(new Error('offline'))
+    await act(async () => { await result.current.loadPlannedActivities() })
+    expect(result.current.plannedLoadFailed).toBe(true)
+
+    rerender({ entityId: 'person-2' })
+    expect(result.current.plannedActivities).toEqual([])
+    expect(result.current.plannedLoadFailed).toBe(false)
+  })
+
+  it('ignores a response that arrives after a newer load', async () => {
+    let resolveOlder: (value: unknown) => void = () => {}
+    readApiResultOrThrowMock.mockReturnValueOnce(new Promise((resolve) => { resolveOlder = resolve }))
+    const newer = { id: 'int-2', interactionType: 'call', status: 'planned' }
+    readApiResultOrThrowMock.mockResolvedValueOnce({ items: [newer] })
+    const { result } = renderHook(() => usePlannedActivities({
+      scope: { entityId: 'person-1' },
+      runMutationWithContext,
+      logContext: 'test',
+    }))
+    await act(async () => {
+      const older = result.current.loadPlannedActivities()
+      await result.current.loadPlannedActivities()
+      resolveOlder({ items: [{ id: 'int-1', interactionType: 'call', status: 'planned' }] })
+      await older
+    })
+    expect(result.current.plannedActivities).toEqual([newer])
   })
 })

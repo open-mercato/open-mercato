@@ -124,6 +124,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
 
   const {
     plannedActivities,
+    plannedLoadFailed,
     activityRefreshKey,
     loadPlannedActivities,
     handleActivityCreated,
@@ -503,6 +504,8 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
               )}
               <PlannedActivitiesSection
                 activities={plannedActivities}
+                loadFailed={plannedLoadFailed}
+                onRetryLoad={() => { void loadPlannedActivities() }}
                 onComplete={(interactionId) => { void handleMarkDone(interactionId) }}
                 onSchedule={selectedActivityEntity ? openSchedule : undefined}
                 onEdit={handleEditActivity}
