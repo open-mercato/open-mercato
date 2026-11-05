@@ -172,6 +172,7 @@ const codingFlow = createDevSplashCodingFlow({
   env: process.env,
   platform: process.platform,
   launchDir: projectRootDirectory,
+  projectDir: projectRootDirectory,
   agenticSetupDir: null,
 })
 

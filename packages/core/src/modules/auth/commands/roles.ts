@@ -9,7 +9,7 @@ import {
   requireId,
 } from '@open-mercato/shared/lib/commands/helpers'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
-import { CrudHttpError, forbidden } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, forbidden, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -192,13 +192,25 @@ const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
       throw new CrudHttpError(400, { error: 'tenantId is required — global roles are not supported' })
     }
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    const role = await de.createOrmEntity({
-      entity: Role,
-      data: {
-        name: parsed.name,
-        tenantId: resolvedTenantId,
-      },
-    })
+    let role: Role
+    try {
+      role = await de.createOrmEntity({
+        entity: Role,
+        data: {
+          name: parsed.name,
+          tenantId: resolvedTenantId,
+        },
+      })
+    } catch (error) {
+      if (!isUniqueViolation(error, 'roles_tenant_id_name_unique')) throw error
+      const { translate } = await resolveTranslations()
+      const message = translate('auth.roles.errors.nameExists', 'A role with this name already exists')
+      throw new CrudHttpError(400, {
+        error: message,
+        fieldErrors: { name: message },
+        details: [{ path: ['name'], message, code: 'duplicate', origin: 'validation' }],
+      })
+    }
 
     await setCustomFieldsIfAny({
       dataEngine: de,
@@ -403,41 +415,52 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const redoLogEntry = (ctx as RoleReplayRuntimeContext)[ROLE_REDO_LOG]
     let role: Role | null = null
-    await withAtomicFlush(em, [async () => {
-      if (redoLogEntry) {
-        await authorizeRoleReplayAtMutation('update', {
-          operation: 'redo',
-          input: rawInput,
-          ctx,
-          logEntry: redoLogEntry,
+    try {
+      await withAtomicFlush(em, [async () => {
+        if (redoLogEntry) {
+          await authorizeRoleReplayAtMutation('update', {
+            operation: 'redo',
+            input: rawInput,
+            ctx,
+            logEntry: redoLogEntry,
+          })
+        }
+        await lockRoleWriterAuthorizationState(em, [parsed.id])
+        if (wantsTenantChange) {
+          await em.nativeDelete(RoleAcl, { role: parsed.id as unknown as Role })
+        }
+        role = await de.updateOrmEntity({
+          entity: Role,
+          where: buildScopedRoleFilter(parsed.id, scope),
+          apply: (entity) => {
+            if (parsed.name !== undefined) entity.name = parsed.name
+            if (parsed.tenantId !== undefined && scope.isSuperAdmin) entity.tenantId = parsed.tenantId
+          },
         })
-      }
-      await lockRoleWriterAuthorizationState(em, [parsed.id])
-      if (wantsTenantChange) {
-        await em.nativeDelete(RoleAcl, { role: parsed.id as unknown as Role })
-      }
-      role = await de.updateOrmEntity({
-        entity: Role,
-        where: buildScopedRoleFilter(parsed.id, scope),
-        apply: (entity) => {
-          if (parsed.name !== undefined) entity.name = parsed.name
-          if (parsed.tenantId !== undefined && scope.isSuperAdmin) entity.tenantId = parsed.tenantId
-        },
-      })
-      if (!role) throw new CrudHttpError(404, { error: 'Role not found' })
+        if (!role) throw new CrudHttpError(404, { error: 'Role not found' })
 
-      await setCustomFieldsIfAny({
-        dataEngine: de,
-        entityId: E.auth.role,
-        recordId: String(role.id),
-        organizationId: null,
-        tenantId: role.tenantId ? String(role.tenantId) : null,
-        values: custom,
+        await setCustomFieldsIfAny({
+          dataEngine: de,
+          entityId: E.auth.role,
+          recordId: String(role.id),
+          organizationId: null,
+          tenantId: role.tenantId ? String(role.tenantId) : null,
+          values: custom,
+        })
+      }], {
+        transaction: true,
+        label: redoLogEntry ? 'auth.roles.update.redo' : 'auth.roles.update',
       })
-    }], {
-      transaction: true,
-      label: redoLogEntry ? 'auth.roles.update.redo' : 'auth.roles.update',
-    })
+    } catch (error) {
+      if (!isUniqueViolation(error, 'roles_tenant_id_name_unique')) throw error
+      const { translate } = await resolveTranslations()
+      const message = translate('auth.roles.errors.nameExists', 'A role with this name already exists')
+      throw new CrudHttpError(400, {
+        error: message,
+        fieldErrors: { name: message },
+        details: [{ path: ['name'], message, code: 'duplicate', origin: 'validation' }],
+      })
+    }
     const updatedRole = role as Role | null
     if (!updatedRole) throw new CrudHttpError(404, { error: 'Role not found' })
 

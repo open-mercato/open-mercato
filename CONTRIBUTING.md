@@ -99,6 +99,12 @@ This ensures design decisions are documented and the codebase remains well-under
 - Reference related issues or discussions; add screenshots or recordings for UI tweaks.
 - Tag maintainers early if you need design or architectural guidance.
 
+### Stabilization CI
+
+Use a same-repository branch under `stabilize/` (for example `stabilize/main-2026-11-05`) for a stabilization PR. CI automatically runs full typechecking, the full unit suite, and all 15 integration shards when that PR opens, reopens, or receives a new commit. Ordinary PRs retain affected scope; shared-code and workflow edits can still require broader validation. Existing pushes to `main` and release lines retain full validation.
+
+Label changes do not start or cancel CI. The legacy `ci-full` label no longer controls scheduling or scope, including on ordinary PRs. Use the stabilization branch convention for new stabilization work instead of relying on label timing or historical `fix/stabilize-*` branch names. A fork branch with the same prefix retains normal PR scope.
+
 ### Enterprise Module Contributions
 
 > [!IMPORTANT]
@@ -169,7 +175,7 @@ release/v0.10.x                                     └─ 0.10.0 ─ 0.10.1 …
 
 Two channels ship packages to npm:
 
-- **Snapshots** — every push to `main` runs `Develop Snapshot Release`, publishing under the `develop` dist-tag (the name survives from the retired `develop` branch). Install them with `yarn add @open-mercato/core@develop` or `npx create-mercato-app@develop my-app`; all `@open-mercato/*` packages must use the same tag. Exact snapshot versions stay installable for debugging or rollback.
+- **Snapshots** — every push to `main` runs `Main Snapshot Release`, publishing under the `develop` dist-tag (the name survives from the retired `develop` branch). Install them with `yarn add @open-mercato/core@develop` or `npx create-mercato-app@develop my-app`; all `@open-mercato/*` packages must use the same tag. Exact snapshot versions stay installable for debugging or rollback.
 - **Stable releases** — the maintainer-run workflows below. Only maintainers run them; agents never do.
 
 ### The workflows
