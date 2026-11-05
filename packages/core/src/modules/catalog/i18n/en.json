@@ -7,6 +7,8 @@
   "catalog.aiCategorization.bulk.confirmTitle": "Suggest categories with AI?",
   "catalog.aiCategorization.bulk.error": "Failed to start AI categorization.",
   "catalog.aiCategorization.bulk.errors.enqueueFailed": "Bulk AI categorization could not be queued",
+  "catalog.aiCategorization.bulk.errors.stopped": "AI categorization stopped: {code}",
+  "catalog.aiCategorization.bulk.errors.workerFailed": "Bulk AI categorization failed",
   "catalog.aiCategorization.bulk.filtered.label": "Suggest categories for all filtered",
   "catalog.aiCategorization.bulk.noneFiltered": "No products match the current filters.",
   "catalog.aiCategorization.bulk.noneSelected": "Select at least one product to categorize.",

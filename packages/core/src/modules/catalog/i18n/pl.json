@@ -7,6 +7,8 @@
   "catalog.aiCategorization.bulk.confirmTitle": "Zaproponować kategorie przy użyciu AI?",
   "catalog.aiCategorization.bulk.error": "Nie udało się uruchomić kategoryzacji AI.",
   "catalog.aiCategorization.bulk.errors.enqueueFailed": "Nie udało się zakolejkować masowej kategoryzacji AI",
+  "catalog.aiCategorization.bulk.errors.stopped": "Kategoryzacja AI zatrzymana: {code}",
+  "catalog.aiCategorization.bulk.errors.workerFailed": "Masowa kategoryzacja AI nie powiodła się",
   "catalog.aiCategorization.bulk.filtered.label": "Zaproponuj kategorie dla wszystkich przefiltrowanych",
   "catalog.aiCategorization.bulk.noneFiltered": "Żaden produkt nie pasuje do bieżących filtrów.",
   "catalog.aiCategorization.bulk.noneSelected": "Wybierz co najmniej jeden produkt do skategoryzowania.",

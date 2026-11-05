@@ -7,6 +7,8 @@
   "catalog.aiCategorization.bulk.confirmTitle": "¿Sugerir categorías con IA?",
   "catalog.aiCategorization.bulk.error": "No se pudo iniciar la categorización con IA.",
   "catalog.aiCategorization.bulk.errors.enqueueFailed": "No se pudo encolar la categorización masiva con IA",
+  "catalog.aiCategorization.bulk.errors.stopped": "Categorización con IA detenida: {code}",
+  "catalog.aiCategorization.bulk.errors.workerFailed": "Error en la categorización masiva con IA",
   "catalog.aiCategorization.bulk.filtered.label": "Sugerir categorías para todos los filtrados",
   "catalog.aiCategorization.bulk.noneFiltered": "Ningún producto coincide con los filtros actuales.",
   "catalog.aiCategorization.bulk.noneSelected": "Selecciona al menos un producto para categorizar.",

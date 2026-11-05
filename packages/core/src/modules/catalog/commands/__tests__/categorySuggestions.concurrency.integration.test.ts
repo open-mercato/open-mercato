@@ -311,4 +311,58 @@ describeWithPostgres('catalog category suggestions against real PostgreSQL concu
     const rows = await suggestionStatuses(seedData.productId)
     expect(rows).toEqual([{ id: suggestionId, status: 'accepted' }])
   }, CASE_TIMEOUT_MS)
+
+  // Regression for the R3 finding's undo portion: before the fix, accept's
+  // undo synced categories and flushed on the bare EntityManager — no product
+  // lock — then restored the suggestion's status in a *separate* transaction
+  // that only locked the suggestion row. A concurrent new suggestion for the
+  // same product (which locks the product first, same as accept/reject) could
+  // insert between those two steps: undo's restore would then count zero
+  // newer-pending rows, set the undone suggestion back to `pending`, and the
+  // partial unique (product_id) WHERE status='pending' index would already
+  // have two pending rows. The fix locks the product first, inside the same
+  // transaction as both the category restore and the status restore, so the
+  // two operations serialize instead of interleaving.
+  it('undoing an accept races a concurrent new suggestion for the same product without corrupting state', async () => {
+    const seedData = await seed()
+    await persistCategorySuggestion(rootEm(), {
+      productId: seedData.productId,
+      tenantId: seedData.tenantId,
+      organizationId: seedData.organizationId,
+      outcome: 'suggested',
+      categoryId: seedData.categoryId,
+      trigger: 'manual',
+    })
+    const suggestionId = await pendingSuggestionId(seedData)
+    const accepted = await settle(acceptCategorySuggestionCommand.execute({ id: suggestionId }, catalogCtx(seedData)))
+    expect(accepted.ok).toBe(true)
+
+    const logEntry = { commandPayload: { undo: { suggestionId, productId: seedData.productId, before: { categoryIds: [] } } } }
+    const gate = createGate({ method: 'findOne', entity: 'CatalogProduct', lockMode: LockMode.PESSIMISTIC_WRITE })
+
+    const undoing = settle(acceptCategorySuggestionCommand.undo!({ input: { id: suggestionId }, ctx: catalogCtx(seedData, gate), logEntry }))
+    await gate.reached.promise
+    const suggesting = settle(persistCategorySuggestion(rootEm(), {
+      productId: seedData.productId,
+      tenantId: seedData.tenantId,
+      organizationId: seedData.organizationId,
+      outcome: 'no_match',
+      trigger: 'manual',
+    }))
+    await waitForLockWaiters(1)
+    gate.release.resolve()
+    const [undoOutcome, suggestOutcome] = await Promise.all([undoing, suggesting])
+
+    expect(undoOutcome.ok).toBe(true)
+    expect(suggestOutcome.ok).toBe(true)
+
+    const rows = await suggestionStatuses(seedData.productId)
+    expect(rows).toEqual([
+      { id: suggestionId, status: 'superseded' },
+      { id: suggestOutcome.ok ? suggestOutcome.value.id : '', status: 'pending' },
+    ])
+
+    const assignments = await rootEm().find(CatalogProductCategoryAssignment, { product: seedData.productId })
+    expect(assignments).toHaveLength(0)
+  }, CASE_TIMEOUT_MS)
 })

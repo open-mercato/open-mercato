@@ -206,17 +206,34 @@ describe('catalog.category_suggestions.accept', () => {
 describe('catalog.category_suggestions.reject', () => {
   beforeEach(() => jest.clearAllMocks())
 
-  it('rejects a pending suggestion', async () => {
+  it('rejects a pending suggestion and resolves the product UUID from the entity reference, not the object itself', async () => {
     const suggestion = buildSuggestion()
     const em = buildEm({ suggestion })
     const result = await rejectCategorySuggestionCommand.execute({ id: SUGGESTION }, buildCtx(em))
     expect(suggestion.status).toBe('rejected')
     expect(result.suggestionId).toBe(SUGGESTION)
+    expect(result.productId).toBe(PRODUCT)
     expect(emitCatalogEvent).toHaveBeenCalledWith(
       'catalog.category_suggestion.rejected',
-      expect.objectContaining({ id: SUGGESTION, status: 'rejected' }),
+      expect.objectContaining({ id: SUGGESTION, productId: PRODUCT, status: 'rejected' }),
       { tenantId: TENANT, organizationId: ORG },
     )
+  })
+
+  it('round-trips the product UUID through buildLog into the undo payload', async () => {
+    const suggestion = buildSuggestion()
+    const em = buildEm({ suggestion })
+    const result = await rejectCategorySuggestionCommand.execute({ id: SUGGESTION }, buildCtx(em))
+    const logEntry = await rejectCategorySuggestionCommand.buildLog!({ input: { id: SUGGESTION }, ctx: buildCtx(em), result })
+    expect(logEntry?.payload.undo).toEqual({ suggestionId: SUGGESTION, productId: PRODUCT })
+
+    const restoreEm = buildEm({ suggestion: buildSuggestion({ status: 'rejected' }), product: buildProduct() }, { countResult: 0 })
+    await rejectCategorySuggestionCommand.undo!({
+      input: { id: SUGGESTION },
+      ctx: buildCtx(restoreEm),
+      logEntry: { commandPayload: logEntry?.payload },
+    })
+    expect(restoreEm.count).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ product: PRODUCT }))
   })
 
   it('returns 409 when the suggestion is not pending', async () => {
@@ -232,7 +249,7 @@ describe('undo supersede rule (shared by accept and reject)', () => {
 
   it('restores pending when no newer pending suggestion exists', async () => {
     const suggestion = buildSuggestion({ status: 'rejected' })
-    const em = buildEm({ suggestion }, { countResult: 0 })
+    const em = buildEm({ suggestion, product: buildProduct() }, { countResult: 0 })
     const logEntry = { commandPayload: { undo: { suggestionId: SUGGESTION, productId: PRODUCT } } }
     await rejectCategorySuggestionCommand.undo!({ input: { id: SUGGESTION }, ctx: buildCtx(em), logEntry })
     expect(suggestion.status).toBe('pending')
@@ -240,9 +257,29 @@ describe('undo supersede rule (shared by accept and reject)', () => {
 
   it('sets superseded when a newer pending suggestion already exists', async () => {
     const suggestion = buildSuggestion({ status: 'rejected' })
-    const em = buildEm({ suggestion }, { countResult: 1 })
+    const em = buildEm({ suggestion, product: buildProduct() }, { countResult: 1 })
     const logEntry = { commandPayload: { undo: { suggestionId: SUGGESTION, productId: PRODUCT } } }
     await rejectCategorySuggestionCommand.undo!({ input: { id: SUGGESTION }, ctx: buildCtx(em), logEntry })
     expect(suggestion.status).toBe('superseded')
+  })
+
+  it('locks the product before the suggestion on undo, same order as accept/reject', async () => {
+    const suggestion = buildSuggestion({ status: 'accepted' })
+    const product = buildProduct()
+    const em = buildEm({ suggestion, product }, { countResult: 0 })
+    const lockOrder: string[] = []
+    em.findOne.mockImplementation(async (entity: { name?: string }, _filter: unknown, opts?: { lockMode?: unknown }) => {
+      if (opts?.lockMode) lockOrder.push(entity?.name ?? 'unknown')
+      switch (entity?.name) {
+        case 'CatalogProductCategorySuggestion': return suggestion
+        case 'CatalogProduct': return product
+        default: return null
+      }
+    })
+    const logEntry = {
+      commandPayload: { undo: { suggestionId: SUGGESTION, productId: PRODUCT, before: { categoryIds: [] } } },
+    }
+    await acceptCategorySuggestionCommand.undo!({ input: { id: SUGGESTION }, ctx: buildCtx(em), logEntry })
+    expect(lockOrder).toEqual(['CatalogProduct', 'CatalogProductCategorySuggestion'])
   })
 })

@@ -125,25 +125,40 @@ function mergeAcceptedCategory(current: string[], categoryId: string, makeMain: 
  * Restores a reviewed suggestion to `pending` after an undo — unless a newer
  * pending suggestion now exists for the same product, in which case it is set
  * to `superseded` instead, avoiding a unique-constraint violation on the
- * partial `(product_id) WHERE status = 'pending'` index. Locks the row and
- * re-counts inside the same transaction so a concurrent suggest/accept/reject
- * on the same product can never race the count against the write.
+ * partial `(product_id) WHERE status = 'pending'` index. Locks the product
+ * first, then the suggestion — the same order `accept`/`reject` use — and
+ * recounts under that lock, so a concurrent suggest/accept/reject/undo on the
+ * same product can never race the count against this write. When
+ * `restoreCategoryIds` is given (the accept-undo path), the category sync and
+ * the `product.updatedAt` touch run inside the same transaction as the product
+ * lock, not in a separate flush beforehand, so a crash or a losing race can
+ * never commit the category change without the suggestion-state restore.
  */
 async function restoreSuggestionAfterUndo(
   em: EntityManager,
+  product: CatalogProduct,
   suggestionId: string,
-  productId: string,
+  restoreCategoryIds?: string[],
 ): Promise<void> {
   await withAtomicFlush(em, [
+    async () => {
+      await em.findOne(CatalogProduct, { id: product.id }, { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true })
+      if (restoreCategoryIds) {
+        await syncCategoryAssignments(em, product, restoreCategoryIds)
+        product.updatedAt = new Date()
+      }
+    },
     async () => {
       const suggestion = await em.findOne(
         CatalogProductCategorySuggestion,
         { id: suggestionId },
-        { lockMode: LockMode.PESSIMISTIC_WRITE },
+        { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
       )
       if (!suggestion) return
       const newerPendingCount = await em.count(CatalogProductCategorySuggestion, {
-        product: productId,
+        product: product.id,
+        tenantId: product.tenantId,
+        organizationId: product.organizationId,
         status: 'pending',
         id: { $ne: suggestionId },
       })
@@ -280,10 +295,7 @@ const acceptCategorySuggestionCommand: CommandHandler<AcceptSuggestionInput, Acc
     ensureTenantScope(ctx, product.tenantId)
     ensureOrganizationScope(ctx, product.organizationId)
 
-    await syncCategoryAssignments(em, product, payload.before?.categoryIds ?? [])
-    product.updatedAt = new Date()
-    await em.flush()
-    await restoreSuggestionAfterUndo(em, payload.suggestionId, payload.productId)
+    await restoreSuggestionAfterUndo(em, product, payload.suggestionId, payload.before?.categoryIds ?? [])
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudUndoSideEffects({
@@ -315,7 +327,7 @@ const rejectCategorySuggestionCommand: CommandHandler<RejectSuggestionInput, Rej
       request: ctx.request ?? null,
     })
 
-    const productId = typeof suggestion.product === 'string' ? suggestion.product : suggestion.product
+    const productId = typeof suggestion.product === 'string' ? suggestion.product : suggestion.product.id
 
     // Lock and re-check under the lock so a concurrent accept/reject on the
     // same suggestion can never both succeed.
@@ -367,7 +379,11 @@ const rejectCategorySuggestionCommand: CommandHandler<RejectSuggestionInput, Rej
     const payload = extractUndoPayload<ReviewUndoPayload>(logEntry)
     if (!payload?.suggestionId || !payload?.productId) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    await restoreSuggestionAfterUndo(em, payload.suggestionId, payload.productId)
+    const product = await em.findOne(CatalogProduct, { id: payload.productId })
+    if (!product) return
+    ensureTenantScope(ctx, product.tenantId)
+    ensureOrganizationScope(ctx, product.organizationId)
+    await restoreSuggestionAfterUndo(em, product, payload.suggestionId)
   },
 }
 

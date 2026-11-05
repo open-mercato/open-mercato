@@ -7,6 +7,8 @@
   "catalog.aiCategorization.bulk.confirmTitle": "AI로 카테고리를 제안할까요?",
   "catalog.aiCategorization.bulk.error": "AI 카테고리 분류를 시작하지 못했습니다.",
   "catalog.aiCategorization.bulk.errors.enqueueFailed": "AI 대량 카테고리 분류를 대기열에 추가하지 못했습니다",
+  "catalog.aiCategorization.bulk.errors.stopped": "AI 카테고리 분류가 중지됨: {code}",
+  "catalog.aiCategorization.bulk.errors.workerFailed": "AI 대량 카테고리 분류에 실패했습니다",
   "catalog.aiCategorization.bulk.filtered.label": "필터링된 모든 상품의 카테고리 제안",
   "catalog.aiCategorization.bulk.noneFiltered": "현재 필터와 일치하는 상품이 없습니다.",
   "catalog.aiCategorization.bulk.noneSelected": "카테고리를 분류할 상품을 하나 이상 선택하세요.",

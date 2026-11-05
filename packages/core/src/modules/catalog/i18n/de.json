@@ -7,6 +7,8 @@
   "catalog.aiCategorization.bulk.confirmTitle": "Kategorien mit KI vorschlagen?",
   "catalog.aiCategorization.bulk.error": "Die KI-Kategorisierung konnte nicht gestartet werden.",
   "catalog.aiCategorization.bulk.errors.enqueueFailed": "Die KI-Massenkategorisierung konnte nicht eingereiht werden",
+  "catalog.aiCategorization.bulk.errors.stopped": "KI-Kategorisierung gestoppt: {code}",
+  "catalog.aiCategorization.bulk.errors.workerFailed": "Massen-KI-Kategorisierung fehlgeschlagen",
   "catalog.aiCategorization.bulk.filtered.label": "Kategorien für alle gefilterten vorschlagen",
   "catalog.aiCategorization.bulk.noneFiltered": "Keine Produkte entsprechen den aktuellen Filtern.",
   "catalog.aiCategorization.bulk.noneSelected": "Wählen Sie mindestens ein Produkt zum Kategorisieren aus.",
