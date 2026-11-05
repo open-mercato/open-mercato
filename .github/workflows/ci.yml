@@ -84,6 +84,7 @@ on:
       - 'release/v*'
       - feat/wms
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
     branches:
       - main
       - 'release/v*'
@@ -95,7 +96,7 @@ on:
 # one. GitHub keeps at most one pending run per group and replaces it with the newest push,
 # so a running suite always completes and the next run tests the latest commit.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.ref }}${{ github.event.action == 'labeled' && github.event.label.name != 'ci-full' && format('-label-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -110,6 +111,7 @@ jobs:
   #                      Only uploaded when integration tests will actually run;
   #                      skipped for CI/docs-only PRs to save ~2 min.
   prepare:
+    if: github.event.action != 'labeled' || github.event.label.name == 'ci-full'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     outputs:
       skip_integration: ${{ steps.integration-scope.outputs.skip }}
@@ -131,11 +133,13 @@ jobs:
         # Runs in prepare so shards can start the moment the build is ready,
         # without waiting for typecheck or unit tests to complete.
         id: integration-scope
+        env:
+          FORCE_FULL_SUITE: ${{ contains(github.event.pull_request.labels.*.name, 'ci-full') }}
         run: |
           FULL_SHARDS='["1/15","2/15","3/15","4/15","5/15","6/15","7/15","8/15","9/15","10/15","11/15","12/15","13/15","14/15","15/15"]'
           SINGLE_SHARD='["none"]'
 
-          if [ "${{ github.event_name }}" != "pull_request" ]; then
+          if [ "${{ github.event_name }}" != "pull_request" ] || [ "$FORCE_FULL_SUITE" = "true" ]; then
             echo "skip=false" >> "$GITHUB_OUTPUT"
             echo "modules=" >> "$GITHUB_OUTPUT"
             echo "shard_matrix=${FULL_SHARDS}" >> "$GITHUB_OUTPUT"
