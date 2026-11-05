@@ -614,6 +614,7 @@
   "auth.resetPassword": "비밀번호 재설정",
   "auth.roles.admin": "관리자",
   "auth.roles.employee": "직원",
+  "auth.roles.errors.nameExists": "이 이름의 역할이 이미 존재합니다",
   "auth.roles.flash.created": "역할이 생성되었습니다",
   "auth.roles.flash.deleted": "역할이 삭제되었습니다",
   "auth.roles.flash.updated": "역할이 저장되었습니다",
