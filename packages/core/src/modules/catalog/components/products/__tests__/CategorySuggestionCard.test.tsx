@@ -32,8 +32,12 @@ jest.mock('@open-mercato/ui/backend/utils/serverErrors', () => ({
 }))
 
 const mockRunMutation = jest.fn(async (input: { operation: () => Promise<unknown> }) => input.operation())
+const mockRetryLastMutation = jest.fn(async () => true)
 jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
-  useGuardedMutation: () => ({ runMutation: (input: { operation: () => Promise<unknown> }) => mockRunMutation(input) }),
+  useGuardedMutation: () => ({
+    runMutation: (input: { operation: () => Promise<unknown> }) => mockRunMutation(input),
+    retryLastMutation: mockRetryLastMutation,
+  }),
 }))
 
 jest.mock('@open-mercato/ui/backend/BackendChromeProvider', () => ({
@@ -121,5 +125,10 @@ describe('CategorySuggestionCard', () => {
 
     await waitFor(() => expect(mockRunMutation).toHaveBeenCalled())
     await waitFor(() => expect(screen.queryByText('No matching category was found.')).not.toBeInTheDocument())
+    expect(mockRunMutation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: expect.objectContaining({ resourceKind: 'catalog.category_suggestion', retryLastMutation: mockRetryLastMutation }),
+      }),
+    )
   })
 })

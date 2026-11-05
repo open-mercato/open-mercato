@@ -79,7 +79,7 @@ export function CategorySuggestionCard({
 }: CategorySuggestionCardProps) {
   const t = useT()
   const { payload, isReady } = useBackendChrome()
-  const { runMutation } = useGuardedMutation({ contextId: `catalog.product.category-suggestion.${productId}` })
+  const { runMutation, retryLastMutation } = useGuardedMutation({ contextId: `catalog.product.category-suggestion.${productId}` })
   const [effective, setEffective] = React.useState<boolean | null>(null)
   const [suggestion, setSuggestion] = React.useState<CategorySuggestion | null>(null)
   const [loading, setLoading] = React.useState(false)
@@ -189,7 +189,7 @@ export function CategorySuggestionCard({
           }
           return call.result
         },
-        context: { resourceKind: 'catalog.category_suggestion', resourceId: productId },
+        context: { resourceKind: 'catalog.category_suggestion', resourceId: productId, retryLastMutation },
       })
       if (payload.outcome === 'error') {
         flash(t(portErrorMessageKey(payload.code), 'AI category suggestion failed. Please try again.'), 'error')
@@ -215,7 +215,7 @@ export function CategorySuggestionCard({
     } finally {
       setLoading(false)
     }
-  }, [productId, categoryIdsDirty, ensureCategoryLabels, setValue, t, runMutation])
+  }, [productId, categoryIdsDirty, ensureCategoryLabels, setValue, t, runMutation, retryLastMutation])
 
   const handleAccept = React.useCallback(async (categoryId: string, makeMain: boolean) => {
     if (!suggestion) return
@@ -236,7 +236,7 @@ export function CategorySuggestionCard({
             return call.result
           },
         ),
-        context: { resourceKind: 'catalog.category_suggestion', resourceId: suggestion.id },
+        context: { resourceKind: 'catalog.category_suggestion', resourceId: suggestion.id, retryLastMutation },
       })
       await ensureCategoryLabels(result.product.categoryIds)
       setValue('categoryIds', result.product.categoryIds)
@@ -252,7 +252,7 @@ export function CategorySuggestionCard({
     } finally {
       setBusy(false)
     }
-  }, [suggestion, runMutation, ensureCategoryLabels, setValue, t])
+  }, [suggestion, runMutation, retryLastMutation, ensureCategoryLabels, setValue, t])
 
   const handleReject = React.useCallback(async () => {
     if (!suggestion) return
@@ -269,7 +269,7 @@ export function CategorySuggestionCard({
             return call.result
           },
         ),
-        context: { resourceKind: 'catalog.category_suggestion', resourceId: suggestion.id },
+        context: { resourceKind: 'catalog.category_suggestion', resourceId: suggestion.id, retryLastMutation },
       })
       setSuggestion(null)
       flash(t('catalog.products.create.organize.aiSuggestion.rejected', 'Suggestion rejected.'), 'success')
@@ -282,7 +282,7 @@ export function CategorySuggestionCard({
     } finally {
       setBusy(false)
     }
-  }, [suggestion, runMutation, t])
+  }, [suggestion, runMutation, retryLastMutation, t])
 
   if (!isReady || effective === null) return null
   if (!effective || !canUse) return null
