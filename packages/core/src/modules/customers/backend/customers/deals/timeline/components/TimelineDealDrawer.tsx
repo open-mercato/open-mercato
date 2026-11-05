@@ -44,6 +44,7 @@ export type TimelineDealDrawerProps = {
   returnFocusRef?: React.RefObject<HTMLElement | null>
   initialItem?: DealTimelineItem | null
   refreshToken?: number
+  resolveOwnerName?: (ownerUserId: string) => string | null
 }
 
 type DrawerMutationContext = {
@@ -147,6 +148,7 @@ export function TimelineDealDrawer({
   returnFocusRef,
   initialItem,
   refreshToken,
+  resolveOwnerName,
 }: TimelineDealDrawerProps): React.ReactElement {
   const t = useT()
   const { state, reload } = useDealDrawerData(dealId)
@@ -455,7 +457,8 @@ export function TimelineDealDrawer({
                       ) : null}
                     </SummaryRow>
                     <SummaryRow label={t('customers.deals.timeline.drawer.summary.owner', 'Owner')}>
-                      {deal.ownerName ??
+                      {(deal.ownerUserId ? resolveOwnerName?.(deal.ownerUserId) : null) ??
+                        deal.ownerName ??
                         (deal.ownerUserId
                           ? t('customers.deals.timeline.drawer.summary.ownerFallback', 'Owner')
                           : t('customers.deals.timeline.lane.unassigned', 'Unassigned'))}

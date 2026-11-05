@@ -196,8 +196,8 @@ function TimelineDealCardImpl({
           </span>
         ) : null}
       </div>
-      <div className="flex items-center justify-between gap-2 text-xs leading-normal">
-        <span className="truncate font-medium text-foreground">{valueLabel ?? '—'}</span>
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-xs leading-normal">
+        <span className="whitespace-nowrap font-medium text-foreground">{valueLabel ?? '—'}</span>
         {dateLabel ? (
           <span
             className={`inline-flex shrink-0 items-center gap-1 ${

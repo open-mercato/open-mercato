@@ -13,11 +13,14 @@ import {
   rectIntersection,
   useSensor,
   useSensors,
+  type Active,
+  type Announcements,
   type CollisionDetection,
   type DragEndEvent,
   type DragOverEvent,
   type DragStartEvent,
   type KeyboardCoordinateGetter,
+  type Over,
 } from '@dnd-kit/core'
 import { AlertTriangle, CalendarClock, Plus } from 'lucide-react'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
@@ -30,7 +33,7 @@ import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@ope
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useCurrentUserId } from '@open-mercato/ui/backend/utils/useCurrentUserId'
 import { useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromeProvider'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
@@ -68,7 +71,7 @@ import { PipelineFilterPopover } from '../../pipeline/components/PipelineFilterP
 import { EntityFilterPopover, type EntityFilterOption } from '../../pipeline/components/EntityFilterPopover'
 import { TONE_DOT_CLASS } from '../../pipeline/components/toneClasses'
 import { TimelineControls } from './TimelineControls'
-import { TimelineLane, formatTimelineCount, type TimelineLaneDisplay } from './TimelineLane'
+import { TimelineLane, formatTimelineCount, formatTimelineUndatedLabel, type TimelineLaneDisplay } from './TimelineLane'
 import { TimelineCellPopover } from './TimelineCellPopover'
 import { TimelineSavedViews } from './TimelineSavedViews'
 import { TimelineDealCardPreview, formatTimelineDate } from './TimelineDealCard'
@@ -200,6 +203,7 @@ type ActiveDrag = { laneKey: string; column: number; item: DealTimelineItem } | 
 
 export function DealsTimelineBoard({ state, update, permissions }: DealsTimelineBoardProps): React.ReactElement {
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const queryClient = useQueryClient()
   const scopeVersion = useOrganizationScopeVersion()
@@ -573,6 +577,7 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
     },
     [ownerNames, t],
   )
+  const resolveOwnerName = React.useCallback((ownerId: string) => ownerNames.get(ownerId) ?? null, [ownerNames])
   const accentClassForItem = React.useCallback(
     (item: DealTimelineItem) => (item.pipelineStageId ? stageToneById.get(item.pipelineStageId) ?? 'bg-border' : 'bg-border'),
     [stageToneById],
@@ -656,6 +661,47 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
     [bucket, fromKey, todayKey],
   )
   const columns = data && data.bucket === bucket ? data.columns : placeholderColumns
+  const dragAnnouncements = React.useMemo<Announcements>(() => {
+    const titleOf = (active: Active) =>
+      (active.data.current as { item?: DealTimelineItem } | undefined)?.item?.title ?? ''
+    const columnOf = (over: Over | null) => {
+      const index = (over?.data.current as { column?: number } | undefined)?.column
+      const column = typeof index === 'number' ? columns[index] : undefined
+      return column ? columnLabel(column, bucket) : null
+    }
+    return {
+      onDragStart: ({ active }) =>
+        translateWithFallback(t, 'customers.deals.timeline.reschedule.announce.start', 'Picked up {title}.', {
+          title: titleOf(active),
+        }),
+      onDragOver: ({ active, over }) => {
+        const column = columnOf(over)
+        return column
+          ? translateWithFallback(t, 'customers.deals.timeline.reschedule.announce.over', '{title} is over {column}.', {
+              title: titleOf(active),
+              column,
+            })
+          : translateWithFallback(t, 'customers.deals.timeline.reschedule.announce.outside', '{title} is not over a column.', {
+              title: titleOf(active),
+            })
+      },
+      onDragEnd: ({ active, over }) => {
+        const column = columnOf(over)
+        return column
+          ? translateWithFallback(t, 'customers.deals.timeline.reschedule.announce.drop', '{title} was dropped in {column}.', {
+              title: titleOf(active),
+              column,
+            })
+          : translateWithFallback(t, 'customers.deals.timeline.reschedule.announce.cancel', 'Moving {title} was cancelled.', {
+              title: titleOf(active),
+            })
+      },
+      onDragCancel: ({ active }) =>
+        translateWithFallback(t, 'customers.deals.timeline.reschedule.announce.cancel', 'Moving {title} was cancelled.', {
+          title: titleOf(active),
+        }),
+    }
+  }, [bucket, columnLabel, columns, t])
   const gridTemplate = `minmax(12rem, 14rem) repeat(${columns.length}, minmax(12rem, 1fr))`
   const gridMinWidth = `${12 + columns.length * 12}rem`
   const rangeLabel = columns.length
@@ -987,6 +1033,7 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
           onDragEnd={handleDragEnd}
           onDragCancel={handleDragCancel}
           accessibility={{
+            announcements: dragAnnouncements,
             screenReaderInstructions: {
               draggable: translateWithFallback(
                 t,
@@ -1137,9 +1184,7 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
         <StageLegend data={data} stageToneById={stageToneById} stageLabelById={stageLabelById} />
         {data && data.undatedCount > 0 ? (
           <Link href={undatedHref} className="font-medium text-accent-indigo hover:underline">
-            {translateWithFallback(t, 'customers.deals.timeline.undated', '{count} deals have no close date', {
-              count: data.undatedCount,
-            })}
+            {formatTimelineUndatedLabel(t, locale, data.undatedCount)}
           </Link>
         ) : null}
       </div>
@@ -1153,6 +1198,7 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
         returnFocusRef={returnFocusRef}
         initialItem={drawerItem}
         refreshToken={drawerRefreshToken}
+        resolveOwnerName={resolveOwnerName}
       />
     </div>
   )

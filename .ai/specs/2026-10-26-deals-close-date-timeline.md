@@ -795,3 +795,9 @@ Draft, ready for review. No non-compliant items.
   - **Keyboard drag** drops with Space only; Enter always opens the drawer.
   - **No-stage lanes** come back with an empty `stage.label`; the client labels them "No stage" from the `__nostage:` key.
 
+- Browser QA pass (Chrome, local dev). Fixes:
+  - **Undated link** is pluralised (`customers.deals.timeline.undated.{one,few,many,other}`), as the lane count is.
+  - **Drawer owner** uses the same team-member name as the lane header, falling back to the deal's `owner.name`.
+  - **Card value** is never truncated: at the minimum column width the value/date row wraps instead of cutting the amount.
+  - **Drag announcements** name the deal and the column (`customers.deals.timeline.reschedule.announce.*`) instead of dnd-kit's English defaults with raw ids.
+  - **Integration cleanup:** TC-CRM-TL fixtures delete stages and pipelines by body (`deleteEntityByBody`); those routes ignore `?id=`, so the old cleanup leaked a pipeline per run.

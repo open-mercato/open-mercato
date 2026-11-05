@@ -33,12 +33,28 @@ export function formatTimelineDealCount(
   count: number,
   partial: boolean,
 ): string {
-  const params = { count: formatTimelineCount(t, count, partial) }
-  const key = `customers.deals.timeline.lane.count.${pluralCategory(locale, count)}`
+  return translatePluralCount(t, locale, 'customers.deals.timeline.lane.count', '{count} deals', count, {
+    count: formatTimelineCount(t, count, partial),
+  })
+}
+
+export function formatTimelineUndatedLabel(t: ReturnType<typeof useT>, locale: string, count: number): string {
+  return translatePluralCount(t, locale, 'customers.deals.timeline.undated', '{count} deals have no close date', count, {
+    count,
+  })
+}
+
+function translatePluralCount(
+  t: ReturnType<typeof useT>,
+  locale: string,
+  keyPrefix: string,
+  fallback: string,
+  count: number,
+  params: Record<string, string | number>,
+): string {
+  const key = `${keyPrefix}.${pluralCategory(locale, count)}`
   const resolved = t(key, params)
-  return resolved === key
-    ? translateWithFallback(t, 'customers.deals.timeline.lane.count.other', '{count} deals', params)
-    : resolved
+  return resolved === key ? translateWithFallback(t, `${keyPrefix}.other`, fallback, params) : resolved
 }
 
 export type TimelineLaneDisplay = {

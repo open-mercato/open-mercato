@@ -7,6 +7,7 @@ import {
   createPersonFixture,
   createPipelineFixture,
   createPipelineStageFixture,
+  deleteEntityByBody,
   deleteEntityIfExists,
 } from '@open-mercato/core/helpers/integration/crmFixtures';
 
@@ -106,9 +107,9 @@ export async function cleanupTimelineScope(
   await deleteEntityIfExists(request, token, '/api/customers/people', scope.personId);
   await deleteEntityIfExists(request, token, '/api/customers/companies', scope.companyId);
   for (const id of scope.stageIds) {
-    await deleteEntityIfExists(request, token, '/api/customers/pipeline-stages', id);
+    await deleteEntityByBody(request, token, '/api/customers/pipeline-stages', id);
   }
-  await deleteEntityIfExists(request, token, '/api/customers/pipelines', scope.pipelineId);
+  await deleteEntityByBody(request, token, '/api/customers/pipelines', scope.pipelineId);
 }
 
 export async function readDeal(

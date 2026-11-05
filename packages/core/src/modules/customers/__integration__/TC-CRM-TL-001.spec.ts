@@ -9,6 +9,7 @@ import {
   createDealFixture,
   createPipelineFixture,
   createPipelineStageFixture,
+  deleteEntityByBody,
   deleteEntityIfExists,
 } from '@open-mercato/core/helpers/integration/crmFixtures';
 import {
@@ -292,10 +293,10 @@ test.describe('TC-CRM-TL-001: deals timeline endpoint (GET /api/customers/deals/
         await deleteEntityIfExists(request, adminToken, DEALS_PATH, id);
       }
       for (const id of stageIds) {
-        await deleteEntityIfExists(request, adminToken, STAGES_PATH, id);
+        await deleteEntityByBody(request, adminToken, STAGES_PATH, id);
       }
-      await deleteEntityIfExists(request, adminToken, PIPELINES_PATH, pipelineId);
-      await deleteEntityIfExists(request, adminToken, PIPELINES_PATH, otherPipelineId);
+      await deleteEntityByBody(request, adminToken, PIPELINES_PATH, pipelineId);
+      await deleteEntityByBody(request, adminToken, PIPELINES_PATH, otherPipelineId);
     }
   });
 
