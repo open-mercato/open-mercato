@@ -293,7 +293,7 @@ beforeEach(() => {
   installApiRouter()
   mockUseBackendChrome.mockReturnValue({
     payload: {
-      grantedFeatures: ['staff.timesheets.tasks.manage', 'staff.timesheets.rates.view'],
+      grantedFeatures: ['staff.view', 'staff.timesheets.tasks.manage', 'staff.timesheets.rates.view'],
     },
     isLoading: false,
     isReady: true,
@@ -302,6 +302,28 @@ beforeEach(() => {
 })
 
 describe('TaskDrawer', () => {
+  it('reopens an assigned employee task with authorized names and no staff directory request', async () => {
+    mockUseBackendChrome.mockReturnValue({
+      payload: { grantedFeatures: ['staff.timesheets.tasks.view', 'staff.timesheets.tasks.manage'] },
+      isLoading: false, isReady: true, refresh: async () => {},
+    } as never)
+    taskRow = { ...taskRow, assignee_staff_member_id: SELF_ID, _staff: { assigneeName: 'Assigned employee' } }
+    childRows = childRows.map((row) => ({ ...row, _staff: { assigneeName: 'Assigned employee' } }))
+    const first = renderDrawer()
+    await waitFor(() => expect(screen.getByTestId('task-drawer-assignee-select')).toHaveTextContent('Assigned employee'))
+    first.unmount()
+    renderDrawer()
+    await waitFor(() => expect(screen.getByTestId('task-drawer-assignee-select')).toHaveTextContent('Assigned employee'))
+    expect(mockApiCall.mock.calls.filter(([url]) => String(url).includes('/team-members?'))).toEqual([])
+  })
+
+  it('retains the manager directory names and lookup on reopen', async () => {
+    taskRow = { ...taskRow, assignee_staff_member_id: SELF_ID, _staff: { assigneeName: 'Task snapshot name' } }
+    renderDrawer()
+    await waitFor(() => expect(screen.getByTestId('task-drawer-assignee-select')).toHaveTextContent('Anna Nowak'))
+    expect(mockApiCall.mock.calls.some(([url]) => String(url).includes('/team-members?'))).toBe(true)
+  })
+
   it('logs time from the single field with today / me / billable defaults', async () => {
     renderDrawer()
     const field = await screen.findByLabelText('Time to log')
