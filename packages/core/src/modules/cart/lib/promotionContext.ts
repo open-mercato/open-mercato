@@ -1,3 +1,4 @@
+import { TransactionContext } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CatalogProduct, CatalogProductVariant } from '@open-mercato/core/modules/catalog/data/entities'
@@ -163,7 +164,7 @@ export type BuildPromotionsEffectsPhaseParams = {
 export function buildPromotionsEffectsPhase(params: BuildPromotionsEffectsPhaseParams): () => Promise<void> {
   const { em, container, cart, lines, assortmentScope, tenantScope, now, adjustments, warnings, createdGiftLines, removedGiftLines } = params
 
-  return async () => {
+  return () => TransactionContext.create(em, async () => {
     const promotionsService = container.resolve<PromotionsService>('promotionsService')
     const salesCalculationService = container.resolve<SalesCalculationService>('salesCalculationService')
 
@@ -181,11 +182,6 @@ export function buildPromotionsEffectsPhase(params: BuildPromotionsEffectsPhaseP
     const codeIdsInUse = Array.from(
       new Set(existingApplications.map((application) => application.codeId).filter((id): id is string => !!id)),
     )
-    // A code-id's reservation lives on `promotions`' own tables, not this cart's `em` — so
-    // extending it and then re-checking it still exists is two round trips against a
-    // DIFFERENT EntityManager (`extendReservation`'s own `resolvePromotionsEm` fork) plus a
-    // plain cross-module read on THIS `em`, never a read-after-mutate hazard on this phase's
-    // own pending changes (there are none yet at this point in the phase).
     const lapsedCodeIds = new Set<string>()
     for (const codeId of codeIdsInUse) {
       await promotionsService.extendReservation(codeId, cart.id)
@@ -566,5 +562,5 @@ export function buildPromotionsEffectsPhase(params: BuildPromotionsEffectsPhaseP
     // has the full `appliedPromotions` shape to read from, same "found and closed before
     // anyone needed it" style this run's earlier steps use for a half-wired field.
     cart.promotionEffects = result.appliedPromotions
-  }
+  })
 }

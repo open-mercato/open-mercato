@@ -10,6 +10,8 @@ cd my-app
 yarn setup
 ```
 
+`yarn setup` needs Node 24, Yarn 4 (`corepack enable`) and a running Docker engine. It checks Docker, starts PostgreSQL, Redis and Meilisearch from the app's `docker-compose.yml`, waits until they are healthy, then installs dependencies, migrates and initializes the database and starts the dev server. It copies `.env.example` to `.env` only when `.env` is missing and never overwrites it, so re-running is safe. Running PostgreSQL, Redis and Meilisearch yourself? Point `.env` at them and use `yarn setup --no-infra` (no Docker calls at all).
+
 Official and external ready apps can also be bootstrapped directly:
 
 ```bash
@@ -38,6 +40,9 @@ npx create-mercato-app <app-name> [options]
 | `--preset <id>` | Select the `classic`, `empty`, `crm`, or `wms` starter without prompting |
 | `--agents <list>` | Set up `claude-code`, `codex`, `cursor`, a comma-separated subset, `all`, or `none` without prompting |
 | `--skip-agentic-setup` | Skip the interactive agentic setup wizard |
+| `--modules <list>` | Plan modules from the [Open Mercato Modules](https://modules.openmercato.com/) catalog, verified on this Open Mercato line. Prints the `yarn mercato module add` commands; installs nothing |
+| `--module-picker` | Pick catalog modules interactively, with origin, license, level and any catalog warning shown first. Offered by default in a terminal when neither `--preset` nor `--modules` is given |
+| `--no-module-picker` | Do not offer the catalog module picker |
 | `--init-git` | Initialize a local Git repository after scaffolding |
 | `--no-init-git` | Do not prompt for or initialize a local Git repository |
 | `--registry <url>` | Custom npm registry URL |
@@ -152,7 +157,7 @@ yarn install-skills
 yarn harness:release --runner codex --prepare-targets /absolute/empty-release-targets --acknowledge-writes
 ```
 
-The target directory must be absolute, new or empty, and outside the controller app. Select one blocking primary runner with `--runner codex` or `--runner claude`; it owns all 240 routing cases and every writable/review lane, with no per-case fallback. Optionally add the different authenticated runner through `--portability-runner` for the exact 49-case representative read-only lane. Omitting it is valid and recorded as not requested; once requested, its failures are blocking. Use a fresh, sanitized controller: automatic preparation fails before copying `.env`/`.env.*` local configuration (safe example/sample/template files remain allowed), credential files, or private-key files. The complete gate requires Linux with trusted system Bubblewrap (`bwrap`) and user namespaces because its Playwright API/browser lanes need a loopback namespace isolated from the host. Preflight rejects untrusted/no-op/pass-through executables and proves isolated loopback plus a capability-free payload before target preparation, provider invocation, or writes; native macOS and Windows therefore fail closed. The command also fails closed when a required runner, browser, or test runtime is unavailable. The 240-case catalog includes 93 framework-neutral business prompts and 49 writable implementation/regression cases (20.4%). The release command runs live routing, writable trusted oracles, per-target `generate`/`typecheck`/`lint`/`build`, any declared generated test, and isolated generated-code review for every writable result. Foundation and target validation—including `yarn build`—receive a minimal environment with network access denied, and persisted diagnostics redact sensitive environment values and URL userinfo. Test-authoring coverage executes a Jest unit test plus Linux/Bubblewrap loopback-only Playwright API and browser tests through fixed controller-owned commands against a read-only target; runtime reports must attest at least one passed test and zero skipped, todo, focused, flaky, or expected-failure tests. The suite then writes a schema-valid sanitized mode-`0600` report under `.ai/harness/results/` with the selected primary and optional portability runner policy.
+The target directory must be absolute, new or empty, and outside the controller app. Select one blocking primary runner with `--runner codex` or `--runner claude`; it owns all 241 routing cases and every writable/review lane, with no per-case fallback. Optionally add the different authenticated runner through `--portability-runner` for the exact 49-case representative read-only lane. Omitting it is valid and recorded as not requested; once requested, its failures are blocking. Use a fresh, sanitized controller: automatic preparation fails before copying `.env`/`.env.*` local configuration (safe example/sample/template files remain allowed), credential files, or private-key files. The complete gate requires Linux with trusted system Bubblewrap (`bwrap`) and user namespaces because its Playwright API/browser lanes need a loopback namespace isolated from the host. Preflight rejects untrusted/no-op/pass-through executables and proves isolated loopback plus a capability-free payload before target preparation, provider invocation, or writes; native macOS and Windows therefore fail closed. The command also fails closed when a required runner, browser, or test runtime is unavailable. The 241-case catalog includes 93 framework-neutral business prompts and 49 writable implementation/regression cases (20.3%). The release command runs live routing, writable trusted oracles, per-target `generate`/`typecheck`/`lint`/`build`, any declared generated test, and isolated generated-code review for every writable result. Foundation and target validation—including `yarn build`—receive a minimal environment with network access denied, and persisted diagnostics redact sensitive environment values and URL userinfo. Test-authoring coverage executes a Jest unit test plus Linux/Bubblewrap loopback-only Playwright API and browser tests through fixed controller-owned commands against a read-only target; runtime reports must attest at least one passed test and zero skipped, todo, focused, flaky, or expected-failure tests. The suite then writes a schema-valid sanitized mode-`0600` report under `.ai/harness/results/` with the selected primary and optional portability runner policy.
 
 Use the bundled `om-evolve-harness` skill to add a real case: reproduce failure first, select one smallest knowledge owner, run any generated unit/integration tests plus target checks, require code review, and finish with the full release suite. Open Mercato framework maintainers use the monorepo-only `$om-refresh-standalone-harness --from <ref> --to <ref>` workflow for every release range and retain its sanitized maintenance report.
 
@@ -197,7 +202,9 @@ The standalone dev splash also exposes a GitHub publishing panel after `yarn dev
    ```bash
    yarn setup
    ```
-   If you need to reset and initialize from scratch instead:
+   It first checks the Docker CLI, the Compose v2 plugin and the engine, refuses ports that another process already holds (PostgreSQL `5432`, Redis `6379`, Meilisearch `7700`; change them with `POSTGRES_PORT`, `REDIS_PORT`, `MEILISEARCH_PORT` in `.env`, and keep the port in `DATABASE_URL` in step), starts the containers and waits for their healthchecks. Only then does it install dependencies, generate, migrate, initialize (the first run seeds data and prints the admin credentials; later runs keep the existing database) and start the dev server. When something is missing it stops before any database step and says what to fix. It never installs Docker or asks for sudo.
+
+   If you need to reset and initialize from scratch instead (deletes local data):
    ```bash
    yarn setup --reinstall
    ```
@@ -219,41 +226,40 @@ The standalone dev splash also exposes a GitHub publishing panel after `yarn dev
    yarn dev --database-name=review_1720 --no-update-env
    ```
 
-3. Manual alternative if you want to edit the environment first:
+3. Using your own PostgreSQL, Redis and Meilisearch instead of Docker:
    ```bash
    cp .env.example .env
-   # Edit .env with your database credentials
+   # Point DATABASE_URL (and the Redis/Meilisearch settings) at your services
+   yarn setup --no-infra
    ```
+   `--no-infra` makes no Docker calls and keeps the URLs from your `.env`. It also works with `setup:classic`, `setup:reinstall` and `setup:reinstall:classic`.
 
-4. Install dependencies:
+4. Local infrastructure on its own:
    ```bash
-   yarn install
+   yarn infra:up                    # start the containers and wait until they are healthy
+   yarn infra:down                  # stop them; data volumes are kept
+   yarn infra:down --volumes --yes  # stop them and DELETE the local database and search data
    ```
 
-5. Generate required files:
-   ```bash
-   yarn generate
-   ```
-
-6. Run database migrations:
-   ```bash
-   yarn db:migrate
-   ```
-
-7. Initialize the application:
-   ```bash
-   yarn initialize
-   ```
-
-8. Start the development server:
+5. Day to day:
    ```bash
    yarn dev
    ```
-   On native local runs, `yarn dev` opens the standalone splash screen on `http://localhost:4000` by default, shows live startup progress, and keeps routine logs folded. Once the app is ready, the splash can also:
-   - launch supported coding tools from the `Start coding with AI` menu
+   Run `yarn infra:up` first if the containers were stopped. On native local runs, `yarn dev` opens the standalone splash screen on `http://localhost:4000` by default, shows live startup progress, and keeps routine logs folded. While the app is still starting, the `Start building with Cezar` button opens [Cezar](https://github.com/open-mercato/cezar) for the project by running `npx cezar-run` in a new terminal. Once the app is ready, the splash can also:
+   - launch supported coding tools by hovering `Start building with Cezar` or using its dropdown toggle
    - create or publish a GitHub repository through `gh` when `OM_DEV_CREATE_GIT_REPO_FLOW` is enabled and GitHub CLI is installed
 
-9. Docker alternatives:
+6. Manual alternative (the steps `yarn setup` runs for you, against services you started yourself):
+   ```bash
+   cp .env.example .env
+   yarn install
+   yarn generate
+   yarn db:migrate
+   yarn initialize
+   yarn dev
+   ```
+
+7. Full Docker stack (the app runs in a container too):
    ```bash
    cp .env.example .env
    yarn install
@@ -317,7 +323,7 @@ gh auth login
 
 ### Recommended AI coding tools
 
-- Codex CLI is the recommended OpenAI terminal workflow for the splash `Start coding with AI` menu.
+- Codex CLI is the recommended OpenAI terminal workflow for the splash agent dropdown.
   - Install guide: <https://developers.openai.com/codex/cli>
   - Install command:
 
@@ -325,7 +331,7 @@ gh auth login
 npm i -g @openai/codex
 ```
 
-- Claude Code is the recommended Anthropic terminal workflow for the splash `Start coding with AI` menu.
+- Claude Code is the recommended Anthropic terminal workflow for the splash agent dropdown.
   - Install guide: <https://code.claude.com/docs/en/setup>
   - Native installer:
 
@@ -348,7 +354,7 @@ The standalone compact dev runtime supports these splash-related environment var
 | `OM_DEV_SPLASH_PORT` | `4000` | Port used by the splash page. Use `random` or `0` for an ephemeral free port. |
 | `OM_DEV_AUTO_OPEN` | `1` | Set to `0` to keep the splash from opening automatically in a browser. |
 | `OM_DEV_CREATE_GIT_REPO_FLOW` | `true` | Enables the standalone splash GitHub publish panel. Set to `false` to hide it. |
-| `OM_ENABLE_CODING_FLOW_FROM_SPLASH` | `true` | Enables the `Start coding with AI` splash menu. Set to `false` to hide it. |
+| `OM_ENABLE_CODING_FLOW_FROM_SPLASH` | `true` | Enables the `Start coding with AI` splash menu and the `Start building` (Cezar) button. Set to `false` to hide both. |
 | `OM_DEV_SPLASH_VSCODE_PATH` | auto-detect | Optional path override for the VS Code CLI used by the splash coding menu. |
 | `OM_DEV_SPLASH_CURSOR_PATH` | auto-detect | Optional path override for the Cursor CLI used by the splash coding menu. |
 | `OM_DEV_SPLASH_CLAUDE_CODE_PATH` | auto-detect | Optional path override for the Claude Code CLI used by the splash coding menu. |

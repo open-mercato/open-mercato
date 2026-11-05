@@ -320,7 +320,7 @@ Both link to `/backend/customer_accounts/{sourceEntityId}` for staff review.
 | Spot ID | Widget | Purpose |
 |---------|--------|---------|
 | `customers.person` | `account-status` | Alias for hosts requesting the bare `customers.person` entity spot |
-| `crud-form:customers.person` | `account-status` | Shows portal account status on the person v2 detail page (`people-v2/[id]`) |
+| `crud-form:customers.person` | `account-status` | Person detail/create, company/sales dialogs; hidden without `recordId` |
 | `customers.company` | `company-users` | Alias for hosts requesting the bare `customers.company` entity spot |
 | `crud-form:customers.company` | `company-users` | Shows portal users on every company surface that publishes the host — the company v2 detail page (`companies-v2/[id]`), the company create page (`companies/create`), and the sales document "Create company" quick dialog — where it has no `recordId` and renders its empty state |
 
