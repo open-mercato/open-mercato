@@ -1,3 +1,6 @@
+/**
+ * @jest-environment jsdom
+ */
 import {
   applyClosedToggle,
   applyStatusSelection,
@@ -8,8 +11,11 @@ import {
   normalizeTimelineFilters,
   parseTimelineUrlState,
   resolveTimelineFrom,
+  useTimelineUrlState,
   type TimelineUrlState,
 } from '../useTimelineUrlState'
+import { act, renderHook } from '@testing-library/react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { buildTimelineApiParams } from '../DealsTimelineBoard'
 
 jest.mock('next/navigation', () => ({
@@ -149,3 +155,56 @@ describe('timeline API params', () => {
     expect(buildTimelineApiParams(today, '2026-11-05').get('from')).toBe('2026-10-01')
   })
 })
+
+describe('useTimelineUrlState update', () => {
+  const replace = jest.fn()
+  const push = jest.fn()
+  let currentParams = new URLSearchParams()
+
+  beforeEach(() => {
+    replace.mockReset()
+    push.mockReset()
+    currentParams = new URLSearchParams()
+    ;(usePathname as jest.Mock).mockReturnValue('/backend/customers/deals/timeline')
+    ;(useRouter as jest.Mock).mockReturnValue({ replace, push })
+    ;(useSearchParams as jest.Mock).mockImplementation(() => currentParams)
+  })
+
+  function lastHref(): string {
+    return replace.mock.calls[replace.mock.calls.length - 1][0] as string
+  }
+
+  it('keeps an earlier change when a second one fires before the URL updates', () => {
+    const { result } = renderHook(() => useTimelineUrlState())
+    act(() => result.current.update({ bucket: 'month' }))
+    act(() => result.current.update({ groupBy: 'stage' }))
+    const href = lastHref()
+    expect(href).toContain('bucket=month')
+    expect(href).toContain('groupBy=stage')
+  })
+
+  it('keeps every queued change when an earlier URL lands mid-sequence', () => {
+    const { result, rerender } = renderHook(() => useTimelineUrlState())
+    act(() => result.current.update({ bucket: 'month' }))
+    const first = lastHref().split('?')[1] ?? ''
+    act(() => result.current.update({ groupBy: 'stage' }))
+    currentParams = new URLSearchParams(first)
+    rerender()
+    act(() => result.current.update({ bucket: 'quarter' }))
+    const href = lastHref()
+    expect(href).toContain('bucket=quarter')
+    expect(href).toContain('groupBy=stage')
+  })
+
+  it('builds on the landed URL after an external navigation', () => {
+    const { result, rerender } = renderHook(() => useTimelineUrlState())
+    act(() => result.current.update({ bucket: 'month' }))
+    currentParams = new URLSearchParams('groupBy=stage')
+    rerender()
+    act(() => result.current.update({ groupBy: 'owner' }))
+    const href = lastHref()
+    expect(href).not.toContain('bucket=month')
+    expect(href).not.toContain('groupBy=stage')
+  })
+})
+

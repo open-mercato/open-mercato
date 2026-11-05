@@ -163,9 +163,17 @@ export function useTimelineUrlState() {
   const stateRef = React.useRef(state)
   stateRef.current = state
   const pendingStateRef = React.useRef<TimelineUrlState | null>(null)
+  const inFlightQueriesRef = React.useRef<string[]>([])
 
   React.useEffect(() => {
-    pendingStateRef.current = null
+    const inFlight = inFlightQueriesRef.current
+    const landedIndex = inFlight.indexOf(paramsKey)
+    if (landedIndex === -1 || landedIndex === inFlight.length - 1) {
+      inFlightQueriesRef.current = []
+      pendingStateRef.current = null
+      return
+    }
+    inFlightQueriesRef.current = inFlight.slice(landedIndex + 1)
   }, [paramsKey])
 
   const update = React.useCallback(
@@ -178,6 +186,7 @@ export function useTimelineUrlState() {
       }
       pendingStateRef.current = next
       const query = buildTimelineSearchParams(next).toString()
+      inFlightQueriesRef.current = [...inFlightQueriesRef.current, query]
       const href = query ? `${pathname}?${query}` : pathname
       if (options?.history === 'push') router.push(href, { scroll: false })
       else router.replace(href, { scroll: false })
