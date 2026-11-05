@@ -289,6 +289,7 @@
     <div class="note"><b>3</b><span>The preview recomputes after every change; "Respond within" is hidden while approval is off. Save uses optimistic locking (conflict bar on 409).</span></div>
     <div class="note"><b>4</b><span>The page needs <code>customers.booking.manage_own</code>. It does not require <code>customers.interactions.manage</code>: booking actions check that the request belongs to the signed-in user, so employees can run their own booking page without being able to edit colleagues' meetings. The timezone is pre-filled from the browser on first save; users have no stored timezone.</span></div>
     <div class="note"><b>5</b><span>When the deployment has no trusted proxy depth (<code class="t-mono">RATE_LIMIT_TRUST_PROXY_DEPTH</code> unset), visitor addresses are unknown and per-address limits are off. A warning alert then appears above Limits, and "Max new requests per day" is the bound that still applies.</span></div>
+    <div class="note"><b>6</b><span>Not drawn: a warning alert at the top of this page and of Meeting requests when booking maintenance is not active. If the schedule is missing (an upgraded install where an admin has not yet run the pending upgrade action): "Booking maintenance is not scheduled: expiry e-mails and the 90-day data clean-up will not run. Ask an administrator to run the pending upgrade action." If an admin disabled or deleted it: "Booking maintenance is disabled: … Ask an administrator to enable or restore the Booking maintenance schedule in Scheduler." The server returns <code class="t-mono">maintenanceSchedule</code> (<code class="t-mono">active</code> / <code class="t-mono">missing</code> / <code class="t-mono">inactive</code>, or <code class="t-mono">null</code> when the scheduler module is not installed, which shows no warning) for this.</span></div>
   </div>
 </section>
 
@@ -510,7 +511,7 @@
         <main class="page">
           <div class="dt">
             <div class="dt-head">
-              <div class="dt-head-row"><h2 class="t-table-title">Meeting requests</h2><div class="dt-head-actions"><a class="btn btn-outline btn-sm" href="#s1" data-goto="s1"><svg><use href="#ic-calendar"/></svg> Booking settings</a></div></div>
+              <div class="dt-head-row"><h2 class="t-table-title">Meeting requests</h2><div class="dt-head-actions"><a class="btn btn-outline btn-sm" href="#s1" data-goto="s1"><svg><use href="#ic-calendar"/></svg> Booking settings</a><a class="btn btn-outline btn-sm" href="#s2" data-goto="s2"><svg><use href="#ic-external"/></svg> Open my booking page</a></div></div>
               <div class="dt-toolbar">
                 <div class="tabs" role="tablist">
                   <button role="tab" aria-selected="false" data-goto="s12">All <span class="tab-count">24</span></button>
@@ -778,6 +779,7 @@
   <div class="notes">
     <div class="note"><b>1</b><span>Selecting a slot splits it into [time | Confirm] — no form, the booker's details are kept. Instant mode: the meeting moves and an updated .ics (same UID, SEQUENCE+1) is sent.</span></div>
     <div class="note"><b>2</b><span>Approval mode: a new pending request is created; the original meeting stays booked until Anna accepts. The same manage link keeps working: on accept it manages the new time, and on decline or expiry the original time stays. Only one reschedule can be pending at a time, and cancelling the original also withdraws it.</span></div>
+    <div class="note"><b>3</b><span>Not drawn: when the owner requires approval and the page has hit its daily limit of new requests, confirming returns 429 and the picker shows "Online rescheduling is temporarily unavailable. Your current time stays booked; reply to the invite e-mail to change it." If an open-request limit refuses it instead (<code class="t-mono">too_many_open_requests</code>): "Online rescheduling is not available right now. Your current time stays booked; reply to the invite e-mail to change it." Instant reschedules and cancellations are never blocked by these limits.</span></div>
   </div>
 </section>
 
@@ -938,7 +940,8 @@
     <div class="note"><b>1</b><span>Only pending rows are selectable. Bulk actions run as a background job with top-bar progress. Bulk <strong>Accept</strong> creates a new CRM person for each new booker (the default) and keeps the existing person for reschedule requests; linking to existing people is done one by one, from the row's Accept dialog or afterwards via Link to existing person. Bulk <strong>Decline</strong> asks for one optional reason that goes to every selected booker.</span></div>
     <div class="note"><b>2</b><span>Rows are sorted pending-first (soonest deadline on top), then by meeting date. A request that expires while the page is open greys out with a "just expired" hint; accepting it returns a 409 conflict and the list refreshes.</span></div>
     <div class="note"><b>3</b><span>The counters come from <code>GET /api/customers/booking-requests/counts</code>. Users with <code>customers.booking.manage</code> also get an Owner column and filter, so a manager can see the whole team's requests.</span></div>
-    <div class="note"><b>4</b><span>Row menu (⋯) on confirmed requests: Open in calendar — Link to existing person — Cancel meeting. On declined, expired or cancelled requests: View details only. Nothing can be re-opened, because the booker has already been e-mailed.</span></div>
+    <div class="note"><b>4</b><span>Row menu (⋯) on confirmed requests: Open in calendar — Link to existing person — Cancel meeting (upcoming meetings only; hidden once the meeting has ended). On declined, expired or cancelled requests: View details only. Nothing can be re-opened, because the booker has already been e-mailed.</span></div>
+    <div class="note"><b>5</b><span>Cancelled badges name the reason: "Cancelled by booker", "Cancelled by owner", "Cancelled: person deleted", or "Cancelled: original cancelled" for a pending reschedule whose original meeting was cancelled. When a reschedule is accepted, the old request is hidden from the list, every tab and the counters (the meeting only moved); the new one shows Confirmed with the hint "Rescheduled from {old time}", and its View details shows the full reschedule history.</span></div>
   </div>
 </section>
 
