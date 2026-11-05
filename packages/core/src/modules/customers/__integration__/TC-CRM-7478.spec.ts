@@ -95,6 +95,31 @@ test.describe('TC-CRM-7478: schedule activities on the selected local day', () =
         const days = await selectedDays(page, surface)
         if (surface === 'deal') {
           await expect(page.getByRole('heading', { name: 'Log activity', exact: true })).toBeVisible()
+          const composer = page.getByRole('heading', { name: 'Log activity', exact: true }).locator('../..')
+          for (const width of [390, 1440]) {
+            await page.setViewportSize({ width, height: 900 })
+            await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+            for (const button of await composer.getByRole('button').all()) {
+              if (!await button.isVisible()) continue
+              const bounds = await button.evaluate((element) => {
+                const control = element.getBoundingClientRect()
+                const range = document.createRange()
+                range.selectNodeContents(element)
+                const content = range.getBoundingClientRect()
+                return {
+                  left: control.left, right: control.right,
+                  contentLeft: content.left, contentRight: content.right,
+                  hasText: Boolean(element.textContent?.trim()),
+                }
+              })
+              expect(bounds.left).toBeGreaterThanOrEqual(0)
+              expect(bounds.right).toBeLessThanOrEqual(width)
+              if (bounds.hasText) {
+                expect(bounds.contentLeft).toBeGreaterThanOrEqual(bounds.left - 1)
+                expect(bounds.contentRight).toBeLessThanOrEqual(bounds.right + 1)
+              }
+            }
+          }
           const showPreview = page.getByRole('button', { name: 'Show week preview', exact: true })
           if (await showPreview.isVisible()) await showPreview.click()
           await page.getByRole('button', { name: 'Next week', exact: true }).click()

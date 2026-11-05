@@ -1426,6 +1426,7 @@ Third-party modules need no migration to keep working. Consumers that want to:
 
 | Date | Change |
 | ---- | ------ |
+| 2026-11-05 | Integrated the verified calendar containment and nullable-edit repair into selected-day scheduling. Composer actions wrap and activity types use two columns on narrow viewports; native coverage checks page and control-label bounds at 390px and 1440px before preserving the existing selected-date save/reopen flow (#7478, #8382). API contracts and keyboard callback behavior remain unchanged. |
 | 2026-11-03 | Preserved the zero-argument `useScheduleDialog.openSchedule` callback contract alongside the selected-Date overload (#7478). Direct React mouse/keyboard handlers ignore event payloads when choosing the default day; a real shared Button regression covers the consuming boundary. |
 | 2026-10-25 | Corrected selected-day time defaults after review: future tasks use 17:00 and timed activities use 09:00; today preserves forward scheduling including next-day rollover, and historical dates retain their existing time behavior. Added regressions for future days after 17:00, today after 23:30, and historical dates. |
 | 2026-10-22 | Implement the four advertised Sales order/quote stage-bar and closure render-widget hosts (#7782), with live canonical declarations, unchanged native lifecycle, context/compatibility documentation, and rendering coverage. |

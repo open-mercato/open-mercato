@@ -30,6 +30,7 @@ async function chooseActivity(label: string) {
 describe('activity calendar create date (#7478)', () => {
   beforeEach(() => {
     jest.useFakeTimers().setSystemTime(new Date(2026, 8, 30, 14, 12))
+    HTMLElement.prototype.scrollIntoView = jest.fn()
   })
 
   afterEach(() => {

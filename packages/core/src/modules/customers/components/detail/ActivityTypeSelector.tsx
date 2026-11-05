@@ -24,7 +24,7 @@ export function ActivityTypeSelector({ selectedType, onSelect }: ActivityTypeSel
   const t = useT()
 
   return (
-    <div className="grid grid-cols-5 gap-2">
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
       {ACTIVITY_TYPES.map(({ type, icon: Icon, labelKey, fallback }) => {
         const isSelected = selectedType === type
         return (
