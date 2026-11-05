@@ -4,7 +4,7 @@ Goal: identify the intended audit row and keep undo/redo reachable.
 Scope: packages/core/src/modules/audit_logs/** and issue-8200 artifacts only.
 Source doc: .ai/specs/2026-11-04-issue-8200-audit-row-identification.md
 Engine: om-auto-create-pr (steps: 4, --loop: no)
-Branch: cez/f90a1051 (pre-existing isolated cezar worktree; retained by task order).
+Branch: fix/issue-8200-audit-row-actions (same isolated cezar worktree, continuing from clean c1e3763; separate spec autosave preserved outside this branch).
 Base: upstream/main, baseline e5774a707321fe14867a19663bc486d7a001492d.
 
 ## Implementation Plan
@@ -38,3 +38,5 @@ Focused diagnostics: unchanged EntityTagsDialog suite passed 15 tests in sibling
 Supported-environment retry: exact candidate `d43b6f9b3ebf7cc6ad707da3a1823ee5e1f81089`, verified official Node24.19.0, full independent clone at a path without spaces, fresh immutable dependencies and native build/generate/build prerequisites all passed. Commit/tree/lockfile/cleanliness stayed identical. Unchanged `yarn test` failed with exit1 after478.893s: Turbo16/49 tasks successful; UI1failed/319passed suites,1failed/2874passed tests. Unchanged CrudForm.injectionLifecycle expectedDisplayed but receivedOriginal. This is not evidence of a baseline failure or flake. Native cleanup completed and resource allocation was released. Step2.2 remains blocked; no implementation PR or post-publication review/QA/CI is claimed. Full evidence and environment attribution are in `.ai/analysis/2026-11-04-issue-8200-review.md`.
 
 One authorized unchanged focused UI diagnostic passed21tests in19.156s; fullgate remains failed. Read-only lifecycle review cannot establish whether the one-second display assertion failed from scheduling, ordering or suite interaction. SharedUI repair requires parent coordination with its owner; no source/timeout changes or additional retries.
+
+November 5 continuation: parent found native Undo/Redo were replaced by a contributed row-action widget. Audit-local typed action-items adapter repairs the merge without shared UI changes. Real registry/DataTable regression reproduces the failure against c1e3763 (3 failures/9 passes) and passes all12 tests with the correction. Independent source review has no blocking findings. Details: `.ai/analysis/2026-11-05-issue-8200-widget-actions-review.md`. Step2.2 remains open pending the corrected candidate’s configured gate and publication/review chain. Separate specPR8673 is merged.

@@ -4,6 +4,7 @@ import * as React from 'react'
 import { extensionPoints } from '@open-mercato/core/modules/audit_logs/extension-points'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { DataTable, type PaginationProps } from '@open-mercato/ui/backend/DataTable'
+import type { RowActionItem } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { auditRecordName, auditChangeSummary, auditExecutionState } from '../lib/rowPresentation'
@@ -17,6 +18,10 @@ import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('audit_logs').child({ component: 'AuditLogsActions' })
+
+function AuditLogRowActions({ children }: { items: RowActionItem[]; children: React.ReactNode }) {
+  return <div className="flex justify-end gap-1" data-actions-cell>{children}</div>
+}
 
 /**
  * `raiseCrudError` prefers the server's `error` body over the fallback message and stamps
@@ -219,17 +224,26 @@ export function AuditLogsActions({
     const showRedo = itemCanRedo && item.executionState === 'undone'
     const canRedo = showRedo && isRedoCandidate(item)
     if (!canUndo && !showRedo) return null
+    const undoDisabled = undoingToken === item.undoToken || Boolean(redoingId)
+    const redoDisabled = !canRedo || redoingId === item.id || Boolean(undoingToken)
+    const undoLabel = t('audit_logs.actions.undo_this')
+    const redoLabel = t('audit_logs.actions.redo_this')
+    const onUndo = () => { void handleUndo(item.undoToken) }
+    const onRedo = () => { void handleRedo(item.id) }
+    const items: RowActionItem[] = []
+    if (canUndo && !undoDisabled) items.push({ id: 'undo', label: undoLabel, onSelect: onUndo })
+    if (canRedo && !redoDisabled) items.push({ id: 'redo', label: redoLabel, onSelect: onRedo })
     return (
-      <div className="flex justify-end gap-1" data-actions-cell>
+      <AuditLogRowActions items={items}>
         {canUndo ? (
           <IconButton
             variant="ghost"
             size="lg"
             type="button"
-            aria-label={t('audit_logs.actions.undo_this')}
-            title={t('audit_logs.actions.undo_this')}
-            onClick={() => { void handleUndo(item.undoToken) }}
-            disabled={undoingToken === item.undoToken || Boolean(redoingId)}
+            aria-label={undoLabel}
+            title={undoLabel}
+            onClick={onUndo}
+            disabled={undoDisabled}
           >
             <Undo2 className="size-4" aria-hidden="true" />
           </IconButton>
@@ -239,15 +253,15 @@ export function AuditLogsActions({
             variant="ghost"
             size="lg"
             type="button"
-            aria-label={t('audit_logs.actions.redo_this')}
-            title={t('audit_logs.actions.redo_this')}
-            onClick={() => { void handleRedo(item.id) }}
-            disabled={!canRedo || redoingId === item.id || Boolean(undoingToken)}
+            aria-label={redoLabel}
+            title={redoLabel}
+            onClick={onRedo}
+            disabled={redoDisabled}
           >
             <RotateCcw className="size-4" aria-hidden="true" />
           </IconButton>
         ) : null}
-      </div>
+      </AuditLogRowActions>
     )
   }, [t, handleUndo, handleRedo, isLatestUndoableForItem, isRedoCandidate, undoingToken, redoingId, permissions])
 
