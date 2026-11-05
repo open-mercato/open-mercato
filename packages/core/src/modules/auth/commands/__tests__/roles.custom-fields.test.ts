@@ -27,13 +27,60 @@ jest.mock('@open-mercato/shared/lib/commands/customFieldSnapshots', () => {
 import '@open-mercato/core/modules/auth/commands/roles'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { Role } from '../../data/entities'
+import { Role, RoleAcl } from '../../data/entities'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
 const roleId = '11111111-1111-4111-8111-111111111111'
 const tenantId = '22222222-2222-4222-8222-222222222222'
+
+describe('auth.roles.create duplicate names', () => {
+  const handler = commandRegistry.get<Record<string, unknown>, Role>('auth.roles.create')!
+
+  it.each([
+    { code: '23505', constraint: 'roles_tenant_id_name_unique' },
+    { cause: { code: '23505', constraint: 'roles_tenant_id_name_unique' } },
+  ])('returns a name field error for a duplicate role: %j', async (error) => {
+    const createOrmEntity = jest.fn().mockRejectedValue(error)
+    const ctx = makeExecuteCtx({ createOrmEntity }, {})
+
+    await expect(handler.execute({ name: 'Duplicate Role' }, ctx)).rejects.toMatchObject({
+      status: 400,
+      body: {
+        error: 'A role with this name already exists',
+        fieldErrors: { name: 'A role with this name already exists' },
+        details: [{ path: ['name'], code: 'duplicate', origin: 'validation' }],
+      },
+    })
+    expect(createOrmEntity).toHaveBeenCalledWith({
+      entity: Role,
+      data: { name: 'Duplicate Role', tenantId },
+    })
+  })
+
+  it('preserves successful creation and its scoped side effects', async () => {
+    const role = { id: roleId, name: 'New Role', tenantId } as Role
+    const createOrmEntity = jest.fn().mockResolvedValue(role)
+    const markOrmEntityChange = jest.fn()
+    const ctx = makeExecuteCtx({ createOrmEntity, markOrmEntityChange }, {})
+
+    await expect(handler.execute({ name: 'New Role' }, ctx)).resolves.toBe(role)
+    expect(markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'created',
+      entity: role,
+      identifiers: { id: roleId, tenantId, organizationId: null },
+    }))
+  })
+
+  it.each([
+    new Error('Database unavailable'),
+    { code: '23505', constraint: 'roles_pkey' },
+  ])('preserves unrelated write errors: %j', async (error) => {
+    const ctx = makeExecuteCtx({ createOrmEntity: jest.fn().mockRejectedValue(error) }, {})
+    await expect(handler.execute({ name: 'New Role' }, ctx)).rejects.toBe(error)
+  })
+})
 
 describe('auth.roles.update', () => {
   it('allows updating the built-in admin role when the name is unchanged', async () => {
@@ -58,15 +105,18 @@ describe('auth.roles.update', () => {
     }
     const em = {
       findOne: jest.fn(async () => existingRole),
+      find: jest.fn(async () => []),
       count: jest.fn(async () => 0),
     }
     const ctx = makeExecuteCtx(dataEngine, em)
 
+    await handler.prepare!({ id: roleId, name: 'admin' }, ctx)
     const result = await handler.execute({ id: roleId, name: 'admin' }, ctx)
 
     expect(result).toMatchObject({ id: roleId, name: 'admin', tenantId })
     expect(em.count).not.toHaveBeenCalled()
     expect(updateOrmEntity).toHaveBeenCalled()
+    expect(em.find.mock.calls.find(([entity]) => entity === RoleAcl)?.[1]).toMatchObject({ deletedAt: null })
     expect(markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({
       action: 'updated',
       identifiers: expect.objectContaining({ id: roleId, tenantId }),
@@ -231,6 +281,8 @@ function makeExecuteCtx(dataEngine: object, em: object): CommandRuntimeContext {
           return dataEngine
         case 'em':
           return em
+        case 'rbacService':
+          return { loadAcl: async () => ({ isSuperAdmin: true, features: ['*'], organizations: null }) }
         default:
           throw new Error(`Unexpected dependency: ${token}`)
       }

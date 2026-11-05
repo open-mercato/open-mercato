@@ -43,6 +43,7 @@
     "@open-mercato/channel-imap": "workspace:*",
     "@open-mercato/channel-resend": "workspace:*",
     "@open-mercato/channel-ses": "workspace:*",
+    "@open-mercato/channel-smtp": "workspace:*",
     "@open-mercato/checkout": "workspace:*",
     "@open-mercato/cli": "workspace:*",
     "@open-mercato/content": "workspace:*",
@@ -50,6 +51,7 @@
     "@open-mercato/documents": "workspace:*",
     "@open-mercato/enterprise": "workspace:*",
     "@open-mercato/events": "workspace:*",
+    "@open-mercato/gateway-autopay": "workspace:*",
     "@open-mercato/gateway-stripe": "workspace:*",
     "@open-mercato/gateway-tpay": "workspace:*",
     "@open-mercato/onboarding": "workspace:*",
@@ -80,7 +82,7 @@
     "dotenv": "^17.4.2",
     "lucide-react": "^1.34.0",
     "newrelic": "^14.3.9",
-    "next": "16.3.6",
+    "next": "16.4.1",
     "pdfjs-dist": "^6.2.108",
     "pg": "8.23.0",
     "react": "19.2.8",
@@ -91,7 +93,7 @@
     "resend": "^6.24.0",
     "semver": "^7.8.5",
     "tailwind-merge": "^3.6.0",
-    "zod": "^4.4.3"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.2",
@@ -104,7 +106,7 @@
     "@types/react-dom": "^19.2.5",
     "cross-spawn": "^7.0.6",
     "eslint": "^9.39.4",
-    "eslint-config-next": "16.3.6",
+    "eslint-config-next": "16.4.1",
     "jest": "^30.4.2",
     "tailwindcss": "^4.3.2",
     "ts-jest": "^29.4.12",

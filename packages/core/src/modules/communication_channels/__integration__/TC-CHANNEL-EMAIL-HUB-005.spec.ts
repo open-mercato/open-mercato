@@ -130,7 +130,12 @@ async function readExternalMessage(messageId: string, scope: { tenantId: string;
 }
 
 test.describe('TC-CHANNEL-EMAIL-HUB-005: a shared conversation reply uses the selected mailbox', () => {
+  test.beforeAll(async () => {
+    if (!process.env.OM_TEST_APP_ROOT?.trim()) await drainIntegrationQueue('events')
+  })
+
   test('the teammate owns their private reply after the original author revokes sharing', async ({ request }) => {
+    test.slow()
     const stamp = randomUUID()
     const recipient = `channel-hub-005-person-${stamp}@example.com`
     const userAName = `QA Channel Hub 005 A ${stamp}`
@@ -286,9 +291,9 @@ test.describe('TC-CHANNEL-EMAIL-HUB-005: a shared conversation reply uses the se
           }
         }
       }
-      for (const interactionId of interactionIds) {
-        await deleteEntityIfExists(request, adminToken, '/api/customers/interactions', interactionId)
-      }
+      await Promise.all(Array.from(interactionIds, (interactionId) =>
+        deleteEntityIfExists(request, adminToken, '/api/customers/interactions', interactionId),
+      ))
       const messageCleanupFailures: Array<{ messageId: string; status: number | null }> = []
       for (const entry of [{ token: userBToken, message: reply }, { token: userAToken, message: original }]) {
         if (entry.token && entry.message) {
@@ -300,10 +305,14 @@ test.describe('TC-CHANNEL-EMAIL-HUB-005: a shared conversation reply uses the se
         }
       }
       await deleteEntityIfExists(request, adminToken, '/api/customers/people', personId)
-      await deleteChannelIfExists(request, userBToken, channelBId)
-      await deleteChannelIfExists(request, userAToken, channelAId)
-      await deleteUserIfExists(request, adminToken, userBId)
-      await deleteUserIfExists(request, adminToken, userAId)
+      await Promise.all([
+        deleteChannelIfExists(request, userBToken, channelBId),
+        deleteChannelIfExists(request, userAToken, channelAId),
+      ])
+      await Promise.all([
+        deleteUserIfExists(request, adminToken, userBId),
+        deleteUserIfExists(request, adminToken, userAId),
+      ])
       await deleteRoleIfExists(request, adminToken, roleId)
       expect(messageCleanupFailures, 'each message author should be allowed to clean up their own message').toEqual([])
     }
