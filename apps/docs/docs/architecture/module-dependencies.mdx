@@ -58,10 +58,10 @@ The tables below list the modules that ship in the monorepo and the create-app t
 | Module id | Title | Requires | Foundational? |
 | --- | --- | --- | --- |
 | `api_docs` | API Documentation | — | |
-| `api_keys` | API Keys | `auth` | ✅ (agent_orchestrator) |
-| `attachments` | Attachments | — | ✅ (agent_orchestrator, catalog, documents, forms) |
+| `api_keys` | API Keys | `auth` | |
+| `attachments` | Attachments | — | ✅ (catalog, documents, forms) |
 | `audit_logs` | Audit & Action Logs | — | |
-| `auth` | Authentication & Accounts | — | ✅ (agent_orchestrator, api_keys, devices, documents, push_notifications) |
+| `auth` | Authentication & Accounts | — | ✅ (api_keys, devices, documents, push_notifications) |
 | `business_rules` | Business Rules | — | ✅ (workflows) |
 | `cart` | Cart | `catalog`, `sales`, `customer_groups`, `promotions` | |
 | `catalog` | Product Catalog | `attachments`, `currencies`, `dictionaries`, `entities` | ✅ (cart, ecommerce, eudr, sales, sync_akeneo, wms) |
@@ -101,7 +101,7 @@ The tables below list the modules that ship in the monorepo and the create-app t
 | `sync_excel` | Excel / CSV Import | `customers`, `data_sync` | |
 | `translations` | Entity Translations | — | |
 | `wms` | Warehouse Management System | `catalog`, `customers`, `sales`, `feature_toggles` | |
-| `workflows` | Workflow Engine | `business_rules` | ✅ (agent_orchestrator) |
+| `workflows` | Workflow Engine | `business_rules` | |
 
 ### Other first-party packages
 
@@ -129,7 +129,7 @@ Enterprise modules are off by default. Toggle them via `OM_ENABLE_ENTERPRISE_MOD
 
 | Module id | Title | Requires |
 | --- | --- | --- |
-| `agent_orchestrator` | Agent Orchestrator | `workflows`, `api_keys`, `auth`, `attachments` |
+| `agent_orchestrator` | Agent Orchestrator | — |
 | `record_locks` | Record Locking | — |
 | `security` | Security | — |
 | `sso` | Single Sign-On | — |
@@ -149,7 +149,6 @@ These are scaffolded into new apps by `create-app` but are not enabled in the mo
 The current declared edges are:
 
 ```text
-agent_orchestrator     → workflows, api_keys, auth, attachments
 api_keys               → auth
 cart                   → catalog, sales, customer_groups, promotions
 catalog                → attachments, currencies, dictionaries, entities

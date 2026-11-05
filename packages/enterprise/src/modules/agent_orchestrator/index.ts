@@ -8,7 +8,6 @@ export const metadata: ModuleInfo = {
   description: 'Callable Agent SDK core: defineAgent, agentRuntime, runs and proposals.',
   author: 'Open Mercato Team',
   license: 'Proprietary',
-  requires: ['workflows', 'api_keys', 'auth', 'attachments'],
   ejectable: true,
 }
 

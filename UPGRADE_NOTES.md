@@ -756,8 +756,7 @@ now enforces a module's declared `requires` dependencies" in the 0.8.0 → 0.9.0
 read when the import failed, so module side effects ran at generation time. The generator now reads
 `metadata.requires` purely syntactically from the module's `index.ts` (or the compiled `index.js`
 of a packaged module): the file is parsed and never executed, and only the exported `metadata`
-object counts. The complete enforced set is the edge list in the docs page above. One edge is new
-with this change: `agent_orchestrator` → `workflows`, `api_keys`, `auth`, `attachments`.
+object counts. The complete enforced set is the edge list in the docs page above.
 
 **Action for app authors:** if `yarn generate` now stops with `Module dependency check failed`,
 enable the listed modules in `src/modules.ts` (or disable the module that requires them). Such a
