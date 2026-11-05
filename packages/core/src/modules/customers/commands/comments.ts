@@ -15,7 +15,8 @@ import {
   resolveParentResourceKind,
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { notFound } from '@open-mercato/shared/lib/crud/errors'
+import { User } from '@open-mercato/core/modules/auth/data/entities'
+import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
 import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
@@ -200,6 +201,21 @@ const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: stri
     ensureTenantScope(ctx, comment.tenantId)
     ensureOrganizationScope(ctx, comment.organizationId)
 
+    const canReassignAuthor = ctx.auth?.isSuperAdmin === true && ctx.auth.isApiKey !== true
+    const shouldReassignAuthor = canReassignAuthor && parsed.authorUserId !== undefined
+    if (shouldReassignAuthor && parsed.authorUserId && parsed.authorUserId !== comment.authorUserId) {
+      const author = await findOneWithDecryption(em, User, {
+        id: parsed.authorUserId,
+        tenantId: comment.tenantId,
+        organizationId: comment.organizationId,
+        deletedAt: null,
+      }, undefined, { tenantId: comment.tenantId, organizationId: comment.organizationId })
+      if (!author) {
+        const { translate } = await resolveTranslations()
+        throw new CrudHttpError(400, { error: translate('auth.users.form.errors.notFound', 'User not found') })
+      }
+    }
+
     if (parsed.entityId !== undefined) {
       const entity = await requireTimelineParentEntity(em, parsed.entityId, { tenantId: comment.tenantId, organizationId: comment.organizationId })
       ensureSameScope(entity, comment.organizationId, comment.tenantId)
@@ -209,7 +225,7 @@ const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: stri
       comment.deal = await requireDealInScope(em, parsed.dealId, comment.tenantId, comment.organizationId)
     }
     if (parsed.body !== undefined) comment.body = parsed.body
-    if (parsed.authorUserId !== undefined) comment.authorUserId = parsed.authorUserId ?? null
+    if (shouldReassignAuthor) comment.authorUserId = parsed.authorUserId ?? null
     if (parsed.appearanceIcon !== undefined) comment.appearanceIcon = parsed.appearanceIcon ?? null
     if (parsed.appearanceColor !== undefined) comment.appearanceColor = parsed.appearanceColor ?? null
 

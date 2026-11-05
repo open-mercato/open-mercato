@@ -1,7 +1,10 @@
-import { test } from '@playwright/test'
-import { getAuthToken } from '@open-mercato/core/helpers/integration/api'
-import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
+import { expect, test } from '@playwright/test'
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { createPersonFixture, deleteEntityIfExists, readJsonSafe } from '@open-mercato/core/helpers/integration/crmFixtures'
 import {
+  expectOperation,
+  undoOk,
+  redoOk,
   runCrudUndoRoundTrip,
   skipIfUndoTestsDisabled,
 } from '@open-mercato/core/helpers/integration/undoHarness'
@@ -48,4 +51,42 @@ test.describe('TC-UNDO-001 customers.comments undo/redo', () => {
       await deleteEntityIfExists(request, token, '/api/customers/people', personId)
     }
   })
+  test('body update, undo and redo preserve the original author despite supplied author changes', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    let personId: string | null = null
+    let commentId: string | null = null
+    try {
+      personId = await createPersonFixture(request, token, { firstName: 'Attribution', lastName: `${Date.now()}`, displayName: `Attribution ${Date.now()}` })
+      const created = await apiRequest(request, 'POST', '/api/customers/comments', {
+        token, data: { entityId: personId, body: 'Original attribution' },
+      })
+      expect(created.status()).toBe(201)
+      const original = await readJsonSafe<{ id: string; authorUserId: string }>(created)
+      expect(original?.authorUserId).toBeTruthy()
+      commentId = original!.id
+      const readComment = async () => {
+        const response = await apiRequest(request, 'GET', `/api/customers/comments?entityId=${personId}`, { token })
+        expect(response.ok()).toBeTruthy()
+        const result = await readJsonSafe<{ items: Array<{ id: string; body: string; author_user_id: string }> }>(response)
+        return result!.items.find(item => item.id === commentId)
+      }
+      for (const authorInput of [{ authorUserId: personId }, { authorUserId: null }, {}]) {
+        const updated = await apiRequest(request, 'PUT', '/api/customers/comments', {
+          token, data: { id: commentId, body: 'Edited attribution', ...authorInput },
+        })
+        expect(updated.ok()).toBeTruthy()
+        const operation = expectOperation(updated, 'attribution update')
+        expect(await readComment()).toMatchObject({ body: 'Edited attribution', author_user_id: original!.authorUserId })
+        await undoOk(request, token, operation.undoToken, 'attribution update')
+        expect(await readComment()).toMatchObject({ body: 'Original attribution', author_user_id: original!.authorUserId })
+        await redoOk(request, token, operation.logId, 'attribution update')
+        expect(await readComment()).toMatchObject({ body: 'Edited attribution', author_user_id: original!.authorUserId })
+        await apiRequest(request, 'PUT', '/api/customers/comments', { token, data: { id: commentId, body: 'Original attribution' } })
+      }
+    } finally {
+      await deleteEntityIfExists(request, token, '/api/customers/comments', commentId)
+      await deleteEntityIfExists(request, token, '/api/customers/people', personId)
+    }
+  })
+
 })
