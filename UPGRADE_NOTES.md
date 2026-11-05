@@ -5151,4 +5151,4 @@ Customer-comment body edits preserve the persisted author when `authorUserId` is
 
 **Operator migration:** no database or startup changes are needed. Existing authors and audit history are not rewritten; review earlier attribution changes against independent evidence because prior unrestricted edits may have made stored attribution unreliable. API keys remain usable for ordinary edits but cannot perform attribution corrections.
 
-**Compatibility gate:** this STABLE API/command narrowing requires the Emergency Security Exception in `BACKWARD_COMPATIBILITY.md`; named human maintainer approval and its dated ledger entry are pending. No bridge can retain the old unrestricted assignment safely. See [the focused spec](.ai/specs/2026-11-05-customer-comment-author-attribution.md).
+**Compatibility gate:** this STABLE API/command narrowing requires the Emergency Security Exception in `BACKWARD_COMPATIBILITY.md`; the proposed dated ledger entry is supplied, but named human maintainer approval is still pending. No bridge can retain the old unrestricted assignment safely. See [the focused spec](.ai/specs/2026-11-05-customer-comment-author-attribution.md).

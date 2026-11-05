@@ -24,7 +24,7 @@ No entity or response changes. PUT retains `{ ok: true }` and `customers.activit
 
 The STABLE command/API author-update behavior is intentionally narrowed. Clients using ordinary users or API keys for reassignment must omit `authorUserId` for body edits and use an explicitly authorized non-key superadmin session for intentional corrections. Existing author data is not rewritten. Operators must review prior attribution against independent records; existing history cannot prove which attribution changes were legitimate.
 
-Keeping the old unauthorized assignment behind an alias, toggle or bridge would retain the vulnerability itself. This qualifies for consideration under the Emergency Security Exception, but **the exception is not approved**. Before merge, a named human maintainer must acknowledge waiving steps 1–3, and a dated entry must be added to `BACKWARD_COMPATIBILITY.md` describing this STABLE surface, argument and migration path. That file is outside this task's authorized scope. The UPGRADE_NOTES entry is supplied; neither automated review nor an automerge label replaces human approval.
+Keeping the old unauthorized assignment behind an alias, toggle or bridge would retain the vulnerability itself. This qualifies for consideration under the Emergency Security Exception, but **the exception is not approved**. Before merge, a named human maintainer must acknowledge waiving steps 1–3, and the proposed dated entry in `BACKWARD_COMPATIBILITY.md` must record that approval. The entry describes this STABLE surface, argument and migration path and explicitly marks the waiver NOT APPROVED. The UPGRADE_NOTES entry is supplied; neither automated review nor an automerge label replaces human approval.
 
 ## Implementation and Coverage
 
@@ -41,7 +41,7 @@ Keeping the old unauthorized assignment behind an alias, toggle or bridge would 
 
 ## Final Compliance Report
 
-Focused customers-only implementation; no schema migration, dependency, discovery registration or UI changes. Existing mutation lifecycle and undo stay intact. Compatibility waiver and ledger entry remain open, so this candidate must not merge. Runtime integration and full-gate results are recorded in the PR, including environment limits.
+Focused customers-only implementation; no schema migration, dependency, discovery registration or UI changes. Existing mutation lifecycle and undo stay intact. Compatibility waiver remains open; the proposed ledger entry records no approval, so this candidate must not merge. Runtime integration and full-gate results are recorded in the PR, including environment limits.
 
 ## Changelog
 
