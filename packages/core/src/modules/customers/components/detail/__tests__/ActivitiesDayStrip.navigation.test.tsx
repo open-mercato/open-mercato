@@ -18,6 +18,10 @@ function renderCalendar() {
 }
 
 describe('ActivitiesDayStrip navigation', () => {
+  beforeEach(() => {
+    HTMLElement.prototype.scrollIntoView = jest.fn()
+  })
+
   it('exposes all five dates inside a named keyboard-focusable group', () => {
     renderCalendar()
 
@@ -33,6 +37,19 @@ describe('ActivitiesDayStrip navigation', () => {
     const onSelectDate = renderCalendar()
     fireEvent.click(screen.getByRole('button', { name: 'THU 05' }))
     expect(onSelectDate).toHaveBeenCalledWith(new Date(2026, 10, 5))
+  })
+
+  it('reveals a clicked date again after it was already focused and scrolled', () => {
+    renderCalendar()
+    const date = screen.getByRole('button', { name: 'THU 05' })
+    const reveal = jest.fn()
+    date.scrollIntoView = reveal
+    fireEvent.focus(date)
+    reveal.mockClear()
+
+    fireEvent.click(date)
+
+    expect(reveal).toHaveBeenCalledWith({ behavior: 'instant', block: 'nearest', inline: 'nearest' })
   })
 
   it('keeps window navigation outside the date group and preserves its five-day step', () => {

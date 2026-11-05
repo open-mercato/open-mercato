@@ -262,6 +262,10 @@ export function ScheduleActivityDialog({
     state.recurrenceCount, state.recurrenceEndDate, state.guestPermissions,
   ])
   const initialSnapshotRef = React.useRef<string | null>(null)
+  const editedNullableFields = React.useRef(new Set<'allDay' | 'reminderMinutes' | 'visibility'>())
+  React.useEffect(() => {
+    editedNullableFields.current.clear()
+  }, [open, editData])
   const snapshotOpenKeyRef = React.useRef<string | null>(null)
   const snapshotSettleCountRef = React.useRef(0)
   const closeConfirmPendingRef = React.useRef(false)
@@ -461,6 +465,8 @@ export function ScheduleActivityDialog({
       const payloadEntityId = isSaveEdit && editData?.entityId ? editData.entityId : entityId
       const hiddenFieldValue = keepsCustomType && isSaveEdit ? undefined : null
       const preservesSchedule = keepsCustomType && isSaveEdit && !visibleFields.has('date')
+      const preserveNullableField = (field: 'allDay' | 'reminderMinutes' | 'visibility') =>
+        isSaveEdit && editData?.[field] === null && !editedNullableFields.current.has(field)
       const payload = {
         ...(isSaveEdit ? { id: editData!.id } : {}),
         entityId: payloadEntityId,
@@ -480,7 +486,7 @@ export function ScheduleActivityDialog({
         scheduledAt: preservesSchedule ? undefined : scheduledAt,
         durationMinutes: visibleFields.has('duration') ? (state.allDay ? null : state.duration) : hiddenFieldValue,
         location: visibleFields.has('location') ? (state.location.trim() || null) : hiddenFieldValue,
-        allDay: visibleFields.has('allDay') ? state.allDay : hiddenFieldValue,
+        allDay: preserveNullableField('allDay') ? undefined : visibleFields.has('allDay') ? state.allDay : hiddenFieldValue,
         recurrenceRule: visibleFields.has('recurrence') ? recurrenceRule : hiddenFieldValue,
         recurrenceEnd: visibleFields.has('recurrence') && state.recurrenceEndType === 'date' && state.recurrenceEndDate
           ? new Date(state.recurrenceEndDate).toISOString()
@@ -494,8 +500,8 @@ export function ScheduleActivityDialog({
         linkedEntities: state.linkedEntities.length > 0
           ? state.linkedEntities.map((e) => ({ id: e.id, type: e.type, label: e.label }))
           : null,
-        reminderMinutes: visibleFields.has('reminder') ? state.reminderMinutes : hiddenFieldValue,
-        visibility: visibleFields.has('visibility') ? state.visibility : hiddenFieldValue,
+        reminderMinutes: preserveNullableField('reminderMinutes') ? undefined : visibleFields.has('reminder') ? state.reminderMinutes : hiddenFieldValue,
+        visibility: preserveNullableField('visibility') ? undefined : visibleFields.has('visibility') ? state.visibility : hiddenFieldValue,
         ...(Object.keys(customValues).length > 0 ? { customValues } : {}),
       }
       await runGuardedMutation(
@@ -665,7 +671,7 @@ export function ScheduleActivityDialog({
           duration={state.duration}
           setDuration={state.setDuration}
           allDay={state.allDay}
-          setAllDay={state.setAllDay}
+          setAllDay={(value) => { editedNullableFields.current.add('allDay'); state.setAllDay(value) }}
           recurrenceEnabled={state.recurrenceEnabled}
           setRecurrenceEnabled={state.setRecurrenceEnabled}
           recurrenceDays={state.recurrenceDays}
@@ -846,9 +852,9 @@ export function ScheduleActivityDialog({
           visible={visibleFields}
           activityType={presentationType}
           reminderMinutes={state.reminderMinutes}
-          setReminderMinutes={state.setReminderMinutes}
+          setReminderMinutes={(value) => { editedNullableFields.current.add('reminderMinutes'); state.setReminderMinutes(value) }}
           visibility={state.visibility}
-          setVisibility={state.setVisibility}
+          setVisibility={(value) => { editedNullableFields.current.add('visibility'); state.setVisibility(value) }}
         />
         </>}
 
