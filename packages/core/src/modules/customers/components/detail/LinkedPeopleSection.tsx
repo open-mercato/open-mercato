@@ -156,6 +156,17 @@ function toSortMode(sorting: SortingState, fallback: LinkedPeopleSortMode): Link
   return fallback
 }
 
+function toAllowedSortMode(
+  requested: LinkedPeopleSortMode,
+  allowed: LinkedPeopleSortMode[],
+  fallback: LinkedPeopleSortMode,
+): LinkedPeopleSortMode {
+  if (allowed.includes(requested)) return requested
+  if (requested === 'name-asc' && allowed.includes('name-desc')) return 'name-desc'
+  if (requested === 'name-desc' && allowed.includes('name-asc')) return 'name-asc'
+  return fallback
+}
+
 function toSortingState(sortMode: LinkedPeopleSortMode): SortingState {
   if (sortMode === 'recent') return [{ id: 'linkedAt', desc: true }]
   return [{ id: 'displayName', desc: sortMode === 'name-desc' }]
@@ -268,9 +279,10 @@ export function LinkedPeopleSection<
   const [searchQuery, setSearchQuery] = React.useState('')
   const defaultSortMode = sortOptions[0]
   const [sorting, setSorting] = React.useState<SortingState>(() => toSortingState(defaultSortMode))
-  const sortMode = toSortMode(sorting, defaultSortMode)
-  const nameSortable = sortOptions.includes('name-asc') || sortOptions.includes('name-desc')
-  const recentSortable = sortOptions.includes('recent')
+  const sortMode = toAllowedSortMode(toSortMode(sorting, defaultSortMode), sortOptions, defaultSortMode)
+  const hasSortChoice = sortOptions.length > 1
+  const nameSortable = hasSortChoice && (sortOptions.includes('name-asc') || sortOptions.includes('name-desc'))
+  const recentSortable = hasSortChoice && sortOptions.includes('recent')
   const [visiblePeople, setVisiblePeople] = React.useState<LinkedPersonSummary[]>([])
   const [listPage, setListPage] = React.useState(1)
   const [listTotalPages, setListTotalPages] = React.useState(1)
@@ -374,9 +386,9 @@ export function LinkedPeopleSection<
 
   const handleSortingChange = React.useCallback(
     (next: SortingState) => {
-      setSorting(toSortingState(toSortMode(next, defaultSortMode)))
+      setSorting(toSortingState(toAllowedSortMode(toSortMode(next, defaultSortMode), sortOptions, defaultSortMode)))
     },
-    [defaultSortMode],
+    [defaultSortMode, sortOptions],
   )
 
   const columns = React.useMemo<ColumnDef<LinkedPersonSummary>[]>(() => {
