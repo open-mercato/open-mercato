@@ -89,7 +89,7 @@ function logEntry(snapshots: { before?: ScheduleRow; after?: ScheduleRow }): Com
   } as unknown as CommandUndoLogEntry
 }
 
-const activeCountFilter = { tenantId: 'tenant-a', isEnabled: true, deletedAt: null }
+const activeCountFilter = { tenantId: 'tenant-a', sourceType: 'user', isEnabled: true, deletedAt: null }
 const limitError = {
   status: 422,
   body: { error: 'translated:scheduler.error.active_schedule_limit:max=2' },
