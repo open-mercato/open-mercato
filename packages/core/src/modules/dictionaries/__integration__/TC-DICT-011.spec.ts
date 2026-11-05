@@ -1,9 +1,9 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
-import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
 import {
   readJsonSafe,
   deleteEntityByPathIfExists,
-} from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures';
+} from '@open-mercato/core/helpers/integration/generalFixtures';
 
 /**
  * TC-DICT-011: A deleted or archived dictionary key answers 409, never 500
