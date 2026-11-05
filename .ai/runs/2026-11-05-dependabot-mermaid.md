@@ -73,5 +73,5 @@ PR: #8741
 - [x] 1.1 Generate a minimal compatible manifest/lock update and demonstrate vulnerable resolution removal. — 49cca78d30
 
 ### Phase 2: Verification and review
-- [ ] 2.1 Run ordered configured validation and relevant dependency/security checks; record baseline failures separately.
+- [x] 2.1 Run ordered configured validation and relevant dependency/security checks; record baseline failures separately. — e31dbe9bf4
 - [x] 2.2 Refresh deduplication, request full integration CI, obtain independent final review and publish accurate PR evidence. — 42a9e77ef7
