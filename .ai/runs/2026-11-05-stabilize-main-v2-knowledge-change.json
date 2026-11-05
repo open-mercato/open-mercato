@@ -1,0 +1,131 @@
+{
+  "status": "pass",
+  "manifest": {
+    "changeClass": "knowledge-contract",
+    "baseRef": "bbd7b4db9",
+    "affectedCaseIds": [
+      "OMH-057"
+    ],
+    "affectedRanges": [],
+    "changedContracts": [
+      "context-read",
+      "evaluator"
+    ],
+    "focusedTestFiles": [
+      "packages/create-app/src/lib/compatibility-context-budget.test.ts"
+    ],
+    "authoritativeFiles": [
+      {
+        "path": "packages/create-app/agentic/shared/ai/harness/cases.json",
+        "sha256": "ad7cc56d0bf48c5933103e63da29fc73d884da45da9016d63200a844b5839a36"
+      }
+    ],
+    "generatedFiles": [],
+    "expectedCatalogCount": 241,
+    "requiredReleaseLanes": [
+      "deterministic"
+    ],
+    "documentationFiles": [
+      ".ai/runs/2026-11-05-stabilize-main-v2.md"
+    ],
+    "sourceLinkInventory": {
+      "path": "packages/create-app/scripts/source-links/source-link-inventory.json",
+      "baselineRef": "f7c941570003f3abe920b1765995cbef98dcad0b",
+      "expectedOwnerCount": 32,
+      "expectedTopicCount": 155,
+      "resolvedLinkCount": 132,
+      "baselineAssetCount": 8,
+      "baselineDispositionCount": 136,
+      "baselinePath": "packages/create-app/scripts/source-links/source-link-baseline.json",
+      "baselineSchemaPath": "packages/create-app/scripts/source-links/source-link-baseline.schema.json"
+    },
+    "resolvedBaseSha": "bbd7b4db92b95538134454b501140ae67e594869",
+    "headSha": "436225065a4a23abdd80bf0f246135faa77e930a",
+    "focusedExecutions": [
+      {
+        "testFile": "packages/create-app/src/lib/compatibility-context-budget.test.ts",
+        "command": [
+          "/opt/node/bin/node",
+          "--import",
+          "tsx",
+          "--test",
+          "packages/create-app/src/lib/compatibility-context-budget.test.ts"
+        ],
+        "baseWithTestPatch": {
+          "exitCode": 1,
+          "stdoutSha256": "9dffc45d811a662aed3cfd9b130333a89ba6445c97ebc8493554ea66b28ec1c6",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "head": {
+          "exitCode": 0,
+          "stdoutSha256": "9246c69408c20503ca3db3fefd168a43984c8232447645805c5037c7f288b03c",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      }
+    ]
+  },
+  "derived": {
+    "changeClass": "knowledge-contract",
+    "changedContracts": [
+      "context-read",
+      "evaluator"
+    ],
+    "classifiedPaths": [
+      {
+        "path": ".ai/runs/2026-11-05-stabilize-main-v2.md",
+        "rule": "unclassified-fails-closed",
+        "contract": null,
+        "changeClass": "knowledge-contract",
+        "focusedTest": false
+      },
+      {
+        "path": "packages/create-app/agentic/shared/ai/harness/cases.json",
+        "rule": "case-context-policy",
+        "contract": "context-read",
+        "changeClass": "knowledge-contract",
+        "focusedTest": false
+      },
+      {
+        "path": "packages/create-app/src/lib/compatibility-context-budget.test.ts",
+        "rule": "focused-test",
+        "contract": "evaluator",
+        "changeClass": "knowledge-contract",
+        "focusedTest": true
+      }
+    ],
+    "unclassifiedPaths": [
+      ".ai/runs/2026-11-05-stabilize-main-v2.md"
+    ],
+    "caseModeMembershipErrorCount": 0,
+    "focusedExecutions": [
+      {
+        "testFile": "packages/create-app/src/lib/compatibility-context-budget.test.ts",
+        "command": [
+          "/opt/node/bin/node",
+          "--import",
+          "tsx",
+          "--test",
+          "packages/create-app/src/lib/compatibility-context-budget.test.ts"
+        ],
+        "baseWithTestPatch": {
+          "exitCode": 1,
+          "stdoutSha256": "9dffc45d811a662aed3cfd9b130333a89ba6445c97ebc8493554ea66b28ec1c6",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "head": {
+          "exitCode": 0,
+          "stdoutSha256": "9246c69408c20503ca3db3fefd168a43984c8232447645805c5037c7f288b03c",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      }
+    ],
+    "sourceLinkInventoryRequired": false,
+    "exampleSourceMirrors": []
+  },
+  "changedPaths": [
+    ".ai/runs/2026-11-05-stabilize-main-v2.md",
+    "packages/create-app/agentic/shared/ai/harness/cases.json",
+    "packages/create-app/src/lib/compatibility-context-budget.test.ts"
+  ],
+  "errors": []
+}

@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { act, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { FlashMessages, flash } from '../FlashMessages'
 
@@ -18,10 +18,46 @@ describe('FlashMessages', () => {
   })
 
   afterEach(() => {
-    jest.runOnlyPendingTimers()
+    act(() => {
+      jest.runOnlyPendingTimers()
+    })
     jest.useRealTimers()
     window.history.replaceState({}, '', 'http://localhost/backend')
     setReferrer('')
+  })
+
+  it.each([
+    ['en', 'Close'],
+    ['pl', 'Zamknij'],
+    ['de', 'Schließen'],
+    ['es', 'Cerrar'],
+    ['ko', '닫기'],
+  ])('localizes the close control in %s and dismisses the flash', (locale, closeLabel) => {
+    renderWithProviders(<FlashMessages />, { locale, dict: { 'common.close': closeLabel } })
+
+    act(() => {
+      flash('Dictionary conflict', 'error')
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: closeLabel }))
+
+    expect(screen.queryByText('Dictionary conflict')).not.toBeInTheDocument()
+    act(() => {
+      jest.advanceTimersByTime(3000)
+    })
+    expect(screen.queryByText('Dictionary conflict')).not.toBeInTheDocument()
+  })
+
+  it('keeps the close control usable without an i18n provider', () => {
+    render(<FlashMessages />)
+
+    act(() => {
+      flash('Dictionary conflict', 'error')
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+
+    expect(screen.queryByText('Dictionary conflict')).not.toBeInTheDocument()
   })
 
   it('auto-dismisses URL-based flashes after stripping query params', () => {
