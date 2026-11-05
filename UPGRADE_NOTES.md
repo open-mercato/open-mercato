@@ -24,6 +24,14 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
+### Encryption maintenance safety confirmations (#6767)
+
+Use `TENANT_DATA_ENCRYPTION_OLD_KEY` from your secret manager for entity key rotation. The deprecated `--old-key`/`--oldKey` compatibility bridge now requires `--allow-unsafe-old-key`; it still exposes the secret to operating-system process listings and should be used only for an unavoidable legacy invocation. No removal date is scheduled.
+
+`entities decrypt-database --deactivate-maps` now requires `--confirm-offline-maintenance <tenantUuid>`. Operators must stop all application, worker and integration writers, run the operation, and restart every replica before resuming writes. The CLI cannot discover every external writer or invalidate another process's cached policy. An organization-only sweep preserves tenant-wide fallback policies; use a complete tenant sweep for their retirement. Concurrent edits, changed policies or remaining ciphertext fail closed and keep policies active.
+
+Existing scripts must supply the new explicit safety confirmations or use the safe environment-key path. Schemas, ciphertext formats, key derivation, routes and ordinary encrypted writes are unchanged. See [the safety specification](.ai/specs/2026-09-30-encryption-key-rotation-hardening.md) for the remaining online-retirement coordination limitation.
+
 ### SCIM token fingerprint rollout
 
 A cheap outer admission budget runs before request-container creation, cache reads, or fingerprint database lookups: `RATE_LIMIT_SCIM_ADMISSION_POINTS` defaults to 100 requests per second, with `RATE_LIMIT_SCIM_ADMISSION_DURATION` and `RATE_LIMIT_SCIM_ADMISSION_BLOCK_DURATION` overrides. It is shared per trusted client IP, or globally in direct mode, across all SCIM requests including discovery and enrolled tokens. Once exhausted, requests return 429 without further cache/database or bcrypt work. Private token and discovery quotas still apply inside this outer resource-protection boundary. Operators should size the outer budget for their combined legitimate IdP traffic and use Redis for a shared replica-wide budget; clients must honor `Retry-After` even for enrolled tokens.

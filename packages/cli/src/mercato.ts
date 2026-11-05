@@ -231,6 +231,39 @@ function formatCliFailureMessage(modName: string, cmdName: string, error: unknow
   return fallbackMessage
 }
 
+// Options that carry key material or credentials in every command that accepts them, so the
+// echoed command line must never reproduce their values: argv is world-readable through
+// `ps`/`/proc`, and this line additionally lands in terminal scrollback and CI logs.
+const SENSITIVE_MODULE_CLI_OPTIONS = new Set([
+  '--old-key',
+  '--oldKey',
+  '--password',
+  '--api-key',
+  '--apiKey',
+])
+
+// `--key` is ambiguous: it is a base64 encryption key in `seeds encrypt|decrypt|load` but a
+// custom-field key in `entities add-field`, so it is redacted only where it means a secret.
+const SENSITIVE_MODULE_CLI_OPTIONS_BY_COMMAND = new Map<string, string[]>([
+  ['seeds:encrypt', ['--key']],
+  ['seeds:decrypt', ['--key']],
+  ['seeds:load', ['--key']],
+])
+
+function redactSensitiveModuleCliArgs(args: string[], commandKey: string): string[] {
+  const sensitive = new Set(SENSITIVE_MODULE_CLI_OPTIONS)
+  for (const option of SENSITIVE_MODULE_CLI_OPTIONS_BY_COMMAND.get(commandKey) ?? []) sensitive.add(option)
+  return args.map((argument, index) => {
+    const separatorIndex = argument.indexOf('=')
+    if (separatorIndex > 0) {
+      const option = argument.slice(0, separatorIndex)
+      if (sensitive.has(option)) return `${option}=****`
+    }
+    if (index > 0 && sensitive.has(args[index - 1]!)) return '****'
+    return argument
+  })
+}
+
 function formatInitFailureMessage(error: unknown): string {
   const fallbackMessage = getFallbackErrorMessage(error)
   const databaseIssue = detectDatabaseConnectionIssue(error)
@@ -2697,9 +2730,10 @@ export async function run(argv = process.argv) {
 
   console.log('')
   const started = Date.now()
-  const loggedArgs = modName === 'deploy' && cmdName === 'railway'
+  const commandArgs = modName === 'deploy' && cmdName === 'railway'
     ? (await import('./lib/deploy/railway/options')).redactRailwayCliArgs(rest)
     : rest
+  const loggedArgs = redactSensitiveModuleCliArgs(commandArgs, `${modName}:${cmdName}`)
   console.log(`🚀 Running ${modName}:${cmdName} ${loggedArgs.join(' ')}`)
   try {
     await cmd.run(rest)

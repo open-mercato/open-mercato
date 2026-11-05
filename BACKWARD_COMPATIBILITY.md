@@ -567,6 +567,12 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 
 STABLE API §7: `GET /api/checkout/pay/:slug` omits admin fields; retaining them preserves disclosure. Client/operator migration: [notes](UPGRADE_NOTES.md). @haxiorz [approved](https://github.com/open-mercato/open-mercato/pull/8087#issuecomment-6505348826) on 2026-10-29: steps 1–3 waived for all 18 admin fields; client/operator migration acknowledged.
 
+---
+
+## Encryption maintenance safety gates (2026-11-02, #6767)
+
+CLI command names and key/ciphertext formats remain stable. The deprecated `entities rotate-encryption-key --old-key` / `--oldKey` bridge now requires explicit `--allow-unsafe-old-key`; prefer `TENANT_DATA_ENCRYPTION_OLD_KEY`. No removal is scheduled. `entities decrypt-database --deactivate-maps` requires `--confirm-offline-maintenance <tenantUuid>` after stopping every application, worker and integration writer; restart replicas before resuming writes. These are intentional safety confirmations for legacy risky invocations, documented in [upgrade notes](UPGRADE_NOTES.md#encryption-maintenance-safety-confirmations-6767) and the [maintenance specification](.ai/specs/2026-09-30-encryption-key-rotation-hardening.md). Organization-only runs preserve tenant-wide fallback maps. Online policy retirement is unsupported.
+
 ## SCIM rate limiting (2026-10-27)
 
 SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: ApiRouteBeforeAuth` is additive. See [contract and migration](.ai/specs/enterprise/implemented/SPEC-ENT-004-2026-02-19-sso-directory-sync.md#migration--backward-compatibility).

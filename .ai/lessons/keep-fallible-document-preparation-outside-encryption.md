@@ -1,8 +1,8 @@
 ---
 title: "Keep fallible document preparation outside encryption guards"
-modules: ["query_index","search","entities","shared"]
-areas: ["module-data","debugging"]
-topics: ["data-integrity","encryption","query-index","filters"]
+modules: ["query_index","search","entities","cli","shared"]
+areas: ["module-data","debugging","testing"]
+topics: ["data-integrity","encryption","query-index","concurrency","testing","filters"]
 ---
 
 # Keep fallible document preparation outside encryption guards
@@ -12,6 +12,13 @@ topics: ["data-integrity","encryption","query-index","filters"]
 **Rule**: Complete document preparation before entering an encryption-only guard. When encryption throws, log and rethrow or skip the write explicitly; never return the pre-encryption payload. Keep regression coverage at the final persistence boundary so a helper-level fix cannot mask a plaintext write.
 
 **Applies to**: index projections, search/vector payloads, export staging, and every write path that conditionally encrypts a prepared document.
+
+
+## Maintenance persistence boundaries
+
+Encryption-maintenance compare-and-swap updates must select every column whose old value they compare, including non-null lookup hashes, and pin the original tenant and organization in SQL. A mocked row containing fields that the real SELECT omits hides this failure; prove the persistence boundary against PostgreSQL.
+
+A protected final verification sweep must remain bounded. Scan by primary-key keyset pages under the same protection as policy retirement, inspect every page, and test residual ciphertext beyond the first page with a tiny batch size. Table locks do not make materializing a tenant's entire table safe.
 
 **Document-storage evidence (#7810)**: Custom entity writes must finish encryption before entering the SQL upsert/fallback block. A missing tenant key or foreign-key ciphertext must stop the write rather than reach a fallback with the original document. Test the final serialized JSONB with real AES, including partial updates that retain legacy plaintext and already encrypted values; helper-only ciphertext assertions do not prove persistence is protected.
 
