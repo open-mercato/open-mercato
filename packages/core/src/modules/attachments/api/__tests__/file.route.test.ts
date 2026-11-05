@@ -56,7 +56,10 @@ const mockEm = {
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => ({
-    resolve: (key: string) => key === 'em' ? mockEm : null,
+    resolve: (key: string) => key === 'em' ? mockEm : key === 'rbacService' ? {
+      loadAcl: async () => ({ isSuperAdmin: true, organizations: null }),
+      getEffectiveFeatures: async () => ['attachments.view'],
+    } : null,
   })),
 }))
 

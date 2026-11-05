@@ -88,6 +88,10 @@ const validate = jest.fn(({ config }: { config: Readonly<Record<string, unknown>
 function mockResolve<T>(key: string): T {
   const values: Record<string, unknown> = {
     em: mockEm, dataEngine: null, attachmentQuotaService: quota,
+    rbacService: {
+      loadAcl: async () => ({ isSuperAdmin: false, organizations: ['org-test'] }),
+      getEffectiveFeatures: async () => ['attachments.view'],
+    },
     storageDriverFactory: new StorageDriverFactory(mockEm as unknown as EntityManager),
   }
   return values[key] as T
