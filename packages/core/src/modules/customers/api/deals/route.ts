@@ -851,7 +851,7 @@ export const openApi: OpenApiRouteDoc = {
               {
                 status: 400,
                 description:
-                  'Contradictory close-date filters: `hasExpectedCloseAt=false` combined with a close-date range, or with `isOverdue` while `needsAttention` is absent.',
+                  'Contradictory close-date filters: `hasExpectedCloseAt=false` combined with a close-date range, or with `isOverdue` while `needsAttention` is not `true`.',
                 schema: dealListContradictionErrorSchema,
               },
             ],

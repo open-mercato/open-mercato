@@ -1,5 +1,9 @@
 import { z } from 'zod'
-import { DEAL_TIMELINE_SAVED_VIEW_VERSION, dealTimelineSavedViewSchema } from '../data/validators'
+import {
+  DEAL_TIMELINE_SAVED_VIEW_MAX_SEARCH_LENGTH,
+  DEAL_TIMELINE_SAVED_VIEW_VERSION,
+  dealTimelineSavedViewSchema,
+} from '../data/validators'
 import type { DealTimelineBucket, DealTimelineGroupBy } from './dealsTimeline'
 import { isClosedDealStatus } from './dealStatus'
 
@@ -107,4 +111,19 @@ export function buildDealTimelinePerspectiveSettings(view: DealTimelineSavedView
   }
   if (view.search && view.search.trim().length) settings.searchValue = view.search
   return settings
+}
+
+export type DealTimelineSavedViewSaveCheck = { ok: true } | { ok: false; field: string }
+
+export function validateDealTimelineSavedViewForSave(view: DealTimelineSavedView): DealTimelineSavedViewSaveCheck {
+  const settings = buildDealTimelinePerspectiveSettings(view)
+  const parsed = dealTimelineSavedViewSchema.safeParse(settings.filters.timeline)
+  if (!parsed.success) {
+    const field = parsed.error.issues[0]?.path[0]
+    return { ok: false, field: typeof field === 'string' ? field : 'timeline' }
+  }
+  if (settings.searchValue && settings.searchValue.length > DEAL_TIMELINE_SAVED_VIEW_MAX_SEARCH_LENGTH) {
+    return { ok: false, field: 'search' }
+  }
+  return { ok: true }
 }

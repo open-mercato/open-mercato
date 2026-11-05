@@ -364,4 +364,23 @@ describe('TimelineDealDrawer', () => {
       expect(after).toBe(before + 1)
     })
   })
+
+  it('reports a refresh only after the token-triggered re-read completes', async () => {
+    mockBackend()
+    const onRefreshed = jest.fn()
+    const props = {
+      dealId: DEAL_ID,
+      onClose: jest.fn(),
+      onDealChanged: jest.fn(),
+      onRescheduled: jest.fn(),
+      canManage: true,
+      onRefreshed,
+    }
+    const { rerender } = render(<TimelineDealDrawer {...props} refreshToken={0} />)
+    await findDrawer()
+    expect(onRefreshed).not.toHaveBeenCalled()
+    rerender(<TimelineDealDrawer {...props} refreshToken={1} />)
+    await waitFor(() => expect(onRefreshed).toHaveBeenCalledWith(DEAL_ID))
+    expect(onRefreshed).toHaveBeenCalledTimes(1)
+  })
 })

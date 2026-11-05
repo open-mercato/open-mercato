@@ -12,6 +12,7 @@ import {
   type DealTimelineGroupBy,
 } from '../../../../../lib/dealsTimeline'
 import { isClosedDealStatus } from '../../../../../lib/dealStatus'
+import { DEAL_TIMELINE_SAVED_VIEW_MAX_VALUES } from '../../../../../data/validators'
 import type { DealTimelineFilters } from '../../../../../lib/dealsTimelineTypes'
 
 export const TIMELINE_PATH = '/backend/customers/deals/timeline'
@@ -34,7 +35,9 @@ function readUuid(value: string | null | undefined): string | null {
 }
 
 function readUuidList(params: URLSearchParams, key: string): string[] {
-  return readList(params, key).filter((value) => UUID_PATTERN.test(value))
+  return readList(params, key)
+    .filter((value) => UUID_PATTERN.test(value))
+    .slice(0, DEAL_TIMELINE_SAVED_VIEW_MAX_VALUES)
 }
 
 function readList(params: URLSearchParams, key: string): string[] {
@@ -114,7 +117,7 @@ export function parseTimelineUrlState(params: URLSearchParams): TimelineUrlState
   const dealId = readUuid(params.get('deal'))
   const filters = normalizeTimelineFilters({
     search,
-    status: readList(params, 'status'),
+    status: readList(params, 'status').slice(0, DEAL_TIMELINE_SAVED_VIEW_MAX_VALUES),
     pipelineId,
     ownerUserId: readUuidList(params, 'ownerUserId'),
     personId: readUuidList(params, 'personId'),
@@ -179,7 +182,7 @@ export function useTimelineUrlState() {
   }, [paramsKey])
 
   const update = React.useCallback(
-    (change: TimelineUrlStateUpdate, options?: { history?: 'push' | 'replace' }) => {
+    (change: TimelineUrlStateUpdate, options?: { history?: 'push' | 'replace' | 'back' }) => {
       const current = pendingStateRef.current ?? stateRef.current
       const patch = typeof change === 'function' ? change(current) : change
       const next: TimelineUrlState = {
@@ -190,6 +193,10 @@ export function useTimelineUrlState() {
       pendingStateRef.current = next
       const query = buildTimelineSearchParams(next).toString()
       inFlightQueriesRef.current = [...inFlightQueriesRef.current, query]
+      if (options?.history === 'back') {
+        router.back()
+        return
+      }
       const href = query ? `${pathname}?${query}` : pathname
       if (options?.history === 'push') router.push(href, { scroll: false })
       else router.replace(href, { scroll: false })

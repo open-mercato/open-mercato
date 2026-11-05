@@ -1786,6 +1786,7 @@
   "customers.deals.timeline.savedViews.save": "Zapisz widok",
   "customers.deals.timeline.savedViews.saveError": "Nie udało się zapisać widoku.",
   "customers.deals.timeline.savedViews.saved": "Widok zapisany.",
+  "customers.deals.timeline.savedViews.tooLarge": "Ten widok ma zbyt wiele wartości filtrów, aby go zapisać. Zawęź filtry i spróbuj ponownie.",
   "customers.deals.timeline.status.closed": "Zamknięta",
   "customers.deals.timeline.status.lost": "Przegrana",
   "customers.deals.timeline.status.won": "Wygrana",

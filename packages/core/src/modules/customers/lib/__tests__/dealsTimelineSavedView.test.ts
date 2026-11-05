@@ -2,6 +2,8 @@ import {
   buildDealTimelinePerspectiveSettings,
   normalizeTimelineStatusSelection,
   parseDealTimelineSavedView,
+  validateDealTimelineSavedViewForSave,
+  type DealTimelineSavedView,
 } from '../dealsTimelineSavedView'
 import { dealTimelineSavedViewSchema } from '../../data/validators'
 
@@ -92,5 +94,46 @@ describe('dealsTimelineSavedView', () => {
     })
     expect(dealTimelineSavedViewSchema.safeParse(settings.filters.timeline).success).toBe(true)
     expect(parseDealTimelineSavedView(settings).view).toMatchObject({ status: ['win'], bucket: 'month', search: 'beta' })
+  })
+
+  describe('validateDealTimelineSavedViewForSave', () => {
+    const baseView: DealTimelineSavedView = {
+      status: [],
+      pipelineId,
+      ownerUserId: [ownerId],
+      personId: [],
+      companyId: [],
+      excludeClosed: true,
+      groupBy: 'owner',
+      bucket: 'week',
+    }
+    const manyIds = (length: number) =>
+      Array.from({ length }, (_, index) => `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`)
+
+    it('accepts a view that will load back unchanged', () => {
+      expect(validateDealTimelineSavedViewForSave(baseView)).toEqual({ ok: true })
+      expect(validateDealTimelineSavedViewForSave({ ...baseView, ownerUserId: manyIds(100) })).toEqual({ ok: true })
+    })
+
+    it('rejects lists the loader would drop and names the field', () => {
+      expect(validateDealTimelineSavedViewForSave({ ...baseView, ownerUserId: manyIds(101) })).toEqual({
+        ok: false,
+        field: 'ownerUserId',
+      })
+      expect(validateDealTimelineSavedViewForSave({ ...baseView, companyId: manyIds(101) })).toEqual({
+        ok: false,
+        field: 'companyId',
+      })
+    })
+
+    it('rejects an overlong status value and an overlong search', () => {
+      expect(
+        validateDealTimelineSavedViewForSave({ ...baseView, excludeClosed: false, status: ['x'.repeat(101)] }),
+      ).toEqual({ ok: false, field: 'status' })
+      expect(validateDealTimelineSavedViewForSave({ ...baseView, search: 's'.repeat(201) })).toEqual({
+        ok: false,
+        field: 'search',
+      })
+    })
   })
 })

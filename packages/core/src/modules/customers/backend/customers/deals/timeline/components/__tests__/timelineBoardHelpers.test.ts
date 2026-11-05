@@ -3,14 +3,15 @@
  */
 import { act, renderHook } from '@testing-library/react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { isTimelineItemDraggable } from '../DealsTimelineBoard'
+import { isTimelineItemDraggable, mergeCollapsedLaneToggles, resolveTimelineCountCaps } from '../DealsTimelineBoard'
 import {
   formatTimelineCount,
   formatTimelineDealCount,
   formatTimelineMoreLabel,
   formatTimelineUndatedLabel,
 } from '../TimelineLane'
-import { useTimelineUrlState } from '../useTimelineUrlState'
+import { parseTimelineUrlState, resolveTimelineFrom, useTimelineUrlState } from '../useTimelineUrlState'
+import { addBuckets } from '../../../../../../lib/dealsTimeline'
 
 jest.mock('next/navigation', () => ({
   usePathname: jest.fn(),
@@ -67,13 +68,15 @@ describe('capped and partial count labels', () => {
 
 describe('useTimelineUrlState functional updates', () => {
   const replace = jest.fn()
+  const back = jest.fn()
   let currentParams = new URLSearchParams()
 
   beforeEach(() => {
     replace.mockReset()
+    back.mockReset()
     currentParams = new URLSearchParams()
     ;(usePathname as jest.Mock).mockReturnValue('/backend/customers/deals/timeline')
-    ;(useRouter as jest.Mock).mockReturnValue({ replace, push: jest.fn() })
+    ;(useRouter as jest.Mock).mockReturnValue({ replace, push: jest.fn(), back })
     ;(useSearchParams as jest.Mock).mockImplementation(() => currentParams)
   })
 
@@ -84,5 +87,66 @@ describe('useTimelineUrlState functional updates', () => {
     const href = replace.mock.calls[replace.mock.calls.length - 1][0] as string
     expect(href).toContain('status=open')
     expect(href).toContain('search=acme')
+  })
+
+  it('advances the window twice on two quick Next clicks', () => {
+    currentParams = new URLSearchParams('from=2026-11-02')
+    const { result } = renderHook(() => useTimelineUrlState())
+    const next = () =>
+      result.current.update((current) => ({
+        from: addBuckets(resolveTimelineFrom(current, '2026-11-05'), current.bucket, 1),
+      }))
+    act(() => next())
+    act(() => next())
+    const href = replace.mock.calls[replace.mock.calls.length - 1][0] as string
+    expect(href).toContain('from=2026-11-16')
+  })
+
+  it('closes the drawer through history back and records the pending state', () => {
+    currentParams = new URLSearchParams('bucket=month&deal=66666666-6666-4666-8666-666666666666')
+    const { result } = renderHook(() => useTimelineUrlState())
+    act(() => result.current.update({ dealId: null }, { history: 'back' }))
+    expect(back).toHaveBeenCalledTimes(1)
+    act(() => result.current.update({ groupBy: 'stage' }))
+    const href = replace.mock.calls[replace.mock.calls.length - 1][0] as string
+    expect(href).toContain('groupBy=stage')
+    expect(href).toContain('bucket=month')
+    expect(href).not.toContain('deal=')
+  })
+})
+
+describe('URL id lists', () => {
+  it('caps id lists parsed from the URL at the saved-view limit', () => {
+    const ids = Array.from({ length: 150 }, (_value, index) => `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`)
+    const state = parseTimelineUrlState(new URLSearchParams(`ownerUserId=${ids.join(',')}`))
+    expect(state.filters.ownerUserId).toHaveLength(100)
+  })
+})
+
+describe('resolveTimelineCountCaps', () => {
+  it('keeps column totals exact when only the undated count is capped', () => {
+    const caps = resolveTimelineCountCaps({
+      columns: [
+        { index: 0, from: '2026-11-02', to: '2026-11-09', isCurrent: true, total: 2, truncated: false, countCapped: false },
+        { index: 1, from: '2026-11-09', to: '2026-11-16', isCurrent: false, total: 10000, truncated: true, countCapped: true },
+      ],
+      overdueBefore: { count: 3, latestExpectedCloseAt: '2026-10-01', before: '2026-11-02', countCapped: false },
+      undatedCountCapped: true,
+    })
+    expect(caps.undated).toBe(true)
+    expect(caps.overdue).toBe(false)
+    expect(caps.columns.get(0)).toBe(false)
+    expect(caps.columns.get(1)).toBe(true)
+    expect(formatTimelineCount(t, 2, caps.columns.get(0) === true)).toBe('2')
+  })
+})
+
+describe('mergeCollapsedLaneToggles', () => {
+  it('applies toggles made before the storage key was known on top of the stored lanes', () => {
+    expect(mergeCollapsedLaneToggles(['lane-a', 'lane-b'], ['lane-b', 'lane-c']).sort((left, right) => left.localeCompare(right))).toEqual([
+      'lane-a',
+      'lane-c',
+    ])
+    expect(mergeCollapsedLaneToggles(['lane-a'], [])).toEqual(['lane-a'])
   })
 })

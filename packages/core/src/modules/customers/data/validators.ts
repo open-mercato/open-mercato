@@ -893,9 +893,16 @@ export const DEAL_TIMELINE_SAVED_VIEW_VERSION = 1 as const
 
 export const DEAL_TIMELINE_SAVED_VIEW_MAX_VALUES = 100
 
+export const DEAL_TIMELINE_SAVED_VIEW_MAX_STATUS_LENGTH = 100
+
+export const DEAL_TIMELINE_SAVED_VIEW_MAX_SEARCH_LENGTH = 200
+
 export const dealTimelineSavedViewSchema = z.object({
   v: z.literal(DEAL_TIMELINE_SAVED_VIEW_VERSION),
-  status: z.array(z.string().min(1)).max(DEAL_TIMELINE_SAVED_VIEW_MAX_VALUES).default([]),
+  status: z
+    .array(z.string().min(1).max(DEAL_TIMELINE_SAVED_VIEW_MAX_STATUS_LENGTH))
+    .max(DEAL_TIMELINE_SAVED_VIEW_MAX_VALUES)
+    .default([]),
   pipelineId: uuid().nullable().default(null),
   ownerUserId: z.array(uuid()).max(DEAL_TIMELINE_SAVED_VIEW_MAX_VALUES).default([]),
   personId: z.array(uuid()).max(DEAL_TIMELINE_SAVED_VIEW_MAX_VALUES).default([]),

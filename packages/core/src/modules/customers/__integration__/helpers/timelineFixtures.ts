@@ -141,7 +141,7 @@ export async function loginWithCredentials(page: Page, email: string, password: 
     data: form.toString(),
   });
   expect(response.ok(), `login for ${email} should succeed`).toBeTruthy();
-  const body = (await response.json().catch(() => null)) as { token?: string } | null;
+  const body = await readJsonSafe<{ token?: string }>(response);
   const token = body?.token ?? '';
   const payload = token.split('.')[1] ?? '';
   const claims = payload

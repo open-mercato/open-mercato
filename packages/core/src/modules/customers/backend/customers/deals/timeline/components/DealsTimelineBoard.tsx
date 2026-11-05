@@ -2,7 +2,6 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   DndContext,
@@ -85,6 +84,16 @@ import { TimelineDealCardPreview, formatTimelineDate } from './TimelineDealCard'
 import { TimelineDealDrawer } from './TimelineDealDrawer'
 import { TIMELINE_QUERY_ROOT, findTimelineDeal, useRescheduleDeal } from './useRescheduleDeal'
 import {
+  EMPTY_DEAL_WRITE_LOCKS,
+  clearDrawerWaitsExcept,
+  isDealWriteLocked,
+  lockDealWrite,
+  markDealDrawerRefreshed,
+  releaseFreshDealWrites,
+  settleDealWrite,
+  type DealWriteLocks,
+} from './dealWriteLocks'
+import {
   applyClosedToggle,
   applyStatusSelection,
   buildTimelineHref,
@@ -159,15 +168,36 @@ function utcFormatter(locale: string, options: Intl.DateTimeFormatOptions): Intl
 
 export function isTimelineItemDraggable(
   item: Pick<DealTimelineItem, 'id' | 'expectedCloseAt' | 'status'>,
-  context: { canManage: boolean; locked: boolean; inFlightDealIds: ReadonlySet<string> },
+  context: { canManage: boolean; locked: boolean; inFlightDealIds: { has(dealId: string): boolean } },
 ): boolean {
   if (!context.canManage || context.locked) return false
   if (context.inFlightDealIds.has(item.id)) return false
   return !!item.expectedCloseAt && isOpenDealStatus(item.status?.toLowerCase())
 }
 
+export type TimelineCountCaps = { columns: ReadonlyMap<number, boolean>; overdue: boolean; undated: boolean }
+
+export function resolveTimelineCountCaps(
+  data: Pick<DealTimelineResponse, 'columns' | 'overdueBefore' | 'undatedCountCapped'> | null | undefined,
+): TimelineCountCaps {
+  return {
+    columns: new Map((data?.columns ?? []).map((column) => [column.index, column.countCapped === true])),
+    overdue: data?.overdueBefore.countCapped === true,
+    undated: data?.undatedCountCapped === true,
+  }
+}
+
 function utcDate(key: string): Date {
   return new Date(`${key}T00:00:00.000Z`)
+}
+
+export function mergeCollapsedLaneToggles(stored: string[], pendingToggles: string[]): string[] {
+  const merged = new Set(stored)
+  for (const laneKey of pendingToggles) {
+    if (merged.has(laneKey)) merged.delete(laneKey)
+    else merged.add(laneKey)
+  }
+  return Array.from(merged)
 }
 
 function readCollapsedLanes(storageKey: string): string[] {
@@ -210,7 +240,7 @@ export function buildTimelineApiParams(state: TimelineUrlState, today: string): 
 
 export type DealsTimelineBoardProps = {
   state: TimelineUrlState
-  update: (change: TimelineUrlStateUpdate, options?: { history?: 'push' | 'replace' }) => void
+  update: (change: TimelineUrlStateUpdate, options?: { history?: 'push' | 'replace' | 'back' }) => void
   permissions: TimelinePermissions
 }
 
@@ -225,7 +255,6 @@ type ActiveDrag = { laneKey: string; column: number; item: DealTimelineItem } | 
 export function DealsTimelineBoard({ state, update, permissions }: DealsTimelineBoardProps): React.ReactElement {
   const t = useT()
   const locale = useLocale()
-  const router = useRouter()
   const queryClient = useQueryClient()
   const scopeVersion = useOrganizationScopeVersion()
   const activeOrgId = useCurrentOrganization()?.id ?? null
@@ -361,7 +390,12 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
   const collapsedStorageKey = currentUserId ? `${COLLAPSED_LANES_STORAGE_PREFIX}:${currentUserId}` : null
   const [collapsedLanes, setCollapsedLanes] = React.useState<string[]>([])
   React.useEffect(() => {
-    if (collapsedStorageKey) setCollapsedLanes(readCollapsedLanes(collapsedStorageKey))
+    if (!collapsedStorageKey) return
+    setCollapsedLanes((pendingToggles) => {
+      const merged = mergeCollapsedLaneToggles(readCollapsedLanes(collapsedStorageKey), pendingToggles)
+      if (pendingToggles.length) writeCollapsedLanes(collapsedStorageKey, merged)
+      return merged
+    })
   }, [collapsedStorageKey])
   const toggleCollapsed = React.useCallback(
     (laneKey: string) => {
@@ -392,9 +426,16 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
     return true
   }, [])
 
-  const drawerOpen = !!state.dealId
+  const [dismissedDealId, setDismissedDealId] = React.useState<string | null>(null)
+  React.useEffect(() => {
+    if (dismissedDealId && state.dealId !== dismissedDealId) setDismissedDealId(null)
+  }, [dismissedDealId, state.dealId])
+  const drawerDealId = state.dealId && state.dealId !== dismissedDealId ? state.dealId : null
+  const drawerOpen = !!drawerDealId
   const drawerOpenRef = React.useRef(drawerOpen)
   drawerOpenRef.current = drawerOpen
+  const drawerDealIdRef = React.useRef(drawerDealId)
+  drawerDealIdRef.current = drawerDealId
 
   const afterReschedule = React.useCallback(
     (dealId: string, date: string, knownLaneKey: string | null = null) => {
@@ -458,16 +499,23 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
   }, [data, focusCard, pendingReveal, timelineQuery.isFetching])
 
   const reschedule = useRescheduleDeal(queryKey)
-  const [inFlightDealIds, setInFlightDealIds] = React.useState<ReadonlySet<string>>(() => new Set())
-  const markInFlight = React.useCallback((dealId: string, inFlight: boolean) => {
-    setInFlightDealIds((prev) => {
-      if (prev.has(dealId) === inFlight) return prev
-      const next = new Set(prev)
-      if (inFlight) next.add(dealId)
-      else next.delete(dealId)
-      return next
-    })
-  }, [])
+  const [writeLocks, setWriteLocks] = React.useState<DealWriteLocks>(EMPTY_DEAL_WRITE_LOCKS)
+  const readDataUpdatedAt = React.useCallback(
+    () => queryClient.getQueryState(queryKey)?.dataUpdatedAt ?? 0,
+    [queryClient, queryKey],
+  )
+  React.useEffect(() => {
+    setWriteLocks((prev) => releaseFreshDealWrites(prev, timelineQuery.dataUpdatedAt))
+  }, [timelineQuery.dataUpdatedAt])
+  React.useEffect(() => {
+    setWriteLocks((prev) => releaseFreshDealWrites(clearDrawerWaitsExcept(prev, drawerDealId), readDataUpdatedAt()))
+  }, [drawerDealId, readDataUpdatedAt])
+  const handleDrawerRefreshed = React.useCallback(
+    (dealId: string) => {
+      setWriteLocks((prev) => releaseFreshDealWrites(markDealDrawerRefreshed(prev, dealId), readDataUpdatedAt()))
+    },
+    [readDataUpdatedAt],
+  )
 
   const openDeal = React.useCallback(
     (item: DealTimelineItem, element: HTMLElement) => {
@@ -478,6 +526,7 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
           )
         : element
       setPopover(null)
+      setDismissedDealId(null)
       drawerPushedRef.current = true
       update({ dealId: item.id }, { history: 'push' })
     },
@@ -494,17 +543,15 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
     } else if (pendingFocus?.kind === 'showDeal') {
       returnFocusRef.current = showDealRef.current
     }
-    if (drawerPushedRef.current) {
-      drawerPushedRef.current = false
-      router.back()
-      return
-    }
-    update({ dealId: null })
-  }, [router, update])
+    setDismissedDealId(state.dealId)
+    const history = drawerPushedRef.current ? 'back' : 'replace'
+    drawerPushedRef.current = false
+    update({ dealId: null }, { history })
+  }, [state.dealId, update])
 
   const drawerItem = React.useMemo(
-    () => (state.dealId ? findTimelineDeal(data, state.dealId)?.item ?? null : null),
-    [data, state.dealId],
+    () => (drawerDealId ? findTimelineDeal(data, drawerDealId)?.item ?? null : null),
+    [data, drawerDealId],
   )
 
   const invalidateTimeline = React.useCallback(
@@ -512,16 +559,29 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
     [queryClient],
   )
 
-  const handleDrawerChanged = React.useCallback(() => {
-    void invalidateTimeline()
-  }, [invalidateTimeline])
+  const lockAfterDrawerWrite = React.useCallback(
+    (dealId: string) => {
+      const baseline = readDataUpdatedAt()
+      setWriteLocks((prev) => settleDealWrite(lockDealWrite(prev, dealId), dealId, baseline, false))
+    },
+    [readDataUpdatedAt],
+  )
+
+  const handleDrawerChanged = React.useCallback(
+    (dealId: string) => {
+      lockAfterDrawerWrite(dealId)
+      void invalidateTimeline()
+    },
+    [invalidateTimeline, lockAfterDrawerWrite],
+  )
 
   const handleDrawerRescheduled = React.useCallback(
     (result: { dealId: string; expectedCloseAt: string }) => {
       const laneKey = findTimelineDeal(queryClient.getQueryData<DealTimelineResponse>(queryKey), result.dealId)?.laneKey ?? null
+      lockAfterDrawerWrite(result.dealId)
       void invalidateTimeline().then(() => afterReschedule(result.dealId, result.expectedCloseAt, laneKey))
     },
-    [afterReschedule, invalidateTimeline, queryClient, queryKey],
+    [afterReschedule, invalidateTimeline, lockAfterDrawerWrite, queryClient, queryKey],
   )
 
   const [activeDrag, setActiveDrag] = React.useState<ActiveDrag>(null)
@@ -562,16 +622,24 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
       const delta = target.column - drag.column
       if (delta === 0 || !drag.item.expectedCloseAt) return
       const nextDate = shiftCloseDate(drag.item.expectedCloseAt, bucket, delta)
-      markInFlight(drag.item.id, true)
-      void reschedule({ item: drag.item, expectedCloseAt: nextDate })
-        .then((outcome) => {
-          if (state.dealId === drag.item.id) setDrawerRefreshToken((value) => value + 1)
-          if (outcome === 'success') afterReschedule(drag.item.id, nextDate, drag.laneKey)
-          else window.requestAnimationFrame(() => focusCard(drag.item.id))
-        })
-        .finally(() => markInFlight(drag.item.id, false))
+      const dealId = drag.item.id
+      setWriteLocks((prev) => lockDealWrite(prev, dealId))
+      void reschedule(
+        { item: drag.item, expectedCloseAt: nextDate },
+        {
+          onSettled: () => {
+            const drawerShowsDeal = drawerDealIdRef.current === dealId
+            const baseline = readDataUpdatedAt()
+            setWriteLocks((prev) => settleDealWrite(prev, dealId, baseline, drawerShowsDeal))
+            if (drawerShowsDeal) setDrawerRefreshToken((value) => value + 1)
+          },
+        },
+      ).then((outcome) => {
+        if (outcome === 'success') afterReschedule(dealId, nextDate, drag.laneKey)
+        else window.requestAnimationFrame(() => focusCard(dealId))
+      })
     },
-    [activeDrag, afterReschedule, bucket, focusCard, markInFlight, reschedule, state.dealId],
+    [activeDrag, afterReschedule, bucket, focusCard, readDataUpdatedAt, reschedule],
   )
 
   const collisionDetection = React.useCallback<CollisionDetection>((args) => {
@@ -593,8 +661,8 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
   const dragLocked = timelineQuery.isPlaceholderData || (!!data && data.bucket !== bucket)
   const canDragItem = React.useCallback(
     (item: DealTimelineItem) =>
-      isTimelineItemDraggable(item, { canManage: permissions.canManage, locked: dragLocked, inFlightDealIds }),
-    [dragLocked, inFlightDealIds, permissions.canManage],
+      isTimelineItemDraggable(item, { canManage: permissions.canManage, locked: dragLocked, inFlightDealIds: writeLocks }),
+    [dragLocked, permissions.canManage, writeLocks],
   )
   const dragDisabledHint = React.useCallback(
     (item: DealTimelineItem) => {
@@ -666,7 +734,6 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
 
   const monthFormatter = React.useMemo(() => utcFormatter(locale, { month: 'long', year: 'numeric' }), [locale])
   const shortRangeFormatter = React.useMemo(() => utcFormatter(locale, { day: 'numeric', month: 'short' }), [locale])
-  const countsCapped = data?.countsCapped === true
   const columnLabel = React.useCallback(
     (column: Pick<DealTimelineColumnResponse, 'from'>, columnBucket: DealTimelineBucket) => {
       if (columnBucket === 'week') {
@@ -693,12 +760,14 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
     bucket === 'week' ? 'This week' : bucket === 'month' ? 'This month' : 'This quarter',
   )
 
+  const countCaps = React.useMemo(() => resolveTimelineCountCaps(data), [data])
   const placeholderColumns = React.useMemo<DealTimelineColumnResponse[]>(
     () =>
       buildTimelineColumns(bucket, fromKey, defaultColumnCount(bucket), todayKey).map((column) => ({
         ...column,
         total: 0,
         truncated: false,
+        countCapped: false,
       })),
     [bucket, fromKey, todayKey],
   )
@@ -892,8 +961,9 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
   )
 
   const moveWindow = React.useCallback(
-    (step: number) => update({ from: addBuckets(fromKey, bucket, step) }),
-    [bucket, fromKey, update],
+    (step: number) =>
+      update((current) => ({ from: addBuckets(resolveTimelineFrom(current, todayKey), current.bucket, step) })),
+    [todayKey, update],
   )
 
   if (timelineQuery.isError && !data) {
@@ -1015,7 +1085,7 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
           >
             <AlertTriangle className="size-4" aria-hidden="true" />
             {translateWithFallback(t, 'customers.deals.timeline.overdueBefore', '{count} overdue before {date}', {
-              count: formatTimelineCount(t, data.overdueBefore.count, countsCapped),
+              count: formatTimelineCount(t, data.overdueBefore.count, countCaps.overdue),
               date: formatTimelineDate(data.overdueBefore.before, locale) ?? data.overdueBefore.before,
             })}
           </Button>
@@ -1108,7 +1178,7 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-sm font-semibold text-foreground">{columnLabel(column, bucket)}</span>
                       {data ? (
-                        <span className="text-xs text-muted-foreground">{formatTimelineCount(t, column.total, countsCapped)}</span>
+                        <span className="text-xs text-muted-foreground">{formatTimelineCount(t, column.total, countCaps.columns.get(column.index) === true)}</span>
                       ) : null}
                     </div>
                     <div className="flex items-center gap-2">
@@ -1226,13 +1296,13 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
         <StageLegend data={data} stageToneById={stageToneById} stageLabelById={stageLabelById} />
         {data && data.undatedCount > 0 ? (
           <Link href={undatedHref} className="font-medium text-accent-indigo hover:underline">
-            {formatTimelineUndatedLabel(t, locale, data.undatedCount, countsCapped)}
+            {formatTimelineUndatedLabel(t, locale, data.undatedCount, countCaps.undated)}
           </Link>
         ) : null}
       </div>
 
       <TimelineDealDrawer
-        dealId={state.dealId}
+        dealId={drawerDealId}
         onClose={closeDrawer}
         onDealChanged={handleDrawerChanged}
         onRescheduled={handleDrawerRescheduled}
@@ -1241,7 +1311,8 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
         initialItem={drawerItem}
         refreshToken={drawerRefreshToken}
         resolveOwnerName={resolveOwnerName}
-        writesLocked={!!state.dealId && inFlightDealIds.has(state.dealId)}
+        writesLocked={isDealWriteLocked(writeLocks, drawerDealId)}
+        onRefreshed={handleDrawerRefreshed}
       />
     </div>
   )

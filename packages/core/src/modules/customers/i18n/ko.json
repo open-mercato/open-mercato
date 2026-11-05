@@ -1786,6 +1786,7 @@
   "customers.deals.timeline.savedViews.save": "보기 저장",
   "customers.deals.timeline.savedViews.saveError": "보기를 저장하지 못했습니다.",
   "customers.deals.timeline.savedViews.saved": "보기를 저장했습니다.",
+  "customers.deals.timeline.savedViews.tooLarge": "필터 값이 너무 많아 이 보기를 저장할 수 없습니다. 필터를 좁힌 후 다시 시도하세요.",
   "customers.deals.timeline.status.closed": "종료",
   "customers.deals.timeline.status.lost": "실패",
   "customers.deals.timeline.status.won": "성사",

@@ -82,10 +82,17 @@ export function TimelineCellPopover({
   const total = query.data?.pages[0]?.total ?? null
   const totalCapped = query.data?.pages[0]?.countsCapped === true
 
+  const focusedDealIdRef = React.useRef<string | null>(null)
   React.useEffect(() => {
-    if (!open || !focusDealId || !listRef.current) return
+    if (!open) {
+      focusedDealIdRef.current = null
+      return
+    }
+    if (!focusDealId || focusedDealIdRef.current === focusDealId || !listRef.current) return
     const target = listRef.current.querySelector<HTMLElement>(`[data-popover-deal-id="${CSS.escape(focusDealId)}"]`)
-    target?.focus()
+    if (!target) return
+    focusedDealIdRef.current = focusDealId
+    target.focus()
   }, [focusDealId, items, open])
 
   const title = translateWithFallback(t, 'customers.deals.timeline.cell.popoverTitle', '{lane} · {column}', {

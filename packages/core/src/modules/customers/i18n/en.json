@@ -1786,6 +1786,7 @@
   "customers.deals.timeline.savedViews.save": "Save view",
   "customers.deals.timeline.savedViews.saveError": "Failed to save the view.",
   "customers.deals.timeline.savedViews.saved": "View saved.",
+  "customers.deals.timeline.savedViews.tooLarge": "This view has too many filter values to save. Narrow the filters and try again.",
   "customers.deals.timeline.status.closed": "Closed",
   "customers.deals.timeline.status.lost": "Lost",
   "customers.deals.timeline.status.won": "Won",

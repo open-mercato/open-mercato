@@ -18,6 +18,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
   buildDealTimelinePerspectiveSettings,
   parseDealTimelineSavedView,
+  validateDealTimelineSavedViewForSave,
   type DealTimelineSavedView,
 } from '../../../../../lib/dealsTimelineSavedView'
 
@@ -172,6 +173,17 @@ export function TimelineSavedViews({ currentView, onApply }: TimelineSavedViewsP
   const handleCreate = React.useCallback(async () => {
     const name = newName.trim()
     if (!name) return
+    const check = validateDealTimelineSavedViewForSave(currentView)
+    if (!check.ok) {
+      setNameError(
+        translateWithFallback(
+          t,
+          'customers.deals.timeline.savedViews.tooLarge',
+          'This view has too many filter values to save. Narrow the filters and try again.',
+        ),
+      )
+      return
+    }
     setSaving(true)
     setNameError(null)
     try {

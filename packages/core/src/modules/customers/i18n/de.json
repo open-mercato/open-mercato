@@ -1786,6 +1786,7 @@
   "customers.deals.timeline.savedViews.save": "Ansicht speichern",
   "customers.deals.timeline.savedViews.saveError": "Die Ansicht konnte nicht gespeichert werden.",
   "customers.deals.timeline.savedViews.saved": "Ansicht gespeichert.",
+  "customers.deals.timeline.savedViews.tooLarge": "Diese Ansicht enthält zu viele Filterwerte zum Speichern. Grenzen Sie die Filter ein und versuchen Sie es erneut.",
   "customers.deals.timeline.status.closed": "Geschlossen",
   "customers.deals.timeline.status.lost": "Verloren",
   "customers.deals.timeline.status.won": "Gewonnen",

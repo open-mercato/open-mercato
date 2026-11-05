@@ -393,14 +393,35 @@ describe('customers deals timeline route', () => {
       const undated = (args.filters.expected_close_at as { $eq?: unknown } | undefined)?.$eq === null
       return undated ? { ...result, meta: { listCountCapWarning: { entity, cap: 10000 } } } : result
     })
-    expect((await grid(`from=${lastWeek}`)).countsCapped).toBe(true)
+    const body = await grid(`from=${lastWeek}`)
+    expect(body.countsCapped).toBe(true)
+    expect(body.undatedCountCapped).toBe(true)
+    expect(body.overdueBefore.countCapped).toBe(false)
+    expect(body.columns.every((column) => column.countCapped === false)).toBe(true)
+  })
+
+  it('flags a capped count only on the column whose pass reported it', async () => {
+    deals = [makeDeal({ expected_close_at: thisWeek }), makeDeal({ expected_close_at: null })]
+    queryMock.mockImplementation(async (entity: string, args: QueryArgs) => {
+      const result = await fakeQuery(entity, args)
+      const window = args.filters.expected_close_at as { $gte?: unknown } | undefined
+      const isThisWeekColumn = window?.$gte instanceof Date && window.$gte.toISOString().startsWith(thisWeek)
+      return isThisWeekColumn ? { ...result, meta: { listCountCapWarning: { entity, cap: 10000 } } } : result
+    })
+    const body = await grid(`from=${lastWeek}`)
+    expect(body.countsCapped).toBe(true)
+    expect(body.columns.map((column) => column.countCapped)).toEqual([false, true, false, false, false])
+    expect(body.undatedCountCapped).toBe(false)
+    expect(body.overdueBefore.countCapped).toBe(false)
   })
 
   it('returns an empty grid without querying when the caller sees no organizations', async () => {
     resolveScopeMock.mockResolvedValue({ tenantId, filterIds: [] })
     deals = [makeDeal({ expected_close_at: thisWeek })]
     const body = await grid(`from=${lastWeek}`)
-    expect(body).toMatchObject({ lanes: [], scopeHasDeals: false, countsCapped: false, undatedCount: 0 })
+    expect(body).toMatchObject({ lanes: [], scopeHasDeals: false, countsCapped: false, undatedCount: 0, undatedCountCapped: false })
+    expect(body.overdueBefore.countCapped).toBe(false)
+    expect(body.columns.every((column) => column.countCapped === false)).toBe(true)
     expect(body.columns.every((column) => column.total === 0)).toBe(true)
     expect(queryMock).not.toHaveBeenCalled()
   })
@@ -453,7 +474,13 @@ describe('customers deals timeline route', () => {
       makeDeal({ expected_close_at: twoWeeksAhead }),
     ]
     const body = await grid(`from=${lastWeek}`)
-    expect(body.overdueBefore).toEqual({ count: 2, latestExpectedCloseAt: addDays(lastWeek, -3), before: lastWeek })
+    expect(body.overdueBefore).toEqual({
+      count: 2,
+      latestExpectedCloseAt: addDays(lastWeek, -3),
+      before: lastWeek,
+      countCapped: false,
+    })
+    expect(body.undatedCountCapped).toBe(false)
     expect(body.undatedCount).toBe(1)
     expect(body.adjacent).toEqual({ previous: addDays(lastWeek, -3), next: twoWeeksAhead })
   })

@@ -43,7 +43,7 @@ export type DealDrawerDeal = {
 export type DealDrawerLoadState =
   | { status: 'idle'; deal: null }
   | { status: 'loading'; deal: DealDrawerDeal | null }
-  | { status: 'ready'; deal: DealDrawerDeal }
+  | { status: 'ready'; deal: DealDrawerDeal; requestedAt: number }
   | { status: 'missing'; deal: null }
   | { status: 'error'; deal: DealDrawerDeal | null }
 
@@ -171,6 +171,7 @@ export function useDealDrawerData(dealId: string | null): {
     }
     const requestId = requestRef.current + 1
     requestRef.current = requestId
+    const requestedAt = Date.now()
     setState((previous) => ({
       status: 'loading',
       deal: previous.deal && previous.deal.id === dealId ? previous.deal : null,
@@ -182,7 +183,7 @@ export function useDealDrawerData(dealId: string | null): {
         setState({ status: 'missing', deal: null })
         return null
       }
-      setState({ status: 'ready', deal: result })
+      setState({ status: 'ready', deal: result, requestedAt })
       return result
     } catch {
       if (requestRef.current !== requestId) return null

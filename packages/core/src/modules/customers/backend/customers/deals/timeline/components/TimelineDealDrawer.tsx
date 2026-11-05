@@ -48,6 +48,7 @@ export type TimelineDealDrawerProps = {
   refreshToken?: number
   resolveOwnerName?: (ownerUserId: string) => string | null
   writesLocked?: boolean
+  onRefreshed?: (dealId: string) => void
 }
 
 type DrawerMutationContext = {
@@ -155,6 +156,7 @@ export function TimelineDealDrawer({
   refreshToken,
   resolveOwnerName,
   writesLocked = false,
+  onRefreshed,
 }: TimelineDealDrawerProps): React.ReactElement {
   const t = useT()
   const locale = useLocale()
@@ -166,11 +168,21 @@ export function TimelineDealDrawer({
   const [scheduleOpen, setScheduleOpen] = React.useState(false)
 
   const lastRefreshTokenRef = React.useRef(refreshToken)
+  const refreshRequestedAtRef = React.useRef<number | null>(null)
   React.useEffect(() => {
     if (lastRefreshTokenRef.current === refreshToken) return
     lastRefreshTokenRef.current = refreshToken
-    if (dealId) void reload()
+    if (!dealId) return
+    refreshRequestedAtRef.current = Date.now()
+    void reload()
   }, [dealId, refreshToken, reload])
+
+  React.useEffect(() => {
+    const requestedAt = refreshRequestedAtRef.current
+    if (requestedAt === null || state.status !== 'ready' || state.requestedAt < requestedAt) return
+    refreshRequestedAtRef.current = null
+    onRefreshed?.(state.deal.id)
+  }, [onRefreshed, state])
 
   React.useEffect(() => {
     if (state.status === 'missing') onClose()

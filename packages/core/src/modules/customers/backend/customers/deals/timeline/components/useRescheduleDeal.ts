@@ -192,7 +192,10 @@ export function useRescheduleDeal(queryKey: QueryKey) {
   })
 
   return React.useCallback(
-    async (request: RescheduleRequest): Promise<RescheduleOutcome> => {
+    async (
+      request: RescheduleRequest,
+      options?: { onSettled?: (outcome: RescheduleOutcome) => void },
+    ): Promise<RescheduleOutcome> => {
       const errorMessage = translateWithFallback(
         t,
         'customers.deals.timeline.reschedule.error',
@@ -234,6 +237,7 @@ export function useRescheduleDeal(queryKey: QueryKey) {
         },
         request,
       )
+      options?.onSettled?.(outcome)
       await queryClient.invalidateQueries({ queryKey: TIMELINE_QUERY_ROOT })
       return outcome
     },

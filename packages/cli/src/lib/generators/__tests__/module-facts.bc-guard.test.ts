@@ -199,9 +199,9 @@ describe('module-facts BC resolve guard (T2)', () => {
     //
     // Re-measured on 2026-11-05 for the additive customers deals timeline (a new
     // `deals/timeline` API route and backend page). All four measures sat within
-    // 0.1% of their caps on `main`, and the timeline's own facts pushed markdown
-    // 45 bytes over — the "next additive module" rejection the note below warns
-    // about. Growth stays uniform across the four measures, so the caps are reset
+    // about 0.15% of their caps on `main`, and the timeline's own facts pushed
+    // markdown 45 bytes over — the "next additive module" rejection the note above
+    // warns about. Growth stays uniform across the four measures, so the caps are reset
     // to the same ~1.15 headroom over the new measurement:
     //   completeJson 5,546,427 · legacy delta 2,426,282 · markdown 2,100,045 ·
     //   directory markdown 2,289,292.

@@ -15,7 +15,7 @@ informational; no migration or configuration is required.
   it through `entry.overrides.pages` if it is not wanted.
 - `GET /api/customers/deals` accepts an optional `hasExpectedCloseAt` boolean
   (`false` = no close date). Combining `hasExpectedCloseAt=false` with a close-date range,
-  or with `isOverdue` while `needsAttention` is absent, returns `400`.
+  or with `isOverdue` while `needsAttention` is not `true`, returns `400`.
 
 ## Search writes honor entity strategy pins (#5930)
 
