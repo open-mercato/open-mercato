@@ -1,25 +1,35 @@
-# Issue #8825 — environment clean stop
+# Issue #8825 — scoped verification blocker
 
 Issue: https://github.com/open-mercato/open-mercato/issues/8825
-Revision inspected: ada24d305c3cfee633c3081c5f55e334330e6b87
-Runner: local (Docker daemon unavailable).
+Fork revision: ada24d305c3cfee633c3081c5f55e334330e6b87
+Runner: local, Node 24.22.2, Yarn 4.18.1. Docker restored (29.9.2).
 
-Concurrency recheck: issue OPEN, no assignees, no comments, only bug/cez-autofix labels; open and closed PR searches for 8825 returned []. No claim acquired; no lock needs releasing.
+The original environment clean stop was resumed. Immutable dependency installation, module generation and package builds now succeed. Concurrency was rechecked before claiming: no other assignee/claim or PR referencing #8825. The original #7907 source fix is still open, so its authored commit 7b69580c19c4ddc91e56545ed05c58b6602e59e5 was reused as d86055c161, preserving Oskar Wojciechowski's authorship.
 
-The requested module-native browser regression is still needed. Existing workflow integration tests inspected do not cover the Retry/Cancel confirmation matrix. No production or test changes were made because browser discovery and executable verification cannot run safely here.
+## Candidate coverage
 
-## Evidence
+`candidate-TC-WF-073.spec.ts.txt` preserves the draft outside test discovery because app verification is blocked. It contains four EN/PL × Control/Meta cases, each creating four independent definitions and executor-started instances via API (selected/control failed and paused), with synchronous missing-function failure and WAIT_FOR_SIGNAL parking. Assertions cover exact selected identifier, no raw token, Cancel/Escape full API-record equality and no action request, selected keyboard request plus unchanged controls, 100-character identifiers at 390px, screenshots, and transaction-based fixture cleanup in finally. This is a draft, not browser-verified coverage. Do not infer a pass from its presence.
 
-- `yarn --version`: 4.18.1.
-- `node --version`: v26.12.1.
-- `yarn test:integration:ephemeral --help`: exit 1, Yarn cannot find node_modules state file; runner never launched, zero tests executed.
-- `docker info --format '{{.ServerVersion}}'`: exit 1, configured /Users/piotrkarwatka/.docker/run/docker.sock does not exist.
-- `docker compose ps --format json`: same missing Docker socket.
-- No worktree node_modules, .ai/qa/test-env.json, .ai/qa/ephemeral-env.json or .ai/scripts/test-env-up.sh exists. The checkout has only test-env.env, whose contents were not read.
-- packages/cli/src/lib/testing/integration.ts assertContainerRuntimeAvailable explicitly requires docker info success before provisioning. The repo-local environment skill mandates the CLI managed ephemeral runner; no developer database fallback used.
+## Actual validation
 
-## Remaining work
+| Command | Result |
+|---|---|
+| `mise exec node@24.22.2 -- yarn install --immutable` | Passed with optional cpu-features build warning. |
+| `mise exec node@24.22.2 -- yarn build:packages` | Passed: 42 tasks. |
+| `mise exec node@24.22.2 -- yarn generate` | Passed. |
+| `mise exec node@24.22.2 -- yarn build:packages` | Passed: 42 tasks after generation. |
+| `TMPDIR=/tmp mise exec node@24.22.2 -- yarn i18n:check-sync` | Passed. Initial long TMPDIR attempt hit macOS tsx socket EINVAL; corrected environment. |
+| `TMPDIR=/tmp mise exec node@24.22.2 -- yarn i18n:check-usage` | Passed; advisory unused keys. |
+| `TMPDIR=/tmp mise exec node@24.22.2 -- yarn typecheck` | Failed: duplicate getTelemetryRuntime imports in warranty_claims/backend/warranty_claims/[id]/page.tsx:9 and :13, also present at fork revision. |
+| `TMPDIR=/tmp mise exec node@24.22.2 -- yarn test` | Failed: shared dynamicLoader.generatedCacheRecovery tests hit long-TMPDIR tsx socket EINVAL in Turbo subprocesses; shared summary 257 passed suites, 1 failed, 5 skipped; 3188 passed tests, 2 failed, 18 skipped. Other packages aborted by Turbo. |
+| `TMPDIR=/tmp mise exec node@24.22.2 -- yarn build:app` | Compiled successfully, then failed on the same warranty_claims duplicate imports. |
+| `TMPDIR=/tmp mise exec node@24.22.2 -- yarn jest --config packages/core/jest.config.cjs packages/core/src/modules/workflows/backend/instances/__tests__/page.confirmDialogs.test.tsx --runInBand` | Passed: 3/3 tests. Initial root-config invocation failed TS5011; corrected to authoritative core config. |
+| `mise exec node@24.22.2 -- yarn mercato test:integration TC-WF-073` | Failed before Playwright launch during app build; no browser assertions executed. First attempt additionally needed generated entity registries; build/generate/build resolved that prerequisite. |
 
-Restore Docker and install dependencies using the lockfile on the supported Node version, then rerun om-auto-fix-issue 8825. Create own failed/paused workflows through executor-backed API fixtures; cover EN/PL selected identifiers without raw interpolation tokens, both dismissal paths with full-record equality, Cmd/Ctrl+Enter request target and unaffected control record, 390px long identifiers, and complete fixture teardown. Run via yarn mercato test:integration with the module-native spec filter. Validation, review and browser QA remain outstanding; no PR was opened or qa-approved applied.
+## Failure ownership and disposition
 
-No long-running processes were started. CEZ_BIN is unset, so the cockpit task-report command is unavailable; the parent receives this report through its inbox and the session report.
+The app cannot be provisioned by the mandatory managed integration runner while the warranty_claims TypeScript error exists. Its source is outside the explicit workflows-only task order. No other module or shared production code was edited and no validation gate was bypassed. Parent notified with the exact prerequisite. No passing browser evidence, completed review, or QA signoff can be claimed. No PR published because the implementer gate remains blocked; no qa-approved label applied.
+
+Resume after the warranty_claims prerequisite is corrected: restore the candidate spec into the module's __integration__ directory if archived, run through `yarn mercato test:integration TC-WF-073`, fix any discovered test issues, then complete validation, PR publication, review and screenshot QA. Keep #7907 credited and avoid duplicating its source fix when it has merged.
+
+Additional diagnostics: Playwright `--list` discovered all four intended cases successfully (syntax/discovery only); direct shared Jest invocation with TMPDIR=/tmp passed both dynamic-loader tests (2/2), identifying the broad-test failure as Turbo subprocess environment handling rather than a demonstrated shared product defect. Exact commands: `TMPDIR=/tmp mise exec node@24.22.2 -- yarn playwright test --config=.ai/qa/tests/playwright.config.ts TC-WF-073 --list`; `TMPDIR=/tmp mise exec node@24.22.2 -- yarn jest --config packages/shared/jest.config.cjs packages/shared/src/lib/bootstrap/__tests__/dynamicLoader.generatedCacheRecovery.test.ts --runInBand`.
