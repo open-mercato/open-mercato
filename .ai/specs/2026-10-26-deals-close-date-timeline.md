@@ -674,8 +674,28 @@ Endpoint cost: the filter build runs once. Each column is up to 3 OFFSET pages o
 Draft, ready for review. No non-compliant items.
 
 ## Implementation Status
-- [ ] Phase 1: read-only timeline
-- [ ] Phase 2: rescheduling
+
+| Phase | Status | Date | Notes |
+|-------|--------|------|-------|
+| Phase 1 — read-only timeline | Done | 2026-11-05 | Steps 1–10 implemented; unit tests and TC-CRM-TL-001/002 passing |
+| Phase 2 — rescheduling | Done | 2026-11-05 | Steps 11–15 implemented; TC-CRM-TL-003 passing |
+
+### Detailed Progress
+- [x] 1. `lib/dealsTimeline.ts` UTC bucket library (+ unit tests)
+- [x] 2. `hasExpectedCloseAt` list filter, contradiction `400` in the list handler (+ tests)
+- [x] 3. `dealTimelineSavedViewSchema` and the tolerant parser `lib/dealsTimelineSavedView.ts` (+ tests)
+- [x] 4. `GET /api/customers/deals/timeline` with grid and cell mode (+ route tests)
+- [x] 5. `ViewTabsRow` gains `timeline`; `BACKWARD_COMPATIBILITY.md` and UPGRADE_NOTES entries
+- [x] 6. Page, board, lanes, card, popover, controls, URL state, edge states, `TimelineDealDrawer`
+- [x] 7. Saved views on perspectives (`customers.deals.timeline`)
+- [x] 8. `buildDealsListHref` and the List's "No close date" chip (+ round-trip tests)
+- [x] 9. i18n in `en`, `pl`, `de`, `es`, `ko`
+- [x] 10. TC-CRM-TL-001 (API) and TC-CRM-TL-002 (UI read-only)
+- [x] 11. `@dnd-kit/core` declared in `packages/core`; drag between cells of one lane
+- [x] 12. `useRescheduleDeal` (optimistic move, per-deal rollback, conflict routing)
+- [x] 13. `ChangeCloseDateDialog`, keyboard navigation, Show deal focus rule, live `aria-label`
+- [x] 14. Read-only and closed-deal affordances
+- [x] 15. TC-CRM-TL-003 (UI rescheduling), review pass, verification gate
 
 ## Changelog
 
@@ -765,3 +785,13 @@ Draft, ready for review. No non-compliant items.
   - **4:** Hide closed deals and Status can't contradict each other: a closed status switches to All deals, Hide closed deals prunes closed statuses, Today and Prev/Next keep filters, Clear filters resets, saved views load normalized.
   - **5:** Open in List keeps the half-open period (`between` plus `is_before to`); a deal at exactly the next period's start is excluded and tested.
   - **6 (suggestion, adopted):** the drawer leads with the close date and Change close date, then a compact summary with Change stage beside the stage, activity with Schedule follow-up, and Mark won/lost in a separate section at the bottom. The prototype follows.
+
+### 2026-11-05
+- Implemented Phases 1 and 2 (branch `feat/deals-close-date-timeline`). Deviations and additions found during implementation:
+  - **Perspectives payload:** `maybeMigrateLegacyFilterValues` (perspectives module) erased any `settings.filters` that wasn't a v2 advanced-filter tree on read, so `filters.timeline` never survived. It now passes through records whose every entry is a versioned (`{ v: number }`) namespaced payload; the legacy flat shape is still dropped. This is a small change outside the customers module.
+  - **Response additions (additive):** items carry `pipelineStage` (the stage label for stage lanes without `customers.pipelines.view`), and `overdueBefore.before` is the date the overdue count is bounded by (the earlier of the window start and today), which the "{count} overdue before {date}" label shows.
+  - **List 400s:** the `hasExpectedCloseAt` contradiction response carries a translated `error` and a `code` (`undated_with_close_date_range`, `undated_with_overdue`).
+  - **Lane count** is pluralised (`customers.deals.timeline.lane.count.{one,few,many,other}`).
+  - **Keyboard drag** drops with Space only; Enter always opens the drawer.
+  - **No-stage lanes** come back with an empty `stage.label`; the client labels them "No stage" from the `__nostage:` key.
+
