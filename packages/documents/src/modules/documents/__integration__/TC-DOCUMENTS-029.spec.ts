@@ -7,7 +7,7 @@ import {
   deleteOrganizationInDb,
   withClient,
 } from '@open-mercato/core/helpers/integration/dbFixtures'
-import { expectId, getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { expectId, getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { expectOperation } from '@open-mercato/core/helpers/integration/undoHarness'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import { DOCUMENTS_MAX_FOLDERS_PER_ORGANIZATION } from '../lib/constants'
@@ -119,19 +119,12 @@ async function folderDeletedAt(scope: CapScope, folderId: string): Promise<Date 
 
 async function createCapScope(request: APIRequestContext, label: string): Promise<CapScope> {
   const token = await getAuthToken(request, 'admin')
-  const { tenantId } = getTokenContext(token)
-  const ownerUserId = await withClient(async (client) => {
-    const result = await client.query<{ id: string }>(
-      "select id from users where tenant_id = $1 and email like 'admin@%' and deleted_at is null limit 1",
-      [tenantId],
-    )
-    return result.rows[0]?.id ?? null
-  })
+  const { tenantId, userId } = getTokenScope(token)
   const organizationId = await createOrganizationInDb({
     tenantId,
     name: `TC-DOCUMENTS-029 ${label} ${Date.now()}`,
   })
-  return { token, tenantId, organizationId, ownerUserId: expectId(ownerUserId, 'admin user id') }
+  return { token, tenantId, organizationId, ownerUserId: expectId(userId, 'admin user id') }
 }
 
 async function dropCapScope(scope: CapScope | null): Promise<void> {
