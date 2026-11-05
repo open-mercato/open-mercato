@@ -18,6 +18,7 @@
  *   The handler's own transaction boundary (typically a command) is the
  *   unit of atomicity for the underlying data change.
  */
+import { AiPendingActionStateError } from './pending-action-types'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { AiPendingActionRepository } from '../data/repositories/AiPendingActionRepository'
 import type { AiPendingAction } from '../data/entities'
@@ -411,11 +412,30 @@ export async function executePendingActionConfirm(
   const blockedFailedRecords = mergeFailedRecords(partialFailedRecords, notPreviewedFailedRecords)
   const preExecutionFailedRecords = mergeFailedRecords(blockedFailedRecords, droppedDuplicateFailedRecords)
 
-  const confirmedRow = await repo.setStatus(action.id, 'confirmed', scope, {
-    resolvedByUserId: ctx.userId,
-    now: clock,
-    ...(preExecutionFailedRecords ? { failedRecords: preExecutionFailedRecords } : {}),
-  })
+  let confirmedRow: AiPendingAction
+  try {
+    confirmedRow = await repo.setStatus(action.id, 'confirmed', scope, {
+      expectedStatus: 'pending',
+      resolvedByUserId: ctx.userId,
+      now: clock,
+      ...(preExecutionFailedRecords ? { failedRecords: preExecutionFailedRecords } : {}),
+    })
+  } catch (error) {
+    if (!(error instanceof AiPendingActionStateError)) throw error
+    const current = await repo.getById(action.id, scope)
+    if (!current) throw error
+    if (current.status === 'confirmed' || current.status === 'executing') {
+      return { ok: true, action: current, executionResult: current.executionResult ?? {} }
+    }
+    return {
+      ok: false,
+      action: current,
+      executionResult: current.executionResult ?? {
+        error: { code: 'invalid_status', message: `Action is in status "${current.status}".` },
+      },
+      cause: error,
+    }
+  }
   const executingRow = await repo.setStatus(confirmedRow.id, 'executing', scope, { now: clock })
 
   let handlerOutput: unknown
