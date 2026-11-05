@@ -259,6 +259,7 @@
   "resources.resources.availability.scope.label": "Apply to",
   "resources.resources.availability.scope.weekday": "Weekday:",
   "resources.resources.availability.scope.weekdayShort": "All {{weekday}}s",
+  "resources.resources.availability.section.title": "Availability",
   "resources.resources.availability.timezone": "Timezone",
   "resources.resources.availability.timezone.placeholder": "Search timezones...",
   "resources.resources.availability.timezone.saveError": "Failed to save timezone.",

@@ -259,6 +259,7 @@
   "resources.resources.availability.scope.label": "적용 대상",
   "resources.resources.availability.scope.weekday": "요일:",
   "resources.resources.availability.scope.weekdayShort": "매주 {{weekday}}",
+  "resources.resources.availability.section.title": "가용성",
   "resources.resources.availability.timezone": "시간대",
   "resources.resources.availability.timezone.placeholder": "시간대 검색...",
   "resources.resources.availability.timezone.saveError": "시간대를 저장하지 못했습니다.",

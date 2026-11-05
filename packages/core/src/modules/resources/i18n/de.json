@@ -259,6 +259,7 @@
   "resources.resources.availability.scope.label": "Anwenden auf",
   "resources.resources.availability.scope.weekday": "Wochentag:",
   "resources.resources.availability.scope.weekdayShort": "Alle {{weekday}}",
+  "resources.resources.availability.section.title": "Verfügbarkeit",
   "resources.resources.availability.timezone": "Zeitzone",
   "resources.resources.availability.timezone.placeholder": "Zeitzonen durchsuchen...",
   "resources.resources.availability.timezone.saveError": "Zeitzone konnte nicht gespeichert werden.",
