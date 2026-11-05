@@ -2,6 +2,7 @@ import { expect, request as playwrightRequest, test, type APIRequestContext, typ
 import { acknowledgeGlobalNotices } from '@open-mercato/core/helpers/integration/auth'
 import { apiRequest } from '@open-mercato/core/helpers/integration/api'
 import { expectId, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { readJsonSafe as readResponseJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import english from '../../i18n/en.json' with { type: 'json' }
 import polish from '../../i18n/pl.json' with { type: 'json' }
 import { createBoardFixture, TASKS_PATH, type BoardFixture } from './taskBoardFixtures'
@@ -109,8 +110,8 @@ export async function openBoard(page: Page, fixture: BoardFixture, locale: Board
   }
   const organizationPattern = '**/api/directory/organization-switcher**'
   const statusPattern = '**/api/staff/timesheets/task-statuses?**'
-  await page.route(organizationPattern, organizationHandler)
-  await page.route(statusPattern, statusHandler)
+  if (options.coldScope) await page.route(organizationPattern, organizationHandler)
+  if (options.holdStatuses) await page.route(statusPattern, statusHandler)
   page.on('request', onRequest)
   page.on('response', onResponse)
   const surface = {
@@ -123,17 +124,20 @@ export async function openBoard(page: Page, fixture: BoardFixture, locale: Board
       organizationGate.release()
       await settled
       await expect.poll(() => statusRequests).toBe(before + 1)
+      await page.unroute(organizationPattern, organizationHandler)
     },
     async releaseStatusOptions() {
       const loaded = page.waitForResponse((response) => matchesStatus(response.url()) && response.ok())
       statusGate.release()
       await loaded
+      await page.unroute(statusPattern, statusHandler)
     },
     async dispose() {
       organizationGate.release()
       statusGate.release()
       page.off('request', onRequest)
       page.off('response', onResponse)
+      if (page.isClosed()) return
       await page.unroute(organizationPattern, organizationHandler)
       await page.unroute(statusPattern, statusHandler)
     },
@@ -163,6 +167,7 @@ export async function enterTaskDraft(page: Page, locale: BoardLocale, title: str
   if (statusName) {
     await dialog.getByRole('combobox', { name: copy.status, exact: true }).click()
     await page.getByRole('option', { name: statusName, exact: true }).click()
+    await expect(page.getByRole('listbox')).toHaveCount(0)
   }
   return dialog
 }
@@ -195,7 +200,7 @@ export async function saveAndReopenTask(page: Page, fixture: BoardFixture, local
   const payload: unknown = submitted.postDataJSON()
   expect(payload).toEqual({ title, timeProjectId: fixture.projectId, taskStatusId: statusId, assigneeStaffMemberId: fixture.memberId })
   expect(response.status()).toBe(201)
-  const created = await readJsonSafe<unknown>(response)
+  const created = await readResponseJsonSafe<unknown>(await response.text())
   const taskId = expectId(created && typeof created === 'object' && 'id' in created ? created.id : null, 'The submitted task should have an id')
   const assertDrawer = async () => {
     const drawer = page.getByRole('dialog', { name: title, exact: true })
@@ -207,7 +212,7 @@ export async function saveAndReopenTask(page: Page, fixture: BoardFixture, local
   await assertDrawer()
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog')).toHaveCount(0)
-  await page.reload({ waitUntil: 'domcontentloaded' })
+  await test.step('Reload the saved task board', () => page.reload({ waitUntil: 'domcontentloaded' }))
   await page.getByText(title, { exact: true }).click()
   await assertDrawer()
   const readback = await apiRequest(fixture.request, 'GET', `${TASKS_PATH}?id=${taskId}&pageSize=1`, { token: fixture.token })
