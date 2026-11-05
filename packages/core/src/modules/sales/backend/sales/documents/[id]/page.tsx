@@ -79,7 +79,7 @@ import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from
 import { useSalesChannelsEnabled } from '@open-mercato/core/modules/sales/components/useSalesChannelsEnabled'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
-import { documentEmailForCustomerChange, readDocumentEmail, syncDocumentEmailWithSnapshot } from '@open-mercato/core/modules/sales/lib/documentEmail'
+import { documentEmailForCustomerChange, readDocumentEmail, resolveSavedContactEmail, syncDocumentEmailWithSnapshot } from '@open-mercato/core/modules/sales/lib/documentEmail'
 
 const logger = createLogger('sales')
 
@@ -3563,12 +3563,7 @@ export default function SalesDocumentDetailPage({
         const resolvedName =
           (call.result?.customerName as string | undefined) ??
           resolveCustomerName(snapshot, selected?.label ?? record.customerName ?? record.customerEntityId ?? null)
-        const resolvedEmail =
-          resolveCustomerEmail(snapshot) ??
-          (call.result?.contactEmail as string | undefined | null) ??
-          email ??
-          selected?.primaryEmail ??
-          null
+        const emailFallback = resolveCustomerEmail(snapshot) ?? email ?? selected?.primaryEmail ?? null
         setRecord((prev) =>
           prev
             ? {
@@ -3578,7 +3573,7 @@ export default function SalesDocumentDetailPage({
                   ? { metadata: (call.result?.metadata as Record<string, unknown> | null | undefined) ?? metadataPatch }
                   : {}),
                 customerName: nextId ? resolvedName ?? prev.customerName : resolvedName ?? null,
-                contactEmail: resolvedEmail ?? (nextId ? prev.contactEmail ?? null : null),
+                contactEmail: resolveSavedContactEmail(call.result, emailFallback ?? (nextId ? prev.contactEmail : null)),
                 customerSnapshot:
                   hasSnapshotInResponse || changedCustomer
                     ? snapshot
@@ -3634,9 +3629,10 @@ export default function SalesDocumentDetailPage({
           savedSnapshot,
           record.customerName ?? record.customerEntityId ?? null,
         )
-        const resolvedEmail =
-          resolveCustomerEmail(savedSnapshot) ??
-          (typeof call.result?.contactEmail === 'string' ? call.result.contactEmail : record.contactEmail ?? null)
+        const resolvedEmail = resolveSavedContactEmail(
+          call.result,
+          resolveCustomerEmail(savedSnapshot) ?? record.contactEmail,
+        )
         setRecord((prev) =>
           prev
             ? {

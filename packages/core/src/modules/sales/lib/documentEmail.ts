@@ -55,3 +55,17 @@ export function documentEmailForCustomerChange(
   if (customerChanged && readDocumentEmail(metadata)) return withDocumentEmail(metadata, null)
   return undefined
 }
+
+/**
+ * The recipient after saving a document. The server's `contactEmail` is authoritative, including
+ * an explicit null once the address is gone; `fallback` only covers a response without the field.
+ */
+export function resolveSavedContactEmail(
+  response: Record<string, unknown> | null | undefined,
+  fallback: string | null | undefined,
+): string | null {
+  if (response && Object.prototype.hasOwnProperty.call(response, 'contactEmail')) {
+    return normalizedEmail(response.contactEmail)
+  }
+  return normalizedEmail(fallback)
+}
