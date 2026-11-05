@@ -70,7 +70,17 @@ async function createActor(
     email, password, organizationId: scope.organizationId, roles: [roleId],
   })
   world.userIds.push(userId)
-  const token = await withCredentialIsolatedRequest((loginRequest) => getAuthToken(loginRequest, email, password))
+  const token = await withCredentialIsolatedRequest(async (loginRequest) => {
+    const actorToken = await getAuthToken(loginRequest, email, password)
+    const featureResponse = await apiRequest(loginRequest, 'POST', '/api/auth/feature-check', {
+      token: actorToken, data: { features: replayFeatures },
+    })
+    expect(featureResponse.status(), 'replay grants can be checked as the fixture actor').toBe(200)
+    expect(await readJsonSafe(featureResponse), 'effective replay grants match the intended denial boundary').toEqual({
+      ok: canReplay, granted: canReplay ? replayFeatures : [], userId,
+    })
+    return actorToken
+  })
   expect(getTokenScope(token)).toMatchObject({ ...scope, userId })
   return { ...scope, userId, token }
 }
