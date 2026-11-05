@@ -27,6 +27,27 @@ Authenticated paginated API read: 42 Dependabot and 2 CodeQL alerts. Read-only t
 ## Risks
 Mermaid parsing/rendering can regress despite a same-major upgrade. Validate target security predicates and representative parsing/rendering; request ci-full. Keep PR draft if verification is incomplete. Existing KaTeX and unrelated audit findings remain. No public API, schema, ACL or auto-discovery contract changes.
 
+## Verification evidence
+Runner: local (no compose app running), Node24.15.0, pinned Yarn4.17.1. Use `TMPDIR=/tmp TMP=/tmp TEMP=/tmp` to avoid the cockpit temp directory exceeding Unix socket path limits. Initial commit hook failures were retried with this environment; no hook bypass was used. A cockpit restart interrupted the first full gate/docs/lint attempts; only completed results are counted.
+
+- `timeout 120 yarn install --immutable`: PASS; peer/native build warnings include missing local compiler support for optional cpu-features and better-sqlite3.
+- `timeout 60 yarn check:resolutions`: PASS.
+- `timeout 90 env TMPDIR=/tmp TMP=/tmp TEMP=/tmp yarn node --test scripts/__tests__/production-dependency-advisories.test.mjs scripts/__tests__/npm-minimal-age-gate.test.mjs`: 8/8 PASS.
+- `timeout 30 node --test scripts/__tests__/mermaid-security.test.mjs`: 1/1 PASS; four ordinary parsers and equal-axis XY-chart regression. The malicious old-artifact XY input exhausts a capped128MB heap (exit134); patched input completes. An isolated copy of the updated lock regression against unchanged main fails exactly on Mermaid11.16.0; updated lock passes.
+- All five exact source-alert vulnerable-version predicates match main11.16.0 and exclude sole patched11.17.2. `timeout 30 yarn why mermaid --recursive --json` confirms direct docs and Docusaurus theme paths use11.17.2.
+- `timeout 60 yarn npm audit --all --recursive --json`: exit1 for73 unrelated advisory/deprecation records; zero Mermaid advisory records. KaTeX0.16.47 remains an unchanged vulnerable dependent, not a clean audit.
+- Browser artifact probes (`timeout 90 env TMPDIR=/tmp TMP=/tmp TEMP=/tmp LD_LIBRARY_PATH=/home/pkarw/.cache/om-playwright-libs/root/usr/lib/x86_64-linux-gnu node /tmp/mermaid-baseline-b8b6/browser.cjs`): old architecture input writes Object.prototype marker horizontal; patched rejects missing parent without pollution. Old CSS changes adjacent-element opacity to0.123; patched leaves1. Ordinary flowchart, sequence and radar SVG render on both versions. Configuration probe separately confirms old Object.prototype marker true vs patched absent. Temporary browser artifacts are task evidence, not committed source.
+- `timeout 900 env TMPDIR=/tmp TMP=/tmp TEMP=/tmp yarn workspace open-mercato-docs build`: PASS (optimized client/server/static build).
+- `timeout 600 env TMPDIR=/tmp TMP=/tmp TEMP=/tmp yarn lint`: PASS. Scoped ESLint for both changed tests and `git diff --check`: PASS (existing Next pages-directory warning).
+- Ordered configured gate first completed attempt: `yarn build:packages` PASS2.2s → `yarn generate` PASS20.7s → `yarn build:packages` PASS2.3s → `yarn i18n:check-sync` PASS4.2s → `yarn i18n:check-usage` TIMEOUT300s → `yarn typecheck` PASS23.9s (42 tasks) → `yarn test` exit1/260.3s (Jest transform-cache UNKNOWN write error in unchanged customer_groups test) → `yarn build:app` exit1/0.8s without diagnostic output. No full-green claim is made for this attempt.
+- `timeout 900 env TMPDIR=/tmp TMP=/tmp TEMP=/tmp yarn i18n:check-usage`: retry PASS (8,120 unused keys advisory).
+- Failed test/app commands are being retried in order with `TMPDIR=/var/tmp/mm-b8b6 TMP=/var/tmp/mm-b8b6 TEMP=/var/tmp/mm-b8b6`, a short disk-backed temp directory. Results pending; no code or assertions were changed in response to the cache failure.
+
+### Deduplication and residual candidates
+Refresh after implementation:360 open PRs and42 open dependency alerts; no competing Mermaid remediation. Main advanced to a561278b7a7d36d04cefdb354bdb354c92c5e617; root manifest, lockfile and docs manifest blobs are unchanged from selection. No alert is claimed fixed on main. `ci-full` explicitly requests integration coverage.
+
+Run accounting for44 source alerts:5 selected Mermaid;17 covered by existing PR8717 (still vulnerable on main);17 other eligible dependency alerts deferred by bounded selection;3 blocked dependency alerts;2 CodeQL occurrences deferred for trust-boundary validation. Blocked identities: Dependabot541/glob/GHSA-3g3m-2fjr-6pw4 (vulnerable transitive10/11 ranges need incompatible major/parent upgrade),508/deepmerge/GHSA-gcqx-w48m-w2h4 (no patch),413/katex/GHSA-238p-pmpm-9mq7 (patched0.18.2 outside Mermaid11 ^0.16.47). Retry blocked groups when compatible upstream fix/parent or authorization changes. CodeQL199/200 share js/bad-code-sanitization|scripts/storybook-generate.mjs|variantId-story-source-generation; no runtime untrusted input established in this run, and no false-positive dismissal is asserted. Existing advisory automation claims pending-action atomicity; security-issue automation claims4835/2115; no selected overlap.
+
 ## Progress
 
 PR: #8741
