@@ -47,7 +47,7 @@ jest.mock('@open-mercato/shared/lib/db/advisoryLock', () => {
   }
 })
 
-const describeWithPostgres =process.env.OM_PG_INTEGRATION === '1' ? describe : describe.skip
+const describeWithPostgres = process.env.OM_PG_INTEGRATION === '1' ? describe : describe.skip
 
 const DATABASE_NAME = 'channel_restore_test'
 const DATABASE_USER = 'channel_restore'
@@ -234,6 +234,26 @@ describeWithPostgres('channel delete undo against a concurrent reconnect on real
       restoreDeletedChannel(requestEm(), { channelId: deleted.id, tenantId: scope.tenantId, ...record }),
     ).rejects.toMatchObject({ status: 409 })
     expect(await liveRows(scope)).toEqual([{ id: older.id, external_identifier: 'bot-1234' }])
+  }, 30_000)
+
+  it('refuses an undo once an identifier-less reconnect healed an older sibling, and restores after that sibling is deleted', async () => {
+    const scope = newScope()
+    const older = await seedChannel(scope, { createdAt: new Date(Date.now() - 120_000) })
+    const deleted = await seedChannel(scope, { createdAt: new Date(Date.now() - 60_000) })
+    const record = await deleteChannel(deleted.id)
+    expect(record.unidentifiedSiblingIds).toEqual([older.id])
+    const healed = await reconnect(scope, null)
+    expect(healed.id).toBe(older.id)
+    expect(await liveRows(scope)).toEqual([{ id: older.id, external_identifier: null }])
+
+    await expect(
+      restoreDeletedChannel(requestEm(), { channelId: deleted.id, tenantId: scope.tenantId, ...record }),
+    ).rejects.toMatchObject({ status: 409 })
+    expect(await liveRows(scope)).toEqual([{ id: older.id, external_identifier: null }])
+
+    await deleteChannel(older.id)
+    await restoreDeletedChannel(requestEm(), { channelId: deleted.id, tenantId: scope.tenantId, ...record })
+    expect(await liveRows(scope)).toEqual([{ id: deleted.id, external_identifier: null }])
   }, 30_000)
 
   it('restores next to an identifier-less row that lived beside the deleted one', async () => {

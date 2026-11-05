@@ -184,6 +184,7 @@ async function connectChannelRow(args: CreateConnectedChannelRowArgs): Promise<C
     target.pollIntervalSeconds = pollIntervalSeconds
     target.status = credentialsAvailable ? 'connected' : 'requires_reauth'
     target.lastError = credentialsAvailable ? null : 'credentials_persist_failed'
+    target.connectedAt = new Date()
   }
 
   if (dedupeFilter) {
@@ -277,6 +278,7 @@ async function connectChannelRow(args: CreateConnectedChannelRowArgs): Promise<C
     lastError: credentialsAvailable ? null : 'credentials_persist_failed',
     tenantId: scope.tenantId,
     organizationId: scope.organizationId ?? null,
+    connectedAt: new Date(),
   })
   em.persist(channel)
   await em.flush()

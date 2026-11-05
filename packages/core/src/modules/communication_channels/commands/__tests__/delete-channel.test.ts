@@ -397,6 +397,29 @@ describe('deleteChannelCommand undo against a newer connection', () => {
     expect(channel.deletedAt).toBeNull()
   })
 
+  it('refuses to restore once connect healed an older identifier-less row of the provider in place', async () => {
+    const channel = deletedChannel()
+    const { em, outcome } = await runUndo(
+      channel,
+      [activeChannel({ createdAt: new Date('2026-01-15T00:00:00Z'), connectedAt: new Date('2026-02-03T00:00:00Z') })],
+      { unidentifiedSiblingIds: [OTHER_ID] },
+    )
+    expect(outcome).toMatchObject({ status: 409 })
+    expect(channel.deletedAt).toBeInstanceOf(Date)
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('restores next to an older identifier-less row last connected before the delete', async () => {
+    const channel = deletedChannel()
+    const { outcome } = await runUndo(
+      channel,
+      [activeChannel({ createdAt: new Date('2026-01-15T00:00:00Z'), connectedAt: new Date('2026-01-20T00:00:00Z') })],
+      { unidentifiedSiblingIds: [OTHER_ID] },
+    )
+    expect(outcome).toBeNull()
+    expect(channel.deletedAt).toBeNull()
+  })
+
   it('restores a chat handle next to one that differs only in case', async () => {
     const channel = deletedChannel({ externalIdentifier: 'Bot-Handle' })
     const { outcome } = await runUndo(channel, [activeChannel({ externalIdentifier: 'bot-handle' })])

@@ -37,8 +37,9 @@ function isTenantWidePush(channel: CommunicationChannel): boolean {
 }
 
 function connectedSinceDelete(restored: CommunicationChannel, candidate: CommunicationChannel): boolean {
-  if (!restored.deletedAt || !candidate.createdAt) return true
-  return candidate.createdAt.getTime() >= restored.deletedAt.getTime()
+  const connectedAt = candidate.connectedAt ?? candidate.createdAt
+  if (!restored.deletedAt || !connectedAt) return true
+  return connectedAt.getTime() >= restored.deletedAt.getTime()
 }
 
 function adoptedSinceDelete(
@@ -115,14 +116,15 @@ export function parseChannelRestoreRecord(value: Record<string, unknown>): Chann
  * Find a live channel that already holds the connection a soft-deleted channel
  * would take back on restore. Connect (`createConnectedChannelRow`) only heals
  * rows with `deleted_at IS NULL`, so a reconnect after a delete inserts a new row
- * or adopts an older identifier-less one, and restoring the deleted one next to it
+ * or heals or adopts an older one, and restoring the deleted one next to it
  * leaves two channels on one account.
  *
  * The keys follow connect: tenant-wide push channels are one per provider; other
  * channels match on (owner, provider, identifier), exactly as the heal key and the
  * mailbox unique index compare them; an identifier-less row of a provider is the
  * same connection as a row of that provider in the same organization that connect
- * created or adopted after the delete (credentials are stored once per provider,
+ * created, healed or adopted after the delete — `connected_at`, or `created_at`
+ * on rows not connected since that column exists (credentials are stored once per provider,
  * owner and organization, which is why `adoptUnidentifiedChannel` folds them),
  * while rows that already lived next to the deleted one before stay as they were;
  * and one mailbox is never connected through two providers for one owner, compared
