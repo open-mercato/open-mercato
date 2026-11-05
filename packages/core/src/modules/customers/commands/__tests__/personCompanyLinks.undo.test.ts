@@ -381,13 +381,15 @@ describe('customers.personCompanyLinks.create — repeated request undo (#7857)'
     expect(fixtures.profileRow.companyId).toBe(COMPANY_A_ID)
   })
 
-  it('preserves a later primary selection when undoing a non-primary creation', async () => {
+  it.each([false, true])('preserves a later primary selection when undoing a creation (primary=%s)', async (isPrimary) => {
     const fixtures = makeFixtures([
       { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: true, deletedAt: null },
       { id: LINK_C_ID, companyId: COMPANY_C_ID, isPrimary: false, deletedAt: null },
     ], COMPANY_A_ID)
-    const created = await createAndLog(fixtures, COMPANY_B_ID)
-    await createAndLog(fixtures, COMPANY_C_ID, true)
+    const created = await createAndLog(fixtures, COMPANY_B_ID, isPrimary)
+    const promoted = await createAndLog(fixtures, COMPANY_C_ID, true)
+    expect(created.log?.resourceId).toBe(LINK_B_ID)
+    expect(promoted.log?.resourceId).toBe(LINK_C_ID)
     expect(fixtures.profileRow.companyId).toBe(COMPANY_C_ID)
 
     await created.handler.undo!({
@@ -400,6 +402,26 @@ describe('customers.personCompanyLinks.create — repeated request undo (#7857)'
     expect(fixtures.linkRows.get(LINK_A_ID)).toEqual({ isPrimary: false, deletedAt: null })
     expect(fixtures.linkRows.get(LINK_C_ID)).toEqual({ isPrimary: true, deletedAt: null })
     expect(fixtures.profileRow.companyId).toBe(COMPANY_C_ID)
+  })
+
+  it.each([false, true])('preserves a later cleared primary assignment when undoing a creation (primary=%s)', async (isPrimary) => {
+    const fixtures = makeFixtures([
+      { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: true, deletedAt: null },
+    ], COMPANY_A_ID)
+    const created = await createAndLog(fixtures, COMPANY_B_ID, isPrimary)
+    fixtures.profile.company = null
+    for (const link of fixtures.links) link.isPrimary = false
+    await fixtures.em.flush()
+
+    await created.handler.undo!({
+      input: created.input,
+      ctx: created.ctx,
+      logEntry: { commandPayload: created.log?.payload },
+    })
+
+    expect(fixtures.linkRows.get(LINK_B_ID)?.deletedAt).toBeInstanceOf(Date)
+    expect(fixtures.linkRows.get(LINK_A_ID)).toEqual({ isPrimary: false, deletedAt: null })
+    expect(fixtures.profileRow.companyId).toBeNull()
   })
 
   it('restores a null profile assignment and no primary after undoing promotion', async () => {
