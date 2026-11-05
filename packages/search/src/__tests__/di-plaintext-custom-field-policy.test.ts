@@ -1,3 +1,5 @@
+import { registerSearchModuleConfigs } from '@open-mercato/shared/modules/search'
+import type { SearchService } from '../service'
 import { registerSearchModule, type SearchContainer } from '../di'
 import type { SearchIndexer } from '../indexer/search-indexer'
 import type { FullTextSearchDocument } from '../fulltext/types'
@@ -85,4 +87,32 @@ it('fails closed for custom fields when the live definition query fails', async 
   await index(registerIndexer(container))
 
   expect(mockDocuments[0].fields).toEqual({ title: 'Public title' })
+})
+
+
+it('honors local registration pins for direct and bulk writes independently of global configs', async () => {
+  registerSearchModuleConfigs([{ entities: [{ entityId: 'example:todo', strategies: ['fulltext'] }] }])
+  try {
+    const restricted = makeContainer()
+    const unpinned = makeContainer()
+    for (const [container, strategies] of [[restricted, ['vector']], [unpinned, undefined]] as const) {
+      registerSearchModule(container, {
+        skipTokens: true,
+        skipVector: true,
+        moduleConfigs: [{ entities: [{ entityId: 'example:todo', strategies: strategies ? [...strategies] : undefined }] }],
+      })
+    }
+    const record = { entityId: 'example:todo' as const, recordId: 'record-1', tenantId: 'tenant-1', fields: { title: 'Public' } }
+    const restrictedService = restricted.resolve<SearchService>('searchService')
+    await restrictedService.index(record)
+    await restrictedService.bulkIndex([record])
+    expect(mockDocuments).toHaveLength(0)
+
+    const unpinnedService = unpinned.resolve<SearchService>('searchService')
+    await unpinnedService.index(record)
+    await unpinnedService.bulkIndex([record])
+    expect(mockDocuments).toHaveLength(2)
+  } finally {
+    registerSearchModuleConfigs([])
+  }
 })

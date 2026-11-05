@@ -208,6 +208,8 @@ export type SearchServiceOptions = {
   mergeConfig?: ResultMergeConfig
   /** Callback to enrich results with presenter data from database */
   presenterEnricher?: PresenterEnricherFn
+  /** Resolve entity write restrictions; omission uses the registered search configurations. */
+  resolveEntityStrategies?: (entityId: EntityId) => SearchStrategyId[] | undefined
   /** TTL (ms) for the per-strategy availability cache. Defaults to 2_000. */
   availabilityCacheTtlMs?: number
 }
