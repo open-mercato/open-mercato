@@ -4,6 +4,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -145,6 +146,10 @@ export async function POST(req: Request) {
             progressJobId: progressJob.id,
             err: failError,
           })
+          getTelemetryRuntime()?.reportError(failError, {
+            module: 'catalog',
+            code: 'catalog.ai_categorization_bulk_fail_job_failed',
+          })
         })
       throw enqueueError
     }
@@ -159,6 +164,10 @@ export async function POST(req: Request) {
     )
   } catch (err) {
     logger.error('catalog.ai_categorization.bulk.POST Unexpected error', { err })
+    getTelemetryRuntime()?.reportError(err, {
+      module: 'catalog',
+      code: 'catalog.ai_categorization_bulk_failed',
+    })
     return failure('Internal server error', 500)
   }
 }

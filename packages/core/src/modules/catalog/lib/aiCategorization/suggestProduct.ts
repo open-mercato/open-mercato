@@ -2,6 +2,7 @@ import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { CatalogProductCategory, type CatalogCategorySuggestionTrigger } from '../../data/entities'
 import { emitCatalogEvent } from '../../events'
 import { computeHierarchyForCategories } from '../categoryHierarchy'
@@ -153,6 +154,10 @@ export function createProductSuggester(params: {
         })
       } catch (err) {
         logger.error('catalog.ai_categorization.auto_apply settings lookup failed', { err, suggestionId: suggestion.id })
+        getTelemetryRuntime()?.reportError(err, {
+          module: 'catalog',
+          code: 'catalog.ai_categorization_auto_apply_lookup_failed',
+        })
       }
     }
     return { outcome: walkResult.outcome }

@@ -1,11 +1,21 @@
 import type { AwilixContainer } from 'awilix'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { ProductSuggester, ProductSuggestionOutcome } from '../suggestProduct'
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(async () => ({
+    translate: (_key: string, fallback?: string, params?: Record<string, unknown>) => {
+      if (!fallback) return _key
+      return fallback.replace(/\{(\w+)\}/g, (_match, name) => String(params?.[name] ?? ''))
+    },
+  })),
+}))
+
 import {
   buildAiCategorizeCommandContext,
   categorizeProductsWithProgress,
   resolveAiCategorizeConcurrency,
 } from '../bulkCategorize'
-import type { ProductSuggester, ProductSuggestionOutcome } from '../suggestProduct'
 
 const scope = { tenantId: 'tenant-1', organizationId: 'org-1', userId: 'user-1' }
 

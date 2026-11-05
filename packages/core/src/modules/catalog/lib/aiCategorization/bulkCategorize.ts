@@ -1,10 +1,15 @@
 import type { AwilixContainer } from 'awilix'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { ProgressService, ProgressServiceContext } from '../../../progress/lib/progressService'
 import type { CatalogCategorizationService } from './categorizationService'
 import { CATALOG_PRODUCT_AI_CATEGORIZE_MAX_PRODUCTS } from './bulkLimits'
 import { createProductSuggester, type ProductSuggester } from './suggestProduct'
+
+const logger = createLogger('catalog')
 
 export const CATALOG_PRODUCT_AI_CATEGORIZE_QUEUE = 'catalog-product-ai-categorize'
 export const CATALOG_PRODUCT_AI_CATEGORIZE_JOB_TYPE = 'catalog.products.ai_categorize'
@@ -139,6 +144,11 @@ export async function categorizeProductsWithProgress(params: {
         const code = typeof error.body?.code === 'string' ? error.body.code : `http_${error.status}`
         return { outcome: 'error', code }
       }
+      logger.error('catalog.ai_categorization.bulk suggestion failed unexpectedly', { err: error, productId })
+      getTelemetryRuntime()?.reportError(error, {
+        module: 'catalog',
+        code: 'catalog.ai_categorization_bulk_suggest_failed',
+      })
       return { outcome: 'error', code: 'internal_error' }
     }
   }
@@ -178,10 +188,15 @@ export async function categorizeProductsWithProgress(params: {
       if (FAIL_FAST_CODES.has(result.code)) {
         summary.stoppedReason = result.code as CatalogProductAiCategorizeStopReason
         recordFailure(productId, result.code)
+        const { translate } = await resolveTranslations()
         await progressService.failJob(
           progressJobId,
           {
-            errorMessage: `AI categorization stopped: ${result.code}`,
+            errorMessage: translate(
+              'catalog.aiCategorization.bulk.errors.stopped',
+              'AI categorization stopped: {code}',
+              { code: result.code },
+            ),
             resultSummary: summary,
           },
           progressContext,
