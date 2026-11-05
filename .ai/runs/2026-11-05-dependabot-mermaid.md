@@ -70,4 +70,4 @@ PR: #8741
 
 ### Phase 2: Verification and review
 - [ ] 2.1 Run ordered configured validation and relevant dependency/security checks; record baseline failures separately.
-- [ ] 2.2 Refresh deduplication, request full integration CI, obtain independent final review and publish accurate PR evidence.
+- [x] 2.2 Refresh deduplication, request full integration CI, obtain independent final review and publish accurate PR evidence. — 42a9e77ef7
