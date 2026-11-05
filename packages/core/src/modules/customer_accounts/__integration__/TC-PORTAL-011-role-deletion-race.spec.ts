@@ -32,7 +32,7 @@ for (const firstWriter of ['assignment', 'deletion'] as const) {
         const waitForBlockedWriters = async (count: number) => {
           await expect.poll(async () => withClient(async (observer) => {
             const result = await observer.query<{ count: string }>(
-              'select count(*)::text as count from pg_stat_activity where $1 = any(pg_blocking_pids(pid))',
+              'with recursive waiting(pid) as (select pid from pg_stat_activity where $1 = any(pg_blocking_pids(pid)) union select activity.pid from pg_stat_activity activity join waiting on waiting.pid = any(pg_blocking_pids(activity.pid))) select count(*)::text as count from waiting',
               [lockerPid],
             )
             return Number(result.rows[0].count)
