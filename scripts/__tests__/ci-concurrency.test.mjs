@@ -13,7 +13,7 @@ function cancelsInProgress(eventName) {
 }
 
 test('CI runs share one concurrency group per ref', () => {
-  assert.equal(workflow.concurrency.group, 'ci-${{ github.ref }}')
+  assert.equal(workflow.concurrency.group, "ci-${{ github.ref }}${{ github.event.action == 'labeled' && github.event.label.name != 'ci-full' && format('-label-{0}', github.run_id) || '' }}")
 })
 
 test('a new PR push cancels the in-progress PR run', () => {
