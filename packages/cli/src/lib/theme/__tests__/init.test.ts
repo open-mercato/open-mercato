@@ -2,11 +2,15 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import {
+  buildContrastChecks,
+  buildContrastSuggestion,
   ensureLayoutImport,
   findProtectedTokenOverrides,
   parseThemeInitArgs,
   runThemeInit,
 } from '../init'
+import { contrastRatio, formatContrastRatio, parseHexColor } from '../contrast'
+import { derivePalette } from '../palette'
 
 const INERT_TEMPLATE_HEADER = `/* theme.css — YOUR brand overrides. This file is yours: framework upgrades
  * never touch it. */
@@ -187,6 +191,13 @@ export default function RootLayout() {
     expect(fs.existsSync(themePath())).toBe(false)
   })
 
+  it('exits 1 on a font value carrying CSS-structural characters', async () => {
+    writeLayout(baseLayout)
+    await expect(runInit(['--font', 'Inter, x; --status-error-bg: red'])).resolves.toBe(1)
+    expect(fs.existsSync(themePath())).toBe(false)
+    expect(errorSpy.mock.calls.flat().join('\n')).toContain('Invalid --font value')
+  })
+
   it('prints the exact import line when the layout has no globals.css anchor', async () => {
     writeLayout('export default function RootLayout() { return null }\n')
     await expect(runInit()).resolves.toBe(0)
@@ -225,5 +236,25 @@ describe('ensureLayoutImport', () => {
     expect(fs.readFileSync(layoutFile, 'utf8')).toBe(
       "import './globals.css'\nimport './theme.css'\nimport x from 'y'\n",
     )
+  })
+})
+
+describe('buildContrastSuggestion', () => {
+  it('measures the suggestion against the primary of the mode that failed', () => {
+    const palette = derivePalette({ primaryHex: '#0C71C6' })
+    expect(palette.dark.primary).not.toBe(palette.light.primary)
+    const [template] = buildContrastChecks(palette)
+    const suggestionFor = (mode: 'light' | 'dark') =>
+      buildContrastSuggestion(palette, { ...template, mode, threshold: 4.5 })
+    const ratioFor = (mode: 'light' | 'dark') => {
+      const primary = parseHexColor(palette[mode].primary)!
+      return Math.max(
+        contrastRatio(parseHexColor('#ffffff')!, primary),
+        contrastRatio(parseHexColor('#0a0a0a')!, primary),
+      )
+    }
+    expect(suggestionFor('light')).toContain(formatContrastRatio(ratioFor('light')))
+    expect(suggestionFor('dark')).toContain(formatContrastRatio(ratioFor('dark')))
+    expect(suggestionFor('dark')).not.toBe(suggestionFor('light'))
   })
 })

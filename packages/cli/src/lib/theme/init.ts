@@ -22,6 +22,7 @@ import {
   oklchToHex,
   PROTECTED_TOKEN_PATTERNS,
   renderThemeCss,
+  validateFontFamily,
   validateRadius,
   type DerivedPalette,
   type ForegroundPick,
@@ -105,7 +106,7 @@ export function parseThemeInitArgs(args: string[]): ThemeInitFlags {
 
 type CheckVerdict = 'pass' | 'warn' | 'fail'
 
-type ContrastCheck = {
+export type ContrastCheck = {
   mode: 'light' | 'dark'
   pair: string
   ratio: number
@@ -180,8 +181,12 @@ function printContrastReport(checks: ContrastCheck[]): void {
   }
 }
 
-function printFailure(palette: DerivedPalette, failed: ContrastCheck): void {
-  const primary = palette.light.primary
+/**
+ * Suggests how to fix a failed contrast pair, measured against the primary of
+ * the mode that failed (the light and dark primaries differ).
+ */
+export function buildContrastSuggestion(palette: DerivedPalette, failed: ContrastCheck): string {
+  const primary = palette[failed.mode].primary
   const primaryRgb = parseHexColor(primary)
   let suggestion = 'pick a darker or lighter primary.'
   if (primaryRgb) {
@@ -196,11 +201,15 @@ function printFailure(palette: DerivedPalette, failed: ContrastCheck): void {
       suggestion = `use --primary-foreground "${best.hex}" (${formatContrastRatio(best.ratio)}), or pick a darker primary.`
     }
   }
+  return suggestion
+}
+
+function printFailure(palette: DerivedPalette, failed: ContrastCheck): void {
   console.error(
     `✖ Contrast check failed: ${failed.pair} is ${formatContrastRatio(failed.ratio)} — ` +
       `WCAG AA requires ${formatContrastRatio(failed.threshold)} for text.`,
   )
-  console.error(`  Suggestion: ${suggestion}`)
+  console.error(`  Suggestion: ${buildContrastSuggestion(palette, failed)}`)
 }
 
 /** Scans an existing theme.css for protected-token overrides (warn-only). */
@@ -328,8 +337,18 @@ export async function runThemeInit(args: string[]): Promise<number> {
     for (const warning of radius.warnings) console.warn(`⚠ ${warning}`)
   }
 
+  let fontValue: string | null = null
+  if (flags.font) {
+    const font = validateFontFamily(flags.font)
+    if (!font.valid) {
+      console.error(`✖ Invalid --font value "${flags.font}". Expected a family name or a comma-separated stack without ; { } \\ or line breaks.`)
+      return 1
+    }
+    fontValue = font.value
+  }
+
   const checks = buildContrastChecks(palette)
-  const css = renderThemeCss({ palette, radius: radiusValue, fontFamily: flags.font ?? null })
+  const css = renderThemeCss({ palette, radius: radiusValue, fontFamily: fontValue })
 
   if (flags.dryRun) {
     console.log(css)
