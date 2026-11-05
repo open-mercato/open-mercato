@@ -2,11 +2,13 @@
 import { POST as sendQuote } from '@open-mercato/core/modules/sales/api/quotes/send/route'
 import { GET as getPublicQuote } from '@open-mercato/core/modules/sales/api/quotes/public/[token]/route'
 import { POST as acceptQuote } from '@open-mercato/core/modules/sales/api/quotes/accept/route'
+import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
 import { SalesOrder, SalesQuote } from '@open-mercato/core/modules/sales/data/entities'
 import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
 import { LockMode } from '@mikro-orm/core'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
+import { createSalesDocumentLockKyselyFixture } from '../../commands/__tests__/salesDocumentLockFixture'
 
 const mockCommandBus = { execute: jest.fn() }
 const mockRateLimiterService = { trustProxyDepth: 1, consume: jest.fn() }
@@ -20,6 +22,7 @@ const mockEm: Record<string, jest.Mock> = {
   commit: jest.fn().mockResolvedValue(undefined),
   rollback: jest.fn().mockResolvedValue(undefined),
   transactional: jest.fn().mockImplementation(async (callback: (trx: any) => Promise<unknown>) => callback(mockEm)),
+  getKysely: jest.fn(() => createSalesDocumentLockKyselyFixture('quote-lock')),
 }
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
@@ -135,38 +138,76 @@ describe('quote send + accept flow', () => {
     expect(mockEm.persist).toHaveBeenCalledWith(quote)
   })
 
-  test('accept falls back to raw token lookup for quotes sent before hashing rollout', async () => {
-    const LEGACY_RAW_TOKEN = '77777777-7777-4777-8777-777777777777'
-    const legacyQuote = {
+  test('accept never matches a raw (unhashed) stored token — hashed lookup only (#2929)', async () => {
+    const RAW_STORED_TOKEN = '77777777-7777-4777-8777-777777777777'
+    const rawStoredQuote = {
       id: '66666666-6666-4666-8666-666666666666',
       tenantId: '00000000-0000-4000-8000-000000000000',
       organizationId: '11111111-1111-4111-8111-111111111111',
-      quoteNumber: 'SQ-LEGACY',
+      quoteNumber: 'SQ-RAW',
       status: 'sent',
       statusEntryId: null,
       validUntil: new Date(Date.now() + 60_000),
       updatedAt: new Date(),
-      acceptanceToken: LEGACY_RAW_TOKEN,
+      acceptanceToken: RAW_STORED_TOKEN,
     }
 
     const seenWhereTokens: Array<string | undefined> = []
     mockEm.findOne.mockImplementation(async (cls: any, where: any) => {
       if (cls === SalesQuote) {
         seenWhereTokens.push(where?.acceptanceToken)
-        return where?.acceptanceToken === LEGACY_RAW_TOKEN ? legacyQuote : null
+        return where?.acceptanceToken === RAW_STORED_TOKEN ? rawStoredQuote : null
       }
       if (cls === Dictionary) return { id: 'dict-1' }
       if (cls === DictionaryEntry) return { id: 'entry-confirmed' }
-      if (cls === SalesOrder) return { id: 'order-legacy', orderNumber: 'SO-LEGACY', deletedAt: null }
+      if (cls === SalesOrder) return { id: 'order-raw', orderNumber: 'SO-RAW', deletedAt: null }
       return null
     })
-    mockCommandBus.execute.mockResolvedValue({ result: { orderId: 'order-legacy' } })
 
-    const res = await acceptQuote(makeAcceptRequest({ token: LEGACY_RAW_TOKEN }))
-    expect(res.status).toBe(200)
-    expect(seenWhereTokens[0]).toBe(hashAuthToken(LEGACY_RAW_TOKEN))
-    expect(seenWhereTokens[1]).toBe(LEGACY_RAW_TOKEN)
-    expect(legacyQuote.status).toBe('confirmed')
+    const res = await acceptQuote(makeAcceptRequest({ token: RAW_STORED_TOKEN }))
+    expect(res.status).toBe(404)
+    expect(seenWhereTokens).toEqual([hashAuthToken(RAW_STORED_TOKEN)])
+    expect(seenWhereTokens).not.toContain(RAW_STORED_TOKEN)
+    expect(mockCommandBus.execute).not.toHaveBeenCalled()
+    expect(rawStoredQuote.status).toBe('sent')
+  })
+
+  test('public view never matches a raw (unhashed) stored token — hashed lookup only (#2929)', async () => {
+    const RAW_STORED_TOKEN = '99999999-9999-4999-8999-999999999999'
+    const rawStoredQuote = {
+      id: 'q-raw-public',
+      tenantId: '00000000-0000-4000-8000-000000000000',
+      quoteNumber: 'SQ-RAW-PUB',
+      currencyCode: 'USD',
+      status: 'sent',
+      validFrom: null,
+      validUntil: null,
+      subtotalNetAmount: '0',
+      subtotalGrossAmount: '0',
+      discountTotalAmount: '0',
+      taxTotalAmount: '0',
+      grandTotalNetAmount: '0',
+      grandTotalGrossAmount: '0',
+      acceptanceToken: RAW_STORED_TOKEN,
+    }
+
+    const seenWhereTokens: Array<string | undefined> = []
+    mockEm.findOne.mockImplementation(async (cls: any, where: any) => {
+      if (cls === SalesQuote) {
+        seenWhereTokens.push(where?.acceptanceToken)
+        return where?.acceptanceToken === RAW_STORED_TOKEN ? rawStoredQuote : null
+      }
+      return null
+    })
+    mockEm.find.mockResolvedValue([])
+
+    const res = await getPublicQuote(
+      new Request(`http://localhost/api/sales/quotes/public/${RAW_STORED_TOKEN}`),
+      { params: { token: RAW_STORED_TOKEN } } as any,
+    )
+    expect(res.status).toBe(404)
+    expect(seenWhereTokens).toEqual([hashAuthToken(RAW_STORED_TOKEN)])
+    expect(seenWhereTokens).not.toContain(RAW_STORED_TOKEN)
   })
 
   test('public view returns expired flag', async () => {
@@ -356,11 +397,11 @@ describe('accept - tenant isolation (fix: tenantId scoped in lookup + encryption
       validUntil: new Date(Date.now() + 60_000),
       updatedAt: new Date(),
     }
-    // Simulate DB: honour tenantId in where clause (cross-tenant lookup returns null)
+    // Simulate DB: token stored hashed at rest; honour tenantId in where clause (cross-tenant lookup returns null)
     mockEm.findOne.mockImplementation(async (cls: any, where: any) => {
       if (cls === SalesQuote) {
         if (where?.tenantId && where.tenantId !== TENANT_ID) return null
-        return where?.acceptanceToken === ACCEPTANCE_TOKEN ? quote : null
+        return where?.acceptanceToken === hashAuthToken(ACCEPTANCE_TOKEN) ? quote : null
       }
       if (cls === Dictionary) return { id: 'dict-1' }
       if (cls === DictionaryEntry) return { id: 'entry-confirmed' }
@@ -376,6 +417,34 @@ describe('accept - tenant isolation (fix: tenantId scoped in lookup + encryption
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.orderId).toBe('order-sec-1')
+  })
+
+  test('accept surfaces the status and body of an interceptor rejection that carries one', async () => {
+    mockCommandBus.execute.mockRejectedValueOnce(
+      new CommandInterceptorError('Missing required fields', {
+        status: 422,
+        body: { error: 'Missing required fields', missingFields: ['vatId'] },
+      }),
+    )
+
+    const res = await acceptQuote(makeAcceptReq())
+
+    expect(res.status).toBe(422)
+    await expect(res.json()).resolves.toEqual({
+      error: 'Missing required fields',
+      missingFields: ['vatId'],
+    })
+  })
+
+  test('accept keeps the generic 400 when an interceptor rejection carries no status', async () => {
+    mockCommandBus.execute.mockRejectedValueOnce(new CommandInterceptorError('Blocked without a status'))
+
+    const res = await acceptQuote(makeAcceptReq())
+
+    expect(res.status).toBe(400)
+    const body = await res.json() as { error?: string }
+    expect(body.error).toBeTruthy()
+    expect(body).not.toHaveProperty('missingFields')
   })
 
   test('same-tenant auth accepts quote (200)', async () => {
@@ -406,7 +475,7 @@ describe('accept - tenant isolation (fix: tenantId scoped in lookup + encryption
     mockEm.findOne.mockImplementation(async (cls: any, where: any) => {
       if (cls === SalesQuote) {
         capturedWhere = where
-        return where?.acceptanceToken === ACCEPTANCE_TOKEN ? quote : null
+        return where?.acceptanceToken === hashAuthToken(ACCEPTANCE_TOKEN) ? quote : null
       }
       if (cls === Dictionary) return { id: 'dict-1' }
       if (cls === DictionaryEntry) return { id: 'entry-confirmed' }
@@ -734,7 +803,14 @@ describe('quote editing invalidates sent token', () => {
     mockEm.flush.mockResolvedValue(undefined)
 
     const ctx: any = {
-      container: { resolve: (token: string) => (token === 'em' ? mockEm : null) },
+      container: {
+        resolve: (token: string) =>
+          token === 'dataEngine'
+            ? { markOrmEntityChange: jest.fn() }
+            : token === 'em'
+              ? mockEm
+              : null,
+      },
       auth: { sub: 'user-1', tenantId: quote.tenantId, orgId: quote.organizationId },
       organizationScope: null,
       selectedOrganizationId: quote.organizationId,

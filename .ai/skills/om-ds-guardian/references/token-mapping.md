@@ -13,11 +13,12 @@ Lookup reference for DS Guardian. No prose — just tables.
 | `text-red-500` | `text-status-error-icon` | Regex 1:1 |
 | `bg-red-50` | `bg-status-error-bg` | Regex 1:1 |
 | `bg-red-100` | `bg-status-error-bg` | Regex 1:1 |
-| `bg-red-600` | `bg-destructive` | Manual — solid button bg |
+| `bg-red-600` | `bg-status-error-solid` (chips/dots) or `Button variant="destructive-solid"` (confirm only) | Manual — see Destructive loudness policy in component-guide.md |
 | `border-red-200` | `border-status-error-border` | Regex 1:1 |
 | `border-red-300` | `border-status-error-border` | Regex 1:1 |
 | `border-red-500` | `border-status-error-border` | Regex 1:1 |
 | `text-destructive` | Keep | Already a token |
+| `bg-emerald-500` / solid status fills | `bg-status-{x}-solid` + `text-status-{x}-solid-foreground` | New solid role — all pairs hold WCAG AA |
 
 ## Color Mapping: Success (green + emerald)
 

@@ -10,6 +10,7 @@ describe('customers events — DOM broadcast contract', () => {
     ['customers.person_company_link.created'],
     ['customers.person_company_link.updated'],
     ['customers.person_company_link.deleted'],
+    ['customers.person.company_assignment.detached'],
   ])('%s', (eventId) => {
     it('is registered with clientBroadcast: true so the DOM event bridge picks it up', () => {
       expect(isBroadcastEvent(eventId)).toBe(true)

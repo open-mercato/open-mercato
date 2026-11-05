@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "file": "gallery/components/GalleryShell.tsx",
+      "kind": "jsx-attr",
+      "match": "Design system",
+      "reason": "English fallback for titleKey='design_system.nav.title'; the translated value comes from the module i18n files."
+    },
+    {
+      "file": "gallery/entries/banners.tsx",
+      "reason": "Gallery demo content: live previews and their copyable code snippets are developer-facing technical content, deliberately untranslated (spec 2026-07-05-ds-live-component-gallery.md)."
+    },
+    {
+      "file": "gallery/entries/buttons.tsx",
+      "reason": "Gallery demo content: live previews and their copyable code snippets are developer-facing technical content, deliberately untranslated (spec 2026-07-05-ds-live-component-gallery.md)."
+    },
+    {
+      "file": "gallery/entries/charts.tsx",
+      "reason": "Gallery demo content: live previews and their copyable code snippets are developer-facing technical content, deliberately untranslated (spec 2026-07-05-ds-live-component-gallery.md)."
+    },
+    {
+      "file": "gallery/entries/dates.tsx",
+      "reason": "Gallery demo content: live previews and their copyable code snippets are developer-facing technical content, deliberately untranslated (spec 2026-07-05-ds-live-component-gallery.md)."
+    },
+    {
+      "file": "gallery/entries/detail.tsx",
+      "reason": "Gallery demo content: live previews and their copyable code snippets are developer-facing technical content, deliberately untranslated (spec 2026-07-05-ds-live-component-gallery.md)."
+    },
+    {
+      "file": "gallery/entries/display.tsx",
+      "reason": "Gallery demo content: live previews and their copyable code snippets are developer-facing technical content, deliberately untranslated (spec 2026-07-05-ds-live-component-gallery.md)."
+    },
+    {
+      "file": "gallery/entries/feedback.tsx",
+      "reason": "Gallery demo content: live previews and their copyable code snippets are developer-facing technical content, deliberately untranslated (spec 2026-07-05-ds-live-component-gallery.md)."
+    },
+    {
+      "file": "gallery/entries/filters.tsx",
+      "reason": "Gallery demo content: live previews and their copyable code snippets are developer-facing technical content, deliberately untranslated (spec 2026-07-05-ds-live-component-gallery.md)."
+    },
+    {
+      "file": "gallery/entries/inputs.tsx",
+      "reason": "Gallery demo content: live previews and their copyable code snippets are developer-facing technical content, deliberately untranslated (spec 2026-07-05-ds-live-component-gallery.md)."
+    },
+    {
+      "file": "gallery/entries/messages.tsx",
+      "reason": "Gallery demo content: live previews and their copyable code snippets are developer-facing technical content, deliberately untranslated (spec 2026-07-05-ds-live-component-gallery.md)."
+    },
+    {
+      "file": "gallery/entries/navigation.tsx",
+      "reason": "Gallery demo content: live previews and their copyable code snippets are developer-facing technical content, deliberately untranslated (spec 2026-07-05-ds-live-component-gallery.md)."
+    },
+    {
+      "file": "gallery/entries/notifications.tsx",
+      "reason": "Gallery demo content: live previews and their copyable code snippets are developer-facing technical content, deliberately untranslated (spec 2026-07-05-ds-live-component-gallery.md)."
+    },
+    {
+      "file": "gallery/entries/overlays.tsx",
+      "reason": "Gallery demo content: live previews and their copyable code snippets are developer-facing technical content, deliberately untranslated (spec 2026-07-05-ds-live-component-gallery.md)."
+    },
+    {
+      "file": "gallery/entries/scaffolding.tsx",
+      "reason": "Gallery demo content: live previews and their copyable code snippets are developer-facing technical content, deliberately untranslated (spec 2026-07-05-ds-live-component-gallery.md)."
+    },
+    {
+      "file": "gallery/entries/schedule.tsx",
+      "reason": "Gallery demo content: live previews and their copyable code snippets are developer-facing technical content, deliberately untranslated (spec 2026-07-05-ds-live-component-gallery.md)."
+    }
+  ]
+}

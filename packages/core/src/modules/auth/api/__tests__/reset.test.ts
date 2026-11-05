@@ -4,6 +4,7 @@ const mockRequestPasswordReset = jest.fn()
 const mockSendEmail = jest.fn()
 const mockCheckAuthRateLimit = jest.fn()
 const mockResetPasswordEmail = jest.fn((props: { resetUrl: string }) => props)
+const mockEmitAuthEvent = jest.fn(async (_eventId: string, _payload: Record<string, unknown>, _options?: Record<string, unknown>) => undefined)
 
 const mockContainer = {
   resolve: jest.fn((name: string) => {
@@ -60,6 +61,11 @@ jest.mock('@open-mercato/shared/lib/ratelimit/config', () => ({
 
 jest.mock('@open-mercato/shared/lib/ratelimit/helpers', () => ({
   rateLimitErrorSchema: {},
+}))
+
+jest.mock('@open-mercato/core/modules/auth/events', () => ({
+  emitAuthEvent: (eventId: string, payload: Record<string, unknown>, options?: Record<string, unknown>) =>
+    mockEmitAuthEvent(eventId, payload, options),
 }))
 
 const originalEnv = process.env
@@ -178,6 +184,53 @@ describe('POST /api/auth/reset', () => {
     expect(mockSendEmail).not.toHaveBeenCalled()
   })
 
+  test('emits auth.password.reset.requested once a token has been issued', async () => {
+    mockRequestPasswordReset.mockResolvedValueOnce({
+      user: {
+        id: 'user-1',
+        email: 'staff@example.com',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      },
+      token: 'reset-token-1',
+    })
+
+    await POST(makeResetRequest('https://app.example.com/api/auth/reset'))
+
+    expect(mockEmitAuthEvent).toHaveBeenCalledWith('auth.password.reset.requested', {
+      id: 'user-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      at: expect.any(String),
+    }, { persistent: true })
+  })
+
+  test('does not emit auth.password.reset.requested for an unknown account', async () => {
+    mockRequestPasswordReset.mockResolvedValueOnce(null)
+
+    const res = await POST(makeResetRequest('https://app.example.com/api/auth/reset'))
+
+    expect(res.status).toBe(200)
+    expect(mockEmitAuthEvent).not.toHaveBeenCalled()
+  })
+
+  test('never carries the reset token in the emitted payload', async () => {
+    await POST(makeResetRequest('https://app.example.com/api/auth/reset'))
+
+    expect(mockEmitAuthEvent).toHaveBeenCalledTimes(1)
+    const payload = mockEmitAuthEvent.mock.calls[0]?.[1] as Record<string, unknown>
+    expect(JSON.stringify(payload)).not.toContain('reset-token-1')
+  })
+
+  test('identifies the user by id only, keeping the email out of the durable payload', async () => {
+    await POST(makeResetRequest('https://app.example.com/api/auth/reset'))
+
+    expect(mockEmitAuthEvent).toHaveBeenCalledTimes(1)
+    const payload = mockEmitAuthEvent.mock.calls[0]?.[1] as Record<string, unknown>
+    expect(payload).not.toHaveProperty('email')
+    expect(JSON.stringify(payload)).not.toContain('staff@example.com')
+  })
+
   test('returns success even when email delivery fails', async () => {
     mockSendEmail.mockRejectedValueOnce(new Error('RESEND_API_KEY is not set'))
 
@@ -187,5 +240,75 @@ describe('POST /api/auth/reset', () => {
     expect(res.status).toBe(200)
     expect(body).toEqual({ ok: true })
     expect(mockRequestPasswordReset).toHaveBeenCalledWith('staff@example.com')
+  })
+
+  describe('tenant continuity in the reset link', () => {
+    function resolveTenantBoundUser(tenantId: unknown) {
+      mockRequestPasswordReset.mockResolvedValueOnce({
+        user: { id: 'user-1', email: 'staff@example.com', tenantId, organizationId: 'org-1' },
+        token: 'reset-token-1',
+      })
+    }
+
+    test('carries the resolved tenant so the link lands on the tenant login entry', async () => {
+      resolveTenantBoundUser('tenant-1')
+
+      await POST(makeResetRequest('https://app.example.com/api/auth/reset'))
+
+      expect(mockResetPasswordEmail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          resetUrl: 'https://app.example.com/reset/reset-token-1?tenant=tenant-1',
+        }),
+      )
+    })
+
+    test('leaves a tenantless user on the generic reset link', async () => {
+      await POST(makeResetRequest('https://app.example.com/api/auth/reset'))
+
+      expect(mockResetPasswordEmail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          resetUrl: 'https://app.example.com/reset/reset-token-1',
+        }),
+      )
+    })
+
+    test('escapes a tenant id that would otherwise alter the link', async () => {
+      resolveTenantBoundUser('a&b=c')
+
+      await POST(makeResetRequest('https://app.example.com/api/auth/reset'))
+
+      const { resetUrl } = mockResetPasswordEmail.mock.calls[0]?.[0] as { resetUrl: string }
+      const parsed = new URL(resetUrl)
+      expect(parsed.pathname).toBe('/reset/reset-token-1')
+      expect([...parsed.searchParams.keys()]).toEqual(['tenant'])
+      expect(parsed.searchParams.get('tenant')).toBe('a&b=c')
+    })
+
+    test('ignores a tenant supplied by the caller and uses the resolved user instead', async () => {
+      resolveTenantBoundUser('tenant-1')
+      const body = new URLSearchParams()
+      body.set('email', 'staff@example.com')
+      body.set('tenant', 'forged-tenant')
+
+      await POST(new Request('https://app.example.com/api/auth/reset?tenant=forged-tenant', {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: body.toString(),
+      }))
+
+      const { resetUrl } = mockResetPasswordEmail.mock.calls[0]?.[0] as { resetUrl: string }
+      expect(new URL(resetUrl).searchParams.get('tenant')).toBe('tenant-1')
+      expect(resetUrl).not.toContain('forged-tenant')
+    })
+
+    test('keeps the generic response for an unknown account without sending mail', async () => {
+      mockRequestPasswordReset.mockResolvedValueOnce(null)
+
+      const res = await POST(makeResetRequest('https://app.example.com/api/auth/reset'))
+
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ ok: true })
+      expect(mockSendEmail).not.toHaveBeenCalled()
+    })
   })
 })

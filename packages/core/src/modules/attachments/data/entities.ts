@@ -1,6 +1,7 @@
-import { OptionalProps } from '@mikro-orm/core'
+import { BigIntType, OptionalProps } from '@mikro-orm/core'
 import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 import { resolveDefaultAttachmentOcrEnabled } from '../lib/ocrConfig'
+import type { AttachmentAccessRequirement } from '../lib/access-types'
 
 @Entity({ tableName: 'attachment_partitions' })
 @Unique({ name: 'attachment_partitions_code_unique', properties: ['code'] })
@@ -24,6 +25,9 @@ export class AttachmentPartition {
 
   @Property({ name: 'config_json', type: 'json', nullable: true })
   configJson?: Record<string, unknown> | null
+
+  @Property({ name: 'access_resolver_requirements', type: 'jsonb', nullable: true })
+  accessResolverRequirements?: AttachmentAccessRequirement[] | null
 
   @Property({ name: 'is_public', type: 'boolean', default: false })
   isPublic: boolean = false
@@ -49,6 +53,7 @@ export class AttachmentPartition {
 }
 
 @Entity({ tableName: 'attachments' })
+@Index({ name: 'attachments_storage_reference_idx', properties: ['partitionCode', 'storagePath'] })
 export class Attachment {
   [OptionalProps]?: 'createdAt'
 
@@ -98,4 +103,65 @@ export class Attachment {
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
+}
+
+@Entity({ tableName: 'attachment_quota_reservations' })
+@Unique({
+  name: 'attachment_quota_reservations_scope_path_unique',
+  properties: ['tenantId', 'storageDriver', 'storagePath'],
+})
+@Index({
+  name: 'attachment_quota_reservations_tenant_status_idx',
+  properties: ['tenantId', 'status'],
+})
+export class AttachmentQuotaReservation {
+  [OptionalProps]?: 'actualBytes' | 'createdAt' | 'status' | 'updatedAt' | 'uploadTokenHash'
+
+  @PrimaryKey({ type: 'uuid' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  /** Backed by a `bigint` column; hydrate as `number` (safe under Number.MAX_SAFE_INTEGER for attachment byte counts) instead of MikroORM's default JS `bigint`. */
+  @Property({ name: 'reserved_bytes', type: new BigIntType('number') })
+  reservedBytes!: number
+
+  /** Backed by a `bigint` column; hydrate as `number`, not MikroORM's default JS `bigint`. */
+  @Property({ name: 'actual_bytes', type: new BigIntType('number'), nullable: true })
+  actualBytes?: number | null
+
+  @Property({ type: 'text', default: 'reserved' })
+  status: 'reserved' | 'storing' | 'stored' | 'recovering' | 'committed' = 'reserved'
+
+  @Property({ type: 'text' })
+  source!: string
+
+  @Property({ name: 'storage_driver', type: 'text' })
+  storageDriver!: string
+
+  @Property({ name: 'partition_code', type: 'text', nullable: true })
+  partitionCode?: string | null
+
+  @Property({ name: 'storage_path', type: 'text' })
+  storagePath!: string
+
+  @Property({ name: 'lease_token', type: 'uuid' })
+  leaseToken!: string
+
+  @Property({ name: 'upload_token_hash', type: 'text', nullable: true })
+  uploadTokenHash?: string | null
+
+  @Property({ name: 'expires_at', type: Date, nullable: true })
+  @Index({ name: 'attachment_quota_reservations_expires_idx' })
+  expiresAt?: Date | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
 }

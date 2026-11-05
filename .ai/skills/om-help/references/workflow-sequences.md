@@ -125,7 +125,7 @@ om-spec-writing
 om-auto-create-pr          (or om-open-pr for manual branch)
   → om-auto-review-pr
   → om-merge-buddy
-  → om-sync-merged-pr-issues
+  → om-close-fixed-issues
   → om-auto-update-changelog
 ```
 
@@ -133,7 +133,7 @@ om-auto-create-pr          (or om-open-pr for manual branch)
 1. `om-auto-create-pr` — create PR with plan, labels, progress checklist
 2. `om-auto-review-pr` — automated review; approve or request changes
 3. `om-merge-buddy` — classify merge-readiness, surface blockers
-4. `om-sync-merged-pr-issues` — close linked GitHub issues
+4. `om-close-fixed-issues` — close linked GitHub issues
 5. `om-auto-update-changelog` — draft CHANGELOG entry at release time
 
 > For review-only (no automation): use `om-auto-review-pr <PR-number>` directly.
@@ -193,12 +193,10 @@ om-spec-writing            (design adapter, credentials, health check)
 **Use when:** Creating a new `om-*` skill.
 
 ```
-om-skill-creator
+om-create-skill
 ```
 
-`om-skill-creator` is self-contained — it guides the entire process (understand → plan → init → edit → package → iterate).
-
-After creating the skill, register it in `tiers.json` and update `README.md` manually or via `om-check-and-commit`.
+`om-create-skill` is self-contained — it guides the entire process (interview → draft → push detail into `references/` → scaffold → gate). Its repo-local override (`.ai/skills/om-create-skill/SKILL.md`) adds this repo's steps: registering the skill in `tiers.json` and the `README.md` tier table, then `node scripts/validate-skills-tiers.mjs`. For this repo's delta to a shared collection skill, it writes an override instead of a new skill.
 
 ---
 

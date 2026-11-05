@@ -1,9 +1,11 @@
 "use client"
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/auth/extension-points'
 import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
-import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import type { SortingState } from '@tanstack/react-table'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
@@ -31,6 +33,7 @@ export default function RolesListPage() {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const [rows, setRows] = React.useState<Row[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
@@ -53,7 +56,7 @@ export default function RolesListPage() {
           items?: Row[]
           total?: number
           totalPages?: number
-          isSuperAdmin?: boolean
+          isSuperAdmin?: boolean; totalIsCapped?: boolean
         }>(
           `/api/auth/roles?${params.toString()}`,
           undefined,
@@ -63,6 +66,7 @@ export default function RolesListPage() {
           setRows(j.items || [])
           setTotal(j.total || 0)
           setTotalPages(j.totalPages || 1)
+          setTotalIsCapped(j?.totalIsCapped === true)
           setIsSuperAdmin(!!j.isSuperAdmin)
         }
       } finally {
@@ -73,9 +77,14 @@ export default function RolesListPage() {
     return () => { cancelled = true }
   }, [page, search, reloadToken, scopeVersion, t])
 
+  const formatRoleName = React.useCallback(
+    (name: string) => t(`auth.roles.${name}`, name),
+    [t],
+  )
+
   const handleDelete = React.useCallback(async (row: Row) => {
     const confirmed = await confirm({
-      title: t('auth.roles.list.confirmDelete', 'Delete role "{{name}}"?').replace('{{name}}', row.name),
+      title: t('auth.roles.list.confirmDelete', 'Delete role "{{name}}"?').replace('{{name}}', formatRoleName(row.name)),
       variant: 'destructive',
     })
     if (!confirmed) return
@@ -96,7 +105,7 @@ export default function RolesListPage() {
       const message = error instanceof Error ? error.message : t('auth.roles.list.error.delete', 'Failed to delete role')
       flash(message, 'error')
     }
-  }, [confirm, t])
+  }, [confirm, formatRoleName, t])
 
   const showTenantColumn = React.useMemo(
     () => isSuperAdmin && rows.some((row) => row.tenantName),
@@ -104,20 +113,25 @@ export default function RolesListPage() {
   )
   const columns = React.useMemo<ColumnDef<Row>[]>(() => {
     const base: ColumnDef<Row>[] = [
-      { accessorKey: 'name', header: t('auth.roles.list.columns.role', 'Role') },
+      {
+        accessorKey: 'name',
+        header: t('auth.roles.list.columns.role', 'Role'),
+        cell: ({ row }) => formatRoleName(row.original.name),
+      },
       { accessorKey: 'usersCount', header: t('auth.roles.list.columns.users', 'Users') },
     ]
     if (showTenantColumn) {
       base.splice(1, 0, { accessorKey: 'tenantName', header: t('auth.roles.list.columns.tenant', 'Tenant') })
     }
     return base
-  }, [showTenantColumn, t])
+  }, [formatRoleName, showTenantColumn, t])
 
   return (
     <Page>
       <PageBody>
         <DataTable
-          title={t('auth.roles.list.title', 'Roles')}
+        title={t('auth.roles.list.title', 'Roles')}
+        titleHeadingLevel={1}
           actions={(
             <Button asChild>
               <Link href="/backend/roles/create">{t('auth.roles.list.actions.create', 'Create')}</Link>
@@ -137,7 +151,7 @@ export default function RolesListPage() {
           sortable
           sorting={sorting}
           onSortingChange={setSorting}
-          perspective={{ tableId: 'auth.roles.list' }}
+          perspective={{ tableId: extensionPoints.hosts.rolesTable.tableId }}
           emptyState={(
             <ListEmptyState
               entityName={t('auth.roles.list.title', 'Roles')}
@@ -145,7 +159,7 @@ export default function RolesListPage() {
               createLabel={t('auth.roles.list.actions.create', 'Create')}
             />
           )}
-          pagination={{ page, pageSize: 50, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize: 50, total, totalPages, totalIsCapped, onPageChange: setPage }}
           isLoading={isLoading}
         />
       </PageBody>

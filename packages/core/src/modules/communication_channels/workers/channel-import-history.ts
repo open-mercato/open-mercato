@@ -10,6 +10,10 @@ import {
 import { COMMUNICATION_CHANNELS_QUEUES } from '../lib/queue'
 import { refreshCredentialsIfNeeded } from '../lib/credential-refresh'
 import { classifyOutboundError } from '../lib/error-classification'
+import {
+  IMPORT_HISTORY_MAX_EMPTY_PAGES,
+  resolveImportHistoryPageBudget,
+} from '../lib/import-history-limits'
 import type { ChannelAdapterRegistry } from '../lib/registry'
 import type {
   ChannelImportHistoryJobPayload,
@@ -159,16 +163,21 @@ export default async function handle(
     let totalCount = maxMessages
     let firstPage = true
 
-    // Bounded loop guards against a misbehaving adapter (infinite hasMore).
-    // 100 pages * HARD_CAP (default 200) = 20k messages — far above the 5k cap
-    // enforced by the schema, so this only trips on adapter bugs.
-    const MAX_PAGES = 100
-    for (let pageIndex = 0; pageIndex < MAX_PAGES; pageIndex += 1) {
+    // Guards against an adapter that claims `hasMore` forever. An empty page is
+    // NOT a fault on its own — adapters legitimately drop every message on a
+    // page (Gmail 404/410 between listing and fetching, server-side filters) —
+    // so the hard stop is a cursor that stops advancing; the empty-page counter
+    // and the page budget are backstops.
+    const maxPages = resolveImportHistoryPageBudget(maxMessages)
+    let consecutiveEmptyPages = 0
+    let truncationReason: string | null = null
+    for (let pageIndex = 0; pageIndex < maxPages; pageIndex += 1) {
       if (await progressService.isCancellationRequested(progressJobId, scope.tenantId, scope.organizationId)) {
         await progressService.markCancelled(progressJobId, progressContext)
         return
       }
 
+      const requestedCursor = cursor
       const page = await adapter.importHistory!({
         credentials,
         scope: { tenantId: scope.tenantId, organizationId: scope.organizationId },
@@ -177,6 +186,21 @@ export default async function handle(
         maxMessages,
         cursor,
       })
+
+      if (page.hasMore && page.nextCursor !== undefined && page.nextCursor === requestedCursor) {
+        truncationReason = 'adapter repeated the same pagination cursor'
+        break
+      }
+
+      if (page.messages.length === 0 && page.hasMore) {
+        consecutiveEmptyPages += 1
+        if (consecutiveEmptyPages >= IMPORT_HISTORY_MAX_EMPTY_PAGES) {
+          truncationReason = `adapter returned no messages on ${consecutiveEmptyPages} consecutive pages`
+          break
+        }
+      } else {
+        consecutiveEmptyPages = 0
+      }
 
       if (firstPage && typeof page.totalCandidates === 'number') {
         totalCount = Math.min(maxMessages, page.totalCandidates)
@@ -225,6 +249,23 @@ export default async function handle(
       if (processedCount >= maxMessages) break
       if (!page.hasMore || !page.nextCursor) break
       cursor = page.nextCursor
+      if (pageIndex === maxPages - 1) {
+        truncationReason = `page budget of ${maxPages} exhausted while the adapter still reported more messages`
+      }
+    }
+
+    if (truncationReason) {
+      // Surfaced as a failed job on purpose: the operator must see that the
+      // backlog is incomplete rather than a clean "imported N" summary.
+      logger.warn('history import stopped early', { channelId: channel.id, reason: truncationReason, processedCount })
+      await progressService.failJob(
+        progressJobId,
+        {
+          errorMessage: `History import stopped early after ${processedCount} messages: ${truncationReason}`,
+        },
+        progressContext,
+      )
+      return
     }
 
     await progressService.completeJob(

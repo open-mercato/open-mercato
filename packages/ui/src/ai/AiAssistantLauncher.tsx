@@ -4,9 +4,18 @@
  * Global AI assistant launcher.
  *
  * Reusable component that:
- *   - Hides itself when the AI runtime is not configured (no provider key,
- *     `/api/ai_assistant/health` returns non-OK, or `/api/ai_assistant/ai/agents`
- *     returns zero accessible agents for the caller).
+ *   - Renders nothing unless the `ai_assistant` module is enabled AND the
+ *     caller holds `ai_assistant.view` (`useAiAssistantAvailable`). Both are
+ *     resolved from data the backend shell already holds, so an installation
+ *     without the module never reaches the endpoints below.
+ *   - Past that gate, hides itself when `/api/ai_assistant/ai/agents` returns
+ *     zero accessible agents for the caller — that endpoint is the only
+ *     authoritative visibility signal. `/api/ai_assistant/health` is advisory:
+ *     a non-OK response or a network error is deliberately treated as
+ *     "probably healthy" so a flaky endpoint cannot hide the launcher, and
+ *     only an explicit `{ healthy: false }` body vetoes rendering.
+ *   - Stays visible with a setup prompt when agents exist but no provider key
+ *     is configured (`aiConfigured: false`), rather than vanishing.
  *   - Exposes a compact icon trigger styled for the topbar.
  *   - Opens a Cmd-K-style searchable dialog listing every typed agent the
  *     caller is allowed to launch — searchable by label, description, or id —
@@ -49,6 +58,7 @@ import { IconButton } from '../primitives/icon-button'
 import { Kbd, KbdShortcut } from '../primitives/kbd'
 import { useAiDock } from './AiDock'
 import { useAiChatSessions } from './AiChatSessions'
+import { useAiAssistantAvailable } from './useAiAssistantAvailable'
 import { ChatPaneTabs } from './ChatPaneTabs'
 import { ConversationShareButton } from './ConversationShareButton'
 import { AiIcon } from './AiIcon'
@@ -91,8 +101,9 @@ export interface AiAssistantLauncherProps {
   agentsEndpoint?: string
   /**
    * Optional override of the health endpoint. Defaults to
-   * `/api/ai_assistant/health`. The launcher hides itself when this returns
-   * non-2xx OR a JSON body with `{ healthy: false }`.
+   * `/api/ai_assistant/health`. Advisory only: non-2xx responses and network
+   * errors count as "probably healthy" so a flaky endpoint cannot hide the
+   * launcher. Only an explicit `{ healthy: false }` body hides it.
    */
   healthEndpoint?: string
   /**
@@ -193,7 +204,16 @@ function isTextEntryTarget(target: EventTarget | null): boolean {
   return false
 }
 
-export function AiAssistantLauncher({
+export function AiAssistantLauncher(props: AiAssistantLauncherProps) {
+  // The AI routes only exist when the `ai_assistant` module is enabled, and
+  // they are gated on `ai_assistant.view`. Deciding this before mounting the
+  // content keeps the health and agents effects from firing doomed reads.
+  const aiAvailable = useAiAssistantAvailable()
+  if (!aiAvailable) return null
+  return <AiAssistantLauncherContent {...props} />
+}
+
+function AiAssistantLauncherContent({
   variant: _variant = 'topbar',
   agentsEndpoint = DEFAULT_AGENTS_ENDPOINT,
   healthEndpoint = DEFAULT_HEALTH_ENDPOINT,

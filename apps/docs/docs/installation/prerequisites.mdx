@@ -69,6 +69,19 @@ REDIS_URL=redis://localhost:6379
 
 The pgvector extension is automatically installed in all databases, enabling vector search features out of the box.
 
+### Required PostgreSQL extensions
+
+Migrations install `unaccent` and `pg_trgm`, which back accent-insensitive product search — searching `hustawka` finds `huśtawka`. The shipped Docker image and the usual managed offerings ship both, and `yarn db:migrate` enables them on first run.
+
+Enabling an extension needs `CREATE` on the database, which the application role does not always hold — some managed providers also require the extension to be allowlisted first. If a migration stops with a message naming one of these extensions, connect once as a superuser and run:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS "unaccent" SCHEMA public;
+CREATE EXTENSION IF NOT EXISTS "pg_trgm" SCHEMA public;
+```
+
+then re-run `yarn db:migrate`. Migrations skip the create when an extension is already present, so no elevated privilege is needed afterwards.
+
 ### Embedding Provider API Keys (optional)
 
 Vector search requires at least one embedding provider. The shipped example env keeps vector auto-indexing off by default; enable it with `OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING=false` after you choose a provider. Configure the API key(s) for your preferred provider(s):

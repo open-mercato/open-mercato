@@ -266,6 +266,24 @@ export function validateRadius(input: string): RadiusValidation {
   return { value, valid: true, warnings }
 }
 
+export type FontFamilyValidation = {
+  value: string
+  valid: boolean
+}
+
+const CSS_STRUCTURAL_PATTERN = /[;{}\\\r\n]|\/\*/
+
+/**
+ * Validates a `--font` value: one family or a comma-separated stack. Rejects
+ * anything that could end the declaration or the rule (`;`, `{`, `}`, line
+ * breaks, backslash escapes, comment openers), so a font value can only ever
+ * produce the single `--font-geist-sans` declaration.
+ */
+export function validateFontFamily(input: string): FontFamilyValidation {
+  const value = input.trim()
+  return { value, valid: value.length > 0 && !CSS_STRUCTURAL_PATTERN.test(value) }
+}
+
 // ── theme.css emission ──────────────────────────────────────────────────────
 
 /** System UI stack appended as fallback when `--font` overrides the family. */
@@ -321,6 +339,9 @@ export function renderThemeCss(options: ThemeCssOptions): string {
   ]
   if (radius) rootLines.push(`  --radius: ${radius};`)
   if (fontFamily) {
+    if (!validateFontFamily(fontFamily).valid) {
+      throw new Error(`Invalid font family "${fontFamily}": CSS-structural characters are not allowed.`)
+    }
     // A comma means the user passed a full stack — use it verbatim; a single
     // family with spaces gets quoted; pre-quoted values pass through unwrapped.
     const stripped = fontFamily.trim().replace(/^["']|["']$/g, '')

@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import {
   Select,
@@ -88,7 +88,7 @@ export function ConditionRow({ condition, onChange, onDelete, error }: Condition
             aria-invalid={fieldError ? true : undefined}
           />
           {fieldError && (
-            <p className="text-xs text-red-600 mt-0.5">
+            <p className="text-xs text-status-error-text mt-0.5">
               {t('business_rules.components.conditionRow.field.invalidPath')}
             </p>
           )}
@@ -166,19 +166,22 @@ export function ConditionRow({ condition, onChange, onDelete, error }: Condition
       </div>
 
       {/* Delete Button */}
-      <button
+      <IconButton
         type="button"
         onClick={onDelete}
-        className="p-1.5 text-muted-foreground hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+        variant="ghost"
+        size="xs"
+        className="hover:bg-destructive/10 hover:text-destructive"
         title={t('business_rules.components.conditionRow.deleteCondition')}
+        aria-label={t('business_rules.components.conditionRow.deleteCondition')}
       >
         <X className="w-4 h-4" />
-      </button>
+      </IconButton>
 
       {/* Error Display */}
       {error && (
         <div className="col-span-full mt-2">
-          <p className="text-xs text-red-600">{error}</p>
+          <p className="text-xs text-status-error-text">{error}</p>
         </div>
       )}
     </div>

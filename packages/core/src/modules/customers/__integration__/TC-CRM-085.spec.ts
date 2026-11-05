@@ -162,6 +162,10 @@ test.describe('TC-CRM-085: deals map view tab (UI)', () => {
 
       // Mobile: the located panel is height-capped (max-h-[60vh]) so its card list scrolls within a
       // bounded region instead of stacking the full set above the map; the cap is lifted at lg.
+      // Resizing the viewport resizes the Leaflet canvas, which re-centers the map and re-runs the
+      // located-deals query; while that query is in flight DealsMapView renders LoadingMessage in
+      // place of the panel, so a single evaluate() snapshot can land on the unmounted window and
+      // read 'MISSING'. Poll the read instead of sampling it once.
       const readPanelMaxHeight = () =>
         page.evaluate(() => {
           const node = Array.from(document.querySelectorAll('div')).find(
@@ -169,12 +173,17 @@ test.describe('TC-CRM-085: deals map view tab (UI)', () => {
           );
           return node ? getComputedStyle(node).maxHeight : 'MISSING';
         });
+      const POLL_PANEL = { timeout: 15_000, intervals: [250, 500, 1_000] };
       await page.setViewportSize({ width: 375, height: 812 });
-      const mobileMaxHeight = await readPanelMaxHeight();
-      expect(mobileMaxHeight, 'panel height-cap element is present').not.toBe('MISSING');
-      expect(mobileMaxHeight, 'panel is height-capped on mobile (scrollable region)').not.toBe('none');
+      await expect(async () => {
+        const mobileMaxHeight = await readPanelMaxHeight();
+        expect(mobileMaxHeight, 'panel height-cap element is present').not.toBe('MISSING');
+        expect(mobileMaxHeight, 'panel is height-capped on mobile (scrollable region)').not.toBe('none');
+      }).toPass(POLL_PANEL);
       await page.setViewportSize({ width: 1280, height: 900 });
-      expect(await readPanelMaxHeight(), 'panel height-cap is lifted at lg (lg:max-h-none)').toBe('none');
+      await expect(async () => {
+        expect(await readPanelMaxHeight(), 'panel height-cap is lifted at lg (lg:max-h-none)').toBe('none');
+      }).toPass(POLL_PANEL);
     } finally {
       await deleteEntityIfExists(request, token, DEALS_PATH, dealId);
       await deleteEntityByBody(request, token, PIPELINE_STAGES_PATH, stageId);

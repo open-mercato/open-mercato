@@ -32,6 +32,11 @@ import {
 import type { ModuleWorker } from '@open-mercato/shared/modules/registry'
 import type { LazyWorkerSpawnMode } from './auto-spawn-workers'
 
+export type SupervisorWorkerDescriptor = Pick<
+  ModuleWorker,
+  'id' | 'moduleId' | 'queue' | 'concurrency'
+>
+
 export type LazySupervisorSpawnFn = (
   command: string,
   args: readonly string[],
@@ -47,7 +52,7 @@ export type LazyWorkerSupervisorOptions = {
   mercatoBin: string
   appDir: string
   runtimeEnv: NodeJS.ProcessEnv
-  workers: ModuleWorker[]
+  workers: readonly SupervisorWorkerDescriptor[]
   pollMs: number
   restartOnUnexpectedExit: boolean
   spawnMode?: LazyWorkerSpawnMode
@@ -89,7 +94,7 @@ type QueueGroup = {
   workerCount: number
 }
 
-function groupWorkersByQueue(workers: ModuleWorker[]): QueueGroup[] {
+function groupWorkersByQueue(workers: readonly SupervisorWorkerDescriptor[]): QueueGroup[] {
   const groups = new Map<string, QueueGroup>()
   for (const worker of workers) {
     const existing = groups.get(worker.queue)
@@ -436,7 +441,10 @@ export function startLazyWorkerSupervisor(
     }
 
     const exitWaiters: Promise<void>[] = []
+    const closingChildren = new Set<ChildProcess>()
     for (const [queueName, child] of activeChildren) {
+      if (closingChildren.has(child)) continue
+      closingChildren.add(child)
       exitWaiters.push(
         new Promise<void>((resolve) => {
           if (child.exitCode !== null || child.signalCode !== null) return resolve()

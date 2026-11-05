@@ -34,7 +34,7 @@ export default function MfaEnrollmentNotice({
     )
 
   return (
-    <Alert variant={overdue ? 'warning' : 'info'} className="mb-4">
+    <Alert status={overdue ? 'warning' : 'information'} className="mb-4">
       <AlertTitle>{title}</AlertTitle>
       <AlertDescription>{body}</AlertDescription>
       <div className="mt-2">

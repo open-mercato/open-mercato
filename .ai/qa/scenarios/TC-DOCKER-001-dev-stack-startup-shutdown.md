@@ -22,11 +22,11 @@ Verify that `yarn docker:dev:up` starts the full dev stack in detached mode and 
 |------|--------|-----------------|
 | 1 | Run `yarn docker:dev:up` from repo root | Docker builds the dev image and starts all services (app, postgres, redis, meilisearch) |
 | 2 | Wait for startup to complete | No error output; process returns to shell prompt (detached mode) |
-| 3 | Run `docker compose -f docker-compose.fullapp.dev.yml ps` | All services show status `running` or `healthy` |
-| 4 | Run `docker compose -f docker-compose.fullapp.dev.yml logs app --tail=20` | Logs show `yarn dev` running; no fatal errors |
+| 3 | Run `docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml ps` | All services show status `running` or `healthy` |
+| 4 | Run `docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml logs app --tail=20` | Logs show `yarn dev` running; no fatal errors |
 | 5 | Navigate to `http://localhost:3000/backend` | Login page is displayed |
 | 6 | Run `yarn docker:dev:down` | All containers stop and are removed |
-| 7 | Run `docker compose -f docker-compose.fullapp.dev.yml ps` | No running containers listed |
+| 7 | Run `docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml ps` | No running containers listed |
 
 ## Expected Results
 - Stack starts cleanly in detached mode

@@ -107,6 +107,15 @@ interface CommandInterceptorBeforeResult {
   ok?: boolean
   /** Error message when blocking */
   message?: string
+  /**
+   * HTTP status code when blocking. Omit to keep the historical behaviour, where a rejection
+   * without a status surfaces as a generic 500 — set it (e.g. 422) to have the transport layer
+   * answer with a deliberate business-rejection status instead.
+   * Added 2026-08-06, see `.ai/specs/2026-08-06-command-interceptor-http-status.md`.
+   */
+  status?: number
+  /** Error body when blocking (overrides message). Only used together with `status`. */
+  body?: Record<string, unknown>
   /** Modified input — shallow-merged into command input if ok:true */
   modifiedInput?: Record<string, unknown>
   /** Metadata passed to the corresponding after hook */
@@ -159,7 +168,9 @@ async function runCommandInterceptorsBefore(
   userFeatures: string[],
 ): Promise<{
   ok: boolean
-  error?: { message: string }
+  // `status`/`body` are present only when the blocking interceptor supplied a status
+  // (added 2026-08-06, see `.ai/specs/2026-08-06-command-interceptor-http-status.md`).
+  error?: { message: string; status?: number; body?: Record<string, unknown> }
   modifiedInput?: Record<string, unknown>
   metadataByInterceptor: Map<string, Record<string, unknown>>
 }> {
@@ -178,7 +189,9 @@ async function runCommandInterceptorsBefore(
     if (result?.ok === false) {
       return {
         ok: false,
-        error: { message: result.message ?? `Blocked by command interceptor: ${interceptor.id}` },
+        // `buildBlockedError` attaches `status` and a derived `body` only when the interceptor
+        // supplied a numeric status, so a statusless rejection keeps the generic-500 handling.
+        error: buildBlockedError(result, `Blocked by command interceptor: ${interceptor.id}`),
         metadataByInterceptor,
       }
     }
@@ -248,7 +261,9 @@ async function runCommandInterceptorsBeforeUndo(
   userFeatures: string[],
 ): Promise<{
   ok: boolean
-  error?: { message: string }
+  // `status`/`body` are present only when the blocking interceptor supplied a status
+  // (added 2026-08-06, see `.ai/specs/2026-08-06-command-interceptor-http-status.md`).
+  error?: { message: string; status?: number; body?: Record<string, unknown> }
   metadataByInterceptor: Map<string, Record<string, unknown>>
 }> {
   const matching = interceptors
@@ -542,16 +557,40 @@ When a `beforeExecute` interceptor returns `ok: false`, the `CommandBus` throws 
 // packages/shared/src/lib/commands/errors.ts
 
 export class CommandInterceptorError extends Error {
-  constructor(message: string) {
-    super(message)
+  /** HTTP status a deliberate rejection wants to surface; undefined keeps the generic 500. */
+  readonly status?: number
+  /** Response body for the rejection — `options.body`, else `{ error: message }`. Paired with `status`. */
+  readonly body?: Record<string, unknown>
+
+  constructor(message: string, options?: { status?: number; body?: Record<string, unknown>; cause?: unknown }) {
+    super(message, options?.cause !== undefined ? { cause: options.cause } : undefined)
     this.name = 'CommandInterceptorError'
+    if (typeof options?.status === 'number') {
+      this.status = options.status
+      this.body = options.body ?? { error: message }
+    }
   }
 }
+
+/** Cross-bundle guard (Symbol.for marker, same pattern as CrudHttpError). */
+export function isCommandInterceptorError(err: unknown): err is CommandInterceptorError
+
+/** Transport mapper — returns `{ status, body }` only for an integer status in 400-599, else null. */
+export function getCommandInterceptorHttpRejection(
+  err: unknown,
+): { status: number; body: Record<string, unknown> } | null
 ```
 
-API routes and UI pages that invoke commands should handle this error and return an appropriate response (e.g., 422 with the interceptor's message). The existing `CrudHttpError` catch-and-map pattern in detail pages already handles thrown errors gracefully.
+> **Update (2026-08-06)** — the `status` / `body` pair, the `Symbol.for` marker with its
+> `isCommandInterceptorError` guard, and the `getCommandInterceptorHttpRejection` mapper were added by
+> `.ai/specs/2026-08-06-command-interceptor-http-status.md` (issue #5045). The second constructor
+> argument is optional, so every prior `new CommandInterceptorError(message)` call site is unchanged.
 
-For `beforeUndo`, the error propagates to the undo caller — typically the action log undo API endpoint, which already returns the error message to the user.
+Transports map the rejection through `getCommandInterceptorHttpRejection(err)`: `handleError` in the
+CRUD factory does it for every `makeCrudRoute` handler, and the action-log undo route does it for the
+`beforeUndo` path. A rejection that sets no status keeps the historical generic response (500 on CRUD
+routes, `400 Undo failed` on undo). Routes that call `commandBus.execute` inside their own `catch`
+opt in with the same two-line mapping.
 
 ---
 

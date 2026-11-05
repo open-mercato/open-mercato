@@ -28,6 +28,7 @@ export default function CreateChannelPage() {
       <PageBody>
         <CrudForm<ChannelFormValues>
           title={t('sales.channels.form.createTitle', 'Create sales channel')}
+          titleHeadingLevel={1}
           entityId={E.sales.sales_channel}
           fields={fields}
           groups={[

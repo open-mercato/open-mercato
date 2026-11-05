@@ -4,7 +4,11 @@ import type { CrudCustomFieldRenderProps } from '../CrudForm'
 export type FieldInputComponent = (props: CrudCustomFieldRenderProps & { def?: any }) => React.ReactNode
 export type FieldDefEditorComponent = (props: { def: any; onChange: (patch: any) => void }) => React.ReactNode
 
-type Entry = { input?: FieldInputComponent; defEditor?: FieldDefEditorComponent }
+type Entry = {
+  input?: FieldInputComponent
+  defEditor?: FieldDefEditorComponent
+  inputRendersOwnError?: boolean
+}
 
 class FieldRegistryImpl {
   private map = new Map<string, Entry>()
@@ -17,6 +21,10 @@ class FieldRegistryImpl {
 
   getInput(kind: string): FieldInputComponent | undefined {
     return this.map.get(kind.toLowerCase())?.input
+  }
+
+  inputRendersOwnError(kind: string): boolean {
+    return this.map.get(kind.toLowerCase())?.inputRendersOwnError === true
   }
 
   getDefEditor(kind: string): FieldDefEditorComponent | undefined {

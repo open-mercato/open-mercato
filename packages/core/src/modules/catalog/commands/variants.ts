@@ -9,7 +9,7 @@ import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { resolveRedoSnapshot, restoreCreatedRow } from '@open-mercato/shared/lib/commands/redo'
 import { E } from '#generated/entities.ids.generated'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   CatalogProductVariant,
   CatalogProductPrice,
@@ -27,10 +27,13 @@ import {
   type VariantUpdateInput,
 } from '../data/validators'
 import { isValidGtin, normalizeGtinValue } from '../lib/gtin'
+import { capturePriceHistoryEntries } from '../lib/omnibus'
+import { resolveOmnibusCache } from '../lib/omnibusCache'
 import type { CatalogGtinType } from '../data/types'
 import {
   cloneJson,
   commandActorScope,
+  commandScopeWhere,
   ensureOrganizationScope,
   ensureTenantScope,
   emitCatalogQueryIndexEvent,
@@ -109,9 +112,13 @@ const VARIANT_CHANGE_KEYS = [
 async function loadVariantSnapshot(
   em: EntityManager,
   id: string,
-  options: { includePrices?: boolean } = {}
+  options: { includePrices?: boolean; scopeWhere?: Record<string, unknown> } = {}
 ): Promise<VariantSnapshot | null> {
-  const record = await em.findOne(CatalogProductVariant, { id, deletedAt: null })
+  const record = await findOneWithDecryption(em, CatalogProductVariant, {
+    id,
+    deletedAt: null,
+    ...options.scopeWhere,
+  })
   if (!record) return null
   const prices = options.includePrices
     ? await loadVariantPriceSnapshots(em, record.id, {
@@ -811,7 +818,7 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
   async prepare(input, ctx) {
     const id = requireId(input, 'Variant id is required')
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadVariantSnapshot(em, id)
+    const snapshot = await loadVariantSnapshot(em, id, { scopeWhere: commandScopeWhere(ctx) })
     if (snapshot) {
       ensureTenantScope(ctx, snapshot.tenantId)
       ensureOrganizationScope(ctx, snapshot.organizationId)
@@ -821,7 +828,11 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(variantUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(CatalogProductVariant, { id: parsed.id, deletedAt: null })
+    const record = await findOneWithDecryption(em, CatalogProductVariant, {
+      id: parsed.id,
+      deletedAt: null,
+      ...commandScopeWhere(ctx),
+    })
     if (!record) throw new CrudHttpError(404, { error: 'Catalog variant not found' })
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
@@ -1047,7 +1058,10 @@ const deleteVariantCommand: CommandHandler<
   async prepare(input, ctx) {
     const id = requireId(input, 'Variant id is required')
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadVariantSnapshot(em, id, { includePrices: true })
+    const snapshot = await loadVariantSnapshot(em, id, {
+      includePrices: true,
+      scopeWhere: commandScopeWhere(ctx),
+    })
     if (snapshot) {
       ensureTenantScope(ctx, snapshot.tenantId)
       ensureOrganizationScope(ctx, snapshot.organizationId)
@@ -1057,7 +1071,10 @@ const deleteVariantCommand: CommandHandler<
   async execute(input, ctx) {
     const id = requireId(input, 'Variant id is required')
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(CatalogProductVariant, { id })
+    const record = await findOneWithDecryption(em, CatalogProductVariant, {
+      id,
+      ...commandScopeWhere(ctx),
+    })
     if (!record) throw new CrudHttpError(404, { error: 'Catalog variant not found' })
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
@@ -1080,6 +1097,7 @@ const deleteVariantCommand: CommandHandler<
     }
     em.remove(record)
     await em.flush()
+    await capturePriceHistoryEntries(em, priceSnapshots, 'delete', { cache: resolveOmnibusCache(ctx.container) })
     for (const priceSnapshot of priceSnapshots) {
       const resetValues = buildCustomFieldResetMap(priceSnapshot.custom ?? undefined, undefined)
       if (!Object.keys(resetValues).length) continue
@@ -1185,6 +1203,10 @@ const deleteVariantCommand: CommandHandler<
       await restoreVariantPricesFromSnapshots(em, record, before.prices, dataEngine)
     }
     await em.flush()
+    await capturePriceHistoryEntries(em, before.prices, 'undo', {
+      metadata: { undoneCommand: 'catalog.variants.delete' },
+      cache: resolveOmnibusCache(ctx.container),
+    })
     if (before.custom && Object.keys(before.custom).length) {
       await setCustomFieldsIfAny({
         dataEngine: ctx.container.resolve('dataEngine'),

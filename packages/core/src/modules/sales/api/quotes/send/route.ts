@@ -3,21 +3,18 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { resolveTranslations, detectLocale } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError, isCrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import {
-  bridgeLegacyGuard,
-  runMutationGuards,
-  type MutationGuard,
-  type MutationGuardInput,
-} from '@open-mercato/shared/lib/crud/mutation-guard-registry'
+import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'node:crypto'
 import { withScopedPayload } from '../../utils'
 import { hashAuthToken } from '../../../../auth/lib/tokenHash'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { SalesQuote } from '../../../data/entities'
 import { quoteSendSchema } from '../../../data/validators'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
@@ -35,53 +32,6 @@ type RequestContext = {
   ctx: CommandRuntimeContext
 }
 
-function resolveUserFeatures(auth: unknown): string[] {
-  const features = (auth as { features?: unknown })?.features
-  if (!Array.isArray(features)) return []
-  return features.filter((value): value is string => typeof value === 'string')
-}
-
-async function runGuards(
-  ctx: CommandRuntimeContext,
-  input: MutationGuardInput,
-): Promise<{
-  ok: boolean
-  errorBody?: Record<string, unknown>
-  errorStatus?: number
-  afterSuccessCallbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }>
-}> {
-  const legacyGuard = bridgeLegacyGuard(ctx.container)
-  if (!legacyGuard) {
-    return { ok: true, afterSuccessCallbacks: [] }
-  }
-
-  return runMutationGuards([legacyGuard], input, {
-    userFeatures: resolveUserFeatures(ctx.auth),
-  })
-}
-
-async function runGuardAfterSuccessCallbacks(
-  callbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }>,
-  input: {
-    tenantId: string
-    organizationId: string | null
-    userId: string
-    resourceKind: string
-    resourceId: string
-    operation: 'create' | 'update' | 'delete'
-    requestMethod: string
-    requestHeaders: Headers
-  },
-): Promise<void> {
-  for (const callback of callbacks) {
-    if (!callback.guard.afterSuccess) continue
-    await callback.guard.afterSuccess({
-      ...input,
-      metadata: callback.metadata ?? null,
-    })
-  }
-}
-
 async function resolveRequestContext(req: Request): Promise<RequestContext> {
   const container = await createRequestContainer()
   const auth = await getAuthFromRequest(req)
@@ -92,7 +42,7 @@ async function resolveRequestContext(req: Request): Promise<RequestContext> {
   }
 
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-  const organizationId = scope?.selectedId ?? auth.orgId ?? null
+  const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth) ?? null
   if (!organizationId) {
     throw new CrudHttpError(400, {
       error: translate('sales.documents.errors.organization_required', 'Organization context is required'),
@@ -112,8 +62,16 @@ async function resolveRequestContext(req: Request): Promise<RequestContext> {
 }
 
 function resolveQuoteEmail(quote: SalesQuote): string | null {
-  const snapshot = quote.customerSnapshot && typeof quote.customerSnapshot === 'object' ? (quote.customerSnapshot as Record<string, unknown>) : null
-  const metadata = quote.metadata && typeof quote.metadata === 'object' ? (quote.metadata as Record<string, unknown>) : null
+  const normalizeRecord = (value: unknown): Record<string, unknown> | null => {
+    if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>
+    if (typeof value !== 'string') return null
+    const parsed = parseDecryptedFieldValue(value)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null
+  }
+  const snapshot = normalizeRecord(quote.customerSnapshot)
+  const metadata = normalizeRecord(quote.metadata)
   const contact = snapshot?.contact as Record<string, unknown> | undefined
   const customer = snapshot?.customer as Record<string, unknown> | undefined
   const candidate =
@@ -133,22 +91,29 @@ export async function POST(req: Request) {
     const payload = await req.json().catch(() => ({}))
     const scoped = withScopedPayload(payload ?? {}, ctx, translate)
     const input = quoteSendSchema.parse(scoped)
-    const guardResult = await runGuards(ctx, {
-      tenantId: ctx.auth?.tenantId ?? '',
-      organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
-      userId: ctx.auth?.sub ?? '',
-      resourceKind: 'sales.quote',
-      resourceId: input.quoteId,
-      operation: 'update',
-      requestMethod: req.method,
-      requestHeaders: req.headers,
+    const guardResult = await runRouteMutationGuards({
+      container: ctx.container,
+      req,
+      auth: {
+        tenantId: ctx.auth?.tenantId ?? '',
+        organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+        userId: ctx.auth?.sub ?? '',
+      },
+      input: {
+        resourceKind: 'sales.quote',
+        resourceId: input.quoteId,
+        operation: 'update',
+        mutationPayload: input,
+      },
     })
     if (!guardResult.ok) {
-      return NextResponse.json(guardResult.errorBody ?? { error: 'Operation blocked by guard' }, { status: guardResult.errorStatus ?? 422 })
+      return guardResult.response
     }
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const tenantScope = ctx.auth?.tenantId ? { tenantId: ctx.auth.tenantId } : undefined
+    const tenantScope = ctx.auth?.tenantId
+      ? { tenantId: ctx.auth.tenantId, organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null }
+      : undefined
     const quote = await findOneWithDecryption(em, SalesQuote, { id: input.quoteId, deletedAt: null }, {}, tenantScope)
     if (!quote) {
       throw notFound(translate('sales.documents.detail.error', 'Document not found or inaccessible.'))
@@ -216,20 +181,11 @@ export async function POST(req: Request) {
       to: email,
       subject: translate('sales.quotes.email.subject', 'Quote {quoteNumber}', { quoteNumber: quote.quoteNumber }),
       react: QuoteSentEmail({ url, copy }),
+      tenantId: quote.tenantId,
+      organizationId: quote.organizationId,
     })
 
-    if (guardResult.afterSuccessCallbacks.length) {
-      await runGuardAfterSuccessCallbacks(guardResult.afterSuccessCallbacks, {
-        tenantId: ctx.auth?.tenantId ?? '',
-        organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
-        userId: ctx.auth?.sub ?? '',
-        resourceKind: 'sales.quote',
-        resourceId: input.quoteId,
-        operation: 'update',
-        requestMethod: req.method,
-        requestHeaders: req.headers,
-      })
-    }
+    await guardResult.runAfterSuccess()
 
     return NextResponse.json({ ok: true })
   } catch (err) {

@@ -195,6 +195,16 @@ export async function resolveConfiguredStructuredModel(input: {
   return { model, modelWithProvider: modelConfig.modelWithProvider }
 }
 
+/**
+ * OpenAI strict structured outputs require every property to be listed in
+ * `required`, but {@link extractionOutputSchema} carries optional keys, so
+ * `@ai-sdk/openai`'s default `strictJsonSchema: true` gets every request
+ * rejected with HTTP 400 (#6287). Other providers ignore the `openai` namespace.
+ */
+const EXTRACTION_PROVIDER_OPTIONS = {
+  openai: { strictJsonSchema: false },
+}
+
 export async function runExtractionWithConfiguredProvider(input: {
   systemPrompt: string
   userPrompt: string
@@ -217,6 +227,7 @@ export async function runExtractionWithConfiguredProvider(input: {
       system: input.systemPrompt,
       prompt: input.userPrompt,
       temperature: 0,
+      providerOptions: EXTRACTION_PROVIDER_OPTIONS,
     }),
     input.timeoutMs,
     `LLM extraction timed out after ${input.timeoutMs}ms`,

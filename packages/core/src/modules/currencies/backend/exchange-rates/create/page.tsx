@@ -36,6 +36,7 @@ export default function CreateExchangeRatePage() {
       <PageBody>
         <CrudForm
           title={t('exchangeRates.create.title')}
+          titleHeadingLevel={1}
           backHref="/backend/exchange-rates"
           fields={[]}
           groups={groups}
@@ -44,8 +45,8 @@ export default function CreateExchangeRatePage() {
           onSubmit={async (values) => {
             const validated = validateExchangeRateForm(values, t)
             const payload = {
-              organizationId,
-              tenantId,
+              organizationId: organizationId ?? undefined,
+              tenantId: tenantId ?? undefined,
               ...buildExchangeRatePayload(values, validated),
             }
 

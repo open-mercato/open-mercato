@@ -87,9 +87,17 @@ jest.mock('@open-mercato/shared/lib/crud/cache', () => ({
 }))
 
 import { registerEntityIds, getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
-import { registerModules } from '@open-mercato/shared/lib/modules/registry'
+import type { EntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
+import { registerModules, tryGetModules } from '@open-mercato/shared/lib/modules/registry'
 import type { Module } from '@open-mercato/shared/modules/registry'
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
+import {
+  calendarEventTypes,
+  getCalendarEventTypes,
+  registerWidgetCalendarEventTypeContributions,
+  resetCalendarEventTypeRegistryForTests,
+  resolveCalendarEventType,
+} from '@open-mercato/core/modules/customers/calendar-event-types'
 
 // Build module list that mirrors enabled modules without catalog/sales/api_keys
 function buildReducedModules(): Module[] {
@@ -193,9 +201,25 @@ function buildReducedModules(): Module[] {
 
 const reducedModules = buildReducedModules()
 
-beforeAll(() => {
+// The module registry and the entity-id registry are process-global, so this
+// suite must own its own snapshot of both instead of relying on whatever the
+// surrounding run happens to have registered.
+let previousModules: Module[] | null = null
+let previousEntityIds: EntityIds | null = null
+
+beforeEach(() => {
+  previousModules = tryGetModules()
+  previousEntityIds = getEntityIds(false)
   registerEntityIds(reducedE as any)
   registerModules(reducedModules)
+})
+
+afterEach(() => {
+  registerEntityIds(previousEntityIds ?? ({} as EntityIds))
+  registerModules(previousModules ?? [])
+  previousModules = null
+  previousEntityIds = null
+  resetCalendarEventTypeRegistryForTests()
 })
 
 describe('Module Decoupling', () => {
@@ -220,9 +244,17 @@ describe('Module Decoupling', () => {
 
   describe('2. attachments/partitions.ts — resolveDefaultPartitionCode', () => {
     it('returns privateAttachments for null, undefined, arbitrary strings, and catalog entity IDs', async () => {
-      const { resolveDefaultPartitionCode } = await import(
-        '@open-mercato/core/modules/attachments/lib/partitions'
-      )
+      // partitions.ts freezes its product-media entity ids at import time, so it
+      // has to be evaluated inside an isolated registry — a cached instance built
+      // from unmocked entity ids would silently answer 'productsMedia' here.
+      let resolveDefaultPartitionCode!: (entityId: string | null | undefined) => string
+      await jest.isolateModulesAsync(async () => {
+        const { E } = await import('#generated/entities.ids.generated')
+        expect((E as Record<string, unknown>).catalog).toBeUndefined()
+        ;({ resolveDefaultPartitionCode } = await import(
+          '@open-mercato/core/modules/attachments/lib/partitions'
+        ))
+      })
 
       expect(resolveDefaultPartitionCode(null)).toBe('privateAttachments')
       expect(resolveDefaultPartitionCode(undefined)).toBe('privateAttachments')
@@ -351,6 +383,31 @@ describe('Module Decoupling', () => {
 
       const actions = mod.actionsUpToVersion('99.99.99')
       expect(Array.isArray(actions)).toBe(true)
+    })
+  })
+
+  describe('6. Calendar event types exclude disabled module contributions', () => {
+    it('removes contributed types from selection without importing the contributor', () => {
+      const meeting = calendarEventTypes[0]!
+      registerWidgetCalendarEventTypeContributions([{
+        moduleId: 'optional_calendar_module',
+        widgetId: 'optional-visit',
+        definitions: [{
+          ...meeting,
+          key: 'optional-visit',
+          label: 'Optional visit',
+          behavior: { ...meeting.behavior, baseKind: 'event' },
+        }],
+      }])
+      expect(getCalendarEventTypes().some((definition) => definition.key === 'optional-visit')).toBe(true)
+
+      registerWidgetCalendarEventTypeContributions([])
+
+      expect(getCalendarEventTypes().some((definition) => definition.key === 'optional-visit')).toBe(false)
+      expect(resolveCalendarEventType('optional-visit', { includeHistorical: true })).toMatchObject({
+        key: 'optional-visit',
+        fallbackReason: 'module-unavailable',
+      })
     })
   })
 })

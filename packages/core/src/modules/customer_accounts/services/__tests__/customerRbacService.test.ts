@@ -1,5 +1,35 @@
 import { CustomerRoleAcl, CustomerUserAcl, CustomerUserRole } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
+import {
+  applyAclFeatureOverrides,
+  resetModuleContractOverridesForTests,
+} from '@open-mercato/shared/modules/overrides'
+import { registerModules } from '@open-mercato/shared/lib/modules/registry'
+
+beforeAll(() => {
+  registerModules([
+    {
+      id: 'customer_accounts',
+      setup: {
+        defaultCustomerRoleFeatures: {
+          portal_admin: ['portal.*'],
+          buyer: ['portal.orders.view', 'portal.account.manage'],
+        },
+      },
+      frontendRoutes: [
+        {
+          Component: () => null,
+          requireCustomerFeatures: ['portal.quotes.view'],
+        },
+      ],
+    },
+  ])
+})
+
+afterEach(() => {
+  resetModuleContractOverridesForTests()
+  jest.restoreAllMocks()
+})
 
 type MockEm = {
   findOne: jest.Mock
@@ -58,5 +88,44 @@ describe('CustomerRbacService organization scope', () => {
       { populate: ['role'] },
     )
     expect(acl).toEqual({ isPortalAdmin: false, features: ['portal.orders.view'] })
+  })
+})
+
+describe('CustomerRbacService feature policy', () => {
+  const scope = { tenantId: 'tenant-1', organizationId: 'org-1' }
+
+  it.each([
+    { isPortalAdmin: false, features: ['portal.account.manage'] },
+    { isPortalAdmin: false, features: ['portal.*'] },
+    { isPortalAdmin: true, features: [] },
+  ])('denies a removed feature for explicit, wildcard, and portal-admin subjects', async (acl) => {
+    applyAclFeatureOverrides({ 'portal.account.manage': null })
+    const service = new CustomerRbacService(createMockEm() as any)
+    jest.spyOn(service, 'loadAcl').mockResolvedValue(acl)
+
+    await expect(service.userHasAllFeatures(
+      'customer-user-1',
+      ['portal.account.manage'],
+      scope,
+    )).resolves.toBe(false)
+  })
+
+  it('keeps an active sibling feature authorized and projects concrete portal-admin features', async () => {
+    applyAclFeatureOverrides({ 'portal.account.manage': null })
+    const service = new CustomerRbacService(createMockEm() as any)
+    jest.spyOn(service, 'loadAcl').mockResolvedValue({
+      isPortalAdmin: true,
+      features: [],
+    })
+
+    await expect(service.userHasAllFeatures(
+      'customer-user-1',
+      ['portal.orders.view'],
+      scope,
+    )).resolves.toBe(true)
+    await expect(service.getEffectiveFeatures('customer-user-1', scope)).resolves.toEqual([
+      'portal.orders.view',
+      'portal.quotes.view',
+    ])
   })
 })

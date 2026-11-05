@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -25,8 +25,8 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { DictionaryEntrySelect } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
-import { useCurrencyDictionary } from '@open-mercato/core/modules/customers/components/detail/hooks/useCurrencyDictionary'
 import type { DictionaryOption } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
+import { loadCurrencyOptions } from '../lib/currencyOptions'
 import type { CatalogPriceDisplayMode } from '../data/types'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -124,25 +124,11 @@ export function PriceKindSettings() {
   const [form, setForm] = React.useState<PriceKindFormState>(DEFAULT_FORM)
   const [submitting, setSubmitting] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
-  const { data: currencyDictionary, refetch: refetchCurrencyDictionary } = useCurrencyDictionary()
-
-  const currencyOptionsLoader = React.useCallback(async (): Promise<DictionaryOption[]> => {
-    if (currencyDictionary && Array.isArray(currencyDictionary.entries)) {
-      return currencyDictionary.entries.map((entry) => ({
-        value: entry.value,
-        label: entry.label,
-        color: entry.color ?? null,
-        icon: entry.icon ?? null,
-      }))
-    }
-    const payload = await refetchCurrencyDictionary()
-    return payload.entries.map((entry) => ({
-      value: entry.value,
-      label: entry.label,
-      color: entry.color ?? null,
-      icon: entry.icon ?? null,
-    }))
-  }, [currencyDictionary, refetchCurrencyDictionary])
+  const currencyOptionsLoader = React.useCallback(
+    (): Promise<DictionaryOption[]> =>
+      loadCurrencyOptions(t('catalog.priceKinds.form.currency.loadError', 'Unable to load currencies.')),
+    [t],
+  )
 
   const loadItems = React.useCallback(async () => {
     setLoading(true)
@@ -375,7 +361,7 @@ export function PriceKindSettings() {
       header: tableLabels.promotion,
       cell: ({ row }) =>
         row.original.isPromotion ? (
-          <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-900 dark:border-amber-500/50 dark:bg-amber-500/10 dark:text-amber-100">
+          <span className="inline-flex items-center rounded-full border border-status-warning-border bg-status-warning-bg px-2 py-0.5 text-xs font-medium text-status-warning-text">
             {tableLabels.promotionYes}
           </span>
         ) : (
@@ -389,7 +375,7 @@ export function PriceKindSettings() {
       header: tableLabels.active,
       cell: ({ row }) =>
         row.original.isActive ? (
-          <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-900 dark:border-emerald-500/50 dark:bg-emerald-500/10 dark:text-emerald-100">
+          <span className="inline-flex items-center rounded-full border border-status-success-border bg-status-success-bg px-2 py-0.5 text-xs font-medium text-status-success-text">
             {tableLabels.activeYes}
           </span>
         ) : (
@@ -555,7 +541,7 @@ export function PriceKindSettings() {
                   {t('catalog.priceKinds.form.activeLabel', 'Active')}
                 </label>
               </div>
-              {error ? <p className="text-sm text-red-600">{error}</p> : null}
+              {error ? <p className="text-sm text-status-error-text">{error}</p> : null}
             </form>
             <DialogFooter>
               <Button variant="ghost" onClick={closeDialog}>

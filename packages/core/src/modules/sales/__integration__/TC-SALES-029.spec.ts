@@ -65,7 +65,7 @@ test.describe('TC-SALES-029: order GET payment-total read-back contract (#2397)'
       // Create an order with a single $100 line so payment math is meaningful.
       const orderResponse = await apiRequest(request, 'POST', '/api/sales/orders', {
         token,
-        data: { currencyCode: 'USD', customerReference: `READBACK-${stamp}` },
+        data: { currencyCode: 'USD', customerReference: `READBACK-${stamp}` , lines: [{ currencyCode: 'USD', quantity: 1, name: 'QA seed line', unitPriceNet: 0, unitPriceGross: 0 }] },
       })
       expect(orderResponse.status(), 'POST /api/sales/orders should be 201').toBe(201)
       orderId = (await readJson(orderResponse)).id as string

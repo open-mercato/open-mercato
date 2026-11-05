@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { getIntegration } from '@open-mercato/shared/modules/integrations/types'
@@ -9,6 +10,8 @@ import type { SyncRunService } from '../lib/sync-run-service'
 import { runSyncSchema } from '../data/validators'
 import { startDataSyncRun } from '../lib/start-run'
 import { getDataSyncAdapter } from '../lib/adapter-registry'
+import { normalizeRunParameters } from '../lib/run-parameters'
+import { resolveStartCursor } from '../lib/start-cursor'
 import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
@@ -29,8 +32,12 @@ export const openApi = {
 export async function POST(req: Request) {
   try {
     const auth = await getAuthFromRequest(req)
-    if (!auth?.tenantId || !auth.orgId) {
+    if (!auth?.tenantId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    const organizationId = resolveActiveOrganizationId(auth)
+    if (!organizationId) {
+      return organizationScopeRequiredResponse()
     }
 
     const payload = await readJsonSafe(req)
@@ -45,7 +52,7 @@ export async function POST(req: Request) {
     const integrationStateService = container.resolve('integrationStateService') as IntegrationStateService
 
     const scope = {
-      organizationId: auth.orgId as string,
+      organizationId,
       tenantId: auth.tenantId,
     }
 
@@ -70,6 +77,19 @@ export async function POST(req: Request) {
 
     if (!adapter.supportedEntities.includes(parsed.data.entityType)) {
       return NextResponse.json({ error: 'Unsupported entity type for this integration' }, { status: 422 })
+    }
+
+    const normalizedParameters = normalizeRunParameters(
+      adapter.runParameters,
+      parsed.data.direction,
+      parsed.data.parameters,
+      parsed.data.entityType,
+    )
+    if (!normalizedParameters.ok) {
+      return NextResponse.json(
+        { error: 'Invalid run parameters', details: { parameters: normalizedParameters.errors } },
+        { status: 422 },
+      )
     }
 
     const integrationEnabled = await integrationStateService.isEnabled(parsed.data.integrationId, scope)
@@ -104,7 +124,14 @@ export async function POST(req: Request) {
 
     const cursor = parsed.data.fullSync
       ? null
-      : await syncRunService.resolveCursor(parsed.data.integrationId, parsed.data.entityType, parsed.data.direction, scope)
+      : await resolveStartCursor({
+        syncRunService,
+        adapter,
+        integrationId: parsed.data.integrationId,
+        entityType: parsed.data.entityType,
+        direction: parsed.data.direction,
+        scope,
+      })
 
     const { run, progressJob } = await startDataSyncRun({
       syncRunService,
@@ -120,6 +147,9 @@ export async function POST(req: Request) {
         cursor,
         triggeredBy: parsed.data.triggeredBy ?? auth.sub,
         batchSize: parsed.data.batchSize,
+        parameters: Object.keys(normalizedParameters.values).length > 0
+          ? normalizedParameters.values
+          : null,
       },
     })
 

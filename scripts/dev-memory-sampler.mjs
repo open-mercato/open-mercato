@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -60,18 +60,30 @@ export function classifyProcessCommand(command) {
   const normalized = raw.toLowerCase()
 
   if (
-    normalized.includes('queue:worker')
-    || normalized.includes('worker for queue')
-    || normalized.includes('lazy-supervisor')
+    (normalized.includes('queue worker') || normalized.includes('queue:worker'))
+    && normalized.includes('--with-scheduler')
   ) {
-    return 'worker'
+    return 'worker-scheduler'
+  }
+  if (
+    normalized.includes('queue:worker')
+    || normalized.includes('queue worker')
+    || normalized.includes('worker for queue')
+  ) {
+    return 'queue-worker'
+  }
+  if (normalized.includes('lazy-supervisor') || normalized.includes('worker supervisor')) {
+    return 'queue-worker-supervisor'
   }
   if (
     normalized.includes('scheduler:start')
+    || normalized.includes('scheduler start')
     || normalized.includes('scheduler polling')
-    || normalized.includes('lazy-scheduler')
   ) {
     return 'scheduler'
+  }
+  if (normalized.includes('lazy-scheduler') || normalized.includes('scheduler supervisor')) {
+    return 'scheduler-supervisor'
   }
   if (
     normalized.includes('watch-packages.mjs')
@@ -90,11 +102,15 @@ export function classifyProcessCommand(command) {
     return 'generate-watch'
   }
   if (
+    normalized.includes('mercato server dev')
+    || /(?:^|\s)server\s+dev(?:\s|$)/.test(normalized)
+  ) {
+    return 'dev-server-supervisor'
+  }
+  if (
     normalized.includes('next dev')
     || normalized.includes('next-server')
     || normalized.includes('turbopack')
-    || normalized.includes('server dev')
-    || normalized.includes('mercato server dev')
   ) {
     return 'next-turbopack'
   }
@@ -227,6 +243,147 @@ export function findNearestMarkers(markers, timestamp) {
   return { before, after }
 }
 
+function markerLifecyclePhase(marker) {
+  switch (marker?.type) {
+    case 'lifecycle:cold-start':
+      return 'cold-start'
+    case 'next:ready':
+    case 'lifecycle:runtime-ready':
+      return 'runtime-ready'
+    case 'warmup:start':
+      return 'warmup'
+    case 'warmup:end':
+    case 'warmup:failure':
+    case 'lifecycle:warm-plateau':
+      return 'warm-plateau'
+    case 'lifecycle:browse:start':
+      return 'browse'
+    case 'lifecycle:edit:start':
+      return 'edit'
+    default:
+      break
+  }
+  const requested = String(marker?.type ?? '').match(/^lifecycle:([a-z0-9-]+):start$/)
+  return requested?.[1] ?? null
+}
+
+function summarizeLifecyclePhases(samples, markers) {
+  const orderedSamples = samples
+    .filter((sample) => Number.isFinite(Date.parse(sample?.timestamp)))
+    .slice()
+    .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))
+  const orderedMarkers = markers
+    .filter((marker) => markerLifecyclePhase(marker) && Number.isFinite(Date.parse(marker?.timestamp)))
+    .slice()
+    .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))
+  const buckets = {}
+  let phase = 'unclassified'
+  let markerIndex = 0
+
+  for (const sample of orderedSamples) {
+    const sampleTime = Date.parse(sample.timestamp)
+    while (markerIndex < orderedMarkers.length && Date.parse(orderedMarkers[markerIndex].timestamp) <= sampleTime) {
+      phase = markerLifecyclePhase(orderedMarkers[markerIndex]) ?? phase
+      markerIndex += 1
+    }
+    const bucket = buckets[phase] ?? {
+      sampleCount: 0,
+      peakTotalMb: 0,
+      meanTotalMb: 0,
+      firstTimestamp: sample.timestamp,
+      lastTimestamp: sample.timestamp,
+      peakTimestamp: sample.timestamp,
+      peakDominantProcessClass: sample.dominantProcessClass ?? null,
+      totalMb: 0,
+    }
+    bucket.sampleCount += 1
+    bucket.totalMb += sample.totalRssMb
+    bucket.lastTimestamp = sample.timestamp
+    if (sample.totalRssMb >= bucket.peakTotalMb) {
+      bucket.peakTotalMb = sample.totalRssMb
+      bucket.peakTimestamp = sample.timestamp
+      bucket.peakDominantProcessClass = sample.dominantProcessClass ?? null
+    }
+    buckets[phase] = bucket
+  }
+
+  for (const bucket of Object.values(buckets)) {
+    bucket.peakTotalMb = Math.round(bucket.peakTotalMb * 100) / 100
+    bucket.meanTotalMb = Math.round((bucket.totalMb / bucket.sampleCount) * 100) / 100
+    delete bucket.totalMb
+  }
+  return buckets
+}
+
+export function buildDevMemoryLifecycleMarkers(markers, options = {}) {
+  const startedAt = options.startedAt
+  const finishedAt = options.finishedAt
+  const requestedPhase = typeof options.phase === 'string' && options.phase.trim()
+    ? options.phase.trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-')
+    : null
+  const result = Array.isArray(markers) ? markers.slice() : []
+  const add = (timestamp, type, label, details = {}) => {
+    if (!Number.isFinite(Date.parse(timestamp))) return
+    if (result.some((marker) => marker.type === type && marker.timestamp === timestamp)) return
+    result.push({ timestamp, type, label, details })
+  }
+
+  add(startedAt, 'lifecycle:cold-start', 'Cold-start observation began')
+  if (requestedPhase) {
+    add(startedAt, `lifecycle:${requestedPhase}:start`, `${requestedPhase} observation began`, {
+      source: 'profile-option',
+    })
+  }
+
+  const ordered = result
+    .filter((marker) => Number.isFinite(Date.parse(marker?.timestamp)))
+    .slice()
+    .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))
+  const ready = ordered.find((marker) => marker.type === 'next:ready')
+  const warmupStarted = ordered.find((marker) => marker.type === 'warmup:start')
+  const warmupTerminal = ordered.find((marker) => marker.type === 'warmup:end' || marker.type === 'warmup:failure')
+  if (ready) {
+    add(ready.timestamp, 'lifecycle:runtime-ready', 'Next runtime became ready')
+  }
+  if (warmupTerminal) {
+    add(warmupTerminal.timestamp, 'lifecycle:warm-plateau', 'Warm plateau began', {
+      warmupResult: warmupTerminal.type,
+    })
+  } else if (ready && !warmupStarted) {
+    add(ready.timestamp, 'lifecycle:warm-plateau', 'Warm plateau began', {
+      warmupResult: 'not-observed',
+    })
+  }
+
+  const interactiveBoundary = warmupTerminal ?? ready
+  if (interactiveBoundary) {
+    const boundaryTime = Date.parse(interactiveBoundary.timestamp)
+    const browseMarker = ordered.find((marker) => {
+      if (marker.type !== 'route-request:timed' || Date.parse(marker.timestamp) <= boundaryTime) return false
+      const route = marker.details?.route
+      return !['/login', '/api/auth/login', '/backend'].includes(route)
+    })
+    if (browseMarker) {
+      add(browseMarker.timestamp, 'lifecycle:browse:start', 'Browser navigation began', {
+        route: browseMarker.details?.route ?? null,
+        source: 'route-request',
+      })
+    }
+    const editMarker = ordered.find((marker) => (
+      Date.parse(marker.timestamp) > boundaryTime
+      && ['package-build:start', 'generate:start'].includes(marker.type)
+    ))
+    if (editMarker) {
+      add(editMarker.timestamp, 'lifecycle:edit:start', 'Edit/rebuild phase began', {
+        source: editMarker.type,
+      })
+    }
+  }
+  add(finishedAt, 'lifecycle:profile:end', 'Memory observation ended')
+
+  return result.sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))
+}
+
 export function summarizeMemorySamples(samples, markers = []) {
   if (!Array.isArray(samples) || samples.length === 0) {
     return {
@@ -237,6 +394,7 @@ export function summarizeMemorySamples(samples, markers = []) {
       peakTimestamp: null,
       peakNearestMarkers: { before: null, after: null },
       peakCgroup: null,
+      lifecyclePhases: {},
       sampleCount: 0,
     }
   }
@@ -264,7 +422,222 @@ export function summarizeMemorySamples(samples, markers = []) {
     peakProcessClassTotals: peakSample.processClassTotals ?? {},
     peakNearestMarkers: findNearestMarkers(markers, peakSample.timestamp),
     peakCgroup: peakSample.cgroup ?? null,
+    lifecyclePhases: summarizeLifecyclePhases(samples, markers),
     sampleCount: samples.length,
+  }
+}
+
+function parseBooleanEnv(value) {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim().toLowerCase()
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false
+  return null
+}
+
+function resolveBackgroundMode(env, legacyName, aliasName, lazyName) {
+  // Top-level `yarn dev` defaults both background services to lazy when no
+  // explicit enable/disable flag is present (see scripts/dev.mjs). Model the
+  // runtime that the profiler actually spawns, while preserving explicit off.
+  const enabled = parseBooleanEnv(env[legacyName]) ?? parseBooleanEnv(env[aliasName]) ?? true
+  if (!enabled) return 'off'
+  return (parseBooleanEnv(env[lazyName]) ?? true) ? 'lazy' : 'eager'
+}
+
+function readJsonFile(filePath) {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'))
+  } catch {
+    return null
+  }
+}
+
+function extractStringArray(source, exportName) {
+  const match = String(source ?? '').match(new RegExp(`\\b${exportName}\\b[^=]*=\\s*\\[([\\s\\S]*?)\\]`))
+  if (!match) return []
+  return [...match[1].matchAll(/["']([^"']+)["']/g)].map((entry) => entry[1])
+}
+
+function extractConfiguredModuleIds(source, exportName) {
+  const text = String(source ?? '')
+  const declaration = new RegExp(`\\b${exportName}\\b[^=]*=\\s*\\[`).exec(text)
+  if (!declaration) return []
+  const arrayStart = declaration.index + declaration[0].lastIndexOf('[')
+  let depth = 0
+  let quote = null
+  let escaped = false
+  let lineComment = false
+  let blockComment = false
+  let arrayEnd = -1
+
+  for (let index = arrayStart; index < text.length; index += 1) {
+    const char = text[index]
+    const next = text[index + 1]
+    if (lineComment) {
+      if (char === '\n') lineComment = false
+      continue
+    }
+    if (blockComment) {
+      if (char === '*' && next === '/') {
+        blockComment = false
+        index += 1
+      }
+      continue
+    }
+    if (quote) {
+      if (escaped) escaped = false
+      else if (char === '\\') escaped = true
+      else if (char === quote) quote = null
+      continue
+    }
+    if (char === '/' && next === '/') {
+      lineComment = true
+      index += 1
+      continue
+    }
+    if (char === '/' && next === '*') {
+      blockComment = true
+      index += 1
+      continue
+    }
+    if (char === '"' || char === "'" || char === '`') {
+      quote = char
+      continue
+    }
+    if (char === '[') depth += 1
+    if (char === ']') {
+      depth -= 1
+      if (depth === 0) {
+        arrayEnd = index
+        break
+      }
+    }
+  }
+  if (arrayEnd === -1) return []
+  const body = text.slice(arrayStart + 1, arrayEnd)
+  return [...body.matchAll(/\bid\s*:\s*["']([^"']+)["']/g)].map((entry) => entry[1])
+}
+
+function resolveActiveModuleIds(rootDir) {
+  const generated = path.join(rootDir, 'apps', 'mercato', '.mercato', 'generated', 'enabled-module-ids.generated.ts')
+  try {
+    const ids = extractStringArray(fs.readFileSync(generated, 'utf8'), 'enabledModuleIds')
+    if (ids.length > 0) return { ids: [...new Set(ids)], source: path.relative(rootDir, generated) }
+  } catch {
+    // Fall back to the source configuration when generation has not run yet.
+  }
+
+  const modulesPath = path.join(rootDir, 'apps', 'mercato', 'src', 'modules.ts')
+  const officialPath = path.join(rootDir, 'apps', 'mercato', 'src', 'official-modules.generated.ts')
+  let modulesSource = ''
+  let officialSource = ''
+  try { modulesSource = fs.readFileSync(modulesPath, 'utf8') } catch {}
+  try { officialSource = fs.readFileSync(officialPath, 'utf8') } catch {}
+  const ids = [
+    ...extractConfiguredModuleIds(modulesSource, 'enabledModules'),
+    ...extractConfiguredModuleIds(officialSource, 'officialModuleEntries'),
+  ]
+  const active = new Set(ids)
+  const dependentPushPattern = /if\s*\(\s*enabledModules\.some\([\s\S]*?\.id\s*===\s*["']([^"']+)["'][\s\S]*?\)\s*\)\s*\{([\s\S]*?)\n\s*\}/g
+  for (const match of modulesSource.matchAll(dependentPushPattern)) {
+    if (!active.has(match[1])) continue
+    for (const pushed of match[2].matchAll(/\bid\s*:\s*["']([^"']+)["']/g)) {
+      active.add(pushed[1])
+    }
+  }
+  return { ids: [...active], source: 'apps/mercato/src/modules.ts (static fallback)' }
+}
+
+function resolveCacheState(rootDir) {
+  const candidates = [
+    path.join(rootDir, 'apps', 'mercato', '.mercato', 'next', 'dev'),
+    path.join(rootDir, '.mercato', 'next', 'dev'),
+  ]
+  const cachePath = candidates.find((candidate) => fs.existsSync(candidate)) ?? candidates[0]
+  return {
+    state: fs.existsSync(cachePath) ? 'present' : 'absent',
+    path: path.relative(rootDir, cachePath),
+  }
+}
+
+function resolveWarmupState(rootDir) {
+  const candidates = [
+    path.join(rootDir, 'apps', 'mercato', '.mercato', 'dev-warmup-ready.json'),
+    path.join(rootDir, '.mercato', 'dev-warmup-ready.json'),
+  ]
+  const readyPath = candidates.find((candidate) => fs.existsSync(candidate)) ?? candidates[0]
+  const ready = readJsonFile(readyPath)
+  return {
+    state: ready?.ready === true ? 'ready' : fs.existsSync(readyPath) ? 'invalid' : 'missing',
+    reason: typeof ready?.reason === 'string' ? ready.reason : null,
+    at: typeof ready?.at === 'string' ? ready.at : null,
+    path: path.relative(rootDir, readyPath),
+  }
+}
+
+export function collectDevMemoryMetadata(options = {}) {
+  const rootDir = path.resolve(options.rootDir ?? process.cwd())
+  const env = options.env ?? process.env
+  const modules = resolveActiveModuleIds(rootDir)
+  const packageJson = readJsonFile(path.join(rootDir, 'apps', 'mercato', 'package.json'))
+  let gitSha = null
+  try {
+    const run = options.execFileSync ?? execFileSync
+    gitSha = String(run('git', ['rev-parse', 'HEAD'], {
+      cwd: rootDir,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })).trim() || null
+  } catch {
+    // A source archive can be profiled without a Git checkout.
+  }
+
+  const workers = resolveBackgroundMode(env, 'AUTO_SPAWN_WORKERS', 'OM_AUTO_SPAWN_WORKERS', 'OM_AUTO_SPAWN_WORKERS_LAZY')
+  const scheduler = resolveBackgroundMode(env, 'AUTO_SPAWN_SCHEDULER', 'OM_AUTO_SPAWN_SCHEDULER', 'OM_AUTO_SPAWN_SCHEDULER_LAZY')
+  const workerSpawnModeRaw = String(env.OM_AUTO_SPAWN_WORKERS_LAZY_MODE ?? '').trim().toLowerCase()
+  const workerSpawnMode = workers === 'lazy'
+    ? (['shared', 'per-queue'].includes(workerSpawnModeRaw) ? workerSpawnModeRaw : 'shared')
+    : null
+  const watchScopeRaw = String(env.OM_WATCH_SCOPE ?? '').trim().toLowerCase()
+  const watchScopeAliases = { auto: 'auto-optimized', optimized: 'auto-optimized', full: 'all' }
+
+  return {
+    capturedAt: new Date().toISOString(),
+    gitSha,
+    nodeVersion: options.nodeVersion ?? process.version,
+    nextVersion: packageJson?.dependencies?.next ?? packageJson?.devDependencies?.next ?? null,
+    activeModuleCount: modules.ids.length,
+    activeModuleIds: modules.ids,
+    activeModuleSource: modules.source,
+    backgroundServices: {
+      workers,
+      workerSpawnMode,
+      scheduler,
+      schedulerEmbeddedInSharedWorker: parseBooleanEnv(env.OM_DEV_EMBED_SCHEDULER_IN_SHARED_WORKER) ?? true,
+    },
+    watch: {
+      scope: watchScopeAliases[watchScopeRaw] ?? (watchScopeRaw || 'all'),
+      packages: String(env.OM_WATCH_PACKAGES ?? '').split(/[\s,]+/).filter(Boolean),
+    },
+    cache: resolveCacheState(rootDir),
+    warmup: resolveWarmupState(rootDir),
+  }
+}
+
+export function mergeDevMemoryMetadata(initial, final, options = {}) {
+  const end = final ?? initial ?? {}
+  const start = initial ?? end
+  return {
+    ...end,
+    observationPhase: options.phase ?? null,
+    stateAtStart: {
+      cache: start.cache ?? null,
+      warmup: start.warmup ?? null,
+    },
+    stateAtEnd: {
+      cache: end.cache ?? null,
+      warmup: end.warmup ?? null,
+    },
   }
 }
 
@@ -374,6 +747,7 @@ export function createMemoryTraceSession(options = {}) {
   let finalReport = null
   let ndjsonPath = null
   let summaryPath = null
+  let initialMetadata = null
 
   const writeEvent = (event) => {
     if (!ndjsonPath) return
@@ -416,12 +790,16 @@ export function createMemoryTraceSession(options = {}) {
       if (!Number.isInteger(rootPid) || rootPid <= 0 || process.platform === 'win32') return
       fs.mkdirSync(outDir, { recursive: true })
       startedAt = new Date().toISOString()
+      initialMetadata = collectDevMemoryMetadata({
+        rootDir: options.rootDir,
+        env: options.env,
+      })
       ndjsonPath = path.join(outDir, `${label}.ndjson`)
       summaryPath = path.join(outDir, `${label}.json`)
       writeEvent({ kind: 'start', startedAt, rootPid, intervalMs })
-      void sample()
+      void sample().catch(() => null)
       interval = setInterval(() => {
-        void sample()
+        void sample().catch(() => null)
       }, intervalMs)
       interval.unref?.()
     },
@@ -444,6 +822,15 @@ export function createMemoryTraceSession(options = {}) {
       }
       if (!startedAt) return null
       finishedAt = new Date().toISOString()
+      const reportMarkers = buildDevMemoryLifecycleMarkers(markers, {
+        startedAt,
+        finishedAt,
+        phase: options.phase,
+      })
+      const finalMetadata = collectDevMemoryMetadata({
+        rootDir: options.rootDir,
+        env: options.env,
+      })
       finalReport = {
         label,
         rootPid,
@@ -451,8 +838,9 @@ export function createMemoryTraceSession(options = {}) {
         startedAt,
         finishedAt,
         samples,
-        markers,
-        summary: summarizeMemorySamples(samples, markers),
+        markers: reportMarkers,
+        metadata: mergeDevMemoryMetadata(initialMetadata, finalMetadata, { phase: options.phase }),
+        summary: summarizeMemorySamples(samples, reportMarkers),
       }
       if (summaryPath) {
         fs.writeFileSync(summaryPath, `${JSON.stringify(finalReport, null, 2)}\n`)

@@ -1,7 +1,11 @@
 import { Resolver, promises as dnsPromises } from 'node:dns'
 import { request as httpsRequest } from 'node:https'
+import type { ClientRequest } from 'node:http'
+import { resolveSafeHostAddress } from '@open-mercato/shared/lib/host-pinning'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { setTimeout as delay } from 'node:timers/promises'
 import { EntityManager } from '@mikro-orm/postgresql'
+import { runWithCacheTenant } from '@open-mercato/cache'
 import {
   DomainMapping,
   type DomainStatus,
@@ -9,8 +13,16 @@ import {
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 import { normalizeHostname, tryNormalizeHostname } from '@open-mercato/core/modules/customer_accounts/lib/hostname'
+import { findOrganizationInTenant } from '@open-mercato/core/modules/customer_accounts/lib/organizationLookup'
 import { platformDomains } from '@open-mercato/core/modules/customer_accounts/lib/platformDomains'
 import { detectProxy, isInKnownProxyRange } from '@open-mercato/core/modules/customer_accounts/lib/proxyRanges'
+
+export class DomainMappingOrgScopeError extends Error {
+  constructor(organizationId: string) {
+    super(`[internal] organizationId ${organizationId} does not belong to the caller's tenant`)
+    this.name = 'DomainMappingOrgScopeError'
+  }
+}
 
 const DOMAIN_ROUTING_TAG = 'domain_routing'
 const RESOLVE_KEY_PREFIX = 'domain_routing:resolve'
@@ -90,36 +102,61 @@ const defaultDnsResolver: DnsResolverContract = {
 
 const defaultHealthCheck: HealthCheckContract = (hostname, timeoutMs) =>
   new Promise((resolve) => {
-    const headerName = (process.env.CUSTOMER_DOMAIN_ORIGIN_HEADER ?? 'X-Open-Mercato-Origin').toLowerCase()
-    const req = httpsRequest(
-      {
-        host: hostname,
-        port: 443,
-        path: '/api/customer_accounts/domain-check',
-        method: 'GET',
-        headers: { 'X-Domain-Check-Secret': process.env.DOMAIN_CHECK_SECRET ?? '' },
-        timeout: timeoutMs,
-      },
-      (res) => {
-        const headerValue = res.headers[headerName]
-        const originHeader = Array.isArray(headerValue) ? headerValue[0] : headerValue
-        const originHeaderPresent = typeof originHeader === 'string' && originHeader === '1'
-        const status = res.statusCode ?? 0
-        res.resume() // discard body
-        resolve({
-          ok: status >= 200 && status < 400,
-          originHeaderPresent,
-          reason: status >= 200 && status < 400 ? undefined : `HTTP ${status}`,
-        })
-      },
-    )
-    req.on('timeout', () => {
-      req.destroy(new Error('TLS health check timed out'))
+    let req: ClientRequest | undefined
+    let settled = false
+    const failure = { ok: false, originHeaderPresent: false, reason: 'TLS health check failed' }
+    const finish = (result: Awaited<ReturnType<HealthCheckContract>>) => {
+      if (settled) return
+      settled = true
+      clearTimeout(deadline)
+      resolve(result)
+    }
+    const deadline = setTimeout(() => {
+      finish(failure)
+      req?.destroy()
+    }, timeoutMs)
+
+    void resolveSafeHostAddress(hostname).then(({ host }) => {
+      if (settled) return
+      const headerName = (process.env.CUSTOMER_DOMAIN_ORIGIN_HEADER ?? 'X-Open-Mercato-Origin').toLowerCase()
+      req = httpsRequest(
+        {
+          host,
+          servername: hostname,
+          rejectUnauthorized: true,
+          agent: false,
+          port: 443,
+          path: '/api/customer_accounts/domain-check',
+          method: 'GET',
+          headers: { Host: hostname, 'X-Domain-Check-Secret': process.env.DOMAIN_CHECK_SECRET ?? '' },
+          timeout: timeoutMs,
+        },
+        (res) => {
+          const headerValue = res.headers[headerName]
+          const originHeader = Array.isArray(headerValue) ? headerValue[0] : headerValue
+          const originHeaderPresent = typeof originHeader === 'string' && originHeader === '1'
+          const status = res.statusCode ?? 0
+          res.resume()
+          finish({
+            ok: status >= 200 && status < 400,
+            originHeaderPresent,
+            reason: status >= 200 && status < 400 ? undefined : `HTTP ${status}`,
+          })
+        },
+      )
+      req.on('timeout', () => {
+        finish(failure)
+        req?.destroy()
+      })
+      req.on('error', () => finish(failure))
+      req.end()
+    }).catch(() => {
+      getTelemetryRuntime()?.reportError(new Error('[internal] Domain TLS health check failed'), {
+        module: 'customer_accounts',
+        code: 'customer_accounts.domain_health_check_failed',
+      })
+      finish(failure)
     })
-    req.on('error', (err) => {
-      resolve({ ok: false, originHeaderPresent: false, reason: (err as Error).message })
-    })
-    req.end()
   })
 
 export class DomainMappingService {
@@ -165,17 +202,18 @@ export class DomainMappingService {
     if (platformDomains().includes(hostname)) return null
 
     const cacheKey = `${RESOLVE_KEY_PREFIX}:${hostname}`
-    if (this.cache) {
-      const cached = (await this.cache.get(cacheKey)) as ResolveResult | null | undefined
+    const cache = this.cache
+    if (cache) {
+      const cached = (await runWithCacheTenant(null, () => cache.get(cacheKey))) as ResolveResult | null | undefined
       if (cached !== undefined && cached !== null) return cached
     }
 
     const result = await this.lookupResolveResult(hostname)
-    if (this.cache) {
-      await this.cache.set(cacheKey, result, {
+    if (cache) {
+      await runWithCacheTenant(null, () => cache.set(cacheKey, result, {
         ttl: RESOLVE_TTL_MS,
         tags: [DOMAIN_ROUTING_TAG, `${DOMAIN_ROUTING_TAG}:${hostname}`],
-      })
+      }))
     }
     return result
   }
@@ -269,12 +307,15 @@ export class DomainMappingService {
 
   async register(input: RegisterInput): Promise<DomainMapping> {
     const hostname = normalizeHostname(input.hostname)
+    const organization = await findOrganizationInTenant(this.em, input.organizationId, input.tenantId)
+    if (!organization) throw new DomainMappingOrgScopeError(input.organizationId)
 
     let replacesDomain: DomainMapping | null = null
     if (input.replacesDomainId) {
       replacesDomain = await this.em.findOne(DomainMapping, {
         id: input.replacesDomainId,
         tenantId: input.tenantId,
+        organizationId: input.organizationId,
       } as never)
     }
 
@@ -371,6 +412,8 @@ export class DomainMappingService {
     if (entity.replacesDomain) {
       const replaced = await this.em.findOne(DomainMapping, {
         id: (entity.replacesDomain as unknown as { id: string }).id,
+        tenantId: entity.tenantId,
+        organizationId: entity.organizationId,
       } as never)
       if (replaced) {
         const replacedHostname = replaced.hostname
@@ -477,14 +520,14 @@ export class DomainMappingService {
   }
 
   private async invalidateCacheFor(hostname: string, organizationId: string | null): Promise<void> {
-    if (!this.cache) return
+    const cache = this.cache
+    if (!cache) return
     const tags = [DOMAIN_ROUTING_TAG, `${DOMAIN_ROUTING_TAG}:${hostname}`]
     if (organizationId) tags.push(`${DOMAIN_ROUTING_TAG}:org:${organizationId}`)
-    try {
-      await this.cache.deleteByTags(tags)
-    } catch {
-      // Cache invalidation is best-effort — TTL backstop ensures eventual consistency.
-    }
+    await Promise.allSettled([
+      cache.deleteByTags(tags),
+      runWithCacheTenant(null, () => cache.deleteByTags([`${DOMAIN_ROUTING_TAG}:${hostname}`])),
+    ])
   }
 
   private async runDnsVerification(

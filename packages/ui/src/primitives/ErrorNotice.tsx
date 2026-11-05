@@ -12,7 +12,7 @@ export function ErrorNotice({ title, message, action }: {
   const resolvedTitle = title ?? t('ui.errors.defaultTitle', 'Something went wrong')
   const resolvedMessage = message ?? t('ui.errors.defaultMessage', 'Unable to load data. Please try again.')
   return (
-    <Alert variant="destructive">
+    <Alert status="error">
       <AlertTitle>{resolvedTitle}</AlertTitle>
       <AlertDescription>{resolvedMessage}</AlertDescription>
       {action ? <div className="mt-2">{action}</div> : null}

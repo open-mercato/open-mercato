@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Role, RoleAcl, Session, User, UserAcl, UserRole } from '@open-mercato/core/modules/auth/data/entities'
+import { isStaffTenantActive } from '@open-mercato/core/modules/auth/lib/tenantEligibility'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const INVALID_SCOPE = Symbol('invalid-scope')
@@ -48,10 +49,11 @@ export async function resolveCanonicalStaffAuthContext(
   // still exist (not soft-deleted, not expired). This is what makes logout / password-reset
   // actually invalidate an already-issued JWT.
   //
-  // Legacy tokens (pre-migration, without `sid`) are allowed through during the grace period
-  // (controlled by JWT_LEGACY_GRACE_MINUTES) so that rolling deployments don't force-logout
-  // every user. Once the grace period expires these tokens will fail signature verification
-  // in `verifyJwt` before reaching this point.
+  // Legacy tokens (pre-migration, without `sid`) are allowed through during the grace period so
+  // that rolling deployments don't force-logout every user. `verifyJwt` owns that window: it only
+  // marks a payload `_legacyToken` while the token's own `iat` is within JWT_LEGACY_GRACE_MINUTES
+  // and before JWT_LEGACY_CUTOVER_AT, so an aged or post-cutover raw-secret token fails
+  // verification before reaching this point and every remaining token must carry a live `sid`.
   const sessionId = normalizeScopeId(typeof auth.sid === 'string' ? auth.sid : null)
   if (sessionId === INVALID_SCOPE) return null
   if (sessionId === null) {
@@ -93,7 +95,7 @@ export async function resolveCanonicalStaffAuthContext(
     if (session.expiresAt.getTime() < Date.now()) return null
   }
 
-  if (!user) return null
+  if (!user || user.isConfirmed === false) return null
 
   const currentTenantId = normalizeScopeId(user.tenantId ?? null)
   const currentOrganizationId = normalizeScopeId(user.organizationId ?? null)
@@ -105,6 +107,7 @@ export async function resolveCanonicalStaffAuthContext(
   ) {
     return null
   }
+  if (!(await isStaffTenantActive(em, currentTenantId))) return null
 
   // Role links and the per-user super-admin flag are likewise independent, so they
   // run concurrently. The role-level super-admin lookup depends on the resolved

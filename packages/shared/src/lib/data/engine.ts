@@ -2,24 +2,29 @@ import type { EntityData, EntityName, FilterQuery, RequiredEntityData } from '@m
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { type Kysely, sql } from 'kysely'
-import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
+import { encryptCustomEntityRecordDocument, setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
 import { validateCustomFieldValuesServer } from '@open-mercato/core/modules/entities/lib/validation'
 import { sanitizeCustomFieldHtmlRichTextValuesServer } from '@open-mercato/core/modules/entities/lib/htmlRichTextSanitizer'
 import type { EventBus } from '@open-mercato/events/types'
-import type {
-  CrudEventAction,
-  CrudEventsConfig,
-  CrudIndexerConfig,
-  CrudEntityIdentifiers,
+import {
+  CRUD_QUERY_INDEX_MANAGED_PAYLOAD_KEY,
+  type CrudEventAction,
+  type CrudEventsConfig,
+  type CrudIndexerConfig,
+  type CrudEntityIdentifiers,
 } from '../crud/types'
 import type { BulkImportSuppression } from '../commands/types'
-import { CrudHttpError } from '../crud/errors'
+import { conflict, CrudHttpError, isUniqueViolation } from '../crud/errors'
+import { withAdvisoryXactLock } from '../db/advisoryLock'
 import { resolveRegisteredEntityTableName } from '../query/engine'
 import { getEntityIds } from '../encryption/entityIds'
 import { normalizeCustomFieldValues } from '../custom-fields/normalize'
 import { parseBooleanToken } from '../boolean'
+import { isReadProjectionAlwaysConsistent } from './consistency'
 import { isEventDeclared } from '../../modules/events'
 import { createLogger } from '../logger'
+import { createBoundedTtlMemo } from '../query/bounded-ttl-memo'
+import type { TenantDataEncryptionService } from '../encryption/tenantDataEncryptionService'
 
 const logger = createLogger('shared').child({ component: 'data-engine' })
 
@@ -37,6 +42,18 @@ export function __resetUndeclaredEventWarningsForTests(): void {
   undeclaredEventWarned.clear()
 }
 
+/** Only `true` is cached: a cached `false` would keep this failing after a migration creates the table. */
+const tableExistsCache = createBoundedTtlMemo<true>({
+  ttlEnv: 'OM_DATA_ENGINE_TABLE_EXISTS_CACHE_MS',
+  defaultTtlMs: 3_600_000,
+  defaultMaxEntries: 1_000,
+})
+
+/** Test-only: the module-scoped memo would otherwise leak state across specs. */
+export function clearDataEngineTableExistsCache(): void {
+  tableExistsCache.clear()
+}
+
 const COVERAGE_REFRESH_INTERVAL_MS = 5 * 60 * 1000
 const coverageRefreshTracker = new Map<string, number>()
 
@@ -52,13 +69,40 @@ function shouldTriggerCoverageRefresh(entityType: string | undefined, tenantId: 
 
 type CustomEntityValues = Record<string, unknown>
 
+type CustomEntityStorageDatabase = {
+  custom_entities_storage: {
+    entity_type: string
+    entity_id: string
+    organization_id: string | null
+    tenant_id: string | null
+    doc: CustomEntityValues
+    updated_at: Date
+    created_at: Date
+    deleted_at: Date | null
+  }
+}
+
 type QueuedCrudSideEffect = {
   action: CrudEventAction
   entity: unknown
   identifiers: CrudEntityIdentifiers
   syncOrigin?: string | null
+  actorUserId?: string | null
   events?: CrudEventsConfig<unknown>
   indexer?: CrudIndexerConfig<unknown>
+}
+
+/**
+ * A `makeCrudRoute` route-level `indexer:` declaration, handed to the data engine for the
+ * duration of one command-bus write. Command handlers own the side-effect mark on the
+ * `actions.*` path, and most of them mark `events:` only — without this the route's
+ * declaration would reach no code at all. `entityClass` scopes the default to the route's
+ * own ORM entity so a handler that also marks a sibling entity in the same request (a tag
+ * assignment alongside a tag, say) is never indexed under the route's `entityType`.
+ */
+export type DefaultCrudIndexerConfig = {
+  indexer: CrudIndexerConfig<unknown>
+  entityClass: abstract new (...args: never[]) => object
 }
 
 export interface DataEngine {
@@ -69,12 +113,16 @@ export interface DataEngine {
     tenantId?: string | null
     values: Record<string, string | number | boolean | null | undefined | Array<string | number | boolean | null | undefined>>
     notify?: boolean // default true -> emit '<module>.<entity>.updated'
+    // Forwarded to `setRecordCustomFields` — see its doc for when a caller must pass
+    // true (a recordId that is not unique across organizations for this entityId).
+    pinOrganizationId?: boolean
   }): Promise<void>
 
   // Storage for user-defined entities (doc-based)
   createCustomEntityRecord(opts: {
     entityId: string // '<module>:<entity>'
     recordId?: string // optional; auto-generate if not provided
+    createOnly?: boolean
     organizationId?: string | null
     tenantId?: string | null
     values: CustomEntityValues
@@ -125,6 +173,7 @@ export interface DataEngine {
     indexer?: CrudIndexerConfig<T>
     identifiers: CrudEntityIdentifiers
     syncOrigin?: string | null
+    actorUserId?: string | null
     /** Bulk-import deferral: skip the domain event and/or inline reindex for this emit. */
     suppress?: BulkImportSuppression
   }): Promise<void>
@@ -136,6 +185,7 @@ export interface DataEngine {
     indexer?: CrudIndexerConfig<T>
     identifiers: CrudEntityIdentifiers
     syncOrigin?: string | null
+    actorUserId?: string | null
   }): void
 
   /**
@@ -144,6 +194,20 @@ export interface DataEngine {
    * is responsible for rebuilding the `query_index` afterwards.
    */
   flushOrmEntityChanges(suppress?: BulkImportSuppression): Promise<void>
+
+  /**
+   * Declare the indexer a CRUD route configured, for marks made during one command-bus
+   * write that do not carry an indexer of their own. Pass `null` to clear it. Optional so
+   * third-party `DataEngine` implementations stay valid; callers invoke it with `?.`.
+   */
+  setDefaultIndexerConfig?(config: DefaultCrudIndexerConfig | null): void
+
+  /**
+   * Whether any side effect drained since the current default was declared carried an
+   * indexer for that default's entity class — false means the declared query-index
+   * obligation was discharged by nobody. Optional for the same reason as the setter.
+   */
+  hasIndexedDefaultEntityClass?(): boolean
 }
 
 export const SYSTEM_ENTITY_RECORDS_BLOCKED_CODE = 'system_entity_records_blocked'
@@ -183,7 +247,42 @@ export function assertCustomEntityStorageEntityId(em: EntityManager, entityId: s
 
 export class DefaultDataEngine implements DataEngine {
   private pendingSideEffects = new Map<string, QueuedCrudSideEffect>()
+  private defaultIndexer: DefaultCrudIndexerConfig | null = null
+  private indexedDefaultEntityClass = false
   constructor(private em: EntityManager, private container: AwilixContainer) {}
+
+  /**
+   * Per-command state, deliberately held on the engine instance rather than threaded through
+   * `CommandRuntimeContext` the way the bulk-import flags are. That is sound only because
+   * `createRequestContainer()` registers `dataEngine` per request (`lib/di/container.ts`), so
+   * one engine instance never spans two requests, and no `makeCrudRoute` verb runs two commands
+   * concurrently against it. An application that re-registers `dataEngine` as a transient would
+   * break both assumptions: the command would mark on a different instance than the route
+   * declared on, so nothing is indexed and every write logs the undischarged-declaration warning.
+   */
+  setDefaultIndexerConfig(config: DefaultCrudIndexerConfig | null): void {
+    this.defaultIndexer = config
+    this.indexedDefaultEntityClass = false
+  }
+
+  hasIndexedDefaultEntityClass(): boolean {
+    return this.indexedDefaultEntityClass
+  }
+
+  private matchesDefaultEntityClass(entity: unknown): boolean {
+    const declared = this.defaultIndexer?.entityClass
+    // `OrmEntityConfig.entity` is `any` and this repository treats `EntitySchema` instances as a
+    // first-class entity shape (`lib/bootstrap/types.ts`). An `EntitySchema` is an object rather
+    // than a constructor, so `instanceof` against it throws — and it would throw inside
+    // `markOrmEntityChange`, outside the best-effort try/catch that guards the flush, turning
+    // every write on such a route into a 500.
+    if (typeof declared !== 'function') return false
+    return entity instanceof declared
+  }
+
+  private resolveDefaultIndexer(entity: unknown): CrudIndexerConfig<unknown> | undefined {
+    return this.matchesDefaultEntityClass(entity) ? this.defaultIndexer?.indexer : undefined
+  }
 
   async setCustomFields(opts: Parameters<DataEngine['setCustomFields']>[0]): Promise<void> {
     const { entityId, recordId, organizationId = null, tenantId = null, values } = opts
@@ -207,6 +306,7 @@ export class DefaultDataEngine implements DataEngine {
       tenantId,
       values: sanitizedValues,
       encryptionService,
+      pinOrganizationId: opts.pinOrganizationId === true,
     })
     if (opts.notify !== false) {
       let bus: EventBus | null = null
@@ -221,7 +321,12 @@ export class DefaultDataEngine implements DataEngine {
           const eventName = `${mod}.${ent}.updated`
           warnIfUndeclaredEvent(eventName, 'setCustomFields')
           try {
-            await bus.emitEvent(eventName, { id: recordId, organizationId, tenantId }, { persistent: true })
+            await bus.emitEvent(eventName, { id: recordId, organizationId, tenantId }, {
+              persistent: true,
+              tenantId,
+              organizationId,
+              emitterModuleId: mod,
+            })
           } catch {
             // non-blocking
           }
@@ -248,11 +353,21 @@ export class DefaultDataEngine implements DataEngine {
     } catch { return false }
   }
 
+  private resolveCustomEntityEncryptionService(): TenantDataEncryptionService | null {
+    try {
+      return this.container.resolve<TenantDataEncryptionService>('tenantEncryptionService')
+    } catch {
+      return null
+    }
+  }
+
   private getKysely(): Kysely<any> {
     return this.em.getKysely<any>()
   }
 
   private async ensureStorageTableExists(): Promise<void> {
+    const cacheKey = 'custom_entities_storage'
+    if (tableExistsCache.get(cacheKey)) return
     const db = this.getKysely()
     const exists = await db
       .selectFrom('information_schema.tables' as any)
@@ -262,6 +377,7 @@ export class DefaultDataEngine implements DataEngine {
     if (!exists) {
       throw new Error('custom_entities_storage table is missing. Run migrations (yarn db:migrate).')
     }
+    tableExistsCache.set(cacheKey, true)
   }
 
   private normalizeValuesForValidation(values: Record<string, unknown> | undefined | null): Record<string, unknown> {
@@ -325,36 +441,64 @@ export class DefaultDataEngine implements DataEngine {
     })() : rawId
     const orgId = opts.organizationId ?? null
     const tenantId = opts.tenantId ?? null
-    const doc: Record<string, unknown> = { id, ...this.normalizeDocValues(sanitizedValues || {}) }
+    const doc = await encryptCustomEntityRecordDocument(this.em, {
+      entityId: opts.entityId, organizationId: orgId, tenantId,
+      doc: { id, ...this.normalizeDocValues(sanitizedValues || {}) },
+      encryptionService: this.resolveCustomEntityEncryptionService(),
+    })
 
-    const now = sql`now()`
+    const now = sql<Date>`now()`
     const payload = {
       entity_type: opts.entityId,
       entity_id: id,
       organization_id: orgId,
       tenant_id: tenantId,
-      doc: sql`${JSON.stringify(doc)}::jsonb`,
+      doc: sql<CustomEntityValues>`${JSON.stringify(doc)}::jsonb`,
       updated_at: now,
       created_at: now,
       deleted_at: null,
     }
 
-    // Upsert by scoped uniqueness
-    try {
-      await db
-        .insertInto('custom_entities_storage' as any)
-        .values(payload as any)
-        .onConflict((oc) => oc
-          .columns(['entity_type', 'entity_id', 'organization_id'])
-          .doUpdateSet({
-            doc: sql`${JSON.stringify(doc)}::jsonb`,
-            updated_at: sql`now()`,
-            deleted_at: null,
-          } as any))
-        .execute()
-    } catch {
-      // Fallback for global scope uniqueness
+    if (opts.createOnly) {
+      const duplicateError = () => {
+        const error = conflict('[internal] Custom entity record already exists')
+        error.body.code = 'custom_entity_record_exists'
+        return error
+      }
+      const lockKey = `custom_entity_create:${JSON.stringify([tenantId, orgId, opts.entityId, id.toLowerCase()])}`
+      await withAdvisoryXactLock(this.em, lockKey, async (txEm) => {
+        const storage = txEm.getKysely<CustomEntityStorageDatabase>()
+        const existing = await storage
+          .selectFrom('custom_entities_storage')
+          .select('entity_id')
+          .where('entity_type', '=', opts.entityId)
+          .where(sql<string>`lower(entity_id)`, '=', id.toLowerCase())
+          .where('organization_id', orgId === null ? 'is' : '=', orgId)
+          .where('tenant_id', tenantId === null ? 'is' : '=', tenantId)
+          .executeTakeFirst()
+        if (existing) throw duplicateError()
+        try {
+          await storage.insertInto('custom_entities_storage').values(payload).execute()
+        } catch (error) {
+          if (isUniqueViolation(error, 'custom_entities_storage_unique_idx')) throw duplicateError()
+          throw error
+        }
+      })
+    } else {
       try {
+        await db
+          .insertInto('custom_entities_storage' as any)
+          .values(payload as any)
+          .onConflict((oc) => oc
+            .columns(['entity_type', 'entity_id', 'organization_id'])
+            .doUpdateSet({
+              doc: sql`${JSON.stringify(doc)}::jsonb`,
+              updated_at: sql`now()`,
+              deleted_at: null,
+            } as any))
+          .execute()
+      } catch {
+        // Fallback for global scope uniqueness
         const updated = await db
           .updateTable('custom_entities_storage' as any)
           .set({
@@ -365,13 +509,11 @@ export class DefaultDataEngine implements DataEngine {
           .where('entity_type' as any, '=', opts.entityId)
           .where('entity_id' as any, '=', id)
           .where('organization_id' as any, orgId === null ? 'is' : '=', orgId as any)
+          .where('tenant_id' as any, tenantId === null ? 'is' : '=', tenantId as any)
           .executeTakeFirst()
         if (!updated || Number(updated.numUpdatedRows ?? 0) === 0) {
           await db.insertInto('custom_entities_storage' as any).values(payload as any).execute()
         }
-      } catch (err) {
-        // Surface a clear error so it doesn't silently fall back only to EAV
-        throw err
       }
     }
 
@@ -384,6 +526,10 @@ export class DefaultDataEngine implements DataEngine {
         tenantId: tenantId,
         values: normalizeCustomFieldValues(sanitizedValues),
         notify: opts.notify, // defaults to true
+        // custom_entities_storage upserts on (entity_type, entity_id, organization_id),
+        // so `id` is unique only within this organization, not across organizations —
+        // pin the reconciling delete/lookup to this organization (#6034 review).
+        pinOrganizationId: true,
       })
     }
 
@@ -412,13 +558,20 @@ export class DefaultDataEngine implements DataEngine {
       chain = orgId === null
         ? chain.where('organization_id' as any, 'is', null as any)
         : chain.where('organization_id' as any, '=', orgId)
+      chain = tenantId === null
+        ? chain.where('tenant_id' as any, 'is', null as any)
+        : chain.where('tenant_id' as any, '=', tenantId)
       return chain
     }
     const row = await applyScope(
       db.selectFrom('custom_entities_storage' as any).select(['doc' as any])
     ).executeTakeFirst()
     const prevDoc: Record<string, unknown> = (row as any)?.doc || { id }
-    const nextDoc: Record<string, unknown> = { ...prevDoc, ...this.normalizeDocValues(sanitizedValues || {}), id }
+    const nextDoc = await encryptCustomEntityRecordDocument(this.em, {
+      entityId: opts.entityId, organizationId: orgId, tenantId,
+      doc: { ...prevDoc, ...this.normalizeDocValues(sanitizedValues || {}), id },
+      encryptionService: this.resolveCustomEntityEncryptionService(),
+    })
     try {
       const updated = await applyScope(
         db.updateTable('custom_entities_storage' as any).set({
@@ -452,6 +605,10 @@ export class DefaultDataEngine implements DataEngine {
         tenantId: tenantId,
         values: normalizeCustomFieldValues(sanitizedValues),
         notify: opts.notify, // defaults to true
+        // custom_entities_storage upserts on (entity_type, entity_id, organization_id),
+        // so `id` is unique only within this organization, not across organizations —
+        // pin the reconciling delete/lookup to this organization (#6034 review).
+        pinOrganizationId: true,
       })
     }
   }
@@ -461,6 +618,7 @@ export class DefaultDataEngine implements DataEngine {
     const db = this.getKysely()
     const id = String(opts.recordId)
     const orgId = opts.organizationId ?? null
+    const tenantId = opts.tenantId ?? null
     const soft = opts.soft !== false
 
     const applyScope = <T extends { where: (col: any, op: any, val?: any) => T }>(q: T) => {
@@ -469,6 +627,9 @@ export class DefaultDataEngine implements DataEngine {
       chain = orgId === null
         ? chain.where('organization_id' as any, 'is', null as any)
         : chain.where('organization_id' as any, '=', orgId)
+      chain = tenantId === null
+        ? chain.where('tenant_id' as any, 'is', null as any)
+        : chain.where('tenant_id' as any, '=', tenantId)
       return chain
     }
 
@@ -553,6 +714,7 @@ export class DefaultDataEngine implements DataEngine {
     indexer?: CrudIndexerConfig<T>
     identifiers: CrudEntityIdentifiers
     syncOrigin?: string | null
+    actorUserId?: string | null
     suppress?: BulkImportSuppression
   }): Promise<void> {
     const { action, entity, events, indexer, identifiers, syncOrigin, suppress } = opts
@@ -580,12 +742,13 @@ export class DefaultDataEngine implements DataEngine {
         tenantId: identifiers.tenantId ?? null,
       },
       syncOrigin: syncOrigin ?? null,
+      actorUserId: opts.actorUserId ?? null,
     }
 
     if (events && !suppress?.skipEvents) {
       const eventName = `${events.module}.${events.entity}.${action}`
       warnIfUndeclaredEvent(eventName, 'emitOrmEntityEvent')
-      const payload = events.buildPayload
+      const builtPayload = events.buildPayload
         ? events.buildPayload(ctx)
         : {
             id: ctx.identifiers.id,
@@ -593,11 +756,26 @@ export class DefaultDataEngine implements DataEngine {
             tenantId: ctx.identifiers.tenantId,
             ...(ctx.syncOrigin ? { syncOrigin: ctx.syncOrigin } : {}),
           }
+      // A configured indexer means this data-engine call owns the query-index
+      // decision, including an explicit skipReindex suppression. Mark object
+      // payloads so the legacy domain-event bridge does not enqueue the same
+      // record a second time. Keep the marker non-enumerable so client broadcasts
+      // and persisted domain payloads retain their existing public shape.
+      // Primitive custom payloads cannot be bridged in any case because they do
+      // not expose the record id.
+      const payload = indexer && builtPayload && typeof builtPayload === 'object' && !Array.isArray(builtPayload)
+        ? Object.defineProperty(
+            { ...(builtPayload as Record<string, unknown>) },
+            CRUD_QUERY_INDEX_MANAGED_PAYLOAD_KEY,
+            { value: true, enumerable: false },
+          )
+        : builtPayload
       try {
         await bus.emitEvent(eventName, payload, {
           persistent: !!events.persistent,
           tenantId: ctx.identifiers.tenantId ?? null,
           organizationId: ctx.identifiers.organizationId ?? null,
+          emitterModuleId: events.module,
         })
       } catch {
         // non-blocking
@@ -605,6 +783,7 @@ export class DefaultDataEngine implements DataEngine {
     }
 
     if (indexer && !suppress?.skipReindex) {
+      const alwaysConsistent = isReadProjectionAlwaysConsistent()
       const resolveCoverageBaseDelta = (): number | undefined => {
         if (action === 'created') return 1
         if (action === 'deleted') return -1
@@ -630,9 +809,14 @@ export class DefaultDataEngine implements DataEngine {
         // returns. The subscriber removes the projection row + tokens synchronously and
         // defers the coverage recompute + fulltext delete, so this stays bounded.
         // Errors are logged, not thrown — index drift never fails the originating write.
-        await bus.emitEvent('query_index.delete_one', enrichedPayload).catch((err: unknown) => {
-          logger.error('query_index.delete_one emit failed', { err })
-        })
+        // Always-consistent mode rethrows so drift is loud and retryable.
+        if (alwaysConsistent) {
+          await bus.emitEvent('query_index.delete_one', enrichedPayload, { rethrowHandlerErrors: true })
+        } else {
+          await bus.emitEvent('query_index.delete_one', enrichedPayload).catch((err: unknown) => {
+            logger.error('query_index.delete_one emit failed', { err })
+          })
+        }
       } else {
         const payload = indexer.buildUpsertPayload
           ? indexer.buildUpsertPayload(ctx)
@@ -650,18 +834,27 @@ export class DefaultDataEngine implements DataEngine {
         // (see delete_one above). The subscriber updates `entity_indexes` synchronously
         // and defers the heavy token-reindex pipeline (build doc + encrypt + decrypt +
         // tokenize + DELETE + chunked INSERT) so write latency stays bounded.
-        await bus.emitEvent('query_index.upsert_one', enrichedPayload).catch((err: unknown) => {
-          logger.error('query_index.upsert_one emit failed', { err })
-        })
+        if (alwaysConsistent) {
+          await bus.emitEvent('query_index.upsert_one', enrichedPayload, { rethrowHandlerErrors: true })
+        } else {
+          await bus.emitEvent('query_index.upsert_one', enrichedPayload).catch((err: unknown) => {
+            logger.error('query_index.upsert_one emit failed', { err })
+          })
+        }
       }
 
-      if (shouldTriggerCoverageRefresh(indexer.entityType, ctx.identifiers.tenantId ?? null)) {
-        void bus.emitEvent('query_index.coverage.refresh', {
+      if (alwaysConsistent || shouldTriggerCoverageRefresh(indexer.entityType, ctx.identifiers.tenantId ?? null)) {
+        const coveragePayload = {
           entityType: indexer.entityType,
           tenantId: ctx.identifiers.tenantId ?? null,
           organizationId: null,
           delayMs: 0,
-        }).catch(() => undefined)
+        }
+        if (alwaysConsistent) {
+          await bus.emitEvent('query_index.coverage.refresh', coveragePayload, { rethrowHandlerErrors: true })
+        } else {
+          void bus.emitEvent('query_index.coverage.refresh', coveragePayload).catch(() => undefined)
+        }
       }
     }
   }
@@ -673,10 +866,15 @@ export class DefaultDataEngine implements DataEngine {
     indexer?: CrudIndexerConfig<T>
     identifiers: CrudEntityIdentifiers
     syncOrigin?: string | null
+    actorUserId?: string | null
   }): void {
     const { entity, identifiers } = opts
     if (!entity) return
     if (!identifiers?.id) return
+    // A command handler that marks `events:` only still discharges the route's declared
+    // query-index obligation — the route hands its `indexer:` down as the default so the
+    // handler's own entity and identifiers (the accurate ones) drive the projection write.
+    const indexer = opts.indexer ?? this.resolveDefaultIndexer(entity)
     const key = this.buildSideEffectKey(opts.action, identifiers)
     const existing = this.pendingSideEffects.get(key)
     if (existing) {
@@ -687,8 +885,13 @@ export class DefaultDataEngine implements DataEngine {
         tenantId: identifiers.tenantId ?? null,
       }
       existing.syncOrigin = opts.syncOrigin ?? null
+      existing.actorUserId = opts.actorUserId ?? null
       if (opts.events) existing.events = opts.events as CrudEventsConfig<unknown>
+      // Explicit always wins, on the merge branch too: a second `events:`-only mark on the same
+      // key must not let the route default overwrite the `indexer:` an earlier mark installed,
+      // which would silently drop that handler's own `buildUpsertPayload`.
       if (opts.indexer) existing.indexer = opts.indexer as CrudIndexerConfig<unknown>
+      else if (!existing.indexer && indexer) existing.indexer = indexer
       this.pendingSideEffects.set(key, existing)
       return
     }
@@ -701,9 +904,10 @@ export class DefaultDataEngine implements DataEngine {
         tenantId: identifiers.tenantId ?? null,
       },
       syncOrigin: opts.syncOrigin ?? null,
+      actorUserId: opts.actorUserId ?? null,
     }
     if (opts.events) entry.events = opts.events as CrudEventsConfig<unknown>
-    if (opts.indexer) entry.indexer = opts.indexer as CrudIndexerConfig<unknown>
+    if (indexer) entry.indexer = indexer
     this.pendingSideEffects.set(key, entry)
   }
 
@@ -712,17 +916,24 @@ export class DefaultDataEngine implements DataEngine {
     const entries = Array.from(this.pendingSideEffects.values())
     this.pendingSideEffects.clear()
     for (const entry of entries) {
+      if (entry.indexer && !suppress?.skipReindex && this.matchesDefaultEntityClass(entry.entity)) {
+        this.indexedDefaultEntityClass = true
+      }
       try {
         await this.emitOrmEntityEvent({
           action: entry.action,
           entity: entry.entity,
           identifiers: entry.identifiers,
           syncOrigin: entry.syncOrigin ?? null,
+          actorUserId: entry.actorUserId ?? null,
           events: entry.events as CrudEventsConfig<unknown>,
           indexer: entry.indexer as CrudIndexerConfig<unknown>,
           suppress,
         })
-      } catch {
+      } catch (error) {
+        if (isReadProjectionAlwaysConsistent()) {
+          throw error
+        }
         // best-effort; continue with remaining side effects
       }
     }

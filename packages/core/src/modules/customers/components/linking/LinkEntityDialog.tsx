@@ -26,6 +26,7 @@ import {
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('customers')
 
@@ -402,11 +403,19 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
 
   const handleRowClick = React.useCallback(
     (option: LinkEntityOption) => {
-      setFocusedId(option.id)
       const isSelected = draftSet.has(option.id)
       toggleDraftId(option.id, !isSelected)
+      if (!isSelected) {
+        setFocusedId(option.id)
+        return
+      }
+      setFocusedId((current) => {
+        if (current !== option.id) return current
+        const remaining = draftIds.filter((id) => id !== option.id)
+        return remaining.length > 0 ? remaining[0] : null
+      })
     },
-    [draftSet, toggleDraftId],
+    [draftIds, draftSet, toggleDraftId],
   )
 
   const handleAddNewCreated = React.useCallback(
@@ -467,6 +476,13 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
         linkSettings,
       })
       onOpenChange(false)
+    } catch (error) {
+      try {
+        getTelemetryRuntime()?.reportError(error, { module: 'customers', code: 'customers.link_confirmation_failed' })
+      } catch (reportingError) {
+        logger.warn('Failed to report link confirmation error', { err: reportingError })
+      }
+      return
     } finally {
       setSaving(false)
     }

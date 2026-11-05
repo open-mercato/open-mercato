@@ -29,6 +29,7 @@ jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => 
 }))
 
 jest.mock('@open-mercato/core/modules/directory/utils/organizationScopeFilter', () => ({
+  ...jest.requireActual('@open-mercato/core/modules/directory/utils/organizationScopeFilter'),
   resolveOrganizationScopeFilter: jest.fn(() => ({ where: { organizationId: 'test-org' } })),
 }))
 

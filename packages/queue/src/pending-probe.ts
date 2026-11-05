@@ -149,14 +149,16 @@ async function probeAsyncQueue(
     return errorResult(queueName, 'async', new Error('bullmq is not installed'))
   }
 
-  const { getRedisUrl } = await import('@open-mercato/shared/lib/redis/connection')
+  const { getRedisUrl, parseRedisUrl } = await import('@open-mercato/shared/lib/redis/connection')
   let connection = options?.connection
   if (!connection) {
     const url = getRedisUrl('QUEUE')
     if (!url) {
       return errorResult(queueName, 'async', new Error('QUEUE Redis URL is not configured'))
     }
-    connection = { url }
+    connection = parseRedisUrl(url)
+  } else if (connection.url) {
+    connection = parseRedisUrl(connection.url)
   }
 
   let queue: InstanceType<BullMQModuleShape['Queue']> | null = null

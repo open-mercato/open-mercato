@@ -4,6 +4,7 @@ import {
   verifyAuthenticationResponse,
   verifyRegistrationResponse,
 } from '@simplewebauthn/server'
+import { ZodError } from 'zod'
 import { PasskeyProvider } from '../providers/PasskeyProvider'
 import { defaultSecurityModuleConfig } from '../security-config'
 
@@ -86,10 +87,65 @@ describe('PasskeyProvider', () => {
     })
 
     expect(generateRegistrationOptionsMock).toHaveBeenCalled()
-    expect(verifyRegistrationResponseMock).toHaveBeenCalled()
+    expect(verifyRegistrationResponseMock).toHaveBeenCalledWith(expect.objectContaining({
+      expectedChallenge: 'setup-challenge',
+      expectedRPID: 'localhost',
+      expectedOrigin: expect.any(Array),
+      requireUserVerification: false,
+    }))
     expect(confirmation.metadata.credentialId).toBe('cred-123')
     expect(confirmation.metadata.credentialPublicKey).toBe('AQIDBA')
     expect(confirmation.metadata.counter).toBe(0)
+  })
+
+  test('rejects a client-supplied public key even with the current setup challenge', async () => {
+    const provider = new PasskeyProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
+    const setup = await provider.setup('user-1', { label: 'Unverified key' })
+
+    await expect(provider.confirmSetup('user-1', setup.setupId, {
+      credentialId: 'unverified-key',
+      publicKey: 'AQIDBA',
+      challenge: setup.clientData.challenge,
+      transports: ['internal'],
+    })).rejects.toBeInstanceOf(ZodError)
+    expect(verifyRegistrationResponseMock).not.toHaveBeenCalled()
+  })
+
+  test.each([undefined, null, 'invalid', [], { response: null }, { response: [] }])(
+    'rejects malformed registration payload %j before verification',
+    async (payload) => {
+      const provider = new PasskeyProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
+      const setup = await provider.setup('user-1', {})
+
+      await expect(provider.confirmSetup('user-1', setup.setupId, payload)).rejects.toBeInstanceOf(ZodError)
+      expect(verifyRegistrationResponseMock).not.toHaveBeenCalled()
+    },
+  )
+
+  test('rejects registration when the verifier does not verify it', async () => {
+    const provider = new PasskeyProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
+    const setup = await provider.setup('user-1', {})
+    verifyRegistrationResponseMock.mockResolvedValueOnce({ verified: false } as never)
+
+    await expect(provider.confirmSetup('user-1', setup.setupId, { response: {} }))
+      .rejects.toThrow('Passkey registration verification failed')
+  })
+
+  test('retains setup user binding and expiration before registration verification', async () => {
+    const provider = new PasskeyProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
+    const now = Date.now()
+    const timeSpy = jest.spyOn(Date, 'now').mockReturnValue(now)
+    try {
+      const setup = await provider.setup('user-1', {})
+      await expect(provider.confirmSetup('user-2', setup.setupId, { response: {} }))
+        .rejects.toThrow('Passkey setup session not found')
+      timeSpy.mockReturnValue(now + defaultSecurityModuleConfig.webauthn.setupTtlMs + 1)
+      await expect(provider.confirmSetup('user-1', setup.setupId, { response: {} }))
+        .rejects.toThrow('Passkey setup session expired')
+      expect(verifyRegistrationResponseMock).not.toHaveBeenCalled()
+    } finally {
+      timeSpy.mockRestore()
+    }
   })
 
   test('uses the user email as the default WebAuthn user name and display name', async () => {
@@ -209,32 +265,124 @@ describe('PasskeyProvider', () => {
     expect(method.providerMetadata.counter).toBe(1)
   })
 
-  test('supports legacy verification payload for backward compatibility', async () => {
+  test('rejects a credentialId and challenge payload even with a prepared challenge', async () => {
     const provider = new PasskeyProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
     const method = {
-      id: 'method-legacy',
+      id: 'method-1',
       userId: 'user-1',
       type: 'passkey',
       providerMetadata: {
-        credentialId: 'cred-legacy',
+        credentialId: 'cred-123',
         credentialPublicKey: 'AQIDBA',
       },
     }
 
-    generateAuthenticationOptionsMock.mockResolvedValueOnce({
-      challenge: 'legacy-challenge',
-      rpId: 'localhost',
-      allowCredentials: [],
-      timeout: 300000,
-      userVerification: 'preferred',
-    } as never)
-
-    await provider.prepareChallenge('user-1', method)
+    const prepared = await provider.prepareChallenge('user-1', method)
     const valid = await provider.verify('user-1', method, {
-      credentialId: 'cred-legacy',
-      challenge: 'legacy-challenge',
+      credentialId: 'cred-123',
+      challenge: prepared.clientData?.challenge,
+    }, prepared.verifyContext)
+
+    expect(valid).toBe(false)
+    expect(verifyAuthenticationResponseMock).not.toHaveBeenCalled()
+  })
+
+  test('rejects a credentialId payload when the client never prepared a challenge', async () => {
+    const provider = new PasskeyProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
+    const method = {
+      id: 'method-1',
+      userId: 'user-1',
+      type: 'passkey',
+      providerMetadata: {
+        credentialId: 'cred-123',
+        credentialPublicKey: 'AQIDBA',
+      },
+    }
+
+    const valid = await provider.verify('user-1', method, { credentialId: 'cred-123' })
+
+    expect(valid).toBe(false)
+    expect(verifyAuthenticationResponseMock).not.toHaveBeenCalled()
+  })
+
+  test('rejects a WebAuthn assertion when no challenge was prepared', async () => {
+    const provider = new PasskeyProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
+    const method = {
+      id: 'method-1',
+      userId: 'user-1',
+      type: 'passkey',
+      providerMetadata: {
+        credentialId: 'cred-123',
+        credentialPublicKey: 'AQIDBA',
+      },
+    }
+
+    const valid = await provider.verify('user-1', method, {
+      response: {
+        id: 'cred-123',
+        rawId: 'cred-123',
+        type: 'public-key',
+        response: {
+          authenticatorData: 'auth-data',
+          clientDataJSON: 'client-data',
+          signature: 'signature',
+        },
+      },
     })
 
-    expect(valid).toBe(true)
+    expect(valid).toBe(false)
+    expect(verifyAuthenticationResponseMock).not.toHaveBeenCalled()
+  })
+
+  test('rejects an assertion the authenticator did not sign', async () => {
+    verifyAuthenticationResponseMock.mockResolvedValue({ verified: false } as never)
+    const provider = new PasskeyProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
+    const method = {
+      id: 'method-1',
+      userId: 'user-1',
+      type: 'passkey',
+      providerMetadata: {
+        credentialId: 'cred-123',
+        credentialPublicKey: 'AQIDBA',
+        counter: 4,
+      },
+    }
+
+    const prepared = await provider.prepareChallenge('user-1', method)
+    const valid = await provider.verify('user-1', method, {
+      response: {
+        id: 'cred-123',
+        rawId: 'cred-123',
+        type: 'public-key',
+        response: {
+          authenticatorData: 'auth-data',
+          clientDataJSON: 'client-data',
+          signature: 'forged-signature',
+        },
+      },
+    }, prepared.verifyContext)
+
+    expect(valid).toBe(false)
+    expect(method.providerMetadata.counter).toBe(4)
+  })
+
+  test('rejects an assertion that makes the WebAuthn verifier throw', async () => {
+    verifyAuthenticationResponseMock.mockRejectedValue(new Error('Unexpected authentication response'))
+    const provider = new PasskeyProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
+    const method = {
+      id: 'method-1',
+      userId: 'user-1',
+      type: 'passkey',
+      providerMetadata: {
+        credentialId: 'cred-123',
+        credentialPublicKey: 'AQIDBA',
+      },
+    }
+
+    const prepared = await provider.prepareChallenge('user-1', method)
+
+    await expect(provider.verify('user-1', method, {
+      response: {},
+    }, prepared.verifyContext)).resolves.toBe(false)
   })
 })

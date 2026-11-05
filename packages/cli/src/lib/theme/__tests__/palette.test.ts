@@ -5,6 +5,7 @@ import {
   oklchToHex,
   PROTECTED_TOKEN_PATTERNS,
   renderThemeCss,
+  validateFontFamily,
   validateRadius,
 } from '../palette'
 
@@ -183,5 +184,33 @@ describe('validateRadius', () => {
     expect(validateRadius('0.1rem').warnings).toHaveLength(1)
     expect(validateRadius('24px').warnings).toHaveLength(1)
     expect(validateRadius('0.625rem').warnings).toEqual([])
+  })
+})
+
+describe('validateFontFamily', () => {
+  it('accepts a single family and a comma-separated stack', () => {
+    expect(validateFontFamily(' Inter ')).toEqual({ value: 'Inter', valid: true })
+    expect(validateFontFamily('"Open Sans", Arial, sans-serif').valid).toBe(true)
+  })
+
+  it('rejects values that could end the declaration or the rule', () => {
+    for (const hostile of [
+      'Inter; --status-error-bg: red',
+      'Inter, x } :root { --accent-indigo: red',
+      'Inter, x {',
+      'Inter,\n--z-index-modal: 1',
+      'Inter, \\3b color: red',
+      'Inter, /* x',
+      '   ',
+    ]) {
+      expect(validateFontFamily(hostile).valid).toBe(false)
+    }
+  })
+
+  it('makes renderThemeCss refuse a structural font value on every path', () => {
+    const palette = derivePalette({ primaryHex: REPRESENTATIVE_PRIMARIES.darkBrand })
+    expect(() => renderThemeCss({ palette, fontFamily: 'Inter, x; --status-error-bg: red' })).toThrow(
+      'CSS-structural characters',
+    )
   })
 })

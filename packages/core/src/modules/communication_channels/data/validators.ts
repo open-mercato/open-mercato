@@ -74,6 +74,7 @@ export const validateCredentialsInputSchema = z.object({
 export const validateCredentialsResultSchema = z.object({
   ok: z.boolean(),
   errors: z.record(z.string(), z.string()).optional(),
+  errorCodes: z.record(z.string(), z.string()).optional(),
 })
 
 export const refreshCredentialsInputSchema = z.object({
@@ -120,7 +121,8 @@ export const normalizedInboundMessageSchema = z.object({
   body: z.string(),
   bodyFormat: z.enum(['text', 'markdown', 'html']),
   attachments: z.array(normalizedAttachmentSchema).optional(),
-  timestamp: z.date(),
+  timestamp: z.date().nullable(),
+  providerTimestamp: z.date().nullable().optional(),
   replyToExternalId: z.string().optional(),
   channelPayload: z.record(z.string(), z.unknown()),
   channelContentType: z.string().min(1),

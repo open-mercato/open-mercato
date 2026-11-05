@@ -1,5 +1,8 @@
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const organizationId = '22222222-2222-4222-8222-222222222222'
+const ancestorId = '99999999-9999-9999-9999-999999999999'
+const siblingId = '88888888-8888-4888-8888-888888888888'
+const resolveAncestorIdsMock = jest.fn(async () => [ancestorId])
 
 const em = {
   find: jest.fn(),
@@ -19,14 +22,26 @@ jest.mock('../../context', () => ({
     em,
     organizationId,
     tenantId,
-    readableOrganizationIds: [organizationId, '99999999-9999-9999-9999-999999999999'],
+    readableOrganizationIds: [organizationId, ancestorId, siblingId],
     cache: undefined,
+    container: { resolve: (key: string) => key === 'organizationHierarchyService' ? { resolveAncestorIds: resolveAncestorIdsMock } : undefined },
   })),
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  loadDictionary: jest.fn(async (locale: string) => require(`../../../../i18n/${locale}.json`)),
   resolveTranslations: async () => ({
+    locale: 'en',
     translate: (key: string, fallback?: string) => fallback ?? key,
+  }),
+}))
+
+const mockOverlay = jest.fn(async (items: Record<string, unknown>[]) => items)
+
+jest.mock('@open-mercato/shared/lib/localization/overlay-plugin', () => ({
+  getTranslationOverlayPlugin: () => ({
+    overlay: mockOverlay,
+    resolveLocale: (req: Request) => new URL(req.url).searchParams.get('locale') ?? 'en',
   }),
 }))
 
@@ -35,7 +50,8 @@ jest.mock('../../../../commands/settings', () => ({
 }))
 
 import { GET } from '../route'
-import { resolveDictionaryRouteContext } from '../../context'
+import { mapDictionaryKind, resolveDictionaryRouteContext } from '../../context'
+import { CUSTOMER_DICTIONARY_ORGANIZATION_REQUIRED_CODE } from '../../../../lib/dictionaries'
 
 describe('customer dictionary route', () => {
   beforeEach(() => {
@@ -85,7 +101,7 @@ describe('customer dictionary route', () => {
         tenantId,
         kind: 'status',
         organizationId: {
-          $in: [organizationId, '99999999-9999-9999-9999-999999999999'],
+          $in: [organizationId, ancestorId, siblingId],
         },
       }),
       expect.objectContaining({
@@ -131,6 +147,84 @@ describe('customer dictionary route', () => {
     )
   })
 
+  it('returns persisted behavior for activity types', async () => {
+    const behavior = {
+      schemaVersion: 1,
+      baseKind: 'meeting',
+      selectable: true,
+      order: 10,
+      fields: {
+        endTime: true,
+        allDay: true,
+        recurrence: false,
+        location: 'location',
+        people: 'attendees',
+        priority: false,
+        resources: false,
+      },
+      customFieldsetIds: [],
+    }
+    jest.mocked(mapDictionaryKind).mockReturnValueOnce({
+      kind: 'activity-types',
+      mappedKind: 'activity_type',
+    })
+    em.find.mockResolvedValueOnce([{
+      id: 'activity-meeting',
+      value: 'meeting',
+      normalizedValue: 'meeting',
+      label: 'Meeting',
+      organizationId,
+      activityTypeBehavior: behavior,
+    }])
+
+    const response = await GET(
+      new Request('http://localhost/api/customers/dictionaries/activity-types'),
+      { params: { kind: 'activity-types' } },
+    )
+
+    expect(response.status).toBe(200)
+    expect(resolveAncestorIdsMock).toHaveBeenCalledWith({ tenantId, organizationId })
+    expect(em.find).toHaveBeenCalledWith(expect.any(Function), expect.objectContaining({
+      tenantId, kind: 'activity_type', organizationId: { $in: [organizationId, ancestorId] },
+    }), expect.any(Object))
+    await expect(response.json()).resolves.toMatchObject({
+      items: [expect.objectContaining({ value: 'meeting', behavior })],
+    })
+  })
+
+  it('fails closed for activity types when the selected organization is missing', async () => {
+    jest.mocked(mapDictionaryKind).mockReturnValueOnce({ kind: 'activity-types', mappedKind: 'activity_type' })
+    resolveAncestorIdsMock.mockResolvedValueOnce(null)
+    const response = await GET(
+      new Request('http://localhost/api/customers/dictionaries/activity-types'),
+      { params: { kind: 'activity-types' } },
+    )
+    expect(response.status).toBe(403)
+    expect(em.find).not.toHaveBeenCalled()
+  })
+
+  it('returns a stable error code when organization context is unavailable', async () => {
+    jest.mocked(resolveDictionaryRouteContext).mockResolvedValueOnce({
+      translate: (_key: string, fallback?: string) => fallback ?? 'error',
+      em,
+      organizationId: null,
+      tenantId,
+      readableOrganizationIds: [],
+      cache: undefined,
+    } as never)
+
+    const response = await GET(
+      new Request('http://localhost/api/customers/dictionaries/statuses'),
+      { params: { kind: 'statuses' } },
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Organization context is required',
+      code: CUSTOMER_DICTIONARY_ORGANIZATION_REQUIRED_CODE,
+    })
+  })
+
   it('does not seed/persist pipeline_stage entries for stages lacking one (read-only GET, #2735)', async () => {
     const stage = {
       id: '33333333-3333-4333-8333-333333333333',
@@ -159,5 +253,131 @@ describe('customer dictionary route', () => {
     expect(em.create).not.toHaveBeenCalled()
     expect(em.persist).not.toHaveBeenCalled()
     expect(em.flush).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('localized customer dictionary reads', () => {
+  const entries = [
+    { id: '33333333-3333-4333-8333-333333333333', value: 'archived', label: 'Archived', organizationId, normalizedValue: 'archived' },
+    { id: '44444444-4444-4444-8444-444444444444', value: 'inactive', label: 'Inactive', organizationId, normalizedValue: 'inactive' },
+  ]
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    em.find.mockReset()
+    mockOverlay.mockImplementation(async (items) => items)
+  })
+
+  it('sorts the displayed translated labels while keeping stable values', async () => {
+    em.find.mockResolvedValueOnce(entries)
+    const response = await GET(new Request('http://localhost/api/customers/dictionaries/statuses?locale=pl'), { params: { kind: 'statuses' } })
+    const body = await response.json()
+    expect(body.items.map((item: { value: string; label: string }) => [item.value, item.label])).toEqual([
+      ['inactive', 'Nieaktywny'], ['archived', 'Zarchiwizowany'],
+    ])
+    expect(entries[0].label).toBe('Archived')
+  })
+
+  it('caches base labels and re-applies translations on a cache hit', async () => {
+    const stored = new Map<string, unknown>()
+    const cache = {
+      get: jest.fn(async (key: string) => stored.get(key) ?? null),
+      set: jest.fn(async (key: string, payload: unknown) => { stored.set(key, payload) }),
+    }
+    jest.mocked(resolveDictionaryRouteContext).mockResolvedValue({
+      translate: (key: string, fallback?: string) => fallback ?? key,
+      em, tenantId, organizationId, readableOrganizationIds: [organizationId], cache,
+    } as never)
+    em.find.mockResolvedValue(entries)
+    const req = new Request('http://localhost/api/customers/dictionaries/statuses?locale=pl')
+    const first = await GET(req, { params: { kind: 'statuses' } })
+    expect((await first.json()).items[0].label).toBe('Nieaktywny')
+    expect(Array.from(stored.values())[0]).toMatchObject({ items: [{ label: 'Archived' }, { label: 'Inactive' }] })
+
+    mockOverlay.mockImplementation(async (items) => items.map((item) => ({ ...item, label: `Custom ${item.label}` })))
+    const second = await GET(req, { params: { kind: 'statuses' } })
+    expect((await second.json()).items[0].label).toBe('Custom Nieaktywny')
+    expect(em.find).toHaveBeenCalledTimes(1)
+
+    const english = await GET(new Request('http://localhost/api/customers/dictionaries/statuses?locale=en'), { params: { kind: 'statuses' } })
+    expect((await english.json()).items[0].label).toBe('Custom Archived')
+    expect(em.find).toHaveBeenCalledTimes(1)
+    expect(stored.size).toBe(1)
+    expect(Array.from(stored.keys())[0]).not.toContain('locale')
+  })
+})
+
+describe('base customer dictionary labels for management screens', () => {
+  const entries = [
+    { id: '55555555-5555-4555-8555-555555555555', value: 'active', label: 'Active', organizationId, normalizedValue: 'active' },
+    { id: '66666666-6666-4666-8666-666666666666', value: 'vip', label: 'VIP', organizationId, normalizedValue: 'vip' },
+  ]
+  const labelsById = (items: Array<{ id: string; label: string }>) =>
+    Object.fromEntries(items.map((item) => [item.id, item.label]))
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    em.find.mockReset()
+    mockOverlay.mockImplementation(async (items) => items.map((item) => ({ ...item, label: `Przetłumaczone ${item.label}` })))
+  })
+
+  it('returns stored labels under a non-English locale without applying seeded or explicit translations', async () => {
+    jest.mocked(resolveDictionaryRouteContext).mockResolvedValue({
+      translate: (key: string, fallback?: string) => fallback ?? key,
+      em, tenantId, organizationId, readableOrganizationIds: [organizationId], cache: undefined,
+    } as never)
+    em.find.mockResolvedValueOnce(entries)
+
+    const response = await GET(
+      new Request('http://localhost/api/customers/dictionaries/statuses?locale=pl&labels=base'),
+      { params: { kind: 'statuses' } },
+    )
+
+    expect(response.status).toBe(200)
+    expect(labelsById((await response.json()).items)).toEqual({
+      '55555555-5555-4555-8555-555555555555': 'Active',
+      '66666666-6666-4666-8666-666666666666': 'VIP',
+    })
+    expect(mockOverlay).not.toHaveBeenCalled()
+  })
+
+  it('shares the cached base payload between localized and base reads', async () => {
+    const stored = new Map<string, unknown>()
+    const cache = {
+      get: jest.fn(async (key: string) => stored.get(key) ?? null),
+      set: jest.fn(async (key: string, payload: unknown) => { stored.set(key, payload) }),
+    }
+    jest.mocked(resolveDictionaryRouteContext).mockResolvedValue({
+      translate: (key: string, fallback?: string) => fallback ?? key,
+      em, tenantId, organizationId, readableOrganizationIds: [organizationId], cache,
+    } as never)
+    em.find.mockResolvedValue(entries)
+
+    const localized = await GET(
+      new Request('http://localhost/api/customers/dictionaries/statuses?locale=pl'),
+      { params: { kind: 'statuses' } },
+    )
+    expect(labelsById((await localized.json()).items)['55555555-5555-4555-8555-555555555555']).toBe('Przetłumaczone Aktywny')
+
+    const base = await GET(
+      new Request('http://localhost/api/customers/dictionaries/statuses?locale=pl&labels=base'),
+      { params: { kind: 'statuses' } },
+    )
+    expect(labelsById((await base.json()).items)).toEqual({
+      '55555555-5555-4555-8555-555555555555': 'Active',
+      '66666666-6666-4666-8666-666666666666': 'VIP',
+    })
+    expect(em.find).toHaveBeenCalledTimes(1)
+    expect(stored.size).toBe(1)
+  })
+
+  it('rejects an unknown label projection', async () => {
+    const response = await GET(
+      new Request('http://localhost/api/customers/dictionaries/statuses?labels=raw'),
+      { params: { kind: 'statuses' } },
+    )
+    expect(response.status).toBe(400)
+    expect(em.find).not.toHaveBeenCalled()
   })
 })

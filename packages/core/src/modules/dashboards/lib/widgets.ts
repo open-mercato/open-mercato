@@ -1,6 +1,8 @@
 import type { Module, ModuleDashboardWidgetEntry } from '@open-mercato/shared/modules/registry'
 import type { DashboardWidgetMetadata, DashboardWidgetModule } from '@open-mercato/shared/modules/dashboard/widgets'
+import { applyDashboardWidgetOverridesToEntries } from '@open-mercato/shared/modules/overrides'
 import { getModules } from '@open-mercato/shared/lib/i18n/server'
+import { onModulesRegistered } from '@open-mercato/shared/lib/modules/registry'
 
 type LoadedWidgetModule = DashboardWidgetModule<any> & { metadata: DashboardWidgetMetadata }
 
@@ -16,23 +18,56 @@ export function invalidateWidgetCache() {
   widgetEntriesPromise = null;
   widgetCache.clear();
 }
+
+/**
+ * An empty resolution means the module registry was not populated yet — a boot
+ * race, not "this app has no dashboard widgets". Memoizing it would serve an
+ * empty registry for the lifetime of the process, so the entry is dropped and
+ * the next call retries. A rejected resolution is dropped for the same reason.
+ */
 async function loadWidgetEntries(): Promise<WidgetEntry[]> {
   if (!widgetEntriesPromise) {
-    widgetEntriesPromise = Promise.resolve().then(() => {
+    const pending = Promise.resolve().then(() => {
       const list = getModules() as Module[]
-      return list.flatMap((mod) => {
-        const entries = mod.dashboardWidgets ?? []
-        return entries.map((entry) => ({
+      const entries = list.flatMap((mod) => {
+        const moduleEntries = mod.dashboardWidgets ?? []
+        return moduleEntries.map((entry) => ({
           ...entry,
           moduleId: mod.id,
         }))
       })
+      return applyDashboardWidgetOverridesToEntries(entries) as WidgetEntry[]
     })
+    widgetEntriesPromise = pending
+    const forgetWhenUnusable = (entries: WidgetEntry[] | null) => {
+      if (widgetEntriesPromise === pending && (entries === null || entries.length === 0)) {
+        widgetEntriesPromise = null
+      }
+    }
+    try {
+      const entries = await pending
+      forgetWhenUnusable(entries)
+      return entries
+    } catch (err) {
+      forgetWhenUnusable(null)
+      throw err
+    }
   }
   return widgetEntriesPromise
 }
 
 const widgetCache = new Map<string, Promise<LoadedWidgetModule>>()
+
+// Close the boot race at its source (#5103). Bootstrap can register modules more
+// than once — an i18n-only registration is later reconciled with the full module
+// list — and a resolution computed in between describes a registry that no longer
+// exists. The registry notifies only when the registered set actually changed, so
+// a healthy boot costs nothing and no work is added to the request path. Declared
+// after both caches so the subscription can never observe them in their temporal
+// dead zone.
+onModulesRegistered(() => {
+  invalidateWidgetCache()
+})
 
 function ensureValidWidgetModule(mod: any, key: string, moduleId: string): LoadedWidgetModule {
   if (!mod || typeof mod !== 'object') {
@@ -63,6 +98,14 @@ async function loadEntry(entry: WidgetEntry): Promise<LoadedWidgetModule> {
     const promise = entry.loader()
       .then((mod) => ensureValidWidgetModule(mod, entry.key, entry.moduleId))
     widgetCache.set(entry.key, promise)
+    // Same policy as the entries cache above: a rejected resolution is a transient
+    // failure (a dynamic import that lost a race), not a permanent fact about the
+    // widget. Memoizing it would make loadAllWidgets() reject for the lifetime of the
+    // process. The identity check mirrors `widgetEntriesPromise === pending`, so a
+    // concurrent invalidateWidgetCache() is never clobbered.
+    promise.catch(() => {
+      if (widgetCache.get(entry.key) === promise) widgetCache.delete(entry.key)
+    })
   }
   return widgetCache.get(entry.key)!
 }

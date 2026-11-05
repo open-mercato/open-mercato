@@ -1,5 +1,6 @@
 "use client"
 import { useCallback, useMemo, useState } from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/portal/extension-points'
 import Link from 'next/link'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { EmailInput } from '@open-mercato/ui/primitives/email-input'
@@ -11,9 +12,9 @@ import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { SearchX } from 'lucide-react'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { navigateWithPageReload } from '@open-mercato/core/modules/portal/lib/navigation'
 import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
-import { PortalInjectionSpots } from '@open-mercato/ui/backend/injection/spotIds'
 
 type Props = { params: { orgSlug: string } }
 
@@ -47,7 +48,7 @@ export default function PortalLoginPage({ params }: Props) {
         })
 
         if (result.ok && result.result?.ok) {
-          window.location.assign(`/${orgSlug}/portal/dashboard`)
+          navigateWithPageReload(`/${orgSlug}/portal/dashboard`)
           return
         }
 
@@ -97,11 +98,11 @@ export default function PortalLoginPage({ params }: Props) {
         <p className="mt-1.5 text-sm text-muted-foreground">{t('portal.login.description', 'Enter your credentials to access the portal.')}</p>
       </div>
 
-      <InjectionSpot spotId={PortalInjectionSpots.pageBefore('login')} context={injectionContext} />
+      <InjectionSpot spotId={extensionPoints.hosts.loginBefore.spotId} context={injectionContext} />
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         {error ? (
-          <Alert variant="destructive">
+          <Alert status="error">
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         ) : null}
@@ -128,7 +129,7 @@ export default function PortalLoginPage({ params }: Props) {
         </p>
       </form>
 
-      <InjectionSpot spotId={PortalInjectionSpots.pageAfter('login')} context={injectionContext} />
+      <InjectionSpot spotId={extensionPoints.hosts.loginAfter.spotId} context={injectionContext} />
     </div>
   )
 }

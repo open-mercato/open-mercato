@@ -213,6 +213,21 @@ export function validateDescriptorCurrencies(providerKey: string | null | undefi
   }
 }
 
+/**
+ * Generates a unique checkout link slug.
+ *
+ * NOTE: The slug uniqueness check runs GLOBALLY against all checkout links, and the
+ * `scope` parameter is intentionally ignored. This is required because the public-facing
+ * checkout routes (e.g., `/pay/[slug]`) do not have any tenant/organization discriminator
+ * in their URL path, resolving links solely by the slug. Consequently, duplicate slugs
+ * cannot exist across different tenants.
+ *
+ * @param em MikroORM EntityManager
+ * @param _scope Tenant and organization scope (ignored in database query)
+ * @param requestedSlug The slug requested by the user
+ * @param fallbackText The title/name used to generate the slug if requestedSlug is empty
+ * @param excludeId Optional ID of the checkout link to exclude from the duplicate check
+ */
 export async function ensureUniqueSlug(
   em: EntityManager,
   _scope: CheckoutScope,
@@ -485,6 +500,45 @@ export function serializeTemplateOrLink(record: CheckoutLinkTemplate | CheckoutL
       activeReservationCount: record.activeReservationCount,
       isLocked: record.isLocked,
     } : {}),
+  }
+}
+
+export function serializePublicPayLink(record: CheckoutLink) {
+  return {
+    id: record.id,
+    slug: record.slug,
+    name: record.name,
+    title: record.title ?? null,
+    subtitle: record.subtitle ?? null,
+    description: record.description ?? null,
+    logoUrl: record.logoUrl ?? null,
+    logoPreviewUrl: buildCheckoutAttachmentPreviewUrl(record.logoAttachmentId) ?? record.logoUrl ?? null,
+    primaryColor: record.primaryColor ?? null,
+    secondaryColor: record.secondaryColor ?? null,
+    backgroundColor: record.backgroundColor ?? null,
+    themeMode: record.themeMode,
+    pricingMode: record.pricingMode,
+    fixedPriceAmount: toMoneyNumber(record.fixedPriceAmount),
+    fixedPriceCurrencyCode: record.fixedPriceCurrencyCode ?? null,
+    fixedPriceIncludesTax: record.fixedPriceIncludesTax,
+    fixedPriceOriginalAmount: toMoneyNumber(record.fixedPriceOriginalAmount),
+    customAmountMin: toMoneyNumber(record.customAmountMin),
+    customAmountMax: toMoneyNumber(record.customAmountMax),
+    customAmountCurrencyCode: record.customAmountCurrencyCode ?? null,
+    priceListItems: record.priceListItems ?? [],
+    gatewayProviderKey: record.gatewayProviderKey ?? null,
+    collectCustomerDetails: record.collectCustomerDetails,
+    customerFieldsSchema: record.customerFieldsSchema ?? [],
+    legalDocuments: record.legalDocuments ?? {},
+    displayCustomFieldsOnPage: record.displayCustomFieldsOnPage,
+    successTitle: record.successTitle ?? null,
+    successMessage: record.successMessage ?? null,
+    cancelTitle: record.cancelTitle ?? null,
+    cancelMessage: record.cancelMessage ?? null,
+    errorTitle: record.errorTitle ?? null,
+    errorMessage: record.errorMessage ?? null,
+    status: record.status,
+    checkoutType: record.checkoutType,
   }
 }
 

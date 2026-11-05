@@ -8,6 +8,13 @@ export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
       { field: 'previous_secret' },
     ],
   },
+  {
+    entityId: 'webhooks:webhook_ingestion_entity',
+    fields: [
+      { field: 'payload' },
+      { field: 'headers' },
+    ],
+  },
 ]
 
 export default defaultEncryptionMaps

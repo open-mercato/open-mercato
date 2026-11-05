@@ -63,6 +63,16 @@ export type CommunicationChannelStatus =
   expression:
     `create unique index "communication_channels_user_provider_external_uq" on "communication_channels" ("tenant_id", "user_id", "provider_key", "external_identifier") where "deleted_at" is null and "user_id" is not null and "external_identifier" is not null`,
 })
+// One tenant-wide push channel per (tenant, provider): push providers (FCM/APNs/
+// Expo) have no `external_identifier` and `user_id IS NULL`, so the mailbox
+// unique index above does not cover them. This keeps an admin reconnect healing
+// the single shared row (see `createConnectedChannelRow`) instead of inserting
+// duplicates the fan-out would silently ignore.
+@Index({
+  name: 'communication_channels_tenant_push_provider_uq',
+  expression:
+    `create unique index "communication_channels_tenant_push_provider_uq" on "communication_channels" ("tenant_id", "provider_key") where "channel_type" = 'push' and "user_id" is null and "deleted_at" is null`,
+})
 export class CommunicationChannel {
   [OptionalProps]?:
     | 'createdAt'
@@ -75,6 +85,7 @@ export class CommunicationChannel {
     | 'organizationId'
     | 'userId'
     | 'isPrimary'
+    | 'visibility'
     | 'pollIntervalSeconds'
     | 'lastPolledAt'
     | 'status'
@@ -121,6 +132,26 @@ export class CommunicationChannel {
    */
   @Property({ name: 'is_primary', type: 'boolean', default: false })
   isPrimary: boolean = false
+
+  /**
+   * Who may read the CRM email this channel ingests.
+   *
+   *   `private` — only the owner (`userId`). The default, and the only state a
+   *               personal mailbox has ever had.
+   *   `shared`  — every user with CRM access to the linked record: a team mailbox.
+   *
+   * Made explicit rather than inferred from `userId` so a PERSONAL mailbox can be
+   * team-visible without surrendering owner-only management. Tenant-scoped rows
+   * (`userId IS NULL`) are `shared` — the migration sets that in the same
+   * statement as the column addition, otherwise every existing FCM/APNs/Expo push
+   * channel would be silently un-shared on deploy.
+   *
+   * Enforcement is READ-TIME: flipping this never rewrites
+   * `customer_interactions.visibility`, so flipping back is instant and lossless.
+   * Stored as open text to match the sibling per-email `visibility` column.
+   */
+  @Property({ name: 'visibility', type: 'text', default: 'private' })
+  visibility: string = 'private'
 
   /**
    * Polling cadence in seconds. NULL means "this channel does not poll" — i.e. it

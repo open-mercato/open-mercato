@@ -1,10 +1,42 @@
+import { randomUUID } from 'node:crypto'
+import { resolveQueryIndexSourceTableMetadata } from './subscriber-scope'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
+import { resolveEntityTableName as resolveFallbackEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { decryptIndexDocForSearch, encryptIndexDocForStorage } from '@open-mercato/shared/lib/encryption/indexDoc'
-import { sql } from 'kysely'
+import {
+  buildCustomFieldDefinitionIndexFromRows,
+  normalizeDefinitionKey,
+  selectDefinitionForRecord,
+  type CustomFieldDefinitionRow,
+} from '@open-mercato/shared/lib/crud/custom-field-definition-index'
+import { type Kysely, type Transaction, sql } from 'kysely'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
 import { replaceSearchTokensForRecord, deleteSearchTokensForRecord } from './search-tokens'
-import { attachAggregateSearchField } from './document'
+import { attachAggregateSearchField, rebuildAggregateSearchField } from './document'
+import { applyIndexDocEnrichers } from './doc-enrichers'
+
+function resolveEntityTableName(em: EntityManager, entity: string): string {
+  return resolveQueryIndexSourceTableMetadata(em, entity)?.table ?? resolveFallbackEntityTableName(em, entity)
+}
+
+const logger = createLogger('query_index').child({ component: 'indexer' })
+
+function reportTranslationsFailure(
+  error: unknown,
+  code: 'query_index.translations_read_failed' | 'query_index.translations_log_failed',
+): void {
+  try {
+    getTelemetryRuntime()?.reportError(error, { module: 'query_index', code })
+  } catch (telemetryError) {
+    logger.warn('Failed to report index translations error', { err: telemetryError })
+  }
+}
+
+type QueryIndexExecutor = Kysely<any> | Transaction<any>
 
 type BuildDocParams = {
   entityType: string // '<module>:<entity>'
@@ -93,12 +125,79 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
     if (!cfMap[cfKey]) cfMap[cfKey] = []
     cfMap[cfKey].push(val)
   }
+
+  const multiKeys = new Set<string>()
+  const fieldKeys = Object.keys(cfMap).map((key) => key.slice(3))
+  if (fieldKeys.length > 0) {
+    let defQuery = db
+      .selectFrom('custom_field_defs' as any)
+      .select([
+        'key' as any,
+        'kind' as any,
+        'config_json' as any,
+        'organization_id' as any,
+        'tenant_id' as any,
+        'deleted_at' as any,
+        'updated_at' as any,
+      ])
+      .where('entity_id' as any, '=', params.entityType)
+      .where('key' as any, 'in', fieldKeys)
+      .where('is_active' as any, '=', true)
+      .where('deleted_at' as any, 'is', null)
+
+    if (params.organizationId != null) {
+      defQuery = defQuery.where((eb: any) => eb.or([
+        eb('organization_id' as any, '=', params.organizationId),
+        eb('organization_id' as any, 'is', null),
+      ]))
+    } else {
+      defQuery = defQuery.where('organization_id' as any, 'is', null)
+    }
+
+    if (params.tenantId != null) {
+      defQuery = defQuery.where((eb: any) => eb.or([
+        eb('tenant_id' as any, '=', params.tenantId),
+        eb('tenant_id' as any, 'is', null),
+      ]))
+    } else {
+      defQuery = defQuery.where('tenant_id' as any, 'is', null)
+    }
+
+    const defRows = await defQuery.execute() as Array<Record<string, any>>
+    const definitionIndex = buildCustomFieldDefinitionIndexFromRows(
+      defRows.map((row): CustomFieldDefinitionRow => ({
+        key: String(row.key ?? ''),
+        entityId: params.entityType,
+        kind: typeof row.kind === 'string' ? row.kind : null,
+        configJson: row.config_json,
+        organizationId: row.organization_id ?? null,
+        tenantId: row.tenant_id ?? null,
+        deletedAt: row.deleted_at ?? null,
+        updatedAt: row.updated_at ?? null,
+      })),
+      { organizationIds: params.organizationId ? [params.organizationId] : [] },
+    )
+    for (const key of fieldKeys) {
+      const definitions = definitionIndex.get(normalizeDefinitionKey(key)) ?? []
+      const definition = selectDefinitionForRecord(
+        definitions,
+        params.organizationId ?? null,
+        params.tenantId ?? null,
+      )
+      if (definition?.multi) multiKeys.add(key)
+    }
+  }
+
   for (const [key, arr] of Object.entries(cfMap)) {
-    // Store singletons as simple value; multis as array
-    doc[key] = arr.length <= 1 ? arr[0] : arr
+    // Cardinality belongs to the field definition, not the current row count:
+    // a multi field containing one value must still hydrate as an array.
+    const fieldKey = key.slice(3)
+    doc[key] = multiKeys.has(fieldKey) || arr.length > 1 ? arr : arr[0]
   }
 
   // Attach translations under flat keys 'l10n:{locale}:{field}'
+  const translationsSavepoint = db.isTransaction ? `om_translations_${randomUUID()}` : null
+  if (translationsSavepoint) await sql`SAVEPOINT ${sql.id(translationsSavepoint)}`.execute(db)
   try {
     const translationRow = await db
       .selectFrom('entity_translations' as any)
@@ -119,10 +218,48 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
         }
       }
     }
-  } catch {}
+  } catch (translationsError) {
+    if (translationsSavepoint) {
+      await sql`ROLLBACK TO SAVEPOINT ${sql.id(translationsSavepoint)}`.execute(db)
+    }
+    reportTranslationsFailure(translationsError, 'query_index.translations_read_failed')
+    await recordIndexerError(
+      { db },
+      {
+        source: 'query_index',
+        handler: 'query_index:build-index-doc:translations',
+        error: translationsError,
+        entityType: params.entityType,
+        recordId: params.recordId,
+        tenantId: params.tenantId ?? null,
+        organizationId: params.organizationId ?? null,
+      },
+    ).catch((loggingError: unknown) => reportTranslationsFailure(loggingError, 'query_index.translations_log_failed'))
+  } finally {
+    if (translationsSavepoint) {
+      try {
+        await sql`RELEASE SAVEPOINT ${sql.id(translationsSavepoint)}`.execute(db)
+      } catch (loggingError) {
+        await sql`ROLLBACK TO SAVEPOINT ${sql.id(translationsSavepoint)}`.execute(db)
+        await sql`RELEASE SAVEPOINT ${sql.id(translationsSavepoint)}`.execute(db)
+        reportTranslationsFailure(loggingError, 'query_index.translations_log_failed')
+      }
+    }
+  }
+
+  await applyIndexDocEnrichers(db, params.entityType, [{
+    recordId: String(params.recordId),
+    doc,
+    tenantId: params.tenantId ?? null,
+    organizationId: params.organizationId ?? null,
+  }])
+
+  // Kept outside the guard below: a failure while building the aggregate search field is a
+  // bug in the aggregation or its configuration, and must surface instead of being mistaken
+  // for an encryption failure and silently skipping encryption.
+  doc = attachAggregateSearchField(doc, { entityType: params.entityType })
 
   try {
-    doc = attachAggregateSearchField(doc)
     const encryption = resolveTenantEncryptionService(em as any)
     doc = await encryptIndexDocForStorage(
       params.entityType,
@@ -130,7 +267,23 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
       { tenantId: params.tenantId ?? null, organizationId: params.organizationId ?? null },
       encryption,
     )
-  } catch {}
+  } catch (error) {
+    // `encryptIndexDocForStorage` already returns the document untouched when encryption is
+    // absent or disabled, so a throw here is always a genuine encryption failure. Returning
+    // `doc` would hand the caller the plaintext document to write into `entity_indexes`,
+    // which must stay encrypted at rest; returning `null` would mean "record gone" and make
+    // `upsertIndexRow` delete a healthy index row. Fail loudly instead: the projection keeps
+    // its previous, correctly encrypted contents and the `query_index.upsert_one` subscriber
+    // persists the error via `recordIndexerError`.
+    logger.error('Index document encryption failed; refusing to return an unencrypted document', {
+      entityType: params.entityType,
+      recordId: params.recordId,
+      tenantId: params.tenantId ?? null,
+      organizationId: params.organizationId ?? null,
+      err: error,
+    })
+    throw error
+  }
 
   return doc
 }
@@ -158,12 +311,13 @@ function scopeEntityIndexes<QB extends { where: (...args: any[]) => QB }>(
 
 export async function upsertIndexRow(
   em: EntityManager,
-  args: { entityType: string; recordId: string; organizationId?: string | null; tenantId?: string | null; searchTokenDoc?: Record<string, unknown> | null; deferSearchTokens?: boolean }
+  args: { entityType: string; recordId: string; organizationId?: string | null; tenantId?: string | null; searchTokenDoc?: Record<string, unknown> | null; deferSearchTokens?: boolean; trx?: QueryIndexExecutor }
 ): Promise<UpsertIndexResult> {
   const db = (em as any).getKysely()
+  const executor = args.trx ?? db
 
   const existing = await scopeEntityIndexes(
-    db.selectFrom('entity_indexes' as any).select(['id' as any, 'deleted_at' as any]),
+    executor.selectFrom('entity_indexes' as any).select(['id' as any, 'deleted_at' as any]),
     args,
   ).executeTakeFirst() as { id: string; deleted_at: Date | null } | undefined
 
@@ -182,12 +336,15 @@ export async function upsertIndexRow(
           organizationId: args.organizationId ?? null,
           tenantId: args.tenantId ?? null,
           doc: null,
+          trx: args.trx,
         })
-      } catch {}
+      } catch (error) {
+        if (args.trx) throw error
+      }
     }
     if (existed) {
       await scopeEntityIndexes(
-        db.deleteFrom('entity_indexes' as any) as any,
+        executor.deleteFrom('entity_indexes' as any) as any,
         args,
       ).execute()
     }
@@ -207,7 +364,7 @@ export async function upsertIndexRow(
 
   // Prefer modern upsert keyed by coalesced org id when available; fallback to update-then-insert
   try {
-    await db
+    await executor
       .insertInto('entity_indexes' as any)
       .values({ ...payload, created_at: sql`now()` } as any)
       .onConflict((oc: any) => oc
@@ -223,16 +380,18 @@ export async function upsertIndexRow(
   } catch {
     // Fallback for schemas without organization_id_coalesced column/index
     const updated = await scopeEntityIndexes(
-      db.updateTable('entity_indexes' as any).set(payload as any) as any,
+      executor.updateTable('entity_indexes' as any).set(payload as any) as any,
       args,
     ).executeTakeFirst() as { numUpdatedRows?: bigint | number } | undefined
     if (!updated || Number(updated.numUpdatedRows ?? 0) === 0) {
       try {
-        await db
+        await executor
           .insertInto('entity_indexes' as any)
           .values({ ...payload, created_at: sql`now()` } as any)
           .execute()
-      } catch {}
+      } catch (error) {
+        if (args.trx) throw error
+      }
     }
   }
 
@@ -250,8 +409,11 @@ export async function upsertIndexRow(
         tenantId: args.tenantId ?? null,
         doc,
         searchTokenDoc: args.searchTokenDoc ?? null,
+        trx: args.trx,
       })
-    } catch {}
+    } catch (error) {
+      if (args.trx) throw error
+    }
   }
   return { doc, existed, wasDeleted, created, revived }
 }
@@ -271,6 +433,7 @@ export async function reindexSearchTokensForRecord(
     tenantId?: string | null
     doc: Record<string, any> | null
     searchTokenDoc?: Record<string, unknown> | null
+    trx?: QueryIndexExecutor
   },
 ): Promise<void> {
   const db = (em as any).getKysely()
@@ -280,7 +443,7 @@ export async function reindexSearchTokensForRecord(
       recordId: args.recordId,
       organizationId: args.organizationId ?? null,
       tenantId: args.tenantId ?? null,
-    })
+    }, { trx: args.trx })
     return
   }
   const tokenDoc = args.searchTokenDoc ?? (() => {
@@ -294,22 +457,35 @@ export async function reindexSearchTokensForRecord(
       dekKeyCache,
     )
   })()
+  // Rebuilt on the decrypted document: the aggregate stored in `entity_indexes` was
+  // composed from the row as it sits at rest, so for every encryption-mapped field it
+  // holds ciphertext no user query can ever match (#5625). `resolveSearchConfig` re-parses
+  // the environment on every call, so it is resolved once and threaded into both the
+  // rebuild and the token writer — that also makes the aggregate's blocklist filter and
+  // the per-field one provably read the same snapshot, as the batch path already does.
+  const searchConfig = resolveSearchConfig()
+  const searchDoc = rebuildAggregateSearchField(await tokenDoc, {
+    entityType: args.entityType,
+    config: searchConfig,
+  })
   await replaceSearchTokensForRecord(db, {
     entityType: args.entityType,
     recordId: args.recordId,
     organizationId: args.organizationId ?? null,
     tenantId: args.tenantId ?? null,
-    doc: await tokenDoc,
-  })
+    doc: searchDoc,
+    config: searchConfig,
+  }, { trx: args.trx })
 }
 
 export async function markDeleted(
   em: EntityManager,
-  args: { entityType: string; recordId: string; organizationId?: string | null; tenantId?: string | null }
+  args: { entityType: string; recordId: string; organizationId?: string | null; tenantId?: string | null; trx?: QueryIndexExecutor }
 ): Promise<{ wasActive: boolean }> {
   const db = (em as any).getKysely()
+  const executor = args.trx ?? db
   const existing = await scopeEntityIndexes(
-    db.selectFrom('entity_indexes' as any).select(['deleted_at' as any]),
+    executor.selectFrom('entity_indexes' as any).select(['deleted_at' as any]),
     args,
   ).executeTakeFirst() as { deleted_at: Date | null } | undefined
 
@@ -322,10 +498,12 @@ export async function markDeleted(
         recordId: args.recordId,
         organizationId: args.organizationId ?? null,
         tenantId: args.tenantId ?? null,
-      })
-    } catch {}
+      }, { trx: args.trx })
+    } catch (error) {
+      if (args.trx) throw error
+    }
     await scopeEntityIndexes(
-      db.deleteFrom('entity_indexes' as any) as any,
+      executor.deleteFrom('entity_indexes' as any) as any,
       args,
     ).execute()
   }

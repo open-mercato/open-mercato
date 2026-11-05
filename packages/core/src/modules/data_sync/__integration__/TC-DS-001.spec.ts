@@ -1,6 +1,8 @@
 import { expect, test, type APIResponse } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures'
+import { decodeTokenScope, deleteSyncRunsByIds, seedSyncRun } from './helpers/db'
+import { uniqueIntegrationId } from './helpers/support'
 
 type JsonRecord = Record<string, unknown>
 const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000'
@@ -77,21 +79,9 @@ test.describe('TC-DS-001: Data sync hub APIs', () => {
     }
 
     const { integrationId, entityType } = target
+    const scope = decodeTokenScope(token)
     const createdRunIds: string[] = []
 
-    // Ensure credentials exist so validate can proceed
-    const beforeCredentialsResponse = await apiRequest(
-      request,
-      'GET',
-      `/api/integrations/${integrationId}/credentials`,
-      { token },
-    )
-    expect(beforeCredentialsResponse.status()).toBe(200)
-    const beforeCredentialsBody = await readJson(beforeCredentialsResponse)
-    const previousCredentials =
-      beforeCredentialsBody.credentials && typeof beforeCredentialsBody.credentials === 'object'
-        ? (beforeCredentialsBody.credentials as JsonRecord)
-        : {}
     const detailResponse = await apiRequest(request, 'GET', `/api/integrations/${integrationId}`, { token })
     expect(detailResponse.status()).toBe(200)
     const detailBody = await readJson(detailResponse)
@@ -99,10 +89,6 @@ test.describe('TC-DS-001: Data sync hub APIs', () => {
       ? (detailBody.state as JsonRecord)
       : {}
 
-    await apiRequest(request, 'PUT', `/api/integrations/${integrationId}/credentials`, {
-      token,
-      data: { credentials: { testApiUrl: 'https://example.test.local', testApiKey: 'integration-test-key' } },
-    })
     await apiRequest(request, 'PUT', `/api/integrations/${integrationId}/state`, {
       token,
       data: { isEnabled: true },
@@ -161,17 +147,29 @@ test.describe('TC-DS-001: Data sync hub APIs', () => {
       const listItems = Array.isArray(listBody.items) ? (listBody.items as JsonRecord[]) : []
       expect(listItems.map((item) => String(item.id))).toContain(runId)
 
-      const cancelResponse = await apiRequest(request, 'POST', `/api/data_sync/runs/${runId}/cancel`, { token })
+      // The real adapter run above is allowed to finish or fail immediately. Its
+      // timing and credential schema belong to the provider, so use a pending
+      // row with no worker for deterministic lifecycle endpoint coverage.
+      const cancellableRunId = await seedSyncRun({
+        ...scope,
+        integrationId,
+        entityType: uniqueIntegrationId('test.ds001'),
+        direction: 'import',
+        status: 'pending',
+      })
+      createdRunIds.push(cancellableRunId)
+
+      const cancelResponse = await apiRequest(request, 'POST', `/api/data_sync/runs/${cancellableRunId}/cancel`, { token })
       expect(cancelResponse.status()).toBe(200)
       const cancelBody = await readJson(cancelResponse)
       expect(cancelBody.ok).toBe(true)
 
-      const cancelledDetailResponse = await apiRequest(request, 'GET', `/api/data_sync/runs/${runId}`, { token })
+      const cancelledDetailResponse = await apiRequest(request, 'GET', `/api/data_sync/runs/${cancellableRunId}`, { token })
       expect(cancelledDetailResponse.status()).toBe(200)
       const cancelledDetailBody = await readJson(cancelledDetailResponse)
       expect(cancelledDetailBody.status).toBe('cancelled')
 
-      const retryResponse = await apiRequest(request, 'POST', `/api/data_sync/runs/${runId}/retry`, {
+      const retryResponse = await apiRequest(request, 'POST', `/api/data_sync/runs/${cancellableRunId}/retry`, {
         token,
         data: {
           fromBeginning: false,
@@ -190,10 +188,10 @@ test.describe('TC-DS-001: Data sync hub APIs', () => {
       expect(retryDetailBody.integrationId).toBe(integrationId)
       expect(retryDetailBody.direction).toBe('import')
     } finally {
-      await apiRequest(request, 'PUT', `/api/integrations/${integrationId}/credentials`, {
-        token,
-        data: { credentials: previousCredentials },
-      })
+      for (const runId of createdRunIds) {
+        await apiRequest(request, 'POST', `/api/data_sync/runs/${runId}/cancel`, { token })
+      }
+      await deleteSyncRunsByIds(createdRunIds)
       await apiRequest(request, 'PUT', `/api/integrations/${integrationId}/state`, {
         token,
         data: {
@@ -203,10 +201,6 @@ test.describe('TC-DS-001: Data sync hub APIs', () => {
               : false,
         },
       })
-
-      for (const runId of createdRunIds) {
-        await apiRequest(request, 'POST', `/api/data_sync/runs/${runId}/cancel`, { token })
-      }
     }
   })
 

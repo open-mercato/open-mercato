@@ -66,7 +66,7 @@ describe('OpenAIAdapter (OpenAI-compatible provider factory)', () => {
     )
     expect(flagged).toEqual(new Set(['openrouter', 'requesty', 'litellm']))
     // Non-gateway backends stay unflagged.
-    for (const id of ['openai', 'deepinfra', 'together', 'fireworks', 'groq', 'azure']) {
+    for (const id of ['openai', 'deepinfra', 'together', 'fireworks', 'groq']) {
       const preset = OPENAI_COMPATIBLE_PRESETS.find((p) => p.id === id)!
       expect(preset.usesVendorPrefixedModelIds).toBeFalsy()
     }
@@ -114,15 +114,12 @@ describe('OpenAIAdapter (OpenAI-compatible provider factory)', () => {
     expect(model).toBeDefined()
   })
 
-  it('azure preset honors baseURLEnvKeys override', () => {
-    const azurePreset = OPENAI_COMPATIBLE_PRESETS.find(
-      (p) => p.id === 'azure',
-    )
-    expect(azurePreset).toBeDefined()
-    expect(azurePreset?.baseURLEnvKeys).toContain('AZURE_OPENAI_BASE_URL')
-    // Sanity: the adapter can be created from the preset.
-    const provider = createOpenAICompatibleProvider(azurePreset!)
-    expect(provider.id).toBe('azure')
+  it('leaves Azure to its native adapter', () => {
+    // Azure was an OpenAI-compatible preset, which speaks Chat Completions and
+    // therefore cannot carry provider-executed tools — its native web search is
+    // a Responses API built-in. A preset here would also overwrite the capable
+    // adapter, since both register under the id `azure`.
+    expect(OPENAI_COMPATIBLE_PRESETS.find((preset) => preset.id === 'azure')).toBeUndefined()
   })
 
   it('preset env baseURL override beats preset default for openai', () => {
@@ -198,7 +195,6 @@ describe('OPENAI_COMPATIBLE_PRESETS built-in catalog', () => {
     expect(ids).toContain('groq')
     expect(ids).toContain('together')
     expect(ids).toContain('fireworks')
-    expect(ids).toContain('azure')
     expect(ids).toContain('litellm')
     expect(ids).toContain('ollama')
     expect(ids).toContain('openrouter')
@@ -328,5 +324,119 @@ describe('LM Studio preset', () => {
       baseURL: 'http://192.168.1.100:1234/v1',
     })
     expect(model).toBeDefined()
+  })
+})
+
+describe('OpenAIAdapter — safety identifier + moderation capability', () => {
+  it('maps an end-user identifier into the OpenAI safetyIdentifier providerOptions fragment', () => {
+    // Key MUST be the AI SDK provider-option name `safetyIdentifier` (camelCase);
+    // the SDK translates it to the `safety_identifier` request-body field and
+    // strips unknown providerOptions keys, so a snake_case key would be dropped.
+    const openaiPreset = OPENAI_COMPATIBLE_PRESETS.find((preset) => preset.id === 'openai')!
+    const provider = createOpenAICompatibleProvider(openaiPreset)
+    expect(provider.mapEndUserIdentifier?.('hashed-id')).toEqual({
+      openai: { safetyIdentifier: 'hashed-id' },
+    })
+  })
+
+  it('does not map a safety identifier for OpenAI-compatible backends (OpenAI-only param)', () => {
+    // `safety_identifier` is an OpenAI-specific body field; compatible/self-hosted
+    // backends (Groq, DeepInfra, Azure, Ollama, …) may reject the unknown param,
+    // so they must not advertise the mapping.
+    const provider = createOpenAICompatibleProvider(DEEPINFRA_PRESET)
+    expect(provider.mapEndUserIdentifier).toBeUndefined()
+    for (const preset of OPENAI_COMPATIBLE_PRESETS) {
+      const built = createOpenAICompatibleProvider(preset)
+      if (preset.id === 'openai') {
+        expect(built.mapEndUserIdentifier).toBeDefined()
+      } else {
+        expect(built.mapEndUserIdentifier).toBeUndefined()
+      }
+    }
+  })
+
+  it('marks the native OpenAI preset as supporting input moderation', () => {
+    const openaiPreset = OPENAI_COMPATIBLE_PRESETS.find((preset) => preset.id === 'openai')
+    expect(openaiPreset).toBeDefined()
+    const provider = createOpenAICompatibleProvider(openaiPreset!)
+    expect(provider.supportsInputModeration).toBe(true)
+  })
+
+  it('leaves OpenAI-compatible backends without moderation support', () => {
+    const provider = createOpenAICompatibleProvider(DEEPINFRA_PRESET)
+    expect(provider.supportsInputModeration).toBe(false)
+  })
+})
+
+describe('OpenAIAdapter wire protocol (apiMode)', () => {
+  type ModelWithProvider = { provider: string }
+
+  function modelProvider(preset: OpenAICompatiblePreset): string {
+    const model = createOpenAICompatibleProvider(preset).createModel({
+      apiKey: 'test-key',
+      modelId: preset.defaultModel || 'local-model',
+    }) as ModelWithProvider
+    return model.provider
+  }
+
+  afterEach(() => {
+    jest.restoreAllMocks()
+  })
+
+  it('builds a Chat Completions model when the preset omits apiMode', () => {
+    expect(modelProvider(DEEPINFRA_PRESET)).toBe('openai.chat')
+  })
+
+  it('builds a Responses API model when the preset opts into apiMode "responses"', () => {
+    expect(modelProvider({ ...DEEPINFRA_PRESET, apiMode: 'responses' })).toBe('openai.responses')
+  })
+
+  it('keeps the native OpenAI preset on the Responses API and every compatible preset on Chat Completions', () => {
+    for (const preset of OPENAI_COMPATIBLE_PRESETS) {
+      const expected = preset.id === 'openai' ? 'openai.responses' : 'openai.chat'
+      expect({ id: preset.id, provider: modelProvider(preset) }).toEqual({
+        id: preset.id,
+        provider: expected,
+      })
+    }
+  })
+
+  it('posts DeepInfra turns to /chat/completions instead of /responses', async () => {
+    const fetchSpy = jest.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: 'chatcmpl-1',
+          object: 'chat.completion',
+          created: 0,
+          model: 'zai-org/GLM-5.1',
+          choices: [
+            {
+              index: 0,
+              message: { role: 'assistant', content: 'ok' },
+              finish_reason: 'stop',
+            },
+          ],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    )
+    const model = createOpenAICompatibleProvider(DEEPINFRA_PRESET).createModel({
+      apiKey: 'test-key',
+      modelId: 'zai-org/GLM-5.1',
+    }) as {
+      doGenerate: (options: {
+        prompt: Array<{ role: 'user'; content: Array<{ type: 'text'; text: string }> }>
+      }) => Promise<unknown>
+    }
+
+    await model.doGenerate({
+      prompt: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+    })
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(String(fetchSpy.mock.calls[0][0])).toBe(
+      'https://api.deepinfra.com/v1/openai/chat/completions',
+    )
   })
 })

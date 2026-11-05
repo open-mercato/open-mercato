@@ -6,8 +6,24 @@ export const SCHEDULER_JOBS_PATH = '/api/scheduler/jobs'
 export const SCHEDULER_TARGETS_PATH = '/api/scheduler/targets'
 export const SCHEDULER_TRIGGER_PATH = '/api/scheduler/trigger'
 
-/** Queue registered by the scheduler module's execute-schedule worker. */
+/** Queue registered by the scheduler module's execute-schedule worker (internal, not schedulable). */
 export const SCHEDULER_EXECUTION_QUEUE = 'scheduler-execution'
+
+/** Deliberately side-effect-free queue whose worker opted into scheduling (#5213). */
+export const SCHEDULER_TEST_QUEUE = 'scheduler-test'
+
+/**
+ * Internal queues that must never be offered as scheduler targets (#5213).
+ * Workers must opt in via `schedulerSafe: true` to become schedulable.
+ */
+export const SCHEDULER_FORBIDDEN_INTERNAL_QUEUES = [
+  SCHEDULER_EXECUTION_QUEUE,
+  'stripe-webhook',
+  'payment-gateways-webhook',
+] as const
+
+/** Always-registered command used by fixtures now that queue targets are restricted. */
+export const SCHEDULER_TEST_COMMAND = 'scheduler.test.echo'
 
 export type SchedulerJob = {
   id: string
@@ -51,16 +67,19 @@ export function uniqueScheduleName(prefix: string): string {
 }
 
 /**
- * Create an organization-scoped queue-target schedule via the API and return its id.
+ * Create an organization-scoped schedule via the API and return its id.
  * Org/tenant are derived server-side from the caller's auth context, so the caller
  * only needs an admin (or otherwise scheduler.jobs.manage) token.
+ *
+ * Defaults to a command target: user-authored queue targets are restricted to
+ * scheduler-safe queues (#5213), so fixtures must not assume a queue is allowed.
  */
 export async function createScheduleJob(
   request: APIRequestContext,
   token: string,
   overrides: CreateScheduleOverrides = {},
 ): Promise<string> {
-  const targetType = overrides.targetType ?? 'queue'
+  const targetType = overrides.targetType ?? 'command'
   const data: Record<string, unknown> = {
     name: overrides.name ?? uniqueScheduleName('Integration Scheduler'),
     description: overrides.description ?? 'Created by scheduler integration tests',
@@ -74,9 +93,9 @@ export async function createScheduleJob(
     sourceType: overrides.sourceType ?? 'user',
   }
   if (targetType === 'command') {
-    data.targetCommand = overrides.targetCommand
+    data.targetCommand = overrides.targetCommand ?? SCHEDULER_TEST_COMMAND
   } else {
-    data.targetQueue = overrides.targetQueue ?? SCHEDULER_EXECUTION_QUEUE
+    data.targetQueue = overrides.targetQueue ?? SCHEDULER_TEST_QUEUE
   }
 
   const response = await apiRequest(request, 'POST', SCHEDULER_JOBS_PATH, { token, data })

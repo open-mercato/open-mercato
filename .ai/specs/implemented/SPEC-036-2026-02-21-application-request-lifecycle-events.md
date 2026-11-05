@@ -151,3 +151,4 @@ Runtime payload fields are structured records (`Record<string, unknown>`) with t
 
 ## Changelog
 - **2026-02-21**: Initial backfilled spec for runtime application/request lifecycle events introduced in codebase.
+- **2026-07-16**: Standalone and monorepo `src/bootstrap.ts` now pass the app's `src/di.ts` registrar explicitly to `createBootstrap`, ensuring lifecycle registration runs from published-package apps instead of relying on an unresolved package-internal `@/di` import (#4201).

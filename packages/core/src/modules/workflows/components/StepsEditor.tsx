@@ -24,8 +24,9 @@ interface Step {
   timeout?: number
   retryPolicy?: {
     maxAttempts?: number
-    retryDelay?: number
-    backoffMultiplier?: number
+    initialIntervalMs?: number
+    backoffCoefficient?: number
+    maxIntervalMs?: number
   }
 }
 
@@ -47,6 +48,12 @@ const STEP_TYPES = [
   { value: 'WAIT_FOR_TIMER', label: 'Wait for Timer' },
 ]
 
+/**
+ * @deprecated The form editor is retired (spec section 10) — steps are authored
+ * on the canvas in `/backend/definitions/visual-editor`. This component stays
+ * exported for at least one minor release for third-party forms that embed it;
+ * it has no call site in this module any more.
+ */
 export function StepsEditor({ value = [], onChange, error }: StepsEditorProps) {
   const t = useT()
 
@@ -89,7 +96,7 @@ export function StepsEditor({ value = [], onChange, error }: StepsEditorProps) {
           <p className="text-sm text-muted-foreground">
             {t('workflows.form.descriptions.steps')}
           </p>
-          {error && <p className="text-sm text-red-600 mt-1">{error}</p>}
+          {error && <p className="text-sm text-status-error-text mt-1">{error}</p>}
         </div>
         <Button type="button" onClick={addStep} variant="outline" size="sm" className="w-full sm:w-auto">
           <Plus className="h-4 w-4 mr-1" />
@@ -162,7 +169,7 @@ export function StepsEditor({ value = [], onChange, error }: StepsEditorProps) {
                     onClick={() => removeStep(index)}
                     title={t('common.delete')}
                   >
-                    <Trash2 className="h-4 w-4 text-red-600" />
+                    <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
                 </div>
               </div>

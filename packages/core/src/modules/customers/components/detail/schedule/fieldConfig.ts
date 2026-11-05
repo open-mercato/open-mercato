@@ -16,6 +16,22 @@ export type ScheduleFieldId =
   | 'reminder'
   | 'visibility'
 
+const KNOWN_ACTIVITY_TYPES: ReadonlySet<string> = new Set(['meeting', 'call', 'task', 'email', 'note'])
+
+export function isKnownActivityType(type: string): type is ActivityType {
+  return KNOWN_ACTIVITY_TYPES.has(type)
+}
+
+// The built-in Event type and any custom or historical dictionary key the backend
+// accepts fall outside this dialog's five legacy presentation kinds (#7486) — this
+// dialog predates the configurable calendar event type catalog. Resolve those to
+// Meeting's chrome/field set, the closest and broadest safe default, while callers
+// keep the exact persisted key (`editData.interactionType` / the save payload)
+// untouched so the stored type is never silently rewritten.
+export function resolveScheduleActivityType(type: string): ActivityType {
+  return isKnownActivityType(type) ? type : 'meeting'
+}
+
 export const FIELD_VISIBILITY: Record<ActivityType, Set<ScheduleFieldId>> = {
   meeting: new Set([
     'title', 'date', 'startTime', 'duration', 'allDay', 'timezone', 'recurrence',
@@ -82,6 +98,21 @@ export const FIELD_LABEL_OVERRIDES: Partial<
 
 export function isVisible(type: ActivityType, fieldId: ScheduleFieldId): boolean {
   return FIELD_VISIBILITY[type].has(fieldId)
+}
+
+// Calendar-bound types must land on a concrete moment, but a task is a backlog
+// item whose due date is optional by design (`interactions.scheduled_at` is
+// nullable and the task lists already render an undated row) — #5941.
+const OPTIONAL_DATE_TYPES: Set<ActivityType> = new Set(['task'])
+
+export function isDateRequired(type: ActivityType): boolean {
+  return isVisible(type, 'date') && !OPTIONAL_DATE_TYPES.has(type)
+}
+
+// A time without a date is meaningless, so the time follows the date: it is
+// only demanded for the types that must be scheduled in the first place.
+export function isTimeRequired(type: ActivityType): boolean {
+  return isVisible(type, 'startTime') && isDateRequired(type)
 }
 
 export function getFieldLabel(
