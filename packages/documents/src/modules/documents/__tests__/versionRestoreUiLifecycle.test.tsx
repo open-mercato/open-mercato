@@ -1,13 +1,17 @@
 /** @jest-environment jsdom */
 
 import * as React from 'react'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react'
+import type { Editor } from '@tiptap/core'
 
 const apiCallMock = jest.fn()
 const apiCallOrThrowMock = jest.fn()
 const flashMock = jest.fn()
 const runMutationMock = jest.fn()
 const mockTranslate = (key: string) => key
+const mockRouter = { push: jest.fn(), replace: jest.fn() }
+
+jest.mock('next/navigation', () => ({ useRouter: () => mockRouter }))
 
 jest.mock('next/dynamic', () => ({
   __esModule: true,
@@ -68,6 +72,7 @@ jest.mock('@open-mercato/ui/primitives/dialog', () => ({
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({ useT: () => mockTranslate }))
 
 import { VersionHistoryPanel } from '../backend/documents/[id]/VersionHistoryPanel'
+import { useFallbackContentPersistence } from '../backend/documents/[id]/useFallbackContentPersistence'
 
 const documentId = '11111111-1111-4111-8111-111111111111'
 const versionId = '22222222-2222-4222-8222-222222222222'
@@ -128,5 +133,76 @@ describe('VersionHistoryPanel restore lifecycle', () => {
 
     await waitFor(() => expect(screen.queryByRole('button', { name: 'restore-preview' })).toBeNull())
     expect(flashMock).toHaveBeenCalledWith('documents.versions.restored', 'success')
+  })
+})
+
+describe('named version save barrier', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    apiCallMock.mockResolvedValue(versionsResponse())
+    apiCallOrThrowMock.mockResolvedValue({ ok: true })
+    runMutationMock.mockImplementation(({ operation }: { operation: () => Promise<unknown> }) => operation())
+  })
+
+  it('drains a pending fallback write and the edit queued behind it before creating the immutable version', async () => {
+    let completeFirst!: (value: unknown) => void
+    let completeSecond!: (value: unknown) => void
+    const writes: string[] = []
+    apiCallMock.mockImplementation((_url: string, init?: RequestInit) => {
+      if (init?.method !== 'PUT') return Promise.resolve(versionsResponse())
+      writes.push((JSON.parse(String(init.body)) as { contentHtml: string }).contentHtml)
+      return new Promise((resolve) => {
+        if (writes.length === 1) completeFirst = resolve
+        else completeSecond = resolve
+      })
+    })
+    const { result } = renderHook(() => useFallbackContentPersistence({
+      documentId, initialUpdatedAt: contentUpdatedAt, enabled: true,
+    }))
+    const edit = (text: string) => ({ getHTML: () => `<p>${text}</p>`, getText: () => text }) as unknown as Editor
+    act(() => result.current.onEditorUpdate(edit('First edit')))
+    let saving!: Promise<boolean>
+    act(() => { saving = result.current.saveNow() })
+    await waitFor(() => expect(writes).toHaveLength(1))
+    act(() => result.current.onEditorUpdate(edit('Latest edit')))
+    render(<VersionHistoryPanel documentId={documentId} canRestore onBeforeSnapshot={() => result.current.saveNow()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'documents.versions.actions.snapshot' }))
+    expect(apiCallOrThrowMock).not.toHaveBeenCalled()
+    await act(async () => { completeFirst({ ok: true, result: { updatedAt: restoredUpdatedAt } }) })
+    await waitFor(() => expect(writes).toHaveLength(2))
+    expect(apiCallOrThrowMock).not.toHaveBeenCalled()
+    await act(async () => {
+      completeSecond({ ok: true, result: { updatedAt: restoredUpdatedAt } })
+      await saving
+    })
+    await waitFor(() => expect(apiCallOrThrowMock).toHaveBeenCalledTimes(1))
+    expect(writes).toEqual(['<p>First edit</p>', '<p>Latest edit</p>'])
+    expect(flashMock).toHaveBeenCalledWith('documents.versions.snapshot.created', 'success')
+  })
+
+  it.each([false, 'rejected'])('does not create a version or report success when saving is %s', async (outcome) => {
+    const onBeforeSnapshot = jest.fn(async () => {
+      if (outcome === 'rejected') throw new Error('Save failed')
+      return false
+    })
+    render(<VersionHistoryPanel documentId={documentId} canRestore onBeforeSnapshot={onBeforeSnapshot} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'documents.versions.actions.snapshot' }))
+    await waitFor(() => expect(flashMock).toHaveBeenCalledWith(expect.any(String), 'error'))
+    expect(apiCallOrThrowMock).not.toHaveBeenCalled()
+    expect(flashMock).not.toHaveBeenCalledWith('documents.versions.snapshot.created', 'success')
+  })
+
+  it('prevents duplicate keyboard submissions while collaboration persistence is pending and rejects navigation during the wait', async () => {
+    let complete!: (saved: boolean) => void
+    const onBeforeSnapshot = jest.fn(() => new Promise<boolean>((resolve) => { complete = resolve }))
+    const view = render(<VersionHistoryPanel documentId={documentId} canRestore onBeforeSnapshot={onBeforeSnapshot} />)
+    const label = screen.getByLabelText('documents.versions.snapshot.labelPlaceholder')
+    fireEvent.keyDown(label, { key: 'Enter', ctrlKey: true })
+    fireEvent.keyDown(label, { key: 'Enter', ctrlKey: true })
+    expect(onBeforeSnapshot).toHaveBeenCalledTimes(1)
+    expect(apiCallOrThrowMock).not.toHaveBeenCalled()
+    view.rerender(<VersionHistoryPanel documentId="other-document" canRestore onBeforeSnapshot={onBeforeSnapshot} />)
+    await act(async () => { complete(true) })
+    expect(apiCallOrThrowMock).not.toHaveBeenCalled()
   })
 })
