@@ -2,7 +2,7 @@
 title: "Shared security-default changes require a complete consumer audit"
 modules: ["shared","auth","cache","events","example","create_app","sso","api_keys"]
 areas: ["integration","testing","module-data"]
-topics: ["access-control","data-scoping","events","testing"]
+topics: ["access-control","data-scoping","events","testing","cache-eviction"]
 ---
 
 # Shared security-default changes require a complete consumer audit
@@ -32,3 +32,5 @@ topics: ["access-control","data-scoping","events","testing"]
 - 2026-07-09 · customer_accounts: denial tests covered status but missed secondary side effects and complete same-org parity → assert every write/event/cache path stays untouched and exercise all affected positive routes
 - 2026-07-10 · storage_s3: Temp-path tests hard-coded POSIX separators → build expected paths with `node:path` so Windows coverage stays valid.
 - 2026-07-10 · ai_assistant: A TOCTOU test that swaps only before descriptor validation does not prove same-handle reads → also swap after identity validation and assert the validated descriptor content is returned.
+
+- 2026-11-05 · api_keys/cache: admission limits can make a cache-capacity test span longer than its TTL. A repeated lookup then proves expiry rather than eviction. Capture the underlying cache size and original fingerprint before the load, and assert the capacity bound and fingerprint removal before accessing that entry again. When adding a downstream verification limit, update dispatcher fixtures to valid stored-hash syntax and assert the new bounded comparison count while preserving upstream no-work-on-rejection assertions.

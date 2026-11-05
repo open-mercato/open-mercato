@@ -14,7 +14,10 @@ beforeEach(async () => {
   verify = (await import('../apiKeyVerification')).verifyApiKeyHash
 })
 
-afterEach(() => jest.useRealTimers())
+afterEach(() => {
+  jest.useRealTimers()
+  jest.restoreAllMocks()
+})
 
 it('bounds sequential distinct wrong suffixes for a known prefix and recovers after refill', async () => {
   for (let attempt = 0; attempt < 1000; attempt++) {
@@ -104,12 +107,27 @@ it('rejects malformed hashes and invalid work factors before bcrypt', async () =
 })
 
 it('evicts old verification entries when the cache reaches its bound', async () => {
-  for (let attempt = 0; attempt < 1025; attempt++) {
+  jest.resetModules()
+  const cacheModule = await import('@open-mercato/shared/lib/auth/apiKeyAuthCache')
+  const createCache = cacheModule.createApiKeyAuthCache
+  const caches: ReturnType<typeof createCache>[] = []
+  jest.spyOn(cacheModule, 'createApiKeyAuthCache').mockImplementation((options) => {
+    const cache = createCache(options)
+    caches.push(cache)
+    return cache
+  })
+  verify = (await import('../apiKeyVerification')).verifyApiKeyHash
+  await verify(`${prefix}0`, storedHash)
+  const firstFingerprint = caches[0].inspectEntryKeysForTests()[0]
+  expect(firstFingerprint).toBeDefined()
+  for (let attempt = 1; attempt < 1025; attempt++) {
     jest.advanceTimersByTime(1)
     if (attempt % 4 === 0) jest.advanceTimersByTime(500)
     await verify(`${prefix}${attempt}`, storedHash)
   }
   expect(mockCompare).toHaveBeenCalledTimes(1025)
+  expect(caches[0].size()).toBe(1024)
+  expect(caches[0].inspectEntryKeysForTests()).not.toContain(firstFingerprint)
   jest.advanceTimersByTime(1000)
   await verify(`${prefix}0`, storedHash)
   expect(mockCompare).toHaveBeenCalledTimes(1026)

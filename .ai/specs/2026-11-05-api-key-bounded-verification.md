@@ -47,12 +47,29 @@ Thresholds deliberately prioritize CPU protection and can reject legitimate burs
 
 ## Validation
 
-Runner: local (no compose app container running). Initial focused verification: 3 suites, 14 tests passed. Final regression and configured gate results pending. Dependencies installed with immutable lockfile; better-sqlite3 native build warned during install.
+Runner: local (no compose app container running). Dependencies installed with immutable lockfile; better-sqlite3 native build warned during install.
+
+| Validation | Result |
+| --- | --- |
+| API-key regressions | 15 suites, 96 tests pass, including capacity-eviction assertions |
+| Shared auth/cache regressions | 2 suites, 131 tests pass |
+| SCIM dispatcher regressions | 1 suite, 15 tests pass; valid stored-hash fixtures and four-comparison crypto burst asserted; SCIM rejection still skips all credential work |
+| build:packages → generate → build:packages | All pass |
+| i18n:check-sync | Pass |
+| i18n:check-usage | Exceeded 300-second limit |
+| typecheck | Fails on duplicate getTelemetryRuntime imports at warranty_claims/[id]/page.tsx lines 9 and 13; both are present unchanged in target main e15497058 |
+| test | Initial run exposed stale SCIM fixtures/comparison-count expectations; corrected and focused suite passes; final full rerun pending |
+| build:app | Compilation succeeds; TypeScript phase fails on the same unchanged warranty_claims duplicate imports |
+| template:sync:fix / lessons:check / diff whitespace | Pass; dispatcher test mirrored byte-identically |
+
+No hosted CI or manual QA result is claimed. Current PR head remains ec15f185 until publication is approved. Full gate failures are disclosed, not waived.
 
 ## Final Compliance Report
 
-Root/core rules and backward-compatibility guidance reviewed. Scope is one shared authentication-work bound, without schema/UI/public signature changes. Reuses the established API-key credential cache rather than introducing a new cache backend. No raw secrets logged or retained as cache keys. No authorization query or tenant scope changes. Independent scope review pending.
+Root/core rules and backward-compatibility guidance reviewed. Scope is one shared authentication-work bound, without schema/UI/public signature changes. Reuses the established API-key credential cache rather than introducing a new cache backend. No raw secrets logged or retained as cache keys. No authorization query or tenant scope changes. Independent spec-scope review approved (task f64c7401; no repository changes). Independent security code review approved a97408a0b (task 7849dd3d; no blocking findings); parent reran both relevant suites cited by the reviewer. The reviewer's capacity-coverage nit was corrected with direct cache-size and original-fingerprint assertions; all 96 API-key tests pass afterward. No source changed after that review; subsequent changes are tests, template mirror, lesson, and validation documentation.
 
 ## Changelog
 
 - 2026-11-05: Recorded maintainer choice to retain bcrypt; implemented shared admission controls and verification cache; added abuse and compatibility regression coverage.
+
+- 2026-11-05: Independent spec/security reviews approved; corrected eviction coverage and SCIM integration fixtures; documented full-gate blockers without claiming merge readiness.

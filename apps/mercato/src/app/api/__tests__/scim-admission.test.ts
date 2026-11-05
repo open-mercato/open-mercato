@@ -17,6 +17,9 @@ import * as dispatcher from '../[...slug]/route'
 
 const mockCompare = jest.fn().mockResolvedValue(false)
 const mockHash = jest.fn().mockResolvedValue('hashed-token')
+let mockVerificationNow = 0
+
+jest.mock('node:perf_hooks', () => ({ performance: { now: () => mockVerificationNow } }))
 
 jest.mock('bcryptjs', () => ({
   compare: (...args: unknown[]) => mockCompare(...args),
@@ -89,11 +92,12 @@ describe('SCIM admission through the API dispatcher', () => {
   beforeEach(() => {
     for (const key of configKeys) delete process.env[key]
     jest.clearAllMocks()
+    mockVerificationNow += 10_001
     jest.useFakeTimers({ now: new Date('2026-10-28T12:00:00Z') })
     resetSharedApiKeyAuthCacheForTests()
     limiter = new RateLimiterService({ enabled: true, strategy: 'memory', keyPrefix: 'dispatcher-scim', trustProxyDepth: 0 })
     jest.mocked(getCachedRateLimiterService).mockReturnValue(limiter)
-    find.mockImplementation(async (entity: unknown) => entity === ApiKey ? [{ keyHash: 'known-hash' }] : [])
+    find.mockImplementation(async (entity: unknown) => entity === ApiKey ? [{ keyHash: '$2b$10$' + 'a'.repeat(53) }] : [])
     findOne.mockResolvedValue(null)
     const em = { find, findOne, nativeUpdate: jest.fn().mockResolvedValue(1) } as unknown as EntityManager
     const cache = createCacheService({ strategy: 'memory' })
@@ -137,7 +141,7 @@ describe('SCIM admission through the API dispatcher', () => {
       const fillOperation = operation.name === 'discovery' ? operation : operations[0]
       expect((await dispatch(fillOperation, index)).status).toBe(operation.name === 'discovery' ? 200 : 401)
     }
-    expect(mockCompare).toHaveBeenCalledTimes(10)
+    expect(mockCompare).toHaveBeenCalledTimes(4)
     expect(mockHash).toHaveBeenCalledTimes(operation.name === 'discovery' ? 0 : 10)
     find.mockClear()
     mockCompare.mockClear()
@@ -160,7 +164,7 @@ describe('SCIM admission through the API dispatcher', () => {
     const wrongSuffix = `${rawToken.slice(0, 12)}${'c'.repeat(59)}`
     findOne.mockImplementation(async (entity: unknown) => entity === ScimToken ? null : { id: 'config-1', organizationId: 'org-1', tenantId: 'tenant-1', isActive: true, jitEnabled: false })
     find.mockImplementation(async (entity: unknown) => entity === ApiKey
-      ? [{ keyHash: 'known-hash' }]
+      ? [{ keyHash: '$2b$10$' + 'a'.repeat(53) }]
       : [{ id: 'active-token', tokenHash: 'scim-hash', ssoConfigId: 'config-1', organizationId: 'org-1', tenantId: 'tenant-1' }])
     mockCompare.mockImplementation(async (raw: string, tokenHash: string) => raw === rawToken && tokenHash === 'scim-hash')
     listUsers.mockResolvedValue({ Resources: [], totalResults: 0 })
@@ -188,7 +192,7 @@ describe('SCIM admission through the API dispatcher', () => {
     findOne.mockImplementation(async (entity: unknown, where: Record<string, unknown>) => entity === ScimToken
       ? where.tokenLookupHash === tokenLookupHash ? { id: 'cold-token', tenantId: 'tenant-1', organizationId: 'org-1' } : null
       : { id: 'config-1', organizationId: 'org-1', isActive: true, jitEnabled: false })
-    find.mockImplementation(async (entity: unknown) => entity === ApiKey ? [{ keyHash: 'known-hash' }]
+    find.mockImplementation(async (entity: unknown) => entity === ApiKey ? [{ keyHash: '$2b$10$' + 'a'.repeat(53) }]
       : [{ id: 'cold-token', tokenLookupHash, tokenHash: 'scim-hash', ssoConfigId: 'config-1', organizationId: 'org-1', tenantId: 'tenant-1' }])
     mockCompare.mockImplementation(async (raw: string, tokenHash: string) => raw === rawToken && tokenHash === 'scim-hash')
     listUsers.mockResolvedValue({ Resources: [], totalResults: 0 })
@@ -229,7 +233,7 @@ describe('SCIM admission through the API dispatcher', () => {
     expect(statuses.filter((status) => status === 401)).toHaveLength(10)
     expect(statuses.filter((status) => status === 429)).toHaveLength(20)
     expect(find.mock.calls.filter(([entity]) => entity === ApiKey)).toHaveLength(10)
-    expect(mockCompare).toHaveBeenCalledTimes(10)
+    expect(mockCompare).toHaveBeenCalledTimes(4)
     expect(mockHash).toHaveBeenCalledTimes(10)
   })
 
