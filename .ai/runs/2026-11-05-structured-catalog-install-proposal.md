@@ -36,6 +36,10 @@ Documentation-only gate: manual code-grounded review, `git diff --check`, local 
 
 Runner: local. Documentation-only validation passed: whitespace, 13 introduced local links, new-spec fences, required sections, and index/related-spec cross-links. No Markdown-specific command is configured; runtime validation commands were skipped as inapplicable. Independent scope and code-grounded specification reviews found no blocking, major, or Medium findings. Low findings were resolved in e577a0ca8 (publisher handoff) and ef385a25d (core-enable advice and regression coverage).
 
+Specification review: https://github.com/open-mercato/open-mercato/pull/8775#pullrequestreview-5784358584
+
+Final handoff: PR #8775 remains draft by intent and is assigned to `wojciechszyjka`. GitHub refuses author self-approval, so the design assessment is a comment review and the pipeline remains `review` for maintainer approval. Runtime implementation is pending. Final-head CI is not claimed green; the assignee owns the next check. The driving skill releases its claim and removes its temporary worktree after publishing this completion record.
+
 ## Progress
 
 PR: #8775
@@ -50,4 +54,4 @@ PR: #8775
 ### Phase 2: Verify and hand off
 
 - [x] 2.1 Run documentation checks and the specification review, including independent scope-cohesion review; resolve actionable findings. — ef385a25d
-- [ ] 2.2 Finalize PR metadata, evidence, and assignment to Wojciech Szyjka; release the run claim and clean up the worktree.
+- [x] 2.2 Finalize PR metadata, evidence, and assignment to Wojciech Szyjka; release the run claim and clean up the worktree.
