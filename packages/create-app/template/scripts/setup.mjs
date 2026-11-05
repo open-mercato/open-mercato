@@ -57,7 +57,7 @@ function selectConfiguredServices() {
 try {
   session = acquireDevSession({ workspaceRoot: process.cwd(), mode: 'setup', role: 'setup' })
 } catch (error) {
-  console.error(`[setup] ${error.message}`)
+  console.error(`\n❌ ${error.message}`)
   console.error('[setup] No service configuration, .env file or container was changed.')
   process.exit(2)
 }
@@ -72,7 +72,7 @@ try {
     mode = await chooseServiceMode({ argv, selectDefault })
   } catch (error) {
     if (!error.problem) throw error
-    console.error(`[setup] ${error.message}`)
+    console.error(`\n❌ ${error.message}`)
     const [title, ...rest] = formatInfraProblem(error.problem)
     console.error(`❌ ${title}`)
     for (const line of rest) console.error(` ${line}`)
@@ -115,7 +115,7 @@ try {
   }
 } catch (error) {
   if (!error.reported) {
-    console.error(`[setup] ${error.message}`)
+    console.error(`\n❌ ${error.message}`)
     printManualSetup()
   }
   process.exitCode = signalExitCode ?? 2
@@ -125,7 +125,7 @@ try {
   process.off('SIGTERM', onTerminate)
   try { await services?.cleanup?.() }
   catch (error) {
-    console.error(`[setup] ${error.message}`)
+    console.error(`\n❌ ${error.message}`)
     printManualSetup()
     process.exitCode = 1
   }

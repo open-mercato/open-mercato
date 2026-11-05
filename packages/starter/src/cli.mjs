@@ -483,7 +483,7 @@ async function main() {
 try {
   await main()
 } catch (error) {
-  console.error(`Setup failed: ${error instanceof Error ? error.message : String(error)}`)
+  console.error(`\n❌ Setup failed: ${error instanceof Error ? error.message : String(error)}`)
   printManualSetup({ monorepo: true })
   process.exitCode = 2
 }

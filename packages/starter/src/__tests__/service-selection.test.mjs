@@ -141,7 +141,7 @@ test('non-interactive runs use the selected default without prompting, even on a
   const lines = []
   const mode = await chooseServiceMode({ argv: ['--non-interactive'], input, output, log: (line) => lines.push(line), selectDefault: async () => ({ mode: 'random', reason: 'Configured ports are occupied.' }) })
   assert.equal(mode, 'random')
-  assert.deepEqual(lines, ['[setup] Configured ports are occupied.'])
+  assert.deepEqual(lines, ['\n🔎 Configured ports are occupied.\n'])
   assert.equal(output.read(), null, 'no prompt is written')
 })
 

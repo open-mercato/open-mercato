@@ -38,12 +38,12 @@ export async function chooseServiceMode({ argv = [], input = process.stdin, outp
   if (argv.some((arg) => MODE_FLAGS.has(arg))) return mode
   const selection = selectDefault ? await selectDefault() : { mode: 'reuse' }
   if (!selection.mode) throw new ServiceSelectionError(selection)
-  if (selection.reason) log(`[setup] ${selection.reason}`)
+  if (selection.reason) log(`\n🔎 ${selection.reason}\n`)
   if (argv.includes('--non-interactive') || !input.isTTY || !output.isTTY || process.env.CI) return selection.mode
   const prompt = createInterface({ input, output })
   try {
-    const choices = MENU.map(([value, label], index) => `[${index + 1}] ${label}${value === selection.mode ? ' (default)' : ''}`).join(', ')
-    const answer = (await prompt.question(`Services: ${choices}: `)).trim()
+    const choices = MENU.map(([value, label], index) => `  [${index + 1}] ${label}${value === selection.mode ? ' (default)' : ''}`).join('\n')
+    const answer = (await prompt.question(`\n🧩 Choose your services\n\n${choices}\n\n  Enter a number [1–4] or press Enter for the default: `)).trim()
     if (!answer) return selection.mode
     const picked = MENU[Number(answer) - 1]
     if (!/^[1-4]$/.test(answer) || !picked) throw new Error('Invalid service choice. Re-run setup and choose 1, 2, 3, or 4.')
@@ -319,7 +319,7 @@ export async function configureServiceMode({ mode, projectDir, env = process.env
       env[key] = String(value)
     }
     committed = true
-    log(`[setup] ${mode === 'ephemeral' ? 'Ephemeral Testcontainers services are ready; configuration will be restored when setup/dev exits' : 'Random service ports and matching URLs saved to .env'}.`)
+    log(`\n✅ ${mode === 'ephemeral' ? 'Ephemeral Testcontainers services are ready; configuration will be restored when setup/dev exits' : 'Random service ports and matching URLs saved to .env'}.`)
     return { ok: true, mode, env, noInfra: mode === 'ephemeral', cleanup: mode === 'ephemeral' ? cleanup : undefined }
   } catch (error) {
     await cleanup()
@@ -331,15 +331,28 @@ export async function configureServiceMode({ mode, projectDir, env = process.env
 }
 
 export function printManualSetup({ log = console.error, monorepo = false } = {}) {
-  log('Setup did not complete. Manual setup:')
-  log('  1. Configure .env for your PostgreSQL, Redis and Meilisearch services (apps/mercato/.env in the monorepo).')
-  log('     Or retry with yarn setup --random-ports, yarn setup --ephemeral, or yarn setup --infra.')
-  log('  2. yarn install')
-  if (monorepo) log('  3. yarn build:packages')
-  log('  yarn generate')
-  if (monorepo) log('  yarn build:packages')
-  log('  yarn db:migrate')
-  log(monorepo ? '  yarn initialize -- --skip-if-initialized' : '  yarn initialize --skip-if-initialized')
-  log('  yarn dev --no-infra')
-  log('Run database commands only against the intended database; reuse preserves your configured URLs.')
+  log('')
+  log('🛠️  Setup did not complete. Manual setup:')
+  log('')
+  log('  1. Configure PostgreSQL, Redis and Meilisearch in your .env file:')
+  log(monorepo ? '     apps/mercato/.env' : '     .env')
+  log('')
+  log('  2. Run these commands in order:')
+  log('')
+  log('     yarn install')
+  if (monorepo) log('     yarn build:packages')
+  log('     yarn generate')
+  if (monorepo) log('     yarn build:packages')
+  log('     yarn db:migrate')
+  log(monorepo ? '     yarn initialize -- --skip-if-initialized' : '     yarn initialize --skip-if-initialized')
+  log('     yarn dev --no-infra')
+  log('')
+  log('💡 Or retry setup with an isolated or Docker Compose stack:')
+  log('')
+  log('     yarn setup --random-ports   Docker Compose on free ports')
+  log('     yarn setup --ephemeral      Temporary Testcontainers services')
+  log('     yarn setup --infra          Docker Compose on configured ports')
+  log('')
+  log('🔒 Run database commands only against the intended database; reuse preserves your configured URLs.')
+  log('')
 }
