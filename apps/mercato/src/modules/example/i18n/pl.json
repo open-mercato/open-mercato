@@ -61,6 +61,9 @@
   "example.componentOverrides.recordCount": "Rekordy w zakresie: {count}",
   "example.componentOverrides.replacement.body": "Nadpisanie w trybie replace całkowicie odrzuca implementację hosta, więc powyższy panel znika, zamiast zostać ozdobiony.",
   "example.componentOverrides.replacement.title": "Sekcja zastąpiona",
+  "example.loginProbe.active": "Alternatywne logowanie przejęło tę domenę e-mail.",
+  "example.loginProbe.continue": "Kontynuuj z dostawcą sondy",
+  "example.loginProbe.submitted": "Dostawca sondy odebrał logowanie.",
   "example.manageEntities": "Zarządzaj encjami przykładowymi.",
   "example.menu.quickAddTodo": "Szybkie dodanie zadania",
   "example.menu.todosShortcut": "Zadania przykładowe",
@@ -257,7 +260,6 @@
   "example.priority.normal": "Normalny",
   "example.publicPage": "Publiczna strona przykładowa.",
   "example.salesTodos.tabLabel": "Zadania (przykład)",
-  "example.search.todo.badge": "Zadanie",
   "example.search.todo.subtitle.done": "Zakończone",
   "example.search.todo.subtitle.open": "Otwarte",
   "example.todos.bulk.markDone": "Oznacz wybrane zadania jako wykonane",
@@ -544,5 +546,6 @@
   "example.workflows.completionGuard.vetoed": "Przykładowy warunek wstępny nie jest spełniony",
   "integrations.marketplace.filters.category": "Category",
   "notifications.categories.demo": "Demo",
-  "notifications.categories.example": "Przykłady"
+  "notifications.categories.example": "Przykłady",
+  "search.entityType.example.todo": "Zadanie"
 }

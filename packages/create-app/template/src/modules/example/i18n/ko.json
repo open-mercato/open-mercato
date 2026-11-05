@@ -61,6 +61,9 @@
   "example.componentOverrides.recordCount": "레코드 수",
   "example.componentOverrides.replacement.body": "이 컴포넌트가 원본을 완전히 대체했습니다.",
   "example.componentOverrides.replacement.title": "대체된 컴포넌트",
+  "example.loginProbe.active": "대체 로그인이 이 이메일 도메인을 담당합니다.",
+  "example.loginProbe.continue": "프로브 공급자로 계속",
+  "example.loginProbe.submitted": "프로브 공급자가 로그인을 받았습니다.",
   "example.manageEntities": "예제 엔티티를 관리합니다.",
   "example.menu.quickAddTodo": "할 일 빠른 추가",
   "example.menu.todosShortcut": "예제 할 일",
@@ -257,7 +260,6 @@
   "example.priority.normal": "보통",
   "example.publicPage": "공개 예제 페이지입니다.",
   "example.salesTodos.tabLabel": "할 일(예제)",
-  "example.search.todo.badge": "할 일",
   "example.search.todo.subtitle.done": "완료됨",
   "example.search.todo.subtitle.open": "진행 중",
   "example.todos.bulk.markDone": "선택한 할 일을 완료로 표시",
@@ -544,5 +546,6 @@
   "example.workflows.completionGuard.vetoed": "예제 선행 조건이 충족되지 않았습니다",
   "integrations.marketplace.filters.category": "카테고리",
   "notifications.categories.demo": "데모",
-  "notifications.categories.example": "예제"
+  "notifications.categories.example": "예제",
+  "search.entityType.example.todo": "할 일"
 }

@@ -59,27 +59,14 @@ async function openProduct(page: Page, productId: string, title: string): Promis
 }
 
 test.describe('TC-SEC-015: feature-gated injection widgets', () => {
-  test('gates the product SEO widget and its save handler by the viewing user’s features', async ({ page, request, browser, baseURL }) => {
+  test('shows the granted SEO widget and blocks an invalid save before the API call', async ({ page, request }) => {
     const adminToken = await getAuthToken(request, 'admin')
     const scope = getTokenContext(adminToken)
-    const stamp = randomUUID()
     const title = 'Widget security regression product'
-    const credentials = { email: `qa-widget-${stamp}@example.com`, password: `Test-${randomUUID()}!aA1` }
-    const restrictedContext = await browser.newContext({ baseURL })
     let productId: string | null = null
-    let roleId: string | null = null
-    let userId: string | null = null
 
     try {
-      productId = await createProductFixture(request, adminToken, { title, sku: `qa-widget-${stamp}` })
-      roleId = await createRoleFixture(request, adminToken, { name: `qa-widget-${stamp}`, tenantId: scope.tenantId })
-      await setRoleAclFeatures(request, adminToken, { roleId, features: ['catalog.products.view'] })
-      userId = await createUserFixture(request, adminToken, {
-        ...credentials,
-        organizationId: scope.organizationId,
-        roles: [roleId],
-      })
-
+      productId = await createProductFixture(request, adminToken, { title, sku: `qa-widget-${randomUUID()}` })
       const browserAdminToken = await signIn(page, DEFAULT_CREDENTIALS.admin, scope)
       await expectProductPermissions(page, browserAdminToken, true)
       await openProduct(page, productId, title)
@@ -97,29 +84,50 @@ test.describe('TC-SEC-015: feature-gated injection widgets', () => {
       await page.getByRole('button', { name: 'Save changes', exact: true }).first().click()
       await expect(page.getByText(SEO_TITLE_ERROR, { exact: true })).toBeVisible()
       expect(adminWrites, 'The granted widget should block the invalid save before the API call').toEqual([])
+    } finally {
+      await deleteCatalogProductIfExists(request, adminToken, productId)
+    }
+  })
 
-      const restrictedPage = await restrictedContext.newPage()
+  test('hides the restricted SEO widget and lets the server deny the invalid save', async ({ page, request }) => {
+    const adminToken = await getAuthToken(request, 'admin')
+    const scope = getTokenContext(adminToken)
+    const stamp = randomUUID()
+    const title = 'Widget security regression product'
+    const credentials = { email: `qa-widget-${stamp}@example.com`, password: `Test-${randomUUID()}!aA1` }
+    let productId: string | null = null
+    let roleId: string | null = null
+    let userId: string | null = null
+
+    try {
+      productId = await createProductFixture(request, adminToken, { title, sku: `qa-widget-${stamp}` })
+      roleId = await createRoleFixture(request, adminToken, { name: `qa-widget-${stamp}`, tenantId: scope.tenantId })
+      await setRoleAclFeatures(request, adminToken, { roleId, features: ['catalog.products.view'] })
+      userId = await createUserFixture(request, adminToken, {
+        ...credentials,
+        organizationId: scope.organizationId,
+        roles: [roleId],
+      })
       const pageErrors: string[] = []
-      restrictedPage.on('pageerror', (error) => pageErrors.push(error.message))
-      const restrictedToken = await signIn(restrictedPage, credentials, scope)
-      await expectProductPermissions(restrictedPage, restrictedToken, false)
-      await openProduct(restrictedPage, productId, title)
-      await expect(restrictedPage.getByRole('button', { name: 'Save changes', exact: true }).first()).toBeVisible()
-      await expect(restrictedPage.getByText('Product SEO Helper', { exact: true })).toHaveCount(0)
-      await expect(restrictedPage.getByText('SEO Optimization', { exact: true })).toHaveCount(0)
-      await expect(restrictedPage.getByRole('alert').filter({ hasText: /\S/ })).toHaveCount(0)
+      page.on('pageerror', (error) => pageErrors.push(error.message))
+      const restrictedToken = await signIn(page, credentials, scope)
+      await expectProductPermissions(page, restrictedToken, false)
+      await openProduct(page, productId, title)
+      await expect(page.getByRole('button', { name: 'Save changes', exact: true }).first()).toBeVisible()
+      await expect(page.getByText('Product SEO Helper', { exact: true })).toHaveCount(0)
+      await expect(page.getByText('SEO Optimization', { exact: true })).toHaveCount(0)
+      await expect(page.getByRole('alert').filter({ hasText: /\S/ })).toHaveCount(0)
       expect(pageErrors, 'The product form should render without a browser crash').toEqual([])
 
-      await restrictedPage.getByPlaceholder('e.g., Summer sneaker').fill('Short')
-      const deniedSave = restrictedPage.waitForResponse((response) =>
+      await page.getByPlaceholder('e.g., Summer sneaker').fill('Short')
+      const deniedSave = page.waitForResponse((response) =>
         new URL(response.url()).pathname === '/api/catalog/products' && response.request().method() === 'PUT',
       )
-      await restrictedPage.getByRole('button', { name: 'Save changes', exact: true }).first().click()
+      await page.getByRole('button', { name: 'Save changes', exact: true }).first().click()
       expect((await deniedSave).status(), 'The hidden widget must let submission reach the server RBAC guard').toBe(403)
-      await expect(restrictedPage.getByText(SEO_TITLE_ERROR, { exact: true })).toHaveCount(0)
+      await expect(page.getByText(SEO_TITLE_ERROR, { exact: true })).toHaveCount(0)
       expect(pageErrors).toEqual([])
     } finally {
-      await restrictedContext.close()
       await deleteCatalogProductIfExists(request, adminToken, productId)
       await deleteUserIfExists(request, adminToken, userId)
       await deleteRoleIfExists(request, adminToken, roleId)

@@ -34,3 +34,19 @@ test('printCatalogNextSteps prints no warning line for commands without one', ()
   assert.ok(!output.some((line) => line.includes('Warning')))
   assert.deepEqual(captured(() => printCatalogNextSteps([])), [])
 })
+
+test('printCatalogNextSteps ignores prototype keys and inherited warnings', () => {
+  const warnings: Record<string, string> = Object.create({ [SHIPMENT]: 'inherited warning' })
+  const output = captured(() => printCatalogNextSteps(['constructor', '__proto__', 'toString', SHIPMENT], warnings))
+  assert.ok(!output.some((line) => line.includes('# Warning:')))
+  assert.ok(output.includes(`  ${SHIPMENT}`))
+})
+
+test('printCatalogNextSteps accepts own warnings named like prototype properties', () => {
+  const commands = ['constructor', '__proto__', 'toString']
+  const warnings = Object.fromEntries(commands.map((command) => [command, WARNING]))
+  const output = captured(() => printCatalogNextSteps(commands, warnings))
+  for (const command of commands) {
+    assert.equal(output[output.indexOf(`  ${command}`) - 1], `  # Warning: ${WARNING}`)
+  }
+})
