@@ -6,6 +6,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveActiveOrganizationId, organizationScopeRequiredResponse } from '@open-mercato/shared/lib/auth/organizationScope'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -33,7 +34,20 @@ const bodySchema = z.object({
 export async function POST(req: Request, routeContext: RouteContext) {
   try {
     const { id: suggestionId } = paramsSchema.parse(await routeContext.params)
-    const body = bodySchema.parse(await req.json().catch(() => ({})))
+    const rawBody = await req.text()
+    let bodyInput: unknown = {}
+    if (rawBody) {
+      const maybeJson = await readJsonSafe<unknown>(rawBody, undefined)
+      if (maybeJson === undefined) {
+        return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
+      }
+      bodyInput = maybeJson
+    }
+    const parsedBody = bodySchema.safeParse(bodyInput)
+    if (!parsedBody.success) {
+      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
+    }
+    const body = parsedBody.data
     const auth = await getAuthFromRequest(req)
     if (!auth || !auth.tenantId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -65,7 +79,11 @@ export async function POST(req: Request, routeContext: RouteContext) {
     })
     if (!guarded.ok) return guarded.response
     const commandInput = guarded.modifiedPayload
-      ? bodySchema.extend({ id: z.string().uuid() }).parse(guarded.modifiedPayload)
+      ? bodySchema.extend({ id: z.string().uuid() }).parse({
+          ...guarded.modifiedPayload,
+          // guard merge carries the original `categoryId: null` placeholder forward; the schema's optional UUID wants `undefined`, not `null`.
+          categoryId: guarded.modifiedPayload.categoryId ?? undefined,
+        })
       : { id: suggestionId, categoryId: body.categoryId, makeMain: body.makeMain }
 
     const commandBus = container.resolve('commandBus') as CommandBus

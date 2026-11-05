@@ -198,4 +198,30 @@ describe('catalog ai-categorization settings route', () => {
     expect(response.status).toBe(400)
     expect(setValueMock).not.toHaveBeenCalled()
   })
+
+  it('rejects malformed JSON with 400 instead of a 500', async () => {
+    const response = await PUT(new Request('http://localhost/api/catalog/ai-categorization/settings', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: '{not valid json',
+    }))
+    expect(response.status).toBe(400)
+    expect(setValueMock).not.toHaveBeenCalled()
+  })
+
+  it('persists a guard-transformed payload, not the original request body', async () => {
+    runRouteMutationGuardsMock.mockResolvedValue({
+      ok: true,
+      modifiedPayload: { ...DEFAULT_SETTINGS, enabled: true, applyMode: 'auto_apply', autoApplyThreshold: 0.95 },
+      runAfterSuccess: runAfterSuccessMock,
+    })
+    const response = await PUT(makePutRequest({ ...DEFAULT_SETTINGS, enabled: true }))
+    expect(response.status).toBe(200)
+    expect(setValueMock).toHaveBeenCalledWith(
+      'catalog',
+      'ai_categorization',
+      expect.objectContaining({ applyMode: 'auto_apply', autoApplyThreshold: 0.95 }),
+      { tenantId },
+    )
+  })
 })

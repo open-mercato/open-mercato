@@ -4,7 +4,9 @@ import { runWithCacheTenant } from '@open-mercato/cache'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
@@ -90,6 +92,10 @@ async function GET(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     logger.error('catalog.ai_categorization.settings.GET Unexpected error', { err })
+    getTelemetryRuntime()?.reportError(err, {
+      module: 'catalog',
+      code: 'catalog.ai_categorization_settings_get_failed',
+    })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
@@ -97,7 +103,11 @@ async function GET(req: Request) {
 async function PUT(req: Request) {
   try {
     const context = await resolveSettingsContext(req)
-    const body = putBodySchema.parse(await req.json())
+    const parsedBody = putBodySchema.safeParse(await readJsonSafe(req))
+    if (!parsedBody.success) {
+      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
+    }
+    const body = parsedBody.data
     const service = context.container.resolve('catalogCategorizationService') as CatalogCategorizationService
 
     const currentStatus = await service.getStatus({ tenantId: context.tenantId })
@@ -120,9 +130,12 @@ async function PUT(req: Request) {
       },
     })
     if (!guarded.ok) return guarded.response
+    const effectiveSettings = guarded.modifiedPayload
+      ? aiCategorizationSettingsSchema.parse({ ...body.settings, ...guarded.modifiedPayload })
+      : body.settings
 
     const moduleConfigService = context.container.resolve('moduleConfigService') as ModuleConfigService
-    await writeAiCategorizationSettings(moduleConfigService, { tenantId: context.tenantId }, body.settings)
+    await writeAiCategorizationSettings(moduleConfigService, { tenantId: context.tenantId }, effectiveSettings)
 
     await invalidateSidebarNavCache(context.container, context.tenantId)
     await guarded.runAfterSuccess()
@@ -137,6 +150,10 @@ async function PUT(req: Request) {
       return NextResponse.json({ error: 'Invalid request', details: err.issues }, { status: 400 })
     }
     logger.error('catalog.ai_categorization.settings.PUT Unexpected error', { err })
+    getTelemetryRuntime()?.reportError(err, {
+      module: 'catalog',
+      code: 'catalog.ai_categorization_settings_put_failed',
+    })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

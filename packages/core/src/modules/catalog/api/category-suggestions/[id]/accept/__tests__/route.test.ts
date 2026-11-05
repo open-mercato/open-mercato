@@ -9,6 +9,7 @@ const overrideCategoryId = '55555555-5555-4555-8555-555555555555'
 const getStatusMock = jest.fn()
 const executeMock = jest.fn()
 const findOneMock = jest.fn()
+const registeredGuards: import('@open-mercato/shared/lib/crud/mutation-guard-registry').MutationGuard[] = []
 
 let authValue: Record<string, unknown> | null = { tenantId, orgId: organizationId, sub: 'user-1' }
 
@@ -17,6 +18,7 @@ const container = {
     if (name === 'catalogCategorizationService') return { getStatus: getStatusMock }
     if (name === 'commandBus') return { execute: executeMock }
     if (name === 'em') return { fork: () => ({ findOne: findOneMock }) }
+    if (name === 'rbacService') return { getGrantedFeatures: jest.fn(async () => []) }
     throw new Error(`Unexpected resolve: ${name}`)
   }),
 }
@@ -27,6 +29,13 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn(async () => authValue),
 }))
+jest.mock('@open-mercato/shared/lib/crud/mutation-guard-store', () => ({
+  getAllMutationGuardInstances: jest.fn(() => registeredGuards),
+}))
+jest.mock('@open-mercato/shared/lib/crud/mutation-guard-registry', () => {
+  const actual = jest.requireActual('@open-mercato/shared/lib/crud/mutation-guard-registry')
+  return { ...actual, bridgeLegacyGuard: jest.fn(() => null) }
+})
 
 import { POST } from '../route'
 
@@ -38,9 +47,18 @@ function makeRequest(body: Record<string, unknown> = {}) {
   })
 }
 
+function makeRawRequest(rawBody: string) {
+  return new Request(`http://localhost/api/catalog/category-suggestions/${suggestionId}/accept`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: rawBody,
+  })
+}
+
 describe('catalog category-suggestions accept route', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    registeredGuards.length = 0
     authValue = { tenantId, orgId: organizationId, sub: 'user-1' }
     getStatusMock.mockResolvedValue({ available: true, enabled: true, effective: true, settings: {} })
     executeMock.mockResolvedValue({
@@ -93,5 +111,33 @@ describe('catalog category-suggestions accept route', () => {
     const response = await POST(makeRequest(), { params: { id: suggestionId } })
     expect(response.status).toBe(409)
     await expect(response.json()).resolves.toEqual({ code: 'suggestion_not_pending' })
+  })
+
+  it('rejects malformed JSON with 400 instead of silently falling back to defaults', async () => {
+    const response = await POST(makeRawRequest('{not valid json'), { params: { id: suggestionId } })
+    expect(response.status).toBe(400)
+    expect(executeMock).not.toHaveBeenCalled()
+  })
+
+  it('accepts a genuinely empty body as "use the suggested category"', async () => {
+    const response = await POST(makeRawRequest(''), { params: { id: suggestionId } })
+    expect(response.status).toBe(200)
+    expect(executeMock).toHaveBeenCalledWith('catalog.category_suggestions.accept', expect.objectContaining({
+      input: { id: suggestionId, categoryId: undefined, makeMain: false },
+    }))
+  })
+
+  it('merges a transforming guard payload without crashing on the carried-forward null categoryId', async () => {
+    registeredGuards.push({
+      id: 'test.force-make-main',
+      targetEntity: '*',
+      operations: ['update'],
+      validate: async () => ({ ok: true, modifiedPayload: { makeMain: true } }),
+    })
+    const response = await POST(makeRequest({ makeMain: false }), { params: { id: suggestionId } })
+    expect(response.status).toBe(200)
+    expect(executeMock).toHaveBeenCalledWith('catalog.category_suggestions.accept', expect.objectContaining({
+      input: { id: suggestionId, categoryId: undefined, makeMain: true },
+    }))
   })
 })
