@@ -12,16 +12,20 @@ Non-goals: other dependency groups, CodeQL work already claimed by PR 8747, fast
 Phase 1: Confirm installed paths and reproduce all three defects; update the pin and generated lock with regression tests.
 Phase 2: Run the ordered configured gate, applicable lint/resolution checks and request full CI integration coverage. Obtain independent review and retain draft if verification is incomplete.
 
+Before/after: all three security tests fail on installed 6.15.2; all four tests pass on installed 6.16.1. Yarn why confirms body-parser 1/2, Express 4/5 and typed-rest-client all use the sole patched version.
+
 ## Risks
 Dependency changes affect shared transitive consumers. Verify actual installed versions and negative controls; do not infer removal from baseline-tolerant CI. Full gate may encounter unrelated main failures; disclose exact outcomes.
 
 ## Progress
 
+PR: #8809
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Patch and regression evidence
 
-- [ ] 1.1 Reproduce vulnerabilities and patch qs with regression coverage
+- [x] 1.1 Reproduce vulnerabilities and patch qs with regression coverage — db68b379a
 
 ### Phase 2: Verification and delivery
 
