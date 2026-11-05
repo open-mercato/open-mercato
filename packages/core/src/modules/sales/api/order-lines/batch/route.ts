@@ -138,6 +138,15 @@ async function resolveRequestContext(req: Request): Promise<CommandRuntimeContex
   }
 
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  if (scope?.selectionRejected) {
+    throw new CrudHttpError(422, {
+      error: translate(
+        'sales.documents.errors.organization_selection_invalid',
+        'Your selected organization is no longer available. Please re-select an organization and try again.',
+      ),
+      code: 'organization_selection_invalid',
+    })
+  }
   const organizationId = scope ? scope.selectedId : auth.orgId ?? null
   if (!organizationId) {
     throw new CrudHttpError(400, {
@@ -274,6 +283,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 403, description: 'Forbidden', schema: z.object({ error: z.string() }) },
         { status: 404, description: 'Order or line not found', schema: z.object({ error: z.string() }) },
         { status: 409, description: 'Conflict detected', schema: z.object({ error: z.string(), code: z.string().optional() }) },
+        { status: 422, description: 'Selected organization is no longer available', schema: z.object({ error: z.string(), code: z.literal('organization_selection_invalid') }) },
         { status: 423, description: 'Record locked', schema: z.object({ error: z.string(), code: z.string().optional() }) },
       ],
     },

@@ -54,6 +54,7 @@ const SELECTED_ORGANIZATION_ID = '33333333-3333-4333-8333-333333333333'
 const ORDER_ID = '44444444-4444-4444-8444-444444444444'
 const LINE_ID = '55555555-5555-4555-8555-555555555555'
 const OTHER_LINE_ID = '66666666-6666-4666-8666-666666666666'
+const STALE_ORGANIZATION_ID = '00000000-0000-4000-8000-0000000000de'
 
 function makeRequest(organizationId?: string, selection = '__all__') {
   return new Request('http://localhost/api/sales/order-lines/batch', {
@@ -109,6 +110,56 @@ describe('batch order-line organization context', () => {
 
     expect(response.status).toBe(400)
     expect(await response.json()).toEqual({ error: 'Organization context is required' })
+    expect(mockCommandBus.execute).not.toHaveBeenCalled()
+  })
+
+  describe.each([{ allowedIds: null }, { allowedIds: [HOME_ORGANIZATION_ID] }])(
+    'rejected selection with allowed organizations $allowedIds',
+    ({ allowedIds }) => {
+      it.each([
+        { operation: 'append', lines: [{ name: 'New line', currencyCode: 'USD', quantity: 1 }], deleteIds: [] },
+        { operation: 'update', lines: [{ id: LINE_ID, name: 'Updated line', currencyCode: 'USD', quantity: 2 }], deleteIds: [] },
+        { operation: 'delete', lines: [], deleteIds: [LINE_ID] },
+      ])('rejects $operation before running guards or commands', async ({ lines, deleteIds }) => {
+        jest.mocked(resolveOrganizationScopeForRequest).mockResolvedValue({
+          selectedId: HOME_ORGANIZATION_ID,
+          filterIds: [HOME_ORGANIZATION_ID],
+          allowedIds,
+          tenantId: TENANT_ID,
+          selectionRejected: true,
+        })
+
+        const response = await POST(new Request('http://localhost/api/sales/order-lines/batch', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', cookie: `om_selected_org=${STALE_ORGANIZATION_ID}` },
+          body: JSON.stringify({ orderId: ORDER_ID, organizationId: HOME_ORGANIZATION_ID, lines, deleteIds }),
+        }))
+
+        expect(response.status).toBe(422)
+        expect(await response.json()).toEqual({
+          error: 'Your selected organization is no longer available. Please re-select an organization and try again.',
+          code: 'organization_selection_invalid',
+        })
+        expect(response.headers.get('set-cookie')).toBeNull()
+        expect(bridgeLegacyGuard).not.toHaveBeenCalled()
+        expect(mockCommandBus.execute).not.toHaveBeenCalled()
+      })
+    },
+  )
+
+  it('prioritizes the rejected-selection error when no fallback organization exists', async () => {
+    jest.mocked(resolveOrganizationScopeForRequest).mockResolvedValue({
+      selectedId: null,
+      filterIds: [],
+      allowedIds: [],
+      tenantId: TENANT_ID,
+      selectionRejected: true,
+    })
+
+    const response = await POST(makeRequest(undefined, STALE_ORGANIZATION_ID))
+
+    expect(response.status).toBe(422)
+    expect(await response.json()).toMatchObject({ code: 'organization_selection_invalid' })
     expect(mockCommandBus.execute).not.toHaveBeenCalled()
   })
 
@@ -346,6 +397,25 @@ describe('batch order-line refusal localization', () => {
       body: JSON.stringify({ orderId: ORDER_ID, lines: [], deleteIds: [] }),
     })
   }
+
+  it('translates a rejected organization selection', async () => {
+    jest.mocked(resolveOrganizationScopeForRequest).mockResolvedValue({
+      selectedId: HOME_ORGANIZATION_ID,
+      filterIds: [HOME_ORGANIZATION_ID],
+      allowedIds: null,
+      tenantId: TENANT_ID,
+      selectionRejected: true,
+    })
+
+    const response = await POST(makeRequest(undefined, STALE_ORGANIZATION_ID))
+
+    expect(response.status).toBe(422)
+    expect(await response.json()).toEqual({
+      error: 'pl:sales.documents.errors.organization_selection_invalid',
+      code: 'organization_selection_invalid',
+    })
+    expect(mockCommandBus.execute).not.toHaveBeenCalled()
+  })
 
   it('returns the empty-batch refusal from the locale catalogue', async () => {
     const response = await POST(emptyBatchRequest())
