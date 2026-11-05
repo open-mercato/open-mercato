@@ -5,6 +5,7 @@
   "api_keys.copy.warning": "Mantén esta clave a salvo; no se puede recuperar más tarde.",
   "api_keys.errors.forbidden": "Prohibido",
   "api_keys.errors.notFound": "No encontrado",
+  "api_keys.errors.organizationMustMatchCreator": "Una clave API limitada a una organización debe usar la organización de tu cuenta. Selecciona esa organización para crear una clave utilizable.",
   "api_keys.errors.organizationOutOfScope": "Organización fuera del ámbito",
   "api_keys.errors.roleNotFound": "Rol {identifier} no encontrado",
   "api_keys.errors.roleWrongTenant": "El rol {role} pertenece a otro inquilino",

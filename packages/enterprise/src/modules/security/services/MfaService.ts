@@ -1,12 +1,13 @@
 import { randomBytes } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { compare, hash } from 'bcryptjs'
+import { ZodError } from 'zod'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { EnforcementScope, MfaEnforcementPolicy, MfaRecoveryCode, UserMfaMethod } from '../data/entities'
 import { emitSecurityEvent } from '../events'
 import type { MfaProviderRegistry } from '../lib/mfa-provider-registry'
-import type { MfaProviderRuntimeContext } from '../lib/mfa-provider-interface'
+import type { MfaProviderConfirmResult, MfaProviderRuntimeContext } from '../lib/mfa-provider-interface'
 import type { SecurityModuleConfig } from '../lib/security-config'
 import { readSecurityModuleConfig } from '../lib/security-config'
 
@@ -120,7 +121,15 @@ export class MfaService {
 
     await this.ensureProviderCanBeConfigured(userId, method.type, provider.allowMultiple)
 
-    const confirmation = await provider.confirmSetup(userId, setupId, payload, context)
+    let confirmation: MfaProviderConfirmResult
+    try {
+      confirmation = await provider.confirmSetup(userId, setupId, payload, context)
+    } catch (error) {
+      if (error instanceof ZodError) {
+        throw new MfaServiceError('Invalid payload', 400)
+      }
+      throw error
+    }
     const resolvedLabel = this.getLabelFromMetadata(confirmation.metadata) ?? method.label ?? null
 
     if (resolvedLabel && provider.allowMultiple) {
