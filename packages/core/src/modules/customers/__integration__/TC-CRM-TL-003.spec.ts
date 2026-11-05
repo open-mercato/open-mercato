@@ -1,7 +1,7 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { login } from '@open-mercato/core/helpers/integration/auth';
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
-import { getTokenContext, getTokenScope } from '@open-mercato/core/helpers/integration/generalFixtures';
+import { getTokenContext, getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
 import {
   createRoleFixture,
   createUserFixture,
@@ -61,6 +61,35 @@ async function changeDateInDrawer(page: Page, dateKey: string): Promise<void> {
   await dialog.locator('input[type="date"]').fill(dateKey);
   await dialog.locator('input[type="date"]').press(process.platform === 'darwin' ? 'Meta+Enter' : 'Control+Enter');
   await expect(dialog).toBeHidden();
+}
+
+async function cardColumn(page: Page, dealId: string): Promise<number | null> {
+  return page
+    .locator(`[data-timeline-cell]:has([data-timeline-card][data-deal-id="${dealId}"])`)
+    .first()
+    .getAttribute('data-column', { timeout: 2_000 })
+    .then((value) => (value === null ? null : Number(value)))
+    .catch(() => null);
+}
+
+async function wonThisQuarterCount(request: Parameters<typeof readDeal>[0], token: string): Promise<number> {
+  const response = await apiRequest(request, 'GET', '/api/customers/deals/summary', { token });
+  expect(response.status(), await response.text()).toBe(200);
+  const body = await readJsonSafe<{ wonThisQuarter?: { dealsClosed?: number } }>(response);
+  return Number(body?.wonThisQuarter?.dealsClosed ?? Number.NaN);
+}
+
+function trackDealPuts(page: Page): { sent: () => number; statuses: number[] } {
+  let sent = 0;
+  const statuses: number[] = [];
+  page.on('request', (request) => {
+    if (request.method() === 'PUT' && new URL(request.url()).pathname === '/api/customers/deals') sent += 1;
+  });
+  page.on('response', (response) => {
+    const request = response.request();
+    if (request.method() === 'PUT' && new URL(request.url()).pathname === '/api/customers/deals') statuses.push(response.status());
+  });
+  return { sent: () => sent, statuses };
 }
 
 test.describe('TC-CRM-TL-003: deals timeline rescheduling', () => {
@@ -159,12 +188,13 @@ test.describe('TC-CRM-TL-003: deals timeline rescheduling', () => {
       await expect.poll(() => closeDateOf(request, token, movedId), { timeout: 15_000 }).toBe(farDate);
       const showDeal = page.getByRole('button', { name: 'Show deal' });
       await expect(showDeal).toBeVisible();
-      await page.keyboard.press('Escape').catch(() => undefined);
+      await page.keyboard.press('Escape');
+      await expect(page.getByTestId('timeline-deal-drawer')).toBeHidden();
       expect(new URL(page.url()).searchParams.get('from'), 'the window stays put').toBe(urlBefore.searchParams.get('from'));
-      await showDeal.focus();
-      await expect(showDeal).toBeFocused();
+      await expect(showDeal, 'focus lands on Show deal once the drawer closes').toBeFocused();
       await showDeal.click();
       await expect(timelineCard(page, movedId)).toBeVisible({ timeout: 30_000 });
+      await expectFocusedDeal(page, movedId);
 
       await openTimeline(page, `pipelineId=${scope.pipelineId}`);
       const busyCell = timelineCell(page, adminUserId, 2);
@@ -177,6 +207,81 @@ test.describe('TC-CRM-TL-003: deals timeline rescheduling', () => {
       await changeDateInDrawer(page, target);
       await expect.poll(() => closeDateOf(request, token, hiddenId), { timeout: 15_000 }).toBe(target);
       await expect(page).toHaveURL(/\/backend\/customers\/deals\/timeline/);
+    } finally {
+      await cleanupTimelineScope(request, token, scope);
+    }
+  });
+
+  test('destination behind +N more: Show deal opens that cell\'s popover with the deal focused', async ({ page, request }) => {
+    test.setTimeout(240_000);
+    const token = await getAuthToken(request, 'admin');
+    const adminUserId = getTokenScope(token).userId;
+    const today = todayKey();
+    const nextWeekStart = addBuckets(today, 'week', 1);
+    const hiddenDate = addDays(nextWeekStart, 4);
+    let scope: TimelineFixtureScope | null = null;
+    try {
+      scope = await createTimelineScope(request, token, 'TC-CRM-TL-003 Behind');
+      const movedId = await addTimelineDeal(request, token, scope, { title: `TL003 Behind ${scope.stamp}`, date: today, ownerUserId: adminUserId });
+      for (let index = 0; index < 3; index += 1) {
+        await addTimelineDeal(request, token, scope, {
+          title: `TL003 Full ${index} ${scope.stamp}`,
+          date: nextWeekStart,
+          ownerUserId: adminUserId,
+        });
+      }
+      await installDevNoticeHandler(page);
+      await login(page, 'admin');
+      await openTimeline(page, `pipelineId=${scope.pipelineId}`);
+      const urlBefore = new URL(page.url());
+      await timelineCard(page, movedId).click();
+      await changeDateInDrawer(page, hiddenDate);
+      await expect.poll(() => closeDateOf(request, token, movedId), { timeout: 15_000 }).toBe(hiddenDate);
+      const showDeal = page.getByRole('button', { name: 'Show deal' });
+      await expect(showDeal).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(page.getByTestId('timeline-deal-drawer')).toBeHidden();
+      await expect(showDeal, 'focus lands on Show deal once the drawer closes').toBeFocused();
+      const fullCell = timelineCell(page, adminUserId, 2);
+      await expect(fullCell.locator(`[data-deal-id="${movedId}"]`), 'the moved deal sits behind +N more').toHaveCount(0);
+      await showDeal.click();
+      expect(new URL(page.url()).searchParams.get('from'), 'the visible window does not move').toBe(urlBefore.searchParams.get('from'));
+      const row = page.locator(`[data-popover-deal-id="${movedId}"]`);
+      await expect(row).toBeVisible({ timeout: 30_000 });
+      await expect(row, 'the popover opens with the moved deal focused').toBeFocused();
+    } finally {
+      await cleanupTimelineScope(request, token, scope);
+    }
+  });
+
+  test('two quick moves of the same card never write with a stale version', async ({ page, request }) => {
+    test.setTimeout(240_000);
+    const token = await getAuthToken(request, 'admin');
+    const adminUserId = getTokenScope(token).userId;
+    const today = todayKey();
+    let scope: TimelineFixtureScope | null = null;
+    try {
+      scope = await createTimelineScope(request, token, 'TC-CRM-TL-003 Rapid');
+      const dealId = await addTimelineDeal(request, token, scope, { title: `TL003 Rapid ${scope.stamp}`, date: today, ownerUserId: adminUserId });
+      await installDevNoticeHandler(page);
+      await login(page, 'admin');
+      await openTimeline(page, `pipelineId=${scope.pipelineId}`);
+      await expect(timelineCard(page, dealId)).toBeVisible();
+      const puts = trackDealPuts(page);
+
+      await dragCardTo(page, timelineCard(page, dealId), timelineCell(page, adminUserId, 2));
+      await dragCardTo(page, timelineCard(page, dealId), timelineCell(page, adminUserId, 3));
+
+      await expect.poll(() => puts.sent(), { timeout: 15_000 }).toBeGreaterThan(0);
+      await expect.poll(() => puts.statuses.length, { timeout: 30_000 }).toBe(puts.sent());
+      expect(puts.statuses.every((status) => status < 400), `PUT statuses ${puts.statuses.join(',')}`).toBe(true);
+      await expect(page.getByText('Record changed')).toHaveCount(0);
+
+      const finalDate = shiftCloseDate(today, 'week', puts.sent());
+      await expect.poll(() => closeDateOf(request, token, dealId), { timeout: 15_000 }).toBe(finalDate);
+      await expect.poll(() => cardColumn(page, dealId), { timeout: 30_000 }).toBe(1 + puts.sent());
+      await expect(timelineCard(page, dealId)).toHaveAttribute('aria-label', utcMonthDayLabel(finalDate));
+      await expect(page.getByText('Record changed')).toHaveCount(0);
     } finally {
       await cleanupTimelineScope(request, token, scope);
     }
@@ -272,7 +377,13 @@ test.describe('TC-CRM-TL-003: deals timeline rescheduling', () => {
       const card = timelineCard(page, dealId);
       await expect(card).toBeVisible();
       await expect(card, 'read-only cards carry a hint instead of a drag affordance').toHaveAttribute('title', /.+/);
-      await expect(card).not.toHaveAttribute('aria-roledescription', /draggable/i);
+      const puts = trackDealPuts(page);
+      await dragCardTo(page, card, timelineCell(page, '__unassigned', 2));
+      await expect(timelineCell(page, '__unassigned', 1).locator(`[data-deal-id="${dealId}"]`), 'the card stays in its column').toBeVisible();
+      await expect(timelineCell(page, '__unassigned', 2).locator(`[data-deal-id="${dealId}"]`)).toHaveCount(0);
+      expect(puts.sent(), 'a read-only drag sends no write').toBe(0);
+      expect(await closeDateOf(request, token, dealId)).toBe(today);
+      await page.keyboard.press('Escape');
       await card.focus();
       await page.keyboard.press('Enter');
       const drawer = page.getByTestId('timeline-deal-drawer');
@@ -293,6 +404,7 @@ test.describe('TC-CRM-TL-003: deals timeline rescheduling', () => {
     const adminUserId = getTokenScope(token).userId;
     const today = todayKey();
     let scope: TimelineFixtureScope | null = null;
+    let interactionId: string | null = null;
     try {
       scope = await createTimelineScope(request, token, 'TC-CRM-TL-003 Closed');
       const wonId = await addTimelineDeal(request, token, scope, {
@@ -301,6 +413,11 @@ test.describe('TC-CRM-TL-003: deals timeline rescheduling', () => {
         ownerUserId: adminUserId,
         status: 'win',
       });
+      const neighbourId = await addTimelineDeal(request, token, scope, {
+        title: `TL003 Neighbour ${scope.stamp}`,
+        date: today,
+        ownerUserId: adminUserId,
+      });
       const before = await readDeal(request, token, wonId);
       await installDevNoticeHandler(page);
       await login(page, 'admin');
@@ -308,10 +425,22 @@ test.describe('TC-CRM-TL-003: deals timeline rescheduling', () => {
       const card = timelineCard(page, wonId);
       await expect(card).toBeVisible();
       await expect(card, 'closed cards explain why they cannot be rescheduled').toHaveAttribute('title', /.+/);
-      await expect(card).not.toHaveAttribute('aria-roledescription', /draggable/i);
+      const puts = trackDealPuts(page);
       await dragCardTo(page, card, timelineCell(page, adminUserId, 2));
       await expect(timelineCell(page, adminUserId, 1).locator(`[data-deal-id="${wonId}"]`)).toBeVisible();
+      await expect(timelineCell(page, adminUserId, 2).locator(`[data-deal-id="${wonId}"]`)).toHaveCount(0);
+      expect(puts.sent(), 'dragging a won deal sends no write').toBe(0);
       expect(await closeDateOf(request, token, wonId)).toBe(today);
+
+      const wonBefore = await wonThisQuarterCount(request, token);
+      const neighbourCard = timelineCard(page, neighbourId);
+      await expect(neighbourCard).toBeVisible();
+      await dragCardTo(page, neighbourCard, timelineCell(page, adminUserId, 2));
+      await expect.poll(() => closeDateOf(request, token, neighbourId), { timeout: 15_000 }).toBe(shiftCloseDate(today, 'week', 1));
+      expect(await wonThisQuarterCount(request, token), 'rescheduling an open deal leaves the quarter\'s won count unchanged').toBe(wonBefore);
+      const wonAfter = await readDeal(request, token, wonId);
+      expect(wonAfter?.updatedAt, 'the won deal next to the rescheduled one is untouched').toBe(before?.updatedAt);
+      expect(puts.statuses.every((status) => status < 400)).toBe(true);
 
       await timelineCard(page, wonId).click({ force: true });
       const drawer = page.getByTestId('timeline-deal-drawer');
@@ -320,9 +449,25 @@ test.describe('TC-CRM-TL-003: deals timeline rescheduling', () => {
       for (const name of ['Change close date', 'Change stage', 'Mark won', 'Mark lost']) {
         await expect(drawer.getByRole('button', { name }), `${name} hidden for a won deal`).toHaveCount(0);
       }
+
+      await drawer.getByRole('button', { name: 'Schedule follow-up' }).click();
+      const scheduleDialog = page.getByRole('dialog').filter({ has: page.getByPlaceholder(/Activity title/i) });
+      await expect(scheduleDialog).toBeVisible();
+      await scheduleDialog.getByPlaceholder(/Activity title/i).fill(`TL003 Won follow-up ${scope.stamp}`);
+      const createdPromise = page.waitForResponse(
+        (response) => new URL(response.url()).pathname === '/api/customers/interactions' && response.request().method() === 'POST',
+      );
+      await scheduleDialog.getByRole('button', { name: /^Save (task|activity)$/ }).click();
+      const created = await createdPromise;
+      expect(created.status(), await created.text()).toBe(201);
+      interactionId = ((await created.json()) as { id: string }).id;
+      expect((created.request().postDataJSON() as { dealId?: string }).dealId, 'the follow-up is linked to the won deal').toBe(wonId);
       const after = await readDeal(request, token, wonId);
-      expect(after?.updatedAt, 'viewing a closed deal never writes it').toBe(before?.updatedAt);
+      expect(after?.updatedAt, 'scheduling a follow-up on a won deal never writes the deal').toBe(before?.updatedAt);
     } finally {
+      if (interactionId) {
+        await apiRequest(request, 'DELETE', `/api/customers/interactions?id=${interactionId}`, { token }).catch(() => undefined);
+      }
       await cleanupTimelineScope(request, token, scope);
     }
   });

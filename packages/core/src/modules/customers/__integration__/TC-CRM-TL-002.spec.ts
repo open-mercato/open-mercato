@@ -165,24 +165,51 @@ test.describe('TC-CRM-TL-002: deals timeline page (read-only)', () => {
         date: today,
         ownerUserId: adminUserId,
       });
-      const openUndatedTitle = `TL002U Open undated ${scope.stamp}`;
-      const wonUndatedTitle = `TL002U Won undated ${scope.stamp}`;
+      const searchToken = `tlundated${scope.stamp.toString(36)}`;
+      const openUndatedTitle = `TL002U Open undated ${searchToken}`;
+      const wonUndatedTitle = `TL002U Won undated ${searchToken}`;
       const openUndatedId = await addTimelineDeal(request, token, scope, {
         title: openUndatedTitle,
         ownerUserId: adminUserId,
       });
       await addTimelineDeal(request, token, scope, { title: wonUndatedTitle, ownerUserId: adminUserId, status: 'win' });
+      await expect
+        .poll(
+          async () => {
+            const response = await apiRequest(
+              request,
+              'GET',
+              `/api/customers/deals/timeline?pipelineId=${scope?.pipelineId}&search=${searchToken}&excludeClosed=true`,
+              { token },
+            );
+            const body = await readJsonSafe<{ undatedCount?: number }>(response);
+            return body?.undatedCount ?? -1;
+          },
+          { timeout: 30_000, message: 'the search index picks up the undated fixtures' },
+        )
+        .toBe(1);
 
       await installDevNoticeHandler(page);
       await login(page, 'admin');
       const timelineQuery = `pipelineId=${scope.pipelineId}`;
-      await openTimeline(page, timelineQuery);
-      await expect(timelineCard(page, datedId)).toBeVisible();
+      await openTimeline(page, `${timelineQuery}&search=${searchToken}`);
       const undatedLink = page.getByRole('link', { name: /^1 deals? (has|have) no close date/i });
-      await expect(undatedLink).toBeVisible();
+      await expect(undatedLink).toBeVisible({ timeout: 30_000 });
       await undatedLink.click();
       await page.waitForURL(/\/backend\/customers\/deals\?/);
       await expect(page).toHaveURL(/hasExpectedCloseAt=false/);
+      const listUrl = new URL(page.url());
+      expect(listUrl.searchParams.get('search'), 'the undated link carries the timeline search into the List').toBe(searchToken);
+      const filterEntries = Array.from(listUrl.searchParams.entries())
+        .filter(([key]) => key.startsWith('filter['))
+        .map(([key, value]) => `${key}=${value}`)
+        .join('&');
+      expect(filterEntries, 'the List gets the closed-set status condition').toMatch(/\[field\]=status/);
+      expect(filterEntries).toMatch(/\[op\]=is_none_of/);
+      expect(filterEntries).toMatch(/win/);
+      await expect(page.getByRole('searchbox', { name: /^Search by title/i }), 'the List search input shows the token').toHaveValue(searchToken, {
+        timeout: 30_000,
+      });
       await expect(page.getByText('No close date').first()).toBeVisible({ timeout: 30_000 });
       await expect(page.getByText(openUndatedTitle)).toBeVisible({ timeout: 30_000 });
       await expect(page.getByText(wonUndatedTitle)).toHaveCount(0);
@@ -205,6 +232,7 @@ test.describe('TC-CRM-TL-002: deals timeline page (read-only)', () => {
         .toBe(nextWeekDate);
 
       await openTimeline(page, timelineQuery);
+      await expect(timelineCard(page, datedId)).toBeVisible();
       await expect(timelineCell(page, adminUserId, 2).locator(`[data-deal-id="${openUndatedId}"]`)).toBeVisible();
       await expect(page.getByRole('link', { name: /no close date/i })).toHaveCount(0);
     } finally {
@@ -484,6 +512,31 @@ test.describe('TC-CRM-TL-002: deals timeline page (read-only)', () => {
       await expect(drawer).toBeVisible();
       await expect(page).toHaveURL(new RegExp(`deal=${hiddenId}`));
       await expect(drawer.locator('[data-slot="drawer-title"]')).toContainText(hiddenTitle);
+    } finally {
+      await cleanupTimelineScope(request, token, scope);
+    }
+  });
+
+  test('?deal= with an unknown id keeps the drawer closed and drops the param', async ({ page, request }) => {
+    test.setTimeout(240_000);
+    const token = await getAuthToken(request, 'admin');
+    const adminUserId = getTokenScope(token).userId;
+    let scope: TimelineFixtureScope | null = null;
+    try {
+      scope = await createTimelineScope(request, token, 'TC-CRM-TL-002 Unknown');
+      const dealId = await addTimelineDeal(request, token, scope, {
+        title: `TL002X Deal ${scope.stamp}`,
+        date: todayKey(),
+        ownerUserId: adminUserId,
+      });
+      const unknownId = crypto.randomUUID();
+      await installDevNoticeHandler(page);
+      await login(page, 'admin');
+      await openTimeline(page, `pipelineId=${scope.pipelineId}&deal=${unknownId}`);
+      await expect(timelineCard(page, dealId)).toBeVisible();
+      await expect(page, 'the unresolvable deal param is dropped').not.toHaveURL(/[?&]deal=/, { timeout: 30_000 });
+      await expect(page.getByTestId('timeline-deal-drawer')).toBeHidden();
+      await expect(page).toHaveURL(new RegExp(`pipelineId=${scope.pipelineId}`));
     } finally {
       await cleanupTimelineScope(request, token, scope);
     }

@@ -136,6 +136,7 @@ test.describe('TC-CRM-TL-001: deals timeline endpoint (GET /api/customers/deals/
     let pipelineId: string | null = null;
     let otherPipelineId: string | null = null;
     const stageIds: string[] = [];
+    const cleanupStageIds: string[] = [];
 
     try {
       pipelineId = await createPipelineFixture(request, adminToken, { name: `TC-CRM-TL-001 Pipeline ${stamp}` });
@@ -154,6 +155,7 @@ test.describe('TC-CRM-TL-001: deals timeline endpoint (GET /api/customers/deals/
         label: `TC-CRM-TL-001 Other Stage ${stamp}`,
         order: 0,
       });
+      cleanupStageIds.push(otherStageId);
 
       const make = async (
         title: string,
@@ -185,8 +187,8 @@ test.describe('TC-CRM-TL-001: deals timeline endpoint (GET /api/customers/deals/
         pipeline: otherPipelineId,
         stage: otherStageId,
       });
-      const overdueId = await make('Overdue', { date: overdueDate, owner: adminUserId });
-      const nextId = await make('Next', { date: nextDate, owner: adminUserId });
+      await make('Overdue', { date: overdueDate, owner: adminUserId });
+      await make('Next', { date: nextDate, owner: adminUserId });
       const undatedId = await make('Undated', { owner: adminUserId });
       const undatedWonId = await make('Undated won', { owner: adminUserId, status: 'win' });
 
@@ -286,13 +288,11 @@ test.describe('TC-CRM-TL-001: deals timeline endpoint (GET /api/customers/deals/
       expect((undatedBody?.items ?? []).map((item) => item.id).sort(), 'hasExpectedCloseAt=false returns only undated deals').toEqual(
         [undatedId, undatedWonId].sort(),
       );
-      void nextId;
-      void overdueId;
     } finally {
       for (const id of createdDeals) {
         await deleteEntityIfExists(request, adminToken, DEALS_PATH, id);
       }
-      for (const id of stageIds) {
+      for (const id of [...stageIds, ...cleanupStageIds]) {
         await deleteEntityByBody(request, adminToken, STAGES_PATH, id);
       }
       await deleteEntityByBody(request, adminToken, PIPELINES_PATH, pipelineId);
@@ -342,6 +342,10 @@ test.describe('TC-CRM-TL-001: deals timeline endpoint (GET /api/customers/deals/
       expect(foreignLane?.total ?? 0, 'org1 admin does not count the org2 deal').toBe(0);
       expect(foreign.columns.reduce((sum, column) => sum + column.total, 0), 'no org2 deal in column totals').toBe(0);
       expect(allItemIds(foreign)).not.toContain(deal2Id);
+
+      const foreignCell = await fetchCell(request, adminToken, `${query}&cellLane=${user2Id}&cellColumn=0`);
+      expect(foreignCell.total, 'org1 admin cannot page the org2 owner cell').toBe(0);
+      expect(foreignCell.items, 'no org2 deal in the org1 cell page').toEqual([]);
     } finally {
       if (user2Token) await deleteEntityIfExists(request, user2Token, DEALS_PATH, deal2Id);
       await deleteUserIfExists(request, superToken, user2Id);
@@ -357,5 +361,16 @@ test.describe('TC-CRM-TL-001: deals timeline endpoint (GET /api/customers/deals/
     }
     const contradiction = await apiRequest(request, 'GET', `${DEALS_PATH}?hasExpectedCloseAt=false&isOverdue=true`, { token });
     expect(contradiction.status(), 'list hasExpectedCloseAt=false&isOverdue=true → 400').toBe(400);
+    const rangeContradiction = await apiRequest(
+      request,
+      'GET',
+      `${DEALS_PATH}?hasExpectedCloseAt=false&expectedCloseAtFrom=2026-11-01`,
+      { token },
+    );
+    expect(rangeContradiction.status(), 'list hasExpectedCloseAt=false with a close-date range → 400').toBe(400);
+    const rangeBody = await readJsonSafe<{ code?: string }>(rangeContradiction);
+    expect(rangeBody?.code).toBe('undated_with_close_date_range');
+    const emptyColumn = await apiRequest(request, 'GET', `${TIMELINE_PATH}?cellLane=__unassigned&cellColumn=`, { token });
+    expect(emptyColumn.status(), 'an empty cellColumn → 400').toBe(400);
   });
 });
