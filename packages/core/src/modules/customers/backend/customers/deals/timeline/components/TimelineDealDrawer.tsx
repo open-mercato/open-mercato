@@ -35,6 +35,8 @@ import type { GuardedMutationRunner } from '../../[id]/hooks/types'
 import { ChangeCloseDateDialog, formatUtcDateKey } from './ChangeCloseDateDialog'
 import { useDealDrawerData, useDealDrawerPermissions, type DealDrawerDeal } from './useDealDrawerData'
 
+const TIMELINE_DRAWER_LAYER_STYLE: React.CSSProperties = { zIndex: 'var(--z-index-modal)' }
+
 export type TimelineDealDrawerProps = {
   dealId: string | null
   onClose: () => void
@@ -356,6 +358,7 @@ export function TimelineDealDrawer({
         <DrawerContent
           side="right"
           className="max-w-full sm:max-w-lg"
+          style={TIMELINE_DRAWER_LAYER_STYLE}
           closeAriaLabel={t('customers.deals.timeline.drawer.close', 'Close deal preview')}
           onCloseAutoFocus={handleCloseAutoFocus}
           data-testid="timeline-deal-drawer"

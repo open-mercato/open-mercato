@@ -801,3 +801,4 @@ Draft, ready for review. No non-compliant items.
   - **Card value** is never truncated: at the minimum column width the value/date row wraps instead of cutting the amount.
   - **Drag announcements** name the deal and the column (`customers.deals.timeline.reschedule.announce.*`) instead of dnd-kit's English defaults with raw ids.
   - **Integration cleanup:** TC-CRM-TL fixtures delete stages and pipelines by body (`deleteEntityByBody`); those routes ignore `?id=`, so the old cleanup leaked a pipeline per run.
+  - **Dialogs above the drawer:** the shared `Drawer` sits on `z-popover` (45) and `Dialog` on `z-modal` (40), so Schedule follow-up, Change close date, Change stage and Mark lost opened underneath it. `TimelineDealDrawer` now sets its content to `var(--z-index-modal)`, so dialogs opened from it stack on top and popovers stay above both. The shared primitive is unchanged; aligning `Drawer` with `Dialog` app-wide is a separate UI-package decision.
