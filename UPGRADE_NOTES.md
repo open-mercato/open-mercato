@@ -5142,3 +5142,7 @@ When opening a PR that bumps a dependency across a major boundary, add an entry 
 the same PR. The `auto-upgrade-...` skill for the window picks up entries from this file;
 keep the headings stable (exactly `#### \`<package>\` \`^<from>\` → \`^<to>\``) so the
 skill can parse them.
+
+### Staff report-history money permissions (#8595)
+
+Report-sheet event metadata now honors `staff.timesheets.rates.view`. Callers without it receive nonfinancial counts, rounding and export details, with close/unlock totals and currency omitted. This repairs an unauthorized disclosure; authorized output is unchanged. Consumers must treat omitted monetary metadata as unavailable. No database or operator migration is required.

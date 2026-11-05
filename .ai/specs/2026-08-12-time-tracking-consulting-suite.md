@@ -631,6 +631,8 @@ Regression coverage: `api/timesheets/reports/[id]/export/__tests__/route.test.ts
 
 ---
 
+Report-sheet history uses the same resolved `rates.view` decision as sheet totals and rows. Without it, event metadata exposes only known nonfinancial counts, rounding settings and export details; close totals, unlock frozen totals, currency codes and unknown metadata are absent. Authorized metadata remains unchanged. `TC-TT-028-report-history-money-permissions.spec.ts` creates rated fixtures and sole-role callers, verifies effective grants, close/unlock/export history, repeated reads, denied viewers and wrong-organization reads.
+
 ## Migration & Backward Compatibility
 
 **Whole-filter entry totals (#6990).** `GET /api/staff/timesheets/time-entries?includeTotals=true` adds optional `totals: { entryCount, durationMinutes, roundedMinutes, money? }` across the entire filtered result, independent of pagination. `money` is absent without `staff.timesheets.rates.view`; authorized amounts use entry-level rounding and separate currency groups. Authorization-derived project predicates are structurally AND-composed with advanced filters for both items and totals. Aggregate failure omits `totals` while preserving the list. Requests without the opt-in retain the existing response.
@@ -642,6 +644,8 @@ Integration coverage: TC-STAFF-047 covers live whole-result/page parity, entry-c
 `GET /api/staff/timesheets/time-projects?ids=<id>` (also `?id=`) adds optional `x-om-project-scope-tenant-id` and `x-om-project-scope-organization-id` response headers on resolved reads and denials. Values come from the existing directory request-scope resolver used for access decisions, never query parameters or an assumed session default. Unresolved scope omits both. Existing status codes and response bodies are unchanged; older clients can ignore the headers. Without both headers, clients conservatively reset on cookie hydration. No database or operator migration is required.
 
 `POST /api/staff/timesheets/access-requests` resolves the validated request-selected tenant and concrete organization for its feature check, guards, lookups, deduplication and notification event. An explicitly rejected or missing selection returns the existing400 missing-scope error; selected-scope feature denial returns403. Successful request/response shapes, confidentiality and the24h deduplication contract remain unchanged. No client or operator migration is needed.
+
+The #8595 history repair restores the documented money-absent permission contract: unauthorized monetary metadata was an accidental disclosure, not a supported response. No authorized output, URL, method, schema, event identifier or ACL feature changes. Clients without `rates.view` must treat missing monetary history fields as unavailable; no database or operator migration is needed.
 
 Reviewed against [`BACKWARD_COMPATIBILITY.md`](../../BACKWARD_COMPATIBILITY.md)'s 13 contract surfaces:
 
@@ -721,6 +725,7 @@ Every question the requirements left open — each one traced to the mockup note
 | Date | Change |
 |---|---|
 | 2026-11-03 | #6990 / #8379: document additive whole-filter entry totals, rates redaction, structural project-access filter composition, footer/shared chip props, and self-contained live API boundary regressions in TC-STAFF-048. |
+| 2026-11-03 | #8595: gate report-history metadata with rates.view; retain nonfinancial close/unlock/export history and authorized metadata. Add route and live API permission/scope regressions (TC-TT-028). |
 | 2026-11-02 | #8448: bind access-request writes, authorization, deduplication and manager notification to validated request-selected scope; reject rejected/missing scope. Bootstrap integration waits for switcher completion, requiring a project reload only for fresh-cookie hydration, while preserving scope/confidentiality/acknowledgement assertions. |
 | 2026-10-29 | #6821: bind fresh-session access acknowledgement to optional server-resolved request-scope headers; preserve matching hydration and reject first differing tenant/organization cookies, deferred writes and late completions. |
 | 2026-10-26 | #7834: redact monetary group/line values before the export serializer registry and omit money from built-in PDF/CSV/XLSX for callers without `staff.timesheets.rates.view`. Preserve amounts for authorized callers using `showRates: false`; add handler/serializer and scope regressions plus self-contained live CSV/PDF API coverage in TC-TT-026. |
