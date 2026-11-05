@@ -196,6 +196,7 @@ describe('auth.roles.update', () => {
       findOne: async (entity: unknown) => (entity === Role
         ? { id: 'role-1', name: 'After Role', tenantId: 'tenant-1', deletedAt: null }
         : null),
+      count: async () => 0,
       nativeDelete: async () => 0,
       flush: async () => undefined,
       getReference: () => ({}),

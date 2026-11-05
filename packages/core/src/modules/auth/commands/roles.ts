@@ -531,6 +531,27 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
         ctx,
         logEntry,
       })
+      const liveRole = await findOneWithDecryption(
+        em,
+        Role,
+        { id: before.id, deletedAt: null } as FilterQuery<Role>,
+        {},
+        { tenantId: null, organizationId: null },
+      )
+      if (liveRole) {
+        const revertsName = 'name' in replayInput && liveRole.name !== before.name
+        const revertsTenant = 'tenantId' in replayInput && String(liveRole.tenantId) !== before.tenantId
+        if (revertsName || revertsTenant) {
+          const assignments = await em.count(UserRole, { role: liveRole, deletedAt: null })
+          if (assignments > 0) {
+            throw new CrudHttpError(409, {
+              error: revertsTenant
+                ? 'Role cannot be moved to another tenant while users are assigned'
+                : 'Role name cannot be changed while users are assigned',
+            })
+          }
+        }
+      }
       updated = await de.updateOrmEntity({
         entity: Role,
         where: { id: before.id, deletedAt: null } as FilterQuery<Role>,
