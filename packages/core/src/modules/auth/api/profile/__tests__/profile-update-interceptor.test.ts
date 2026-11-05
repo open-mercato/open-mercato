@@ -2,6 +2,7 @@
 
 import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
 import { PUT } from '../route'
+import { signJwt } from '@open-mercato/shared/lib/auth/jwt'
 
 const TENANT_ID = '123e4567-e89b-12d3-a456-426614174001'
 const ORG_ID = '123e4567-e89b-12d3-a456-426614174002'
@@ -64,6 +65,17 @@ beforeEach(() => {
 })
 
 describe('PUT /api/auth/profile command interceptor rejections', () => {
+  it('does not exchange a restricted API key for the creator session or mutate credentials', async () => {
+    mockGetAuthFromRequest.mockResolvedValue({
+      sub: 'api_key:key', isApiKey: true, userId: USER_ID,
+      tenantId: TENANT_ID, orgId: ORG_ID, roles: ['restricted-key'],
+    })
+    const response = await PUT(updateRequest())
+    expect(response.status).toBe(403)
+    expect(response.headers.get('set-cookie')).toBeNull()
+    expect(mockCommandBusExecute).not.toHaveBeenCalled()
+    expect(signJwt).not.toHaveBeenCalled()
+  })
   it('updates the profile when nothing blocks the command', async () => {
     const response = await PUT(updateRequest())
 
