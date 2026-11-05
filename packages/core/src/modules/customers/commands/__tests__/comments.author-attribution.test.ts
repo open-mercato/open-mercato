@@ -83,18 +83,25 @@ describe('customer comment author attribution (#8759)', () => {
     const { ctx, comment, em } = harness({ isSuperAdmin: true })
     await commentUpdateHandler().execute({ id: commentId, authorUserId: targetId }, ctx)
     expect(comment.authorUserId).toBe(targetId)
-    expect(findOneWithDecryption).toHaveBeenCalledWith(em, User, { id: targetId, tenantId, organizationId, deletedAt: null }, undefined, { tenantId, organizationId })
+    expect(findOneWithDecryption).toHaveBeenCalledWith(em, User, { id: targetId, tenantId, deletedAt: null }, undefined, { tenantId, organizationId })
     await commentUpdateHandler().execute({ id: commentId, authorUserId: null }, ctx)
     expect(comment.authorUserId).toBeNull()
   })
 
-  it.each(['tenantId', 'organizationId', 'deletedAt', 'id'] as const)('rejects a privileged target with invalid %s before mutation', async field => {
+  it.each(['tenantId', 'deletedAt', 'id'] as const)('rejects a privileged target with invalid %s before mutation', async field => {
     const { ctx, comment, users, em } = harness({ isSuperAdmin: true })
     Object.assign(users[0], { [field]: field === 'deletedAt' ? new Date() : editorId })
     await expect(commentUpdateHandler().execute({ id: commentId, body: 'Must not persist', authorUserId: targetId }, ctx)).rejects.toMatchObject({ status: 400 })
     expect(comment).toMatchObject({ body: 'Original', authorUserId: authorId })
     expect(em.flush).not.toHaveBeenCalled()
     expect(emitCrudSideEffects).not.toHaveBeenCalled()
+  })
+
+  it('allows a privileged target with another home organization in the same tenant', async () => {
+    const { ctx, comment, users } = harness({ isSuperAdmin: true })
+    users[0].organizationId = editorId
+    await commentUpdateHandler().execute({ id: commentId, authorUserId: targetId }, ctx)
+    expect(comment.authorUserId).toBe(targetId)
   })
 
   it('preserves an unchanged historical author for a privileged editor without a target lookup', async () => {

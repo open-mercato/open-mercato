@@ -15,8 +15,8 @@ import {
   resolveParentResourceKind,
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { User } from '@open-mercato/core/modules/auth/data/entities'
-import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { requireInteractionUsersInScope } from '../lib/interactionUsers'
+import { notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
 import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
@@ -204,16 +204,10 @@ const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: stri
     const canReassignAuthor = ctx.auth?.isSuperAdmin === true && ctx.auth.isApiKey !== true
     const shouldReassignAuthor = canReassignAuthor && parsed.authorUserId !== undefined
     if (shouldReassignAuthor && parsed.authorUserId && parsed.authorUserId !== comment.authorUserId) {
-      const author = await findOneWithDecryption(em, User, {
-        id: parsed.authorUserId,
+      await requireInteractionUsersInScope(em, {
         tenantId: comment.tenantId,
         organizationId: comment.organizationId,
-        deletedAt: null,
-      }, undefined, { tenantId: comment.tenantId, organizationId: comment.organizationId })
-      if (!author) {
-        const { translate } = await resolveTranslations()
-        throw new CrudHttpError(400, { error: translate('auth.users.form.errors.notFound', 'User not found') })
-      }
+      }, { authorUserId: parsed.authorUserId })
     }
 
     if (parsed.entityId !== undefined) {

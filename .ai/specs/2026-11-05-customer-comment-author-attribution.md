@@ -14,7 +14,7 @@ Preserve customer note authors during ordinary body editing. Only an authenticat
 
 Keep the existing API-to-command dispatch, tenant and organization guards, audit/indexing side effects and undo snapshots. Ignore author input for ordinary actors and API keys, including keys whose context has superadmin privileges. Omission always preserves the persisted author, including null and historical/offboarded users. Do not normalize omission to the editor.
 
-For non-key superadmins, an explicit UUID changes attribution and explicit null clears it. Validate a changed non-null target through the existing encrypted query helper, with tenant, organization and non-deleted predicates, before modifying any scalar. Resending the current author preserves historical attribution without requiring an active user.
+For non-key superadmins, an explicit UUID changes attribution and explicit null clears it. Validate a changed non-null target through the existing encrypted query helper, with a tenant and non-deleted predicate, and the comment scope for decryption, before modifying any scalar. A user with a different home organization in the same tenant remains a valid target, following the established customer user-reference rules. Resending the current author preserves historical attribution without requiring an active user.
 
 ## Data Models and API Contracts
 
@@ -36,7 +36,7 @@ Keeping the old unauthorized assignment behind an alias, toggle or bridge would 
 
 - High: retaining the vulnerable path as a compatibility bridge permits continued impersonation; no bridge is proposed, and merge remains blocked pending named approval.
 - Medium: accidentally normalizing omitted author to editor corrupts attribution; explicit omission regressions cover ordinary, key and privileged contexts.
-- Medium: privileged cross-scope assignment links unrelated users; changed targets require active same-tenant/same-organization users before writes.
+- Medium: privileged cross-scope assignment links unrelated users; changed targets require active same-tenant users before writes.
 - Medium: historical attribution may already be unreliable; no speculative data repair is attempted. Operators review independently.
 
 ## Final Compliance Report
