@@ -1,6 +1,0 @@
-node_modules
-.docusaurus
-build
-.cache-loader
-/yarn.lock
-/package-lock.json

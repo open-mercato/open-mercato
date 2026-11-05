@@ -1,1 +1,0 @@
-export { DockableChat } from './DockableChat'

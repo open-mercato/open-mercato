@@ -1,2 +1,0 @@
-import './overrides'
-import './global'

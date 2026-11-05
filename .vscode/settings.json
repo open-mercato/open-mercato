@@ -1,6 +1,0 @@
-{
-    "chatgpt.openOnStartup": true,
-    "claudeCode.initialPermissionMode": "acceptEdits",
-    "claudeCode.preferredLocation": "panel",
-    "claudeCode.respectGitIgnore": true
-}
