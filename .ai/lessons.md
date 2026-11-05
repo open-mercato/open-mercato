@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 179 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 182 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -17,6 +17,10 @@ This catalog indexes 179 focused lessons. Route the task first, then read only r
 - Run `yarn lessons:check` before committing.
 
 ## Catalog
+
+- [Stabilization CI must not follow label churn](lessons/stabilization-ci-must-not-follow-label-churn.md) — area:ai-workflow,testing; module:platform; topic:ci-scheduling,stabilization,required-checks,regression-testing
+
+- [Archive rotated context as one batch](lessons/archive-rotated-context-as-one-batch.md) — area:ai-workflow,testing; module:platform; topic:context-budget,archival,file-count,regression-testing
 
 - [Enforce loopback for anonymous development services](lessons/enforce-loopback-for-anonymous-development-services.md) — area:architecture,testing; module:create_app,starter; topic:docker-compose,network-security,local-development,registry
 
