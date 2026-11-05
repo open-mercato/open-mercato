@@ -616,6 +616,7 @@
   "auth.resetPassword": "Restablecer contraseña",
   "auth.roles.admin": "Administrador",
   "auth.roles.employee": "Empleado",
+  "auth.roles.errors.nameExists": "Ya existe un rol con este nombre",
   "auth.roles.flash.created": "Rol creado",
   "auth.roles.flash.deleted": "Rol eliminado",
   "auth.roles.flash.updated": "Rol guardado",
