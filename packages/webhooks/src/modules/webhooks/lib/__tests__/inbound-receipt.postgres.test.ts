@@ -4,7 +4,10 @@ import { createQueue } from '@open-mercato/queue'
 import { processInboundDispatchJob, type InboundDispatchJob } from '../inbound-dispatch'
 import { registerWebhookHandler } from '../inbound-registry'
 import { MikroORM } from '@mikro-orm/postgresql'
+import type { Migration } from '@mikro-orm/migrations'
 import { WebhookIngestionEntity, WebhookInboundReceiptEntity } from '../../data/entities'
+import { Migration20260323132233 } from '../../migrations/Migration20260323132233'
+import { Migration20261027193000_receipt_scope } from '../../migrations/Migration20261027193000_receipt_scope'
 import { Migration20261028234000_webhooks } from '../../migrations/Migration20261028234000_webhooks'
 import { Migration20261018124142_webhooks } from '../../migrations/Migration20261018124142_webhooks'
 
@@ -401,6 +404,126 @@ describePostgres.each([1, 8])('inbound receipt PostgreSQL transactions with pool
       await queue.close()
     }
   }, 15_000)
+
+  it('round-trips both receipt migrations without losing historical rows or scoped uniqueness', async () => {
+    const migrationSchema = `webhook_migrations_${randomUUID().replaceAll('-', '')}`
+    const em = orm.em.fork()
+    const table = `"${migrationSchema}"."webhook_inbound_receipts"`
+    const scopes = [
+      { tenantId, organizationId },
+      { tenantId, organizationId: randomUUID() },
+      { tenantId: randomUUID(), organizationId },
+      { tenantId: null, organizationId },
+      { tenantId, organizationId: null },
+      { tenantId: null, organizationId: null },
+    ]
+    const receiptMigrations = [Migration20261018124142_webhooks, Migration20261028234000_webhooks]
+    const historicalColumns = 'id, endpoint_id, message_id, provider_key, event_type, organization_id, tenant_id, created_at'
+    const insertReceipt = `insert into ${table} (${historicalColumns}) values (?, ?, ?, ?, ?, ?, ?, ?)`
+    const createdAt = new Date()
+
+    async function migrate(migration: Migration, direction: 'up' | 'down') {
+      await migration[direction]()
+      for (const query of migration.getQueries()) {
+        if (typeof query !== 'string') throw new Error('[internal] Expected SQL migration statement')
+        await em.execute(query)
+      }
+    }
+
+    async function assertScopedUniqueness() {
+      for (const scope of scopes) {
+        await em.execute('savepoint duplicate_receipt')
+        try {
+          await expect(em.execute(insertReceipt, [randomUUID(), input.endpointId, input.messageId,
+            input.providerKey, input.eventType, scope.organizationId, scope.tenantId, createdAt]))
+            .rejects.toThrow('webhook_inbound_receipts_endpoint_message_unique')
+        } finally {
+          await em.execute('rollback to savepoint duplicate_receipt')
+          await em.execute('release savepoint duplicate_receipt')
+        }
+      }
+    }
+
+    async function columns() {
+      return em.execute<{
+        column_name: string
+        data_type: string
+        is_nullable: string
+        column_default: string | null
+      }[]>(`select column_name, data_type, is_nullable, column_default from information_schema.columns
+        where table_schema = ? and table_name = 'webhook_inbound_receipts' order by column_name`, [migrationSchema])
+    }
+
+    async function constraints() {
+      return em.execute(`select conname, pg_get_constraintdef(oid) as definition from pg_constraint
+        where conrelid = ?::regclass order by conname`, [table])
+    }
+
+    async function assertDefaults() {
+      const rows = await em.execute(`select ingestion_id, dispatch_queued, received_event_published,
+        delivery_claim_token, delivery_claim_stage, delivery_claim_expires_at from ${table}`)
+      expect(rows).toHaveLength(scopes.length)
+      for (const row of rows) {
+        expect(row).toEqual({ ingestion_id: null, dispatch_queued: true, received_event_published: true,
+          delivery_claim_token: null, delivery_claim_stage: null, delivery_claim_expires_at: null })
+      }
+    }
+
+    await em.begin()
+    try {
+      await em.execute(`create schema "${migrationSchema}"`)
+      await em.execute(`set local search_path to "${migrationSchema}"`)
+      for (const MigrationType of [Migration20260323132233, Migration20261027193000_receipt_scope]) {
+        await migrate(new MigrationType(em.getDriver(), orm.config), 'up')
+      }
+      for (const scope of scopes) {
+        await em.execute(insertReceipt, [randomUUID(), input.endpointId, input.messageId,
+          input.providerKey, input.eventType, scope.organizationId, scope.tenantId, createdAt])
+      }
+      const historicalRows = await em.execute(`select ${historicalColumns} from ${table} order by id`)
+      const historicalColumnDefinitions = await columns()
+      const historicalConstraints = await constraints()
+      await assertScopedUniqueness()
+
+      for (const MigrationType of receiptMigrations) {
+        await migrate(new MigrationType(em.getDriver(), orm.config), 'up')
+      }
+      await assertDefaults()
+      expect(await columns()).toEqual([...historicalColumnDefinitions,
+        { column_name: 'ingestion_id', data_type: 'uuid', is_nullable: 'YES', column_default: null },
+        { column_name: 'dispatch_queued', data_type: 'boolean', is_nullable: 'NO', column_default: 'true' },
+        { column_name: 'received_event_published', data_type: 'boolean', is_nullable: 'NO', column_default: 'true' },
+        { column_name: 'delivery_claim_token', data_type: 'uuid', is_nullable: 'YES', column_default: null },
+        { column_name: 'delivery_claim_stage', data_type: 'text', is_nullable: 'YES', column_default: null },
+        { column_name: 'delivery_claim_expires_at', data_type: 'timestamp with time zone', is_nullable: 'YES', column_default: null },
+      ].sort((left, right) => left.column_name.localeCompare(right.column_name)))
+      const migratedColumnDefinitions = await columns()
+      await em.execute(`update ${table} set ingestion_id = ?, dispatch_queued = false, received_event_published = false,
+        delivery_claim_token = ?, delivery_claim_stage = 'dispatch', delivery_claim_expires_at = ?`,
+      [randomUUID(), randomUUID(), new Date()])
+
+      for (const MigrationType of [...receiptMigrations].reverse()) {
+        await migrate(new MigrationType(em.getDriver(), orm.config), 'down')
+      }
+      expect(await columns()).toEqual(historicalColumnDefinitions)
+      expect(await em.execute(`select * from ${table} order by id`)).toEqual(historicalRows)
+      expect(await constraints()).toEqual(historicalConstraints)
+      await assertScopedUniqueness()
+
+      for (const MigrationType of receiptMigrations) {
+        await migrate(new MigrationType(em.getDriver(), orm.config), 'up')
+      }
+      expect(await columns()).toEqual(migratedColumnDefinitions)
+      expect(await em.execute(`select ${historicalColumns} from ${table} order by id`)).toEqual(historicalRows)
+      expect(await constraints()).toEqual(historicalConstraints)
+      await assertDefaults()
+      await assertScopedUniqueness()
+    } finally {
+      await em.rollback()
+      expect(await orm.em.fork().execute('select schema_name from information_schema.schemata where schema_name = ?',
+        [migrationSchema])).toEqual([])
+    }
+  })
 
   it('adds nullable claim columns without changing historical completion flags', async () => {
     await receiveInboundWebhook(orm.em.fork(), input)
