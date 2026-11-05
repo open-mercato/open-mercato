@@ -51,11 +51,11 @@ import { emitWorkflowsEvent } from '../events'
 import { DRY_RUN_EVENT_TYPES } from './dry-run'
 import {
   DEFAULT_WORKFLOW_BUSINESS_KEY_REUSE_POLICY,
-  WORKFLOW_TERMINAL_INSTANCE_STATUSES,
   canStartNewInstanceForBusinessKey,
   normalizeBusinessKey,
   type WorkflowBusinessKeyReusePolicy,
 } from './business-key'
+import { findBusinessKeyHolder } from './business-key-ownership'
 import {
   STEP_THROUGH_EVENT_TYPE,
   consumeStepThroughRelease,
@@ -226,46 +226,6 @@ export async function startWorkflow(
 ): Promise<WorkflowInstance> {
   const { instance } = await startOrReuseWorkflow(em, options)
   return instance
-}
-
-/**
- * The instance that owns `businessKey` in its scope.
- *
- * An OPEN holder always wins, whatever its age: a failed run that is retried
- * after a newer run reused its key and completed is the key's live owner, and
- * a creation-order lookup would hand back the finished newer run instead. Only
- * when nothing holds the key open does the latest ended run decide the reuse
- * policy.
- */
-async function findBusinessKeyHolder(
-  em: EntityManager,
-  scope: { tenantId: string; organizationId: string; workflowId: string; businessKey: string },
-  excludeInstanceId?: string,
-): Promise<WorkflowInstance | null> {
-  const where = {
-    tenantId: scope.tenantId,
-    organizationId: scope.organizationId,
-    workflowId: scope.workflowId,
-    businessKey: scope.businessKey,
-    deletedAt: null,
-    ...(excludeInstanceId ? { id: { $ne: excludeInstanceId } } : {}),
-  }
-  const decryptionScope = { tenantId: scope.tenantId, organizationId: scope.organizationId }
-  const openHolder = await findOneWithDecryption(
-    em as PostgreSqlEntityManager,
-    WorkflowInstance,
-    { ...where, status: { $nin: [...WORKFLOW_TERMINAL_INSTANCE_STATUSES] } },
-    { orderBy: { createdAt: 'DESC' } },
-    decryptionScope,
-  )
-  if (openHolder) return openHolder
-  return findOneWithDecryption(
-    em as PostgreSqlEntityManager,
-    WorkflowInstance,
-    where,
-    { orderBy: { createdAt: 'DESC' } },
-    decryptionScope,
-  )
 }
 
 class BusinessKeyHeldByEndedInstance extends Error {

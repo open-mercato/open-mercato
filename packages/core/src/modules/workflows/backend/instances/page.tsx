@@ -232,7 +232,7 @@ export default function WorkflowInstancesListPage() {
       return
     }
 
-    const result = await apiCall(`/api/workflows/instances/${id}/retry`, {
+    const result = await apiCall<{ error?: string; code?: string }>(`/api/workflows/instances/${id}/retry`, {
       method: 'POST',
     })
 
@@ -240,7 +240,8 @@ export default function WorkflowInstancesListPage() {
       flash(t('workflows.instances.messages.retried'), 'success')
       queryClient.invalidateQueries({ queryKey: ['workflow-instances'] })
     } else {
-      flash(t('workflows.instances.messages.retryFailed'), 'error')
+      const heldByOpenRun = result.result?.code === 'WORKFLOW_BUSINESS_KEY_HELD'
+      flash((heldByOpenRun && result.result?.error) || t('workflows.instances.messages.retryFailed'), 'error')
     }
   }
 

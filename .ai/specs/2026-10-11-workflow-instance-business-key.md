@@ -112,6 +112,9 @@ for it again (the run is already advancing, parked, or finished). Through DI the
   given they are combined into ONE containment predicate. Instance payloads carry `businessKey`.
 - `GET /api/workflows/tasks` — new `entityType` / `entityId` filters over `entity_bindings`
   (`@>` containment; `entityType` also matches the alias spellings the Work Inbox accepts).
+- `POST /api/workflows/instances/{id}/retry` and `/rerun-step` — a keyed ended run whose key another
+  open run holds answers `409` with `code: 'WORKFLOW_BUSINESS_KEY_HELD'` and `holderInstanceId`;
+  bulk replay counts it as skipped. Keyless runs cannot reach this response.
 
 ## Backward compatibility
 
@@ -129,6 +132,7 @@ their exact behaviour.
 | A caller re-executes a returned instance | Medium — double advance of a parked run | `created` flag on the result; API route skips execution; documented contract | Host code that ignores `created` |
 | A caller puts PII in `businessKey` | Low | Documented: keys are plaintext lookup keys | — |
 | A concurrent keyed start inserts and reaches a terminal status between another start's pre-check and its insert (the partial unique index only arbitrates OPEN holders) | Medium — `reject_duplicate` would start a second run | After the insert, still inside the keyed transaction, the start re-reads the key excluding its own row; a holder the policy refuses to start past rolls the insert back and is returned with `created: false` | Relies on READ COMMITTED (the PostgreSQL default); a caller wrapping the start in a REPEATABLE READ / SERIALIZABLE transaction re-reads its own snapshot |
+| An ended run is recovered while a newer run holds its key open | Medium — the unique index rejects the reopen | Every terminal → open write goes through `reopenWorkflowInstance`: refuse with a domain conflict before writing, map a racing unique violation to the same conflict, commit the audit record with the reopen, restore the entity after any failed write | A new recovery path that writes `status` directly surfaces the raw unique violation |
 | `GET /api/workflows/instances?businessKey=` without `workflowId` | Low — the lookup uses only the `(tenant, organization)` prefix of `workflow_instances_business_key_idx` | OpenAPI description and the services guide tell callers to send `workflowId` with the key | Callers that ignore the guidance scan the tenant/org slice of keyed rows |
 
 ## Integration coverage
@@ -142,7 +146,9 @@ their exact behaviour.
   new; `allow_duplicate_failed_only` after CANCELLED → `201`; 8 parallel keyed starts → exactly one `201`
   and one row; `businessKey` + `dryRun` → `400`; `GET /api/workflows/instances?businessKey=` and
   `?entityType=&entityId=` (match + mismatch); `GET /api/workflows/tasks?entityType=&entityId=` including
-  the `customers.person` alias and the empty case.
+  the `customers.person` alias and the empty case; retry, rerun-step and bulk replay of a failed run
+  while a newer run holds the key open → `409` / skipped with the run untouched and no `STEP_RERUN`
+  event, and recovery succeeds once the holder ended; a rerun racing a keyed start never answers `5xx`.
 - Postgres evidence (PR description): `EXPLAIN` of the instance and task subject queries uses the GIN
   indexes; two concurrent sessions inserting the same open key yield one row.
 
@@ -156,3 +162,4 @@ their exact behaviour.
 - 2026-10-11 — Initial spec and implementation (#7182).
 - 2026-10-29 — Holder lookup prefers the scoped OPEN instance over a newer ended one (pre-check, post-insert re-check and unique-violation fallback), so a recovered older run keeps its key; added the PostgreSQL migration up/down/up round trip (TC-WF-067b).
 - 2026-10-30 — Holder reads use `findOneWithDecryption` with the caller's tenant/organization; the reuse response and `INVALID_BUSINESS_KEY` rejections are localized (`workflows.instances.businessKey.*`, resolved from the structured `details.reason`).
+- 2026-11-05 — Recovery honours key ownership: retry, rerun-step and bulk replay go through `reopenWorkflowInstance`, which refuses while another run holds the key open (409 `WORKFLOW_BUSINESS_KEY_HELD` with `holderInstanceId`; bulk replay counts it as skipped), maps a racing unique violation to the same conflict, and commits the rerun's `STEP_RERUN` audit event atomically with the reopen.

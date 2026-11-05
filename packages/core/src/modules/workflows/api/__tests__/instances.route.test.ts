@@ -100,6 +100,7 @@ describe('Workflow Instances API', () => {
       persist: jest.fn(function persist(this: any) { return this }),
       flush: jest.fn(),
       refresh: jest.fn(),
+      transactional: jest.fn(async (work: (trx: unknown) => Promise<unknown>) => work(mockEm)),
     }
 
     mockContainer = {
@@ -1262,6 +1263,34 @@ describe('Workflow Instances API', () => {
       expect(mockInstance.errorMessage).toBe(originalError)
       expect(mockInstance.errorDetails).toBe(originalDetails)
       expect(mockEm.flush).toHaveBeenCalledTimes(2)
+    })
+
+    test('409s with the holder while a newer run holds the business key open', async () => {
+      const holderId = '660e8400-e29b-41d4-a716-446655440099'
+      const mockInstance = {
+        id: testInstanceId,
+        status: 'FAILED',
+        businessKey: 'order:42',
+        workflowId: 'wf-1',
+        retryCount: 1,
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      }
+      mockEm.findOne.mockResolvedValueOnce(mockInstance).mockResolvedValueOnce({ id: holderId })
+
+      const request = new NextRequest(`http://localhost/api/workflows/instances/${testInstanceId}/retry`, {
+        method: 'POST',
+      })
+      const response = await retryInstance(request, { params: Promise.resolve({ id: testInstanceId }) })
+      const data = await response.json()
+
+      expect(response.status).toBe(409)
+      expect(data.code).toBe('WORKFLOW_BUSINESS_KEY_HELD')
+      expect(data.holderInstanceId).toBe(holderId)
+      expect(mockInstance.status).toBe('FAILED')
+      expect(mockInstance.retryCount).toBe(1)
+      expect(mockEm.flush).not.toHaveBeenCalled()
+      expect(workflowExecutor.executeWorkflow).not.toHaveBeenCalled()
     })
   })
 

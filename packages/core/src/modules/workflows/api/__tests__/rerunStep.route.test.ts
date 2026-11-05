@@ -47,6 +47,18 @@ jest.mock('../../lib/workflow-executor', () => ({
   WorkflowExecutionError,
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(async () => ({
+    translate: (_key: string, fallback?: string) => fallback ?? _key,
+  })),
+}))
+
+const findOneWithDecryption = jest.fn()
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: (...args: unknown[]) => findOneWithDecryption(...(args as [])),
+}))
+
+import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import { POST as rerunStep } from '../instances/[id]/rerun-step/route'
 import { WorkflowEventTypes } from '../../lib/event-logger'
 
@@ -67,7 +79,13 @@ type TerminalStepRow = {
 
 let terminalStep: TerminalStepRow
 let instance: Record<string, unknown>
-let mockEm: { findOne: jest.Mock; find: jest.Mock; flush: jest.Mock; refresh: jest.Mock }
+let mockEm: {
+  findOne: jest.Mock
+  find: jest.Mock
+  flush: jest.Mock
+  refresh: jest.Mock
+  transactional: jest.Mock
+}
 let mockRbac: { userHasAllFeatures: jest.Mock }
 
 function makeRequest(body: unknown) {
@@ -113,7 +131,9 @@ beforeEach(() => {
     find: jest.fn(async () => [terminalStep]),
     flush: jest.fn(async () => undefined),
     refresh: jest.fn(async () => undefined),
+    transactional: jest.fn(),
   }
+  mockEm.transactional.mockImplementation(async (work: (trx: unknown) => Promise<unknown>) => work(mockEm))
   mockRbac = { userHasAllFeatures: jest.fn().mockResolvedValue(true) }
 
   const { createRequestContainer } = require('@open-mercato/shared/lib/di/container')
@@ -201,6 +221,69 @@ describe('POST /api/workflows/instances/[id]/rerun-step', () => {
     expect(instance.status).toBe('RUNNING')
     expect(instance.retryCount).toBe(1)
     expect(instance.errorMessage).toBeNull()
+  })
+
+  describe('when the instance carries a business key', () => {
+    const holderId = '22222222-2222-4222-8222-222222222222'
+
+    beforeEach(() => {
+      instance.businessKey = 'order:42'
+      instance.workflowId = 'wf-1'
+      findOneWithDecryption.mockReset()
+      findOneWithDecryption.mockResolvedValue(null)
+    })
+
+    test('409s with the holder while a newer run holds the key open, and writes nothing', async () => {
+      findOneWithDecryption.mockResolvedValue({ id: holderId })
+
+      const response = await rerunStep(
+        makeRequest({ stepId: 'charge', contextPatch: { amount: 200 } }),
+        routeContext,
+      )
+
+      expect(response.status).toBe(409)
+      expect(await response.json()).toEqual({
+        error: expect.stringContaining('business key'),
+        code: 'WORKFLOW_BUSINESS_KEY_HELD',
+        holderInstanceId: holderId,
+      })
+      expect(logWorkflowEvent).not.toHaveBeenCalled()
+      expect(mockEm.flush).not.toHaveBeenCalled()
+      expect(instance.status).toBe('FAILED')
+      expect(instance.context).toEqual({ amount: 100 })
+      expect(executeStep).not.toHaveBeenCalled()
+      expect(executeWorkflow).not.toHaveBeenCalled()
+    })
+
+    test('a racing start caught by the unique index is the same 409, with no audit record', async () => {
+      mockEm.flush.mockRejectedValueOnce(new UniqueConstraintViolationException(new Error('duplicate key')))
+      findOneWithDecryption.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: holderId })
+
+      const response = await rerunStep(makeRequest({ stepId: 'charge' }), routeContext)
+
+      expect(response.status).toBe(409)
+      expect((await response.json()).holderInstanceId).toBe(holderId)
+      expect(logWorkflowEvent).not.toHaveBeenCalled()
+      expect(mockEm.refresh).toHaveBeenCalledWith(instance)
+      expect(executeStep).not.toHaveBeenCalled()
+    })
+
+    test('writes the audit event after the reopen, inside the same transaction', async () => {
+      const order: string[] = []
+      mockEm.flush.mockImplementationOnce(async () => {
+        order.push(`flush:${instance.status}`)
+      })
+      logWorkflowEvent.mockImplementationOnce(async () => {
+        order.push('audit')
+        return {}
+      })
+
+      const response = await rerunStep(makeRequest({ stepId: 'charge' }), routeContext)
+
+      expect(response.status).toBe(200)
+      expect(order).toEqual(['flush:RUNNING', 'audit'])
+      expect(mockEm.transactional).toHaveBeenCalledTimes(1)
+    })
   })
 
   test('409s while the step is still parked, and executes nothing', async () => {

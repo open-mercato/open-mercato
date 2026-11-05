@@ -14,6 +14,11 @@ jest.mock('@open-mercato/queue', () => ({
   createModuleQueue: jest.fn(() => ({ enqueue: jest.fn() })),
 }))
 
+const findOneWithDecryption = jest.fn<(...args: unknown[]) => Promise<unknown>>()
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: (...args: unknown[]) => findOneWithDecryption(...args),
+}))
+
 import { canApplyBulkReplay, runBulkReplay } from '../bulk-replay'
 import { WorkflowInstance } from '../../data/entities'
 
@@ -53,7 +58,12 @@ function makeHarness(instances: FakeInstance[]) {
     if (where.tenantId !== found.tenantId || where.organizationId !== found.organizationId) return null
     return found
   })
-  const em = { findOne, flush: jest.fn(async () => undefined) }
+  const em = {
+    findOne,
+    flush: jest.fn(async () => undefined),
+    refresh: jest.fn(async () => undefined),
+    transactional: jest.fn(async (work: (trx: unknown) => Promise<unknown>) => work(em)),
+  }
   const progressService = {
     startJob: jest.fn(async () => undefined),
     updateProgress: jest.fn(async () => undefined),
@@ -183,6 +193,27 @@ describe('runBulkReplay', () => {
     expect(summary.failedCount).toBe(1)
     expect(summary.affectedCount).toBe(1)
     expect(executeWorkflow).toHaveBeenCalledTimes(2)
+  })
+
+  test('skips a keyed instance whose key a newer open run holds, and keeps replaying the batch', async () => {
+    const keyed = { ...makeInstance('keyed', 'FAILED'), businessKey: 'order:42', workflowId: 'wf-1' }
+    const free = makeInstance('free', 'FAILED')
+    findOneWithDecryption.mockResolvedValueOnce({ id: 'holder' })
+    const harness = makeHarness([keyed, free])
+
+    const summary = await runBulkReplay({
+      container: harness.container as never,
+      progressJobId: 'job-1',
+      action: 'retry',
+      ids: ['keyed', 'free'],
+      scope: SCOPE,
+    })
+
+    expect(summary).toMatchObject({ affectedCount: 1, skippedCount: 1, failedCount: 0 })
+    expect(keyed.status).toBe('FAILED')
+    expect(keyed.retryCount).toBe(0)
+    expect(free.status).toBe('RUNNING')
+    expect(executeWorkflow).toHaveBeenCalledTimes(1)
   })
 
   test('cancel routes through the executor rather than writing the status directly', async () => {

@@ -5,6 +5,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue'
 import {
   buildMinimalDefinitionPayload,
   cancelWorkflowInstanceIfExists,
@@ -376,6 +377,203 @@ test.describe('TC-WF-067: workflow instance business key and subject filters', (
 
       const rows = await listRows<ListedInstance>(request, token, instancesByKey(workflowId, businessKey))
       expect(rows.map((row) => row.id).sort()).toEqual([runAId, runBId].sort())
+    } finally {
+      for (const instanceId of instanceIds) {
+        await cancelWorkflowInstanceIfExists(request, token, instanceId)
+      }
+      if (definitionId) await deleteWorkflowDefinitionIfExists(request, token, definitionId)
+    }
+  })
+
+  test('recovering an ended run is refused while a newer run holds the key open', async ({ request }) => {
+    test.setTimeout(180_000)
+    const stamp = `${Date.now()}`
+    const token = await getAuthToken(request, 'admin')
+    const payload = buildReopenableDefinitionPayload(stamp)
+    const workflowId = payload.workflowId
+    const businessKey = `order:${stamp}:held`
+    const instanceIds = new Set<string>()
+    let definitionId: string | null = null
+
+    const stepRerunEvents = async (instanceId: string) => {
+      const response = await apiRequest(
+        request,
+        'GET',
+        `/api/workflows/events?workflowInstanceId=${encodeURIComponent(instanceId)}&pageSize=100`,
+        { token },
+      )
+      expect(response.status()).toBe(200)
+      const body = await readJsonSafe<{ items?: Array<{ eventType?: string }> }>(response)
+      const events = body?.items ?? []
+      return events.filter((event) => event.eventType === 'STEP_RERUN')
+    }
+
+    try {
+      definitionId = await createWorkflowDefinitionFixture(request, token, payload)
+
+      const runA = await startInstance(request, token, { workflowId, businessKey, initialContext: { mode: 'explode' } })
+      const runAId = runA.body?.data?.instance?.id
+      expect(runA.status, JSON.stringify(runA.body)).toBe(201)
+      instanceIds.add(runAId!)
+      const failedA = await pollWorkflowInstance(request, token, runAId!, (instance) => instance.status === 'FAILED')
+
+      const runB = await startInstance(request, token, {
+        workflowId,
+        businessKey,
+        reusePolicy: 'allow_duplicate_failed_only',
+        initialContext: { mode: 'park' },
+      })
+      const runBId = runB.body?.data?.instance?.id
+      expect(runB.status, JSON.stringify(runB.body)).toBe(201)
+      instanceIds.add(runBId!)
+      await pollWorkflowInstance(request, token, runBId!, (instance) => instance.status === 'PAUSED')
+
+      const retry = await apiRequest(
+        request,
+        'POST',
+        `/api/workflows/instances/${encodeURIComponent(runAId!)}/retry`,
+        { token, headers: { 'Accept-Language': 'pl' } },
+      )
+      const retryBody = await readJsonSafe<{ error?: string; code?: string; holderInstanceId?: string }>(retry)
+      expect(retry.status(), JSON.stringify(retryBody)).toBe(409)
+      expect(retryBody?.code).toBe('WORKFLOW_BUSINESS_KEY_HELD')
+      expect(retryBody?.holderInstanceId).toBe(runBId)
+      expect(retryBody?.error).toBe(plDictionary['workflows.instances.businessKey.errors.heldByOpenRun'])
+
+      const rerun = await apiRequest(
+        request,
+        'POST',
+        `/api/workflows/instances/${encodeURIComponent(runAId!)}/rerun-step`,
+        { token, data: { stepId: 'gate', contextPatch: { mode: 'park' } } },
+      )
+      const rerunBody = await readJsonSafe<{ code?: string; holderInstanceId?: string }>(rerun)
+      expect(rerun.status(), JSON.stringify(rerunBody)).toBe(409)
+      expect(rerunBody?.code).toBe('WORKFLOW_BUSINESS_KEY_HELD')
+      expect(rerunBody?.holderInstanceId).toBe(runBId)
+      expect(await stepRerunEvents(runAId!), 'a refused rerun leaves no audit record').toEqual([])
+
+      const replay = await apiRequest(request, 'POST', '/api/workflows/instances/bulk-replay', {
+        token,
+        data: { action: 'retry', ids: [runAId] },
+      })
+      const replayBody = await readJsonSafe<{ progressJobId?: string | null }>(replay)
+      expect(replay.status(), JSON.stringify(replayBody)).toBe(202)
+      await drainIntegrationQueue('workflow-instance-bulk-replay')
+      const job = await apiRequest(request, 'GET', `/api/progress/jobs/${replayBody?.progressJobId}`, { token })
+      const jobBody = await readJsonSafe<{
+        status?: string
+        resultSummary?: { affectedCount?: number; skippedCount?: number; failedCount?: number }
+      }>(job)
+      expect(jobBody?.status, JSON.stringify(jobBody)).toBe('completed')
+      expect(jobBody?.resultSummary).toMatchObject({ affectedCount: 0, skippedCount: 1, failedCount: 0 })
+
+      const refusedA = await pollWorkflowInstance(request, token, runAId!, (instance) => instance.status === 'FAILED')
+      expect(refusedA?.retryCount, 'a refused recovery leaves the run untouched').toBe(failedA?.retryCount)
+      await pollWorkflowInstance(request, token, runBId!, (instance) => instance.status === 'PAUSED')
+
+      await cancelWorkflowInstanceIfExists(request, token, runBId!)
+      await pollWorkflowInstance(request, token, runBId!, (instance) => instance.status === 'CANCELLED')
+
+      const recovered = await apiRequest(
+        request,
+        'POST',
+        `/api/workflows/instances/${encodeURIComponent(runAId!)}/rerun-step`,
+        { token, data: { stepId: 'gate', contextPatch: { mode: 'park' } } },
+      )
+      expect(recovered.status(), JSON.stringify(await readJsonSafe(recovered))).toBe(200)
+      await pollWorkflowInstance(request, token, runAId!, (instance) => instance.status === 'PAUSED')
+      expect(await stepRerunEvents(runAId!)).toHaveLength(1)
+    } finally {
+      for (const instanceId of instanceIds) {
+        await cancelWorkflowInstanceIfExists(request, token, instanceId)
+      }
+      if (definitionId) await deleteWorkflowDefinitionIfExists(request, token, definitionId)
+    }
+  })
+
+  test('step-through cannot bring back a run that ended', async ({ request }) => {
+    test.setTimeout(120_000)
+    const stamp = `${Date.now()}`
+    const token = await getAuthToken(request, 'admin')
+    const payload = buildReopenableDefinitionPayload(stamp)
+    let definitionId: string | null = null
+    let instanceId: string | undefined
+
+    try {
+      definitionId = await createWorkflowDefinitionFixture(request, token, payload)
+      const started = await startInstance(request, token, {
+        workflowId: payload.workflowId,
+        businessKey: `order:${stamp}:stepping`,
+        initialContext: { mode: 'explode' },
+        stepThrough: true,
+      })
+      instanceId = started.body?.data?.instance?.id
+      expect(started.status, JSON.stringify(started.body)).toBe(201)
+
+      const stepThroughPath = `/api/workflows/instances/${encodeURIComponent(instanceId!)}/step-through`
+      await expect
+        .poll(async () => {
+          await apiRequest(request, 'POST', stepThroughPath, { token, data: { action: 'continue' } })
+          return (await pollWorkflowInstance(request, token, instanceId!, () => true))?.status
+        }, { timeout: 30_000 })
+        .toBe('FAILED')
+
+      const refused = await apiRequest(request, 'POST', stepThroughPath, { token, data: { action: 'continue' } })
+      expect(refused.status(), JSON.stringify(await readJsonSafe(refused))).toBe(409)
+      const after = await pollWorkflowInstance(request, token, instanceId!, () => true)
+      expect(after?.status).toBe('FAILED')
+    } finally {
+      if (instanceId) await cancelWorkflowInstanceIfExists(request, token, instanceId)
+      if (definitionId) await deleteWorkflowDefinitionIfExists(request, token, definitionId)
+    }
+  })
+
+  test('a recovery racing a keyed start ends in a conflict or a reuse, never a server error', async ({ request }) => {
+    test.setTimeout(180_000)
+    const stamp = `${Date.now()}`
+    const token = await getAuthToken(request, 'admin')
+    const payload = buildReopenableDefinitionPayload(stamp)
+    const workflowId = payload.workflowId
+    const instanceIds = new Set<string>()
+    let definitionId: string | null = null
+
+    try {
+      definitionId = await createWorkflowDefinitionFixture(request, token, payload)
+
+      for (let round = 0; round < 5; round += 1) {
+        const businessKey = `order:${stamp}:race:${round}`
+        const runA = await startInstance(request, token, { workflowId, businessKey, initialContext: { mode: 'explode' } })
+        const runAId = runA.body?.data?.instance?.id
+        expect(runA.status, JSON.stringify(runA.body)).toBe(201)
+        instanceIds.add(runAId!)
+        await pollWorkflowInstance(request, token, runAId!, (instance) => instance.status === 'FAILED')
+
+        const [recover, keyed] = await Promise.all([
+          apiRequest(request, 'POST', `/api/workflows/instances/${encodeURIComponent(runAId!)}/rerun-step`, {
+            token,
+            data: { stepId: 'gate', contextPatch: { mode: 'park' } },
+          }),
+          startInstance(request, token, {
+            workflowId,
+            businessKey,
+            reusePolicy: 'allow_duplicate_failed_only',
+            initialContext: { mode: 'park' },
+          }),
+        ])
+        const keyedId = keyed.body?.data?.instance?.id
+        if (keyedId) instanceIds.add(keyedId)
+        const recoverBody = await readJsonSafe(recover)
+        expect([200, 409], JSON.stringify(recoverBody)).toContain(recover.status())
+        expect([200, 201], JSON.stringify(keyed.body)).toContain(keyed.status)
+        expect(keyed.status === 200 ? keyedId : runAId, JSON.stringify(keyed.body)).toBe(runAId)
+
+        const open = (await listRows<ListedInstance & { status?: string }>(
+          request,
+          token,
+          instancesByKey(workflowId, businessKey),
+        )).filter((row) => row.status === 'PAUSED' || row.status === 'RUNNING')
+        expect(open.length, 'the key has one open holder').toBeLessThanOrEqual(1)
+      }
     } finally {
       for (const instanceId of instanceIds) {
         await cancelWorkflowInstanceIfExists(request, token, instanceId)

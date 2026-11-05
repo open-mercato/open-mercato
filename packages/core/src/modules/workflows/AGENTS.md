@@ -649,6 +649,13 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
 - **The holder is the OPEN instance first**, whatever its age; only with none open does the LATEST ended run decide the
   reuse policy (`findBusinessKeyHolder`). A creation-order-only lookup returns a newer finished run over a recovered
   older one that holds the key again.
+- **Every terminal → open write goes through `reopenWorkflowInstance`** (`lib/business-key-ownership.ts`): retry,
+  rerun-step and bulk replay today. An ended run's key may have moved to a newer open run, so a direct
+  `instance.status = 'RUNNING'` on an ended run hits the unique index. It refuses with
+  `WorkflowBusinessKeyHeldError` (HTTP 409 `WORKFLOW_BUSINESS_KEY_HELD` + `holderInstanceId`; bulk replay counts it
+  as skipped), commits the state change and its audit record together, and restores the entity on any failed write.
+  Step-through and advance refuse ended runs instead: an armed step-through marker survives a failure, and neither
+  path may re-enter an ended run.
 - The keyed insert runs in `em.transactional` (a SAVEPOINT inside a caller's transaction) so a lost
   race rolls back only the insert; the loser re-reads the winner. Keys never go on dry runs.
 - Subject lookups are containment: GIN `jsonb_path_ops` on `workflow_instances.metadata` and

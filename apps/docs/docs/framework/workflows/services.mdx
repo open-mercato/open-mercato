@@ -114,6 +114,11 @@ if (created) {
   `(tenant_id, organization_id, workflow_id, business_key)` over open instances, so two racing callers
   both get the same instance id. The insert runs in a savepoint, so a lost race never aborts the
   caller's own transaction.
+- Recovering an ended run takes its key back. `POST /api/workflows/instances/{id}/retry`,
+  `POST /api/workflows/instances/{id}/rerun-step` and the bulk replay all refuse while another open run
+  holds the key: the two instance routes answer `409` with `code: 'WORKFLOW_BUSINESS_KEY_HELD'` and
+  `holderInstanceId` (null when that run ended before it could be read), nothing about the run changes,
+  and the bulk replay counts it as skipped. Finish or cancel the holder, then recover.
 - Keys are trimmed, 1–255 characters, stored in plaintext, and not allowed on dry runs. Use record ids
   (`order:<uuid>`), never personal data.
 - Starts without a `businessKey` behave exactly as before.
