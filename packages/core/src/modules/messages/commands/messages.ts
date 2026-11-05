@@ -1231,12 +1231,13 @@ const deleteForActorCommand: CommandHandler<unknown, { ok: true; executed: Messa
       }
     } else {
       const tenantId = logEntry.tenantId ?? null
+      const organizationId = logEntry.organizationId ?? null
       const message = await findOneWithDecryption(
         em,
         Message,
-        { id: before.messageId, tenantId },
+        { id: before.messageId, tenantId, organizationId },
         undefined,
-        { tenantId, organizationId: logEntry.organizationId ?? null },
+        { tenantId, organizationId },
       )
       if (message) {
         message.deletedAt = toDate(before.messageDeletedAt)

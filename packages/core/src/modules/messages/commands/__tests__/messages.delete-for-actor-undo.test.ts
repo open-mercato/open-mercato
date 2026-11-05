@@ -142,7 +142,7 @@ describe('messages.messages.delete_for_actor undo', () => {
     expect(emFork.flush).toHaveBeenCalledTimes(1)
   })
 
-  it('loads the message for a global delete undo through the decrypting helper scoped to the log tenant', async () => {
+  it('loads the message for a global delete undo through the decrypting helper scoped to the log tenant and organization', async () => {
     const command = mockRegisteredCommands.get('messages.messages.delete_for_actor')
     mockGlobalDeleteUndoPayload()
     const message = { deletedAt: new Date('2026-01-02T00:00:00.000Z') as Date | null }
@@ -153,11 +153,55 @@ describe('messages.messages.delete_for_actor undo', () => {
     expect(findOneWithDecryption).toHaveBeenCalledWith(
       emFork,
       Message,
-      { id: messageId, tenantId: 'tenant-1' },
+      { id: messageId, tenantId: 'tenant-1', organizationId: 'org-1' },
       undefined,
       { tenantId: 'tenant-1', organizationId: 'org-1' },
     )
     expect(emFork.findOne).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { label: 'another organization', tenantId: 'tenant-1', organizationId: 'org-2', logOrganizationId: 'org-1' },
+    { label: 'another tenant', tenantId: 'tenant-2', organizationId: 'org-1', logOrganizationId: 'org-1' },
+    { label: 'an organization under a tenant-wide log', tenantId: 'tenant-1', organizationId: 'org-1', logOrganizationId: null },
+  ])('does not restore a globally deleted message from $label', async ({ tenantId, organizationId, logOrganizationId }) => {
+    const command = mockRegisteredCommands.get('messages.messages.delete_for_actor')
+    mockGlobalDeleteUndoPayload()
+    const deletedAt = new Date('2026-01-02T00:00:00.000Z')
+    const message = { id: messageId, tenantId, organizationId, deletedAt: deletedAt as Date | null }
+    const { ctx } = buildUndoContext(message, null)
+    const findOneWithDecryptionMock = findOneWithDecryption as jest.Mock
+    findOneWithDecryptionMock.mockImplementation(async (
+      _em: unknown,
+      entity: unknown,
+      where: { id: string; tenantId: string | null; organizationId?: string | null },
+    ) => {
+      if (entity !== Message || where.id !== message.id || where.tenantId !== message.tenantId) return null
+      if ('organizationId' in where && where.organizationId !== message.organizationId) return null
+      return message
+    })
+
+    await command!.undo!({ logEntry: { tenantId: 'tenant-1', organizationId: logOrganizationId }, ctx })
+
+    expect(message.deletedAt).toEqual(deletedAt)
+  })
+
+  it('limits a tenant-wide global-delete undo to messages without an organization', async () => {
+    const command = mockRegisteredCommands.get('messages.messages.delete_for_actor')
+    mockGlobalDeleteUndoPayload()
+    const message = { deletedAt: new Date('2026-01-02T00:00:00.000Z') as Date | null }
+    const { emFork, ctx } = buildUndoContext(message, null)
+
+    await command!.undo!({ logEntry: { tenantId: 'tenant-1' }, ctx })
+
+    expect(findOneWithDecryption).toHaveBeenCalledWith(
+      emFork,
+      Message,
+      { id: messageId, tenantId: 'tenant-1', organizationId: null },
+      undefined,
+      { tenantId: 'tenant-1', organizationId: null },
+    )
+    expect(message.deletedAt).toBeNull()
   })
 
   const actorUserId = '44444444-4444-4444-8444-444444444444'
