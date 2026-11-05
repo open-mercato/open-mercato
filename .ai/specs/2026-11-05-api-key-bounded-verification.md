@@ -58,11 +58,11 @@ Runner: local (no compose app container running). Dependencies installed with im
 | i18n:check-sync | Pass |
 | i18n:check-usage | Exceeded 300-second limit |
 | typecheck | Fails on duplicate getTelemetryRuntime imports at warranty_claims/[id]/page.tsx lines 9 and 13; both are present unchanged in target main e15497058 |
-| test | Initial run exposed stale SCIM fixtures/comparison-count expectations; corrected and focused suite passes; final full rerun pending |
+| test | Initial run exposed stale SCIM fixtures/comparison-count expectations; corrected and focused suite passes. Full rerun fails the unchanged CLI agent-files-extension test expecting a console warning (1 failed/113 passed CLI suites); 26 of 49 Turbo tasks completed successfully before failure |
 | build:app | Compilation succeeds; TypeScript phase fails on the same unchanged warranty_claims duplicate imports |
 | template:sync:fix / lessons:check / diff whitespace | Pass; dispatcher test mirrored byte-identically |
 
-No hosted CI or manual QA result is claimed. Current PR head remains ec15f185 until publication is approved. Full gate failures are disclosed, not waived.
+No hosted CI or manual QA result is claimed. Current PR head remains ec15f185 until publication is approved. Main 2ca6d5fba was merged after the full gate; all 242 relevant tests pass again at that merge. Full gate failures are disclosed, not waived.
 
 ## Final Compliance Report
 
@@ -73,3 +73,5 @@ Root/core rules and backward-compatibility guidance reviewed. Scope is one share
 - 2026-11-05: Recorded maintainer choice to retain bcrypt; implemented shared admission controls and verification cache; added abuse and compatibility regression coverage.
 
 - 2026-11-05: Independent spec/security reviews approved; corrected eviction coverage and SCIM integration fixtures; documented full-gate blockers without claiming merge readiness.
+
+- 2026-11-05: Merged target main 2ca6d5fba, reran all 242 relevant tests successfully, and disclosed unrelated CLI full-suite failure and unchanged typecheck/app blockers.
