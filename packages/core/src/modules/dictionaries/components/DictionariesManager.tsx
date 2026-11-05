@@ -392,7 +392,7 @@ export function DictionariesManager() {
 
   return (
     <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
-      <div className="rounded-lg border bg-card p-4 shadow-sm">
+      <div className="min-w-0 rounded-lg border bg-card p-4 shadow-sm">
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold">
             {t('dictionaries.config.list.title', 'Dictionaries')}
@@ -471,7 +471,7 @@ export function DictionariesManager() {
           )}
         </div>
       </div>
-      <div>
+      <div className="min-w-0">
         {selectedDictionary ? (
           <DictionaryEntriesEditor
             dictionaryId={selectedDictionary.id}

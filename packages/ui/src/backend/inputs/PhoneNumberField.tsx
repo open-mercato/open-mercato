@@ -588,6 +588,7 @@ export function PhoneNumberField({
   const [checking, setChecking] = React.useState(false)
   const [validationHint, setValidationHint] = React.useState<string | null>(null)
   const [focused, setFocused] = React.useState(false)
+  const [syncTick, setSyncTick] = React.useState(0)
   const userEditingRef = React.useRef(false)
 
   const externalFieldError = externalError && externalError.trim().length > 0 ? externalError : null
@@ -610,7 +611,7 @@ export function PhoneNumberField({
     setLocalNumber(next)
     onDigitsChange?.(extractPhoneDigits(String(value)) || null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value])
+  }, [value, syncTick])
 
   // Debounced duplicate lookup.
   React.useEffect(() => {
@@ -679,6 +680,10 @@ export function PhoneNumberField({
 
   const handleBlur = React.useCallback(() => {
     userEditingRef.current = false
+    // Force the prop-sync effect above to re-run even when `value` itself did
+    // not change on this blur, so a parent-side normalisation applied while
+    // the ref was gating that effect (see `handleLocalChange`) is picked up.
+    setSyncTick((tick) => tick + 1)
     setFocused(false)
     const trimmed = localNumber.trim()
     if (!trimmed) {
