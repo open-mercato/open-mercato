@@ -88,7 +88,8 @@ describe('portal role assignment organization scope', () => {
       organizationId,
       deletedAt: null,
     }))
-    expect(em.transactional).not.toHaveBeenCalled()
+    expect(tx.nativeDelete).not.toHaveBeenCalled()
+    expect(tx.persist).not.toHaveBeenCalled()
     expect(mockInvalidateUserCache).not.toHaveBeenCalled()
   })
 })

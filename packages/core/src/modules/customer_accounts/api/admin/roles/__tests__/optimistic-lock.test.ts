@@ -13,6 +13,7 @@ const STALE_VERSION = '2026-06-01T09:00:00.000Z'
 const mockGetAuthFromRequest = jest.fn()
 
 const mockEm = {
+  transactional: jest.fn(async <Result>(work: (manager: typeof mockEm) => Promise<Result>): Promise<Result> => work(mockEm)),
   findOne: jest.fn(),
   count: jest.fn(async () => 0),
   nativeUpdate: jest.fn(async () => undefined),
@@ -120,15 +121,12 @@ describe('customer_accounts admin role optimistic locking', () => {
     const res = await invoke()
 
     expect(res.status).toBe(404)
-    expect(mockEm.findOne).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
+    expect(mockEm.findOne.mock.calls[0][1]).toEqual(expect.objectContaining({
         id: ROLE_ID,
         tenantId: TENANT_ID,
         organizationId: ORGANIZATION_ID,
         deletedAt: null,
-      }),
-    )
+      }))
     expect(mockEm.count).not.toHaveBeenCalled()
     expect(mockEm.nativeUpdate).not.toHaveBeenCalled()
   })

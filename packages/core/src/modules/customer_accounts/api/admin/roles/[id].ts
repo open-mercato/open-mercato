@@ -1,3 +1,5 @@
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { LockMode } from '@mikro-orm/core'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
@@ -160,53 +162,59 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
 
   const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
 
-  const role = await em.findOne(CustomerRole, {
-    id: params.id,
-    tenantId: auth.tenantId,
-    organizationId: auth.orgId,
-    deletedAt: null,
-  })
-  if (!role) {
-    return NextResponse.json({ ok: false, error: 'Role not found' }, { status: 404 })
-  }
+  const result = await em.transactional(async (tx) => {
+    const role = await findOneWithDecryption(tx, CustomerRole, {
+      id: params.id,
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId,
+      deletedAt: null,
+    }, { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true }, { tenantId: auth.tenantId, organizationId: auth.orgId })
+    if (!role) {
+      return NextResponse.json({ ok: false, error: 'Role not found' }, { status: 404 })
+    }
 
-  // System roles are seed-provided defaults but may still be removed once they are no
-  // longer needed (#3556). Only the default role is hard-protected here because signup
-  // auto-assigns it to new portal users — reassign the default first, then delete.
-  if (role.isDefault) {
-    return NextResponse.json({ ok: false, error: 'Cannot delete the default role. Set another role as default first.' }, { status: 400 })
-  }
+    // System roles are seed-provided defaults but may still be removed once they are no
+    // longer needed (#3556). Only the default role is hard-protected here because signup
+    // auto-assigns it to new portal users — reassign the default first, then delete.
+    if (role.isDefault) {
+      return NextResponse.json({ ok: false, error: 'Cannot delete the default role. Set another role as default first.' }, { status: 400 })
+    }
 
-  // Optimistic lock: refuse a stale delete. Strictly additive.
-  try {
-    await enforceCommandOptimisticLockWithGuards(container, {
-      resourceKind: 'customer_accounts.role',
-      resourceId: role.id,
-      current: role.updatedAt ?? null,
-      request: req,
+    // Optimistic lock: refuse a stale delete. Strictly additive.
+    try {
+      await enforceCommandOptimisticLockWithGuards(container, {
+        resourceKind: 'customer_accounts.role',
+        resourceId: role.id,
+        current: role.updatedAt ?? null,
+        request: req,
+      })
+    } catch (err) {
+      if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
+      throw err
+    }
+
+    const assignedUsersCount = await tx.count(CustomerUserRole, {
+      role: role.id as any,
+      deletedAt: null,
     })
-  } catch (err) {
-    if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
-    throw err
-  }
+    if (assignedUsersCount > 0) {
+      return NextResponse.json({ ok: false, error: `Cannot delete role with ${assignedUsersCount} assigned user(s). Reassign users first.` }, { status: 400 })
+    }
 
-  const assignedUsersCount = await em.count(CustomerUserRole, {
-    role: role.id as any,
-    deletedAt: null,
+    await tx.nativeUpdate(CustomerRole, {
+      id: role.id,
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId,
+    }, { deletedAt: new Date() })
+    await tx.nativeUpdate(CustomerRoleAcl, {
+      role: role.id as any,
+      tenantId: auth.tenantId,
+    }, { deletedAt: new Date() })
+
+    return role
   })
-  if (assignedUsersCount > 0) {
-    return NextResponse.json({ ok: false, error: `Cannot delete role with ${assignedUsersCount} assigned user(s). Reassign users first.` }, { status: 400 })
-  }
-
-  await em.nativeUpdate(CustomerRole, {
-    id: role.id,
-    tenantId: auth.tenantId,
-    organizationId: auth.orgId,
-  }, { deletedAt: new Date() })
-  await em.nativeUpdate(CustomerRoleAcl, {
-    role: role.id as any,
-    tenantId: auth.tenantId,
-  }, { deletedAt: new Date() })
+  if (result instanceof Response) return result
+  const role = result
 
   void emitCustomerAccountsEvent('customer_accounts.role.deleted', {
     id: role.id,

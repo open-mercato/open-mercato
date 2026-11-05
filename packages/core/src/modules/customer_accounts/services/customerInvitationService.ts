@@ -1,4 +1,4 @@
-import { UniqueConstraintViolationException } from '@mikro-orm/core'
+import { LockMode, UniqueConstraintViolationException } from '@mikro-orm/core'
 import { EntityManager } from '@mikro-orm/postgresql'
 import { hash } from 'bcryptjs'
 import {
@@ -235,63 +235,66 @@ export class CustomerInvitationService {
 
     const passwordHash = await hash(password, BCRYPT_COST)
 
-    // Create user
-    const user = this.em.create(CustomerUser, {
-      email: invitation.email,
-      emailHash,
-      passwordHash,
-      displayName: displayName || invitation.displayName || invitation.email,
-      tenantId: invitation.tenantId,
-      organizationId: invitation.organizationId,
-      customerEntityId: invitation.customerEntityId || null,
-      personEntityId: invitation.personEntityId || null,
-      isActive: true,
-      emailVerifiedAt: new Date(), // Invitation implicitly verifies email
-      failedLoginAttempts: 0,
-      createdAt: new Date(),
-    } as any) as CustomerUser
-    this.em.persist(user)
-
-    // Assign roles
-    const roleIds = Array.isArray(invitation.roleIdsJson) ? invitation.roleIdsJson : []
-    const roles = roleIds.length > 0
-      ? await findWithDecryption(
-          this.em,
-          CustomerRole,
-          {
-            id: { $in: roleIds } as any,
-            tenantId: invitation.tenantId,
-            organizationId: invitation.organizationId,
-            deletedAt: null,
-          } as any,
-          undefined,
-          { tenantId: invitation.tenantId, organizationId: invitation.organizationId },
-        )
-      : []
-    for (const role of roles) {
-      const userRole = this.em.create(CustomerUserRole, {
-        user,
-        role,
+    return this.em.transactional(async (em) => {
+      // Create user
+      const user = em.create(CustomerUser, {
+        email: invitation.email,
+        emailHash,
+        passwordHash,
+        displayName: displayName || invitation.displayName || invitation.email,
+        tenantId: invitation.tenantId,
+        organizationId: invitation.organizationId,
+        customerEntityId: invitation.customerEntityId || null,
+        personEntityId: invitation.personEntityId || null,
+        isActive: true,
+        emailVerifiedAt: new Date(), // Invitation implicitly verifies email
+        failedLoginAttempts: 0,
         createdAt: new Date(),
-      } as any)
-      this.em.persist(userRole)
-    }
+      } as any) as CustomerUser
+      em.persist(user)
 
-    // Mark invitation as accepted
-    invitation.acceptedAt = new Date()
-
-    // The guard above is only the friendly fast path: it and this write are
-    // separated by a bcrypt hash and a role query, so two concurrent accepts can
-    // both pass it. The partial unique index is the real authority — translate
-    // its violation onto the same domain error so both paths answer 409.
-    try {
-      await this.em.flush()
-    } catch (error) {
-      if (isUniqueConstraintViolation(error)) {
-        throw new CustomerInvitationEmailConflictError(invitation.email)
+      // Assign roles
+      const roleIds = Array.isArray(invitation.roleIdsJson) ? invitation.roleIdsJson : []
+      const roles = roleIds.length > 0
+        ? await findWithDecryption(
+            em,
+            CustomerRole,
+            {
+              id: { $in: roleIds } as any,
+              tenantId: invitation.tenantId,
+              organizationId: invitation.organizationId,
+              deletedAt: null,
+            } as any,
+            { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true, orderBy: { id: 'asc' } },
+            { tenantId: invitation.tenantId, organizationId: invitation.organizationId },
+          )
+        : []
+      for (const role of roles) {
+        const userRole = em.create(CustomerUserRole, {
+          user,
+          role,
+          createdAt: new Date(),
+        } as any)
+        em.persist(userRole)
       }
-      throw error
-    }
-    return { user, invitation }
+
+      // Mark invitation as accepted
+      invitation.acceptedAt = new Date()
+      em.persist(invitation)
+
+      // The guard above is only the friendly fast path: it and this write are
+      // separated by a bcrypt hash and a role query, so two concurrent accepts can
+      // both pass it. The partial unique index is the real authority — translate
+      // its violation onto the same domain error so both paths answer 409.
+      try {
+        await em.flush()
+      } catch (error) {
+        if (isUniqueConstraintViolation(error)) {
+          throw new CustomerInvitationEmailConflictError(invitation.email)
+        }
+        throw error
+      }
+      return { user, invitation }
+    })
   }
 }
