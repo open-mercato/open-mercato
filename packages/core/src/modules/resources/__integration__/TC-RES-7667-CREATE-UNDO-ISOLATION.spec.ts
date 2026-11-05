@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { expect, test, type APIRequestContext } from '@playwright/test'
+import { expect, test as baseTest, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken, withCredentialIsolatedRequest } from '@open-mercato/core/helpers/integration/api'
 import { createRoleFixture, createUserFixture, deleteRoleIfExists, deleteUserIfExists } from '@open-mercato/core/helpers/integration/authFixtures'
 import { createOrganizationInDb, withClient, type IntegrationDbClient } from '@open-mercato/core/helpers/integration/dbFixtures'
@@ -27,8 +27,10 @@ type World = {
   organizationIds: string[]
   roleIds: string[]
   userIds: string[]
-  resources: Array<Actor & { resourceId: string }>
+  resources: Array<Actor & { resourceId: string; child: Child }>
 }
+
+type ReplayWorld = { world: World; bootstrapToken: string; client: IntegrationDbClient }
 
 async function createTenant(client: IntegrationDbClient, world: World): Promise<string> {
   const tenantId = randomUUID()
@@ -91,7 +93,7 @@ async function createChild(request: APIRequestContext, world: World, actor: Acto
   })
   expect(resourceResponse.status()).toBe(201)
   const resourceId = expectId((await readJsonSafe<{ id?: string }>(resourceResponse))?.id, 'owned resource id')
-  world.resources.push({ ...actor, resourceId })
+  world.resources.push({ ...actor, resourceId, child })
   const response = await apiRequest(request, 'POST', child.path, {
     token: actor.token,
     data: {
@@ -126,8 +128,9 @@ async function readState(client: IntegrationDbClient, child: Child, fixture: Chi
   return { child: target.rows[0].record, parent: parent.rows[0].record, logs: logs.rows.map((row) => row.record) }
 }
 
-async function cleanup(request: APIRequestContext, bootstrapToken: string, client: IntegrationDbClient, world: World, child: Child) {
+async function cleanup(request: APIRequestContext, bootstrapToken: string, client: IntegrationDbClient, world: World) {
   for (const fixture of world.resources) {
+    const { child } = fixture
     const childrenResponse = await client.query<{ id: string }>(
       `select id from ${child.table} where resource_id = $1 and tenant_id = $2 and organization_id = $3`,
       [fixture.resourceId, fixture.tenantId, fixture.organizationId],
@@ -148,61 +151,70 @@ async function cleanup(request: APIRequestContext, bootstrapToken: string, clien
   await client.query('delete from tenants where id = any($1::uuid[])', [world.tenantIds])
 }
 
-async function assertDeniedReplay(request: APIRequestContext, child: Child, denial: Denial): Promise<void> {
-  const bootstrapToken = await getAuthToken(request, 'superadmin')
-  const world: World = { tenantIds: [], organizationIds: [], roleIds: [], userIds: [], resources: [] }
-  await withCredentialIsolatedRequest(async (actorRequest) => withClient(async (client) => {
-    try {
-      const ownerScope = await createScope(world, await createTenant(client, world))
-      const deniedScope = denial === 'permission' ? ownerScope : await createScope(
-        world, denial === 'foreign tenant' ? await createTenant(client, world) : ownerScope.tenantId,
-      )
-      const owner = await createActor(request, bootstrapToken, world, ownerScope, true)
-      const deniedActor = await createActor(request, bootstrapToken, world, deniedScope, denial !== 'permission')
-      const unaffected = await createChild(actorRequest, world, deniedActor, child)
-      const target = await createChild(actorRequest, world, owner, child)
-      const original = await readState(client, child, target.fixture)
-      const unaffectedState = await readState(client, child, unaffected.fixture)
-      expect(original.child.deleted_at).toBeNull()
-      expect(original.logs.find((log) => log.id === target.operation.logId)).toMatchObject({
-        execution_state: 'done', undo_token: target.operation.undoToken, actor_user_id: owner.userId,
-      })
+const test = baseTest.extend<{ replayWorld: ReplayWorld }>({
+  replayWorld: async ({ request }, use) => {
+    skipIfUndoTestsDisabled()
+    const bootstrapToken = await getAuthToken(request, 'superadmin')
+    const world: World = { tenantIds: [], organizationIds: [], roleIds: [], userIds: [], resources: [] }
+    await withClient(async (client) => {
+      try {
+        await use({ world, bootstrapToken, client })
+      } finally {
+        await withCredentialIsolatedRequest((cleanupRequest) => cleanup(cleanupRequest, bootstrapToken, client, world))
+      }
+    })
+  },
+})
 
-      const deniedUndo = await undoByToken(actorRequest, deniedActor.token, target.operation.undoToken)
-      expect(deniedUndo.status(), `${denial} undo is rejected`).toBe(denial === 'permission' ? 403 : 400)
-      if (denial !== 'permission') expect(await readJsonSafe(deniedUndo)).toMatchObject({ error: 'Undo token not available' })
-      expect(await readState(client, child, target.fixture), 'denied undo changes no owner row, log or token').toEqual(original)
-      expect(await readState(client, child, unaffected.fixture), 'denied undo changes no caller row, log or token').toEqual(unaffectedState)
+async function assertDeniedReplay(request: APIRequestContext, child: Child, denial: Denial, replayWorld: ReplayWorld): Promise<void> {
+  const { world, bootstrapToken, client } = replayWorld
+  await withCredentialIsolatedRequest(async (actorRequest) => {
+    const ownerScope = await createScope(world, await createTenant(client, world))
+    const deniedScope = denial === 'permission' ? ownerScope : await createScope(
+      world, denial === 'foreign tenant' ? await createTenant(client, world) : ownerScope.tenantId,
+    )
+    const owner = await createActor(request, bootstrapToken, world, ownerScope, true)
+    const deniedActor = await createActor(request, bootstrapToken, world, deniedScope, denial !== 'permission')
+    const unaffected = await createChild(actorRequest, world, deniedActor, child)
+    const target = await createChild(actorRequest, world, owner, child)
+    const original = await readState(client, child, target.fixture)
+    const unaffectedState = await readState(client, child, unaffected.fixture)
+    expect(original.child.deleted_at).toBeNull()
+    expect(original.logs.find((log) => log.id === target.operation.logId)).toMatchObject({
+      execution_state: 'done', undo_token: target.operation.undoToken, actor_user_id: owner.userId,
+    })
 
-      await undoOk(actorRequest, owner.token, target.operation.undoToken, 'owner can still use the token after denial')
-      const undone = await readState(client, child, target.fixture)
-      expect(undone.child.deleted_at).toEqual(expect.any(String))
-      expect(undone.logs.find((log) => log.id === target.operation.logId)?.execution_state).toBe('undone')
+    const deniedUndo = await undoByToken(actorRequest, deniedActor.token, target.operation.undoToken)
+    expect(deniedUndo.status(), `${denial} undo is rejected`).toBe(denial === 'permission' ? 403 : 400)
+    if (denial !== 'permission') expect(await readJsonSafe(deniedUndo)).toMatchObject({ error: 'Undo token not available' })
+    expect(await readState(client, child, target.fixture), 'denied undo changes no owner row, log or token').toEqual(original)
+    expect(await readState(client, child, unaffected.fixture), 'denied undo changes no caller row, log or token').toEqual(unaffectedState)
 
-      const deniedRedo = await redoByLogId(actorRequest, deniedActor.token, target.operation.logId)
-      expect(deniedRedo.status(), `${denial} redo is rejected`).toBe(denial === 'permission' ? 403 : 400)
-      if (denial !== 'permission') expect(await readJsonSafe(deniedRedo)).toMatchObject({ error: 'Redo target not available' })
-      expect(await readState(client, child, target.fixture), 'denied redo changes no retained owner row, log or token').toEqual(undone)
-      expect(await readState(client, child, unaffected.fixture), 'denied redo changes no caller row, log or token').toEqual(unaffectedState)
+    await undoOk(actorRequest, owner.token, target.operation.undoToken, 'owner can still use the token after denial')
+    const undone = await readState(client, child, target.fixture)
+    expect(undone.child.deleted_at).toEqual(expect.any(String))
+    expect(undone.logs.find((log) => log.id === target.operation.logId)?.execution_state).toBe('undone')
 
-      const redone = await redoOk(actorRequest, owner.token, target.operation.logId, 'owner can still redo after denial')
-      const restored = await readState(client, child, target.fixture)
-      expect(restored.child).toEqual({ ...original.child, updated_at: expect.any(String) })
-      expect(restored.parent).toEqual(original.parent)
-      expect(await readState(client, child, unaffected.fixture)).toEqual(unaffectedState)
-      await undoOk(actorRequest, owner.token, expectId(redone.undoToken, 'redo issues a fresh usable token'), 'fresh redo token is usable')
-    } finally {
-      await cleanup(actorRequest, bootstrapToken, client, world, child)
-    }
-  }))
+    const deniedRedo = await redoByLogId(actorRequest, deniedActor.token, target.operation.logId)
+    expect(deniedRedo.status(), `${denial} redo is rejected`).toBe(denial === 'permission' ? 403 : 400)
+    if (denial !== 'permission') expect(await readJsonSafe(deniedRedo)).toMatchObject({ error: 'Redo target not available' })
+    expect(await readState(client, child, target.fixture), 'denied redo changes no retained owner row, log or token').toEqual(undone)
+    expect(await readState(client, child, unaffected.fixture), 'denied redo changes no caller row, log or token').toEqual(unaffectedState)
+
+    const redone = await redoOk(actorRequest, owner.token, target.operation.logId, 'owner can still redo after denial')
+    const restored = await readState(client, child, target.fixture)
+    expect(restored.child).toEqual({ ...original.child, updated_at: expect.any(String) })
+    expect(restored.parent).toEqual(original.parent)
+    expect(await readState(client, child, unaffected.fixture)).toEqual(unaffectedState)
+    await undoOk(actorRequest, owner.token, expectId(redone.undoToken, 'redo issues a fresh usable token'), 'fresh redo token is usable')
+  })
 }
 
 test.describe('TC-RES-7667-CREATE-UNDO-ISOLATION: denied child create replay preserves state', () => {
-  test.beforeEach(() => skipIfUndoTestsDisabled())
   for (const child of children) {
     for (const denial of denials) {
-      test(`${child.kind}: ${denial} cannot undo or redo another scoped creation`, async ({ request }) => {
-        await assertDeniedReplay(request, child, denial)
+      test(`${child.kind}: ${denial} cannot undo or redo another scoped creation`, async ({ request, replayWorld }) => {
+        await assertDeniedReplay(request, child, denial, replayWorld)
       })
     }
   }
