@@ -92,18 +92,13 @@ async function advanceFulltextReindexProgress(params: {
  * down throws precisely because a registered-but-unreachable Meili is expected
  * to recover; an unregistered strategy is not.
  *
- * Reported ONCE per (tenant, job type, reason) per process, deliberately.
- * `searchStrategies` and `searchIndexer` are registered together in one
- * `container.register` call, from a `strategies` array that only receives a
- * `FullTextSearchStrategy` when the driver exists - so the outcome of this guard
- * is static for the lifetime of the process and rows 2..N carry exactly the
- * information of row 1. The surface an operator reads is the newest 100
- * `indexer_status_logs` rows across ALL sources, so an unthrottled row per job
- * would saturate that window under ordinary write traffic and push out every
- * other source's rows - trading invisibility for a panel showing one signal a
- * hundred times. Do not "fix" this back to per-job.
+ * Report at most once per (tenant, job type, reason) every five minutes per
+ * process. Reserve the cooldown before the best-effort write so concurrent jobs
+ * and failed writes cannot flood the newest 100 status rows. Later skipped jobs
+ * renew diagnostics that failed to persist or aged out of the reader's window.
  */
-const reportedSkipKeys = new Set<string>()
+const SKIPPED_WITHOUT_INDEXING_COOLDOWN_MS = 5 * 60 * 1000
+const reportedSkipKeys = new Map<string, number>()
 
 /** Test seam: the memo above is process-scoped, so a suite must be able to clear it. */
 export function __resetSkippedWithoutIndexingMemo(): void {
@@ -119,8 +114,10 @@ async function reportSkippedWithoutIndexing(params: {
   reason: string
 }): Promise<void> {
   const memoKey = `${params.tenantId}:${params.jobType}:${params.reason}`
-  if (reportedSkipKeys.has(memoKey)) return
-  reportedSkipKeys.add(memoKey)
+  const now = Date.now()
+  const lastReportedAt = reportedSkipKeys.get(memoKey)
+  if (lastReportedAt !== undefined && now - lastReportedAt < SKIPPED_WITHOUT_INDEXING_COOLDOWN_MS) return
+  reportedSkipKeys.set(memoKey, now)
 
   const message = `${params.reason}; job skipped without indexing`
   // `searchWarn`, not `searchError`: this is an operational warning about a

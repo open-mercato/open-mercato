@@ -85,6 +85,7 @@ describe('scheduler.jobs active schedule tenant limit', () => {
 
     expect(em.count).toHaveBeenCalledWith(expect.any(Function), {
       tenantId: 'tenant-a',
+      sourceType: 'user',
       isEnabled: true,
       deletedAt: null,
     })
@@ -127,6 +128,7 @@ describe('scheduler.jobs active schedule tenant limit', () => {
 
     expect(em.count).toHaveBeenCalledWith(expect.any(Function), {
       tenantId: 'tenant-a',
+      sourceType: 'user',
       isEnabled: true,
       deletedAt: null,
     })
