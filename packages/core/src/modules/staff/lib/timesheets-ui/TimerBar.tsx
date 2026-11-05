@@ -194,7 +194,9 @@ function DefaultTimerBar({
   // it. Text typed while this bar's own start is still in flight (Enter does nothing
   // until the timer runs) would otherwise be overwritten by the note the start was
   // sent with. A timer started elsewhere (another tab, the dashboard widget) always
-  // adopts the server note, so a half-typed draft is never saved onto it.
+  // adopts the server note, so a half-typed draft is never saved onto it. A missing
+  // note is adopted as an empty one: the API reports an empty note as `null`, and
+  // skipping it kept another entry's draft in the field for Stop to save onto this one.
   //
   // A refetch of the SAME running entry is different: the draft belongs to that
   // entry, so it is kept, together with the version it was based on. Adopting the
@@ -249,10 +251,9 @@ function DefaultTimerBar({
       }
       return
     }
-    if (remoteNotes != null) {
-      setDescription(remoteNotes)
-      setPersistedDescription(remoteNotes)
-    }
+    const adoptedNotes = remoteNotes ?? ''
+    setDescription(adoptedNotes)
+    setPersistedDescription(adoptedNotes)
     setNoteBaseVersion(remoteVersion)
   }, [activeTimer.running, activeTimer.entryId, activeTimer.notes, activeTimer.updatedAt, t])
 

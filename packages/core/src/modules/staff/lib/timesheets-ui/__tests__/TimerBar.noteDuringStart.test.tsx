@@ -236,4 +236,46 @@ describe('TimerBar — note typed while a start is in flight', () => {
     expect(notesPutCalls()).toHaveLength(0)
     expect(startTimerEntryMock).not.toHaveBeenCalled()
   })
+
+  it('clears an idle draft when a timer started elsewhere has no note, and Stop saves no note onto it', async () => {
+    renderTimerBar()
+    fireEvent.change(noteInput(), { target: { value: 'Draft for another project' } })
+
+    act(() => mockTimerStore.set({ ...runningTimer(null), entryId: 'entry-b', updatedAt: '2026-01-01T09:00:00.000Z' }))
+    await waitFor(() => expect(noteInput()).toHaveValue(''))
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Stop timer' }))
+    await waitFor(() =>
+      expect(apiCallOrThrowMock).toHaveBeenCalledWith(
+        '/api/staff/timesheets/time-entries/entry-b/timer-stop',
+        { method: 'POST' },
+      ),
+    )
+    expect(notesPutCalls()).toHaveLength(0)
+    expect(startTimerEntryMock).not.toHaveBeenCalled()
+  })
+
+  it('clears a previous entry\'s unsaved draft when a different timer with no note replaces it', async () => {
+    mockTimerStore.state = {
+      ...IDLE_TIMER,
+      ...runningTimer('Server note'),
+      updatedAt: '2026-01-01T08:00:00.000Z',
+    } as MockTimerState
+
+    renderTimerBar()
+    await waitFor(() => expect(noteInput()).toHaveValue('Server note'))
+    fireEvent.change(noteInput(), { target: { value: 'Unsaved draft for entry 1' } })
+
+    act(() => mockTimerStore.set({ ...runningTimer(null), entryId: 'entry-b', updatedAt: '2026-01-01T09:00:00.000Z' }))
+    await waitFor(() => expect(noteInput()).toHaveValue(''))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stop timer' }))
+    await waitFor(() =>
+      expect(apiCallOrThrowMock).toHaveBeenCalledWith(
+        '/api/staff/timesheets/time-entries/entry-b/timer-stop',
+        { method: 'POST' },
+      ),
+    )
+    expect(notesPutCalls()).toHaveLength(0)
+  })
 })
