@@ -124,6 +124,10 @@ export const REPO_WIDE_GUARDS = [
     jestConfig: 'jest.config.cjs',
     tests: [
       {
+        path: 'src/__tests__/documented-queue-subcommands.test.ts',
+        scans: 'apps/docs/docs/**/*.mdx — documented queue subcommands resolve through the real CLI dispatcher (#8511)',
+      },
+      {
         path: 'src/__tests__/mercato.test.ts',
         scans: 'docker/scripts and packages/create-app/template/docker/scripts — actual initialization output preserves credential redaction, exit status and marker behavior through both first-run flows (#7822)',
       },
