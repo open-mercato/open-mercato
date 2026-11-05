@@ -7,6 +7,7 @@ import {
   portalCookieHeaders,
   portalLogin,
 } from '@open-mercato/core/helpers/integration/customerAccountsFixtures'
+import { restoreDateLocaleSettingsAfterEach } from '@open-mercato/core/helpers/integration/dateLocaleFixtures'
 
 /**
  * TC-CONF-009: The customer portal renders dates with its tenant's date & time settings
@@ -36,6 +37,7 @@ function formatInZone(iso: string, timeZone: string): string {
 test.describe('TC-CONF-009: Portal date & time settings', () => {
   // Changes tenant-wide date settings; keep it from overlapping other date-rendering tests.
   test.describe.configure({ mode: 'serial' })
+  restoreDateLocaleSettingsAfterEach()
 
   test('the portal profile formats dates in the tenant zone and pattern', async ({ page, request, baseURL }) => {
     test.setTimeout(120_000)

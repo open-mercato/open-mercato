@@ -216,7 +216,9 @@ describe('module-facts BC resolve guard (T2)', () => {
     // the union measurement, and a cap that close has stopped detecting blow-ups
     // and started rejecting the next additive module — the failure mode the note
     // above warns about, one merge away.
-    expect(directoryMarkdownBytes).toBeLessThan(2_290_000)
+    // Raised 2,290,000 → 2,340,000 for the date/locale settings work: measured 2,290,772, an
+    // additive overshoot of 772 bytes from the same surfaces as the markdown raise above.
+    expect(directoryMarkdownBytes).toBeLessThan(2_340_000)
   })
 
   it('keeps every shipped directory section resumable and every advertised subsection anchor exact', () => {

@@ -1,5 +1,6 @@
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
+import { restoreDateLocaleSettingsAfterEach } from '@open-mercato/core/helpers/integration/dateLocaleFixtures'
 
 /**
  * TC-CONF-007: Tenant date & locale settings API
@@ -32,6 +33,7 @@ test.describe('TC-CONF-007: Date & locale settings API', () => {
   // These tests change tenant-wide date settings; keep them from overlapping anything else that
   // renders dates if the suite's single worker is ever raised.
   test.describe.configure({ mode: 'serial' })
+  restoreDateLocaleSettingsAfterEach()
 
   test('reads, updates and restores tenant settings', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')

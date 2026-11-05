@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
+import { restoreDateLocaleSettingsAfterEach } from '@open-mercato/core/helpers/integration/dateLocaleFixtures'
 
 /**
  * TC-AUTH-PROFILE-TZ-003: Saving a personal time zone on the profile page
@@ -16,6 +17,7 @@ const PROFILE_PATH = '/api/auth/profile'
 test.describe('TC-AUTH-PROFILE-TZ-003: Profile time zone page', () => {
   // Changes tenant-wide date settings; keep it from overlapping other date-rendering tests.
   test.describe.configure({ mode: 'serial' })
+  restoreDateLocaleSettingsAfterEach()
 
   test('picks, saves, reloads and clears a personal time zone', async ({ page, request }) => {
     test.setTimeout(120_000)
@@ -28,6 +30,9 @@ test.describe('TC-AUTH-PROFILE-TZ-003: Profile time zone page', () => {
     }
     const readProfileZone = async () =>
       ((await (await apiRequest(request, 'GET', PROFILE_PATH, { token })).json()) as { timezone?: string | null }).timezone ?? null
+
+    // CrudForm renders the save action in both its header and its footer.
+    const saveButton = page.getByRole('button', { name: 'Save time zone' }).first()
 
     try {
       const saved = await apiRequest(request, 'PUT', SETTINGS_PATH, {
@@ -46,7 +51,7 @@ test.describe('TC-AUTH-PROFILE-TZ-003: Profile time zone page', () => {
       await zoneField.fill('Asia/Tokyo')
       await page.getByRole('option', { name: 'Asia/Tokyo', exact: true }).click()
       await expect(preview).toHaveText(/omtz \+09:00$/)
-      await page.getByRole('button', { name: 'Save time zone' }).click()
+      await saveButton.click()
       await expect(page.getByText('Time zone saved.')).toBeVisible()
       await expect.poll(readProfileZone).toBe('Asia/Tokyo')
 
@@ -57,7 +62,7 @@ test.describe('TC-AUTH-PROFILE-TZ-003: Profile time zone page', () => {
       await zoneField.fill('Organization default')
       await page.getByRole('option', { name: 'Organization default', exact: true }).click()
       await expect(preview).toHaveText('Shown in the organization time zone after you save.')
-      await page.getByRole('button', { name: 'Save time zone' }).click()
+      await saveButton.click()
       await expect(page.getByText('Time zone saved.')).toBeVisible()
       await expect.poll(readProfileZone).toBeNull()
 

@@ -1,4 +1,5 @@
 import { LockMode, type EntityManager } from '@mikro-orm/postgresql'
+import { runWithCacheTenant } from '@open-mercato/cache'
 import {
   getTransactionLifetime,
   onTransactionLifetimeComplete,
@@ -60,7 +61,7 @@ function findSettingsRow(em: EntityManager, tenantId: string, lock: boolean): Pr
 
 async function invalidateSettingsCache(container: { resolve: (name: string) => unknown }, tenantId: string) {
   const service = container.resolve('moduleConfigService') as ModuleConfigService
-  await service.invalidate(DATE_LOCALE_CONFIG_MODULE, DATE_LOCALE_CONFIG_NAME, { tenantId })
+  await runWithCacheTenant(tenantId, () => service.invalidate(DATE_LOCALE_CONFIG_MODULE, DATE_LOCALE_CONFIG_NAME, { tenantId }))
 }
 
 async function writeSettings(
@@ -71,7 +72,9 @@ async function writeSettings(
   const em = ctx.transactionalEm
   if (!em) {
     const service = ctx.container.resolve('moduleConfigService') as ModuleConfigService
-    await service.setValue(DATE_LOCALE_CONFIG_MODULE, DATE_LOCALE_CONFIG_NAME, settings, { tenantId })
+    await runWithCacheTenant(tenantId, () =>
+      service.setValue(DATE_LOCALE_CONFIG_MODULE, DATE_LOCALE_CONFIG_NAME, settings, { tenantId }),
+    )
     return
   }
   const row = await findSettingsRow(em, tenantId, true)

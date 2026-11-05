@@ -63,8 +63,10 @@ export function unregisterDateLocaleProvider(key: object): void {
   if (renderingProvider?.key === key) renderingProvider = null
 }
 
-// `NEXT_PUBLIC_*` reads must stay literal so Next.js can inline them into the client bundle.
+// `NEXT_PUBLIC_*` reads must stay literal so Next.js can inline them into the client bundle. A
+// bundle built without Next.js (an isolated component fixture) has no `process` global at all.
 function readPublicEnvSettings(): ResolvedDateLocaleSettings {
+  if (typeof process === 'undefined') return resolveDateLocaleSettings({ env: readDateLocaleEnv({}) })
   return resolveDateLocaleSettings({
     env: readDateLocaleEnv({
       NEXT_PUBLIC_OM_DATE_FORMAT: process.env.NEXT_PUBLIC_OM_DATE_FORMAT,

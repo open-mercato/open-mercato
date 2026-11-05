@@ -24,6 +24,7 @@ jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
   getTelemetryRuntime: () => ({ reportError: (...args: unknown[]) => reportErrorMock(...args) }),
 }))
 
+import { getCurrentCacheTenant } from '@open-mercato/cache'
 import {
   normalizeStoredDateLocaleSettings,
   resolveDateLocaleSettingsForScopeWithReporting,
@@ -51,6 +52,20 @@ describe('resolveDateLocaleSettingsFromCookies', () => {
     const resolved = await resolveDateLocaleSettingsFromCookies()
     expect(resolved?.timeZone).toBe('Asia/Tokyo')
     expect(lookupMock).toHaveBeenCalledWith({ userId, tenantId })
+  })
+
+  // Page renders run outside the API dispatcher's cache-tenant context. The read must still use
+  // the tenant's cache namespace, the one a settings save writes, or the layout shows stale settings.
+  it('reads the stored settings inside the tenant cache namespace', async () => {
+    getAuthFromCookiesMock.mockResolvedValue({ tenantId, sub: userId })
+    let cacheTenant: string | null | undefined
+    getRecordMock.mockImplementation(async () => {
+      cacheTenant = getCurrentCacheTenant()
+      return { value: { timeZone: 'Europe/Warsaw' }, source: 'tenant', updatedAt: '2026-11-01T00:00:00.000Z' }
+    })
+    expect(getCurrentCacheTenant()).toBeNull()
+    await resolveDateLocaleSettingsFromCookies()
+    expect(cacheTenant).toBe(tenantId)
   })
 
   it('never treats an API key as a user', async () => {

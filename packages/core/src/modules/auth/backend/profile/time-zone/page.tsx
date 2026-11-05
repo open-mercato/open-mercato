@@ -105,6 +105,10 @@ export default function ProfileTimeZonePage() {
             title={t('auth.profile.timeZone.pageTitle', 'Time zone')}
             fields={fields}
             initialValues={{ timezone: timezone ?? ORGANIZATION_DEFAULT }}
+            // Zone options use the zone name as both value and label, which ComboboxInput treats
+            // as an unresolved placeholder and will not paint into a focused input, so focusing
+            // the only field on load would show the saved zone as an empty box.
+            disableInitialFocus
             disableOptimisticLock
             submitLabel={t('auth.profile.timeZone.save', 'Save time zone')}
             onSubmit={handleSubmit}

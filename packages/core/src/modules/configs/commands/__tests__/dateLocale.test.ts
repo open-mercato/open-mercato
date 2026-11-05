@@ -1,3 +1,4 @@
+import { getCurrentCacheTenant } from '@open-mercato/cache'
 import { commandRegistry, type CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import '../dateLocale'
 
@@ -75,6 +76,16 @@ describe('configs.date_locale.update command', () => {
     )
   })
 
+  it('writes inside the tenant cache namespace the settings are read from', async () => {
+    let cacheTenant: string | null | undefined
+    setValueMock.mockImplementation(async () => {
+      cacheTenant = getCurrentCacheTenant()
+      return null
+    })
+    await handler().execute({ tenantId, settings: next }, ctx)
+    expect(cacheTenant).toBe(tenantId)
+  })
+
   it('restores the previous settings on undo', async () => {
     await handler().undo!({
       input: { tenantId, settings: next },
@@ -100,6 +111,7 @@ describe('configs.date_locale.update command', () => {
       create: (_entity: unknown, data: Record<string, unknown>) => ({ ...data }),
     }
     const replayCtx = { ...ctx, transactionalEm: em } as unknown as CommandRuntimeContext
+    const invalidateCacheTenants: Array<string | null> = []
     const logEntry = {
       tenantId,
       commandPayload: { undo: { before: { tenantId, settings: previous }, after: { tenantId, settings: next } } },
@@ -111,7 +123,10 @@ describe('configs.date_locale.update command', () => {
       userHasAllFeaturesMock.mockResolvedValue(true)
       findOneMock.mockResolvedValue({ valueJson: next })
       flushMock.mockResolvedValue(undefined)
-      invalidateMock.mockResolvedValue(undefined)
+      invalidateCacheTenants.length = 0
+      invalidateMock.mockImplementation(async () => {
+        invalidateCacheTenants.push(getCurrentCacheTenant())
+      })
     })
 
     it('runs undo and redo inside the replay transaction', () => {
@@ -176,6 +191,8 @@ describe('configs.date_locale.update command', () => {
       expect(flushMock).toHaveBeenCalled()
       expect(setValueMock).not.toHaveBeenCalled()
       expect(invalidateMock).toHaveBeenCalledWith('configs', 'date_locale', { tenantId })
+      expect(invalidateCacheTenants).toEqual(expect.arrayContaining([tenantId]))
+      expect(invalidateCacheTenants).not.toContain(null)
     })
   })
 })

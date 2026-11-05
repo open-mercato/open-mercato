@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
+import { restoreDateLocaleSettingsAfterEach } from '@open-mercato/core/helpers/integration/dateLocaleFixtures'
 
 /**
  * TC-AUTH-PROFILE-TZ-001: Personal time zone overrides the tenant default
@@ -13,6 +14,7 @@ test.describe('TC-AUTH-PROFILE-TZ-001: Personal time zone', () => {
   // These tests change tenant-wide date settings; keep them from overlapping anything else that
   // renders dates if the suite's single worker is ever raised.
   test.describe.configure({ mode: 'serial' })
+  restoreDateLocaleSettingsAfterEach()
 
   test('a personal zone wins over the tenant zone and can be cleared', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')

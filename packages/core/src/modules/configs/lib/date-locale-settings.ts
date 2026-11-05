@@ -1,4 +1,5 @@
 import { cache } from 'react'
+import { runWithCacheTenant } from '@open-mercato/cache'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -64,7 +65,12 @@ function toIso(value: ModuleConfigRecord['updatedAt'] | undefined): string | nul
 
 export async function readTenantDateLocaleSettings(container: Resolver, tenantId: string): Promise<StoredDateLocaleSettings> {
   const service = container.resolve<ModuleConfigService>('moduleConfigService')
-  const record = await service.getRecord(DATE_LOCALE_CONFIG_MODULE, DATE_LOCALE_CONFIG_NAME, { tenantId })
+  // Cache keys are namespaced by the active cache tenant. API routes run inside the caller's
+  // tenant, page renders and workers do not, so pin the namespace here: otherwise a layout reads
+  // a `tenant:global` copy that a settings save never updates, and shows old settings until TTL.
+  const record = await runWithCacheTenant(tenantId, () =>
+    service.getRecord(DATE_LOCALE_CONFIG_MODULE, DATE_LOCALE_CONFIG_NAME, { tenantId }),
+  )
   if (!record || record.source !== 'tenant') return { settings: { ...EMPTY_SETTINGS }, updatedAt: null }
   return { settings: normalizeStoredDateLocaleSettings(record.value), updatedAt: toIso(record.updatedAt) }
 }

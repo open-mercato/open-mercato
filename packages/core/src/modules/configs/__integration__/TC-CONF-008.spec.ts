@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
+import { restoreDateLocaleSettingsAfterEach } from '@open-mercato/core/helpers/integration/dateLocaleFixtures'
 
 /**
  * TC-CONF-008: Date & time settings page
@@ -16,6 +17,7 @@ test.describe('TC-CONF-008: Date & time settings page', () => {
   // These tests change tenant-wide date settings; keep them from overlapping anything else that
   // renders dates if the suite's single worker is ever raised.
   test.describe.configure({ mode: 'serial' })
+  restoreDateLocaleSettingsAfterEach()
 
   test('previews and saves a date format preset', async ({ page, request }) => {
     test.setTimeout(120_000)
@@ -31,11 +33,13 @@ test.describe('TC-CONF-008: Date & time settings page', () => {
       const preview = page.getByTestId('date-locale-preview')
       await expect(preview).toBeVisible()
 
-      await page.getByRole('combobox', { name: 'Date format' }).click()
+      // CrudForm wraps each field in `[data-crud-field-id]`; its select trigger has no label link.
+      await page.locator('[data-crud-field-id="dateFormatMode"]').getByRole('combobox').first().click()
       await page.getByRole('option', { name: /^yyyy-MM-dd/ }).click()
       await expect(preview).toContainText('2026-12-31')
 
-      await page.getByRole('button', { name: 'Save settings' }).click()
+      // CrudForm renders the save action in both its header and its footer.
+      await page.getByRole('button', { name: 'Save settings' }).first().click()
       await expect(page.getByText('Date and time settings saved.')).toBeVisible()
 
       const saved = await apiRequest(request, 'GET', PATH, { token })
@@ -61,16 +65,22 @@ test.describe('TC-CONF-008: Date & time settings page', () => {
       await login(page, 'admin')
       await page.goto('/backend/customers/deals/create')
 
-      await page.getByRole('button', { name: 'Pick a date' }).first().click()
+      const trigger = page.getByRole('button', { name: 'Expected close date' })
       const grid = page.getByRole('grid').first()
-      await expect(grid).toBeVisible()
-      await expect(grid.locator('th[scope="col"]').first()).toHaveAttribute('aria-label', 'Sunday')
-
       const now = new Date()
       const year = now.getUTCFullYear()
       const month = String(now.getUTCMonth() + 1).padStart(2, '0')
-      await grid.locator(`[data-day="${year}-${month}-15"] button`).click()
-      await expect(page.getByText(`15.${month}.${year}`).first()).toBeVisible()
+
+      // The deal form re-renders while its pipelines and custom fields load, which can close a
+      // picker opened right after navigation; retry opening, picking and applying as one step.
+      await expect(async () => {
+        if (!(await grid.isVisible())) await trigger.click({ timeout: 2_000 })
+        await expect(grid.locator('th[scope="col"]').first()).toHaveAttribute('aria-label', 'Sunday', { timeout: 2_000 })
+        await grid.locator(`[data-day="${year}-${month}-15"] button`).click({ timeout: 2_000 })
+        // The picker's default footer stages the pick until it is applied.
+        await page.getByRole('button', { name: 'Apply', exact: true }).click({ timeout: 2_000 })
+        await expect(trigger).toHaveText(`15.${month}.${year}`, { timeout: 2_000 })
+      }).toPass({ timeout: 60_000 })
     } finally {
       await apiRequest(request, 'PUT', PATH, { token, data: original.settings }).catch(() => {})
     }

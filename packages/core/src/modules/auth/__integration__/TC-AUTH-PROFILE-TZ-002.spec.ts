@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { DEFAULT_CREDENTIALS } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
+import { restoreDateLocaleSettingsAfterEach } from '@open-mercato/core/helpers/integration/dateLocaleFixtures'
 
 /**
  * TC-AUTH-PROFILE-TZ-002: Signing in through the login form applies the tenant date settings
@@ -33,6 +34,7 @@ test.describe('TC-AUTH-PROFILE-TZ-002: Settings after a form login', () => {
   // These tests change tenant-wide date settings; keep them from overlapping anything else that
   // renders dates if the suite's single worker is ever raised.
   test.describe.configure({ mode: 'serial' })
+  restoreDateLocaleSettingsAfterEach()
 
   test('the first page after the login redirect formats with the tenant settings', async ({ page, request }) => {
     test.setTimeout(120_000)
