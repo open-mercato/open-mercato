@@ -22,12 +22,18 @@ A free port alone does not establish that a workspace is unused. Never kill an a
 
 ## Progress
 
+PR: #8837
+
 ### Phase 1: Diagnosis and implementation
-- [ ] 1.1 Reproduce orphaned process and recovery consent failures
-- [ ] 1.2 Fix descendant shutdown and escalation
-- [ ] 1.3 Implement interactive recovery and standalone parity
+- [x] 1.1 Reproduce orphaned process and recovery consent failures — 53b76c9a7
+- [x] 1.2 Fix descendant shutdown and escalation — 53b76c9a7
+- [x] 1.3 Implement interactive recovery and standalone parity — 53b76c9a7
 
 ### Phase 2: Verification and publication
 - [ ] 2.1 Run focused and full validation gates
 - [ ] 2.2 Complete review and autofix
 - [ ] 2.3 Publish results and link PR #8612
+
+## Verification evidence
+
+Runner: local on Node 24.22.2; no compose app container was running. Focused shutdown/session/recovery tests: 41 passing, including real resistant grandchildren, unrelated-process survival and changed-owner races. Broader dev-runtime tests: 521 passing before the final cwd refinement; focused tests reran afterward. Actual TTY prompt accepted `y` and continued normal acquisition in a controlled fixture without signaling real processes. Template parity and lessons-catalog checks pass. Full configured gate is in progress.
