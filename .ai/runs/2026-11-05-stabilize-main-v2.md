@@ -18,12 +18,13 @@ Phase 3: Record evidence, release claims, promote ready and add automerge only a
 Full CI can expose additional failures after prepare succeeds. No local dependencies installed initially. ci-full applies on next scheduled PR event, avoiding label-only skipped check replacement.
 
 ## Progress
+PR: #8806
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Repair
-- [ ] 1.1 Diagnose main failures and fix root causes with regression coverage
-- [ ] 1.2 Support ci-full full-suite selection with regression tests
+- [x] 1.1 Diagnose main failures and fix root causes with regression coverage — ef42a952c
+- [x] 1.2 Support ci-full full-suite selection with regression tests — ef42a952c
 
 ### Phase 2: Verify
 - [ ] 2.1 Pass configured validation and all full-suite PR checks
