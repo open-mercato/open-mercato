@@ -629,6 +629,7 @@
   "auth.resetPassword": "Reset password",
   "auth.roles.admin": "Admin",
   "auth.roles.employee": "Employee",
+  "auth.roles.errors.nameExists": "A role with this name already exists",
   "auth.roles.flash.created": "Role created",
   "auth.roles.flash.deleted": "Role deleted",
   "auth.roles.flash.updated": "Role saved",
