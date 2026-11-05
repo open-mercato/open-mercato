@@ -730,6 +730,39 @@ describe('Sub-Workflow Execution (Phase 8)', () => {
       expect(result.status).toBe('FAILED')
       expect(result.error).toContain('Sub-workflow failed')
       expect(result.error).toContain('Invalid data')
+      expect(result).not.toHaveProperty('details')
+
+      startWorkflowSpy.mockRestore()
+      executeWorkflowSpy.mockRestore()
+    })
+
+    test('a child failure naming its translation hands the key to the parent', async () => {
+      const startWorkflowSpy = jest.spyOn(workflowExecutor, 'startWorkflow')
+      const executeWorkflowSpy = jest.spyOn(workflowExecutor, 'executeWorkflow')
+      const errorDetails = { i18n: { key: 'workflows.some.key', params: { value: 'x' } } }
+
+      startWorkflowSpy.mockResolvedValue(childInstance as WorkflowInstance)
+      executeWorkflowSpy.mockResolvedValue({
+        status: 'FAILED',
+        currentStep: 'process',
+        context: {},
+        events: [],
+        errors: ['English'],
+        errorDetails,
+        executionTime: 50,
+      })
+      mockEm.findOne.mockResolvedValue(parentDefinition as WorkflowDefinition)
+
+      const result = await stepHandler.executeStep(
+        mockEm,
+        parentInstance as WorkflowInstance,
+        'invoke-child',
+        { workflowContext: parentInstance.context! },
+        mockContainer
+      )
+
+      expect(result.status).toBe('FAILED')
+      expect(result.details).toEqual(errorDetails)
 
       startWorkflowSpy.mockRestore()
       executeWorkflowSpy.mockRestore()

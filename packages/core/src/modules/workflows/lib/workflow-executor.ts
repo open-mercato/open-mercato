@@ -113,6 +113,8 @@ export interface ExecutionResult {
   context: Record<string, any>
   events: WorkflowEventSummary[]
   errors?: string[]
+  /** A FAILED run's details, when the failure carries any. */
+  errorDetails?: unknown
   executionTime: number
 }
 
@@ -456,6 +458,7 @@ export async function executeWorkflow(
               context: currentInstance.context,
               events,
               errors,
+              ...(branchResult.details !== undefined ? { errorDetails: branchResult.details } : {}),
               executionTime: Date.now() - startTime,
             }
           }
@@ -777,6 +780,7 @@ export async function executeWorkflow(
               context: currentInstance.context,
               events,
               errors,
+              ...(transitionResult.details !== undefined ? { errorDetails: transitionResult.details } : {}),
               executionTime: Date.now() - startTime,
             }
           }

@@ -77,7 +77,7 @@ export type TaskDeadline = z.infer<typeof taskDeadlineSchema>
 export const taskDeadlineSpecSchema = z
   .object({
     duration: z.string().min(1).optional(),
-    at: z.string().min(1).optional(),
+    at: z.string().optional(),
   })
   .superRefine((deadline, ctx) => {
     const hasDuration = deadline.duration !== undefined

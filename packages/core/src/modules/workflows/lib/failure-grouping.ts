@@ -44,7 +44,7 @@ export type TriageInstanceInput = {
 export type FailureGroup = {
   /** Stable key for the normalized shape — safe to use as a filter value. */
   key: string
-  /** First raw message seen for this shape, truncated for display. */
+  /** First message seen for this shape, in the reader's locale when it names a key, truncated for display. */
   label: string
   count: number
   /** Distinct workflow ids in the group, so a cross-workflow failure is visible. */
@@ -115,7 +115,7 @@ export function groupFailures(instances: readonly TriageInstanceInput[]): Failur
     }
     groups.set(key, {
       key,
-      label: truncate(instance.localizedErrorMessage ?? message ?? UNCLASSIFIED_LABEL),
+      label: truncate(message ? instance.localizedErrorMessage?.trim() || message : UNCLASSIFIED_LABEL),
       count: 1,
       workflowIds: [instance.workflowId],
       instanceIds: [instance.id],

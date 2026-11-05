@@ -409,7 +409,7 @@ export async function executeStep(
       // caller was free to tolerate. The row is now terminal on both paths.
       await markStepInstanceFailed(em, stepInstance, {
         error: result.error ?? 'Step execution failed',
-        details: result.outputData,
+        details: result.outputData ?? result.details,
         branchInstanceId: branch?.id ?? null,
         userId: context.userId,
       })
@@ -851,7 +851,7 @@ async function handleAutomatedStep(
 function resolveUserTaskDeadline(stepId: string, deadline: ResolvedTaskDeadline): Date {
   if (deadline.kind === 'at') {
     if (deadline.dueDate) return deadline.dueDate
-    const rendered = deadline.resolved instanceof Date ? deadline.resolved.toISOString() : String(deadline.resolved)
+    const rendered = String(deadline.resolved)
     const resolved = rendered.length > 64 ? `${rendered.slice(0, 64)}…` : rendered
     const { key, fallback } = TASK_DEADLINE_MESSAGES.invalidResolvedAt
     const params = { authored: deadline.authored, resolved }
@@ -1306,6 +1306,7 @@ async function handleSubWorkflowStep(
       return {
         status: 'FAILED',
         error: `Sub-workflow failed: ${result.errors?.join(', ')}`,
+        ...(readRuntimeErrorMessageRef(result.errorDetails) ? { details: result.errorDetails } : {}),
       }
     } else {
       // The child parked at its first async/agent step (RUNNING / PAUSED /

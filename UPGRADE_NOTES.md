@@ -1494,7 +1494,8 @@ state.
 A `USER_TASK` deadline (`userTaskConfig.deadline`) now takes exactly one of `duration` (anchored to
 task creation, as before) or `at` (an ISO date or an ISO datetime with `Z` or an offset, usually
 interpolated from the run context, e.g. `{{context.dueDate}}`). Every definition that was valid before
-still parses and runs unchanged.
+still parses and runs unchanged, with one exception: a deadline declaring both `duration` and an `at`
+key, whose `at` used to be stripped silently, is now refused on save.
 
 **No exported contract changes.** These keep their exact shape, with `deadline.duration` a required
 `string` (compile-guarded by `packages/core/src/modules/workflows/data/task-primitives.typecheck.tsx`):
@@ -1547,9 +1548,18 @@ localized in the definition API's `details[]` and the Studio Problems / Code vie
 A value that only fails at runtime (`dueDate: 'soon'`) keeps its English `errorMessage` for logs and
 failure grouping, and additionally carries `errorDetails.i18n = { key, params }` (also on the step's
 `errorData.details`). The run detail, mobile overview, step inspector and failure queue render it in
-the reader's locale; API clients can do the same from that key. `instance.errorDetails` is now written
+the reader's locale, the instance-advance route answers it localized with the same `details`, and API
+clients can do the same from that key. A synchronous sub-workflow failing this way hands the key to its
+parent. `ExecutionResult.errorDetails`, `StepExecutionResult.details`, `TransitionExecutionResult.details`
+and `CodeStepDefinition.userTaskConfig.deadline` are new and optional. `instance.errorDetails` is now written
 as `null`, instead of being left untouched, when a failure carries no details, so a message can never
 pair with the details of an earlier failure.
+
+**Known limit:** the run fails closed when the executor's own loop enters the step: on start, and after
+an automated step. A step failure reached any other way behaves as it always has for every step type,
+including a bad `duration`: entering the task from a completed task, an SLA-breach route or an async
+resume marks the STEP failed and logs it, but does not fail the instance. Check `deadline.at` inputs
+before the step that reads them when that step follows another task.
 
 ### Payment gateway webhooks: opt-in transport, locator and response options; ambiguous matches are rejected
 

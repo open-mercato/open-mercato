@@ -15,6 +15,7 @@
 // The same holds for every schema RESULT that nests it: a parsed step or
 // definition, the definition API inputs, and the definition response schemas.
 import type { z } from 'zod'
+import type { CodeStepDefinition } from '@open-mercato/shared/modules/workflows'
 import type { TaskDeadline, TaskDeadlineSpec } from './task-primitives'
 import type {
   CreateWorkflowDefinitionApiInput,
@@ -174,6 +175,15 @@ const updateSpecCarriesAt: MutuallyAssignable<
   TaskDeadlineSpec | undefined
 > = true
 
+// 12. A code-defined USER_TASK may declare the absolute form.
+const codeStepCarriesAt: CodeStepDefinition = {
+  stepId: 'review',
+  stepName: 'Review',
+  stepType: 'USER_TASK',
+  userTaskConfig: { deadline: { at: '{{context.dueDate}}' } },
+}
+
+void codeStepCarriesAt
 void readParsedStepDuration
 void readParsedDefinitionDuration
 void createInputIsLegacy

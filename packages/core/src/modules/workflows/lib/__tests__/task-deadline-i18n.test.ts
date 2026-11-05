@@ -43,6 +43,7 @@ describe('deadline diagnostics are localized', () => {
     ['bothForms', { duration: 'P1D', at: '2026-10-20' }],
     ['missingForm', {}],
     ['invalidAt', { at: 'next friday' }],
+    ['invalidAt', { at: '' }],
   ] as const
 
   test.each(cases)('%s carries its i18n key and the English fallback', (name, deadline) => {

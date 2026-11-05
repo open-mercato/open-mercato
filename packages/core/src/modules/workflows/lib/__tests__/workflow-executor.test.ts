@@ -813,10 +813,11 @@ describe('Workflow Executor (Unit Tests)', () => {
       const details = { i18n: { key: 'workflows.some.key', params: { value: 'x' } } }
       transitionHandler.executeTransition.mockResolvedValue({ success: false, error: 'English', details })
 
-      await workflowExecutor.executeWorkflow(mockEm, mockContainer, testInstanceId)
+      const result = await workflowExecutor.executeWorkflow(mockEm, mockContainer, testInstanceId)
 
       expect(instance.errorMessage).toBe('English')
       expect(instance.errorDetails).toEqual(details)
+      expect(result.errorDetails).toEqual(details)
     })
   })
 

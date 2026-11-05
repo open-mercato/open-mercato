@@ -271,6 +271,14 @@ describe('USER_TASK creation with deadline.at', () => {
     })
   })
 
+  test('an invalid Date in the context fails like any other value, with its code', async () => {
+    const { result } = await runUserTask({ deadline: { at: '{{context.dueAt}}' } }, { dueAt: new Date('soon') })
+
+    expect(result.status).toBe('FAILED')
+    expect(result.error).toContain('resolved to "Invalid Date"')
+    expect(result.details).toMatchObject({ deadlineAt: '{{context.dueAt}}', resolved: 'Invalid Date' })
+  })
+
   test('a long resolved value is truncated in the step error', async () => {
     const { result } = await runUserTask({ deadline: { at: '{{context.dueAt}}' } }, { dueAt: 'x'.repeat(500) })
 

@@ -38,7 +38,7 @@ import {
  *    silently mis-schedules every reminder and the breach, so the step fails
  *    with `INVALID_USER_TASK_DEADLINE` and NO task row is created. The error
  *    code itself is not persisted on any read surface; the step's `errorData`
- *    carries the engine's message and the `{ stepId, deadlineAt, resolved }`
+ *    carries the engine's message and the `{ stepId, deadlineAt, resolved, i18n }`
  *    details the code is thrown with, and those are what is asserted.
  * 4. **`duration` and `at` are mutually exclusive** — refused on save, not left
  *    for the engine to pick one.
@@ -154,10 +154,14 @@ test.describe('TC-WF-069: absolute user-task deadline (deadline.at) from the run
           { timeoutMs: 15_000 },
         )
         expect(failed?.status, `${label}: the instance fails closed`).toBe('FAILED')
-        const failedBody = failed as { errorMessage?: string | null } | null
+        const failedBody = failed as { errorMessage?: string | null; errorDetails?: Record<string, unknown> | null } | null
         expect(failedBody?.errorMessage ?? '', `${label}: the instance names the deadline`).toContain(
           'Invalid user task deadline "at"',
         )
+        expect(failedBody?.errorDetails?.i18n, `${label}: the run views can localize the failure`).toEqual({
+          key: 'workflows.validation.taskDeadline.invalidResolvedAt',
+          params: { authored: DEADLINE_TEMPLATE, resolved },
+        })
 
         const steps = await listWorkflowInstanceSteps(request, token, instanceId)
         const reviewStep = steps.find((step) => step.stepId === 'review')

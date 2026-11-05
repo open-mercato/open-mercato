@@ -70,6 +70,8 @@ export interface CodeStepDefinition<TStepId extends string = string> {
     assignedTo?: string | string[]
     assignmentRule?: string
     slaDuration?: string
+    /** Exactly one of `duration` or an absolute `at`; validated at registration. */
+    deadline?: { duration?: string; at?: string }
     escalationRules?: Array<{
       trigger: 'sla_breach' | 'no_progress' | 'custom'
       action: 'reassign' | 'notify' | 'escalate'
