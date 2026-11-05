@@ -3,7 +3,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 
-import { detectDocker, parseComposePsOutput, runCaptureSync, runCompose, runStreamingSync } from './compose.mjs'
+import { detectDocker, parseComposePsOutput, runCaptureSync, runCompose, runStreaming } from './compose.mjs'
 import { captureInterceptionCas, findVendorCaBundles, harvestWindowsStoreCas, hostTrustEnv, probeTlsInterception, provisionDockerCerts, provisionRancherDesktopCa, summarizeProbeResults, writeCaBundle } from './certs.mjs'
 import { loadCompanyConfig, resolveCompanyCertBundles } from './company.mjs'
 import { CAPTURED_CA_BUNDLE, DEFAULT_OPENCODE_BASE_IMAGE, OPENCODE_SERVICE_IMAGE, STARTER_STATE_DIR, resolveStackPorts } from './constants.mjs'
@@ -13,6 +13,7 @@ import { addEnvValue, readEnvValue } from './env-file.mjs'
 import { describeInfraProblem, startInfra } from './infra.mjs'
 import { findUnhealthyServices } from './infra-preflight.mjs'
 import { ensureLlmProvider } from './providers.mjs'
+import { createSetupLogs } from './setup-logs.mjs'
 import { color, formatDuration, guideBox, statusLine, stepHeader } from './ui.mjs'
 
 // The idempotent convergence pipeline behind `up`. Every step follows the same
@@ -251,9 +252,9 @@ export function yarnInvocation(ctx, args) {
     : { command: 'yarn', args }
 }
 
-function runYarn(ctx, args) {
+async function runYarn(ctx, args) {
   const invocation = yarnInvocation(ctx, args)
-  const status = (ctx.runStreamingImpl ?? runStreamingSync)(invocation.command, invocation.args, { cwd: ctx.repoRoot, env: ctx.env })
+  const status = await (ctx.runStreamingImpl ?? runStreaming)(invocation.command, invocation.args, { cwd: ctx.repoRoot, env: ctx.env, logs: ctx.logs })
   if (status !== 0) {
     throw new Error(`yarn ${args.join(' ')} failed (exit ${status}) — fix the error above and re-run; completed steps are skipped.`)
   }
@@ -281,9 +282,9 @@ export const prerequisitesStep = {
     // Node exists (we are running on it), so yarn is ours to install: enable
     // corepack and activate the exact version pinned in package.json.
     const spec = JSON.parse(fs.readFileSync(path.join(ctx.repoRoot, 'package.json'), 'utf8')).packageManager.split('+')[0]
-    const enable = runStreamingSync('corepack', ['enable'], { cwd: ctx.repoRoot, env: ctx.env })
+    const enable = await runStreaming('corepack', ['enable'], { cwd: ctx.repoRoot, env: ctx.env, logs: ctx.logs })
     if (enable !== 0) ctx.log('⚠️ corepack enable failed (PATH not writable?) — falling back to running yarn through corepack.')
-    const prepare = runStreamingSync('corepack', ['prepare', spec, '--activate'], { cwd: ctx.repoRoot, env: ctx.env })
+    const prepare = await runStreaming('corepack', ['prepare', spec, '--activate'], { cwd: ctx.repoRoot, env: ctx.env, logs: ctx.logs })
     if (prepare !== 0) {
       throw new Error(`corepack prepare ${spec} failed. Behind a corporate proxy? Set HTTPS_PROXY and re-run — the starter provisions the corporate CA automatically in the next step; if this step itself is blocked, set COREPACK_NPM_REGISTRY to your internal mirror (see starters/company/).`)
     }
@@ -438,7 +439,7 @@ export const workspaceInstallStep = {
     if (ctx.company.mirrors.npmRegistry) {
       ctx.env = { ...ctx.env, COREPACK_NPM_REGISTRY: ctx.company.mirrors.npmRegistry, YARN_NPM_REGISTRY_SERVER: ctx.company.mirrors.npmRegistry }
     }
-    runYarn(ctx, ['install'])
+    await runYarn(ctx, ['install'])
     writeState(ctx.repoRoot, 'install.hash', ctx.installHash)
     ctx.installChanged = true
   },
@@ -466,14 +467,15 @@ export const workspaceBuildStep = {
     // Mirrors the root `yarn build`: core only compiles `generated/**` into
     // dist/generated when it exists, which on a fresh clone is after `generate`.
     const run = ctx.runYarnImpl ?? runYarn
-    run(ctx, ['build:packages'])
-    run(ctx, ['generate'])
-    run(ctx, ['build:packages'])
+    await run(ctx, ['build:packages'])
+    await run(ctx, ['generate'])
+    await run(ctx, ['build:packages'])
   },
 }
 
 export const llmProviderStep = {
   id: 'llm-provider',
+  interactive: true,
   expectation: 'waits for your input on first run; have an API key ready',
   title: 'AI provider (LLM API key)',
   async apply(ctx) {
@@ -508,15 +510,15 @@ export function resolveOpencodeBaseImage(repoRoot, env = process.env) {
 // Desktop) and therefore survives corporate TLS interception that breaks
 // build-stage egress; the thin build itself only COPYs project files.
 // --rebuild forces the thin rebuild (e.g. after yarn generate in prod mode).
-export function ensureOpencodeImage(ctx) {
+export async function ensureOpencodeImage(ctx) {
   const baseImage = resolveOpencodeBaseImage(ctx.repoRoot, ctx.env)
   const baseExists = spawnSync('docker', ['image', 'inspect', baseImage], { stdio: 'ignore' }).status === 0
   if (baseExists) {
     ctx.log(`   opencode base image: ${baseImage} (already present)`)
   } else {
     ctx.log(`   pulling OpenCode base image ${baseImage} ...`)
-    const pull = spawnSync('docker', ['pull', baseImage], { stdio: 'inherit' })
-    if (pull.status !== 0) {
+    const pull = await (ctx.runStreamingImpl ?? runStreaming)('docker', ['pull', baseImage], { cwd: ctx.repoRoot, env: ctx.env, logs: ctx.logs })
+    if (pull !== 0) {
       throw new Error(`Could not pull the OpenCode base image ${baseImage}. Behind a proxy that blocks registry-1.docker.io? Set OPENCODE_BASE_IMAGE in .env to your internal mirror (build/push runbook: docker/opencode/BASE_IMAGE.md), then re-run.`)
     }
   }
@@ -526,13 +528,13 @@ export function ensureOpencodeImage(ctx) {
     return
   }
   ctx.log(`   building ${OPENCODE_SERVICE_IMAGE} from ${baseImage} (project files only — no network) ...`)
-  const build = spawnSync('docker', [
+  const build = await (ctx.runStreamingImpl ?? runStreaming)('docker', [
     'build',
     '-t', OPENCODE_SERVICE_IMAGE,
     '--build-arg', `OPENCODE_BASE_IMAGE=${baseImage}`,
     path.join(ctx.repoRoot, 'docker', 'opencode'),
-  ], { stdio: 'inherit', cwd: ctx.repoRoot })
-  if (build.status !== 0) {
+  ], { cwd: ctx.repoRoot, env: ctx.env, logs: ctx.logs })
+  if (build !== 0) {
     throw new Error('Local build of the OpenCode service image failed — see the output above, then re-run.')
   }
 }
@@ -561,6 +563,8 @@ export const infraUpStep = {
     const prepareOpencodeImage = ctx.ensureOpencodeImageImpl ?? ensureOpencodeImage
     const outcome = await (ctx.startInfraImpl ?? startInfra)(ctx.repoRoot, {
       profiles: ctx.flags.profiles,
+      env: ctx.env,
+      logs: ctx.logs,
       log: ctx.log,
       beforeUp: () => prepareOpencodeImage(ctx),
     })
@@ -633,7 +637,7 @@ export const databaseStep = {
         'or start over with a fresh database (DELETES all local data):  yarn om reset',
       ].join('\n'))
     }
-    runYarn(ctx, ['db:migrate'])
+    await runYarn(ctx, ['db:migrate'])
     writeState(ctx.repoRoot, ctx.dbMigrationsMarker, ctx.migrationsFingerprint)
     const applied = readAppliedMigrationModules(ctx)
     if (applied && applied.size > 0) {
@@ -652,7 +656,7 @@ export const databaseStep = {
         // to run the destructive --reinstall. An emptied volume (dbReinitialize)
         // has no users, so it seeds either way; the flag is left off there.
         const initArgs = ctx.dbReinitialize ? ['initialize'] : ['initialize', '--', '--skip-if-initialized']
-        runYarn({ ...ctx, env: { ...ctx.env, OM_INIT_DEV_AUTOSTART: '1' } }, initArgs)
+        await runYarn({ ...ctx, env: { ...ctx.env, OM_INIT_DEV_AUTOSTART: '1' } }, initArgs)
       }
       writeState(ctx.repoRoot, ctx.dbMarker, new Date().toISOString())
     }
@@ -767,31 +771,49 @@ export async function createStepContext(repoRoot, { mode = 'hybrid', flags = {},
 }
 
 export async function runSteps(steps, ctx) {
-  const active = steps.filter((step) => !step.appliesTo || step.appliesTo(ctx))
-  let index = 0
-  for (const step of active) {
-    index += 1
-    stepHeader(index, active.length, step.title, step.expectation, { log: ctx.log })
-    const startedAt = Date.now()
-    try {
-      const checked = step.check ? await step.check(ctx) : { ok: false, detail: '' }
-      if (checked.ok) {
-        statusLine('ok', `${checked.detail || 'already satisfied'} ${color.dim('(skipped — already done)')}`, { log: ctx.log })
-        continue
+  const originalLog = ctx.log
+  const logs = ctx.logs ?? createSetupLogs({ repoRoot: ctx.repoRoot, ...ctx.flags })
+  // Step summaries stay visible; routine details and child output share the
+  // foldable buffer. Keep mutations to ctx (env, markers) on the real context.
+  const log = (...args) => { originalLog(...args); logs.record(...args) }
+  ctx.logs = logs
+  logs.start()
+  try {
+    const active = steps.filter((step) => !step.appliesTo || step.appliesTo(ctx))
+    let index = 0
+    for (const step of active) {
+      index += 1
+      stepHeader(index, active.length, step.title, step.expectation, { log })
+      const startedAt = Date.now()
+      if (step.interactive) logs.suspend()
+      ctx.log = step.interactive ? log : (...args) => logs.log(...args)
+      try {
+        const checked = step.check ? await step.check(ctx) : { ok: false, detail: '' }
+        if (checked.ok) {
+          statusLine('ok', `${checked.detail || 'already satisfied'} ${color.dim('(skipped — already done)')}`, { log })
+          continue
+        }
+        if (checked.detail) statusLine('info', checked.detail, { log })
+        if (!step.apply) continue
+        await step.apply(ctx)
+        statusLine('ok', `done ${color.dim(`in ${formatDuration(Date.now() - startedAt)}`)}`, { log })
+      } catch (error) {
+        logs.show(`Setup stopped at ${step.title}`)
+        if (error instanceof StepBlocked) {
+          statusLine('fail', 'blocked — this starter proposes, it does not install system components', { log })
+          guideBox('What to do next', error.guide, { log })
+          return { ok: false, blockedStep: step.id }
+        }
+        statusLine('fail', error instanceof Error ? error.message : String(error), { log })
+        return { ok: false, failedStep: step.id }
+      } finally {
+        ctx.log = originalLog
+        if (step.interactive) logs.resume()
       }
-      if (checked.detail) statusLine('info', checked.detail, { log: ctx.log })
-      if (!step.apply) continue
-      await step.apply(ctx)
-      statusLine('ok', `done ${color.dim(`in ${formatDuration(Date.now() - startedAt)}`)}`, { log: ctx.log })
-    } catch (error) {
-      if (error instanceof StepBlocked) {
-        statusLine('fail', 'blocked — this starter proposes, it does not install system components', { log: ctx.log })
-        guideBox('What to do next', error.guide, { log: ctx.log })
-        return { ok: false, blockedStep: step.id }
-      }
-      statusLine('fail', error instanceof Error ? error.message : String(error), { log: ctx.log })
-      return { ok: false, failedStep: step.id }
     }
+    return { ok: true }
+  } finally {
+    ctx.log = originalLog
+    logs.stop()
   }
-  return { ok: true }
 }

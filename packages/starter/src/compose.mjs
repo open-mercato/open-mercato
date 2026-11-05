@@ -114,3 +114,39 @@ export function runStreamingSync(command, commandArgs, { cwd, env } = {}) {
   }
   return result.status ?? 1
 }
+
+// Async output capture keeps the setup log toggle responsive during long
+// installs/builds. With no sink, preserve inherited stdio (CI / verbose).
+export function runStreaming(command, commandArgs, { cwd, env, logs, spawnImpl = spawn } = {}) {
+  const resolved = resolveSpawnCommand(command, commandArgs)
+  return new Promise((resolve, reject) => {
+    const child = spawnImpl(resolved.command, resolved.args, {
+      cwd: cwd ?? process.cwd(),
+      env: env ?? process.env,
+      stdio: logs ? ['ignore', 'pipe', 'pipe'] : 'inherit',
+      // Give piped children their own group so Ctrl+C reaches yarn's workers
+      // as well as yarn itself. Windows does not support POSIX group signals.
+      detached: Boolean(logs) && process.platform !== 'win32',
+      ...resolved.spawnOptions,
+    })
+    const interrupt = (signal) => {
+      logs?.stop()
+      if (process.platform !== 'win32' && logs && child.pid) {
+        try { process.kill(-child.pid, signal) } catch { /* child already exited */ }
+      } else child.kill(signal)
+      process.exit(signal === 'SIGINT' ? 130 : 143)
+    }
+    const onSigint = () => interrupt('SIGINT')
+    const onSigterm = () => interrupt('SIGTERM')
+    process.once('SIGINT', onSigint)
+    process.once('SIGTERM', onSigterm)
+    const cleanup = () => {
+      process.removeListener('SIGINT', onSigint)
+      process.removeListener('SIGTERM', onSigterm)
+    }
+    child.stdout?.on('data', (chunk) => logs?.raw(chunk))
+    child.stderr?.on('data', (chunk) => logs?.raw(chunk))
+    child.once('error', (error) => { cleanup(); reject(new Error(`${command} could not be executed: ${error.message}`)) })
+    child.once('close', (code) => { cleanup(); resolve(code ?? 1) })
+  })
+}

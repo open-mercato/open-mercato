@@ -21,7 +21,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import readline from 'node:readline'
 
-import { detectDocker, resolveRepoRoot, runCompose, runStreamingSync, spawnStreaming } from './compose.mjs'
+import { composeArgs, detectDocker, resolveRepoRoot, runCompose, runStreaming, spawnStreaming } from './compose.mjs'
 import { readEnvValue } from './env-file.mjs'
 import { FULLAPP_DEV_COMPOSE_FILE, STARTER_STATE_DIR, resolveStackPorts, stackUrls } from './constants.mjs'
 import { loadCompanyConfig } from './company.mjs'
@@ -30,6 +30,7 @@ import { describeInfraProblem, devRuntimeArgs, infraDown, ensureMcpSharedDir, re
 import { buildUpSteps, clearConvergenceState, createStepContext, ensureOpencodeImage, runSteps, yarnInvocation } from './steps.mjs'
 import { collectStatus, printStatus, readRunState, isPidAlive, startDetached, stopDetached, tailLogs } from './supervise.mjs'
 import { ensureWindowsUtf8Console } from './spawn.mjs'
+import { createSetupLogs } from './setup-logs.mjs'
 import { color, guideBox, printBanner, statusLine } from './ui.mjs'
 import { waitForHealthyServices, waitForHttp } from './waits.mjs'
 
@@ -51,6 +52,7 @@ function parseArgs(argv) {
     detach: false,
     follow: false,
     nonInteractive: false,
+    verbose: false,
     skipLlmPrompt: false,
     skipDb: false,
     noInfra: false,
@@ -80,6 +82,9 @@ function parseArgs(argv) {
       case '--follow':
       case '-f':
         flags.follow = true
+        break
+      case '--verbose':
+        flags.verbose = true
         break
       case '--non-interactive':
         flags.nonInteractive = true
@@ -218,16 +223,29 @@ async function commandUpDocker(ctx, flags) {
   if (!outcome.ok) process.exit(2)
 
   ensureMcpSharedDir(repoRoot)
-  ensureOpencodeImage(ctx)
   const composeFile = FULLAPP_DEV_COMPOSE_FILE
   const upArgs = ['up', '-d']
   if (flags.rebuild) upArgs.push('--build')
   console.log('')
   console.log('── Starting the containerized stack (this builds the app image on the first run) ──')
-  const up = runCompose(repoRoot, upArgs, { composeFile })
-  if ((up.status ?? 1) !== 0) {
+  const logs = ctx.logs
+  let up
+  logs.start()
+  ctx.log = (...args) => logs.log(...args)
+  try {
+    await ensureOpencodeImage(ctx)
+    up = await runStreaming('docker', composeArgs(repoRoot, upArgs, composeFile), { cwd: repoRoot, env: ctx.env, logs })
+    if (up !== 0) logs.show('Containerized stack failed')
+  } catch (error) {
+    logs.show('Containerized stack failed')
+    throw error
+  } finally {
+    ctx.log = console.log
+    logs.stop()
+  }
+  if (up !== 0) {
     console.error('❌ docker compose up failed — see above. TLS errors inside builds usually mean the corporate CA changed: re-run with --rebuild.')
-    process.exit(up.status ?? 1)
+    process.exit(up)
   }
 
   const ports = resolveStackPorts(repoRoot)
@@ -342,12 +360,37 @@ async function commandInfra(flags) {
       console.error('❌ --volumes DELETES all database/search data. Re-run with --yes to confirm.')
       process.exit(1)
     }
-    process.exit(infraDown(repoRoot, { volumes: flags.volumes }))
+    const logs = createSetupLogs({ repoRoot, name: 'infra', ...flags })
+    logs.start()
+    statusLine('info', 'Stopping infrastructure containers')
+    let status
+    try {
+      status = await runStreaming('docker', composeArgs(repoRoot, ['down', ...(flags.volumes ? ['--volumes'] : [])]), { cwd: repoRoot, logs })
+      if (status !== 0) logs.show('Infrastructure shutdown failed')
+    } finally {
+      logs.stop()
+    }
+    if (status === 0) statusLine('ok', flags.volumes ? 'Infra containers stopped and volumes deleted.' : 'Infra containers stopped (data preserved).')
+    process.exit(status)
   }
-  const outcome = await startInfra(repoRoot, {
-    profiles: flags.profiles,
-    beforeUp: () => ensureOpencodeImage({ repoRoot, env: process.env, flags: { rebuild: flags.rebuild }, log: console.log }),
-  })
+  const logs = createSetupLogs({ repoRoot, name: 'infra', ...flags })
+  let outcome
+  logs.start()
+  statusLine('info', 'Starting infrastructure containers (first run may pull and build images)')
+  try {
+    outcome = await startInfra(repoRoot, {
+      profiles: flags.profiles,
+      logs,
+      log: (...args) => logs.log(...args),
+      beforeUp: () => ensureOpencodeImage({ repoRoot, env: process.env, flags, logs, log: (...args) => logs.log(...args) }),
+    })
+    if (!outcome.ok) logs.show('Infrastructure startup failed')
+  } catch (error) {
+    logs.show('Infrastructure startup failed')
+    throw error
+  } finally {
+    logs.stop()
+  }
   if (!outcome.ok) {
     printInfraProblem(outcome.problem)
     process.exit(2)
@@ -388,4 +431,7 @@ async function main() {
   }
 }
 
-await main()
+await main().catch((error) => {
+  console.error(`❌ ${error instanceof Error ? error.message : String(error)}`)
+  process.exitCode = 1
+})
