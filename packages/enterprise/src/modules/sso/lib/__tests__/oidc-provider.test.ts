@@ -4,6 +4,7 @@ jest.mock('openid-client', () => ({
 }))
 
 import * as client from 'openid-client'
+import { UnsafeOidcUrlError } from '../oidc-url-safety'
 
 import {
   OidcProvider,
@@ -98,6 +99,74 @@ describe('OidcProvider outbound request safety', () => {
     await new OidcProvider().validateConfig(config)
 
     expect(discovery).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('OidcProvider discovery errors', () => {
+  const config = {
+    id: 'discovery-errors-config-id',
+    organizationId: 'organization-id',
+    protocol: 'oidc',
+    issuer: 'https://10.0.0.5',
+    clientId: 'client-id',
+    allowedDomains: [],
+    jitEnabled: false,
+    autoLinkByEmail: false,
+    isActive: false,
+    ssoRequired: false,
+    appRoleMappings: {},
+    createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+  }
+
+  const guardError = () => new UnsafeOidcUrlError(
+    'private_ip_resolved',
+    'OIDC endpoint URL resolves to a private or reserved IP range',
+  )
+
+  test.each([0, 1, 3])('surfaces a URL-safety error through %i discovery wrappers', async (depth) => {
+    let error: Error = guardError()
+    for (let index = 0; index < depth; index += 1) {
+      error = Object.assign(new Error('something went wrong'), { cause: error })
+    }
+    jest.mocked(client.discovery).mockRejectedValueOnce(error)
+
+    expect(await new OidcProvider().validateConfig(config)).toEqual({
+      ok: false,
+      error: guardError().message,
+    })
+  })
+
+  test('does not expose an unrelated nested error', async () => {
+    jest.mocked(client.discovery).mockRejectedValueOnce(Object.assign(
+      new Error('something went wrong'),
+      { cause: new Error('sensitive upstream detail') },
+    ))
+
+    expect(await new OidcProvider().validateConfig(config)).toEqual({
+      ok: false,
+      error: 'something went wrong',
+    })
+  })
+
+  test('terminates on cyclic causes and preserves the outer error', async () => {
+    const error = Object.assign(new Error('something went wrong'), { cause: null as unknown })
+    error.cause = error
+    jest.mocked(client.discovery).mockRejectedValueOnce(error)
+
+    expect(await new OidcProvider().validateConfig(config)).toEqual({
+      ok: false,
+      error: 'something went wrong',
+    })
+  })
+
+  test('preserves the fallback for a non-Error rejection', async () => {
+    jest.mocked(client.discovery).mockRejectedValueOnce(null)
+
+    expect(await new OidcProvider().validateConfig(config)).toEqual({
+      ok: false,
+      error: 'Discovery failed',
+    })
   })
 })
 

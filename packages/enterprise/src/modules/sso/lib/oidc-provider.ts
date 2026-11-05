@@ -2,7 +2,7 @@ import * as client from 'openid-client'
 import { createHash } from 'node:crypto'
 import type { SsoConfig } from '../data/entities'
 import type { SsoIdentityPayload, SsoProtocolProvider } from './types'
-import { createOidcFetch } from './oidc-url-safety'
+import { createOidcFetch, UnsafeOidcUrlError } from './oidc-url-safety'
 
 const OIDC_DISCOVERY_TIMEOUT_SECONDS = 10
 const OIDC_DISCOVERY_CACHE_TTL_MS = 5 * 60 * 1000
@@ -109,6 +109,13 @@ export class OidcProvider implements SsoProtocolProvider {
       await this.discover(config, params?.clientSecret)
       return { ok: true }
     } catch (err) {
+      let cause: unknown = err
+      for (let depth = 0; depth < 10 && cause instanceof Error; depth += 1) {
+        if (cause instanceof UnsafeOidcUrlError) {
+          return { ok: false, error: cause.message }
+        }
+        cause = cause.cause
+      }
       return {
         ok: false,
         error: err instanceof Error ? err.message : 'Discovery failed',
