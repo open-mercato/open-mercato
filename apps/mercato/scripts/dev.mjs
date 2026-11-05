@@ -59,10 +59,10 @@ function resolveMemorySamplerImport() {
   throw new Error('Unable to resolve dev memory sampler module')
 }
 
-function resolveDevSessionGuardImport() {
+function resolveDevSessionRecoveryImport() {
   const candidates = [
-    new URL('./dev-session-guard.mjs', import.meta.url),
-    new URL('../../../scripts/dev-session-guard.mjs', import.meta.url),
+    new URL('./dev-session-recovery.mjs', import.meta.url),
+    new URL('../../../scripts/dev-session-recovery.mjs', import.meta.url),
   ]
 
   for (const candidate of candidates) {
@@ -133,7 +133,7 @@ const {
   inferDevMemoryMarkerFromLine,
   resolveMemoryTraceIntervalMs,
 } = await import(resolveMemorySamplerImport())
-const { acquireDevSession } = await import(resolveDevSessionGuardImport())
+const { acquireDevSessionWithRecovery: acquireDevSession } = await import(resolveDevSessionRecoveryImport())
 
 const mercatoInvocation = resolveMercatoInvocation()
 const classic = process.argv.includes('--classic') || isEnabledEnvFlag(process.env.OM_DEV_CLASSIC)
@@ -260,7 +260,7 @@ const devSessionUrl = process.env.APP_URL?.trim()
   || `http://localhost:${process.env.PORT?.trim() || '3000'}`
 let devSession
 try {
-  devSession = acquireDevSession({
+  devSession = await acquireDevSession({
     workspaceRoot: resolveDevSessionWorkspaceRoot(),
     mode: `app-runtime:${classic ? 'classic' : verbose ? 'verbose' : 'compact'}`,
     url: devSessionUrl,
