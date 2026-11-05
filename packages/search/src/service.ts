@@ -124,6 +124,7 @@ export class SearchService {
   private readonly fallbackStrategy: SearchStrategyId | undefined
   private readonly mergeConfig: ResultMergeConfig
   private readonly presenterEnricher?: PresenterEnricherFn
+  private readonly resolveEntityStrategies?: SearchServiceOptions['resolveEntityStrategies']
   private readonly availabilityCache = new Map<SearchStrategyId, { value: boolean; expiresAt: number }>()
   private readonly availabilityInflight = new Map<SearchStrategyId, Promise<boolean>>()
   private readonly availabilityCacheTtlMs: number
@@ -137,6 +138,7 @@ export class SearchService {
     this.fallbackStrategy = options.fallbackStrategy
     this.mergeConfig = options.mergeConfig ?? DEFAULT_MERGE_CONFIG
     this.presenterEnricher = options.presenterEnricher
+    this.resolveEntityStrategies = options.resolveEntityStrategies
     this.availabilityCacheTtlMs = options.availabilityCacheTtlMs ?? STRATEGY_AVAILABILITY_CACHE_TTL_MS
   }
 
@@ -521,6 +523,10 @@ export class SearchService {
   }
 
   private isIndexStrategyAllowed(entityId: string, strategyId: SearchStrategyId): boolean {
+    if (this.resolveEntityStrategies) {
+      const allowedStrategies = this.resolveEntityStrategies(entityId)
+      return allowedStrategies === undefined || allowedStrategies.includes(strategyId)
+    }
     let allowedStrategies: SearchStrategyId[] | undefined
     for (const moduleConfig of getSearchModuleConfigs()) {
       for (const entityConfig of moduleConfig.entities) {

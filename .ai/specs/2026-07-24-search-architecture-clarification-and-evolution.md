@@ -80,14 +80,17 @@ Prerequisites for the fulltext path to actually drain: `QUEUE_STRATEGY=async` + 
 #### Entity strategy restrictions on writes (#5930)
 
 `SearchService.index` and `bulkIndex` honor each entity's existing `strategies`
-restriction from the registered search module configurations, including the
+restriction from the existing DI entity configuration map, including the
 per-record bulk fallback. An explicit empty list prevents all strategy writes;
 entities without a restriction retain all available writers. Mixed batches are
 filtered separately for each strategy. Delete and purge remain unrestricted so
 previously indexed content can still be removed.
 
-Migration & Backward Compatibility: no signature, startup, configuration shape,
-API, schema, or default strategy change. Modules already restricting an entity
+Migration & Backward Compatibility: the existing `SearchServiceOptions` gains
+only the optional `resolveEntityStrategies` callback. DI supplies its current
+entity map; legacy direct constructors fall back to registered module configs.
+Existing caller signatures, startup, operator configuration, APIs, schema, and
+default strategies are preserved. Modules already restricting an entity
 now receive the intended write isolation. Existing unwanted vectors require an
 operator purge after workers are upgraded; this fix does not delete stored data
 or undo embedding-provider retention. Fulltext content and null-source behavior
