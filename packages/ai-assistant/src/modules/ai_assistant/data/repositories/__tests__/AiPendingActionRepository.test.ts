@@ -592,7 +592,7 @@ describe('AiPendingActionRepository', () => {
   it('defaults channel to agent and stores null api key / correlation ids', async () => {
     const em = mockEm()
     const repo = new AiPendingActionRepository(em)
-    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-1' }
+    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: userOne }
 
     const { row } = await repo.create(baseInput({ idempotencyKey: 'chan-default' }), ctx)
 
@@ -604,7 +604,7 @@ describe('AiPendingActionRepository', () => {
   it('persists channel, apiKeyId and correlationId and keeps idempotency for non-agent rows', async () => {
     const em = mockEm()
     const repo = new AiPendingActionRepository(em)
-    const ctx = { tenantId: tenantAlpha, organizationId: 'org-1', userId: 'u-1' }
+    const ctx = { tenantId: tenantAlpha, organizationId: 'org-1', userId: userOne }
 
     const { row: first } = await repo.create(
       baseInput({
@@ -638,7 +638,7 @@ describe('AiPendingActionRepository', () => {
     async (transitions) => {
       const em = mockEm()
       const repo = new AiPendingActionRepository(em)
-      const ctx = { tenantId: tenantAlpha, organizationId: 'org-1', userId: 'u-1' }
+      const ctx = { tenantId: tenantAlpha, organizationId: 'org-1', userId: userOne }
       const rawInput = baseInput({
         idempotencyKey: 'raw-repeat',
         agentId: 'ai_assistant.raw_tool',
@@ -648,7 +648,7 @@ describe('AiPendingActionRepository', () => {
 
       const { row: first } = await repo.create(rawInput, ctx)
       for (const status of transitions) {
-        await repo.setStatus(first.id, status, ctx, { resolvedByUserId: 'u-2' })
+        await repo.setStatus(first.id, status, ctx, { resolvedByUserId: userTwo })
       }
 
       const { row: second, reused } = await repo.create(rawInput, ctx)
@@ -667,7 +667,7 @@ describe('AiPendingActionRepository', () => {
   it('raw-tool rows still collapse onto a pending row with the same key', async () => {
     const em = mockEm()
     const repo = new AiPendingActionRepository(em)
-    const ctx = { tenantId: tenantAlpha, organizationId: 'org-1', userId: 'u-1' }
+    const ctx = { tenantId: tenantAlpha, organizationId: 'org-1', userId: userOne }
     const rawInput = baseInput({ idempotencyKey: 'raw-pending', agentId: 'ai_assistant.raw_tool', channel: 'tools-api' })
 
     const { row: first } = await repo.create(rawInput, ctx)
@@ -678,14 +678,36 @@ describe('AiPendingActionRepository', () => {
     expect(em.__store).toHaveLength(1)
   })
 
+  it('setStatus lets another user resolve a non-agent row but keeps agent rows owner-only', async () => {
+    const em = mockEm()
+    const repo = new AiPendingActionRepository(em)
+    const owner = { tenantId: tenantAlpha, organizationId: 'org-1', userId: userOne }
+    const approver = { tenantId: tenantAlpha, organizationId: 'org-1', userId: userTwo }
+
+    const { row: mcpRow } = await repo.create(
+      baseInput({ idempotencyKey: 'mcp-approve', agentId: 'ai_assistant.raw_tool', channel: 'mcp' }),
+      owner,
+    )
+    const { row: chatRow } = await repo.create(baseInput({ idempotencyKey: 'chat-owner', channel: 'agent' }), owner)
+
+    const approved = await repo.setStatus(mcpRow.id, 'confirmed', approver, { resolvedByUserId: userTwo })
+    expect(approved.status).toBe('confirmed')
+    await expect(
+      repo.setStatus(chatRow.id, 'confirmed', approver, { resolvedByUserId: userTwo }),
+    ).rejects.toThrow(`AiPendingAction not found: ${chatRow.id}`)
+    await expect(
+      repo.setStatus(mcpRow.id, 'executing', { ...approver, userId: 'api_key:key-1' }),
+    ).rejects.toThrow(`AiPendingAction not found: ${mcpRow.id}`)
+  })
+
   it('chat rows on the agent channel keep reusing a confirmed row within the TTL', async () => {
     const em = mockEm()
     const repo = new AiPendingActionRepository(em)
-    const ctx = { tenantId: tenantAlpha, organizationId: 'org-1', userId: 'u-1' }
+    const ctx = { tenantId: tenantAlpha, organizationId: 'org-1', userId: userOne }
     const chatInput = baseInput({ idempotencyKey: 'chat-confirmed', channel: 'agent' })
 
     const { row: first } = await repo.create(chatInput, ctx)
-    await repo.setStatus(first.id, 'confirmed', ctx, { resolvedByUserId: 'u-1' })
+    await repo.setStatus(first.id, 'confirmed', ctx, { resolvedByUserId: userOne })
     const { row: second, reused } = await repo.create(chatInput, ctx)
 
     expect(reused).toBe(true)

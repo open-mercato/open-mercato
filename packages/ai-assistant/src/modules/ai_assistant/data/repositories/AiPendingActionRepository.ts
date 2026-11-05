@@ -121,7 +121,9 @@ export interface AiPendingActionSetStatusExtra {
  *   in-app UI's "open actions" list. `getById`, `listPendingForAgent` and
  *   `setStatus` are also owner-scoped: they match the row's
  *   `createdByUserId` against `ctx.userId`, so only the proposing user can
- *   read or resolve it. System callers (the expiry sweeper) pass
+ *   read or resolve it. `setStatus` exempts non-`agent` channel rows (MCP,
+ *   tools-api), which an approver resolves under their own identity after
+ *   `getByIdForApprover` has authorized them. System callers (the expiry sweeper) pass
  *   `userId: null` to skip the owner filter; a missing or non-UUID
  *   `userId` (for example an API-key subject) matches no row.
  * - State-machine enforcement: `setStatus` rejects illegal transitions via
@@ -308,7 +310,7 @@ export class AiPendingActionRepository {
     scope: AiPendingActionApproverScope,
     viewer: AiPendingActionViewer,
   ): Promise<AiPendingAction | null> {
-    const row = await this.getById(id, scope)
+    const row = await this.getById(id, { ...scope, userId: null })
     if (!row) return null
     return canViewerAccessPendingAction(row, viewer) ? row : null
   }
@@ -400,7 +402,7 @@ export class AiPendingActionRepository {
     if (!id) {
       throw new Error('AiPendingActionRepository.setStatus requires id')
     }
-    const owner = resolveOwnerScope(ctx)
+    const owner = resolveStatusOwnerScope(ctx)
     return this.em.transactional(async (tx) => {
       const existing = owner
         ? await findOneWithDecryption<AiPendingAction>(
@@ -492,6 +494,12 @@ function resolveOwnerScope(ctx: AiPendingActionContext): { createdByUserId?: str
     return { createdByUserId: ctx.userId }
   }
   return null
+}
+
+function resolveStatusOwnerScope(ctx: AiPendingActionContext): Record<string, unknown> | null {
+  const owner = resolveOwnerScope(ctx)
+  if (!owner || !owner.createdByUserId) return owner
+  return { $or: [{ createdByUserId: owner.createdByUserId }, { channel: { $ne: 'agent' } }] }
 }
 
 function normalizeRecords(

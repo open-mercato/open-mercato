@@ -168,6 +168,7 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
   beforeAll(() => {
     registerModules([
       { id: 'ai_assistant', translations: { en: enTranslations, pl: plTranslations } },
+      { id: 'catalog' },
     ] as unknown as Parameters<typeof registerModules>[0])
   })
 
