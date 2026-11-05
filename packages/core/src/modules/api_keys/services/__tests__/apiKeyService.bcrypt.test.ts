@@ -1,3 +1,5 @@
+jest.mock('node:perf_hooks', () => ({ performance: { now: () => Date.now() } }))
+
 import { getRounds, hash } from 'bcryptjs'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { ApiKey } from '../../data/entities'
@@ -32,28 +34,34 @@ function buildEntityManager() {
 }
 
 describe('API-key bcrypt work factor', () => {
-  it('hashes new secrets at cost 12 and rejects a wrong secret', async () => {
+  beforeEach(() => {
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'setTimeout'] })
+    jest.advanceTimersByTime(1000)
+  })
+
+  afterEach(() => jest.useRealTimers())
+  it('hashes new secrets at cost 10 and rejects a wrong secret', async () => {
     const { secret } = generateApiKeySecret()
 
     const keyHash = await hashApiKey(secret)
 
-    expect(getRounds(keyHash)).toBe(12)
+    expect(getRounds(keyHash)).toBe(10)
     await expect(verifyApiKey(secret, keyHash)).resolves.toBe(true)
     await expect(verifyApiKey(`${secret}wrong`, keyHash)).resolves.toBe(false)
   })
 
-  it('creates a cost-12 key that can be found by its secret', async () => {
+  it('creates a cost-10 key that can be found by its secret', async () => {
     const { entityManager, records } = buildEntityManager()
 
     const { record, secret } = await createApiKey(entityManager, { name: 'bcrypt regression' })
 
     expect(records).toEqual([record])
-    expect(getRounds(record.keyHash)).toBe(12)
+    expect(getRounds(record.keyHash)).toBe(10)
     await expect(findApiKeyBySecret(entityManager, secret)).resolves.toBe(record)
     await expect(findApiKeyBySecret(entityManager, `${secret}wrong`)).resolves.toBeNull()
   })
 
-  it('creates session API keys at cost 12', async () => {
+  it('creates session API keys at cost 10', async () => {
     const { entityManager, records } = buildEntityManager()
 
     const { secret } = await createSessionApiKey(entityManager, {
@@ -63,8 +71,15 @@ describe('API-key bcrypt work factor', () => {
     })
 
     expect(records).toHaveLength(1)
-    expect(getRounds(records[0].keyHash)).toBe(12)
+    expect(getRounds(records[0].keyHash)).toBe(10)
     await expect(findApiKeyBySecret(entityManager, secret)).resolves.toBe(records[0])
+  })
+
+  it('continues to verify existing cost-12 hashes', async () => {
+    const { secret } = generateApiKeySecret()
+    const keyHash = await hash(secret, 12)
+    await expect(verifyApiKey(secret, keyHash)).resolves.toBe(true)
+    await expect(verifyApiKey(`${secret}wrong`, keyHash)).resolves.toBe(false)
   })
 
   it('continues to verify existing cost-10 hashes and rejects wrong secrets', async () => {

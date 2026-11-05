@@ -5148,3 +5148,7 @@ skill can parse them.
 `POST /api/auth/logout` now returns `303 See Other` with the same login Location, so browsers navigate with GET and reloading the login page does not resubmit a form. This supersedes the 307 status in the earlier logout notes, including refresh-cookie-only and cookieless requests.
 
 **Action for integrators:** accept 303 instead of asserting 307 and follow Location with GET. Operators need no configuration or database migration. Session revocation, cookie expiry and events retain their current behavior, and other users of the shared redirect helper still default to 307. See [spec](.ai/specs/2026-11-05-logout-post-redirect.md).
+
+### API-key verification admission limits
+
+New API keys continue to use bcrypt cost 10. Application and MCP processes now share the same verification policy: at most two simultaneous bcrypt comparisons per process, with a burst of four starts and eight replenished starts per second. Comparison results are cached for ten seconds using keyed credential fingerprints. Existing bcrypt keys, including cost-12 keys, remain readable. Uncached requests exceeding the budget fail authentication and can be retried after refill; sustained abuse can deny uncached legitimate requests. Deploy all application and MCP processes to enforce the limits everywhere. No schema migration or credential reissuance is required.

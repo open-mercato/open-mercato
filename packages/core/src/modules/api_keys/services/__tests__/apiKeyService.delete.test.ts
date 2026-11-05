@@ -16,6 +16,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 const mockInvalidateByKeyId = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/auth/apiKeyAuthCache', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/auth/apiKeyAuthCache'),
   getSharedApiKeyAuthCache: () => ({ invalidateByKeyId: mockInvalidateByKeyId }),
 }))
 

@@ -2,35 +2,57 @@
 
 ## TLDR
 
-Address PR #8376's security finding by replacing bcrypt for newly issued high-entropy API secrets with versioned HMAC-SHA-256 digests and retaining a bounded bcrypt compatibility verifier. Do not increase bcrypt's work factor on the request authentication path.
+Address PR #8376's security finding with shared, fail-closed bcrypt admission limits. Keep newly issued API keys at cost 10; preserve legacy bcrypt verification. The maintainer selected “Keep bcrypt with limits” on 2026-11-05. No HMAC credential migration or secret provisioning is included.
 
-## Open Questions
+## Overview and Problem Statement
 
-Q1. Provision a dedicated stable `API_KEY_HASH_SECRET` in both application and MCP processes for the recommended HMAC migration, or retain bcrypt and implement admission controls only? A dedicated secret must survive JWT secret rotation; missing configuration must never silently select an unkeyed digest or a random process-local key.
-
-## Problem Statement
-
-The public key prefix selects a stored hash before authentication. Attackers can vary wrong suffixes to defeat full-secret negative caches and repeatedly invoke expensive bcrypt work. Increasing cost from 10 to 12 quadruples that work. Both application and MCP authentication call the shared API-key verifier, making that service the enforcement boundary.
+The public key prefix selects a stored hash before authentication. Attackers can vary wrong suffixes to defeat full-secret negative caches and repeatedly invoke expensive bcrypt work. Increasing cost from 10 to 12 quadruples that work. Both application and MCP authentication call the shared API-key verifier.
 
 Audit: https://github.com/open-mercato/open-mercato/pull/8376#issuecomment-6554288231
 
-## Proposed Solution
+## Proposed Solution and Architecture
 
-- Keep generated bearer secrets and public prefixes unchanged.
-- Store a versioned HMAC digest in the existing text `key_hash` column for new keys; compare fixed-length decoded digests with `timingSafeEqual`.
-- Reject unsupported or malformed stored digest formats without bcrypt fallback.
-- Retain verification of existing bcrypt hashes behind fail-closed admission controls before comparison. Bound concurrent comparisons and comparison starts over time globally per process; do not create an unbounded wait queue or attacker-controlled limiter map.
-- Apply the same enforcement inside the shared verifier for every caller, including MCP. A new full-secret cache alone cannot address distinct-suffix attacks.
-- Preserve revocation, expiry, tenant scope, and role checks. Do not cache successful principals inside the verifier.
+`verifyApiKey` delegates to `apiKeyVerification.ts` before calling bcrypt. Each process permits two concurrent comparisons, with a token bucket of four starts and eight replenished starts per second. Admission is synchronous before the first await, has no queue, and uses a monotonic clock. Exhaustion returns false and does not cache the rejection. Errors release the concurrency slot in finally and retain the caller's existing error handling.
+
+Reuse the existing `createApiKeyAuthCache` credential-cache abstraction for both successful and failed comparisons, with explicit 10-second TTLs and a 1,024-entry cap. Its process-random HMAC fingerprints cover the full supplied secret and the stored bcrypt hash; no raw credentials or hashes become retained cache keys. Do not cache principals. Cache entries cannot authorize deleted, expired, or role-revoked keys: callers still load the live key and apply their normal authorization checks. Changing the stored hash changes the cache identity.
+
+The shared boundary covers application resolution in `packages/shared/src/lib/auth/server.ts`, MCP HTTP authentication in `packages/ai-assistant/src/modules/ai_assistant/lib/http-server.ts`, and other service callers. Caller-specific auth caches remain intact. Malformed stored hashes fail closed before bcrypt. Existing valid bcrypt work factors remain readable; new ordinary, session, and one-time keys use cost 10.
+
+## Data Models and API Contracts
+
+No schema, route, credential syntax, prefix, exported service signature, or DI registration changes. No new entity or auto-discovery file. Admission rejection follows the existing invalid-key result rather than adding a public error contract. Optimistic locking, UI, events, commands, and new-entity integration coverage are not applicable.
 
 ## Migration & Backward Compatibility
 
-No entity, route, credential syntax, prefix, or exported service signature changes are planned. Existing bcrypt keys continue to verify under the bounded bridge. All authenticating processes must understand the digest version before issuance is enabled: older binaries cannot verify newly issued HMAC keys. Operators need explicit secret provisioning, backup, rotation, and rollback instructions. Never couple long-lived API-key validity implicitly to JWT secret rotation. Final rollout and rotation details depend on Q1.
+Deploy to every application and MCP authentication process; old binaries retain unbounded verification. No database migration, credential reissuance, or new secret is needed. Existing cost-10 and cost-12 keys remain valid. The intentional behavior change is rejection of uncached authentication attempts when the per-process budget is exhausted; callers may retry after refill. JWT-secret rotation is unaffected.
 
-## Validation Plan
+## Risks & Impact Review
 
-Add real-crypto creation and verification coverage for regular and session keys; correct/wrong-secret and malformed-version cases; legacy bcrypt compatibility; expired/deleted records; missing configuration; and repeated distinct wrong suffixes for one known prefix. Assert actual bcrypt call counts and peak concurrency under both parallel and sequential abuse, including recovery after the admission window and failures. Verify the shared application/MCP call sites cannot bypass the bound. Run the relevant API-key suites and package checks, then the configured PR validation gate when dependencies are available. No validation has run yet.
+| Scenario | Severity / area | Mitigation | Residual risk |
+| --- | --- | --- | --- |
+| Distinct wrong suffixes for a known prefix | Medium / availability | Global start-rate and concurrency bounds, no queue | Database lookups still occur |
+| Attacker rotates prefixes | Medium / availability | Global budget, constant-size limiter state | Attacker can exhaust budget and deny uncached legitimate requests |
+| Traffic across replicas | Medium / availability | Every process independently bounds work | Total admitted work scales with replica count; ingress limits remain useful |
+| Cached success after revocation | High / authorization | Live record/expiry/role checks remain; cache stores comparison only | Existing caller cache policies remain unchanged |
+| bcrypt exception | Medium / availability | Finally releases slot; no error cache | Existing caller error behavior remains |
+| Legacy unusually expensive stored hash | Medium / availability | Concurrency and starts remain bounded; new issuance stays cost 10 | Trusted existing stored costs still determine per-comparison CPU work |
+
+Thresholds deliberately prioritize CPU protection and can reject legitimate bursts. No per-IP identity is trusted or needed. This is a bound on bcrypt verification work, not a guarantee of authentication availability under sustained denial-of-service traffic.
+
+## Implementation Plan
+
+1. Keep cost 10; route every service comparison through the shared guard.
+2. Add deterministic distinct-suffix, sequential/parallel admission, token refill, cache, and exception regressions plus real cost-10/cost-12 compatibility tests.
+3. Run relevant suites and the configured validation gate; record limitations before requesting publication approval.
+
+## Validation
+
+Runner: local (no compose app container running). Initial focused verification: 3 suites, 14 tests passed. Final regression and configured gate results pending. Dependencies installed with immutable lockfile; better-sqlite3 native build warned during install.
+
+## Final Compliance Report
+
+Root/core rules and backward-compatibility guidance reviewed. Scope is one shared authentication-work bound, without schema/UI/public signature changes. Reuses the established API-key credential cache rather than introducing a new cache backend. No raw secrets logged or retained as cache keys. No authorization query or tenant scope changes. Independent scope review pending.
 
 ## Changelog
 
-- 2026-11-05: Recorded audit finding, proposed shared verification boundary, compatibility requirements, and blocking secret-provisioning decision. Implementation pending Q1.
+- 2026-11-05: Recorded maintainer choice to retain bcrypt; implemented shared admission controls and verification cache; added abuse and compatibility regression coverage.
