@@ -25,6 +25,8 @@ import { MAX_IDS_PER_REQUEST } from '@open-mercato/shared/lib/crud/ids'
 import { buildDocumentCrudOptions } from '../documents/factory'
 import { SalesOrder, SalesQuote } from '../../data/entities'
 import { E } from '#generated/entities.ids.generated'
+import { getEnrichersForEntity, registerResponseEnrichers } from '@open-mercato/shared/lib/crud/enricher-registry'
+import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'
 
 describe('buildDocumentCrudOptions', () => {
   describe('buildFilters', () => {
@@ -297,9 +299,38 @@ describe('buildDocumentCrudOptions', () => {
       expect(options.enrichers).toEqual({ entityId: 'sales:sales_order' })
     })
 
-    it('does not opt quotes into WMS order enrichers', () => {
-      const options = buildDocumentCrudOptions(quoteBinding)
-      expect(options.enrichers).toBeUndefined()
+    it('selects exact quote and order targets independently while retaining wildcard contributors', () => {
+      const contribute = (id: string, targetEntity: string): ResponseEnricher<Record<string, unknown>> => ({
+        id,
+        targetEntity,
+        enrichOne: async (record) => record,
+        enrichMany: async (records) => records,
+      })
+      registerResponseEnrichers([{
+        moduleId: 'sales_test',
+        enrichers: [
+          contribute('sales_test.quote', 'sales:sales_quote'),
+          contribute('sales_test.order', 'sales:sales_order'),
+          contribute('wms.order-stock', 'sales:sales_order'),
+          contribute('sales_test.shared', '*'),
+        ],
+      }])
+      try {
+        const quoteOptions = buildDocumentCrudOptions(quoteBinding)
+        const orderOptions = buildDocumentCrudOptions(orderBinding)
+        expect(quoteOptions.enrichers).toEqual({ entityId: 'sales:sales_quote' })
+        expect(getEnrichersForEntity(quoteOptions.enrichers.entityId).map(({ enricher }) => enricher.id)).toEqual([
+          'sales_test.quote',
+          'sales_test.shared',
+        ])
+        expect(getEnrichersForEntity(orderOptions.enrichers.entityId).map(({ enricher }) => enricher.id)).toEqual([
+          'sales_test.order',
+          'wms.order-stock',
+          'sales_test.shared',
+        ])
+      } finally {
+        registerResponseEnrichers([])
+      }
     })
   })
 
