@@ -9,6 +9,7 @@ import {
 } from '@open-mercato/core/helpers/integration/authFixtures'
 import { createCompanyFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
 import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { closeXeroSeamOrganization, openXeroSeamOrganization, type XeroSeamOrganization } from './helpers/xeroSeamOrganization'
 import { isXeroTestFakesAvailable, resetXeroFakes, seedXeroFakes, startXeroFakes } from './helpers/xeroTestFakes'
 
 const XERO_ORGANISATION = { tenantId: 'a1b2c3d4-0000-4000-8000-0000000000a1', connectionId: 'c1c1c1c1-0000-4000-8000-0000000000c1', name: 'Demo Company (Global)' }
@@ -40,8 +41,8 @@ async function readStatus(request: APIRequestContext, path: string, token: strin
 /**
  * TC-XERO-003: the Xero badge on the Company page. A user who holds customers.companies.view but
  * not integrations.view sees "Xero · linked since …" with a link to the Contact in Xero on a
- * Company with a Xero mapping, and no badge on a Company without one. Paths: companies/[id], the
- * badge widget.
+ * Company with a Xero mapping, and no badge on a Company without one. A user of another
+ * organization in the tenant cannot read that link. Paths: companies/[id], the badge widget.
  */
 test.describe('TC-XERO-003: the Xero badge on the Company page', () => {
   test.describe.configure({ timeout: 180_000 })
@@ -49,6 +50,7 @@ test.describe('TC-XERO-003: the Xero badge on the Company page', () => {
   let adminToken = ''
   let roleId: string | null = null
   let userId: string | null = null
+  let outsider: XeroSeamOrganization | null = null
   const companyIds: string[] = []
 
   test.beforeEach(async ({ request }) => {
@@ -58,6 +60,8 @@ test.describe('TC-XERO-003: the Xero badge on the Company page', () => {
   })
 
   test.afterEach(async ({ request }) => {
+    await closeXeroSeamOrganization(request, adminToken, outsider)
+    outsider = null
     await resetXeroFakes(request, adminToken).catch(() => undefined)
     for (const companyId of companyIds.splice(0)) await deleteEntityIfExists(request, adminToken, '/api/customers/companies', companyId)
     await deleteUserIfExists(request, adminToken, userId)
@@ -106,5 +110,26 @@ test.describe('TC-XERO-003: the Xero badge on the Company page', () => {
     await openCompany(page, plainId, plainName)
     expect((await plainBadgeCall).status()).toBe(200)
     await expect(page.getByTestId('sync-xero-company-badge')).toHaveCount(0)
+  })
+
+  test('answers 404 for a mapped Company of another organization', async ({ request }) => {
+    const mappedId = await createCompanyFixture(request, adminToken, `QA Xero scope ${Date.now()}`)
+    companyIds.push(mappedId)
+    await startXeroFakes(request, adminToken)
+    await seedXeroFakes(request, adminToken, {
+      organisations: [XERO_ORGANISATION],
+      mappings: [{ localId: mappedId, externalId: `${XERO_ORGANISATION.tenantId}:${CONTACT_ID}` }],
+    })
+    const ownerResponse = await apiRequest(request, 'GET', `/api/sync_xero/companies/${mappedId}`, { token: adminToken })
+    expect(ownerResponse.status()).toBe(200)
+    expect(await ownerResponse.json()).toMatchObject({ link: { externalUrl: `https://go.xero.com/Contacts/View/${CONTACT_ID}` } })
+
+    const organization = await openXeroSeamOrganization(request, adminToken, 'TC-XERO-003', ['customers.companies.view'])
+    if (!organization) throw new Error('[internal] TC-XERO-003 runs without its throwaway organization')
+    outsider = organization
+
+    const wrongScopeResponse = await apiRequest(request, 'GET', `/api/sync_xero/companies/${mappedId}`, { token: organization.token })
+    expect(wrongScopeResponse.status()).toBe(404)
+    expect(await wrongScopeResponse.text()).not.toContain(CONTACT_ID)
   })
 })

@@ -1,6 +1,7 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
 import { login } from '@open-mercato/core/helpers/integration/auth'
-import { getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { closeXeroSeamOrganization, openXeroSeamOrganization, type XeroSeamOrganization } from './helpers/xeroSeamOrganization'
 import { authorizeXero, isXeroTestFakesAvailable, resetXeroFakes, seedXeroFakes, startXeroFakes } from './helpers/xeroTestFakes'
 
 const TAB_PATH = '/backend/integrations/sync_xero?tab=xero'
@@ -11,16 +12,25 @@ async function expectTabState(page: Page, state: string): Promise<void> {
   await expect(page.getByTestId('sync-xero-tab')).toHaveAttribute('data-state', state, { timeout: 30_000 })
 }
 
+async function readGrantStatus(request: APIRequestContext, token: string): Promise<string> {
+  const response = await apiRequest(request, 'GET', '/api/sync_xero/connection', { token })
+  expect(response.status()).toBe(200)
+  const body = (await response.json()) as { grant: { status: string } }
+  return body.grant.status
+}
+
 /**
  * TC-XERO-001: a consent round with two Organisations leaves the Account pending, the picker saves
  * one, and Disconnect warns about the other Organisation before ending the connection.
- * The save creates the hourly xero.contacts schedule.
+ * The save creates the hourly xero.contacts schedule. Another organization in the tenant does not
+ * see the connection.
  * Paths: initiate, callback, organisations, PUT organisation, connection, disconnect, the Xero tab.
  */
 test.describe('TC-XERO-001: Connect with two Organisations, choose one, then Disconnect', () => {
   test.describe.configure({ timeout: 180_000 })
 
   let token = ''
+  let outsider: XeroSeamOrganization | null = null
 
   test.beforeEach(async ({ request }) => {
     token = await getAuthToken(request, 'admin')
@@ -29,6 +39,8 @@ test.describe('TC-XERO-001: Connect with two Organisations, choose one, then Dis
   })
 
   test.afterEach(async ({ request }) => {
+    await closeXeroSeamOrganization(request, token, outsider)
+    outsider = null
     if (token) await resetXeroFakes(request, token).catch(() => undefined)
   })
 
@@ -54,6 +66,12 @@ test.describe('TC-XERO-001: Connect with two Organisations, choose one, then Dis
     await expectTabState(page, 'connected')
     await expect(page.getByText('Connected to the Xero Organisation Second Ltd.')).toBeVisible()
     await expect(page.getByTestId('sync-xero-schedules').getByText('Every 1h')).toBeVisible()
+
+    const organization = await openXeroSeamOrganization(request, token, 'TC-XERO-001')
+    if (!organization) throw new Error('[internal] TC-XERO-001 runs without its throwaway organization')
+    outsider = organization
+    expect(await readGrantStatus(request, token)).toBe('active')
+    expect(await readGrantStatus(request, organization.token)).toBe('none')
 
     await page.getByRole('button', { name: 'Disconnect' }).click()
     const dialog = page.getByTestId('sync-xero-disconnect-dialog')

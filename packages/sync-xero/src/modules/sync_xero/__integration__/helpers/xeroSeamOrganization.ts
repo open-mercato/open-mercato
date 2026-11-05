@@ -35,6 +35,7 @@ export async function openXeroSeamOrganization(
   request: APIRequestContext,
   adminToken: string,
   label: string,
+  extraFeatures: string[] = [],
 ): Promise<(XeroSeamOrganization & { token: string }) | null> {
   if (!(await isXeroTestFakesAvailable(request, adminToken))) return null
   const { tenantId } = getTokenScope(adminToken)
@@ -57,7 +58,7 @@ export async function openXeroSeamOrganization(
     })
     await setUserAclVisibility(request, adminToken, {
       userId: organization.userId,
-      features: XERO_SEAM_ORGANIZATION_FEATURES,
+      features: [...XERO_SEAM_ORGANIZATION_FEATURES, ...extraFeatures],
       organizations: [organization.organizationId],
     })
     const token = await getAuthToken(request, email, password)
