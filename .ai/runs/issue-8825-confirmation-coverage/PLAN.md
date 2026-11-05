@@ -10,4 +10,5 @@ Scope: workflows module and issue-8825 run/evidence artifacts. #8805 temporary v
 - [x] Promote candidate to module-native self-contained browser coverage.
 - [x] Browser regression: all four cases passed with the authorized #8805 overlay.
 - [x] Run configured gate; disclose #8805 and create-app OMH-057 external blockers.
-- [ ] Publish dedicated PR and run review/QA evidence chain; release claims.
+- [x] Publish PR #8836 and run review/QA evidence chain. Review requests changes on external gates; QA is PARTIAL with 4/4 scenario passes.
+- [ ] External merge gates: #8805, create-app OMH-057 and manual QA approval remain outstanding.

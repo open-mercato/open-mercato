@@ -47,3 +47,13 @@ All Yarn commands below used `mise exec node@24.22.2 --`; testing used TMPDIR=/t
 ## Review and QA limits
 
 No public contract, schema, ACL, or shared production code changed. Remaining merge blockers are #8805 and the create-app harness budget gate. Native browser evidence covers EN/PL only, admin role, list Retry/Cancel, both shortcuts and 390px; it does not claim all-locale or permissions coverage. No qa-approved label is authorized. Review/PR and screenshot evidence are linked in the subsequent run artifacts/comments.
+
+## Published handoff
+
+PR: https://github.com/open-mercato/open-mercato/pull/8836
+Review: https://github.com/open-mercato/open-mercato/pull/8836#issuecomment-6667494153
+QA evidence: https://github.com/open-mercato/open-mercato/pull/8836#issuecomment-6667521835
+
+The review found no additional workflow-code issue but requests changes for the unmodified #8805 and create-app budget blockers. GitHub refused a native self-review because this account authored the PR; the findings are a comment, not a native approval. QA is PARTIAL because evidence used the authorized overlay; all four requested scenarios passed. Screenshots are on a separate qa-evidence-pr-8836-workflows-fbc0d1bc branch, never the change branch. No merge, qa-approved or qa-self-verified action was taken.
+
+Implementation commit: d52346eb53c782edc10ced03214bccf601781e6f. Original authored prerequisite: d86055c161e1e27e7f03176657a39708a87e989c (source #7907 commit retained with original author). Base sync: b9f50c678a00494f14282c2cb2cdb88cf03b81ac, incorporating only the newer customers base commit. Earlier evidence commits: 46a33390cbf53bfe1c4a3f263f3f586bbc3451e2 and 3b42eb272144b015b6e2a7a27a6611237dfdb96e. Subsequent commits only finalize these evidence artifacts.
