@@ -152,11 +152,26 @@ async function ensureSelfStaffMember(
   return { id: created as string, created: true }
 }
 
-async function removeSelfStaffMember(request: APIRequestContext, token: string, member: SelfMember | null) {
-  if (!member?.created) return
-  await apiRequest(request, 'DELETE', `${TEAM_MEMBERS_PATH}?id=${encodeURIComponent(member.id)}`, { token }).catch(
-    () => {},
-  )
+/**
+ * Deletes only the staff profiles this test created, through a caller holding
+ * `staff.manage_team`. Every deletion is attempted before the soft assertion records
+ * any failure, so one rejected delete never leaves the others behind and a cleanup
+ * failure never masks the error that sent the test into `finally`.
+ */
+async function removeCreatedSelfStaffMembers(
+  request: APIRequestContext,
+  managerToken: string,
+  members: Array<SelfMember | null>,
+): Promise<void> {
+  const failures: string[] = []
+  for (const member of members) {
+    if (!member?.created) continue
+    const response = await apiRequest(request, 'DELETE', `${TEAM_MEMBERS_PATH}?id=${encodeURIComponent(member.id)}`, {
+      token: managerToken,
+    }).catch(() => null)
+    if (!response?.ok()) failures.push(`${member.id}: ${response ? response.status() : 'request failed'}`)
+  }
+  expect.soft(failures, 'Every staff profile the test created is deleted by an authorized caller').toEqual([])
 }
 
 async function readDailyHours(request: APIRequestContext, token: string): Promise<number | null> {
@@ -304,8 +319,7 @@ test.describe('TC-STAFF-049: Timesheet target follows the EP-40 capacity registr
         dailyHours === null ? /^Target:$/ : `Target (${WORKING_DAYS_PER_WEEK} d × ${dailyHours} h):`
       await expect(page.getByText(footerCaption).first()).toBeVisible({ timeout: 30_000 })
     } finally {
-      await removeSelfStaffMember(request, employeeToken, employeeMember)
-      await removeSelfStaffMember(request, adminToken, adminMember)
+      await removeCreatedSelfStaffMembers(request, adminToken, [employeeMember, adminMember])
     }
   })
 
@@ -375,7 +389,7 @@ test.describe('TC-STAFF-049: Timesheet target follows the EP-40 capacity registr
       await deleteOrganizationIfExists(request, superadminToken, foreignTenantOrganizationId)
       await deleteOrganizationIfExists(request, superadminToken, foreignOrganizationId)
       await deleteGeneralEntityIfExists(request, superadminToken, TENANTS_PATH, foreignTenantId)
-      await removeSelfStaffMember(request, adminToken, adminMember)
+      await removeCreatedSelfStaffMembers(request, adminToken, [adminMember])
     }
   })
 
@@ -455,15 +469,18 @@ test.describe('TC-STAFF-049: Timesheet target follows the EP-40 capacity registr
           )
         }
       }
+
+      await setCapacityProbe(request, adminToken, false)
+      probeActive = false
+      const restoredResponse = await apiRequest(request, 'GET', capacityUrl(week), { token: adminToken })
+      expect(restoredResponse.status(), 'The caller still reads their target after the probe is withdrawn').toBe(200)
+      const restored = await readJsonSafe<CapacityBody>(restoredResponse)
+      expect(restored?.staffMemberId).toBe(adminMember.id)
+      expect(restored?.providerId, 'Disposing the probe restores the built-in').toBe(BUILT_IN_PROVIDER_ID)
+      expect(restored?.isBuiltIn, 'Disposing the probe restores the built-in').toBe(true)
     } finally {
       if (probeActive) await setCapacityProbe(request, adminToken, false).catch(() => undefined)
-      await removeSelfStaffMember(request, employeeToken, employeeMember)
-      await removeSelfStaffMember(request, adminToken, adminMember)
+      await removeCreatedSelfStaffMembers(request, adminToken, [employeeMember, adminMember])
     }
-
-    const restored = await apiRequest(request, 'GET', capacityUrl(week), { token: adminToken })
-    expect((await readJsonSafe<CapacityBody>(restored))?.isBuiltIn, 'Disposing the probe restores the built-in').toBe(
-      true,
-    )
   })
 })
