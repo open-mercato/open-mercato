@@ -100,7 +100,7 @@ ExternalMessage + MessageChannelLink rows written
 
 ### Receive path
 
-Polling needs the `scheduler` module. The hub registers its poll tick and the Gmail watch renewal from `seedDefaults` and `onOrganizationCreated`, and skips both when `schedulerService` is not available — mail then arrives only on a manual "Poll now", and the profile page "My communication channels" shows an "Automatic sync is off" warning. The `crm` starter preset enables `scheduler`; an app that enables it later must run `yarn mercato seed:defaults --module communication_channels` once so existing organizations get their schedules.
+Polling needs the `scheduler` module. The hub registers its poll tick and the Gmail watch renewal from `seedDefaults` and `onOrganizationCreated`, and skips both when `schedulerService` is not available — mail then arrives only on a manual "Poll now", and the profile page "My communication channels" shows an "Automatic sync is off" warning while any connected channel relies on polling. The `crm` starter preset enables `scheduler`; an app that enables it later must run `yarn mercato seed:defaults --module communication_channels` once so existing organizations get their schedules, and `yarn mercato auth sync-role-acls` so existing roles get the scheduler features.
 
 ```
 @open-mercato/scheduler "poll-channel" cron (5 minutes by default)

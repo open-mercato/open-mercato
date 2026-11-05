@@ -60,26 +60,31 @@ async function mountPage(result: Record<string, unknown>) {
   await waitFor(() => expect(apiCallMock).toHaveBeenCalled())
 }
 
+const polledChannel = { id: 'imap-1', status: 'connected', supportsRealtimePush: false }
+const pushDrivenChannel = { id: 'discord-1', status: 'connected', supportsRealtimePush: true }
+
 describe('profile communication channels — automatic sync notice', () => {
   beforeEach(() => {
     jest.clearAllMocks()
   })
 
-  it('warns that automatic sync is off when the API reports no scheduler', async () => {
-    await mountPage({ items: [], automaticSyncEnabled: false })
+  it('warns that automatic sync is off when the API reports no scheduler and a channel relies on polling', async () => {
+    await mountPage({ items: [polledChannel], automaticSyncEnabled: false })
 
     expect(await screen.findByText(AUTOMATIC_SYNC_OFF)).toBeInTheDocument()
   })
 
-  it('shows no notice when automatic sync is enabled', async () => {
-    await mountPage({ items: [], automaticSyncEnabled: true })
+  it('shows no notice when every connected channel is push-driven', async () => {
+    await mountPage({ items: [pushDrivenChannel], automaticSyncEnabled: false })
 
+    await waitFor(() => expect(apiCallMock).toHaveBeenCalledTimes(1))
     expect(screen.queryByText(AUTOMATIC_SYNC_OFF)).not.toBeInTheDocument()
   })
 
-  it('shows no notice when the API predates the automaticSyncEnabled field', async () => {
-    await mountPage({ items: [] })
+  it('shows no notice before any channel is connected', async () => {
+    await mountPage({ items: [], automaticSyncEnabled: false })
 
+    await waitFor(() => expect(apiCallMock).toHaveBeenCalledTimes(1))
     expect(screen.queryByText(AUTOMATIC_SYNC_OFF)).not.toBeInTheDocument()
   })
 })

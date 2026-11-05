@@ -111,8 +111,8 @@ export const STARTER_PRESETS: Record<string, StarterPreset> = {
         // watches through schedules it registers with `schedulerService`, and it skips
         // that registration when `scheduler` is absent — without this entry mail arrives
         // only after a manual "Poll now" (issue #8804). `@open-mercato/scheduler` is
-        // already pinned in the template's package.json, and `mercato server dev/start`
-        // auto-spawn the polling engine once the module is enabled.
+        // already pinned in the template's package.json, and with the default local queue
+        // strategy `mercato server dev/start` auto-spawn the polling engine.
         { id: 'scheduler', from: SCHEDULER },
         { id: 'ai_assistant', from: AI_ASSISTANT },
       ],

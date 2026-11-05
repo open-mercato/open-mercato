@@ -5,9 +5,10 @@
 New apps scaffolded with `create-mercato-app --preset crm` now enable the
 `scheduler` module. Without it, `communication_channels` registers no polling
 schedules, so connected IMAP and Gmail mailboxes received new mail only after a
-manual "Poll now", and Gmail push watches were never renewed. `mercato server dev`
-and `mercato server start` start the scheduler automatically once the module is
-enabled (`AUTO_SPAWN_SCHEDULER` defaults to on), so new apps need no extra step.
+manual "Poll now", and Gmail push watches were never renewed. With the default
+`QUEUE_STRATEGY=local`, `mercato server dev` and `mercato server start` start the
+scheduler automatically once the module is enabled (`AUTO_SPAWN_SCHEDULER`
+defaults to on), so new apps need no extra step.
 
 **Existing `crm` apps:** add `{ id: 'scheduler', from: '@open-mercato/scheduler' }`
 to `src/modules.ts` (the package is already a template dependency), then run
@@ -19,12 +20,16 @@ organizations that already exist need them seeded once:
 yarn mercato seed:defaults --module communication_channels
 yarn mercato seed:defaults --module integrations
 yarn mercato seed:defaults --module ai_assistant
+yarn mercato auth sync-role-acls
 ```
 
-Each command is idempotent. The last two register the integration health probes
-and the AI assistant cleanup jobs, which those modules also skip without a
-scheduler. The profile page "My
-communication channels" now warns when automatic sync is off, and
+Each command is idempotent. The `integrations` and `ai_assistant` runs register
+the integration health probes and the AI assistant cleanup jobs, which those
+modules also skip without a scheduler. `auth sync-role-acls` grants the
+scheduler's default role features (`scheduler.*` for admins,
+`scheduler.jobs.view` for employees) to existing tenants, which `seed:defaults`
+does not do for the built-in roles. The profile page "My communication channels"
+now warns when automatic sync is off and a connected channel relies on polling, and
 `GET /api/communication_channels/me/channels` returns an additive
 `automaticSyncEnabled` boolean that drives that warning.
 

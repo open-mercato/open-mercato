@@ -172,6 +172,7 @@ export default function ProfileCommunicationChannelsPage() {
   }, [reloadKey, t])
 
   const reauthRows = rows.filter((r) => r.status === 'requires_reauth')
+  const showAutomaticSyncOff = !automaticSyncEnabled && rows.some((r) => !r.supportsRealtimePush)
 
   const reloadChannels = React.useCallback(() => setReloadKey((k) => k + 1), [])
 
@@ -635,7 +636,7 @@ export default function ProfileCommunicationChannelsPage() {
           <ConnectChannelMenu onConnected={reloadChannels} />
         </header>
 
-        {!automaticSyncEnabled ? (
+        {showAutomaticSyncOff ? (
           <Alert status="warning" className="mb-4">
             <AlertDescription>
               {t(
