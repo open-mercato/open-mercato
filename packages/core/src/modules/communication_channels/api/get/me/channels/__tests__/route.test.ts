@@ -12,12 +12,15 @@ const userId = '33333333-3333-4333-8333-333333333333'
 const findWithDecryptionMock = jest.fn()
 const getAuthFromRequestMock = jest.fn()
 const adapterGetMock = jest.fn()
+const scheduleExistsMock = jest.fn()
+const reportErrorMock = jest.fn()
 
 const em = { fork: () => em }
 
 function defaultResolve(name: string) {
   if (name === 'em') return em
   if (name === 'channelAdapterRegistry') return { get: adapterGetMock }
+  if (name === 'schedulerService') return { exists: scheduleExistsMock }
   throw new Error(`Unexpected container resolve: ${name}`)
 }
 
@@ -33,11 +36,16 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => container),
 }))
 
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: reportErrorMock }),
+}))
+
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: (...args: unknown[]) => findWithDecryptionMock(...args),
 }))
 
 import { GET } from '../route'
+import { pollTickScheduleId } from '../../../../../lib/automatic-sync'
 
 type SerializedChannel = {
   providerKey: string
@@ -76,6 +84,7 @@ describe('communication_channels me/channels route', () => {
     jest.clearAllMocks()
     container.resolve.mockImplementation(defaultResolve)
     hasRegistrationMock.mockImplementation((name: string) => name === 'schedulerService')
+    scheduleExistsMock.mockResolvedValue(true)
     getAuthFromRequestMock.mockResolvedValue({ sub: userId, tenantId, orgId: organizationId })
     // Gmail is the one provider implementing `registerPush`; a gateway provider
     // such as Discord implements none but declares real-time push.
@@ -132,26 +141,45 @@ describe('communication_channels me/channels route', () => {
   })
 
   // Regression for https://github.com/open-mercato/open-mercato/issues/8804 — an app
-  // without the scheduler module never polls mailboxes, and the profile page must say so.
-  it('reports automatic sync as enabled when the scheduler service is registered', async () => {
-    findWithDecryptionMock.mockResolvedValue([])
-
+  // without the scheduler module, or whose organization never got its poll tick, never
+  // polls mailboxes, and the profile page must say so.
+  async function readAutomaticSyncEnabled(): Promise<boolean> {
     const response = await GET(new Request('http://localhost/api/communication_channels/me/channels'))
     const body = (await response.json()) as { automaticSyncEnabled: boolean }
+    return body.automaticSyncEnabled
+  }
 
-    expect(body.automaticSyncEnabled).toBe(true)
-    expect(hasRegistrationMock).toHaveBeenCalledWith('schedulerService')
+  it("reports automatic sync as enabled when the organization's poll tick is registered", async () => {
+    findWithDecryptionMock.mockResolvedValue([])
+
+    expect(await readAutomaticSyncEnabled()).toBe(true)
+    expect(scheduleExistsMock).toHaveBeenCalledWith(pollTickScheduleId(organizationId))
   })
 
   it('reports automatic sync as disabled when the scheduler module is not enabled', async () => {
     hasRegistrationMock.mockReturnValue(false)
     findWithDecryptionMock.mockResolvedValue([channel('imap', { realtimePush: false })])
 
-    const response = await GET(new Request('http://localhost/api/communication_channels/me/channels'))
-    const body = (await response.json()) as { automaticSyncEnabled: boolean; items: SerializedChannel[] }
+    expect(await readAutomaticSyncEnabled()).toBe(false)
+    expect(scheduleExistsMock).not.toHaveBeenCalled()
+  })
 
-    expect(body.automaticSyncEnabled).toBe(false)
-    expect(body.items).toHaveLength(1)
+  it("reports automatic sync as disabled when the scheduler is enabled but the organization's poll tick was never seeded", async () => {
+    scheduleExistsMock.mockResolvedValue(false)
+    findWithDecryptionMock.mockResolvedValue([channel('imap', { realtimePush: false })])
+
+    expect(await readAutomaticSyncEnabled()).toBe(false)
+  })
+
+  it('keeps the page quiet and reports the error when the schedule lookup fails', async () => {
+    scheduleExistsMock.mockRejectedValue(new Error('db down'))
+    findWithDecryptionMock.mockResolvedValue([])
+
+    expect(await readAutomaticSyncEnabled()).toBe(true)
+    expect(reportErrorMock).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({ code: 'communication_channels.automatic_sync_probe_failed' }),
+    )
   })
 
   it('rejects an unauthenticated caller', async () => {

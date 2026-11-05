@@ -641,7 +641,7 @@ export default function ProfileCommunicationChannelsPage() {
             <AlertDescription>
               {t(
                 'communication_channels.profile.alerts.automaticSyncOff',
-                'Automatic sync is off: the scheduler module is not enabled, so new messages arrive only when you click "Poll now". Ask an administrator to enable the scheduler module.',
+                'Automatic sync is off: no scheduled job polls your channels, so new messages arrive only when you click "Poll now". Ask an administrator to enable the scheduler module and seed its schedules.',
               )}
             </AlertDescription>
           </Alert>

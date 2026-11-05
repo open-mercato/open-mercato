@@ -29,7 +29,8 @@ modules also skip without a scheduler. `auth sync-role-acls` grants the
 scheduler's default role features (`scheduler.*` for admins,
 `scheduler.jobs.view` for employees) to existing tenants, which `seed:defaults`
 does not do for the built-in roles. The profile page "My communication channels"
-now warns when automatic sync is off and a connected channel relies on polling, and
+now warns when a connected channel relies on polling but no scheduler is enabled
+or the organization's poll schedule was never seeded, and
 `GET /api/communication_channels/me/channels` returns an additive
 `automaticSyncEnabled` boolean that drives that warning.
 
