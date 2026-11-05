@@ -140,7 +140,6 @@ test.describe('TC-CRM-8469: native customer task dialog conflict recovery', () =
       const before = (await listInteractions(request, token, personId)).find((item) => item.id === firstTaskId)
       expect(before?.updatedAt, 'task version should be available before concurrent update').toBeTruthy()
       await dialog.getByRole('textbox', { name: 'Task title' }).fill(`${marker} edited title`)
-      await new Promise((resolve) => setTimeout(resolve, 25))
       const concurrentUpdate = await apiRequest(request, 'PUT', INTERACTIONS_API, {
         token,
         data: { id: firstTaskId, body: 'Concurrent description preserved' },
@@ -183,11 +182,17 @@ test.describe('TC-CRM-8469: native customer task dialog conflict recovery', () =
 
       await nextDialog.getByRole('button', { name: /cancel/i }).click()
     } finally {
-      await deleteEntityIfExists(request, token, INTERACTIONS_API, secondTaskId)
-      await deleteEntityIfExists(request, token, INTERACTIONS_API, firstTaskId)
-      await deleteEntityIfExists(request, token, '/api/customers/people', personId)
-      if (statusId) await apiRequest(request, 'DELETE', `${INTERACTION_STATUSES_API}/${statusId}`, { token }).catch(() => {})
-      if (toggle) await setToggle(request, token, toggle.id, toggle.override.isOverride, toggle.override.value)
+      try {
+        await deleteEntityIfExists(request, token, INTERACTIONS_API, secondTaskId)
+        await deleteEntityIfExists(request, token, INTERACTIONS_API, firstTaskId)
+        await deleteEntityIfExists(request, token, '/api/customers/people', personId)
+        if (statusId) {
+          const response = await apiRequest(request, 'DELETE', `${INTERACTION_STATUSES_API}/${statusId}`, { token })
+          expect(response.status(), 'custom status fixture should be deleted').toBe(200)
+        }
+      } finally {
+        if (toggle) await setToggle(request, token, toggle.id, toggle.override.isOverride, toggle.override.value)
+      }
     }
   })
 })
