@@ -43,6 +43,16 @@ the action log with the previous values and can be undone.
 **Deprecated:** `USER_TIMEZONE` from `customers/lib/localDay` is read once at import, before the
 configured zone is known. Call `getUserTimeZone()` instead; the constant is removed in 0.12.0.
 
+## Search writes honor entity strategy pins (#5930)
+
+SearchService direct and bulk writes now honor each registered entity's existing
+`strategies` restriction; an explicit empty list writes to no strategy. Unpinned
+entities, fulltext content, and null-source behavior are unchanged. No client,
+configuration, or database migration is required. After upgrading all workers,
+operators whose entities previously reached an excluded writer should purge those
+entities from that index using the existing cleanup operations. Existing vectors
+and embedding-provider retention are not removed automatically.
+
 ## Agent search answers honor domain policy (#7234)
 
 When an allow-list or deny-list is configured, agent `web_search` and the settings
