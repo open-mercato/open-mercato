@@ -14,6 +14,7 @@ import {
   type BrandExtraction,
   type FetchLike,
 } from '../figma-extract'
+import { describeCandidateEvidence } from '../brand-report'
 import {
   createFigmaFixtureFetch,
   FIXTURE_FILE_KEY,
@@ -220,6 +221,55 @@ describe('extractBrand (bounds and resilience)', () => {
     expect(extraction.styles).toEqual([])
   })
 
+  it('retries a transient 5xx with backoff instead of dropping the batch', async () => {
+    const sleeps: number[] = []
+    const fixtureFetch = createFigmaFixtureFetch()
+    const failedOnce = new Set<string>()
+    const flakyFetch: FetchLike = async (url, init) => {
+      if (url.includes('/nodes?') && !failedOnce.has(url)) {
+        failedOnce.add(url)
+        return { status: 502, headers: { get: () => null }, json: async () => null }
+      }
+      return fixtureFetch(url, init)
+    }
+    const extraction = await runExtraction({}, { fetchImpl: flakyFetch, sleepImpl: async (ms) => { sleeps.push(ms) } })
+    expect(failedOnce.size).toBe(2)
+    expect(sleeps).toEqual([1000, 1000])
+    expect(extraction.source.failedBatches).toEqual({ styles: 0, frames: 0 })
+  })
+
+  it('gives every request a deadline and retries one that timed out', async () => {
+    const fixtureFetch = createFigmaFixtureFetch()
+    const signals: Array<AbortSignal | undefined> = []
+    let timedOut = false
+    const slowFetch: FetchLike = async (url, init) => {
+      signals.push(init.signal)
+      if (!timedOut) {
+        timedOut = true
+        throw Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' })
+      }
+      return fixtureFetch(url, init)
+    }
+    const extraction = await runExtraction({}, { fetchImpl: slowFetch })
+    expect(extraction.file.name).toBe('Acme Brand Book')
+    expect(signals.length).toBeGreaterThan(1)
+    expect(signals.every((signal) => signal instanceof AbortSignal)).toBe(true)
+  })
+
+  it('reports a file that never answers instead of hanging', async () => {
+    const hungFetch: FetchLike = async () => {
+      throw Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' })
+    }
+    await expect(runExtraction({}, { fetchImpl: hungFetch })).rejects.toThrow(/did not answer/)
+  })
+
+  it('still surfaces a network failure that is not a timeout', async () => {
+    const brokenFetch: FetchLike = async () => {
+      throw new Error('getaddrinfo ENOTFOUND api.figma.com')
+    }
+    await expect(runExtraction({}, { fetchImpl: brokenFetch })).rejects.toThrow(/ENOTFOUND/)
+  })
+
   it('records zero failed batches on a clean scan', async () => {
     const extraction = await runExtraction()
     expect(extraction.source.failedBatches).toEqual({ styles: 0, frames: 0 })
@@ -306,6 +356,40 @@ describe('readExtraction (structural validation of reused artifacts)', () => {
 
   it('accepts a well-formed artifact', () => {
     expect(readExtraction(fixturePath).file.key).toBe(FIXTURE_FILE_KEY)
+  })
+
+  it('returns a well-formed artifact unchanged', () => {
+    expect(readExtraction(fixturePath)).toEqual(validDoc())
+  })
+
+  it('strips control characters from a hand-edited artifact', () => {
+    const doc = validDoc()
+    doc.file.name = 'Acme\u001b[2J Brand'
+    doc.candidates[0].styleNames = ['Brand\u001b[31m/Primary']
+    doc.candidates[0].variableName = 'color\u0007/primary'
+    doc.fonts[0].family = 'Inter\u009b0m'
+    const extraction = readExtraction(write('escapes.json', doc))
+    expect(extraction.file.name).toBe('Acme[2J Brand')
+    expect(extraction.candidates[0].styleNames).toEqual(['Brand[31m/Primary'])
+    expect(extraction.candidates[0].variableName).toBe('color/primary')
+    expect(extraction.fonts[0].family).toBe('Inter0m')
+  })
+
+  it('defaults the optional candidate fields so evidence rendering cannot throw', () => {
+    const doc = validDoc()
+    doc.candidates = [{ hex: '#0c71c6' }]
+    const [candidate] = readExtraction(write('bare-candidate.json', doc)).candidates
+    expect(candidate).toEqual({ hex: '#0c71c6', count: 0, tier: 'fill', sources: [], styleNames: [], variableName: null })
+    expect(describeCandidateEvidence(candidate)).toBe('no recorded usage')
+  })
+
+  it('rejects malformed font and radius entries with a clean error', () => {
+    const fontDoc = validDoc()
+    fontDoc.fonts = ['Inter']
+    expect(() => readExtraction(write('bad-font.json', fontDoc))).toThrow(/every font must be an object with a string family/)
+    const radiusDoc = validDoc()
+    radiusDoc.radii = [{ px: '8' }]
+    expect(() => readExtraction(write('bad-radius.json', radiusDoc))).toThrow(/every radius bucket/)
   })
 
   it('rejects invalid JSON with a clean error', () => {

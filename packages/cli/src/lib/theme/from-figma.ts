@@ -22,7 +22,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { formatHexColor, parseHexColor } from './contrast'
 import { buildContrastChecks, runThemeInit, type ContrastCheck } from './init'
-import { derivePalette, validateRadius, type DerivedPalette } from './palette'
+import { derivePalette, validateFontFamily, validateRadius, type DerivedPalette } from './palette'
 import {
   describeCandidateEvidence,
   renderBrandReport,
@@ -43,6 +43,7 @@ const USAGE = `Usage: mercato theme from-figma <file-url-or-key> [options]
 
   <file-url-or-key>            Figma URL (figma.com/design/<key>/… or /file/<key>/…) or bare file key
   --map <pairs>                non-interactive mapping, e.g. --map "primary=#0C71C6,radius=8px,font=Inter"
+                               quote a font stack: --map 'primary=#0C71C6,font="Inter, Arial, sans-serif"'
                                accepted keys: primary, primary-foreground, radius, font, font-mono
   --report-only                extract + write report and extraction JSON; never write theme.css
   --extract-json <path>        where to write the extraction JSON (default .ai/reports/figma-brand-extract-<key>.json)
@@ -139,6 +140,46 @@ export function parseThemeFromFigmaArgs(args: string[]): ThemeFromFigmaFlags {
 
 export type ParsedMap = { mapping: ConfirmedMapping; errors: string[]; warnings: string[] }
 
+/**
+ * Splits `--map` on commas that sit outside quotes, so a quoted value can carry
+ * a font stack: `font="Inter, Arial, sans-serif"`. Returns null when a quote is
+ * left open.
+ */
+function splitMapPairs(raw: string): string[] | null {
+  const pairs: string[] = []
+  let current = ''
+  let quote: string | null = null
+  for (const char of raw) {
+    if (quote) {
+      if (char === quote) quote = null
+      current += char
+      continue
+    }
+    if (char === '"' || char === "'") {
+      quote = char
+      current += char
+      continue
+    }
+    if (char === ',') {
+      pairs.push(current)
+      current = ''
+      continue
+    }
+    current += char
+  }
+  if (quote) return null
+  pairs.push(current)
+  return pairs.map((part) => part.trim()).filter(Boolean)
+}
+
+function unwrapQuotedValue(value: string): string {
+  const first = value[0]
+  const wrapped = value.length >= 2 && (first === '"' || first === "'") && value.endsWith(first)
+  if (!wrapped) return value
+  const inner = value.slice(1, -1)
+  return inner.includes(first) ? value : inner.trim()
+}
+
 /** Parses `--map "primary=#0C71C6,radius=8px,font=Inter"` pairs. */
 export function parseMapFlag(raw: string): ParsedMap {
   const mapping: ConfirmedMapping = {
@@ -151,14 +192,18 @@ export function parseMapFlag(raw: string): ParsedMap {
   const errors: string[] = []
   const warnings: string[] = []
   const seenKeys = new Set<string>()
-  for (const pair of raw.split(',').map((part) => part.trim()).filter(Boolean)) {
+  const pairs = splitMapPairs(raw)
+  if (pairs === null) {
+    errors.push('Unterminated quote in --map — close the quoted value, e.g. font="Inter, Arial".')
+  }
+  for (const pair of pairs ?? []) {
     const equalsIndex = pair.indexOf('=')
     if (equalsIndex <= 0) {
       errors.push(`Malformed --map pair "${pair}" — expected key=value.`)
       continue
     }
     const key = pair.slice(0, equalsIndex).trim()
-    const value = pair.slice(equalsIndex + 1).trim()
+    const value = unwrapQuotedValue(pair.slice(equalsIndex + 1).trim())
     if (!(MAP_KEYS as readonly string[]).includes(key)) {
       errors.push(`Unknown --map key "${key}". Accepted keys: ${MAP_KEYS.join(', ')}.`)
       continue
@@ -193,11 +238,17 @@ export function parseMapFlag(raw: string): ParsedMap {
         break
       }
       case 'font':
-        mapping.font = value
+      case 'font-mono': {
+        const font = validateFontFamily(value)
+        if (!font.valid) {
+          errors.push(`Invalid --map ${key} "${value}". Expected a family name or a quoted comma-separated stack without ; { } \\ or line breaks.`)
+        } else if (key === 'font') {
+          mapping.font = font.value
+        } else {
+          mapping.fontMono = font.value
+        }
         break
-      case 'font-mono':
-        mapping.fontMono = value
-        break
+      }
     }
   }
   if (!mapping.primary) {

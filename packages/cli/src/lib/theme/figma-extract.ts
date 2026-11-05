@@ -26,10 +26,14 @@ export const EXTRACT_SCHEMA = 'om-figma-brand-extract@1'
 export const DEFAULT_NODE_BUDGET = 20_000
 /** Batch size for `/v1/files/{key}/nodes?ids=…` calls. */
 const NODES_BATCH_SIZE = 50
-/** Maximum retries per request on 429 responses. */
+/** Maximum retries per request on 429, 5xx and timed-out responses. */
 const MAX_RETRIES = 3
 /** Ceiling for honoring a `Retry-After` header, in seconds. */
 const MAX_RETRY_AFTER_SECONDS = 60
+/** Deadline for a single Figma request, including reading its body. */
+export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000
+/** Status reported for a request that never answered within the deadline. */
+const REQUEST_TIMEOUT_STATUS = 408
 /** OKLCH chroma below which a candidate counts as a near-gray for ranking. */
 const NEAR_GRAY_CHROMA = 0.04
 
@@ -40,10 +44,10 @@ export type VariablesAvailability = 'ok' | 'unavailable-plan-gated' | 'error'
  * string. Figma file/style/variable/font/page names are attacker-influenced
  * text that ends up in terminal output and markdown reports — raw escape
  * sequences could rewrite the candidate table or the report. Every remote
- * string passes through here exactly once, at extraction intake.
+ * string passes through here at extraction intake, and again when a saved
+ * extraction is read back, because that file can be edited by hand.
  */
 export function sanitizeRemoteString(value: string): string {
-  // eslint-disable-next-line no-control-regex
   return value.replace(/[\u0000-\u001f\u007f-\u009f]/g, '')
 }
 
@@ -104,7 +108,7 @@ export type BrandExtraction = {
   radii: RadiusBucket[]
 }
 
-export type FetchLike = (url: string, init: { headers: Record<string, string> }) => Promise<{
+export type FetchLike = (url: string, init: { headers: Record<string, string>; signal?: AbortSignal }) => Promise<{
   status: number
   headers: { get(name: string): string | null }
   json(): Promise<unknown>
@@ -116,6 +120,8 @@ export type ExtractOptions = {
   /** Restrict the frame walk to pages with these names (case-sensitive). */
   pages?: string[] | null
   nodeBudget?: number
+  /** Per-request deadline in milliseconds (default 30s). */
+  requestTimeoutMs?: number
   fetchImpl?: FetchLike
   sleepImpl?: (ms: number) => Promise<void>
   now?: () => Date
@@ -300,19 +306,43 @@ function walkNode(node: FigmaNode, state: ExtractionState, budget: number): void
 
 // ── REST client ─────────────────────────────────────────────────────────────
 
+function isTimeoutError(error: unknown): boolean {
+  return error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')
+}
+
+function backoffDelayMs(attempt: number): number {
+  return Math.min(1000 * 2 ** attempt, MAX_RETRY_AFTER_SECONDS * 1000)
+}
+
 class FigmaClient {
   constructor(
     private readonly token: string,
     private readonly fetchImpl: FetchLike,
     private readonly sleepImpl: (ms: number) => Promise<void>,
+    private readonly requestTimeoutMs: number,
   ) {}
 
   async get(path: string): Promise<{ status: number; body: unknown }> {
     const url = `https://api.figma.com${path}`
     for (let attempt = 0; ; attempt += 1) {
-      const response = await this.fetchImpl(url, {
-        headers: { 'X-Figma-Token': this.token },
-      })
+      let response: Awaited<ReturnType<FetchLike>>
+      try {
+        response = await this.fetchImpl(url, {
+          headers: { 'X-Figma-Token': this.token },
+          signal: AbortSignal.timeout(this.requestTimeoutMs),
+        })
+      } catch (error) {
+        if (!isTimeoutError(error)) throw error
+        if (attempt < MAX_RETRIES) {
+          await this.sleepImpl(backoffDelayMs(attempt))
+          continue
+        }
+        return { status: REQUEST_TIMEOUT_STATUS, body: null }
+      }
+      if (response.status >= 500 && attempt < MAX_RETRIES) {
+        await this.sleepImpl(backoffDelayMs(attempt))
+        continue
+      }
       if (response.status === 429 && attempt < MAX_RETRIES) {
         const retryAfter = Number.parseFloat(response.headers.get('Retry-After') ?? '1')
         // Honor Retry-After but cap it at 60s — a hostile or broken header must
@@ -472,7 +502,7 @@ export async function extractBrand(options: ExtractOptions): Promise<BrandExtrac
   const now = options.now ?? (() => new Date())
   const log = options.log ?? ((message: string) => console.log(message))
   const nodeBudget = options.nodeBudget ?? DEFAULT_NODE_BUDGET
-  const client = new FigmaClient(options.token, fetchImpl, sleepImpl)
+  const client = new FigmaClient(options.token, fetchImpl, sleepImpl, options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS)
   const state = new ExtractionState()
 
   // File metadata + page/frame listing (depth=2: document → pages → top-level children).
@@ -485,6 +515,9 @@ export async function extractBrand(options: ExtractOptions): Promise<BrandExtrac
     }
     if (fileResponse.status === 404) {
       throw new Error(`Figma file ${options.fileKey} not found (404). Check the file key and that the token can access it.`)
+    }
+    if (fileResponse.status === REQUEST_TIMEOUT_STATUS) {
+      throw new Error(`Figma did not answer for file ${options.fileKey} within the request deadline. Check your connection and try again.`)
     }
     throw new Error(`Could not fetch Figma file ${options.fileKey} (HTTP ${fileResponse.status}).`)
   }
@@ -592,6 +625,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+const CANDIDATE_TIERS: readonly CandidateTier[] = ['variable', 'style', 'fill']
+
+function readString(value: unknown): string {
+  return typeof value === 'string' ? sanitizeRemoteString(value) : ''
+}
+
+function readNumber(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
+function readStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value.filter((entry): entry is string => typeof entry === 'string').map(sanitizeRemoteString)
+}
+
 /**
  * Reads and validates an extraction JSON. Throws a clean `Error` (never a
  * `TypeError` from downstream property access) on schema mismatch or a
@@ -621,12 +669,67 @@ export function readExtraction(filePath: string): BrandExtraction {
     throw invalid('source.frames must be an object')
   }
   if (!Array.isArray(parsed.candidates)) throw invalid('candidates must be an array')
-  for (const candidate of parsed.candidates) {
+  const candidates = parsed.candidates.map((candidate): BrandCandidate => {
     if (!isRecord(candidate) || typeof candidate.hex !== 'string') {
       throw invalid('every candidate must be an object with a string hex')
     }
-  }
+    return {
+      hex: sanitizeRemoteString(candidate.hex),
+      count: readNumber(candidate.count),
+      tier: CANDIDATE_TIERS.includes(candidate.tier as CandidateTier) ? (candidate.tier as CandidateTier) : 'fill',
+      sources: readStringList(candidate.sources),
+      styleNames: readStringList(candidate.styleNames),
+      variableName: typeof candidate.variableName === 'string' ? sanitizeRemoteString(candidate.variableName) : null,
+    }
+  })
   if (!Array.isArray(parsed.fonts)) throw invalid('fonts must be an array')
+  const fonts = parsed.fonts.map((font): FontUsage => {
+    if (!isRecord(font) || typeof font.family !== 'string') {
+      throw invalid('every font must be an object with a string family')
+    }
+    return {
+      family: sanitizeRemoteString(font.family),
+      weights: Array.isArray(font.weights) ? font.weights.filter((weight): weight is number => typeof weight === 'number') : [],
+      textStyles: readNumber(font.textStyles),
+      usageCount: readNumber(font.usageCount),
+    }
+  })
   if (!Array.isArray(parsed.radii)) throw invalid('radii must be an array')
-  return parsed as unknown as BrandExtraction
+  const radii = parsed.radii.map((bucket): RadiusBucket => {
+    if (!isRecord(bucket) || typeof bucket.px !== 'number') {
+      throw invalid('every radius bucket must be an object with a numeric px')
+    }
+    return { px: bucket.px, count: readNumber(bucket.count) }
+  })
+  const styles = (Array.isArray(parsed.styles) ? parsed.styles : []).filter(isRecord).flatMap((style): ExtractedStyle[] => {
+    if (typeof style.name !== 'string') return []
+    const name = sanitizeRemoteString(style.name)
+    if (style.type === 'FILL' && typeof style.hex === 'string') {
+      return [{ type: 'FILL', name, hex: sanitizeRemoteString(style.hex) }]
+    }
+    if (style.type === 'TEXT' && typeof style.fontFamily === 'string') {
+      return [{
+        type: 'TEXT',
+        name,
+        fontFamily: sanitizeRemoteString(style.fontFamily),
+        fontWeight: readNumber(style.fontWeight),
+        fontSize: readNumber(style.fontSize),
+      }]
+    }
+    return []
+  })
+  const file = parsed.file
+  return {
+    ...(parsed as unknown as BrandExtraction),
+    file: {
+      key: file.key as string,
+      name: readString(file.name),
+      lastModified: readString(file.lastModified),
+      extractedAt: readString(file.extractedAt),
+    },
+    candidates,
+    styles,
+    fonts,
+    radii,
+  }
 }

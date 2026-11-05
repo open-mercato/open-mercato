@@ -151,6 +151,7 @@ mercato theme from-figma <file-url-or-key> [options]
 
   <file-url-or-key>            Figma URL (figma.com/design/<key>/… or /file/<key>/…) or bare file key
   --map <pairs>                non-interactive mapping, e.g. --map "primary=#0C71C6,radius=8px,font=Inter"
+                               quote a font stack: --map 'primary=#0C71C6,font="Inter, Arial, sans-serif"'
                                accepted keys: primary, primary-foreground, radius, font, font-mono
   --report-only                extract + write report and extraction JSON; never write theme.css
   --extract-json <path>        where to write the extraction JSON (default .ai/reports/figma-brand-extract-<key>.json)

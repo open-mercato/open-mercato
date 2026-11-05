@@ -62,6 +62,19 @@ describe('parseThemeFromFigmaArgs', () => {
 })
 
 describe('parseMapFlag', () => {
+  it('reads a quoted comma-separated font stack as one value', () => {
+    const parsed = parseMapFlag(`primary=#0C71C6,font="Inter, 'Open Sans', sans-serif",radius=8px`)
+    expect(parsed.errors).toEqual([])
+    expect(parsed.mapping.font).toBe("Inter, 'Open Sans', sans-serif")
+    expect(parsed.mapping.radius).toBe('8px')
+  })
+
+  it('reports an unterminated quote and CSS-structural font values', () => {
+    expect(parseMapFlag('primary=#0C71C6,font="Inter, Arial').errors.join('\n')).toContain('Unterminated quote')
+    expect(parseMapFlag('primary=#0C71C6,font=Inter; --status-error-bg: red').errors.join('\n')).toContain('Invalid --map font')
+    expect(parseMapFlag('primary=#0C71C6,font-mono=Mono}').errors.join('\n')).toContain('Invalid --map font-mono')
+  })
+
   it('parses valid pairs including fonts and radius', () => {
     const parsed = parseMapFlag('primary=#0C71C6,primary-foreground=#FFFFFF,radius=8px,font=Inter,font-mono=JetBrains Mono')
     expect(parsed.errors).toEqual([])
