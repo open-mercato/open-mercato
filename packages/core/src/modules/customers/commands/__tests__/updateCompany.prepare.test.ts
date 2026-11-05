@@ -32,7 +32,7 @@ describe('customers.companies.update prepare (#7032)', () => {
     await handler.prepare!({ id: COMPANY_ID, legalName: 'Repro Legal 2' }, ctx)
 
     expect(requestEm.fork).toHaveBeenCalledTimes(1)
-    expect(snapshotEm.findOne).toHaveBeenCalledWith(CustomerEntity, expect.objectContaining({ id: COMPANY_ID }))
+    expect(snapshotEm.findOne).toHaveBeenCalledWith(CustomerEntity, expect.objectContaining({ id: COMPANY_ID }), undefined)
     expect(requestEm.findOne).not.toHaveBeenCalled()
   })
 })

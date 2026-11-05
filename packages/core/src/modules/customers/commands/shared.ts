@@ -3,7 +3,7 @@ import { CustomerDeal, CustomerEntity, CustomerTag, CustomerTagAssignment, Custo
 import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { ensureOrganizationScope, ensureSameScope } from '@open-mercato/shared/lib/commands/scope'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { EventBus } from '@open-mercato/events'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { CacheStrategy } from '@open-mercato/cache'
@@ -47,12 +47,18 @@ export async function requireCustomerEntity(
   kind?: CustomerEntityKind,
   message = 'Customer entity not found'
 ): Promise<CustomerEntity> {
-  const entity = await em.findOne(CustomerEntity, {
-    id,
-    deletedAt: null,
-    tenantId: scope.tenantId,
-    organizationId: scope.organizationId,
-  })
+  const entity = await findOneWithDecryption(
+    em,
+    CustomerEntity,
+    {
+      id,
+      deletedAt: null,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    },
+    undefined,
+    scope,
+  )
   if (!entity) throw notFound(message)
   if (kind && entity.kind !== kind) {
     throw new CrudHttpError(400, { error: 'Invalid entity type' })
@@ -65,24 +71,36 @@ export async function requireTimelineParentEntity(
   id: string,
   scope: CustomerEntityScope,
 ): Promise<CustomerEntity> {
-  const entity = await em.findOne(CustomerEntity, {
-    id,
-    deletedAt: null,
-    tenantId: scope.tenantId,
-    organizationId: scope.organizationId,
-  })
+  const entity = await findOneWithDecryption(
+    em,
+    CustomerEntity,
+    {
+      id,
+      deletedAt: null,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    },
+    undefined,
+    scope,
+  )
   if (entity) {
     if (entity.kind !== 'person' && entity.kind !== 'company') {
       throw new CrudHttpError(422, { error: 'entityId must reference a person or company' })
     }
     return entity
   }
-  const deal = await em.findOne(CustomerDeal, {
-    id,
-    deletedAt: null,
-    tenantId: scope.tenantId,
-    organizationId: scope.organizationId,
-  })
+  const deal = await findOneWithDecryption(
+    em,
+    CustomerDeal,
+    {
+      id,
+      deletedAt: null,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    },
+    undefined,
+    scope,
+  )
   if (deal) {
     throw new CrudHttpError(422, { error: 'entityId must reference a person or company, not a deal' })
   }
@@ -142,7 +160,13 @@ export async function requireDealInScope(
   organizationId: string
 ): Promise<CustomerDeal | null> {
   if (!dealId) return null
-  const deal = await em.findOne(CustomerDeal, { id: dealId, deletedAt: null, tenantId, organizationId })
+  const deal = await findOneWithDecryption(
+    em,
+    CustomerDeal,
+    { id: dealId, deletedAt: null, tenantId, organizationId },
+    undefined,
+    { tenantId, organizationId },
+  )
   if (!deal) throw new CrudHttpError(400, { error: 'Deal not found' })
   ensureSameScope(deal, organizationId, tenantId)
   return deal

@@ -199,7 +199,7 @@ function makeFixture() {
     if (entityClass === CustomerEmailConversationShare) return state.shares.filter((share) => matchesShare(share, asRecord(where)))
     if (entityClass === CustomerLabelAssignment) return state.labelAssignments
     if (entityClass === CustomerLabel) return state.labels
-    return []
+    return em.find(entityClass, asRecord(where))
   })
   const dataEngine = {
     setCustomFields: jest.fn(async () => undefined),
