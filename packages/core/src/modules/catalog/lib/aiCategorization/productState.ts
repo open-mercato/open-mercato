@@ -66,7 +66,7 @@ export async function buildProductState(
   const tagAssignments = await findWithDecryption(
     em,
     CatalogProductTagAssignment,
-    { product: product.id },
+    { product: product.id, tenantId: input.tenantId, organizationId: input.organizationId },
     { populate: ['tag'] },
     { tenantId: input.tenantId, organizationId: input.organizationId },
   )

@@ -83,6 +83,18 @@ describe('buildProductState', () => {
     expect(state!.options).toEqual([{ name: 'Color', values: ['Black', 'white'] }])
   })
 
+  it('scopes the tag-assignment lookup to the caller tenant/organization, not just the product FK', async () => {
+    findOneWithDecryption.mockResolvedValue(buildProduct())
+    await buildProductState(buildEm(), { productId: PRODUCT, tenantId: TENANT, organizationId: ORG })
+    expect(findWithDecryption).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ product: PRODUCT, tenantId: TENANT, organizationId: ORG }),
+      expect.anything(),
+      expect.objectContaining({ tenantId: TENANT, organizationId: ORG }),
+    )
+  })
+
   it('excludes custom fields whose definition is marked encrypted', async () => {
     findOneWithDecryption.mockResolvedValue(buildProduct())
     loadCustomFieldSnapshot.mockResolvedValue({ material: 'aluminium', internal_notes: 'secret' })

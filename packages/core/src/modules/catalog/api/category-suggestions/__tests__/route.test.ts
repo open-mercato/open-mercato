@@ -87,6 +87,18 @@ describe('catalog category-suggestions list route', () => {
     expect(body.items.find((i) => i.id === 's-2')?.categoryLive).toBe(false)
   })
 
+  it('scopes the category-liveness lookup to the caller tenant/organization, not id alone', async () => {
+    findMock
+      .mockResolvedValueOnce([suggestionRow({ id: 's-1', categoryId: 'cat-live' })])
+      .mockResolvedValueOnce([{ id: 'cat-live' }])
+    await GET(new Request('http://localhost/api/catalog/category-suggestions'))
+    expect(findMock).toHaveBeenNthCalledWith(
+      2,
+      expect.anything(),
+      expect.objectContaining({ tenantId, organizationId, id: { $in: ['cat-live'] } }),
+    )
+  })
+
   it('filters out suggestions of soft-deleted products via the product.deletedAt where clause', async () => {
     await GET(new Request('http://localhost/api/catalog/category-suggestions'))
     expect(findMock).toHaveBeenCalledWith(

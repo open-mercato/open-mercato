@@ -5,6 +5,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveActiveOrganizationId, organizationScopeRequiredResponse } from '@open-mercato/shared/lib/auth/organizationScope'
 import { parseIdsParam, mergeIdFilter } from '@open-mercato/shared/lib/crud/ids'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { categorySuggestionListQuerySchema } from '../../data/validators'
@@ -64,7 +65,13 @@ export async function GET(req: Request) {
 
     const categoryIds = Array.from(new Set(rows.map((row) => row.categoryId).filter((id): id is string => !!id)))
     const liveCategories = categoryIds.length
-      ? await em.find(CatalogProductCategory, { id: { $in: categoryIds }, deletedAt: null, isActive: true })
+      ? await em.find(CatalogProductCategory, {
+          id: { $in: categoryIds },
+          tenantId,
+          organizationId,
+          deletedAt: null,
+          isActive: true,
+        })
       : []
     const liveCategoryIds = new Set(liveCategories.map((category) => category.id))
 
@@ -76,6 +83,10 @@ export async function GET(req: Request) {
     return NextResponse.json({ items, page, pageSize, total })
   } catch (err) {
     logger.error('catalog.ai_categorization.category_suggestions.GET Unexpected error', { err })
+    getTelemetryRuntime()?.reportError(err, {
+      module: 'catalog',
+      code: 'catalog.ai_categorization_list_failed',
+    })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
