@@ -10,7 +10,7 @@
 import { UniqueConstraintViolationException, type EntityManager } from '@mikro-orm/core'
 import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { reportErrorSafely } from './report-error-safely'
 import { WorkflowInstance } from '../data/entities'
 import { WORKFLOW_TERMINAL_INSTANCE_STATUSES, isTerminalInstanceStatus } from './business-key'
 
@@ -98,11 +98,14 @@ async function discardRefusedChange(em: EntityManager, instance: WorkflowInstanc
   try {
     await em.refresh(instance)
   } catch (refreshError) {
-    getTelemetryRuntime()?.reportError(refreshError, {
-      module: 'workflows',
-      code: 'workflows.business_key.reopen_restore_failed',
-    })
-    em.clear()
+    try {
+      em.clear()
+    } finally {
+      reportErrorSafely(refreshError, {
+        module: 'workflows',
+        code: 'workflows.business_key.reopen_restore_failed',
+      })
+    }
   }
 }
 

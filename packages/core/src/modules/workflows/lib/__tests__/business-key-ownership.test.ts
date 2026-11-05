@@ -10,6 +10,22 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 
 import { WorkflowBusinessKeyHeldError, reopenWorkflowInstance } from '../business-key-ownership'
 import type { WorkflowInstance } from '../../data/entities'
+import { registerTelemetryRuntime, type TelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+
+function registerThrowingTelemetry() {
+  const reportError = jest.fn(() => {
+    throw new Error('telemetry exporter down')
+  })
+  const unregister = registerTelemetryRuntime({
+    canUseGlobalTracePropagation: () => false,
+    captureTraceContext: () => ({}),
+    continueTrace: (_carrier, _name, fn) => fn(),
+    recordHttpDuration: () => {},
+    reportError,
+    shutdown: async () => {},
+  } satisfies TelemetryRuntime)
+  return { reportError, unregister }
+}
 
 function makeInstance(overrides: Record<string, unknown> = {}) {
   return {
@@ -156,6 +172,26 @@ describe('reopenWorkflowInstance', () => {
     ).rejects.toThrow('connection lost')
 
     expect(em.clear).toHaveBeenCalledTimes(1)
+  })
+
+  test('a throwing telemetry runtime neither skips the identity-map clear nor replaces the original error', async () => {
+    const { reportError, unregister } = registerThrowingTelemetry()
+    try {
+      const em = { ...makeEm(), clear: jest.fn() }
+      em.transactional = jest.fn(async () => {
+        throw new Error('connection lost')
+      })
+      em.refresh.mockRejectedValueOnce(new Error('still down'))
+
+      await expect(
+        reopenWorkflowInstance(em as never, makeInstance(), { reopen: jest.fn() }),
+      ).rejects.toThrow('connection lost')
+
+      expect(em.clear).toHaveBeenCalledTimes(1)
+      expect(reportError).toHaveBeenCalledTimes(1)
+    } finally {
+      unregister()
+    }
   })
 
   test('a unique violation on a keyless instance is not a business-key conflict', async () => {

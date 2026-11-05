@@ -16,7 +16,7 @@ import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/core'
 import { createModuleQueue, type Queue } from '@open-mercato/queue'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { reportErrorSafely } from './report-error-safely'
 import { WorkflowInstance } from '../data/entities'
 import * as workflowExecutor from './workflow-executor'
 import { isRetryableRunOutcome, type WorkflowRunOutcome } from './run-outcome'
@@ -175,7 +175,7 @@ export async function runBulkReplay(params: {
         // One bad instance must not abort a triage batch.
         failedCount += 1
         logger.error('Bulk replay failed for instance', { instanceId, action, err: error })
-        getTelemetryRuntime()?.reportError(error, { module: 'workflows', code: 'workflows.bulk_replay.instance_failed' })
+        reportErrorSafely(error, { module: 'workflows', code: 'workflows.bulk_replay.instance_failed' })
       }
     }
 
