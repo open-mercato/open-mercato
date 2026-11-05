@@ -13,7 +13,8 @@ import {
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatTimelineDate } from './TimelineDealCard'
 import {
   endOfMonth,
   endOfQuarter,
@@ -35,18 +36,9 @@ type QuickChip = {
   value: string
 }
 
-const utcDateFormatter = new Intl.DateTimeFormat(undefined, {
-  year: 'numeric',
-  month: 'short',
-  day: 'numeric',
-  timeZone: 'UTC',
-})
-
-export function formatUtcDateKey(key: string | null): string | null {
+export function formatUtcDateKey(key: string | null, locale?: string): string | null {
   if (!key) return null
-  const parsed = new Date(`${key}T00:00:00.000Z`)
-  if (Number.isNaN(parsed.getTime())) return key
-  return utcDateFormatter.format(parsed)
+  return formatTimelineDate(key, locale) ?? key
 }
 
 export function buildQuickDateChips(
@@ -70,6 +62,7 @@ export function ChangeCloseDateDialog({
   onSubmit,
 }: ChangeCloseDateDialogProps): React.ReactElement {
   const t = useT()
+  const locale = useLocale()
   const currentKey = toUtcDateKey(currentDate)
   const [draft, setDraft] = React.useState<string>(currentKey ?? '')
   const [isSubmitting, setIsSubmitting] = React.useState(false)
@@ -113,7 +106,7 @@ export function ChangeCloseDateDialog({
     disabled: submitDisabled,
   })
 
-  const currentLabel = formatUtcDateKey(currentKey)
+  const currentLabel = formatUtcDateKey(currentKey, locale)
 
   return (
     <Dialog
@@ -160,7 +153,7 @@ export function ChangeCloseDateDialog({
                   variant={draft === chip.value ? 'secondary' : 'outline'}
                   aria-pressed={draft === chip.value}
                   onClick={() => setDraft(chip.value)}
-                  title={formatUtcDateKey(chip.value) ?? chip.value}
+                  title={formatUtcDateKey(chip.value, locale) ?? chip.value}
                 >
                   {chip.label}
                 </Button>

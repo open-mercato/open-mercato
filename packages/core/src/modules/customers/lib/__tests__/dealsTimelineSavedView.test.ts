@@ -52,6 +52,16 @@ describe('dealsTimelineSavedView', () => {
     expect(droppedFields).toEqual(expect.arrayContaining(['bucket', 'ownerUserId']))
   })
 
+  it('drops oversize value lists instead of throwing', () => {
+    const tooMany = Array.from({ length: 101 }, (_, index) => `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`)
+    const { view, droppedFields } = parseDealTimelineSavedView({
+      filters: { timeline: { v: 1, ownerUserId: tooMany, groupBy: 'stage' } },
+    })
+    expect(view.ownerUserId).toEqual([])
+    expect(view.groupBy).toBe('stage')
+    expect(droppedFields).toContain('ownerUserId')
+  })
+
   it('returns defaults for missing, foreign or older payloads', () => {
     expect(parseDealTimelineSavedView(null).view.bucket).toBe('week')
     expect(parseDealTimelineSavedView({ columnOrder: ['a'] }).droppedFields).toEqual(['timeline'])

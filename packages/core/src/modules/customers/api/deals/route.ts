@@ -6,6 +6,7 @@ import { CustomerDeal, CustomerDealPersonLink, CustomerDealCompanyLink } from '.
 import { dealCreateSchema, dealUpdateSchema } from '../../data/validators'
 import { E } from '#generated/entities.ids.generated'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
 import {
   applyEntityIdRestriction,
@@ -753,7 +754,7 @@ const DEAL_LIST_CONTRADICTION_MESSAGES: Record<DealListQueryContradiction, { key
 export function findDealListQueryContradiction(searchParams: URLSearchParams): DealListQueryContradiction | null {
   const hasExpectedCloseAt = parseBooleanFromUnknown(searchParams.get('hasExpectedCloseAt'))
   if (hasExpectedCloseAt !== false) return null
-  if (searchParams.get('expectedCloseAtFrom') || searchParams.get('expectedCloseAtTo')) {
+  if (parseDateInput(searchParams.get('expectedCloseAtFrom')) || parseDateInput(searchParams.get('expectedCloseAtTo'))) {
     return 'undated_with_close_date_range'
   }
   const isOverdue = parseBooleanFromUnknown(searchParams.get('isOverdue'))
@@ -811,7 +812,7 @@ const dealCreateResponseSchema = z.object({
   id: z.string().uuid().nullable(),
 })
 
-export const openApi = createCustomersCrudOpenApi({
+const dealsCrudOpenApi = createCustomersCrudOpenApi({
   resourceName: 'Deal',
   querySchema: dealListQuerySchema,
   listResponseSchema: createPagedListResponseSchema(dealListItemSchema),
@@ -831,3 +832,31 @@ export const openApi = createCustomersCrudOpenApi({
     description: 'Deletes a deal by `id`. The identifier may be provided in the body or query parameters.',
   },
 })
+
+const dealListContradictionErrorSchema = z.object({
+  error: z.string(),
+  code: z.enum(['undated_with_close_date_range', 'undated_with_overdue']),
+})
+
+export const openApi: OpenApiRouteDoc = {
+  ...dealsCrudOpenApi,
+  methods: {
+    ...dealsCrudOpenApi.methods,
+    ...(dealsCrudOpenApi.methods?.GET
+      ? {
+          GET: {
+            ...dealsCrudOpenApi.methods.GET,
+            errors: [
+              ...(dealsCrudOpenApi.methods.GET.errors ?? []),
+              {
+                status: 400,
+                description:
+                  'Contradictory close-date filters: `hasExpectedCloseAt=false` combined with a close-date range, or with `isOverdue` while `needsAttention` is absent.',
+                schema: dealListContradictionErrorSchema,
+              },
+            ],
+          },
+        }
+      : {}),
+  },
+}

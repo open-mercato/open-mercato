@@ -47,10 +47,10 @@ export default function DealsTimelinePage(): React.ReactElement {
     if (search.trim() === urlSearch.trim()) return
     const handle = window.setTimeout(() => {
       pushedSearchRef.current = search.trim()
-      update({ filters: { ...state.filters, search: search.trim() || undefined } })
+      update((current) => ({ filters: { ...current.filters, search: search.trim() || undefined } }))
     }, SEARCH_DEBOUNCE_MS)
     return () => window.clearTimeout(handle)
-  }, [search, state.filters, update, urlSearch])
+  }, [search, update, urlSearch])
 
   const title = translateWithFallback(t, 'customers.nav.deals.timeline', 'Deals Timeline')
   const returnTo = buildTimelineHref({ ...state, dealId: null })

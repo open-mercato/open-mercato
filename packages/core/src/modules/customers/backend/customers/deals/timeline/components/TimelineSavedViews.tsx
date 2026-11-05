@@ -54,7 +54,7 @@ function readErrorCode(error: unknown): string | null {
 }
 
 export function timelineSavedViewSignature(view: DealTimelineSavedView): string {
-  const sorted = (values: string[]) => [...values].sort()
+  const sorted = (values: string[]) => [...values].sort((left, right) => left.localeCompare(right))
   return JSON.stringify({
     status: sorted(view.status),
     pipelineId: view.pipelineId ?? null,
@@ -281,7 +281,7 @@ export function TimelineSavedViews({ currentView, onApply }: TimelineSavedViewsP
   )
 
   return (
-    <div className="flex flex-wrap items-start gap-2" aria-label={translateWithFallback(t, 'customers.deals.timeline.savedViews.label', 'Saved views')}>
+    <div role="group" className="flex flex-wrap items-start gap-2" aria-label={translateWithFallback(t, 'customers.deals.timeline.savedViews.label', 'Saved views')}>
       <span className="pt-1.5 text-sm text-muted-foreground">
         {translateWithFallback(t, 'customers.deals.timeline.savedViews.label', 'Saved views')}
       </span>
@@ -292,7 +292,7 @@ export function TimelineSavedViews({ currentView, onApply }: TimelineSavedViewsP
           label={perspective.name}
           kind="personal"
           isActive={activeId === perspective.id}
-          disabled={false}
+          disabled={deletingId === perspective.id}
           isShared={false}
           isRenaming={renamingId === perspective.id}
           renameValue={renameValue}

@@ -13,6 +13,9 @@ import { SortDir, type QueryEngine, type Sort } from '@open-mercato/shared/lib/q
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import {
   CustomerDeal,
   CustomerDealCompanyLink,
@@ -57,9 +60,10 @@ export const metadata = {
 
 export const TIMELINE_COLUMN_CAP = 300
 export const TIMELINE_RESPONSE_CARD_CAP = 240
-const LIGHT_PASS_PAGE_SIZE = 100
-const LIGHT_PASS_CONCURRENCY = 2
+const QUERY_CONCURRENCY = 2
 const PIPELINES_VIEW_FEATURE = 'customers.pipelines.view'
+
+const logger = createLogger('customers').child({ component: 'deals-timeline' })
 
 const booleanQueryParam = z.preprocess((value) => {
   const parsed = parseBooleanFromUnknown(value)
@@ -153,6 +157,7 @@ const timelineResponseSchema = z.object({
   scopeHasDeals: z.boolean(),
   truncated: z.boolean(),
   cardsTruncated: z.boolean(),
+  countsCapped: z.boolean(),
 })
 
 const cellResponseSchema = z.object({
@@ -163,6 +168,7 @@ const cellResponseSchema = z.object({
   page: z.number(),
   pageSize: z.number(),
   totalPages: z.number(),
+  countsCapped: z.boolean(),
 })
 
 const errorSchema = z.object({ error: z.string() })
@@ -201,6 +207,7 @@ type ColumnPass = {
   column: DealTimelineColumn
   total: number
   truncated: boolean
+  countCapped: boolean
   rows: LightRow[]
 }
 
@@ -315,7 +322,11 @@ async function runQuery(
   const rows = (Array.isArray(res.items) ? res.items : []).filter(
     (row): row is Record<string, unknown> => !!row && typeof row === 'object',
   )
-  return { rows, total: typeof res.total === 'number' ? res.total : rows.length }
+  return {
+    rows,
+    total: typeof res.total === 'number' ? res.total : rows.length,
+    countCapped: !!res.meta?.listCountCapWarning,
+  }
 }
 
 async function runLightPass(
@@ -326,31 +337,25 @@ async function runLightPass(
   groupBy: DealTimelineGroupBy,
 ): Promise<ColumnPass> {
   const filters = mergeFieldCondition(baseFilters, 'expected_close_at', windowFilter(column.from, column.to))
+  const res = await runQuery(queryEngine, scope, filters, {
+    fields: ['id', 'owner_user_id', 'pipeline_id', 'pipeline_stage_id', 'pipeline_stage', 'expected_close_at'],
+    sort: DATE_THEN_ID_ASC,
+    page: 1,
+    pageSize: TIMELINE_COLUMN_CAP,
+  })
   const rows: LightRow[] = []
-  let total = 0
-  let page = 1
-  while (rows.length < TIMELINE_COLUMN_CAP) {
-    const res = await runQuery(queryEngine, scope, filters, {
-      fields: ['id', 'owner_user_id', 'pipeline_id', 'pipeline_stage_id', 'pipeline_stage', 'expected_close_at'],
-      sort: DATE_THEN_ID_ASC,
-      page,
-      pageSize: LIGHT_PASS_PAGE_SIZE,
+  for (const row of res.rows) {
+    const id = toStringOrNull(row.id)
+    if (!id || rows.length >= TIMELINE_COLUMN_CAP) continue
+    rows.push({
+      id,
+      laneKey: laneKeyFor(groupBy, row),
+      pipelineId: toStringOrNull(row.pipeline_id),
+      pipelineStage: toStringOrNull(row.pipeline_stage),
     })
-    if (page === 1) total = res.total
-    for (const row of res.rows) {
-      const id = toStringOrNull(row.id)
-      if (!id || rows.length >= TIMELINE_COLUMN_CAP) continue
-      rows.push({
-        id,
-        laneKey: laneKeyFor(groupBy, row),
-        pipelineId: toStringOrNull(row.pipeline_id),
-        pipelineStage: toStringOrNull(row.pipeline_stage),
-      })
-    }
-    if (res.rows.length < LIGHT_PASS_PAGE_SIZE || rows.length >= total) break
-    page += 1
   }
-  return { column, total: Math.max(total, rows.length), truncated: total > rows.length, rows }
+  const total = Math.max(res.total, rows.length)
+  return { column, total, truncated: total > rows.length, countCapped: res.countCapped, rows }
 }
 
 async function runInBatches<Input, Output>(
@@ -505,7 +510,12 @@ async function userHasPipelinesView(
   try {
     const rbac = container.resolve<RbacService>('rbacService')
     return await rbac.userHasAllFeatures(userId, [PIPELINES_VIEW_FEATURE], scope)
-  } catch {
+  } catch (error) {
+    logger.warn('Pipelines view check failed; stage lanes fall back to the restricted layout', { err: error })
+    getTelemetryRuntime()?.reportError(error, {
+      module: 'customers',
+      code: 'customers.timeline_rbac_check_failed',
+    })
     return false
   }
 }
@@ -530,6 +540,7 @@ function emptyGrid(query: TimelineQuery, columns: DealTimelineColumn[]) {
     scopeHasDeals: false,
     truncated: false,
     cardsTruncated: false,
+    countsCapped: false,
   }
 }
 
@@ -544,7 +555,14 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const { translate } = await resolveTranslations()
+  const badRequest = (key: string, fallback: string) =>
+    NextResponse.json({ error: translate(key, fallback) }, { status: 400 })
+
   const params = new URL(req.url).searchParams
+  if (params.has('cellColumn') && (params.get('cellColumn') ?? '').trim() === '') {
+    return badRequest('customers.errors.timeline_invalid_query', 'Invalid query parameters')
+  }
   const parsed = querySchema.safeParse({
     search: params.get('search') ?? undefined,
     status: readArrayParam(params, 'status'),
@@ -565,23 +583,23 @@ export async function GET(req: Request) {
     pageSize: params.get('pageSize') ?? undefined,
   })
   if (!parsed.success) {
-    return NextResponse.json({ error: 'Invalid query parameters' }, { status: 400 })
+    return badRequest('customers.errors.timeline_invalid_query', 'Invalid query parameters')
   }
   const query = parsed.data
   const cellMode = query.cellLane !== undefined || query.cellColumn !== undefined
   if (cellMode && (query.cellLane === undefined || query.cellColumn === undefined)) {
-    return NextResponse.json({ error: 'cellLane and cellColumn must be given together' }, { status: 400 })
+    return badRequest('customers.errors.timeline_cell_pairing', 'cellLane and cellColumn must be given together')
   }
 
   const todayKey = toUtcDateKey(new Date()) as string
   const columnCount = query.columns ?? defaultColumnCount(query.bucket)
   const columns = buildTimelineColumns(query.bucket, query.from ?? defaultTimelineFrom(query.bucket, todayKey), columnCount, todayKey)
   if (cellMode && (query.cellColumn as number) >= columns.length) {
-    return NextResponse.json({ error: 'cellColumn is outside the window' }, { status: 400 })
+    return badRequest('customers.errors.timeline_cell_column_out_of_window', 'cellColumn is outside the window')
   }
   const cellLaneFilter = cellMode ? laneFilterFor(query.groupBy, query.cellLane as string) : null
   if (cellMode && !cellLaneFilter) {
-    return NextResponse.json({ error: 'Invalid cellLane' }, { status: 400 })
+    return badRequest('customers.errors.timeline_invalid_cell_lane', 'Invalid cellLane')
   }
 
   const container = await createRequestContainer()
@@ -601,7 +619,7 @@ export async function GET(req: Request) {
     if (cellMode) {
       return NextResponse.json({
         lane: query.cellLane, column: query.cellColumn, items: [], total: 0,
-        page: query.page, pageSize: query.pageSize, totalPages: 0,
+        page: query.page, pageSize: query.pageSize, totalPages: 0, countsCapped: false,
       })
     }
     return NextResponse.json(emptyGrid(query, columns))
@@ -662,6 +680,7 @@ export async function GET(req: Request) {
       page: query.page,
       pageSize: query.pageSize,
       totalPages: Math.ceil(res.total / query.pageSize),
+      countsCapped: res.countCapped,
     })
   }
 
@@ -670,35 +689,46 @@ export async function GET(req: Request) {
   const overdueBound = overdueBoundFor(windowFrom, todayKey)
   const openFilters = mergeFieldCondition(baseFilters, 'status', { $nin: closedStatuses })
 
-  const [columnPasses, overdueRes, undatedRes, previousRes, nextRes, scopeRes] = await Promise.all([
-    runInBatches(columns, LIGHT_PASS_CONCURRENCY, (column) =>
-      runLightPass(queryEngine, queryScope, baseFilters, column, query.groupBy),
-    ),
-    runQuery(queryEngine, queryScope, mergeFieldCondition(openFilters, 'expected_close_at', { $lt: dateKeyToUtcDate(overdueBound) }), {
-      fields: ['id', 'expected_close_at'],
-      sort: [{ field: 'expected_close_at', dir: SortDir.Desc }, { field: 'id', dir: SortDir.Asc }],
-      page: 1,
-      pageSize: 1,
-    }),
-    runQuery(queryEngine, queryScope, mergeFieldCondition(baseFilters, 'expected_close_at', { $eq: null }), {
-      fields: ['id'],
-      page: 1,
-      pageSize: 1,
-    }),
-    runQuery(queryEngine, queryScope, mergeFieldCondition(baseFilters, 'expected_close_at', { $lt: dateKeyToUtcDate(windowFrom) }), {
-      fields: ['id', 'expected_close_at'],
-      sort: [{ field: 'expected_close_at', dir: SortDir.Desc }, { field: 'id', dir: SortDir.Asc }],
-      page: 1,
-      pageSize: 1,
-    }),
-    runQuery(queryEngine, queryScope, mergeFieldCondition(baseFilters, 'expected_close_at', { $gte: dateKeyToUtcDate(windowTo) }), {
-      fields: ['id', 'expected_close_at'],
-      sort: DATE_THEN_ID_ASC,
-      page: 1,
-      pageSize: 1,
-    }),
-    runQuery(queryEngine, queryScope, {}, { fields: ['id'], page: 1, pageSize: 1 }),
-  ])
+  const columnPasses = await runInBatches(columns, QUERY_CONCURRENCY, (column) =>
+    runLightPass(queryEngine, queryScope, baseFilters, column, query.groupBy),
+  )
+  const sideQueries: Array<() => ReturnType<typeof runQuery>> = [
+    () =>
+      runQuery(queryEngine, queryScope, mergeFieldCondition(openFilters, 'expected_close_at', { $lt: dateKeyToUtcDate(overdueBound) }), {
+        fields: ['id', 'expected_close_at'],
+        sort: [{ field: 'expected_close_at', dir: SortDir.Desc }, { field: 'id', dir: SortDir.Asc }],
+        page: 1,
+        pageSize: 1,
+      }),
+    () =>
+      runQuery(queryEngine, queryScope, mergeFieldCondition(baseFilters, 'expected_close_at', { $eq: null }), {
+        fields: ['id'],
+        page: 1,
+        pageSize: 1,
+      }),
+    () =>
+      runQuery(queryEngine, queryScope, mergeFieldCondition(baseFilters, 'expected_close_at', { $lt: dateKeyToUtcDate(windowFrom) }), {
+        fields: ['id', 'expected_close_at'],
+        sort: [{ field: 'expected_close_at', dir: SortDir.Desc }, { field: 'id', dir: SortDir.Asc }],
+        page: 1,
+        pageSize: 1,
+      }),
+    () =>
+      runQuery(queryEngine, queryScope, mergeFieldCondition(baseFilters, 'expected_close_at', { $gte: dateKeyToUtcDate(windowTo) }), {
+        fields: ['id', 'expected_close_at'],
+        sort: DATE_THEN_ID_ASC,
+        page: 1,
+        pageSize: 1,
+      }),
+    () => runQuery(queryEngine, queryScope, {}, { fields: ['id'], page: 1, pageSize: 1 }),
+  ]
+  const [overdueRes, undatedRes, previousRes, nextRes, scopeRes] = await runInBatches(
+    sideQueries,
+    QUERY_CONCURRENCY,
+    (runSideQuery) => runSideQuery(),
+  )
+  const countsCapped =
+    columnPasses.some((pass) => pass.countCapped) || overdueRes.countCapped || undatedRes.countCapped
 
   const cellIds = new Map<string, Map<number, string[]>>()
   const laneStageInfo = new Map<string, { pipelineId: string | null; label: string }>()
@@ -780,16 +810,20 @@ export async function GET(req: Request) {
   const selectedIds: string[] = []
   const selectedByCell = new Map<string, string[]>()
   let cardsTruncated = false
-  for (const lane of laneDefinitions) {
-    const laneCells = cellIds.get(lane.key)
-    for (const column of columns) {
-      const ids = laneCells?.get(column.index) ?? []
-      const wanted = ids.slice(0, query.perCell)
-      const room = Math.max(0, TIMELINE_RESPONSE_CARD_CAP - selectedIds.length)
-      const taken = wanted.slice(0, room)
-      if (taken.length < wanted.length) cardsTruncated = true
-      selectedByCell.set(`${lane.key}|${column.index}`, taken)
-      selectedIds.push(...taken)
+  for (let depth = 0; depth < query.perCell; depth += 1) {
+    for (const lane of laneDefinitions) {
+      const laneCells = cellIds.get(lane.key)
+      for (const column of columns) {
+        const id = laneCells?.get(column.index)?.[depth]
+        if (!id) continue
+        if (selectedIds.length >= TIMELINE_RESPONSE_CARD_CAP) {
+          cardsTruncated = true
+          continue
+        }
+        const cellKey = `${lane.key}|${column.index}`
+        selectedByCell.set(cellKey, [...(selectedByCell.get(cellKey) ?? []), id])
+        selectedIds.push(id)
+      }
     }
   }
   const itemsById = await loadItems(em, selectedIds, queryScope, decryptionScope)
@@ -839,5 +873,6 @@ export async function GET(req: Request) {
     scopeHasDeals: scopeRes.total > 0,
     truncated: anyTruncated,
     cardsTruncated,
+    countsCapped,
   })
 }

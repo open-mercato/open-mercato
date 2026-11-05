@@ -38,13 +38,25 @@ export function formatTimelineDealCount(
   })
 }
 
-export function formatTimelineUndatedLabel(t: ReturnType<typeof useT>, locale: string, count: number): string {
+export function formatTimelineUndatedLabel(
+  t: ReturnType<typeof useT>,
+  locale: string,
+  count: number,
+  capped = false,
+): string {
   return translatePluralCount(t, locale, 'customers.deals.timeline.undated', '{count} deals have no close date', count, {
-    count,
+    count: formatTimelineCount(t, count, capped),
   })
 }
 
-function translatePluralCount(
+export function formatTimelineMoreLabel(t: ReturnType<typeof useT>, hiddenCount: number, partial: boolean): string {
+  if (partial) {
+    return translateWithFallback(t, 'customers.deals.timeline.cell.morePartial', '{count}+ more', { count: hiddenCount })
+  }
+  return translateWithFallback(t, 'customers.deals.timeline.cell.more', '+{count} more', { count: hiddenCount })
+}
+
+export function translatePluralCount(
   t: ReturnType<typeof useT>,
   locale: string,
   keyPrefix: string,
@@ -225,7 +237,7 @@ export function TimelineLane({
           return (
             <div
               key={column.index}
-              role="cell"
+              role="gridcell"
               className={`flex items-center border-l border-border px-2 py-2 text-xs ${
                 column.isCurrent ? 'bg-accent-indigo/5' : ''
               } ${overdue ? 'font-semibold text-status-error-text' : 'text-muted-foreground'}`}
@@ -237,7 +249,7 @@ export function TimelineLane({
           )
         }
         return (
-          <div key={column.index} role="cell" className="flex min-w-0">
+          <div key={column.index} role="gridcell" className="flex min-w-0">
             <TimelineCell
               lane={lane}
               cell={cell}

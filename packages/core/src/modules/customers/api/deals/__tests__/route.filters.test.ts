@@ -449,6 +449,11 @@ describe('customers deals list contradiction check', () => {
     expect(findDealListQueryContradiction(params('hasExpectedCloseAt=false&needsAttention=true'))).toBeNull()
   })
 
+  it('ignores close-date params the filter builder cannot parse', () => {
+    expect(findDealListQueryContradiction(params('hasExpectedCloseAt=false&expectedCloseAtFrom=garbage'))).toBeNull()
+    expect(findDealListQueryContradiction(params('hasExpectedCloseAt=false&expectedCloseAtTo='))).toBeNull()
+  })
+
   it('allows true with ranges and absent values', () => {
     expect(findDealListQueryContradiction(params('hasExpectedCloseAt=true&expectedCloseAtFrom=2026-11-01'))).toBeNull()
     expect(findDealListQueryContradiction(params('isOverdue=true'))).toBeNull()
@@ -470,5 +475,13 @@ describe('customers deals list query schema stays extendable', () => {
     const shape = (getDoc?.query as z.ZodObject<z.ZodRawShape>).shape
     expect(shape).toHaveProperty('ids')
     expect(shape).toHaveProperty('hasExpectedCloseAt')
+  })
+
+  it('documents the contradiction 400 on the list GET', () => {
+    const errors = (openApi.methods?.GET as { errors?: Array<{ status: number }> } | undefined)?.errors ?? []
+    expect(errors.some((entry) => entry.status === 400)).toBe(true)
+    expect(openApi.methods?.POST).toBeDefined()
+    expect(openApi.methods?.PUT).toBeDefined()
+    expect(openApi.methods?.DELETE).toBeDefined()
   })
 })

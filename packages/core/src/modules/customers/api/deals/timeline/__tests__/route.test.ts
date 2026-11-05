@@ -369,6 +369,58 @@ describe('customers deals timeline route', () => {
     expect(lastLane.cells[0]).toMatchObject({ total: 1, items: [] })
   })
 
+  it('shares the card cap across lanes so no lane is starved', async () => {
+    const owners = [ownerA, ownerB, ownerIdle, 'eeeeeeee-eeee-4eee-8eee-000000000001']
+    deals = owners.flatMap((owner) =>
+      Array.from({ length: 8 }, (_, week) => week).flatMap((week) =>
+        Array.from({ length: 10 }, () => makeDeal({ owner_user_id: owner, expected_close_at: addDays(lastWeek, week * 7) })),
+      ),
+    )
+    const body = await grid(`from=${lastWeek}&columns=8&perCell=10`)
+    const cards = body.lanes.reduce((sum, lane) => sum + lane.cells.reduce((inner, cell) => inner + cell.items.length, 0), 0)
+    expect(cards).toBe(TIMELINE_RESPONSE_CARD_CAP)
+    expect(body.cardsTruncated).toBe(true)
+    for (const lane of body.lanes) {
+      expect(lane.cells.every((cell) => cell.items.length >= 7)).toBe(true)
+    }
+  })
+
+  it('surfaces a capped count from any light or side query', async () => {
+    deals = [makeDeal({ expected_close_at: thisWeek }), makeDeal({ expected_close_at: null })]
+    expect((await grid(`from=${lastWeek}`)).countsCapped).toBe(false)
+    queryMock.mockImplementation(async (entity: string, args: QueryArgs) => {
+      const result = await fakeQuery(entity, args)
+      const undated = (args.filters.expected_close_at as { $eq?: unknown } | undefined)?.$eq === null
+      return undated ? { ...result, meta: { listCountCapWarning: { entity, cap: 10000 } } } : result
+    })
+    expect((await grid(`from=${lastWeek}`)).countsCapped).toBe(true)
+  })
+
+  it('returns an empty grid without querying when the caller sees no organizations', async () => {
+    resolveScopeMock.mockResolvedValue({ tenantId, filterIds: [] })
+    deals = [makeDeal({ expected_close_at: thisWeek })]
+    const body = await grid(`from=${lastWeek}`)
+    expect(body).toMatchObject({ lanes: [], scopeHasDeals: false, countsCapped: false, undatedCount: 0 })
+    expect(body.columns.every((column) => column.total === 0)).toBe(true)
+    expect(queryMock).not.toHaveBeenCalled()
+  })
+
+  it('passes the search filter to the light pass', async () => {
+    deals = [makeDeal({ expected_close_at: thisWeek }), makeDeal({ expected_close_at: thisWeek })]
+    findMatchingMock.mockResolvedValue([deals[1].id])
+    const body = await grid(`from=${lastWeek}&search=acme`)
+    expect(body.columns[1].total).toBe(1)
+    expect(body.lanes[0].cells[1].items.map((item) => item.id)).toEqual([deals[1].id])
+  })
+
+  it('falls back to the restricted stage layout when the pipelines check fails', async () => {
+    rbacMock.userHasAllFeatures.mockRejectedValue(new Error('rbac unavailable'))
+    deals = [makeDeal({ pipeline_stage_id: stageLate, pipeline_stage: 'Negotiate', expected_close_at: thisWeek })]
+    const body = await grid(`from=${lastWeek}&groupBy=stage`)
+    expect(body.lanes.map((lane) => lane.key)).toEqual([stageLate])
+    expect(body.lanes[0].stage).toEqual({ label: 'Negotiate', pipelineId })
+  })
+
   it('never sorts the light pass on an encrypted field', async () => {
     deals = [makeDeal({ expected_close_at: thisWeek })]
     await grid(`from=${lastWeek}`)
@@ -465,6 +517,37 @@ describe('customers deals timeline route', () => {
       const noStage = (await callTimeline(`from=${lastWeek}&groupBy=stage&cellLane=__nostage:${pipelineId}&cellColumn=1`)).body as unknown as DealTimelineCellResponse
       expect(noStage.items.map((item) => item.id)).toEqual([deals[2].id])
     })
+
+    it('intersects the lane with a selected owner filter', async () => {
+      deals = [
+        makeDeal({ expected_close_at: thisWeek }),
+        makeDeal({ owner_user_id: ownerB, expected_close_at: thisWeek }),
+      ]
+      const own = (await callTimeline(`from=${lastWeek}&ownerUserId=${ownerA}&cellLane=${ownerA}&cellColumn=1`)).body as unknown as DealTimelineCellResponse
+      expect(own.items.map((item) => item.id)).toEqual([deals[0].id])
+      const other = (await callTimeline(`from=${lastWeek}&ownerUserId=${ownerA}&cellLane=${ownerB}&cellColumn=1`)).body as unknown as DealTimelineCellResponse
+      expect(other).toMatchObject({ total: 0, items: [] })
+    })
+
+    it('applies the search filter and reports capped counts', async () => {
+      deals = [makeDeal({ expected_close_at: thisWeek }), makeDeal({ expected_close_at: thisWeek })]
+      findMatchingMock.mockResolvedValue([deals[0].id])
+      queryMock.mockImplementation(async (entity: string, args: QueryArgs) => ({
+        ...(await fakeQuery(entity, args)),
+        meta: { listCountCapWarning: { entity, cap: 10000 } },
+      }))
+      const cell = (await callTimeline(`from=${lastWeek}&search=acme&cellLane=${ownerA}&cellColumn=1`)).body as unknown as DealTimelineCellResponse
+      expect(cell.items.map((item) => item.id)).toEqual([deals[0].id])
+      expect(cell.countsCapped).toBe(true)
+    })
+
+    it('returns an empty page when the caller sees no organizations', async () => {
+      resolveScopeMock.mockResolvedValue({ tenantId, filterIds: [] })
+      deals = [makeDeal({ expected_close_at: thisWeek })]
+      const cell = (await callTimeline(`from=${lastWeek}&cellLane=${ownerA}&cellColumn=1`)).body as unknown as DealTimelineCellResponse
+      expect(cell).toMatchObject({ total: 0, items: [], totalPages: 0, countsCapped: false })
+      expect(queryMock).not.toHaveBeenCalled()
+    })
   })
 
   describe('validation', () => {
@@ -478,6 +561,7 @@ describe('customers deals timeline route', () => {
       'cellLane=not-a-uuid&cellColumn=0',
       `cellLane=${ownerA}&cellColumn=8`,
       'pageSize=101&cellLane=__unassigned&cellColumn=0',
+      'cellLane=__unassigned&cellColumn=',
     ])('rejects %s with 400', async (query) => {
       expect((await callTimeline(query)).status).toBe(400)
     })

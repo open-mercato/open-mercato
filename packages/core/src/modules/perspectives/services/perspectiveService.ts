@@ -148,6 +148,18 @@ function isPerspectivesState(value: unknown): value is PerspectivesState {
   return true
 }
 
+function isVersionedNamespacedFilters(record: Record<string, unknown>): boolean {
+  const entries = Object.values(record)
+  if (entries.length === 0) return false
+  return entries.every(
+    (entry) =>
+      !!entry
+      && typeof entry === 'object'
+      && !Array.isArray(entry)
+      && typeof (entry as Record<string, unknown>).v === 'number',
+  )
+}
+
 /**
  * Defensive migration for legacy filter state shapes captured before the
  * advanced-filter tree (SPEC-048). Existing perspectives only store either
@@ -162,18 +174,6 @@ function isPerspectivesState(value: unknown): value is PerspectivesState {
  *   because there is no reliable mapping back to the new operator model;
  *   the user sees an empty tree and can recreate.
  */
-function isVersionedNamespacedFilters(record: Record<string, unknown>): boolean {
-  const entries = Object.values(record)
-  if (entries.length === 0) return false
-  return entries.every(
-    (entry) =>
-      !!entry
-      && typeof entry === 'object'
-      && !Array.isArray(entry)
-      && typeof (entry as Record<string, unknown>).v === 'number',
-  )
-}
-
 export function maybeMigrateLegacyFilterValues(settings: PerspectiveSettings): PerspectiveSettings {
   const filters = settings.filters
   if (!filters || typeof filters !== 'object') return settings

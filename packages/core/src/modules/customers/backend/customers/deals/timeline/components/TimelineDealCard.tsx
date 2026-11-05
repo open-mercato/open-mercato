@@ -4,7 +4,7 @@ import * as React from 'react'
 import { useDraggable } from '@dnd-kit/core'
 import { AlertTriangle, Calendar } from 'lucide-react'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { formatCurrency } from '../../../../../components/detail/utils'
 import { isLostDealStatus, isOpenDealStatus, isWonDealStatus } from '../../../../../lib/dealStatus'
@@ -13,23 +13,36 @@ import type { DealTimelineItem } from '../../../../../lib/dealsTimelineTypes'
 
 type Translator = ReturnType<typeof useT>
 
-const utcDateFormatter = new Intl.DateTimeFormat(undefined, {
-  day: 'numeric',
-  month: 'short',
-  year: 'numeric',
-  timeZone: 'UTC',
-})
+const utcDateFormatters = new Map<string, Intl.DateTimeFormat>()
 
-export function formatTimelineDate(value: string | null | undefined): string | null {
-  const key = toUtcDateKey(value ?? null)
-  if (!key) return null
-  return utcDateFormatter.format(new Date(`${key}T00:00:00.000Z`))
+function utcDateFormatterFor(locale: string | undefined): Intl.DateTimeFormat {
+  const cacheKey = locale ?? ''
+  const cached = utcDateFormatters.get(cacheKey)
+  if (cached) return cached
+  let formatter: Intl.DateTimeFormat
+  try {
+    formatter = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
+  } catch {
+    formatter = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
+  }
+  utcDateFormatters.set(cacheKey, formatter)
+  return formatter
 }
 
-export function formatTimelineValue(amount: number | null, currency: string | null): string | null {
+export function formatTimelineDate(value: string | null | undefined, locale?: string): string | null {
+  const key = toUtcDateKey(value ?? null)
+  if (!key) return null
+  return utcDateFormatterFor(locale).format(new Date(`${key}T00:00:00.000Z`))
+}
+
+export function formatTimelineValue(amount: number | null, currency: string | null, locale?: string): string | null {
   if (typeof amount !== 'number' || !Number.isFinite(amount)) return null
-  if (currency) return formatCurrency(amount, currency)
-  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(amount)
+  if (currency) return formatCurrency(amount, currency, locale)
+  try {
+    return new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(amount)
+  } catch {
+    return new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(amount)
+  }
 }
 
 export function isTimelineDealOverdue(item: Pick<DealTimelineItem, 'status' | 'expectedCloseAt'>, todayKey: string): boolean {
@@ -58,13 +71,14 @@ export function buildTimelineCardAriaLabel(
   t: Translator,
   item: DealTimelineItem,
   todayKey: string,
+  locale?: string,
 ): string {
   const parts: string[] = []
   parts.push(item.title || translateWithFallback(t, 'customers.deals.pipeline.untitled', 'Untitled deal'))
   if (item.primaryCompany?.label) parts.push(item.primaryCompany.label)
-  const value = formatTimelineValue(item.valueAmount, item.valueCurrency)
+  const value = formatTimelineValue(item.valueAmount, item.valueCurrency, locale)
   if (value) parts.push(value)
-  const date = formatTimelineDate(item.expectedCloseAt)
+  const date = formatTimelineDate(item.expectedCloseAt, locale)
   if (date) {
     parts.push(translateWithFallback(t, 'customers.deals.timeline.card.closes', 'closes {date}', { date }))
   }
@@ -107,6 +121,7 @@ function TimelineDealCardImpl({
   onOpen,
 }: TimelineDealCardProps): React.ReactElement {
   const t = useT()
+  const locale = useLocale()
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: item.id,
     data: { type: 'timeline-deal', laneKey, column, item },
@@ -114,10 +129,10 @@ function TimelineDealCardImpl({
   })
   const overdue = isTimelineDealOverdue(item, todayKey)
   const closedKind = timelineClosedKind(item.status)
-  const dateLabel = formatTimelineDate(item.expectedCloseAt)
-  const valueLabel = formatTimelineValue(item.valueAmount, item.valueCurrency)
+  const dateLabel = formatTimelineDate(item.expectedCloseAt, locale)
+  const valueLabel = formatTimelineValue(item.valueAmount, item.valueCurrency, locale)
   const probability = probabilityLabel(item.probability)
-  const ariaLabel = buildTimelineCardAriaLabel(t, item, todayKey)
+  const ariaLabel = buildTimelineCardAriaLabel(t, item, todayKey, locale)
   const title = item.title || translateWithFallback(t, 'customers.deals.pipeline.untitled', 'Untitled deal')
 
   const openInNewTab = () => {
@@ -237,7 +252,8 @@ export function TimelineDealCardPreview({
   hint: string | null
 }): React.ReactElement {
   const t = useT()
-  const dateLabel = formatTimelineDate(item.expectedCloseAt)
+  const locale = useLocale()
+  const dateLabel = formatTimelineDate(item.expectedCloseAt, locale)
   const overdue = isTimelineDealOverdue(item, todayKey)
   return (
     <div className="flex w-56 flex-col gap-1">

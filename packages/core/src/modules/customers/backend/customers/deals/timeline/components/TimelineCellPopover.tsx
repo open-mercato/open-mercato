@@ -8,6 +8,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primit
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import type { DealTimelineCellResponse, DealTimelineItem } from '../../../../../lib/dealsTimelineTypes'
 import {
@@ -51,9 +52,10 @@ export function TimelineCellPopover({
 }: TimelineCellPopoverProps): React.ReactElement {
   const t = useT()
   const locale = useLocale()
+  const scopeVersion = useOrganizationScopeVersion()
   const listRef = React.useRef<HTMLUListElement | null>(null)
   const query = useInfiniteQuery({
-    queryKey: [...TIMELINE_QUERY_ROOT, 'cell', baseParams, laneKey, column],
+    queryKey: [...TIMELINE_QUERY_ROOT, 'cell', `scope:${scopeVersion}`, baseParams, laneKey, column],
     enabled: open,
     initialPageParam: 1,
     queryFn: async ({ pageParam }) => {
@@ -78,6 +80,7 @@ export function TimelineCellPopover({
     [query.data],
   )
   const total = query.data?.pages[0]?.total ?? null
+  const totalCapped = query.data?.pages[0]?.countsCapped === true
 
   React.useEffect(() => {
     if (!open || !focusDealId || !listRef.current) return
@@ -98,7 +101,7 @@ export function TimelineCellPopover({
           <span className="truncate text-sm font-semibold text-foreground">{title}</span>
           {total !== null ? (
             <span className="shrink-0 text-xs text-muted-foreground">
-              {formatTimelineDealCount(t, locale, total, false)}
+              {formatTimelineDealCount(t, locale, total, totalCapped)}
             </span>
           ) : null}
         </div>
@@ -115,7 +118,7 @@ export function TimelineCellPopover({
             {items.map((item) => {
               const overdue = isTimelineDealOverdue(item, todayKey)
               const closed = timelineClosedKind(item.status)
-              const value = formatTimelineValue(item.valueAmount, item.valueCurrency)
+              const value = formatTimelineValue(item.valueAmount, item.valueCurrency, locale)
               return (
                 <li key={item.id}>
                   <Button
@@ -135,7 +138,7 @@ export function TimelineCellPopover({
                       >
                         {overdue ? <AlertTriangle className="size-3" aria-hidden="true" /> : null}
                         {closed ? `${timelineClosedLabel(t, closed)} · ` : ''}
-                        {formatTimelineDate(item.expectedCloseAt) ?? ''}
+                        {formatTimelineDate(item.expectedCloseAt, locale) ?? ''}
                       </span>
                     </span>
                   </Button>

@@ -891,13 +891,15 @@ export type PersonCompanyLinkDeleteInput = z.infer<typeof personCompanyLinkDelet
 
 export const DEAL_TIMELINE_SAVED_VIEW_VERSION = 1 as const
 
+export const DEAL_TIMELINE_SAVED_VIEW_MAX_VALUES = 100
+
 export const dealTimelineSavedViewSchema = z.object({
   v: z.literal(DEAL_TIMELINE_SAVED_VIEW_VERSION),
-  status: z.array(z.string().min(1)).default([]),
+  status: z.array(z.string().min(1)).max(DEAL_TIMELINE_SAVED_VIEW_MAX_VALUES).default([]),
   pipelineId: uuid().nullable().default(null),
-  ownerUserId: z.array(uuid()).default([]),
-  personId: z.array(uuid()).default([]),
-  companyId: z.array(uuid()).default([]),
+  ownerUserId: z.array(uuid()).max(DEAL_TIMELINE_SAVED_VIEW_MAX_VALUES).default([]),
+  personId: z.array(uuid()).max(DEAL_TIMELINE_SAVED_VIEW_MAX_VALUES).default([]),
+  companyId: z.array(uuid()).max(DEAL_TIMELINE_SAVED_VIEW_MAX_VALUES).default([]),
   excludeClosed: z.boolean().default(true),
   groupBy: z.enum(['owner', 'stage']).default('owner'),
   bucket: z.enum(['week', 'month', 'quarter']).default('week'),

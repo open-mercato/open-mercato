@@ -7,6 +7,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { ChangeCloseDateDialog, buildQuickDateChips } from '../ChangeCloseDateDialog'
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
+  useLocale: () => 'en',
   useT: () => (key: string, fallback?: string, params?: Record<string, unknown>) =>
     (fallback ?? key).replace(/\{(\w+)\}/g, (_match, name: string) => String(params?.[name] ?? '')),
 }))

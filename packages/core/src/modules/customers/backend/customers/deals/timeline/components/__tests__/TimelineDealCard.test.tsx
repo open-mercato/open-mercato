@@ -14,6 +14,7 @@ jest.mock('@dnd-kit/core', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
+  useLocale: () => 'en',
   useT: () => (key: string, fallback?: string, params?: Record<string, unknown>) => {
     const template = fallback ?? key
     return params ? template.replace(/\{(\w+)\}/g, (_match, name: string) => String(params[name] ?? '')) : template

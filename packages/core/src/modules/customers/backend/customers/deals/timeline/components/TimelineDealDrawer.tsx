@@ -20,7 +20,7 @@ import { withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiC
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { isLostDealStatus, isOpenDealStatus, isWonDealStatus } from '../../../../../lib/dealStatus'
 import { compareDateKeys, toUtcDateKey } from '../../../../../lib/dealsTimeline'
 import type { DealTimelineItem } from '../../../../../lib/dealsTimelineTypes'
@@ -47,6 +47,7 @@ export type TimelineDealDrawerProps = {
   initialItem?: DealTimelineItem | null
   refreshToken?: number
   resolveOwnerName?: (ownerUserId: string) => string | null
+  writesLocked?: boolean
 }
 
 type DrawerMutationContext = {
@@ -58,12 +59,13 @@ type DrawerMutationContext = {
 
 const MUTATION_CONTEXT_ID = 'customers-deals-timeline:drawer'
 
-export type DealStatusKind = 'open' | 'won' | 'lost'
+export type DealStatusKind = 'open' | 'won' | 'lost' | 'closed'
 
 export function resolveDealStatusKind(status: string | null | undefined): DealStatusKind {
   const normalized = status?.toLowerCase()
   if (isWonDealStatus(normalized)) return 'won'
-  if (isLostDealStatus(normalized) || !isOpenDealStatus(normalized)) return 'lost'
+  if (isLostDealStatus(normalized)) return 'lost'
+  if (!isOpenDealStatus(normalized)) return 'closed'
   return 'open'
 }
 
@@ -71,6 +73,7 @@ const STATUS_VARIANT: Record<DealStatusKind, StatusBadgeVariant> = {
   open: 'info',
   won: 'success',
   lost: 'error',
+  closed: 'neutral',
 }
 
 export function isDealOverdue(
@@ -151,8 +154,10 @@ export function TimelineDealDrawer({
   initialItem,
   refreshToken,
   resolveOwnerName,
+  writesLocked = false,
 }: TimelineDealDrawerProps): React.ReactElement {
   const t = useT()
+  const locale = useLocale()
   const { state, reload } = useDealDrawerData(dealId)
   const permissions = useDealDrawerPermissions()
   const [closeDateDialogOpen, setCloseDateDialogOpen] = React.useState(false)
@@ -234,16 +239,16 @@ export function TimelineDealDrawer({
         )
       } catch (err) {
         if (!surfaceRecordConflict(err, t, { onRefresh: () => { void reload() } })) {
-          flash(t('customers.deals.timeline.reschedule.error', 'Failed to change the close date.'), 'error')
+          flash(t('customers.deals.timeline.reschedule.error', 'Could not change the close date.'), 'error')
         }
         await reload()
         return
       }
       setCloseDateDialogOpen(false)
-      await refreshAfterWrite()
+      await reload()
       onRescheduled({ dealId: deal.id, expectedCloseAt: dateKey })
     },
-    [deal, onRescheduled, refreshAfterWrite, reload, runMutationWithContext, t],
+    [deal, onRescheduled, reload, runMutationWithContext, t],
   )
 
   const handleStageChange = React.useCallback(
@@ -300,13 +305,14 @@ export function TimelineDealDrawer({
       : null
   const canScheduleFollowUp = !!followUpEntity && permissions.canScheduleFollowUp
   const otherStages = deal ? deal.stages.filter((stage) => stage.id !== deal.pipelineStageId) : []
-  const closeDateLabel = formatUtcDateKey(deal?.expectedCloseAt ?? null)
+  const closeDateLabel = formatUtcDateKey(deal?.expectedCloseAt ?? null, locale)
   const valueLabel =
-    deal && deal.valueAmount != null ? formatCurrency(deal.valueAmount, deal.valueCurrency) : null
+    deal && deal.valueAmount != null ? formatCurrency(deal.valueAmount, deal.valueCurrency, locale) : null
   const statusLabels: Record<DealStatusKind, string> = {
     open: t('customers.deals.timeline.drawer.status.open', 'Open'),
     won: t('customers.deals.timeline.drawer.status.won', 'Won'),
     lost: t('customers.deals.timeline.drawer.status.lost', 'Lost'),
+    closed: t('customers.deals.timeline.drawer.status.closed', 'Closed'),
   }
 
   const titleNode = deal
@@ -395,7 +401,7 @@ export function TimelineDealDrawer({
                   title={t('customers.deals.timeline.drawer.section.closeDate', 'Expected close date')}
                   action={
                     canWrite ? (
-                      <Button type="button" variant="outline" size="sm" onClick={() => setCloseDateDialogOpen(true)}>
+                      <Button type="button" variant="outline" size="sm" disabled={writesLocked} onClick={() => setCloseDateDialogOpen(true)}>
                         <CalendarClock className="size-4" aria-hidden="true" />
                         {t('customers.deals.timeline.reschedule.action', 'Change close date')}
                       </Button>
@@ -424,7 +430,7 @@ export function TimelineDealDrawer({
                     </p>
                   ) : !canManage ? (
                     <p className="text-xs text-muted-foreground">
-                      {t('customers.deals.timeline.reschedule.readOnlyHint', 'You need permission to manage deals to change the close date.')}
+                      {t('customers.deals.timeline.reschedule.readOnlyHint', 'You can view deals but not change their close dates.')}
                     </p>
                   ) : null}
                 </DrawerSection>
@@ -452,6 +458,7 @@ export function TimelineDealDrawer({
                           type="button"
                           variant="ghost"
                           size="sm"
+                          disabled={writesLocked}
                           onClick={() => setStageDialogOpen(true)}
                         >
                           <Workflow className="size-4" aria-hidden="true" />
@@ -510,11 +517,11 @@ export function TimelineDealDrawer({
                     title={t('customers.deals.timeline.drawer.section.closeDeal', 'Close deal')}
                   >
                     <div className="flex flex-wrap gap-2">
-                      <Button type="button" variant="outline" size="sm" onClick={() => void closure.handleWon()}>
+                      <Button type="button" variant="outline" size="sm" disabled={writesLocked} onClick={() => void closure.handleWon()}>
                         <Trophy className="size-4" aria-hidden="true" />
                         {t('customers.deals.timeline.drawer.action.markWon', 'Mark won')}
                       </Button>
-                      <Button type="button" variant="outline" size="sm" onClick={closure.openLostDialog}>
+                      <Button type="button" variant="outline" size="sm" disabled={writesLocked} onClick={closure.openLostDialog}>
                         <XCircle className="size-4" aria-hidden="true" />
                         {t('customers.deals.timeline.drawer.action.markLost', 'Mark lost')}
                       </Button>

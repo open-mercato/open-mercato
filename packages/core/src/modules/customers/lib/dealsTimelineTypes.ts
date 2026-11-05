@@ -70,6 +70,7 @@ export type DealTimelineResponse = {
   scopeHasDeals: boolean
   truncated: boolean
   cardsTruncated: boolean
+  countsCapped: boolean
 }
 
 export type DealTimelineCellResponse = {
@@ -80,6 +81,7 @@ export type DealTimelineCellResponse = {
   page: number
   pageSize: number
   totalPages: number
+  countsCapped: boolean
 }
 
 export type DealTimelineFilters = {

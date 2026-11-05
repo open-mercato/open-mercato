@@ -154,6 +154,8 @@ export type TimelineUrlStatePatch = Partial<Omit<TimelineUrlState, 'filters'>> &
   filters?: DealTimelineFilters
 }
 
+export type TimelineUrlStateUpdate = TimelineUrlStatePatch | ((current: TimelineUrlState) => TimelineUrlStatePatch)
+
 export function useTimelineUrlState() {
   const router = useRouter()
   const pathname = usePathname() ?? TIMELINE_PATH
@@ -177,8 +179,9 @@ export function useTimelineUrlState() {
   }, [paramsKey])
 
   const update = React.useCallback(
-    (patch: TimelineUrlStatePatch, options?: { history?: 'push' | 'replace' }) => {
+    (change: TimelineUrlStateUpdate, options?: { history?: 'push' | 'replace' }) => {
       const current = pendingStateRef.current ?? stateRef.current
+      const patch = typeof change === 'function' ? change(current) : change
       const next: TimelineUrlState = {
         ...current,
         ...patch,

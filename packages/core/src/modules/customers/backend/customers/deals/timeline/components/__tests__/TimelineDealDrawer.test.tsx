@@ -12,6 +12,7 @@ const mockSurfaceRecordConflict = jest.fn()
 const mockFlash = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
+  useLocale: () => 'en',
   useT: () => (key: string, fallback?: string, params?: Record<string, unknown>) =>
     (fallback ?? key).replace(/\{(\w+)\}/g, (_match, name: string) => String(params?.[name] ?? '')),
 }))
@@ -182,6 +183,9 @@ describe('TimelineDealDrawer helpers', () => {
     expect(resolveDealStatusKind('win')).toBe('won')
     expect(resolveDealStatusKind('loose')).toBe('lost')
     expect(resolveDealStatusKind('custom-open')).toBe('open')
+    expect(resolveDealStatusKind('closed')).toBe('closed')
+    expect(resolveDealStatusKind('Closed')).toBe('closed')
+    expect(resolveDealStatusKind('Won')).toBe('won')
   })
 
   it('flags overdue only for open deals dated before today (UTC)', () => {
@@ -233,6 +237,26 @@ describe('TimelineDealDrawer', () => {
     expect(schedule).toHaveAttribute('data-deal', DEAL_ID)
   })
 
+  it('disables every write while a board reschedule of the deal is in flight', async () => {
+    mockBackend()
+    renderDrawer({ writesLocked: true })
+    const drawer = await findDrawer()
+    expect(within(drawer).getByRole('button', { name: 'Change close date' })).toBeDisabled()
+    expect(within(drawer).getByRole('button', { name: 'Change stage' })).toBeDisabled()
+    expect(within(drawer).getByRole('button', { name: 'Mark won' })).toBeDisabled()
+    expect(within(drawer).getByRole('button', { name: 'Mark lost' })).toBeDisabled()
+    expect(within(drawer).getByRole('button', { name: 'Schedule follow-up' })).toBeEnabled()
+  })
+
+  it('labels a plain closed status as Closed, not Lost', async () => {
+    mockBackend({ deal: { status: 'closed' } })
+    renderDrawer()
+    const drawer = await findDrawer()
+    expect(within(drawer).getByText('Closed')).toBeInTheDocument()
+    expect(within(drawer).queryByText('Lost')).not.toBeInTheDocument()
+    expect(within(drawer).queryByRole('button', { name: 'Change close date' })).not.toBeInTheDocument()
+  })
+
   it('offers only Schedule follow-up on a closed deal', async () => {
     mockBackend({ deal: { status: 'win' } })
     renderDrawer()
@@ -281,7 +305,7 @@ describe('TimelineDealDrawer', () => {
     await waitFor(() => expect(props.onRescheduled).toHaveBeenCalledWith({ dealId: DEAL_ID, expectedCloseAt: '2099-12-01' }))
     expect(mockUpdateCrud).toHaveBeenCalledWith('customers/deals', { id: DEAL_ID, expectedCloseAt: '2099-12-01' })
     expect(mockScopedHeaders).toContainEqual({ 'x-om-lock-version': '2026-10-23T09:12:44.120Z' })
-    expect(props.onDealChanged).toHaveBeenCalledWith(DEAL_ID)
+    expect(props.onDealChanged).not.toHaveBeenCalled()
     const detailCalls = mockApiCall.mock.calls.filter(([url]) => String(url).startsWith(`/api/customers/deals/${DEAL_ID}`))
     expect(detailCalls.length).toBeGreaterThanOrEqual(2)
   })

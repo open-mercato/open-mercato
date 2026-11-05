@@ -212,11 +212,13 @@ async function loadGrantedFeatures(scopeVersion: number): Promise<string[]> {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ features: DEAL_DRAWER_FEATURES }),
   })
-    .then((call) =>
-      call.ok && Array.isArray(call.result?.granted)
-        ? call.result.granted.filter((feature): feature is string => typeof feature === 'string')
-        : [],
-    )
+    .then((call) => {
+      if (call.ok && Array.isArray(call.result?.granted)) {
+        return call.result.granted.filter((feature): feature is string => typeof feature === 'string')
+      }
+      permissionsPromises.delete(scopeVersion)
+      return []
+    })
     .catch(() => {
       permissionsPromises.delete(scopeVersion)
       return []

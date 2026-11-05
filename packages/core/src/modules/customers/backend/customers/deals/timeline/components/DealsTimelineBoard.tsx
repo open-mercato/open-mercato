@@ -71,7 +71,14 @@ import { PipelineFilterPopover } from '../../pipeline/components/PipelineFilterP
 import { EntityFilterPopover, type EntityFilterOption } from '../../pipeline/components/EntityFilterPopover'
 import { TONE_DOT_CLASS } from '../../pipeline/components/toneClasses'
 import { TimelineControls } from './TimelineControls'
-import { TimelineLane, formatTimelineCount, formatTimelineUndatedLabel, type TimelineLaneDisplay } from './TimelineLane'
+import {
+  TimelineLane,
+  formatTimelineCount,
+  formatTimelineMoreLabel,
+  formatTimelineUndatedLabel,
+  translatePluralCount,
+  type TimelineLaneDisplay,
+} from './TimelineLane'
 import { TimelineCellPopover } from './TimelineCellPopover'
 import { TimelineSavedViews } from './TimelineSavedViews'
 import { TimelineDealCardPreview, formatTimelineDate } from './TimelineDealCard'
@@ -85,7 +92,7 @@ import {
   hasActiveTimelineFilters,
   resolveTimelineFrom,
   type TimelineUrlState,
-  type TimelineUrlStatePatch,
+  type TimelineUrlStateUpdate,
 } from './useTimelineUrlState'
 
 export const TIMELINE_PER_CELL = 3
@@ -142,8 +149,22 @@ export function toneAccentClass(tone: string | null | undefined): string {
   return mapped ? TONE_DOT_CLASS[mapped] : 'bg-border'
 }
 
-const monthFormatter = new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' })
-const shortRangeFormatter = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', timeZone: 'UTC' })
+function utcFormatter(locale: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  try {
+    return new Intl.DateTimeFormat(locale, { ...options, timeZone: 'UTC' })
+  } catch {
+    return new Intl.DateTimeFormat(undefined, { ...options, timeZone: 'UTC' })
+  }
+}
+
+export function isTimelineItemDraggable(
+  item: Pick<DealTimelineItem, 'id' | 'expectedCloseAt' | 'status'>,
+  context: { canManage: boolean; locked: boolean; inFlightDealIds: ReadonlySet<string> },
+): boolean {
+  if (!context.canManage || context.locked) return false
+  if (context.inFlightDealIds.has(item.id)) return false
+  return !!item.expectedCloseAt && isOpenDealStatus(item.status?.toLowerCase())
+}
 
 function utcDate(key: string): Date {
   return new Date(`${key}T00:00:00.000Z`)
@@ -189,7 +210,7 @@ export function buildTimelineApiParams(state: TimelineUrlState, today: string): 
 
 export type DealsTimelineBoardProps = {
   state: TimelineUrlState
-  update: (patch: TimelineUrlStatePatch, options?: { history?: 'push' | 'replace' }) => void
+  update: (change: TimelineUrlStateUpdate, options?: { history?: 'push' | 'replace' }) => void
   permissions: TimelinePermissions
 }
 
@@ -226,7 +247,7 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
   const data = timelineQuery.data ?? null
 
   const staffQuery = useQuery<AssignableStaffMember[]>({
-    queryKey: ['customers', 'deals', 'timeline', 'staff', `scope:${scopeVersion}`, activeOrgId],
+    queryKey: ['customers', 'deals', 'timeline-staff', `scope:${scopeVersion}`, activeOrgId],
     staleTime: 300_000,
     queryFn: async () => {
       try {
@@ -280,7 +301,8 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
   }, [stagesQuery.data])
 
   const setFilters = React.useCallback(
-    (next: DealTimelineFilters) => update({ filters: next }),
+    (change: DealTimelineFilters | ((current: DealTimelineFilters) => DealTimelineFilters)) =>
+      update((current) => ({ filters: typeof change === 'function' ? change(current.filters) : change })),
     [update],
   )
 
@@ -336,16 +358,16 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
     [],
   )
 
-  const collapsedStorageKey = `${COLLAPSED_LANES_STORAGE_PREFIX}:${currentUserId ?? 'anon'}`
+  const collapsedStorageKey = currentUserId ? `${COLLAPSED_LANES_STORAGE_PREFIX}:${currentUserId}` : null
   const [collapsedLanes, setCollapsedLanes] = React.useState<string[]>([])
   React.useEffect(() => {
-    setCollapsedLanes(readCollapsedLanes(collapsedStorageKey))
+    if (collapsedStorageKey) setCollapsedLanes(readCollapsedLanes(collapsedStorageKey))
   }, [collapsedStorageKey])
   const toggleCollapsed = React.useCallback(
     (laneKey: string) => {
       setCollapsedLanes((prev) => {
         const next = prev.includes(laneKey) ? prev.filter((key) => key !== laneKey) : [...prev, laneKey]
-        writeCollapsedLanes(collapsedStorageKey, next)
+        if (collapsedStorageKey) writeCollapsedLanes(collapsedStorageKey, next)
         return next
       })
     },
@@ -371,30 +393,33 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
   }, [])
 
   const drawerOpen = !!state.dealId
+  const drawerOpenRef = React.useRef(drawerOpen)
+  drawerOpenRef.current = drawerOpen
 
   const afterReschedule = React.useCallback(
     (dealId: string, date: string, knownLaneKey: string | null = null) => {
       const current = queryClient.getQueryData<DealTimelineResponse>(queryKey)
       const location = findTimelineDeal(current, dealId)
       const laneKey = location?.laneKey ?? knownLaneKey
-      const dateLabel = formatTimelineDate(date) ?? date
+      const dateLabel = formatTimelineDate(date, locale) ?? date
+      const isDrawerOpen = drawerOpenRef.current
       if (location && location.position < TIMELINE_PER_CELL) {
         flash(
           translateWithFallback(t, 'customers.deals.timeline.reschedule.success', 'Close date moved to {date}', { date: dateLabel }),
           'success',
         )
-        if (drawerOpen) {
+        if (isDrawerOpen) {
           pendingDrawerFocusRef.current = { kind: 'card', dealId }
           return
         }
         window.requestAnimationFrame(() => focusCard(dealId))
         return
       }
-      if (drawerOpen) pendingDrawerFocusRef.current = { kind: 'showDeal' }
+      if (isDrawerOpen) pendingDrawerFocusRef.current = { kind: 'showDeal' }
       else focusShowDealOnCloseRef.current = true
       setMoveNotice({ dealId, date, laneKey })
     },
-    [drawerOpen, focusCard, queryClient, queryKey, t],
+    [focusCard, locale, queryClient, queryKey, t],
   )
 
   React.useEffect(() => {
@@ -433,6 +458,16 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
   }, [data, focusCard, pendingReveal, timelineQuery.isFetching])
 
   const reschedule = useRescheduleDeal(queryKey)
+  const [inFlightDealIds, setInFlightDealIds] = React.useState<ReadonlySet<string>>(() => new Set())
+  const markInFlight = React.useCallback((dealId: string, inFlight: boolean) => {
+    setInFlightDealIds((prev) => {
+      if (prev.has(dealId) === inFlight) return prev
+      const next = new Set(prev)
+      if (inFlight) next.add(dealId)
+      else next.delete(dealId)
+      return next
+    })
+  }, [])
 
   const openDeal = React.useCallback(
     (item: DealTimelineItem, element: HTMLElement) => {
@@ -527,13 +562,16 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
       const delta = target.column - drag.column
       if (delta === 0 || !drag.item.expectedCloseAt) return
       const nextDate = shiftCloseDate(drag.item.expectedCloseAt, bucket, delta)
-      void reschedule({ item: drag.item, expectedCloseAt: nextDate }).then((outcome) => {
-        if (state.dealId === drag.item.id) setDrawerRefreshToken((value) => value + 1)
-        if (outcome === 'success') afterReschedule(drag.item.id, nextDate, drag.laneKey)
-        else window.requestAnimationFrame(() => focusCard(drag.item.id))
-      })
+      markInFlight(drag.item.id, true)
+      void reschedule({ item: drag.item, expectedCloseAt: nextDate })
+        .then((outcome) => {
+          if (state.dealId === drag.item.id) setDrawerRefreshToken((value) => value + 1)
+          if (outcome === 'success') afterReschedule(drag.item.id, nextDate, drag.laneKey)
+          else window.requestAnimationFrame(() => focusCard(drag.item.id))
+        })
+        .finally(() => markInFlight(drag.item.id, false))
     },
-    [activeDrag, afterReschedule, bucket, focusCard, reschedule, state.dealId],
+    [activeDrag, afterReschedule, bucket, focusCard, markInFlight, reschedule, state.dealId],
   )
 
   const collisionDetection = React.useCallback<CollisionDetection>((args) => {
@@ -545,17 +583,18 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
     if (!activeDrag?.item.expectedCloseAt || overColumn === null) return null
     const delta = overColumn - activeDrag.column
     if (delta === 0) return null
-    const date = formatTimelineDate(shiftCloseDate(activeDrag.item.expectedCloseAt, bucket, delta))
-    const shift = translateWithFallback(t, `customers.deals.timeline.reschedule.shift.${bucket}`, '{delta}', {
+    const date = formatTimelineDate(shiftCloseDate(activeDrag.item.expectedCloseAt, bucket, delta), locale)
+    const shift = translatePluralCount(t, locale, `customers.deals.timeline.reschedule.shift.${bucket}`, '{delta}', Math.abs(delta), {
       delta: delta > 0 ? `+${delta}` : String(delta),
     })
     return `${date ?? ''} · ${shift}`
-  }, [activeDrag, bucket, overColumn, t])
+  }, [activeDrag, bucket, locale, overColumn, t])
 
+  const dragLocked = timelineQuery.isPlaceholderData || (!!data && data.bucket !== bucket)
   const canDragItem = React.useCallback(
     (item: DealTimelineItem) =>
-      permissions.canManage && !!item.expectedCloseAt && isOpenDealStatus(item.status?.toLowerCase()),
-    [permissions.canManage],
+      isTimelineItemDraggable(item, { canManage: permissions.canManage, locked: dragLocked, inFlightDealIds }),
+    [dragLocked, inFlightDealIds, permissions.canManage],
   )
   const dragDisabledHint = React.useCallback(
     (item: DealTimelineItem) => {
@@ -625,6 +664,9 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
     })
   }, [data, ownerNames])
 
+  const monthFormatter = React.useMemo(() => utcFormatter(locale, { month: 'long', year: 'numeric' }), [locale])
+  const shortRangeFormatter = React.useMemo(() => utcFormatter(locale, { day: 'numeric', month: 'short' }), [locale])
+  const countsCapped = data?.countsCapped === true
   const columnLabel = React.useCallback(
     (column: Pick<DealTimelineColumnResponse, 'from'>, columnBucket: DealTimelineBucket) => {
       if (columnBucket === 'week') {
@@ -639,7 +681,7 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
         year: start.getUTCFullYear(),
       })
     },
-    [t],
+    [monthFormatter, t],
   )
   const currentPillLabel = translateWithFallback(
     t,
@@ -757,14 +799,14 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
   )
 
   const statusNode = (
-    <StatusFilterPopover values={filters.status} onApply={(values) => setFilters(applyStatusSelection(filters, values))} />
+    <StatusFilterPopover values={filters.status} onApply={(values) => setFilters((current) => applyStatusSelection(current, values))} />
   )
   const closedToggle = (
     <SegmentedControl
       size="sm"
       aria-label={translateWithFallback(t, 'customers.deals.timeline.closed.label', 'Closed deals')}
       value={filters.excludeClosed ? 'hide' : 'all'}
-      onValueChange={(value) => setFilters(applyClosedToggle(filters, value !== 'all'))}
+      onValueChange={(value) => setFilters((current) => applyClosedToggle(current, value !== 'all'))}
     >
       <SegmentedControlItem value="hide">
         {translateWithFallback(t, 'customers.deals.timeline.closed.hide', 'Hide closed deals')}
@@ -782,28 +824,28 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
         <PipelineFilterPopover
           pipelines={(pipelinesQuery.data ?? []).map((pipeline) => ({ id: pipeline.id, name: pipeline.name }))}
           selectedPipelineId={filters.pipelineId}
-          onApply={(pipelineId) => setFilters({ ...filters, pipelineId })}
+          onApply={(pipelineId) => setFilters((current) => ({ ...current, pipelineId }))}
         />
       ) : null}
       <EntityFilterPopover
         label={translateWithFallback(t, 'customers.deals.kanban.filter.owner', 'Owner')}
         anyLabel={translateWithFallback(t, 'customers.deals.kanban.filter.all', 'All')}
         values={filters.ownerUserId}
-        onApply={(values) => setFilters({ ...filters, ownerUserId: values })}
+        onApply={(values) => setFilters((current) => ({ ...current, ownerUserId: values }))}
         loadOptions={loadOwnerOptions}
         labelById={ownerLabels}
       />
       <EntityFilterPopover
         label={translateWithFallback(t, 'customers.deals.kanban.filter.people', 'People')}
         values={filters.personId}
-        onApply={(values) => setFilters({ ...filters, personId: values })}
+        onApply={(values) => setFilters((current) => ({ ...current, personId: values }))}
         loadOptions={(query, signal) => loadEntityOptions('people', query, signal)}
         labelById={peopleLabels}
       />
       <EntityFilterPopover
         label={translateWithFallback(t, 'customers.deals.kanban.filter.companies', 'Companies')}
         values={filters.companyId}
-        onApply={(values) => setFilters({ ...filters, companyId: values })}
+        onApply={(values) => setFilters((current) => ({ ...current, companyId: values }))}
         loadOptions={(query, signal) => loadEntityOptions('companies', query, signal)}
         labelById={companyLabels}
       />
@@ -928,7 +970,7 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
         >
           <AlertDescription>
             {translateWithFallback(t, 'customers.deals.timeline.reschedule.success', 'Close date moved to {date}', {
-              date: formatTimelineDate(moveNotice.date) ?? moveNotice.date,
+              date: formatTimelineDate(moveNotice.date, locale) ?? moveNotice.date,
             })}
           </AlertDescription>
         </Alert>
@@ -973,8 +1015,8 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
           >
             <AlertTriangle className="size-4" aria-hidden="true" />
             {translateWithFallback(t, 'customers.deals.timeline.overdueBefore', '{count} overdue before {date}', {
-              count: data.overdueBefore.count,
-              date: formatTimelineDate(data.overdueBefore.before) ?? data.overdueBefore.before,
+              count: formatTimelineCount(t, data.overdueBefore.count, countsCapped),
+              date: formatTimelineDate(data.overdueBefore.before, locale) ?? data.overdueBefore.before,
             })}
           </Button>
         </div>
@@ -997,7 +1039,7 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
                 </Button>
               ) : null}
               {filters.excludeClosed ? (
-                <Button type="button" variant="outline" size="sm" onClick={() => setFilters(applyClosedToggle(filters, false))}>
+                <Button type="button" variant="outline" size="sm" onClick={() => setFilters((current) => applyClosedToggle(current, false))}>
                   {translateWithFallback(t, 'customers.deals.timeline.empty.showClosed', 'Show closed deals')}
                 </Button>
               ) : null}
@@ -1066,7 +1108,7 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-sm font-semibold text-foreground">{columnLabel(column, bucket)}</span>
                       {data ? (
-                        <span className="text-xs text-muted-foreground">{column.total}</span>
+                        <span className="text-xs text-muted-foreground">{formatTimelineCount(t, column.total, countsCapped)}</span>
                       ) : null}
                     </div>
                     <div className="flex items-center gap-2">
@@ -1108,8 +1150,10 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
                   return (
                     <React.Fragment key={lane.key}>
                       {showHeading ? (
-                        <div role="row" className="sticky left-0 border-b border-border bg-muted/40 px-3 py-1 text-xs font-semibold uppercase text-muted-foreground">
-                          {display.pipelineHeading}
+                        <div role="row" className="border-b border-border bg-muted/40">
+                          <div role="rowheader" className="sticky left-0 inline-block px-3 py-1 text-xs font-semibold uppercase text-muted-foreground">
+                            {display.pipelineHeading}
+                          </div>
                         </div>
                       ) : null}
                       <TimelineLane
@@ -1153,9 +1197,7 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
                                 data-more-trigger={`${moreLane.key}:${cell.column}`}
                                 className="justify-start text-muted-foreground"
                               >
-                                {translateWithFallback(t, 'customers.deals.timeline.cell.more', '+{count} more', {
-                                  count: formatTimelineCount(t, hiddenCount, cell.partial),
-                                })}
+                                {formatTimelineMoreLabel(t, hiddenCount, cell.partial)}
                               </Button>
                             </TimelineCellPopover>
                           )
@@ -1184,7 +1226,7 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
         <StageLegend data={data} stageToneById={stageToneById} stageLabelById={stageLabelById} />
         {data && data.undatedCount > 0 ? (
           <Link href={undatedHref} className="font-medium text-accent-indigo hover:underline">
-            {formatTimelineUndatedLabel(t, locale, data.undatedCount)}
+            {formatTimelineUndatedLabel(t, locale, data.undatedCount, countsCapped)}
           </Link>
         ) : null}
       </div>
@@ -1199,6 +1241,7 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
         initialItem={drawerItem}
         refreshToken={drawerRefreshToken}
         resolveOwnerName={resolveOwnerName}
+        writesLocked={!!state.dealId && inFlightDealIds.has(state.dealId)}
       />
     </div>
   )
@@ -1230,7 +1273,7 @@ function StageLegend({
   }, [data, stageToneById, stageLabelById])
   if (!entries.length) return <span />
   return (
-    <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground" aria-label={translateWithFallback(t, 'customers.deals.timeline.legend', 'Stages')}>
+    <div role="group" className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground" aria-label={translateWithFallback(t, 'customers.deals.timeline.legend', 'Stages')}>
       {entries.map(([id, entry]) => (
         <span key={id} className="inline-flex items-center gap-1.5">
           <span aria-hidden="true" className={`size-2 rounded-full ${entry.accent}`} />
