@@ -1,0 +1,127 @@
+// Shared entity/extension/custom-field types used by generators and DI
+
+// Single source of truth: CustomFieldKind is derived from the runtime
+// CUSTOM_FIELD_KINDS list so the type can never drift behind the kinds the admin
+// UI and runtime already accept (e.g. 'date', 'datetime'). Add new kinds in
+// ./entities/kinds.ts only.
+import type { CustomFieldKind } from './entities/kinds'
+export type { CustomFieldKind }
+
+export type EntityId = string // format: '<module>:<entity>' e.g., 'auth:user'
+
+export type EntityExtension = {
+  // Base entity to extend, e.g., 'auth:user'
+  base: EntityId
+  // The extension entity that holds extra columns/relations, defined by the extending module
+  // Usually one-to-one keyed by base PK; other cardinalities allowed via explicit join keys
+  extension: EntityId
+  // Join description for query builder to link base <-> extension
+  join: {
+    baseKey: string // column name on base (e.g., 'id')
+    extensionKey: string // column name on extension (e.g., 'user_id')
+  }
+  /**
+   * Physical table backing the extension entity.
+   *
+   * Optional. When omitted the query engine derives the table from the entity
+   * segment of `extension` with the same regular pluralizer it uses for every
+   * other table-name fallback, so `y` → `ies` is handled:
+   * `example:example_customer_priority` derives `example_customer_priorities`.
+   * Declare this for the plurals no guesser can win (`person` → `people`) and
+   * for any entity whose `@Entity({ tableName })` simply does not match the
+   * derived name.
+   *
+   * MUST be a plain identifier (`[A-Za-z_][A-Za-z0-9_]*`); the engine ignores
+   * any other value and falls back to the derived name.
+   */
+  table?: string
+  cardinality?: 'one-to-one' | 'one-to-many' | 'many-to-one' | 'many-to-many'
+  required?: boolean
+  description?: string
+}
+
+export type CustomFieldDefinition = {
+  id?: string // stable id; generated if omitted
+  key: string // unique within entity (snake_case)
+  kind: CustomFieldKind
+  label?: string
+  description?: string
+  fieldset?: string
+  fieldsets?: string[]
+  group?: {
+    code: string
+    title?: string
+    hint?: string
+  }
+  required?: boolean
+  multi?: boolean // allow multiple values
+  options?: Array<
+    string | number | boolean | { value: string | number | boolean; label?: string | null }
+  >
+  // Optional dynamic options source for selects/tags relations
+  optionsUrl?: string
+  defaultValue?: string | number | boolean | null
+  filterable?: boolean
+  // whether field should be editable in generated CRUD forms
+  formEditable?: boolean
+  indexed?: boolean
+  listVisible?: boolean
+  // Store the value encrypted with the tenant key. Declaring it here keeps the
+  // flag idempotent across `entities install` runs; an admin-enabled flag is
+  // never downgraded by an install that omits it (turn it off explicitly with
+  // `encrypted: false`).
+  encrypted?: boolean
+  // Display order within a form/card; lower renders first. When omitted, the
+  // installer derives it from the declaration order of the field set.
+  priority?: number
+  // Optional UI hints for generated forms/filters
+  // Editors for multiline-rich text fields:
+  //  - 'markdown' -> UIW Markdown editor
+  //  - 'simpleMarkdown' -> minimal toolbar markdown
+  //  - 'htmlRichText' -> contenteditable rich text
+  //  - 'plain' -> plain <textarea> without any rich-text toolbar
+  editor?: 'markdown' | 'simpleMarkdown' | 'htmlRichText' | 'plain'
+  // Input hint for plain text fields (e.g., tags input when multi=true)
+  // Allow additional custom renderers (e.g., listbox from modules)
+  input?: string
+  // Relation helper metadata
+  relatedEntityId?: string
+  // Backed by global dictionaries module
+  dictionaryId?: string
+  dictionaryInlineCreate?: boolean
+  // Advanced validation rules applied in UI + API
+  validation?: Array<{ rule: string; param?: unknown; message?: string }>
+  // Attachments config passthrough (handled by attachments module)
+  maxAttachmentSizeMb?: number
+  acceptExtensions?: string[]
+  sourceMetadata?: Record<string, unknown>
+}
+
+export type CustomFieldSet = {
+  entity: EntityId
+  fields: CustomFieldDefinition[]
+  // Optional: module id or other provenance
+  source?: string
+}
+
+export type EntityRegistrySpec = {
+  // Static, per-module declared extensions
+  extensions?: EntityExtension[]
+  // Static, per-module declared custom fields (seeded via migrations/CLI)
+  customFieldSets?: CustomFieldSet[]
+}
+
+export type CustomEntitySpec = {
+  id: EntityId
+  label?: string
+  description?: string
+  labelField?: string
+  defaultEditor?: string
+  showInSidebar?: boolean
+  // When true, records of this entity require an explicit per-entity ACL grant
+  // (entities.records.<id>.view/.manage) beyond the coarse entities.records.*
+  // feature. Defaults to unrestricted.
+  accessRestricted?: boolean
+  global?: boolean
+  fields?: CustomFieldDefinition[]
+}

@@ -1,0 +1,318 @@
+---
+title: Monitoring Workflows
+description: Track workflow execution, debug failures, and view performance metrics
+---
+
+# Monitoring Workflows
+
+Monitoring workflows helps you understand how processes are executing, identify bottlenecks, and debug failures. This guide explains how to view workflow execution and troubleshoot issues.
+
+## Workflow Instances List
+
+The instances list shows all running and completed workflows. Access it via **Workflows → Instances** in the backend interface.
+
+**List Columns:**
+- **Instance ID**: Unique identifier for this execution
+- **Workflow**: Which workflow definition is running
+- **Status**: Current state (RUNNING, COMPLETED, FAILED, etc.)
+- **Current Step**: Where execution is currently paused or stopped
+- **Started At**: When the workflow began
+- **Completed At**: When the workflow finished (if applicable)
+- **Correlation Key**: External identifier (order ID, customer ID, etc.)
+
+**Filtering and Searching:**
+- Filter by **Status**: Show only RUNNING, COMPLETED, or FAILED workflows
+- Filter by **Workflow ID**: Focus on specific workflow definitions
+- Search by **Correlation Key**: Find workflows for a specific order or customer
+- Sort by **Started At** or **Completed At**: Find oldest or newest executions
+
+## Instance Detail View
+
+Click an instance to view its details:
+
+### Overview Section
+
+- **Instance ID**: Full unique identifier
+- **Workflow Definition**: Name and version
+- **Status**: Current state with color-coded badge
+- **Current Step**: Which step execution is at
+- **Started At** and **Completed At**: Execution timeframe
+- **Duration**: How long the workflow has been running
+
+### Workflow Context
+
+View the current workflow data:
+
+```json
+{
+  "orderId": "order-123",
+  "customerId": "cust-456",
+  "amount": 150.00,
+  "transactionId": "txn_abc123",
+  "items": [
+    { "productId": "prod-1", "quantity": 2 }
+  ]
+}
+```
+
+This data is accessible to all steps and activities via variable interpolation (`{{context.orderId}}`).
+
+### Execution Timeline
+
+The timeline shows every event that occurred during workflow execution:
+
+- **Step Entered**: Workflow moved to a new step
+- **Step Exited**: Workflow left a step
+- **Activity Started**: An activity began executing
+- **Activity Completed**: An activity finished successfully
+- **Activity Failed**: An activity encountered an error
+- **Transition Taken**: Workflow moved from one step to another
+- **Signal Received**: External signal was sent to the workflow
+- **Workflow Started**: Instance began execution
+- **Workflow Completed**: Instance finished successfully
+- **Workflow Failed**: Instance encountered a fatal error
+
+Each event includes:
+- **Timestamp**: When it occurred
+- **Event Type**: What happened
+- **Event Data**: Additional details (activity output, error messages, etc.)
+
+## Common Statuses
+
+| Status | Description | What to Do |
+|--------|-------------|------------|
+| **RUNNING** | Workflow is actively executing | Normal—workflow is progressing |
+| **COMPLETED** | Workflow finished successfully | Review results and context data |
+| **FAILED** | Workflow encountered an error and stopped | Debug the error (see below) |
+| **PAUSED** | Workflow manually paused by user | Resume or cancel |
+| **WAITING_FOR_SIGNAL** | Waiting for external event | Send the expected signal or wait for timeout |
+| **WAITING_FOR_ACTIVITIES** | Async activities still processing | Wait for activities to complete |
+| **CANCELLED** | Workflow manually cancelled | No action needed |
+
+## Debugging Failed Workflows
+
+When a workflow fails, the instance detail view shows:
+
+### Error Information
+
+- **Error Message**: High-level description of what went wrong
+- **Failed Step**: Which step encountered the error
+- **Failed Activity**: If an activity caused the failure, its ID and type
+- **Stack Trace**: Technical details for developers
+
+**Common Failure Causes:**
+- **Activity Timeout**: Activity took longer than configured timeout
+- **API Error**: External API returned an error or was unreachable
+- **Validation Error**: Data didn't meet expected format or constraints
+- **Permission Error**: User or system lacked required permissions
+
+### Example Error Event
+
+```json
+{
+  "eventType": "ACTIVITY_FAILED",
+  "occurredAt": "2024-01-15T10:45:00Z",
+  "eventData": {
+    "activityId": "call-payment-gateway",
+    "activityType": "CALL_API",
+    "error": {
+      "message": "Payment gateway returned 503 Service Unavailable",
+      "code": "NETWORK_ERROR",
+      "retryable": true
+    }
+  }
+}
+```
+
+### Retry Options
+
+For transient failures (network errors, timeouts), you can:
+
+1. **Manual Retry**: Click **Retry** to re-execute the failed activity
+2. **Resume**: Continue the workflow from the failed step
+3. **Cancel**: Stop the workflow and mark it as cancelled
+
+> 💡 **Tip**: Configure automatic retries with retry policies to handle transient failures without manual intervention.
+
+[**Learn more about retry policies →**](./activities#retry-policies)
+
+## Performance Monitoring
+
+### Execution Times
+
+View how long each step and activity took to execute:
+
+**Step Duration:**
+```
+START: < 1ms
+review-request: 2 days, 3 hours
+send-notification: 1.2s
+END: < 1ms
+```
+
+**Activity Duration:**
+```
+send-approval-email: 0.8s
+call-payment-gateway: 2.3s
+update-order-status: 0.5s
+```
+
+**Use Cases:**
+- Identify slow steps and activities
+- Optimize API calls and database queries
+- Set realistic timeouts and SLAs
+
+### Bottleneck Identification
+
+Long-running workflows often stall at:
+
+- **USER_TASK steps**: Waiting for human action (check SLA compliance)
+- **WAIT_FOR_SIGNAL steps**: Waiting for external events (check timeout configuration)
+- **Slow activities**: API calls or complex computations (optimize or make async)
+
+## Example Execution Log
+
+Here's a complete execution timeline for an approval workflow:
+
+```json
+[
+  {
+    "eventType": "WORKFLOW_STARTED",
+    "occurredAt": "2024-01-15T10:00:00Z",
+    "eventData": {
+      "instanceId": "wf-inst-123",
+      "workflowId": "purchase-approval-v1",
+      "initialContext": { "orderId": "order-123", "amount": 150.00 }
+    }
+  },
+  {
+    "eventType": "STEP_ENTERED",
+    "occurredAt": "2024-01-15T10:00:00Z",
+    "eventData": {
+      "stepId": "start",
+      "stepName": "Start"
+    }
+  },
+  {
+    "eventType": "STEP_EXITED",
+    "occurredAt": "2024-01-15T10:00:00Z",
+    "eventData": {
+      "stepId": "start"
+    }
+  },
+  {
+    "eventType": "TRANSITION_TAKEN",
+    "occurredAt": "2024-01-15T10:00:01Z",
+    "eventData": {
+      "transitionId": "start-to-approve",
+      "fromStepId": "start",
+      "toStepId": "approve-request"
+    }
+  },
+  {
+    "eventType": "ACTIVITY_STARTED",
+    "occurredAt": "2024-01-15T10:00:01Z",
+    "eventData": {
+      "activityId": "send-approval-email",
+      "activityType": "SEND_EMAIL"
+    }
+  },
+  {
+    "eventType": "ACTIVITY_COMPLETED",
+    "occurredAt": "2024-01-15T10:00:02Z",
+    "eventData": {
+      "activityId": "send-approval-email",
+      "output": { "messageId": "msg-123", "sentAt": "2024-01-15T10:00:02Z" }
+    }
+  },
+  {
+    "eventType": "STEP_ENTERED",
+    "occurredAt": "2024-01-15T10:00:02Z",
+    "eventData": {
+      "stepId": "approve-request",
+      "stepName": "Approve Request",
+      "stepType": "USER_TASK"
+    }
+  },
+  {
+    "eventType": "USER_TASK_COMPLETED",
+    "occurredAt": "2024-01-15T12:30:00Z",
+    "eventData": {
+      "taskId": "task-456",
+      "completedBy": "user-789",
+      "formData": { "decision": "approve", "comments": "Approved for budget" }
+    }
+  },
+  {
+    "eventType": "STEP_EXITED",
+    "occurredAt": "2024-01-15T12:30:00Z",
+    "eventData": {
+      "stepId": "approve-request"
+    }
+  },
+  {
+    "eventType": "TRANSITION_TAKEN",
+    "occurredAt": "2024-01-15T12:30:01Z",
+    "eventData": {
+      "transitionId": "approve-to-end",
+      "fromStepId": "approve-request",
+      "toStepId": "end-approved"
+    }
+  },
+  {
+    "eventType": "STEP_ENTERED",
+    "occurredAt": "2024-01-15T12:30:01Z",
+    "eventData": {
+      "stepId": "end-approved",
+      "stepName": "Approved"
+    }
+  },
+  {
+    "eventType": "WORKFLOW_COMPLETED",
+    "occurredAt": "2024-01-15T12:30:01Z",
+    "eventData": {
+      "instanceId": "wf-inst-123",
+      "finalContext": {
+        "orderId": "order-123",
+        "amount": 150.00,
+        "decision": "approve",
+        "approvedBy": "user-789"
+      }
+    }
+  }
+]
+```
+
+## Best Practices
+
+### For Workflow Designers
+
+- Add descriptive step and activity names for easier debugging
+- Configure meaningful error messages for activities
+- Set up retry policies for transient failures
+- Use correlation keys to link workflows to external entities
+
+### For Administrators
+
+- Monitor WAITING_FOR_SIGNAL workflows for stale instances
+- Review failed workflows regularly to identify systemic issues
+- Set up alerts for workflows that exceed expected durations
+- Archive old completed workflows to improve performance
+
+### For Developers
+
+- Log activity errors with sufficient context for debugging
+- Implement idempotent activities to support retries
+- Use structured error codes (not just messages) for programmatic handling
+- Test timeout and failure scenarios thoroughly
+
+## Next Steps
+
+- [**Create workflows**](./creating-workflows) with robust error handling
+- [**Configure activities**](./activities) with retry policies and timeouts
+- [**Set up signals**](./signals) to resume waiting workflows
+
+**See Also:**
+- [**Activities**](./activities) - Configure retry policies and timeouts
+- [**Framework Documentation**](/framework/workflows/architecture) - Event sourcing and performance
+- [**Testing**](/framework/workflows/testing) - Test failure scenarios

@@ -1,0 +1,302 @@
+# Agent Skills
+
+Skills extend AI agents with task-specific capabilities. Each skill is a folder containing a `SKILL.md` file plus optional bundled resources.
+
+Skills come from **two sources**, mixed together by `yarn install-skills`:
+
+1. **External shared collection** — the generalized `om-*` pipeline skills (code review, auto-create/review PR, merge buddy, spec writing, changelog, …) are maintained in [open-mercato/skills](https://github.com/open-mercato/skills) and installed into `.agents/skills/` via `npx skills add`. They read this repository's settings from `.ai/agentic.config.json` and the tracker descriptor `.ai/trackers/github.md`, plus the root docs (`AGENTS.md`, `BACKWARD_COMPATIBILITY.md`) and the review checklist `.ai/review-checklist.md`.
+2. **Local repo skills** — everything still under `.ai/skills/<skill>/`, installed as per-skill symlinks according to the tier manifest.
+
+A folder under `.ai/skills/` whose name matches an external skill (listed under `external` in `tiers.json`) is a **repo-local override**: the external skill reads and follows it on top of its built-in workflow. Override folders are never symlinked into the harness directories.
+
+A **tiered** local skill can also share its name with a skill the collection publishes but `tiers.json` does not register under `external` (the collection grows independently, and `npx skills add --skill '*'` installs all of it). The local skill wins: when it is selected, the installer replaces the collection's copy in `.agents/skills/` with the link to `.ai/skills/<name>` and prints an `info:` line naming the skill. It only replaces a copy that the skills CLI lockfile (`skills-lock.json`) records as installed from the external source; any other real directory at that path is left in place with a warning.
+
+---
+
+## Structure
+
+```
+.ai/skills/
+├── README.md
+├── tiers.json              # tier manifest + external-skill registry (single source of truth)
+├── tiers.schema.json       # JSON Schema for tiers.json
+├── <skill>/                # one folder per local skill (see "Available Skills" below)
+│   ├── SKILL.md
+│   ├── scripts/            # optional
+│   └── references/         # optional
+└── <external-skill>/       # optional repo-local override for an external skill
+    └── SKILL.md
+```
+
+The full list of local skill folders and their tier assignments lives in `tiers.json`; the `external` block in the same file registers the skills owned by [open-mercato/skills](https://github.com/open-mercato/skills). See the [Available Skills](#available-skills) section below.
+
+### Skill Folder Layout
+
+```
+skill-name/
+├── SKILL.md          # Required: instructions + YAML frontmatter
+├── scripts/          # Optional: executable code (Python/Bash)
+├── references/       # Optional: documentation loaded on demand
+└── assets/           # Optional: templates, images, resources
+```
+
+---
+
+## SKILL.md Format
+
+Every skill requires a `SKILL.md` with YAML frontmatter (`name` + `description`) and markdown instructions:
+
+```markdown
+---
+name: skill-name
+description: What this skill does and when to use it. Include trigger words and domain terms.
+---
+
+Instructions for the agent to follow when this skill is active.
+
+## Section 1
+...
+```
+
+Only include `name` and `description` in the frontmatter — no other fields.
+
+---
+
+## Tiers
+
+Local skills live under `.ai/skills/`. Tier membership is recorded in `.ai/skills/tiers.json` — that file is the single source of truth for which local skills are installed by which command.
+
+The default `yarn install-skills` ships the **core** tier plus the entire external collection. Every other local tier is opt-in. This keeps loaded skill descriptions inside the harness's per-session context budget while leaving the full catalog one flag away.
+
+| Tier | Default? | Skills | What's inside |
+|------|----------|--------|---------------|
+| `core` | yes | 9 | Daily-driver skills installed by default. |
+| `automation` | opt-in | 1 | PR/issue automation skills. Opt-in; agent-driven workflows. |
+| `analysis` | opt-in | 1 | Draft accessibility review (WCAG 2.2 AA). Opt-in. |
+| `migration` | opt-in | 5 | One-shot, version-pinned migrations. Install only when needed. |
+| `infra` | opt-in | 2 | Rare, special-case skills. |
+| external | always | 39 | Shared pipeline skills from [open-mercato/skills](https://github.com/open-mercato/skills), installed via `npx skills add` and refreshed via `npx skills update` (skip with `--no-external`). |
+
+Run `yarn install-skills --list` at any time to see tier definitions, current memberships, and which tiers are installed locally.
+
+The security-report skills now install from the external collection on every normal install. The former `security` tier is removed; replace `--with security` or `--tiers core,security` with `yarn install-skills` (or keep only the other tiers you selected). `--no-external` skips these skills.
+
+The QA-report and Figma design workflows now also install from the external collection. The former `design` tier is removed; replace `--with design` or `--tiers core,design` with `yarn install-skills` (or keep only your other selected tiers). Both repo-local overrides remain at `.ai/skills/<name>/SKILL.md`. A fresh offline install with `--no-external` or `OM_SKIP_EXTERNAL_SKILLS=1` does not install these external workflows; existing external copies remain available. Figma tool access still requires the configured provider; the skill supports screenshots, exports, or Prompt mode without one.
+
+The App Spec and gap-analysis skills also install from the external collection on every normal install. The `analysis` tier now contains only the draft WCAG guardian; keep `--with analysis` when you want that skill. `--no-external` skips installing or refreshing the collection copies.
+
+---
+
+## Installation
+
+### Using the Install Script
+
+Skills install into **one canonical directory** — `.agents/skills/`, the cross-agent path the `skills` CLI treats as canonical and most coding agents read directly. The install script does two things on every run:
+
+1. Reads `.ai/skills/tiers.json` and creates one symlink per selected local skill: `.agents/skills/<name> -> ../../.ai/skills/<name>`.
+2. Installs the external collection with `npx -y skills add open-mercato/skills --skill '*'` into the same `.agents/skills/` directory, then runs `npx -y skills update --project` so re-runs refresh the external skills to their latest published versions (the lockfile is gitignored, so `add` seeds and `update` keeps them current). This step needs network access; when it fails the script warns and continues with local skills only.
+
+```bash
+yarn install-skills                              # core tier + external collection (default)
+yarn install-skills --with automation            # + automation tier
+yarn install-skills --with automation,infra      # multiple tiers
+yarn install-skills --tiers core,infra           # explicit set (replaces default)
+yarn install-skills --all                        # every local tier
+yarn install-skills --legacy-links               # also symlink into .claude/skills/ AND .codex/skills/
+yarn install-skills --ignore-agents cursor       # never write these agents' directories
+yarn install-skills --no-external                # skip the npx step (offline; also OM_SKIP_EXTERNAL_SKILLS=1)
+yarn install-skills --list                       # show tiers + memberships
+yarn install-skills --clean                      # remove all skill symlinks + external copies
+```
+
+`--with` is additive on top of the default tier set; `--tiers` replaces the default outright. The two flags are mutually exclusive. Re-running with a smaller selection is idempotent — symlinks for local skills that are no longer selected are swept on each run; external skills are always installed in full for parity with the shared collection.
+
+### Agent directories
+
+A skill is duplicated into an agent's own directory **only when that agent cannot read the canonical one**:
+
+| Agent | Directory | Reads `.agents/skills/` | Per-skill symlinks |
+|-------|-----------|-------------------------|--------------------|
+| Claude Code | `.claude/skills/` | no | yes (automatic) |
+| Codex | `.codex/skills/` | yes | no |
+| Cursor | `.cursor/skills/` | yes | no |
+
+The support column follows the universal-agent list of the [`skills` CLI](https://github.com/vercel-labs/skills). An agent that cannot read the canonical directory keeps its symlinks, written by `install-skills.sh` itself for both local tier skills and the external collection — dropping them would make its skills silently disappear. Re-check the table when an agent gains support.
+
+Two escape hatches:
+
+- **`--legacy-links`** restores the historical layout (every skill symlinked into `.claude/skills/` *and* `.codex/skills/`), for a setup that still depends on it.
+- **`--ignore-agents <csv>`** skips an agent entirely. The persistent form is an `agents` block in `tiers.json`, which the flag overrides:
+
+  ```json
+  { "agents": { "ignore": ["cursor"] } }
+  ```
+
+### Migrating from a previous install
+
+Earlier versions symlinked every skill into `.claude/skills/` *and* `.codex/skills/` (and copied external skills into `.agents/skills/` on top — three locations per skill). A plain re-run of `yarn install-skills` migrates you: it writes the canonical layout and sweeps the stale per-agent links away. To clear everything first:
+
+```bash
+yarn install-skills --clean && yarn install-skills
+```
+
+### Claude Code
+
+The script wires `.claude/skills/` for you — Claude Code does not read the canonical directory at project level. If you prefer to configure it manually instead, point its skills directory at `.ai/skills/` via `.claude/settings.json`:
+
+```json
+{
+  "skills": {
+    "directory": ".ai/skills"
+  }
+}
+```
+
+Note that pointing the harness directly at `.ai/skills/` exposes every skill regardless of tier — the tier system only applies when installation goes through `yarn install-skills`.
+
+### Codex and Cursor
+
+Nothing to wire: both read `.agents/skills/` directly.
+
+### Verify
+
+```bash
+# Claude Code
+claude
+> /skills
+# With the default install you should see the core tier (e.g. ds-guardian,
+# backend-ui-design, implement-spec, fix-specs, migrate-mikro-orm,
+# create-ai-agent, refresh-standalone-harness) plus the external collection (code-review,
+# check-and-commit, spec-writing, integration-tests, auto-create-pr,
+# create-skill, help, pre-implement-spec, smart-test, create-agents-md, ...).
+
+# Codex
+codex
+> /skills
+# Same set as Claude Code; the install script keeps both harnesses in sync.
+```
+
+---
+
+## Using Skills
+
+| Agent | Invoke | List |
+|-------|--------|------|
+| Claude Code | `/skill-name` | `/skills` |
+| Codex | `$skill-name` | `/skills` |
+
+Skills also trigger automatically when a task matches the skill's `description`.
+
+---
+
+## Available Skills
+
+Skills below are grouped by tier in the same order as `.ai/skills/tiers.json`. Each "When to use" cell is the skill's current `description:` field from its `SKILL.md`.
+
+### core
+
+| Skill | When to use |
+|-------|-------------|
+| `om-ds-guardian` | Design System Guardian for Open Mercato. Enforces DS compliance, migrates hardcoded colors and typography, scaffolds DS-compliant pages, and reviews code against design principles. Activates on: 'design system', 'DS', 'migrate colors', 'fix colors', 'hardcoded colors', 'semantic tokens', 'scaffold page', 'new page', 'create page', 'DS review', 'DS check', 'DS health', 'health check', 'design system compliance', 'StatusBadge', 'FormField', 'SectionHeader', 'text-red-', 'bg-green-', 'text-[11px]', 'arbitrary text', 'empty state', 'loading state', or when a developer is building UI, creating new modules, reviewing PRs, or fixing DS violations in Open Mercato. Always use this skill when working on frontend UI in Open Mercato — it ensures every change follows the design system. |
+| `om-backend-ui-design` | Design and implement consistent, production-grade backend/backoffice interfaces using the @open-mercato/ui component library. Use this skill when building admin pages, CRUD interfaces, data tables, forms, detail pages, or any backoffice UI components. Ensures visual consistency and UX patterns across all application modules. |
+| `om-mockup-prototype` | Build a clickable, commentable prototype for an Open Mercato backend or backoffice flow from requirements that already contain user stories. Use for interactive admin-flow prototypes, backend click-throughs, presentation walkthroughs, and anchored pre-implementation feedback. Do not use for generic design-system mockups, portal, storefront, or public frontend work; route those requests to the authoritative surface workflow. |
+| `om-implement-spec` | Implement a specification (or specific phases) using coordinated subagents with unit tests, integration tests, docs, and code-review compliance. Tracks progress by updating the spec. Triggers on "implement spec", "implement phases", "build from spec", "code the spec". |
+| `om-fix-specs` | Normalize spec filenames in .ai/specs and .ai/specs/enterprise to the date+slug convention. Use this when legacy `SPEC-*` / `SPEC-ENT-*` names need to be cleaned up, when filename collisions appear after dropping numeric prefixes, or when links must be updated after normalization. |
+| `om-migrate-mikro-orm` | Migrate custom module code from MikroORM v6 to v7. Fixes v7 type errors (FilterQuery, RequiredEntityData), replaces Knex raw queries with Kysely, migrates persistAndFlush/removeAndFlush, updates decorator imports. Triggers on "mikro-orm v7", "persistAndFlush deprecated", "knex to kysely". |
+| `om-create-ai-agent` | Scaffold AI agents (`ai-agents.ts`) and MCP tools (`ai-tools.ts`) for Open Mercato modules. Use when adding a new AI agent definition, configuring tool allowlists, mutation policies, or model selection. Triggers on "add ai agent", "create ai tool", "ai-agents.ts", "ai-tools.ts". |
+| `om-refresh-standalone-harness` | Refresh the standalone-app AI harness from an explicit local Git release range. Use for "refresh standalone harness", "release harness audit", "scan release range", `--from/--to`, "odśwież harness", or when platform work changes a module, UMES extension point, installed public contract, generator surface, or release. |
+
+### automation
+
+| Skill | When to use |
+|-------|-------------|
+| `om-auto-publish-pr` | Publish pkg.pr.new package previews for a same-repository Open Mercato PR by dispatching the Package Previews GitHub Actions workflow with gh. Use when a maintainer asks to publish, republish, or trigger a PR package preview. Does not publish npm snapshots. |
+
+### external (open-mercato/skills)
+
+These skills are installed from [open-mercato/skills](https://github.com/open-mercato/skills) into `.agents/skills/`; their descriptions are maintained upstream. They read `.ai/agentic.config.json`, `.ai/trackers/github.md`, the root docs, and any repo-local override under `.ai/skills/<name>/`.
+
+`om-approve-merge-pr`, `om-auto-continue-pr`, `om-auto-continue-pr-loop`, `om-auto-create-pr`, `om-auto-create-pr-loop`, `om-auto-fix-issue`, `om-auto-review-pr`, `om-auto-update-changelog`, `om-auto-qa-pr`, `om-check-and-commit`, `om-code-review`, `om-fix`, `om-followup-issue-from-pr`, `om-integration-tests`, `om-merge-buddy`, `om-open-pr`, `om-prepare-issue`, `om-prepare-test-env`, `om-review-prs`, `om-root-cause`, `om-setup-agent-pipeline`, `om-spec-writing`, `om-auto-fix-pr`, `om-close-fixed-issues`, `om-verify-in-repo`, `om-pr-autopilot`, `om-create-skill`, `om-help`, `om-judge-agent-session`, `om-share-this-session`, `om-auto-sec-report`, `om-auto-sec-report-pr`, `om-auto-qa-scenarios`, `om-figma-design-with-ds`, `om-pre-implement-spec`, `om-smart-test`, `om-create-agents-md`, `om-app-spec-writing`, `om-gap-analysis`
+
+### analysis
+
+| Skill | When to use |
+|-------|-------------|
+| `om-wcag-guardian` | **DRAFT, not for PR enforcement — run only when explicitly asked.** Designs accessibility contracts and reviews UI-impacting changes against WCAG 2.2 AA and the EN 301 549 supplement with verified evidence (components, flows, styles, themes, accessible text, frontend dependencies, message or document templates, sanitizers, importers or exporters). |
+
+### migration
+
+| Skill | When to use |
+|-------|-------------|
+| `om-auto-upgrade-0.4.10-to-0.5.0` | Migrate a downstream Open Mercato user codebase from 0.4.10 to 0.5.0. Executable companion to UPGRADE_NOTES.md — detects which codemod patterns are in use, applies them in place, typechecks, and reports what still needs human review. Triggers on "upgrade open-mercato to 0.5.0", "bump to 0.5.0", or "apply UPGRADE_NOTES migrations". |
+| `om-auto-upgrade-0.6.6-to-0.6.7` | Migrate downstream Open Mercato user code from 0.6.6 to 0.6.7. Applies the pg-errors import move, safely unwraps proven scheduler queue payload consumers, audits query-index callbacks and removed scheduler metadata, then typechecks and reports manual follow-up. Triggers on "upgrade Open Mercato to 0.6.7", "migrate 0.6.6 to 0.6.7", or "apply the 0.6.7 upgrade notes". |
+| `om-auto-upgrade-0.6.7-to-0.7.0` | Migrate downstream Open Mercato user code from 0.6.7 to 0.7.0. Applies exact TanStack, settings-group, and removed-env edits; audits auth, search, workflow, facts, Redis, webhook, and security-header changes; validates the app; and reports manual follow-up. Triggers on "upgrade Open Mercato to 0.7.0", "migrate 0.6.7 to 0.7.0", or "apply the 0.7.0 upgrade notes". |
+| `om-auto-upgrade-0.7.0-to-0.8.0` | Migrate downstream Open Mercato user code from 0.7.0 to 0.8.0. Audits entry.overrides CLI/worker/scheduler dispatch, sales line discount_amount semantics, AlertDescription ref types, devices API camelCase, deal-status "lost" spelling and canonical vocabulary, the outbound-email Communications Hub provider module, interaction participant userId, makeCrudRoute repeated query params, and createTimeProjectFixture's customerId; validates the app; and reports manual follow-up. Triggers on "upgrade Open Mercato to 0.8.0", "migrate 0.7.0 to 0.8.0", or "apply the 0.8.0 upgrade notes". |
+| `om-auto-upgrade-0.8.0-to-0.9.0` | Migrate downstream Open Mercato user code from 0.8.0 to 0.9.0. Enables `progress` before `customers` in src/modules.ts; audits catalog bulk-delete job scope, redoInput for secret-bearing commands, thrown CrudHttpError statuses, attachment request scope, directory organization hierarchy omission, SUB_WORKFLOW output ports, accent-insensitive search helpers, OpenAI-compatible preset apiMode, snapshot date revival, Gmail oauthClient, host locale overrides, CrudForm injected field ids, ChannelScope null organizations, duplicate ai_assistant encryption maps, WRONG_KEY encryption errors, the telemetry bootstrap, SSE API-key consumers, empty organization scopes, and the route-identity header; validates the app; and reports manual follow-up. Triggers on "upgrade Open Mercato to 0.9.0", "migrate 0.8.0 to 0.9.0", or "apply the 0.9.0 upgrade notes". |
+
+### infra
+
+| Skill | When to use |
+|-------|-------------|
+| `om-dev-container-maintenance` | Maintain the VS Code Dev Container setup for Open Mercato. MUST use for ANY change to `.devcontainer/` files. Also use when the container fails to build/start, services inside misbehave, or "works locally but not in dev container". Triggers on "dev container", "devcontainer", ".devcontainer". |
+| `om-integration-builder` | Build integration provider packages for the Open Mercato Integration Marketplace (payment, shipping, data-sync, webhook). Scaffolds the npm package, adapter, credentials, widget injection, webhook processing, health checks, i18n, tests. Triggers on "build integration", "add provider", "integrate with stripe/paypal/dhl". |
+
+---
+
+## Creating a New Skill
+
+1. Use the `om-create-skill` skill interactively (it also registers the skill in `tiers.json` and this README), or create manually:
+
+```bash
+mkdir -p .ai/skills/my-skill
+```
+
+2. Create `SKILL.md` with frontmatter and instructions
+3. Add optional `scripts/`, `references/`, `assets/` as needed
+4. Register it in one tier of `tiers.json`, add its row to the tier table above, bump that tier's count in the "Tiers" table, and run `node scripts/validate-skills-tiers.mjs`
+5. Test the skill by invoking it
+
+### Writing Effective Descriptions
+
+The `description` field drives automatic skill selection. Include:
+
+- **Trigger words**: "when building", "when creating", "when designing"
+- **Domain terms**: "admin pages", "API endpoints", "CRUD interfaces"
+- **Outcomes**: "ensures consistency", "follows conventions"
+
+### Skill Size Guidelines
+
+| Size | Lines | When to split |
+|------|-------|---------------|
+| Small | < 100 | Single-purpose conventions |
+| Medium | 100-300 | Component libraries, API patterns |
+| Large | 300-500 | Complex workflows — use `references/` to keep SKILL.md lean |
+
+If exceeding 500 lines, split detailed content into `references/` files.
+
+---
+
+## Skills vs Global Instructions
+
+| File | Scope | When active |
+|------|-------|-------------|
+| `CLAUDE.md` / `codex.md` | Global project instructions | Always |
+| `AGENTS.md` | Agent conventions | Always |
+| Skills | Task-specific guidance | On demand |
+
+Use skills when instructions are task-specific, substantial (>50 lines), or benefit from explicit invocation control.
+
+---
+
+## Troubleshooting
+
+**Skill not found**: Verify the skill exists in the canonical directory (`ls -la .agents/skills`) — and, for Claude Code, that its link layer has it too (`ls -la .claude/skills`) — and that `SKILL.md` has valid YAML frontmatter. If the skill belongs to an opt-in tier, install it with `yarn install-skills --with <tier>` (or `--all`).
+
+**Skill not auto-selected**: Improve `description` with more specific trigger words and domain terminology.
+
+**Symlink issues**:
+```bash
+# Wipe everything the install script manages and reinstall the default core tier.
+yarn install-skills --clean
+yarn install-skills
+```

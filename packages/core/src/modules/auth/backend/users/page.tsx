@@ -1,0 +1,480 @@
+"use client"
+import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/auth/extension-points'
+import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import type { SortingState } from '@tanstack/react-table'
+import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { Badge } from '@open-mercato/ui/primitives/badge'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { buildOrganizationTreeOptions, formatOrganizationTreeLabel, type OrganizationTreeNode, type OrganizationTreeOption } from '@open-mercato/core/modules/directory/lib/tree'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
+import { ErrorMessage } from '@open-mercato/ui/backend/detail'
+
+type Row = {
+  id: string
+  email: string
+  name: string | null
+  organizationId: string | null
+  organizationName?: string | null
+  tenantId: string | null
+  tenantName?: string | null
+  roles: string[]
+  isConfirmed?: boolean
+  updatedAt?: string | null
+}
+
+type FilterOption = { value: string; label: string }
+
+async function fetchOrganizationFilterOptions(): Promise<FilterOption[]> {
+  const search = new URLSearchParams()
+  search.set('view', 'tree')
+  search.set('status', 'all')
+  try {
+    const call = await apiCall<{ items?: OrganizationTreeNode[] }>(
+      `/api/directory/organizations?${search.toString()}`,
+    )
+    if (!call.ok) return []
+    const nodes = Array.isArray(call.result?.items) ? (call.result!.items as OrganizationTreeNode[]) : []
+    const flattened: OrganizationTreeOption[] = buildOrganizationTreeOptions(nodes)
+    return flattened
+      .filter((opt) => typeof opt.value === 'string' && opt.value.length > 0)
+      .map((opt) => {
+        const baseLabel = opt.name && opt.name.length > 0 ? opt.name : opt.value
+        const depth = typeof opt.depth === 'number' ? opt.depth : 0
+        const label = `${formatOrganizationTreeLabel(baseLabel, depth)}${opt.isActive === false ? ' (inactive)' : ''}`
+        return { value: opt.value, label }
+      })
+  } catch {
+    return []
+  }
+}
+
+async function fetchRoleFilterOptions(query?: string): Promise<FilterOption[]> {
+  const search = new URLSearchParams()
+  search.set('page', '1')
+  search.set('pageSize', '50')
+  if (query && query.trim()) search.set('search', query.trim())
+  try {
+    const call = await apiCall<{ items?: unknown[] }>(`/api/auth/roles?${search.toString()}`)
+    if (!call.ok) return []
+    const items = Array.isArray(call.result?.items) ? call.result!.items : []
+    return items
+      .map((item: any): FilterOption | null => {
+        const id = typeof item?.id === 'string' ? item.id : null
+        const name = typeof item?.name === 'string' ? item.name : null
+        if (!id || !name) return null
+        return { value: id, label: name }
+      })
+      .filter((opt: FilterOption | null): opt is FilterOption => opt !== null)
+  } catch {
+    return []
+  }
+}
+
+async function fetchRoleOptionsByIds(ids: string[]): Promise<FilterOption[]> {
+  const unique = Array.from(new Set(ids.filter((id) => typeof id === 'string' && id.trim() !== '')))
+  if (unique.length === 0) return []
+  const results = await Promise.all(unique.map(async (id) => {
+    try {
+      const search = new URLSearchParams()
+      search.set('id', id)
+      search.set('page', '1')
+      search.set('pageSize', '1')
+      const call = await apiCall<{ items?: unknown[] }>(`/api/auth/roles?${search.toString()}`)
+      if (!call.ok) return null
+      const data = call.result
+      const items = Array.isArray(data?.items) ? (data?.items as unknown[]) : []
+      const match = items.find((item) => {
+        if (!item || typeof item !== 'object') return false
+        const entry = item as Record<string, unknown>
+        return typeof entry.id === 'string' && entry.id === id
+      })
+      const record = match && typeof match === 'object' ? (match as Record<string, unknown>) : null
+      const name = typeof record?.name === 'string' ? record.name : null
+      if (!name) return null
+      return { value: id, label: name }
+    } catch {
+      return null
+    }
+  }))
+  return results.filter((opt: FilterOption | null): opt is FilterOption => opt !== null)
+}
+
+function mergeOptions(existing: FilterOption[], next: FilterOption[]): FilterOption[] {
+  if (!next.length) return existing
+  const map = new Map<string, FilterOption>()
+  for (const opt of existing) map.set(opt.value, opt)
+  for (const opt of next) map.set(opt.value, opt)
+  return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label))
+}
+
+function arraysEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false
+  }
+  return true
+}
+
+export default function UsersListPage() {
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const searchParams = useSearchParams()
+  const scopeVersion = useOrganizationScopeVersion()
+  const queryClient = useQueryClient()
+  const t = useT()
+  const [sorting, setSorting] = React.useState<SortingState>([{ id: 'email', desc: false }])
+  const [page, setPage] = React.useState(1)
+  const [search, setSearch] = React.useState('')
+  const [filterValues, setFilterValues] = React.useState<FilterValues>({})
+  const [organizationOptions, setOrganizationOptions] = React.useState<FilterOption[]>([])
+  const [roleOptions, setRoleOptions] = React.useState<FilterOption[]>([])
+  const [roleIdToLabel, setRoleIdToLabel] = React.useState<Record<string, string>>({})
+  const [roleFilterDirty, setRoleFilterDirty] = React.useState(false)
+
+  const roleIdsFromUrl = React.useMemo(() => {
+    if (!searchParams) return [] as string[]
+    const raw = searchParams.getAll('roleId')
+    return raw.filter((id): id is string => typeof id === 'string' && id.trim() !== '')
+  }, [searchParams])
+
+  const roleIdsFromUrlKey = React.useMemo(() => roleIdsFromUrl.join('|'), [roleIdsFromUrl])
+  const organizationId = typeof filterValues.organizationId === 'string' && filterValues.organizationId ? filterValues.organizationId : undefined
+
+  const applyRoleOptions = React.useCallback((opts: FilterOption[]) => {
+    if (!opts.length) return
+    setRoleOptions((prev) => mergeOptions(prev, opts))
+    setRoleIdToLabel((prev) => {
+      if (!opts.length) return prev
+      const next = { ...prev }
+      for (const opt of opts) next[opt.value] = opt.label
+      return next
+    })
+  }, [])
+
+  React.useEffect(() => {
+    let cancelled = false
+    fetchOrganizationFilterOptions().then((opts) => {
+      if (!cancelled) setOrganizationOptions(opts)
+    })
+    return () => { cancelled = true }
+  }, [scopeVersion])
+
+  React.useEffect(() => {
+    let cancelled = false
+    fetchRoleFilterOptions().then((opts) => {
+      if (!cancelled) applyRoleOptions(opts)
+    })
+    return () => { cancelled = true }
+  }, [applyRoleOptions])
+
+  React.useEffect(() => {
+    if (roleFilterDirty) return
+    if (roleIdsFromUrl.length === 0) {
+      setFilterValues((prev) => {
+        if (!Array.isArray(prev.roles) || prev.roles.length === 0) return prev
+        const next = { ...prev }
+        delete (next as any).roles
+        return next
+      })
+      return
+    }
+    const missing = roleIdsFromUrl.filter((id) => !roleIdToLabel[id])
+    if (missing.length === 0) {
+      setFilterValues((prev) => {
+        const current = Array.isArray(prev.roles) ? prev.roles as string[] : []
+        if (arraysEqual(current, roleIdsFromUrl)) return prev
+        return { ...prev, roles: roleIdsFromUrl }
+      })
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      const fetched = await fetchRoleOptionsByIds(missing)
+      if (cancelled) return
+      if (fetched.length) applyRoleOptions(fetched)
+      setFilterValues((prev) => {
+        const current = Array.isArray(prev.roles) ? prev.roles as string[] : []
+        if (arraysEqual(current, roleIdsFromUrl)) return prev
+        return { ...prev, roles: roleIdsFromUrl }
+      })
+    })()
+    return () => { cancelled = true }
+  }, [roleFilterDirty, roleIdsFromUrlKey, roleIdsFromUrl, roleIdToLabel, applyRoleOptions])
+
+  React.useEffect(() => {
+    setRoleFilterDirty(false)
+  }, [roleIdsFromUrlKey])
+
+  const loadRoleOptions = React.useCallback(async (query?: string) => {
+    const opts = await fetchRoleFilterOptions(query)
+    if (opts.length) applyRoleOptions(opts)
+    return opts
+  }, [applyRoleOptions])
+
+  const filters = React.useMemo<FilterDef[]>(() => [
+    {
+      id: 'name',
+      label: t('auth.users.list.filters.name', 'Display name'),
+      type: 'text',
+      placeholder: t('auth.users.list.filters.namePlaceholder', 'Filter by display name'),
+    },
+    {
+      id: 'organizationId',
+      label: t('auth.users.list.filters.organization', 'Organization'),
+      type: 'select',
+      options: organizationOptions,
+    },
+    {
+      id: 'roles',
+      label: t('auth.users.list.filters.roles', 'Roles'),
+      type: 'tags',
+      placeholder: t('auth.users.list.filters.rolesPlaceholder', 'Filter by roles'),
+      options: roleOptions,
+      loadOptions: loadRoleOptions,
+      formatValue: (val: string) => roleIdToLabel[val] ?? val,
+    },
+  ], [organizationOptions, roleOptions, loadRoleOptions, roleIdToLabel, t])
+
+  const roleIdsFromFilter = React.useMemo(() => {
+    const raw = Array.isArray(filterValues.roles) ? filterValues.roles as string[] : []
+    return raw.filter((id) => typeof id === 'string' && id.length > 0)
+  }, [filterValues.roles])
+
+  const effectiveRoleIds = React.useMemo(() => {
+    if (roleFilterDirty) return roleIdsFromFilter
+    if (roleIdsFromFilter.length > 0) return roleIdsFromFilter
+    return roleIdsFromUrl
+  }, [roleFilterDirty, roleIdsFromFilter, roleIdsFromUrl])
+
+  const normalizedRoleIds = React.useMemo(() => {
+    if (!effectiveRoleIds.length) return [] as string[]
+    const unique = Array.from(new Set(effectiveRoleIds))
+    unique.sort((a, b) => a.localeCompare(b))
+    return unique
+  }, [effectiveRoleIds])
+
+  const handleSearchChange = React.useCallback((value: string) => {
+    setSearch(value)
+    setPage(1)
+  }, [])
+
+  const handleFiltersApply = React.useCallback((values: FilterValues) => {
+    const next: FilterValues = {}
+    const name = typeof values.name === 'string' ? values.name.trim() : ''
+    if (name) next.name = name
+    const org = typeof values.organizationId === 'string' ? values.organizationId.trim() : ''
+    if (org) next.organizationId = org
+    const rawRoles = Array.isArray(values.roles) ? (values.roles as string[]) : []
+    const sanitizedRoles = rawRoles.map((role) => role.trim()).filter((role) => role.length > 0)
+    if (sanitizedRoles.length) next.roles = sanitizedRoles
+    setFilterValues(next)
+    setRoleFilterDirty(true)
+    setPage(1)
+  }, [])
+
+  const handleFiltersClear = React.useCallback(() => {
+    setFilterValues({})
+    setRoleFilterDirty(true)
+    setPage(1)
+  }, [])
+
+  const exportParams = React.useMemo(() => {
+    const name = typeof filterValues.name === 'string' ? filterValues.name.trim() : ''
+    return {
+      page,
+      pageSize: 50,
+      search,
+      name: name.length ? name : undefined,
+      organizationId,
+      roleIds: normalizedRoleIds,
+    }
+  }, [filterValues.name, normalizedRoleIds, organizationId, page, search])
+
+  const exportConfig = React.useMemo(() => ({
+    view: {
+      getUrl: (format: DataTableExportFormat) => {
+        const params = new URLSearchParams()
+        params.set('page', String(exportParams.page))
+        params.set('pageSize', String(exportParams.pageSize))
+        if (exportParams.search) params.set('search', exportParams.search)
+        if (exportParams.name) params.set('name', exportParams.name)
+        if (exportParams.organizationId) params.set('organizationId', exportParams.organizationId)
+        for (const roleId of exportParams.roleIds) params.append('roleId', roleId)
+        params.set('format', format)
+        params.set('exportScope', 'view')
+        return `/api/auth/users?${params.toString()}`
+      },
+    },
+    full: {
+      getUrl: (format: DataTableExportFormat) => {
+        const params = new URLSearchParams()
+        params.set('page', String(exportParams.page))
+        params.set('pageSize', String(exportParams.pageSize))
+        if (exportParams.search) params.set('search', exportParams.search)
+        if (exportParams.name) params.set('name', exportParams.name)
+        if (exportParams.organizationId) params.set('organizationId', exportParams.organizationId)
+        for (const roleId of exportParams.roleIds) params.append('roleId', roleId)
+        params.set('format', format)
+        params.set('exportScope', 'full')
+        params.set('all', 'true')
+        return `/api/auth/users?${params.toString()}`
+      },
+    },
+  }), [exportParams])
+
+  const params = React.useMemo(() => {
+    const p = new URLSearchParams()
+    p.set('page', String(page))
+    p.set('pageSize', '50')
+    if (search) p.set('search', search)
+    const name = typeof filterValues.name === 'string' ? filterValues.name.trim() : ''
+    if (name) p.set('name', name)
+    if (organizationId) p.set('organizationId', organizationId)
+    if (normalizedRoleIds.length) {
+      for (const id of normalizedRoleIds) p.append('roleId', id)
+    }
+    return p.toString()
+  }, [filterValues.name, page, search, organizationId, normalizedRoleIds])
+
+  const { data: usersData, isLoading, isPending, isFetching, isError, errorUpdatedAt, refetch } = useQuery({
+    queryKey: ['users', params, scopeVersion],
+    queryFn: async () => {
+      const call = await apiCall<{ items: Row[]; total: number; totalPages: number; totalIsCapped?: boolean; isSuperAdmin?: boolean }>(
+        `/api/auth/users?${params}`,
+      )
+      if (!call.ok) {
+        await raiseCrudError(call.response, t('auth.users.list.error.load', 'Failed to load users'))
+      }
+      return call.result ?? { items: [], total: 0, totalPages: 1 }
+    },
+  })
+
+  const hasLoadError = isError || (isPending && errorUpdatedAt > 0)
+  const rows = usersData?.items || []
+  const total = usersData?.total || 0
+  const totalPages = usersData?.totalPages || 1
+  const totalIsCapped = usersData?.totalIsCapped === true
+  const isSuperAdmin = !!usersData?.isSuperAdmin
+  const rowsWithOrgNames: Row[] = React.useMemo(() => rows.map(row => ({
+    ...row,
+    organizationName: row.organizationName ?? (row.organizationId ?? undefined),
+    tenantName: row.tenantName ?? (row.tenantId ?? undefined),
+  })), [rows])
+  const showTenantColumn = React.useMemo(
+    () => isSuperAdmin && rowsWithOrgNames.some((row) => row.tenantName),
+    [isSuperAdmin, rowsWithOrgNames],
+  )
+  const columns = React.useMemo<ColumnDef<Row>[]>(() => {
+    const base: ColumnDef<Row>[] = [
+      { accessorKey: 'email', header: t('auth.users.list.columns.email', 'Email') },
+      { accessorKey: 'name', header: t('auth.users.list.columns.name', 'Display name') },
+      { accessorKey: 'organizationName', header: t('auth.users.list.columns.organization', 'Organization') },
+      { accessorKey: 'roles', header: t('auth.users.list.columns.roles', 'Roles'), cell: ({ row }) => (row.original.roles || []).join(', ') },
+      {
+        accessorKey: 'isConfirmed',
+        header: t('auth.users.list.columns.status', 'Status'),
+        cell: ({ row }) => (
+          row.original.isConfirmed === false
+            ? <Badge variant="neutral" dot>{t('auth.users.list.status.deactivated', 'Deactivated')}</Badge>
+            : <Badge variant="success" dot>{t('auth.users.list.status.active', 'Active')}</Badge>
+        ),
+      },
+    ]
+    if (showTenantColumn) {
+      base.splice(1, 0, { accessorKey: 'tenantName', header: t('auth.users.list.columns.tenant', 'Tenant') })
+    }
+    return base
+  }, [showTenantColumn, t])
+
+  const handleDelete = React.useCallback(async (row: Row) => {
+    const confirmed = await confirm({
+      title: t('auth.users.list.confirmDelete', 'Delete user "{email}"?', { email: row.email }),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
+    const deleteErrorMessage = t('auth.users.list.error.delete', 'Failed to delete user')
+    try {
+      const call = await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(row.updatedAt),
+        () => apiCall(`/api/auth/users?id=${encodeURIComponent(row.id)}`, { method: 'DELETE' }),
+      )
+      if (!call.ok) {
+        await raiseCrudError(call.response, deleteErrorMessage)
+      }
+      flash(t('auth.users.flash.deleted', 'User deleted'), 'success')
+      await queryClient.invalidateQueries({ queryKey: ['users'] })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : deleteErrorMessage
+      flash(message, 'error')
+    }
+  }, [confirm, queryClient, t])
+
+  return (
+    <Page>
+      <PageBody>
+        <DataTable
+        title={t('auth.users.list.title', 'Users')}
+        titleHeadingLevel={1}
+          actions={(
+            <Button asChild>
+              <Link href="/backend/users/create">{t('common.create', 'Create')}</Link>
+            </Button>
+          )}
+          columns={columns}
+          data={rowsWithOrgNames}
+          exporter={exportConfig}
+          searchValue={search}
+          onSearchChange={handleSearchChange}
+          filters={filters}
+          filterValues={filterValues}
+          onFiltersApply={handleFiltersApply}
+          onFiltersClear={handleFiltersClear}
+          sortable
+          sorting={sorting}
+          onSortingChange={setSorting}
+          perspective={{ tableId: extensionPoints.hosts.usersTable.tableId }}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('auth.users.list.title', 'Users')}
+              createHref="/backend/users/create"
+              createLabel={t('common.create', 'Create')}
+            />
+          )}
+          rowActions={(row) => (
+            <RowActions items={[
+              { id: 'edit', label: t('common.edit', 'Edit'), href: `/backend/users/${row.id}/edit` },
+              { id: 'show-roles', label: t('auth.users.list.actions.showRoles', 'Show roles'), href: `/backend/roles?userId=${encodeURIComponent(row.id)}` },
+              { id: 'delete', label: t('common.delete', 'Delete'), destructive: true, onSelect: () => { void handleDelete(row) } },
+            ]} />
+          )}
+          pagination={{ page, pageSize: 50, total, totalPages, totalIsCapped, onPageChange: setPage }}
+          isLoading={isLoading && !hasLoadError}
+          error={hasLoadError ? (
+            <ErrorMessage
+              label={t('auth.users.list.error.load', 'Failed to load users')}
+              action={(
+                <Button type="button" variant="outline" disabled={isFetching} onClick={() => { void refetch() }}>
+                  {t('auth.users.list.actions.retry', 'Retry')}
+                </Button>
+              )}
+            />
+          ) : null}
+        />
+      </PageBody>
+      {ConfirmDialogElement}
+    </Page>
+  )
+}

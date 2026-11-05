@@ -1,0 +1,987 @@
+import { Collection, OptionalProps } from '@mikro-orm/core'
+import { Entity, Enum, Index, ManyToOne, OneToMany, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+import type {
+  CatalogExciseCategory,
+  CatalogGtinType,
+  CatalogHazmatPackingGroup,
+  CatalogPriceDisplayMode,
+  CatalogProductOptionSchema,
+  CatalogProductRelationType,
+  CatalogProductType,
+} from './types'
+import type { ReferenceUnitCode } from '@open-mercato/shared/lib/units/unitCodes'
+import type { PriceHistoryChangeType, PriceHistorySource } from '../lib/omnibusTypes'
+
+@Entity({ tableName: 'catalog_product_option_schemas' })
+@Index({
+  name: 'catalog_product_option_schemas_scope_idx',
+  properties: ['organizationId', 'tenantId'],
+})
+@Unique({
+  name: 'catalog_product_option_schemas_code_unique',
+  properties: ['organizationId', 'tenantId', 'code'],
+})
+export class CatalogOptionSchemaTemplate {
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ type: 'text' })
+  name!: string
+
+  @Property({ name: 'code', type: 'text' })
+  code!: string
+
+  @Property({ type: 'text', nullable: true })
+  description?: string | null
+
+  @Property({ name: 'schema', type: 'jsonb' })
+  schema!: CatalogProductOptionSchema
+
+  @Property({ name: 'metadata', type: 'jsonb', nullable: true })
+  metadata?: Record<string, unknown> | null
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'catalog_products' })
+@Index({ name: 'catalog_products_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Unique({ name: 'catalog_products_sku_scope_unique', properties: ['organizationId', 'tenantId', 'sku'] })
+@Unique({ name: 'catalog_products_handle_scope_unique', properties: ['organizationId', 'tenantId', 'handle'] })
+export class CatalogProduct {
+  [OptionalProps]?:
+    | 'createdAt'
+    | 'updatedAt'
+    | 'deletedAt'
+    | 'defaultSalesUnitQuantity'
+    | 'uomRoundingScale'
+    | 'uomRoundingMode'
+    | 'unitPriceEnabled'
+    | 'isExciseGood'
+    | 'requiresPrescription'
+    | 'containsLithiumBattery'
+    | 'requiresShipping'
+    | 'isQuoteOnly'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ type: 'text' })
+  title!: string
+
+  @Property({ type: 'text', nullable: true })
+  subtitle?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  description?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  sku?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  handle?: string | null
+
+  @Property({ name: 'tax_rate_id', type: 'uuid', nullable: true })
+  taxRateId?: string | null
+
+  @Property({ name: 'tax_rate', type: 'numeric', precision: 7, scale: 4, nullable: true })
+  taxRate?: string | null
+
+  @Property({ name: 'product_type', type: 'text', default: 'simple' })
+  productType: CatalogProductType = 'simple'
+
+  @Property({ name: 'status_entry_id', type: 'uuid', nullable: true })
+  statusEntryId?: string | null
+
+  @Property({ name: 'primary_currency_code', type: 'text', nullable: true })
+  primaryCurrencyCode?: string | null
+
+  @Property({ name: 'default_unit', type: 'text', nullable: true })
+  defaultUnit?: string | null
+
+  @Property({ name: 'default_sales_unit', type: 'text', nullable: true })
+  defaultSalesUnit?: string | null
+
+  @Property({ name: 'default_sales_unit_quantity', type: 'numeric', precision: 18, scale: 6, default: '1' })
+  defaultSalesUnitQuantity: string = '1'
+
+  @Property({ name: 'uom_rounding_scale', type: 'smallint', default: 4 })
+  uomRoundingScale: number = 4
+
+  @Property({ name: 'uom_rounding_mode', type: 'text', default: 'half_up' })
+  uomRoundingMode: 'half_up' | 'down' | 'up' = 'half_up'
+
+  @Property({ name: 'unit_price_enabled', type: 'boolean', default: false })
+  unitPriceEnabled: boolean = false
+
+  @Property({ name: 'unit_price_reference_unit', type: 'text', nullable: true })
+  unitPriceReferenceUnit?: ReferenceUnitCode | null
+
+  @Property({ name: 'unit_price_base_quantity', type: 'numeric', precision: 18, scale: 6, nullable: true })
+  unitPriceBaseQuantity?: string | null
+
+  @Property({ name: 'default_media_id', type: 'uuid', nullable: true })
+  defaultMediaId?: string | null
+
+  @Property({ name: 'default_media_url', type: 'text', nullable: true })
+  defaultMediaUrl?: string | null
+
+  @Property({ name: 'weight_value', type: 'numeric', precision: 16, scale: 4, nullable: true })
+  weightValue?: string | null
+
+  @Property({ name: 'weight_unit', type: 'text', nullable: true })
+  weightUnit?: string | null
+
+  @Property({ name: 'dimensions', type: 'jsonb', nullable: true })
+  dimensions?: {
+    width?: number | null
+    height?: number | null
+    depth?: number | null
+    unit?: string | null
+  } | null
+
+  @Property({ name: 'country_of_origin_code', type: 'text', nullable: true })
+  countryOfOriginCode?: string | null
+
+  @Property({ name: 'pkwiu_code', type: 'text', nullable: true })
+  pkwiuCode?: string | null
+
+  @Property({ name: 'cn_code', type: 'text', nullable: true })
+  cnCode?: string | null
+
+  @Property({ name: 'hs_code', type: 'text', nullable: true })
+  hsCode?: string | null
+
+  @Property({ name: 'tax_classification_code', type: 'text', nullable: true })
+  taxClassificationCode?: string | null
+
+  @Property({ name: 'gtu_codes', type: 'text[]', nullable: true })
+  gtuCodes?: string[] | null
+
+  @Property({ name: 'age_min', type: 'smallint', nullable: true })
+  ageMin?: number | null
+
+  @Property({ name: 'is_excise_good', type: 'boolean', default: false })
+  isExciseGood: boolean = false
+
+  @Property({ name: 'excise_category', type: 'text', nullable: true })
+  exciseCategory?: CatalogExciseCategory | null
+
+  @Property({ name: 'requires_prescription', type: 'boolean', default: false })
+  requiresPrescription: boolean = false
+
+  @Property({ name: 'hazmat_class', type: 'text', nullable: true })
+  hazmatClass?: string | null
+
+  @Property({ name: 'un_number', type: 'text', nullable: true })
+  unNumber?: string | null
+
+  @Property({ name: 'hazmat_packing_group', type: 'text', nullable: true })
+  hazmatPackingGroup?: CatalogHazmatPackingGroup | null
+
+  @Property({ name: 'contains_lithium_battery', type: 'boolean', default: false })
+  containsLithiumBattery: boolean = false
+
+  @Property({ name: 'launch_at', type: Date, nullable: true })
+  launchAt?: Date | null
+
+  @Property({ name: 'end_of_life_at', type: Date, nullable: true })
+  endOfLifeAt?: Date | null
+
+  @Property({ name: 'available_from', type: Date, nullable: true })
+  availableFrom?: Date | null
+
+  @Property({ name: 'available_until', type: Date, nullable: true })
+  availableUntil?: Date | null
+
+  @Property({ name: 'min_order_qty', type: 'integer', nullable: true })
+  minOrderQty?: number | null
+
+  @Property({ name: 'max_order_qty', type: 'integer', nullable: true })
+  maxOrderQty?: number | null
+
+  @Property({ name: 'order_qty_increment', type: 'integer', nullable: true })
+  orderQtyIncrement?: number | null
+
+  @Property({ name: 'requires_shipping', type: 'boolean', default: true })
+  requiresShipping: boolean = true
+
+  @Property({ name: 'is_quote_only', type: 'boolean', default: false })
+  isQuoteOnly: boolean = false
+
+  @Property({ name: 'seo_title', type: 'text', nullable: true })
+  seoTitle?: string | null
+
+  @Property({ name: 'seo_description', type: 'text', nullable: true })
+  seoDescription?: string | null
+
+  @Property({ name: 'canonical_url', type: 'text', nullable: true })
+  canonicalUrl?: string | null
+
+  @Property({ name: 'metadata', type: 'jsonb', nullable: true })
+  metadata?: Record<string, unknown> | null
+
+  @Property({ name: 'custom_fieldset_code', type: 'text', nullable: true })
+  customFieldsetCode?: string | null
+
+  @ManyToOne(() => CatalogOptionSchemaTemplate, {
+    fieldName: 'option_schema_id',
+    nullable: true,
+    deleteRule: 'set null',
+  })
+  optionSchemaTemplate?: CatalogOptionSchemaTemplate | null
+
+  @Property({ name: 'is_configurable', type: 'boolean', default: false })
+  isConfigurable: boolean = false
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+
+  @OneToMany(() => CatalogProductVariant, (variant) => variant.product)
+  variants = new Collection<CatalogProductVariant>(this)
+
+  @OneToMany(() => CatalogOffer, (offer) => offer.product)
+  offers = new Collection<CatalogOffer>(this)
+
+  @OneToMany(() => CatalogProductCategoryAssignment, (assignment) => assignment.product)
+  categoryAssignments = new Collection<CatalogProductCategoryAssignment>(this)
+
+  @OneToMany(() => CatalogProductTagAssignment, (assignment) => assignment.product)
+  tagAssignments = new Collection<CatalogProductTagAssignment>(this)
+
+  @OneToMany(() => CatalogProductUnitConversion, (conversion) => conversion.product)
+  unitConversions = new Collection<CatalogProductUnitConversion>(this)
+}
+
+@Entity({ tableName: 'catalog_product_unit_conversions' })
+@Index({
+  name: 'catalog_product_unit_conversions_scope_idx',
+  properties: ['organizationId', 'tenantId', 'product'],
+})
+@Unique({
+  name: 'catalog_product_unit_conversions_unique',
+  properties: ['product', 'unitCode'],
+})
+export class CatalogProductUnitConversion {
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'deletedAt' | 'sortOrder' | 'isActive'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => CatalogProduct, { fieldName: 'product_id', deleteRule: 'cascade' })
+  product!: CatalogProduct
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'unit_code', type: 'text' })
+  unitCode!: string
+
+  @Property({ name: 'to_base_factor', type: 'numeric', precision: 24, scale: 12 })
+  toBaseFactor!: string
+
+  @Property({ name: 'sort_order', type: 'integer', default: 0 })
+  sortOrder: number = 0
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'metadata', type: 'jsonb', nullable: true })
+  metadata?: Record<string, unknown> | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'catalog_product_categories' })
+@Index({ name: 'catalog_product_categories_scope_idx', properties: ['organizationId', 'tenantId'] })
+@Unique({ name: 'catalog_product_categories_slug_unique', properties: ['organizationId', 'tenantId', 'slug'] })
+export class CatalogProductCategory {
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ type: 'text' })
+  name!: string
+
+  @Property({ type: 'text', nullable: true })
+  slug?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  description?: string | null
+
+  @Property({ name: 'parent_id', type: 'uuid', nullable: true })
+  parentId?: string | null
+
+  @Property({ name: 'root_id', type: 'uuid', nullable: true })
+  rootId?: string | null
+
+  @Property({ name: 'tree_path', type: 'text', nullable: true })
+  treePath?: string | null
+
+  @Property({ type: 'int', default: 0 })
+  depth: number = 0
+
+  @Property({ name: 'ancestor_ids', type: 'jsonb', default: [], nullable: false })
+  ancestorIds: string[] = []
+
+  @Property({ name: 'child_ids', type: 'jsonb', default: [], nullable: false })
+  childIds: string[] = []
+
+  @Property({ name: 'descendant_ids', type: 'jsonb', default: [], nullable: false })
+  descendantIds: string[] = []
+
+  @Property({ name: 'metadata', type: 'jsonb', nullable: true })
+  metadata?: Record<string, unknown> | null
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+
+  @OneToMany(() => CatalogProductCategoryAssignment, (assignment) => assignment.category)
+  assignments = new Collection<CatalogProductCategoryAssignment>(this)
+}
+
+@Entity({ tableName: 'catalog_product_category_assignments' })
+@Index({
+  name: 'catalog_product_category_assignments_scope_idx',
+  properties: ['organizationId', 'tenantId'],
+})
+@Unique({
+  name: 'catalog_product_category_assignments_unique',
+  properties: ['product', 'category'],
+})
+export class CatalogProductCategoryAssignment {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => CatalogProduct, { fieldName: 'product_id', deleteRule: 'cascade' })
+  product!: CatalogProduct
+
+  @ManyToOne(() => CatalogProductCategory, { fieldName: 'category_id', deleteRule: 'cascade' })
+  category!: CatalogProductCategory
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'position', type: 'int', default: 0 })
+  position: number = 0
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'catalog_product_tags' })
+@Index({ name: 'catalog_product_tags_scope_idx', properties: ['organizationId', 'tenantId'] })
+@Unique({ name: 'catalog_product_tags_slug_unique', properties: ['organizationId', 'tenantId', 'slug'] })
+export class CatalogProductTag {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ type: 'text' })
+  label!: string
+
+  @Property({ type: 'text' })
+  slug!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @OneToMany(() => CatalogProductTagAssignment, (assignment) => assignment.tag)
+  assignments = new Collection<CatalogProductTagAssignment>(this)
+}
+
+@Entity({ tableName: 'catalog_product_tag_assignments' })
+@Index({ name: 'catalog_product_tag_assignments_scope_idx', properties: ['organizationId', 'tenantId'] })
+@Unique({ name: 'catalog_product_tag_assignments_unique', properties: ['product', 'tag'] })
+export class CatalogProductTagAssignment {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => CatalogProduct, { fieldName: 'product_id', deleteRule: 'cascade' })
+  product!: CatalogProduct
+
+  @ManyToOne(() => CatalogProductTag, { fieldName: 'tag_id', deleteRule: 'cascade' })
+  tag!: CatalogProductTag
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'catalog_product_offers' })
+@Index({ name: 'catalog_product_offers_scope_idx', properties: ['organizationId', 'tenantId'] })
+@Unique({
+  name: 'catalog_product_offers_product_channel_unique',
+  properties: ['product', 'organizationId', 'tenantId', 'channelId'],
+})
+export class CatalogOffer {
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => CatalogProduct, { fieldName: 'product_id', deleteRule: 'cascade' })
+  product!: CatalogProduct
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'channel_id', type: 'uuid' })
+  channelId!: string
+
+  @Property({ type: 'text' })
+  title!: string
+
+  @Property({ type: 'text', nullable: true })
+  description?: string | null
+
+  @Property({ name: 'default_media_id', type: 'uuid', nullable: true })
+  defaultMediaId?: string | null
+
+  @Property({ name: 'default_media_url', type: 'text', nullable: true })
+  defaultMediaUrl?: string | null
+
+  @Property({ name: 'metadata', type: 'jsonb', nullable: true })
+  metadata?: Record<string, unknown> | null
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+
+  @OneToMany(() => CatalogProductPrice, (price) => price.offer)
+  prices = new Collection<CatalogProductPrice>(this)
+}
+
+@Entity({ tableName: 'catalog_product_variants' })
+@Index({ name: 'catalog_product_variants_scope_idx', properties: ['product', 'organizationId', 'tenantId'] })
+@Unique({
+  name: 'catalog_product_variants_sku_unique',
+  properties: ['organizationId', 'tenantId', 'sku'],
+})
+@Index({
+  name: 'catalog_product_variants_gtin_scope_unique',
+  expression:
+    `create unique index "catalog_product_variants_gtin_scope_unique" on "catalog_product_variants" ("tenant_id", "organization_id", "gtin_type", "barcode") where deleted_at is null and gtin_type is not null and barcode is not null`,
+})
+export class CatalogProductVariant {
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => CatalogProduct, { fieldName: 'product_id' })
+  product!: CatalogProduct
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ type: 'text', nullable: true })
+  name?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  sku?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  barcode?: string | null
+
+  @Property({ name: 'gtin_type', type: 'text', nullable: true })
+  gtinType?: CatalogGtinType | null
+
+  @Property({ name: 'hs_code', type: 'text', nullable: true })
+  hsCode?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  statusEntryId?: string | null
+
+  @Property({ name: 'is_default', type: 'boolean', default: false })
+  isDefault: boolean = false
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'weight_value', type: 'numeric', precision: 16, scale: 4, nullable: true })
+  weightValue?: string | null
+
+  @Property({ name: 'weight_unit', type: 'text', nullable: true })
+  weightUnit?: string | null
+
+  @Property({ name: 'dimensions', type: 'jsonb', nullable: true })
+  dimensions?: {
+    width?: number | null
+    height?: number | null
+    depth?: number | null
+    unit?: string | null
+  } | null
+
+  @Property({ name: 'metadata', type: 'jsonb', nullable: true })
+  metadata?: Record<string, unknown> | null
+
+  @Property({ name: 'tax_rate_id', type: 'uuid', nullable: true })
+  taxRateId?: string | null
+
+  @Property({ name: 'tax_rate', type: 'numeric', precision: 7, scale: 4, nullable: true })
+  taxRate?: string | null
+
+  @Property({ name: 'option_values', type: 'jsonb', nullable: true })
+  optionValues?: Record<string, string> | null
+
+  @Property({ name: 'default_media_id', type: 'uuid', nullable: true })
+  defaultMediaId?: string | null
+
+  @Property({ name: 'default_media_url', type: 'text', nullable: true })
+  defaultMediaUrl?: string | null
+
+  @Property({ name: 'custom_fieldset_code', type: 'text', nullable: true })
+  customFieldsetCode?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+
+  @OneToMany(() => CatalogProductPrice, (price) => price.variant)
+  prices = new Collection<CatalogProductPrice>(this)
+
+
+  @OneToMany(() => CatalogProductVariantRelation, (relation) => relation.parentVariant)
+  componentRelations = new Collection<CatalogProductVariantRelation>(this)
+
+  @OneToMany(() => CatalogProductVariantRelation, (relation) => relation.childVariant)
+  parentRelations = new Collection<CatalogProductVariantRelation>(this)
+
+}
+
+@Entity({ tableName: 'catalog_product_variant_relations' })
+@Index({
+  name: 'catalog_product_variant_relations_parent_idx',
+  properties: ['parentVariant', 'organizationId', 'tenantId'],
+})
+@Index({
+  name: 'catalog_product_variant_relations_child_idx',
+  properties: ['childVariant', 'organizationId', 'tenantId'],
+})
+@Index({
+  name: 'catalog_product_variant_relations_child_product_idx',
+  properties: ['childProduct', 'organizationId', 'tenantId'],
+})
+export class CatalogProductVariantRelation {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => CatalogProductVariant, {
+    fieldName: 'parent_variant_id',
+    deleteRule: 'cascade',
+  })
+  parentVariant!: CatalogProductVariant
+
+  @ManyToOne(() => CatalogProductVariant, {
+    fieldName: 'child_variant_id',
+    deleteRule: 'cascade',
+    nullable: true,
+  })
+  childVariant?: CatalogProductVariant | null
+
+  @ManyToOne(() => CatalogProduct, {
+    fieldName: 'child_product_id',
+    nullable: true,
+    deleteRule: 'cascade',
+  })
+  childProduct?: CatalogProduct | null
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'relation_type', type: 'text' })
+  relationType: CatalogProductRelationType = 'grouped'
+
+  @Property({ name: 'is_required', type: 'boolean', default: false })
+  isRequired: boolean = false
+
+  @Property({ name: 'min_quantity', type: 'integer', nullable: true })
+  minQuantity?: number | null
+
+  @Property({ name: 'max_quantity', type: 'integer', nullable: true })
+  maxQuantity?: number | null
+
+  @Property({ type: 'integer', default: 0 })
+  position: number = 0
+
+  @Property({ name: 'metadata', type: 'jsonb', nullable: true })
+  metadata?: Record<string, unknown> | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'catalog_price_kinds' })
+@Index({
+  name: 'catalog_price_kinds_tenant_idx',
+  properties: ['tenantId'],
+})
+@Unique({
+  name: 'catalog_price_kinds_code_tenant_unique',
+  properties: ['tenantId', 'code'],
+})
+export class CatalogPriceKind {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ type: 'text' })
+  code!: string
+
+  @Property({ type: 'text' })
+  title!: string
+
+  @Property({ name: 'display_mode', type: 'text', default: 'excluding-tax' })
+  displayMode: CatalogPriceDisplayMode = 'excluding-tax'
+
+  @Property({ name: 'currency_code', type: 'text', nullable: true })
+  currencyCode?: string | null
+
+  @Property({ name: 'is_promotion', type: 'boolean', default: false })
+  isPromotion: boolean = false
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+
+  @OneToMany(() => CatalogProductPrice, (price) => price.priceKind)
+  prices = new Collection<CatalogProductPrice>(this)
+}
+
+@Entity({ tableName: 'catalog_product_variant_prices' })
+@Index({
+  name: 'catalog_product_variant_prices_variant_scope_idx',
+  properties: ['variant', 'organizationId', 'tenantId'],
+})
+@Index({
+  name: 'catalog_product_variant_prices_product_scope_idx',
+  properties: ['product', 'organizationId', 'tenantId'],
+})
+@Index({
+  name: 'catalog_product_variant_prices_customer_idx',
+  expression:
+    'create index "catalog_product_variant_prices_customer_idx" on "catalog_product_variant_prices" ("customer_id", "organization_id", "tenant_id") where "customer_id" is not null',
+})
+@Index({
+  name: 'catalog_product_variant_prices_customer_group_idx',
+  expression:
+    'create index "catalog_product_variant_prices_customer_group_idx" on "catalog_product_variant_prices" ("customer_group_id", "organization_id", "tenant_id") where "customer_group_id" is not null',
+})
+@Index({
+  name: 'catalog_product_variant_prices_product_lookup_idx',
+  properties: ['product', 'currencyCode', 'channelId', 'organizationId', 'tenantId'],
+})
+export class CatalogProductPrice {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => CatalogProductVariant, { fieldName: 'variant_id', nullable: true })
+  variant?: CatalogProductVariant | null
+
+  @ManyToOne(() => CatalogProduct, { fieldName: 'product_id', nullable: true })
+  product?: CatalogProduct | null
+
+  @ManyToOne(() => CatalogOffer, { fieldName: 'offer_id', nullable: true })
+  offer?: CatalogOffer | null
+
+  @ManyToOne(() => CatalogPriceKind, { fieldName: 'price_kind_id', deleteRule: 'restrict' })
+  priceKind!: CatalogPriceKind
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'currency_code', type: 'text' })
+  currencyCode!: string
+
+  @Property({ name: 'kind', type: 'text', default: 'regular' })
+  kind: string = 'regular'
+
+  @Property({ name: 'min_quantity', type: 'integer', default: 1 })
+  minQuantity: number = 1
+
+  @Property({ name: 'max_quantity', type: 'integer', nullable: true })
+  maxQuantity?: number | null
+
+  @Property({ name: 'unit_price_net', type: 'numeric', precision: 16, scale: 4, nullable: true })
+  unitPriceNet?: string | null
+
+  @Property({ name: 'unit_price_gross', type: 'numeric', precision: 16, scale: 4, nullable: true })
+  unitPriceGross?: string | null
+
+  @Property({ name: 'tax_rate', type: 'numeric', precision: 7, scale: 4, nullable: true })
+  taxRate?: string | null
+
+  @Property({ name: 'tax_amount', type: 'numeric', precision: 16, scale: 4, nullable: true })
+  taxAmount?: string | null
+
+  @Property({ name: 'channel_id', type: 'uuid', nullable: true })
+  channelId?: string | null
+
+  @Property({ name: 'user_id', type: 'uuid', nullable: true })
+  userId?: string | null
+
+  @Property({ name: 'user_group_id', type: 'uuid', nullable: true })
+  userGroupId?: string | null
+
+  @Property({ name: 'customer_id', type: 'uuid', nullable: true })
+  customerId?: string | null
+
+  @Property({ name: 'customer_group_id', type: 'uuid', nullable: true })
+  customerGroupId?: string | null
+
+  @Property({ name: 'metadata', type: 'jsonb', nullable: true })
+  metadata?: Record<string, unknown> | null
+
+  @Property({ name: 'starts_at', type: Date, nullable: true })
+  startsAt?: Date | null
+
+  @Property({ name: 'ends_at', type: Date, nullable: true })
+  endsAt?: Date | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'catalog_price_history_entries' })
+@Index({
+  name: 'catalog_price_history_product_idx',
+  properties: ['tenantId', 'organizationId', 'productId', 'priceKindId', 'currencyCode', 'recordedAt'],
+})
+@Index({
+  name: 'catalog_price_history_product_channel_idx',
+  properties: ['tenantId', 'organizationId', 'productId', 'channelId', 'priceKindId', 'currencyCode', 'recordedAt'],
+})
+@Index({
+  name: 'catalog_price_history_variant_idx',
+  properties: ['tenantId', 'organizationId', 'variantId', 'priceKindId', 'currencyCode', 'recordedAt'],
+})
+@Index({
+  name: 'catalog_price_history_variant_channel_idx',
+  properties: ['tenantId', 'organizationId', 'variantId', 'channelId', 'priceKindId', 'currencyCode', 'recordedAt'],
+})
+@Index({
+  name: 'catalog_price_history_offer_idx',
+  properties: ['tenantId', 'organizationId', 'offerId', 'priceKindId', 'currencyCode', 'recordedAt'],
+})
+@Index({
+  name: 'catalog_price_history_price_idx',
+  properties: ['tenantId', 'organizationId', 'priceId'],
+})
+@Index({
+  name: 'catalog_price_history_idempotency_uq',
+  expression:
+    'create unique index "catalog_price_history_idempotency_uq" on "catalog_price_history_entries" ("tenant_id", "organization_id", "idempotency_key") where "idempotency_key" is not null',
+})
+export class CatalogPriceHistoryEntry {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'price_id', type: 'uuid' })
+  priceId!: string
+
+  @Property({ name: 'product_id', type: 'uuid' })
+  productId!: string
+
+  @Property({ name: 'variant_id', type: 'uuid', nullable: true })
+  variantId?: string | null
+
+  @Property({ name: 'offer_id', type: 'uuid', nullable: true })
+  offerId?: string | null
+
+  @Property({ name: 'channel_id', type: 'uuid', nullable: true })
+  channelId?: string | null
+
+  @Property({ name: 'price_kind_id', type: 'uuid' })
+  priceKindId!: string
+
+  @Property({ name: 'price_kind_code', type: 'text' })
+  priceKindCode!: string
+
+  @Property({ name: 'currency_code', type: 'varchar', length: 3 })
+  currencyCode!: string
+
+  @Property({ name: 'unit_price_net', type: 'numeric', precision: 16, scale: 4, nullable: true })
+  unitPriceNet?: string | null
+
+  @Property({ name: 'unit_price_gross', type: 'numeric', precision: 16, scale: 4, nullable: true })
+  unitPriceGross?: string | null
+
+  @Property({ name: 'tax_rate', type: 'numeric', precision: 7, scale: 4, nullable: true })
+  taxRate?: string | null
+
+  @Property({ name: 'tax_amount', type: 'numeric', precision: 16, scale: 4, nullable: true })
+  taxAmount?: string | null
+
+  @Property({ name: 'min_quantity', type: 'integer', nullable: true })
+  minQuantity?: number | null
+
+  @Property({ name: 'max_quantity', type: 'integer', nullable: true })
+  maxQuantity?: number | null
+
+  @Property({ name: 'starts_at', type: Date, nullable: true })
+  startsAt?: Date | null
+
+  @Property({ name: 'ends_at', type: Date, nullable: true })
+  endsAt?: Date | null
+
+  @Property({ name: 'recorded_at', type: Date })
+  recordedAt!: Date
+
+  @Enum({ items: ['create', 'update', 'delete', 'undo'], type: 'text', name: 'change_type' })
+  changeType!: PriceHistoryChangeType
+
+  @Enum({ items: ['api', 'system'], type: 'text', name: 'source' })
+  source!: PriceHistorySource
+
+  @Property({ name: 'is_announced', type: 'boolean', nullable: true })
+  isAnnounced?: boolean | null
+
+  @Property({ name: 'idempotency_key', type: 'text', nullable: true })
+  idempotencyKey?: string | null
+
+  @Property({ name: 'metadata', type: 'jsonb', nullable: true })
+  metadata?: Record<string, unknown> | null
+}

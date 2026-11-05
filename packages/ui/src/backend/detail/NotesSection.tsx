@@ -1,0 +1,1464 @@
+"use client"
+
+import * as React from 'react'
+import type { PluggableList } from 'unified'
+import type { AppearanceSelectorLabels } from '@open-mercato/core/modules/dictionaries/components/AppearanceSelector'
+import { AppearanceDialog } from '@open-mercato/core/modules/customers/components/detail/AppearanceDialog'
+import type { IconOption } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
+import { ArrowUpRightSquare, FileCode, Loader2, Palette, Pencil, Plus, Trash2 } from 'lucide-react'
+import { formatRelativeTime } from '@open-mercato/shared/lib/time'
+import { hasMoreFromPage } from '@open-mercato/shared/lib/pagination/load-more'
+import { Button } from '@open-mercato/ui/primitives/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
+import { flash } from '../FlashMessages'
+import { surfaceRecordConflict } from '../conflicts'
+import { SwitchableMarkdownInput } from '../inputs/SwitchableMarkdownInput'
+import { ErrorMessage } from './ErrorMessage'
+import { LoadingMessage } from './LoadingMessage'
+import { TabEmptyState } from './TabEmptyState'
+import { useConfirmDialog } from '../confirm-dialog'
+import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
+import { MarkdownPreview } from '../markdown'
+import { useRegisteredComponent } from '../injection/useRegisteredComponent'
+type Translator = (key: string, fallback?: string, params?: Record<string, string | number>) => string
+
+const NOTES_PAGE_SIZE = 20
+
+const noteBodyClassName =
+  'break-words text-foreground [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs'
+
+const isTestEnv =
+  typeof process !== 'undefined' &&
+  (process.env.NODE_ENV === 'test' || typeof process.env.JEST_WORKER_ID !== 'undefined')
+
+export type SectionAction = {
+  label: React.ReactNode
+  onClick: () => void
+  disabled?: boolean
+  icon?: React.ReactNode
+}
+
+export type TabEmptyStateConfig = {
+  title: string
+  actionLabel: string
+  description?: string
+}
+
+export type CommentSummary = {
+  id: string
+  body: string
+  createdAt: string
+  updatedAt?: string | null
+  authorUserId?: string | null
+  authorName?: string | null
+  authorEmail?: string | null
+  dealId?: string | null
+  dealTitle?: string | null
+  /** Generic per-note context (e.g. the child record a note came from), rendered like the linked deal. */
+  contextLabel?: string | null
+  /** Optional link for `contextLabel`; without it the label renders as plain text. */
+  contextHref?: string | null
+  appearanceIcon?: string | null
+  appearanceColor?: string | null
+}
+
+export type NotesCreatePayload = {
+  entityId: string
+  body: string
+  appearanceIcon: string | null
+  appearanceColor: string | null
+  dealId?: string | null
+}
+
+export type NotesUpdatePayload = {
+  body?: string
+  appearanceIcon?: string | null
+  appearanceColor?: string | null
+}
+
+export type NotesDataAdapter<C = unknown> = {
+  list: (params: { entityId: string | null; dealId: string | null; context?: C }) => Promise<CommentSummary[]>
+  listPage?: (params: {
+    entityId: string | null
+    dealId: string | null
+    page: number
+    pageSize: number
+    context?: C
+  }) => Promise<{
+    items: CommentSummary[]
+    total: number
+    page: number
+    pageSize: number
+    totalPages: number
+  }>
+  create: (params: NotesCreatePayload & { context?: C }) => Promise<Partial<CommentSummary> | void>
+  update: (params: { id: string; patch: NotesUpdatePayload; updatedAt?: string | null; context?: C }) => Promise<void>
+  delete: (params: { id: string; updatedAt?: string | null; context?: C }) => Promise<void>
+}
+
+type RenderIconFn = (icon: string, className?: string) => React.ReactNode
+type RenderColorFn = (color: string, className?: string) => React.ReactNode
+
+let markdownPluginsPromise: Promise<PluggableList> | null = null
+
+async function loadMarkdownPlugins(): Promise<PluggableList> {
+  if (isTestEnv) return []
+  if (!markdownPluginsPromise) {
+    markdownPluginsPromise = import('remark-gfm')
+      .then((mod) => [mod.default ?? mod] as PluggableList)
+      .catch(() => [])
+  }
+  return markdownPluginsPromise
+}
+
+function generateTempId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
+  return `tmp_${Math.random().toString(36).slice(2)}`
+}
+
+
+
+type TimelineItemHeaderProps = {
+  title: React.ReactNode
+  subtitle?: React.ReactNode
+  timestamp?: string | Date | null
+  fallbackTimestampLabel?: React.ReactNode
+  icon?: string | null
+  color?: string | null
+  iconSize?: 'sm' | 'md'
+  className?: string
+  renderIcon?: RenderIconFn
+  renderColor?: RenderColorFn
+}
+
+function TimelineItemHeader({
+  title,
+  subtitle,
+  timestamp,
+  fallbackTimestampLabel,
+  icon,
+  color,
+  iconSize = 'md',
+  className,
+  renderIcon,
+  renderColor,
+}: TimelineItemHeaderProps) {
+  const wrapperSize = iconSize === 'sm' ? 'h-6 w-6' : 'h-8 w-8'
+  const iconSizeClass = iconSize === 'sm' ? 'h-3.5 w-3.5' : 'h-4 w-4'
+  const resolvedTimestamp = React.useMemo(() => {
+    if (subtitle) return subtitle
+    if (!timestamp) return fallbackTimestampLabel ?? null
+    const value = typeof timestamp === 'string' ? timestamp : timestamp.toISOString()
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return fallbackTimestampLabel ?? null
+    const now = Date.now()
+    const diff = Math.abs(now - date.getTime())
+    const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000
+    const relativeLabel = diff <= THIRTY_DAYS_MS ? formatRelativeTime(value) : null
+    const absoluteLabel = formatDateTime(value)
+    if (relativeLabel) {
+      return (
+        <span title={absoluteLabel ?? undefined}>
+          {relativeLabel}
+        </span>
+      )
+    }
+    return absoluteLabel ?? fallbackTimestampLabel ?? null
+  }, [fallbackTimestampLabel, subtitle, timestamp])
+
+  return (
+    <div className={['flex items-start gap-3', className].filter(Boolean).join(' ')}>
+      {icon && renderIcon ? (
+        <span className={['inline-flex items-center justify-center rounded border border-border bg-muted/50', wrapperSize].join(' ')}>
+          {renderIcon(icon, iconSizeClass)}
+        </span>
+      ) : null}
+      <div className="space-y-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-semibold text-foreground">{title}</span>
+          {color && renderColor ? renderColor(color, 'h-3 w-3 rounded-full border border-border') : null}
+        </div>
+        {resolvedTimestamp ? <div className="text-xs text-muted-foreground">{resolvedTimestamp}</div> : null}
+      </div>
+    </div>
+  )
+}
+
+export type NotesSectionProps<C = unknown> = {
+  entityId: string | null
+  dealId?: string | null
+  emptyLabel: string
+  viewerUserId: string | null
+  viewerName?: string | null
+  viewerEmail?: string | null
+  addActionLabel: string
+  emptyState: TabEmptyStateConfig
+  onActionChange?: (action: SectionAction | null) => void
+  translator?: Translator
+  labelPrefix?: string
+  inlineLabelPrefix?: string
+  onLoadingChange?: (isLoading: boolean) => void
+  dealOptions?: Array<{ id: string; label: string }>
+  entityOptions?: Array<{ id: string; label: string }>
+  dataAdapter: NotesDataAdapter<C>
+  dataContext?: C
+  renderIcon?: RenderIconFn
+  renderColor?: RenderColorFn
+  iconSuggestions?: IconOption[]
+  readMarkdownPreference?: () => boolean | null
+  writeMarkdownPreference?: (value: boolean) => void
+  /** Force the plain textarea and hide the markdown toggle. Wins over `forceMarkdown`. */
+  disableMarkdown?: boolean
+  /**
+   * Keep the rich markdown editor active for every note and hide the markdown toggle,
+   * so the editor shape cannot be switched. Ignored when `disableMarkdown` is set.
+   */
+  forceMarkdown?: boolean
+  /**
+   * Hide the markdown toggle without changing which editor renders — the seeded
+   * `readMarkdownPreference` value stays in effect. Implied by `forceMarkdown`.
+   */
+  hideMarkdownToggle?: boolean
+  /** Hide the appearance (icon/color) affordances: the palette buttons and the appearance dialog. */
+  disableAppearance?: boolean
+  /**
+   * Per-note edit permission. Returning `false` hides the note's edit and appearance buttons
+   * and disables click-to-edit on its body. Presentational only — the server stays the authority.
+   */
+  canEditNote?: (note: CommentSummary) => boolean
+  /** Per-note delete permission. Returning `false` hides the note's delete button. */
+  canDeleteNote?: (note: CommentSummary) => boolean
+  /**
+   * Hide the composer, the add actions (including the `onActionChange` action) and every
+   * per-note mutation control. Notes and "load more" still render.
+   */
+  readOnly?: boolean
+}
+
+export function sanitizeHexColor(value: string | null): string | null {
+  if (!value) return null
+  const trimmed = value.trim()
+  return /^#([0-9a-f]{6})$/i.test(trimmed) ? trimmed.toLowerCase() : null
+}
+
+export function mapCommentSummary(input: unknown): CommentSummary {
+  const data = (typeof input === 'object' && input !== null ? input : {}) as Record<string, unknown>
+  const id = typeof data.id === 'string' ? data.id : generateTempId()
+  const body = typeof data.body === 'string' ? data.body : ''
+  const createdAt =
+    typeof data.createdAt === 'string'
+      ? data.createdAt
+      : typeof data.created_at === 'string'
+        ? data.created_at
+        : new Date().toISOString()
+  const updatedAt =
+    typeof data.updatedAt === 'string'
+      ? data.updatedAt
+      : typeof data.updated_at === 'string'
+        ? data.updated_at
+        : null
+  const authorUserId =
+    typeof data.authorUserId === 'string'
+      ? data.authorUserId
+      : typeof data.author_user_id === 'string'
+        ? data.author_user_id
+        : null
+  const authorName =
+    typeof data.authorName === 'string'
+      ? data.authorName
+      : typeof data.author_name === 'string'
+        ? data.author_name
+        : null
+  const authorEmail =
+    typeof data.authorEmail === 'string'
+      ? data.authorEmail
+      : typeof data.author_email === 'string'
+        ? data.author_email
+        : null
+  const dealId =
+    typeof data.dealId === 'string'
+      ? data.dealId
+      : typeof data.deal_id === 'string'
+        ? data.deal_id
+        : null
+  const dealTitle =
+    typeof data.dealTitle === 'string'
+      ? data.dealTitle
+      : typeof data.deal_title === 'string'
+        ? data.deal_title
+        : null
+  const appearanceIcon =
+    typeof data.appearanceIcon === 'string'
+      ? data.appearanceIcon
+      : typeof data.appearance_icon === 'string'
+        ? data.appearance_icon
+        : null
+  const appearanceColor =
+    typeof data.appearanceColor === 'string'
+      ? data.appearanceColor
+      : typeof data.appearance_color === 'string'
+        ? data.appearance_color
+        : null
+  return {
+    id,
+    body,
+    createdAt,
+    updatedAt,
+    authorUserId,
+    authorName,
+    authorEmail,
+    dealId,
+    dealTitle,
+    appearanceIcon,
+    appearanceColor,
+  }
+}
+
+function NotesSectionImpl<C = unknown>({
+  entityId,
+  dealId,
+  emptyLabel,
+  viewerUserId,
+  viewerName,
+  viewerEmail,
+  addActionLabel,
+  emptyState,
+  onActionChange,
+  translator,
+  labelPrefix = 'customers.people.detail.notes',
+  inlineLabelPrefix = 'customers.people.detail.inline',
+  onLoadingChange,
+  dealOptions,
+  entityOptions,
+  dataAdapter,
+  dataContext,
+  renderIcon,
+  renderColor,
+  iconSuggestions,
+  readMarkdownPreference,
+  writeMarkdownPreference,
+  disableMarkdown,
+  forceMarkdown,
+  hideMarkdownToggle,
+  disableAppearance,
+  canEditNote,
+  canDeleteNote,
+  readOnly = false,
+}: NotesSectionProps<C>) {
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const t = React.useMemo<Translator>(() => translator ?? ((key, fallback) => fallback ?? key), [translator])
+  const label = React.useCallback(
+    (suffix: string, fallback?: string, params?: Record<string, string | number>) =>
+      t(`${labelPrefix}.${suffix}`, fallback, params),
+    [labelPrefix, t],
+  )
+  const inlineLabel = React.useCallback(
+    (suffix: string, fallback?: string, params?: Record<string, string | number>) =>
+      t(`${inlineLabelPrefix}.${suffix}`, fallback, params),
+    [inlineLabelPrefix, t],
+  )
+  const [markdownPlugins, setMarkdownPlugins] = React.useState<PluggableList>([])
+  React.useEffect(() => {
+    if (isTestEnv) return
+    let mounted = true
+    void loadMarkdownPlugins().then((plugins) => {
+      if (!mounted) return
+      setMarkdownPlugins(plugins)
+    })
+    return () => {
+      mounted = false
+    }
+  }, [])
+
+  const normalizedDealOptions = React.useMemo(() => {
+    if (!Array.isArray(dealOptions)) return []
+    const seen = new Set<string>()
+    return dealOptions
+      .map((option) => {
+        if (!option || typeof option !== 'object') return null
+        const id = typeof option.id === 'string' ? option.id.trim() : ''
+        if (!id || seen.has(id)) return null
+        const label =
+          typeof option.label === 'string' && option.label.trim().length
+            ? option.label.trim()
+            : id
+        seen.add(id)
+        return { id, label }
+      })
+      .filter((option): option is { id: string; label: string } => !!option)
+  }, [dealOptions])
+
+  const dealLabelMap = React.useMemo(() => {
+    const map = new Map<string, string>()
+    normalizedDealOptions.forEach((option) => {
+      map.set(option.id, option.label)
+    })
+    return map
+  }, [normalizedDealOptions])
+
+  const normalizedEntityOptions = React.useMemo(() => {
+    if (!Array.isArray(entityOptions)) return []
+    const seen = new Set<string>()
+    return entityOptions
+      .map((option) => {
+        if (!option || typeof option !== 'object') return null
+        const id = typeof option.id === 'string' ? option.id.trim() : ''
+        if (!id || seen.has(id)) return null
+        const label =
+          typeof option.label === 'string' && option.label.trim().length
+            ? option.label.trim()
+            : id
+        seen.add(id)
+        return { id, label }
+      })
+      .filter((option): option is { id: string; label: string } => !!option)
+  }, [entityOptions])
+
+  const [selectedDealId, setSelectedDealId] = React.useState<string>(() => {
+    const initial = typeof dealId === 'string' ? dealId.trim() : ''
+    return initial
+  })
+  React.useEffect(() => {
+    const initial = typeof dealId === 'string' ? dealId.trim() : ''
+    if (initial !== selectedDealId) {
+      setSelectedDealId(initial)
+    }
+  }, [dealId, selectedDealId])
+
+  const [selectedEntityId, setSelectedEntityId] = React.useState<string>(() => {
+    if (normalizedEntityOptions.length) return normalizedEntityOptions[0].id
+    return typeof entityId === 'string' ? entityId : ''
+  })
+  React.useEffect(() => {
+    if (normalizedEntityOptions.length) {
+      if (!normalizedEntityOptions.some((option) => option.id === selectedEntityId)) {
+        setSelectedEntityId(normalizedEntityOptions[0].id)
+      }
+    } else {
+      const initial = typeof entityId === 'string' ? entityId : ''
+      if (initial !== selectedEntityId) {
+        setSelectedEntityId(initial)
+      }
+    }
+  }, [entityId, normalizedEntityOptions, selectedEntityId])
+
+  const resolvedEntityId = React.useMemo(() => {
+    if (normalizedEntityOptions.length) return selectedEntityId
+    return typeof entityId === 'string' ? entityId : ''
+  }, [entityId, normalizedEntityOptions, selectedEntityId])
+
+  const resolvedDealId = React.useMemo(() => {
+    const trimmed = typeof selectedDealId === 'string' ? selectedDealId.trim() : ''
+    return trimmed
+  }, [selectedDealId])
+
+  const hasEntity = resolvedEntityId.length > 0
+
+  const [notes, setNotes] = React.useState<CommentSummary[]>([])
+  const [isLoading, setIsLoading] = React.useState<boolean>(() => Boolean(entityId || dealId))
+  const [isSubmitting, setIsSubmitting] = React.useState(false)
+  const [loadError, setLoadError] = React.useState<string | null>(null)
+  const pendingCounterRef = React.useRef(0)
+
+  const pushLoading = React.useCallback(() => {
+    pendingCounterRef.current += 1
+    if (pendingCounterRef.current === 1) {
+      onLoadingChange?.(true)
+    }
+  }, [onLoadingChange])
+
+  const popLoading = React.useCallback(() => {
+    pendingCounterRef.current = Math.max(0, pendingCounterRef.current - 1)
+    if (pendingCounterRef.current === 0) {
+      onLoadingChange?.(false)
+    }
+  }, [onLoadingChange])
+
+  const [composerOpen, setComposerOpen] = React.useState(false)
+  const [draftBody, setDraftBody] = React.useState('')
+  const [draftIcon, setDraftIcon] = React.useState<string | null>(null)
+  const [draftColor, setDraftColor] = React.useState<string | null>(null)
+  const [isMarkdownEnabled, setIsMarkdownEnabled] = React.useState(false)
+  const isMarkdownActive = !disableMarkdown && (Boolean(forceMarkdown) || isMarkdownEnabled)
+  const showMarkdownToggle = !disableMarkdown && !forceMarkdown && !hideMarkdownToggle
+  const showAppearanceControls = !disableAppearance
+  const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
+  const formRef = React.useRef<HTMLFormElement | null>(null)
+  const focusComposer = React.useCallback(() => {
+    if (!hasEntity || readOnly) return
+    setComposerOpen(true)
+    window.requestAnimationFrame(() => {
+      if (isMarkdownActive) {
+        const markdownTextarea = formRef.current?.querySelector('textarea')
+        if (markdownTextarea instanceof HTMLTextAreaElement) {
+          markdownTextarea.focus()
+          markdownTextarea.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          return
+        }
+      }
+      const element = textareaRef.current
+      if (!element) return
+      element.focus()
+      element.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    })
+  }, [formRef, hasEntity, isMarkdownActive, readOnly])
+  const [appearanceDialogState, setAppearanceDialogState] = React.useState<
+    | { mode: 'create'; icon: string | null; color: string | null }
+    | { mode: 'edit'; noteId: string; icon: string | null; color: string | null }
+    | null
+  >(null)
+  const [appearanceDialogSaving, setAppearanceDialogSaving] = React.useState(false)
+  const [appearanceDialogError, setAppearanceDialogError] = React.useState<string | null>(null)
+  const [contentEditor, setContentEditor] = React.useState<{ id: string; value: string }>({ id: '', value: '' })
+  const [contentSavingId, setContentSavingId] = React.useState<string | null>(null)
+  const [contentError, setContentError] = React.useState<string | null>(null)
+  const contentTextareaRef = React.useRef<HTMLTextAreaElement | null>(null)
+  const [visibleCount, setVisibleCount] = React.useState(0)
+  const [currentPage, setCurrentPage] = React.useState(1)
+  // Short-page termination instead of `currentPage >= totalPages` — see
+  // `hasMoreFromPage`. `/api/customers/comments` is a `makeCrudRoute` list, so
+  // a page past the end comes back empty rather than clamped.
+  const [hasMore, setHasMore] = React.useState(false)
+  const [deletingNoteId, setDeletingNoteId] = React.useState<string | null>(null)
+  const pagedMode = typeof dataAdapter.listPage === 'function'
+
+  React.useEffect(() => {
+    const queryEntityId = typeof entityId === 'string' ? entityId : ''
+    const queryDealId = typeof dealId === 'string' ? dealId : ''
+    if (!queryEntityId && !queryDealId) {
+      setNotes([])
+      setLoadError(null)
+      setIsLoading(false)
+      setCurrentPage(1)
+      setHasMore(false)
+      return
+    }
+    let cancelled = false
+    setIsLoading(true)
+    setLoadError(null)
+    pushLoading()
+    async function loadNotes() {
+      try {
+        if (dataAdapter.listPage) {
+          const pageResult = await dataAdapter.listPage({
+            entityId: queryEntityId || null,
+            dealId: queryDealId || null,
+            page: 1,
+            pageSize: NOTES_PAGE_SIZE,
+            context: dataContext,
+          })
+          if (cancelled) return
+          setNotes(pageResult.items)
+          setCurrentPage(pageResult.page)
+          setHasMore(hasMoreFromPage(pageResult.items.length, NOTES_PAGE_SIZE))
+          return
+        }
+        const mapped = await dataAdapter.list({
+          entityId: queryEntityId || null,
+          dealId: queryDealId || null,
+          context: dataContext,
+        })
+        if (cancelled) return
+        setNotes(mapped)
+        setCurrentPage(1)
+        setHasMore(false)
+      } catch (err) {
+        if (cancelled) return
+        const message =
+          err instanceof Error ? err.message : label('loadError', 'Failed to load notes.')
+        setNotes([])
+        setLoadError(message)
+        setCurrentPage(1)
+        setHasMore(false)
+        flash(message, 'error')
+      } finally {
+        if (!cancelled) setIsLoading(false)
+        popLoading()
+      }
+    }
+    loadNotes().catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [dataAdapter, dataContext, dealId, entityId, label, popLoading, pushLoading])
+
+  const youLabel = label('you', 'You')
+  const viewerLabel = React.useMemo(() => viewerName ?? viewerEmail ?? null, [viewerEmail, viewerName])
+
+  const handleMarkdownToggle = React.useCallback(() => {
+    setIsMarkdownEnabled((prev) => {
+      const next = !prev
+      if (writeMarkdownPreference) {
+        writeMarkdownPreference(next)
+      }
+      return next
+    })
+  }, [writeMarkdownPreference])
+
+  React.useEffect(() => {
+    if (!onActionChange) return
+    if (!notes.length || readOnly) {
+      onActionChange(null)
+      return
+    }
+    onActionChange({
+      label: addActionLabel,
+      onClick: focusComposer,
+      disabled: isSubmitting || isLoading || !hasEntity,
+      icon: <Plus className="mr-2 h-4 w-4" />,
+    })
+    return () => onActionChange(null)
+  }, [onActionChange, addActionLabel, focusComposer, hasEntity, isLoading, isSubmitting, notes.length, readOnly])
+
+  const adjustTextareaSize = React.useCallback((element: HTMLTextAreaElement | null) => {
+    if (!element) return
+    element.style.height = 'auto'
+    element.style.height = `${element.scrollHeight}px`
+  }, [])
+
+  React.useEffect(() => {
+    adjustTextareaSize(textareaRef.current)
+  }, [adjustTextareaSize, draftBody, isMarkdownActive, composerOpen])
+
+  React.useEffect(() => {
+    const preference = readMarkdownPreference ? readMarkdownPreference() : null
+    if (preference !== null) {
+      setIsMarkdownEnabled(preference)
+    }
+  }, [readMarkdownPreference])
+
+  React.useEffect(() => {
+    if (pagedMode) {
+      setVisibleCount(notes.length)
+      return
+    }
+    if (!notes.length) {
+      setVisibleCount(0)
+      return
+    }
+    const baseline = Math.min(5, notes.length)
+    setVisibleCount((prev) => {
+      if (prev >= notes.length) return prev
+      return Math.min(Math.max(prev, baseline), notes.length)
+    })
+  }, [notes.length, pagedMode])
+
+  React.useEffect(() => {
+    if (hasEntity && !readOnly) return
+    setComposerOpen(false)
+    setDraftBody('')
+    setDraftIcon(null)
+    setDraftColor(null)
+  }, [hasEntity, readOnly])
+
+  const visibleNotes = React.useMemo(
+    () => (pagedMode ? notes : notes.slice(0, visibleCount)),
+    [notes, pagedMode, visibleCount],
+  )
+  const hasVisibleNotes = React.useMemo(
+    () => (pagedMode ? notes.length > 0 : visibleCount > 0),
+    [notes.length, pagedMode, visibleCount],
+  )
+
+  const loadMoreLabel = label('loadMore')
+
+  const handleCreateNote = React.useCallback(
+    async (input: { body: string; appearanceIcon: string | null; appearanceColor: string | null }) => {
+      if (!hasEntity || !resolvedEntityId) {
+        flash(label('entityMissing', 'Unable to determine current person.'), 'error')
+        return false
+      }
+      const body = input.body.trim()
+      const strippedBody = body
+        .replace(/^[\s#\-*>_~`|+\\\n\r]+$/gm, '')
+        .replace(/\s+/g, '')
+      if (!body || !strippedBody.length) {
+        focusComposer()
+        return false
+      }
+      const icon = input.appearanceIcon && input.appearanceIcon.trim().length ? input.appearanceIcon.trim() : null
+      const color = sanitizeHexColor(input.appearanceColor)
+      const targetDealId = resolvedDealId.length ? resolvedDealId : null
+      const dealLabel = targetDealId ? dealLabelMap.get(targetDealId) ?? null : null
+      setIsSubmitting(true)
+      pushLoading()
+      try {
+        const responseBody =
+          (await dataAdapter.create({
+            entityId: resolvedEntityId,
+            body,
+            appearanceIcon: icon,
+            appearanceColor: color,
+            dealId: targetDealId,
+            context: dataContext,
+          })) ?? {}
+        setNotes((prev) => {
+          const viewerId = viewerUserId ?? null
+          const resolvedAuthorId =
+            typeof responseBody?.authorUserId === 'string' ? responseBody.authorUserId : viewerId ?? null
+          const resolvedAuthorName = (() => {
+            if (resolvedAuthorId && viewerId && resolvedAuthorId === viewerId) {
+              return youLabel
+            }
+            return typeof responseBody?.authorName === 'string' ? responseBody.authorName : viewerLabel
+          })()
+          const resolvedAuthorEmail = (() => {
+            if (resolvedAuthorId && viewerId && resolvedAuthorId === viewerId) {
+              return viewerEmail ?? null
+            }
+            return typeof responseBody?.authorEmail === 'string' ? responseBody.authorEmail : null
+          })()
+          const newNote: CommentSummary = {
+            id: typeof responseBody?.id === 'string' ? responseBody.id : generateTempId(),
+            body,
+            createdAt: new Date().toISOString(),
+            authorUserId: resolvedAuthorId,
+            authorName: resolvedAuthorName,
+            authorEmail: resolvedAuthorEmail,
+            dealId: targetDealId,
+            dealTitle: dealLabel,
+            appearanceIcon: icon,
+            appearanceColor: color,
+          }
+          return [newNote, ...prev]
+        })
+        setVisibleCount((prev) => Math.max(prev, 1))
+        flash(label('success'), 'success')
+        return true
+      } catch (err) {
+        const message = err instanceof Error ? err.message : label('error')
+        if (!surfaceRecordConflict(err, t)) flash(message, 'error')
+        return false
+      } finally {
+        setIsSubmitting(false)
+        popLoading()
+      }
+    },
+    [dataAdapter, dataContext, dealLabelMap, focusComposer, hasEntity, popLoading, pushLoading, resolvedDealId, resolvedEntityId, t, viewerEmail, viewerLabel, viewerUserId, youLabel],
+  )
+
+  const handleUpdateNote = React.useCallback(
+    async (noteId: string, patch: { body?: string; appearanceIcon?: string | null; appearanceColor?: string | null }) => {
+      const sanitizedBody = patch.body
+      const sanitizedIcon =
+        patch.appearanceIcon !== undefined && patch.appearanceIcon !== null && patch.appearanceIcon.trim().length
+          ? patch.appearanceIcon.trim()
+          : patch.appearanceIcon === null
+            ? null
+            : undefined
+      const sanitizedColor =
+        patch.appearanceColor !== undefined ? sanitizeHexColor(patch.appearanceColor ?? null) : undefined
+      const noteUpdatedAt = notes.find((comment) => comment.id === noteId)?.updatedAt ?? null
+      try {
+        await dataAdapter.update({
+          id: noteId,
+          patch: {
+            body: sanitizedBody,
+            appearanceIcon: sanitizedIcon,
+            appearanceColor: sanitizedColor,
+          },
+          updatedAt: noteUpdatedAt,
+          context: dataContext,
+        })
+        setNotes((prev) => {
+          const nextComments = prev.map((comment) => {
+            if (comment.id !== noteId) return comment
+            const next = { ...comment }
+            if (sanitizedBody !== undefined) next.body = sanitizedBody
+            if (sanitizedIcon !== undefined) next.appearanceIcon = sanitizedIcon ?? null
+            if (sanitizedColor !== undefined) next.appearanceColor = sanitizedColor ?? null
+            return next
+          })
+          return nextComments
+        })
+        flash(label('updateSuccess'), 'success')
+      } catch (error) {
+        const message = error instanceof Error ? error.message : label('updateError')
+        if (!surfaceRecordConflict(error, t)) flash(message, 'error')
+        throw error instanceof Error ? error : new Error(message)
+      }
+    },
+    [dataAdapter, dataContext, notes, t],
+  )
+
+  const handleDeleteNote = React.useCallback(
+    async (note: CommentSummary) => {
+      const confirmed = await confirm({
+        title: label('deleteConfirm', 'Delete this note? You can restore it using version history.'),
+        variant: 'destructive',
+      })
+      if (!confirmed) return
+      setDeletingNoteId(note.id)
+      pushLoading()
+      try {
+        await dataAdapter.delete({ id: note.id, updatedAt: note.updatedAt ?? null, context: dataContext })
+        setNotes((prev) => prev.filter((existing) => existing.id !== note.id))
+        if (pagedMode) {
+          setVisibleCount((prev) => Math.max(0, prev - 1))
+        }
+        flash(label('deleteSuccess', 'Note deleted'), 'success')
+      } catch (err) {
+        const message = err instanceof Error ? err.message : label('deleteError', 'Failed to delete note')
+        if (!surfaceRecordConflict(err, t)) flash(message, 'error')
+      } finally {
+        setDeletingNoteId(null)
+        popLoading()
+      }
+    },
+    [confirm, dataAdapter, dataContext, label, popLoading, pushLoading, t],
+  )
+
+  const handleSubmit = React.useCallback(
+    async (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault()
+      const created = await handleCreateNote({
+        body: draftBody,
+        appearanceIcon: draftIcon,
+        appearanceColor: draftColor,
+      })
+      if (created) {
+        setDraftBody('')
+        setDraftIcon(null)
+        setDraftColor(null)
+      }
+    },
+    [draftBody, draftColor, draftIcon, handleCreateNote],
+  )
+
+  const handleLoadMore = React.useCallback(() => {
+    if (pagedMode && dataAdapter.listPage) {
+      if (!hasMore || isLoading) return
+      const queryEntityId = typeof entityId === 'string' ? entityId : ''
+      const queryDealId = typeof dealId === 'string' ? dealId : ''
+      setIsLoading(true)
+      pushLoading()
+      void dataAdapter.listPage({
+        entityId: queryEntityId || null,
+        dealId: queryDealId || null,
+        page: currentPage + 1,
+        pageSize: NOTES_PAGE_SIZE,
+        context: dataContext,
+      })
+        .then((pageResult) => {
+          setNotes((prev) => {
+            const merged = new Map(prev.map((note) => [note.id, note]))
+            pageResult.items.forEach((note) => merged.set(note.id, note))
+            return Array.from(merged.values())
+          })
+          setCurrentPage(pageResult.page)
+          setHasMore(hasMoreFromPage(pageResult.items.length, NOTES_PAGE_SIZE))
+        })
+        .catch((error) => {
+          const message =
+            error instanceof Error ? error.message : label('loadError', 'Failed to load notes.')
+          flash(message, 'error')
+        })
+        .finally(() => {
+          setIsLoading(false)
+          popLoading()
+        })
+      return
+    }
+    setVisibleCount((prev) => {
+      if (prev >= notes.length) return prev
+      return Math.min(prev + 5, notes.length)
+    })
+  }, [currentPage, dataAdapter, dataContext, dealId, entityId, flash, hasMore, isLoading, label, notes.length, pagedMode, popLoading, pushLoading])
+
+  const handleAppearanceDialogSubmit = React.useCallback(async () => {
+    if (!appearanceDialogState) return
+    setAppearanceDialogError(null)
+    const sanitizedIcon =
+      appearanceDialogState.icon && appearanceDialogState.icon.trim().length
+        ? appearanceDialogState.icon.trim()
+        : null
+    const sanitizedColor = sanitizeHexColor(appearanceDialogState.color ?? null)
+    if (appearanceDialogState.mode === 'create') {
+      setDraftIcon(sanitizedIcon)
+      setDraftColor(sanitizedColor)
+      setAppearanceDialogState(null)
+      return
+    }
+    setAppearanceDialogSaving(true)
+    try {
+      await handleUpdateNote(appearanceDialogState.noteId, {
+        appearanceIcon: sanitizedIcon,
+        appearanceColor: sanitizedColor,
+      })
+      setAppearanceDialogState(null)
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : label('appearance.error', 'Failed to update appearance.')
+      setAppearanceDialogError(message)
+    } finally {
+      setAppearanceDialogSaving(false)
+    }
+  }, [appearanceDialogState, handleUpdateNote, t])
+
+  const handleAppearanceDialogClose = React.useCallback(() => {
+    if (appearanceDialogSaving) return
+    setAppearanceDialogState(null)
+    setAppearanceDialogError(null)
+  }, [appearanceDialogSaving])
+
+  const handleContentSave = React.useCallback(async () => {
+    if (!contentEditor.id) return
+    const trimmed = contentEditor.value.trim()
+    if (!trimmed) {
+      setContentError(label('updateError', 'Failed to update note'))
+      return
+    }
+    setContentSavingId(contentEditor.id)
+    setContentError(null)
+    try {
+      await handleUpdateNote(contentEditor.id, { body: trimmed })
+      setContentEditor({ id: '', value: '' })
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : label('updateError', 'Failed to update note')
+      setContentError(message)
+    } finally {
+      setContentSavingId(null)
+    }
+  }, [contentEditor, handleUpdateNote, t])
+
+  const handleContentEditorKeyDown = React.useCallback(
+    (event: React.KeyboardEvent) => {
+      if (!contentEditor.id) return
+      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+        event.preventDefault()
+        if (!contentSavingId) void handleContentSave()
+        return
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setContentEditor({ id: '', value: '' })
+        setContentError(null)
+      }
+    },
+    [contentEditor.id, contentSavingId, handleContentSave],
+  )
+
+  const handleComposerKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLFormElement>) => {
+      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+        event.preventDefault()
+        formRef.current?.requestSubmit()
+      }
+    },
+    [],
+  )
+
+  const handleContentKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>, note: CommentSummary) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault()
+        setContentEditor({ id: note.id, value: note.body })
+      }
+    },
+    [],
+  )
+
+  const noteAuthorLabel = React.useCallback(
+    (note: CommentSummary) => {
+      if (note.authorUserId && viewerUserId && note.authorUserId === viewerUserId) {
+        return youLabel
+      }
+      return note.authorName ?? note.authorEmail ?? youLabel
+    },
+    [viewerUserId, youLabel],
+  )
+
+  const noteAppearanceLabels = React.useMemo<AppearanceSelectorLabels>(
+    () => ({
+      colorLabel: label('appearance.colorLabel'),
+      colorHelp: label('appearance.colorHelp'),
+      colorClearLabel: label('appearance.clearColor'),
+      iconLabel: label('appearance.iconLabel'),
+      iconPlaceholder: label('appearance.iconPlaceholder'),
+      iconPickerTriggerLabel: label('appearance.iconPicker'),
+      iconSearchPlaceholder: label('appearance.iconSearchPlaceholder'),
+      iconSearchEmptyLabel: label('appearance.iconSearchEmpty'),
+      iconSuggestionsLabel: label('appearance.iconSuggestions'),
+      iconClearLabel: label('appearance.iconClear'),
+      previewEmptyLabel: label('appearance.previewEmpty'),
+    }),
+    [label],
+  )
+
+  const composerAuthor = React.useMemo(
+    () => youLabel,
+    [youLabel],
+  )
+  const composerHasAppearance = Boolean(draftIcon) || Boolean(draftColor)
+  const appearanceDialogOpen = appearanceDialogState !== null
+  const editingAppearanceNoteId =
+    appearanceDialogState?.mode === 'edit' ? appearanceDialogState.noteId : null
+  const addNoteShortcutLabel = label('addShortcut', 'Add note ⌘⏎ / Ctrl+Enter')
+  const saveAppearanceShortcutLabel = label('appearance.saveShortcut', 'Save appearance ⌘⏎ / Ctrl+Enter')
+  const composerSubmitLabel = addNoteShortcutLabel
+  const appearanceDialogPrimaryLabel = saveAppearanceShortcutLabel
+  const appearanceDialogSavingLabel =
+    appearanceDialogState?.mode === 'edit'
+      ? label('appearance.saving')
+      : label('saving', 'Saving note…')
+
+  return (
+    <div className="mt-0 space-y-2">
+      <div
+        className={[
+          'overflow-hidden rounded-xl transition-all duration-300 ease-out',
+          composerOpen ? 'max-h-[1200px] bg-muted/30 p-4 opacity-100' : 'pointer-events-none max-h-0 p-0 opacity-0',
+        ].join(' ')}
+        aria-hidden={!composerOpen}
+      >
+        {composerOpen ? (
+          <form
+            ref={formRef}
+            onSubmit={handleSubmit}
+            onKeyDown={handleComposerKeyDown}
+            className="space-y-3"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-medium">{label('addLabel')}</h3>
+              <div className="flex flex-wrap items-center gap-1">
+                {showAppearanceControls ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => {
+                      setAppearanceDialogError(null)
+                      setAppearanceDialogState({ mode: 'create', icon: draftIcon, color: draftColor })
+                    }}
+                    disabled={isSubmitting || isLoading || !hasEntity}
+                  >
+                    <span className="sr-only">{label('appearance.toggleOpen', 'Customize appearance')}</span>
+                    <Palette className="h-4 w-4" />
+                  </Button>
+                ) : null}
+                {showMarkdownToggle ? (
+                  <Button
+                    type="button"
+                    variant={isMarkdownActive ? 'secondary' : 'ghost'}
+                    size="icon"
+                    onClick={handleMarkdownToggle}
+                    aria-pressed={isMarkdownActive}
+                    disabled={isSubmitting || isLoading}
+                  >
+                    <FileCode className="h-4 w-4" />
+                  </Button>
+                ) : null}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setComposerOpen(false)
+                    setDraftBody('')
+                    setDraftIcon(null)
+                    setDraftColor(null)
+                  }}
+                  disabled={isSubmitting || isLoading}
+                >
+                  {inlineLabel('cancel')}
+                </Button>
+              </div>
+            </div>
+            {(normalizedEntityOptions.length || normalizedDealOptions.length) ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {normalizedEntityOptions.length ? (
+                  <div className="flex flex-col gap-1">
+                    <label
+                      htmlFor="note-entity-select"
+                      className="text-xs font-medium text-muted-foreground"
+                    >
+                      {label('fields.entity', 'Assign to customer')}
+                    </label>
+                    <Select
+                      value={selectedEntityId || undefined}
+                      onValueChange={(next) => setSelectedEntityId(next ?? '')}
+                      disabled={isSubmitting || isLoading || !normalizedEntityOptions.length}
+                    >
+                      <SelectTrigger id="note-entity-select">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {normalizedEntityOptions.map((option) => (
+                          <SelectItem key={option.id} value={option.id}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : null}
+                {normalizedDealOptions.length ? (
+                  <div className="flex flex-col gap-1">
+                    <label
+                      htmlFor="note-deal-select"
+                      className="text-xs font-medium text-muted-foreground"
+                    >
+                      {label('fields.deal', 'Link to deal (optional)')}
+                    </label>
+                    <Select
+                      value={selectedDealId || undefined}
+                      onValueChange={(next) => setSelectedDealId(next ?? '')}
+                      disabled={isSubmitting || isLoading}
+                    >
+                      <SelectTrigger id="note-deal-select">
+                        <SelectValue placeholder={label('fields.dealPlaceholder', 'No linked deal')} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {normalizedDealOptions.map((option) => (
+                          <SelectItem key={option.id} value={option.id}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+            <SwitchableMarkdownInput
+              value={draftBody}
+              onChange={setDraftBody}
+              isMarkdownEnabled={isMarkdownActive}
+              disableMarkdown={disableMarkdown}
+              rows={1}
+              placeholder={label('placeholder')}
+              textareaRef={textareaRef}
+              onTextareaInput={(event) => adjustTextareaSize(event.currentTarget)}
+              disabled={isSubmitting || isLoading || !hasEntity}
+              remarkPlugins={markdownPlugins}
+            />
+            {composerHasAppearance ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-muted-foreground/40 px-3 py-2">
+                <div className="flex flex-wrap items-center gap-3 text-sm">
+                  {draftIcon && renderIcon ? (
+                    <span className="inline-flex h-7 w-7 items-center justify-center rounded border border-border bg-muted/50">
+                      {renderIcon(draftIcon, 'h-4 w-4')}
+                    </span>
+                  ) : null}
+                  <span className="font-semibold text-foreground">{composerAuthor}</span>
+                  {draftColor && renderColor ? (
+                    <span className="flex items-center gap-2">
+                      {renderColor(draftColor, 'h-3.5 w-3.5 rounded-full border border-border')}
+                      <span className="text-xs font-medium uppercase text-muted-foreground">{draftColor}</span>
+                    </span>
+                  ) : null}
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setDraftIcon(null)
+                    setDraftColor(null)
+                  }}
+                  disabled={isSubmitting}
+                >
+                  {label('appearance.clearAll', 'Clear')}
+                </Button>
+              </div>
+            ) : null}
+            <div className="flex justify-end">
+              <Button
+                type="submit"
+                size="sm"
+                disabled={isSubmitting || isLoading || !hasEntity}
+              >
+                {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                {composerSubmitLabel}
+              </Button>
+            </div>
+          </form>
+        ) : null}
+      </div>
+
+      {loadError ? <ErrorMessage label={loadError} className="mt-3" /> : null}
+
+      <div className="space-y-3">
+        {!composerOpen && hasVisibleNotes && !onActionChange && !readOnly ? (
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={focusComposer}
+              disabled={isSubmitting || isLoading || !hasEntity}
+            >
+              <Plus className="size-4" />
+              {addActionLabel}
+            </Button>
+          </div>
+        ) : null}
+        {isLoading ? (
+          <LoadingMessage
+            label={label('loading', 'Loading notes…')}
+            className="border-0 bg-transparent p-0 py-8 justify-center"
+          />
+        ) : hasVisibleNotes ? (
+          visibleNotes.map((note) => {
+            const author = noteAuthorLabel(note)
+            const isAppearanceSaving = appearanceDialogSaving && editingAppearanceNoteId === note.id
+            const canEdit = !readOnly && (canEditNote ? canEditNote(note) : true)
+            const canDelete = !readOnly && (canDeleteNote ? canDeleteNote(note) : true)
+            const isEditingContent = canEdit && contentEditor.id === note.id
+            const displayIcon = note.appearanceIcon ?? null
+            const displayColor = note.appearanceColor ?? null
+            const timestampValue = note.createdAt
+            const fallbackTimestampLabel = formatDateTime(note.createdAt) ?? emptyLabel
+            const contextLabel = note.contextLabel && note.contextLabel.length ? note.contextLabel : null
+            return (
+              <div key={note.id} className="group space-y-2 rounded-lg border bg-card p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <TimelineItemHeader
+                      title={author}
+                      timestamp={timestampValue}
+                      fallbackTimestampLabel={fallbackTimestampLabel}
+                      icon={displayIcon}
+                      color={displayColor}
+                      renderIcon={renderIcon}
+                      renderColor={renderColor}
+                    />
+                    {note.dealId ? (
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <ArrowUpRightSquare className="h-3.5 w-3.5" />
+                        <a
+                          href={`/backend/customers/deals/${encodeURIComponent(note.dealId)}`}
+                          className="font-medium text-foreground hover:underline"
+                        >
+                          {note.dealTitle && note.dealTitle.length
+                            ? note.dealTitle
+                            : label('linkedDeal', 'Linked deal')}
+                        </a>
+                      </div>
+                    ) : null}
+                    {contextLabel ? (
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <ArrowUpRightSquare className="h-3.5 w-3.5" />
+                        {note.contextHref ? (
+                          <a href={note.contextHref} className="font-medium text-foreground hover:underline">
+                            {contextLabel}
+                          </a>
+                        ) : (
+                          <span className="font-medium text-foreground">{contextLabel}</span>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+                  {canEdit || canDelete ? (
+                    <div
+                      className={`flex items-center gap-2 transition-opacity ${
+                        isEditingContent ? 'opacity-100' : 'opacity-100 md:opacity-0 md:group-hover:opacity-100 focus-within:opacity-100'
+                      }`}
+                    >
+                      {canEdit ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setContentEditor({ id: note.id, value: note.body })}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                      ) : null}
+                      {showAppearanceControls && canEdit ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            setAppearanceDialogError(null)
+                            setAppearanceDialogState({
+                              mode: 'edit',
+                              noteId: note.id,
+                              icon: note.appearanceIcon ?? null,
+                              color: note.appearanceColor ?? null,
+                            })
+                          }}
+                          disabled={appearanceDialogSaving && editingAppearanceNoteId === note.id}
+                        >
+                          {isAppearanceSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Palette className="h-4 w-4" />}
+                        </Button>
+                      ) : null}
+                      {canDelete ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            void handleDeleteNote(note)
+                          }}
+                          disabled={deletingNoteId === note.id}
+                        >
+                          {deletingNoteId === note.id ? (
+                            <span className="relative flex h-4 w-4 items-center justify-center text-destructive">
+                              <span className="absolute h-4 w-4 animate-spin rounded-full border border-destructive border-t-transparent" />
+                            </span>
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
+                          )}
+                        </Button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+                {isEditingContent ? (
+                  <div className="space-y-2" onKeyDown={handleContentEditorKeyDown}>
+                    <SwitchableMarkdownInput
+                      value={contentEditor.value}
+                      onChange={(nextValue) => setContentEditor((prev) => ({ ...prev, value: nextValue }))}
+                      isMarkdownEnabled={isMarkdownActive}
+                      disableMarkdown={disableMarkdown}
+                      rows={3}
+                      textareaRef={contentTextareaRef}
+                      onTextareaInput={(event) => adjustTextareaSize(event.currentTarget)}
+                      textareaClassName="w-full resize-none overflow-hidden rounded-md border border-border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      editorWrapperClassName="w-full rounded-md border border-muted-foreground/20 bg-background p-2"
+                      remarkPlugins={markdownPlugins}
+                    />
+                    {contentError ? <p className="text-xs text-status-error-text">{contentError}</p> : null}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button type="button" size="sm" onClick={handleContentSave} disabled={contentSavingId === note.id}>
+                        {contentSavingId === note.id ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            {label('saving')}
+                          </>
+                        ) : (
+                          inlineLabel('saveShortcut')
+                        )}
+                      </Button>
+                      {showMarkdownToggle ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={handleMarkdownToggle}
+                          aria-pressed={isMarkdownActive}
+                          className={isMarkdownActive ? 'text-primary' : undefined}
+                          disabled={contentSavingId === note.id}
+                        >
+                          <FileCode className="h-4 w-4" />
+                        </Button>
+                      ) : null}
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setContentEditor({ id: '', value: '' })}
+                        disabled={contentSavingId === note.id}
+                      >
+                        {inlineLabel('cancel')}
+                      </Button>
+                    </div>
+                  </div>
+                ) : canEdit ? (
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    className="cursor-pointer text-sm"
+                    onClick={() => setContentEditor({ id: note.id, value: note.body })}
+                    onKeyDown={(event) => handleContentKeyDown(event, note)}
+                  >
+                    <MarkdownPreview
+                      remarkPlugins={markdownPlugins}
+                      className={noteBodyClassName}
+                    >
+                      {note.body}
+                    </MarkdownPreview>
+                  </div>
+                ) : (
+                  <div className="text-sm">
+                    <MarkdownPreview
+                      remarkPlugins={markdownPlugins}
+                      className={noteBodyClassName}
+                    >
+                      {note.body}
+                    </MarkdownPreview>
+                  </div>
+                )}
+              </div>
+            )
+          })
+        ) : composerOpen ? null : (
+          <TabEmptyState
+            title={emptyState.title}
+            description={emptyState.description}
+            action={
+              readOnly
+                ? undefined
+                : {
+                    label: emptyState.actionLabel,
+                    onClick: focusComposer,
+                    disabled: isSubmitting || !hasEntity,
+                  }
+            }
+          />
+        )}
+        {isLoading || (pagedMode ? !hasMore : visibleCount >= notes.length) ? null : (
+          <div className="flex justify-center">
+            <Button variant="outline" size="sm" onClick={handleLoadMore}>
+              {loadMoreLabel}
+            </Button>
+          </div>
+        )}
+      </div>
+      {showAppearanceControls ? (
+        <AppearanceDialog
+          open={appearanceDialogOpen}
+          title={
+            appearanceDialogState?.mode === 'edit'
+              ? label('appearance.edit')
+              : label('appearance.toggleOpen', 'Customize appearance')
+          }
+          icon={appearanceDialogState?.icon ?? null}
+          color={appearanceDialogState?.color ?? null}
+          labels={noteAppearanceLabels}
+          iconSuggestions={iconSuggestions}
+          onIconChange={(value) => setAppearanceDialogState((prev) => (prev ? { ...prev, icon: value ?? null } : prev))}
+          onColorChange={(value) => setAppearanceDialogState((prev) => (prev ? { ...prev, color: value ?? null } : prev))}
+          onSubmit={() => {
+            void handleAppearanceDialogSubmit()
+          }}
+          onClose={handleAppearanceDialogClose}
+          isSaving={appearanceDialogSaving}
+          errorMessage={appearanceDialogError}
+          primaryLabel={appearanceDialogPrimaryLabel}
+          savingLabel={appearanceDialogSavingLabel}
+          cancelLabel={label('appearance.cancel')}
+        />
+      ) : null}
+      {ConfirmDialogElement}
+    </div>
+  )
+}
+
+export function NotesSection<C = unknown>(props: NotesSectionProps<C>) {
+  const handle = ComponentReplacementHandles.section('ui.detail', 'NotesSection')
+  const Resolved = useRegisteredComponent<NotesSectionProps<C>>(
+    handle,
+    NotesSectionImpl as React.ComponentType<NotesSectionProps<C>>,
+  )
+
+  return (
+    <div data-component-handle={handle}>
+      <Resolved {...props} />
+    </div>
+  )
+}

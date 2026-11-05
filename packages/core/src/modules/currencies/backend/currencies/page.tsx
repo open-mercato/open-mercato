@@ -1,0 +1,357 @@
+'use client'
+
+import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/currencies/extension-points'
+import Link from 'next/link'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
+import { Badge } from '@open-mercato/ui/primitives/badge'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
+import { Plus, Star } from 'lucide-react'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
+
+type CurrencyRow = {
+  id: string
+  code: string
+  name: string
+  symbol: string | null
+  decimalPlaces: number
+  isBase: boolean
+  isActive: boolean
+  organizationId: string
+  tenantId: string
+  createdAt: string
+  updatedAt: string
+}
+
+type ResponsePayload = {
+  items: CurrencyRow[]
+  total: number
+  page: number
+  totalPages: number
+  totalIsCapped?: boolean
+}
+
+export default function CurrenciesPage() {
+  const t = useT()
+  const { confirm: confirmDialog, ConfirmDialogElement } = useConfirmDialog()
+  const [rows, setRows] = React.useState<CurrencyRow[]>([])
+  const [page, setPage] = React.useState(1)
+  const [total, setTotal] = React.useState(0)
+  const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
+  const [search, setSearch] = React.useState('')
+  const [filters, setFilters] = React.useState<FilterValues>({})
+  const [isLoading, setIsLoading] = React.useState(true)
+  const [reloadToken, setReloadToken] = React.useState(0)
+  const scopeVersion = useOrganizationScopeVersion()
+  const mutationContextId = 'currencies-list:mutation'
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    resourceId: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: mutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setIsLoading(true)
+      try {
+        const params = new URLSearchParams()
+        params.set('page', String(page))
+        params.set('pageSize', '50')
+        if (search) params.set('search', search)
+        if (filters.isBase === true) params.set('isBase', 'true')
+        if (filters.isActive === 'true') params.set('isActive', 'true')
+        if (filters.isActive === 'false') params.set('isActive', 'false')
+
+        const fallback: ResponsePayload = { items: [], total: 0, page, totalPages: 1 }
+        const call = await apiCall<ResponsePayload>(
+          `/api/currencies/currencies?${params.toString()}`,
+          undefined,
+          { fallback }
+        )
+
+        if (!call.ok) {
+          flash(t('currencies.list.error.load'), 'error')
+          return
+        }
+
+        const payload = call.result ?? fallback
+        if (!cancelled) {
+          setRows(Array.isArray(payload.items) ? payload.items : [])
+          setTotal(payload.total || 0)
+          setTotalPages(payload.totalPages || 1)
+          setTotalIsCapped(payload?.totalIsCapped === true)
+        }
+      } catch (error) {
+        if (!cancelled) {
+          flash(t('currencies.list.error.load'), 'error')
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [page, search, filters, reloadToken, scopeVersion, t])
+
+  const handleSetBase = React.useCallback(
+    async (row: CurrencyRow) => {
+      try {
+        await runMutation({
+          operation: async () => {
+            const call = await withScopedApiRequestHeaders(
+              buildOptimisticLockHeader(row.updatedAt),
+              () => apiCall('/api/currencies/currencies', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: row.id, isBase: true }),
+              }),
+            )
+            if (!call.ok) {
+              throw Object.assign(new Error('[internal] currencies.setBase failed'), {
+                status: call.status,
+                ...((call.result as Record<string, unknown> | null) ?? {}),
+              })
+            }
+            return call
+          },
+          context: {
+            formId: mutationContextId,
+            resourceKind: 'currencies.currency',
+            resourceId: row.id,
+            retryLastMutation,
+          },
+          mutationPayload: { id: row.id, isBase: true },
+        })
+
+        flash(t('currencies.flash.baseSet'), 'success')
+        setReloadToken((token) => token + 1)
+      } catch (error) {
+        if (extractOptimisticLockConflict(error)) return
+        flash(t('currencies.flash.baseSetError'), 'error')
+      }
+    },
+    [mutationContextId, retryLastMutation, runMutation, t]
+  )
+
+  const handleDelete = React.useCallback(
+    async (row: CurrencyRow) => {
+      const confirmed = await confirmDialog({
+        title: t('currencies.list.confirmDelete', { code: row.code }),
+        variant: 'destructive',
+      })
+      if (!confirmed) return
+
+      try {
+        await runMutation({
+          operation: async () => {
+            const call = await withScopedApiRequestHeaders(
+              buildOptimisticLockHeader(row.updatedAt),
+              () => apiCall(`/api/currencies/currencies`, {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: row.id, organizationId: row.organizationId, tenantId: row.tenantId }),
+              }),
+            )
+            if (!call.ok) {
+              throw Object.assign(new Error('[internal] currencies.delete failed'), {
+                status: call.status,
+                ...((call.result as Record<string, unknown> | null) ?? {}),
+              })
+            }
+            return call
+          },
+          context: {
+            formId: mutationContextId,
+            resourceKind: 'currencies.currency',
+            resourceId: row.id,
+            retryLastMutation,
+          },
+          mutationPayload: { id: row.id },
+        })
+
+        flash(t('currencies.flash.deleted'), 'success')
+        setReloadToken((token) => token + 1)
+      } catch (error) {
+        if (surfaceRecordConflict(error, t, { onRefresh: () => setReloadToken((token) => token + 1) })) return
+        flash(t('currencies.flash.deleteError'), 'error')
+      }
+    },
+    [t, confirmDialog, mutationContextId, retryLastMutation, runMutation]
+  )
+
+  const columns = React.useMemo<ColumnDef<CurrencyRow>[]>(
+    () => [
+      {
+        accessorKey: 'code',
+        header: t('currencies.list.columns.code'),
+        cell: ({ row }) => (
+          <div className="flex items-center gap-2">
+            <span className="font-mono font-medium">{row.original.code}</span>
+            {row.original.isBase && (
+              <Badge variant="default" className="gap-1">
+                <Star className="h-3 w-3" />
+                {t('currencies.list.base')}
+              </Badge>
+            )}
+          </div>
+        ),
+      },
+      {
+        accessorKey: 'name',
+        header: t('currencies.list.columns.name'),
+      },
+      {
+        accessorKey: 'symbol',
+        header: t('currencies.list.columns.symbol'),
+        cell: ({ row }) => row.original.symbol || '—',
+      },
+      {
+        accessorKey: 'decimalPlaces',
+        header: t('currencies.list.columns.decimalPlaces'),
+      },
+      {
+        accessorKey: 'isActive',
+        header: t('currencies.list.columns.active'),
+        enableSorting: false,
+        cell: ({ getValue }) => <BooleanIcon value={Boolean(getValue())} />,
+      },
+      {
+        accessorKey: 'createdAt',
+        header: t('currencies.list.columns.createdAt'),
+        cell: ({ row }) => {
+          const date = row.original.createdAt
+          return date ? new Date(date).toLocaleString() : '—'
+        },
+      },
+      {
+        accessorKey: 'updatedAt',
+        header: t('currencies.list.columns.updatedAt'),
+        cell: ({ row }) => {
+          const date = row.original.updatedAt
+          return date ? new Date(date).toLocaleString() : '—'
+        },
+      },
+    ],
+    [t]
+  )
+
+  const filterDefs = React.useMemo<FilterDef[]>(
+    () => [
+      {
+        id: 'isBase',
+        label: t('currencies.list.filters.baseOnly'),
+        type: 'checkbox',
+      },
+      {
+        id: 'isActive',
+        label: t('currencies.list.filters.status'),
+        type: 'select',
+        options: [
+          { label: t('currencies.list.filters.all'), value: '' },
+          { label: t('currencies.list.filters.active'), value: 'true' },
+          { label: t('currencies.list.filters.inactive'), value: 'false' },
+        ],
+      },
+    ],
+    [t]
+  )
+
+  return (
+    <Page>
+      <PageBody>
+        <DataTable
+        title={t('currencies.list.title')}
+        titleHeadingLevel={1}
+          columns={columns}
+          data={rows}
+          searchValue={search}
+          onSearchChange={(value) => {
+            setSearch(value)
+            setPage(1)
+          }}
+          searchPlaceholder={t('currencies.list.searchPlaceholder')}
+          filters={filterDefs}
+          filterValues={filters}
+          onFiltersApply={(values) => {
+            setFilters(values)
+            setPage(1)
+          }}
+          onFiltersClear={() => {
+            setFilters({})
+            setPage(1)
+          }}
+          actions={
+            <Button asChild>
+              <Link href="/backend/currencies/create">
+                <Plus className="mr-2 h-4 w-4" />
+                {t('currencies.list.actions.create')}
+              </Link>
+            </Button>
+          }
+          rowActions={(row) => (
+            <RowActions
+              items={[
+                {
+                  id: 'edit',
+                  label: t('common.edit'),
+                  href: `/backend/currencies/${row.id}`,
+                },
+                ...(!row.isBase
+                  ? [
+                      {
+                        id: 'set-base',
+                        label: t('currencies.list.actions.setBase'),
+                        onSelect: () => handleSetBase(row),
+                      },
+                    ]
+                  : []),
+                ...(!row.isBase
+                  ? [
+                      {
+                        id: 'delete',
+                        label: t('common.delete'),
+                        destructive: true,
+                        onSelect: () => handleDelete(row),
+                      },
+                    ]
+                  : []),
+              ]}
+            />
+          )}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('currencies.list.title')}
+              createHref="/backend/currencies/create"
+              createLabel={t('currencies.list.actions.create')}
+            />
+          )}
+          pagination={{ page, pageSize: 50, total, totalPages, totalIsCapped, onPageChange: setPage }}
+          isLoading={isLoading}
+          perspective={{ tableId: extensionPoints.hosts.currenciesTable.tableId }}
+        />
+      </PageBody>
+      {ConfirmDialogElement}
+    </Page>
+  )
+}

@@ -1,0 +1,90 @@
+"use client"
+
+import * as React from 'react'
+import type { DashboardWidgetComponentProps } from '@open-mercato/shared/modules/dashboard/widgets'
+import {
+  DEFAULT_SETTINGS,
+  WELCOME_HEADLINE_KEY,
+  WELCOME_MESSAGE_KEY,
+  hydrateWelcomeSettings,
+  resolveWelcomeText,
+  type WelcomeSettings,
+} from './config'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+
+const WelcomeWidgetClient: React.FC<DashboardWidgetComponentProps<WelcomeSettings>> = ({
+  mode,
+  settings,
+  onSettingsChange,
+  context,
+  refreshToken: _refreshToken,
+  onRefreshStateChange: _onRefreshStateChange,
+}) => {
+  const value = React.useMemo(() => hydrateWelcomeSettings(settings), [settings])
+
+  const handleChange = React.useCallback((key: keyof WelcomeSettings, next: string) => {
+    const normalized = hydrateWelcomeSettings(settings)
+    onSettingsChange({ ...normalized, [key]: next })
+  }, [onSettingsChange, settings])
+
+  const userLabel = React.useMemo(() => {
+    const name = context?.userName?.trim()
+    if (name) return name
+    const label = context?.userLabel?.trim()
+    if (label) return label
+    if (context?.userEmail) return context.userEmail
+    return context?.userId ?? 'there'
+  }, [context])
+
+  const t = useT()
+
+  if (mode === 'settings') {
+    return (
+      <form className="space-y-4" onSubmit={(event) => event.preventDefault()}>
+        <div className="space-y-1.5">
+          <label htmlFor="welcome-headline" className="text-xs font-medium uppercase text-muted-foreground">
+            {t('example.widgets.welcome.settings.headlineLabel', 'Headline')}
+          </label>
+          <input
+            id="welcome-headline"
+            className="w-full rounded-md border px-3 py-2 text-sm focus-visible:border-ring focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            value={value.headline}
+            onChange={(event) => handleChange('headline', event.target.value)}
+            placeholder={t('example.widgets.welcome.settings.headlinePlaceholder', 'Welcome back, {{user}}!')}
+          />
+          <p className="text-xs text-muted-foreground">
+            {t('example.widgets.welcome.settings.headlineHint', 'Use {{user}} to include the signed-in identifier.')}
+          </p>
+        </div>
+        <div className="space-y-1.5">
+          <label htmlFor="welcome-message" className="text-xs font-medium uppercase text-muted-foreground">
+            {t('example.widgets.welcome.settings.messageLabel', 'Message')}
+          </label>
+          <textarea
+            id="welcome-message"
+            className="min-h-[120px] w-full resize-y rounded-md border px-3 py-2 text-sm focus-visible:border-ring focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            value={value.message ?? ''}
+            onChange={(event) => handleChange('message', event.target.value)}
+            placeholder={t('example.widgets.welcome.settings.messagePlaceholder', DEFAULT_SETTINGS.message ?? '')}
+          />
+        </div>
+      </form>
+    )
+  }
+  const headlineTemplate = resolveWelcomeText(value.headline, DEFAULT_SETTINGS.headline, WELCOME_HEADLINE_KEY, t)
+  const headline = headlineTemplate.includes('{{user}}')
+    ? headlineTemplate.replace(/{{user}}/g, userLabel)
+    : headlineTemplate
+  const message = resolveWelcomeText(value.message ?? '', DEFAULT_SETTINGS.message ?? '', WELCOME_MESSAGE_KEY, t)
+
+  return (
+    <div className="space-y-2">
+      <h2 className="text-lg font-semibold leading-tight">{headline}</h2>
+      {message ? (
+        <p className="text-sm text-muted-foreground whitespace-pre-line">{message}</p>
+      ) : null}
+    </div>
+  )
+}
+
+export default WelcomeWidgetClient

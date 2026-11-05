@@ -1,0 +1,3327 @@
+import { z } from 'zod'
+import type { AwilixContainer } from 'awilix'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { buildScopedWhere } from '@open-mercato/shared/lib/api/crud'
+import { getAuthFromCookies, getAuthFromRequest, type AuthContext } from '@open-mercato/shared/lib/auth/server'
+import type { QueryEngine, Where, Sort, Page, QueryCustomFieldSource, QueryJoinEdge } from '@open-mercato/shared/lib/query/types'
+import { SortDir } from '@open-mercato/shared/lib/query/types'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import { resolveOrganizationScopeForRequest, type OrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import {
+  runMutationGuards,
+  bridgeLegacyGuard,
+  type MutationGuard,
+  type MutationGuardAfterInput,
+} from './mutation-guard-registry'
+import { getAllMutationGuardInstances } from './mutation-guard-store'
+import { getAllSyncSubscribers } from './sync-subscriber-store'
+import { collectSyncSubscribers, runSyncBeforeEvent, runSyncAfterEvent } from './sync-event-runner'
+import type { SyncCrudEventPayload } from './sync-event-types'
+import type { RateLimitConfig } from '@open-mercato/shared/lib/ratelimit/types'
+import type {
+  CrudEventAction,
+  CrudEventsConfig,
+  CrudIndexerConfig,
+  CrudIdentifierResolver,
+} from './types'
+import {
+  extractCustomFieldValuesFromPayload,
+  extractAllCustomFieldEntries,
+  decorateRecordWithCustomFields,
+  applyCustomFieldsNormalization,
+  loadCustomFieldDefinitionIndex,
+} from './custom-fields'
+import {
+  canReuseCustomFieldDefinitions,
+  resolveCfDefIndexOrgCandidates,
+  type CustomFieldDefinitionIndex,
+  type ResolvedCustomFieldDefinitions,
+} from './custom-field-definition-index'
+import { serializeExport, normalizeExportFormat, defaultExportFilename, ensureColumns, type CrudExportFormat, type PreparedExport } from './exporters'
+import { CrudHttpError, isCrudHttpError, translateCrudErrorBody } from './errors'
+import type { CommandBus, CommandLogMetadata } from '@open-mercato/shared/lib/commands'
+import type { EntityId } from '@open-mercato/shared/modules/entities'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import type { CacheStrategy } from '@open-mercato/cache'
+import {
+  buildCollectionTags,
+  buildRecordTag,
+  canonicalizeResourceTag,
+  debugCrudCache,
+  deriveResourceFromCommandId,
+  expandResourceAliases,
+  invalidateCrudCache,
+  isCrudCacheDebugEnabled,
+  isCrudCacheEnabled,
+  normalizeIdentifierValue,
+  normalizeTagSegment,
+  pickFirstIdentifier,
+  resolveCrudCache,
+} from './cache'
+import { deriveCrudSegmentTag } from './cache-stats'
+import { createProfiler, shouldEnableProfiler, type Profiler } from '@open-mercato/shared/lib/profiler'
+import { getTranslationOverlayPlugin } from '@open-mercato/shared/lib/localization/overlay-plugin'
+import { applyResponseEnrichers, applyResponseEnricherToRecord, resolveListCacheEnricherPlan, type ListCacheEnricherPlan } from './enricher-runner'
+import type { EnricherContext } from './response-enricher'
+import type { ApiInterceptorMethod, InterceptorRequest, InterceptorResponse } from './api-interceptor'
+import { runApiInterceptorsAfter, runApiInterceptorsBefore } from './interceptor-runner'
+import { resolveApiInterceptorRoutePath } from '../modules/api-route-identity'
+import { mergeIdFilter, parseIdsParam, isIdsParamProvided } from './ids'
+import { buildQueryParams } from './query-params'
+import { mergeAdvancedFilters } from './advanced-filter-integration'
+import { parseExtensionHeaders } from '../umes/extension-headers'
+import { createGenericOptimisticLockReader } from './optimistic-lock'
+import { registerOptimisticLockReaderIfAbsent } from './optimistic-lock-store'
+import { createLogger } from '../logger'
+import { getForeignKeyViolationConstraint, isForeignKeyViolation, isTransientDbError, readPgSqlState } from '../db/pg-errors'
+import { getTelemetryRuntime } from '../telemetry/runtime'
+import { randomUUID } from 'node:crypto'
+import { NotFoundError as MikroOrmNotFoundError, ValidationError as MikroOrmValidationError } from '@mikro-orm/core'
+
+type RbacServiceLike = {
+  getGrantedFeatures: (userId: string, opts: { tenantId: string | null; organizationId: string | null }) => Promise<string[]>
+}
+
+const logger = createLogger('shared').child({ component: 'crud' })
+
+function resolveSortParams(queryParams: Record<string, unknown>, defaultSort?: CrudDefaultSort) {
+  const rawSortField = queryParams.sortField ?? queryParams.sort
+  const requestedSortField =
+    typeof rawSortField === 'string' && rawSortField.trim().length > 0 ? rawSortField.trim() : null
+  const sortField = requestedSortField ?? defaultSort?.field ?? 'id'
+  const rawSortDir =
+    queryParams.sortDir ?? queryParams.order ?? (requestedSortField ? 'asc' : defaultSort?.dir ?? 'asc')
+  const normalizedDir = typeof rawSortDir === 'string' ? rawSortDir.trim().toLowerCase() : 'asc'
+  const sortDir = normalizedDir === 'desc' ? SortDir.Desc : SortDir.Asc
+  return { sortField, sortDir }
+}
+
+function normalizeSortFieldSelector(sortField: string): string {
+  if (sortField.startsWith('cf_')) return `cf:${sortField.slice(3)}`
+  return sortField
+}
+/**
+ * Translates column-name filter keys to MikroORM property names so the ORM
+ * fallback path can apply buildFilters correctly.  Without this, filters like
+ * `{ entity_id: { $eq: uuid } }` are silently ignored by MikroORM when the
+ * underlying property is a @ManyToOne relation named `entity`.
+ *
+ * Uses em.getMetadata() to build a fieldName -> propertyName map at runtime.
+ */
+function translateFiltersForOrm(
+  filters: Record<string, unknown>,
+  em: any,
+  entityClass: any,
+): Record<string, unknown> {
+  if (!filters || typeof filters !== 'object') return filters
+  try {
+    const metadata = em?.getMetadata?.()
+    if (!metadata) return filters
+    const meta = metadata.find?.(entityClass.name ?? entityClass)
+    if (!meta?.properties) return filters
+    const columnToProperty = new Map<string, string>()
+    for (const [propName, propMeta] of Object.entries<any>(meta.properties)) {
+      const fieldNames: string[] = propMeta.fieldNames ?? []
+      for (const fn of fieldNames) {
+        if (fn !== propName) {
+          columnToProperty.set(fn, propName)
+        }
+      }
+    }
+    if (columnToProperty.size === 0) return filters
+    const translated: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(filters)) {
+      const mappedKey = columnToProperty.get(key) ?? key
+      translated[mappedKey] = value
+    }
+    return translated
+  } catch {
+    return filters
+  }
+}
+
+export type CrudHooks<TCreate, TUpdate, TList> = {
+  beforeList?: (q: TList, ctx: CrudCtx) => Promise<void> | void
+  afterList?: (res: any, ctx: CrudCtx & { query: TList }) => Promise<void> | void
+  beforeCreate?: (input: TCreate, ctx: CrudCtx) => Promise<TCreate | void> | TCreate | void
+  afterCreate?: (entity: any, ctx: CrudCtx & { input: TCreate }) => Promise<void> | void
+  beforeUpdate?: (input: TUpdate, ctx: CrudCtx) => Promise<TUpdate | void> | TUpdate | void
+  afterUpdate?: (entity: any, ctx: CrudCtx & { input: TUpdate }) => Promise<void> | void
+  beforeDelete?: (id: string, ctx: CrudCtx) => Promise<void> | void
+  afterDelete?: (id: string, ctx: CrudCtx) => Promise<void> | void
+}
+
+export type CrudMethodMetadata = {
+  requireAuth?: boolean
+  /** @deprecated Use `requireFeatures` instead — role names are mutable and can be spoofed */
+  requireRoles?: string[]
+  requireFeatures?: string[]
+  rateLimit?: RateLimitConfig
+}
+
+export type CrudMetadata = {
+  GET?: CrudMethodMetadata
+  POST?: CrudMethodMetadata
+  PUT?: CrudMethodMetadata
+  DELETE?: CrudMethodMetadata
+}
+
+export type OrmEntityConfig = {
+  entity: any // MikroORM entity class
+  idField?: string // default: 'id'
+  orgField?: string | null // default: 'organizationId'; pass null to disable automatic org scoping
+  tenantField?: string | null // default: 'tenantId'; pass null to disable automatic tenant scoping
+  softDeleteField?: string | null // default: 'deletedAt'; pass null to disable implicit soft delete filter
+}
+
+export type CustomFieldsConfig =
+  | false
+  | {
+      enabled: true
+      entityId: any // datamodel entity id, e.g. E.example.todo
+      // If true, picks body keys starting with `cf_` and maps `cf_<name>` -> `<name>`
+      pickPrefixed?: boolean
+      // Optional custom mapper; if provided, used instead of pickPrefixed
+      map?: (data: Record<string, any>) => Record<string, any>
+    }
+
+export type CrudListCustomFieldDecorator = {
+  entityIds: EntityId | EntityId[]
+  resolveContext?: (item: any, ctx: CrudCtx) => { organizationId?: string | null; tenantId?: string | null }
+  /**
+   * When true, the factory removes raw `cf_*` and `cf:*` keys from each list
+   * item after extracting them into `customValues` / `customFields`. Recommended
+   * for new modules — produces the single canonical response shape requested in
+   * #1769. Defaults to `false` so existing callers that read `cf_*` from the
+   * top level keep working until they migrate.
+   */
+  stripPrefixedKeys?: boolean
+}
+
+export type CrudDefaultSort = { field: string; dir?: 'asc' | 'desc' }
+
+export type ListConfig<TList> = {
+  schema: z.ZodType<TList>
+  // Optional: use the QueryEngine when entityId + fields are provided.
+  // A function form lets a route narrow the projection per request — e.g. drop
+  // large detail-only JSONB columns from grid listings while still selecting
+  // them for single-document fetches (`?id=`). Returning fewer columns avoids
+  // fetching and decrypting blobs the list never renders (#2233).
+  entityId?: any
+  fields?: any[] | ((query: TList, ctx: CrudCtx) => any[])
+  sortFieldMap?: Record<string, any>
+  /**
+   * Sort used when the request carries no `sortField` / `sort` param. The field is
+   * resolved through `sortFieldMap`, so a name the map defines is translated to its
+   * column and an unmapped name is used as the column directly. `dir` only applies
+   * together with the default field — an explicit `sortField` without `sortDir`
+   * still defaults to ascending. Defaults to `{ field: 'id', dir: 'asc' }`, which is
+   * only a meaningful order for sequential ids, never for random UUIDs.
+   *
+   * Applies to the Query Engine list path only (the route must set both `entityId`
+   * and `fields`). The plain-ORM fallback list issues an unordered `find` and
+   * already ignores `sortField` today, so it ignores this too.
+   *
+   * The list schema must keep `sortField` optional for this to take effect — a zod
+   * `.default()` on `sortField` reaches the sort resolver as an explicit request and
+   * pins the order itself.
+   */
+  defaultSort?: CrudDefaultSort
+  /**
+   * Appended as a secondary ascending sort whenever it differs from the resolved
+   * primary sort, so rows sharing a primary value keep a stable order across pages
+   * and re-fetches instead of falling back to the database's arbitrary row order.
+   * Applies to explicit sorts too, and is resolved through `sortFieldMap` and gated
+   * on the Query Engine path exactly like `defaultSort`.
+   */
+  tiebreakSortField?: string
+  buildFilters?: (query: TList, ctx: CrudCtx) => Where<any> | Promise<Where<any>>
+  transformItem?: (item: any) => any
+  allowCsv?: boolean
+  // The function forms mirror `fields` above: a route whose export columns depend
+  // on per-request state (for example custom-field definitions discovered in
+  // `beforeList`) MUST resolve them from `ctx` rather than from module-level
+  // mutable state, which would bleed one tenant's columns into another's export.
+  csv?: {
+    headers: string[] | ((query: TList, ctx: CrudCtx) => string[])
+    row: (item: any, ctx: CrudCtx) => (string | number | boolean | null | undefined)[]
+    filename?: string
+  }
+  export?: CrudExportOptions
+  customFieldSources?: QueryCustomFieldSource[]
+  joins?: QueryJoinEdge[]
+  decorateCustomFields?: CrudListCustomFieldDecorator
+  /**
+   * When true, LIST queries skip the default organization_id / tenant_id guards in both the
+   * query-engine path and the ORM-fallback path (including the empty-`organizationIds`
+   * short-circuit and the automatic scope injection into `buildScopedWhere`).
+   *
+   * `buildFilters` MUST fully encode row visibility (typically as `$or` of scoped branches) and
+   * MUST fail closed when the principal lacks a resolvable tenant/org.
+   *
+   * Scope: this flag only affects GET/list reads. Update and delete operations always keep
+   * their automatic tenant/org scoping in `buildScopedWhere` as a write-side safety guard, so
+   * callers cannot accidentally mutate rows outside the caller's tenant/org.
+   *
+   * With this flag, `HybridQueryEngine` delegates to the basic engine, so custom-field (`cf:*`)
+   * filters/sorts, `search_tokens` fulltext filtering, and vector-search branches are bypassed.
+   */
+  omitAutomaticTenantOrgScope?: boolean
+  /**
+   * When false, the query engine returns encrypted fields as stored (ciphertext) and performs no
+   * DEK lookup. Defaults to true — today's behaviour. Set it on generic, entity-agnostic list
+   * surfaces that select every column and do not need plaintext.
+   *
+   * Caveat: declining also disables the plaintext-sort path, so a sort on an encrypted field
+   * degrades to SQL `ORDER BY` over ciphertext. The query engine logs one warning when that
+   * combination is requested.
+   */
+  decryptEncryptedFields?: boolean
+  /** When true, skip server-side CRUD GET cache for this list (avoids stale empty payloads after mutations). */
+  disableListCache?: boolean
+}
+
+export type CrudExportColumnConfig = {
+  field: string
+  header?: string
+  resolve?: (item: any) => unknown
+}
+
+export type CrudExportOptions = {
+  enabled?: boolean
+  formats?: CrudExportFormat[]
+  filename?: string | ((format: CrudExportFormat) => string)
+  columns?: CrudExportColumnConfig[]
+  batchSize?: number
+}
+
+const DEFAULT_EXPORT_FORMATS: CrudExportFormat[] = ['csv', 'json', 'xml', 'markdown']
+const DEFAULT_EXPORT_BATCH_SIZE = 1000
+const MIN_EXPORT_BATCH_SIZE = 100
+const MAX_EXPORT_BATCH_SIZE = 10000
+const EXPORT_MAX_PAGES = 1000
+
+type ColumnResolver = {
+  field: string
+  header: string
+  resolve: (item: any) => unknown
+}
+
+function resolveAvailableExportFormats(list?: ListConfig<any>): CrudExportFormat[] {
+  if (!list) return []
+  if (list.export?.enabled === false) return []
+  const formats = list.export?.formats && list.export.formats.length > 0
+    ? [...list.export.formats]
+    : [...DEFAULT_EXPORT_FORMATS]
+  if (!list.export?.formats && list.allowCsv && !formats.includes('csv')) formats.push('csv')
+  return Array.from(new Set(formats))
+}
+
+function resolveExportBatchSize(list: ListConfig<any> | undefined, requestedPageSize: number): number {
+  const fallback = Math.max(requestedPageSize, DEFAULT_EXPORT_BATCH_SIZE)
+  const raw = list?.export?.batchSize ?? fallback
+  return Math.min(Math.max(raw, MIN_EXPORT_BATCH_SIZE), MAX_EXPORT_BATCH_SIZE)
+}
+
+function sanitizeFieldName(base: string, used: Set<string>, fallbackIndex: number): string {
+  const trimmed = base.trim()
+  const sanitized = trimmed.replace(/[^a-zA-Z0-9_\-]/g, '_') || `field_${fallbackIndex}`
+  const normalized = /^[A-Za-z_]/.test(sanitized) ? sanitized : `f_${sanitized}`
+  let candidate = normalized
+  let counter = 1
+  while (used.has(candidate)) {
+    candidate = `${normalized}_${counter++}`
+  }
+  used.add(candidate)
+  return candidate
+}
+
+function buildExportFromColumns(items: any[], columnsConfig: CrudExportColumnConfig[]): PreparedExport {
+  const used = new Set<string>()
+  const columns: ColumnResolver[] = columnsConfig.map((col, idx) => {
+    const fieldName = sanitizeFieldName(col.field || `field_${idx}`, used, idx)
+    const header = col.header?.trim().length ? col.header!.trim() : col.field || `Field ${idx + 1}`
+    const resolver = col.resolve
+      ? col.resolve
+      : ((item: any) => (item != null ? (item as any)[col.field] : undefined))
+    return { field: fieldName, header, resolve: resolver }
+  })
+  const rows = items.map((item) => {
+    const row: Record<string, unknown> = {}
+    columns.forEach((column) => {
+      try {
+        row[column.field] = column.resolve(item)
+      } catch {
+        row[column.field] = undefined
+      }
+    })
+    return row
+  })
+  return {
+    columns: columns.map(({ field, header }) => ({ field, header })),
+    rows,
+  }
+}
+
+function buildExportFromCsv(
+  items: any[],
+  csv: NonNullable<ListConfig<any>['csv']>,
+  query: unknown,
+  ctx: CrudCtx,
+): PreparedExport {
+  const used = new Set<string>()
+  const resolvedHeaders = typeof csv.headers === 'function' ? csv.headers(query as any, ctx) : csv.headers
+  const columns = resolvedHeaders.map((header, idx) => ({
+    field: sanitizeFieldName(header || `column_${idx + 1}`, used, idx),
+    header: header || `Column ${idx + 1}`,
+  }))
+  const rows = items.map((item) => {
+    const values = csv.row(item, ctx) || []
+    const row: Record<string, unknown> = {}
+    columns.forEach((column, idx) => {
+      row[column.field] = values[idx]
+    })
+    return row
+  })
+  return { columns, rows }
+}
+
+function buildDefaultExport(items: any[]): PreparedExport {
+  const rows = items.map((item) => {
+    if (item && typeof item === 'object' && !Array.isArray(item)) {
+      return { ...(item as Record<string, unknown>) }
+    }
+    return { value: item }
+  })
+  return {
+    columns: ensureColumns(rows),
+    rows,
+  }
+}
+
+function prepareExportData(items: any[], list: ListConfig<any>, query: unknown, ctx: CrudCtx): PreparedExport {
+  if (list.export?.columns && list.export.columns.length > 0) {
+    return buildExportFromColumns(items, list.export.columns)
+  }
+  if (list.csv) {
+    return buildExportFromCsv(items, list.csv, query, ctx)
+  }
+  const prepared = buildDefaultExport(items)
+  return {
+    columns: ensureColumns(prepared.rows, prepared.columns),
+    rows: prepared.rows,
+  }
+}
+
+function finalizeExportFilename(list: ListConfig<any>, format: CrudExportFormat, fallbackBase: string): string {
+  const extension = format === 'markdown' ? 'md' : format
+  const fromExport = list.export?.filename
+  const apply = (value: string | null | undefined): string | null => {
+    if (!value) return null
+    const trimmed = value.trim()
+    if (!trimmed) return null
+    const sanitized = trimmed.replace(/[^a-z0-9_\-\.]/gi, '_')
+    const lower = sanitized.toLowerCase()
+    if (lower.endsWith(`.${extension}`)) return sanitized
+    const withoutExtension = sanitized.includes('.') ? sanitized.replace(/\.[^.]+$/, '') : sanitized
+    const base = withoutExtension.trim().length > 0 ? withoutExtension : sanitized
+    return `${base}.${extension}`
+  }
+  if (typeof fromExport === 'function') {
+    const computed = apply(fromExport(format))
+    if (computed) return computed
+  } else {
+    const computed = apply(fromExport)
+    if (computed) return computed
+  }
+  if (format === 'csv' && list.csv?.filename) {
+    const csvName = apply(list.csv.filename)
+    if (csvName) return csvName
+  }
+  return defaultExportFilename(fallbackBase, format)
+}
+
+function normalizeFullRecordForExport(input: any): any {
+  if (!input || typeof input !== 'object') return input
+  if (Array.isArray(input)) return input.map((item) => normalizeFullRecordForExport(item))
+  const record: Record<string, unknown> = {}
+
+  for (const [key, value] of Object.entries(input)) {
+    if (key.startsWith('cf_') || key.startsWith('cf:')) continue
+    // Strip enricher namespaced fields and metadata from exports
+    if (key === '_meta') continue
+    if (key.startsWith('_') && key.length > 1) continue
+    record[key] = value
+  }
+  const custom = extractAllCustomFieldEntries(input)
+  for (const [rawKey, value] of Object.entries(custom)) {
+    const sanitizedKey = rawKey.replace(/^cf_/, '')
+    record[sanitizedKey] = value
+  }
+  return record
+}
+export type CreateConfig<TCreate> = {
+  schema: z.ZodType<TCreate>
+  mapToEntity: (input: TCreate, ctx: CrudCtx) => Record<string, any>
+  customFields?: CustomFieldsConfig
+  response?: (entity: any) => any
+}
+
+export type UpdateConfig<TUpdate> = {
+  schema: z.ZodType<TUpdate>
+  // Must contain a string uuid `id` field
+  getId?: (input: TUpdate) => string
+  applyToEntity: (entity: any, input: TUpdate, ctx: CrudCtx) => void | Promise<void>
+  customFields?: CustomFieldsConfig
+  response?: (entity: any) => any
+}
+
+export type DeleteConfig = {
+  // Where to take id from; default: query param `id`
+  idFrom?: 'query' | 'body'
+  softDelete?: boolean // default true
+  response?: (id: string) => any
+}
+
+export type CrudCommandActionConfig = {
+  commandId: string
+  schema?: z.ZodTypeAny
+  mapInput?: (args: { parsed: any; raw: any; ctx: CrudCtx }) => Promise<any> | any
+  metadata?: (args: { input: any; parsed: any; raw: any; ctx: CrudCtx }) => Promise<CommandLogMetadata | null> | CommandLogMetadata | null
+  response?: (args: { result: any; logEntry: any | null; ctx: CrudCtx }) => any
+  status?: number
+}
+
+export type CrudCtx = {
+  container: AwilixContainer
+  auth: AuthContext | null
+  organizationScope: OrganizationScope | null
+  selectedOrganizationId: string | null
+  organizationIds: string[] | null
+  request?: Request
+}
+
+export type CrudFactoryOptions<TCreate, TUpdate, TList> = {
+  metadata?: CrudMetadata
+  orm: OrmEntityConfig
+  list?: ListConfig<TList>
+  create?: CreateConfig<TCreate>
+  update?: UpdateConfig<TUpdate>
+  del?: DeleteConfig
+  events?: CrudEventsConfig<any>
+  indexer?: CrudIndexerConfig<any>
+  resolveIdentifiers?: CrudIdentifierResolver
+  hooks?: CrudHooks<TCreate, TUpdate, TList>
+  actions?: {
+    create?: CrudCommandActionConfig
+    update?: CrudCommandActionConfig
+    delete?: CrudCommandActionConfig
+  }
+  /** Response enricher configuration. When set, enrichers targeting this entity run after afterList hook. */
+  enrichers?: {
+    /** Entity ID for enricher matching (e.g., 'customers.person') */
+    entityId: string
+  }
+}
+
+function deriveResourceFromActions(actions: CrudFactoryOptions<any, any, any>['actions']): string | null {
+  if (!actions) return null
+  const ids: Array<string | null | undefined> = [actions.create?.commandId, actions.update?.commandId, actions.delete?.commandId]
+  for (const id of ids) {
+    const resolved = deriveResourceFromCommandId(id)
+    if (resolved) return resolved
+  }
+  return null
+}
+
+function resolveResourceAliasesList(
+  opts: CrudFactoryOptions<any, any, any>,
+  ormEntityName: string | undefined
+): { primary: string; aliases: string[] } {
+  const eventsResource =
+    opts.events?.module && opts.events?.entity ? `${opts.events.module}.${opts.events.entity}` : null
+  const commandResource = deriveResourceFromActions(opts.actions)
+  const rawCandidate = eventsResource ?? commandResource ?? ormEntityName ?? 'resource'
+  const primary = canonicalizeResourceTag(rawCandidate) ?? 'resource'
+  return { primary, aliases: [] }
+}
+
+function mergeCommandMetadata(base: CommandLogMetadata, override: CommandLogMetadata | null | undefined): CommandLogMetadata {
+  if (!override) return base
+  const mergedContext = {
+    ...(base.context ?? {}),
+    ...(override.context ?? {}),
+  }
+  const merged: CommandLogMetadata = {
+    ...base,
+    ...override,
+  }
+  if (Object.keys(mergedContext).length > 0) merged.context = mergedContext
+  else if ('context' in merged) delete merged.context
+  return merged
+}
+
+function json(data: any, init?: ResponseInit) {
+  return new Response(JSON.stringify(data), {
+    ...(init || {}),
+    headers: { 'content-type': 'application/json', ...(init?.headers || {}) },
+  })
+}
+
+// Name of the selected-organization cookie (mirrors the directory module's
+// OrganizationSwitcher, which writes `om_selected_org=...; path=/; samesite=lax`).
+// Kept as a local literal so shared has no import dependency on a domain package.
+const SELECTED_ORG_COOKIE = 'om_selected_org'
+// Set-Cookie value that expires the stale selection so the next request falls
+// back to the caller's home org. Attributes mirror how the switcher sets it.
+const CLEAR_SELECTED_ORG_COOKIE = `${SELECTED_ORG_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`
+
+function attachOperationHeader(res: Response, logEntry: any) {
+  if (!res || !(res instanceof Response)) return res
+  if (!logEntry || typeof logEntry !== 'object') return res
+  const undoToken = typeof logEntry.undoToken === 'string' ? logEntry.undoToken : null
+  const id = typeof logEntry.id === 'string' ? logEntry.id : null
+  const commandId = typeof logEntry.commandId === 'string' ? logEntry.commandId : null
+  if (!undoToken || !id || !commandId) return res
+  const actionLabel = typeof logEntry.actionLabel === 'string' ? logEntry.actionLabel : null
+  const resourceKind = typeof logEntry.resourceKind === 'string' ? logEntry.resourceKind : null
+  const resourceId = typeof logEntry.resourceId === 'string' ? logEntry.resourceId : null
+  const createdAt = logEntry.createdAt instanceof Date
+    ? logEntry.createdAt.toISOString()
+    : (typeof logEntry.createdAt === 'string' ? logEntry.createdAt : new Date().toISOString())
+  const headerValue = serializeOperationMetadata({
+    id,
+    undoToken,
+    commandId,
+    actionLabel,
+    resourceKind,
+    resourceId,
+    executedAt: createdAt,
+  })
+  try {
+    res.headers.set('x-om-operation', headerValue)
+  } catch {
+    // no-op if headers already sent
+  }
+  return res
+}
+
+// An inbound `x-request-id` is caller-controlled, so it is only reused when it still
+// looks like an id. `Headers.get()` yields '' for an empty or whitespace-only header —
+// which `??` would not replace — and an unbounded value carrying spaces or `=` would
+// forge fields in the unquoted `key=value` log line this id exists to be read from.
+const INBOUND_REQUEST_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/
+
+function resolveRequestId(request?: Request): string {
+  const inbound = request?.headers.get('x-request-id')?.trim()
+  if (inbound && INBOUND_REQUEST_ID_PATTERN.test(inbound)) return inbound
+  return randomUUID()
+}
+
+/**
+ * Stable, UPPER_SNAKE classification codes for the generic 500/503 fallback
+ * bodies below. See `apps/docs/docs/framework/runtime/request-lifecycle.mdx`
+ * for the full contract.
+ *
+ * - `DATABASE_UNAVAILABLE` — `isTransientDbError` matched (503 branch).
+ * - `DATABASE_ERROR` — a Postgres SQLSTATE is present (via `readPgSqlState`)
+ *   but was not already classified as transient (503) or a foreign-key
+ *   violation (409).
+ * - `PERSISTENCE_ERROR` — a MikroORM `ValidationError`/`NotFoundError` that
+ *   was not already handled by a more specific branch.
+ * - `INTERNAL_ERROR` — default fallback for anything else.
+ */
+type CrudErrorCode = 'INTERNAL_ERROR' | 'DATABASE_ERROR' | 'PERSISTENCE_ERROR' | 'DATABASE_UNAVAILABLE'
+
+function classifyCrudError(err: unknown): { code: CrudErrorCode; pgSqlState: string | null } {
+  const pgSqlState = readPgSqlState(err)
+  if (pgSqlState) return { code: 'DATABASE_ERROR', pgSqlState }
+  if (err instanceof MikroOrmValidationError || err instanceof MikroOrmNotFoundError) {
+    return { code: 'PERSISTENCE_ERROR', pgSqlState: null }
+  }
+  return { code: 'INTERNAL_ERROR', pgSqlState: null }
+}
+
+async function handleError(err: unknown, request?: Request): Promise<Response> {
+  if (err instanceof Response) return err
+  if (isCrudHttpError(err)) {
+    const { translate } = await resolveTranslations()
+    return json(translateCrudErrorBody(err.body, translate), { status: err.status })
+  }
+  // A command interceptor that blocked with an explicit status is a deliberate business
+  // rejection, not a server fault — surface its status and message instead of a generic 500.
+  // Without a usable status the error falls through to the historical handling below (issue #5045).
+  const interceptorRejection = getCommandInterceptorHttpRejection(err)
+  if (interceptorRejection) {
+    return json(interceptorRejection.body, { status: interceptorRejection.status })
+  }
+  if (err instanceof z.ZodError) return json({ error: 'Invalid input', details: err.issues }, { status: 400 })
+  if (isTransientDbError(err)) {
+    // Transient DB unavailability (pool exhausted, `max_connections` reached, DB
+    // restarting) is retryable — surface a 503 with a Retry-After hint instead of
+    // a generic 500 so clients back off and retry once the DB recovers. Carries
+    // the same requestId correlation contract as the other branches below.
+    const requestId = resolveRequestId(request)
+    logger.warn('Transient DB failure during CRUD handler', {
+      message: err instanceof Error ? err.message : undefined,
+      requestId,
+    })
+    return json(
+      { error: 'Service temporarily unavailable', code: 'DATABASE_UNAVAILABLE', requestId },
+      { status: 503, headers: { 'Retry-After': '2', 'x-request-id': requestId } },
+    )
+  }
+
+  if (isForeignKeyViolation(err)) {
+    // SQLSTATE 23503 covers both directions: a DELETE blocked by a dependent row
+    // and an INSERT/UPDATE pointing at a missing parent. Either way it is a
+    // data-state conflict the caller can act on, so answer 409 instead of 500.
+    // The constraint name stays in the log only: it maps internal table/column
+    // names and has no business in a client-facing body. The missing-parent
+    // direction is often a server-side defect, so the error is still reported to
+    // telemetry and carries a requestId exactly like the generic 500 below.
+    const requestId = resolveRequestId(request)
+    const constraint = getForeignKeyViolationConstraint(err)
+    logger.warn('Foreign key violation during CRUD handler', {
+      message: err instanceof Error ? err.message : undefined,
+      constraint,
+      requestId,
+    })
+    getTelemetryRuntime()?.reportError(err, {
+      module: 'crud',
+      attributes: { requestId, errorName: 'ForeignKeyViolation', constraint: constraint ?? undefined },
+    })
+    return json(
+      {
+        error: 'The record is still referenced by other data, or references a record that does not exist',
+        code: 'FOREIGN_KEY_VIOLATION',
+        requestId,
+      },
+      { status: 409, headers: { 'x-request-id': requestId } },
+    )
+  }
+
+  // Unexpected exceptions still collapse into a generic 500 for the client (no internal
+  // detail leaked), but a requestId ties that response to this log line and to whatever
+  // reaches APM, so a client/support ticket citing it can be correlated with server-side
+  // detail (issue #5608).
+  const message = err instanceof Error ? err.message : undefined
+  const stack = err instanceof Error ? err.stack : undefined
+  const errorName = err instanceof Error ? err.name : undefined
+  const requestId = resolveRequestId(request)
+  const { code, pgSqlState } = classifyCrudError(err)
+  logger.error('Unexpected CRUD error', { message, stack, err, requestId, code })
+  getTelemetryRuntime()?.reportError(err, {
+    module: 'crud',
+    code: `crud.${code.toLowerCase()}`,
+    attributes: { requestId, errorName, code, pgCode: pgSqlState ?? undefined },
+  })
+  const body: Record<string, unknown> = {
+    error: 'Internal server error',
+    message: 'Something went wrong. Please try again later.',
+    requestId,
+    code,
+  }
+  return json(body, { status: 500, headers: { 'x-request-id': requestId } })
+}
+
+const LIFECYCLE_ACTION_MAP: Record<string, { before: string; after: string }> = {
+  created: { before: 'creating', after: 'created' },
+  updated: { before: 'updating', after: 'updated' },
+  deleted: { before: 'deleting', after: 'deleted' },
+}
+
+function deriveLifecycleEventIds(events: CrudEventsConfig | undefined, action: 'created' | 'updated' | 'deleted'): { beforeEventId: string | null; afterEventId: string | null; entity: string | null } {
+  if (!events?.module || !events?.entity) return { beforeEventId: null, afterEventId: null, entity: null }
+  const mapping = LIFECYCLE_ACTION_MAP[action]
+  if (!mapping) return { beforeEventId: null, afterEventId: null, entity: null }
+  const entity = `${events.module}.${events.entity}`
+  return {
+    beforeEventId: `${entity}.${mapping.before}`,
+    afterEventId: `${entity}.${mapping.after}`,
+    entity,
+  }
+}
+
+function buildSyncPayload(
+  base: {
+    eventId: string
+    entity: string
+    operation: 'create' | 'update' | 'delete'
+    timing: 'before' | 'after'
+    resourceId: string | null
+    userId: string
+    organizationId: string | null
+    tenantId: string
+    em: EntityManager
+    request: Request
+  },
+  extra?: {
+    payload?: Record<string, unknown>
+    previousData?: Record<string, unknown>
+    entityData?: Record<string, unknown>
+  },
+): SyncCrudEventPayload {
+  return {
+    ...base,
+    payload: extra?.payload,
+    previousData: extra?.previousData,
+    entityData: extra?.entityData,
+  }
+}
+
+function collectAndRunGuards(
+  container: AwilixContainer,
+): { allGuards: MutationGuard[] } {
+  const allGuards = [...getAllMutationGuardInstances()]
+  const legacyGuard = bridgeLegacyGuard(container)
+  if (legacyGuard) allGuards.push(legacyGuard)
+  return { allGuards }
+}
+
+async function runGuardAfterSuccessCallbacks(
+  callbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }>,
+  base: Omit<MutationGuardAfterInput, 'metadata'>,
+): Promise<void> {
+  for (const { guard, metadata: guardMeta } of callbacks) {
+    try {
+      await guard.afterSuccess!({ ...base, metadata: guardMeta })
+    } catch (error) {
+      logger.error('Mutation guard afterSuccess failed', { guardId: guard.id, err: error })
+    }
+  }
+}
+
+function snapshotEntity(entity: unknown): Record<string, unknown> | undefined {
+  if (!entity || typeof entity !== 'object') return undefined
+  return safeClone(entity) as Record<string, unknown>
+}
+
+function toInterceptorHeaders(headers: Headers): Record<string, string> {
+  const output: Record<string, string> = {}
+  headers.forEach((value, key) => {
+    output[key] = value
+  })
+  return output
+}
+
+function cleanInterceptorObject(
+  value: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  return Object.fromEntries(Object.entries(value).filter(([, current]) => current !== undefined))
+}
+
+function isUuid(v: any): v is string {
+  return typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v)
+}
+
+type AccessLogServiceLike = {
+  log: (input: any) => Promise<unknown> | unknown
+  logMany?: (inputs: any[]) => Promise<unknown> | unknown
+  flush?: () => Promise<void> | void
+}
+
+function resolveAccessLogService(container: AwilixContainer): AccessLogServiceLike | null {
+  const registrations = (container as { registrations?: Record<string, unknown> }).registrations
+  if (registrations && !Object.prototype.hasOwnProperty.call(registrations, 'accessLogService')) {
+    return null
+  }
+
+  try {
+    const service = container.resolve?.('accessLogService') as AccessLogServiceLike | undefined
+    if (service && typeof service.log === 'function') return service
+  } catch {
+    return null
+  }
+  return null
+}
+
+function shouldBlockAccessLogWrites(): boolean {
+  return process.env.OM_CRUD_ACCESS_LOG_BLOCKING === '1'
+}
+
+// Module-level set of in-flight access-log writes started by the CRUD factory.
+// Sits alongside the same registry inside AccessLogService so callers without
+// the concrete service (or in tests with mocks) can still drain pending work
+// via `flushPendingCrudAccessLogs()`.
+const pendingCrudAccessLogPromises = new Set<Promise<unknown>>()
+
+function trackPendingCrudAccessLogPromise<T>(promise: Promise<T>): Promise<T> {
+  pendingCrudAccessLogPromises.add(promise as unknown as Promise<unknown>)
+  promise
+    .catch(() => undefined)
+    .finally(() => {
+      pendingCrudAccessLogPromises.delete(promise as unknown as Promise<unknown>)
+    })
+  return promise
+}
+
+export async function flushPendingCrudAccessLogs(): Promise<void> {
+  while (pendingCrudAccessLogPromises.size > 0) {
+    const snapshot = Array.from(pendingCrudAccessLogPromises)
+    await Promise.allSettled(snapshot)
+  }
+}
+
+function logForbidden(details: Record<string, unknown>) {
+  try {
+    logger.warn('Forbidden request', details)
+  } catch {}
+}
+
+function collectFieldNames(items: any[]): string[] {
+  const set = new Set<string>()
+  for (const item of items) {
+    if (!item || typeof item !== 'object') continue
+    for (const key of Object.keys(item)) {
+      if (typeof key === 'string' && key.length > 0) set.add(key)
+    }
+  }
+  return Array.from(set)
+}
+
+function determineAccessType(query: unknown, total: number, idField: string): string {
+  if (query && typeof query === 'object' && query !== null && idField in (query as Record<string, unknown>)) {
+    const value = (query as Record<string, unknown>)[idField]
+    if (value !== undefined && value !== null && String(value).length > 0) return 'read:item'
+  }
+  return total > 1 ? 'read:list' : 'read'
+}
+
+function createCrudProfiler(resource: string, operation: string): Profiler {
+  const enabled = shouldEnableProfiler(resource)
+  return createProfiler({
+    scope: `crud:${operation}`,
+    target: resource,
+    label: `${resource}:${operation}`,
+    loggerLabel: '[crud:profile]',
+    enabled,
+  })
+}
+
+export type LogCrudAccessOptions = {
+  container: AwilixContainer
+  auth: AuthContext | null
+  request?: Request
+  items: any[]
+  idField?: string
+  resourceKind: string
+  organizationId?: string | null
+  tenantId?: string | null
+  query?: unknown
+  accessType?: string
+  fields?: string[]
+}
+
+export type LogCrudAccessResult = {
+  mode: 'batch' | 'fanout' | 'blocking' | 'skipped'
+  count: number
+  pending: number
+}
+
+export async function logCrudAccess(options: LogCrudAccessOptions): Promise<LogCrudAccessResult> {
+  const { container, auth, request, items, resourceKind } = options
+  if (!auth) return { mode: 'skipped', count: 0, pending: pendingCrudAccessLogPromises.size }
+  if (!Array.isArray(items) || items.length === 0) return { mode: 'skipped', count: 0, pending: pendingCrudAccessLogPromises.size }
+  const service = resolveAccessLogService(container)
+  if (!service) return { mode: 'skipped', count: 0, pending: pendingCrudAccessLogPromises.size }
+
+  const idField = options.idField || 'id'
+  const tenantId = options.tenantId ?? auth.tenantId ?? null
+  const organizationId = options.organizationId ?? auth.orgId ?? null
+  const actorUserId = (auth.keyId ?? auth.sub) ?? null
+  const fields = options.fields && options.fields.length ? options.fields : collectFieldNames(items)
+  const accessType = options.accessType ?? determineAccessType(options.query, items.length, idField)
+
+  const context: Record<string, unknown> = {
+    resultCount: items.length,
+    accessType,
+  }
+  if (options.query && typeof options.query === 'object' && options.query !== null) {
+    context.queryKeys = Object.keys(options.query as Record<string, unknown>)
+  }
+  try {
+    if (request) {
+      const url = new URL(request.url)
+      context.path = url.pathname
+    }
+  } catch {
+    // ignore url parsing issues
+  }
+
+  const uniqueIds = new Set<string>()
+  const payloads: Record<string, unknown>[] = []
+  for (const item of items) {
+    if (!item || typeof item !== 'object') continue
+    const rawId = (item as any)[idField]
+    const resourceId = normalizeIdentifierValue(rawId)
+    if (!resourceId || uniqueIds.has(resourceId)) continue
+    uniqueIds.add(resourceId)
+    const payload: Record<string, unknown> = {
+      tenantId,
+      organizationId,
+      actorUserId,
+      resourceKind,
+      resourceId,
+      accessType,
+    }
+    if (fields.length > 0) payload.fields = fields
+    if (Object.keys(context).length > 0) payload.context = context
+    payloads.push(payload)
+  }
+  if (!payloads.length) return { mode: 'skipped', count: 0, pending: pendingCrudAccessLogPromises.size }
+
+  const blocking = shouldBlockAccessLogWrites()
+  const dispatchMode: 'batch' | 'fanout' = typeof service.logMany === 'function' ? 'batch' : 'fanout'
+  const writePromise = (async () => {
+    try {
+      if (typeof service.logMany === 'function') {
+        await service.logMany(payloads)
+      } else {
+        // Legacy fallback for service mocks/implementations without logMany.
+        await Promise.all(
+          payloads.map((payload) =>
+            Promise.resolve(service.log(payload)).catch((err) => {
+              try {
+                logger.error('Failed to record access log', { err, payload })
+              } catch {}
+              return undefined
+            }),
+          ),
+        )
+      }
+    } catch (err) {
+      try {
+        logger.error('Failed to record access logs (batch)', { err, count: payloads.length })
+      } catch {}
+    }
+  })()
+  trackPendingCrudAccessLogPromise(writePromise)
+  if (blocking) {
+    await writePromise
+    return { mode: 'blocking', count: payloads.length, pending: pendingCrudAccessLogPromises.size }
+  }
+  return { mode: dispatchMode, count: payloads.length, pending: pendingCrudAccessLogPromises.size }
+}
+
+type CrudCacheStoredValue = {
+  payload: any
+  generatedAt: number
+}
+
+function safeClone<T>(value: T): T {
+  try {
+    const structuredCloneFn = (globalThis as any).structuredClone
+    if (typeof structuredCloneFn === 'function') {
+      return structuredCloneFn(value)
+    }
+  } catch {}
+  try {
+    return JSON.parse(JSON.stringify(value)) as T
+  } catch {
+    return value
+  }
+}
+
+function collectScopeOrganizationIds(ctx: CrudCtx): Array<string | null> {
+  if (Array.isArray(ctx.organizationIds)) {
+    return Array.from(new Set(ctx.organizationIds))
+  }
+  const fallback = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+  return [fallback]
+}
+
+function serializeSearchParams(params: URLSearchParams): string {
+  if (!params || params.keys().next().done) return ''
+  const grouped = new Map<string, string[]>()
+  params.forEach((value, key) => {
+    const existing = grouped.get(key) ?? []
+    existing.push(value)
+    grouped.set(key, existing)
+  })
+  const normalized: Array<[string, string[]]> = Array.from(grouped.entries()).map(([key, values]) => [key, values.sort((a, b) => a.localeCompare(b))])
+  normalized.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+  return JSON.stringify(normalized)
+}
+
+function buildCrudCacheKey(
+  resource: string,
+  request: Request,
+  ctx: CrudCtx,
+  enricherSignature = '',
+): string {
+  const url = new URL(request.url)
+  const scopeIds = collectScopeOrganizationIds(ctx)
+  const scopeSegment = scopeIds.length
+    ? scopeIds.map((id) => normalizeTagSegment(id)).sort((a, b) => a.localeCompare(b)).join(',')
+    : 'empty'
+  const segments = [
+    'crud',
+    normalizeTagSegment(resource),
+    'GET',
+    url.pathname,
+    `tenant:${normalizeTagSegment(ctx.auth?.tenantId ?? null)}`,
+    `selectedOrg:${normalizeTagSegment(ctx.selectedOrganizationId ?? null)}`,
+    `scope:${scopeSegment}`,
+    // List payloads can vary per caller identity beyond tenant/org scope:
+    // buildFilters may narrow by ctx.auth (e.g. ?mine=true), before-interceptor
+    // query rewrites are feature-gated per user, and afterList/after-interceptor
+    // output is embedded in the stored payload — so entries MUST be partitioned
+    // per actor (API key or user), never shared across identities.
+    `user:${normalizeTagSegment((ctx.auth?.keyId ?? ctx.auth?.sub) ?? null)}`,
+    `query:${serializeSearchParams(url.searchParams)}`,
+  ]
+  // The cached list payload already embeds enricher output (enrichment runs before
+  // the cache store), so the cache key MUST partition by the set of enrichers a
+  // request's entitlements actually select. Two callers in the same tenant/org
+  // scope but with different active enrichers (e.g. one holding the enricher's
+  // gating feature and one not) get distinct entries, which lets the cache-hit
+  // path skip re-running enrichers without leaking ACL-gated fields across
+  // feature cohorts. Routes without enrichers pass '' and keep their key shape.
+  if (enricherSignature) {
+    segments.push(`enrichers:${normalizeTagSegment(enricherSignature)}`)
+  }
+  return segments.join('|')
+}
+
+function extractRecordIds(items: any[], idField: string): string[] {
+  if (!Array.isArray(items) || !items.length) return []
+  const ids = new Set<string>()
+  for (const item of items) {
+    if (!item || typeof item !== 'object') continue
+    const rawId = (item as any)[idField]
+    const id = normalizeIdentifierValue(rawId)
+    if (id) ids.add(id)
+  }
+  return Array.from(ids)
+}
+
+export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: CrudFactoryOptions<TCreate, TUpdate, TList>) {
+  const metadata = opts.metadata || {}
+  const ormCfg = {
+    entity: opts.orm.entity,
+    idField: opts.orm.idField ?? 'id',
+    orgField: opts.orm.orgField === null ? null : opts.orm.orgField ?? 'organizationId',
+    tenantField: opts.orm.tenantField === null ? null : opts.orm.tenantField ?? 'tenantId',
+    softDeleteField: opts.orm.softDeleteField === null ? null : opts.orm.softDeleteField ?? 'deletedAt',
+  }
+  const entityName = typeof ormCfg.entity?.name === 'string' && ormCfg.entity.name.length > 0 ? ormCfg.entity.name : undefined
+  const resourceInfo = resolveResourceAliasesList(opts, entityName)
+  const resourceKind = resourceInfo.primary
+  const resourceAliases = resourceInfo.aliases
+  const resourceTargets = expandResourceAliases(resourceKind, resourceAliases)
+
+  // OSS opt-in optimistic locking — auto-register a generic reader for every
+  // CRUD entity using the factory's own ORM config (Step 13.3 of the spec at
+  // .ai/specs/implemented/2026-05-25-oss-optimistic-locking.md). Hand-wired readers
+  // registered earlier via module DI (customers/sales) always win because we
+  // use the `IfAbsent` variant. Skipped silently when the route has no
+  // resolvable resourceKind or no ORM entity class (e.g. virtual routes).
+  if (ormCfg.entity && resourceKind && resourceKind !== 'resource') {
+    const genericReader = createGenericOptimisticLockReader({
+      entity: ormCfg.entity,
+      idField: ormCfg.idField ?? 'id',
+      tenantField: ormCfg.tenantField,
+      orgField: ormCfg.orgField,
+      softDeleteField: ormCfg.softDeleteField,
+    })
+    const keysToRegister: Record<string, typeof genericReader> = { [resourceKind]: genericReader }
+    for (const alias of resourceAliases) {
+      if (alias && alias !== resourceKind) keysToRegister[alias] = genericReader
+    }
+    registerOptimisticLockReaderIfAbsent(keysToRegister)
+  }
+  const defaultIdentifierResolver: CrudIdentifierResolver = (entity, _action) => {
+    const id = normalizeIdentifierValue((entity as any)[ormCfg.idField!])
+    const orgId = ormCfg.orgField ? normalizeIdentifierValue((entity as any)[ormCfg.orgField]) : null
+    const tenantId = ormCfg.tenantField ? normalizeIdentifierValue((entity as any)[ormCfg.tenantField]) : null
+    return {
+      id: id ?? '',
+      organizationId: orgId ?? null,
+      tenantId: tenantId ?? null,
+    }
+  }
+  const identifierResolver: CrudIdentifierResolver = opts.resolveIdentifiers
+    ? (entity, action) => {
+        const raw = opts.resolveIdentifiers!(entity, action)
+        const id = normalizeIdentifierValue(raw?.id)
+        const organizationId = normalizeIdentifierValue(raw?.organizationId)
+        const tenantId = normalizeIdentifierValue(raw?.tenantId)
+        return {
+          id: id ?? '',
+          organizationId: organizationId ?? null,
+          tenantId: tenantId ?? null,
+        }
+      }
+    : defaultIdentifierResolver
+
+  const listCustomFieldDecorator = opts.list?.decorateCustomFields
+  const indexerConfig = opts.indexer as CrudIndexerConfig | undefined
+  const eventsConfig = opts.events as CrudEventsConfig | undefined
+
+  // Command-backed verbs (`actions.*`) never reach the built-in `markOrmEntityChange` calls
+  // below — the handler owns the mark and the command bus owns the flush. Hand the route's
+  // declared `indexer:` to the data engine for the duration of the command so a handler that
+  // marks `events:` only still writes the projection the route promised, using the handler's
+  // own entity and identifiers. Without this the declaration reaches no code at all (#5741).
+  const withRouteIndexerDeclaration = async <TResult>(
+    ctx: CrudCtx,
+    operation: CrudEventAction,
+    commandId: string,
+    run: () => Promise<TResult>,
+  ): Promise<TResult> => {
+    if (!indexerConfig || !ormCfg.entity) return run()
+    let de: DataEngine | null = null
+    try {
+      de = ctx.container.resolve('dataEngine') as DataEngine
+    } catch {
+      de = null
+    }
+    if (!de || typeof de.setDefaultIndexerConfig !== 'function') return run()
+    de.setDefaultIndexerConfig({ indexer: indexerConfig, entityClass: ormCfg.entity })
+    try {
+      const result = await run()
+      if (de.hasIndexedDefaultEntityClass?.() === false) {
+        // The one genuinely undiagnosable case: a handler that marks no side effect at all,
+        // so neither the route nor the command maintains the projection. One line per dropped
+        // write — far narrower than warning at construction time, though not literally false-
+        // positive-free: the flag tracks the route's own entity class, so a handler that
+        // discharges the projection through a different class (marking a parent aggregate with
+        // its own explicit `indexer:`) would also be warned about. No route in this repository
+        // does that today; widen the flag to "any indexer discharged" if one ever needs to.
+        logger.warn('CRUD route declares an indexer that its command handler did not discharge; the query index was not updated for this write', {
+          resourceKind,
+          operation,
+          commandId,
+          entityType: indexerConfig.entityType,
+        })
+      }
+      return result
+    } finally {
+      de.setDefaultIndexerConfig(null)
+    }
+  }
+
+  const inferFieldValue = (item: Record<string, unknown>, keys: string[]): string | null => {
+    for (const key of keys) {
+      const value = item[key]
+      if (typeof value === 'string') {
+        const trimmed = value.trim()
+        if (trimmed.length) return trimmed
+      }
+    }
+    return null
+  }
+
+  const decorateItemsWithCustomFields = async (
+    items: any[],
+    ctx: CrudCtx,
+    precomputedDefinitions?: ResolvedCustomFieldDefinitions,
+  ): Promise<any[]> => {
+    if (!listCustomFieldDecorator || !Array.isArray(items) || items.length === 0) return items
+    const entityIds = Array.isArray(listCustomFieldDecorator.entityIds)
+      ? listCustomFieldDecorator.entityIds
+      : [listCustomFieldDecorator.entityIds]
+    if (!entityIds.length) return items
+    const cfProfiler = createCrudProfiler(resourceKind, 'custom_fields')
+    cfProfiler.mark('prepare')
+    let profileClosed = false
+    const endProfile = (extra?: Record<string, unknown>) => {
+      if (!cfProfiler.enabled || profileClosed) return
+      profileClosed = true
+      cfProfiler.end(extra)
+    }
+    try {
+      const em = (ctx.container.resolve('em') as EntityManager)
+      const organizationIds =
+        Array.isArray(ctx.organizationIds) && ctx.organizationIds.length
+          ? ctx.organizationIds
+          : [ctx.selectedOrganizationId ?? null]
+      const tenantId = ctx.auth?.tenantId ?? null
+      // Reuse the index the query engine already resolved for this same scope
+      // (#2133) instead of issuing a second `custom_field_defs` round-trip.
+      const reusable = canReuseCustomFieldDefinitions(precomputedDefinitions, {
+        entityIds: entityIds.map(String),
+        tenantId,
+        organizationIds: resolveCfDefIndexOrgCandidates(ctx.organizationIds, ctx.selectedOrganizationId ?? null),
+      })
+      let definitionIndex: CustomFieldDefinitionIndex
+      if (reusable && precomputedDefinitions) {
+        definitionIndex = precomputedDefinitions.index
+        cfProfiler.mark('definitions_reused', { definitionCount: definitionIndex.size })
+      } else {
+        let cfDefCache: CacheStrategy | null = null
+        try {
+          cfDefCache = ctx.container.resolve('cache') as CacheStrategy
+        } catch {}
+        definitionIndex = await loadCustomFieldDefinitionIndex({
+          em,
+          entityIds,
+          tenantId,
+          organizationIds,
+          cache: cfDefCache ?? null,
+          requestScope: ctx,
+        })
+        cfProfiler.mark('definitions_loaded', { definitionCount: definitionIndex.size })
+      }
+      const decoratedItems = items.map((raw) => {
+        if (!raw || typeof raw !== 'object') return raw
+        const item = raw as Record<string, unknown>
+        const context = listCustomFieldDecorator.resolveContext
+          ? listCustomFieldDecorator.resolveContext(raw, ctx) ?? {}
+          : {}
+        const organizationId =
+          context.organizationId ??
+          inferFieldValue(item, ['organization_id', 'organizationId'])
+        const tenantId =
+          context.tenantId ??
+          inferFieldValue(item, ['tenant_id', 'tenantId']) ??
+          ctx.auth?.tenantId ??
+          null
+        const decorated = decorateRecordWithCustomFields(item, definitionIndex, {
+          organizationId: organizationId ?? null,
+          tenantId: tenantId ?? null,
+        })
+        return applyCustomFieldsNormalization(item, decorated, {
+          stripPrefixedKeys: listCustomFieldDecorator.stripPrefixedKeys === true,
+        })
+      })
+      cfProfiler.mark('decorate_complete', { itemCount: decoratedItems.length })
+      endProfile({
+        entityIds: entityIds.length,
+        itemCount: decoratedItems.length,
+      })
+      return decoratedItems
+    } catch (err) {
+      logger.warn('Failed to decorate custom fields', { err })
+      endProfile({
+        result: 'error',
+        entityIds: entityIds.length,
+        itemCount: items.length,
+      })
+      return items
+    }
+  }
+
+  // Phase 3 — per-request userFeatures memo. CrudCtx is a plain object that
+  // lives only for the duration of one HTTP request, so a WeakMap keyed on
+  // ctx is the right scope: interceptor + enricher + any future call site
+  // share one Promise<string[] | undefined> per request. The cache lifetime
+  // is bounded by the request and cannot desync from mid-request grant
+  // changes because RBAC grants never change mid-request.
+  const userFeaturesPromiseCache = new WeakMap<object, Promise<string[] | undefined>>()
+
+  function resolveUserFeaturesOnce(ctx: CrudCtx): Promise<string[] | undefined> {
+    if (!ctx.auth) return Promise.resolve(undefined)
+    const cached = userFeaturesPromiseCache.get(ctx)
+    if (cached) return cached
+    const promise = (async () => {
+      try {
+        const rbac = ctx.container.resolve('rbacService') as RbacServiceLike | undefined
+        if (rbac?.getGrantedFeatures) {
+          return await rbac.getGrantedFeatures(ctx.auth!.sub, {
+            tenantId: ctx.auth!.tenantId,
+            organizationId: ctx.selectedOrganizationId ?? ctx.auth!.orgId,
+          })
+        }
+      } catch {
+        // rbacService not available — enrichers without feature requirements still run
+      }
+      return undefined
+    })()
+    userFeaturesPromiseCache.set(ctx, promise)
+    return promise
+  }
+
+  /**
+   * Build enricher context from CRUD context and resolve user features for ACL gating.
+   * Returns null if enrichers are not configured or auth is missing.
+   */
+  async function buildEnricherContext(ctx: CrudCtx): Promise<EnricherContext | null> {
+    if (!opts.enrichers?.entityId) return null
+    if (!ctx.auth) return null
+
+    const userFeatures = await resolveUserFeaturesOnce(ctx)
+
+    return {
+      organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? '',
+      tenantId: ctx.auth.tenantId ?? '',
+      userId: ctx.auth.sub,
+      em: ctx.container.resolve('em') as EntityManager,
+      container: ctx.container,
+      userFeatures,
+    }
+  }
+
+  async function resolveUserFeatures(ctx: CrudCtx): Promise<string[] | undefined> {
+    return resolveUserFeaturesOnce(ctx)
+  }
+
+  const NO_ENRICHER_CACHE_PLAN: ListCacheEnricherPlan = { signature: '', skipEnrichersOnCacheHit: false }
+
+  /**
+   * Resolve whether this request's CRUD list cache may embed enricher output and
+   * the cache-key signature to partition by. Returns the no-op plan when no
+   * enrichers are configured or active — keeping the cache key identical to the
+   * pre-enricher shape and forcing enrichers (if any) to run on every request.
+   */
+  async function resolveListCachePlan(ctx: CrudCtx): Promise<ListCacheEnricherPlan> {
+    if (!opts.enrichers?.entityId) return NO_ENRICHER_CACHE_PLAN
+    const enricherCtx = await buildEnricherContext(ctx)
+    if (!enricherCtx) return NO_ENRICHER_CACHE_PLAN
+    return resolveListCacheEnricherPlan(opts.enrichers.entityId, enricherCtx)
+  }
+
+  const interceptorContextCache = new WeakMap<object, ReturnType<typeof buildInterceptorContextInner>>()
+
+  async function buildInterceptorContextInner(ctx: CrudCtx) {
+    if (!ctx.auth) return null
+    return {
+      userId: ctx.auth.sub,
+      organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? '',
+      tenantId: ctx.auth.tenantId ?? '',
+      em: ctx.container.resolve('em') as EntityManager,
+      container: ctx.container,
+      userFeatures: await resolveUserFeatures(ctx),
+    }
+  }
+
+  function buildInterceptorContext(ctx: CrudCtx) {
+    const cached = interceptorContextCache.get(ctx)
+    if (cached) return cached
+    const promise = buildInterceptorContextInner(ctx)
+    interceptorContextCache.set(ctx, promise)
+    return promise
+  }
+
+  async function applyInterceptorsBefore(args: {
+    ctx: CrudCtx
+    request: Request
+    method: ApiInterceptorMethod
+    body?: Record<string, unknown>
+    query?: Record<string, unknown>
+  }): Promise<{ errorResponse: Response | null; requestPayload: InterceptorRequest; metadataByInterceptor: Record<string, Record<string, unknown> | undefined> }> {
+    const interceptorContext = await buildInterceptorContext(args.ctx)
+    const requestPayload: InterceptorRequest = {
+      method: args.method,
+      url: args.request.url,
+      body: cleanInterceptorObject(args.body),
+      query: cleanInterceptorObject(args.query),
+      headers: toInterceptorHeaders(args.request.headers),
+    }
+    if (!interceptorContext) {
+      return { errorResponse: null, requestPayload, metadataByInterceptor: {} }
+    }
+    const routePath = resolveApiInterceptorRoutePath(args.request)
+    if (routePath === null) {
+      return {
+        errorResponse: json({ error: 'Bad request' }, { status: 400 }),
+        requestPayload,
+        metadataByInterceptor: {},
+      }
+    }
+    const contextWithHeaders = {
+      ...interceptorContext,
+      extensionHeaders: parseExtensionHeaders(requestPayload.headers),
+    }
+    const result = await runApiInterceptorsBefore({
+      routePath,
+      method: args.method,
+      request: requestPayload,
+      context: contextWithHeaders,
+    })
+    if (!result.ok) {
+      return { errorResponse: json(result.body, { status: result.statusCode }), requestPayload, metadataByInterceptor: {} }
+    }
+    return { errorResponse: null, requestPayload: result.request, metadataByInterceptor: result.metadataByInterceptor }
+  }
+
+  async function applyInterceptorsAfter(args: {
+    ctx: CrudCtx
+    request: Request
+    method: ApiInterceptorMethod
+    requestPayload: InterceptorRequest
+    metadataByInterceptor: Record<string, Record<string, unknown> | undefined>
+    statusCode: number
+    body: Record<string, unknown>
+    headers?: Record<string, string>
+  }): Promise<{ ok: boolean; statusCode: number; body: Record<string, unknown>; headers: Record<string, string> } | null> {
+    const interceptorContext = await buildInterceptorContext(args.ctx)
+    if (!interceptorContext) return { ok: true, statusCode: args.statusCode, body: args.body, headers: args.headers ?? {} }
+    const routePath = resolveApiInterceptorRoutePath(args.request)
+    if (routePath === null) {
+      return { ok: false, statusCode: 400, body: { error: 'Bad request' }, headers: {} }
+    }
+    const result = await runApiInterceptorsAfter({
+      routePath,
+      method: args.method,
+      request: args.requestPayload,
+      response: {
+        statusCode: args.statusCode,
+        body: args.body,
+        headers: args.headers ?? {},
+      } satisfies InterceptorResponse,
+      context: interceptorContext,
+      metadataByInterceptor: args.metadataByInterceptor,
+    })
+    return result
+  }
+
+  /**
+   * Apply response enrichers to list payload items.
+   * Mutates payload.items and adds payload._meta.
+   * No-op if enrichers are not configured.
+   */
+  async function enrichListPayload(payload: any, ctx: CrudCtx, profiler?: Profiler): Promise<void> {
+    if (!opts.enrichers?.entityId) return
+    const enricherCtx = await buildEnricherContext(ctx)
+    if (!enricherCtx) return
+    profiler?.mark('enrichers_start')
+    const result = await applyResponseEnrichers(payload.items, opts.enrichers.entityId, enricherCtx)
+    payload.items = result.items
+    if (result._meta.enrichedBy.length > 0 || result._meta.enricherErrors?.length) {
+      payload._meta = { ...(payload._meta || {}), ...result._meta }
+    }
+    profiler?.mark('enrichers_complete', { enricherCount: result._meta.enrichedBy.length })
+  }
+
+  /**
+   * Apply response enrichers to a single record.
+   * Returns the enriched record with _meta merged.
+   */
+  async function enrichSingleRecord(record: any, ctx: CrudCtx): Promise<any> {
+    if (!opts.enrichers?.entityId) return record
+    const enricherCtx = await buildEnricherContext(ctx)
+    if (!enricherCtx) return record
+    const result = await applyResponseEnricherToRecord(record, opts.enrichers.entityId, enricherCtx)
+    if (result._meta.enrichedBy.length > 0 || result._meta.enricherErrors?.length) {
+      return { ...result.record, _meta: result._meta }
+    }
+    return result.record
+  }
+
+  async function ensureAuth(request?: Request | null) {
+    const auth = request ? await getAuthFromRequest(request) : await getAuthFromCookies()
+    if (!auth) return null
+    if (auth.tenantId && !isUuid(auth.tenantId)) return null
+    return auth
+  }
+
+  async function withCtx(request: Request): Promise<CrudCtx> {
+    const container = await createRequestContainer()
+    const rawAuth = await ensureAuth(request)
+    let scope: OrganizationScope | null = null
+    let selectedOrganizationId: string | null = null
+    let organizationIds: string[] | null = null
+    if (rawAuth) {
+      try {
+        scope = await resolveOrganizationScopeForRequest({ container, auth: rawAuth, request })
+      } catch {
+        scope = null
+      }
+    }
+    const scopedTenantId = scope?.tenantId ?? rawAuth?.tenantId ?? null
+    const scopedOrgId = scope ? (scope.selectedId ?? null) : (rawAuth?.orgId ?? null)
+    selectedOrganizationId = scopedOrgId
+    const scopedAuth = rawAuth
+      ? {
+          ...rawAuth,
+          tenantId: scopedTenantId ?? null,
+          orgId: scopedOrgId ?? null,
+        }
+      : null
+    const fallbackOrgId = scope ? scopedOrgId : (rawAuth?.orgId ?? null)
+    const hasExplicitEmptyScope = Boolean(scope && (
+      (Array.isArray(scope.filterIds) && scope.filterIds.length === 0)
+      || (Array.isArray(scope.allowedIds) && scope.allowedIds.length === 0)
+    ))
+    const rawScopeIds = scope?.filterIds
+    const scopedIds = Array.isArray(rawScopeIds) ? rawScopeIds.filter((id): id is string => typeof id === 'string' && id.length > 0) : null
+    if (hasExplicitEmptyScope) {
+      organizationIds = []
+    } else if (!scope) {
+      organizationIds = fallbackOrgId ? [fallbackOrgId] : null
+    } else if (scopedIds === null) {
+      organizationIds = scope.allowedIds === null ? null : (fallbackOrgId ? [fallbackOrgId] : null)
+    } else if (scopedIds.length > 0) {
+      organizationIds = Array.from(new Set(scopedIds))
+    } else if (fallbackOrgId) {
+      const allowedIds = Array.isArray(scope?.allowedIds) ? scope.allowedIds : null
+      let canUseFallback = false
+      if (allowedIds === null) {
+        canUseFallback = true
+      } else if (allowedIds.includes(fallbackOrgId)) {
+        canUseFallback = true
+      }
+      if (canUseFallback) {
+        organizationIds = [fallbackOrgId]
+      } else {
+        organizationIds = []
+      }
+    } else {
+      organizationIds = []
+    }
+    return { container, auth: scopedAuth, organizationScope: scope, selectedOrganizationId, organizationIds, request }
+  }
+
+  // The caller explicitly selected an organization (selected-org cookie) that no
+  // longer resolves to a real, accessible org — e.g. a stale cookie after a DB
+  // reset, or after the caller lost access to that org. Rather than silently
+  // acting against a fallback org the caller did not select (writes) or showing
+  // a different org's data than the one selected (reads), fail loud on every
+  // org-scoped record operation so the client re-selects. Recovery surfaces
+  // (org switcher, nav, profile) are custom routes, not this factory, so they
+  // keep working. Returns a 422 Response when rejected, otherwise null.
+  function rejectInvalidOrgSelection(ctx: CrudCtx, action: 'list' | 'create' | 'update' | 'delete'): Response | null {
+    if (!ormCfg.orgField) return null
+    if (!(ctx.organizationScope as OrganizationScope | null | undefined)?.selectionRejected) return null
+    logForbidden({
+      resourceKind,
+      action,
+      reason: 'organization_selection_invalid',
+      userId: ctx.auth?.sub ?? null,
+      tenantId: ctx.auth?.tenantId ?? null,
+      organizationIds: ctx.organizationIds,
+    })
+    // Self-heal reads: expire the stale selected-org cookie so the caller's next
+    // request falls back to their home org and the session recovers on its own
+    // (important for single-org users, who have no org switcher to re-select
+    // from). Writes intentionally do NOT clear it — a mutation must go through an
+    // explicit, valid re-selection, never silently target a fallback org.
+    const headers: Record<string, string> = action === 'list'
+      ? { 'set-cookie': CLEAR_SELECTED_ORG_COOKIE }
+      : {}
+    return json(
+      {
+        error: 'Your selected organization is no longer available. Please re-select an organization and try again.',
+        code: 'organization_selection_invalid',
+      },
+      { status: 422, headers },
+    )
+  }
+
+  async function GET(request: Request) {
+    const profiler = createCrudProfiler(resourceKind, 'list')
+    const requestMeta: Record<string, unknown> = { method: request.method }
+    try {
+      const urlObj = new URL(request.url)
+      requestMeta.path = urlObj.pathname
+      requestMeta.url = request.url
+      if (urlObj.search) requestMeta.query = urlObj.search
+    } catch {
+      requestMeta.url = request.url
+    }
+    profiler.mark('request_received', requestMeta)
+    let profileClosed = false
+    const finishProfile = (extra?: Record<string, unknown>) => {
+      if (!profiler.enabled || profileClosed) return
+      profileClosed = true
+      const meta = extra ? { ...requestMeta, ...extra } : { ...requestMeta }
+      profiler.end(meta)
+    }
+    try {
+      profiler.mark('resolve_context')
+      const ctx = await withCtx(request)
+      profiler.mark('context_ready')
+      if (!ctx.auth) {
+        finishProfile({ reason: 'unauthorized' })
+        return json({ error: 'Unauthorized' }, { status: 401 })
+      }
+      const listSelectionRejected = rejectInvalidOrgSelection(ctx, 'list')
+      if (listSelectionRejected) {
+        finishProfile({ reason: 'organization_selection_invalid' })
+        return listSelectionRejected
+      }
+      if (!opts.list) {
+        finishProfile({ reason: 'list_not_configured' })
+        return json({ error: 'Not implemented' }, { status: 501 })
+      }
+      const url = new URL(request.url)
+      const rawQueryParams = buildQueryParams(url.searchParams)
+      profiler.mark('query_parsed')
+      let validated = opts.list.schema.parse(rawQueryParams)
+      profiler.mark('query_validated')
+
+      if (ormCfg.orgField && Array.isArray(ctx.organizationIds) && ctx.organizationIds.length === 0) {
+        profiler.mark('scope_blocked')
+        logForbidden({
+          resourceKind,
+          action: 'list',
+          reason: 'organization_scope_empty',
+          userId: ctx.auth?.sub ?? null,
+          tenantId: ctx.auth?.tenantId ?? null,
+          organizationIds: ctx.organizationIds,
+        })
+        const page = Number((validated as Record<string, unknown>).page ?? 1) || 1
+        const pageSize = Math.min(
+          Math.max(Number((validated as Record<string, unknown>).pageSize ?? 50) || 50, 1),
+          100,
+        )
+        finishProfile({ result: 'scope_blocked', itemCount: 0, total: 0 })
+        return json({ items: [], total: 0, page, pageSize, totalPages: 0 })
+      }
+
+      const beforeInterceptors = await applyInterceptorsBefore({
+        ctx,
+        request,
+        method: 'GET',
+        query: (validated as Record<string, unknown>),
+      })
+      if (beforeInterceptors.errorResponse) {
+        finishProfile({ result: 'interceptor_before_blocked' })
+        return beforeInterceptors.errorResponse
+      }
+      const interceptorRequest = beforeInterceptors.requestPayload
+      const interceptorMetadata = beforeInterceptors.metadataByInterceptor
+      if (interceptorRequest.query) {
+        validated = opts.list.schema.parse(interceptorRequest.query)
+      }
+      const queryParams = {
+        ...rawQueryParams,
+        ...(interceptorRequest.query ?? {}),
+      } as Record<string, unknown>
+      const parsedIds = parseIdsParam(queryParams.ids)
+      const idsParamProvided = isIdsParamProvided(queryParams.ids)
+
+      await opts.hooks?.beforeList?.(validated as any, ctx)
+      profiler.mark('before_list_hook')
+
+      const availableFormats = resolveAvailableExportFormats(opts.list)
+      const requestedExport = normalizeExportFormat((queryParams as any).format)
+      const exportRequested = requestedExport != null && availableFormats.includes(requestedExport)
+      const requestedPage = Number((queryParams as any).page ?? 1) || 1
+      const requestedPageSize = Math.min(Math.max(Number((queryParams as any).pageSize ?? 50) || 50, 1), 100)
+      const exportPageSize = exportRequested ? resolveExportBatchSize(opts.list, requestedPageSize) : requestedPageSize
+      const exportScopeParam = (queryParams as any).exportScope ?? (queryParams as any).export_scope
+      const exportScope = typeof exportScopeParam === 'string' ? exportScopeParam.toLowerCase() : null
+      const exportFullRequested = exportRequested && (exportScope === 'full' || parseBooleanToken((queryParams as any).full) === true)
+      profiler.mark('export_configured', { exportRequested, exportFullRequested })
+
+      // A full export still owes the route's own visibility predicate. Routes with
+      // `omitAutomaticTenantOrgScope` own their entire scope inside `buildFilters` — the
+      // query engine/ORM fallback add no tenant/org predicate of their own for them — so
+      // dropping to `{}` here would leak every tenant's rows (#7806). Re-run `buildFilters`
+      // with an empty query so only its scope branches apply, not the caller's UI filters.
+      const resolveFullExportBaseFilters = async () => {
+        if (opts.list?.omitAutomaticTenantOrgScope && opts.list.buildFilters) {
+          return opts.list.buildFilters({} as TList, ctx)
+        }
+        return {} as Where<Record<string, unknown>>
+      }
+
+      const cacheEnabled =
+        isCrudCacheEnabled() && !exportRequested && !opts.list?.disableListCache
+      const cacheTimerStart = cacheEnabled && isCrudCacheDebugEnabled()
+        ? process.hrtime.bigint()
+        : null
+      const cache = cacheEnabled ? resolveCrudCache(ctx.container) : null
+      const enricherCachePlan = cacheEnabled ? await resolveListCachePlan(ctx) : NO_ENRICHER_CACHE_PLAN
+      const cacheKey = cacheEnabled ? buildCrudCacheKey(resourceKind, request, ctx, enricherCachePlan.signature) : null
+      let cacheStatus: 'hit' | 'miss' = 'miss'
+      let cachedValue: CrudCacheStoredValue | null = null
+
+      if (cacheEnabled && cache && cacheKey) {
+        const rawCached = await cache.get(cacheKey)
+        if (rawCached !== null && rawCached !== undefined) {
+          if (typeof rawCached === 'object' && 'payload' in (rawCached as any)) {
+            cachedValue = rawCached as CrudCacheStoredValue
+          } else {
+            cachedValue = { payload: rawCached, generatedAt: Date.now() }
+          }
+        }
+      }
+      profiler.mark('cache_checked', { cached: cachedValue !== null })
+
+      const tenantForScope = ctx.auth?.tenantId ?? null
+      const maybeStoreCrudCache = async (payload: any) => {
+        if (!cacheEnabled || !cache || !cacheKey) return
+        if (!payload || typeof payload !== 'object') return
+        if (Array.isArray(payload)) return
+        const items = Array.isArray((payload as any).items) ? (payload as any).items : []
+        const tags = new Set<string>()
+        const scopeOrgIds = ormCfg.orgField ? collectScopeOrganizationIds(ctx) : [null]
+        const crudSegment = deriveCrudSegmentTag(resourceKind, request)
+        for (const target of resourceTargets) {
+          for (const tag of buildCollectionTags(target, tenantForScope, scopeOrgIds)) {
+            tags.add(tag)
+          }
+        }
+        const recordIds = extractRecordIds(items, ormCfg.idField!)
+        for (const recordId of recordIds) {
+          for (const target of resourceTargets) {
+            tags.add(buildRecordTag(target, tenantForScope, recordId))
+          }
+        }
+        if (crudSegment) {
+          tags.add(`crud:segment:${crudSegment}`)
+        }
+        if (!tags.size) return
+        try {
+          await cache.set(cacheKey, { payload: safeClone(payload), generatedAt: Date.now() }, { tags: Array.from(tags) })
+          debugCrudCache('store', {
+            resource: resourceKind,
+            key: cacheKey,
+            tags: Array.from(tags),
+            itemCount: items.length,
+          })
+        } catch (err) {
+          debugCrudCache('store', {
+            resource: resourceKind,
+            key: cacheKey,
+            error: err instanceof Error ? err.message : String(err),
+          })
+        }
+      }
+
+      // Enrich the (miss-path) payload and store it in the CRUD cache, honoring
+      // the request's enricher cache plan:
+      // - skipEnrichersOnCacheHit: every active enricher is record-pure and safe
+      //   to embed, so enrich first and cache the enriched payload (a later hit
+      //   serves it without re-running enrichers — the #2222 optimization).
+      // - otherwise: cache the PRE-enrichment payload, then enrich only the
+      //   response. A later hit re-runs enrichers against fresh data, and no live
+      //   enrichment is ever embedded in the shared cache entry (avoids stale
+      //   cross-module output and cross-cohort ACL leaks).
+      const enrichAndStorePayload = async (payload: any) => {
+        if (enricherCachePlan.skipEnrichersOnCacheHit) {
+          await enrichListPayload(payload, ctx, profiler)
+          await maybeStoreCrudCache(payload)
+          return
+        }
+        await maybeStoreCrudCache(payload)
+        await enrichListPayload(payload, ctx, profiler)
+      }
+
+      const logCacheOutcome = (event: 'hit' | 'miss', itemCount: number) => {
+        if (!cacheTimerStart) return
+        const elapsedMs = Number(process.hrtime.bigint() - cacheTimerStart) / 1_000_000
+        debugCrudCache(event, {
+          resource: resourceKind,
+          key: cacheKey,
+          durationMs: Math.round(elapsedMs * 1000) / 1000,
+          itemCount,
+        })
+      }
+
+      const respondWithPayload = (payload: any, extraHeaders?: Record<string, string>) => {
+        const headers: Record<string, string> = extraHeaders ? { ...extraHeaders } : {}
+        const warning = payload && typeof payload === 'object' && payload.meta?.partialIndexWarning
+        if (warning) {
+          headers['x-om-partial-index'] = JSON.stringify({
+            type: 'partial_index',
+            entity: warning.entity,
+            entityLabel: warning.entityLabel ?? warning.entity,
+            baseCount: warning.baseCount ?? null,
+            indexedCount: warning.indexedCount ?? null,
+            scope: warning.scope ?? 'scoped',
+          })
+        }
+        if (cacheEnabled) {
+          headers['x-om-cache'] = cacheStatus
+        }
+        return json(payload, Object.keys(headers).length ? { headers } : undefined)
+      }
+
+      if (cachedValue) {
+        cacheStatus = 'hit'
+        profiler.mark('cache_hit', { generatedAt: cachedValue.generatedAt ?? null })
+        const payload = safeClone(cachedValue.payload)
+        if (!payload || typeof payload !== 'object' || Array.isArray(payload) || !Array.isArray((payload as any).items)) {
+          cacheStatus = 'miss'
+          profiler.mark('cache_payload_invalid', {
+            payloadType: Array.isArray(payload) ? 'array' : typeof payload,
+          })
+          try {
+            if (cache && cacheKey && typeof cache.delete === 'function') {
+              await cache.delete(cacheKey)
+            }
+          } catch {
+            // ignore cache eviction failure
+          }
+          cachedValue = null
+        }
+      }
+
+      if (cachedValue) {
+        const payload = safeClone(cachedValue.payload)
+        const items = Array.isArray((payload as any)?.items) ? (payload as any).items : []
+        profiler.mark('cache_payload_ready', { itemCount: items.length })
+        await logCrudAccess({
+          container: ctx.container,
+          auth: ctx.auth,
+          request,
+          items,
+          idField: ormCfg.idField!,
+          resourceKind,
+          organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null,
+          tenantId: ctx.auth.tenantId ?? null,
+          query: validated,
+        })
+        await opts.hooks?.afterList?.(payload, { ...ctx, query: validated as any })
+        const cacheAfterInterceptors = await applyInterceptorsAfter({
+          ctx,
+          request,
+          method: 'GET',
+          requestPayload: interceptorRequest,
+          metadataByInterceptor: interceptorMetadata,
+          statusCode: 200,
+          body: payload as Record<string, unknown>,
+        })
+        if (!cacheAfterInterceptors) {
+          finishProfile({ result: 'interceptor_after_empty', cacheStatus })
+          return json({ error: 'Internal interceptor error' }, { status: 500 })
+        }
+        if (!cacheAfterInterceptors.ok) {
+          finishProfile({ result: 'interceptor_after_failed', cacheStatus })
+          return json(cacheAfterInterceptors.body, { status: cacheAfterInterceptors.statusCode, headers: cacheAfterInterceptors.headers })
+        }
+        Object.assign(payload, cacheAfterInterceptors.body)
+        if (enricherCachePlan.skipEnrichersOnCacheHit) {
+          // Every active enricher is record-pure: the cached payload already
+          // embeds their output and the cache key is partitioned by the active
+          // enricher signature, so the cached enrichment matches this caller's
+          // entitlements exactly. Skipping it removes the per-hit enricher cost
+          // (the ~15ms regression reported in #2222) while staying ACL-gated.
+          profiler.mark('enrichers_skipped_cache_hit', { enricherSignature: enricherCachePlan.signature || null })
+        } else {
+          // Live-mode enrichers (or none): the cached payload is the
+          // pre-enrichment base, so re-run enrichers against current data. This
+          // keeps cross-module / time-dependent enrichment (catalog images,
+          // pipeline state) fresh on cache hits.
+          await enrichListPayload(payload, ctx, profiler)
+        }
+        logCacheOutcome('hit', items.length)
+        const response = respondWithPayload(payload)
+        finishProfile({ result: 'cache_hit', cacheStatus })
+        return response
+      }
+
+      // Prefer query engine when configured
+      if (opts.list.entityId && opts.list.fields) {
+        profiler.mark('query_engine_prepare')
+        const qe = (ctx.container.resolve('queryEngine') as QueryEngine)
+        profiler.mark('query_engine_resolved')
+        const sortFieldMap = opts.list.sortFieldMap
+        const resolveSortSelector = (field: string) => {
+          const mapped = (sortFieldMap && sortFieldMap[field]) || field
+          return typeof mapped === 'string' ? normalizeSortFieldSelector(mapped) : mapped
+        }
+        const { sortField: sortFieldRaw, sortDir: sortDirRaw } = resolveSortParams(
+          queryParams as Record<string, unknown>,
+          opts.list.defaultSort,
+        )
+        const sortField = resolveSortSelector(sortFieldRaw)
+        const sort: Sort[] = [{ field: sortField as any, dir: sortDirRaw } as any]
+        if (opts.list.tiebreakSortField) {
+          const tiebreakField = resolveSortSelector(opts.list.tiebreakSortField)
+          if (tiebreakField !== sortField) sort.push({ field: tiebreakField as any, dir: SortDir.Asc } as any)
+        }
+        const page: Page = exportRequested
+          ? { page: 1, pageSize: exportPageSize }
+          : { page: requestedPage, pageSize: requestedPageSize }
+        const baseFilters = exportFullRequested
+          ? await resolveFullExportBaseFilters()
+          : (opts.list.buildFilters ? await opts.list.buildFilters(validated as any, ctx) : ({} as Where<any>))
+        const filters = exportFullRequested
+          ? baseFilters
+          : mergeAdvancedFilters(baseFilters as Record<string, unknown>, validated as Record<string, unknown>) as Where<any>
+        const mergedFilters = exportFullRequested ? filters : mergeIdFilter(filters, parsedIds, { idsParamProvided })
+        const withDeleted = parseBooleanToken((queryParams as any).withDeleted) === true
+        profiler.mark('filters_ready', { withDeleted })
+        if (
+          ormCfg.orgField &&
+          ctx.organizationIds &&
+          ctx.organizationIds.length === 0 &&
+          !opts.list?.omitAutomaticTenantOrgScope
+        ) {
+          profiler.mark('scope_blocked')
+          logForbidden({
+            resourceKind,
+            action: 'list',
+            reason: 'organization_scope_empty',
+            userId: ctx.auth?.sub ?? null,
+            tenantId: ctx.auth?.tenantId ?? null,
+            organizationIds: ctx.organizationIds,
+          })
+          const emptyPayload = { items: [], total: 0, page: page.page, pageSize: page.pageSize, totalPages: 0 }
+          await opts.hooks?.afterList?.(emptyPayload, { ...ctx, query: validated as any })
+          const emptyAfterInterceptors = await applyInterceptorsAfter({
+            ctx,
+            request,
+            method: 'GET',
+            requestPayload: interceptorRequest,
+            metadataByInterceptor: interceptorMetadata,
+            statusCode: 200,
+            body: emptyPayload as Record<string, unknown>,
+          })
+          if (!emptyAfterInterceptors) {
+            finishProfile({ result: 'interceptor_after_empty', cacheStatus, itemCount: 0, total: 0 })
+            return json({ error: 'Internal interceptor error' }, { status: 500 })
+          }
+          if (!emptyAfterInterceptors.ok) {
+            finishProfile({ result: 'interceptor_after_failed', cacheStatus, itemCount: 0, total: 0 })
+            return json(emptyAfterInterceptors.body, { status: emptyAfterInterceptors.statusCode, headers: emptyAfterInterceptors.headers })
+          }
+          Object.assign(emptyPayload, emptyAfterInterceptors.body)
+          await maybeStoreCrudCache(emptyPayload)
+          logCacheOutcome(cacheStatus, emptyPayload.items.length)
+          const response = respondWithPayload(emptyPayload)
+          finishProfile({ result: 'empty_scope', cacheStatus, itemCount: 0, total: 0 })
+          return response
+        }
+        const resolvedListFields = typeof opts.list.fields === 'function'
+          ? (opts.list.fields as (query: any, ctx: CrudCtx) => any[])(validated as any, ctx)
+          : opts.list.fields
+        const queryOpts: any = {
+          fields: resolvedListFields!,
+          includeCustomFields: true,
+          sort,
+          page,
+          filters: mergedFilters,
+          withDeleted,
+        }
+        if (opts.list.customFieldSources) {
+          queryOpts.customFieldSources = opts.list.customFieldSources
+        }
+        if (opts.list.joins) {
+          queryOpts.joins = opts.list.joins
+        }
+        if (ormCfg.tenantField) queryOpts.tenantId = ctx.auth.tenantId!
+        if (ormCfg.orgField) {
+          queryOpts.organizationId = ctx.selectedOrganizationId ?? undefined
+          queryOpts.organizationIds = ctx.organizationIds ?? undefined
+        }
+        if (opts.list.omitAutomaticTenantOrgScope) {
+          queryOpts.omitAutomaticTenantOrgScope = true
+        }
+        if (opts.list.decryptEncryptedFields === false) {
+          queryOpts.decryptEncryptedFields = false
+        }
+        const queryEntity = String(opts.list.entityId)
+        profiler.mark('query_options_ready')
+        const queryProfiler = profiler.child('query_engine', { entity: queryEntity })
+        const res = await qe.query(opts.list.entityId as any, { ...queryOpts, profiler: queryProfiler })
+        const rawItems = res.items || []
+        let transformedItems = rawItems.map(i => (opts.list!.transformItem ? opts.list!.transformItem(i) : i))
+        profiler.mark('transform_complete', { itemCount: transformedItems.length })
+        transformedItems = await decorateItemsWithCustomFields(transformedItems, ctx, res.customFieldDefinitions)
+        profiler.mark('custom_fields_complete', { itemCount: transformedItems.length })
+
+        if (opts.list?.entityId && request) {
+          try {
+            const { overlay, resolveLocale } = getTranslationOverlayPlugin()
+            if (overlay && resolveLocale) {
+              const locale = resolveLocale(request)
+              if (locale) {
+                transformedItems = await overlay(transformedItems, {
+                  entityType: String(opts.list.entityId),
+                  locale,
+                  tenantId: ctx.auth?.tenantId ?? null,
+                  organizationId: ctx.selectedOrganizationId ?? null,
+                  container: ctx.container,
+                })
+              }
+            }
+          } catch (err) {
+            logger.warn('Translation overlay failed', { err })
+          }
+          profiler.mark('translation_overlays_complete', { itemCount: transformedItems.length })
+        }
+
+        const accessLogResult = await logCrudAccess({
+          container: ctx.container,
+          auth: ctx.auth,
+          request,
+          items: transformedItems,
+          idField: ormCfg.idField!,
+          resourceKind,
+          organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null,
+          tenantId: ctx.auth.tenantId ?? null,
+          query: validated,
+        })
+        profiler.mark('access_logged', accessLogResult)
+
+        if (exportRequested && requestedExport) {
+          const total = typeof res.total === 'number' ? res.total : rawItems.length
+          const initialExportItems = exportFullRequested
+            ? rawItems.map(normalizeFullRecordForExport)
+            : transformedItems
+          const exportItems = [...initialExportItems]
+          const exportPageSizeNumber = typeof page.pageSize === 'number' ? page.pageSize : exportPageSize
+          // Short-page termination: `total` is a display value, not a loop bound — it can
+          // under-report (capped counts) or drift while rows are inserted/deleted mid-export.
+          // Keep fetching while pages come back full; fail closed at the page ceiling rather
+          // than serializing a partial export.
+          if (rawItems.length >= exportPageSizeNumber) {
+            const queryBase: any = { ...queryOpts }
+            delete queryBase.page
+            let nextPage = 2
+            for (;;) {
+              profiler.mark('export_next_page_request', { page: nextPage })
+              const nextRes = await qe.query(opts.list.entityId as any, {
+                ...queryBase,
+                page: { page: nextPage, pageSize: exportPageSizeNumber },
+                profiler: profiler.child('query_engine', { entity: queryEntity, page: nextPage, mode: 'export' }),
+              })
+              const nextItemsRaw = nextRes.items || []
+              if (!nextItemsRaw.length) break
+              let nextTransformed = nextItemsRaw.map(i => (opts.list!.transformItem ? opts.list!.transformItem(i) : i))
+              nextTransformed = await decorateItemsWithCustomFields(nextTransformed, ctx, nextRes.customFieldDefinitions)
+              const nextExportItems = exportFullRequested
+                ? nextItemsRaw.map(normalizeFullRecordForExport)
+                : nextTransformed
+              exportItems.push(...nextExportItems)
+              if (nextItemsRaw.length < exportPageSizeNumber) break
+              if (nextPage >= EXPORT_MAX_PAGES) {
+                throw new Error(`[internal] export exceeded ${EXPORT_MAX_PAGES} pages; refusing to return a partial export`)
+              }
+              nextPage += 1
+            }
+          }
+          const exportPayload = { items: exportItems, total, page: 1, pageSize: exportItems.length, totalPages: 1, ...(res.meta ? { meta: res.meta } : {}) }
+          // Serialize only after `afterList` has run: the hook is the documented place to
+          // patch values the base query cannot compute, and an export built before it runs
+          // ships a different shape than the JSON list response for the same request (#5969).
+          await opts.hooks?.afterList?.(exportPayload, { ...ctx, query: validated as any })
+          profiler.mark('after_list_hook')
+          const hookExportItems = Array.isArray(exportPayload.items) ? exportPayload.items : exportItems
+          // Re-normalize after the hook: `afterList` can add keys the full-export contract
+          // strips (`_`-prefixed metadata, `cf_*`) or fail to flatten (#6019 review).
+          // Idempotent on records already shaped by normalizeFullRecordForExport above.
+          const finalExportItems = exportFullRequested
+            ? hookExportItems.map(normalizeFullRecordForExport)
+            : hookExportItems
+          const prepared = exportFullRequested
+            ? { columns: ensureColumns(finalExportItems), rows: finalExportItems }
+            : prepareExportData(finalExportItems, opts.list, validated as any, ctx)
+          const fallbackBase = `${opts.events?.entity || resourceKind || 'list'}${exportFullRequested ? '_full' : ''}`
+          const filename = finalizeExportFilename(opts.list, requestedExport, fallbackBase)
+          const serialized = serializeExport(prepared, requestedExport)
+          const response = new Response(serialized.body, {
+            headers: {
+              'content-type': serialized.contentType,
+              'content-disposition': `attachment; filename="${filename}"`,
+            },
+          })
+          if (res.meta?.partialIndexWarning) {
+            response.headers.set(
+              'x-om-partial-index',
+              JSON.stringify({
+                type: 'partial_index',
+                entity: res.meta.partialIndexWarning.entity,
+                entityLabel: res.meta.partialIndexWarning.entityLabel ?? res.meta.partialIndexWarning.entity,
+                baseCount: res.meta.partialIndexWarning.baseCount ?? null,
+                indexedCount: res.meta.partialIndexWarning.indexedCount ?? null,
+                scope: res.meta.partialIndexWarning.scope ?? 'scoped',
+              }),
+            )
+          }
+          finishProfile({
+            result: 'export',
+            cacheStatus,
+            itemCount: finalExportItems.length,
+            total,
+          })
+          return response
+        }
+
+        const payload = {
+          items: transformedItems,
+          total: res.total,
+          page: page.page || requestedPage,
+          pageSize: page.pageSize || requestedPageSize,
+          totalPages: Math.ceil(res.total / (Number(page.pageSize) || 1)),
+          ...(res.meta?.listCountCapWarning ? { totalIsCapped: true } : {}),
+          ...(res.meta ? { meta: res.meta } : {}),
+        }
+        await opts.hooks?.afterList?.(payload, { ...ctx, query: validated as any })
+        profiler.mark('after_list_hook')
+        const afterInterceptors = await applyInterceptorsAfter({
+          ctx,
+          request,
+          method: 'GET',
+          requestPayload: interceptorRequest,
+          metadataByInterceptor: interceptorMetadata,
+          statusCode: 200,
+          body: payload as Record<string, unknown>,
+        })
+        if (!afterInterceptors) {
+          finishProfile({ result: 'interceptor_after_empty', cacheStatus })
+          return json({ error: 'Internal interceptor error' }, { status: 500 })
+        }
+        if (!afterInterceptors.ok) {
+          finishProfile({ result: 'interceptor_after_failed', cacheStatus })
+          return json(afterInterceptors.body, { status: afterInterceptors.statusCode, headers: afterInterceptors.headers })
+        }
+        Object.assign(payload, afterInterceptors.body)
+        await enrichAndStorePayload(payload)
+        profiler.mark('cache_store_attempt', { cacheEnabled })
+        logCacheOutcome(cacheStatus, payload.items.length)
+        const response = respondWithPayload(payload)
+        finishProfile({
+          result: 'ok',
+          cacheStatus,
+          itemCount: payload.items.length,
+          total: payload.total ?? payload.items.length,
+        })
+        return response
+      }
+
+      // Fallback: plain ORM list
+      profiler.mark('orm_fallback_prepare')
+      const em = (ctx.container.resolve('em') as any)
+      const repo = em.getRepository(ormCfg.entity)
+      profiler.mark('orm_repo_ready')
+      if (
+        ormCfg.orgField &&
+        ctx.organizationIds &&
+        ctx.organizationIds.length === 0 &&
+        !opts.list?.omitAutomaticTenantOrgScope
+      ) {
+        profiler.mark('fallback_scope_blocked')
+        logForbidden({
+          resourceKind,
+          action: 'list',
+          reason: 'organization_scope_empty',
+          userId: ctx.auth?.sub ?? null,
+          tenantId: ctx.auth?.tenantId ?? null,
+          organizationIds: ctx.organizationIds,
+        })
+        const emptyPayload = { items: [], total: 0 }
+        await opts.hooks?.afterList?.(emptyPayload, { ...ctx, query: validated as any })
+        const fallbackEmptyAfterInterceptors = await applyInterceptorsAfter({
+          ctx,
+          request,
+          method: 'GET',
+          requestPayload: interceptorRequest,
+          metadataByInterceptor: interceptorMetadata,
+          statusCode: 200,
+          body: emptyPayload as Record<string, unknown>,
+        })
+        if (!fallbackEmptyAfterInterceptors) {
+          finishProfile({
+            result: 'interceptor_after_empty',
+            cacheStatus,
+            itemCount: 0,
+            total: 0,
+            branch: 'fallback',
+          })
+          return json({ error: 'Internal interceptor error' }, { status: 500 })
+        }
+        if (!fallbackEmptyAfterInterceptors.ok) {
+          finishProfile({ result: 'interceptor_after_failed', cacheStatus, itemCount: 0, total: 0, branch: 'fallback' })
+          return json(fallbackEmptyAfterInterceptors.body, { status: fallbackEmptyAfterInterceptors.statusCode, headers: fallbackEmptyAfterInterceptors.headers })
+        }
+        Object.assign(emptyPayload, fallbackEmptyAfterInterceptors.body)
+        await maybeStoreCrudCache(emptyPayload)
+        logCacheOutcome(cacheStatus, emptyPayload.items.length)
+        const response = respondWithPayload(emptyPayload)
+        finishProfile({
+          result: 'empty_scope',
+          cacheStatus,
+          itemCount: 0,
+          total: 0,
+          branch: 'fallback',
+        })
+        return response
+      }
+      const fallbackBaseFilters = exportFullRequested
+        ? await resolveFullExportBaseFilters()
+        : (opts.list.buildFilters ? await opts.list.buildFilters(validated as any, ctx) : ({} as Where<any>))
+      const fallbackFilters = exportFullRequested
+        ? fallbackBaseFilters
+        : mergeAdvancedFilters(fallbackBaseFilters as Record<string, unknown>, validated as Record<string, unknown>) as Where<any>
+      const mergedFallbackFilters = exportFullRequested
+        ? fallbackFilters
+        : mergeIdFilter(fallbackFilters, parsedIds, { idsParamProvided })
+      const ormFilters = translateFiltersForOrm(
+        mergedFallbackFilters as Record<string, any>,
+        em,
+        ormCfg.entity,
+      )
+      const omitListScope = !!opts.list?.omitAutomaticTenantOrgScope
+      const where: any = buildScopedWhere(
+        ormFilters as Record<string, any>,
+        {
+          organizationId: !omitListScope && ormCfg.orgField ? (ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null) : undefined,
+          organizationIds: !omitListScope && ormCfg.orgField ? ctx.organizationIds ?? undefined : undefined,
+          tenantId: !omitListScope && ormCfg.tenantField ? ctx.auth.tenantId : undefined,
+          orgField: ormCfg.orgField,
+          tenantField: ormCfg.tenantField,
+          softDeleteField: ormCfg.softDeleteField,
+        }
+      )
+      let list = await repo.find(where)
+      profiler.mark('orm_query_complete', { itemCount: Array.isArray(list) ? list.length : 0 })
+      list = await decorateItemsWithCustomFields(list, ctx)
+      profiler.mark('fallback_custom_fields_complete', { itemCount: Array.isArray(list) ? list.length : 0 })
+
+      if (opts.list?.entityId && request) {
+        try {
+          const { overlay, resolveLocale } = getTranslationOverlayPlugin()
+          if (overlay && resolveLocale) {
+            const locale = resolveLocale(request)
+            if (locale) {
+              list = await overlay(list, {
+                entityType: String(opts.list.entityId),
+                locale,
+                tenantId: ctx.auth?.tenantId ?? null,
+                organizationId: ctx.selectedOrganizationId ?? null,
+                container: ctx.container,
+              })
+            }
+          }
+        } catch (err) {
+          logger.warn('Translation overlay (fallback) failed', { err })
+        }
+        profiler.mark('fallback_translation_overlays_complete', { itemCount: Array.isArray(list) ? list.length : 0 })
+      }
+
+      const accessLogResult = await logCrudAccess({
+        container: ctx.container,
+        auth: ctx.auth,
+        request,
+        items: list,
+        idField: ormCfg.idField!,
+        resourceKind,
+        organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null,
+        tenantId: ctx.auth.tenantId ?? null,
+        query: validated,
+      })
+      profiler.mark('access_logged', accessLogResult)
+      if (exportRequested && requestedExport) {
+        const exportItems = exportFullRequested ? list.map(normalizeFullRecordForExport) : list
+        const exportPayload = { items: exportItems, total: exportItems.length, page: 1, pageSize: exportItems.length, totalPages: 1 }
+        // Same ordering contract as the query-engine export path above (#5969).
+        await opts.hooks?.afterList?.(exportPayload, { ...ctx, query: validated as any })
+        profiler.mark('after_list_hook')
+        const hookExportItems = Array.isArray(exportPayload.items) ? exportPayload.items : exportItems
+        // Re-normalize after the hook: same full-export contract as the query-engine path
+        // above (#6019 review).
+        const finalExportItems = exportFullRequested
+          ? hookExportItems.map(normalizeFullRecordForExport)
+          : hookExportItems
+        const prepared = exportFullRequested
+          ? { columns: ensureColumns(finalExportItems), rows: finalExportItems }
+          : prepareExportData(finalExportItems, opts.list, validated as any, ctx)
+        const fallbackBase = `${opts.events?.entity || resourceKind || 'list'}${exportFullRequested ? '_full' : ''}`
+        const filename = finalizeExportFilename(opts.list, requestedExport, fallbackBase)
+        const serialized = serializeExport(prepared, requestedExport)
+        const response = new Response(serialized.body, {
+          headers: {
+            'content-type': serialized.contentType,
+            'content-disposition': `attachment; filename="${filename}"`,
+          },
+        })
+        finishProfile({
+          result: 'export',
+          cacheStatus,
+          itemCount: finalExportItems.length,
+          total: finalExportItems.length,
+          branch: 'fallback',
+        })
+        return response
+      }
+      const payload = { items: list, total: list.length }
+      await opts.hooks?.afterList?.(payload, { ...ctx, query: validated as any })
+      profiler.mark('after_list_hook')
+      const fallbackAfterInterceptors = await applyInterceptorsAfter({
+        ctx,
+        request,
+        method: 'GET',
+        requestPayload: interceptorRequest,
+        metadataByInterceptor: interceptorMetadata,
+        statusCode: 200,
+        body: payload as Record<string, unknown>,
+      })
+      if (!fallbackAfterInterceptors) {
+        finishProfile({
+          result: 'interceptor_after_empty',
+          cacheStatus,
+          branch: 'fallback',
+        })
+        return json({ error: 'Internal interceptor error' }, { status: 500 })
+      }
+      if (!fallbackAfterInterceptors.ok) {
+        finishProfile({ result: 'interceptor_after_failed', cacheStatus, branch: 'fallback' })
+        return json(fallbackAfterInterceptors.body, { status: fallbackAfterInterceptors.statusCode, headers: fallbackAfterInterceptors.headers })
+      }
+      Object.assign(payload, fallbackAfterInterceptors.body)
+      await enrichAndStorePayload(payload)
+      profiler.mark('cache_store_attempt', { cacheEnabled })
+      logCacheOutcome(cacheStatus, payload.items.length)
+      const response = respondWithPayload(payload)
+      finishProfile({
+        result: 'ok',
+        cacheStatus,
+        itemCount: payload.items.length,
+        total: payload.total,
+        branch: 'fallback',
+      })
+      return response
+    } catch (e) {
+      finishProfile({ result: 'error' })
+      return handleError(e, request)
+    }
+  }
+
+  async function POST(request: Request) {
+    try {
+      const useCommand = !!opts.actions?.create
+      if (!opts.create && !useCommand) return json({ error: 'Not implemented' }, { status: 501 })
+      const ctx = await withCtx(request)
+      if (!ctx.auth) return json({ error: 'Unauthorized' }, { status: 401 })
+      const createSelectionRejected = rejectInvalidOrgSelection(ctx, 'create')
+      if (createSelectionRejected) return createSelectionRejected
+      if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) {
+        logForbidden({
+          resourceKind,
+          action: 'create',
+          reason: 'organization_scope_empty',
+          userId: ctx.auth?.sub ?? null,
+          tenantId: ctx.auth?.tenantId ?? null,
+          organizationIds: ctx.organizationIds,
+        })
+        return json({ error: 'Forbidden' }, { status: 403 })
+      }
+      const body = await request.json().catch(() => ({}))
+      let interceptorRequestPayload: InterceptorRequest | null = null
+      let interceptorMetadata: Record<string, Record<string, unknown> | undefined> = {}
+
+      if (useCommand) {
+        const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
+        const action = opts.actions!.create!
+        const parsed = action.schema ? action.schema.parse(body) : body
+        const beforeInterceptors = await applyInterceptorsBefore({
+          ctx,
+          request,
+          method: 'POST',
+          body: parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : undefined,
+        })
+        if (beforeInterceptors.errorResponse) return beforeInterceptors.errorResponse
+        interceptorRequestPayload = beforeInterceptors.requestPayload
+        interceptorMetadata = beforeInterceptors.metadataByInterceptor
+        const interceptedBody = interceptorRequestPayload.body ?? {}
+        const reparsed = action.schema ? action.schema.parse(interceptedBody) : interceptedBody
+        let input = action.mapInput ? await action.mapInput({ parsed: reparsed, raw: interceptedBody, ctx }) : reparsed
+        const userMetadata = action.metadata ? await action.metadata({ input, parsed: reparsed, raw: interceptedBody, ctx }) : null
+
+        // Sync before-event (*.creating) — command path
+        const createLifecycleCmd = deriveLifecycleEventIds(opts.events as CrudEventsConfig | undefined, 'created')
+        if (createLifecycleCmd.beforeEventId && ctx.auth.tenantId) {
+          const syncSubs = collectSyncSubscribers(getAllSyncSubscribers(), createLifecycleCmd.beforeEventId)
+          if (syncSubs.length) {
+            const em = ctx.container.resolve('em') as EntityManager
+            const syncPayload = buildSyncPayload(
+              { eventId: createLifecycleCmd.beforeEventId, entity: createLifecycleCmd.entity!, operation: 'create', timing: 'before', resourceId: null, userId: ctx.auth.sub, organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null, tenantId: ctx.auth.tenantId!, em, request },
+              { payload: input && typeof input === 'object' ? (input as Record<string, unknown>) : undefined },
+            )
+            const syncResult = await runSyncBeforeEvent(syncSubs, syncPayload, ctx.container)
+            if (!syncResult.ok) {
+              return json(syncResult.errorBody ?? { error: 'Operation blocked' }, { status: syncResult.errorStatus ?? 422 })
+            }
+            if (syncResult.modifiedPayload && typeof input === 'object' && input) {
+              input = { ...input as Record<string, unknown>, ...syncResult.modifiedPayload }
+            }
+          }
+        }
+
+        // Mutation guard registry — command path (mirrors the direct create branch)
+        const createCmdUserFeatures = await resolveUserFeatures(ctx)
+        const { allGuards: createCmdAllGuards } = collectAndRunGuards(ctx.container)
+        let createCmdGuardAfterCallbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }> = []
+        if (createCmdAllGuards.length && ctx.auth.tenantId) {
+          const guardResult = await runMutationGuards(createCmdAllGuards, {
+            tenantId: ctx.auth.tenantId,
+            organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null,
+            userId: ctx.auth.sub,
+            resourceKind,
+            resourceId: null,
+            operation: 'create',
+            requestMethod: request.method,
+            requestHeaders: request.headers,
+            mutationPayload: input && typeof input === 'object' ? (input as Record<string, unknown>) : null,
+          }, { userFeatures: createCmdUserFeatures ?? [] })
+          if (!guardResult.ok) {
+            return json(guardResult.errorBody ?? { error: 'Operation blocked by guard' }, { status: guardResult.errorStatus ?? 422 })
+          }
+          if (guardResult.modifiedPayload && typeof input === 'object' && input) {
+            input = { ...input as Record<string, unknown>, ...guardResult.modifiedPayload }
+          }
+          createCmdGuardAfterCallbacks = guardResult.afterSuccessCallbacks
+        }
+
+        const baseMetadata: CommandLogMetadata = {
+          tenantId: ctx.auth?.tenantId ?? null,
+          organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null,
+          resourceKind,
+          context: { cacheAliases: resourceTargets },
+        }
+        const metadataToSend = mergeCommandMetadata(baseMetadata, userMetadata)
+        const { result, logEntry } = await withRouteIndexerDeclaration(ctx, 'created', action.commandId, () =>
+          commandBus.execute(action.commandId, { input, ctx, metadata: metadataToSend }),
+        )
+
+        // Sync after-event (*.created) — command path
+        if (createLifecycleCmd.afterEventId && ctx.auth.tenantId) {
+          const syncAfterSubs = collectSyncSubscribers(getAllSyncSubscribers(), createLifecycleCmd.afterEventId)
+          if (syncAfterSubs.length) {
+            const em = ctx.container.resolve('em') as EntityManager
+            const syncPayload = buildSyncPayload(
+              { eventId: createLifecycleCmd.afterEventId, entity: createLifecycleCmd.entity!, operation: 'create', timing: 'after', resourceId: (result as Record<string, unknown>)?.id as string ?? null, userId: ctx.auth.sub, organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null, tenantId: ctx.auth.tenantId!, em, request },
+              { payload: input && typeof input === 'object' ? (input as Record<string, unknown>) : undefined },
+            )
+            await runSyncAfterEvent(syncAfterSubs, syncPayload, ctx.container)
+          }
+        }
+
+        const payload = action.response ? action.response({ result, logEntry, ctx }) : result
+        let resolvedPayload = await Promise.resolve(payload)
+        if (interceptorRequestPayload && resolvedPayload && typeof resolvedPayload === 'object' && !Array.isArray(resolvedPayload)) {
+          const afterInterceptors = await applyInterceptorsAfter({
+            ctx,
+            request,
+            method: 'POST',
+            requestPayload: interceptorRequestPayload,
+            metadataByInterceptor: interceptorMetadata,
+            statusCode: action.status ?? 201,
+            body: resolvedPayload as Record<string, unknown>,
+          })
+          if (afterInterceptors && !afterInterceptors.ok) {
+            return json(afterInterceptors.body, { status: afterInterceptors.statusCode, headers: afterInterceptors.headers })
+          }
+          if (afterInterceptors?.ok) resolvedPayload = afterInterceptors.body
+        }
+        const status = action.status ?? 201
+        const response = json(resolvedPayload, { status })
+        attachOperationHeader(response, logEntry)
+        const commandResultId = pickFirstIdentifier(
+          (result as Record<string, unknown> | null | undefined)?.id,
+          (resolvedPayload as Record<string, unknown> | null | undefined)?.id,
+        )
+        if (createCmdGuardAfterCallbacks.length && ctx.auth.tenantId && commandResultId) {
+          await runGuardAfterSuccessCallbacks(createCmdGuardAfterCallbacks, {
+            tenantId: ctx.auth.tenantId,
+            organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null,
+            userId: ctx.auth.sub,
+            resourceKind,
+            resourceId: commandResultId,
+            operation: 'create',
+            requestMethod: request.method,
+            requestHeaders: request.headers,
+          })
+        }
+        // Note: side effects are already flushed by CommandBus.execute() via
+        // flushCrudSideEffects(). Re-marking the result here would emit a duplicate domain
+        // event, so the route does not. The route's `indexer:` declaration still reaches
+        // that flush: withRouteIndexerDeclaration() hands it to the data engine as the
+        // default for marks the handler makes without one (#5741).
+        return response
+      }
+
+      const createConfig = opts.create
+      if (!createConfig) throw new Error('Create configuration missing')
+
+      let input = createConfig.schema.parse(body)
+      const beforeInterceptors = await applyInterceptorsBefore({
+        ctx,
+        request,
+        method: 'POST',
+        body: input && typeof input === 'object' ? (input as Record<string, unknown>) : undefined,
+      })
+      if (beforeInterceptors.errorResponse) return beforeInterceptors.errorResponse
+      interceptorRequestPayload = beforeInterceptors.requestPayload
+      interceptorMetadata = beforeInterceptors.metadataByInterceptor
+      if (interceptorRequestPayload.body) {
+        input = createConfig.schema.parse(interceptorRequestPayload.body)
+      }
+
+      // Sync before-event (*.creating)
+      const createLifecycle = deriveLifecycleEventIds(opts.events as CrudEventsConfig | undefined, 'created')
+      const scopeOrganizationId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null
+      if (createLifecycle.beforeEventId && ctx.auth.tenantId) {
+        const syncSubs = collectSyncSubscribers(getAllSyncSubscribers(), createLifecycle.beforeEventId)
+        if (syncSubs.length) {
+          const em = ctx.container.resolve('em') as EntityManager
+          const syncPayload = buildSyncPayload(
+            { eventId: createLifecycle.beforeEventId, entity: createLifecycle.entity!, operation: 'create', timing: 'before', resourceId: null, userId: ctx.auth.sub, organizationId: scopeOrganizationId, tenantId: ctx.auth.tenantId!, em, request },
+            { payload: input && typeof input === 'object' ? (input as Record<string, unknown>) : undefined },
+          )
+          const syncResult = await runSyncBeforeEvent(syncSubs, syncPayload, ctx.container)
+          if (!syncResult.ok) {
+            return json(syncResult.errorBody ?? { error: 'Operation blocked' }, { status: syncResult.errorStatus ?? 422 })
+          }
+          if (syncResult.modifiedPayload && typeof input === 'object' && input) {
+            input = createConfig.schema.parse({ ...input as Record<string, unknown>, ...syncResult.modifiedPayload })
+          }
+        }
+      }
+
+      const modified = await opts.hooks?.beforeCreate?.(input as any, ctx)
+      if (modified) input = modified
+
+      // Mutation guard registry (guards now run on create)
+      const userFeatures = await resolveUserFeatures(ctx)
+      const { allGuards } = collectAndRunGuards(ctx.container)
+      let createGuardAfterCallbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }> = []
+      if (allGuards.length && ctx.auth.tenantId) {
+        const guardResult = await runMutationGuards(allGuards, {
+          tenantId: ctx.auth.tenantId,
+          organizationId: scopeOrganizationId,
+          userId: ctx.auth.sub,
+          resourceKind,
+          resourceId: null,
+          operation: 'create',
+          requestMethod: request.method,
+          requestHeaders: request.headers,
+          mutationPayload: input && typeof input === 'object' ? (input as Record<string, unknown>) : null,
+        }, { userFeatures: userFeatures ?? [] })
+        if (!guardResult.ok) {
+          return json(guardResult.errorBody ?? { error: 'Operation blocked by guard' }, { status: guardResult.errorStatus ?? 422 })
+        }
+        if (guardResult.modifiedPayload && typeof input === 'object' && input) {
+          input = createConfig.schema.parse({ ...input as Record<string, unknown>, ...guardResult.modifiedPayload })
+        }
+        createGuardAfterCallbacks = guardResult.afterSuccessCallbacks
+      }
+
+      const de = (ctx.container.resolve('dataEngine') as DataEngine)
+      const entityData = createConfig.mapToEntity(input as any, ctx)
+      // Inject org/tenant
+      const targetOrgId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null
+      if (ormCfg.orgField) {
+        if (!targetOrgId) return json({ error: 'Organization context is required' }, { status: 400 })
+        entityData[ormCfg.orgField] = targetOrgId
+      }
+      if (ormCfg.tenantField) {
+        if (!ctx.auth.tenantId) return json({ error: 'Tenant context is required' }, { status: 400 })
+        entityData[ormCfg.tenantField] = ctx.auth.tenantId
+      }
+      const em = (ctx.container.resolve('em') as EntityManager)
+      const writeTenantId = ctx.auth.tenantId!
+      const entity = await em.transactional(async () => {
+        const created = await de.createOrmEntity({ entity: ormCfg.entity, data: entityData })
+
+        // Custom fields
+        if (createConfig.customFields && (createConfig.customFields as any).enabled) {
+          const cfc = createConfig.customFields as Exclude<CustomFieldsConfig, false>
+          const values = cfc.map
+            ? cfc.map(body)
+            : (cfc.pickPrefixed ? extractCustomFieldValuesFromPayload(body as Record<string, unknown>) : {})
+          if (values && Object.keys(values).length > 0) {
+            const de = (ctx.container.resolve('dataEngine') as DataEngine)
+            await de.setCustomFields({
+              entityId: cfc.entityId as any,
+              recordId: String((created as any)[ormCfg.idField!]),
+              organizationId: targetOrgId,
+              tenantId: writeTenantId,
+              values,
+              notify: false,
+            })
+          }
+        }
+
+        return created
+      })
+
+      await opts.hooks?.afterCreate?.(entity, { ...ctx, input: input as any })
+
+      // Guard afterSuccess callbacks
+      const createdEntityId = String((entity as any)[ormCfg.idField!])
+      if (createGuardAfterCallbacks?.length && ctx.auth.tenantId) {
+        await runGuardAfterSuccessCallbacks(createGuardAfterCallbacks, {
+          tenantId: ctx.auth.tenantId, organizationId: scopeOrganizationId, userId: ctx.auth.sub,
+          resourceKind, resourceId: createdEntityId, operation: 'create',
+          requestMethod: request.method, requestHeaders: request.headers,
+        })
+      }
+
+      // Sync after-event (*.created)
+      if (createLifecycle.afterEventId && ctx.auth.tenantId) {
+        const syncAfterSubs = collectSyncSubscribers(getAllSyncSubscribers(), createLifecycle.afterEventId)
+        if (syncAfterSubs.length) {
+          const em = ctx.container.resolve('em') as EntityManager
+          const syncPayload = buildSyncPayload(
+            { eventId: createLifecycle.afterEventId, entity: createLifecycle.entity!, operation: 'create', timing: 'after', resourceId: createdEntityId, userId: ctx.auth.sub, organizationId: scopeOrganizationId, tenantId: ctx.auth.tenantId!, em, request },
+            { payload: input && typeof input === 'object' ? (input as Record<string, unknown>) : undefined, entityData: snapshotEntity(entity) },
+          )
+          await runSyncAfterEvent(syncAfterSubs, syncPayload, ctx.container)
+        }
+      }
+
+      const identifiers = identifierResolver(entity, 'created')
+      de.markOrmEntityChange({
+        action: 'created',
+        entity,
+        identifiers,
+        events: opts.events as CrudEventsConfig | undefined,
+        indexer: opts.indexer as CrudIndexerConfig | undefined,
+      })
+      await de.flushOrmEntityChanges()
+      await invalidateCrudCache(ctx.container, resourceKind, identifiers, ctx.auth.tenantId ?? null, 'created', resourceTargets)
+
+      let payload = createConfig.response ? createConfig.response(entity) : { id: createdEntityId }
+      if (interceptorRequestPayload && payload && typeof payload === 'object' && !Array.isArray(payload)) {
+        const afterInterceptors = await applyInterceptorsAfter({
+          ctx,
+          request,
+          method: 'POST',
+          requestPayload: interceptorRequestPayload,
+          metadataByInterceptor: interceptorMetadata,
+          statusCode: 201,
+          body: payload as Record<string, unknown>,
+        })
+        if (afterInterceptors && !afterInterceptors.ok) {
+          return json(afterInterceptors.body, { status: afterInterceptors.statusCode, headers: afterInterceptors.headers })
+        }
+        if (afterInterceptors?.ok) payload = afterInterceptors.body
+      }
+      payload = await enrichSingleRecord(payload, ctx)
+      return json(payload, { status: 201 })
+    } catch (e) {
+      return handleError(e, request)
+    }
+  }
+
+  async function PUT(request: Request) {
+    try {
+      const useCommand = !!opts.actions?.update
+      if (!opts.update && !useCommand) return json({ error: 'Not implemented' }, { status: 501 })
+      const ctx = await withCtx(request)
+      if (!ctx.auth) return json({ error: 'Unauthorized' }, { status: 401 })
+      const updateSelectionRejected = rejectInvalidOrgSelection(ctx, 'update')
+      if (updateSelectionRejected) return updateSelectionRejected
+      if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) {
+        logForbidden({
+          resourceKind,
+          action: 'update',
+          reason: 'organization_scope_empty',
+          userId: ctx.auth?.sub ?? null,
+          tenantId: ctx.auth?.tenantId ?? null,
+          organizationIds: ctx.organizationIds,
+        })
+        return json({ error: 'Forbidden' }, { status: 403 })
+      }
+      const body = await request.json().catch(() => ({}))
+      const scopeOrganizationId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null
+      let interceptorRequestPayload: InterceptorRequest | null = null
+      let interceptorMetadata: Record<string, Record<string, unknown> | undefined> = {}
+
+      if (useCommand) {
+        const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
+        const action = opts.actions!.update!
+        const parsed = action.schema ? action.schema.parse(body) : body
+        const beforeInterceptors = await applyInterceptorsBefore({
+          ctx,
+          request,
+          method: 'PUT',
+          body: parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : undefined,
+        })
+        if (beforeInterceptors.errorResponse) return beforeInterceptors.errorResponse
+        interceptorRequestPayload = beforeInterceptors.requestPayload
+        interceptorMetadata = beforeInterceptors.metadataByInterceptor
+        const interceptedBody = interceptorRequestPayload.body ?? {}
+        const reparsed = action.schema ? action.schema.parse(interceptedBody) : interceptedBody
+        let input = action.mapInput ? await action.mapInput({ parsed: reparsed, raw: interceptedBody, ctx }) : reparsed
+        const userMetadata = action.metadata ? await action.metadata({ input, parsed: reparsed, raw: interceptedBody, ctx }) : null
+        const candidateId = normalizeIdentifierValue((input as Record<string, unknown> | null | undefined)?.id)
+
+        // Sync before-event (*.updating) — command path
+        const updateLifecycleCmd = deriveLifecycleEventIds(opts.events as CrudEventsConfig | undefined, 'updated')
+        let cmdUpdatePreviousData: Record<string, unknown> | undefined
+        if (updateLifecycleCmd.beforeEventId && ctx.auth.tenantId) {
+          const syncSubs = collectSyncSubscribers(getAllSyncSubscribers(), updateLifecycleCmd.beforeEventId)
+          if (syncSubs.length) {
+            const em = ctx.container.resolve('em') as EntityManager
+            if (candidateId) {
+              const prevEntity = await em.findOne(ormCfg.entity as any, { [ormCfg.idField!]: candidateId } as any)
+              if (prevEntity) cmdUpdatePreviousData = snapshotEntity(prevEntity)
+            }
+            const syncPayload = buildSyncPayload(
+              { eventId: updateLifecycleCmd.beforeEventId, entity: updateLifecycleCmd.entity!, operation: 'update', timing: 'before', resourceId: candidateId ?? null, userId: ctx.auth.sub, organizationId: scopeOrganizationId, tenantId: ctx.auth.tenantId!, em, request },
+              { payload: input && typeof input === 'object' ? (input as Record<string, unknown>) : undefined, previousData: cmdUpdatePreviousData },
+            )
+            const syncResult = await runSyncBeforeEvent(syncSubs, syncPayload, ctx.container)
+            if (!syncResult.ok) {
+              return json(syncResult.errorBody ?? { error: 'Operation blocked' }, { status: syncResult.errorStatus ?? 422 })
+            }
+            if (syncResult.modifiedPayload && typeof input === 'object' && input) {
+              input = { ...input as Record<string, unknown>, ...syncResult.modifiedPayload }
+            }
+          }
+        }
+
+        const updateUserFeatures = await resolveUserFeatures(ctx)
+        const { allGuards: updateAllGuards } = collectAndRunGuards(ctx.container)
+        let cmdUpdateGuardAfterCallbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }> = []
+        // Commands whose mapInput wraps the payload (e.g. `{ body }`) intentionally
+        // null candidateId and OPT OUT of row-level guards, leaving the command-level
+        // optimistic-lock check as the sole guard — a documented contract, see
+        // apps/docs/docs/framework/data-integrity/concurrency-locking.mdx.
+        if (updateAllGuards.length && ctx.auth.tenantId && candidateId) {
+          const guardResult = await runMutationGuards(updateAllGuards, {
+            tenantId: ctx.auth.tenantId,
+            organizationId: scopeOrganizationId,
+            userId: ctx.auth.sub,
+            resourceKind,
+            resourceId: candidateId,
+            operation: 'update',
+            requestMethod: request.method,
+            requestHeaders: request.headers,
+            mutationPayload: input && typeof input === 'object'
+              ? (input as Record<string, unknown>)
+              : null,
+          }, { userFeatures: updateUserFeatures ?? [] })
+          if (!guardResult.ok) {
+            return json(guardResult.errorBody ?? { error: 'Operation blocked by guard' }, { status: guardResult.errorStatus ?? 422 })
+          }
+          if (guardResult.modifiedPayload && typeof input === 'object' && input) {
+            input = { ...input as Record<string, unknown>, ...guardResult.modifiedPayload }
+          }
+          cmdUpdateGuardAfterCallbacks = guardResult.afterSuccessCallbacks
+        }
+        const baseMetadata: CommandLogMetadata = {
+          tenantId: ctx.auth?.tenantId ?? null,
+          organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null,
+          resourceKind,
+          context: { cacheAliases: resourceTargets },
+        }
+        if (candidateId) baseMetadata.resourceId = candidateId
+        const metadataToSend = mergeCommandMetadata(baseMetadata, userMetadata)
+        const { result, logEntry } = await withRouteIndexerDeclaration(ctx, 'updated', action.commandId, () =>
+          commandBus.execute(action.commandId, { input, ctx, metadata: metadataToSend }),
+        )
+        const payload = action.response ? action.response({ result, logEntry, ctx }) : result
+        let resolvedPayload = await Promise.resolve(payload)
+        if (interceptorRequestPayload && resolvedPayload && typeof resolvedPayload === 'object' && !Array.isArray(resolvedPayload)) {
+          const afterInterceptors = await applyInterceptorsAfter({
+            ctx,
+            request,
+            method: 'PUT',
+            requestPayload: interceptorRequestPayload,
+            metadataByInterceptor: interceptorMetadata,
+            statusCode: action.status ?? 200,
+            body: resolvedPayload as Record<string, unknown>,
+          })
+          if (afterInterceptors && !afterInterceptors.ok) {
+            return json(afterInterceptors.body, { status: afterInterceptors.statusCode, headers: afterInterceptors.headers })
+          }
+          if (afterInterceptors?.ok) resolvedPayload = afterInterceptors.body
+        }
+        const status = action.status ?? 200
+        const response = json(resolvedPayload, { status })
+        attachOperationHeader(response, logEntry)
+        if (cmdUpdateGuardAfterCallbacks.length && ctx.auth.tenantId && candidateId) {
+          await runGuardAfterSuccessCallbacks(cmdUpdateGuardAfterCallbacks, {
+            tenantId: ctx.auth.tenantId,
+            organizationId: scopeOrganizationId,
+            userId: ctx.auth.sub,
+            resourceKind,
+            resourceId: candidateId,
+            operation: 'update',
+            requestMethod: request.method,
+            requestHeaders: request.headers,
+          })
+        }
+
+        // Sync after-event (*.updated) — command path
+        if (updateLifecycleCmd.afterEventId && ctx.auth.tenantId) {
+          const syncAfterSubs = collectSyncSubscribers(getAllSyncSubscribers(), updateLifecycleCmd.afterEventId)
+          if (syncAfterSubs.length) {
+            const em = ctx.container.resolve('em') as EntityManager
+            const syncPayload = buildSyncPayload(
+              { eventId: updateLifecycleCmd.afterEventId, entity: updateLifecycleCmd.entity!, operation: 'update', timing: 'after', resourceId: candidateId ?? null, userId: ctx.auth.sub, organizationId: scopeOrganizationId, tenantId: ctx.auth.tenantId!, em, request },
+              { payload: input && typeof input === 'object' ? (input as Record<string, unknown>) : undefined, previousData: cmdUpdatePreviousData },
+            )
+            await runSyncAfterEvent(syncAfterSubs, syncPayload, ctx.container)
+          }
+        }
+
+        // Note: side effects are already flushed by CommandBus.execute() via
+        // flushCrudSideEffects(). Re-marking the result here would emit a duplicate domain
+        // event, so the route does not. The route's `indexer:` declaration still reaches
+        // that flush: withRouteIndexerDeclaration() hands it to the data engine as the
+        // default for marks the handler makes without one (#5741).
+        return response
+      }
+
+      const updateConfig = opts.update
+      if (!updateConfig) throw new Error('Update configuration missing')
+
+      let input = updateConfig.schema.parse(body)
+      const beforeInterceptors = await applyInterceptorsBefore({
+        ctx,
+        request,
+        method: 'PUT',
+        body: input && typeof input === 'object' ? (input as Record<string, unknown>) : undefined,
+      })
+      if (beforeInterceptors.errorResponse) return beforeInterceptors.errorResponse
+      interceptorRequestPayload = beforeInterceptors.requestPayload
+      interceptorMetadata = beforeInterceptors.metadataByInterceptor
+      if (interceptorRequestPayload.body) {
+        input = updateConfig.schema.parse(interceptorRequestPayload.body)
+      }
+
+      // Sync before-event (*.updating)
+      const updateLifecycle = deriveLifecycleEventIds(opts.events as CrudEventsConfig | undefined, 'updated')
+      let updatePreviousData: Record<string, unknown> | undefined
+      if (updateLifecycle.beforeEventId && ctx.auth.tenantId) {
+        const syncSubs = collectSyncSubscribers(getAllSyncSubscribers(), updateLifecycle.beforeEventId)
+        if (syncSubs.length) {
+          const em = ctx.container.resolve('em') as EntityManager
+          const updateCandidateId = (input as Record<string, unknown>)?.id as string ?? null
+          if (updateCandidateId) {
+            const prevEntity = await em.findOne(ormCfg.entity as any, { [ormCfg.idField!]: updateCandidateId } as any)
+            if (prevEntity) updatePreviousData = snapshotEntity(prevEntity)
+          }
+          const syncPayload = buildSyncPayload(
+            { eventId: updateLifecycle.beforeEventId, entity: updateLifecycle.entity!, operation: 'update', timing: 'before', resourceId: updateCandidateId, userId: ctx.auth.sub, organizationId: scopeOrganizationId, tenantId: ctx.auth.tenantId!, em, request },
+            { payload: input && typeof input === 'object' ? (input as Record<string, unknown>) : undefined, previousData: updatePreviousData },
+          )
+          const syncResult = await runSyncBeforeEvent(syncSubs, syncPayload, ctx.container)
+          if (!syncResult.ok) {
+            return json(syncResult.errorBody ?? { error: 'Operation blocked' }, { status: syncResult.errorStatus ?? 422 })
+          }
+          if (syncResult.modifiedPayload && typeof input === 'object' && input) {
+            input = updateConfig.schema.parse({ ...input as Record<string, unknown>, ...syncResult.modifiedPayload })
+          }
+        }
+      }
+
+      const modified = await opts.hooks?.beforeUpdate?.(input as any, ctx)
+      if (modified) input = modified
+
+      const id = updateConfig.getId ? updateConfig.getId(input as any) : (input as any).id
+      if (!isUuid(id)) return json({ error: 'Invalid id' }, { status: 400 })
+
+      // Mutation guard registry (multi-guard)
+      const updateUserFeatures = await resolveUserFeatures(ctx)
+      const { allGuards: updateAllGuards } = collectAndRunGuards(ctx.container)
+      let updateGuardAfterCallbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }> = []
+      if (updateAllGuards.length && ctx.auth.tenantId) {
+        const guardResult = await runMutationGuards(updateAllGuards, {
+          tenantId: ctx.auth.tenantId,
+          organizationId: scopeOrganizationId,
+          userId: ctx.auth.sub,
+          resourceKind,
+          resourceId: id,
+          operation: 'update',
+          requestMethod: request.method,
+          requestHeaders: request.headers,
+          mutationPayload: input && typeof input === 'object' ? (input as Record<string, unknown>) : null,
+        }, { userFeatures: updateUserFeatures ?? [] })
+        if (!guardResult.ok) {
+          return json(guardResult.errorBody ?? { error: 'Operation blocked by guard' }, { status: guardResult.errorStatus ?? 422 })
+        }
+        if (guardResult.modifiedPayload && typeof input === 'object' && input) {
+          input = updateConfig.schema.parse({ ...input as Record<string, unknown>, ...guardResult.modifiedPayload })
+        }
+        updateGuardAfterCallbacks = guardResult.afterSuccessCallbacks
+      }
+
+      const targetOrgId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null
+      if (ormCfg.orgField && !targetOrgId) return json({ error: 'Organization context is required' }, { status: 400 })
+
+      const de = (ctx.container.resolve('dataEngine') as DataEngine)
+      const where: any = buildScopedWhere(
+        { [ormCfg.idField!]: id },
+        {
+          organizationId: ormCfg.orgField ? targetOrgId : undefined,
+          organizationIds: ormCfg.orgField ? ctx.organizationIds ?? undefined : undefined,
+          tenantId: ormCfg.tenantField ? ctx.auth.tenantId : undefined,
+          orgField: ormCfg.orgField,
+          tenantField: ormCfg.tenantField,
+          softDeleteField: ormCfg.softDeleteField,
+        }
+      )
+      const em = (ctx.container.resolve('em') as EntityManager)
+      const writeTenantId = ctx.auth.tenantId!
+      const entity = await em.transactional(async () => {
+        const updated = await de.updateOrmEntity({
+          entity: ormCfg.entity,
+          where,
+          apply: (e: any) => updateConfig.applyToEntity(e, input as any, ctx),
+        })
+        if (!updated) return null
+
+        // Custom fields
+        if (updateConfig.customFields && (updateConfig.customFields as any).enabled) {
+          const cfc = updateConfig.customFields as Exclude<CustomFieldsConfig, false>
+          const values = cfc.map
+            ? cfc.map(body)
+            : (cfc.pickPrefixed ? extractCustomFieldValuesFromPayload(body as Record<string, unknown>) : {})
+          if (values && Object.keys(values).length > 0) {
+            const de = (ctx.container.resolve('dataEngine') as DataEngine)
+            await de.setCustomFields({
+              entityId: cfc.entityId as any,
+              recordId: String((updated as any)[ormCfg.idField!]),
+              organizationId: targetOrgId,
+              tenantId: writeTenantId,
+              values,
+              notify: false,
+            })
+          }
+        }
+
+        return updated
+      })
+      if (!entity) return json({ error: 'Not found' }, { status: 404 })
+
+      await opts.hooks?.afterUpdate?.(entity, { ...ctx, input: input as any })
+
+      // Guard afterSuccess callbacks (multi)
+      if (updateGuardAfterCallbacks.length && ctx.auth.tenantId) {
+        await runGuardAfterSuccessCallbacks(updateGuardAfterCallbacks, {
+          tenantId: ctx.auth.tenantId, organizationId: scopeOrganizationId, userId: ctx.auth.sub,
+          resourceKind, resourceId: id, operation: 'update',
+          requestMethod: request.method, requestHeaders: request.headers,
+        })
+      }
+
+      // Sync after-event (*.updated)
+      if (updateLifecycle.afterEventId && ctx.auth.tenantId) {
+        const syncAfterSubs = collectSyncSubscribers(getAllSyncSubscribers(), updateLifecycle.afterEventId)
+        if (syncAfterSubs.length) {
+          const em = ctx.container.resolve('em') as EntityManager
+          const syncPayload = buildSyncPayload(
+            { eventId: updateLifecycle.afterEventId, entity: updateLifecycle.entity!, operation: 'update', timing: 'after', resourceId: id, userId: ctx.auth.sub, organizationId: scopeOrganizationId, tenantId: ctx.auth.tenantId!, em, request },
+            { payload: input && typeof input === 'object' ? (input as Record<string, unknown>) : undefined, previousData: updatePreviousData, entityData: snapshotEntity(entity) },
+          )
+          await runSyncAfterEvent(syncAfterSubs, syncPayload, ctx.container)
+        }
+      }
+
+      const identifiers = identifierResolver(entity, 'updated')
+      de.markOrmEntityChange({
+        action: 'updated',
+        entity,
+        identifiers,
+        events: opts.events as CrudEventsConfig | undefined,
+        indexer: opts.indexer as CrudIndexerConfig | undefined,
+      })
+      await de.flushOrmEntityChanges()
+      await invalidateCrudCache(ctx.container, resourceKind, identifiers, ctx.auth.tenantId ?? null, 'updated', resourceTargets)
+      const payload = updateConfig.response ? updateConfig.response(entity) : { success: true }
+      if (interceptorRequestPayload && payload && typeof payload === 'object' && !Array.isArray(payload)) {
+        const afterInterceptors = await applyInterceptorsAfter({
+          ctx,
+          request,
+          method: 'PUT',
+          requestPayload: interceptorRequestPayload,
+          metadataByInterceptor: interceptorMetadata,
+          statusCode: 200,
+          body: payload as Record<string, unknown>,
+        })
+        if (afterInterceptors && !afterInterceptors.ok) {
+          return json(afterInterceptors.body, { status: afterInterceptors.statusCode, headers: afterInterceptors.headers })
+        }
+        if (afterInterceptors?.ok) {
+          return json(afterInterceptors.body, { status: 200, headers: afterInterceptors.headers })
+        }
+      }
+      return json(payload)
+    } catch (e) {
+      return handleError(e, request)
+    }
+  }
+
+  async function DELETE(request: Request) {
+    try {
+      const ctx = await withCtx(request)
+      if (!ctx.auth) return json({ error: 'Unauthorized' }, { status: 401 })
+      const deleteSelectionRejected = rejectInvalidOrgSelection(ctx, 'delete')
+      if (deleteSelectionRejected) return deleteSelectionRejected
+      if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) {
+        logForbidden({
+          resourceKind,
+          action: 'delete',
+          reason: 'organization_scope_empty',
+          userId: ctx.auth?.sub ?? null,
+          tenantId: ctx.auth?.tenantId ?? null,
+          organizationIds: ctx.organizationIds,
+        })
+        return json({ error: 'Forbidden' }, { status: 403 })
+      }
+      const useCommand = !!opts.actions?.delete
+      const url = new URL(request.url)
+      const scopeOrganizationId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null
+      let interceptorRequestPayload: InterceptorRequest | null = null
+      let interceptorMetadata: Record<string, Record<string, unknown> | undefined> = {}
+
+      if (useCommand) {
+        const action = opts.actions!.delete!
+        const body = await request.json().catch(() => ({}))
+        const raw = { body, query: buildQueryParams(url.searchParams) }
+        const parsed = action.schema ? action.schema.parse(raw) : raw
+        const interceptorInput =
+          parsed && typeof parsed === 'object' && (parsed as Record<string, unknown>).body && typeof (parsed as Record<string, unknown>).body === 'object'
+            ? ((parsed as Record<string, unknown>).body as Record<string, unknown>)
+            : body
+        const beforeInterceptors = await applyInterceptorsBefore({
+          ctx,
+          request,
+          method: 'DELETE',
+          body: interceptorInput,
+          query: raw.query,
+        })
+        if (beforeInterceptors.errorResponse) return beforeInterceptors.errorResponse
+        interceptorRequestPayload = beforeInterceptors.requestPayload
+        interceptorMetadata = beforeInterceptors.metadataByInterceptor
+        const interceptedBody = interceptorRequestPayload.body ?? {}
+        const reparsedRaw = {
+          body: interceptedBody,
+          query: buildQueryParams(url.searchParams),
+        }
+        const reparsed = action.schema ? action.schema.parse(reparsedRaw) : reparsedRaw
+        const input = action.mapInput ? await action.mapInput({ parsed: reparsed, raw: reparsedRaw, ctx }) : reparsed
+        const userMetadata = action.metadata ? await action.metadata({ input, parsed: reparsed, raw: reparsedRaw, ctx }) : null
+        const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
+        const candidateId = normalizeIdentifierValue(
+          (input as Record<string, unknown> | null | undefined)?.id
+            ?? (raw.query as Record<string, unknown> | null | undefined)?.id
+            ?? (raw.body as Record<string, unknown> | null | undefined)?.id
+        )
+
+        // Sync before-event (*.deleting) — command path
+        const deleteLifecycleCmd = deriveLifecycleEventIds(opts.events as CrudEventsConfig | undefined, 'deleted')
+        if (deleteLifecycleCmd.beforeEventId && ctx.auth.tenantId) {
+          const syncSubs = collectSyncSubscribers(getAllSyncSubscribers(), deleteLifecycleCmd.beforeEventId)
+          if (syncSubs.length) {
+            const em = ctx.container.resolve('em') as EntityManager
+            const syncPayload = buildSyncPayload(
+              { eventId: deleteLifecycleCmd.beforeEventId, entity: deleteLifecycleCmd.entity!, operation: 'delete', timing: 'before', resourceId: candidateId ?? null, userId: ctx.auth.sub, organizationId: scopeOrganizationId, tenantId: ctx.auth.tenantId!, em, request },
+            )
+            const syncResult = await runSyncBeforeEvent(syncSubs, syncPayload, ctx.container)
+            if (!syncResult.ok) {
+              return json(syncResult.errorBody ?? { error: 'Operation blocked' }, { status: syncResult.errorStatus ?? 422 })
+            }
+          }
+        }
+
+        const deleteUserFeatures = await resolveUserFeatures(ctx)
+        const { allGuards: deleteAllGuards } = collectAndRunGuards(ctx.container)
+        let cmdDeleteGuardAfterCallbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }> = []
+        if (deleteAllGuards.length && ctx.auth.tenantId && candidateId) {
+          const guardResult = await runMutationGuards(deleteAllGuards, {
+            tenantId: ctx.auth.tenantId,
+            organizationId: scopeOrganizationId,
+            userId: ctx.auth.sub,
+            resourceKind,
+            resourceId: candidateId,
+            operation: 'delete',
+            requestMethod: request.method,
+            requestHeaders: request.headers,
+          }, { userFeatures: deleteUserFeatures ?? [] })
+          if (!guardResult.ok) {
+            return json(guardResult.errorBody ?? { error: 'Operation blocked by guard' }, { status: guardResult.errorStatus ?? 422 })
+          }
+          cmdDeleteGuardAfterCallbacks = guardResult.afterSuccessCallbacks
+        }
+        const baseMetadata: CommandLogMetadata = {
+          tenantId: ctx.auth?.tenantId ?? null,
+          organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null,
+          resourceKind,
+          context: { cacheAliases: resourceTargets },
+        }
+        if (candidateId) baseMetadata.resourceId = candidateId
+        const metadataToSend = mergeCommandMetadata(baseMetadata, userMetadata)
+        const { result, logEntry } = await withRouteIndexerDeclaration(ctx, 'deleted', action.commandId, () =>
+          commandBus.execute(action.commandId, { input, ctx, metadata: metadataToSend }),
+        )
+        const payload = action.response ? action.response({ result, logEntry, ctx }) : result
+        let resolvedPayload = await Promise.resolve(payload)
+        if (interceptorRequestPayload && resolvedPayload && typeof resolvedPayload === 'object' && !Array.isArray(resolvedPayload)) {
+          const afterInterceptors = await applyInterceptorsAfter({
+            ctx,
+            request,
+            method: 'DELETE',
+            requestPayload: interceptorRequestPayload,
+            metadataByInterceptor: interceptorMetadata,
+            statusCode: action.status ?? 200,
+            body: resolvedPayload as Record<string, unknown>,
+          })
+          if (afterInterceptors && !afterInterceptors.ok) {
+            return json(afterInterceptors.body, { status: afterInterceptors.statusCode, headers: afterInterceptors.headers })
+          }
+          if (afterInterceptors?.ok) resolvedPayload = afterInterceptors.body
+        }
+        const status = action.status ?? 200
+        const response = json(resolvedPayload, { status })
+        attachOperationHeader(response, logEntry)
+        if (cmdDeleteGuardAfterCallbacks.length && ctx.auth.tenantId && candidateId) {
+          await runGuardAfterSuccessCallbacks(cmdDeleteGuardAfterCallbacks, {
+            tenantId: ctx.auth.tenantId,
+            organizationId: scopeOrganizationId,
+            userId: ctx.auth.sub,
+            resourceKind,
+            resourceId: candidateId,
+            operation: 'delete',
+            requestMethod: request.method,
+            requestHeaders: request.headers,
+          })
+        }
+
+        // Sync after-event (*.deleted) — command path
+        if (deleteLifecycleCmd.afterEventId && ctx.auth.tenantId) {
+          const syncAfterSubs = collectSyncSubscribers(getAllSyncSubscribers(), deleteLifecycleCmd.afterEventId)
+          if (syncAfterSubs.length) {
+            const em = ctx.container.resolve('em') as EntityManager
+            const syncPayload = buildSyncPayload(
+              { eventId: deleteLifecycleCmd.afterEventId, entity: deleteLifecycleCmd.entity!, operation: 'delete', timing: 'after', resourceId: candidateId ?? null, userId: ctx.auth.sub, organizationId: scopeOrganizationId, tenantId: ctx.auth.tenantId!, em, request },
+            )
+            await runSyncAfterEvent(syncAfterSubs, syncPayload, ctx.container)
+          }
+        }
+
+        // Note: side effects are already flushed by CommandBus.execute() via
+        // flushCrudSideEffects(). Re-marking the result here would emit a duplicate domain
+        // event, so the route does not. The route's `indexer:` declaration still reaches
+        // that flush: withRouteIndexerDeclaration() hands it to the data engine as the
+        // default for marks the handler makes without one (#5741).
+        return response
+      }
+
+      const idFrom = opts.del?.idFrom || 'query'
+      const id = idFrom === 'query'
+        ? url.searchParams.get('id')
+        : (await request.json().catch(() => ({}))).id
+      if (!isUuid(id)) return json({ error: 'ID is required' }, { status: 400 })
+      const beforeInterceptors = await applyInterceptorsBefore({
+        ctx,
+        request,
+        method: 'DELETE',
+        body: idFrom === 'query' ? undefined : ({ id } as Record<string, unknown>),
+        query: idFrom === 'query' ? buildQueryParams(url.searchParams) : undefined,
+      })
+      if (beforeInterceptors.errorResponse) return beforeInterceptors.errorResponse
+      interceptorRequestPayload = beforeInterceptors.requestPayload
+      interceptorMetadata = beforeInterceptors.metadataByInterceptor
+
+      // Sync before-event (*.deleting)
+      const deleteLifecycle = deriveLifecycleEventIds(opts.events as CrudEventsConfig | undefined, 'deleted')
+      if (deleteLifecycle.beforeEventId && ctx.auth.tenantId) {
+        const syncSubs = collectSyncSubscribers(getAllSyncSubscribers(), deleteLifecycle.beforeEventId)
+        if (syncSubs.length) {
+          const em = ctx.container.resolve('em') as EntityManager
+          const syncPayload = buildSyncPayload(
+            { eventId: deleteLifecycle.beforeEventId, entity: deleteLifecycle.entity!, operation: 'delete', timing: 'before', resourceId: id, userId: ctx.auth.sub, organizationId: scopeOrganizationId, tenantId: ctx.auth.tenantId!, em, request },
+          )
+          const syncResult = await runSyncBeforeEvent(syncSubs, syncPayload, ctx.container)
+          if (!syncResult.ok) {
+            return json(syncResult.errorBody ?? { error: 'Operation blocked' }, { status: syncResult.errorStatus ?? 422 })
+          }
+        }
+      }
+
+      await opts.hooks?.beforeDelete?.(id!, ctx)
+
+      // Mutation guard registry (multi-guard)
+      const deleteUserFeatures = await resolveUserFeatures(ctx)
+      const { allGuards: deleteAllGuards } = collectAndRunGuards(ctx.container)
+      let deleteGuardAfterCallbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }> = []
+      if (deleteAllGuards.length && ctx.auth.tenantId) {
+        const guardResult = await runMutationGuards(deleteAllGuards, {
+          tenantId: ctx.auth.tenantId,
+          organizationId: scopeOrganizationId,
+          userId: ctx.auth.sub,
+          resourceKind,
+          resourceId: id,
+          operation: 'delete',
+          requestMethod: request.method,
+          requestHeaders: request.headers,
+        }, { userFeatures: deleteUserFeatures ?? [] })
+        if (!guardResult.ok) {
+          return json(guardResult.errorBody ?? { error: 'Operation blocked by guard' }, { status: guardResult.errorStatus ?? 422 })
+        }
+        deleteGuardAfterCallbacks = guardResult.afterSuccessCallbacks
+      }
+
+      const targetOrgId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null
+      if (ormCfg.orgField && !targetOrgId) return json({ error: 'Organization context is required' }, { status: 400 })
+
+      const de = (ctx.container.resolve('dataEngine') as DataEngine)
+      const where: any = buildScopedWhere(
+        { [ormCfg.idField!]: id },
+        {
+          organizationId: ormCfg.orgField ? targetOrgId : undefined,
+          organizationIds: ormCfg.orgField ? ctx.organizationIds ?? undefined : undefined,
+          tenantId: ormCfg.tenantField ? ctx.auth.tenantId : undefined,
+          orgField: ormCfg.orgField,
+          tenantField: ormCfg.tenantField,
+          softDeleteField: ormCfg.softDeleteField,
+        }
+      )
+      const entity = await de.deleteOrmEntity({
+        entity: ormCfg.entity,
+        where,
+        soft: opts.del?.softDelete !== false,
+        softDeleteField: ormCfg.softDeleteField ?? undefined,
+      })
+      if (!entity) return json({ error: 'Not found' }, { status: 404 })
+      await opts.hooks?.afterDelete?.(id!, ctx)
+
+      // Guard afterSuccess callbacks (multi)
+      if (deleteGuardAfterCallbacks.length && ctx.auth.tenantId) {
+        await runGuardAfterSuccessCallbacks(deleteGuardAfterCallbacks, {
+          tenantId: ctx.auth.tenantId, organizationId: scopeOrganizationId, userId: ctx.auth.sub,
+          resourceKind, resourceId: id, operation: 'delete',
+          requestMethod: request.method, requestHeaders: request.headers,
+        })
+      }
+
+      // Sync after-event (*.deleted)
+      if (deleteLifecycle.afterEventId && ctx.auth.tenantId) {
+        const syncAfterSubs = collectSyncSubscribers(getAllSyncSubscribers(), deleteLifecycle.afterEventId)
+        if (syncAfterSubs.length) {
+          const em = ctx.container.resolve('em') as EntityManager
+          const syncPayload = buildSyncPayload(
+            { eventId: deleteLifecycle.afterEventId, entity: deleteLifecycle.entity!, operation: 'delete', timing: 'after', resourceId: id, userId: ctx.auth.sub, organizationId: scopeOrganizationId, tenantId: ctx.auth.tenantId!, em, request },
+            { entityData: snapshotEntity(entity) },
+          )
+          await runSyncAfterEvent(syncAfterSubs, syncPayload, ctx.container)
+        }
+      }
+
+      if (entity) {
+        const identifiers = identifierResolver(entity, 'deleted')
+        de.markOrmEntityChange({
+          action: 'deleted',
+          entity,
+          identifiers,
+          events: opts.events as CrudEventsConfig | undefined,
+          indexer: opts.indexer as CrudIndexerConfig | undefined,
+        })
+        await de.flushOrmEntityChanges()
+        await invalidateCrudCache(ctx.container, resourceKind, identifiers, ctx.auth.tenantId ?? null, 'deleted', resourceTargets)
+      }
+      const payload = opts.del?.response ? opts.del.response(id) : { success: true }
+      if (interceptorRequestPayload && payload && typeof payload === 'object' && !Array.isArray(payload)) {
+        const afterInterceptors = await applyInterceptorsAfter({
+          ctx,
+          request,
+          method: 'DELETE',
+          requestPayload: interceptorRequestPayload,
+          metadataByInterceptor: interceptorMetadata,
+          statusCode: 200,
+          body: payload as Record<string, unknown>,
+        })
+        if (afterInterceptors && !afterInterceptors.ok) {
+          return json(afterInterceptors.body, { status: afterInterceptors.statusCode, headers: afterInterceptors.headers })
+        }
+        if (afterInterceptors?.ok) {
+          return json(afterInterceptors.body, { status: 200, headers: afterInterceptors.headers })
+        }
+      }
+      return json(payload)
+    } catch (e) {
+      return handleError(e, request)
+    }
+  }
+
+  return { metadata, GET, POST, PUT, DELETE }
+}

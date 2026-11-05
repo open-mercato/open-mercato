@@ -1,0 +1,406 @@
+"use client"
+
+import * as React from 'react'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { RadioGroup } from '@open-mercato/ui/primitives/radio'
+import { RadioField } from '@open-mercato/ui/primitives/radio-field'
+import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('dashboards').child({ component: 'WidgetVisibilityEditor' })
+
+const WIDGET_VISIBILITY_CONTEXT_ID = 'dashboards-widget-visibility:save'
+
+type WidgetCatalogItem = {
+  id: string
+  title: string
+  description: string | null
+}
+
+type RoleResponse = {
+  widgetIds: string[]
+  hasCustom: boolean
+  scope: { tenantId: string | null; organizationId: string | null }
+}
+
+type UserResponse = {
+  mode: 'inherit' | 'override'
+  widgetIds: string[]
+  hasCustom: boolean
+  effectiveWidgetIds: string[]
+  scope: { tenantId: string | null; organizationId: string | null }
+}
+
+type BaseProps = {
+  tenantId?: string | null
+  organizationId?: string | null
+  preserveOnTenantChange?: boolean
+}
+
+type RoleProps = BaseProps & {
+  kind: 'role'
+  targetId: string
+}
+
+type UserProps = BaseProps & {
+  kind: 'user'
+  targetId: string
+}
+
+type WidgetVisibilityEditorProps = RoleProps | UserProps
+
+export type WidgetVisibilityEditorHandle = {
+  save: () => Promise<void>
+}
+
+const EMPTY: string[] = []
+
+function resolveWidgetText(
+  t: (key: string, fallback: string) => string,
+  id: string,
+  field: 'title' | 'description',
+  fallback: string,
+): string {
+  const key1 = `${id}.${field}`
+  const result1 = t(key1, '')
+  if (result1 && result1 !== key1) return result1
+
+  const key2 = `dashboard.widgets.${id}.${field}`
+  const result2 = t(key2, '')
+  if (result2 && result2 !== key2) return result2
+
+  const dotIndex = id.lastIndexOf('.')
+  if (dotIndex > 0) {
+    const prefix = id.slice(0, dotIndex)
+    const lastPart = id.slice(dotIndex + 1)
+    const key3 = `${prefix}.widgets.${lastPart}.${field}`
+    const result3 = t(key3, '')
+    if (result3 && result3 !== key3) return result3
+  }
+
+  return fallback
+}
+
+export const WidgetVisibilityEditor = React.forwardRef<WidgetVisibilityEditorHandle, WidgetVisibilityEditorProps>(function WidgetVisibilityEditor(props, ref) {
+  const t = useT()
+  const tRef = React.useRef(t)
+  tRef.current = t
+
+  const resolveTitle = React.useCallback(
+    (widget: WidgetCatalogItem) => resolveWidgetText(t, widget.id, 'title', widget.title),
+    [t],
+  )
+
+  const resolveDescription = React.useCallback(
+    (widget: WidgetCatalogItem) => resolveWidgetText(t, widget.id, 'description', widget.description || ''),
+    [t],
+  )
+  const { kind, targetId, tenantId, organizationId, preserveOnTenantChange = false } = props
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: WIDGET_VISIBILITY_CONTEXT_ID,
+  })
+  const [catalog, setCatalog] = React.useState<WidgetCatalogItem[]>([])
+  const [loading, setLoading] = React.useState(true)
+  const [saving, setSaving] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+
+  const [selected, setSelected] = React.useState<string[]>(EMPTY)
+  const [original, setOriginal] = React.useState<string[]>(EMPTY)
+  const [mode, setMode] = React.useState<'inherit' | 'override'>('inherit')
+  const [originalMode, setOriginalMode] = React.useState<'inherit' | 'override'>('inherit')
+  const [effective, setEffective] = React.useState<string[]>(EMPTY)
+
+  const dirty = React.useMemo(() => {
+    if (kind === 'user') {
+      if (mode !== originalMode) return true
+      if (mode === 'override') return selected.join('|') !== original.join('|')
+      return false
+    }
+    return selected.join('|') !== original.join('|')
+  }, [kind, mode, original, originalMode, selected])
+
+  const loadCatalog = React.useCallback(async () => {
+    const data = await readApiResultOrThrow<{ items?: unknown[] }>(
+      '/api/dashboards/widgets/catalog',
+      undefined,
+      { errorMessage: tRef.current('dashboards.widgets.error.load', 'Unable to load widget configuration.') },
+    )
+    const items = Array.isArray(data?.items) ? data.items : []
+    const mapped = items
+      .map((item: unknown): WidgetCatalogItem | null => {
+        if (!item || typeof item !== 'object') return null
+        const entry = item as Record<string, unknown>
+        const id = typeof entry.id === 'string' ? entry.id : null
+        if (!id || !id.length) return null
+        const title =
+          typeof entry.title === 'string' && entry.title.length ? entry.title : id
+        const description =
+          typeof entry.description === 'string' && entry.description.length ? entry.description : null
+        return { id, title, description }
+      })
+      .filter((item: WidgetCatalogItem | null): item is WidgetCatalogItem => item !== null)
+    setCatalog(mapped)
+  }, [])
+
+  const tenantIdRef = React.useRef(tenantId)
+  React.useEffect(() => { tenantIdRef.current = tenantId }, [tenantId])
+  const organizationIdRef = React.useRef(organizationId)
+  React.useEffect(() => { organizationIdRef.current = organizationId }, [organizationId])
+  const hasMountedRef = React.useRef(false)
+
+  const loadRoleData = React.useCallback(async (forTenantId: string | null | undefined, forOrganizationId: string | null | undefined) => {
+    const params = new URLSearchParams({ roleId: targetId })
+    if (forTenantId) params.set('tenantId', forTenantId)
+    if (forOrganizationId) params.set('organizationId', forOrganizationId)
+    const data = await readApiResultOrThrow<RoleResponse>(
+      `/api/dashboards/roles/widgets?${params.toString()}`,
+      undefined,
+      { errorMessage: tRef.current('dashboards.widgets.error.load', 'Unable to load widget configuration.') },
+    )
+    const ids = Array.isArray(data.widgetIds) ? data.widgetIds : []
+    setSelected(ids)
+    setOriginal(ids)
+    setMode('override')
+    setOriginalMode('override')
+    setEffective(ids)
+  }, [targetId])
+
+  const loadUserData = React.useCallback(async (forTenantId: string | null | undefined, forOrganizationId: string | null | undefined) => {
+    const params = new URLSearchParams({ userId: targetId })
+    if (forTenantId) params.set('tenantId', forTenantId)
+    if (forOrganizationId) params.set('organizationId', forOrganizationId)
+    const data = await readApiResultOrThrow<UserResponse>(
+      `/api/dashboards/users/widgets?${params.toString()}`,
+      undefined,
+      { errorMessage: tRef.current('dashboards.widgets.error.load', 'Unable to load widget configuration.') },
+    )
+    const ids = Array.isArray(data.widgetIds) ? data.widgetIds : []
+    setSelected(ids)
+    setOriginal(ids)
+    setMode(data.mode || 'inherit')
+    setOriginalMode(data.mode || 'inherit')
+    setEffective(Array.isArray(data.effectiveWidgetIds) ? data.effectiveWidgetIds : [])
+  }, [targetId])
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        await Promise.all([
+          loadCatalog(),
+          kind === 'role'
+            ? loadRoleData(tenantIdRef.current, organizationIdRef.current)
+            : loadUserData(tenantIdRef.current, organizationIdRef.current),
+        ])
+      } catch (err) {
+        logger.error('Failed to load widget visibility data', { err })
+        if (!cancelled) {
+          setError(tRef.current('dashboards.widgets.error.load', 'Unable to load widget configuration.'))
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false)
+          hasMountedRef.current = true
+        }
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [kind, loadCatalog, loadRoleData, loadUserData])
+
+  React.useEffect(() => {
+    if (!hasMountedRef.current) return
+    if (preserveOnTenantChange) return
+    let cancelled = false
+    async function refetch() {
+      try {
+        if (kind === 'role') await loadRoleData(tenantId, organizationId)
+        else await loadUserData(tenantId, organizationId)
+      } catch (err) {
+        logger.error('Failed to reload widget visibility data', { err })
+      }
+    }
+    refetch()
+    return () => { cancelled = true }
+  }, [tenantId, organizationId, kind, loadRoleData, loadUserData, preserveOnTenantChange])
+
+  const toggle = React.useCallback((id: string) => {
+    setSelected((prev) => (prev.includes(id) ? prev.filter((value) => value !== id) : [...prev, id]))
+  }, [])
+
+  const resetSelections = React.useCallback(() => {
+    setSelected(original)
+    setMode(originalMode)
+  }, [original, originalMode])
+
+  const save = React.useCallback(async () => {
+    if (loading) return
+    if (error && catalog.length === 0) return
+    if (!dirty) return
+    setSaving(true)
+    setError(null)
+    try {
+      const saveError = t('dashboards.widgets.error.save', 'Unable to save dashboard widget preferences.')
+      if (kind === 'role') {
+        const payload = {
+          roleId: targetId,
+          tenantId: tenantId ?? null,
+          organizationId: organizationId ?? null,
+          widgetIds: selected,
+        }
+        // optimistic-lock-exempt: per-role widget visibility preference
+        await runMutation({
+          operation: () =>
+            apiCallOrThrow('/api/dashboards/roles/widgets', {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(payload),
+            }, { errorMessage: saveError }),
+          context: {
+            formId: WIDGET_VISIBILITY_CONTEXT_ID,
+            resourceKind: 'dashboards.role_widget_visibility',
+            retryLastMutation,
+          },
+          mutationPayload: payload,
+        })
+        setOriginal(selected)
+        setOriginalMode('override')
+        setEffective(selected)
+      } else {
+        const payload = {
+          userId: targetId,
+          tenantId: tenantId ?? null,
+          organizationId: organizationId ?? null,
+          mode,
+          widgetIds: selected,
+        }
+        // optimistic-lock-exempt: per-user widget visibility preference
+        await runMutation({
+          operation: () =>
+            apiCallOrThrow('/api/dashboards/users/widgets', {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(payload),
+            }, { errorMessage: saveError }),
+          context: {
+            formId: WIDGET_VISIBILITY_CONTEXT_ID,
+            resourceKind: 'dashboards.user_widget_visibility',
+            retryLastMutation,
+          },
+          mutationPayload: payload,
+        })
+        setOriginal(selected)
+        if (mode === 'inherit') {
+          const refreshed = await readApiResultOrThrow<UserResponse>(
+            `/api/dashboards/users/widgets?userId=${encodeURIComponent(targetId)}`,
+            undefined,
+            { errorMessage: saveError },
+          )
+          setEffective(Array.isArray(refreshed.effectiveWidgetIds) ? refreshed.effectiveWidgetIds : [])
+        } else {
+          setEffective(selected)
+        }
+        setOriginal(selected)
+        setOriginalMode(mode)
+      }
+      try { flash(t('dashboards.widgets.flash.saved', 'Dashboard widgets updated'), 'success') } catch {}
+    } catch (err) {
+      logger.error('Failed to save widget visibility', { err })
+      setError(t('dashboards.widgets.error.save', 'Unable to save dashboard widget preferences.'))
+    } finally {
+      setSaving(false)
+    }
+  }, [catalog.length, dirty, error, kind, loading, mode, organizationId, retryLastMutation, runMutation, selected, t, targetId, tenantId])
+
+  React.useImperativeHandle(ref, () => ({ save }), [save])
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Spinner size="sm" /> {t('dashboards.widgets.loading', 'Loading widget options…')}
+      </div>
+    )
+  }
+
+  if (error && catalog.length === 0) {
+    return <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>
+  }
+
+  return (
+    <div className="space-y-4">
+      {error && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>
+      )}
+
+      {kind === 'user' && (
+        <RadioGroup
+          className="flex flex-row items-center gap-3 rounded-md border bg-muted/30 px-3 py-2"
+          name="widgetOverride"
+          value={mode}
+          onValueChange={(next) => setMode(next as 'inherit' | 'override')}
+        >
+          <RadioField
+            value="inherit"
+            label={t('dashboards.widgets.mode.inherit', 'Inherit from roles')}
+          />
+          <RadioField
+            value="override"
+            label={t('dashboards.widgets.mode.override', 'Override for this user')}
+          />
+        </RadioGroup>
+      )}
+
+      {kind === 'user' && mode === 'inherit' && (
+        <div className="rounded-md border border-muted bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+          {t('dashboards.widgets.mode.hint', 'This user currently inherits widgets from their assigned roles. Switch to override to customize.')}
+        </div>
+      )}
+
+      {(kind === 'role' || mode === 'override') && (
+        <div className="space-y-3">
+          {catalog.map((widget) => (
+            <label key={widget.id} className="flex items-start gap-3 rounded-md border px-3 py-2 hover:border-primary/40">
+              <input
+                type="checkbox"
+                className="mt-1 size-4"
+                checked={selected.includes(widget.id)}
+                onChange={() => toggle(widget.id)}
+              />
+              <div>
+                <div className="text-sm font-medium leading-none">{resolveTitle(widget)}</div>
+                {widget.description ? <div className="mt-1 text-xs text-muted-foreground">{resolveDescription(widget)}</div> : null}
+              </div>
+            </label>
+          ))}
+        </div>
+      )}
+
+      {kind === 'user' && effective.length > 0 && (
+        <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+          {t('dashboards.widgets.effective', 'Effective widgets:')} {effective.map((id) => { const meta = catalog.find((m) => m.id === id); return meta ? resolveTitle(meta) : id }).join(', ')}
+        </div>
+      )}
+
+      <div className="flex items-center gap-2">
+        <Button type="button" onClick={save} disabled={saving || !dirty}>
+          {saving ? t('dashboards.widgets.saving', 'Saving…') : t('dashboards.widgets.save', 'Save widgets')}
+        </Button>
+        <Button type="button" variant="ghost" onClick={resetSelections} disabled={!dirty}>
+          {t('dashboards.widgets.reset', 'Reset')}
+        </Button>
+      </div>
+    </div>
+  )
+})
+
+WidgetVisibilityEditor.displayName = 'WidgetVisibilityEditor'

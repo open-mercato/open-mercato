@@ -1,0 +1,53 @@
+---
+title: Data Model
+description: Entities available for extension in the Sales module.
+---
+
+# Sales — Data Model
+
+All sales entities support custom fields via the [Custom Entities & Fields](/framework/custom-entities/overview) system.
+
+## Orders
+
+| Entity ID | Label | Description |
+|---|---|---|
+| `sales.sales_order` | Sales Order | Committed sales document that drives fulfillment and invoicing. |
+| `sales.sales_order_line` | Sales Order Line | Individual line on a sales order, including product or service details. |
+| `sales.sales_order_adjustment` | Sales Order Adjustment | Order-level adjustment representing promotions, taxes, or surcharges. |
+
+## Quotes
+
+| Entity ID | Label | Description |
+|---|---|---|
+| `sales.sales_quote` | Sales Quote | Pre-order offer shared with customers before confirmation. |
+| `sales.sales_quote_line` | Sales Quote Line | Line within a quote containing proposed products or services. |
+| `sales.sales_quote_adjustment` | Sales Quote Adjustment | Quote-level adjustment capturing promotional or tax calculations. |
+
+## Invoices & Credit Memos
+
+| Entity ID | Label | Description |
+|---|---|---|
+| `sales.sales_invoice` | Sales Invoice | Financial invoice derived from orders and shipments. |
+| `sales.sales_invoice_line` | Sales Invoice Line | Line within an invoice referencing products or services billed. |
+| `sales.sales_credit_memo` | Sales Credit Memo | Credit memo issued for returns or adjustments. |
+| `sales.sales_credit_memo_line` | Sales Credit Memo Line | Line entry within a credit memo detailing refunded items or services. |
+
+## Fulfillment
+
+| Entity ID | Label | Description |
+|---|---|---|
+| `sales.sales_shipment` | Sales Shipment | Shipment record tracking dispatched packages for an order. |
+| `sales.sales_shipment_item` | Sales Shipment Item | Line-level fulfillment record mapped to shipped quantities. |
+| `sales.sales_payment` | Sales Payment | Payment captured against orders or invoices. |
+| `sales.sales_payment_allocation` | Sales Payment Allocation | Allocation mapping a payment to specific documents and amounts. |
+
+## Other
+
+| Entity ID | Label | Description |
+|---|---|---|
+| `sales.sales_note` | Sales Note | Internal or customer-facing note attached to a sales document. |
+
+## See also
+
+- [Custom entities overview](/framework/custom-entities/overview)
+- [Data extensibility](/framework/database/data-extensibility)

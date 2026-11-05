@@ -1,0 +1,11 @@
+{
+  "exampleCustomersSync.errors.invalidCursor": "Nieprawidlowy kursor.",
+  "exampleCustomersSync.errors.invalidJson": "Nieprawidlowe body JSON.",
+  "exampleCustomersSync.errors.mappingsLoadFailed": "Nie udalo sie zaladowac mapowan synchronizacji klientow Example.",
+  "exampleCustomersSync.errors.organizationContextRequired": "Kontekst organizacji jest wymagany.",
+  "exampleCustomersSync.errors.organizationScopeMismatch": "Zakres organizacji nie zgadza sie.",
+  "exampleCustomersSync.errors.reconcileEnqueueFailed": "Nie udalo sie zakolejkowac uzgadniania synchronizacji klientow Example.",
+  "exampleCustomersSync.errors.tenantScopeMismatch": "Zakres tenant nie zgadza sie.",
+  "exampleCustomersSync.errors.unauthorized": "Brak autoryzacji",
+  "exampleCustomersSync.errors.validationFailed": "Walidacja nie powiodla sie"
+}

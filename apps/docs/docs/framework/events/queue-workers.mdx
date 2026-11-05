@@ -1,0 +1,684 @@
+---
+title: Queue & Workers
+description: Background job processing with multi-strategy queues supporting local file-based and Redis-backed (BullMQ) strategies.
+---
+
+# Queue & Workers
+
+The `@open-mercato/queue` package provides a multi-strategy job queue system for reliable background processing. It integrates seamlessly with the [Events system](./overview.mdx) to handle persistent events asynchronously.
+
+## Overview
+
+The queue system supports two strategies:
+
+| Strategy | Backend | Use Case | Persistence |
+|----------|---------|----------|-------------|
+| `local` | File system (JSON) | Development, single-instance deployments | `.queue/<name>/queue.json` |
+| `async` | Redis (BullMQ) | Production, multi-instance deployments | Redis sorted sets |
+
+## Quick Start
+
+```typescript
+import { createQueue } from '@open-mercato/queue'
+
+// Create a queue
+const queue = createQueue<{ userId: string }>('notifications', 'local')
+
+// Add a job to the queue
+await queue.enqueue({ userId: '123' })
+
+// Process jobs
+await queue.process(async (job, ctx) => {
+  console.log(`Processing job ${ctx.jobId}:`, job.payload)
+})
+```
+
+## Queue Strategies
+
+### Local Strategy
+
+The local strategy stores jobs in JSON files, making it ideal for development and simple deployments without Redis.
+
+:::danger Production Warning
+**Never use the local strategy in production.** It is filesystem-based and does not support distributed systems, concurrent access from multiple processes, or high availability. Always use the `async` (Redis/BullMQ) strategy for production deployments.
+:::
+
+```typescript
+import { createQueue } from '@open-mercato/queue'
+
+const queue = createQueue<MyJobData>('my-queue', 'local', {
+  baseDir: '.queue' // Optional, defaults to '.queue'
+})
+```
+
+**File structure:**
+```
+.queue/
+  my-queue/
+    queue.json   # Array of queued jobs
+    state.json   # Processing state (last processed ID)
+    active.json  # Jobs selected into the consumer's current batch (created on demand)
+```
+
+**Characteristics:**
+- Synchronous processing via `queue.process()`
+- Jobs persist across restarts
+- No external dependencies
+- Single-process only (not suitable for distributed systems)
+
+### Async Strategy (BullMQ)
+
+The async strategy uses Redis via BullMQ for production-grade job processing with concurrent workers.
+
+```typescript
+import { createQueue } from '@open-mercato/queue'
+
+const queue = createQueue<MyJobData>('my-queue', 'async', {
+  connection: {
+    url: 'redis://localhost:6379',
+    // Or use individual options:
+    // host: 'localhost',
+    // port: 6379,
+    // password: 'secret'
+  },
+  concurrency: 5 // Number of concurrent job processors
+})
+```
+
+**Environment variables:**
+- `REDIS_URL` or `QUEUE_REDIS_URL` - Redis connection URL (fallback if not provided in options)
+
+**Characteristics:**
+- Persistent job storage in Redis
+- Automatic retries with exponential backoff
+- Concurrent job processing
+- Distributed across multiple instances
+- Job prioritization and scheduling
+
+## Queue Interface
+
+All queues implement the same interface regardless of strategy:
+
+```typescript
+interface Queue<T> {
+  readonly name: string
+  readonly strategy: 'local' | 'async'
+
+  // Add a job to the queue
+  enqueue(data: T, options?: EnqueueOptions): Promise<string>
+
+  // Process jobs from the queue
+  process(handler: JobHandler<T>, options?: ProcessOptions): Promise<ProcessResult>
+
+  // Remove all jobs
+  clear(): Promise<{ removed: number }>
+
+  // Close the queue and release resources
+  close(): Promise<void>
+
+  // Get current job counts by status
+  getJobCounts(): Promise<{
+    waiting: number
+    active: number
+    completed: number
+    failed: number
+  }>
+}
+```
+
+### Enqueue Options
+
+```typescript
+type EnqueueOptions = {
+  delayMs?: number
+  coalesce?: { key: string }
+}
+```
+
+## Coalescing
+
+A job that recomputes something from current state — order totals, a leaderboard, a cached
+aggregate, a realtime broadcast — does not need to run once per trigger. It needs to run once per
+*burst*, on the latest state. Give the enqueue a key and repeated triggers collapse into the job
+already outstanding for it:
+
+```typescript
+await queue.enqueue({ orderId }, { coalesce: { key: `order-totals:${orderId}` } })
+```
+
+Ten line-item edits in a minute then produce at most two runs instead of ten.
+
+The guarantee is that **the last trigger always gets a run that sees it**. Triggers arriving while a
+job for the key is merely *waiting* add nothing, because that job has not read anything yet and will
+observe their writes. Triggers arriving while it is *running* are parked, and exactly one follow-up
+run starts when it finishes, carrying the latest payload. At most one active plus one waiting job
+exists per key.
+
+`enqueue` returns the id of the outstanding job that caused your enqueue to collapse. If that job is
+already running, the latest payload is stored for one follow-up run, but the returned id still names
+the active job; treat it as the coalescing operation id rather than a completion receipt for your
+individual trigger.
+
+### Declaring the key on the queue
+
+A key passed at every call site is a key one call site can forget. Declare it once instead, and
+every enqueue inherits it:
+
+```typescript
+export function getOrderTotalsQueue() {
+  return createModuleQueue<RecalculateTotals>('order-totals', {
+    concurrency: 3,
+    coalesceBy: (payload) => `order-totals:${payload.orderId}`,
+  })
+}
+```
+
+Return `null` from `coalesceBy` to leave a payload uncoalesced. An explicit `coalesce` on an
+individual `enqueue` overrides the queue's resolver; an empty explicit key opts that enqueue out.
+
+### `delayMs` and a coalesce key do not mix
+
+Collapsing an enqueue collapses its schedule too, and the strategies resolve the clash differently:
+the local one runs the surviving job at the **earlier** of the two moments, while the async one
+inherits BullMQ, which discards the colliding add outright and leaves the surviving job on its own
+schedule. So a burst's effective delay is not well defined, and an immediate trigger can end up
+waiting behind a delayed twin on `async`.
+
+Nothing is ever dropped either way — only the moment moves. But do not use `delayMs` to space out
+work on a coalesced key. Give delayed work its own key, or no key at all.
+
+### Why there is no drop-the-duplicate mode
+
+Most queues spell this "deduplication" and mean it literally: while a job is outstanding, further
+enqueues are discarded. That is a correctness bug for anything that recomputes from state — the
+running job read its input before the discarded trigger arrived, so it finishes on stale data and
+nothing re-runs. This package does not expose that mode. The run it would save is one workers are
+already required to tolerate, since jobs may be retried.
+
+Both strategies implement coalescing. The async strategy maps it onto BullMQ's deduplication with
+`keepLastIfActive`; the local strategy implements the same semantics on its file-backed store, so
+development and integration runs behave like production.
+
+## Job Handler
+
+The job handler receives the job data and a context object:
+
+```typescript
+type JobHandler<T> = (job: QueuedJob<T>, ctx: JobContext) => Promise<void> | void
+
+type QueuedJob<T> = {
+  id: string
+  payload: T
+  createdAt: string
+  metadata?: Record<string, unknown>
+}
+
+type JobContext = {
+  jobId: string
+  attemptNumber: number  // 1-based attempt count
+  queueName: string
+}
+```
+
+**Example:**
+
+```typescript
+await queue.process(async (job, ctx) => {
+  console.log(`[${ctx.queueName}] Processing job ${ctx.jobId} (attempt ${ctx.attemptNumber})`)
+
+  const { userId } = job.payload
+  await sendNotification(userId)
+})
+```
+
+## Running Workers
+
+For production deployments, run dedicated worker processes that continuously process jobs.
+
+### Unified Entrypoint (Development Only)
+
+Open Mercato provides a unified entrypoint that runs both the Next.js app and all queue workers automatically:
+
+```bash
+# Development mode with workers (default)
+yarn dev
+```
+
+When you run this command, the system automatically:
+1. Starts the Next.js application
+2. Spawns a worker process that handles ALL discovered queues
+
+:::danger Production Warning
+**Never use the unified entrypoint with auto-spawned workers in production.** In production, you should:
+1. Set `AUTO_SPAWN_WORKERS=false`
+2. Run worker processes separately using `yarn start:workers` or `yarn mercato queue worker --all`
+
+This separation allows you to:
+- Scale workers independently from the web application
+- Deploy workers on dedicated machines
+- Restart workers without affecting the main application
+- Monitor and manage worker processes separately
+:::
+
+#### Controlling Worker Auto-Spawn
+
+Use the `AUTO_SPAWN_WORKERS` environment variable to control this behavior:
+
+```bash
+# .env
+AUTO_SPAWN_WORKERS=true  # Default: spawn workers automatically
+```
+
+Set to `false` for production deployments where you want to run workers separately for scaling:
+
+```bash
+AUTO_SPAWN_WORKERS=false yarn start
+```
+
+`OM_AUTO_SPAWN_WORKERS` is an optional Open Mercato-prefixed alias. The legacy `AUTO_SPAWN_WORKERS` always wins when both are set, so existing deployments do not change behavior.
+
+#### Lazy Worker Auto-Spawn (Memory-Sensitive Dev)
+
+The default eager mode starts a single `mercato queue worker --all` process whose runner instantiates a per-queue runtime even when most queues have no jobs. Each runner adds polling timers (local) or BullMQ `Worker` + Redis resources (async) to the process tree, so the dev memory monitor's `Memory ... RSS (peak ...)` line scales with the number of enabled modules rather than actual workload.
+
+Lazy mode replaces the eager worker with a lightweight watcher process. The watcher probes each discovered queue for ready jobs without importing handler code or creating BullMQ workers. By default, the first ready job on a queue triggers `mercato queue worker <queueName>`; queues that never receive jobs stay completely idle.
+
+For memory-sensitive local development, set `OM_AUTO_SPAWN_WORKERS_LAZY_MODE=shared`. In that mode the watcher still stays idle until the first ready job appears, but it starts one shared `mercato queue worker --all` process instead of one process per active queue. This keeps queue behavior intact while avoiding several full CLI bootstraps when scheduler-driven jobs make many queues ready at once.
+
+```bash
+# Enable lazy auto-spawn when bypassing the dev wrapper
+OM_AUTO_SPAWN_WORKERS_LAZY=true mercato server dev
+```
+
+The monorepo and standalone `yarn dev` wrappers set `OM_AUTO_SPAWN_WORKERS_LAZY=true`, `OM_AUTO_SPAWN_WORKERS_LAZY_MODE=shared`, and `OM_AUTO_SPAWN_SCHEDULER_LAZY=true` automatically for local memory reduction. Direct `mercato server dev` and production `mercato server start` keep the eager default until these variables are set explicitly. Use `OM_AUTO_SPAWN_WORKERS_LAZY=false OM_AUTO_SPAWN_SCHEDULER_LAZY=false yarn dev` to force the historical eager mode.
+
+Lazy mode env variables:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `OM_AUTO_SPAWN_WORKERS_LAZY` | `false` | Enables the lazy supervisor. Ignored when workers are disabled by `AUTO_SPAWN_WORKERS=false`. |
+| `OM_AUTO_SPAWN_WORKERS_LAZY_MODE` | `per-queue` | `per-queue` starts one worker process per queue after that queue receives a job. `shared` starts one `queue worker --all` process after the first ready job. |
+| `OM_AUTO_SPAWN_WORKERS_LAZY_POLL_MS` | `1000` | Probe interval. Clamped to a minimum of `250`. |
+| `OM_AUTO_SPAWN_WORKERS_LAZY_RESTART` | `true` | Restart a per-queue worker if it exits unexpectedly while jobs remain pending. |
+| `OM_AUTO_SPAWN_SCHEDULER_LAZY` | `false` | Enables lazy local scheduler startup. Ignored when the scheduler is disabled by `AUTO_SPAWN_SCHEDULER=false`. |
+| `OM_AUTO_SPAWN_SCHEDULER_LAZY_POLL_MS` | `1000` | Enabled-schedule probe interval. Clamped to a minimum of `250`. |
+| `OM_AUTO_SPAWN_SCHEDULER_LAZY_RESTART` | `true` | Restart the scheduler process if it exits unexpectedly while enabled schedules remain. |
+
+Trade-offs:
+
+- The first job on a cold queue pays one poll cycle plus the worker startup time before it starts processing.
+- Probes are read-only and never invoke handlers. A probe failure (filesystem error, Redis unreachable) is logged at most once per queue per minute and keeps the queue idle until the next successful probe.
+- Lazy mode does not change worker handler contracts. Existing `workers/*.ts` metadata, `runWorker`, and `mercato queue worker <queueName>` continue to work unchanged.
+- Lazy scheduler mode does not change schedule execution. It still launches the existing `mercato scheduler start` process after an enabled schedule exists.
+- Production deployments should still prefer `AUTO_SPAWN_WORKERS=false` plus separately managed worker processes — lazy mode targets memory-sensitive dev and small unified deployments.
+
+The dev runtime's `🧠 Memory ... RSS (peak ...)` line measures the **process-tree RSS** of the app runtime, so any auto-spawned workers and the scheduler are counted in that figure. Lazy mode reduces idle RSS because no per-queue runner exists until a job triggers one and no local scheduler process exists until a schedule is enabled. The number rises again as queues and the scheduler become active.
+
+#### Available Scripts
+
+| Script | Description |
+|--------|-------------|
+| `yarn dev` | Development mode with workers |
+| `yarn start` | Production mode with workers |
+| `yarn dev:app` | Development mode (app only) |
+| `yarn start:app` | Production mode (app only) |
+| `yarn start:workers` | Run workers only (all queues) |
+
+### Running All Workers via CLI
+
+The `--all` flag processes jobs from all discovered queues in a single process:
+
+```bash
+# Process all queues
+yarn mercato queue worker --all
+
+# Via npm script
+yarn start:workers
+```
+
+This starts workers for all registered queues (e.g., `events`, `fulltext-indexing`, `vector-indexing`).
+
+### Running a Single Queue
+
+For fine-grained control, run workers for specific queues:
+
+```bash
+# Start a worker for a specific queue
+yarn mercato queue worker events
+
+# With custom concurrency
+yarn mercato queue worker events --concurrency=5
+```
+
+### Using `runWorker` Programmatically
+
+```typescript
+import { runWorker } from '@open-mercato/queue/worker'
+
+await runWorker({
+  queueName: 'events',
+  handler: async (job, ctx) => {
+    console.log(`Processing ${ctx.jobId}:`, job.payload)
+  },
+  connection: { url: process.env.REDIS_URL },
+  concurrency: 5,
+  gracefulShutdown: true // Handle SIGTERM/SIGINT
+})
+```
+
+The worker will:
+1. Connect to Redis and start a BullMQ worker
+2. Process jobs continuously with the specified concurrency
+3. Gracefully shutdown on SIGTERM/SIGINT signals
+
+### Routed Handlers
+
+For queues with multiple job types, use `createRoutedHandler`:
+
+```typescript
+import { runWorker, createRoutedHandler } from '@open-mercato/queue/worker'
+
+const handler = createRoutedHandler({
+  'user.created': async (job, ctx) => {
+    await sendWelcomeEmail(job.payload.email)
+  },
+  'order.placed': async (job, ctx) => {
+    await notifyWarehouse(job.payload.orderId)
+  },
+  'payment.received': async (job, ctx) => {
+    await updateAccountBalance(job.payload)
+  },
+})
+
+await runWorker({
+  queueName: 'events',
+  handler,
+  concurrency: 10,
+})
+```
+
+Jobs must have a `type` field in their payload to route correctly.
+
+## Integration with Events
+
+Persistent events (`persistent: true`) are automatically queued for async processing. The event system uses the queue package under the hood.
+
+### Subscriber with Persistent Events
+
+```typescript
+// src/modules/orders/subscribers/order-created.ts
+export const metadata = {
+  event: 'order.created',
+  persistent: true, // This event will be queued
+}
+
+export default async function handle(
+  payload: { orderId: string; total: number },
+  ctx: { resolve: <T>(name: string) => T }
+) {
+  const emailService = ctx.resolve('emailService')
+  await emailService.sendOrderConfirmation(payload.orderId)
+}
+```
+
+### Processing Persistent Events
+
+Persistent events are processed by running a queue worker via the CLI:
+
+```bash
+# Start a worker to process events continuously
+yarn mercato queue worker events
+
+# With custom concurrency
+yarn mercato queue worker events --concurrency=5
+
+# Check queue status
+yarn mercato queue status events
+
+# Clear all queued events
+yarn mercato queue clear events
+
+# Emit an event (for testing)
+yarn mercato events emit order.created '{"id":123}' --persistent
+```
+
+:::warning A worker must actually be running
+With single-delivery on (the default), persistent subscribers run **only** in the events worker. The
+bus does not check whether one exists - the queue is durable, so an emit with no worker yet is
+delayed, not lost, and a worker started later drains the backlog. Make sure something drains the
+`events` queue.
+
+`mercato server`/`mercato server start` reconciles this for a process it *knows* runs no worker: with
+`AUTO_SPAWN_WORKERS=false` and no `OM_EVENTS_EXTERNAL_WORKER`, that bootstrap rewrites
+`OM_EVENTS_SINGLE_DELIVERY=false` so subscribers run inline instead. A custom entrypoint (a bare
+`next start`, your own server) never runs that bootstrap, so nothing is rewritten for it - run a
+worker.
+
+The worker dispatches through the DI event bus, so it must run inside a bootstrapped process
+(`mercato queue worker ...`, or any entrypoint that builds a request container). A worker that cannot
+resolve `eventBus` fails the job loudly rather than completing it with nothing dispatched.
+:::
+
+## Configuration
+
+### Strategy Selection
+
+Set the queue strategy via environment variable:
+
+```bash
+# Use local file-based queue (default)
+EVENTS_STRATEGY=local
+
+# Use Redis-backed queue
+EVENTS_STRATEGY=redis
+```
+
+### Multi-Instance Safety Guard
+
+`mercato server start` runs a boot-time guard that catches single-instance
+infrastructure strategies before they cause silent production incidents. Three
+defaults are only safe for a single process:
+
+| Env var | Single-instance default | Multi-instance-safe value |
+|---------|-------------------------|---------------------------|
+| `CACHE_STRATEGY` | `memory` (stale ACLs after a privilege revocation) | `redis` |
+| `QUEUE_STRATEGY` | `local` (duplicate job processing — emails, webhooks, indexing) | `async` |
+| `RATE_LIMIT_STRATEGY` | `memory` (limits multiplied by the instance count) | `redis` |
+
+The guard is purely additive and opt-in via a topology hint:
+
+- **Declare a multi-instance topology** with `OM_MULTI_INSTANCE=1` (or
+  `OM_INSTANCE_COUNT=<n>` with `n > 1`). In production (`NODE_ENV=production`),
+  `start` then **refuses to boot** while any strategy above is left on its
+  single-instance value.
+- **Without the hint**, production logs a prominent warning but still starts, so
+  existing single-instance deployments are unchanged.
+- **Override** with `OM_ALLOW_SINGLE_INSTANCE_STRATEGIES=1` to downgrade the hard
+  failure to a warning when you knowingly accept the risks.
+- Development and single-instance production boots are never affected.
+
+### Redis Configuration
+
+```bash
+# Primary Redis URL
+REDIS_URL=redis://localhost:6379
+
+# Or use events-specific URL
+EVENTS_REDIS_URL=redis://events-redis:6379
+
+# Queue-specific URL
+QUEUE_REDIS_URL=redis://queue-redis:6379
+```
+
+## Best Practices
+
+### 1. Use Persistent Events for Side Effects
+
+```typescript
+// Good: Email sending should be async
+await bus.emitEvent('user.registered', { userId }, { persistent: true })
+
+// Good: Inline for immediate state updates
+await bus.emitEvent('cache.invalidated', { key }, { persistent: false })
+```
+
+### 2. Make Handlers Idempotent
+
+Jobs may be retried on failure. Design handlers to be safely re-executed:
+
+```typescript
+async function handlePayment(job, ctx) {
+  const { paymentId } = job.payload
+
+  // Check if already processed
+  const existing = await db.findPayment(paymentId)
+  if (existing.status === 'completed') {
+    return // Already processed, skip
+  }
+
+  await processPayment(paymentId)
+}
+```
+
+### 3. Set Appropriate Concurrency
+
+```typescript
+// CPU-bound tasks: match CPU cores
+createQueue('image-processing', 'async', { concurrency: 4 })
+
+// I/O-bound tasks: higher concurrency
+createQueue('api-calls', 'async', { concurrency: 20 })
+
+// Rate-limited external APIs: lower concurrency
+createQueue('email-sending', 'async', { concurrency: 2 })
+```
+
+### 4. Monitor Job Counts
+
+```typescript
+const counts = await queue.getJobCounts()
+console.log(`Waiting: ${counts.waiting}, Active: ${counts.active}, Failed: ${counts.failed}`)
+
+if (counts.failed > 100) {
+  alertOps('High failure rate in queue')
+}
+```
+
+## Type Definitions
+
+```typescript
+// Queue strategy types
+type QueueStrategyType = 'local' | 'async'
+
+// Options for local strategy
+type LocalQueueOptions = {
+  baseDir?: string // Default: '.queue'
+}
+
+// Options for async strategy
+type AsyncQueueOptions = {
+  connection?: {
+    url?: string
+    host?: string
+    port?: number
+    password?: string
+  }
+  concurrency?: number // Default: 1
+}
+
+// Process options
+type ProcessOptions = {
+  limit?: number // Max jobs to process (local strategy only)
+}
+
+// Process result
+type ProcessResult = {
+  processed: number
+  failed: number
+  lastJobId?: string
+}
+```
+
+## Worker Auto-Discovery
+
+Open Mercato automatically discovers workers from modules following a naming convention. This allows you to define workers alongside your module code.
+
+### File Convention
+
+Place worker files in your module's `workers/` directory with the `.worker.ts` suffix:
+
+```
+src/modules/<module>/workers/
+  └── <queue-name>.worker.ts
+
+# or in packages
+packages/<package>/src/modules/<module>/workers/
+  └── <queue-name>.worker.ts
+```
+
+### Worker File Structure
+
+Each worker file must export:
+1. `metadata` - Worker configuration (`WorkerMeta` type)
+2. `default` - Handler function
+
+```typescript
+// src/modules/notifications/workers/email.worker.ts
+import type { QueuedJob, JobContext, WorkerMeta } from '@open-mercato/queue'
+
+// Required: Export metadata for auto-discovery
+export const metadata: WorkerMeta = {
+  queue: 'email-notifications',
+  concurrency: parseInt(process.env.WORKERS_EMAIL_CONCURRENCY || '2', 10),
+}
+
+type EmailJobPayload = {
+  to: string
+  subject: string
+  body: string
+}
+
+// Required: Export default handler function
+export default async function handle(
+  job: QueuedJob<EmailJobPayload>,
+  ctx: JobContext
+): Promise<void> {
+  const { to, subject, body } = job.payload
+  console.log(`[email-worker] Sending email to ${to}: ${subject}`)
+  // Your job processing logic here
+}
+```
+
+### WorkerMeta Type
+
+```typescript
+type WorkerMeta = {
+  /** Queue name this worker processes */
+  queue: string
+  /** Optional unique identifier (defaults to <module>:workers:<filename>) */
+  id?: string
+  /** Worker concurrency (default: 1) */
+  concurrency?: number
+}
+```
+
+### Per-Queue Concurrency
+
+Control concurrency per queue via environment variables:
+
+```bash
+# Format: WORKERS_<QUEUE_NAME>_CONCURRENCY
+WORKERS_EVENTS_CONCURRENCY=5
+WORKERS_EMAIL_NOTIFICATIONS_CONCURRENCY=2
+WORKERS_FULLTEXT_INDEXING_CONCURRENCY=10
+```
+
+### Existing Workers
+
+Open Mercato includes these built-in workers:
+
+| Worker | Queue | Purpose |
+|--------|-------|---------|
+| `events.worker.ts` | `events` | Dispatches persistent events to subscribers |
+| `fulltext-index.worker.ts` | `fulltext-indexing` | Indexes documents for Meilisearch |
+| `vector-index.worker.ts` | `vector-indexing` | Generates embeddings for vector search |

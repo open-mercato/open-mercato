@@ -1,0 +1,43 @@
+---
+title: ACL / Features
+description: Permission features defined by the Sales module.
+---
+
+# Sales — ACL / Features
+
+Use these feature IDs when gating injection widgets, API endpoints, or UI elements to specific permissions.
+
+```typescript
+const widget: InjectionWidgetModule = {
+  metadata: {
+    id: 'my_module.injection.my-widget',
+    features: ['sales.orders.view'],
+  },
+  Widget: MyWidget,
+}
+```
+
+## Available features
+
+| Feature ID | Description |
+|---|---|
+| `sales.orders.view` | View sales orders |
+| `sales.orders.manage` | Manage sales orders |
+| `sales.orders.approve` | Approve sales orders |
+| `sales.quotes.view` | View sales quotes |
+| `sales.quotes.manage` | Manage sales quotes |
+| `sales.documents.number.edit` | Edit sales document numbers |
+| `sales.shipments.manage` | Manage order shipments |
+| `sales.payments.manage` | Manage order payments |
+| `sales.returns.view` | View order returns |
+| `sales.returns.create` | Create order returns |
+| `sales.invoices.manage` | Manage sales invoices |
+| `sales.credit_memos.manage` | Manage credit memos |
+| `sales.channels.manage` | Manage sales channels |
+| `sales.settings.manage` | Manage sales configuration |
+| `sales.widgets.new-orders` | View new orders dashboard widget |
+| `sales.widgets.new-quotes` | View new quotes dashboard widget |
+
+## See also
+
+- [RBAC overview](/framework/rbac/overview)

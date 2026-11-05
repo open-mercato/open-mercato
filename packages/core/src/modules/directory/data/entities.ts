@@ -1,0 +1,81 @@
+import { Collection } from '@mikro-orm/core'
+import { Entity, ManyToOne, OneToMany, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+
+@Entity({ tableName: 'tenants' })
+export class Tenant {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ type: 'text' })
+  name!: string
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+
+  @OneToMany(() => Organization, (o) => o.tenant)
+  organizations = new Collection<Organization>(this)
+}
+
+@Entity({ tableName: 'organizations' })
+@Unique({ name: 'organizations_tenant_slug_uniq', properties: ['tenant', 'slug'] })
+export class Organization {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => Tenant)
+  tenant!: Tenant
+
+  @Property({ type: 'text' })
+  name!: string
+
+  @Property({ type: 'text', nullable: true })
+  slug?: string | null
+
+  @Property({ name: 'logo_url', type: 'text', nullable: true })
+  logoUrl?: string | null
+
+  @Property({ name: 'logo_preserve_aspect_ratio', type: 'boolean', default: false })
+  logoPreserveAspectRatio: boolean = false
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'parent_id', type: 'uuid', nullable: true })
+  parentId: string | null = null
+
+  @Property({ name: 'root_id', type: 'uuid', nullable: true })
+  rootId: string | null = null
+
+  @Property({ name: 'tree_path', type: 'text', nullable: true })
+  treePath: string | null = null
+
+  @Property({ type: 'int', default: 0 })
+  depth: number = 0
+
+  @Property({ name: 'ancestor_ids', type: 'jsonb', default: [], nullable: false })
+  ancestorIds: string[] = []
+
+  @Property({ name: 'child_ids', type: 'jsonb', default: [], nullable: false })
+  childIds: string[] = []
+
+  @Property({ name: 'descendant_ids', type: 'jsonb', default: [], nullable: false })
+  descendantIds: string[] = []
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}

@@ -1,0 +1,713 @@
+"use client"
+import React, { useEffect, useMemo, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { useQueryClient } from '@tanstack/react-query'
+import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { invalidateCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
+import { upsertCustomEntitySchema, upsertCustomFieldDefSchema } from '@open-mercato/core/modules/entities/data/validators'
+import { z } from 'zod'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
+import Link from 'next/link'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { loadGeneratedFieldRegistrations } from '@open-mercato/ui/backend/fields/registry'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { createCrudFormError, raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { FieldDefinitionsEditor, type FieldDefinition, type FieldDefinitionError } from '@open-mercato/ui/backend/custom-fields/FieldDefinitionsEditor'
+import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@open-mercato/ui/primitives/dialog'
+import { normalizeCustomFieldOptions } from '@open-mercato/shared/modules/entities/options'
+import { TranslationManager } from '@open-mercato/core/modules/translations/components/TranslationManager'
+
+type Def = FieldDefinition
+export type EntitySource = 'code' | 'custom'
+type EntitiesListResponse = { items?: Array<Record<string, unknown>> }
+type FieldsetGroup = { code: string; title?: string; hint?: string }
+type FieldsetDefinition = { code: string; label: string; icon?: string; description?: string; groups?: FieldsetGroup[] }
+type DefinitionsManageResponse = { items?: any[]; deletedKeys?: string[]; fieldsets?: FieldsetDefinition[]; settings?: { singleFieldsetPerRecord?: boolean }; version?: string | null }
+type DefinitionsBatchResponse = { ok?: boolean; version?: string | null }
+
+function readVersionToken(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null
+}
+
+type DefErrors = FieldDefinitionError
+
+
+export default function EditDefinitionsPage({ params }: { params?: { entityId?: string } }) {
+  React.useEffect(() => { loadGeneratedFieldRegistrations().catch(() => {}) }, [])
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const t = useT()
+  const queryClient = useQueryClient()
+  const entityId = useMemo(() => decodeURIComponent((params?.entityId as any) || ''), [params])
+  const [label, setLabel] = useState('')
+  const [entitySource, setEntitySource] = useState<EntitySource>('custom')
+  const [entityFormLoading, setEntityFormLoading] = useState(true)
+  const [entityInitial, setEntityInitial] = useState<{ label?: string; description?: string; labelField?: string; defaultEditor?: string; showInSidebar?: boolean; accessRestricted?: boolean; updatedAt?: string }>({})
+  const [defs, setDefs] = useState<Def[]>([])
+  const [defsVersion, setDefsVersion] = useState<string | null>(null)
+  const [orderDirty, setOrderDirty] = useState(false)
+  const [orderSaving, setOrderSaving] = useState(false)
+  const listRef = React.useRef<HTMLDivElement | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [deletedKeys, setDeletedKeys] = useState<string[]>([])
+  const [defErrors, setDefErrors] = useState<Record<number, DefErrors>>({})
+  const [fieldsets, setFieldsets] = useState<FieldsetDefinition[]>([])
+  const [activeFieldset, setActiveFieldset] = useState<string | null>(null)
+  const [singleFieldsetPerRecord, setSingleFieldsetPerRecord] = useState(true)
+  const [translateDef, setTranslateDef] = useState<{ def: Def; entityId: string } | null>(null)
+
+  const translateFields = React.useMemo(() => {
+    if (!translateDef) return undefined
+    const { def } = translateDef
+    const fields: string[] = ['label', 'description']
+    const options = normalizeCustomFieldOptions(def.configJson?.options)
+    for (const opt of options) {
+      if (opt.value) fields.push(`options.${opt.value}.label`)
+    }
+    return fields
+  }, [translateDef])
+
+  const translateBaseValues = React.useMemo(() => {
+    if (!translateDef) return undefined
+    const { def } = translateDef
+    const base: Record<string, string> = {}
+    if (typeof def.configJson?.label === 'string') base.label = def.configJson.label
+    if (typeof def.configJson?.description === 'string') base.description = def.configJson.description
+    const options = normalizeCustomFieldOptions(def.configJson?.options)
+    for (const opt of options) {
+      if (opt.value && opt.label) base[`options.${opt.value}.label`] = opt.label
+    }
+    return base
+  }, [translateDef])
+
+  const requestedFieldset = React.useMemo(() => {
+    const raw = searchParams?.get('fieldset')
+    return raw && raw.trim().length ? raw.trim() : null
+  }, [searchParams])
+  const embedFieldsetView = React.useMemo(() => searchParams?.get('view') === 'fieldset', [searchParams])
+  const normalizeGroupPayload = React.useCallback((value: unknown) => {
+    if (!value) return null
+    if (typeof value === 'string') {
+      const code = value.trim()
+      return code ? { code } : null
+    }
+    if (typeof value !== 'object') return null
+    const entry = value as Record<string, unknown>
+    const code = typeof entry.code === 'string' ? entry.code.trim() : ''
+    if (!code) return null
+    const group: FieldsetGroup = { code }
+    if (typeof entry.title === 'string' && entry.title.trim()) group.title = entry.title.trim()
+    if (typeof entry.hint === 'string' && entry.hint.trim()) group.hint = entry.hint.trim()
+    return group
+  }, [])
+
+  const buildFieldsetPayload = React.useCallback(() => {
+    const groupMap = new Map<string, FieldsetGroup[]>()
+    defs.forEach((definition) => {
+      const code = typeof definition.configJson?.fieldset === 'string' ? definition.configJson.fieldset : null
+      if (!code) return
+      const normalized = normalizeGroupPayload(definition.configJson?.group)
+      if (!normalized) return
+      const list = groupMap.get(code) ?? []
+      if (!list.some((entry) => entry.code === normalized.code)) {
+        list.push(normalized)
+        groupMap.set(code, list)
+      }
+    })
+    return fieldsets.map((fs) => ({
+      ...fs,
+      groups: groupMap.get(fs.code) ?? [],
+    }))
+  }, [defs, fieldsets, normalizeGroupPayload])
+
+  const validateDef = React.useCallback((d: Def): DefErrors => {
+    const parsed = upsertCustomFieldDefSchema.safeParse({ entityId, key: d.key, kind: d.kind, configJson: d.configJson, isActive: d.isActive })
+    if (parsed.success) return {}
+    const errs: DefErrors = {}
+    for (const issue of parsed.error.issues) {
+      if ((issue.path || []).includes('key')) errs.key = issue.message
+      if ((issue.path || []).includes('kind')) errs.kind = issue.message
+    }
+    return errs
+  }, [entityId, requestedFieldset])
+
+  const validateAndSetErrorAt = (index: number, d: Def) => {
+    const errs = validateDef(d)
+    setDefErrors((prev) => ({ ...prev, [index]: errs }))
+    return !errs.key && !errs.kind
+  }
+
+  const validateAll = () => {
+    const nextErrors: Record<number, DefErrors> = {}
+    defs.forEach((d, i) => {
+      nextErrors[i] = validateDef(d)
+    })
+    setDefErrors(nextErrors)
+    return Object.values(nextErrors).every(e => !e.key && !e.kind)
+  }
+
+  useEffect(() => {
+    let mounted = true
+    async function load() {
+      setLoading(true)
+      try {
+        const entJson = await readApiResultOrThrow<EntitiesListResponse>(
+          '/api/entities/entities',
+          undefined,
+          { errorMessage: t('entities.userEntities.edit.errors.loadMetadataFailed', 'Failed to load entity metadata'), fallback: { items: [] } },
+        )
+        const ent = (entJson.items || []).find((x: any) => x.entityId === entityId)
+        if (mounted) {
+          const record = ent as Record<string, unknown> | undefined
+          const labelValue =
+            typeof record?.label === 'string' && record.label.trim().length > 0 ? record.label : entityId
+          const descriptionValue = typeof record?.description === 'string' ? record.description : ''
+          const labelFieldValue =
+            typeof record?.labelField === 'string' && record.labelField.length > 0 ? record.labelField : 'name'
+          const defaultEditorValue =
+            typeof record?.defaultEditor === 'string' ? record.defaultEditor : ''
+          const showInSidebarValue = record?.showInSidebar === true
+          const accessRestrictedValue = record?.accessRestricted === true
+          const updatedAtValue =
+            typeof record?.updatedAt === 'string' && record.updatedAt.length > 0 ? record.updatedAt : undefined
+          setLabel(labelValue)
+          if (record?.source === 'code' || record?.source === 'custom') setEntitySource(record.source)
+          setEntityInitial({
+            label: labelValue,
+            description: descriptionValue,
+            labelField: labelFieldValue,
+            defaultEditor: defaultEditorValue,
+            showInSidebar: showInSidebarValue,
+            accessRestricted: accessRestrictedValue,
+            updatedAt: updatedAtValue,
+          })
+          setEntityFormLoading(false)
+        }
+        const json = await readApiResultOrThrow<DefinitionsManageResponse>(
+          `/api/entities/definitions.manage?entityId=${encodeURIComponent(entityId)}`,
+          undefined,
+          { errorMessage: t('entities.userEntities.edit.errors.loadDefinitionsFailed', 'Failed to load entity definitions'), fallback: { items: [], deletedKeys: [] } },
+        )
+        if (mounted) {
+          const loaded: Def[] = (json.items || []).map((d: any) => ({ key: d.key, kind: d.kind, configJson: d.configJson || {}, isActive: d.isActive !== false }))
+          loaded.sort(
+            (a, b) => Number(a.configJson?.priority ?? 0) - Number(b.configJson?.priority ?? 0)
+          )
+          setDefs(loaded)
+          setDefsVersion(readVersionToken(json.version))
+          setDefErrors({})
+          setDeletedKeys(Array.isArray(json.deletedKeys) ? json.deletedKeys : [])
+          const loadedFieldsets = Array.isArray(json.fieldsets) ? json.fieldsets : []
+          setFieldsets(loadedFieldsets)
+          setActiveFieldset((prev) => {
+            if (requestedFieldset && loadedFieldsets.some((fs) => fs.code === requestedFieldset)) {
+              return requestedFieldset
+            }
+            if (prev && loadedFieldsets.some((fs) => fs.code === prev)) return prev
+            return loadedFieldsets[0]?.code ?? null
+          })
+          setSingleFieldsetPerRecord(json.settings?.singleFieldsetPerRecord !== false)
+        }
+      } catch (e: any) {
+        if (mounted) setError(e.message || t('entities.userEntities.edit.errors.loadFailed', 'Failed to load'))
+      } finally {
+        if (mounted) setLoading(false)
+      }
+    }
+    if (entityId) load()
+    return () => { mounted = false }
+  }, [entityId, t])
+
+  function addField() {
+    setDefs((arr) => [
+      ...arr,
+      {
+        key: '',
+        kind: 'text',
+        configJson: activeFieldset ? { fieldset: activeFieldset } : {},
+        isActive: true,
+      },
+    ])
+  }
+
+  async function restoreField(key: string) {
+    try {
+      const call = await apiCall('/api/entities/definitions.restore', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ entityId, key }),
+      })
+      if (!call.ok) {
+        await raiseCrudError(call.response, t('entities.userEntities.edit.errors.restoreFieldFailed', 'Failed to restore field'))
+      }
+      // Reload definitions & deleted keys
+      const j2 = await readApiResultOrThrow<DefinitionsManageResponse>(
+        `/api/entities/definitions.manage?entityId=${encodeURIComponent(entityId)}`,
+        undefined,
+        { errorMessage: t('entities.userEntities.edit.errors.reloadDefinitionsFailed', 'Failed to reload field definitions'), fallback: { items: [], deletedKeys: [] } },
+      )
+      const loaded: Def[] = (j2.items || []).map((d: any) => ({ key: d.key, kind: d.kind, configJson: d.configJson || {}, isActive: d.isActive !== false }))
+      loaded.sort(
+        (a, b) => Number(a.configJson?.priority ?? 0) - Number(b.configJson?.priority ?? 0)
+      )
+      setDefs(loaded)
+      setDefsVersion(readVersionToken(j2.version))
+      setDeletedKeys(Array.isArray(j2.deletedKeys) ? j2.deletedKeys : [])
+      flash(t('entities.userEntities.edit.flash.restoredField', 'Restored {{key}}', { key }), 'success')
+      await invalidateCustomFieldDefs(queryClient, entityId)
+    } catch (e: any) {
+      flash(e?.message || t('entities.userEntities.edit.errors.restoreFieldFailed', 'Failed to restore field'), 'error')
+    }
+  }
+
+  async function saveAll() {
+    setSaving(true)
+    setError(null)
+    try {
+      if (!validateAll()) {
+        flash(t('entities.customFields.errors.validation', 'Please fix validation errors in field definitions.'), 'error')
+        throw new Error(t('entities.userEntities.edit.errors.validationFailed', 'Validation failed'))
+      }
+      const payload = {
+        entityId,
+        definitions: defs.filter(d => !!d.key).map((d) => ({
+          key: d.key,
+          kind: d.kind,
+          configJson: d.configJson,
+          isActive: d.isActive !== false,
+        })),
+      }
+      const call = await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(defsVersion),
+        () => apiCall<DefinitionsBatchResponse>('/api/entities/definitions.batch', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(payload),
+        }),
+      )
+      if (!call.ok) {
+        if (surfaceRecordConflict({ status: call.status, body: call.result }, t)) return
+        await raiseCrudError(call.response, t('entities.customFields.errors.saveFailed', 'Failed to save field definitions.'))
+      }
+      setDefsVersion(readVersionToken(call.result?.version))
+      await invalidateCustomFieldDefs(queryClient, entityId)
+      router.push(`/backend/entities/user?flash=${encodeURIComponent(t('entities.customFields.flash.saved', 'Definitions saved'))}&type=success`)
+    } catch (e: any) {
+      setError(e.message || t('entities.customFields.errors.saveFailed', 'Failed to save field definitions.'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function removeField(idx: number) {
+    const def = defs[idx]
+    if (!def) return
+    if (def.key) {
+      try {
+        const call = await apiCall<DefinitionsBatchResponse>('/api/entities/definitions', {
+          method: 'DELETE',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ entityId, key: def.key }),
+        })
+        if (!call.ok) {
+          await raiseCrudError(call.response, t('entities.customFields.errors.deleteFailed', 'Failed to delete field.'))
+        }
+        // Keep the optimistic-lock token in sync after an out-of-band delete so a
+        // later Save does not falsely 409 against our own change (issue #3152).
+        setDefsVersion(readVersionToken(call.result?.version))
+      } catch (error) {
+        const message = error instanceof Error ? error.message : t('entities.customFields.errors.deleteFailed', 'Failed to delete field.')
+        flash(message, 'error')
+        return
+      }
+    }
+    setDefs((arr) => arr.filter((_, i) => i !== idx))
+    setOrderDirty(true)
+    if (def.key) {
+      await invalidateCustomFieldDefs(queryClient, entityId)
+    }
+  }
+
+  const handleFieldsetCodeChange = React.useCallback((previousCode: string, nextCode: string) => {
+    if (!previousCode || !nextCode || previousCode === nextCode) return
+    setDefs((arr) =>
+      arr.map((entry) => {
+        const current = typeof entry.configJson?.fieldset === 'string' ? entry.configJson.fieldset : undefined
+        if (current !== previousCode) return entry
+        const nextConfig = { ...(entry.configJson || {}) }
+        nextConfig.fieldset = nextCode
+        return { ...entry, configJson: nextConfig }
+      })
+    )
+    setActiveFieldset((current) => (current === previousCode ? nextCode : current))
+  }, [])
+
+  const handleFieldsetRemoved = React.useCallback((code: string) => {
+    if (!code) return
+    setDefs((arr) =>
+      arr.map((entry) => {
+        const current = typeof entry.configJson?.fieldset === 'string' ? entry.configJson.fieldset : undefined
+        if (current !== code) return entry
+        const nextConfig = { ...(entry.configJson || {}) }
+        delete nextConfig.fieldset
+        delete nextConfig.group
+        return { ...entry, configJson: nextConfig }
+      })
+    )
+  }, [])
+
+  async function saveOrderIfDirty() {
+    if (!orderDirty) return
+    setOrderSaving(true)
+    try {
+      // Do not save order when there are invalid keys/kinds
+      if (!validateAll()) throw new Error(t('entities.userEntities.edit.errors.validationFailed', 'Validation failed'))
+      const payload = {
+        entityId,
+        definitions: defs.filter(d => !!d.key).map((d) => ({
+          key: d.key,
+          kind: d.kind,
+          configJson: d.configJson,
+          isActive: d.isActive !== false,
+        })),
+      }
+      const call = await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(defsVersion),
+        () => apiCall<DefinitionsBatchResponse>('/api/entities/definitions.batch', {
+          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload),
+        }),
+      )
+      if (!call.ok) {
+        // A stale reorder auto-save (another tab changed the schema first) returns a
+        // 409; surface the shared conflict bar and stop the retry loop instead of a
+        // generic flash (issue #3152).
+        if (surfaceRecordConflict({ status: call.status, body: call.result }, t)) {
+          setOrderDirty(false)
+          return
+        }
+        await raiseCrudError(call.response, t('entities.userEntities.edit.errors.saveOrderFailed', 'Failed to save order'))
+      }
+      setDefsVersion(readVersionToken(call.result?.version))
+      setOrderDirty(false)
+      flash(t('entities.userEntities.edit.flash.orderSaved', 'Order saved'), 'success')
+      await invalidateCustomFieldDefs(queryClient, entityId)
+    } catch (e: any) {
+      flash(e?.message || t('entities.userEntities.edit.errors.saveOrderFailed', 'Failed to save order'), 'error')
+    } finally {
+      setOrderSaving(false)
+    }
+  }
+
+  // Unify loader via CrudForm isLoading; do not return early here
+
+  // Schema for inline field-level validation in CrudForm
+  const entityFormSchema = upsertCustomEntitySchema
+    .pick({ label: true, description: true, defaultEditor: true as any })
+    .extend({
+      // Allow empty string in the UI select, treat as undefined later
+      defaultEditor: z.union([z.enum(['markdown','simpleMarkdown','htmlRichText','plain']).optional(), z.literal('')]).optional(),
+      // Include showInSidebar so CrudForm doesn't strip it on submit
+      showInSidebar: z.boolean().optional(),
+      accessRestricted: z.boolean().optional(),
+    }) as z.ZodType<Record<string, unknown>>
+
+  const metadataFieldsReadOnly = entitySource === 'code'
+  const fields: CrudField[] = [
+    { id: 'label', label: t('entities.userEntities.form.label.label', 'Label'), type: 'text', required: true, readOnly: metadataFieldsReadOnly },
+    { id: 'description', label: t('entities.userEntities.form.description.label', 'Description'), type: 'textarea', readOnly: metadataFieldsReadOnly },
+    {
+      id: 'defaultEditor',
+      label: t('entities.userEntities.form.defaultEditor.label', 'Default Editor (multiline)'),
+      type: 'select',
+      readOnly: metadataFieldsReadOnly,
+      options: [
+        { value: '', label: t('entities.userEntities.form.defaultEditor.options.default', 'Default (Markdown)') },
+        { value: 'markdown', label: t('entities.userEntities.form.defaultEditor.options.markdown', 'Markdown (UIW)') },
+        { value: 'simpleMarkdown', label: t('entities.userEntities.form.defaultEditor.options.simpleMarkdown', 'Simple Markdown') },
+        { value: 'htmlRichText', label: t('entities.userEntities.form.defaultEditor.options.htmlRichText', 'HTML Rich Text') },
+        { value: 'plain', label: t('entities.userEntities.form.defaultEditor.options.plain', 'Plain textarea') },
+      ],
+    } as any,
+    ...(entitySource === 'custom' ? [{ id: 'showInSidebar', label: t('entities.userEntities.form.showInSidebar.label', 'Show in sidebar'), type: 'checkbox' }] : []),
+    ...(entitySource === 'custom' ? [{
+      id: 'accessRestricted',
+      label: t('entities.userEntities.form.accessRestricted.label', 'Restrict record access'),
+      type: 'checkbox',
+      description: t('entities.userEntities.form.accessRestricted.help', 'Require an explicit per-entity permission to view or manage this entity’s records. Leave off to allow anyone with the general records permission.'),
+    }] : []),
+  ]
+  const renderFieldDefinitions = React.useCallback(() => (
+      <FieldDefinitionsEditor
+        definitions={defs}
+        errors={defErrors}
+        deletedKeys={deletedKeys}
+        fieldsets={fieldsets}
+        activeFieldset={activeFieldset}
+        onActiveFieldsetChange={setActiveFieldset}
+        onFieldsetsChange={(next) => {
+          setFieldsets(next)
+          if (!next.some((fs) => fs.code === activeFieldset)) {
+            setActiveFieldset(next[0]?.code ?? null)
+          }
+        }}
+        onFieldsetCodeChange={handleFieldsetCodeChange}
+        onFieldsetRemoved={handleFieldsetRemoved}
+        singleFieldsetPerRecord={singleFieldsetPerRecord}
+        onSingleFieldsetPerRecordChange={setSingleFieldsetPerRecord}
+        onAddField={addField}
+        onRemoveField={(index) => { void removeField(index) }}
+        onDefinitionChange={(index, nextDef) => {
+          setDefs((arr) => arr.map((entry, idx) => (idx === index ? nextDef : entry)))
+          validateAndSetErrorAt(index, nextDef)
+        }}
+        onTranslate={(def) => setTranslateDef({ def, entityId })}
+        onRestoreField={(key) => { void restoreField(key) }}
+        onReorder={(from, to) => {
+          setDefs((arr) => {
+            const next = [...arr]
+            const [moved] = next.splice(from, 1)
+            next.splice(to, 0, moved)
+            return next
+          })
+          setOrderDirty(true)
+        }}
+        orderNotice={orderDirty ? { dirty: true, saving: orderSaving, message: t('entities.userEntities.edit.orderNotice', 'Reordered - will auto-save on blur') } : undefined}
+        addButtonLabel={t('entities.customFields.editor.addField', 'Add Field')}
+        translate={t}
+        listRef={listRef}
+        listProps={{
+          tabIndex: -1,
+          onBlur: (event) => {
+            const current = listRef.current
+            const next = event.relatedTarget as Node | null
+            if (!current) return
+            if (!next || !current.contains(next)) {
+              void saveOrderIfDirty()
+            }
+          },
+        }}
+      />
+    ),
+  [defs, defErrors, deletedKeys, fieldsets, activeFieldset, singleFieldsetPerRecord, orderDirty, orderSaving, addField, removeField, restoreField, saveOrderIfDirty, t])
+
+  const definitionsGroup: CrudFormGroup = { id: 'definitions', title: t('entities.userEntities.edit.groups.definitions', 'Field Definitions'), column: 1, component: renderFieldDefinitions }
+
+  const groups: CrudFormGroup[] = [
+    {
+      id: 'settings',
+      title: t('entities.userEntities.edit.groups.settings', 'Entity Settings'),
+      column: 1,
+      description: getEntitySettingsNotice(entitySource, t),
+      fields: entitySource === 'custom'
+        ? ['label', 'description', 'defaultEditor', 'showInSidebar', 'accessRestricted']
+        : ['label', 'description', 'defaultEditor'],
+    },
+    definitionsGroup,
+  ]
+
+  const handleCrudFormSubmit = React.useCallback(async (vals: Record<string, unknown>) => {
+    if (!entityId) {
+      throw createCrudFormError(t('entities.userEntities.edit.errors.invalidEntityId', 'Invalid entity ID'))
+    }
+    if (!validateAll()) {
+      flash(t('entities.customFields.errors.validation', 'Please fix validation errors in field definitions.'), 'error')
+      throw createCrudFormError(t('entities.customFields.errors.validation', 'Please fix validation errors in field definitions.'))
+    }
+    // Code-declared system entities are not registered as custom entities — their
+    // metadata is owned by code and `POST /api/entities/entities` is fail-closed for
+    // ORM-backed system ids (#3115). Only their field definitions are user-editable, so
+    // skip the registration call and persist definitions below.
+    if (shouldRegisterEntityMetadata(entitySource)) {
+      const entityPayload = buildEntityMetadataPayload(entitySource, vals)
+      if (!entityPayload) throw createCrudFormError(t('entities.userEntities.edit.errors.validationFailed', 'Validation failed'))
+      const callEntity = await apiCall('/api/entities/entities', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ entityId, ...entityPayload }),
+      })
+      if (!callEntity.ok) {
+        await raiseCrudError(callEntity.response, t('entities.userEntities.edit.errors.saveEntityFailed', 'Failed to save entity'))
+      }
+      try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
+    }
+    const defsPayload = buildDefinitionsBatchPayload({
+      entityId,
+      defs,
+      fieldsets: buildFieldsetPayload(),
+      singleFieldsetPerRecord,
+    })
+    // Send the aggregate schema version so a concurrent edit is rejected with a 409
+    // instead of silently overwriting the other tab (issue #3152). CrudForm's submit
+    // catch detects the optimistic-lock conflict and shows the shared conflict bar.
+    const callDefs = await withScopedApiRequestHeaders(
+      buildOptimisticLockHeader(defsVersion),
+      () => apiCall<DefinitionsBatchResponse>('/api/entities/definitions.batch', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(defsPayload),
+      }),
+    )
+    if (!callDefs.ok) {
+      await raiseCrudError(callDefs.response, t('entities.customFields.errors.saveFailed', 'Failed to save field definitions.'))
+    }
+    setDefsVersion(readVersionToken(callDefs.result?.version))
+    try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
+    await invalidateCustomFieldDefs(queryClient, entityId)
+    flash(t('entities.customFields.flash.saved', 'Definitions saved'), 'success')
+  }, [buildFieldsetPayload, defs, defsVersion, entityId, entitySource, queryClient, singleFieldsetPerRecord, t, validateAll])
+
+  if (!entityId) {
+    return (
+      <Page>
+        <PageBody>
+          <div className="p-6">
+            <Alert status="error">
+              <AlertTitle>{t('entities.userEntities.edit.errors.invalidEntityTitle', 'Invalid entity')}</AlertTitle>
+              <AlertDescription>{t('entities.userEntities.edit.errors.invalidEntityDescription', 'The requested entity ID is missing or invalid.')}</AlertDescription>
+            </Alert>
+          </div>
+        </PageBody>
+      </Page>
+    )
+  }
+
+  if (embedFieldsetView) {
+    return (
+      <div className="p-4">
+        <CrudForm
+          schema={entityFormSchema}
+          title={t('entities.userEntities.edit.fieldsetTitle', 'Edit fieldset: {{name}}', { name: requestedFieldset ?? entityId })}
+          fields={[]}
+          groups={[definitionsGroup]}
+          initialValues={entityInitial as any}
+          isLoading={entityFormLoading || loading}
+          submitLabel={t('entities.userEntities.records.form.submitSave', 'Save')}
+          deleteVisible={false}
+          backHref={undefined}
+          cancelHref={undefined}
+          embedded
+          onSubmit={handleCrudFormSubmit}
+        />
+      </div>
+    )
+  }
+
+  return (
+    <Page>
+      <PageBody>
+        <CrudForm
+          schema={entityFormSchema}
+          title={t('entities.userEntities.edit.title', 'Edit Entity: {{entityId}}', { entityId })}
+          titleHeadingLevel={1}
+          backHref={entitySource === 'code' ? "/backend/entities/system" : "/backend/entities/user"}
+          fields={fields}
+          groups={groups}
+          initialValues={entityInitial as any}
+          isLoading={entityFormLoading || loading}
+          submitLabel={t('entities.userEntities.records.form.submitSave', 'Save')}
+          deleteVisible={entitySource === 'custom'}
+          extraActions={entitySource === 'custom' ? (
+            <Button variant="outline" asChild>
+              <Link href={`/backend/entities/user/${encodeURIComponent(entityId)}/records`}>
+                {t('entities.userEntities.edit.showRecords', 'Show Records')}
+              </Link>
+            </Button>
+          ) : null}
+          cancelHref={entitySource === 'code' ? "/backend/entities/system" : "/backend/entities/user"}
+          successRedirect={entitySource === 'code'
+            ? `/backend/entities/system?flash=${encodeURIComponent(t('entities.customFields.flash.saved', 'Definitions saved'))}&type=success`
+            : `/backend/entities/user?flash=${encodeURIComponent(t('entities.customFields.flash.saved', 'Definitions saved'))}&type=success`}
+          onSubmit={handleCrudFormSubmit}
+        onDelete={entitySource === 'custom' ? async () => {
+          const callDelete = await apiCall('/api/entities/entities', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entityId }) })
+          if (!callDelete.ok) {
+            await raiseCrudError(callDelete.response, t('entities.userEntities.edit.errors.deleteEntityFailed', 'Failed to delete entity'))
+          }
+          flash(t('entities.userEntities.edit.flash.entityDeleted', 'Entity deleted'), 'success')
+          try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
+        } : undefined}
+      />
+      </PageBody>
+      <Dialog open={!!translateDef} onOpenChange={(open) => { if (!open) setTranslateDef(null) }}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{t('translations.manager.translateField', 'Translate field: {{key}}', { key: translateDef?.def.key ?? '' })}</DialogTitle>
+          </DialogHeader>
+          {translateDef && (
+            <TranslationManager
+              mode="embedded"
+              compact
+              entityType="entities:custom_field_def"
+              recordId={`${translateDef.entityId}:${translateDef.def.key}`}
+              baseValues={translateBaseValues}
+              translatableFields={translateFields}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+    </Page>
+  )
+}
+
+export function shouldRegisterEntityMetadata(entitySource: EntitySource): boolean {
+  return entitySource === 'custom'
+}
+
+const SYSTEM_ENTITY_SETTINGS_NOTICE_FALLBACK =
+  'This is a system entity defined in code. Its label and description are managed in code and cannot be edited here — only the field definitions below are editable.'
+
+export function getEntitySettingsNotice(entitySource: EntitySource, t: TranslateFn): string | undefined {
+  return shouldRegisterEntityMetadata(entitySource)
+    ? undefined
+    : t('entities.userEntities.form.systemEntityNotice', SYSTEM_ENTITY_SETTINGS_NOTICE_FALLBACK)
+}
+
+export function buildDefinitionsBatchPayload(options: {
+  entityId: string
+  defs: Array<Pick<Def, 'key' | 'kind' | 'configJson' | 'isActive'>>
+  fieldsets: FieldsetDefinition[]
+  singleFieldsetPerRecord: boolean
+}) {
+  return {
+    entityId: options.entityId,
+    definitions: options.defs.filter((d) => !!d.key).map((d) => ({
+      key: d.key,
+      kind: d.kind,
+      configJson: d.configJson,
+      isActive: d.isActive !== false,
+    })),
+    fieldsets: options.fieldsets,
+    singleFieldsetPerRecord: options.singleFieldsetPerRecord,
+  }
+}
+
+export function buildEntityMetadataPayload(
+  entitySource: EntitySource,
+  vals: Record<string, unknown>,
+): Record<string, unknown> | null {
+  const partial = entitySource === 'custom'
+    ? upsertCustomEntitySchema
+        .pick({ label: true, description: true, labelField: true as any, defaultEditor: true as any })
+        .extend({ showInSidebar: z.boolean().optional(), accessRestricted: z.boolean().optional() }) as unknown as z.ZodTypeAny
+    : upsertCustomEntitySchema
+        .pick({ label: true, description: true, defaultEditor: true as any }) as unknown as z.ZodTypeAny
+  const normalized = {
+    ...vals,
+    defaultEditor: typeof vals.defaultEditor === 'string' && vals.defaultEditor ? vals.defaultEditor : undefined,
+  }
+  const parsed = partial.safeParse(normalized)
+  return parsed.success ? (parsed.data as Record<string, unknown>) : null
+}

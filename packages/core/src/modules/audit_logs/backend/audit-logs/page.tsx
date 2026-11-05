@@ -1,0 +1,244 @@
+'use client'
+
+import React from 'react'
+import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
+import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { Tabs, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import type { ActionLogItem } from '../../components/AuditLogsActions'
+import { AuditLogsActions } from '../../components/AuditLogsActions'
+import type { AccessLogItem } from '../../components/AccessLogsTable'
+import { AccessLogsTable } from '../../components/AccessLogsTable'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('audit_logs').child({ component: 'audit-logs-page' })
+
+type ActionLogResponse = {
+  items: ActionLogItem[]
+  canViewTenant: boolean
+  page: number
+  pageSize: number
+  total: number
+  totalPages: number
+  totalIsCapped?: boolean
+}
+
+type AccessLogResponse = {
+  items: AccessLogItem[]
+  canViewTenant: boolean
+  page: number
+  pageSize: number
+  total: number
+  totalPages: number
+  totalIsCapped?: boolean
+}
+
+type TabOption = 'actions' | 'access'
+
+const DEFAULT_PAGE_SIZE = 50
+
+export default function AuditLogsPage() {
+  const t = useT()
+  const [tab, setTab] = React.useState<TabOption>('actions')
+  const [actions, setActions] = React.useState<ActionLogItem[]>([])
+  const [accessLogs, setAccessLogs] = React.useState<AccessLogItem[]>([])
+  const [loading, setLoading] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+  const [undoableOnly, setUndoableOnly] = React.useState(false)
+  const [actionsPage, setActionsPage] = React.useState(1)
+  const [actionsPageSize, setActionsPageSize] = React.useState(DEFAULT_PAGE_SIZE)
+  const [actionsTotal, setActionsTotal] = React.useState(0)
+  const [actionsTotalPages, setActionsTotalPages] = React.useState(1)
+  const [actionsTotalIsCapped, setActionsTotalIsCapped] = React.useState(false)
+  const actionsPageSizeRef = React.useRef(DEFAULT_PAGE_SIZE)
+  const [accessPage, setAccessPage] = React.useState(1)
+  const [accessPageSize, setAccessPageSize] = React.useState(DEFAULT_PAGE_SIZE)
+  const [accessTotal, setAccessTotal] = React.useState(0)
+  const [accessTotalPages, setAccessTotalPages] = React.useState(1)
+  const [accessTotalIsCapped, setAccessTotalIsCapped] = React.useState(false)
+  const accessPageSizeRef = React.useRef(DEFAULT_PAGE_SIZE)
+
+  const fetchActions = React.useCallback(async (page: number, pageSize: number) => {
+    const params = new URLSearchParams()
+    params.set('page', String(page))
+    params.set('pageSize', String(pageSize))
+    if (undoableOnly) params.set('undoableOnly', 'true')
+    return readApiResultOrThrow<ActionLogResponse>(
+      `/api/audit_logs/audit-logs/actions?${params.toString()}`,
+      undefined,
+      { errorMessage: t('audit_logs.error.load') },
+    )
+  }, [undoableOnly, t])
+
+  const fetchAccess = React.useCallback(async (page: number, pageSize: number) => {
+    const params = new URLSearchParams()
+    params.set('page', String(page))
+    params.set('pageSize', String(pageSize))
+    return readApiResultOrThrow<AccessLogResponse>(
+      `/api/audit_logs/audit-logs/access?${params.toString()}`,
+      undefined,
+      { errorMessage: t('audit_logs.error.load') },
+    )
+  }, [t])
+
+  const loadAll = React.useCallback(async (
+    actionPage: number, actionPageSize: number,
+    accessPageNum: number, accessPageSizeNum: number,
+  ) => {
+    const [actionsRes, accessRes] = await Promise.all([
+      fetchActions(actionPage, actionPageSize),
+      fetchAccess(accessPageNum, accessPageSizeNum),
+    ])
+    setActions(actionsRes.items ?? [])
+    setActionsPage(actionsRes.page ?? actionPage)
+    setActionsPageSize((prev) => {
+      const resolved = actionsRes.pageSize ?? actionPageSize
+      actionsPageSizeRef.current = resolved
+      return resolved === prev ? prev : resolved
+    })
+    setActionsTotal(actionsRes.total ?? (actionsRes.items?.length ?? 0))
+    setActionsTotalPages(actionsRes.totalPages ?? 1)
+    setActionsTotalIsCapped(actionsRes.totalIsCapped === true)
+    setAccessLogs(accessRes.items ?? [])
+    const resolvedPage = accessRes.page ?? accessPageNum
+    const resolvedPageSize = accessRes.pageSize ?? accessPageSizeNum
+    const resolvedTotal = accessRes.total ?? (accessRes.items?.length ?? 0)
+    const resolvedTotalPages = accessRes.totalPages ?? Math.max(1, Math.ceil((resolvedTotal || 0) / (resolvedPageSize || 1)))
+    setAccessPage(resolvedPage)
+    setAccessPageSize((prev) => {
+      if (resolvedPageSize === prev) {
+        accessPageSizeRef.current = prev
+        return prev
+      }
+      accessPageSizeRef.current = resolvedPageSize
+      return resolvedPageSize
+    })
+    setAccessTotal(resolvedTotal)
+    setAccessTotalPages(resolvedTotalPages)
+    setAccessTotalIsCapped(accessRes.totalIsCapped === true)
+  }, [fetchActions, fetchAccess])
+
+  const loadWithState = React.useCallback(async (
+    actionPage: number, actionPageSize: number,
+    accessPageNum: number, accessPageSizeNum: number,
+  ) => {
+    setLoading(true)
+    setError(null)
+    try {
+      await loadAll(actionPage, actionPageSize, accessPageNum, accessPageSizeNum)
+    } catch (err) {
+      logger.error('Failed to load audit logs', { err })
+      setError(t('audit_logs.error.load'))
+    } finally {
+      setLoading(false)
+    }
+  }, [loadAll, t])
+
+  React.useEffect(() => {
+    setActionsPage(1)
+    setAccessPage(1)
+    void loadWithState(1, actionsPageSizeRef.current, 1, accessPageSizeRef.current)
+  }, [loadWithState, undoableOnly])
+
+  const renderRefreshButton = React.useCallback(() => (
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={() => void loadWithState(actionsPage, actionsPageSize, accessPage, accessPageSize)}
+      disabled={loading}
+    >
+      {loading ? t('audit_logs.common.refreshing') : t('audit_logs.common.refresh')}
+    </Button>
+  ), [loadWithState, actionsPage, actionsPageSize, accessPage, accessPageSize, loading, t])
+
+  const handleUndoError = React.useCallback((reason?: string) => {
+    setError(reason || t('audit_logs.error.undo'))
+  }, [t])
+  const handleRedoError = React.useCallback((reason?: string) => {
+    setError(reason || t('audit_logs.error.redo'))
+  }, [t])
+
+  const handleActionsPageChange = React.useCallback((nextPage: number) => {
+    const totalPages = actionsTotalPages || 1
+    const normalized = Math.max(1, Math.min(nextPage, totalPages))
+    void loadWithState(normalized, actionsPageSizeRef.current, accessPage, accessPageSizeRef.current)
+  }, [actionsTotalPages, loadWithState, accessPage])
+
+  const handleAccessPageChange = React.useCallback((nextPage: number) => {
+    const totalPages = accessTotalPages || 1
+    const normalized = Math.max(1, Math.min(nextPage, totalPages))
+    void loadWithState(actionsPage, actionsPageSizeRef.current, normalized, accessPageSizeRef.current)
+  }, [accessTotalPages, loadWithState, actionsPage])
+
+  const headerExtras = (
+    <>
+      {renderRefreshButton()}
+      <label className="flex items-center gap-2 rounded border border-transparent px-2 py-1 text-sm text-muted-foreground">
+        <span>{t('audit_logs.filters.undoable_only')}</span>
+        <input
+          type="checkbox"
+          className="h-4 w-4 rounded border border-input"
+          checked={undoableOnly}
+          onChange={(e) => setUndoableOnly(e.target.checked)}
+        />
+      </label>
+    </>
+  )
+
+  return (
+    <Page>
+      <PageHeader title={t('audit_logs.nav.title')} />
+      <PageBody>
+        <Tabs
+          value={tab}
+          onValueChange={(value) => setTab(value as TabOption)}
+          variant="underline"
+          className="mb-6"
+        >
+          <TabsList className="w-full flex-wrap" aria-label={t('audit_logs.tabs.label')}>
+            <TabsTrigger value="actions">{t('audit_logs.actions.title')}</TabsTrigger>
+            <TabsTrigger value="access">{t('audit_logs.access.title')}</TabsTrigger>
+          </TabsList>
+        </Tabs>
+
+        {error && <div className="mb-4 rounded-md border border-status-error-border bg-status-error-bg p-3 text-sm text-status-error-text">{error}</div>}
+
+        {tab === 'actions' && (
+          <AuditLogsActions
+            items={actions}
+            onRefresh={() => loadWithState(actionsPage, actionsPageSize, accessPage, accessPageSize)}
+            isLoading={loading}
+            headerExtras={headerExtras}
+            onUndoError={handleUndoError}
+            onRedoError={handleRedoError}
+            pagination={{
+              page: actionsPage,
+              pageSize: actionsPageSize,
+              total: actionsTotal,
+              totalPages: actionsTotalPages,
+              totalIsCapped: actionsTotalIsCapped,
+              onPageChange: handleActionsPageChange,
+            }}
+          />
+        )}
+
+        {tab === 'access' && (
+          <AccessLogsTable
+            items={accessLogs}
+            isLoading={loading}
+            actions={renderRefreshButton()}
+            pagination={{
+              page: accessPage,
+              pageSize: accessPageSize,
+              total: accessTotal,
+              totalPages: accessTotalPages,
+              totalIsCapped: accessTotalIsCapped,
+              onPageChange: handleAccessPageChange,
+            }}
+          />
+        )}
+      </PageBody>
+    </Page>
+  )
+}

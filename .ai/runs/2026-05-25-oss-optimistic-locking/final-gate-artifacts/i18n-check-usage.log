@@ -1,0 +1,41 @@
+Scanning codebase for translation key usage...
+
+[2mFound 14743 translation keys across all en.json files[0m
+[2mFound 29531 static references to 11093 unique keys[0m
+
+[33mUNUSED KEYS (in en.json but not referenced in code): 3650 keys[0m
+  [2m-[0m ai_assistant.agents.mutation_policy.options.confirm-required
+  [2m-[0m ai_assistant.agents.mutation_policy.options.destructive-confirm-required
+  [2m-[0m ai_assistant.agents.mutation_policy.options.read-only
+  [2m-[0m ai_assistant.agents.prompt.errorTitle
+  [2m-[0m ai_assistant.agents.prompt.noticeBody
+  [2m-[0m ai_assistant.agents.prompt.noticeTitle
+  [2m-[0m ai_assistant.agents.prompt.sections.attachments
+  [2m-[0m ai_assistant.agents.prompt.sections.data
+  [2m-[0m ai_assistant.agents.prompt.sections.mutationPolicy
+  [2m-[0m ai_assistant.agents.prompt.sections.overrides
+  [2m-[0m ai_assistant.agents.prompt.sections.responseStyle
+  [2m-[0m ai_assistant.agents.prompt.sections.role
+  [2m-[0m ai_assistant.agents.prompt.sections.scope
+  [2m-[0m ai_assistant.agents.prompt.sections.tools
+  [2m-[0m ai_assistant.chat.debugPanelTitle
+  [2m-[0m ai_assistant.chat.emptyTranscript
+  [2m-[0m ai_assistant.chat.mutation_cards.result.successWithCommand
+  [2m-[0m ai_assistant.chat.shortcuts.cancelHint
+  [2m-[0m ai_assistant.chat.shortcuts.saveHint
+  [2m-[0m ai_assistant.chat.shortcuts.submitHint
+  [2m-[0m api_keys.form.error.createFailed
+  [2m-[0m app.exampleAdmin
+  [2m-[0m app.exampleBlogPost
+  [2m-[0m app.examplePage
+  [2m-[0m app.goToLogin
+  [2m-[0m app.status
+  [2m-[0m app.title
+  [2m-[0m attachments.customers.storage.nav.group
+  [2m-[0m attachments.library.metadata.saving
+  [2m-[0m attachments.library.metadata.source
+[2m  ... and 3620 more[0m
+
+[2mSkipped 400 dynamic t()/translate() calls (non-string-literal arguments)
+[0m
+Summary: [33m3650 unused keys (advisory)[0m

@@ -1,0 +1,146 @@
+import { NextResponse } from 'next/server'
+import { z } from 'zod'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
+import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
+import type { CommandRuntimeContext, CommandBus } from '@open-mercato/shared/lib/commands'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
+import {
+  resourcesResourceTagAssignmentSchema,
+  type ResourcesResourceTagAssignmentInput,
+} from '../../../../data/validators'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
+
+const logger = createLogger('resources').child({ component: 'tags' })
+
+export const metadata = {
+  POST: { requireAuth: true, requireFeatures: ['resources.manage_resources'] },
+}
+
+async function buildContext(
+  req: Request
+): Promise<{ ctx: CommandRuntimeContext; translate: (key: string, fallback?: string) => string }> {
+  const container = await createRequestContainer()
+  const auth = await getAuthFromRequest(req)
+  const { translate } = await resolveTranslations()
+  if (!auth) throw new CrudHttpError(401, { error: translate('resources.errors.unauthorized', 'Unauthorized') })
+  const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  const ctx: CommandRuntimeContext = {
+    container,
+    auth,
+    organizationScope: scope,
+    selectedOrganizationId: resolveSingleOrganizationIdOrDeny(scope, auth) ?? null,
+    organizationIds: scope?.filterIds ?? (auth.orgId ? [auth.orgId] : null),
+    request: req,
+  }
+  return { ctx, translate }
+}
+
+function resolveActorId(ctx: CommandRuntimeContext): string {
+  const auth = ctx.auth
+  if (auth && typeof auth.sub === 'string' && auth.sub.trim().length > 0) return auth.sub
+  if (auth && typeof auth.userId === 'string' && auth.userId.trim().length > 0) return auth.userId
+  if (auth && typeof auth.keyId === 'string' && auth.keyId.trim().length > 0) return auth.keyId
+  return 'system'
+}
+
+export async function POST(req: Request) {
+  try {
+    const { ctx, translate } = await buildContext(req)
+    const body = await req.json().catch(() => ({}))
+    const input = parseScopedCommandInput(resourcesResourceTagAssignmentSchema, body, ctx, translate)
+    const actorId = resolveActorId(ctx)
+    const guardResult = await validateCrudMutationGuard(ctx.container, {
+      tenantId: input.tenantId,
+      organizationId: input.organizationId,
+      userId: actorId,
+      resourceKind: 'resources.resourceTagAssignment',
+      resourceId: input.resourceId,
+      operation: 'custom',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: input,
+    })
+    if (guardResult && !guardResult.ok) {
+      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    }
+
+    const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
+    const { result, logEntry } = await commandBus.execute<ResourcesResourceTagAssignmentInput, { assignmentId: string | null }>(
+      'resources.resourceTags.unassign',
+      { input, ctx },
+    )
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(ctx.container, {
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
+        userId: actorId,
+        resourceKind: 'resources.resourceTagAssignment',
+        resourceId: input.resourceId,
+        operation: 'custom',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
+
+    const response = NextResponse.json({ id: result?.assignmentId ?? null })
+    if (logEntry?.undoToken && logEntry?.id && logEntry?.commandId) {
+      response.headers.set(
+        'x-om-operation',
+        serializeOperationMetadata({
+          id: logEntry.id,
+          undoToken: logEntry.undoToken,
+          commandId: logEntry.commandId,
+          actionLabel: logEntry.actionLabel ?? null,
+          resourceKind: logEntry.resourceKind ?? 'resources.resourceTagAssignment',
+          resourceId: logEntry.resourceId ?? result?.assignmentId ?? null,
+          executedAt: logEntry.createdAt instanceof Date ? logEntry.createdAt.toISOString() : undefined,
+        }),
+      )
+    }
+    return response
+  } catch (err) {
+    if (isCrudHttpError(err)) {
+      return NextResponse.json(err.body, { status: err.status })
+    }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
+    const { translate } = await resolveTranslations()
+    logger.error('Tag unassign failed', { err })
+    return NextResponse.json({ error: translate('resources.resources.tags.updateError', 'Failed to update tags.') }, { status: 400 })
+  }
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Resources',
+  summary: 'Unassign resource tag',
+  methods: {
+    POST: {
+      summary: 'Unassign resource tag',
+      description: 'Removes a tag from a resources resource.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: resourcesResourceTagAssignmentSchema,
+      },
+      responses: [
+        { status: 200, description: 'Tag assignment removed', schema: z.object({ id: z.string().uuid().nullable() }) },
+        { status: 400, description: 'Invalid payload', schema: z.object({ error: z.string() }) },
+        { status: 401, description: 'Unauthorized', schema: z.object({ error: z.string() }) },
+        { status: 403, description: 'Forbidden', schema: z.object({ error: z.string() }) },
+      ],
+    },
+  },
+}

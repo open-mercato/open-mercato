@@ -1,0 +1,4 @@
+interface:
+  display_name: "Judge Agent Session"
+  short_description: "Judge generated artifacts and session bundles"
+  default_prompt: "Use $om-judge-agent-session to judge this generated eval or shared session bundle."

@@ -1,0 +1,192 @@
+import { NextResponse } from 'next/server'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import type { CacheStrategy } from '@open-mercato/cache'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
+import {
+  createWidgetDataService,
+  type WidgetDataRequest,
+  WidgetDataValidationError,
+  WidgetDataScanLimitError,
+  WidgetDataEncryptionUnavailableError,
+} from '../../../services/widgetDataService'
+import type { AnalyticsRegistry } from '../../../services/analyticsRegistry'
+import { runApiInterceptorsBefore } from '@open-mercato/shared/lib/crud/interceptor-runner'
+import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { dashboardsTag, dashboardsErrorSchema } from '../../openapi'
+import { widgetDataRequestSchema, widgetDataResponseSchema } from './schema'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveOptionalBaseCurrencyResolver } from '../../../lib/optionalBaseCurrency'
+
+const logger = createLogger('dashboards').child({ component: 'widgets-data' })
+
+export const metadata = {
+  POST: { requireAuth: true, requireFeatures: ['analytics.view'] },
+}
+
+export async function POST(req: Request) {
+  const auth = await getAuthFromRequest(req)
+  if (!auth) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  let body: unknown
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
+
+  const parsed = widgetDataRequestSchema.safeParse(body)
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: 'Invalid request payload', issues: parsed.error.issues },
+      { status: 400 },
+    )
+  }
+
+  const container = await createRequestContainer()
+  const analyticsRegistry = container.resolve<AnalyticsRegistry>('analyticsRegistry')
+
+  const tenantId = auth.tenantId ?? null
+  if (!tenantId) {
+    return NextResponse.json({ error: 'Tenant context is required' }, { status: 400 })
+  }
+
+  const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  const { organizationIds, rbacOrganizationId } = resolveOrganizationScopeFilter(scope, auth)
+
+  const entityFeatures = analyticsRegistry.getRequiredFeatures(parsed.data.entityType)
+  if (entityFeatures && entityFeatures.length > 0) {
+    const rbacService = container.resolve<{
+      userHasAllFeatures: (
+        userId: string,
+        features: string[],
+        scope: { tenantId: string; organizationId?: string | null },
+      ) => Promise<boolean>
+    }>('rbacService')
+    const hasAccess = await rbacService.userHasAllFeatures(auth.sub, entityFeatures, {
+      tenantId,
+      organizationId: rbacOrganizationId,
+    })
+    if (!hasAccess) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+  }
+
+  const em = (container.resolve('em') as EntityManager).fork({
+    clear: true,
+    freshEventManager: true,
+    useContext: true,
+  })
+
+  const userFeatures = Array.isArray(auth.features)
+    ? auth.features.filter((value): value is string => typeof value === 'string')
+    : []
+
+  const headers: Record<string, string> = {}
+  req.headers.forEach((value, key) => {
+    headers[key] = value
+  })
+
+  const interceptorResult = await runApiInterceptorsBefore({
+    routePath: 'dashboards/widgets/data',
+    method: 'POST',
+    request: {
+      method: 'POST',
+      url: req.url,
+      headers,
+      body: parsed.data as unknown as Record<string, unknown>,
+    },
+    context: {
+      em,
+      container,
+      userId: auth.sub ?? '',
+      tenantId,
+      organizationId: rbacOrganizationId ?? '',
+      userFeatures,
+    },
+  })
+
+  if (!interceptorResult.ok) {
+    return NextResponse.json(interceptorResult.body, { status: interceptorResult.statusCode })
+  }
+
+  const requestData = (interceptorResult.request.body ?? parsed.data) as WidgetDataRequest
+
+  try {
+    const cache = container.resolve<CacheStrategy>('cache')
+    const service = createWidgetDataService(
+      em,
+      { tenantId, organizationIds },
+      analyticsRegistry,
+      cache,
+      resolveOptionalBaseCurrencyResolver(container),
+    )
+    const result = await service.fetchWidgetData(requestData)
+    return NextResponse.json(result)
+  } catch (err) {
+    logger.error('Widget data request failed', { err })
+    if (err instanceof WidgetDataValidationError) {
+      return NextResponse.json({ error: err.message }, { status: 400 })
+    }
+    // The dataset is too large to group in application code; surface why rather than a masked 500.
+    if (err instanceof WidgetDataScanLimitError) {
+      return NextResponse.json({ error: err.message }, { status: 422 })
+    }
+    // Encryption is configured but currently unresolvable. Refusing the request keeps ciphertext and
+    // silently-wrong buckets out of the response, and 503 tells the client it is worth retrying.
+    if (err instanceof WidgetDataEncryptionUnavailableError) {
+      return NextResponse.json({ error: err.message }, { status: 503 })
+    }
+    return NextResponse.json(
+      { error: 'An error occurred while processing your request' },
+      { status: 500 },
+    )
+  }
+}
+
+const widgetDataPostDoc: OpenApiMethodDoc = {
+  summary: 'Fetch aggregated data for dashboard widgets',
+  description:
+    'Executes an aggregation query against the specified entity type and returns the result. Supports date range filtering, grouping, and period-over-period comparison.',
+  tags: [dashboardsTag],
+  requestBody: {
+    contentType: 'application/json',
+    schema: widgetDataRequestSchema,
+    description: 'Widget data request configuration specifying entity type, metric, filters, and grouping.',
+  },
+  responses: [
+    {
+      status: 200,
+      description: 'Aggregated data for the widget.',
+      schema: widgetDataResponseSchema,
+    },
+  ],
+  errors: [
+    { status: 400, description: 'Invalid request payload', schema: dashboardsErrorSchema },
+    { status: 401, description: 'Authentication required', schema: dashboardsErrorSchema },
+    {
+      status: 422,
+      description: 'Too many rows to group an encrypted field in application code',
+      schema: dashboardsErrorSchema,
+    },
+    { status: 403, description: 'Missing analytics.view feature', schema: dashboardsErrorSchema },
+    { status: 500, description: 'Internal server error', schema: dashboardsErrorSchema },
+    {
+      status: 503,
+      description: 'Encryption is configured but the group source cannot currently be resolved',
+      schema: dashboardsErrorSchema,
+    },
+  ],
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: dashboardsTag,
+  summary: 'Widget data aggregation endpoint',
+  methods: {
+    POST: widgetDataPostDoc,
+  },
+}

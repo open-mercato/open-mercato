@@ -1,0 +1,508 @@
+import {
+  applyCustomFieldsNormalization,
+  buildCustomFieldFiltersFromQuery,
+  decorateRecordWithCustomFields,
+  extractAllCustomFieldEntries,
+  loadCustomFieldDefinitionIndex,
+  loadCustomFieldValues,
+  splitCustomFieldPayload,
+} from '../custom-fields'
+import type { CustomFieldDefinitionIndex, CustomFieldDefinitionSummary } from '../custom-fields'
+import { encryptWithAesGcm } from '../../encryption/aes'
+
+const mockEntityManager = (defs: any[]) => ({
+  find: jest.fn().mockResolvedValue(defs),
+})
+
+describe('buildCustomFieldFiltersFromQuery', () => {
+  const definitions = [
+    {
+      id: 'def-fashion-color',
+      key: 'color',
+      kind: 'text',
+      entityId: 'catalog:product',
+      configJson: { fieldset: 'fashion' },
+    },
+    {
+      id: 'def-shared-material',
+      key: 'material',
+      kind: 'text',
+      entityId: 'catalog:product',
+      configJson: {},
+    },
+  ]
+
+  it('generates filters for matching definitions regardless of fieldset when none specified', async () => {
+    const em = mockEntityManager(definitions)
+    const filters = await buildCustomFieldFiltersFromQuery({
+      entityIds: ['catalog:product'],
+      query: { cf_color: 'blue' },
+      em: em as any,
+      tenantId: 'tenant-1',
+    })
+    expect(em.find).toHaveBeenCalled()
+    expect(filters).toEqual({ 'cf:color': 'blue' })
+  })
+
+  it('restricts filters to the requested fieldset code', async () => {
+    const em = mockEntityManager([
+      ...definitions,
+      {
+        id: 'def-shared-support',
+        key: 'support_contact',
+        kind: 'text',
+        entityId: 'catalog:product',
+        configJson: { fieldsets: ['fashion', 'giftable'] },
+      },
+    ])
+    const filters = await buildCustomFieldFiltersFromQuery({
+      entityIds: ['catalog:product'],
+      query: { cf_color: 'blue' },
+      em: em as any,
+      tenantId: 'tenant-1',
+      fieldset: 'fashion',
+    })
+    expect(filters).toEqual({ 'cf:color': 'blue' })
+    const emptyFilters = await buildCustomFieldFiltersFromQuery({
+      entityIds: ['catalog:product'],
+      query: { cf_color: 'blue', cf_material: 'cotton' },
+      em: em as any,
+      tenantId: 'tenant-1',
+      fieldset: 'tech',
+    })
+    expect(emptyFilters).toEqual({})
+    const sharedFilters = await buildCustomFieldFiltersFromQuery({
+      entityIds: ['catalog:product'],
+      query: { cf_support_contact: 'team@example.com' },
+      em: em as any,
+      tenantId: 'tenant-1',
+      fieldset: 'giftable',
+    })
+    expect(sharedFilters).toEqual({ 'cf:support_contact': 'team@example.com' })
+  })
+})
+
+describe('splitCustomFieldPayload', () => {
+  it('pulls values from customValues map', () => {
+    const raw = {
+      name: 'Channel',
+      customValues: {
+        api_url: 'https://example.dev',
+        priority: 5,
+      },
+    }
+    expect(splitCustomFieldPayload(raw)).toEqual({
+      base: { name: 'Channel' },
+      custom: { api_url: 'https://example.dev', priority: 5 },
+    })
+  })
+
+  it('maps array based customFields entries', () => {
+    const raw = {
+      customFields: [
+        { key: 'api_url', value: 'https://example.dev' },
+        { key: '', value: 'ignored' },
+        { key: 'notes', value: null },
+      ],
+      code: 'demo',
+    }
+    expect(splitCustomFieldPayload(raw)).toEqual({
+      base: { code: 'demo' },
+      custom: {
+        api_url: 'https://example.dev',
+        notes: null,
+      },
+    })
+  })
+})
+
+describe('extractAllCustomFieldEntries', () => {
+  it('merges entries from customValues maps and customFields objects', () => {
+    const item = {
+      customValues: { api_url: 'https://fws1.api', priority: 5 },
+      customFields: { notes: 'memo' },
+      other: 'value',
+    }
+    expect(extractAllCustomFieldEntries(item)).toEqual({
+      cf_api_url: 'https://fws1.api',
+      cf_priority: 5,
+      cf_notes: 'memo',
+    })
+  })
+
+  it('reads entries from customFields arrays and keeps existing cf_* keys', () => {
+    const item = {
+      customFields: [
+        { key: 'api_url', value: 'https://onet.pl' },
+        { key: '', value: 'skip-me' },
+        { key: 'notes' },
+      ],
+      cf_existing: 'foo',
+    }
+    expect(extractAllCustomFieldEntries(item)).toEqual({
+      cf_api_url: 'https://onet.pl',
+      cf_notes: undefined,
+      cf_existing: 'foo',
+    })
+  })
+
+  it('reads snake-case custom field containers', () => {
+    const item = {
+      custom_values: { api_url: 'https://snake.example', priority: 7 },
+      custom_fields: [
+        { key: 'array_key', value: 'array-value' },
+      ],
+    }
+
+    expect(extractAllCustomFieldEntries(item)).toEqual({
+      cf_api_url: 'https://snake.example',
+      cf_priority: 7,
+      cf_array_key: 'array-value',
+    })
+  })
+})
+
+describe('loadCustomFieldValues (encryption)', () => {
+  it('decrypts encrypted text custom field payloads as strings', async () => {
+    const dek = Buffer.alloc(32, 2).toString('base64')
+    // Mirrors production encrypt path: strings stored unwrapped, non-strings JSON-stringified.
+    const encrypted = encryptWithAesGcm('secret-note', dek).value
+    const em = {
+      find: jest.fn().mockImplementation((_, where) => {
+        if ((where as any).recordId) {
+          return Promise.resolve([
+            { recordId: 'rec-1', fieldKey: 'note', organizationId: null, tenantId: 'tenant-1', valueText: encrypted, valueMultiline: null, valueInt: null, valueFloat: null, valueBool: null, deletedAt: null },
+          ])
+        }
+        return Promise.resolve([
+          { key: 'note', entityId: 'demo:entity', organizationId: null, tenantId: 'tenant-1', kind: 'text', configJson: { encrypted: true }, isActive: true },
+        ])
+      }),
+    }
+    const mockService = { isEnabled: () => true, getDek: async () => ({ key: dek }) }
+    const values = await loadCustomFieldValues({
+      em: em as any,
+      entityId: 'demo:entity',
+      recordIds: ['rec-1'],
+      tenantIdByRecord: { 'rec-1': 'tenant-1' },
+      encryptionService: mockService as any,
+    })
+    expect(values['rec-1'].cf_note).toBe('secret-note')
+  })
+
+  it('preserves numeric-looking text values as strings (regression: issue #1734)', async () => {
+    const dek = Buffer.alloc(32, 2).toString('base64')
+    const encrypted = encryptWithAesGcm('123', dek).value
+    const em = {
+      find: jest.fn().mockImplementation((_, where) => {
+        if ((where as any).recordId) {
+          return Promise.resolve([
+            { recordId: 'rec-1', fieldKey: 'note', organizationId: null, tenantId: 'tenant-1', valueText: encrypted, valueMultiline: null, valueInt: null, valueFloat: null, valueBool: null, deletedAt: null },
+          ])
+        }
+        return Promise.resolve([
+          { key: 'note', entityId: 'demo:entity', organizationId: null, tenantId: 'tenant-1', kind: 'text', configJson: { encrypted: true }, isActive: true },
+        ])
+      }),
+    }
+    const mockService = { isEnabled: () => true, getDek: async () => ({ key: dek }) }
+    const values = await loadCustomFieldValues({
+      em: em as any,
+      entityId: 'demo:entity',
+      recordIds: ['rec-1'],
+      tenantIdByRecord: { 'rec-1': 'tenant-1' },
+      encryptionService: mockService as any,
+    })
+    expect(values['rec-1'].cf_note).toBe('123')
+    expect(typeof values['rec-1'].cf_note).toBe('string')
+  })
+
+  it('still parses typed integer custom field payloads back to numbers', async () => {
+    const dek = Buffer.alloc(32, 2).toString('base64')
+    // Numeric kinds are JSON-stringified by encryptCustomFieldValue in production.
+    const encrypted = encryptWithAesGcm(JSON.stringify(42), dek).value
+    const em = {
+      find: jest.fn().mockImplementation((_, where) => {
+        if ((where as any).recordId) {
+          return Promise.resolve([
+            { recordId: 'rec-1', fieldKey: 'priority', organizationId: null, tenantId: 'tenant-1', valueText: encrypted, valueMultiline: null, valueInt: null, valueFloat: null, valueBool: null, deletedAt: null },
+          ])
+        }
+        return Promise.resolve([
+          { key: 'priority', entityId: 'demo:entity', organizationId: null, tenantId: 'tenant-1', kind: 'integer', configJson: { encrypted: true }, isActive: true },
+        ])
+      }),
+    }
+    const mockService = { isEnabled: () => true, getDek: async () => ({ key: dek }) }
+    const values = await loadCustomFieldValues({
+      em: em as any,
+      entityId: 'demo:entity',
+      recordIds: ['rec-1'],
+      tenantIdByRecord: { 'rec-1': 'tenant-1' },
+      encryptionService: mockService as any,
+    })
+    expect(values['rec-1'].cf_priority).toBe(42)
+  })
+
+  it('decrypts rows concurrently rather than sequentially (regression: issue #2229)', async () => {
+    const deks: Record<string, string> = {
+      'tenant-1': Buffer.alloc(32, 1).toString('base64'),
+      'tenant-2': Buffer.alloc(32, 2).toString('base64'),
+      'tenant-3': Buffer.alloc(32, 3).toString('base64'),
+    }
+    const rows = [
+      { recordId: 'rec-1', tenantId: 'tenant-1', plaintext: 'note-1' },
+      { recordId: 'rec-2', tenantId: 'tenant-2', plaintext: 'note-2' },
+      { recordId: 'rec-3', tenantId: 'tenant-3', plaintext: 'note-3' },
+    ].map((row) => ({
+      ...row,
+      valueText: encryptWithAesGcm(row.plaintext, deks[row.tenantId]).value,
+    }))
+    const em = {
+      find: jest.fn().mockImplementation((_, where) => {
+        if ((where as any).recordId) {
+          return Promise.resolve(
+            rows.map((row) => ({
+              recordId: row.recordId,
+              fieldKey: 'note',
+              organizationId: null,
+              tenantId: row.tenantId,
+              valueText: row.valueText,
+              valueMultiline: null,
+              valueInt: null,
+              valueFloat: null,
+              valueBool: null,
+              deletedAt: null,
+            })),
+          )
+        }
+        return Promise.resolve([
+          { key: 'note', entityId: 'demo:entity', organizationId: null, tenantId: null, kind: 'text', configJson: { encrypted: true }, isActive: true },
+        ])
+      }),
+    }
+    let inFlight = 0
+    let maxInFlight = 0
+    const mockService = {
+      isEnabled: () => true,
+      getDek: jest.fn(async (tenantId: string) => {
+        inFlight += 1
+        maxInFlight = Math.max(maxInFlight, inFlight)
+        await new Promise((resolve) => setTimeout(resolve, 5))
+        inFlight -= 1
+        return { key: deks[tenantId] }
+      }),
+    }
+    const values = await loadCustomFieldValues({
+      em: em as any,
+      entityId: 'demo:entity',
+      recordIds: ['rec-1', 'rec-2', 'rec-3'],
+      tenantIdByRecord: { 'rec-1': 'tenant-1', 'rec-2': 'tenant-2', 'rec-3': 'tenant-3' },
+      encryptionService: mockService as any,
+    })
+    expect(values['rec-1'].cf_note).toBe('note-1')
+    expect(values['rec-2'].cf_note).toBe('note-2')
+    expect(values['rec-3'].cf_note).toBe('note-3')
+    // Sequential await-in-loop would cap concurrency at 1; batching lifts it.
+    expect(maxInFlight).toBeGreaterThan(1)
+  })
+
+  it('preserves multi-value grouping order for encrypted fields (regression: issue #2229)', async () => {
+    const dek = Buffer.alloc(32, 2).toString('base64')
+    const first = encryptWithAesGcm('alpha', dek).value
+    const second = encryptWithAesGcm('beta', dek).value
+    const em = {
+      find: jest.fn().mockImplementation((_, where) => {
+        if ((where as any).recordId) {
+          return Promise.resolve([
+            { recordId: 'rec-1', fieldKey: 'tags', organizationId: null, tenantId: 'tenant-1', valueText: first, valueMultiline: null, valueInt: null, valueFloat: null, valueBool: null, deletedAt: null },
+            { recordId: 'rec-1', fieldKey: 'tags', organizationId: null, tenantId: 'tenant-1', valueText: second, valueMultiline: null, valueInt: null, valueFloat: null, valueBool: null, deletedAt: null },
+          ])
+        }
+        return Promise.resolve([
+          { key: 'tags', entityId: 'demo:entity', organizationId: null, tenantId: 'tenant-1', kind: 'text', configJson: { encrypted: true, multi: true }, isActive: true },
+        ])
+      }),
+    }
+    const mockService = { isEnabled: () => true, getDek: async () => ({ key: dek }) }
+    const values = await loadCustomFieldValues({
+      em: em as any,
+      entityId: 'demo:entity',
+      recordIds: ['rec-1'],
+      tenantIdByRecord: { 'rec-1': 'tenant-1' },
+      encryptionService: mockService as any,
+    })
+    expect(values['rec-1'].cf_tags).toEqual(['alpha', 'beta'])
+  })
+})
+
+describe('decorateRecordWithCustomFields', () => {
+  const buildDefinition = (
+    overrides: Partial<CustomFieldDefinitionSummary> = {},
+  ): CustomFieldDefinitionSummary => ({
+    key: 'priority',
+    label: 'Priority',
+    kind: 'integer',
+    multi: false,
+    organizationId: null,
+    tenantId: null,
+    priority: 0,
+    updatedAt: 1,
+    ...overrides,
+  })
+
+  const buildIndex = (
+    entries: Array<[string, CustomFieldDefinitionSummary[]]>,
+  ): CustomFieldDefinitionIndex => new Map(entries)
+
+  it('returns the value in customValues and customFields when an active definition exists', () => {
+    const index = buildIndex([
+      ['priority', [buildDefinition()]],
+    ])
+
+    const result = decorateRecordWithCustomFields(
+      { cf_priority: 3 },
+      index,
+      { tenantId: 'tenant-1', organizationId: 'org-1' },
+    )
+
+    expect(result.customValues).toEqual({ priority: 3 })
+    expect(result.customFields).toEqual([
+      { key: 'priority', label: 'Priority', value: 3, kind: 'integer', multi: false },
+    ])
+  })
+
+  it('skips orphaned custom field values whose definition was deleted (regression for #1749)', () => {
+    const result = decorateRecordWithCustomFields(
+      { cf_my_test_key: 'leftover' },
+      buildIndex([]),
+      { tenantId: 'tenant-1', organizationId: 'org-1' },
+    )
+
+    expect(result.customValues).toBeNull()
+    expect(result.customFields).toEqual([])
+  })
+
+  it('keeps active fields and drops orphaned ones in mixed payloads', () => {
+    const index = buildIndex([
+      ['priority', [buildDefinition({ key: 'priority', label: 'Priority' })]],
+      ['severity', [buildDefinition({ key: 'severity', label: 'Severity', kind: 'text', priority: 1 })]],
+    ])
+
+    const result = decorateRecordWithCustomFields(
+      {
+        cf_priority: 5,
+        cf_severity: 'high',
+        cf_my_test_key: 'should-not-leak',
+      },
+      index,
+      { tenantId: 'tenant-1', organizationId: 'org-1' },
+    )
+
+    expect(result.customValues).toEqual({ priority: 5, severity: 'high' })
+    expect(result.customFields.map((entry) => entry.key)).toEqual(['priority', 'severity'])
+    expect(result.customFields.find((entry) => entry.key === 'my_test_key')).toBeUndefined()
+  })
+})
+
+describe('applyCustomFieldsNormalization', () => {
+  const definitionIndex: CustomFieldDefinitionIndex = new Map([
+    [
+      'priority',
+      [
+        {
+          key: 'priority',
+          label: 'Priority',
+          kind: 'integer',
+          multi: false,
+          organizationId: null,
+          tenantId: null,
+          priority: 0,
+          updatedAt: 1,
+        },
+      ],
+    ],
+  ])
+
+  it('preserves cf_* keys by default for backward compatibility', () => {
+    const record = { id: 'r-1', name: 'Item', cf_priority: 5, 'cf:priority': 5 }
+    const decorated = decorateRecordWithCustomFields(record, definitionIndex, {})
+    const result = applyCustomFieldsNormalization(record, decorated)
+
+    expect(result.id).toBe('r-1')
+    expect(result.cf_priority).toBe(5)
+    expect(result['cf:priority']).toBe(5)
+    expect(result.customValues).toEqual({ priority: 5 })
+    expect(Array.isArray(result.customFields)).toBe(true)
+    expect((result.customFields as any[])[0]).toMatchObject({ key: 'priority', value: 5 })
+  })
+
+  it('strips cf_* and cf:* keys when stripPrefixedKeys is enabled (issue #1769)', () => {
+    const record = { id: 'r-1', name: 'Item', cf_priority: 5, 'cf:priority': 5 }
+    const decorated = decorateRecordWithCustomFields(record, definitionIndex, {})
+    const result = applyCustomFieldsNormalization(record, decorated, { stripPrefixedKeys: true })
+
+    expect(result.id).toBe('r-1')
+    expect(result.name).toBe('Item')
+    expect('cf_priority' in result).toBe(false)
+    expect('cf:priority' in result).toBe(false)
+    expect(result.customValues).toEqual({ priority: 5 })
+    expect(Array.isArray(result.customFields)).toBe(true)
+  })
+
+  it('emits null customValues when no active definitions match', () => {
+    const record = { id: 'r-1', cf_unknown: 'leftover' }
+    const decorated = decorateRecordWithCustomFields(record, new Map(), {})
+    const result = applyCustomFieldsNormalization(record, decorated, { stripPrefixedKeys: true })
+
+    expect(result.customValues).toBeNull()
+    expect(result.customFields).toEqual([])
+    expect('cf_unknown' in result).toBe(false)
+  })
+})
+
+describe('loadCustomFieldDefinitionIndex', () => {
+  it('filters definition summaries by selected fieldset membership', async () => {
+    const em = mockEntityManager([
+      {
+        key: 'service_deliverables',
+        entityId: 'checkout:checkout_link',
+        kind: 'multiline',
+        organizationId: null,
+        tenantId: 'tenant-1',
+        updatedAt: new Date('2026-03-20T10:00:00.000Z'),
+        configJson: { fieldset: 'service_package', label: 'What is included' },
+        isActive: true,
+      },
+      {
+        key: 'support_contact',
+        entityId: 'checkout:checkout_link',
+        kind: 'text',
+        organizationId: null,
+        tenantId: 'tenant-1',
+        updatedAt: new Date('2026-03-20T10:00:00.000Z'),
+        configJson: { fieldsets: ['service_package', 'event_ticket'], label: 'Support contact' },
+        isActive: true,
+      },
+      {
+        key: 'event_date',
+        entityId: 'checkout:checkout_link',
+        kind: 'text',
+        organizationId: null,
+        tenantId: 'tenant-1',
+        updatedAt: new Date('2026-03-20T10:00:00.000Z'),
+        configJson: { fieldset: 'event_ticket', label: 'Event date' },
+        isActive: true,
+      },
+    ])
+
+    const index = await loadCustomFieldDefinitionIndex({
+      em: em as any,
+      entityIds: 'checkout:checkout_link',
+      tenantId: 'tenant-1',
+      fieldset: 'service_package',
+    })
+
+    expect(Array.from(index.keys()).sort()).toEqual(['service_deliverables', 'support_contact'])
+  })
+})

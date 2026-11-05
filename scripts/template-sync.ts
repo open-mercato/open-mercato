@@ -1,0 +1,859 @@
+/**
+ * Template sync checker/fixer for create-app scaffold parity.
+ *
+ * Keeps `packages/create-app/template/src/{app,components,i18n,lib,modules}` and selected
+ * root src files aligned with app source for shared layout/routes/module scaffolding
+ * and locale dictionaries.
+ *
+ * Usage:
+ *   tsx scripts/template-sync.ts          # check only (exit 1 on drift)
+ *   tsx scripts/template-sync.ts --fix    # full mirror sync (overwrite from app source)
+ *   tsx scripts/template-sync.ts --ask    # when drift is found, prompt to sync
+ *
+ * Yarn shortcuts:
+ *   yarn template:sync
+ *   yarn template:sync:fix
+ *   yarn template:sync:ask
+ */
+
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import readline from 'node:readline/promises'
+import { globSync } from 'glob'
+
+const __filename_ = typeof __filename !== 'undefined' ? __filename : fileURLToPath(import.meta.url)
+const ROOT = path.resolve(path.dirname(__filename_), '..')
+
+const APP_SRC_ROOT = path.join(ROOT, 'apps', 'mercato', 'src')
+const TEMPLATE_SRC_ROOT = path.join(ROOT, 'packages', 'create-app', 'template', 'src')
+const APP_PACKAGE_FILE = path.join(ROOT, 'apps', 'mercato', 'package.json')
+const TEMPLATE_PACKAGE_FILE = path.join(ROOT, 'packages', 'create-app', 'template', 'package.json.template')
+export const SYNC_FOLDERS = ['app', 'components', 'i18n', 'lib', 'modules'] as const
+const SYNC_ROOT_FILES = ['bootstrap.ts', 'modules.ts', 'official-modules.generated.ts'] as const
+const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev.mjs'),
+    rel: 'scripts/dev.mjs',
+  },
+  {
+    // `scripts/dev.mjs` imports this for its MCP lifecycle, so a scaffolded app
+    // fails to boot `yarn dev` without it (template-script-targets.test.ts).
+    sourceFile: path.join(ROOT, 'scripts', 'dev-mcp.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-mcp.mjs'),
+    rel: 'scripts/dev-mcp.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-session-guard.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-session-guard.mjs'),
+    rel: 'scripts/dev-session-guard.mjs',
+  },
+  {
+    // `scripts/dev.mjs` imports this to keep its optional Docker probe bounded,
+    // so a scaffolded app fails to boot `yarn dev` without it.
+    sourceFile: path.join(ROOT, 'scripts', 'dev-docker-availability.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-docker-availability.mjs'),
+    rel: 'scripts/dev-docker-availability.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-memory-sampler.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-memory-sampler.mjs'),
+    rel: 'scripts/dev-memory-sampler.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-splash.html'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-splash.html'),
+    rel: 'scripts/dev-splash.html',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-splash-helpers.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-splash-helpers.mjs'),
+    rel: 'scripts/dev-splash-helpers.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-cache-purge.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-cache-purge.mjs'),
+    rel: 'scripts/dev-cache-purge.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-port-preflight.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-port-preflight.mjs'),
+    rel: 'scripts/dev-port-preflight.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-inotify-limits.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-inotify-limits.mjs'),
+    rel: 'scripts/dev-inotify-limits.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'fix-wsl-inotify.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'fix-wsl-inotify.mjs'),
+    rel: 'scripts/fix-wsl-inotify.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-splash-state.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-splash-state.mjs'),
+    rel: 'scripts/dev-splash-state.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-runtime-state.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-state.mjs'),
+    rel: 'scripts/dev-runtime-state.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-runtime-config.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-config.mjs'),
+    rel: 'scripts/dev-runtime-config.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-runtime-probe.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-probe.mjs'),
+    rel: 'scripts/dev-runtime-probe.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-runtime-diagnostics.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-diagnostics.mjs'),
+    rel: 'scripts/dev-runtime-diagnostics.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-runtime-supervisor.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-supervisor.mjs'),
+    rel: 'scripts/dev-runtime-supervisor.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-runtime-gateway.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-gateway.mjs'),
+    rel: 'scripts/dev-runtime-gateway.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-runtime-actions.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-actions.mjs'),
+    rel: 'scripts/dev-runtime-actions.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-splash-coding-flow.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-splash-coding-flow.mjs'),
+    rel: 'scripts/dev-splash-coding-flow.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-splash-git-repo-flow.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-splash-git-repo-flow.mjs'),
+    rel: 'scripts/dev-splash-git-repo-flow.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-splash-url.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-splash-url.mjs'),
+    rel: 'scripts/dev-splash-url.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-orchestration-log-policy.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-orchestration-log-policy.mjs'),
+    rel: 'scripts/dev-orchestration-log-policy.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-shutdown-utils.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-shutdown-utils.mjs'),
+    rel: 'scripts/dev-shutdown-utils.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-database-url.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-database-url.mjs'),
+    rel: 'scripts/dev-database-url.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'watch-scope.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'watch-scope.mjs'),
+    rel: 'scripts/watch-scope.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'apps', 'mercato', 'scripts', 'dev.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime.mjs'),
+    rel: 'scripts/dev-runtime.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'apps', 'mercato', 'scripts', 'dev-runtime-log-policy.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-log-policy.mjs'),
+    rel: 'scripts/dev-runtime-log-policy.mjs',
+  },
+  {
+    // Shared Docker preflight: the monorepo starter and the generated app's
+    // `yarn setup` / `yarn infra:up` (scripts/infra.mjs) run the same logic.
+    sourceFile: path.join(ROOT, 'packages', 'starter', 'src', 'infra-preflight.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-infra-preflight.mjs'),
+    rel: 'scripts/dev-infra-preflight.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'docker', 'redis', 'redis.conf'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'docker', 'redis', 'redis.conf'),
+    rel: 'docker/redis/redis.conf',
+  },
+] as const
+export const TEMPLATE_ONLY_RELATIVE_FILES = new Set<string>([
+  'modules/auth/__integration__/TC-AUTH-001.spec.ts',
+  'modules/auth/__integration__/helpers/auth.ts',
+])
+const SYNC_DEPENDENCY_KEYS = [
+  'next',
+  'pg',
+  'ai',
+  '@stripe/react-stripe-js',
+  '@stripe/stripe-js',
+] as const
+const SYNC_INTERNAL_PACKAGE_KEYS = [
+  '@open-mercato/checkout',
+  // The template enables `agent_orchestrator` behind OM_ENABLE_ENTERPRISE_MODULES_AGENTS,
+  // so the dependency must track the monorepo version or a scaffolded app fails
+  // module resolution the moment the flag is flipped.
+  '@open-mercato/enterprise',
+  '@open-mercato/gateway-autopay',
+  '@open-mercato/gateway-stripe',
+  '@open-mercato/gateway-tpay',
+  '@open-mercato/sync-akeneo',
+] as const
+// Modules whose source ships in every scaffold but must stay runtime-disabled there.
+// The monorepo dev app keeps them enabled for QA; the template copy strips their
+// `enabledModules` registrations (see the disabled-by-default delivery contract).
+// `seeds` loads an AES-256-GCM blob whose key arrives out of band; a fresh scaffold ships
+// neither the ciphertext nor OM_SEED_KEY, so its CLI would be inert. It stays enabled in
+// apps/mercato for the maintainers' own seeding flow and out of the template until shipping
+// it to every scaffolded app is a deliberate maintainer call (it needs an evaluation-catalog
+// case before module-facts-build.test.ts will accept it).
+const TEMPLATE_DISABLED_MODULE_IDS = ['design_system', 'example', 'seeds'] as const
+const ENABLED_MODULES_DECLARATION = 'export const enabledModules: ModuleEntry[] = ['
+const EXAMPLE_CUSTOMERS_SYNC_GUARD = "if (enabledModules.some((entry) => entry.id === 'example')) {"
+
+function failTemplateTransform(rel: string, reason: string): never {
+  throw new Error(
+    `[template-sync] ${rel}: ${reason}. Update TEMPLATE_CONTENT_TRANSFORMS in scripts/template-sync.ts.`,
+  )
+}
+
+function stripEnabledModuleEntry(content: string, moduleId: string, rel: string): string {
+  const declarationIndex = content.indexOf(ENABLED_MODULES_DECLARATION)
+  if (declarationIndex === -1) failTemplateTransform(rel, 'could not locate the enabledModules declaration')
+
+  const needle = `id: '${moduleId}',`
+  const occurrences: number[] = []
+  for (
+    let index = content.indexOf(needle, declarationIndex);
+    index !== -1;
+    index = content.indexOf(needle, index + needle.length)
+  ) {
+    occurrences.push(index)
+  }
+  if (occurrences.length !== 1) {
+    failTemplateTransform(
+      rel,
+      `expected exactly one enabled '${moduleId}' registration to strip, found ${occurrences.length}`,
+    )
+  }
+
+  let openIndex = occurrences[0] - 1
+  while (openIndex >= 0 && /\s/.test(content[openIndex])) openIndex--
+  if (content[openIndex] !== '{') {
+    failTemplateTransform(rel, `the '${moduleId}' registration is not an object literal entry`)
+  }
+
+  let depth = 0
+  let closeIndex = -1
+  for (let index = openIndex; index < content.length; index++) {
+    const char = content[index]
+    if (char === '{') depth++
+    else if (char === '}') {
+      depth--
+      if (depth === 0) {
+        closeIndex = index
+        break
+      }
+    }
+  }
+  if (closeIndex === -1) failTemplateTransform(rel, `the '${moduleId}' registration has no closing brace`)
+
+  let end = closeIndex + 1
+  if (content[end] === ',') end++
+  while (content[end] === ' ' || content[end] === '\t') end++
+  if (content[end] === '\n') end++
+
+  let start = content.lastIndexOf('\n', openIndex) + 1
+  while (start >= 2) {
+    const previousLineStart = content.lastIndexOf('\n', start - 2) + 1
+    const previousLine = content.slice(previousLineStart, start - 1)
+    if (!/^\s*\/\//.test(previousLine)) break
+    start = previousLineStart
+  }
+
+  const stripped = `${content.slice(0, start)}${content.slice(end)}`
+  if (stripped.indexOf(needle, stripped.indexOf(ENABLED_MODULES_DECLARATION)) !== -1) {
+    failTemplateTransform(rel, `the '${moduleId}' registration survived stripping`)
+  }
+  return stripped
+}
+
+function stripTemplateDisabledModules(content: string, rel: string): string {
+  const stripped = TEMPLATE_DISABLED_MODULE_IDS.reduce(
+    (current, moduleId) => stripEnabledModuleEntry(current, moduleId, rel),
+    content,
+  )
+  // `example_customers_sync` is only ever pushed behind the example guard, so stripping
+  // the example registration must leave it inert rather than unconditionally enabled.
+  if (!stripped.includes(EXAMPLE_CUSTOMERS_SYNC_GUARD)) {
+    failTemplateTransform(rel, 'the example_customers_sync activation guard is missing')
+  }
+  return stripped
+}
+
+// Modules that stay commented out (not stripped) in the template: enabling them pushes the
+// generated root close to its byte budget, so the template keeps a maintainer-facing explanation
+// instead of silently dropping the registration like TEMPLATE_DISABLED_MODULE_IDS entries.
+// Each entry replaces the app's registration and its leading comment verbatim, so a reworded
+// source comment fails the transform loudly rather than drifting back into the template. The
+// replacement goes in as a function so a `$` in a template body stays literal instead of being
+// read as a String.replace substitution pattern.
+export const TEMPLATE_COMMENTED_MODULES: Record<string, { source: string; template: string }> = {
+  customer_groups: {
+    source: `  { id: 'customer_groups', from: '@open-mercato/core' },`,
+    template: `  // customer_groups (Release 2 part 1 — .ai/specs/2026-08-14-customer-groups-and-b2b-terms.md
+  // §14 Phase 1-2). The package ships with the scaffold but stays disabled by default:
+  // enabling it here makes the scaffold ship the module's fact-sheet, which the
+  // \`every module fact-sheet a scaffold ships is required by at least one catalog case\`
+  // guard (packages/create-app/src/lib/module-facts-build.test.ts) then requires a
+  // dedicated AI-harness case for — authoring one means running the full
+  // om-refresh-standalone-harness / om-evolve-harness workflow (live agentic release-suite
+  // evaluation, a knowledge-change manifest, etc.), which is its own explicitly-authorized
+  // task, not a one-line edit. Enabling is therefore a maintainer call about that harness
+  // work, same as channel_discord's byte-budget call below.
+  // { id: 'customer_groups', from: '@open-mercato/core' },`,
+  },
+  gateway_tpay: {
+    source: `  { id: 'gateway_tpay', from: '@open-mercato/gateway-tpay' },`,
+    template: `  // Tpay payment gateway (.ai/specs/2026-08-01-tpay-hosted-pln-payment-sessions.md).
+  // The package ships with the scaffold as an opt-in provider. Enabling it by
+  // default makes the scaffold ship the module's fact-sheet, which then needs an
+  // AI-harness evaluation case (packages/create-app/src/lib/module-facts-build.test.ts),
+  // so enabling is a maintainer call, not a one-line edit.
+  // { id: 'gateway_tpay', from: '@open-mercato/gateway-tpay' },`,
+  },
+  channel_discord: {
+    source: `  // Discord bot channel (SPEC 2026-06-19) — two-way Discord via REST + a
+  // provider-owned Gateway worker + a signed Interactions endpoint, plus an
+  // optional AI auto-reply subscriber.
+  { id: 'channel_discord', from: '@open-mercato/channel-discord' },`,
+    template: `  // Discord bot channel (SPEC 2026-06-19). The package ships with the scaffold
+  // but stays disabled by default. #4989 removed the hard overflow this used to
+  // cause (the generated root now sheds its module-fact index instead), but the
+  // headroom is still gone: enabling it puts the generated root at 12,275 of the
+  // 12,288-byte target, so the next module enabled after it drops the inline
+  // index to pointer form. Enabling is therefore a maintainer call about that
+  // budget, not a one-line edit — see
+  // packages/create-app/src/lib/agent-instruction-budget.test.ts
+  // ('one more template module still fits the root budget with its inline index
+  // intact'), and #4983 for the discussion.
+  // { id: 'channel_discord', from: '@open-mercato/channel-discord' },`,
+  },
+  gateway_autopay: {
+    source: `  { id: 'gateway_autopay', from: '@open-mercato/gateway-autopay' },`,
+    template: `  // Autopay hosted-redirect PLN payment gateway. The package ships with the
+  // scaffold but stays disabled by default: the hosted-session redirect
+  // transport has not been verified against a live Autopay sandbox (see
+  // .ai/specs/2026-09-10-autopay-hosted-pln-payment-sessions.md). Enabling it
+  // here is a deliberate follow-up once that is resolved, not a one-line edit.
+  // { id: 'gateway_autopay', from: '@open-mercato/gateway-autopay' },`,
+  },
+  carrier_inpost: {
+    source: `  { id: 'carrier_inpost', from: '@open-mercato/carrier-inpost' },`,
+    template: `  // InPost shipping carrier provider for the shipping_carriers hub. It stays
+  // disabled in the scaffold for the same reason as forms below: a module enabled
+  // in the template ships a generated fact sheet that the standalone AI harness
+  // must cover with an evaluation case (src/lib/module-facts-build.test.ts), so
+  // enabling it is a maintainer call that follows
+  // .ai/skills/om-refresh-standalone-harness/SKILL.md. Install
+  // @open-mercato/carrier-inpost and uncomment the line to use it.
+  // { id: 'carrier_inpost', from: '@open-mercato/carrier-inpost' },`,
+  },
+  forms: {
+    source: `  // Audit-grade questionnaire/form primitive — versioned definitions, append-only
+  // submissions, role-sliced rendering, public runner + portal + embed surfaces.
+  // Listed after customer_accounts/portal because its portal pages and public
+  // runner resolve customer auth through them.
+  { id: 'forms', from: '@open-mercato/core' },`,
+    template: `  // Audit-grade questionnaire/form primitive. The module ships with the scaffold
+  // but stays disabled by default, because enabling it here is a governed change
+  // rather than a one-line edit: a module enabled in the template gets a
+  // generated fact sheet, which \`selectModuleFactSheets\` then requires an
+  // evaluation case for in the standalone AI harness
+  // (src/lib/module-facts-build.test.ts, 'every default-controller module fact is
+  // exercised by the evaluation catalog'). Adding that case means re-pinning the
+  // catalog count in cases.schema.json, validators.json, two test literals and
+  // three docs, and re-running the live \`harness:release\` certification whose
+  // results those docs record — see
+  // .ai/skills/om-refresh-standalone-harness/SKILL.md step 9. Enabling is
+  // therefore a maintainer call that follows that skill.
+  // { id: 'forms', from: '@open-mercato/core' },`,
+  },
+  availability: {
+    source: `  // Availability contract, policy module, and provider registry (Phase 1+2).
+  // Ships with the scaffold but stays commented out in the template until
+  // standalone-harness coverage lands: no case in
+  // packages/create-app/agentic/shared/ai/harness/cases.json lists
+  // .ai/guides/modules/availability/index.md in context.required, so enabling it
+  // here trips packages/create-app/src/lib/module-facts-build.test.ts ('every
+  // module fact-sheet a scaffold ships is required by at least one catalog
+  // case'). Run the om-refresh-standalone-harness skill to add that coverage,
+  // then enable it in the template.
+  { id: 'availability', from: '@open-mercato/core' },`,
+    template: `  // Availability contract, policy module, and provider registry (Phase 1+2).
+  // Ships with the scaffold but stays commented out in the template until
+  // standalone-harness coverage lands: no case in
+  // packages/create-app/agentic/shared/ai/harness/cases.json lists
+  // .ai/guides/modules/availability/index.md in context.required, so enabling it
+  // here trips packages/create-app/src/lib/module-facts-build.test.ts ('every
+  // module fact-sheet a scaffold ships is required by at least one catalog
+  // case'). Run the om-refresh-standalone-harness skill to add that coverage,
+  // then enable it in the template.
+  // { id: 'availability', from: '@open-mercato/core' },`,
+  },
+  ecommerce: {
+    source: `  // Ecommerce store module (SPEC-029): store, hostname and channel binding,
+  // buyer-context resolution and the public storefront read API.
+  { id: 'ecommerce', from: '@open-mercato/core' },`,
+    template: `  // Ecommerce store module (.ai/specs/SPEC-029-2026-02-17-ecommerce-storefront-module.md).
+  // Stays commented out with customer_groups, which it requires, and availability, which it
+  // integrates with when enabled, until
+  // the module-sets \`commerce\` preset (.ai/specs/2026-09-29-module-sets-for-standalone-apps.md
+  // Phase 3) enables the suite together with its standalone-harness coverage.
+  // { id: 'ecommerce', from: '@open-mercato/core' },`,
+  },
+  promotions: {
+    source: `  // Promotions engine (SPEC-055): rule-condition trees, codes, cart effect resolution.
+  { id: 'promotions', from: '@open-mercato/core' },`,
+    template: `  // Promotions engine (.ai/specs/SPEC-055-2026-02-23-promotions-module.md Phases 1-3):
+  // rule-condition trees, promotional codes, and cart effect resolution. Stays commented out
+  // with customer_groups and ecommerce above until
+  // the module-sets \`commerce\` preset (.ai/specs/2026-09-29-module-sets-for-standalone-apps.md
+  // Phase 3) enables the suite together with its standalone-harness coverage: no case in
+  // packages/create-app/agentic/shared/ai/harness/cases.json lists
+  // .ai/guides/modules/promotions/index.md in context.required, so enabling it here trips
+  // packages/create-app/src/lib/module-facts-build.test.ts ('every module fact-sheet a
+  // scaffold ships is required by at least one catalog case'). Run the
+  // om-refresh-standalone-harness skill to add that coverage, then enable it in the template.
+  // { id: 'promotions', from: '@open-mercato/core' },`,
+  },
+  cart: {
+    source: `  // Channel-agnostic basket module (cart-module spec): priced lines, promotions,
+  // totals, token-bound public access. Requires catalog, sales and customer_groups.
+  { id: 'cart', from: '@open-mercato/core' },`,
+    template: `  // Channel-agnostic basket module (.ai/specs/2026-08-14-cart-module.md Phases 1-3): priced
+  // lines, promotions, totals, and token-bound public access. Requires catalog, sales,
+  // customer_groups and promotions (packages/core/src/modules/cart/index.ts's own
+  // \`requires\`). Stays commented out with customer_groups and promotions above until
+  // the module-sets \`commerce\` preset (.ai/specs/2026-09-29-module-sets-for-standalone-apps.md
+  // Phase 3) enables the suite together with its standalone-harness coverage: no case in
+  // packages/create-app/agentic/shared/ai/harness/cases.json lists
+  // .ai/guides/modules/cart/index.md in context.required, so enabling it here trips
+  // packages/create-app/src/lib/module-facts-build.test.ts ('every module fact-sheet a
+  // scaffold ships is required by at least one catalog case'). Run the
+  // om-refresh-standalone-harness skill to add that coverage, then enable it in the template.
+  // { id: 'cart', from: '@open-mercato/core' },`,
+  },
+}
+
+function commentOutTemplateModules(content: string, rel: string): string {
+  return Object.entries(TEMPLATE_COMMENTED_MODULES).reduce((current, [moduleId, replacement]) => {
+    if (!current.includes(replacement.source)) {
+      failTemplateTransform(rel, `expected the ${moduleId} enabledModules entry with its source comment`)
+    }
+    return current.replace(replacement.source, () => replacement.template)
+  }, content)
+}
+
+export const TEMPLATE_CONTENT_TRANSFORMS: Record<string, (content: string) => string> = {
+  // Standalone template has shallower node_modules path than monorepo app.
+  'app/globals.css': (content) => content.replaceAll('../../../../node_modules/', '../../node_modules/'),
+  // The template's pinned core version does not expose the autologin helper subpath yet.
+  'app/page.tsx': (content) =>
+    content.replace(
+      "import { isAutoLoginEnabled } from '@open-mercato/core/modules/auth/lib/autologin'\n",
+      "\nfunction isAutoLoginEnabled(): boolean {\n  return Boolean(process.env.OM_AUTOLOGIN_EMAIL?.trim() && process.env.OM_AUTOLOGIN_PASSWORD)\n}\n",
+    ),
+  // Scaffolds ship the example and design-system source but keep both runtime-disabled;
+  // channel_discord stays commented out with a byte-budget explanation instead.
+  'modules.ts': (content) => commentOutTemplateModules(stripTemplateDisabledModules(content, 'modules.ts'), 'modules.ts'),
+  'scripts/dev-cache-purge.mjs': (content) =>
+    content
+      .replaceAll("['apps', 'mercato', '.mercato', 'next'", "['.mercato', 'next'")
+      .replaceAll("['apps', 'mercato', '.next']", "['.next']")
+      .replace('`.mercato/next/dev/cache/turbopack`. See issue\n// #1950.', '`.mercato/next/dev/cache/turbopack`.')
+}
+const MAX_DIFFS_TO_SHOW = 20
+
+const red = (s: string) => `\x1b[31m${s}\x1b[0m`
+const yellow = (s: string) => `\x1b[33m${s}\x1b[0m`
+const green = (s: string) => `\x1b[32m${s}\x1b[0m`
+const cyan = (s: string) => `\x1b[36m${s}\x1b[0m`
+const dim = (s: string) => `\x1b[2m${s}\x1b[0m`
+
+type DriftKind = 'missing_in_template' | 'content_mismatch' | 'extra_in_template'
+
+type Drift = {
+  kind: DriftKind
+  sourceFile: string
+  templateFile: string
+  rel: string
+}
+
+type PackageDriftKind = 'missing_in_template' | 'value_mismatch'
+
+type PackageDrift = {
+  kind: PackageDriftKind
+  section: 'dependencies'
+  key: string
+  expected: string
+  actual: string | null
+}
+
+function relFromRoot(absPath: string): string {
+  return path.relative(ROOT, absPath).split(path.sep).join('/')
+}
+
+function relFromBase(baseDir: string, absPath: string): string {
+  return path.relative(baseDir, absPath).split(path.sep).join('/')
+}
+
+function collectSourceFiles(): string[] {
+  const folderFiles = SYNC_FOLDERS.flatMap((folder) =>
+    globSync(`${folder}/**/*`, {
+      cwd: APP_SRC_ROOT,
+      absolute: true,
+      nodir: true,
+      ignore: ['**/node_modules/**', '**/.DS_Store'],
+    }),
+  )
+  const rootFiles = SYNC_ROOT_FILES
+    .map((rel) => path.join(APP_SRC_ROOT, rel))
+    .filter((abs) => fs.existsSync(abs))
+  return [...folderFiles, ...rootFiles].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+}
+
+function collectTemplateFiles(): string[] {
+  const folderFiles = SYNC_FOLDERS.flatMap((folder) =>
+    globSync(`${folder}/**/*`, {
+      cwd: TEMPLATE_SRC_ROOT,
+      absolute: true,
+      nodir: true,
+      ignore: ['**/node_modules/**', '**/.DS_Store'],
+    }),
+  )
+  const rootFiles = SYNC_ROOT_FILES
+    .map((rel) => path.join(TEMPLATE_SRC_ROOT, rel))
+    .filter((abs) => fs.existsSync(abs))
+  return [...folderFiles, ...rootFiles].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+}
+
+function getExpectedTemplateContent(rel: string, source: Buffer): Buffer {
+  const transform = TEMPLATE_CONTENT_TRANSFORMS[rel]
+  if (!transform) return source
+  const sourceText = source.toString('utf8')
+  return Buffer.from(transform(sourceText), 'utf8')
+}
+
+function computeDrift(): Drift[] {
+  const sourceFiles = collectSourceFiles()
+  const templateFiles = collectTemplateFiles()
+  const drifts: Drift[] = []
+  const sourceRelSet = new Set(sourceFiles.map((file) => relFromBase(APP_SRC_ROOT, file)))
+
+  for (const sourceFile of sourceFiles) {
+    const rel = relFromBase(APP_SRC_ROOT, sourceFile)
+    const templateFile = path.join(TEMPLATE_SRC_ROOT, rel)
+    if (!fs.existsSync(templateFile)) {
+      drifts.push({
+        kind: 'missing_in_template',
+        sourceFile,
+        templateFile,
+        rel,
+      })
+      continue
+    }
+
+    const source = fs.readFileSync(sourceFile)
+    const template = fs.readFileSync(templateFile)
+    const expectedTemplate = getExpectedTemplateContent(rel, source)
+    if (!expectedTemplate.equals(template)) {
+      drifts.push({
+        kind: 'content_mismatch',
+        sourceFile,
+        templateFile,
+        rel,
+      })
+    }
+  }
+
+  for (const templateFile of templateFiles) {
+    const rel = relFromBase(TEMPLATE_SRC_ROOT, templateFile)
+    if (TEMPLATE_ONLY_RELATIVE_FILES.has(rel)) continue
+    if (sourceRelSet.has(rel)) continue
+    drifts.push({
+      kind: 'extra_in_template',
+      sourceFile: path.join(APP_SRC_ROOT, rel),
+      templateFile,
+      rel,
+    })
+  }
+
+  for (const mapping of EXPLICIT_TEMPLATE_FILE_MAPPINGS) {
+    if (!fs.existsSync(mapping.templateFile)) {
+      drifts.push({
+        kind: 'missing_in_template',
+        sourceFile: mapping.sourceFile,
+        templateFile: mapping.templateFile,
+        rel: mapping.rel,
+      })
+      continue
+    }
+
+    const source = fs.readFileSync(mapping.sourceFile)
+    const template = fs.readFileSync(mapping.templateFile)
+    const expectedTemplate = getExpectedTemplateContent(mapping.rel, source)
+    if (!expectedTemplate.equals(template)) {
+      drifts.push({
+        kind: 'content_mismatch',
+        sourceFile: mapping.sourceFile,
+        templateFile: mapping.templateFile,
+        rel: mapping.rel,
+      })
+    }
+  }
+
+  return drifts
+}
+
+function readJsonFile<T>(filePath: string): T {
+  return JSON.parse(fs.readFileSync(filePath, 'utf8')) as T
+}
+
+function computeTemplatePackageJson(): string {
+  const appPackage = readJsonFile<Record<string, unknown>>(APP_PACKAGE_FILE)
+  const templatePackage = readJsonFile<Record<string, unknown>>(TEMPLATE_PACKAGE_FILE)
+  const appDependencies = (appPackage.dependencies ?? {}) as Record<string, string>
+  const templateDependencies = { ...((templatePackage.dependencies ?? {}) as Record<string, string>) }
+
+  for (const key of SYNC_DEPENDENCY_KEYS) {
+    const version = appDependencies[key]
+    if (version) templateDependencies[key] = version
+  }
+
+  for (const key of SYNC_INTERNAL_PACKAGE_KEYS) {
+    if (key in appDependencies) {
+      templateDependencies[key] = '{{PACKAGE_VERSION}}'
+    }
+  }
+
+  templatePackage.dependencies = templateDependencies
+  return `${JSON.stringify(templatePackage, null, 2)}\n`
+}
+
+function computePackageDrift(): PackageDrift[] {
+  if (!fs.existsSync(APP_PACKAGE_FILE) || !fs.existsSync(TEMPLATE_PACKAGE_FILE)) return []
+  const appPackage = readJsonFile<Record<string, unknown>>(APP_PACKAGE_FILE)
+  const templatePackage = readJsonFile<Record<string, unknown>>(TEMPLATE_PACKAGE_FILE)
+  const appDependencies = (appPackage.dependencies ?? {}) as Record<string, string>
+  const templateDependencies = (templatePackage.dependencies ?? {}) as Record<string, string>
+  const drifts: PackageDrift[] = []
+
+  for (const key of SYNC_DEPENDENCY_KEYS) {
+    const expected = appDependencies[key]
+    if (!expected) continue
+    const actual = templateDependencies[key] ?? null
+    if (actual === null) {
+      drifts.push({ kind: 'missing_in_template', section: 'dependencies', key, expected, actual })
+    } else if (actual !== expected) {
+      drifts.push({ kind: 'value_mismatch', section: 'dependencies', key, expected, actual })
+    }
+  }
+
+  for (const key of SYNC_INTERNAL_PACKAGE_KEYS) {
+    if (!(key in appDependencies)) continue
+    const expected = '{{PACKAGE_VERSION}}'
+    const actual = templateDependencies[key] ?? null
+    if (actual === null) {
+      drifts.push({ kind: 'missing_in_template', section: 'dependencies', key, expected, actual })
+    } else if (actual !== expected) {
+      drifts.push({ kind: 'value_mismatch', section: 'dependencies', key, expected, actual })
+    }
+  }
+
+  return drifts
+}
+
+function printDrift(drifts: Drift[]): void {
+  if (drifts.length === 0) {
+    console.log(green('Template sync check passed: app and template are in sync for synced src folders/root files.'))
+    return
+  }
+
+  const missing = drifts.filter((d) => d.kind === 'missing_in_template').length
+  const changed = drifts.filter((d) => d.kind === 'content_mismatch').length
+  const extra = drifts.filter((d) => d.kind === 'extra_in_template').length
+
+  console.log(red(`Template drift detected: ${drifts.length} file(s)`))
+  console.log(dim(`  missing in template: ${missing}`))
+  console.log(dim(`  content mismatch:    ${changed}`))
+  console.log(dim(`  extra in template:   ${extra}`))
+
+  const preview = drifts.slice(0, MAX_DIFFS_TO_SHOW)
+  for (const drift of preview) {
+    const marker = drift.kind === 'missing_in_template'
+      ? yellow('MISSING')
+      : drift.kind === 'content_mismatch'
+        ? yellow('DIFF')
+        : yellow('EXTRA')
+    console.log(`  - [${marker}] ${drift.rel}`)
+  }
+  if (drifts.length > preview.length) {
+    console.log(dim(`  ... and ${drifts.length - preview.length} more`))
+  }
+}
+
+function printPackageDrift(drifts: PackageDrift[]): void {
+  if (drifts.length === 0) {
+    console.log(green('Template package dependency sync check passed.'))
+    return
+  }
+
+  console.log(red(`Template package dependency drift detected: ${drifts.length} entry(s)`))
+  for (const drift of drifts) {
+    const marker = drift.kind === 'missing_in_template' ? yellow('MISSING') : yellow('DIFF')
+    console.log(`  - [${marker}] ${drift.section}.${drift.key} expected=${drift.expected} actual=${drift.actual ?? 'null'}`)
+  }
+}
+
+function applyFullSync(): number {
+  const sourceFiles = collectSourceFiles()
+  const templateFiles = collectTemplateFiles()
+  const sourceRelSet = new Set(sourceFiles.map((file) => relFromBase(APP_SRC_ROOT, file)))
+  let updated = 0
+
+  // Always rewrite template targets from source of truth.
+  for (const sourceFile of sourceFiles) {
+    const rel = relFromBase(APP_SRC_ROOT, sourceFile)
+    const templateFile = path.join(TEMPLATE_SRC_ROOT, rel)
+    const source = fs.readFileSync(sourceFile)
+    const expectedTemplate = getExpectedTemplateContent(rel, source)
+    const current = fs.existsSync(templateFile) ? fs.readFileSync(templateFile) : null
+    if (current && current.equals(expectedTemplate)) continue
+    fs.mkdirSync(path.dirname(templateFile), { recursive: true })
+    fs.writeFileSync(templateFile, expectedTemplate)
+    updated++
+  }
+
+  // Remove template files that are not in source (except explicit template-only files).
+  for (const templateFile of templateFiles) {
+    const rel = relFromBase(TEMPLATE_SRC_ROOT, templateFile)
+    if (TEMPLATE_ONLY_RELATIVE_FILES.has(rel)) continue
+    if (sourceRelSet.has(rel)) continue
+    fs.rmSync(templateFile, { force: true })
+    updated++
+  }
+
+  for (const mapping of EXPLICIT_TEMPLATE_FILE_MAPPINGS) {
+    const source = fs.readFileSync(mapping.sourceFile)
+    const expectedTemplate = getExpectedTemplateContent(mapping.rel, source)
+    const current = fs.existsSync(mapping.templateFile) ? fs.readFileSync(mapping.templateFile) : null
+    if (current && current.equals(expectedTemplate)) continue
+    fs.mkdirSync(path.dirname(mapping.templateFile), { recursive: true })
+    fs.writeFileSync(mapping.templateFile, expectedTemplate)
+    updated++
+  }
+
+  return updated
+}
+
+function applySync(drifts: Drift[]): number {
+  let updated = 0
+  for (const drift of drifts) {
+    if (drift.kind === 'extra_in_template') {
+      fs.rmSync(drift.templateFile, { force: true })
+      updated++
+      continue
+    }
+    fs.mkdirSync(path.dirname(drift.templateFile), { recursive: true })
+    const source = fs.readFileSync(drift.sourceFile)
+    const expectedTemplate = getExpectedTemplateContent(drift.rel, source)
+    fs.writeFileSync(drift.templateFile, expectedTemplate)
+    updated++
+  }
+  return updated
+}
+
+function applyPackageSync(): number {
+  const expected = computeTemplatePackageJson()
+  const current = fs.existsSync(TEMPLATE_PACKAGE_FILE) ? fs.readFileSync(TEMPLATE_PACKAGE_FILE, 'utf8') : ''
+  if (current === expected) return 0
+  fs.writeFileSync(TEMPLATE_PACKAGE_FILE, expected)
+  return 1
+}
+
+async function promptYesNo(question: string): Promise<boolean> {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
+  try {
+    const answer = (await rl.question(`${question} [y/N] `)).trim().toLowerCase()
+    return answer === 'y' || answer === 'yes'
+  } finally {
+    rl.close()
+  }
+}
+
+async function main() {
+  const args = new Set(process.argv.slice(2))
+  const fix = args.has('--fix')
+  const ask = args.has('--ask')
+  const checkOnly = !fix && !ask
+
+  if (!fs.existsSync(APP_SRC_ROOT) || !fs.existsSync(TEMPLATE_SRC_ROOT)) {
+    console.log(red('Required source/template paths were not found.'))
+    process.exit(2)
+  }
+
+  console.log(cyan('[template-sync] Checking template parity for synced src folders, mirrored dev scripts/assets, root files, and package dependencies...'))
+  const drifts = computeDrift()
+  const packageDrifts = computePackageDrift()
+  printDrift(drifts)
+  printPackageDrift(packageDrifts)
+
+  if (drifts.length === 0 && packageDrifts.length === 0) {
+    process.exit(0)
+  }
+
+  if (checkOnly) {
+    console.log(dim('Run `yarn template:sync:fix` to sync template from app source.'))
+    process.exit(1)
+  }
+
+  if (ask) {
+    const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY)
+    if (!interactive) {
+      console.log(yellow('Cannot prompt in non-interactive mode. Re-run with --fix or in a TTY with --ask.'))
+      process.exit(1)
+    }
+    const shouldSync = await promptYesNo('Template drift found. Sync template files now?')
+    if (!shouldSync) {
+      console.log(yellow('Template sync skipped by user.'))
+      process.exit(1)
+    }
+  }
+
+  const updated = applyFullSync()
+  const packageUpdated = applyPackageSync()
+  console.log(green(`Synced ${updated} src file(s) and ${packageUpdated} package template file(s).`))
+  process.exit(0)
+}
+
+// Guarded so parity tests can import the exception constants without running the CLI.
+function isDirectInvocation(): boolean {
+  const entry = process.argv[1]
+  if (!entry) return false
+  return path.resolve(entry) === path.resolve(__filename_)
+}
+
+if (isDirectInvocation()) void main()

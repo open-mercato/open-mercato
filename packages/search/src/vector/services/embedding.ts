@@ -1,0 +1,345 @@
+import { embed } from 'ai'
+import type { EmbeddingModel } from 'ai'
+import { createOpenAI } from '@ai-sdk/openai'
+
+// Local type definition to avoid @ai-sdk/provider version conflicts
+// Matches SharedV3ProviderOptions = Record<string, JSONObject>
+type JSONValue = string | number | boolean | null | JSONValue[] | { [key: string]: JSONValue }
+type JSONObject = { [key: string]: JSONValue }
+type ProviderOptions = Record<string, JSONObject>
+import { createGoogleGenerativeAI } from '@ai-sdk/google'
+import { createMistral } from '@ai-sdk/mistral'
+import { createCohere } from '@ai-sdk/cohere'
+import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock'
+import { createOllama } from 'ai-sdk-ollama'
+import type { EmbeddingProviderId, EmbeddingProviderConfig } from '../types'
+import { EMBEDDING_PROVIDERS, DEFAULT_EMBEDDING_CONFIG } from '../types'
+import {
+  assertSafeOllamaBaseUrl,
+  safeOllamaFetch,
+  UnsafeOllamaBaseUrlError,
+} from '../lib/ollama-url-safety'
+
+export type EmbeddingServiceOptions = {
+  apiKey?: string
+  model?: string
+  config?: EmbeddingProviderConfig
+}
+
+type OllamaClient = ReturnType<typeof createOllama>
+
+type ProviderClient = ReturnType<typeof createOpenAI>
+  | ReturnType<typeof createGoogleGenerativeAI>
+  | ReturnType<typeof createMistral>
+  | ReturnType<typeof createCohere>
+  | ReturnType<typeof createAmazonBedrock>
+  | OllamaClient
+
+const DEFAULT_EMBEDDING_TIMEOUT_MS = 3_000
+
+function resolveEmbeddingTimeoutMs(): number {
+  const rawValue = process.env.VECTOR_EMBEDDING_TIMEOUT_MS
+  if (!rawValue) return DEFAULT_EMBEDDING_TIMEOUT_MS
+  const parsed = Number.parseInt(rawValue, 10)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_EMBEDDING_TIMEOUT_MS
+  }
+  return parsed
+}
+
+function timeoutError(providerId: EmbeddingProviderId, timeoutMs: number): Error {
+  const providerInfo = EMBEDDING_PROVIDERS[providerId]
+  return new Error(
+    `${providerInfo.name} request timed out after ${timeoutMs}ms. Check ${providerInfo.envKeyRequired}.`,
+  )
+}
+
+export class EmbeddingService {
+  private config: EmbeddingProviderConfig
+  private clientCache: Map<EmbeddingProviderId, ProviderClient> = new Map()
+
+  constructor(private readonly opts: EmbeddingServiceOptions = {}) {
+    if (opts.config) {
+      this.config = opts.config
+    } else {
+      this.config = {
+        providerId: 'openai',
+        model: opts.model ?? DEFAULT_EMBEDDING_CONFIG.model,
+        dimension: DEFAULT_EMBEDDING_CONFIG.dimension,
+        updatedAt: new Date().toISOString(),
+      }
+    }
+  }
+
+  updateConfig(config: EmbeddingProviderConfig): void {
+    if (
+      config.providerId === this.config.providerId &&
+      config.model === this.config.model &&
+      config.dimension === this.config.dimension &&
+      config.outputDimensionality === this.config.outputDimensionality &&
+      config.baseUrl === this.config.baseUrl
+    ) {
+      return
+    }
+    this.config = config
+    this.clientCache.clear()
+  }
+
+  get currentConfig(): EmbeddingProviderConfig {
+    return { ...this.config }
+  }
+
+  get dimension(): number {
+    return this.config.outputDimensionality ?? this.config.dimension
+  }
+
+  get available(): boolean {
+    return this.isProviderConfigured(this.config.providerId)
+  }
+
+  private isProviderConfigured(providerId: EmbeddingProviderId): boolean {
+    switch (providerId) {
+      case 'openai':
+        return Boolean(this.opts.apiKey ?? process.env.OPENAI_API_KEY)
+      case 'google':
+        return Boolean(process.env.GOOGLE_GENERATIVE_AI_API_KEY)
+      case 'mistral':
+        return Boolean(process.env.MISTRAL_API_KEY)
+      case 'cohere':
+        return Boolean(process.env.COHERE_API_KEY)
+      case 'bedrock':
+        return Boolean(process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY)
+      case 'ollama':
+        return true
+      default:
+        return false
+    }
+  }
+
+  private getClient(providerId: EmbeddingProviderId): ProviderClient {
+    const cached = this.clientCache.get(providerId)
+    if (cached) {
+      return cached
+    }
+
+    let client: ProviderClient
+    switch (providerId) {
+      case 'openai': {
+        const apiKey = this.opts.apiKey ?? process.env.OPENAI_API_KEY
+        if (!apiKey) {
+          throw new Error('[vector.embedding] Missing OPENAI_API_KEY environment variable')
+        }
+        client = createOpenAI({ apiKey })
+        break
+      }
+      case 'google': {
+        const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY
+        if (!apiKey) {
+          throw new Error('[vector.embedding] Missing GOOGLE_GENERATIVE_AI_API_KEY environment variable')
+        }
+        client = createGoogleGenerativeAI({ apiKey })
+        break
+      }
+      case 'mistral': {
+        const apiKey = process.env.MISTRAL_API_KEY
+        if (!apiKey) {
+          throw new Error('[vector.embedding] Missing MISTRAL_API_KEY environment variable')
+        }
+        client = createMistral({ apiKey })
+        break
+      }
+      case 'cohere': {
+        const apiKey = process.env.COHERE_API_KEY
+        if (!apiKey) {
+          throw new Error('[vector.embedding] Missing COHERE_API_KEY environment variable')
+        }
+        client = createCohere({ apiKey })
+        break
+      }
+      case 'bedrock': {
+        const accessKeyId = process.env.AWS_ACCESS_KEY_ID
+        const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY
+        if (!accessKeyId || !secretAccessKey) {
+          throw new Error('[vector.embedding] Missing AWS_ACCESS_KEY_ID or AWS_SECRET_ACCESS_KEY environment variables')
+        }
+        client = createAmazonBedrock({
+          accessKeyId,
+          secretAccessKey,
+          region: process.env.AWS_REGION ?? 'us-east-1',
+        })
+        break
+      }
+      case 'ollama': {
+        const baseURL = this.config.baseUrl ?? process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434'
+        try {
+          assertSafeOllamaBaseUrl(baseURL)
+        } catch (err) {
+          if (err instanceof UnsafeOllamaBaseUrlError) {
+            throw new Error(
+              `[vector.embedding] Ollama base URL rejected (${err.reason}). Set OLLAMA_BASE_URL or OM_SEARCH_OLLAMA_BASE_URL_ALLOWLIST.`,
+            )
+          }
+          throw err
+        }
+        client = createOllama({ baseURL, fetch: safeOllamaFetch })
+        break
+      }
+      default:
+        throw new Error(`[vector.embedding] Unknown provider: ${providerId}`)
+    }
+
+    this.clientCache.set(providerId, client)
+    return client
+  }
+
+  private getEmbeddingModel() {
+    const client = this.getClient(this.config.providerId)
+    const { providerId, model, outputDimensionality } = this.config
+
+    switch (providerId) {
+      case 'openai':
+        return (client as ReturnType<typeof createOpenAI>).embedding(model)
+      case 'google':
+        return (client as ReturnType<typeof createGoogleGenerativeAI>).textEmbeddingModel(model)
+      case 'mistral':
+        return (client as ReturnType<typeof createMistral>).textEmbeddingModel(model)
+      case 'cohere':
+        return (client as ReturnType<typeof createCohere>).textEmbeddingModel(model)
+      case 'bedrock':
+        return (client as ReturnType<typeof createAmazonBedrock>).embedding(model)
+      case 'ollama':
+        return (client as OllamaClient).embedding(model)
+      default:
+        throw new Error(`[vector.embedding] Unknown provider: ${providerId}`)
+    }
+  }
+
+  private getProviderOptions(): ProviderOptions | undefined {
+    const { providerId, outputDimensionality, model } = this.config
+
+    if (!outputDimensionality) {
+      if (providerId === 'cohere') {
+        return { cohere: { inputType: 'search_document' } }
+      }
+      return undefined
+    }
+
+    switch (providerId) {
+      case 'openai':
+        if (model === 'text-embedding-3-large' || model === 'text-embedding-3-small') {
+        return { openai: { dimensions: outputDimensionality } }
+        }
+        return undefined
+      case 'google':
+        return { google: { outputDimensionality } }
+      case 'bedrock':
+        return { bedrock: { dimensions: outputDimensionality } }
+      case 'cohere':
+        return { cohere: { inputType: 'search_document' } }
+      default:
+        return undefined
+    }
+  }
+
+  async createEmbedding(input: string | string[]): Promise<number[]> {
+    const merged = Array.isArray(input)
+      ? input.map((part) => String(part ?? '')).filter((part) => part.length > 0).join('\n\n')
+      : String(input ?? '')
+    if (!merged.length) {
+      throw new Error('[vector.embedding] Refusing to embed empty payload')
+    }
+
+    if (!this.available) {
+      const providerInfo = EMBEDDING_PROVIDERS[this.config.providerId]
+      throw new Error(`[vector.embedding] Provider ${providerInfo.name} is not configured. Set ${providerInfo.envKeyRequired} environment variable.`)
+    }
+
+    const model = this.getEmbeddingModel() as EmbeddingModel
+    const providerOptions = this.getProviderOptions()
+    const timeoutMs = resolveEmbeddingTimeoutMs()
+
+    const abortController = new AbortController()
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null
+    try {
+      const result = await Promise.race([
+        embed({
+          model,
+          value: merged,
+          abortSignal: abortController.signal,
+          ...(providerOptions && { providerOptions }),
+        }),
+        new Promise<never>((_, reject) => {
+          timeoutHandle = setTimeout(
+            () => {
+              // Abort the in-flight request so a dead/unreachable provider releases
+              // its socket — and, in a worker, the per-job DB connection held while
+              // this awaits — promptly, instead of lingering until the platform's
+              // default network timeout and pinning pool capacity under a storm.
+              abortController.abort()
+              reject(timeoutError(this.config.providerId, timeoutMs))
+            },
+            timeoutMs,
+          )
+        }),
+      ])
+      const emb = Array.isArray(result.embedding)
+        ? result.embedding
+        : Array.from(result.embedding as ArrayLike<number>)
+      return emb.map((n) => Number.isFinite(n) ? Number(n) : 0)
+    } catch (err: unknown) {
+      const error = err as { statusCode?: number; status?: number; response?: { status?: number; statusCode?: number; data?: { error?: { message?: string; code?: string }; message?: string } }; data?: { error?: { message?: string; code?: string } }; body?: { error?: { message?: string; code?: string } }; message?: string }
+      const statusCandidate =
+        error?.statusCode ?? error?.status ?? error?.response?.status ?? error?.response?.statusCode
+      const status =
+        typeof statusCandidate === 'number'
+          ? Number.isFinite(statusCandidate) ? statusCandidate : undefined
+          : typeof statusCandidate === 'string'
+            ? Number.parseInt(statusCandidate, 10)
+            : undefined
+      const apiError = error?.data?.error ?? error?.body?.error ?? error?.response?.data?.error
+      const apiMessage = apiError?.message ?? error?.response?.data?.message
+      const apiCode = typeof apiError?.code === 'string' ? apiError.code : undefined
+      const rawMessage = typeof apiMessage === 'string'
+        ? apiMessage
+        : (typeof error?.message === 'string' ? error.message : 'Embedding request failed')
+
+      const providerInfo = EMBEDDING_PROVIDERS[this.config.providerId]
+      let guidance: string
+      switch (apiCode) {
+        case 'insufficient_quota':
+          guidance = `${providerInfo.name} usage quota exceeded. Please review your plan and billing.`
+          break
+        case 'invalid_api_key':
+          guidance = `Invalid ${providerInfo.name} API key. Update the key and retry.`
+          break
+        case 'account_deactivated':
+          guidance = `${providerInfo.name} account is disabled. Contact support or provide a different key.`
+          break
+        default:
+          guidance = rawMessage.startsWith('[vector.embedding] ')
+            ? rawMessage.slice('[vector.embedding] '.length)
+            : rawMessage.includes('https://')
+            ? rawMessage
+            : rawMessage.includes(providerInfo.envKeyRequired)
+              ? rawMessage
+              : `${rawMessage}. Check ${providerInfo.envKeyRequired}.`
+      }
+      const wrapped = new Error(`[vector.embedding] ${guidance}`) as Error & { status?: number; code?: string; cause?: unknown }
+      if (typeof status === 'number' && Number.isFinite(status)) {
+        const normalizedStatus = status === 401 || status === 403 ? 502 : status
+        if (normalizedStatus >= 400 && normalizedStatus < 600) {
+          wrapped.status = normalizedStatus
+        }
+      }
+      if (apiCode) {
+        wrapped.code = apiCode
+      }
+      wrapped.cause = err
+      throw wrapped
+    } finally {
+      if (timeoutHandle !== null) {
+        clearTimeout(timeoutHandle)
+      }
+    }
+  }
+}

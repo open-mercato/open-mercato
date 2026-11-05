@@ -1,0 +1,134 @@
+"use client"
+
+import * as React from 'react'
+import type { DashboardWidgetComponentProps } from '@open-mercato/shared/modules/dashboard/widgets'
+import { useWidgetData, type WidgetDataFetcher } from '@open-mercato/ui/backend/dashboard/widgetData'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { KpiCard, type KpiTrend } from '@open-mercato/ui/backend/charts'
+import {
+  DateRangeSelect,
+  InlineDateRangeSelect,
+  type DateRangePreset,
+  getComparisonLabelKey,
+} from '@open-mercato/ui/backend/date-range'
+import { DEFAULT_SETTINGS, hydrateSettings, type RevenueKpiSettings } from './config'
+import type { WidgetDataResponse } from '../../../services/widgetDataService'
+import { createCurrencyFormatters } from '../../../lib/formatters'
+import { UnlabelledAmountNotice } from '../../../components/UnlabelledAmountNotice'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('dashboards').child({ component: 'revenue-kpi' })
+
+async function fetchRevenueData(settings: RevenueKpiSettings, fetchWidgetData: WidgetDataFetcher): Promise<WidgetDataResponse> {
+  const body = {
+    entityType: 'sales:orders',
+    metric: {
+      field: 'grandTotalGrossAmount',
+      aggregate: 'sum',
+    },
+    dateRange: {
+      field: 'placedAt',
+      preset: settings.dateRange,
+    },
+    comparison: settings.showComparison ? { type: 'previous_period' } : undefined,
+  }
+
+  return fetchWidgetData<WidgetDataResponse>(body)
+}
+
+const RevenueKpiWidget: React.FC<DashboardWidgetComponentProps<RevenueKpiSettings>> = ({
+  mode,
+  settings = DEFAULT_SETTINGS,
+  onSettingsChange,
+  refreshToken,
+  onRefreshStateChange,
+}) => {
+  const t = useT()
+  const locale = useLocale()
+  const hydrated = React.useMemo(() => hydrateSettings(settings), [settings])
+  const [value, setValue] = React.useState<number | null>(null)
+  const [trend, setTrend] = React.useState<KpiTrend | undefined>(undefined)
+  const [currency, setCurrency] = React.useState<string | null>(null)
+  const [loading, setLoading] = React.useState(true)
+  const [error, setError] = React.useState<string | null>(null)
+  const money = React.useMemo(() => createCurrencyFormatters(currency, '--', locale), [currency, locale])
+
+  const fetchWidgetData = useWidgetData()
+  const refresh = React.useCallback(async () => {
+    onRefreshStateChange?.(true)
+    setLoading(true)
+    setError(null)
+    try {
+      const data = await fetchRevenueData(hydrated, fetchWidgetData)
+      setValue(data.value)
+      setCurrency(data.metadata?.currency ?? null)
+      if (data.comparison) {
+        setTrend({
+          value: data.comparison.change,
+          direction: data.comparison.direction,
+        })
+      } else {
+        setTrend(undefined)
+      }
+    } catch (err) {
+      logger.error('Failed to load revenue KPI data', { err })
+      setError(t('dashboards.analytics.widgets.revenueKpi.error', 'Failed to load data'))
+    } finally {
+      setLoading(false)
+      onRefreshStateChange?.(false)
+    }
+  }, [hydrated, fetchWidgetData, onRefreshStateChange, t])
+
+  React.useEffect(() => {
+    refresh().catch(() => {})
+  }, [refresh, refreshToken])
+
+  if (mode === 'settings') {
+    return (
+      <div className="space-y-4 text-sm">
+        <DateRangeSelect
+          id="revenue-kpi-date-range"
+          label={t('dashboards.analytics.settings.dateRange', 'Date Range')}
+          value={hydrated.dateRange}
+          onChange={(dateRange: DateRangePreset) => onSettingsChange({ ...hydrated, dateRange })}
+        />
+        <div className="space-y-1.5">
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={hydrated.showComparison}
+              onChange={(e) => onSettingsChange({ ...hydrated, showComparison: e.target.checked })}
+              className="h-4 w-4 rounded border focus-visible:ring-ring"
+            />
+            {t('dashboards.analytics.settings.showComparison', 'Show comparison')}
+          </label>
+        </div>
+      </div>
+    )
+  }
+
+  const comparisonLabelInfo = getComparisonLabelKey(hydrated.dateRange)
+  const comparisonLabel = hydrated.showComparison
+    ? t(comparisonLabelInfo.key, comparisonLabelInfo.fallback)
+    : undefined
+
+  return (
+    <KpiCard
+      value={value}
+      trend={trend}
+      comparisonLabel={comparisonLabel}
+      loading={loading}
+      error={error}
+      formatValue={money.format}
+      footer={<UnlabelledAmountNotice currency={currency} loading={loading} error={error} />}
+      headerAction={
+        <InlineDateRangeSelect
+          value={hydrated.dateRange}
+          onChange={(dateRange) => onSettingsChange({ ...hydrated, dateRange })}
+        />
+      }
+    />
+  )
+}
+
+export default RevenueKpiWidget

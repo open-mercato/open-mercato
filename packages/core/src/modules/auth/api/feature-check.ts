@@ -1,0 +1,98 @@
+import { NextResponse } from 'next/server'
+import { z } from 'zod'
+import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { featureCheckRequestSchema } from '../data/validators'
+
+export const metadata = {
+  POST: { requireAuth: true },
+}
+
+const featureCheckResponseSchema = z.object({
+  ok: z.boolean().describe('Indicates whether all requested features are granted'),
+  granted: z.array(z.string()).describe('Features the current user may access'),
+  userId: z.string().describe('ID of the authenticated user'),
+})
+
+export async function POST(req: Request) {
+  const auth = await getAuthFromRequest(req)
+  if (!auth) {
+    return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+  }
+
+  let body: unknown = {}
+  try {
+    body = await req.json()
+  } catch { /* malformed JSON — safeParse below will reject */ }
+
+  const parsed = featureCheckRequestSchema.safeParse(body)
+  if (!parsed.success) {
+    return NextResponse.json({ ok: false, error: 'Invalid request' }, { status: 400 })
+  }
+
+  const features = parsed.data.features
+  if (!features.length) {
+    return NextResponse.json({ ok: true, granted: [], userId: auth.sub })
+  }
+
+  const container = await createRequestContainer()
+  const rbac = container.resolve<RbacService>('rbacService')
+  const featureContext = await resolveFeatureCheckContext({ container, auth, request: req })
+  const featureScope = {
+    tenantId: featureContext.scope.tenantId ?? auth.tenantId ?? null,
+    organizationId: featureContext.organizationId,
+  }
+  const ok = await rbac.userHasAllFeatures(auth.sub, features, featureScope)
+  if (ok) {
+    return NextResponse.json({ ok: true, granted: features, userId: auth.sub })
+  }
+
+  // Check individually to see which features are granted
+  const granted: string[] = []
+  for (const f of features) {
+    const hasFeature = await rbac.userHasAllFeatures(auth.sub, [f], featureScope)
+    if (hasFeature) granted.push(f)
+  }
+
+  return NextResponse.json({ ok: false, granted, userId: auth.sub })
+}
+
+const featureCheckMethodDoc: OpenApiMethodDoc = {
+  summary: 'Check feature grants for the current user',
+  description: 'Evaluates which of the requested features are available to the signed-in user within the active tenant / organization context.',
+  tags: ['Authentication & Accounts'],
+  requestBody: {
+    contentType: 'application/json',
+    schema: featureCheckRequestSchema,
+    description: 'Feature identifiers to evaluate.',
+  },
+  responses: [
+    {
+      status: 200,
+      description: 'Evaluation result',
+      schema: featureCheckResponseSchema,
+    },
+  ],
+  errors: [
+    {
+      status: 400,
+      description: 'Invalid request — features array missing, too large, or contains invalid entries',
+      schema: z.object({ ok: z.literal(false), error: z.string() }),
+    },
+    {
+      status: 401,
+      description: 'Authentication required',
+      schema: z.object({ ok: z.literal(false), error: z.string() }),
+    },
+  ],
+}
+
+export const openApi: OpenApiRouteDoc = {
+  summary: 'Check feature grants for the current user',
+  methods: {
+    POST: featureCheckMethodDoc,
+  },
+}

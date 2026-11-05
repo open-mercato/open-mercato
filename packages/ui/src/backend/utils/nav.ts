@@ -1,0 +1,492 @@
+import type { ReactNode } from 'react'
+import React from 'react'
+import type { Module, ModuleRoute, PageMetadata } from '@open-mercato/shared/modules/registry'
+import { hasAllFeatures as checkFeatures } from '@open-mercato/shared/security/features'
+
+/** Route with optional page-metadata aliases that may be merged during generation. */
+type NavRoute = ModuleRoute & Partial<Pick<PageMetadata, 'pageTitleKey' | 'pageGroupKey'>>
+
+export type AdminNavItem = {
+  group: string
+  groupId: string
+  groupKey?: string
+  groupDefaultName: string
+  title: string
+  defaultTitle: string
+  titleKey?: string
+  href: string
+  enabled: boolean
+  hidden?: boolean
+  order?: number
+  priority?: number
+  icon?: ReactNode
+  children?: AdminNavItem[]
+  pageContext?: 'main' | 'admin' | 'settings' | 'profile'
+}
+
+export type AdminNavFeatureChecker = (features: string[]) => Promise<Iterable<string> | null | undefined>
+
+export type BuildAdminNavOptions = {
+  checkFeatures?: AdminNavFeatureChecker
+}
+
+/**
+ * @deprecated The internal fetch-based feature check will be removed.
+ *             Provide `options.checkFeatures` so buildAdminNav can reuse your RBAC context.
+ */
+async function fetchFeatureGrants(requestFeatures: string[]): Promise<Set<string>> { // NOSONAR — mutable accumulator pattern; Set is populated between early return and final return
+  const granted = new Set<string>()
+  if (!requestFeatures.length) return granted
+  let url = '/api/auth/feature-check'
+  let headersInit: Record<string, string> | undefined
+  if (typeof window === 'undefined') {
+    // On the server, build absolute URL and forward cookies so auth is available
+    try {
+      const { headers: getHeaders } = await import('next/headers')
+      const h = await getHeaders()
+      const host = h.get('x-forwarded-host') || h.get('host') || ''
+      const proto = h.get('x-forwarded-proto') || 'http'
+      const cookie = h.get('cookie') || ''
+      if (host) url = `${proto}://${host}/api/auth/feature-check`
+      headersInit = { cookie }
+    } catch {
+      // ignore; fall back to relative URL without forwarded cookies
+    }
+  }
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      credentials: 'include' as any,
+      headers: { 'content-type': 'application/json', ...(headersInit || {}) },
+      body: JSON.stringify({ features: requestFeatures }),
+    } as any)
+    if (res.ok) {
+      const data = await res.json().catch(() => ({ granted: [] }))
+      if (Array.isArray(data?.granted)) {
+        data.granted.forEach((f: string) => granted.add(f))
+      }
+    }
+  } catch {
+    // ignore fetch failures and keep feature set empty
+  }
+  return granted
+}
+
+/**
+ * @deprecated Use number directly in sectionOrder config instead
+ */
+export type SettingsSectionConfig = {
+  label: string
+  labelKey?: string
+  order: number
+}
+
+export type SettingsSection = {
+  id: string
+  label: string
+  labelKey?: string
+  order: number
+  items: SettingsSectionItem[]
+}
+
+export type SettingsSectionItem = {
+  id: string
+  label: string
+  labelKey?: string
+  href: string
+  icon?: ReactNode
+  requireFeatures?: string[]
+  order: number
+  children?: SettingsSectionItem[]
+}
+
+/**
+ * Slug of a rendered group label, used as the pre-#4843 settings section id.
+ *
+ * `sectionOrder` used to be keyed by these slugs, which made ordering depend on the active locale.
+ * Kept only as a lookup fallback so third-party callers passing a legacy map keep their weights.
+ *
+ * @deprecated Key `sectionOrder` by the untranslated group id (`AdminNavItem.groupId`) instead.
+ */
+function legacySettingsSectionSlug(groupLabel: string): string {
+  return groupLabel.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
+}
+
+/**
+ * Groups the nav entries declaring `pageContext` into ordered sections for that context's sidebar.
+ *
+ * `sectionOrder` is keyed by the untranslated group id (`AdminNavItem.groupId`, i.e. the page's
+ * `pageGroupKey` when it declares one) — the same convention the main sidebar's `defaultGroupOrder`
+ * follows. Keying off the rendered label instead made every non-English deployment miss its weights
+ * and fall back to the catch-all bucket (#4843).
+ */
+function buildContextSections(
+  entries: AdminNavItem[],
+  sectionOrder: Record<string, number>,
+  pageContext: 'settings' | 'profile'
+): SettingsSection[] {
+  const contextItems = entries.filter(e => e.pageContext === pageContext)
+
+  const sectionMap = new Map<string, SettingsSection>()
+
+  const mapSectionItem = (item: AdminNavItem): SettingsSectionItem => {
+    const itemId = item.href.replace(/\//g, '-').slice(1)
+    return {
+      id: itemId,
+      label: item.title,
+      labelKey: item.titleKey,
+      href: item.href,
+      icon: item.icon,
+      requireFeatures: undefined,
+      order: item.order ?? item.priority ?? 100,
+      children: item.children?.map(mapSectionItem),
+    }
+  }
+
+  for (const item of contextItems) {
+    const sectionId = item.groupId
+    const order = sectionOrder[sectionId] ?? sectionOrder[legacySettingsSectionSlug(item.group)] ?? 999
+
+    if (!sectionMap.has(sectionId)) {
+      sectionMap.set(sectionId, {
+        id: sectionId,
+        label: item.group,
+        labelKey: item.groupKey,
+        order,
+        items: []
+      })
+    }
+
+    const section = sectionMap.get(sectionId)!
+    section.items.push(mapSectionItem(item))
+  }
+
+  const sections = Array.from(sectionMap.values())
+  const sortItems = (items: SettingsSectionItem[]) => {
+    items.sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    for (const item of items) {
+      if (item.children?.length) sortItems(item.children)
+    }
+  }
+  sections.sort((a, b) => a.order - b.order)
+  for (const section of sections) {
+    sortItems(section.items)
+  }
+
+  return sections
+}
+
+/**
+ * Groups the settings-context nav entries into ordered sections for the settings sidebar.
+ */
+export function buildSettingsSections(
+  entries: AdminNavItem[],
+  sectionOrder: Record<string, number>
+): SettingsSection[] {
+  return buildContextSections(entries, sectionOrder, 'settings')
+}
+
+/**
+ * Groups the profile-context nav entries into ordered sections for the profile sidebar.
+ *
+ * The profile sidebar used to render a hard-coded list, so per-user pages contributed by other
+ * modules (notification preferences, communication channels) were reachable from the profile
+ * dropdown but missing from the sidebar (#5594). Deriving them from `pageContext: 'profile'` keeps
+ * both surfaces in sync, including for third-party modules.
+ */
+export function buildProfileSections(
+  entries: AdminNavItem[],
+  sectionOrder: Record<string, number>
+): SettingsSection[] {
+  return buildContextSections(entries, sectionOrder, 'profile')
+}
+
+/**
+ * Folds discovered sections into a statically declared baseline, keyed by section id and item href.
+ *
+ * The baseline carries entries that route discovery cannot see — a `navHidden` page such as
+ * `/backend/profile/change-password` never reaches `buildAdminNav`'s output — so it wins on
+ * conflicts and keeps its declared position, while discovered items extend the matching section or
+ * append a new one.
+ *
+ * The baseline is never mutated: sections, their item arrays and any nested `children` are copied
+ * before sorting, because callers pass module-level constants that outlive a single request.
+ */
+export function mergeSectionsWithDiscovered(
+  baseline: SettingsSection[],
+  discovered: SettingsSection[]
+): SettingsSection[] {
+  const merged = baseline.map((section) => ({ ...section, items: [...section.items] }))
+  const byId = new Map(merged.map((section) => [section.id, section]))
+  const knownHrefs = new Set(merged.flatMap((section) => section.items.map((item) => item.href)))
+
+  for (const section of discovered) {
+    const items = section.items.filter((item) => !knownHrefs.has(item.href))
+    items.forEach((item) => knownHrefs.add(item.href))
+    if (items.length === 0) continue
+    const existing = byId.get(section.id)
+    if (existing) {
+      existing.items.push(...items)
+      continue
+    }
+    const added = { ...section, items }
+    byId.set(added.id, added)
+    merged.push(added)
+  }
+
+  const sortItems = (items: SettingsSectionItem[]): SettingsSectionItem[] =>
+    [...items]
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+      .map((item) => (item.children?.length ? { ...item, children: sortItems(item.children) } : item))
+
+  merged.sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+  for (const section of merged) section.items = sortItems(section.items)
+
+  return merged
+}
+
+export function computeSettingsPathPrefixes(sections: SettingsSection[]): string[] {
+  const prefixes = new Set<string>()
+  const visitItem = (item: SettingsSectionItem) => {
+    const parts = item.href.split('/')
+    const lastSegment = parts[parts.length - 1]
+    if (parts.length > 3 && lastSegment !== 'settings') {
+      prefixes.add(parts.slice(0, -1).join('/'))
+    }
+    prefixes.add(item.href)
+    if (item.children?.length) {
+      for (const child of item.children) visitItem(child)
+    }
+  }
+  for (const section of sections) {
+    for (const item of section.items) {
+      visitItem(item)
+    }
+  }
+  return Array.from(prefixes)
+}
+
+export function convertToSectionNavGroups(
+  sections: SettingsSection[],
+  translate?: (key: string | undefined, fallback: string) => string
+): Array<{
+  id: string
+  label: string
+  labelKey?: string
+  order?: number
+  items: ConvertedSectionNavItem[]
+}> {
+  const t = translate || ((key, fallback) => fallback)
+  const mapSectionItem = (item: SettingsSectionItem): ConvertedSectionNavItem => ({
+    id: item.id,
+    label: t(item.labelKey, item.label),
+    labelKey: item.labelKey,
+    href: item.href,
+    icon: item.icon,
+    order: item.order,
+    children: item.children?.map(mapSectionItem),
+  })
+
+  return sections.map(section => ({
+    id: section.id,
+    label: t(section.labelKey, section.label),
+    labelKey: section.labelKey,
+    order: section.order,
+    items: section.items.map(mapSectionItem),
+  }))
+}
+
+type ConvertedSectionNavItem = {
+  id: string
+  label: string
+  labelKey?: string
+  href: string
+  icon?: ReactNode
+  requireFeatures?: string[]
+  order?: number
+  children?: ConvertedSectionNavItem[]
+}
+
+type BuildAdminNavModule = Pick<Module, 'id'> & { backendRoutes?: (ModuleRoute | Omit<ModuleRoute, 'Component'>)[] }
+
+export async function buildAdminNav(
+  modules: BuildAdminNavModule[],
+  ctx: { auth?: { roles?: string[]; sub?: string; orgId?: string | null; tenantId?: string | null }; path?: string },
+  userEntities?: Array<{ entityId: string; label: string; href: string }>,
+  translate?: (key: string | undefined, fallback: string) => string,
+  options?: BuildAdminNavOptions
+): Promise<AdminNavItem[]> {
+  function capitalize(s: string) {
+    return s.charAt(0).toUpperCase() + s.slice(1)
+  }
+  function deriveTitleFromPath(p: string) {
+    const seg = p.split('/').filter(Boolean).pop() || ''
+    return seg ? seg.split('-').map(capitalize).join(' ') : 'Home'
+  }
+  const entries: AdminNavItem[] = []
+
+  // Collect all unique features needed across all routes first
+  const allRequiredFeatures = new Set<string>()
+  for (const m of modules) {
+    for (const r of (m.backendRoutes ?? []) as NavRoute[]) {
+      const features = r.requireFeatures
+      if (features && features.length) {
+        features.forEach(f => allRequiredFeatures.add(f))
+      }
+    }
+  }
+
+  // Batch check all features in a single API call
+  let userFeatures: string[] = []
+  if (allRequiredFeatures.size > 0) {
+    const requestFeatures = Array.from(allRequiredFeatures)
+    if (options?.checkFeatures) {
+      try {
+        const resolved = await options.checkFeatures(requestFeatures)
+        if (resolved) {
+          userFeatures = Array.from(resolved).filter((feature): feature is string => typeof feature === 'string' && feature.length > 0)
+        }
+      } catch {
+        // ignore and fall back to empty feature set
+      }
+    } else {
+      userFeatures = Array.from(await fetchFeatureGrants(requestFeatures))
+    }
+  }
+
+  // Helper: check if user has all required features (from cache)
+  function hasAllFeatures(required: string[]): boolean {
+    if (!required || required.length === 0) return true
+    return checkFeatures(userFeatures, required)
+  }
+
+  // Icons are defined per-page in metadata; no heuristic derivation here.
+  for (const m of modules) {
+    const groupDefault = capitalize(m.id)
+    for (const r of (m.backendRoutes ?? []) as NavRoute[]) {
+      const href = r.pattern ?? r.path ?? ''
+      if (!href || href.includes('[')) continue
+      if (r.navHidden) continue
+      const title = r.title || deriveTitleFromPath(href)
+      const titleKey = r.pageTitleKey ?? r.titleKey
+      const group = r.group || groupDefault
+      const groupKey = r.pageGroupKey ?? r.groupKey
+      const groupId = groupKey ?? group
+      const displayGroup = translate ? translate(groupKey, group) : group
+      const displayTitle = translate ? translate(titleKey, title) : title
+      const visible = r.visible ? await Promise.resolve(r.visible(ctx)) : true
+      if (!visible) continue
+      const enabled = r.enabled ? await Promise.resolve(r.enabled(ctx)) : true
+      // If roles are required, check; otherwise include
+      const required = r.requireRoles || []
+      if (required.length) {
+        const roles = ctx.auth?.roles || []
+        const ok = required.some((role) => roles.includes(role))
+        if (!ok) continue
+      }
+      // If features are required, check from cached batch result
+      const features = r.requireFeatures
+      if (features && features.length) {
+        const ok = hasAllFeatures(features)
+        if (!ok) continue
+      }
+      const order = r.order
+      const priority = r.priority ?? order
+      const icon = r.icon
+      const pageContext = r.pageContext
+      entries.push({
+        group: displayGroup,
+        groupId,
+        groupKey,
+        groupDefaultName: displayGroup,
+        title: displayTitle,
+        defaultTitle: displayTitle,
+        titleKey,
+        href,
+        enabled,
+        order,
+        priority,
+        icon,
+        pageContext,
+      })
+    }
+  }
+  // Build hierarchy: treat routes whose href starts with a parent href + '/'
+  // Sort by href length (shortest first) so potential parents are processed before children
+  const sorted = [...entries].sort((a, b) => a.href.length - b.href.length)
+  const byHref = new Map<string, AdminNavItem>()
+  const roots: AdminNavItem[] = []
+  for (const e of sorted) {
+    // Walk up the href segments to find the longest matching parent in the same group
+    let parent: AdminNavItem | undefined
+    const segments = e.href.split('/')
+    for (let i = segments.length - 1; i >= 2; i--) {
+      const candidate = byHref.get(segments.slice(0, i).join('/'))
+      if (candidate && candidate !== e && candidate.groupId === e.groupId) {
+        parent = candidate
+        break
+      }
+    }
+    byHref.set(e.href, e)
+    if (parent) {
+      parent.children = parent.children || []
+      parent.children.push(e)
+    } else {
+      roots.push(e)
+    }
+  }
+
+  // Add dynamic user entities to the navigation
+  if (userEntities && userEntities.length > 0) {
+    const tableIcon = React.createElement(
+      'svg',
+      { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2 },
+      React.createElement('rect', { x: 3, y: 4, width: 18, height: 16, rx: 2 }),
+      React.createElement('path', { d: 'M3 10h18M9 4v16M15 4v16' }),
+    )
+    const userEntitiesLegacyGroupKeys = new Set(['settings.sections.dataDesigner', 'entities.nav.group'])
+    const userEntitiesItem = entries.find((entry) => entry.href === '/backend/entities/user')
+      ?? entries.find((entry) =>
+        entry.titleKey === 'entities.nav.userEntities' &&
+        typeof entry.groupKey === 'string' &&
+        userEntitiesLegacyGroupKeys.has(entry.groupKey),
+      )
+    if (userEntitiesItem) {
+      const existingChildren = userEntitiesItem.children || []
+      const dynamicUserEntities = userEntities.map((entity) => ({
+        group: userEntitiesItem.group,
+        groupId: userEntitiesItem.groupId,
+        groupKey: userEntitiesItem.groupKey,
+        groupDefaultName: userEntitiesItem.groupDefaultName,
+        title: entity.label,
+        defaultTitle: entity.label,
+        href: entity.href,
+        enabled: true,
+        order: 1000, // High order to appear at the end
+        priority: 1000,
+        icon: tableIcon,
+      }))
+      // Merge and deduplicate by href to avoid duplicates coming from server or generator
+      const merged = [...existingChildren, ...dynamicUserEntities]
+      const byHref = new Map<string, AdminNavItem>()
+      for (const it of merged) {
+        if (!byHref.has(it.href)) byHref.set(it.href, it)
+      }
+      userEntitiesItem.children = Array.from(byHref.values())
+    }
+  }
+
+  // Sorting: group, then priority/order, then title. Apply within children too.
+  const sortItems = (arr: AdminNavItem[]) => {
+    arr.sort((a, b) => {
+      if (a.groupId !== b.groupId) return a.groupId.localeCompare(b.groupId)
+      const ap = a.priority ?? a.order ?? 10_000
+      const bp = b.priority ?? b.order ?? 10_000
+      if (ap !== bp) return ap - bp
+      return a.title.localeCompare(b.title)
+    })
+    for (const it of arr) if (it.children?.length) sortItems(it.children)
+  }
+  sortItems(roots)
+  return roots
+}

@@ -1,0 +1,4232 @@
+"use client"
+import * as React from 'react'
+import { useRouter } from 'next/navigation'
+import { flexRender, type RowData, type SortingState, type ColumnVisibilityState as VisibilityState, type RowSelectionState, type ExpandedState, type OnChangeFn } from '@tanstack/react-table'
+import { useLegacyTable, getCoreRowModel, getSortedRowModel, getExpandedRowModel, type LegacyColumnDef as ColumnDef, type LegacyColumn as TableColumn } from '@tanstack/react-table/legacy'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { RefreshCw, Loader2, SlidersHorizontal, MoreHorizontal, Circle, Filter, Columns3, ChevronUp, ChevronDown, ChevronRight, ChevronsUpDown, Check, Inbox, Save } from 'lucide-react'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../primitives/table'
+import { Button } from '../primitives/button'
+import { IconButton } from '../primitives/icon-button'
+import { Checkbox } from '../primitives/checkbox'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../primitives/select'
+import { CompactSelectTrigger } from '../primitives/compact-select'
+import { Pagination } from '../primitives/pagination'
+import { Spinner } from '../primitives/spinner'
+import { EmptyState } from '../primitives/empty-state'
+import { TooltipProvider } from '../primitives/tooltip'
+import { TruncatedCell } from './TruncatedCell'
+import { LoadingMessage } from './detail/LoadingMessage'
+import { ErrorMessage } from './detail/ErrorMessage'
+import { FilterBar, type FilterDef, type FilterValues } from './FilterBar'
+import { FilteredEmptyResults } from './filters/FilteredEmptyResults'
+import { SearchEmptyResults } from './filters/SearchEmptyResults'
+import { useCustomFieldFilterDefs } from './utils/customFieldFilters'
+import { fetchCustomFieldDefinitionsPayload, type CustomFieldsetDto } from './utils/customFieldDefs'
+import { RowActions, type RowActionItem } from './RowActions'
+import { subscribeOrganizationScopeChanged, type OrganizationScopeChangedDetail } from '@open-mercato/shared/lib/frontend/organizationEvents'
+import { InjectionSpot } from './injection/InjectionSpot'
+import { useAppEvent } from './injection/useAppEvent'
+import { useInjectionDataWidgets } from './injection/useInjectionDataWidgets'
+import { resolveInjectedIcon } from './injection/resolveInjectedIcon'
+import { serializeExport, defaultExportFilename, type PreparedExport } from '@open-mercato/shared/lib/crud/exporters'
+import { apiCall, withScopedApiRequestHeaders } from './utils/apiCall'
+import { buildOptimisticLockHeader } from './utils/optimisticLock'
+import { useGuardedMutation } from './injection/useGuardedMutation'
+import { raiseCrudError } from './utils/serverErrors'
+import { computeMenuViewportShiftX } from './utils/viewport'
+import { PerspectiveSidebar } from './PerspectiveSidebar'
+import { Popover, PopoverTrigger, PopoverContent } from '../primitives/popover'
+import { parseISO } from 'date-fns/parseISO'
+import { formatDisplayDateTime } from '../primitives/date-format'
+import { cn } from '@open-mercato/shared/lib/utils'
+import { readVersionedPreference, writeVersionedPreference, clearVersionedPreference } from '@open-mercato/shared/lib/browser/versionedPreference'
+import { useT, useLocale, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { flash } from './FlashMessages'
+import { useConfirmDialog } from './confirm-dialog'
+import { surfaceRecordConflict } from './conflicts'
+import type {
+  PerspectiveDto,
+  RolePerspectiveDto,
+  PerspectivesIndexResponse,
+  PerspectiveSettings,
+  PerspectiveSaveResponse,
+} from '@open-mercato/shared/modules/perspectives/types'
+import type {
+  InjectionColumnDefinition,
+  InjectionBulkActionDefinition,
+  InjectionFilterDefinition,
+  InjectionRowActionDefinition,
+} from '@open-mercato/shared/modules/widgets/injection'
+import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
+import { useRegisteredComponent } from './injection/useRegisteredComponent'
+import { dataTableExtensionSpotId, extensionSpotChildId } from '@open-mercato/shared/modules/widgets/extension-points'
+import { insertByInjectionPlacement, InjectionPosition, type InjectionPlacement } from '@open-mercato/shared/modules/widgets/injection-position'
+import { useVirtualizer } from '@tanstack/react-virtual'
+import type {
+  FilterFieldDef as AdvancedFilterFieldDef,
+  AdvancedFilterState,
+} from '@open-mercato/shared/lib/query/advanced-filter'
+import { getDefaultOperator, isAdvancedFilterState, flatToTree } from '@open-mercato/shared/lib/query/advanced-filter'
+import type { AdvancedFilterTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
+import {
+  createEmptyTree,
+  serializeTreeForPersist,
+  deserializeTreeFromPersist,
+  isPersistedFilterTree,
+  treeToFlat,
+} from '@open-mercato/shared/lib/query/advanced-filter-tree'
+import { treeReducer } from './filters/treeReducer'
+import { AdvancedFilterBuilder } from './filters/AdvancedFilterBuilder'
+import { type ColumnChooserField } from './columns/ColumnChooserPanel'
+import { useAutoDiscoveredFields } from './utils/useAutoDiscoveredFields'
+import { useCustomFieldDefs } from './utils/customFieldDefs'
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  horizontalListSortingStrategy,
+  useSortable,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { clearAllPerspectiveState, PERSPECTIVE_COOKIE_PREFIX, PERSPECTIVE_STORAGE_PREFIX } from './perspectiveState'
+import { diffPerspectiveSettings } from './perspectiveDirty'
+import type { DataTableViewDirtyState, DataTableViewSettingKey } from './perspectiveDirty'
+
+// Re-exported so `@open-mercato/ui/backend/DataTable` stays the published import
+// path for the purge (BACKWARD_COMPATIBILITY: import paths are a contract surface).
+export { clearAllPerspectiveState }
+export type { DataTableViewDirtyState, DataTableViewSettingKey }
+
+const logger = createLogger('ui').child({ component: 'DataTable' })
+
+let refreshScheduled = false
+
+function scheduleRouterRefresh(router: ReturnType<typeof useRouter>) {
+  if (refreshScheduled) return
+  refreshScheduled = true
+  if (typeof window === 'undefined') {
+    refreshScheduled = false
+    return
+  }
+  window.requestAnimationFrame(() => {
+    refreshScheduled = false
+    try { router.refresh() } catch {}
+  })
+}
+
+export type PaginationProps = {
+  page: number
+  pageSize: number
+  total: number
+  totalPages: number
+  /**
+   * `total` (and the `totalPages` derived from it) is a floor, not an exact
+   * count — the server capped the list count (`totalIsCapped: true` on the
+   * list payload). Capped totals render as "{total}+" and pagination stays
+   * open past the floor via short-page detection instead of ending at
+   * `ceil(total / pageSize)`.
+   */
+  totalIsCapped?: boolean
+  onPageChange: (page: number) => void
+  durationMs?: number | null
+  cacheStatus?: 'hit' | 'miss' | null
+  pageSizeOptions?: number[]
+  onPageSizeChange?: (pageSize: number) => void
+}
+
+export type DataTableRefreshButton = {
+  onRefresh: () => void
+  label: string
+  isRefreshing?: boolean
+  disabled?: boolean
+}
+
+const DEFAULT_ROW_CLICK_ACTION_IDS = ['edit', 'open']
+
+export function withDataTableNamespaces<T extends Record<string, unknown>>(
+  mappedRow: T,
+  sourceItem: Record<string, unknown>,
+): T & Record<string, unknown> {
+  const namespaced: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(sourceItem)) {
+    if (!key.startsWith('_')) continue
+    namespaced[key] = value
+  }
+  return {
+    ...mappedRow,
+    ...namespaced,
+  }
+}
+
+// Columns register in waves (injected columns and custom fields load asynchronously), so a
+// stored order rarely names every column. A column the order does not know yet takes its
+// place from the column definitions — right after its nearest known predecessor — instead
+// of being appended, which would discard an injected column's `placement` (#7083). One that
+// follows every known column is still appended, keeping the user's arrangement intact. An
+// injected column anchored `Before`/`After` a column already in the order follows that anchor
+// wherever the user moved it.
+function reconcileColumnOrder(
+  prev: string[],
+  ids: string[],
+  placements: ReadonlyMap<string, InjectionPlacement | undefined> = new Map(),
+): string[] {
+  const allowed = new Set(ids)
+  const result = prev.filter((id) => allowed.has(id))
+  const known = new Set(result)
+  ids.forEach((id, index) => {
+    if (known.has(id)) return
+    const placement = placements.get(id)
+    const anchorIndex = placement?.relativeTo ? result.indexOf(placement.relativeTo) : -1
+    if (anchorIndex !== -1 && (placement?.position === InjectionPosition.Before || placement?.position === InjectionPosition.After)) {
+      result.splice(placement.position === InjectionPosition.Before ? anchorIndex : anchorIndex + 1, 0, id)
+      known.add(id)
+      return
+    }
+    const hasKnownSuccessor = ids.slice(index + 1).some((candidate) => known.has(candidate))
+    if (!hasKnownSuccessor) {
+      result.push(id)
+    } else {
+      let insertAt = 0
+      for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+        const predecessorIndex = result.indexOf(ids[cursor])
+        if (predecessorIndex !== -1) {
+          insertAt = predecessorIndex + 1
+          break
+        }
+      }
+      result.splice(insertAt, 0, id)
+    }
+    known.add(id)
+  })
+  return result
+}
+
+function resolveDataTableRowId<T>(row: T, index: number): string {
+  if (row && typeof row === 'object') {
+    const candidate = (row as Record<string, unknown>).id
+    if (typeof candidate === 'string' && candidate.trim().length > 0) {
+      return candidate
+    }
+  }
+  return String(index)
+}
+
+function resolveDefaultRowAction(items: RowActionItem[], preferredIds: string[]): RowActionItem | null {
+  for (const preferredId of preferredIds) {
+    const match = items.find((item) => item.id === preferredId && (item.href || item.onSelect))
+    if (match) return match
+  }
+  for (const preferredId of preferredIds) {
+    const match = items.find((item) => item.label.toLowerCase() === preferredId && (item.href || item.onSelect))
+    if (match) return match
+  }
+  return null
+}
+
+function pickDefaultRowAction(node: React.ReactNode, preferredIds: string[]): RowActionItem | null {
+  if (!React.isValidElement(node)) return null
+  const items = (node.props as { items?: RowActionItem[] }).items
+  if (!Array.isArray(items)) return null
+  return resolveDefaultRowAction(items, preferredIds)
+}
+
+export type DataTableExportFormat = 'csv' | 'json' | 'xml' | 'markdown'
+
+export type DataTableExportSectionConfig = {
+  title?: string
+  description?: string
+  getUrl?: (format: DataTableExportFormat) => string
+  prepare?: (format: DataTableExportFormat) => Promise<PreparedExport | { prepared: PreparedExport; filename?: string } | null> | PreparedExport | { prepared: PreparedExport; filename?: string } | null
+  formats?: DataTableExportFormat[]
+  disabled?: boolean
+  filename?: (format: DataTableExportFormat) => string
+}
+
+export type DataTableExportConfig = {
+  label?: string
+  disabled?: boolean
+  formats?: DataTableExportFormat[]
+  getUrl?: (format: DataTableExportFormat) => string
+  sections?: DataTableExportSectionConfig[]
+  view?: DataTableExportSectionConfig
+  full?: DataTableExportSectionConfig
+  filename?: (format: DataTableExportFormat) => string
+}
+
+export type DataTablePerspectiveConfig = {
+  tableId: string
+  /**
+   * Where to render the "Views" perspective switcher. Defaults to 'left'
+   * (inside the filter toolbar). When 'right', the switcher moves to the
+   * right-hand actions area and the redundant standalone "Customize columns"
+   * (•••) button is suppressed — the "Views" control already opens that panel.
+   */
+  align?: 'left' | 'right'
+  initialState?: {
+    response?: PerspectivesIndexResponse
+    activePerspectiveId?: string | null
+    initialSettings?: PerspectiveSettings | null
+  }
+}
+
+/** Input for the imperative `saveCurrentView` action. */
+export type DataTableSaveViewInput = {
+  /**
+   * Name for the saved view. Optional when a personal view is active — the
+   * active view's own name is reused and the save updates it in place.
+   */
+  name?: string
+  /**
+   * Target view id. Defaults to the active personal view; pass `null` to force
+   * creating a new view (then `name` is required).
+   */
+  perspectiveId?: string | null
+  /** Marks the saved view as the user's default. Defaults to the target's current flag. */
+  isDefault?: boolean
+}
+
+/**
+ * Outcome of `saveCurrentView`. Returned rather than thrown so a host toolbar
+ * button can branch on `reason` (e.g. open the views sidebar to ask for a name)
+ * without wrapping every call in try/catch.
+ */
+export type DataTableSaveViewResult =
+  | { ok: true; perspectiveId: string | null }
+  | {
+      ok: false
+      /**
+       * `not-ready` — the perspectives permission check has not resolved yet.
+       * Nothing was saved and nothing is wrong: retry once the table has
+       * settled. Distinct from `perspectives-disabled`, which is a definitive
+       * "this user may not use views" and should be surfaced as such.
+       */
+      reason: 'perspectives-disabled' | 'not-ready' | 'name-required' | 'failed'
+      error?: unknown
+    }
+
+/**
+ * Imperative handle exposed through `DataTableProps.viewApiRef`, so a host app
+ * can build its own "Save view" affordance without patching this component.
+ */
+export type DataTableViewApi = {
+  /** The live table settings, in the shape a perspective persists. */
+  getCurrentSettings: () => PerspectiveSettings
+  /** The current unsaved-changes state — the pull counterpart of `onColumnsDirtyChange`. */
+  getDirtyState: () => DataTableViewDirtyState
+  /** Persists the live settings into a saved view. */
+  saveCurrentView: (input?: DataTableSaveViewInput) => Promise<DataTableSaveViewResult>
+  /**
+   * Opens the built-in views sidebar (where a new view can be named and saved).
+   * No-op for a user without the `perspectives.use` feature — the sidebar closes
+   * again on the next render — so a host offering this action should gate it on
+   * the same permission rather than expecting an error.
+   */
+  openViewsSidebar: () => void
+}
+
+export type BulkAction<T = Record<string, unknown>> = {
+  id: string
+  label: string
+  icon?: React.ComponentType<{ className?: string }>
+  destructive?: boolean
+  onExecute: (selectedRows: T[]) => Promise<void | boolean | BulkActionExecuteResult> | void | boolean | BulkActionExecuteResult
+}
+
+export type DataTableProps<T extends RowData> = {
+  columns: ColumnDef<T, any>[]
+  data: T[]
+  toolbar?: React.ReactNode
+  title?: React.ReactNode
+  /**
+   * Semantic level for the title. String titles default to 2 for section-level
+   * compatibility; ReactNode titles remain caller-owned unless this is set.
+   */
+  titleHeadingLevel?: 1 | 2
+  actions?: React.ReactNode
+  refreshButton?: DataTableRefreshButton
+  sortable?: boolean
+  manualSorting?: boolean
+  sorting?: SortingState
+  onSortingChange?: (s: SortingState) => void
+  pagination?: PaginationProps
+  /** Render the query duration in the pagination footer. Set to false for a count-only footer. */
+  showQueryTime?: boolean
+  isLoading?: boolean
+  emptyState?: React.ReactNode
+  error?: React.ReactNode | string | null
+  rowActions?: (row: T) => React.ReactNode
+  onRowClick?: (row: T, event: React.MouseEvent<HTMLTableRowElement>) => void
+  rowClickActionIds?: string[]
+  disableRowClick?: boolean
+  bulkActions?: BulkAction<T>[]
+  selectionScopeKey?: string
+
+  // Auto FilterBar options (rendered as toolbar when provided and no custom toolbar passed)
+  searchValue?: string
+  onSearchChange?: (v: string) => void
+  searchPlaceholder?: string
+  searchAlign?: 'left' | 'right'
+  filters?: FilterDef[]
+  filterValues?: FilterValues
+  onFiltersApply?: (values: FilterValues) => void
+  onFiltersClear?: () => void
+  entityId?: string
+  entityIds?: string[]
+  exporter?: DataTableExportConfig | false
+  perspective?: DataTablePerspectiveConfig
+  /**
+   * Notified whenever the unsaved-changes state of the current view changes.
+   * Read-only: it never alters the table's own behavior, it lets a host render
+   * its own indicator ("3 unsaved changes") next to a custom save affordance.
+   * Only fires for tables that wire `perspective`.
+   */
+  onColumnsDirtyChange?: (state: DataTableViewDirtyState) => void
+  /**
+   * Imperative handle for the view/perspective surface (`saveCurrentView`,
+   * `getDirtyState`, `getCurrentSettings`, `openViewsSidebar`). Pairs with
+   * `onColumnsDirtyChange` so a host can render a "Save view" button in its own
+   * toolbar instead of relying on the built-in one.
+   */
+  viewApiRef?: React.Ref<DataTableViewApi | null>
+  /**
+   * Renders the built-in "Save view" toolbar button next to the views switcher.
+   * Off by default — the perspectives sidebar stays the default save path, so
+   * existing call sites are unaffected. Requires `perspective`.
+   */
+  showSaveViewButton?: boolean
+  embedded?: boolean
+  onCustomFieldFilterFieldsetChange?: (fieldset: string | null, entityId?: string) => void
+  customFieldFilterKeyExtras?: Array<string | number | boolean | null | undefined>
+  injectionSpotId?: string
+  injectionContext?: Record<string, unknown>
+  replacementHandle?: string
+  /**
+   * Stable id used to derive the `data-table:<id>:*` widget injection spots
+   * (`:columns`, `:row-actions`, `:bulk-actions`, `:filters`, `:toolbar`,
+   * `:search-trailing`, `:header`, `:footer`) when the host does not need a
+   * full perspective config. Cheaper than wiring a perspective just to enable
+   * widget injection. Falls back to `perspective?.tableId` and `injectionSpotId`
+   * if not provided.
+   */
+  extensionTableId?: string
+  stickyFirstColumn?: boolean
+  stickyActionsColumn?: boolean
+  /** Horizontal alignment of the row-actions (kebab) column header + cell. Defaults to 'right'. */
+  actionsColumnAlign?: 'right' | 'center'
+  virtualized?: boolean
+  virtualizedMaxHeight?: number | string
+  virtualizedOverscan?: number
+  /**
+   * Advanced filter configuration. Accepts either the v2 tree shape (preferred)
+   * or the legacy flat `AdvancedFilterState` shape as a backward-compatibility
+   * bridge. The bridge is provided for one minor version; legacy callers SHOULD
+   * migrate to the tree shape — see the spec
+   * `.ai/specs/implemented/2026-05-10-crm-list-filter-redesign.md` "Migration & Backward
+   * Compatibility" section and `UPGRADE_NOTES.md`.
+   *
+   * When the legacy flat shape is detected, DataTable converts it to a tree via
+   * `flatToTree` for internal rendering and converts any user edits back via
+   * `treeToFlat` before calling `onChange`. The back-conversion flattens nested
+   * groups into the top level (lossy for sub-group structure), so consumers
+   * that need full tree semantics MUST migrate.
+   */
+  advancedFilter?:
+    | {
+        fields?: AdvancedFilterFieldDef[]
+        auto?: boolean
+        value: AdvancedFilterTree
+        onChange: (state: AdvancedFilterTree) => void
+        onApply: () => void
+        onClear: () => void
+        /**
+         * Optional ref forwarded to the internal Filters trigger button. When set,
+         * external popovers (e.g. AdvancedFilterPanel) can anchor to this trigger.
+         * The internal popover is suppressed when externalPopover is true.
+         */
+        triggerRef?: React.RefObject<HTMLButtonElement | null>
+        /**
+         * When true, DataTable suppresses its internal advanced filter popover/builder
+         * and only renders the trigger button. The host page is responsible for
+         * rendering an external popover (e.g. AdvancedFilterPanel) and toggling
+         * its open state via onTriggerClick.
+         */
+        externalPopover?: boolean
+        onTriggerClick?: () => void
+        /**
+         * Optional callback invoked when a saved perspective contains a persisted
+         * advanced-filter tree (`{v:2, root:...}`). The host page receives the
+         * restored tree and is responsible for replacing both its local state and
+         * the `useAdvancedFilterTree` hook's tree. When omitted, perspectives that
+         * carry a tree-shape `filters` payload are ignored on load (and the legacy
+         * `onFiltersApply` callback is called with an empty record).
+         */
+        onApplyTree?: (tree: AdvancedFilterTree) => void
+      }
+    | {
+        /**
+         * @deprecated Legacy flat `AdvancedFilterState` shape. Convert to the
+         * v2 tree shape above before the next minor version. The bridge will be
+         * removed per the deprecation protocol in `BACKWARD_COMPATIBILITY.md`.
+         */
+        fields?: AdvancedFilterFieldDef[]
+        auto?: boolean
+        value: AdvancedFilterState
+        onChange: (state: AdvancedFilterState) => void
+        onApply: () => void
+        onClear: () => void
+      }
+  columnChooser?: {
+    availableColumns?: ColumnChooserField[]
+    auto?: boolean
+  }
+  /**
+   * Slot rendered between the toolbar and the table body when filters are active
+   * and the popover is closed. Use ActiveFilterChips from filters/.
+   */
+  activeFilterChips?: React.ReactNode
+  /**
+   * Renders the filter bar's built-in row of removable chips for the active
+   * `filters`. Defaults to `true`. Set it to `false` when `activeFilterChips`
+   * already shows the applied filters, so each filter appears once.
+   */
+  showActiveFilterChips?: boolean
+  /**
+   * When provided AND .active is true, replaces the generic empty state with the
+   * filter-aware FilteredEmptyResults. Pages set this when their filter tree has
+   * rules and the table body is empty.
+   */
+  filterAwareEmptyState?: {
+    active: boolean
+    entityNamePlural: string
+    canRemoveLast: boolean
+    onClearAll: () => void
+    onRemoveLast: () => void
+  }
+  /**
+   * Opt-in expandable/nested rows (accordion). All expansion props are
+   * additive and default-off — when none are passed, the table renders and
+   * behaves exactly as before (no toggle column, no row model change).
+   *
+   * - `getSubRows`: derive child rows for a given row (TanStack hierarchy source).
+   * - `expandable`: whether a row shows an expand toggle. Pass a predicate to
+   *   show the toggle for rows whose children are not loaded yet (lazy loading);
+   *   defaults to "has sub-rows" when omitted but `getSubRows` is set.
+   * - `expanded` / `onExpandedChange`: controlled expansion state. Provide both
+   *   for lazy-loading hosts that fetch children when a row is expanded; omit
+   *   for self-managed expansion.
+   */
+  getSubRows?: (row: T) => T[] | undefined
+  expandable?: boolean | ((row: T) => boolean)
+  expanded?: ExpandedState
+  onExpandedChange?: OnChangeFn<ExpandedState>
+}
+
+const DEFAULT_EXPORT_FORMATS: DataTableExportFormat[] = ['csv', 'json', 'xml', 'markdown']
+const EXPORT_LABELS: Record<DataTableExportFormat, string> = {
+  csv: 'CSV',
+  json: 'JSON',
+  xml: 'XML',
+  markdown: 'Markdown',
+}
+const EMPTY_FILTER_DEFS: FilterDef[] = []
+const EMPTY_FILTER_VALUES: FilterValues = Object.freeze({}) as FilterValues
+/** Stand-in for the live view settings on tables that never opt into the view API. */
+const EMPTY_VIEW_SETTINGS: PerspectiveSettings = Object.freeze({}) as PerspectiveSettings
+
+// Directional shadow utilities for sticky table cells. `border-collapse: collapse`
+// blocks `box-shadow` on `<td>`/`<th>`, so we paint the shadow as a pseudo-element
+// gradient on the outside edge — the side opposite to the sticky anchor:
+//   sticky right-0  → shadow falls to the LEFT  (use `before:` + `-left-2` + `to-l`)
+//   sticky left-0   → shadow falls to the RIGHT (use `after:`  + `-right-2` + `to-r`)
+// `foreground/8` matches the `--shadow-md` token opacity (8%) and is theme-aware.
+// Column pinning (and these shadows) is md-and-up only: below `md` the pinned
+// first column + actions column can be wider than the whole viewport, which
+// leaves the scrollable middle columns no visible window at all — narrow
+// screens fall back to plain horizontal scroll so every column stays reachable.
+const STICKY_RIGHT_SHADOW_CLASS =
+  'md:before:absolute md:before:inset-y-0 md:before:-left-2 md:before:w-2 md:before:bg-gradient-to-l md:before:from-foreground/8 md:before:to-transparent md:before:pointer-events-none'
+const STICKY_LEFT_SHADOW_CLASS =
+  'md:after:absolute md:after:inset-y-0 md:after:-right-2 md:after:w-2 md:after:bg-gradient-to-r md:after:from-foreground/8 md:after:to-transparent md:after:pointer-events-none'
+// Pinned cells need an opaque background so scrolled columns don't show through,
+// which also hides the translucent tints painted behind them (the `bg-muted/40`
+// header strip on `<thead>`, the `bg-muted/30` row hover on `<tr>`). A flat
+// gradient (equal stops) layers the same tint over the opaque surface, so the
+// pinned cell composites to exactly what the transparent cells show (#7414).
+const STICKY_HEADER_TINT_CLASS = 'md:bg-linear-to-r md:from-muted/40 md:to-muted/40'
+const STICKY_ROW_HOVER_TINT_CLASS =
+  'md:group-hover/row:bg-linear-to-r md:group-hover/row:from-muted/30 md:group-hover/row:to-muted/30'
+
+export type BulkActionExecuteResult = {
+  ok: boolean
+  message?: string
+  affectedCount?: number
+  progressJobId?: string | null
+}
+
+function collectUniqueById<T extends { id: string }>(
+  entries: T[],
+  warningScope: string,
+): T[] {
+  const byId = new Map<string, T>()
+  for (const entry of entries) {
+    if (!entry.id) continue
+    if (byId.has(entry.id)) {
+      if (process.env.NODE_ENV !== 'production') {
+        logger.warn('Duplicate injected id detected; keeping the first entry', { scope: warningScope, id: entry.id })
+      }
+      continue
+    }
+    byId.set(entry.id, entry)
+  }
+  return Array.from(byId.values())
+}
+
+const DEFAULT_VIEW_EXPORT_TITLE = 'Export what you view'
+const DEFAULT_FULL_EXPORT_TITLE = 'Full data export'
+
+type ResolvedExportSection = {
+  key: string
+  title: string
+  // Seeds the default download filename. Kept separate from `title` because
+  // `defaultExportFilename` strips every non-ASCII character, so a translated
+  // title would collapse to underscores in locales like ko.
+  filenameBase: string
+  description?: string
+  formats: DataTableExportFormat[]
+  getUrl?: (format: DataTableExportFormat) => string
+  prepare?: (format: DataTableExportFormat) => Promise<{ prepared: PreparedExport; filename?: string } | null> | { prepared: PreparedExport; filename?: string } | null
+  filename?: (format: DataTableExportFormat) => string
+  disabled: boolean
+}
+
+function resolveExportSections(config: DataTableExportConfig | null | undefined, t: TranslateFn): ResolvedExportSection[] {
+  if (!config) return []
+  const sections: ResolvedExportSection[] = []
+  const baseFormats = config.formats && config.formats.length > 0 ? config.formats : DEFAULT_EXPORT_FORMATS
+  const addSection = (
+    key: string,
+    section: DataTableExportSectionConfig | undefined | null,
+    fallbackTitle: string,
+    fallbackFilenameBase: string,
+  ) => {
+    if (!section || (!section.getUrl && !section.prepare)) return
+    const explicitTitle = section.title?.trim().length ? section.title!.trim() : null
+    const title = explicitTitle ?? fallbackTitle
+    const filenameBase = explicitTitle ?? fallbackFilenameBase
+    const seen = new Set<DataTableExportFormat>()
+    const formatsSource = section.formats && section.formats.length > 0 ? section.formats : baseFormats
+    const formats = formatsSource.filter((format) => {
+      if (seen.has(format)) return false
+      seen.add(format)
+      return true
+    })
+    if (formats.length === 0) return
+    sections.push({
+      key,
+      title,
+      filenameBase,
+      description: section.description,
+      formats,
+      getUrl: section.getUrl,
+      prepare: section.prepare
+        ? async (format: DataTableExportFormat) => {
+            const result = await section.prepare!(format)
+            if (!result) return null
+            if ('prepared' in result) return result
+            return { prepared: result }
+          }
+        : undefined,
+      filename: section.filename,
+      disabled: Boolean(config.disabled || section.disabled),
+    })
+  }
+
+  // Allow legacy config (getUrl without sections/view)
+  const hasExplicitSections = Array.isArray(config.sections) && config.sections.length > 0
+  const viewTitle = t('ui.dataTable.export.viewTitle', DEFAULT_VIEW_EXPORT_TITLE)
+  if (!config.view && !config.full && !hasExplicitSections && config.getUrl) {
+    addSection('view', { getUrl: config.getUrl, formats: config.formats }, viewTitle, DEFAULT_VIEW_EXPORT_TITLE)
+  } else {
+    addSection('view', config.view, viewTitle, DEFAULT_VIEW_EXPORT_TITLE)
+  }
+
+  if (hasExplicitSections) {
+    config.sections!.forEach((section, idx) => {
+      const numberedTitle = t('ui.dataTable.export.sectionTitle', 'Export {index}', { index: idx + 1 })
+      addSection(`section-${idx}`, section, numberedTitle, `Export ${idx + 1}`)
+    })
+  }
+
+  addSection('full', config.full, t('ui.dataTable.export.fullTitle', DEFAULT_FULL_EXPORT_TITLE), DEFAULT_FULL_EXPORT_TITLE)
+  return sections
+}
+
+
+// Bounds for user-driven column resizing (#1835). Widths outside this range are
+// clamped so a persisted/dragged value can never collapse a column to nothing or
+// blow the table out horizontally.
+const COLUMN_MIN_WIDTH = 60
+const COLUMN_MAX_WIDTH = 900
+
+function formatDurationLabel(durationMs?: number | null): string {
+  if (durationMs == null) return ''
+  if (!Number.isFinite(durationMs)) return ''
+  if (durationMs < 0) return ''
+  if (durationMs < 1000) return `${Math.round(durationMs)}ms`
+  if (durationMs < 10_000) return `${(durationMs / 1000).toFixed(1)}s`
+  if (durationMs < 60_000) return `${Math.round(durationMs / 1000)}s`
+  if (durationMs < 3_600_000) return `${(durationMs / 60_000).toFixed(durationMs < 600_000 ? 1 : 0)}m`
+  return `${(durationMs / 3_600_000).toFixed(durationMs < 7_200_000 ? 1 : 0)}h`
+}
+
+type PerspectiveSnapshot = {
+  perspectiveId: string | null
+  settings: PerspectiveSettings
+  updatedAt: number
+}
+
+// Versioned-envelope discriminator for the persisted perspective snapshot. Bump
+// when the snapshot shape changes incompatibly and add a read-old migration
+// branch; see `@open-mercato/shared/lib/browser/versionedPreference`.
+const PERSPECTIVE_SNAPSHOT_VERSION = 1
+
+type StoredPerspectiveSnapshot = { perspectiveId?: unknown; settings?: unknown; updatedAt?: unknown }
+
+function isStoredPerspectiveSnapshot(value: unknown): value is StoredPerspectiveSnapshot {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const settings = (value as Record<string, unknown>).settings
+  return typeof settings === 'object' && settings !== null
+}
+
+function readPerspectiveCookie(tableId: string): string | null {
+  if (typeof document === 'undefined') return null
+  const key = `${PERSPECTIVE_COOKIE_PREFIX}:${tableId}`
+  const pattern = new RegExp(`(?:^|;\\s*)${key}=([^;]+)`)
+  const match = document.cookie.match(pattern)
+  return match ? decodeURIComponent(match[1]) : null
+}
+
+function writePerspectiveCookie(tableId: string, perspectiveId: string | null): void {
+  if (typeof document === 'undefined') return
+  const key = `${PERSPECTIVE_COOKIE_PREFIX}:${tableId}`
+  const expires = perspectiveId ? 'Max-Age=31536000' : 'Max-Age=0'
+  const value = perspectiveId ? encodeURIComponent(perspectiveId) : ''
+  document.cookie = `${key}=${value}; Path=/; ${expires}; SameSite=Lax`
+}
+
+export function readPerspectiveSnapshot(tableId: string): PerspectiveSnapshot | null {
+  const parsed = readVersionedPreference<StoredPerspectiveSnapshot | null>(
+    `${PERSPECTIVE_STORAGE_PREFIX}:${tableId}`,
+    PERSPECTIVE_SNAPSHOT_VERSION,
+    (value): value is StoredPerspectiveSnapshot | null => isStoredPerspectiveSnapshot(value),
+    null,
+    { legacyIsValid: (value): value is StoredPerspectiveSnapshot | null => isStoredPerspectiveSnapshot(value) },
+  )
+  if (!parsed) return null
+  const perspectiveId =
+    typeof parsed.perspectiveId === 'string' && parsed.perspectiveId.trim().length > 0
+      ? parsed.perspectiveId
+      : null
+  const settings = parsed.settings as PerspectiveSettings
+  const updatedAt = typeof parsed.updatedAt === 'number' ? parsed.updatedAt : Date.now()
+  return { perspectiveId, settings, updatedAt }
+}
+
+export function writePerspectiveSnapshot(tableId: string, snapshot: PerspectiveSnapshot | null) {
+  const key = `${PERSPECTIVE_STORAGE_PREFIX}:${tableId}`
+  if (!snapshot) {
+    clearVersionedPreference(key)
+    return
+  }
+  writeVersionedPreference(key, PERSPECTIVE_SNAPSHOT_VERSION, snapshot)
+}
+
+export function sanitizePerspectiveSettings(source?: PerspectiveSettings | null): PerspectiveSettings | null {
+  if (!source || typeof source !== 'object') return null
+  const forbidden = new Set(['__proto__', 'prototype', 'constructor'])
+  const result: PerspectiveSettings = {}
+
+  if (Array.isArray(source.columnOrder)) {
+    const seen = new Set<string>()
+    const order = source.columnOrder
+      .map((id) => (typeof id === 'string' ? id.trim() : ''))
+      .filter((id) => id.length > 0 && !seen.has(id) && (seen.add(id), true))
+    if (order.length) result.columnOrder = order
+  }
+
+  if (source.columnVisibility && typeof source.columnVisibility === 'object') {
+    const entries = Object.entries(source.columnVisibility)
+      .filter(([key, value]) => typeof key === 'string' && key.trim().length > 0 && !forbidden.has(key) && typeof value === 'boolean')
+    if (entries.length) {
+      const visibility: Record<string, boolean> = {}
+      entries.forEach(([key, value]) => { visibility[key] = value })
+      result.columnVisibility = visibility
+    }
+  }
+
+  if (source.columnSizing && typeof source.columnSizing === 'object') {
+    const sizing: Record<string, number> = {}
+    for (const [key, value] of Object.entries(source.columnSizing)) {
+      const id = typeof key === 'string' ? key.trim() : ''
+      if (!id || forbidden.has(id)) continue
+      if (typeof value !== 'number' || !Number.isFinite(value)) continue
+      sizing[id] = Math.max(COLUMN_MIN_WIDTH, Math.min(COLUMN_MAX_WIDTH, Math.round(value)))
+    }
+    if (Object.keys(sizing).length) result.columnSizing = sizing
+  }
+
+  if (Array.isArray(source.sorting)) {
+    const sorting = source.sorting
+      .map((item) => {
+        const id = typeof item?.id === 'string' ? item.id.trim() : ''
+        if (!id || forbidden.has(id)) return null
+        return { id, desc: Boolean(item?.desc) }
+      })
+      .filter((item): item is { id: string; desc: boolean } => item !== null)
+    if (sorting.length) result.sorting = sorting
+  }
+
+  if (typeof source.pageSize === 'number' && Number.isFinite(source.pageSize)) {
+    const pageSize = Math.max(1, Math.min(500, Math.floor(source.pageSize)))
+    result.pageSize = pageSize
+  }
+
+  if (typeof source.searchValue === 'string' && source.searchValue.trim().length > 0) {
+    result.searchValue = source.searchValue.trim().slice(0, 200)
+  }
+
+  if (source.filters && typeof source.filters === 'object') {
+    const filters: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(source.filters)) {
+      if (typeof key === 'string') {
+        const trimmed = key.trim()
+        if (trimmed.length > 0 && !forbidden.has(trimmed)) filters[trimmed] = value
+      }
+    }
+    if (Object.keys(filters).length) result.filters = filters
+  }
+
+  return Object.keys(result).length ? result : null
+}
+
+function normalizeLabel(input: string): string {
+  if (!input) return ''
+  return input
+    .replace(/^cf[_:]/, '')
+    .replace(/[_:\-]+/g, ' ')
+    .replace(/\b\w/g, (ch) => ch.toUpperCase())
+}
+
+// Column width configuration based on column type
+type ColumnTruncateConfig = {
+  maxWidth: string
+  truncate: boolean
+}
+
+type ColumnTruncateMeta = {
+  truncate?: boolean
+  maxWidth?: string
+}
+
+function hasExplicitCellRenderer(columnDef: unknown): boolean {
+  return Boolean((columnDef as { cell?: unknown } | undefined)?.cell)
+}
+
+function getColumnTruncateConfig(columnId: string, accessorKey?: string, columnMeta?: ColumnTruncateMeta): ColumnTruncateConfig {
+  const key = accessorKey || columnId
+  const metaMaxWidth = typeof columnMeta?.maxWidth === 'string' ? columnMeta.maxWidth.trim() : ''
+
+  // Custom fields get narrower width
+  if (key.startsWith('cf_') || key.startsWith('cf:')) {
+    return {
+      maxWidth: metaMaxWidth || '120px',
+      truncate: typeof columnMeta?.truncate === 'boolean' ? columnMeta.truncate : true,
+    }
+  }
+
+  // Core informative columns get wider width
+  const wideColumns = ['title', 'name', 'description', 'source', 'companies', 'people']
+  if (wideColumns.includes(key)) {
+    return {
+      maxWidth: metaMaxWidth || '250px',
+      truncate: typeof columnMeta?.truncate === 'boolean' ? columnMeta.truncate : true,
+    }
+  }
+
+  // Medium width for status-like columns
+  const mediumColumns = ['status', 'pipelineStage', 'pipeline_stage', 'type', 'category']
+  if (mediumColumns.includes(key)) {
+    return {
+      maxWidth: metaMaxWidth || '180px',
+      truncate: typeof columnMeta?.truncate === 'boolean' ? columnMeta.truncate : true,
+    }
+  }
+
+  // Date columns
+  if (key.endsWith('_at') || key.endsWith('At') || key.includes('date') || key.includes('Date')) {
+    return {
+      maxWidth: metaMaxWidth || '120px',
+      truncate: typeof columnMeta?.truncate === 'boolean' ? columnMeta.truncate : true,
+    }
+  }
+
+  // Default for other columns
+  return {
+    maxWidth: metaMaxWidth || '150px',
+    truncate: typeof columnMeta?.truncate === 'boolean' ? columnMeta.truncate : true,
+  }
+}
+
+function readInjectedColumnValue(row: unknown, accessorKey: string): unknown {
+  if (!row || typeof row !== 'object' || !accessorKey) return undefined
+  const segments = accessorKey.split('.').filter((segment) => segment.length > 0)
+  if (segments.length === 0) return undefined
+  let current: unknown = row
+  for (const segment of segments) {
+    if (!current || typeof current !== 'object') return undefined
+    current = (current as Record<string, unknown>)[segment]
+  }
+  return current
+}
+
+// Check if a column should skip truncation (e.g., actions column)
+function shouldSkipTruncation(columnId: string): boolean {
+  const skipColumns = ['actions', 'select', 'checkbox', 'expand']
+  return skipColumns.includes(columnId.toLowerCase())
+}
+
+function ExportMenu({ config, sections }: { config: DataTableExportConfig; sections: ResolvedExportSection[] }) {
+  const t = useT()
+  const { label } = config
+  const defaultLabel = label ?? t('ui.dataTable.export.label', 'Export')
+  const disabled = Boolean(config.disabled)
+  const hasSections = sections.length > 0
+  const [open, setOpen] = React.useState(false)
+  const [menuOffsetX, setMenuOffsetX] = React.useState(0)
+  const buttonRef = React.useRef<HTMLButtonElement>(null)
+  const menuRef = React.useRef<HTMLDivElement>(null)
+
+  // Keep the menu inside the viewport on narrow screens: the trigger can sit
+  // near the left edge, and a `right-0` menu would otherwise render off-screen.
+  // Measure the untransformed rect and shift it back on-screen, re-measuring on
+  // resize/orientation change while the menu stays open.
+  React.useLayoutEffect(() => {
+    if (!open) {
+      setMenuOffsetX(0)
+      return
+    }
+    const measure = () => {
+      const el = menuRef.current
+      if (!el || typeof window === 'undefined') return
+      const previousTransform = el.style.transform
+      el.style.transform = 'none'
+      const rect = el.getBoundingClientRect()
+      el.style.transform = previousTransform
+      setMenuOffsetX(computeMenuViewportShiftX(rect, window.innerWidth))
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [open])
+
+  React.useEffect(() => {
+    if (!open || !hasSections) return
+    const onDocClick = (event: MouseEvent) => {
+      const target = event.target as Node
+      if (menuRef.current && !menuRef.current.contains(target) && buttonRef.current && !buttonRef.current.contains(target)) {
+        setOpen(false)
+      }
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpen(false)
+        buttonRef.current?.focus()
+      }
+    }
+    document.addEventListener('mousedown', onDocClick)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onDocClick)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [hasSections, open])
+
+  if (!hasSections) return null
+
+  const handleSelect = async (section: ResolvedExportSection, format: DataTableExportFormat) => {
+    try {
+      if (section.prepare) {
+        const preparedResult = await section.prepare(format)
+        if (!preparedResult) return
+        const prepared = preparedResult.prepared
+        const serialized = serializeExport(prepared, format)
+        const filename =
+          preparedResult.filename
+          ?? section.filename?.(format)
+          ?? config.filename?.(format)
+          ?? defaultExportFilename(section.filenameBase, format)
+        if (typeof window !== 'undefined') {
+          const blob = new Blob([serialized.body], { type: serialized.contentType })
+          const href = URL.createObjectURL(blob)
+          const a = document.createElement('a')
+          a.href = href
+          a.download = filename
+          document.body.appendChild(a)
+          a.click()
+          document.body.removeChild(a)
+          URL.revokeObjectURL(href)
+        }
+      } else if (section.getUrl) {
+        const url = section.getUrl(format)
+        if (url && typeof window !== 'undefined') {
+          window.open(url, '_blank', 'noopener,noreferrer')
+        }
+      }
+    } catch {
+      // ignore export errors
+    } finally {
+      setOpen(false)
+    }
+  }
+
+  return (
+    <div className="relative inline-block">
+      <Button
+        ref={buttonRef}
+        variant="outline"
+        type="button"
+        onClick={() => {
+          if (disabled) return
+          setOpen((prev) => !prev)
+        }}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        disabled={disabled}
+      >
+        {defaultLabel}
+      </Button>
+      {open ? (
+        <div
+          ref={menuRef}
+          role="menu"
+          className="absolute right-0 mt-2 w-60 max-w-[calc(100vw-1rem)] rounded-md border bg-background py-2 shadow z-dropdown"
+          style={menuOffsetX ? { transform: `translateX(${menuOffsetX}px)` } : undefined}
+        >
+          {sections.map((section, idx) => (
+            <div key={section.key} className={idx > 0 ? 'mt-2 border-t pt-3' : ''}>
+              <div className="px-3">
+                <div className="text-xs font-semibold uppercase text-muted-foreground">{section.title}</div>
+                {section.description ? (
+                  <p className="mt-1 text-xs text-muted-foreground leading-snug">{section.description}</p>
+                ) : null}
+              </div>
+              <div className="mt-2 space-y-1 px-2 pb-1">
+                {section.formats.map((format) => (
+                  <Button
+                    key={`${section.key}-${format}`}
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="w-full justify-start font-normal"
+                    onClick={() => void handleSelect(section, format)}
+                    disabled={section.disabled}
+                  >
+                    {EXPORT_LABELS[format]}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function sanitizeDndContextId(value: string): string {
+  const trimmed = value.trim().toLowerCase()
+  let normalized = ''
+  let previousWasDash = false
+
+  for (const character of trimmed) {
+    const isLowercaseLetter = character >= 'a' && character <= 'z'
+    const isDigit = character >= '0' && character <= '9'
+
+    if (isLowercaseLetter || isDigit || character === '_') {
+      normalized += character
+      previousWasDash = false
+      continue
+    }
+
+    if (!previousWasDash) {
+      normalized += '-'
+      previousWasDash = true
+    }
+  }
+
+  while (normalized.startsWith('-')) {
+    normalized = normalized.slice(1)
+  }
+
+  while (normalized.endsWith('-')) {
+    normalized = normalized.slice(0, -1)
+  }
+
+  return normalized.length > 0 ? normalized : 'data-table'
+}
+
+function HeaderDndWrapper({ enabled, contextId, sensors, columnIds, onDragEnd, children }: {
+  enabled: boolean
+  contextId: string
+  sensors: ReturnType<typeof useSensors>
+  columnIds: string[]
+  onDragEnd: (event: DragEndEvent) => void
+  children: React.ReactNode
+}) {
+  if (!enabled) return <>{children}</>
+  return (
+    <DndContext id={contextId} sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+      <SortableContext items={columnIds} strategy={horizontalListSortingStrategy}>
+        {children}
+      </SortableContext>
+    </DndContext>
+  )
+}
+
+// Drag handle on a column header's right edge (#1835). Uses manual pointer
+// tracking (mirrors the deals-pipeline LaneResizeHandle) rather than TanStack's
+// built-in resize so the table keeps its auto layout — only user-resized columns
+// get an explicit width, and dragging measures the header's real current width so
+// there is no jump. `stopPropagation` on pointer/click keeps the header's
+// reorder-DnD and sort-toggle from firing while resizing.
+function ColumnResizeHandle({
+  columnId,
+  onResize,
+  onCommit,
+  onReset,
+  ariaLabel,
+}: {
+  columnId: string
+  onResize: (columnId: string, width: number) => void
+  onCommit: () => void
+  onReset: (columnId: string) => void
+  ariaLabel: string
+}) {
+  const [active, setActive] = React.useState(false)
+  // Holds the current drag's teardown so an unmount mid-drag (perspective apply,
+  // data reload, column-visibility change) still removes the document listeners
+  // and restores the body cursor/selection instead of leaking them.
+  const dragCleanupRef = React.useRef<(() => void) | null>(null)
+  React.useEffect(() => () => { dragCleanupRef.current?.() }, [])
+
+  const handlePointerDown = React.useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return
+    event.preventDefault()
+    event.stopPropagation()
+    const headerCell = event.currentTarget.parentElement as HTMLElement | null
+    if (!headerCell) return
+    const startX = event.clientX
+    const startWidth = headerCell.getBoundingClientRect().width
+    setActive(true)
+    let frame = 0
+    let latest = startWidth
+    const onMove = (moveEvent: PointerEvent) => {
+      latest = Math.max(COLUMN_MIN_WIDTH, Math.min(COLUMN_MAX_WIDTH, Math.round(startWidth + (moveEvent.clientX - startX))))
+      if (frame) return
+      frame = window.requestAnimationFrame(() => {
+        frame = 0
+        onResize(columnId, latest)
+      })
+    }
+    const teardown = () => {
+      if (frame) window.cancelAnimationFrame(frame)
+      document.removeEventListener('pointermove', onMove)
+      document.removeEventListener('pointerup', onUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      dragCleanupRef.current = null
+    }
+    const onUp = () => {
+      onResize(columnId, latest)
+      teardown()
+      setActive(false)
+      onCommit()
+    }
+    dragCleanupRef.current = teardown
+    document.addEventListener('pointermove', onMove)
+    document.addEventListener('pointerup', onUp)
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }, [columnId, onResize, onCommit])
+
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={ariaLabel}
+      title={ariaLabel}
+      onPointerDown={handlePointerDown}
+      onClick={(event) => event.stopPropagation()}
+      onDoubleClick={(event) => { event.preventDefault(); event.stopPropagation(); onReset(columnId) }}
+      className="group/resize absolute right-0 top-0 z-10 flex h-full w-3 translate-x-1/2 cursor-col-resize touch-none select-none items-center justify-center"
+    >
+      {/* Always-visible short grip marks the column edge as resizable; it grows
+          to full height and brightens on header/handle hover and while dragging. */}
+      <span
+        aria-hidden
+        className={cn(
+          'w-0.5 rounded-full transition-all',
+          active
+            ? 'h-full bg-primary'
+            : 'h-3.5 bg-border group-hover:h-full group-hover:bg-border group-hover/resize:h-full group-hover/resize:bg-primary',
+        )}
+      />
+    </div>
+  )
+}
+
+function SortableHeaderCell({ id, children, className, width }: { id: string; children: React.ReactNode; className?: string; width?: number }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
+  const isSticky = typeof className === 'string' && className.includes('sticky')
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    cursor: 'grab',
+    position: isSticky ? 'sticky' : 'relative',
+    ...(typeof width === 'number' ? { width, minWidth: width, maxWidth: width } : {}),
+  }
+  return (
+    <TableHead ref={setNodeRef} style={style} className={className} {...attributes} {...listeners}>
+      {children}
+    </TableHead>
+  )
+}
+
+function ViewSwitcherDropdown({
+  activePerspectiveId,
+  perspectives,
+  rolePerspectives,
+  onClear,
+  onActivate,
+  onOpenSidebar,
+  t,
+}: {
+  activePerspectiveId: string | null
+  perspectives: PerspectiveDto[]
+  rolePerspectives: RolePerspectiveDto[]
+  onClear: () => void
+  onActivate: (item: PerspectiveDto | RolePerspectiveDto, source: 'personal' | 'role') => void
+  onOpenSidebar: () => void
+  t: (key: string, fallback: string) => string
+}) {
+  const [open, setOpen] = React.useState(false)
+  const allViews = [...perspectives, ...rolePerspectives]
+  const activeName = allViews.find((v) => v.id === activePerspectiveId)?.name.trim() || ''
+  const activeLabel = activeName || t('ui.dataTable.perspectives.allViews', 'All views')
+  return (
+    <div className="inline-flex h-9 items-center rounded-md border border-input text-sm">
+      <Button
+        data-testid="data-table-open-views-sidebar"
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={onOpenSidebar}
+        className="h-full rounded-none rounded-l-md px-3 font-medium"
+      >
+        <SlidersHorizontal className="size-4 mr-1.5" />
+        {t('ui.dataTable.perspectives.button', 'Views')}
+      </Button>
+      <div className="h-5 w-px bg-border" />
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-full max-w-[200px] rounded-none rounded-r-md px-3 font-normal text-muted-foreground"
+          >
+            <span className="truncate">{activeLabel}</span>
+            <ChevronDown className="size-3.5 shrink-0 ml-1.5" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-[220px] p-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className={cn(
+              'w-full justify-start h-auto px-2 py-1.5 text-sm font-normal',
+              !activePerspectiveId && 'bg-accent text-accent-foreground'
+            )}
+            onClick={() => { onClear(); setOpen(false) }}
+          >
+            <Check className={cn('size-4 shrink-0 mr-2', activePerspectiveId ? 'invisible' : '')} />
+            {t('ui.dataTable.perspectives.noView', '— No view —')}
+          </Button>
+          {perspectives.map((p) => (
+            <Button
+              key={p.id}
+              type="button"
+              variant="ghost"
+              size="sm"
+              className={cn(
+                'w-full justify-start h-auto px-2 py-1.5 text-sm font-normal',
+                activePerspectiveId === p.id && 'bg-accent text-accent-foreground'
+              )}
+              onClick={() => { onActivate(p, 'personal'); setOpen(false) }}
+            >
+              <Check className={cn('size-4 shrink-0 mr-2', activePerspectiveId !== p.id ? 'invisible' : '')} />
+              <span className="truncate">{p.name.trim() || t('ui.perspectives.untitled', 'Untitled view')}</span>
+            </Button>
+          ))}
+          {rolePerspectives.map((p) => (
+            <Button
+              key={p.id}
+              type="button"
+              variant="ghost"
+              size="sm"
+              className={cn(
+                'w-full justify-start h-auto px-2 py-1.5 text-sm font-normal',
+                activePerspectiveId === p.id && 'bg-accent text-accent-foreground'
+              )}
+              onClick={() => { onActivate(p, 'role'); setOpen(false) }}
+            >
+              <Check className={cn('size-4 shrink-0 mr-2', activePerspectiveId !== p.id ? 'invisible' : '')} />
+              <span className="truncate">{p.name.trim() || t('ui.perspectives.untitled', 'Untitled view')}</span>
+            </Button>
+          ))}
+        </PopoverContent>
+      </Popover>
+    </div>
+  )
+}
+
+function DataTableImpl<T extends RowData>({
+  columns,
+  data,
+  toolbar,
+  title,
+  titleHeadingLevel,
+  actions,
+  refreshButton,
+  sortable,
+  manualSorting,
+  sorting: sortingProp,
+  onSortingChange,
+  pagination,
+  showQueryTime = true,
+  isLoading,
+  emptyState,
+  error,
+  rowActions,
+  onRowClick,
+  rowClickActionIds,
+  disableRowClick = false,
+  bulkActions: bulkActionsProp,
+  selectionScopeKey,
+  searchValue,
+  onSearchChange,
+  searchPlaceholder,
+  searchAlign = 'left',
+  filters: baseFilters = EMPTY_FILTER_DEFS,
+  filterValues = EMPTY_FILTER_VALUES,
+  onFiltersApply,
+  onFiltersClear,
+  entityId,
+  entityIds,
+  exporter,
+  perspective,
+  onColumnsDirtyChange,
+  viewApiRef,
+  showSaveViewButton = false,
+  embedded = false,
+  onCustomFieldFilterFieldsetChange,
+  customFieldFilterKeyExtras,
+  injectionSpotId,
+  injectionContext,
+  replacementHandle,
+  extensionTableId: extensionTableIdProp,
+  stickyFirstColumn = false,
+  stickyActionsColumn = false,
+  actionsColumnAlign = 'right',
+  virtualized = false,
+  virtualizedMaxHeight,
+  virtualizedOverscan = 10,
+  advancedFilter: advancedFilterInput,
+  columnChooser,
+  activeFilterChips,
+  showActiveFilterChips = true,
+  filterAwareEmptyState,
+  getSubRows,
+  expandable,
+  expanded: expandedProp,
+  onExpandedChange,
+}: DataTableProps<T>) {
+  const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const router = useRouter()
+  const resolvedRowClickActionIds = rowClickActionIds ?? DEFAULT_ROW_CLICK_ACTION_IDS
+  const containerRef = React.useRef<HTMLDivElement>(null)
+  const lastScopeRef = React.useRef<OrganizationScopeChangedDetail | null>(null)
+  const hasInitializedScopeRef = React.useRef(false)
+
+  // BC bridge: legacy callers may pass the flat `AdvancedFilterState` shape on
+  // `advancedFilter.value`. Normalize to the tree shape that the rest of
+  // DataTable expects, and back-convert on `onChange` so the caller's typed
+  // callback still receives the shape it declared. Tree-only fields
+  // (`triggerRef`, `externalPopover`, `onApplyTree`, `onTriggerClick`) are
+  // undefined for legacy callers — they were added in this PR and didn't exist
+  // in the legacy contract.
+  // See spec `.ai/specs/implemented/2026-05-10-crm-list-filter-redesign.md` ("Migration &
+  // Backward Compatibility") and BACKWARD_COMPATIBILITY.md §3.
+  type AdvancedFilterNormalized = {
+    fields?: AdvancedFilterFieldDef[]
+    auto?: boolean
+    value: AdvancedFilterTree
+    onChange: (state: AdvancedFilterTree) => void
+    onApply: () => void
+    onClear: () => void
+    triggerRef?: React.RefObject<HTMLButtonElement | null>
+    externalPopover?: boolean
+    onTriggerClick?: () => void
+    onApplyTree?: (tree: AdvancedFilterTree) => void
+  }
+  const legacyAdvancedFilterWarnedRef = React.useRef(false)
+  const advancedFilter: AdvancedFilterNormalized | undefined = React.useMemo(() => {
+    if (!advancedFilterInput) return undefined
+    if (!isAdvancedFilterState(advancedFilterInput.value)) {
+      return advancedFilterInput as AdvancedFilterNormalized
+    }
+    if (!legacyAdvancedFilterWarnedRef.current && process.env.NODE_ENV !== 'production') {
+      legacyAdvancedFilterWarnedRef.current = true
+      logger.warn('advancedFilter.value was passed as the legacy AdvancedFilterState shape. This bridge will be removed in the next minor version — migrate to the tree shape (AdvancedFilterTree, see @open-mercato/shared/lib/query/advanced-filter-tree).')
+    }
+    const legacy = advancedFilterInput as Extract<typeof advancedFilterInput, { value: AdvancedFilterState }>
+    return {
+      fields: legacy.fields,
+      auto: legacy.auto,
+      value: flatToTree(legacy.value),
+      onChange: (next: AdvancedFilterTree) => legacy.onChange(treeToFlat(next)),
+      onApply: legacy.onApply,
+      onClear: legacy.onClear,
+    }
+  }, [advancedFilterInput])
+  React.useEffect(() => {
+    return subscribeOrganizationScopeChanged((detail) => {
+      const prev = lastScopeRef.current
+      lastScopeRef.current = detail
+      if (!hasInitializedScopeRef.current) {
+        hasInitializedScopeRef.current = true
+        return
+      }
+      if (
+        prev &&
+        prev.organizationId === detail.organizationId &&
+        prev.tenantId === detail.tenantId
+      ) {
+        return
+      }
+      scheduleRouterRefresh(router)
+    })
+  }, [router])
+  const queryClient = useQueryClient()
+  const perspectiveConfig = perspective ?? null
+  const perspectiveTableId = perspectiveConfig?.tableId ?? null
+  const perspectiveAlign: 'left' | 'right' = perspectiveConfig?.align ?? 'left'
+  const perspectiveEnabled = Boolean(perspectiveTableId)
+  // Snapshot from localStorage is read post-mount via useLayoutEffect to avoid SSR/CSR
+  // hydration mismatch. Initial render uses only props-derived state (identical on both sides).
+  const initialSnapshotRef = React.useRef<PerspectiveSnapshot | null>(null)
+  const snapshotHydratedTableRef = React.useRef<string | null>(null)
+  // Tracks the table whose locally-restored state has already been reconciled
+  // against the server response, so reconciliation happens once per table
+  // rather than on every refetch (#5113).
+  const serverReconciledTableRef = React.useRef<string | null>(null)
+  // The snapshot exactly as it came out of localStorage. `initialSnapshotRef`
+  // cannot serve here: applying a snapshot rewrites the stored copy with a
+  // fresh `Date.now()`, which would make every server row look older than it is.
+  const hydratedSnapshotRef = React.useRef<PerspectiveSnapshot | null>(null)
+  const hydratedAdvancedFilterRestoredRef = React.useRef(false)
+  const pendingPerspectiveFiltersRef = React.useRef<{ filters: PerspectiveSettings['filters'] } | null>(null)
+  React.useLayoutEffect(() => {
+    pendingPerspectiveFiltersRef.current = null
+  }, [advancedFilter?.value, perspectiveTableId])
+  const initialSettingsSource = perspectiveConfig?.initialState?.initialSettings ?? null
+  // Memoized on the host's own object: `sanitizePerspectiveSettings` returns a
+  // fresh result on every call, so without this every effect keyed on the
+  // sanitized settings would re-run after every render — including the one that
+  // seeds the view baseline, which would then keep resetting an applied view's
+  // baseline back to the server-supplied initial settings.
+  const mergedInitialSettings = React.useMemo(
+    () => sanitizePerspectiveSettings(initialSettingsSource),
+    [initialSettingsSource],
+  )
+  const initialActiveId = perspectiveConfig?.initialState?.activePerspectiveId ?? null
+  const [isPerspectiveOpen, setPerspectiveOpen] = React.useState(false)
+  const [isAdvancedFilterOpen, setAdvancedFilterOpen] = React.useState(false)
+  const [activePerspectiveId, setActivePerspectiveId] = React.useState<string | null>(initialActiveId)
+  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>(() => {
+    const defaults: VisibilityState = {}
+    const collectDefaults = (definitions: readonly ColumnDef<T, unknown>[]) => {
+      for (const definition of definitions) {
+        if ('columns' in definition && definition.columns) {
+          collectDefaults(definition.columns)
+          continue
+        }
+        if (!(definition.meta as { hidden?: boolean } | undefined)?.hidden) continue
+        const columnId = definition.id
+          ?? ('accessorKey' in definition ? String(definition.accessorKey).replaceAll('.', '_') : undefined)
+          ?? (typeof definition.header === 'string' ? definition.header : undefined)
+        if (columnId) defaults[columnId] = false
+      }
+    }
+    collectDefaults(columns)
+    return { ...defaults, ...mergedInitialSettings?.columnVisibility }
+  })
+  const [columnOrder, setColumnOrder] = React.useState<string[]>(() => mergedInitialSettings?.columnOrder ?? [])
+  const [columnSizing, setColumnSizing] = React.useState<Record<string, number>>(() => mergedInitialSettings?.columnSizing ?? {})
+  // Mirror of columnSizing so the resize commit (fired from a pointerup handler
+  // set up on drag start) always reads the latest widths without a stale closure.
+  const columnSizingRef = React.useRef(columnSizing)
+  React.useEffect(() => { columnSizingRef.current = columnSizing }, [columnSizing])
+  const [deletingIds, setDeletingIds] = React.useState<string[]>([])
+  const [roleClearingIds, setRoleClearingIds] = React.useState<string[]>([])
+  const [perspectiveApiMissing, setPerspectiveApiMissing] = React.useState(false)
+  // Settings the current view was last applied from (mount-time snapshot restore,
+  // perspective activation, "No view" clear, successful save). The public
+  // dirty state is measured against this, so a table only reports unsaved
+  // changes once the user actually changes something after that point.
+  const [viewBaseline, setViewBaselineState] = React.useState<PerspectiveSettings>(() => mergedInitialSettings
+    ? { ...mergedInitialSettings, columnVisibility }
+    : {})
+  const viewBaselineInitializedRef = React.useRef(Boolean(mergedInitialSettings))
+  // What the `meta.hidden` pass below hid on its own, since a declared default is not a
+  // user edit and must reach the baseline too. `normalizeVisibility` keeps every `false`,
+  // so a default the stored view never named would otherwise read as a change nobody
+  // made and light the Save-view affordance the moment the table mounts (#5117).
+  const autoHiddenVisibilityRef = React.useRef<VisibilityState>({})
+  const setViewBaseline = React.useCallback((settings: PerspectiveSettings) => {
+    const initialized = viewBaselineInitializedRef.current
+    viewBaselineInitializedRef.current = true
+    // Auto-hidden defaults win over `settings` for the keys they decided: this covers the
+    // baseline's first seeding, which closes over `currentViewSettings` from the render
+    // that *scheduled* the meta.hidden hide, not the render where it actually took effect
+    // — so `settings.columnVisibility` here is stale for exactly those keys. A real stored
+    // view never has a key in common with `autoHidden` (the meta.hidden pass skips every
+    // column `visibilityDecidedColumnIds` already seeded from that view), so this never
+    // overrides a genuine user/view decision.
+    const autoHidden = autoHiddenVisibilityRef.current
+    const next = Object.keys(autoHidden).length
+      ? { ...settings, columnVisibility: { ...(settings.columnVisibility ?? {}), ...autoHidden } }
+      : settings
+    // Compared by value, not by identity: the callers hand over freshly
+    // sanitized objects (a new one on every render), so storing them blindly
+    // would let an effect keyed on those settings re-trigger itself forever.
+    setViewBaselineState((previous) => (
+      initialized && diffPerspectiveSettings(previous, next).length === 0 ? previous : next
+    ))
+  }, [])
+  // Late arrivals hit this instead: the baseline already exists, so the entries are
+  // merged into it in place rather than waiting for the next `setViewBaseline` call.
+  const foldAutoHiddenIntoBaseline = React.useCallback((entries: VisibilityState) => {
+    autoHiddenVisibilityRef.current = { ...autoHiddenVisibilityRef.current, ...entries }
+    if (!viewBaselineInitializedRef.current) return
+    setViewBaselineState((previous) => {
+      const current = previous.columnVisibility ?? {}
+      if (Object.keys(entries).every((key) => key in current)) return previous
+      return { ...previous, columnVisibility: { ...entries, ...current } }
+    })
+  }, [])
+
+  const perspectiveFeatureQuery = useQuery<{ use: boolean; roleDefaults: boolean }>({
+    queryKey: ['feature-check', 'perspectives'],
+    enabled: perspectiveEnabled,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () => {
+      try {
+        const call = await apiCall<{ granted?: unknown[] }>(
+          '/api/auth/feature-check',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ features: ['perspectives.use', 'perspectives.role_defaults'] }),
+          },
+        )
+        if (!call.ok) throw new Error(`feature-check failed (${call.status})`)
+        const data = call.result ?? {}
+        const granted = Array.isArray(data?.granted) ? data.granted.map((f: any) => String(f)) : []
+        const has = (feature: string) => granted.some((grantedFeature: string) => {
+          if (grantedFeature === '*') return true
+          if (grantedFeature === feature) return true
+          if (grantedFeature.endsWith('.*')) {
+            const prefix = grantedFeature.slice(0, -2)
+            return feature === prefix || feature.startsWith(`${prefix}.`)
+          }
+          return false
+        })
+        return {
+          use: has('perspectives.use'),
+          roleDefaults: has('perspectives.role_defaults'),
+        }
+      } catch {
+        return {
+          use: true,
+          roleDefaults: true,
+        }
+      }
+    },
+  })
+  const perspectivePermissions = perspectiveFeatureQuery.data
+  const canUsePerspectives = perspectiveEnabled && Boolean(perspectivePermissions?.use)
+  const canUseRoleDefaultsFeature = Boolean(perspectivePermissions?.roleDefaults)
+
+  React.useEffect(() => {
+    if (!canUsePerspectives && isPerspectiveOpen) {
+      setPerspectiveOpen(false)
+    }
+  }, [canUsePerspectives, isPerspectiveOpen])
+
+  // Seeded once per table, like the localStorage hydration above. The server's
+  // initial settings describe the state the table mounts in, not a state to
+  // return to: re-running this after the user activates a view would overwrite
+  // that view's baseline and report changes nobody made.
+  const initialSettingsSeededTableRef = React.useRef<string | null>(null)
+  React.useEffect(() => {
+    if (!perspectiveTableId) return
+    if (!mergedInitialSettings) return
+    if (initialSettingsSeededTableRef.current === perspectiveTableId) return
+    initialSettingsSeededTableRef.current = perspectiveTableId
+    const snapshot: PerspectiveSnapshot = {
+      perspectiveId: initialActiveId,
+      settings: mergedInitialSettings,
+      updatedAt: Date.now(),
+    }
+    writePerspectiveSnapshot(perspectiveTableId, snapshot)
+    initialSnapshotRef.current = snapshot
+    setViewBaseline(mergedInitialSettings)
+  }, [perspectiveTableId, mergedInitialSettings, initialActiveId, setViewBaseline])
+
+  const perspectiveQuery = useQuery<PerspectivesIndexResponse>({
+    queryKey: ['table-perspectives', perspectiveTableId],
+    queryFn: async () => {
+      if (!perspectiveTableId) throw new Error('Missing table id')
+      const call = await apiCall<PerspectivesIndexResponse>(`/api/perspectives/${encodeURIComponent(perspectiveTableId)}`)
+      if (call.status === 404) {
+        setPerspectiveApiMissing(true)
+        return {
+          tableId: perspectiveTableId,
+          perspectives: [],
+          defaultPerspectiveId: null,
+          rolePerspectives: [],
+          manageableRolePerspectives: [],
+          roles: [],
+          canApplyToRoles: false,
+        }
+      }
+      if (!call.ok) {
+        await raiseCrudError(call.response, t('ui.dataTable.perspectives.error.load', 'Failed to load perspectives'))
+      }
+      setPerspectiveApiMissing(false)
+      const payload = call.result
+      if (!payload) throw new Error(t('ui.dataTable.perspectives.error.load', 'Failed to load perspectives'))
+      return payload
+    },
+    enabled: canUsePerspectives,
+    initialData: perspectiveConfig?.initialState?.response,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+  })
+  const perspectiveData = perspectiveQuery.data
+  const initialPerspectiveAppliedRef = React.useRef(Boolean(mergedInitialSettings))
+
+  const extensionTableId = React.useMemo(() => {
+    if (perspective?.tableId) return perspective.tableId
+    if (extensionTableIdProp) return extensionTableIdProp
+    if (injectionSpotId?.startsWith('data-table:')) return injectionSpotId.slice('data-table:'.length)
+    return null
+  }, [injectionSpotId, perspective?.tableId, extensionTableIdProp])
+  const resolvedInjectionSpotId =
+    injectionSpotId
+    ?? (perspective?.tableId ? dataTableExtensionSpotId(perspective.tableId) : null)
+    ?? (extensionTableIdProp ? dataTableExtensionSpotId(extensionTableIdProp) : null)
+  const resolvedReplacementHandle = replacementHandle ?? ComponentReplacementHandles.dataTable(extensionTableId ?? 'unknown')
+  const baseInjectionContext = React.useMemo(
+    () => {
+      // R2-M2 / F9 (2026-05-26): the default injection context now derives
+      // `tableId` from `extensionTableId ?? perspective?.tableId` (was
+      // `perspective?.tableId` only). Note `extensionTableId` itself now falls
+      // back to the `data-table:` suffix of `injectionSpotId` (see the memo
+      // above), so a caller passing only `injectionSpotId="data-table:foo"`
+      // (no `injectionContext`/`perspective`) now receives
+      // `context.tableId = "foo"` instead of the previous `null`. This only
+      // populates a field that was null before, so toolbar/header/footer/
+      // search-trailing widgets that read `tableId` get a value while widgets
+      // that ignore it are unaffected. Explicit `injectionContext` from the
+      // caller still wins as-is — preserves the existing public contract.
+      if (injectionContext) return injectionContext
+      const resolvedTableId = extensionTableId ?? perspective?.tableId ?? null
+      const baseTitle = typeof title === 'string' ? title : undefined
+      return { tableId: resolvedTableId, title: baseTitle }
+    },
+    [injectionContext, perspective?.tableId, extensionTableId, title]
+  )
+  const headerInjectionSpotId = React.useMemo(
+    () => (resolvedInjectionSpotId ? extensionSpotChildId(resolvedInjectionSpotId, 'header') : null),
+    [resolvedInjectionSpotId]
+  )
+  const toolbarInjectionSpotId = React.useMemo(
+    () => (resolvedInjectionSpotId ? extensionSpotChildId(resolvedInjectionSpotId, 'toolbar') : null),
+    [resolvedInjectionSpotId]
+  )
+  const searchTrailingInjectionSpotId = React.useMemo(
+    () => (resolvedInjectionSpotId ? extensionSpotChildId(resolvedInjectionSpotId, 'search-trailing') : null),
+    [resolvedInjectionSpotId]
+  )
+  const footerInjectionSpotId = React.useMemo(
+    () => (resolvedInjectionSpotId ? extensionSpotChildId(resolvedInjectionSpotId, 'footer') : null),
+    [resolvedInjectionSpotId]
+  )
+  const { widgets: columnWidgets, isLoading: injectedColumnsLoading, error: injectedColumnsError } = useInjectionDataWidgets(
+    extensionTableId ? dataTableExtensionSpotId(extensionTableId, 'columns') : '__disabled__:columns',
+  )
+  const [hasInitializedColumns, setHasInitializedColumns] = React.useState(false)
+  const columnsPending = Boolean(isLoading || (extensionTableId && injectedColumnsLoading))
+  const isInitializingColumns = !hasInitializedColumns && columnsPending
+  React.useEffect(() => {
+    if (!columnsPending) setHasInitializedColumns(true)
+  }, [columnsPending])
+  const { widgets: rowActionWidgets } = useInjectionDataWidgets(
+    extensionTableId ? dataTableExtensionSpotId(extensionTableId, 'row-actions') : '__disabled__:row-actions',
+  )
+  const { widgets: bulkActionWidgets } = useInjectionDataWidgets(
+    extensionTableId ? dataTableExtensionSpotId(extensionTableId, 'bulk-actions') : '__disabled__:bulk-actions',
+  )
+  const { widgets: filterWidgets } = useInjectionDataWidgets(
+    extensionTableId ? dataTableExtensionSpotId(extensionTableId, 'filters') : '__disabled__:filters',
+  )
+  const injectedColumnDefs = React.useMemo<{ def: ColumnDef<T, unknown>; placement: InjectionColumnDefinition['placement'] }[]>(() => {
+    const entries: InjectionColumnDefinition[] = []
+    for (const widget of columnWidgets) {
+      if (!('columns' in widget)) continue
+      for (const definition of widget.columns ?? []) {
+        entries.push(definition)
+      }
+    }
+    return collectUniqueById(entries, 'column').map((definition) => ({
+      def: {
+        id: definition.id,
+        accessorFn: (row: T) => readInjectedColumnValue(row, definition.accessorKey),
+        header: t(definition.header, definition.header),
+        cell: definition.cell as ColumnDef<T, unknown>['cell'],
+        size: definition.size,
+        enableSorting: definition.sortable === true,
+      },
+      placement: definition.placement,
+    }))
+  }, [columnWidgets, t])
+  const injectedRowActions = React.useMemo<InjectionRowActionDefinition[]>(() => {
+    const entries: InjectionRowActionDefinition[] = []
+    for (const widget of rowActionWidgets) {
+      if (!('rowActions' in widget)) continue
+      for (const definition of widget.rowActions ?? []) {
+        entries.push(definition)
+      }
+    }
+    return collectUniqueById(entries, 'row action')
+  }, [rowActionWidgets])
+  const injectedBulkActions = React.useMemo<InjectionBulkActionDefinition[]>(() => {
+    const entries: InjectionBulkActionDefinition[] = []
+    for (const widget of bulkActionWidgets) {
+      if (!('bulkActions' in widget)) continue
+      for (const definition of widget.bulkActions ?? []) {
+        entries.push(definition)
+      }
+    }
+    return collectUniqueById(entries, 'bulk action')
+  }, [bulkActionWidgets])
+  const { serverFilters: injectedFilters, clientFilters: injectedClientFilters } = React.useMemo<{
+    serverFilters: FilterDef[]
+    clientFilters: { id: string; filterFn: (row: unknown, value: unknown) => boolean }[]
+  }>(() => {
+    const byId = new Map<string, FilterDef>()
+    const clientEntries: { id: string; filterFn: (row: unknown, value: unknown) => boolean }[] = []
+    for (const widget of filterWidgets) {
+      if (!('filters' in widget)) continue
+      for (const definition of widget.filters ?? []) {
+        const filter = definition as InjectionFilterDefinition
+        const mappedType: FilterDef['type'] =
+          filter.type === 'date-range'
+            ? 'dateRange'
+            : filter.type === 'boolean'
+              ? 'checkbox'
+              : filter.type === 'select'
+                ? 'select'
+                : 'text'
+        const id = filter.queryParam ?? filter.id
+        if (filter.strategy === 'client' && filter.filterFn) {
+          clientEntries.push({ id, filterFn: filter.filterFn })
+        }
+        if (!byId.has(id)) {
+          const translatedOptions = Array.isArray(filter.options)
+            ? filter.options.map((option) => ({
+                ...option,
+                label: t(option.label, option.label),
+              }))
+            : filter.options
+          byId.set(id, {
+            id,
+            label: t(filter.label, filter.label),
+            type: mappedType,
+            options: translatedOptions,
+          })
+        }
+      }
+    }
+    return { serverFilters: Array.from(byId.values()), clientFilters: clientEntries }
+  }, [filterWidgets, t])
+  const mergedColumns = React.useMemo<ColumnDef<T, unknown>[]>(() => {
+    if (!injectedColumnDefs.length) return columns
+    let result = [...columns]
+    for (const { def, placement } of injectedColumnDefs) {
+      result = insertByInjectionPlacement(
+        result,
+        def,
+        placement,
+        (col) => (col as { id?: string }).id ?? '',
+      )
+    }
+    return result
+  }, [columns, injectedColumnDefs])
+  const resolvedRowActions = React.useCallback((row: T) => {
+    const injectedItems: (RowActionItem & { placement?: InjectionRowActionDefinition['placement'] })[] = injectedRowActions.map((action) => ({
+      id: action.id,
+      label: t(action.label, action.label),
+      onSelect: () => action.onSelect(row, { navigate: (href: string) => router.push(href) }),
+      placement: action.placement,
+    }))
+    const baseNode = rowActions ? rowActions(row) : null
+    if (!injectedItems.length) return baseNode
+    if (React.isValidElement(baseNode)) {
+      const baseItems = (baseNode.props as { items?: RowActionItem[] }).items
+      if (Array.isArray(baseItems)) {
+        let merged = [...baseItems]
+        const existingIds = new Set(
+          baseItems.map((item) => item.id).filter((id): id is string => typeof id === 'string' && id.length > 0)
+        )
+        for (const item of injectedItems) {
+          if (item.id && existingIds.has(item.id)) continue
+          merged = insertByInjectionPlacement(
+            merged,
+            item,
+            item.placement,
+            (entry) => entry.id ?? '',
+          )
+        }
+        return <RowActions items={merged} />
+      }
+    }
+    return <RowActions items={injectedItems} />
+  }, [injectedRowActions, rowActions, router, t])
+
+  // Locale-aware for the same reason the detail fields are: with no env override a table cell and
+  // the field beside it must not disagree about the convention. An env override still wins.
+  const dateLocale = useLocale()
+
+  const tryParseDate = (v: unknown): Date | null => {
+    if (v == null) return null
+    if (v instanceof Date) return isNaN(v.getTime()) ? null : v
+    if (typeof v === 'number') {
+      const d = new Date(v)
+      return isNaN(d.getTime()) ? null : d
+    }
+    if (typeof v === 'string') {
+      const s = v.trim()
+      if (!s) return null
+      // ISO-like detection (YYYY-MM-DD ...). `parseISO`, not `new Date`: the latter reads a bare
+      // `yyyy-MM-dd` as UTC midnight, which renders as the previous day west of UTC.
+      if (/^\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)?$/.test(s)) {
+        const d = parseISO(s)
+        return isNaN(d.getTime()) ? null : d
+      }
+      // Fallback: Date.parse
+      const d = new Date(s)
+      return isNaN(d.getTime()) ? null : d
+    }
+    return null
+  }
+
+  // Guess date columns once using first non-empty row
+  const [dateColumnIds, setDateColumnIds] = React.useState<Set<string> | null>(null)
+  React.useEffect(() => {
+    if (dateColumnIds) return
+    if (!data || data.length === 0) return
+    // Build a cheap row accessor using column defs
+    const accessors = mergedColumns.map((c) => {
+      const key = (c as any).accessorKey as string | undefined
+      const id = (c as any).id as string | undefined
+      const hasCustomCell = hasExplicitCellRenderer(c)
+      return { id: id || key || '', key, hasCustomCell }
+    })
+    const guessed = new Set<string>()
+    accessors.forEach((a) => {
+      if (!a.id) return
+      const name = a.id
+      // Name-based guess: snake_case '_at' suffix
+      if (name.endsWith('_at') && !a.hasCustomCell) {
+        guessed.add(name)
+        return
+      }
+    })
+    setDateColumnIds(guessed)
+  }, [dateColumnIds, data, mergedColumns])
+  // Column visibility: only hide columns explicitly marked as hidden.
+  // All other columns are always rendered; horizontal scroll (min-w + overflow-auto)
+  // handles narrow viewports so users can swipe to reach every column.
+  const responsiveClass = (_priority?: number, hidden?: boolean) => {
+    if (hidden) return ''
+    return ''
+  }
+
+  const resolvePriority = React.useCallback((column: TableColumn<T, unknown>) => {
+    const meta = (column.columnDef as any)?.meta
+    const rawPriority = typeof meta?.priority === 'number' ? meta.priority : undefined
+    if (rawPriority && rawPriority > 0) return rawPriority
+    const index = column.getIndex()
+    return index <= 1 ? 1 : 2
+  }, [])
+
+  const initialSorting = React.useMemo<SortingState>(() => {
+    if (mergedInitialSettings?.sorting) {
+      return mergedInitialSettings.sorting.map((item) => ({ id: item.id, desc: Boolean(item.desc) }))
+    }
+    return []
+  }, [mergedInitialSettings])
+  const [sorting, setSorting] = React.useState<SortingState>(() => {
+    if (sortingProp && sortingProp.length) return sortingProp
+    if (initialSorting.length) return initialSorting
+    return []
+  })
+  const clientFilteredData = React.useMemo(() => {
+    if (!injectedClientFilters.length || !filterValues) return data
+    const activeClientFilters = injectedClientFilters.filter(
+      (cf) => filterValues[cf.id] !== undefined && filterValues[cf.id] !== '' && filterValues[cf.id] !== null,
+    )
+    if (!activeClientFilters.length) return data
+    return data.filter((row) =>
+      activeClientFilters.every((cf) => cf.filterFn(row, filterValues[cf.id])),
+    )
+  }, [data, injectedClientFilters, filterValues])
+  const hasPropBulkActions = Array.isArray(bulkActionsProp) && bulkActionsProp.length > 0
+  const hasInjectedBulkActions = injectedBulkActions.length > 0 || hasPropBulkActions
+  const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({})
+  const selectionScopeKeyRef = React.useRef<string | undefined>(selectionScopeKey)
+  const enableClientSorting = sortable && !manualSorting
+  // Opt-in expansion: enabled only when the host passes any expansion prop, so
+  // existing tables keep their exact row model and rendering.
+  const expansionEnabled = getSubRows !== undefined || expandable !== undefined
+  const [internalExpanded, setInternalExpanded] = React.useState<ExpandedState>({})
+  const expandedState = expandedProp !== undefined ? expandedProp : internalExpanded
+  const handleExpandedChange = React.useCallback<OnChangeFn<ExpandedState>>((updater) => {
+    if (onExpandedChange) {
+      onExpandedChange(updater)
+      return
+    }
+    setInternalExpanded((prev) => (typeof updater === 'function' ? updater(prev) : updater))
+  }, [onExpandedChange])
+  const table = useLegacyTable<T>({
+    data: clientFilteredData,
+    columns: mergedColumns,
+    getCoreRowModel: getCoreRowModel(),
+    ...(enableClientSorting ? { getSortedRowModel: getSortedRowModel() } : {}),
+    ...(expansionEnabled ? {
+      getSubRows: getSubRows as ((row: T) => T[] | undefined) | undefined,
+      getExpandedRowModel: getExpandedRowModel(),
+      getRowCanExpand: (row) => {
+        if (typeof expandable === 'function') return expandable(row.original as T)
+        if (expandable === true) return true
+        return (row.subRows?.length ?? 0) > 0
+      },
+      onExpandedChange: handleExpandedChange,
+    } : {}),
+    manualSorting: manualSorting === true,
+    getRowId: resolveDataTableRowId,
+    state: { sorting, columnVisibility, columnOrder, rowSelection, ...(expansionEnabled ? { expanded: expandedState } : {}) },
+    enableRowSelection: hasInjectedBulkActions,
+    onSortingChange: (updater) => {
+      const next = typeof updater === 'function' ? updater(sorting) : updater
+      setSorting(next)
+      onSortingChange?.(next)
+    },
+    onColumnVisibilityChange: (updater) => {
+      const next = typeof updater === 'function' ? updater(columnVisibility) : updater
+      setColumnVisibility(next)
+    },
+    onColumnOrderChange: (updater) => {
+      const next = typeof updater === 'function' ? updater(columnOrder) : updater
+      setColumnOrder(next)
+    },
+    onRowSelectionChange: setRowSelection,
+  })
+  React.useEffect(() => { if (sortingProp) setSorting(sortingProp) }, [sortingProp])
+  React.useEffect(() => {
+    if (selectionScopeKey === undefined) {
+      selectionScopeKeyRef.current = undefined
+      return
+    }
+    if (selectionScopeKeyRef.current === undefined) {
+      selectionScopeKeyRef.current = selectionScopeKey
+      return
+    }
+    if (selectionScopeKeyRef.current === selectionScopeKey) return
+    selectionScopeKeyRef.current = selectionScopeKey
+    setRowSelection({})
+  }, [selectionScopeKey])
+  React.useEffect(() => {
+    if (hasInjectedBulkActions) return
+    if (Object.keys(rowSelection).length === 0) return
+    setRowSelection({})
+  }, [hasInjectedBulkActions, rowSelection])
+  const resolvedInjectionContext = React.useMemo(
+    () => {
+      if (!hasInjectedBulkActions) return baseInjectionContext
+      const selectedIds = Object.keys(rowSelection).filter((key) => rowSelection[key])
+      if (selectedIds.length === 0) return baseInjectionContext
+      return { ...baseInjectionContext, selectedRowIds: selectedIds, selectedCount: selectedIds.length }
+    },
+    [baseInjectionContext, hasInjectedBulkActions, rowSelection],
+  )
+  React.useLayoutEffect(() => {
+    // `getAllLeafColumns()` is already sorted by `columnOrder`, which would hide where a new
+    // column sits in the definitions; flattening `getAllColumns()` keeps definition order.
+    const ids = table.getAllColumns().flatMap((column) => column.getLeafColumns()).map((column) => column.id)
+    if (!ids.length) return
+    const placements = new Map(
+      injectedColumnDefs.map(({ def, placement }) => [(def as { id?: string }).id ?? '', placement] as const),
+    )
+    setColumnOrder((prev) => {
+      if (!prev.length) return ids
+      const next = reconcileColumnOrder(prev, ids, placements)
+      const changed = next.length !== prev.length || next.some((id, index) => id !== prev[index])
+      return changed ? next : prev
+    })
+  }, [table, mergedColumns, injectedColumnDefs])
+
+  // Auto-hiding is a per-column default, applied once per column — not an enforcement.
+  // It cannot be latched by a single has-run boolean: columns arrive in waves, because
+  // custom-field columns are built from definitions fetched asynchronously. The first
+  // render carries no `cf_*` column at all, so a run-once pass found nothing to hide and
+  // still burned the latch, leaving fields declared `listVisible: false` visible for the
+  // rest of the session after a hard page load (#4859).
+  // It also cannot lean on `columnVisibility` as the record of what has been decided:
+  // `handleColumnChooserToggle` *deletes* a column's entry when the user turns it back on,
+  // so a re-shown column is indistinguishable from one never seen and would be hidden again
+  // on the next wave. Hence an explicit per-column record of what this pass has applied.
+  // Seeded from the stored view's own keys, because a view decides only the columns it
+  // actually names (#5117): latching the whole pass on "the view carried some visibility"
+  // left every later-registering column undecided, and undecided renders visible.
+  const visibilityDecidedColumnIds = React.useRef<Set<string>>(
+    new Set(Object.keys(mergedInitialSettings?.columnVisibility ?? {})),
+  )
+  // Bumped whenever the record is re-seeded, so switching views re-evaluates the defaults
+  // instead of waiting for the next wave of columns; the record itself is a ref, written
+  // from inside the pass, and so cannot trigger it.
+  const [visibilityDefaultsPass, setVisibilityDefaultsPass] = React.useState(0)
+  React.useLayoutEffect(() => {
+    const hidden: VisibilityState = {}
+    table.getAllLeafColumns().forEach((column) => {
+      if (visibilityDecidedColumnIds.current.has(column.id)) return
+      const hiddenMeta = (column.columnDef as any)?.meta?.hidden
+      // Recorded only once it has actually applied a default. Marking a column decided
+      // merely for having been seen would strand a def whose `meta.hidden` resolves in a
+      // later wave — an injected column widget — as permanently undecided.
+      if (!hiddenMeta) return
+      visibilityDecidedColumnIds.current.add(column.id)
+      hidden[column.id] = false
+    })
+    if (!Object.keys(hidden).length) return
+    setColumnVisibility((prev) => ({ ...hidden, ...prev }))
+    foldAutoHiddenIntoBaseline(hidden)
+  }, [table, mergedColumns, visibilityDefaultsPass, foldAutoHiddenIntoBaseline])
+
+  const getCurrentSettings = React.useCallback((): PerspectiveSettings => {
+    // A union, in this order, of two partial pictures (#5117). `columnVisibility` alone
+    // is sparse — it holds only what the user toggled plus what a view restored, and an
+    // absent key renders visible, so a saved view stored no decision for any column that
+    // registered later. The live column set alone is lossy in the other direction: it
+    // drops a stored decision for a column that has not registered yet, throwing away a
+    // hidden `cf_*` if the user saves during the custom-field hydration window. Taking
+    // the live columns second makes the map dense over everything on screen and records
+    // a column the user turned back *on* as an explicit `true` — which the sparse map
+    // could not express, since `handleColumnChooserToggle` deletes the entry — so the
+    // default pass above leaves it alone on reload. `perspectiveDirty` normalizes `true`
+    // away, so a dense map still compares equal to a sparse one stored on the server.
+    const visibility: Record<string, boolean> = {}
+    for (const [key, value] of Object.entries(columnVisibility)) {
+      if (typeof value === 'boolean') visibility[key] = value
+    }
+    for (const column of table.getAllLeafColumns()) {
+      visibility[column.id] = column.getIsVisible()
+    }
+    // When the host page wires an advanced-filter tree, persist that as the
+    // single source of truth for `filters`. The tree wins over legacy
+    // `filterValues` because the CRM redesign (SPEC-048) absorbed all simple
+    // filters into the tree on those pages — keeping both shapes in sync
+    // would re-introduce the dual-state bug the redesign deliberately fixed.
+    let filtersPayload: Record<string, unknown> | undefined
+    if (advancedFilter) {
+      const persisted = serializeTreeForPersist(advancedFilter.value)
+      filtersPayload = persisted.root.children.length > 0
+        ? (persisted as unknown as Record<string, unknown>)
+        : undefined
+    } else {
+      const filtersRecord: Record<string, unknown> = {}
+      for (const [key, value] of Object.entries(filterValues ?? {})) {
+        if (typeof key === 'string') filtersRecord[key] = value
+      }
+      if (Object.keys(filtersRecord).length) filtersPayload = filtersRecord
+    }
+    const candidate: PerspectiveSettings = {
+      columnOrder,
+      columnVisibility: visibility,
+      columnSizing,
+      sorting,
+      filters: filtersPayload,
+      searchValue,
+    }
+    return sanitizePerspectiveSettings(candidate) ?? {}
+  }, [table, columnOrder, columnVisibility, columnSizing, sorting, filterValues, searchValue, advancedFilter])
+
+  const applyPerspectiveSettings = React.useCallback((
+    settings: PerspectiveSettings,
+    nextId: string | null,
+    options?: {
+      /** When true, do NOT touch the host's advanced-filter tree or the legacy
+       *  filter callback. Used by the mount-time snapshot restore so a stale
+       *  localStorage snapshot can't override URL-derived filter state on
+       *  pages that own filter persistence (People/Companies/Deals). Other
+       *  callsites — explicit perspective selection, "No view" clear — leave
+       *  this off so the user's intent (apply this view / clear) wins. */
+      preserveAdvancedFilter?: boolean
+    },
+  ) => {
+    const normalized = sanitizePerspectiveSettings(settings) ?? {}
+    if (!options?.preserveAdvancedFilter && advancedFilter?.onApplyTree) {
+      hydratedAdvancedFilterRestoredRef.current = false
+      pendingPerspectiveFiltersRef.current = {
+        filters: isPersistedFilterTree(normalized.filters) ? normalized.filters : undefined,
+      }
+    }
+    // The applied settings replace the baseline outright, so the defaults hidden under
+    // the *previous* view must not leak into it. The pass below re-runs and re-folds
+    // whatever this view leaves undecided.
+    autoHiddenVisibilityRef.current = {}
+    // `preserveAdvancedFilter` leaves the host's filter state untouched, so the
+    // applied settings' `filters` never become the live ones — keeping the live
+    // payload here is what stops the mount-time restore from reporting a
+    // filter change the user never made.
+    setViewBaseline(
+      options?.preserveAdvancedFilter
+        ? {
+            ...normalized,
+            filters: pendingPerspectiveFiltersRef.current
+              ? pendingPerspectiveFiltersRef.current.filters
+              : getCurrentSettings().filters,
+          }
+        : normalized,
+    )
+    if (normalized.columnOrder && normalized.columnOrder.length) {
+      setColumnOrder(normalized.columnOrder)
+    } else {
+      const ids = table.getAllLeafColumns().map((column) => column.id)
+      if (ids.length) setColumnOrder(ids)
+    }
+    // Re-seed the per-column record so the newly applied view decides exactly the
+    // columns it names and nothing else (#5117). Clearing to "No view" empties it, which
+    // is what lets the `meta.hidden` defaults come back instead of staying suppressed for
+    // the rest of the session by a view the user has since dismissed.
+    visibilityDecidedColumnIds.current = new Set(Object.keys(normalized.columnVisibility ?? {}))
+    setVisibilityDefaultsPass((pass) => pass + 1)
+    if (normalized.columnVisibility) setColumnVisibility(normalized.columnVisibility)
+    else setColumnVisibility({})
+    if (normalized.sorting) {
+      const sortingState: SortingState = normalized.sorting.map((item) => ({
+        id: item.id,
+        desc: item.desc === true,
+      }))
+      setSorting(sortingState)
+      onSortingChange?.(sortingState)
+    } else {
+      setSorting([])
+      onSortingChange?.([])
+    }
+    if (normalized.columnSizing) {
+      setColumnSizing(normalized.columnSizing)
+      columnSizingRef.current = normalized.columnSizing
+    } else {
+      setColumnSizing({})
+      columnSizingRef.current = {}
+    }
+    // Two filter shapes can live in `settings.filters`:
+    //   1. Persisted advanced-filter tree: `{ v: 2, root: {...} }`
+    //   2. Legacy flat FilterValues record: arbitrary `{ key: value, ... }`
+    // Tree wins when both a tree-shape payload and an `onApplyTree` callback
+    // are present (the host owns an `AdvancedFilterTree`). For pages that
+    // still drive the legacy FilterBar we fall back to `onFiltersApply`.
+    if (!options?.preserveAdvancedFilter) {
+      const restoredTree = isPersistedFilterTree(normalized.filters)
+        ? deserializeTreeFromPersist(normalized.filters)
+        : null
+      if (advancedFilter?.onApplyTree) {
+        advancedFilter.onApplyTree(restoredTree ?? createEmptyTree())
+        // Clear any legacy callback so a stale FilterValues map doesn't override
+        // the tree on the next render. Selecting "No view" also clears the
+        // external advanced-filter tree instead of leaving the prior view's
+        // filters visible.
+        if (onFiltersApply) onFiltersApply({} as FilterValues)
+      } else if (onFiltersApply) {
+        // Either no tree was saved, or the page doesn't accept trees. Pass the
+        // legacy filters through unchanged. A tree-shape payload reaching this
+        // branch (no `onApplyTree`) is intentionally dropped — the host page
+        // would need the wiring to consume it.
+        const legacy = restoredTree ? {} : (normalized.filters ?? {})
+        onFiltersApply(legacy as FilterValues)
+      }
+    }
+    if (onSearchChange) {
+      onSearchChange(normalized.searchValue ?? '')
+    }
+    setActivePerspectiveId(nextId)
+    if (perspectiveTableId) {
+      writePerspectiveCookie(perspectiveTableId, nextId)
+      if (nextId) {
+        const previousSnapshot = readPerspectiveSnapshot(perspectiveTableId) ?? initialSnapshotRef.current
+        const preserveClearedFilter = options?.preserveAdvancedFilter
+          && !getCurrentSettings().filters
+          && !previousSnapshot?.settings.filters
+        const snapshotSettings = preserveClearedFilter
+          ? { ...normalized, filters: undefined }
+          : normalized
+        const snapshot: PerspectiveSnapshot = { perspectiveId: nextId, settings: snapshotSettings, updatedAt: Date.now() }
+        writePerspectiveSnapshot(perspectiveTableId, snapshot)
+        initialSnapshotRef.current = snapshot
+      } else if (normalized.columnSizing && Object.keys(normalized.columnSizing).length) {
+        // Preserve a "No view" snapshot that only carries user column widths so
+        // they survive refresh without an active perspective (#1835). A genuine
+        // "No view" clear passes empty settings (no columnSizing) and still clears.
+        const snapshot: PerspectiveSnapshot = {
+          perspectiveId: null,
+          settings: { columnSizing: normalized.columnSizing },
+          updatedAt: Date.now(),
+        }
+        writePerspectiveSnapshot(perspectiveTableId, snapshot)
+        initialSnapshotRef.current = snapshot
+      } else {
+        writePerspectiveSnapshot(perspectiveTableId, null)
+        initialSnapshotRef.current = null
+      }
+    }
+  }, [onFiltersApply, onSearchChange, onSortingChange, perspectiveTableId, table, advancedFilter, getCurrentSettings, setViewBaseline])
+
+  // Persist the current column widths into the local snapshot so they survive a
+  // refresh even without saving a perspective (#1835). Widths are merged into the
+  // active perspective's other settings — resizing never disturbs the saved
+  // column order/visibility/filters.
+  const persistColumnSizingSnapshot = React.useCallback(() => {
+    if (!perspectiveTableId) return
+    const sizing = columnSizingRef.current
+    const existing = readPerspectiveSnapshot(perspectiveTableId) ?? initialSnapshotRef.current
+    const baseSettings: PerspectiveSettings = existing?.settings
+      ? { ...existing.settings }
+      : (mergedInitialSettings ? { ...mergedInitialSettings } : {})
+    if (sizing && Object.keys(sizing).length) baseSettings.columnSizing = sizing
+    else delete baseSettings.columnSizing
+    const snapshot: PerspectiveSnapshot = {
+      perspectiveId: existing?.perspectiveId ?? activePerspectiveId ?? null,
+      settings: baseSettings,
+      updatedAt: Date.now(),
+    }
+    writePerspectiveSnapshot(perspectiveTableId, snapshot)
+    initialSnapshotRef.current = snapshot
+  }, [perspectiveTableId, activePerspectiveId, mergedInitialSettings])
+
+  const handleColumnResize = React.useCallback((colId: string, width: number) => {
+    const next = { ...columnSizingRef.current, [colId]: width }
+    columnSizingRef.current = next
+    setColumnSizing(next)
+  }, [])
+
+  const commitColumnSizing = React.useCallback(() => {
+    persistColumnSizingSnapshot()
+  }, [persistColumnSizingSnapshot])
+
+  const resetColumnSize = React.useCallback((colId: string) => {
+    const next = { ...columnSizingRef.current }
+    delete next[colId]
+    columnSizingRef.current = next
+    setColumnSizing(next)
+    persistColumnSizingSnapshot()
+  }, [persistColumnSizingSnapshot])
+
+  React.useLayoutEffect(() => {
+    if (!perspectiveTableId) return
+    if (snapshotHydratedTableRef.current === perspectiveTableId) return
+    snapshotHydratedTableRef.current = perspectiveTableId
+    hydratedAdvancedFilterRestoredRef.current = false
+    const snapshot = readPerspectiveSnapshot(perspectiveTableId)
+    if (!snapshot) return
+    initialSnapshotRef.current = snapshot
+    hydratedSnapshotRef.current = snapshot
+    const restoredTree = isPersistedFilterTree(snapshot.settings.filters)
+      ? deserializeTreeFromPersist(snapshot.settings.filters)
+      : null
+    const preserveAdvancedFilter = !!advancedFilter?.onApplyTree && (
+      advancedFilter.value.root.children.length > 0 || !restoredTree?.root.children.length
+    )
+    applyPerspectiveSettings(
+      snapshot.settings,
+      snapshot.perspectiveId ?? null,
+      { preserveAdvancedFilter },
+    )
+    hydratedAdvancedFilterRestoredRef.current = !!advancedFilter?.onApplyTree && !preserveAdvancedFilter
+    initialPerspectiveAppliedRef.current = true
+  }, [perspectiveTableId, applyPerspectiveSettings, advancedFilter])
+
+  const previousAdvancedFilterRef = React.useRef<{
+    tableId: string | null
+    hasRules: boolean
+  } | null>(null)
+  const advancedFilterHasRules = !!advancedFilter?.value.root.children.length
+  React.useEffect(() => {
+    const previous = previousAdvancedFilterRef.current
+    previousAdvancedFilterRef.current = { tableId: perspectiveTableId, hasRules: advancedFilterHasRules }
+    if (!perspectiveTableId || !advancedFilter?.onApplyTree) return
+    if (previous?.tableId !== perspectiveTableId || !previous.hasRules || advancedFilterHasRules) return
+    const snapshot = readPerspectiveSnapshot(perspectiveTableId) ?? initialSnapshotRef.current
+    if (!snapshot) return
+    const settings = { ...snapshot.settings }
+    delete settings.filters
+    const clearedSnapshot: PerspectiveSnapshot = { ...snapshot, settings, updatedAt: Date.now() }
+    writePerspectiveSnapshot(perspectiveTableId, clearedSnapshot)
+    initialSnapshotRef.current = clearedSnapshot
+  }, [perspectiveTableId, advancedFilterHasRules, advancedFilter?.onApplyTree])
+
+  type SavePerspectivePayload = {
+    name: string
+    isDefault: boolean
+    applyToRoles: string[]
+    setRoleDefault: boolean
+    perspectiveId?: string | null
+    settings?: PerspectiveSettings
+  }
+
+  const perspectiveQueryKey: [string, string | null] = ['table-perspectives', perspectiveTableId]
+  const rolePerspectivesForLocking = React.useMemo(
+    () => perspectiveData?.manageableRolePerspectives ?? perspectiveData?.rolePerspectives ?? [],
+    [perspectiveData],
+  )
+
+  type PerspectiveMutationContext = {
+    formId: string
+    resourceKind: 'perspective'
+    retryLastMutation: () => Promise<boolean>
+  }
+  const perspectiveMutationContextId = `data-table-perspectives:${perspectiveTableId ?? 'unknown'}`
+  const { runMutation: runPerspectiveMutation, retryLastMutation: retryPerspectiveMutation } =
+    useGuardedMutation<PerspectiveMutationContext>({
+      contextId: perspectiveMutationContextId,
+      blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+    })
+  const perspectiveMutationContext = React.useMemo<PerspectiveMutationContext>(
+    () => ({
+      formId: perspectiveMutationContextId,
+      resourceKind: 'perspective',
+      retryLastMutation: retryPerspectiveMutation,
+    }),
+    [perspectiveMutationContextId, retryPerspectiveMutation],
+  )
+
+  const savePerspectiveMutation = useMutation<PerspectiveSaveResponse, Error, SavePerspectivePayload>({
+    mutationFn: async (input) => {
+      if (!perspectiveTableId) throw new Error('Missing table id')
+      const roleExpectedUpdatedAtByRoleId: Record<string, string> = {}
+      const roleExpectedUpdatedAtByPerspectiveId: Record<string, string> = {}
+      for (const roleId of input.applyToRoles) {
+        const rolePerspectives = rolePerspectivesForLocking.filter((p) => p.roleId === roleId)
+        const matching = rolePerspectives.find((p) => p.name.trim() === input.name.trim()) ?? null
+        const defaultPerspective = input.setRoleDefault
+          ? rolePerspectives.find((p) => p.isDefault) ?? null
+          : null
+        for (const candidate of [matching, defaultPerspective]) {
+          if (!candidate?.updatedAt) continue
+          roleExpectedUpdatedAtByPerspectiveId[candidate.id] = candidate.updatedAt
+        }
+        const roleFallback = matching ?? defaultPerspective
+        if (roleFallback?.updatedAt) roleExpectedUpdatedAtByRoleId[roleId] = roleFallback.updatedAt
+      }
+      const payload = {
+        perspectiveId: input.perspectiveId ?? undefined,
+        name: input.name,
+        settings: input.settings ?? getCurrentSettings(),
+        isDefault: input.isDefault,
+        applyToRoles: input.applyToRoles,
+        setRoleDefault: input.setRoleDefault,
+        ...(Object.keys(roleExpectedUpdatedAtByRoleId).length > 0
+          ? { roleExpectedUpdatedAtByRoleId }
+          : {}),
+        ...(Object.keys(roleExpectedUpdatedAtByPerspectiveId).length > 0
+          ? { roleExpectedUpdatedAtByPerspectiveId }
+          : {}),
+      }
+      if (process.env.NODE_ENV !== 'production') {
+        logger.debug('Perspective payload', { payload })
+      }
+      const existing = input.perspectiveId
+        ? perspectiveData?.perspectives.find((p) => p.id === input.perspectiveId) ?? null
+        : null
+      return runPerspectiveMutation({
+        operation: async () => {
+          const call = await withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(existing?.updatedAt ?? null),
+            () => apiCall<PerspectiveSaveResponse>(
+              `/api/perspectives/${encodeURIComponent(perspectiveTableId)}`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+              },
+            ),
+          )
+          if (call.status === 404) {
+            throw new Error(t('ui.dataTable.perspectives.error.apiUnavailable', 'Perspectives API is not available. Run `yarn generate` to regenerate module routes and restart the dev server.'))
+          }
+          if (!call.ok) {
+            await raiseCrudError(call.response, t('ui.dataTable.perspectives.error.save', 'Failed to save perspective'))
+          }
+          const result = call.result
+          if (!result) throw new Error(t('ui.dataTable.perspectives.error.save', 'Failed to save perspective'))
+          return result
+        },
+        context: perspectiveMutationContext,
+        mutationPayload: payload,
+      })
+    },
+    onSuccess: (data) => {
+      if (perspectiveTableId) {
+        void queryClient.invalidateQueries({ queryKey: perspectiveQueryKey })
+      }
+      if (data.perspective) {
+        applyPerspectiveSettings(data.perspective.settings, data.perspective.id)
+      }
+    },
+    onError: () => {
+      // Conflict surfacing is handled inside `runPerspectiveMutation`
+      // (surfaceRecordConflict); only the cache refresh remains here.
+      if (perspectiveTableId) {
+        void queryClient.invalidateQueries({ queryKey: perspectiveQueryKey })
+      }
+    },
+  })
+
+  const resolveColumnLabel = React.useCallback((column: TableColumn<T, unknown>): string => {
+    const meta = (column.columnDef as any)?.meta
+    if (typeof meta?.label === 'string' && meta.label.trim().length > 0) return meta.label.trim()
+    if (typeof meta?.title === 'string' && meta.title.trim().length > 0) return meta.title.trim()
+    const header = column.columnDef.header
+    if (typeof header === 'string') return header
+    if (typeof header === 'function') return normalizeLabel(column.id)
+    return normalizeLabel(column.id)
+  }, [])
+
+  const activePersonalPerspectiveId = React.useMemo(() => {
+    if (!perspectiveData || !activePerspectiveId) return null
+    const found = perspectiveData.perspectives.find((p) => p.id === activePerspectiveId)
+    return found ? found.id : null
+  }, [perspectiveData, activePerspectiveId])
+
+
+  const deletePerspectiveMutation = useMutation<void, Error, { perspectiveId: string }>({
+    mutationFn: async ({ perspectiveId }) => {
+      if (!perspectiveTableId) throw new Error('Missing table id')
+      const existing = perspectiveData?.perspectives.find((p) => p.id === perspectiveId) ?? null
+      await runPerspectiveMutation({
+        operation: async () => {
+          const call = await withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(existing?.updatedAt ?? null),
+            () => apiCall(
+              `/api/perspectives/${encodeURIComponent(perspectiveTableId)}/${encodeURIComponent(perspectiveId)}`,
+              { method: 'DELETE' },
+            ),
+          )
+          if (call.status === 404) throw new Error(t('ui.dataTable.perspectives.error.apiUnavailable', 'Perspectives API is not available. Run `yarn generate` and restart the dev server.'))
+          if (!call.ok) {
+            await raiseCrudError(call.response, t('ui.dataTable.perspectives.error.delete', 'Failed to delete perspective'))
+          }
+        },
+        context: perspectiveMutationContext,
+        mutationPayload: { perspectiveId },
+      })
+    },
+    onMutate: ({ perspectiveId }) => {
+      setDeletingIds((prev) => prev.includes(perspectiveId) ? prev : [...prev, perspectiveId])
+    },
+    onSettled: (_data, _error, variables) => {
+      setDeletingIds((prev) => prev.filter((id) => id !== variables.perspectiveId))
+    },
+    onSuccess: (_data, variables) => {
+      const removedActive = activePerspectiveId === variables.perspectiveId
+      if (perspectiveTableId) {
+        void queryClient.invalidateQueries({ queryKey: perspectiveQueryKey })
+        if (removedActive) {
+          setActivePerspectiveId(null)
+          writePerspectiveCookie(perspectiveTableId, null)
+          writePerspectiveSnapshot(perspectiveTableId, null)
+          initialSnapshotRef.current = null
+          initialPerspectiveAppliedRef.current = false
+        }
+      } else if (removedActive) {
+        setActivePerspectiveId(null)
+        initialPerspectiveAppliedRef.current = false
+      }
+    },
+    onError: () => {
+      // Conflict surfacing is handled inside `runPerspectiveMutation`
+      // (surfaceRecordConflict); only the cache refresh remains here.
+      if (perspectiveTableId) {
+        void queryClient.invalidateQueries({ queryKey: perspectiveQueryKey })
+      }
+    },
+  })
+
+  const clearRoleMutation = useMutation<void, Error, {
+    roleId: string
+    updatedAt?: string | null
+    expectedUpdatedAtByPerspectiveId?: Record<string, string>
+  }>({
+    mutationFn: async ({ roleId, updatedAt, expectedUpdatedAtByPerspectiveId }) => {
+      if (!perspectiveTableId) throw new Error('Missing table id')
+      const hasPerRowVersions = expectedUpdatedAtByPerspectiveId
+        && Object.keys(expectedUpdatedAtByPerspectiveId).length > 0
+      await runPerspectiveMutation({
+        operation: async () => {
+          const call = await withScopedApiRequestHeaders(
+            hasPerRowVersions ? {} : buildOptimisticLockHeader(updatedAt ?? null),
+            () => apiCall(
+              `/api/perspectives/${encodeURIComponent(perspectiveTableId)}/roles/${encodeURIComponent(roleId)}`,
+              hasPerRowVersions
+                ? {
+                  method: 'DELETE',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ roleExpectedUpdatedAtByPerspectiveId: expectedUpdatedAtByPerspectiveId }),
+                }
+                : { method: 'DELETE' },
+            ),
+          )
+          if (call.status === 404) throw new Error(t('ui.dataTable.perspectives.error.apiUnavailable', 'Perspectives API is not available. Run `yarn generate` and restart the dev server.'))
+          if (!call.ok) {
+            await raiseCrudError(call.response, t('ui.dataTable.perspectives.error.clearRoles', 'Failed to clear role perspectives'))
+          }
+        },
+        context: perspectiveMutationContext,
+        mutationPayload: { roleId },
+      })
+    },
+    onMutate: ({ roleId }) => {
+      setRoleClearingIds((prev) => prev.includes(roleId) ? prev : [...prev, roleId])
+    },
+    onSettled: (_data, _error, variables) => {
+      setRoleClearingIds((prev) => prev.filter((id) => id !== variables.roleId))
+    },
+    onSuccess: (_data, variables) => {
+      if (perspectiveTableId) {
+        void queryClient.invalidateQueries({ queryKey: perspectiveQueryKey })
+      }
+      if (activePerspectiveId) {
+        const current = queryClient.getQueryData<PerspectivesIndexResponse>(perspectiveQueryKey)
+        const match = current?.rolePerspectives.find((rp) => rp.id === activePerspectiveId)
+        if (match && match.roleId === variables.roleId) {
+          setActivePerspectiveId(null)
+          if (perspectiveTableId) writePerspectiveCookie(perspectiveTableId, null)
+          if (perspectiveTableId) writePerspectiveSnapshot(perspectiveTableId, null)
+          initialSnapshotRef.current = null
+          initialPerspectiveAppliedRef.current = false
+        }
+      }
+    },
+    onError: () => {
+      // Conflict surfacing is handled inside `runPerspectiveMutation`
+      // (surfaceRecordConflict); only the cache refresh remains here.
+      if (perspectiveTableId) {
+        void queryClient.invalidateQueries({ queryKey: perspectiveQueryKey })
+      }
+    },
+  })
+
+  const handlePerspectiveActivate = React.useCallback((item: PerspectiveDto | RolePerspectiveDto, _source?: 'personal' | 'role') => {
+    applyPerspectiveSettings(item.settings, item.id)
+  }, [applyPerspectiveSettings])
+
+  const handlePerspectiveSave = React.useCallback(async (input: { name: string; isDefault: boolean; applyToRoles: string[]; setRoleDefault: boolean; perspectiveId?: string | null; settings?: PerspectiveSettings }) => {
+    const normalizedRoles = Array.from(new Set(input.applyToRoles))
+    await savePerspectiveMutation.mutateAsync({
+      name: input.name.trim(),
+      isDefault: input.isDefault,
+      applyToRoles: normalizedRoles,
+      setRoleDefault: normalizedRoles.length > 0 ? input.setRoleDefault : false,
+      perspectiveId: input.perspectiveId !== undefined ? input.perspectiveId : activePersonalPerspectiveId,
+      settings: input.settings,
+    })
+  }, [savePerspectiveMutation, activePersonalPerspectiveId])
+
+  const defaultColumnOrderIds = React.useMemo(
+    () => table.getAllLeafColumns().map((column) => column.id),
+    [table, mergedColumns],
+  )
+  // Nothing consumes the dirty state unless the host asked for it, and computing
+  // it is not free: `getCurrentSettings` serializes the advanced-filter tree and
+  // the diff runs six `stableStringify` passes. Tables that never opt in — every
+  // existing call site — must keep paying exactly what they paid before.
+  const viewApiRequested = Boolean(onColumnsDirtyChange || viewApiRef || showSaveViewButton)
+  const currentViewSettings = React.useMemo(
+    () => (viewApiRequested ? getCurrentSettings() : EMPTY_VIEW_SETTINGS),
+    [viewApiRequested, getCurrentSettings],
+  )
+
+  const viewDirtyState = React.useMemo<DataTableViewDirtyState>(() => {
+    // Before the baseline is established there is nothing to compare against, so
+    // the view is reported clean rather than flashing a spurious change. The
+    // active view id is still reported — a host rendering "Viewing: {name}" from
+    // this state should not see a null while only the baseline is pending.
+    if (!viewApiRequested || !perspectiveEnabled || !viewBaselineInitializedRef.current) {
+      return {
+        isDirty: false,
+        changedKeys: [],
+        changedCount: 0,
+        activePerspectiveId,
+        canSaveToActiveView: false,
+      }
+    }
+    const changedKeys = diffPerspectiveSettings(viewBaseline, currentViewSettings, {
+      defaultColumnOrder: defaultColumnOrderIds,
+    })
+    return {
+      isDirty: changedKeys.length > 0,
+      changedKeys,
+      changedCount: changedKeys.length,
+      activePerspectiveId,
+      canSaveToActiveView: Boolean(activePersonalPerspectiveId),
+    }
+  }, [
+    viewApiRequested,
+    perspectiveEnabled,
+    viewBaseline,
+    currentViewSettings,
+    defaultColumnOrderIds,
+    activePerspectiveId,
+    activePersonalPerspectiveId,
+  ])
+
+  // A page can hand the table its own starting point — default sorting, a search
+  // term hydrated from the URL — none of which is a user change. Whatever the
+  // table settled on before anything was applied is the baseline; the snapshot
+  // restore in `applyPerspectiveSettings` runs in a layout effect and claims the
+  // baseline first when it has one, so this never overwrites a restored view.
+  React.useEffect(() => {
+    if (!viewApiRequested || !perspectiveEnabled || viewBaselineInitializedRef.current) return
+    setViewBaseline(currentViewSettings)
+  }, [viewApiRequested, perspectiveEnabled, currentViewSettings, setViewBaseline])
+
+  // Mirrored in a layout effect rather than during render: a render React throws
+  // away must not leave these mirrors holding values that were never committed.
+  // Layout timing keeps them current for the imperative handle below, which is
+  // itself established in a layout effect declared after this one.
+  const viewDirtyStateRef = React.useRef(viewDirtyState)
+  const onColumnsDirtyChangeRef = React.useRef(onColumnsDirtyChange)
+  React.useLayoutEffect(() => {
+    viewDirtyStateRef.current = viewDirtyState
+    onColumnsDirtyChangeRef.current = onColumnsDirtyChange
+  }, [viewDirtyState, onColumnsDirtyChange])
+  const lastDirtySignatureRef = React.useRef<string | null>(null)
+  React.useEffect(() => {
+    const notify = onColumnsDirtyChangeRef.current
+    if (!notify || !perspectiveEnabled) return
+    // Compared by value, not by object identity: a host that recreates the
+    // callback (or receives a fresh state object each render) must not be able
+    // to turn its own setState into a notification loop.
+    const signature = JSON.stringify([
+      viewDirtyState.isDirty,
+      viewDirtyState.changedKeys,
+      viewDirtyState.activePerspectiveId,
+      viewDirtyState.canSaveToActiveView,
+    ])
+    if (lastDirtySignatureRef.current === signature) return
+    lastDirtySignatureRef.current = signature
+    notify(viewDirtyState)
+  }, [viewDirtyState, perspectiveEnabled])
+
+  const saveCurrentView = React.useCallback(async (
+    input?: DataTableSaveViewInput,
+  ): Promise<DataTableSaveViewResult> => {
+    if (!perspectiveTableId) return { ok: false, reason: 'perspectives-disabled' }
+    // The permission check is a query: until it resolves, "may this user save a
+    // view" is unknown rather than false. Reporting `perspectives-disabled` here
+    // would have a host tell the user views are off when they are merely slow.
+    if (perspectivePermissions === undefined) return { ok: false, reason: 'not-ready' }
+    if (!canUsePerspectives) return { ok: false, reason: 'perspectives-disabled' }
+    const targetId = input?.perspectiveId !== undefined ? input.perspectiveId : activePersonalPerspectiveId
+    const existing = targetId
+      ? perspectiveData?.perspectives.find((item) => item.id === targetId) ?? null
+      : null
+    const name = (input?.name ?? existing?.name ?? '').trim()
+    // Creating a view needs a name, and this API deliberately does not invent
+    // one — the host either supplies it or sends the user to the sidebar.
+    if (!name) return { ok: false, reason: 'name-required' }
+    try {
+      const saved = await savePerspectiveMutation.mutateAsync({
+        name,
+        isDefault: input?.isDefault ?? existing?.isDefault ?? false,
+        applyToRoles: [],
+        setRoleDefault: false,
+        perspectiveId: targetId ?? null,
+      })
+      return { ok: true, perspectiveId: saved?.perspective?.id ?? null }
+    } catch (error) {
+      return { ok: false, reason: 'failed', error }
+    }
+  }, [
+    canUsePerspectives,
+    perspectivePermissions,
+    perspectiveTableId,
+    activePersonalPerspectiveId,
+    perspectiveData,
+    savePerspectiveMutation,
+  ])
+
+  React.useImperativeHandle(viewApiRef, () => ({
+    getCurrentSettings: () => getCurrentSettings(),
+    getDirtyState: () => viewDirtyStateRef.current,
+    saveCurrentView,
+    openViewsSidebar: () => setPerspectiveOpen(true),
+  }), [getCurrentSettings, saveCurrentView])
+
+  const handleSaveViewClick = React.useCallback(async () => {
+    const result = await saveCurrentView()
+    if (result.ok) {
+      flash(t('ui.dataTable.saveView.success', 'View saved'), 'success')
+      return
+    }
+    if (result.reason === 'name-required') {
+      // No personal view is active, so the save needs a name: hand the user the
+      // existing sidebar flow rather than inventing one.
+      setPerspectiveOpen(true)
+      return
+    }
+    if (result.reason === 'failed') {
+      if (surfaceRecordConflict(result.error, t)) return
+      flash(t('ui.dataTable.saveView.error', 'Failed to save view'), 'error')
+    }
+  }, [saveCurrentView, t])
+
+  const handlePerspectiveDelete = React.useCallback(async (perspectiveId: string) => {
+    await deletePerspectiveMutation.mutateAsync({ perspectiveId })
+  }, [deletePerspectiveMutation])
+
+  const handleClearRole = React.useCallback(async (perspective: RolePerspectiveDto) => {
+    const expectedUpdatedAtByPerspectiveId = Object.fromEntries(
+      rolePerspectivesForLocking
+        .filter((item) => item.roleId === perspective.roleId && item.updatedAt)
+        .map((item) => [item.id, item.updatedAt as string]),
+    )
+    await clearRoleMutation.mutateAsync({
+      roleId: perspective.roleId,
+      updatedAt: perspective.updatedAt ?? null,
+      expectedUpdatedAtByPerspectiveId,
+    })
+  }, [clearRoleMutation, rolePerspectivesForLocking])
+
+  const handleColumnChooserToggle = React.useCallback((key: string) => {
+    const column = table.getColumn(key)
+    if (!column) return
+    const nextVisible = !column.getIsVisible()
+    if (nextVisible) {
+      setColumnOrder((prev) => (prev.includes(key) ? prev : [...prev, key]))
+    }
+    setColumnVisibility((prev) => {
+      const next = { ...prev }
+      if (nextVisible) delete next[key]
+      else next[key] = false
+      return next
+    })
+    column.toggleVisibility(nextVisible)
+  }, [table])
+
+  const handleColumnChooserReorder = React.useCallback((newOrder: string[]) => {
+    setColumnOrder(newOrder)
+    table.setColumnOrder(newOrder)
+  }, [table])
+
+  const dndSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
+  const enableHeaderDnd = Boolean(columnChooser)
+  // Column resize is offered only where widths can persist (#1835): tables with a
+  // perspective config. Portal / settings / sub-tables that opt out of perspectives
+  // get no handle, so resizing never silently resets on reload for them.
+  const enableColumnResize = perspectiveEnabled
+  const stableDndContextId = React.useMemo(
+    () => sanitizeDndContextId(
+      extensionTableId
+        ?? perspectiveTableId
+        ?? resolvedReplacementHandle
+        ?? (typeof title === 'string' && title.trim().length > 0 ? title : 'data-table'),
+    ),
+    [extensionTableId, perspectiveTableId, resolvedReplacementHandle, title],
+  )
+  const headerColumnIds = React.useMemo(() => {
+    if (!enableHeaderDnd) return []
+    return table.getHeaderGroups().flatMap((hg) => hg.headers.map((h) => h.id))
+  }, [enableHeaderDnd, table, columnOrder])
+
+  const handleHeaderDragEnd = React.useCallback((event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const currentIds = columnOrder.length ? columnOrder : table.getAllLeafColumns().map((c) => c.id)
+    const oldIdx = currentIds.indexOf(String(active.id))
+    const newIdx = currentIds.indexOf(String(over.id))
+    if (oldIdx === -1 || newIdx === -1) return
+    const next = [...currentIds]
+    const [moved] = next.splice(oldIdx, 1)
+    next.splice(newIdx, 0, moved)
+    setColumnOrder(next)
+    table.setColumnOrder(next)
+  }, [columnOrder, table])
+
+  const perspectiveApiWarning = perspectiveApiMissing && canUsePerspectives
+    ? t('ui.dataTable.perspectives.warning.apiUnavailable', 'Perspectives API is not available yet. Run `yarn generate` to regenerate module routes, then restart the server.')
+    : null
+
+  const loadStartRef = React.useRef<number | null>(null)
+  const [measuredDurationMs, setMeasuredDurationMs] = React.useState<number | null>(null)
+
+  React.useEffect(() => {
+    if (typeof isLoading !== 'boolean') return
+    if (isLoading) {
+      if (loadStartRef.current === null) {
+        const now = typeof performance !== 'undefined' && typeof performance.now === 'function'
+          ? performance.now()
+          : Date.now()
+        loadStartRef.current = now
+      }
+      return
+    }
+    if (loadStartRef.current !== null) {
+      const now = typeof performance !== 'undefined' && typeof performance.now === 'function'
+        ? performance.now()
+        : Date.now()
+      setMeasuredDurationMs(now - loadStartRef.current)
+      loadStartRef.current = null
+    }
+  }, [isLoading])
+
+  React.useLayoutEffect(() => {
+    if (!canUsePerspectives) return
+    if (!perspectiveTableId) return
+    if (
+      (initialSnapshotRef.current || initialPerspectiveAppliedRef.current)
+      && serverReconciledTableRef.current === perspectiveTableId
+    ) return
+
+    const source = perspectiveData ?? perspectiveConfig?.initialState?.response
+    if (!source) return
+
+    let orphanedSnapshotDropped = false
+    const currentFilters = pendingPerspectiveFiltersRef.current
+      ? pendingPerspectiveFiltersRef.current.filters
+      : getCurrentSettings().filters
+    const restoredFilterStillActive = hydratedAdvancedFilterRestoredRef.current && diffPerspectiveSettings(
+      { filters: currentFilters },
+      { filters: hydratedSnapshotRef.current?.settings.filters },
+    ).length === 0
+    const preserveAdvancedFilter = !!advancedFilter?.onApplyTree && !restoredFilterStillActive
+
+    const tryResolve = (id: string | null | undefined): PerspectiveDto | RolePerspectiveDto | undefined => {
+      if (!id) return undefined
+      return source.perspectives.find((p) => p.id === id)
+        ?? source.rolePerspectives.find((p) => p.id === id)
+    }
+
+    // Whatever was painted at mount — the server's initial settings or the
+    // localStorage snapshot — is a paint-flash optimisation, not a source of
+    // truth. Reconcile it against the server response exactly once per table:
+    // the guard used to be permanent, which pinned a browser to a stale layout
+    // (or to a perspective deleted elsewhere) for the lifetime of its
+    // localStorage entry (#5113). One-shot matters as much as reconciling at
+    // all — a later refetch must not clobber edits made after mount.
+    if (initialSnapshotRef.current || initialPerspectiveAppliedRef.current) {
+      serverReconciledTableRef.current = perspectiveTableId
+      // A snapshot only speaks for the active perspective: once the user has
+      // picked a different view, reconciling the mount-time one would undo that
+      // choice, so fall back to identity-only resolution.
+      const hydrated = hydratedSnapshotRef.current
+      const snapshot = hydrated && (!activePerspectiveId || activePerspectiveId === hydrated.perspectiveId)
+        ? hydrated
+        : null
+      const localId = snapshot?.perspectiveId ?? activePerspectiveId
+      // "No view" and the widths-only snapshot (#1835) carry no perspective;
+      // resolving a server default over them would override an explicit choice.
+      if (!localId) return
+      const local = tryResolve(localId)
+      if (local) {
+        const serverUpdatedAt = local.updatedAt ? Date.parse(local.updatedAt) : NaN
+        const serverIsNewer = snapshot != null
+          && Number.isFinite(serverUpdatedAt)
+          && serverUpdatedAt > snapshot.updatedAt
+        // `snapshot.updatedAt` is a browser clock reading and `local.updatedAt`
+        // a database one, so clock skew alone must never re-apply a view — the
+        // settings have to differ materially too.
+        const settingsDiffer = snapshot != null && diffPerspectiveSettings(
+          sanitizePerspectiveSettings(local.settings) ?? {},
+          sanitizePerspectiveSettings(snapshot.settings) ?? {},
+        ).length > 0
+        if (serverIsNewer && settingsDiffer) {
+          // Reconciliation is a background correction the user did not ask for,
+          // so it follows the mount-time restore rather than an explicit view
+          // selection: on a host that owns filter persistence through the URL,
+          // it must not overwrite the filter currently on screen.
+          applyPerspectiveSettings(local.settings, local.id, {
+            preserveAdvancedFilter,
+          })
+          initialPerspectiveAppliedRef.current = true
+        }
+        return
+      }
+      // The snapshot points at a perspective that no longer exists — deleted,
+      // unshared, or reassigned in another session. Drop it and fall through to
+      // normal resolution instead of staying pinned to orphaned settings.
+      writePerspectiveSnapshot(perspectiveTableId, null)
+      initialSnapshotRef.current = null
+      hydratedSnapshotRef.current = null
+      initialPerspectiveAppliedRef.current = false
+      orphanedSnapshotDropped = true
+    }
+
+    let target: PerspectiveDto | RolePerspectiveDto | undefined
+    if (activePerspectiveId) {
+      target = tryResolve(activePerspectiveId)
+    }
+    const cookieId = readPerspectiveCookie(perspectiveTableId)
+    if (!target && cookieId) target = tryResolve(cookieId)
+    if (!target && source.defaultPerspectiveId) {
+      target = tryResolve(source.defaultPerspectiveId)
+    }
+    if (!target) {
+      target = source.rolePerspectives.find((p) => p.isDefault)
+    }
+    if (!target) {
+      target = source.perspectives[0]
+    }
+    if (target) {
+      // Falling through to normal resolution after `orphanedSnapshotDropped`
+      // is the same background correction handled below when nothing is left
+      // at all — the active view was deleted, unshared, or reassigned in
+      // another session — so it must not clobber a host-owned advanced filter
+      // either. A fresh mount with no snapshot keeps applying normally.
+      applyPerspectiveSettings(
+        target.settings,
+        target.id,
+        orphanedSnapshotDropped ? { preserveAdvancedFilter } : undefined,
+      )
+    } else if (orphanedSnapshotDropped) {
+      // Nothing is left to fall back to — the deleted view was the only one. The
+      // orphaned columns/sorting/search are still painted from the mount-time
+      // restore and `activePerspectiveId` still names a row the server no longer
+      // has, so clear explicitly rather than leaving a dead view on screen until
+      // the next reload (#5113). Like the reconciling apply above, this is a
+      // background correction the user never asked for — the view was deleted in
+      // another session — so it must not clear the filter a host that owns
+      // filter persistence through the URL currently has on screen.
+      applyPerspectiveSettings({}, null, {
+        preserveAdvancedFilter,
+      })
+    }
+    initialPerspectiveAppliedRef.current = true
+  }, [canUsePerspectives, perspectiveData, perspectiveTableId, perspectiveConfig, applyPerspectiveSettings, activePerspectiveId, advancedFilter?.onApplyTree, getCurrentSettings])
+
+  const scrollTableIntoView = React.useCallback(() => {
+    const rect = containerRef.current?.getBoundingClientRect()
+    if (!rect || rect.top >= 0) return
+    const behavior = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth'
+    containerRef.current?.scrollIntoView({ behavior, block: 'start' })
+  }, [])
+
+  const paginationNode = React.useMemo(() => {
+    if (!pagination || pagination.total === 0) return null
+
+    const { page, totalPages, onPageChange, durationMs, cacheStatus } = pagination
+    const totalIsCapped = pagination.totalIsCapped === true
+    // Short-page detection: a full current page means a next page may exist,
+    // even past the capped floor. `data` holds exactly the rendered page's rows.
+    const pageIsFull = data.length >= pagination.pageSize
+    const startItem = (page - 1) * pagination.pageSize + 1
+    // Past a capped floor, `total` can sit below the window — derive the end
+    // of the range from the rows actually shown instead.
+    const endItem = totalIsCapped
+      ? Math.max(startItem, startItem + data.length - 1)
+      : Math.min(page * pagination.pageSize, pagination.total)
+    // Short-page detection false-positives when the true row count is an exact
+    // multiple of `pageSize`: Next stays enabled on the last full page and the
+    // page after it comes back empty. `total` is the cap rather than 0, so the
+    // pager still renders — claim no range rather than "X to X" over no rows.
+    const pageIsEmpty = data.length === 0
+    const effectiveDuration = (typeof durationMs === 'number' && Number.isFinite(durationMs) && durationMs >= 0)
+      ? durationMs
+      : measuredDurationMs ?? undefined
+    const durationLabel = showQueryTime ? formatDurationLabel(effectiveDuration) : ''
+    const normalizedCacheStatus = cacheStatus === 'hit' || cacheStatus === 'miss' ? cacheStatus : null
+    const cacheBadge = normalizedCacheStatus ? (
+      <span
+        className="inline-flex items-center justify-center"
+        aria-label={t('ui.dataTable.pagination.cache.ariaLabel', 'Cache {status}', { status: normalizedCacheStatus.toUpperCase() })}
+        title={t('ui.dataTable.pagination.cache.title', 'Cache {status}', { status: normalizedCacheStatus.toUpperCase() })}
+      >
+        <Circle
+          className={`h-3.5 w-3.5 ${normalizedCacheStatus === 'hit' ? 'text-status-success-icon' : 'text-status-warning-icon'}`}
+          strokeWidth={3}
+        />
+        <span className="sr-only">{t('ui.dataTable.pagination.cache.srOnly', 'Cache {status}', { status: normalizedCacheStatus.toUpperCase() })}</span>
+      </span>
+    ) : null
+
+    const pageSizeOptions = Array.isArray(pagination.pageSizeOptions)
+      ? Array.from(new Set(
+          [pagination.pageSize, ...pagination.pageSizeOptions]
+            .filter((size): size is number => typeof size === 'number' && Number.isFinite(size) && size > 0)
+            .map((size) => Math.max(1, Math.floor(size))),
+        )).sort((left, right) => left - right)
+      : [10, 25, 50, 100]
+
+    return (
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 px-4 py-3 border-t">
+        {cacheBadge ? (
+          <div className="flex items-center justify-center sm:justify-start gap-2 text-sm text-muted-foreground">
+            {cacheBadge}
+          </div>
+        ) : null}
+        <Pagination
+          page={page}
+          pageSize={pagination.pageSize}
+          total={pagination.total}
+          totalIsCapped={totalIsCapped}
+          hasNextPage={totalIsCapped ? pageIsFull : undefined}
+          onPageChange={(next) => { onPageChange(next); scrollTableIntoView() }}
+          onPageSizeChange={pagination.onPageSizeChange ? (next) => {
+            pagination.onPageSizeChange!(next)
+            scrollTableIntoView()
+          } : undefined}
+          pageSizeOptions={pageSizeOptions}
+          formatPageInfo={() => {
+            if (totalIsCapped) {
+              if (pageIsEmpty) {
+                return t('ui.dataTable.pagination.resultsCappedNoRows', 'No further results past {total}', { total: pagination.total })
+              }
+              return durationLabel
+                ? t('ui.dataTable.pagination.resultsCappedWithDuration', 'Showing {start} to {end} of {total}+ results in {duration}', { start: startItem, end: endItem, total: pagination.total, duration: durationLabel })
+                : t('ui.dataTable.pagination.resultsCapped', 'Showing {start} to {end} of {total}+ results', { start: startItem, end: endItem, total: pagination.total })
+            }
+            return durationLabel
+              ? t('ui.dataTable.pagination.resultsWithDuration', 'Showing {start} to {end} of {total} results in {duration}', { start: startItem, end: endItem, total: pagination.total, duration: durationLabel })
+              : t('ui.dataTable.pagination.results', 'Showing {start} to {end} of {total} results', { start: startItem, end: endItem, total: pagination.total })
+          }}
+          formatPageSizeLabel={(size) =>
+            `${size} ${t('ui.dataTable.pagination.perPage', 'per page')}`
+          }
+          aria-label={t('ui.dataTable.pagination.navAriaLabel', 'Table pagination')}
+          className="flex-1"
+        />
+      </div>
+    )
+  }, [pagination, data, showQueryTime, measuredDurationMs, scrollTableIntoView, t])
+
+  // Auto filters: fetch custom field defs when requested
+  const resolvedEntityIds = React.useMemo(() => {
+    if (Array.isArray(entityIds) && entityIds.length) {
+      const dedup = new Set<string>()
+      const list: string[] = []
+      entityIds.forEach((id) => {
+        const trimmed = typeof id === 'string' ? id.trim() : ''
+        if (!trimmed || dedup.has(trimmed)) return
+        dedup.add(trimmed)
+        list.push(trimmed)
+      })
+      return list
+    }
+    if (typeof entityId === 'string' && entityId.trim().length > 0) {
+      return [entityId.trim()]
+    }
+    return []
+  }, [entityId, entityIds])
+  const entityKey = React.useMemo(() => (resolvedEntityIds.length ? resolvedEntityIds.join('|') : null), [resolvedEntityIds])
+  const customFieldFilterExtrasSignature = React.useMemo(
+    () => JSON.stringify(customFieldFilterKeyExtras ?? []),
+    [customFieldFilterKeyExtras]
+  )
+
+  const [cfFilterFieldsetsByEntity, setCfFilterFieldsetsByEntity] = React.useState<Record<string, CustomFieldsetDto[]>>({})
+  const [cfFilterFieldsetSelection, setCfFilterFieldsetSelection] = React.useState<Record<string, string | null>>({})
+
+  React.useEffect(() => {
+    if (!entityKey) {
+      setCfFilterFieldsetsByEntity({})
+      setCfFilterFieldsetSelection({})
+      return
+    }
+    let cancelled = false
+    const loadFieldsets = async () => {
+      try {
+        const payload = await fetchCustomFieldDefinitionsPayload(resolvedEntityIds)
+        if (cancelled) return
+        const fieldsets = payload.fieldsetsByEntity ?? {}
+        setCfFilterFieldsetsByEntity(fieldsets)
+        const selectionChanges: Array<[string, string | null]> = []
+        let shouldNotify = false
+        setCfFilterFieldsetSelection((prev) => {
+          const next: Record<string, string | null> = {}
+          let changed = false
+          resolvedEntityIds.forEach((entityId) => {
+            const list = fieldsets[entityId] ?? []
+            if (!list.length) {
+              if (prev[entityId] !== undefined) changed = true
+              return
+            }
+            const existing = prev[entityId]
+            const fallback = list[0]?.code ?? null
+            const isValidExisting = existing ? list.some((entry) => entry.code === existing) : false
+            const value = isValidExisting ? existing : fallback ?? null
+            next[entityId] = value
+            if (value !== existing) {
+              changed = true
+              selectionChanges.push([entityId, value])
+            }
+          })
+          if (Object.keys(prev).length !== Object.keys(next).length) changed = true
+          if (changed) {
+            shouldNotify = true
+            return next
+          }
+          return prev
+        })
+        if (shouldNotify && selectionChanges.length && onCustomFieldFilterFieldsetChange) {
+          selectionChanges.forEach(([entityId, value]) => onCustomFieldFilterFieldsetChange(value, entityId))
+        }
+      } catch {
+        if (!cancelled) {
+          setCfFilterFieldsetsByEntity({})
+          setCfFilterFieldsetSelection({})
+        }
+      }
+    }
+    loadFieldsets()
+    return () => {
+      cancelled = true
+    }
+  }, [customFieldFilterExtrasSignature, entityKey, onCustomFieldFilterFieldsetChange, resolvedEntityIds])
+
+  const supportsCustomFieldFilterFieldsets =
+    resolvedEntityIds.length === 1 &&
+    (cfFilterFieldsetsByEntity[resolvedEntityIds[0]]?.length ?? 0) > 0
+  const activeCustomFieldFilterFieldset = supportsCustomFieldFilterFieldsets
+    ? cfFilterFieldsetSelection[resolvedEntityIds[0]] ?? cfFilterFieldsetsByEntity[resolvedEntityIds[0]]?.[0]?.code ?? null
+    : null
+
+  const handleCustomFieldFilterFieldsetChange = React.useCallback(
+    (value: string) => {
+      if (!supportsCustomFieldFilterFieldsets) return
+      const entityId = resolvedEntityIds[0]
+      const nextValue = value || null
+      setCfFilterFieldsetSelection((prev) => {
+        if (prev[entityId] === nextValue) return prev
+        return { ...prev, [entityId]: nextValue }
+      })
+      if (onCustomFieldFilterFieldsetChange) {
+        onCustomFieldFilterFieldsetChange(nextValue, entityId)
+      }
+    },
+    [onCustomFieldFilterFieldsetChange, resolvedEntityIds, supportsCustomFieldFilterFieldsets],
+  )
+
+  const { data: cfFilters = [] } = useCustomFieldFilterDefs(entityKey ? resolvedEntityIds : [], {
+    enabled: !!entityKey,
+    fieldset: supportsCustomFieldFilterFieldsets ? activeCustomFieldFilterFieldset ?? undefined : undefined,
+    keyExtras: customFieldFilterKeyExtras,
+  })
+
+  const isAutoAdvancedFilter = Boolean(advancedFilter?.auto)
+  const isAutoColumnChooser = Boolean(columnChooser?.auto)
+  const needsAutoDiscovery = isAutoAdvancedFilter || isAutoColumnChooser
+  const { data: autoDiscoveryDefs = [] } = useCustomFieldDefs(
+    needsAutoDiscovery && entityKey ? resolvedEntityIds : [],
+    { enabled: needsAutoDiscovery && !!entityKey },
+  )
+  const autoDiscovered = useAutoDiscoveredFields({
+    columns: needsAutoDiscovery ? mergedColumns : [],
+    customFieldDefs: needsAutoDiscovery ? autoDiscoveryDefs : [],
+  })
+  const resolvedAdvancedFilterFields = isAutoAdvancedFilter
+    ? autoDiscovered.advancedFilterFields
+    : advancedFilter?.fields ?? []
+
+  const advancedFilterRuleCount = React.useMemo<number>(() => {
+    if (!advancedFilter) return 0
+    function countRules(group: AdvancedFilterTree['root']): number {
+      let n = 0
+      for (const c of group.children) {
+        if (c.type === 'rule') n += 1
+        else n += countRules(c)
+      }
+      return n
+    }
+    return countRules(advancedFilter.value.root)
+  }, [advancedFilter])
+  const resolvedColumnChooserFields = isAutoColumnChooser
+    ? autoDiscovered.columnChooserFields
+    : columnChooser?.availableColumns ?? []
+
+  const effectiveColumnChooserFields = React.useMemo<ColumnChooserField[]>(() => {
+    if (resolvedColumnChooserFields.length > 0) return resolvedColumnChooserFields
+    return table.getAllLeafColumns().map((col) => ({
+      key: col.id,
+      label: resolveColumnLabel(col),
+      group: t('ui.columnChooser.defaultGroup', 'Columns'),
+      alwaysVisible: !col.getCanHide(),
+    }))
+  }, [resolvedColumnChooserFields, table, resolveColumnLabel, columns, t])
+
+  const visibleColumnKeys = React.useMemo(
+    () => table.getAllLeafColumns().filter((c) => c.getIsVisible()).map((c) => c.id),
+    [table, columnVisibility, columns],
+  )
+
+  const selectedRows = React.useMemo<T[]>(() => {
+    if (!hasInjectedBulkActions) return []
+    return table.getSelectedRowModel().rows.map((row) => row.original as T)
+  }, [hasInjectedBulkActions, table, rowSelection])
+  const trackedBulkProgressJobIdsRef = React.useRef(new Set<string>())
+
+  const clearTrackedBulkProgressJob = React.useCallback((jobId: string | null): boolean => {
+    if (!jobId) return false
+    return trackedBulkProgressJobIdsRef.current.delete(jobId)
+  }, [])
+
+  const refreshAfterBulkProgressCompletion = React.useCallback(() => {
+    if (refreshButton?.onRefresh) {
+      refreshButton.onRefresh()
+      return
+    }
+    scheduleRouterRefresh(router)
+  }, [refreshButton, router])
+
+  useAppEvent(
+    'progress.job.completed',
+    (event) => {
+      const payload = event.payload as { jobId?: unknown } | null | undefined
+      const jobId = typeof payload?.jobId === 'string' ? payload.jobId : null
+      if (!clearTrackedBulkProgressJob(jobId)) return
+      refreshAfterBulkProgressCompletion()
+    },
+    [clearTrackedBulkProgressJob, refreshAfterBulkProgressCompletion],
+  )
+
+  useAppEvent(
+    'progress.job.failed',
+    (event) => {
+      const payload = event.payload as { jobId?: unknown } | null | undefined
+      const jobId = typeof payload?.jobId === 'string' ? payload.jobId : null
+      clearTrackedBulkProgressJob(jobId)
+    },
+    [clearTrackedBulkProgressJob],
+  )
+
+  useAppEvent(
+    'progress.job.cancelled',
+    (event) => {
+      const payload = event.payload as { jobId?: unknown } | null | undefined
+      const jobId = typeof payload?.jobId === 'string' ? payload.jobId : null
+      clearTrackedBulkProgressJob(jobId)
+    },
+    [clearTrackedBulkProgressJob],
+  )
+
+  const runBulkAction = React.useCallback(
+    async (action: InjectionBulkActionDefinition) => {
+      if (action.requiresSelection !== false && !selectedRows.length) return
+      try {
+        const result = await action.onExecute(selectedRows, {
+          tableId: extensionTableId,
+          navigate: (href: string) => router.push(href),
+          confirm,
+          refresh: refreshButton?.onRefresh,
+          injectionContext: resolvedInjectionContext,
+          translate: t,
+        })
+        const normalized = result as BulkActionExecuteResult | void
+        if (normalized && normalized.ok === false) {
+          if (normalized.message === undefined) return
+          flash(
+            normalized.message
+              ?? t('ui.dataTable.bulkAction.error', 'Bulk action failed.'),
+            'error',
+          )
+          return
+        }
+        if (normalized?.progressJobId) {
+          trackedBulkProgressJobIdsRef.current.add(normalized.progressJobId)
+          setRowSelection({})
+          flash(
+            normalized.message
+              ?? t('ui.dataTable.bulkAction.started', 'Bulk action started. Track progress in the top bar.'),
+            'success',
+          )
+          return
+        }
+        flash(
+          normalized?.message
+            ?? t('ui.dataTable.bulkAction.success', 'Bulk action completed.'),
+          'success',
+        )
+        setRowSelection({})
+        if (refreshButton?.onRefresh) {
+          refreshButton.onRefresh()
+        } else {
+          scheduleRouterRefresh(router)
+        }
+      } catch (error) {
+        flash(
+          error instanceof Error
+            ? error.message
+            : t('ui.dataTable.bulkAction.error', 'Bulk action failed.'),
+          'error',
+        )
+      }
+    },
+    [confirm, extensionTableId, refreshButton, resolvedInjectionContext, router, selectedRows, t],
+  )
+
+  /**
+   * Host-owned bulk actions (the `bulkActions` prop) used to DISCARD whatever
+   * they returned. An action that queued server-side work and returned
+   * `{ ok: true, progressJobId }` — the contract `progress/AGENTS.md` requires
+   * — was answered with silence: no toast, no top-bar tracking, and a rejected
+   * promise surfaced as an unhandled rejection instead of an error flash.
+   *
+   * The `void` / `true` / `false` returns keep their exact previous behaviour,
+   * because the callers that use them (customers, messages) already flash from
+   * their own `runBulkMutation` and a second toast would be a regression. Only
+   * a RESULT OBJECT is now acted on.
+   */
+  const runPropBulkAction = React.useCallback(
+    async (action: BulkAction<T>) => {
+      try {
+        const result = await action.onExecute(selectedRows)
+        if (result === false) return
+        if (!result || typeof result !== 'object') {
+          setRowSelection({})
+          return
+        }
+
+        if (result.ok === false) {
+          if (result.message === undefined) return
+          flash(result.message, 'error')
+          return
+        }
+
+        setRowSelection({})
+        if (result.progressJobId) {
+          trackedBulkProgressJobIdsRef.current.add(result.progressJobId)
+          flash(
+            result.message
+              ?? t('ui.dataTable.bulkAction.started', 'Bulk action started. Track progress in the top bar.'),
+            'success',
+          )
+          return
+        }
+        flash(
+          result.message ?? t('ui.dataTable.bulkAction.success', 'Bulk action completed.'),
+          'success',
+        )
+        if (refreshButton?.onRefresh) {
+          refreshButton.onRefresh()
+        } else {
+          scheduleRouterRefresh(router)
+        }
+      } catch (error) {
+        flash(
+          error instanceof Error ? error.message : t('ui.dataTable.bulkAction.error', 'Bulk action failed.'),
+          'error',
+        )
+      }
+    },
+    [refreshButton, router, selectedRows, t],
+  )
+
+  const builtToolbar = React.useMemo(() => {
+    if (toolbar) return toolbar
+    const anySearch = onSearchChange != null
+    // When the host wires the V2 advanced-filter popover externally, suppress the
+    // FilterBar's own auto-discovered filter trigger. The V2 popover is the
+    // single filter UI; surfacing the legacy FilterOverlay here would show two
+    // filter triggers side-by-side and confuse the user.
+    const suppressFilterBarFilters = !!(advancedFilter && advancedFilter.externalPopover)
+    const effectiveBaseFilters = suppressFilterBarFilters ? [] : baseFilters
+    const effectiveCfFilters = suppressFilterBarFilters ? [] : cfFilters
+    const effectiveInjectedFilters = suppressFilterBarFilters ? [] : injectedFilters
+    const anyFilters = (effectiveBaseFilters && effectiveBaseFilters.length > 0) || (effectiveCfFilters && effectiveCfFilters.length > 0) || effectiveInjectedFilters.length > 0
+    const hasBulkButtons = hasInjectedBulkActions || hasPropBulkActions
+    const hasAdvancedFilterButton = Boolean(advancedFilter)
+    const hasPerspectiveButton = canUsePerspectives
+    if (!anySearch && !anyFilters && !hasBulkButtons && !hasAdvancedFilterButton && !hasPerspectiveButton) return null
+    // Merge base filters with CF filters, preferring base definitions when ids collide
+    const baseList = effectiveBaseFilters || []
+    const existing = new Set(baseList.map((f) => f.id))
+    const cfOnly = (effectiveCfFilters || []).filter((f) => !existing.has(f.id))
+    const injectedOnly = effectiveInjectedFilters.filter((f) => !existing.has(f.id) && !cfOnly.some((cf) => cf.id === f.id))
+    const combined: FilterDef[] = [...baseList, ...cfOnly, ...injectedOnly]
+    const advancedFilterButton = advancedFilter ? (
+      <Button
+        ref={advancedFilter.triggerRef}
+        type="button"
+        variant={advancedFilterRuleCount > 0 ? 'default' : 'outline'}
+        size="default"
+        className={advancedFilterRuleCount > 0 ? 'bg-foreground text-background hover:bg-foreground/90' : ''}
+        onClick={() => {
+          if (advancedFilter.externalPopover) {
+            advancedFilter.onTriggerClick?.()
+            return
+          }
+          const opening = !isAdvancedFilterOpen
+          if (opening && advancedFilterRuleCount === 0) {
+            const defaultField = resolvedAdvancedFilterFields[0]
+            const seeded = treeReducer(advancedFilter.value, {
+              type: 'addRule',
+              groupId: advancedFilter.value.root.id,
+              defaultField: defaultField?.key,
+              defaultOperator: defaultField ? getDefaultOperator(defaultField.type) : undefined,
+            })
+            advancedFilter.onChange(seeded)
+          }
+          setAdvancedFilterOpen(opening)
+        }}
+        aria-label={t('ui.advancedFilter.toggle', 'Advanced filters')}
+        title={t('ui.advancedFilter.toggle', 'Advanced filters')}
+        data-testid="advanced-filter-trigger"
+      >
+        <Filter className="h-4 w-4" />
+        <span>{t('ui.dataTable.filters', 'Filters')}</span>
+        {advancedFilterRuleCount > 0 ? (
+          <span className="ml-1 inline-flex h-5 min-w-5 px-1.5 items-center justify-center rounded-full bg-muted-foreground/30 text-background text-xs">
+            {advancedFilterRuleCount}
+          </span>
+        ) : null}
+      </Button>
+    ) : null
+    const perspectiveButton = canUsePerspectives ? (
+      <ViewSwitcherDropdown
+        activePerspectiveId={activePerspectiveId}
+        perspectives={perspectiveData?.perspectives ?? []}
+        rolePerspectives={perspectiveData?.rolePerspectives ?? []}
+        onClear={() => applyPerspectiveSettings({}, null)}
+        onActivate={handlePerspectiveActivate}
+        onOpenSidebar={() => setPerspectiveOpen(true)}
+        t={t}
+      />
+    ) : null
+    const fieldsetSelector =
+      supportsCustomFieldFilterFieldsets && resolvedEntityIds.length === 1
+        ? (
+          <div className="space-y-1">
+            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              {t('ui.dataTable.fieldset.label', 'Fieldset')}
+            </div>
+            <Select
+              value={activeCustomFieldFilterFieldset || undefined}
+              onValueChange={(value) => handleCustomFieldFilterFieldsetChange(value)}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(cfFilterFieldsetsByEntity[resolvedEntityIds[0]] ?? []).map((fieldset) => (
+                  <SelectItem key={fieldset.code} value={fieldset.code}>
+                    {fieldset.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )
+        : null
+    const perspectiveButtonLeading = perspectiveAlign === 'right' ? null : perspectiveButton
+    const saveViewButton = showSaveViewButton && canUsePerspectives ? (
+      <Button
+        type="button"
+        variant="outline"
+        size="default"
+        disabled={!viewDirtyState.isDirty || savePerspectiveMutation.isPending}
+        onClick={() => { void handleSaveViewClick() }}
+        title={viewDirtyState.isDirty
+          ? t('ui.dataTable.saveView.title', 'Save the current view')
+          : t('ui.dataTable.saveView.noChanges', 'No unsaved changes')}
+        data-testid="save-view-trigger"
+      >
+        {savePerspectiveMutation.isPending
+          ? <Loader2 className="h-4 w-4 animate-spin" />
+          : <Save className="h-4 w-4" />}
+        <span>{t('ui.dataTable.saveView.button', 'Save view')}</span>
+        {viewDirtyState.changedCount > 0 ? (
+          <span className="ml-1 inline-flex h-5 min-w-5 px-1.5 items-center justify-center rounded-full bg-muted-foreground/30 text-background text-xs">
+            {viewDirtyState.changedCount}
+          </span>
+        ) : null}
+      </Button>
+    ) : null
+    const leadingItems = advancedFilterButton || perspectiveButtonLeading || saveViewButton ? (
+      <div className="flex items-center gap-2">
+        {advancedFilterButton}
+        {perspectiveButtonLeading}
+        {saveViewButton}
+      </div>
+    ) : null
+    const trailingItems = hasBulkButtons ? (
+      <div className="flex flex-wrap items-center gap-2">
+        {selectedRows.length > 0 ? (
+          <span className="text-sm text-muted-foreground">
+            {t('ui.dataTable.bulkAction.selectedCount', '{count} selected', { count: selectedRows.length })}
+          </span>
+        ) : null}
+        {injectedBulkActions.map((action) => {
+          const label = t(action.label, action.label)
+          const iconNode = resolveInjectedIcon(action.icon, 'h-4 w-4 shrink-0')
+          return (
+            <Button
+              key={action.id}
+              type="button"
+              variant="outline"
+              title={label}
+              aria-label={label}
+              className={iconNode ? 'px-2 sm:px-3' : undefined}
+              disabled={action.requiresSelection !== false && selectedRows.length === 0}
+              onClick={() => void runBulkAction(action)}
+            >
+              {iconNode}
+              <span className={iconNode ? 'hidden sm:inline' : undefined}>{label}</span>
+            </Button>
+          )
+        })}
+        {selectedRows.length > 0 ? (bulkActionsProp ?? []).map((action) => {
+          const ActionIcon = action.icon
+          return (
+            <Button
+              key={action.id}
+              type="button"
+              variant={action.destructive ? 'destructive' : 'outline'}
+              onClick={() => void runPropBulkAction(action)}
+            >
+              {ActionIcon ? <ActionIcon className="h-4 w-4 shrink-0" /> : null}
+              <span>{action.label}</span>
+            </Button>
+          )
+        }) : null}
+      </div>
+    ) : null
+    const searchTrailingNode = searchTrailingInjectionSpotId && onSearchChange ? (
+      <InjectionSpot spotId={searchTrailingInjectionSpotId} context={resolvedInjectionContext} />
+    ) : null
+    // With the Views switcher moved to the right-hand actions area, the filter
+    // toolbar has nothing left to render — drop it so no empty band appears.
+    if (perspectiveAlign === 'right' && !anySearch && combined.length === 0 && !advancedFilterButton && !saveViewButton && !trailingItems && !fieldsetSelector) return null
+    return (
+      <FilterBar
+        searchValue={searchValue}
+        onSearchChange={onSearchChange}
+        searchPlaceholder={searchPlaceholder}
+        searchAlign={searchAlign}
+        filters={combined}
+        values={filterValues}
+        onApply={onFiltersApply}
+        onClear={onFiltersClear}
+        leadingItems={leadingItems}
+        trailingItems={trailingItems}
+        searchTrailing={searchTrailingNode}
+        filtersExtraContent={fieldsetSelector}
+        showActiveFilterChips={showActiveFilterChips}
+        layout={embedded ? 'inline' : 'stacked'}
+        className={embedded ? 'min-h-[2.25rem]' : undefined}
+      />
+    )
+  }, [
+    toolbar,
+    searchValue,
+    onSearchChange,
+    searchPlaceholder,
+    searchAlign,
+    baseFilters,
+    cfFilters,
+    injectedFilters,
+    filterValues,
+    onFiltersApply,
+    onFiltersClear,
+    showActiveFilterChips,
+    canUsePerspectives,
+    perspectiveAlign,
+    embedded,
+    supportsCustomFieldFilterFieldsets,
+    resolvedEntityIds,
+    activeCustomFieldFilterFieldset,
+    handleCustomFieldFilterFieldsetChange,
+    cfFilterFieldsetsByEntity,
+    hasInjectedBulkActions,
+    hasPropBulkActions,
+    injectedBulkActions,
+    bulkActionsProp,
+    selectedRows.length,
+    selectedRows,
+    runBulkAction,
+    runPropBulkAction,
+    searchTrailingInjectionSpotId,
+    resolvedInjectionContext,
+    advancedFilter,
+    advancedFilterRuleCount,
+    isAdvancedFilterOpen,
+    resolvedAdvancedFilterFields,
+    showSaveViewButton,
+    viewDirtyState,
+    savePerspectiveMutation.isPending,
+    handleSaveViewClick,
+    t,
+  ])
+
+  const hasTitle = title != null
+  const hasActions = actions !== undefined && actions !== null && actions !== false
+  const shouldReserveActionsSpace = actions === null || actions === false
+  const exportConfig = exporter === false ? null : exporter || null
+  const resolvedExportSections = React.useMemo(() => resolveExportSections(exportConfig, t), [exportConfig, t])
+  const hasExport = resolvedExportSections.length > 0
+  const refreshButtonConfig = refreshButton
+  const hasRefreshButton = Boolean(refreshButtonConfig)
+  const hasToolbar = builtToolbar != null
+  const hasToolbarInjection = Boolean(toolbarInjectionSpotId)
+  const shouldRenderActionsWrapper = hasActions || hasRefreshButton || shouldReserveActionsSpace || hasExport || hasToolbarInjection
+  const renderToolbarInline = embedded && hasToolbar
+  const shouldRenderToolbarBelow = hasToolbar && !renderToolbarInline
+  const shouldRenderHeader = hasTitle || renderToolbarInline || shouldRenderActionsWrapper || shouldRenderToolbarBelow
+  const containerClassName = embedded ? '' : 'rounded-lg border bg-card mx-1 sm:mx-2'
+  const headerWrapperClassName = embedded ? 'pb-3' : 'px-4 py-3 border-b'
+  // The header row wraps once the actions no longer fit beside the title (the
+  // title keeps a 12rem floor); before, the title collapsed to a sliver and
+  // the wrapped action buttons rendered over it on narrow layouts.
+  const headerContentClassName = 'flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between'
+  const toolbarWrapperClassName = embedded ? 'mt-2' : 'mt-3 pt-3 border-t'
+  // `isolate` keeps the z-index of pinned cells local to the table so they
+  // scroll beneath the sticky app top bar instead of over it.
+  const tableScrollWrapperClassName = embedded ? 'isolate' : 'isolate overflow-auto'
+  // Non-embedded tables sit on the `bg-card` container above; embedded ones
+  // render on whatever surface hosts them, so they keep the page background.
+  const stickySurfaceClass = embedded ? 'md:bg-background' : 'md:bg-card'
+  const stickyHeaderSurfaceClass = `${stickySurfaceClass} ${STICKY_HEADER_TINT_CLASS}`
+  const stickyBodySurfaceClass = `${stickySurfaceClass} ${STICKY_ROW_HOVER_TINT_CLASS}`
+
+  const virtualScrollRef = React.useRef<HTMLDivElement>(null)
+  // Measure the horizontal scroll viewport so the empty and error states can center within
+  // the visible area instead of within the (often wider, overflowing) table.
+  const [tableScrollEl, setTableScrollEl] = React.useState<HTMLDivElement | null>(null)
+  const [scrollViewportWidth, setScrollViewportWidth] = React.useState<number | null>(null)
+  const setTableScrollWrapperRef = React.useCallback((node: HTMLDivElement | null) => {
+    setTableScrollEl(node)
+    virtualScrollRef.current = node
+  }, [])
+  React.useEffect(() => {
+    if (!tableScrollEl || typeof ResizeObserver === 'undefined') return
+    const update = () => setScrollViewportWidth(tableScrollEl.clientWidth)
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(tableScrollEl)
+    return () => observer.disconnect()
+  }, [tableScrollEl])
+  React.useEffect(() => {
+    const header = tableScrollEl?.querySelector('thead')
+    if (!tableScrollEl || !header) return
+    const scrollAncestors: HTMLElement[] = []
+    let ancestor = header.parentElement
+    while (ancestor && ancestor !== document.body && ancestor !== document.documentElement) {
+      if (/(auto|scroll|hidden|overlay)/.test(getComputedStyle(ancestor).overflowY)) {
+        scrollAncestors.push(ancestor)
+      }
+      ancestor = ancestor.parentElement
+    }
+    const scrollParent = scrollAncestors[0]
+    let frame: number | undefined
+    const update = () => {
+      frame = undefined
+      const topbarHeight = Number.parseFloat(getComputedStyle(tableScrollEl).getPropertyValue('--topbar-height')) || 0
+      const visibleTop = scrollAncestors.reduce(
+        (top, element) => Math.max(top, element.getBoundingClientRect().top + element.clientTop),
+        topbarHeight,
+      )
+      const scrollParentTop = scrollParent
+        ? scrollParent.getBoundingClientRect().top + scrollParent.clientTop
+        : 0
+      const scrollParentPadding = scrollParent ? Number.parseFloat(getComputedStyle(scrollParent).paddingTop) || 0 : 0
+      header.style.top = `${Math.max(0, visibleTop - scrollParentTop) - scrollParentPadding}px`
+    }
+    const scheduleUpdate = () => {
+      if (frame === undefined) frame = requestAnimationFrame(update)
+    }
+    update()
+    window.addEventListener('scroll', scheduleUpdate, { capture: true, passive: true })
+    window.addEventListener('resize', scheduleUpdate)
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(scheduleUpdate)
+    if (containerRef.current) observer?.observe(containerRef.current)
+    scrollAncestors.forEach((element) => observer?.observe(element))
+    return () => {
+      window.removeEventListener('scroll', scheduleUpdate, true)
+      window.removeEventListener('resize', scheduleUpdate)
+      observer?.disconnect()
+      if (frame !== undefined) cancelAnimationFrame(frame)
+      header.style.removeProperty('top')
+    }
+  }, [tableScrollEl, isInitializingColumns])
+  const allRows = table.getRowModel().rows
+  // Hooks must run on every render regardless of props (Rules of Hooks). Call
+  // useVirtualizer unconditionally and keep it inert when virtualization is off
+  // (count 0, no scroll element → no observers, no measurement work), then
+  // derive the nullable handle from the prop. Mirrors the unconditional-hooks-
+  // first pattern in RowActions.
+  const rowVirtualizerInstance = useVirtualizer({
+    count: virtualized ? allRows.length : 0,
+    getScrollElement: () => (virtualized ? virtualScrollRef.current : null),
+    estimateSize: () => 48,
+    overscan: virtualizedOverscan,
+  })
+  const rowVirtualizer = virtualized ? rowVirtualizerInstance : null
+  const virtualMaxHeightStyle: React.CSSProperties | undefined = virtualized
+    ? {
+        maxHeight: typeof virtualizedMaxHeight === 'number'
+          ? `${virtualizedMaxHeight}px`
+          : virtualizedMaxHeight ?? 'calc(100vh - 300px)',
+        overflow: 'auto',
+      }
+    : undefined
+
+  const TitleHeading = titleHeadingLevel === 1 ? 'h1' : 'h2'
+  const titleContent = hasTitle ? (
+    <div className="text-base font-semibold leading-tight min-h-[2.25rem] flex items-center">
+      {typeof title === 'string' || titleHeadingLevel
+        ? <TitleHeading className="text-base font-semibold">{title}</TitleHeading>
+        : title}
+    </div>
+  ) : <div className="min-h-[2.25rem]" />
+
+  return (
+    <TooltipProvider delayDuration={300}>
+    <div ref={containerRef} className={containerClassName} data-component-handle={resolvedReplacementHandle}>
+      {shouldRenderHeader && (
+        <div className={headerWrapperClassName}>
+          {(hasTitle || shouldRenderActionsWrapper || renderToolbarInline) && (
+            <div className={headerContentClassName}>
+              <div className="flex-1 min-w-0 sm:basis-48">
+                {renderToolbarInline ? builtToolbar : titleContent}
+              </div>
+              {shouldRenderActionsWrapper ? (
+                <div className="flex flex-wrap items-center gap-2 min-h-[2.25rem] sm:ml-auto sm:justify-end">
+                  {refreshButtonConfig ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={refreshButtonConfig.onRefresh}
+                      aria-label={refreshButtonConfig.label}
+                      title={refreshButtonConfig.label}
+                      disabled={refreshButtonConfig.disabled || refreshButtonConfig.isRefreshing}
+                    >
+                      {refreshButtonConfig.isRefreshing ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-4 w-4" />
+                      )}
+                      <span className="sr-only">{refreshButtonConfig.label}</span>
+                    </Button>
+                  ) : null}
+                  {canUsePerspectives ? (
+                    perspectiveAlign === 'right' ? (
+                      <ViewSwitcherDropdown
+                        activePerspectiveId={activePerspectiveId}
+                        perspectives={perspectiveData?.perspectives ?? []}
+                        rolePerspectives={perspectiveData?.rolePerspectives ?? []}
+                        onClear={() => applyPerspectiveSettings({}, null)}
+                        onActivate={handlePerspectiveActivate}
+                        onOpenSidebar={() => setPerspectiveOpen(true)}
+                        t={t}
+                      />
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setPerspectiveOpen(true)}
+                        aria-label={t('ui.dataTable.customizeColumns.ariaLabel', 'Customize columns')}
+                        title={t('ui.dataTable.customizeColumns.title', 'Customize columns')}
+                      >
+                        <MoreHorizontal className="h-4 w-4" />
+                        <span className="sr-only">{t('ui.dataTable.customizeColumns.srOnly', 'Customize columns')}</span>
+                      </Button>
+                    )
+                  ) : null}
+                  {exportConfig && hasExport ? <ExportMenu config={exportConfig} sections={resolvedExportSections} /> : null}
+                  {toolbarInjectionSpotId ? (
+                    <InjectionSpot spotId={toolbarInjectionSpotId} context={resolvedInjectionContext} />
+                  ) : null}
+                  {hasActions ? actions : null}
+                </div>
+              ) : null}
+            </div>
+          )}
+          {shouldRenderToolbarBelow ? <div className={toolbarWrapperClassName}>{builtToolbar}</div> : null}
+          {headerInjectionSpotId ? (
+            <div className={embedded ? 'mt-2' : 'mt-3'}>
+              <InjectionSpot spotId={headerInjectionSpotId} context={resolvedInjectionContext} />
+            </div>
+          ) : null}
+        </div>
+      )}
+      {advancedFilter && !advancedFilter.externalPopover && isAdvancedFilterOpen ? (
+        <div className="border-b">
+          <AdvancedFilterBuilder
+            fields={resolvedAdvancedFilterFields}
+            value={advancedFilter.value}
+            onChange={advancedFilter.onChange}
+            onApply={() => { advancedFilter.onApply(); setAdvancedFilterOpen(false) }}
+            onClear={() => { advancedFilter.onClear(); setAdvancedFilterOpen(false) }}
+          />
+        </div>
+      ) : null}
+      {advancedFilter && !advancedFilter.externalPopover && advancedFilterRuleCount > 0 && !isAdvancedFilterOpen ? (
+        <div className="flex items-center gap-2 flex-wrap px-4 py-2 border-b text-sm">
+          <span className="text-muted-foreground">
+            {t('ui.advancedFilter.activeCount', '{count} active filters', { count: advancedFilterRuleCount })}
+          </span>
+          <Button type="button" variant="ghost" size="sm" className="h-auto px-1 py-0.5 text-xs" onClick={() => setAdvancedFilterOpen(true)}>
+            {t('ui.advancedFilter.edit', 'Edit')}
+          </Button>
+          <Button type="button" variant="ghost" size="sm" className="h-auto px-1 py-0.5 text-xs text-muted-foreground" onClick={advancedFilter.onClear}>
+            {t('ui.advancedFilter.clearAll', 'Clear all')}
+          </Button>
+        </div>
+      ) : null}
+      {activeFilterChips != null && activeFilterChips !== false ? (
+        <div data-table-active-filter-chips="">{activeFilterChips}</div>
+      ) : null}
+      {injectedColumnsError ? (
+        <ErrorMessage label={t('ui.dataTable.extensions.error', 'Some table extensions could not load. Reload the page to retry.')} />
+      ) : null}
+      <HeaderDndWrapper
+        enabled={enableHeaderDnd}
+        contextId={`${stableDndContextId}-headers`}
+        sensors={dndSensors}
+        columnIds={headerColumnIds}
+        onDragEnd={handleHeaderDragEnd}
+      >
+      <div ref={setTableScrollWrapperRef} className={tableScrollWrapperClassName} style={virtualMaxHeightStyle}>
+        {isInitializingColumns ? (
+          <LoadingMessage label={t('ui.dataTable.loading', 'Loading data...')} className="h-24 justify-center border-0 bg-transparent" />
+        ) : (
+        <Table className="min-w-[640px] md:min-w-0">
+          <TableHeader className={cn('sticky top-0 z-30 [&_tr]:bg-muted/40', embedded ? 'bg-background' : 'bg-card')}>
+            {table.getHeaderGroups().map((hg) => (
+              <TableRow key={hg.id}>
+                {hasInjectedBulkActions ? (
+                  <TableHead className="w-8">
+                    <Checkbox
+                      checked={table.getIsAllPageRowsSelected()}
+                      onCheckedChange={(checked) => {
+                        table.toggleAllPageRowsSelected(Boolean(checked))
+                      }}
+                      aria-label={t('ui.dataTable.bulkAction.selectAll', 'Select all rows')}
+                    />
+                  </TableHead>
+                ) : null}
+                {hg.headers.map((header, headerIndex) => {
+                  const columnMeta = (header.column.columnDef as any)?.meta
+                  const priority = resolvePriority(header.column)
+                  const isFirstDataColumn = headerIndex === 0
+                  const stickyClass = stickyFirstColumn && isFirstDataColumn ? ` md:sticky md:left-0 md:z-10 ${stickyHeaderSurfaceClass} ${STICKY_LEFT_SHADOW_CLASS}` : ''
+                  const isColumnSortable = sortable && !!header.column.getCanSort?.()
+                  const headerContent = header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())
+                  // Columns that can't be sorted (e.g. a manual "select" checkbox column) may render
+                  // interactive controls (Checkbox, etc.) in their header. Wrapping those in a <Button>
+                  // would nest a native <button> inside another, which is invalid HTML and triggers a
+                  // hydration error — so only sortable columns get the clickable Button affordance.
+                  const headerCellContent = header.isPlaceholder ? null : isColumnSortable ? (
+                    <Button
+                      variant="ghost"
+                      type="button"
+                      className="h-auto p-0 has-[>svg]:px-0 font-medium cursor-pointer select-none"
+                      onClick={() => header.column.toggleSorting?.(header.column.getIsSorted() === 'asc')}
+                    >
+                      {headerContent}
+                      {(() => {
+                        const sortState = header.column.getIsSorted()
+                        if (sortState === 'asc') return <ChevronUp className="ml-1 size-3.5 shrink-0 text-foreground" aria-hidden="true" />
+                        if (sortState === 'desc') return <ChevronDown className="ml-1 size-3.5 shrink-0 text-foreground" aria-hidden="true" />
+                        return <ChevronsUpDown className="ml-1 size-3.5 shrink-0 text-muted-foreground/50" aria-hidden="true" />
+                      })()}
+                    </Button>
+                  ) : (
+                    <div className="h-auto p-0 has-[>svg]:px-0 font-medium">{headerContent}</div>
+                  )
+                  const columnId = header.column.id
+                  const sizedWidth = enableColumnResize && columnId ? columnSizing[columnId] : undefined
+                  const resizeHandle = enableColumnResize && !header.isPlaceholder && columnId ? (
+                    <ColumnResizeHandle
+                      columnId={columnId}
+                      onResize={handleColumnResize}
+                      onCommit={commitColumnSizing}
+                      onReset={resetColumnSize}
+                      ariaLabel={t('ui.dataTable.resizeColumn', 'Resize column')}
+                    />
+                  ) : null
+                  return enableHeaderDnd ? (
+                    <SortableHeaderCell key={header.id} id={header.id} width={sizedWidth} className={cn('group', responsiveClass(priority, columnMeta?.hidden) + stickyClass)}>
+                      {headerCellContent}
+                      {resizeHandle}
+                    </SortableHeaderCell>
+                  ) : (
+                    <TableHead
+                      key={header.id}
+                      className={cn('group relative', responsiveClass(priority, columnMeta?.hidden) + stickyClass)}
+                      style={typeof sizedWidth === 'number' ? { width: sizedWidth, minWidth: sizedWidth, maxWidth: sizedWidth } : undefined}
+                    >
+                      {headerCellContent}
+                      {resizeHandle}
+                    </TableHead>
+                  )
+                })}
+                {rowActions || injectedRowActions.length > 0 ? (
+                  <TableHead
+                    className={cn(
+                      actionsColumnAlign === 'center' ? 'w-0 text-center' : 'w-0 text-right',
+                      stickyActionsColumn && `md:sticky md:right-0 md:z-20 ${stickyHeaderSurfaceClass} ${STICKY_RIGHT_SHADOW_CLASS}`,
+                    )}
+                  >
+                    {t('ui.dataTable.actionsColumn', 'Actions')}
+                  </TableHead>
+                ) : null}
+              </TableRow>
+            ))}
+          </TableHeader>
+          <TableBody>
+            {isLoading ? (
+              <TableRow>
+                <TableCell colSpan={mergedColumns.length + (rowActions || injectedRowActions.length > 0 ? 1 : 0) + (hasInjectedBulkActions ? 1 : 0)} className="h-24 text-center">
+                  <div className="flex items-center justify-center gap-2">
+                    <Spinner size="md" />
+                    <span className="text-muted-foreground">{t('ui.dataTable.loading', 'Loading data...')}</span>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : error ? (
+              <TableRow>
+                <TableCell colSpan={mergedColumns.length + (rowActions || injectedRowActions.length > 0 ? 1 : 0) + (hasInjectedBulkActions ? 1 : 0)} className="p-0">
+                  <div
+                    className={cn('sticky left-0 flex min-h-24 items-center justify-center px-4 text-center text-destructive', scrollViewportWidth ? '' : 'w-fit')}
+                    style={scrollViewportWidth ? { width: scrollViewportWidth } : undefined}
+                  >
+                    {error}
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : allRows.length ? (
+              <>
+              {virtualized && rowVirtualizer ? (
+                <>
+                  {rowVirtualizer.getVirtualItems()[0]?.start > 0 ? (
+                    <tr style={{ height: `${rowVirtualizer.getVirtualItems()[0].start}px` }} />
+                  ) : null}
+                </>
+              ) : null}
+              {(virtualized && rowVirtualizer
+                ? rowVirtualizer.getVirtualItems().map((vi) => allRows[vi.index])
+                : allRows
+              ).map((row) => {
+                const rowActionsElement = resolvedRowActions(row.original as T)
+                const defaultRowAction = onRowClick ? null : pickDefaultRowAction(rowActionsElement, resolvedRowClickActionIds)
+                const isClickable = !disableRowClick && (onRowClick || defaultRowAction)
+                
+                return (
+                  <TableRow 
+                    key={row.id} 
+                    data-state={row.getIsSelected() && 'selected'}
+                    className={cn('group/row', isClickable && 'cursor-pointer hover:bg-muted/50 transition-colors')}
+                    onClick={isClickable ? (e) => {
+                      // Don't trigger row click if clicking on actions cell
+                      if ((e.target as HTMLElement).closest('[data-actions-cell]')) {
+                        return
+                      }
+                      
+                      if (onRowClick) {
+                        onRowClick(row.original as T, e)
+                      } else if (defaultRowAction) {
+                        if (defaultRowAction.href) {
+                          router.push(defaultRowAction.href)
+                        } else if (defaultRowAction.onSelect) {
+                          defaultRowAction.onSelect()
+                        }
+                      }
+                    } : undefined}
+                  >
+                    {hasInjectedBulkActions ? (
+                      <TableCell className="w-8">
+                        <Checkbox
+                          checked={row.getIsSelected()}
+                          onCheckedChange={(checked) => row.toggleSelected(Boolean(checked))}
+                          aria-label={t('ui.dataTable.bulkAction.selectRow', 'Select row')}
+                          onClick={(event) => event.stopPropagation()}
+                        />
+                      </TableCell>
+                    ) : null}
+                    {row.getVisibleCells().map((cell, cellIndex) => {
+                      const columnMeta = (cell.column.columnDef as any)?.meta
+                      const priority = resolvePriority(cell.column)
+                      const isStickyCell = stickyFirstColumn && cellIndex === 0
+                      const hasCustomCell = Boolean(cell.column.columnDef.cell)
+                      const columnId = String((cell.column as any).id || '')
+                      const accessorKey = String((cell.column.columnDef as any)?.accessorKey || '')
+                      const isDateCol = dateColumnIds ? dateColumnIds.has(columnId) : false
+
+                      let content: React.ReactNode
+                      if (isDateCol) {
+                        const raw = cell.getValue() as any
+                        const d = tryParseDate(raw)
+                        content = d ? (formatDisplayDateTime(d, dateLocale) ?? raw) : (raw as any)
+                      } else {
+                        content = flexRender(cell.column.columnDef.cell, cell.getContext())
+                      }
+
+                      // Get truncation configuration for this column
+                      const skipTruncation = shouldSkipTruncation(columnId)
+                      // Get truncation configuration for this column
+                      const truncateConfig = getColumnTruncateConfig(columnId, accessorKey, columnMeta)
+                      const shouldTruncate = truncateConfig.truncate && !skipTruncation
+                      const maxWidth = truncateConfig.maxWidth
+
+                      // Wrap content with TruncatedCell if truncation is enabled
+                      // Get raw cell value for tooltip - flexRender returns React elements
+                      // that cannot have their text extracted, so we pass the raw value directly
+                      // Check for custom tooltip content function in column meta for complex cells
+                      const cellValue = cell.getValue()
+                      const metaTooltipContent = columnMeta?.tooltipContent as ((row: unknown) => string | undefined) | undefined
+                      let tooltipText: string | undefined
+                      if (metaTooltipContent) {
+                        tooltipText = metaTooltipContent(row.original)
+                      } else if ((isDateCol || columnId.endsWith('_at')) && cellValue != null) {
+                        const parsedDate = tryParseDate(cellValue)
+                        tooltipText = parsedDate ? (formatDisplayDateTime(parsedDate, dateLocale) ?? String(cellValue)) : String(cellValue)
+                      } else {
+                        tooltipText = cellValue != null ? String(cellValue) : undefined
+                      }
+
+                      // A user-resized width (#1835) overrides the default truncation
+                      // max-width so the cell truncates at the dragged column width.
+                      const sizedWidth = enableColumnResize && columnId ? columnSizing[columnId] : undefined
+                      const effectiveMaxWidth = typeof sizedWidth === 'number' ? `${sizedWidth}px` : maxWidth
+                      const wrappedContent = shouldTruncate ? (
+                        <TruncatedCell maxWidth={effectiveMaxWidth} tooltipContent={tooltipText}>
+                          {content}
+                        </TruncatedCell>
+                      ) : content
+
+                      // Expansion affordance: only on the first data cell when
+                      // expansion is enabled. Indent by nesting depth so children
+                      // read as nested under their parent; render a fixed-width
+                      // spacer for non-expandable rows to keep columns aligned.
+                      const expandAffordance = expansionEnabled && cellIndex === 0 ? (
+                        <span
+                          className="inline-flex shrink-0 items-center"
+                          style={{ paddingLeft: `${row.depth * 1.25}rem` }}
+                        >
+                          {row.getCanExpand() ? (
+                            <IconButton
+                              type="button"
+                              variant="ghost"
+                              size="xs"
+                              aria-label={row.getIsExpanded()
+                                ? t('ui.dataTable.expand.collapseRow', 'Collapse row')
+                                : t('ui.dataTable.expand.expandRow', 'Expand row')}
+                              aria-expanded={row.getIsExpanded()}
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                row.toggleExpanded()
+                              }}
+                            >
+                              {row.getIsExpanded()
+                                ? <ChevronDown className="size-4" aria-hidden="true" />
+                                : <ChevronRight className="size-4" aria-hidden="true" />}
+                            </IconButton>
+                          ) : (
+                            <span className="inline-block size-6" aria-hidden="true" />
+                          )}
+                        </span>
+                      ) : null
+
+                      return (
+                        <TableCell
+                          key={cell.id}
+                          className={responsiveClass(priority, columnMeta?.hidden) + (isStickyCell ? ` md:sticky md:left-0 md:z-10 ${stickyBodySurfaceClass} ${STICKY_LEFT_SHADOW_CLASS}` : '')}
+                          style={typeof sizedWidth === 'number' ? { width: sizedWidth, minWidth: sizedWidth, maxWidth: sizedWidth } : undefined}
+                        >
+                          {expandAffordance ? (
+                            <span className="flex items-center gap-1.5">
+                              {expandAffordance}
+                              <span className="min-w-0 flex-1">{wrappedContent}</span>
+                            </span>
+                          ) : wrappedContent}
+                        </TableCell>
+                      )
+                    })}
+                    {rowActions || injectedRowActions.length > 0 ? (
+                      <TableCell
+                        className={cn(
+                          actionsColumnAlign === 'center' ? 'text-center whitespace-nowrap' : 'text-right whitespace-nowrap',
+                          stickyActionsColumn && `md:sticky md:right-0 md:z-10 ${stickyBodySurfaceClass} ${STICKY_RIGHT_SHADOW_CLASS}`,
+                        )}
+                        data-actions-cell
+                      >
+                        {rowActionsElement}
+                      </TableCell>
+                    ) : null}
+                  </TableRow>
+                )
+              })}
+              {virtualized && rowVirtualizer ? (() => {
+                const virtualItems = rowVirtualizer.getVirtualItems()
+                const lastItem = virtualItems[virtualItems.length - 1]
+                const bottomPadding = lastItem ? rowVirtualizer.getTotalSize() - lastItem.end : 0
+                return bottomPadding > 0 ? <tr style={{ height: `${bottomPadding}px` }} /> : null
+              })() : null}
+              </>
+            ) : (
+              <TableRow>
+                <TableCell colSpan={mergedColumns.length + (rowActions || injectedRowActions.length > 0 ? 1 : 0) + (hasInjectedBulkActions ? 1 : 0)} className="p-0">
+                  <div
+                    className={cn('sticky left-0 flex justify-center py-6', scrollViewportWidth ? '' : 'w-fit')}
+                    style={scrollViewportWidth ? { width: scrollViewportWidth } : undefined}
+                  >
+                    {filterAwareEmptyState?.active ? (
+                      <FilteredEmptyResults
+                        entityNamePlural={filterAwareEmptyState.entityNamePlural}
+                        canRemoveLast={filterAwareEmptyState.canRemoveLast}
+                        onClearAll={filterAwareEmptyState.onClearAll}
+                        onRemoveLast={filterAwareEmptyState.onRemoveLast}
+                        onClearSearch={searchValue && searchValue.trim().length > 0 && onSearchChange ? () => onSearchChange('') : undefined}
+                      />
+                    ) : searchValue && searchValue.trim().length > 0 && onSearchChange ? (
+                      <SearchEmptyResults
+                        query={searchValue.trim()}
+                        entityNamePlural={filterAwareEmptyState?.entityNamePlural}
+                        onClearSearch={() => onSearchChange('')}
+                      />
+                    ) : emptyState && typeof emptyState !== 'string' ? (
+                      emptyState
+                    ) : (
+                      <EmptyState
+                        variant="subtle"
+                        icon={<Inbox className="size-6" aria-hidden />}
+                        title={
+                          typeof emptyState === 'string'
+                            ? emptyState
+                            : t('ui.dataTable.emptyState.default', 'No results.')
+                        }
+                        description={
+                          typeof emptyState === 'string'
+                            ? undefined
+                            : t('ui.dataTable.emptyState.defaultDescription', 'Items will appear here once added.')
+                        }
+                      />
+                    )}
+                  </div>
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+        )}
+      </div>
+      </HeaderDndWrapper>
+      {footerInjectionSpotId ? (
+        <div className={embedded ? 'mt-3 empty:hidden' : 'px-4 py-3 border-t empty:hidden'} data-table-footer="">
+          <InjectionSpot spotId={footerInjectionSpotId} context={resolvedInjectionContext} />
+        </div>
+      ) : null}
+      {paginationNode}
+      {ConfirmDialogElement}
+      {canUsePerspectives ? (
+        <PerspectiveSidebar
+          open={isPerspectiveOpen}
+          onOpenChange={setPerspectiveOpen}
+          loading={perspectiveQuery.isFetching && !perspectiveQuery.data}
+          perspectives={perspectiveData?.perspectives ?? []}
+          rolePerspectives={perspectiveData?.rolePerspectives ?? []}
+          roles={perspectiveData?.roles ?? []}
+          activePerspectiveId={activePerspectiveId}
+          onActivatePerspective={handlePerspectiveActivate}
+          onDeletePerspective={handlePerspectiveDelete}
+          onClearRole={handleClearRole}
+          onSave={handlePerspectiveSave}
+          canApplyToRoles={Boolean(perspectiveData?.canApplyToRoles && canUseRoleDefaultsFeature)}
+          availableColumns={effectiveColumnChooserFields}
+          visibleColumnKeys={visibleColumnKeys}
+          columnOrder={columnOrder}
+          onToggleColumn={handleColumnChooserToggle}
+          onReorderColumns={handleColumnChooserReorder}
+          saving={savePerspectiveMutation.isPending}
+          deletingIds={deletingIds}
+          roleClearingIds={roleClearingIds}
+          apiWarning={perspectiveApiWarning}
+        />
+      ) : null}
+    </div>
+    </TooltipProvider>
+  )
+}
+
+const DataTableFallback = DataTableImpl as unknown as React.ComponentType<DataTableProps<RowData>>
+
+/**
+ * Resolves the public DataTable component handle before mounting the table so
+ * registered props transforms, wrappers, and replacements execute at the real
+ * host boundary rather than being exposed only as a diagnostic DOM attribute.
+ */
+export function DataTable<T extends RowData>(props: DataTableProps<T>) {
+  const extensionTableId = props.perspective?.tableId
+    ?? props.extensionTableId
+    ?? (props.injectionSpotId?.startsWith('data-table:')
+      ? props.injectionSpotId.slice('data-table:'.length)
+      : null)
+  const handle = props.replacementHandle
+    ?? ComponentReplacementHandles.dataTable(extensionTableId ?? 'unknown')
+  const Resolved = useRegisteredComponent<DataTableProps<T>>(
+    handle,
+    DataTableFallback as unknown as React.ComponentType<DataTableProps<T>>,
+  )
+  return <Resolved {...props} />
+}

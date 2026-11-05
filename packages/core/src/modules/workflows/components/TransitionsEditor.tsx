@@ -1,0 +1,631 @@
+"use client"
+
+import * as React from 'react'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { Input } from '@open-mercato/ui/primitives/input'
+import { Label } from '@open-mercato/ui/primitives/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
+import { Trash2, Plus, ChevronUp, ChevronDown } from 'lucide-react'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { ConfigJsonTextarea } from './ConfigJsonTextarea'
+import { useActivityTypeOptions } from './fields/useActivityTypeOptions'
+import { millisecondTimeoutInputValue, millisecondTimeoutPatch } from '../lib/activityTimeoutFields'
+
+interface Activity {
+  activityId: string
+  activityName: string
+  activityType: string
+  config?: Record<string, any>
+  async?: boolean
+  retryPolicy?: {
+    maxAttempts?: number
+    initialIntervalMs?: number
+    backoffCoefficient?: number
+    maxIntervalMs?: number
+  }
+  // Milliseconds, matching the executor and the definition schema. This field
+  // used to be written as `timeout` (a number) while the schema typed `timeout`
+  // as an ISO 8601 string, so saving a timeout from this editor failed
+  // validation outright (#4424).
+  timeoutMs?: number
+  /** @deprecated Use `timeoutMs`. Written by the CrudForm activity editor as a duration or millisecond string. */
+  timeout?: string
+  compensation?: Record<string, any>
+}
+
+interface Transition {
+  transitionId: string
+  transitionName: string
+  fromStepId: string
+  toStepId: string
+  trigger: string
+  preConditions?: string[]
+  postConditions?: string[]
+  activities?: Activity[]
+  priority?: number
+}
+
+interface TransitionsEditorProps {
+  value: Transition[]
+  onChange: (transitions: Transition[]) => void
+  onInvalidActivityConfigsChange?: (activityLabels: string[]) => void
+  steps?: any[]
+  error?: string
+}
+
+function resolveActivityLabel(activity: { activityName?: string; activityId?: string } | undefined, index: number): string {
+  return activity?.activityName || activity?.activityId || String(index + 1)
+}
+
+function parseActivityConfigKey(key: string): { transitionIndex: number; activityIndex: number } {
+  const [transitionIndex, activityIndex] = key.split(':').map((part) => Number.parseInt(part, 10))
+  return { transitionIndex, activityIndex }
+}
+
+const TRIGGER_TYPES = [
+  { value: 'auto', label: 'Automatic' },
+  { value: 'manual', label: 'Manual' },
+  { value: 'signal', label: 'Signal' },
+  { value: 'timer', label: 'Timer' },
+]
+
+/**
+ * @deprecated The form editor is retired (spec section 10) — routes are authored
+ * on the canvas in `/backend/definitions/visual-editor`. This component stays
+ * exported for at least one minor release for third-party forms that embed it;
+ * it has no call site in this module any more.
+ */
+export function TransitionsEditor({ value = [], onChange, onInvalidActivityConfigsChange, steps = [], error }: TransitionsEditorProps) {
+  const t = useT()
+  const activityTypeOptions = useActivityTypeOptions()
+  const [invalidConfigKeys, setInvalidConfigKeys] = React.useState<ReadonlySet<string>>(() => new Set())
+  const lastReportedLabelsRef = React.useRef<string>('')
+
+  const handleConfigValidityChange = React.useCallback((transitionIndex: number, activityIndex: number, valid: boolean) => {
+    const key = `${transitionIndex}:${activityIndex}`
+    setInvalidConfigKeys((prev) => {
+      if (prev.has(key) === !valid) return prev
+      const next = new Set(prev)
+      if (valid) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [])
+
+  React.useEffect(() => {
+    setInvalidConfigKeys((prev) => {
+      const next = new Set(
+        [...prev].filter((key) => {
+          const { transitionIndex, activityIndex } = parseActivityConfigKey(key)
+          return Boolean(value[transitionIndex]?.activities?.[activityIndex])
+        }),
+      )
+      return next.size === prev.size ? prev : next
+    })
+  }, [value])
+
+  React.useEffect(() => {
+    if (!onInvalidActivityConfigsChange) return
+    const labels = [...invalidConfigKeys]
+      .map(parseActivityConfigKey)
+      .sort((left, right) => left.transitionIndex - right.transitionIndex || left.activityIndex - right.activityIndex)
+      .map(({ transitionIndex, activityIndex }) =>
+        resolveActivityLabel(value[transitionIndex]?.activities?.[activityIndex], activityIndex),
+      )
+    const serializedLabels = JSON.stringify(labels)
+    if (serializedLabels === lastReportedLabelsRef.current) return
+    lastReportedLabelsRef.current = serializedLabels
+    onInvalidActivityConfigsChange(labels)
+  }, [invalidConfigKeys, value, onInvalidActivityConfigsChange])
+
+  const addTransition = () => {
+    const newTransition: Transition = {
+      transitionId: `transition_${Date.now()}`,
+      transitionName: t('workflows.common.newTransition'),
+      fromStepId: '',
+      toStepId: '',
+      trigger: 'auto',
+      preConditions: [],
+      postConditions: [],
+      activities: [],
+      priority: 100,
+    }
+    onChange([...value, newTransition])
+  }
+
+  const updateTransition = (index: number, field: keyof Transition, fieldValue: any) => {
+    const updated = [...value]
+    updated[index] = { ...updated[index], [field]: fieldValue }
+    onChange(updated)
+  }
+
+  const removeTransition = (index: number) => {
+    onChange(value.filter((_, i) => i !== index))
+  }
+
+  const moveTransition = (index: number, direction: 'up' | 'down') => {
+    const newIndex = direction === 'up' ? index - 1 : index + 1
+    if (newIndex < 0 || newIndex >= value.length) return
+
+    const updated = [...value]
+    const temp = updated[index]
+    updated[index] = updated[newIndex]
+    updated[newIndex] = temp
+    onChange(updated)
+  }
+
+  const addActivity = (transitionIndex: number) => {
+    const newActivity: Activity = {
+      activityId: `activity_${Date.now()}`,
+      activityName: t('workflows.common.newActivity'),
+      activityType: 'CALL_API',
+      config: {},
+      async: false,
+      retryPolicy: {
+        maxAttempts: 3,
+        initialIntervalMs: 1000,
+        backoffCoefficient: 2,
+        maxIntervalMs: 10000,
+      },
+    }
+    const updated = [...value]
+    updated[transitionIndex] = {
+      ...updated[transitionIndex],
+      activities: [...(updated[transitionIndex].activities || []), newActivity],
+    }
+    onChange(updated)
+  }
+
+  const patchActivity = (transitionIndex: number, activityIndex: number, patch: Partial<Activity>) => {
+    const updated = [...value]
+    const activities = [...(updated[transitionIndex].activities || [])]
+    activities[activityIndex] = { ...activities[activityIndex], ...patch }
+    updated[transitionIndex] = { ...updated[transitionIndex], activities }
+    onChange(updated)
+  }
+
+  const updateActivity = (transitionIndex: number, activityIndex: number, field: keyof Activity, fieldValue: any) => {
+    patchActivity(transitionIndex, activityIndex, { [field]: fieldValue })
+  }
+
+  const updateRetryPolicy = (transitionIndex: number, activityIndex: number, field: string, fieldValue: any) => {
+    const updated = [...value]
+    const activities = [...(updated[transitionIndex].activities || [])]
+    activities[activityIndex] = {
+      ...activities[activityIndex],
+      retryPolicy: {
+        ...activities[activityIndex].retryPolicy,
+        [field]: fieldValue,
+      },
+    }
+    updated[transitionIndex] = { ...updated[transitionIndex], activities }
+    onChange(updated)
+  }
+
+  const removeActivity = (transitionIndex: number, activityIndex: number) => {
+    const updated = [...value]
+    updated[transitionIndex] = {
+      ...updated[transitionIndex],
+      activities: (updated[transitionIndex].activities || []).filter((_, i) => i !== activityIndex),
+    }
+    onChange(updated)
+  }
+
+  const moveActivity = (transitionIndex: number, activityIndex: number, direction: 'up' | 'down') => {
+    const activities = value[transitionIndex].activities || []
+    const newIndex = direction === 'up' ? activityIndex - 1 : activityIndex + 1
+    if (newIndex < 0 || newIndex >= activities.length) return
+
+    const updated = [...value]
+    const updatedActivities = [...activities]
+    const temp = updatedActivities[activityIndex]
+    updatedActivities[activityIndex] = updatedActivities[newIndex]
+    updatedActivities[newIndex] = temp
+    updated[transitionIndex] = { ...updated[transitionIndex], activities: updatedActivities }
+    onChange(updated)
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm text-muted-foreground">
+            {t('workflows.form.descriptions.transitions')}
+          </p>
+          {error && <p className="text-sm text-status-error-text mt-1">{error}</p>}
+        </div>
+        <Button type="button" onClick={addTransition} variant="outline" size="sm" className="w-full sm:w-auto">
+          <Plus className="h-4 w-4 mr-1" />
+          {t('workflows.form.addTransition')}
+        </Button>
+      </div>
+
+      {value.length === 0 && (
+        <div className="p-6 text-center text-muted-foreground border rounded-md bg-muted">
+          {t('workflows.form.noTransitions')}
+        </div>
+      )}
+
+      <div className="space-y-3">
+        {value.map((transition, index) => (
+          <div key={index} className="p-4 border rounded-md bg-card shadow-sm border-l-4 border-l-blue-500">
+            <div className="space-y-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <Label htmlFor={`transition-${index}-id`} className="text-xs">
+                      {t('workflows.transitions.transitionId')} *
+                    </Label>
+                    <Input
+                      id={`transition-${index}-id`}
+                      value={transition.transitionId}
+                      onChange={(e) => updateTransition(index, 'transitionId', e.target.value)}
+                      placeholder="transition_name"
+                      className="mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor={`transition-${index}-name`} className="text-xs">
+                      {t('workflows.transitions.transitionName')} *
+                    </Label>
+                    <Input
+                      id={`transition-${index}-name`}
+                      value={transition.transitionName}
+                      onChange={(e) => updateTransition(index, 'transitionName', e.target.value)}
+                      placeholder={t('workflows.transitions.transitionName')}
+                      className="mt-1"
+                    />
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 self-end sm:self-auto">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => moveTransition(index, 'up')}
+                    disabled={index === 0}
+                    title={t('common.moveUp')}
+                  >
+                    <ChevronUp className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => moveTransition(index, 'down')}
+                    disabled={index === value.length - 1}
+                    title={t('common.moveDown')}
+                  >
+                    <ChevronDown className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => removeTransition(index)}
+                    title={t('common.delete')}
+                  >
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                  </Button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <Label htmlFor={`transition-${index}-from`} className="text-xs">
+                    {t('workflows.transitions.fromStep')} *
+                  </Label>
+                  <Select
+                    value={transition.fromStepId || undefined}
+                    onValueChange={(value) => updateTransition(index, 'fromStepId', value ?? '')}
+                  >
+                    <SelectTrigger id={`transition-${index}-from`} className="mt-1">
+                      <SelectValue placeholder={t('workflows.form.selectStep')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {steps.map((step: any) => (
+                        <SelectItem key={step.stepId} value={step.stepId}>
+                          {step.stepName || step.stepId}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor={`transition-${index}-to`} className="text-xs">
+                    {t('workflows.transitions.toStep')} *
+                  </Label>
+                  <Select
+                    value={transition.toStepId || undefined}
+                    onValueChange={(value) => updateTransition(index, 'toStepId', value ?? '')}
+                  >
+                    <SelectTrigger id={`transition-${index}-to`} className="mt-1">
+                      <SelectValue placeholder={t('workflows.form.selectStep')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {steps.map((step: any) => (
+                        <SelectItem key={step.stepId} value={step.stepId}>
+                          {step.stepName || step.stepId}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor={`transition-${index}-trigger`} className="text-xs">
+                    {t('workflows.transitions.trigger')} *
+                  </Label>
+                  <Select
+                    value={transition.trigger}
+                    onValueChange={(value) => updateTransition(index, 'trigger', value)}
+                  >
+                    <SelectTrigger id={`transition-${index}-trigger`} className="mt-1">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {TRIGGER_TYPES.map((type) => (
+                        <SelectItem key={type.value} value={type.value}>
+                          {t(`workflows.transitions.triggers.${type.value}`)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <Label htmlFor={`transition-${index}-priority`} className="text-xs">
+                    {t('workflows.transitions.priority')}
+                  </Label>
+                  <Input
+                    id={`transition-${index}-priority`}
+                    type="number"
+                    value={transition.priority || 100}
+                    onChange={(e) => updateTransition(index, 'priority', parseInt(e.target.value))}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor={`transition-${index}-preconditions`} className="text-xs">
+                    {t('workflows.transitions.preConditions')}
+                  </Label>
+                  <Input
+                    id={`transition-${index}-preconditions`}
+                    value={(transition.preConditions || []).join(', ')}
+                    onChange={(e) => updateTransition(index, 'preConditions', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
+                    placeholder="rule_id_1, rule_id_2"
+                    className="mt-1"
+                  />
+                </div>
+              </div>
+
+              <div className="mt-4 pl-4 border-l-2 border-border">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-3">
+                  <Label className="text-xs font-semibold text-foreground">
+                    {t('workflows.transitions.activities')}
+                  </Label>
+                  <Button
+                    type="button"
+                    onClick={() => addActivity(index)}
+                    variant="outline"
+                    size="sm"
+                    className="w-full sm:w-auto"
+                  >
+                    <Plus className="h-3 w-3 mr-1" />
+                    {t('workflows.form.addActivity')}
+                  </Button>
+                </div>
+
+                {(transition.activities || []).length === 0 && (
+                  <div className="p-3 text-center text-xs text-muted-foreground border rounded-md bg-muted">
+                    {t('workflows.form.noActivitiesInTransition')}
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  {(transition.activities || []).map((activity, activityIndex) => {
+                    const activityKey = `${transition.transitionId ?? index}:${activity.activityId || activityIndex}`
+                    return (
+                      <div key={activityKey} className="p-3 border rounded-md bg-muted shadow-sm border-l-4 border-l-green-500">
+                        <div className="space-y-2">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <div>
+                              <Label htmlFor={`activity-${index}-${activityIndex}-id`} className="text-xs">
+                                {t('workflows.activities.activityId')} *
+                              </Label>
+                              <Input
+                                id={`activity-${index}-${activityIndex}-id`}
+                                value={activity.activityId}
+                                onChange={(e) => updateActivity(index, activityIndex, 'activityId', e.target.value)}
+                                placeholder="activity_name"
+                                className="mt-1 text-xs h-8"
+                              />
+                            </div>
+                            <div>
+                              <Label htmlFor={`activity-${index}-${activityIndex}-name`} className="text-xs">
+                                {t('workflows.activities.activityName')} *
+                              </Label>
+                              <Input
+                                id={`activity-${index}-${activityIndex}-name`}
+                                value={activity.activityName}
+                                onChange={(e) => updateActivity(index, activityIndex, 'activityName', e.target.value)}
+                                placeholder={t('workflows.activities.activityName')}
+                                className="mt-1 text-xs h-8"
+                              />
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1 self-end sm:self-auto">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => moveActivity(index, activityIndex, 'up')}
+                              disabled={activityIndex === 0}
+                              title={t('common.moveUp')}
+                            >
+                              <ChevronUp className="h-3 w-3" />
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => moveActivity(index, activityIndex, 'down')}
+                              disabled={activityIndex === (transition.activities || []).length - 1}
+                              title={t('common.moveDown')}
+                            >
+                              <ChevronDown className="h-3 w-3" />
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => removeActivity(index, activityIndex)}
+                              title={t('common.delete')}
+                            >
+                              <Trash2 className="h-3 w-3 text-destructive" />
+                            </Button>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          <div>
+                            <Label htmlFor={`activity-${index}-${activityIndex}-type`} className="text-xs">
+                              {t('workflows.activities.activityType')} *
+                            </Label>
+                            <Select
+                              value={activity.activityType}
+                              onValueChange={(value) => updateActivity(index, activityIndex, 'activityType', value)}
+                            >
+                              <SelectTrigger id={`activity-${index}-${activityIndex}-type`} size="sm" className="mt-1">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {activityTypeOptions.map((type) => (
+                                  <SelectItem key={type.value} value={type.value}>
+                                    {type.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            <Label htmlFor={`activity-${index}-${activityIndex}-timeout`} className="text-xs">
+                              {t('workflows.activities.timeout')} (ms)
+                            </Label>
+                            <Input
+                              id={`activity-${index}-${activityIndex}-timeout`}
+                              type="number"
+                              value={millisecondTimeoutInputValue(activity)}
+                              onChange={(e) => patchActivity(index, activityIndex, millisecondTimeoutPatch(e.target.value))}
+                              placeholder="30000"
+                              className="mt-1 text-xs h-8"
+                            />
+                          </div>
+                          <div className="flex items-end pb-1">
+                            <div className="flex items-center space-x-2">
+                              <input
+                                type="checkbox"
+                                id={`activity-${index}-${activityIndex}-async`}
+                                checked={activity.async || false}
+                                onChange={(e) => updateActivity(index, activityIndex, 'async', e.target.checked)}
+                                className="h-3 w-3"
+                              />
+                              <Label htmlFor={`activity-${index}-${activityIndex}-async`} className="text-xs cursor-pointer">
+                                {t('workflows.activities.async')}
+                              </Label>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <div>
+                            <Label htmlFor={`activity-${index}-${activityIndex}-retry-attempts`} className="text-xs">
+                              {t('workflows.form.maxRetryAttempts')}
+                            </Label>
+                            <Input
+                              id={`activity-${index}-${activityIndex}-retry-attempts`}
+                              type="number"
+                              min="1"
+                              max="10"
+                              value={activity.retryPolicy?.maxAttempts || 3}
+                              onChange={(e) => updateRetryPolicy(index, activityIndex, 'maxAttempts', parseInt(e.target.value))}
+                              className="mt-1 text-xs h-8"
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor={`activity-${index}-${activityIndex}-initial-interval`} className="text-xs">
+                              {t('workflows.fieldEditors.activities.initialInterval')}
+                            </Label>
+                            <Input
+                              id={`activity-${index}-${activityIndex}-initial-interval`}
+                              type="number"
+                              min="0"
+                              value={activity.retryPolicy?.initialIntervalMs || 1000}
+                              onChange={(e) => updateRetryPolicy(index, activityIndex, 'initialIntervalMs', parseInt(e.target.value))}
+                              className="mt-1 text-xs h-8"
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor={`activity-${index}-${activityIndex}-backoff`} className="text-xs">
+                              {t('workflows.fieldEditors.activities.backoffCoefficient')}
+                            </Label>
+                            <Input
+                              id={`activity-${index}-${activityIndex}-backoff`}
+                              type="number"
+                              step="0.1"
+                              min="1"
+                              max="10"
+                              value={activity.retryPolicy?.backoffCoefficient || 2}
+                              onChange={(e) => updateRetryPolicy(index, activityIndex, 'backoffCoefficient', parseFloat(e.target.value))}
+                              className="mt-1 text-xs h-8"
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor={`activity-${index}-${activityIndex}-max-interval`} className="text-xs">
+                              {t('workflows.fieldEditors.activities.maxInterval')}
+                            </Label>
+                            <Input
+                              id={`activity-${index}-${activityIndex}-max-interval`}
+                              type="number"
+                              min="0"
+                              value={activity.retryPolicy?.maxIntervalMs || 10000}
+                              onChange={(e) => updateRetryPolicy(index, activityIndex, 'maxIntervalMs', parseInt(e.target.value))}
+                              className="mt-1 text-xs h-8"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <Label htmlFor={`activity-${index}-${activityIndex}-config`} className="text-xs">
+                            {t('workflows.activities.config')} (JSON)
+                          </Label>
+                          <ConfigJsonTextarea
+                            id={`activity-${index}-${activityIndex}-config`}
+                            value={activity.config}
+                            onChange={(config) => updateActivity(index, activityIndex, 'config', config)}
+                            onValidityChange={(valid) => handleConfigValidityChange(index, activityIndex, valid)}
+                            rows={2}
+                            className="mt-1 font-mono text-xs"
+                          />
+                        </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}

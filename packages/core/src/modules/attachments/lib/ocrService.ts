@@ -1,0 +1,271 @@
+import { generateText } from 'ai'
+import { createOpenAI } from '@ai-sdk/openai'
+import fs from 'fs/promises'
+import path from 'path'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveOcrMaxOutputTokens, resolveOcrPageTimeoutMs } from './ocrLimits'
+
+const logger = createLogger('attachments').child({ component: 'ocr-service' })
+
+export type OcrServiceOptions = {
+  apiKey?: string
+  model?: string
+}
+
+export type OcrInput = {
+  filePath: string
+  mimeType: string | null
+  model?: string
+}
+
+export type OcrResult = {
+  content: string
+  pageCount?: number
+  processingTimeMs: number
+}
+
+const DEFAULT_MODEL = 'gpt-4o'
+const OCR_IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.tiff']
+
+const DEFAULT_OCR_PROMPT = `Extract all text content from this image. Preserve the structure and formatting where possible. Output the text in markdown format. If there are tables, preserve them as markdown tables. If there is no text visible, respond with an empty string.`
+
+function isImageMimeType(mimeType: string | null, filePath?: string): boolean {
+  const normalized = (mimeType || '').toLowerCase()
+  if (normalized.startsWith('image/')) return true
+  if (filePath) {
+    const ext = path.extname(filePath).toLowerCase()
+    return OCR_IMAGE_EXTENSIONS.includes(ext)
+  }
+  return false
+}
+
+function isPdfMimeType(mimeType: string | null, filePath?: string): boolean {
+  const normalized = (mimeType || '').toLowerCase()
+  if (normalized === 'application/pdf') return true
+  if (filePath) {
+    const ext = path.extname(filePath).toLowerCase()
+    return ext === '.pdf'
+  }
+  return false
+}
+
+function getImageMediaType(mimeType: string | null, filePath: string): string {
+  if (mimeType && mimeType.startsWith('image/')) {
+    return mimeType
+  }
+  const ext = path.extname(filePath).toLowerCase()
+  const mimeMap: Record<string, string> = {
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.bmp': 'image/bmp',
+    '.webp': 'image/webp',
+    '.tiff': 'image/tiff',
+  }
+  return mimeMap[ext] || 'image/png'
+}
+
+export class OcrService {
+  private readonly apiKey: string | null
+  private readonly defaultModel: string
+  private client: ReturnType<typeof createOpenAI> | null = null
+
+  constructor(opts: OcrServiceOptions = {}) {
+    this.apiKey = opts.apiKey ?? process.env.OPENAI_API_KEY ?? null
+    this.defaultModel = opts.model ?? process.env.OCR_MODEL ?? DEFAULT_MODEL
+  }
+
+  get available(): boolean {
+    return Boolean(this.apiKey)
+  }
+
+  private ensureClient() {
+    if (!this.apiKey) {
+      throw new Error('[attachments.ocr] Missing OPENAI_API_KEY environment variable')
+    }
+    if (!this.client) {
+      this.client = createOpenAI({ apiKey: this.apiKey })
+    }
+    return this.client
+  }
+
+  private async generateTextFromImageBuffer(params: {
+    imageBuffer: Buffer
+    mediaType: string
+    model: string
+  }): Promise<string> {
+    const { imageBuffer, mediaType, model } = params
+    const client = this.ensureClient()
+    const base64 = imageBuffer.toString('base64')
+    const dataUrl = `data:${mediaType};base64,${base64}`
+
+    try {
+      const result = await generateText({
+        model: client(model),
+        abortSignal: AbortSignal.timeout(resolveOcrPageTimeoutMs()),
+        maxRetries: 0,
+        maxOutputTokens: resolveOcrMaxOutputTokens(),
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'image',
+                image: dataUrl,
+              },
+              {
+                type: 'text',
+                text: process.env.OCR_DEFAULT_PROMPT ?? DEFAULT_OCR_PROMPT,
+              },
+            ],
+          },
+        ],
+      })
+
+      return result.text.trim()
+    } catch (err: any) {
+      const statusCandidate =
+        err?.statusCode ?? err?.status ?? err?.response?.status ?? err?.response?.statusCode
+      const status =
+        typeof statusCandidate === 'number'
+          ? Number.isFinite(statusCandidate) ? statusCandidate : undefined
+          : typeof statusCandidate === 'string'
+            ? Number.parseInt(statusCandidate, 10)
+            : undefined
+      const apiError = err?.data?.error ?? err?.body?.error ?? err?.response?.data?.error
+      const apiMessage = apiError?.message ?? err?.response?.data?.message
+      const apiCode = typeof apiError?.code === 'string' ? apiError.code : undefined
+      const rawMessage = typeof apiMessage === 'string'
+        ? apiMessage
+        : (typeof err?.message === 'string' ? err.message : 'OCR request failed')
+
+      let guidance: string
+      switch (apiCode) {
+        case 'insufficient_quota':
+          guidance = 'OpenAI usage quota exceeded. Please review your plan and billing.'
+          break
+        case 'invalid_api_key':
+          guidance = 'Invalid OpenAI API key. Update the key and retry.'
+          break
+        case 'account_deactivated':
+          guidance = 'OpenAI account is disabled. Contact OpenAI support or provide a different key.'
+          break
+        case 'rate_limit_exceeded':
+          guidance = 'Rate limit exceeded. Please try again later.'
+          break
+        default:
+          if (err?.name === 'TimeoutError') {
+            guidance = `OCR request timed out: ${rawMessage}`
+            break
+          }
+          if (err?.name === 'AbortError') {
+            guidance = `OCR request was aborted: ${rawMessage}`
+            break
+          }
+          guidance = rawMessage.includes('https://')
+            ? rawMessage
+            : `${rawMessage}. Check OPENAI_API_KEY.`
+      }
+
+      const wrapped = new Error(`[attachments.ocr] ${guidance}`)
+      if (typeof status === 'number' && Number.isFinite(status)) {
+        const normalizedStatus = status === 401 || status === 403 ? 502 : status
+        if (normalizedStatus >= 400 && normalizedStatus < 600) {
+          (wrapped as any).status = normalizedStatus
+        }
+      }
+      if (apiCode) {
+        (wrapped as any).code = apiCode
+      }
+      (wrapped as any).cause = err
+      throw wrapped
+    }
+  }
+
+  async processImage(input: OcrInput): Promise<OcrResult> {
+    const startTime = Date.now()
+    const { filePath, mimeType, model } = input
+    const resolvedModel = model ?? this.defaultModel
+    const imageBuffer = await fs.readFile(filePath)
+
+    return {
+      content: await this.generateTextFromImageBuffer({
+        imageBuffer,
+        mediaType: getImageMediaType(mimeType, filePath),
+        model: resolvedModel,
+      }),
+      processingTimeMs: Date.now() - startTime,
+    }
+  }
+
+  async processPdf(input: OcrInput): Promise<OcrResult> {
+    const startTime = Date.now()
+    const { filePath, model } = input
+    const resolvedModel = model ?? this.defaultModel
+    const { preparePdfPagesForOcr } = await import('./pdfProcessing')
+    const preparedPdf = await preparePdfPagesForOcr(filePath)
+
+    if (preparedPdf.pageCount === 0) {
+      return {
+        content: '',
+        pageCount: 0,
+        processingTimeMs: Date.now() - startTime,
+      }
+    }
+
+    const pageContents: string[] = []
+
+    for (const page of preparedPdf.pages) {
+      try {
+        let pageContent = page.extractedText
+
+        if (!pageContent && page.imageBuffer) {
+          pageContent = await this.generateTextFromImageBuffer({
+            imageBuffer: page.imageBuffer,
+            mediaType: 'image/png',
+            model: resolvedModel,
+          })
+        }
+
+        if (pageContent) {
+          if (preparedPdf.pageCount > 1) {
+            pageContents.push(`--- Page ${page.pageNumber} ---\n\n${pageContent}`)
+          } else {
+            pageContents.push(pageContent)
+          }
+        }
+      } catch (error) {
+        logger.error('Failed to process PDF page', { pageNumber: page.pageNumber, err: error })
+      }
+    }
+
+    return {
+      content: pageContents.join('\n\n'),
+      pageCount: preparedPdf.pageCount,
+      processingTimeMs: Date.now() - startTime,
+    }
+  }
+
+  async processFile(input: OcrInput): Promise<OcrResult | null> {
+    const { filePath, mimeType } = input
+
+    if (isPdfMimeType(mimeType, filePath)) {
+      logger.info('Processing PDF attachment via pdfjs-dist')
+      return this.processPdf(input)
+    }
+
+    if (isImageMimeType(mimeType, filePath)) {
+      logger.info('Processing image attachment via LLM OCR')
+      return this.processImage(input)
+    }
+
+    logger.info('Unsupported file type for OCR', { mimeType: mimeType || 'unknown' })
+    return null
+  }
+}
+
+export function shouldUseLlmOcr(mimeType: string | null, fileName: string): boolean {
+  if (isPdfMimeType(mimeType, fileName)) return true
+  return isImageMimeType(mimeType, fileName)
+}

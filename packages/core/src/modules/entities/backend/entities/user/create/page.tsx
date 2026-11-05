@@ -1,0 +1,185 @@
+"use client"
+import * as React from 'react'
+import { z } from 'zod'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
+import { createCrud } from '@open-mercato/ui/backend/utils/crud'
+import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { upsertCustomEntitySchema } from '@open-mercato/core/modules/entities/data/validators'
+import { useRouter } from 'next/navigation'
+import { pushWithFlash } from '@open-mercato/ui/backend/utils/flash'
+import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { LoadingMessage } from '@open-mercato/ui/backend/detail'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+
+const schema = upsertCustomEntitySchema
+
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+
+export default function CreateEntityPage() {
+  const t = useT()
+  const router = useRouter()
+  // Pre-fill the restriction toggle from the tenant default-restricted policy so
+  // the form reflects the workspace posture; null while loading.
+  const [defaultRestricted, setDefaultRestricted] = React.useState<boolean | null>(null)
+  React.useEffect(() => {
+    let active = true
+    ;(async () => {
+      try {
+        const data = await readApiResultOrThrow<{ newEntitiesRestrictedByDefault?: boolean }>(
+          '/api/entities/entity-settings',
+          undefined,
+          {
+            errorMessage: t('entities.userEntities.errors.settingsLoadFailed', 'Could not load default restriction policy; using default'),
+            fallback: { newEntitiesRestrictedByDefault: false },
+          },
+        )
+        if (active) setDefaultRestricted(data?.newEntitiesRestrictedByDefault === true)
+      } catch {
+        flash(t('entities.userEntities.errors.settingsLoadFailed', 'Could not load default restriction policy; using default'), 'warning')
+        if (active) setDefaultRestricted(false)
+      }
+    })()
+    return () => { active = false }
+  }, [t])
+  const fields = React.useMemo<CrudField[]>(() => ([
+    {
+      id: 'entityId',
+      label: t('entities.userEntities.form.entityId.label', 'Entity ID'),
+      type: 'text',
+      required: true,
+      placeholder: t('entities.userEntities.form.entityId.placeholder', 'module_name:entity_id'),
+    },
+    { id: 'label', label: t('entities.userEntities.form.label.label', 'Label'), type: 'text', required: true },
+    { id: 'description', label: t('entities.userEntities.form.description.label', 'Description'), type: 'textarea' },
+    {
+      id: 'defaultEditor',
+      label: t('entities.userEntities.form.defaultEditor.label', 'Default Editor (multiline)'),
+      type: 'select',
+      options: [
+        { value: '', label: t('entities.userEntities.form.defaultEditor.options.default', 'Default (Markdown)') },
+        { value: 'markdown', label: t('entities.userEntities.form.defaultEditor.options.markdown', 'Markdown (UIW)') },
+        { value: 'simpleMarkdown', label: t('entities.userEntities.form.defaultEditor.options.simpleMarkdown', 'Simple Markdown') },
+        { value: 'htmlRichText', label: t('entities.userEntities.form.defaultEditor.options.htmlRichText', 'HTML Rich Text') },
+        { value: 'plain', label: t('entities.userEntities.form.defaultEditor.options.plain', 'Plain textarea') },
+      ],
+    } as unknown as CrudField,
+    { id: 'showInSidebar', label: t('entities.userEntities.form.showInSidebar.label', 'Show in sidebar'), type: 'checkbox' } as CrudField,
+    {
+      id: 'accessRestricted',
+      label: t('entities.userEntities.form.accessRestricted.label', 'Restrict record access'),
+      type: 'checkbox',
+      description: t('entities.userEntities.form.accessRestricted.help', 'Require an explicit per-entity permission to view or manage this entity’s records. Leave off to allow anyone with the general records permission.'),
+    } as CrudField,
+  ]), [t])
+
+  if (defaultRestricted === null) {
+    return (
+      <Page>
+        <PageBody>
+          <LoadingMessage label={t('entities.userEntities.form.loading', 'Loading…')} />
+        </PageBody>
+      </Page>
+    )
+  }
+
+  return (
+    <Page>
+      <PageBody>
+        <CrudForm
+          title={t('entities.userEntities.form.title', 'Create Entity')}
+          titleHeadingLevel={1}
+          backHref="/backend/entities/user"
+          schema={schema}
+          fields={fields}
+          initialValues={{ entityId: 'user:your_entity', label: '', showInSidebar: false, accessRestricted: defaultRestricted }}
+          submitLabel={t('entities.userEntities.form.submit', 'Create')}
+          cancelHref="/backend/entities/user"
+          onSubmit={async (vals) => {
+            const entityId = await submitCreateEntity({
+              values: vals as Record<string, unknown>,
+              messages: {
+                entityIdRequired: t('entities.userEntities.errors.entityIdRequired', 'Entity ID is required'),
+                entityIdExists: t('entities.userEntities.errors.entityIdExists', 'Entity ID already exists'),
+                loadFailed: t('entities.userEntities.errors.loadFailed', 'Failed to load entities'),
+              },
+            })
+            try {
+              window.dispatchEvent(new Event('om:refresh-sidebar'))
+            } catch {}
+            const successMessage = t('entities.userEntities.flash.created', 'Entity created')
+            pushWithFlash(router, `/backend/entities/user/${encodeURIComponent(entityId)}`, successMessage, 'success')
+          }}
+        />
+      </PageBody>
+    </Page>
+  )
+}
+
+type EntityListEntry = {
+  entityId?: string
+  source?: string
+}
+
+type FetchCustomEntities = (errorMessage?: string) => Promise<EntityListEntry[]>
+
+async function defaultFetchCustomEntities(errorMessage?: string): Promise<EntityListEntry[]> {
+  const data = await readApiResultOrThrow<{ items?: EntityListEntry[] }>(
+    '/api/entities/entities',
+    undefined,
+    { errorMessage: errorMessage ?? 'Failed to load entities', fallback: { items: [] } },
+  )
+  return Array.isArray(data?.items) ? data.items! : []
+}
+
+type CreateEntityRequest = (payload: Record<string, unknown>) => Promise<void>
+
+async function defaultCreateEntityRequest(payload: Record<string, unknown>) {
+  await createCrud('entities/entities', payload)
+}
+
+export async function submitCreateEntity(options: {
+  values: Record<string, unknown>
+  fetchEntities?: FetchCustomEntities
+  createEntity?: CreateEntityRequest
+  messages?: {
+    entityIdRequired?: string
+    entityIdExists?: string
+    loadFailed?: string
+  }
+}): Promise<string> {
+  const {
+    values,
+    fetchEntities = defaultFetchCustomEntities,
+    createEntity = defaultCreateEntityRequest,
+    messages,
+  } = options
+  const rawEntityId = typeof values.entityId === 'string' ? values.entityId.trim() : ''
+  if (!rawEntityId) {
+    const message = messages?.entityIdRequired ?? 'Entity ID is required'
+    throw createCrudFormError(message, { entityId: message })
+  }
+
+  const existing = await fetchEntities(messages?.loadFailed)
+  const exists = existing.some(
+    (entry) => entry?.entityId === rawEntityId && (entry?.source === 'custom' || entry?.source === undefined),
+  )
+  if (exists) {
+    const message = messages?.entityIdExists ?? 'Entity ID already exists'
+    throw createCrudFormError(message, { entityId: message })
+  }
+
+  const payload: Record<string, unknown> = {
+    ...values,
+    entityId: rawEntityId,
+    labelField: 'name',
+    defaultEditor:
+      typeof (values as Record<string, unknown>).defaultEditor === 'string' &&
+      (values as Record<string, unknown>).defaultEditor
+        ? (values as Record<string, unknown>).defaultEditor
+        : undefined,
+  }
+
+  await createEntity(payload)
+  return rawEntityId
+}

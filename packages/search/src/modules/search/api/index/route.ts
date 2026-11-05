@@ -1,0 +1,335 @@
+import { NextResponse } from 'next/server'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import type { SearchIndexer } from '../../../../indexer/search-indexer'
+import type { SearchService } from '../../../../service'
+import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
+import { writeCoverageCounts } from '@open-mercato/core/modules/query_index/lib/coverage'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import type { VectorSearchStrategy } from '../../../../strategies/vector.strategy'
+import type { EntityId } from '@open-mercato/shared/modules/entities'
+import { searchDebugWarn, searchError } from '../../../../lib/debug'
+import { indexOpenApi } from '../openapi'
+
+export const metadata = {
+  GET: { requireAuth: true, requireFeatures: ['search.view'] },
+  DELETE: { requireAuth: true, requireFeatures: ['search.embeddings.manage'] },
+}
+
+function parseLimit(value: string | null): number {
+  if (!value) return 50
+  const parsed = Number.parseInt(value, 10)
+  if (Number.isNaN(parsed) || parsed <= 0) return 50
+  return Math.min(parsed, 200)
+}
+
+function parseOffset(value: string | null): number {
+  if (!value) return 0
+  const parsed = Number.parseInt(value, 10)
+  if (Number.isNaN(parsed) || parsed < 0) return 0
+  return parsed
+}
+
+export async function GET(req: Request) {
+  const { t } = await resolveTranslations()
+  const auth = await getAuthFromRequest(req)
+  if (!auth?.tenantId) {
+    return NextResponse.json({ error: t('api.errors.unauthorized', 'Unauthorized') }, { status: 401 })
+  }
+
+  const url = new URL(req.url)
+  const entityIdParam = url.searchParams.get('entityId')
+  const limit = parseLimit(url.searchParams.get('limit'))
+  const offset = parseOffset(url.searchParams.get('offset'))
+
+  const container = await createRequestContainer()
+  try {
+    // Get the vector strategy from search service
+    let searchService: SearchService
+    try {
+      searchService = container.resolve('searchService') as SearchService
+    } catch {
+      return NextResponse.json(
+        { error: t('search.api.errors.serviceUnavailable', 'Search service unavailable') },
+        { status: 503 }
+      )
+    }
+
+    // Access vector strategy for listing entries
+    const strategies = searchService.getStrategies()
+    const vectorStrategy = strategies.find((s) => s.id === 'vector') as VectorSearchStrategy | undefined
+
+    if (!vectorStrategy) {
+      return NextResponse.json(
+        { error: t('search.api.errors.vectorUnavailable', 'Vector strategy not configured') },
+        { status: 503 }
+      )
+    }
+
+    const isAvailable = await vectorStrategy.isAvailable()
+    if (!isAvailable) {
+      return NextResponse.json(
+        { error: t('search.api.errors.vectorUnavailable', 'Vector strategy not available') },
+        { status: 503 }
+      )
+    }
+
+    // List vector entries via the strategy
+    const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+    if (Array.isArray(scope.filterIds) && scope.filterIds.length === 0) {
+      return NextResponse.json({ entries: [], limit, offset })
+    }
+    const organizationId =
+      typeof scope.selectedId === 'string' && scope.selectedId.trim().length > 0 ? scope.selectedId.trim() : undefined
+    const entries = await vectorStrategy.listEntries({
+      tenantId: auth.tenantId,
+      organizationId,
+      entityId: entityIdParam ?? undefined,
+      limit,
+      offset,
+    })
+
+    return NextResponse.json({ entries, limit, offset })
+  } catch (error: unknown) {
+    const err = error as { status?: number; statusCode?: number }
+    const status = typeof err?.status === 'number'
+      ? err.status
+      : (typeof err?.statusCode === 'number' ? err.statusCode : 500)
+    searchError('search.index.list', 'failed', {
+      error: error instanceof Error ? error.message : error,
+      stack: error instanceof Error ? error.stack : undefined,
+    })
+    return NextResponse.json(
+      { error: t('search.api.errors.indexFetchFailed', 'Failed to fetch vector index. Please try again.') },
+      { status: status >= 400 ? status : 500 }
+    )
+  } finally {
+    const disposable = container as unknown as { dispose?: () => Promise<void> }
+    if (typeof disposable.dispose === 'function') {
+      await disposable.dispose()
+    }
+  }
+}
+
+export async function DELETE(req: Request) {
+  const { t } = await resolveTranslations()
+  const auth = await getAuthFromRequest(req)
+  if (!auth?.tenantId) {
+    return NextResponse.json({ error: t('api.errors.unauthorized', 'Unauthorized') }, { status: 401 })
+  }
+
+  const url = new URL(req.url)
+  const entityIdParam = url.searchParams.get('entityId')
+  const confirmAll = url.searchParams.get('confirmAll') === 'true'
+
+  // Require explicit confirmation when purging ALL entities (dangerous operation)
+  if (!entityIdParam && !confirmAll) {
+    return NextResponse.json(
+      { error: t('search.api.errors.confirmAllRequired', 'Purging all entities requires confirmAll=true parameter.') },
+      { status: 400 }
+    )
+  }
+
+  const container = await createRequestContainer()
+  try {
+    let searchIndexer: SearchIndexer
+    try {
+      searchIndexer = container.resolve('searchIndexer') as SearchIndexer
+    } catch {
+      return NextResponse.json(
+        { error: t('search.api.errors.indexUnavailable', 'Search indexer unavailable') },
+        { status: 503 }
+      )
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let em: any = null
+    try {
+      em = container.resolve('em')
+    } catch {
+      // em not available
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let eventBus: { emitEvent(event: string, payload: any, options?: any): Promise<void> } | null = null
+    try {
+      eventBus = container.resolve('eventBus')
+    } catch {
+      eventBus = null
+    }
+
+    const entityIds = entityIdParam
+      ? [entityIdParam]
+      : searchIndexer.listEnabledEntities()
+
+    // Constrain the purge to the caller's authorized organization scope so a
+    // holder of search.embeddings.manage in one organization cannot destroy
+    // another organization's index entries within the same tenant (issue #2935).
+    const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+    if (Array.isArray(scope.filterIds) && scope.filterIds.length === 0) {
+      return NextResponse.json({ ok: true })
+    }
+    const selectedOrganizationId =
+      typeof scope.selectedId === 'string' && scope.selectedId.trim().length > 0 ? scope.selectedId.trim() : null
+    // The single selected org, else the explicit authorized set, else
+    // (unrestricted/super-admin) a single tenant-wide purge.
+    const purgeOrganizationIds: Array<string | undefined> = selectedOrganizationId
+      ? [selectedOrganizationId]
+      : Array.isArray(scope.filterIds)
+        ? scope.filterIds
+        : [undefined]
+
+    const scopes = new Set<string>()
+    const registerScope = (org: string | undefined) => {
+      const key = org ?? '__null__'
+      if (!scopes.has(key)) scopes.add(key)
+    }
+    for (const organizationId of purgeOrganizationIds) {
+      if (organizationId === undefined) {
+        registerScope(undefined)
+        if (auth.orgId) registerScope(auth.orgId)
+      } else {
+        registerScope(organizationId)
+      }
+    }
+
+    await recordIndexerLog(
+      { em: em ?? undefined },
+      {
+        source: 'vector',
+        handler: 'api:search.index.purge',
+        message: entityIdParam
+          ? `Vector purge requested for ${entityIdParam}`
+          : 'Vector purge requested for all entities',
+        entityType: entityIdParam ?? null,
+        tenantId: auth.tenantId ?? null,
+        organizationId: auth.orgId ?? null,
+        details: { entityIds },
+      },
+    ).catch(() => undefined)
+
+    // Purge each entity using SearchIndexer, scoped to the authorized
+    // organization(s). An undefined organizationId performs a tenant-wide purge
+    // and is only reachable for unrestricted (e.g. super-admin) callers.
+    for (const entityId of entityIds) {
+      for (const organizationId of purgeOrganizationIds) {
+        await searchIndexer.purgeEntity({
+          entityId: entityId as EntityId,
+          tenantId: auth.tenantId,
+          organizationId,
+        })
+      }
+    }
+
+    // Update coverage counts
+    if (em) {
+      try {
+        for (const entityId of entityIds) {
+          for (const scope of scopes) {
+            const orgValue = scope === '__null__' ? null : scope
+            await writeCoverageCounts(
+              em,
+              {
+                entityType: entityId,
+                tenantId: auth.tenantId,
+                organizationId: orgValue,
+                withDeleted: false,
+              },
+              { vectorCount: 0 },
+            )
+          }
+        }
+      } catch (coverageError) {
+        searchDebugWarn('search.index.purge', 'Failed to reset coverage after purge', {
+          error: coverageError instanceof Error ? coverageError.message : coverageError,
+        })
+      }
+    }
+
+    // Emit coverage refresh events
+    if (eventBus) {
+      await Promise.all(
+        entityIds.flatMap((entityId) =>
+          Array.from(scopes).map((scope) => {
+            const orgValue = scope === '__null__' ? null : scope
+            return eventBus!
+              .emitEvent(
+                'query_index.coverage.refresh',
+                {
+                  entityType: entityId,
+                  tenantId: auth.tenantId,
+                  organizationId: orgValue,
+                  delayMs: 0,
+                },
+              )
+              .catch(() => undefined)
+          }),
+        ),
+      )
+    }
+
+    await recordIndexerLog(
+      { em: em ?? undefined },
+      {
+        source: 'vector',
+        handler: 'api:search.index.purge',
+        message: entityIdParam
+          ? `Vector purge completed for ${entityIdParam}`
+          : 'Vector purge completed for all entities',
+        entityType: entityIdParam ?? null,
+        tenantId: auth.tenantId ?? null,
+        organizationId: auth.orgId ?? null,
+        details: { entityIds },
+      },
+    ).catch(() => undefined)
+
+    return NextResponse.json({ ok: true })
+  } catch (error: unknown) {
+    const err = error as { status?: number; statusCode?: number }
+    const status = typeof err?.status === 'number'
+      ? err.status
+      : (typeof err?.statusCode === 'number' ? err.statusCode : 500)
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    searchError('search.index.purge', 'failed', {
+      error: errorMessage,
+      stack: error instanceof Error ? error.stack : undefined,
+    })
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let em: any = null
+    try {
+      em = container.resolve('em')
+    } catch {
+      // em not available
+    }
+
+    await recordIndexerLog(
+      { em: em ?? undefined },
+      {
+        source: 'vector',
+        handler: 'api:search.index.purge',
+        level: 'warn',
+        message: entityIdParam
+          ? `Vector purge failed for ${entityIdParam}`
+          : 'Vector purge failed for all entities',
+        entityType: entityIdParam ?? null,
+        tenantId: auth.tenantId ?? null,
+        organizationId: auth.orgId ?? null,
+        details: { error: errorMessage },
+      },
+    ).catch(() => undefined)
+
+    return NextResponse.json(
+      { error: t('search.api.errors.purgeFailed', 'Vector index purge failed. Please try again.') },
+      { status: status >= 400 ? status : 500 }
+    )
+  } finally {
+    const disposable = container as unknown as { dispose?: () => Promise<void> }
+    if (typeof disposable.dispose === 'function') {
+      await disposable.dispose()
+    }
+  }
+}
+
+export const openApi = indexOpenApi

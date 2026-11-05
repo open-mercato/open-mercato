@@ -1,0 +1,71 @@
+import { NextResponse } from 'next/server'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { getAllIntegrations } from '@open-mercato/shared/modules/integrations/types'
+import type { CredentialsService } from '../../integrations/lib/credentials-service'
+import type { IntegrationStateService } from '../../integrations/lib/state-service'
+import { getDataSyncAdapter } from '../lib/adapter-registry'
+import { resolveStartControlMap } from '../lib/start-controls'
+
+export const metadata = {
+  GET: { requireAuth: true, requireFeatures: ['data_sync.view'] },
+}
+
+export const openApi = {
+  tags: ['DataSync'],
+  summary: 'List data sync integration options',
+}
+
+export async function GET(req: Request) {
+  const auth = await getAuthFromRequest(req)
+  if (!auth?.tenantId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!organizationId) {
+    return organizationScopeRequiredResponse()
+  }
+
+  const container = await createRequestContainer()
+  const credentialsService = container.resolve('integrationCredentialsService') as CredentialsService
+  const stateService = container.resolve('integrationStateService') as IntegrationStateService
+  const scope = { organizationId, tenantId: auth.tenantId }
+
+  const items = await Promise.all(
+    getAllIntegrations()
+      .filter((integration) => integration.hub === 'data_sync' && integration.providerKey)
+      .map(async (integration) => {
+        const adapter = getDataSyncAdapter(integration.providerKey as string)
+        if (!adapter) return null
+
+        const [credentials, isEnabled] = await Promise.all([
+          credentialsService.resolve(integration.id, scope).catch(() => null),
+          stateService
+            .resolveState(integration.id, scope)
+            .then((state) => state.isEnabled)
+            .catch(() => false),
+        ])
+
+        return {
+          integrationId: integration.id,
+          title: integration.title,
+          description: integration.description ?? null,
+          providerKey: integration.providerKey ?? null,
+          direction: adapter.direction,
+          runMode: adapter.runMode ?? 'generic',
+          canStartRun: adapter.runMode !== 'provider',
+          supportedEntities: adapter.supportedEntities,
+          runParameters: adapter.runParameters ?? [],
+          startControls: resolveStartControlMap(adapter),
+          hasCredentials: Boolean(credentials),
+          isEnabled,
+          settingsPath: `/backend/integrations/${encodeURIComponent(integration.id)}`,
+        }
+      }),
+  )
+
+  return NextResponse.json({
+    items: items.filter((item): item is NonNullable<typeof item> => Boolean(item)),
+  })
+}

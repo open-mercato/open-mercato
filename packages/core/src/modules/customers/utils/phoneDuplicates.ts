@@ -1,0 +1,61 @@
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import type { PhoneDuplicateMatch } from '@open-mercato/ui/backend/inputs/PhoneNumberField'
+
+type LookupOptions = {
+  recordId?: string | null
+}
+
+const normalizeDigits = (value: string): string => value.replace(/\D+/g, '')
+
+const MAX_PAGES = 3
+const PAGE_SIZE = 50
+
+export async function lookupPhoneDuplicate(
+  rawDigits: string,
+  { recordId }: LookupOptions = {}
+): Promise<PhoneDuplicateMatch | null> {
+  const digits = normalizeDigits(rawDigits)
+  if (!digits) return null
+
+  const seen = new Set<string>()
+
+  for (let page = 1; page <= MAX_PAGES; page += 1) {
+    try {
+      const url = `/api/customers/people?hasPhone=true&page=${page}&pageSize=${PAGE_SIZE}&sortField=createdAt&sortDir=desc`
+      const call = await apiCall<{ items?: unknown[] }>(url)
+      if (!call.ok) continue
+      const payload = call.result ?? {}
+      const items = Array.isArray(payload?.items) ? payload.items : []
+      for (const item of items) {
+        if (!item || typeof item !== 'object') continue
+        const record = item as { id?: unknown; display_name?: unknown; primary_phone?: unknown }
+        const id = typeof record.id === 'string' ? record.id : null
+        if (!id || seen.has(id)) continue
+        seen.add(id)
+        if (recordId && id === recordId) continue
+        const displayName = typeof record.display_name === 'string' ? record.display_name : null
+        const phoneRaw = typeof record.primary_phone === 'string' ? record.primary_phone : ''
+        const itemDigits = normalizeDigits(phoneRaw)
+        if (!displayName || !itemDigits) continue
+        if (itemDigits === digits) {
+          return {
+            id,
+            label: displayName,
+            href: `/backend/customers/people/${id}`,
+          }
+        }
+      }
+      // Short-page termination: a page shorter than requested is the end of the result
+      // set. `total` is a display value and may under-report (capped counts), so it is
+      // no longer consulted. MAX_PAGES stays as the deliberate best-effort bound — this
+      // is a duplicate hint, not an exhaustive check.
+      if (items.length < PAGE_SIZE) {
+        break
+      }
+    } catch {
+      // ignore and try next page
+    }
+  }
+
+  return null
+}

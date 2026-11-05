@@ -1,0 +1,1109 @@
+"use client"
+
+import * as React from 'react'
+import Link from 'next/link'
+import { Link2, Pencil, Plus } from 'lucide-react'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { createCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
+import { LinkEntityDialog } from '../linking/LinkEntityDialog'
+import { createDealLinkAdapter } from '../linking/adapters/dealAdapter'
+import { LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { hasMoreFromPage } from '@open-mercato/shared/lib/pagination/load-more'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { E } from '#generated/entities.ids.generated'
+import type { DealCustomFieldEntry, DealSummary, SectionAction, TabEmptyStateConfig, Translator } from './types'
+import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
+import { formatDate } from './utils'
+import { DealDialog } from './DealDialog'
+import type { DealFormBaseValues, DealFormSubmitPayload } from './DealForm'
+import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
+import { useCurrencyDictionary } from './hooks/useCurrencyDictionary'
+import { useCustomerDictionary } from './hooks/useCustomerDictionary'
+import { CustomFieldValuesList } from './CustomFieldValuesList'
+import { useCustomFieldDisplay } from './hooks/useCustomFieldDisplay'
+import { normalizeCustomFieldKey } from './customFieldUtils'
+
+const DEALS_PAGE_SIZE = 10
+
+type DealsScope =
+  | { kind: 'person'; entityId: string }
+  | { kind: 'company'; entityId: string }
+
+type GuardedMutationRunner = <T,>(
+  operation: () => Promise<T>,
+  mutationPayload?: Record<string, unknown>,
+) => Promise<T>
+
+type PendingAction =
+  | { kind: 'create' }
+  | { kind: 'update'; id: string }
+  | { kind: 'remove'; id: string }
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function sanitizeCustomValues(input: unknown): Record<string, unknown> | null {
+  if (!isPlainObject(input)) return null
+  const result: Record<string, unknown> = {}
+  Object.entries(input).forEach(([key, value]) => {
+    const trimmedKey = key.trim()
+    if (!trimmedKey.length) return
+    result[trimmedKey] = value
+  })
+  return Object.keys(result).length ? result : null
+}
+
+function sanitizeCustomFieldEntries(
+  entries: unknown,
+  values: Record<string, unknown> | null,
+): DealCustomFieldEntry[] {
+  const map = new Map<string, DealCustomFieldEntry>()
+  if (Array.isArray(entries)) {
+    entries.forEach((entry) => {
+      if (!entry || typeof entry !== 'object') return
+      const record = entry as Record<string, unknown>
+      const keyRaw =
+        typeof record.key === 'string'
+          ? record.key
+          : typeof record.id === 'string'
+            ? record.id
+            : null
+      if (!keyRaw) return
+      const key = keyRaw.trim()
+      if (!key.length) return
+      const normalizedKey = normalizeCustomFieldKey(key)
+      if (!normalizedKey) return
+      const label =
+        typeof record.label === 'string' && record.label.trim().length
+          ? record.label.trim()
+          : null
+      const kind =
+        typeof record.kind === 'string' && record.kind.trim().length
+          ? record.kind.trim()
+          : null
+      const multi =
+        typeof record.multi === 'boolean' ? record.multi : Array.isArray(record.value) ? true : undefined
+      map.set(normalizedKey, {
+        key,
+        label,
+        value: record.value,
+        kind,
+        multi,
+      })
+    })
+  }
+
+  if (values) {
+    Object.entries(values).forEach(([rawKey, value]) => {
+      const key = rawKey.trim()
+      if (!key.length) return
+      const normalizedKey = normalizeCustomFieldKey(key)
+      if (!normalizedKey) return
+      const existing = map.get(normalizedKey)
+      if (existing) {
+        existing.value = value
+        if (existing.multi === undefined) existing.multi = Array.isArray(value)
+      } else {
+        map.set(normalizedKey, {
+          key,
+          label: null,
+          value,
+          kind: null,
+          multi: Array.isArray(value) ? true : undefined,
+        })
+      }
+    })
+  }
+
+  return Array.from(map.values())
+}
+
+type NormalizedDeal = Omit<
+  DealSummary,
+  'valueAmount' | 'probability' | 'expectedCloseAt' | 'customValues' | 'customFields' | 'personIds' | 'companyIds'
+> & {
+  valueAmount: number | null
+  probability: number | null
+  expectedCloseAt: string | null
+  personIds: string[]
+  companyIds: string[]
+  customValues: Record<string, unknown> | null
+  customFields: DealCustomFieldEntry[]
+}
+
+function toNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed.length) return null
+    const parsed = Number(trimmed)
+    return Number.isNaN(parsed) ? null : parsed
+  }
+  return null
+}
+
+function toIso(value: unknown): string | null {
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed.length) return null
+    const parsed = new Date(trimmed)
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString()
+  }
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString()
+  }
+  return null
+}
+
+function mergeIds(...sources: Array<unknown>): string[] {
+  const set = new Set<string>()
+  sources.forEach((source) => {
+    if (Array.isArray(source)) {
+      source.forEach((value) => {
+        if (typeof value !== 'string') return
+        const trimmed = value.trim()
+        if (!trimmed.length) return
+        set.add(trimmed)
+      })
+    }
+  })
+  return Array.from(set)
+}
+
+function normalizeDeal(deal: Partial<DealSummary> & { id: string; title?: string }): NormalizedDeal {
+  const title = typeof deal.title === 'string' && deal.title.trim().length ? deal.title.trim() : ''
+  const normalizeIdList = (list: unknown): string[] => {
+    if (!Array.isArray(list)) return []
+    const seen = new Set<string>()
+    const result: string[] = []
+    list.forEach((candidate) => {
+      if (typeof candidate !== 'string') return
+      const trimmed = candidate.trim()
+      if (!trimmed.length || seen.has(trimmed)) return
+      seen.add(trimmed)
+      result.push(trimmed)
+    })
+    return result
+  }
+
+  const normalizeAssignees = (entries: unknown, fallbackIds: string[]): { id: string; label: string }[] => {
+    if (!Array.isArray(entries)) {
+      return fallbackIds.map((id) => ({ id, label: '' }))
+    }
+    const seen = new Set<string>()
+    const resolved: { id: string; label: string }[] = []
+    entries.forEach((entry) => {
+      if (!entry || typeof entry !== 'object') return
+      const data = entry as Record<string, unknown>
+      const id = typeof data.id === 'string' ? data.id.trim() : ''
+      if (!id || seen.has(id)) return
+      const label = typeof data.label === 'string' ? data.label : ''
+      seen.add(id)
+      resolved.push({ id, label })
+    })
+    if (!resolved.length && fallbackIds.length) {
+      return fallbackIds.map((id) => ({ id, label: '' }))
+    }
+    return resolved
+  }
+
+  const personIds = normalizeIdList(deal.personIds ?? null)
+  const companyIds = normalizeIdList(deal.companyIds ?? null)
+  const people = normalizeAssignees(deal.people ?? null, personIds)
+  const companies = normalizeAssignees(deal.companies ?? null, companyIds)
+
+  const customValues = sanitizeCustomValues(deal.customValues ?? null)
+  const customFields = sanitizeCustomFieldEntries(deal.customFields ?? null, customValues)
+
+  return {
+    id: deal.id,
+    title,
+    status: typeof deal.status === 'string' ? deal.status : deal.status ?? null,
+    pipelineStage:
+      typeof deal.pipelineStage === 'string' ? deal.pipelineStage : deal.pipelineStage ?? null,
+    pipelineId:
+      typeof deal.pipelineId === 'string' && deal.pipelineId.trim().length
+        ? deal.pipelineId.trim()
+        : deal.pipelineId ?? null,
+    pipelineStageId:
+      typeof deal.pipelineStageId === 'string' && deal.pipelineStageId.trim().length
+        ? deal.pipelineStageId.trim()
+        : deal.pipelineStageId ?? null,
+    valueAmount: toNumber(deal.valueAmount ?? null),
+    valueCurrency:
+      typeof deal.valueCurrency === 'string' && deal.valueCurrency.trim().length
+        ? deal.valueCurrency.trim().toUpperCase()
+        : null,
+    probability: toNumber(deal.probability ?? null),
+    expectedCloseAt: toIso(deal.expectedCloseAt ?? null),
+    description:
+      typeof deal.description === 'string' && deal.description.trim().length
+        ? deal.description
+        : deal.description ?? null,
+    ownerUserId:
+      typeof deal.ownerUserId === 'string' && deal.ownerUserId.trim().length
+        ? deal.ownerUserId
+        : deal.ownerUserId ?? null,
+    source:
+      typeof deal.source === 'string' && deal.source.trim().length ? deal.source : deal.source ?? null,
+    closureOutcome:
+      typeof deal.closureOutcome === 'string' && deal.closureOutcome.trim().length
+        ? deal.closureOutcome
+        : deal.closureOutcome ?? null,
+    lossReasonId:
+      typeof deal.lossReasonId === 'string' && deal.lossReasonId.trim().length
+        ? deal.lossReasonId
+        : deal.lossReasonId ?? null,
+    lossNotes:
+      typeof deal.lossNotes === 'string' && deal.lossNotes.trim().length
+        ? deal.lossNotes
+        : deal.lossNotes ?? null,
+    createdAt: toIso(deal.createdAt ?? null),
+    updatedAt: toIso(deal.updatedAt ?? null),
+    personIds,
+    companyIds,
+    people,
+    companies,
+    customValues,
+    customFields,
+  }
+}
+
+function formatValueLabel(
+  amount: number | null,
+  currency: string | null,
+  emptyLabel: string,
+  locale?: string,
+): string {
+  if (typeof amount === 'number') {
+    const formatter = new Intl.NumberFormat(locale, {
+      style: currency ? 'currency' : 'decimal',
+      currency: currency ?? undefined,
+      maximumFractionDigits: 2,
+    })
+    try {
+      return formatter.format(amount)
+    } catch {
+      return currency ? `${amount} ${currency}` : `${amount}`
+    }
+  }
+  return emptyLabel
+}
+
+export type DealsSectionProps = {
+  scope: DealsScope | null
+  addActionLabel: string
+  emptyLabel: string
+  emptyState: TabEmptyStateConfig
+  onCountDelta?: (delta: number) => void
+  onActionChange?: (action: SectionAction | null) => void
+  onLoadingChange?: (isLoading: boolean) => void
+  onDataRefresh?: () => Promise<void> | void
+  translator?: Translator
+  runGuardedMutation?: GuardedMutationRunner
+}
+
+export function DealsSection({
+  scope,
+  addActionLabel,
+  emptyLabel,
+  emptyState,
+  onCountDelta,
+  onActionChange,
+  onLoadingChange,
+  onDataRefresh,
+  translator,
+  runGuardedMutation,
+}: DealsSectionProps) {
+  const tHook = useT()
+  const locale = useLocale()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const fallbackTranslator = React.useMemo<Translator>(() => createTranslatorWithFallback(tHook), [tHook])
+  const t: Translator = React.useMemo(() => translator ?? fallbackTranslator, [translator, fallbackTranslator])
+  useCurrencyDictionary()
+  const scopeVersion = useOrganizationScopeVersion()
+  const statusDictionaryQuery = useCustomerDictionary('deal-statuses', scopeVersion)
+  const statusDictionaryMap = statusDictionaryQuery.data?.map ?? null
+  const customFieldResources = useCustomFieldDisplay(E.customers.customer_deal)
+
+  const [deals, setDeals] = React.useState<NormalizedDeal[]>([])
+  const [isLoading, setIsLoading] = React.useState<boolean>(() => Boolean(scope))
+  const [loadError, setLoadError] = React.useState<string | null>(null)
+  const [pendingAction, setPendingAction] = React.useState<PendingAction | null>(null)
+  const [hasMore, setHasMore] = React.useState(false)
+  const pageRef = React.useRef(0)
+  const hasMoreRef = React.useRef(true)
+  const [dialogOpen, setDialogOpen] = React.useState(false)
+  const [initialValues, setInitialValues] = React.useState<
+    Partial<DealFormBaseValues & Record<string, unknown>> | undefined
+  >(undefined)
+  const pendingCounterRef = React.useRef(0)
+
+  const pushLoading = React.useCallback(() => {
+    pendingCounterRef.current += 1
+    if (pendingCounterRef.current === 1) onLoadingChange?.(true)
+  }, [onLoadingChange])
+
+  const popLoading = React.useCallback(() => {
+    pendingCounterRef.current = Math.max(0, pendingCounterRef.current - 1)
+    if (pendingCounterRef.current === 0) onLoadingChange?.(false)
+  }, [onLoadingChange])
+
+  const translate = React.useCallback(
+    (key: string, fallback: string, params?: Record<string, string | number>) => {
+      const value = t(key, fallback, params)
+      return value === key && fallback ? fallback : value
+    },
+    [t],
+  )
+  const runWriteMutation = React.useCallback(
+    async <T,>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>): Promise<T> => {
+      if (!runGuardedMutation) {
+        return operation()
+      }
+      return runGuardedMutation(operation, mutationPayload)
+    },
+    [runGuardedMutation],
+  )
+  const refreshParentData = React.useCallback(async () => {
+    await Promise.resolve(onDataRefresh?.())
+  }, [onDataRefresh])
+
+  const loadDeals = React.useCallback(async ({ append }: { append: boolean }) => {
+    if (!scope) {
+      setDeals([])
+      setLoadError(null)
+      setHasMore(false)
+      setIsLoading(false)
+      pendingCounterRef.current = 0
+      onLoadingChange?.(false)
+      pageRef.current = 0
+      hasMoreRef.current = false
+      return
+    }
+    if (append && !hasMoreRef.current) return
+    const nextPage = append ? pageRef.current + 1 : 1
+    if (!append) {
+      pageRef.current = 0
+      hasMoreRef.current = true
+      setHasMore(true)
+      setDeals([])
+    }
+    pushLoading()
+    setIsLoading(true)
+    try {
+      const params = new URLSearchParams({
+        page: String(nextPage),
+        pageSize: String(DEALS_PAGE_SIZE),
+        sortField: 'updatedAt',
+        sortDir: 'desc',
+      })
+      if (scope.kind === 'person') params.set('personEntityId', scope.entityId)
+      if (scope.kind === 'company') params.set('companyEntityId', scope.entityId)
+      const payload = await readApiResultOrThrow<Record<string, unknown>>(
+        `/api/customers/deals?${params.toString()}`,
+        undefined,
+        { errorMessage: translate('customers.people.detail.deals.loadError', 'Failed to load deals.') },
+      )
+      const rawItems = Array.isArray(payload?.items) ? payload.items : []
+      const mapped: NormalizedDeal[] = rawItems.map((item: unknown) => {
+        const record = (item && typeof item === 'object') ? (item as Record<string, unknown>) : {}
+        const id =
+          typeof record.id === 'string' && record.id.trim().length ? record.id : generateTempId()
+        const title =
+          typeof record.title === 'string' && record.title.trim().length ? record.title.trim() : ''
+        const status =
+          typeof record.status === 'string' && record.status.trim().length
+            ? record.status.trim()
+            : null
+        const pipelineStage =
+          typeof record.pipelineStage === 'string' && record.pipelineStage.trim().length
+            ? record.pipelineStage.trim()
+            : typeof record.pipeline_stage === 'string' && record.pipeline_stage.trim().length
+              ? record.pipeline_stage.trim()
+              : null
+        const pipelineId =
+          typeof record.pipelineId === 'string' && record.pipelineId.trim().length
+            ? record.pipelineId.trim()
+            : typeof record.pipeline_id === 'string' && record.pipeline_id.trim().length
+              ? record.pipeline_id.trim()
+              : null
+        const pipelineStageId =
+          typeof record.pipelineStageId === 'string' && record.pipelineStageId.trim().length
+            ? record.pipelineStageId.trim()
+            : typeof record.pipeline_stage_id === 'string' && record.pipeline_stage_id.trim().length
+              ? record.pipeline_stage_id.trim()
+              : null
+        const valueAmount = toNumber(record.valueAmount ?? record.value_amount)
+        const valueCurrencyRaw = record.valueCurrency ?? record.value_currency ?? null
+        const valueCurrency =
+          typeof valueCurrencyRaw === 'string' && valueCurrencyRaw.trim().length
+            ? valueCurrencyRaw.trim().toUpperCase()
+            : null
+        const probability = toNumber(record.probability)
+        const expectedCloseAt =
+          typeof record.expectedCloseAt === 'string' && record.expectedCloseAt.trim().length
+            ? record.expectedCloseAt
+            : typeof record.expected_close_at === 'string' && record.expected_close_at.trim().length
+              ? record.expected_close_at
+              : null
+        const description =
+          typeof record.description === 'string' && record.description.trim().length
+            ? record.description
+            : null
+        const ownerUserId =
+          typeof record.ownerUserId === 'string' && record.ownerUserId.trim().length
+            ? record.ownerUserId
+            : typeof record.owner_user_id === 'string' && record.owner_user_id.trim().length
+              ? record.owner_user_id
+              : null
+        const source =
+          typeof record.source === 'string' && record.source.trim().length
+            ? record.source
+            : null
+        const closureOutcome =
+          typeof record.closureOutcome === 'string' && record.closureOutcome.trim().length
+            ? record.closureOutcome
+            : typeof record.closure_outcome === 'string' && record.closure_outcome.trim().length
+              ? record.closure_outcome
+              : null
+        const lossReasonId =
+          typeof record.lossReasonId === 'string' && record.lossReasonId.trim().length
+            ? record.lossReasonId
+            : typeof record.loss_reason_id === 'string' && record.loss_reason_id.trim().length
+              ? record.loss_reason_id
+              : null
+        const lossNotes =
+          typeof record.lossNotes === 'string' && record.lossNotes.trim().length
+            ? record.lossNotes
+            : typeof record.loss_notes === 'string' && record.loss_notes.trim().length
+              ? record.loss_notes
+              : null
+        const createdAt =
+          typeof record.createdAt === 'string' && record.createdAt.trim().length
+            ? record.createdAt
+            : typeof record.created_at === 'string' && record.created_at.trim().length
+              ? record.created_at
+              : null
+        const updatedAt =
+          typeof record.updatedAt === 'string' && record.updatedAt.trim().length
+            ? record.updatedAt
+            : typeof record.updated_at === 'string' && record.updated_at.trim().length
+              ? record.updated_at
+              : null
+        const personIds = Array.isArray(record.personIds)
+          ? record.personIds
+          : Array.isArray(record.person_ids)
+            ? record.person_ids
+            : []
+        const people = Array.isArray(record.people) ? record.people : []
+        const companyIds = Array.isArray(record.companyIds)
+          ? record.companyIds
+          : Array.isArray(record.company_ids)
+            ? record.company_ids
+            : []
+        const companies = Array.isArray(record.companies) ? record.companies : []
+        const customValues = sanitizeCustomValues(
+          record.customValues ?? record.custom_values ?? null,
+        )
+        const customFieldEntries = sanitizeCustomFieldEntries(
+          record.customFields ?? record.custom_fields ?? null,
+          customValues,
+        )
+        return normalizeDeal({
+          id,
+          title,
+          status,
+          pipelineStage,
+          pipelineId,
+          pipelineStageId,
+          valueAmount,
+          valueCurrency,
+          probability,
+          expectedCloseAt,
+          description,
+          ownerUserId,
+          source,
+          closureOutcome,
+          lossReasonId,
+          lossNotes,
+          createdAt,
+          updatedAt,
+          personIds: personIds as string[] | undefined,
+          people: people as { id: string; label: string }[] | undefined,
+          companyIds: companyIds as string[] | undefined,
+          companies: companies as { id: string; label: string }[] | undefined,
+          customValues,
+          customFields: customFieldEntries,
+        })
+      })
+      setDeals((prev) => {
+        if (!append) return mapped
+        const mappedById = new Map(mapped.map((deal) => [deal.id, deal]))
+        const prevIds = new Set(prev.map((deal) => deal.id))
+        const updatedPrev = prev.map((deal) => mappedById.get(deal.id) ?? deal)
+        const appended = mapped.filter((deal) => !prevIds.has(deal.id))
+        return [...updatedPrev, ...appended]
+      })
+      pageRef.current = nextPage
+      // Short-page termination, unconditionally — see `hasMoreFromPage`.
+      // Preferring `totalPages` here hid deals that do exist. Measured on
+      // `rawItems`, which is what the server served, rather than on the
+      // deduped rows appended above.
+      const nextHasMore = hasMoreFromPage(rawItems.length, DEALS_PAGE_SIZE)
+      hasMoreRef.current = nextHasMore
+      setHasMore(nextHasMore)
+      setLoadError(null)
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : translate('customers.people.detail.deals.loadError', 'Failed to load deals.')
+      setLoadError(message)
+      if (!append) {
+        setHasMore(false)
+        hasMoreRef.current = false
+      }
+    } finally {
+      setIsLoading(false)
+      popLoading()
+    }
+  }, [popLoading, pushLoading, scope, translate])
+
+  React.useEffect(() => {
+    loadDeals({ append: false }).catch(() => {})
+  }, [loadDeals, scope])
+
+  const openCreateDialog = React.useCallback(() => {
+    if (!scope) return
+    setInitialValues({
+      personIds: scope.kind === 'person' ? [scope.entityId] : [],
+      companyIds: scope.kind === 'company' ? [scope.entityId] : [],
+    })
+    setDialogOpen(true)
+  }, [scope])
+
+  const [linkDialogOpen, setLinkDialogOpen] = React.useState(false)
+  const openLinkDialog = React.useCallback(() => {
+    if (!scope) return
+    setLinkDialogOpen(true)
+  }, [scope])
+
+  const existingDealIds = React.useMemo(() => deals.map((deal) => deal.id), [deals])
+
+  const dealLinkAdapter = React.useMemo(
+    () =>
+      createDealLinkAdapter({
+        dialogTitle: t('customers.linking.deal.dialogTitle', 'Link deal'),
+        dialogSubtitle: t(
+          'customers.linking.deal.dialogSubtitle',
+          'Link an existing deal to this record',
+        ),
+        sectionLabel: t('customers.linking.deal.sectionLabel', 'MATCHING DEALS'),
+        searchPlaceholder: t('customers.linking.deal.searchPlaceholder', 'Search all deals…'),
+        searchEmptyHint: t('customers.linking.deal.searchEmpty', 'No matching deals found.'),
+        selectedEmptyHint: t('customers.linking.deal.selectedEmpty', 'No deals selected.'),
+        confirmButtonLabel: t('customers.linking.deal.confirmButton', 'Link deal'),
+        orphanWarningTitle: t('customers.linking.deal.orphanWarningTitle', 'Deal without company'),
+        orphanWarningMessage: t(
+          'customers.linking.deal.orphanWarning',
+          'This deal has no other linked entities. If you unlink it later, it will become unreachable.',
+        ),
+        contextEntityId: scope?.entityId,
+      }),
+    [scope?.entityId, t],
+  )
+
+  const handleLinkConfirm = React.useCallback(
+    async ({
+      addedIds,
+      removedIds,
+    }: {
+      addedIds: string[]
+      removedIds: string[]
+    }) => {
+      if (!scope) return
+      if (!addedIds.length && !removedIds.length) return
+      pushLoading()
+      try {
+        for (const dealId of addedIds) {
+          const payload = await readApiResultOrThrow<Record<string, unknown>>(
+            `/api/customers/deals/${encodeURIComponent(dealId)}`,
+          )
+          const currentPersonIds = Array.isArray(payload.personIds)
+            ? (payload.personIds as string[]).filter((id) => typeof id === 'string')
+            : []
+          const currentCompanyIds = Array.isArray(payload.companyIds)
+            ? (payload.companyIds as string[]).filter((id) => typeof id === 'string')
+            : []
+          const nextPersonIds =
+            scope.kind === 'person' && !currentPersonIds.includes(scope.entityId)
+              ? [...currentPersonIds, scope.entityId]
+              : currentPersonIds
+          const nextCompanyIds =
+            scope.kind === 'company' && !currentCompanyIds.includes(scope.entityId)
+              ? [...currentCompanyIds, scope.entityId]
+              : currentCompanyIds
+          await runWriteMutation(
+            () =>
+              // optimistic-lock-exempt: deal association list (link)
+              updateCrud(
+                'customers/deals',
+                { id: dealId, personIds: nextPersonIds, companyIds: nextCompanyIds },
+                {
+                  errorMessage: t(
+                    'customers.people.detail.deals.linkError',
+                    'Failed to link deal.',
+                  ),
+                },
+              ),
+            { dealId, scopeKind: scope.kind, scopeEntityId: scope.entityId, operation: 'linkDeal' },
+          )
+        }
+        for (const dealId of removedIds) {
+          const payload = await readApiResultOrThrow<Record<string, unknown>>(
+            `/api/customers/deals/${encodeURIComponent(dealId)}`,
+          )
+          const currentPersonIds = Array.isArray(payload.personIds)
+            ? (payload.personIds as string[]).filter((id) => typeof id === 'string')
+            : []
+          const currentCompanyIds = Array.isArray(payload.companyIds)
+            ? (payload.companyIds as string[]).filter((id) => typeof id === 'string')
+            : []
+          const nextPersonIds =
+            scope.kind === 'person'
+              ? currentPersonIds.filter((id) => id !== scope.entityId)
+              : currentPersonIds
+          const nextCompanyIds =
+            scope.kind === 'company'
+              ? currentCompanyIds.filter((id) => id !== scope.entityId)
+              : currentCompanyIds
+          await runWriteMutation(
+            () =>
+              // optimistic-lock-exempt: deal association list (unlink)
+              updateCrud(
+                'customers/deals',
+                { id: dealId, personIds: nextPersonIds, companyIds: nextCompanyIds },
+                {
+                  errorMessage: t(
+                    'customers.people.detail.deals.unlinkError',
+                    'Failed to unlink deal.',
+                  ),
+                },
+              ),
+            { dealId, scopeKind: scope.kind, scopeEntityId: scope.entityId, operation: 'unlinkDeal' },
+          )
+        }
+        await loadDeals({ append: false })
+        await refreshParentData()
+        if (addedIds.length + removedIds.length > 0) {
+          onCountDelta?.(addedIds.length - removedIds.length)
+        }
+        flash(
+          addedIds.length > 0
+            ? t('customers.people.detail.deals.linkSuccess', 'Deal linked.')
+            : t('customers.people.detail.deals.unlinkSuccess', 'Deal unlinked.'),
+          'success',
+        )
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : t('customers.people.detail.deals.linkError', 'Failed to link deal.')
+        flash(message, 'error')
+      } finally {
+        popLoading()
+      }
+    },
+    [loadDeals, onCountDelta, popLoading, pushLoading, refreshParentData, runWriteMutation, scope, t],
+  )
+
+  const closeDialog = React.useCallback(() => {
+    setDialogOpen(false)
+    setInitialValues(undefined)
+  }, [])
+
+  const handleDialogOpenChange = React.useCallback(
+    (next: boolean) => {
+      if (!next) closeDialog()
+      else setDialogOpen(true)
+    },
+    [closeDialog],
+  )
+
+  const handleCreate = React.useCallback(
+    async ({ base, custom }: DealFormSubmitPayload) => {
+      if (!scope) {
+        throw new Error(translate('customers.people.detail.deals.error', 'Failed to save deal.'))
+      }
+      setPendingAction({ kind: 'create' })
+      pushLoading()
+      try {
+        const personIds = mergeIds(base.personIds)
+        const companyIds = mergeIds(base.companyIds)
+
+        const payload: Record<string, unknown> = {
+          title: base.title,
+          status: base.status ?? undefined,
+          pipelineStage: base.pipelineStage ?? undefined,
+          pipelineId: base.pipelineId ?? undefined,
+          pipelineStageId: base.pipelineStageId ?? undefined,
+          valueAmount: typeof base.valueAmount === 'number' ? base.valueAmount : undefined,
+          valueCurrency: base.valueCurrency ?? undefined,
+          probability: typeof base.probability === 'number' ? base.probability : undefined,
+          expectedCloseAt: base.expectedCloseAt ?? undefined,
+          description: base.description ?? undefined,
+          // This payload is an explicit allow-list, so an omitted field never reaches the API.
+          // `base.ownerUserId` is `null` when the picker is empty and a uuid otherwise; both are
+          // valid on `dealCreateSchema` (validators.ts:183) and `createDealCommand` maps null to
+          // null. Leaving it out created every deal from this flow unowned, silently.
+          ownerUserId: base.ownerUserId ?? null,
+          personIds,
+          companyIds,
+        }
+        if (Object.keys(custom).length) payload.customFields = custom
+        const { result } = await runWriteMutation(
+          () =>
+            // optimistic-lock-exempt: deal create-only, no prior version
+            createCrud<{ id?: string }>('customers/deals', payload, {
+              errorMessage: translate('customers.people.detail.deals.error', 'Failed to save deal.'),
+            }),
+          {
+            ...payload,
+            operation: 'createDeal',
+          },
+        )
+        const dealId =
+          typeof result?.id === 'string' && result.id.trim().length ? result.id : generateTempId()
+        const belongsToScope =
+          (scope.kind !== 'person' || personIds.includes(scope.entityId)) &&
+          (scope.kind !== 'company' || companyIds.includes(scope.entityId))
+        if (belongsToScope) {
+          const customValuesForState = sanitizeCustomValues(
+            Object.keys(custom).length ? custom : null,
+          )
+          const timestamp = new Date().toISOString()
+          const normalized = normalizeDeal({
+            id: dealId,
+            title: base.title,
+            status: base.status ?? null,
+            pipelineStage: base.pipelineStage ?? null,
+            pipelineId: base.pipelineId ?? null,
+            pipelineStageId: base.pipelineStageId ?? null,
+            valueAmount: base.valueAmount ?? null,
+            valueCurrency: base.valueCurrency ?? null,
+            probability: base.probability ?? null,
+            expectedCloseAt: base.expectedCloseAt ?? null,
+            description: base.description ?? null,
+            personIds,
+            companyIds,
+            customValues: customValuesForState,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          })
+          setDeals((prev) => [normalized, ...prev])
+          onCountDelta?.(1)
+        }
+        await refreshParentData()
+        flash(translate('customers.people.detail.deals.success', 'Deal created.'), 'success')
+      } finally {
+        setPendingAction(null)
+        popLoading()
+      }
+    },
+    [onCountDelta, popLoading, pushLoading, refreshParentData, runWriteMutation, scope, translate],
+  )
+
+  const handleUnlink = React.useCallback(
+    async (deal: NormalizedDeal) => {
+      if (!scope) return
+
+      const nextPersonIds =
+        scope.kind === 'person'
+          ? deal.personIds.filter((id) => id !== scope.entityId)
+          : deal.personIds
+      const nextCompanyIds =
+        scope.kind === 'company'
+          ? deal.companyIds.filter((id) => id !== scope.entityId)
+          : deal.companyIds
+
+      const confirmed = await confirm({
+        title:
+          scope.kind === 'person'
+            ? translate('customers.people.detail.deals.unlinkConfirmPerson', 'Unlink this deal from this person?')
+            : translate('customers.people.detail.deals.unlinkConfirmCompany', 'Unlink this deal from this company?'),
+        description: translate(
+          'customers.people.detail.deals.unlinkDescription',
+          'The deal will remain available from its own detail page.',
+        ),
+        confirmText: translate('customers.people.card.unlink', 'Unlink'),
+        cancelText: translate('customers.people.detail.deals.cancel', 'Cancel'),
+      })
+      if (!confirmed) return
+
+      setPendingAction({ kind: 'remove', id: deal.id })
+      pushLoading()
+      try {
+        const payload: Record<string, unknown> = {
+          id: deal.id,
+          personIds: nextPersonIds,
+          companyIds: nextCompanyIds,
+        }
+        await runWriteMutation(
+          () =>
+            // optimistic-lock-exempt: deal association list (unlink)
+            updateCrud('customers/deals', payload, {
+              errorMessage: translate('customers.people.detail.deals.unlinkError', 'Failed to unlink deal.'),
+            }),
+          {
+            ...payload,
+            operation: 'unlinkDeal',
+          },
+        )
+        setDeals((prev) => prev.filter((item) => item.id !== deal.id))
+        onCountDelta?.(-1)
+        await refreshParentData()
+        flash(translate('customers.people.detail.deals.unlinkSuccess', 'Deal unlinked.'), 'success')
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : translate('customers.people.detail.deals.unlinkError', 'Failed to unlink deal.')
+        flash(message, 'error')
+      } finally {
+        setPendingAction(null)
+        popLoading()
+      }
+    },
+    [confirm, onCountDelta, popLoading, pushLoading, refreshParentData, runWriteMutation, scope, translate],
+  )
+
+  const handleDialogSubmit = React.useCallback(
+    async (payload: DealFormSubmitPayload) => {
+      try {
+        await handleCreate(payload)
+        closeDialog()
+      } catch (err) {
+        const message =
+          err instanceof Error
+            ? err.message
+            : translate('customers.people.detail.deals.error', 'Failed to save deal.')
+        flash(message, 'error')
+      }
+    },
+    [closeDialog, handleCreate, translate],
+  )
+
+  React.useEffect(() => {
+    onActionChange?.(null)
+    return () => onActionChange?.(null)
+  }, [onActionChange])
+
+  const isFormPending = pendingAction?.kind === 'create'
+
+  const sortedDeals = React.useMemo(() => {
+    return [...deals].sort((a, b) => {
+      const timeA = a.updatedAt ?? a.createdAt ?? ''
+      const timeB = b.updatedAt ?? b.createdAt ?? ''
+      return timeB.localeCompare(timeA)
+    })
+  }, [deals])
+
+  return (
+    <div className="mt-4 space-y-4">
+      {loadError ? (
+        <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          {loadError}
+        </div>
+      ) : null}
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={openLinkDialog}
+          disabled={!scope || pendingAction !== null}
+        >
+          <Link2 className="mr-1.5 size-3.5" />
+          {t('customers.people.detail.deals.linkExisting', 'Link existing deal')}
+        </Button>
+        <Button
+          type="button"
+          variant="default"
+          size="sm"
+          onClick={openCreateDialog}
+          disabled={!scope || pendingAction !== null}
+        >
+          <Plus className="mr-1.5 size-3.5" />
+          {addActionLabel}
+        </Button>
+      </div>
+      {isLoading && sortedDeals.length === 0 ? (
+        <LoadingMessage
+          label={t('customers.people.detail.deals.loading', 'Loading deals…')}
+          className="border-0 bg-transparent p-0 py-8 justify-center"
+        />
+      ) : (
+        <>
+          {!isLoading && sortedDeals.length === 0 ? (
+            <TabEmptyState
+              title={emptyState.title}
+              action={{
+                label: emptyState.actionLabel,
+                onClick: openCreateDialog,
+                disabled: !scope || pendingAction !== null,
+              }}
+            />
+          ) : null}
+          <div className="space-y-4">
+            {sortedDeals.map((deal) => {
+          const valueLabel = formatValueLabel(deal.valueAmount, deal.valueCurrency ?? null, emptyLabel, locale)
+          const expectedLabel = deal.expectedCloseAt ? formatDate(deal.expectedCloseAt, locale) ?? emptyLabel : emptyLabel
+          const probabilityLabel =
+            typeof deal.probability === 'number' ? `${deal.probability}%` : emptyLabel
+          const isUnlinkPending = pendingAction?.kind === 'remove' && pendingAction.id === deal.id
+          const statusLabel =
+            deal.status && statusDictionaryMap
+              ? statusDictionaryMap[deal.status]?.label ?? deal.status
+              : deal.status ?? emptyLabel
+          return (
+            <article key={deal.id} className="group rounded-lg border bg-card p-4 shadow-xs transition hover:border-border/70">
+              <header className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <Link
+                    href={`/backend/customers/deals/${encodeURIComponent(deal.id)}`}
+                    className="text-base font-semibold text-foreground transition hover:text-primary hover:underline"
+                  >
+                    {deal.title || emptyLabel}
+                  </Link>
+                  {deal.description ? (
+                    <p className="mt-1 line-clamp-3 text-sm text-muted-foreground whitespace-pre-wrap">{deal.description}</p>
+                  ) : null}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium uppercase text-muted-foreground">
+                    {statusLabel}
+                  </span>
+                  <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                    <IconButton asChild variant="ghost" size="sm" className="h-8 w-8">
+                      <Link
+                        href={`/backend/customers/deals/${encodeURIComponent(deal.id)}`}
+                        aria-label={t('customers.people.detail.deals.edit', 'Open deal details')}
+                      >
+                        <Pencil className="size-4" />
+                      </Link>
+                    </IconButton>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 rounded-lg px-3 text-xs"
+                      onClick={(event) => {
+                        event.preventDefault()
+                        void handleUnlink(deal)
+                      }}
+                      disabled={pendingAction !== null}
+                    >
+                      {isUnlinkPending
+                        ? t('customers.people.detail.deals.unlinking', 'Unlinking…')
+                        : t('customers.people.card.unlink', 'Unlink')}
+                    </Button>
+                  </div>
+                </div>
+              </header>
+              <dl className="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
+                <div className="flex flex-col gap-0.5">
+                  <dt className="font-medium">
+                    {t('customers.people.detail.deals.fields.pipelineStage', 'Pipeline stage')}
+                  </dt>
+                  <dd>{deal.pipelineStage ?? emptyLabel}</dd>
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  <dt className="font-medium">
+                    {t('customers.people.detail.deals.fields.probability', 'Probability')}
+                  </dt>
+                  <dd>{probabilityLabel}</dd>
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  <dt className="font-medium">
+                    {t('customers.people.detail.deals.fields.valueAmount', 'Value')}
+                  </dt>
+                  <dd>{valueLabel}</dd>
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  <dt className="font-medium">
+                    {t('customers.people.detail.deals.fields.expectedCloseAt', 'Expected close')}
+                  </dt>
+                  <dd>{expectedLabel}</dd>
+                </div>
+              </dl>
+              <CustomFieldValuesList
+                entries={deal.customFields?.map((entry) => ({
+                  key: entry.key,
+                  value: entry.value,
+                  label: entry.label ?? undefined,
+                }))}
+                values={deal.customValues ?? undefined}
+                resources={customFieldResources}
+                emptyLabel={emptyLabel}
+                itemKeyPrefix={`deal-${deal.id}-field`}
+                className="mt-3"
+              />
+            </article>
+          )
+            })}
+            {isLoading && deals.length > 0 ? (
+              <div className="flex justify-center">
+                <LoadingMessage
+                  label={t('customers.people.detail.deals.loading', 'Loading deals…')}
+                  className="border-0 bg-transparent p-0 justify-center [&_span[role='status']]:h-5 [&_span[role='status']]:w-5"
+                />
+              </div>
+            ) : null}
+            {!isLoading && hasMore ? (
+              <div className="flex justify-center">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    loadDeals({ append: true }).catch(() => {})
+                  }}
+                  disabled={pendingAction !== null || isLoading}
+                >
+                  {t('customers.people.detail.deals.loadMore', 'Load more deals')}
+                </Button>
+              </div>
+            ) : null}
+          </div>
+        </>
+      )}
+
+      <DealDialog
+        open={dialogOpen}
+        mode="create"
+        onOpenChange={handleDialogOpenChange}
+        initialValues={initialValues}
+        onSubmit={async (payload) => {
+          await handleDialogSubmit(payload)
+        }}
+        isSubmitting={Boolean(isFormPending)}
+      />
+      <LinkEntityDialog
+        open={linkDialogOpen}
+        onOpenChange={setLinkDialogOpen}
+        adapter={dealLinkAdapter}
+        initialSelectedIds={existingDealIds}
+        onConfirm={handleLinkConfirm}
+      />
+      {ConfirmDialogElement}
+    </div>
+  )
+}
+
+export default DealsSection

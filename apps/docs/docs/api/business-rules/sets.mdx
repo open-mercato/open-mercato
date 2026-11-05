@@ -1,0 +1,698 @@
+---
+title: Sets API
+description: API reference for managing business rule sets and their members.
+---
+
+# Sets API
+
+The Sets API provides programmatic access to create, manage, and execute rule sets—collections of rules that execute together as a logical unit.
+
+## Base URL
+
+```
+/api/business_rules/sets
+```
+
+## Authentication
+
+All endpoints require authentication. Include your API key in the Authorization header:
+
+```bash
+curl -H "Authorization: Bearer YOUR_API_KEY" \
+  "$BASE_URL/api/business_rules/sets"
+```
+
+## Endpoints
+
+### List Sets
+
+Retrieve all rule sets with optional filtering.
+
+```http
+GET /api/business_rules/sets
+```
+
+**Query Parameters**:
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `limit` | number | Number of sets to return (default: 50, max: 100) |
+| `offset` | number | Number of sets to skip (pagination) |
+| `enabled` | boolean | Filter by enabled status |
+| `search` | string | Search by name or description |
+
+**Example Request**:
+
+```bash
+curl -X GET "$BASE_URL/api/business_rules/sets?enabled=true" \
+  -H "Authorization: Bearer $API_KEY"
+```
+
+**Response**: `200 OK`
+
+```json
+{
+  "data": [
+    {
+      "id": "QUALITY_CONTROL_RULES",
+      "name": "Quality Control Rules",
+      "description": "Comprehensive quality checks for manufacturing",
+      "enabled": true,
+      "memberCount": 5,
+      "createdAt": "2025-01-15T10:00:00Z",
+      "updatedAt": "2025-01-20T14:30:00Z"
+    },
+    {
+      "id": "ORDER_APPROVAL_WORKFLOW",
+      "name": "Order Approval Workflow",
+      "description": "Multi-level order approval process",
+      "enabled": true,
+      "memberCount": 3,
+      "createdAt": "2025-01-18T09:00:00Z",
+      "updatedAt": "2025-01-18T09:00:00Z"
+    }
+  ],
+  "pagination": {
+    "total": 12,
+    "limit": 50,
+    "offset": 0
+  }
+}
+```
+
+### Get Set Details
+
+Retrieve a specific rule set with all member rules.
+
+```http
+GET /api/business_rules/sets/:setId
+```
+
+**Path Parameters**:
+- `setId` (string, required) - Set ID
+
+**Example Request**:
+
+```bash
+curl -X GET "$BASE_URL/api/business_rules/sets/QUALITY_CONTROL_RULES" \
+  -H "Authorization: Bearer $API_KEY"
+```
+
+**Response**: `200 OK`
+
+```json
+{
+  "id": "QUALITY_CONTROL_RULES",
+  "name": "Quality Control Rules",
+  "description": "Comprehensive quality checks for manufacturing",
+  "enabled": true,
+  "createdAt": "2025-01-15T10:00:00Z",
+  "updatedAt": "2025-01-20T14:30:00Z",
+  "members": [
+    {
+      "ruleId": "VISUAL_INSPECTION_REQUIRED",
+      "ruleName": "Visual Inspection Required",
+      "ruleType": "GUARD",
+      "sequence": 10,
+      "enabled": true,
+      "addedAt": "2025-01-15T10:00:00Z"
+    },
+    {
+      "ruleId": "MEASUREMENT_VALIDATION",
+      "ruleName": "Measurement Validation",
+      "ruleType": "VALIDATION",
+      "sequence": 20,
+      "enabled": true,
+      "addedAt": "2025-01-15T10:00:00Z"
+    },
+    {
+      "ruleId": "DEFECT_SCORE_CALCULATION",
+      "ruleName": "Defect Score Calculation",
+      "ruleType": "CALCULATION",
+      "sequence": 30,
+      "enabled": true,
+      "addedAt": "2025-01-15T10:00:00Z"
+    },
+    {
+      "ruleId": "QUALITY_STATUS_ASSIGNMENT",
+      "ruleName": "Quality Status Assignment",
+      "ruleType": "ASSIGNMENT",
+      "sequence": 40,
+      "enabled": true,
+      "addedAt": "2025-01-16T11:00:00Z"
+    },
+    {
+      "ruleId": "QA_TEAM_NOTIFICATION",
+      "ruleName": "QA Team Notification",
+      "ruleType": "ACTION",
+      "sequence": 50,
+      "enabled": false,
+      "addedAt": "2025-01-20T14:30:00Z"
+    }
+  ]
+}
+```
+
+**Error Response**: `404 Not Found`
+
+```json
+{
+  "error": "Rule set not found",
+  "code": "SET_NOT_FOUND"
+}
+```
+
+### Create Set
+
+Create a new rule set.
+
+```http
+POST /api/business_rules/sets
+```
+
+**Request Body**:
+
+```typescript
+{
+  id: string          // Unique set ID (uppercase, underscores, max 50 chars)
+  name: string        // Human-readable name (max 200 chars)
+  description: string // Set purpose and scope
+  enabled: boolean    // Whether set is active (default: true)
+}
+```
+
+**Example Request**:
+
+```bash
+curl -X POST "$BASE_URL/api/business_rules/sets" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "MATERIAL_PLANNING",
+    "name": "Material Planning Rules",
+    "description": "Material availability and procurement checks",
+    "enabled": true
+  }'
+```
+
+**Response**: `201 Created`
+
+```json
+{
+  "id": "MATERIAL_PLANNING",
+  "name": "Material Planning Rules",
+  "description": "Material availability and procurement checks",
+  "enabled": true,
+  "memberCount": 0,
+  "createdAt": "2025-01-23T15:00:00Z",
+  "updatedAt": "2025-01-23T15:00:00Z"
+}
+```
+
+**Validation Rules**:
+- `id`: Required, uppercase with underscores only, max 50 characters, unique
+- `name`: Required, max 200 characters
+- `description`: Optional, max 2000 characters
+- `enabled`: Optional boolean, defaults to true
+
+**Error Response**: `400 Bad Request`
+
+```json
+{
+  "error": "Validation failed",
+  "code": "VALIDATION_ERROR",
+  "details": {
+    "id": "ID must be uppercase with underscores only"
+  }
+}
+```
+
+### Update Set
+
+Update rule set properties.
+
+```http
+PATCH /api/business_rules/sets/:setId
+```
+
+**Path Parameters**:
+- `setId` (string, required) - Set ID
+
+**Request Body** (all fields optional):
+
+```typescript
+{
+  name?: string        // Updated name
+  description?: string // Updated description
+  enabled?: boolean    // Updated enabled status
+}
+```
+
+**Example Request**:
+
+```bash
+curl -X PATCH "$BASE_URL/api/business_rules/sets/MATERIAL_PLANNING" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "description": "Material availability, procurement, and lead time checks",
+    "enabled": false
+  }'
+```
+
+**Response**: `200 OK`
+
+```json
+{
+  "id": "MATERIAL_PLANNING",
+  "name": "Material Planning Rules",
+  "description": "Material availability, procurement, and lead time checks",
+  "enabled": false,
+  "memberCount": 0,
+  "createdAt": "2025-01-23T15:00:00Z",
+  "updatedAt": "2025-01-23T15:30:00Z"
+}
+```
+
+### Delete Set
+
+Delete a rule set. Member rules are not deleted, only removed from the set.
+
+```http
+DELETE /api/business_rules/sets/:setId
+```
+
+**Path Parameters**:
+- `setId` (string, required) - Set ID
+
+**Example Request**:
+
+```bash
+curl -X DELETE "$BASE_URL/api/business_rules/sets/MATERIAL_PLANNING" \
+  -H "Authorization: Bearer $API_KEY"
+```
+
+**Response**: `204 No Content`
+
+**Error Response**: `409 Conflict` (if set has members)
+
+```json
+{
+  "error": "Cannot delete set with members",
+  "code": "SET_HAS_MEMBERS",
+  "details": {
+    "memberCount": 5
+  }
+}
+```
+
+To force delete:
+
+```bash
+curl -X DELETE "$BASE_URL/api/business_rules/sets/MATERIAL_PLANNING?force=true" \
+  -H "Authorization: Bearer $API_KEY"
+```
+
+### Add Rule to Set
+
+Add an existing rule to a set with sequence and enabled status.
+
+```http
+POST /api/business_rules/sets/:setId/members
+```
+
+**Path Parameters**:
+- `setId` (string, required) - Set ID
+
+**Request Body**:
+
+```typescript
+{
+  ruleId: string      // Rule ID to add
+  sequence: number    // Execution order (e.g., 10, 20, 30)
+  enabled: boolean    // Whether rule is enabled in this set
+}
+```
+
+**Example Request**:
+
+```bash
+curl -X POST "$BASE_URL/api/business_rules/sets/MATERIAL_PLANNING/members" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ruleId": "BLOCK_WO_RELEASE_WITHOUT_MATERIALS",
+    "sequence": 10,
+    "enabled": true
+  }'
+```
+
+**Response**: `201 Created`
+
+```json
+{
+  "setId": "MATERIAL_PLANNING",
+  "ruleId": "BLOCK_WO_RELEASE_WITHOUT_MATERIALS",
+  "ruleName": "Block Work Order Release Without Materials",
+  "ruleType": "GUARD",
+  "sequence": 10,
+  "enabled": true,
+  "addedAt": "2025-01-23T16:00:00Z"
+}
+```
+
+**Error Response**: `404 Not Found`
+
+```json
+{
+  "error": "Rule not found",
+  "code": "RULE_NOT_FOUND"
+}
+```
+
+**Error Response**: `409 Conflict`
+
+```json
+{
+  "error": "Rule already in set",
+  "code": "RULE_ALREADY_IN_SET"
+}
+```
+
+### Update Set Member
+
+Update a rule's sequence or enabled status within a set.
+
+```http
+PATCH /api/business_rules/sets/:setId/members/:ruleId
+```
+
+**Path Parameters**:
+- `setId` (string, required) - Set ID
+- `ruleId` (string, required) - Rule ID
+
+**Request Body** (at least one field required):
+
+```typescript
+{
+  sequence?: number    // New execution order
+  enabled?: boolean    // New enabled status
+}
+```
+
+**Example Request**:
+
+```bash
+curl -X PATCH "$BASE_URL/api/business_rules/sets/MATERIAL_PLANNING/members/BLOCK_WO_RELEASE_WITHOUT_MATERIALS" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sequence": 5,
+    "enabled": false
+  }'
+```
+
+**Response**: `200 OK`
+
+```json
+{
+  "setId": "MATERIAL_PLANNING",
+  "ruleId": "BLOCK_WO_RELEASE_WITHOUT_MATERIALS",
+  "ruleName": "Block Work Order Release Without Materials",
+  "ruleType": "GUARD",
+  "sequence": 5,
+  "enabled": false,
+  "addedAt": "2025-01-23T16:00:00Z",
+  "updatedAt": "2025-01-23T16:15:00Z"
+}
+```
+
+### Remove Rule from Set
+
+Remove a rule from a set. The rule itself is not deleted.
+
+```http
+DELETE /api/business_rules/sets/:setId/members/:ruleId
+```
+
+**Path Parameters**:
+- `setId` (string, required) - Set ID
+- `ruleId` (string, required) - Rule ID
+
+**Example Request**:
+
+```bash
+curl -X DELETE "$BASE_URL/api/business_rules/sets/MATERIAL_PLANNING/members/BLOCK_WO_RELEASE_WITHOUT_MATERIALS" \
+  -H "Authorization: Bearer $API_KEY"
+```
+
+**Response**: `204 No Content`
+
+### Execute Set
+
+Execute all enabled rules in a set for a specific entity and event.
+
+```http
+POST /api/business_rules/sets/:setId/execute
+```
+
+**Path Parameters**:
+- `setId` (string, required) - Set ID
+
+**Request Body**:
+
+```typescript
+{
+  entityType: string              // Entity type (WorkOrder, Order, etc.)
+  entityId: string                // Entity ID
+  eventType: string               // Event type (beforeCreate, afterUpdate, etc.)
+  data: Record<string, any>       // Entity data
+  dryRun?: boolean                // If true, don't execute actions (default: false)
+  context?: Record<string, any>   // Additional execution context
+}
+```
+
+**Example Request**:
+
+```bash
+curl -X POST "$BASE_URL/api/business_rules/sets/MATERIAL_PLANNING/execute" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "entityType": "WorkOrder",
+    "entityId": "wo-12345",
+    "eventType": "onStatusChange",
+    "data": {
+      "oldStatus": "PENDING",
+      "newStatus": "RELEASED",
+      "materialsAvailable": false
+    },
+    "dryRun": true
+  }'
+```
+
+**Response**: `200 OK`
+
+```json
+{
+  "setId": "MATERIAL_PLANNING",
+  "setName": "Material Planning Rules",
+  "allowed": false,
+  "executedRules": [
+    {
+      "ruleId": "BLOCK_WO_RELEASE_WITHOUT_MATERIALS",
+      "ruleName": "Block Work Order Release Without Materials",
+      "sequence": 10,
+      "result": "FAILURE",
+      "conditionResult": true,
+      "actionsPlanned": [
+        { "type": "BLOCK_TRANSITION" },
+        { "type": "SHOW_ERROR", "message": "Materials not available" }
+      ],
+      "executionTimeMs": 12
+    },
+    {
+      "ruleId": "CHECK_LEAD_TIME",
+      "ruleName": "Check Lead Time",
+      "sequence": 20,
+      "result": "SKIPPED",
+      "reason": "Previous rule blocked execution"
+    }
+  ],
+  "totalExecutionTimeMs": 12
+}
+```
+
+**Execution Notes**:
+- Rules execute in sequence order (lowest to highest)
+- If set is disabled, returns error
+- If any GUARD rule blocks, subsequent rules are skipped
+- Dry run mode doesn't execute side effects
+
+## Data Models
+
+### RuleSet
+
+```typescript
+interface RuleSet {
+  id: string              // Unique set ID
+  name: string            // Human-readable name
+  description: string     // Set purpose and scope
+  enabled: boolean        // Whether set is active
+  memberCount: number     // Number of rules in set
+  createdAt: string       // ISO 8601 timestamp
+  updatedAt: string       // ISO 8601 timestamp
+  members?: SetMember[]   // Member rules (only in detail view)
+}
+```
+
+### SetMember
+
+```typescript
+interface SetMember {
+  ruleId: string          // Rule ID
+  ruleName: string        // Human-readable rule name
+  ruleType: string        // Rule type (GUARD, VALIDATION, etc.)
+  sequence: number        // Execution order
+  enabled: boolean        // Whether rule is enabled in this set
+  addedAt: string         // When rule was added to set
+  updatedAt?: string      // When membership was last updated
+}
+```
+
+## Error Codes
+
+| Code | Status | Description |
+|------|--------|-------------|
+| `SET_NOT_FOUND` | 404 | Rule set not found |
+| `RULE_NOT_FOUND` | 404 | Rule not found |
+| `RULE_ALREADY_IN_SET` | 409 | Rule is already a member of this set |
+| `SET_HAS_MEMBERS` | 409 | Cannot delete set with members (use force=true) |
+| `VALIDATION_ERROR` | 400 | Invalid request data |
+| `UNAUTHORIZED` | 401 | Missing or invalid authentication |
+| `FORBIDDEN` | 403 | Insufficient permissions |
+
+## Rate Limiting
+
+- **List/Get**: 100 requests per minute per tenant
+- **Create/Update/Delete**: 50 requests per minute per tenant
+- **Execute**: 200 requests per minute per tenant
+
+## Common Workflows
+
+### Create Rule Set with Members
+
+```bash
+# 1. Create set
+curl -X POST "$BASE_URL/api/business_rules/sets" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "APPROVAL_WORKFLOW",
+    "name": "Order Approval Workflow",
+    "description": "Multi-level order approval process",
+    "enabled": true
+  }'
+
+# 2. Add rules in sequence
+curl -X POST "$BASE_URL/api/business_rules/sets/APPROVAL_WORKFLOW/members" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"ruleId": "CHECK_APPROVAL_THRESHOLD", "sequence": 10, "enabled": true}'
+
+curl -X POST "$BASE_URL/api/business_rules/sets/APPROVAL_WORKFLOW/members" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"ruleId": "CALCULATE_APPROVAL_LEVEL", "sequence": 20, "enabled": true}'
+
+curl -X POST "$BASE_URL/api/business_rules/sets/APPROVAL_WORKFLOW/members" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"ruleId": "NOTIFY_APPROVERS", "sequence": 30, "enabled": true}'
+```
+
+### Reorder Rules in Set
+
+```bash
+# Update sequence numbers to reorder
+curl -X PATCH "$BASE_URL/api/business_rules/sets/APPROVAL_WORKFLOW/members/NOTIFY_APPROVERS" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"sequence": 15}'
+```
+
+New order: 10, 15, 20
+
+### Disable Entire Set
+
+```bash
+# Temporarily disable all rules in set
+curl -X PATCH "$BASE_URL/api/business_rules/sets/APPROVAL_WORKFLOW" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": false}'
+```
+
+### Test Set Before Enabling
+
+```bash
+# Execute with dryRun=true
+curl -X POST "$BASE_URL/api/business_rules/sets/APPROVAL_WORKFLOW/execute" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "entityType": "Order",
+    "entityId": "order-test",
+    "eventType": "beforeCreate",
+    "data": {"total": 15000, "customerId": "cust-123"},
+    "dryRun": true
+  }'
+```
+
+### Copy Set to Another Environment
+
+```bash
+# 1. Export from source
+SOURCE_SET=$(curl -X GET "$SOURCE_URL/api/business_rules/sets/APPROVAL_WORKFLOW" \
+  -H "Authorization: Bearer $SOURCE_API_KEY")
+
+# 2. Create in target
+curl -X POST "$TARGET_URL/api/business_rules/sets" \
+  -H "Authorization: Bearer $TARGET_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "$SOURCE_SET"
+
+# 3. Copy members
+SOURCE_MEMBERS=$(echo "$SOURCE_SET" | jq '.members')
+echo "$SOURCE_MEMBERS" | jq -c '.[]' | while read member; do
+  curl -X POST "$TARGET_URL/api/business_rules/sets/APPROVAL_WORKFLOW/members" \
+    -H "Authorization: Bearer $TARGET_API_KEY" \
+    -H "Content-Type: application/json" \
+    -d "$member"
+done
+```
+
+## Best Practices
+
+**Use meaningful IDs**: Set IDs should clearly indicate purpose (e.g., `ORDER_APPROVAL_WORKFLOW`)
+
+**Document purpose**: Write clear descriptions explaining what the set does
+
+**Plan sequences**: Use increments of 10 (10, 20, 30) to allow inserting rules later
+
+**Test thoroughly**: Use dry run mode before enabling sets in production
+
+**Monitor execution**: Check execution logs for set performance
+
+**Version sets**: Consider including version in description when making major changes
+
+**Start small**: Begin with few rules, test, then expand
+
+**Organize by domain**: Create sets around business domains (Quality, Finance, etc.)
+
+## Next Steps
+
+- [**Rule Sets Guide**](../../user-guide/business-rules/rule-sets) - User guide for rule sets
+- [**Rules API**](./rules) - Create and manage individual rules
+- [**Execute API**](./execute) - Execute individual rules
+- [**Material Availability Tutorial**](../../tutorials/business-rules/material-availability) - See a complete GUARD rule example

@@ -1,0 +1,128 @@
+export type ActivityType = 'meeting' | 'call' | 'task' | 'email' | 'note'
+
+export type ScheduleFieldId =
+  | 'title'
+  | 'date'
+  | 'startTime'
+  | 'duration'
+  | 'allDay'
+  | 'timezone'
+  | 'recurrence'
+  | 'participants'
+  | 'guestPermissions'
+  | 'location'
+  | 'linkedEntities'
+  | 'description'
+  | 'reminder'
+  | 'visibility'
+
+const KNOWN_ACTIVITY_TYPES: ReadonlySet<string> = new Set(['meeting', 'call', 'task', 'email', 'note'])
+
+export function isKnownActivityType(type: string): type is ActivityType {
+  return KNOWN_ACTIVITY_TYPES.has(type)
+}
+
+// The built-in Event type and any custom or historical dictionary key the backend
+// accepts fall outside this dialog's five legacy presentation kinds (#7486) — this
+// dialog predates the configurable calendar event type catalog. Resolve those to
+// Meeting's chrome/field set, the closest and broadest safe default, while callers
+// keep the exact persisted key (`editData.interactionType` / the save payload)
+// untouched so the stored type is never silently rewritten.
+export function resolveScheduleActivityType(type: string): ActivityType {
+  return isKnownActivityType(type) ? type : 'meeting'
+}
+
+export const FIELD_VISIBILITY: Record<ActivityType, Set<ScheduleFieldId>> = {
+  meeting: new Set([
+    'title', 'date', 'startTime', 'duration', 'allDay', 'timezone', 'recurrence',
+    'participants', 'guestPermissions', 'location', 'linkedEntities', 'description',
+    'reminder', 'visibility',
+  ]),
+  call: new Set([
+    'title', 'date', 'startTime', 'duration',
+    'participants', 'linkedEntities', 'description',
+    'reminder', 'visibility',
+  ]),
+  // Task: now also surfaces Due time (startTime) + Estimate (duration) per Figma 790:280.
+  task: new Set([
+    'title', 'date', 'startTime', 'duration',
+    'linkedEntities', 'description',
+    'reminder', 'visibility',
+  ]),
+  // Email: surface participants as TO recipients per Figma 790:510.
+  email: new Set([
+    'title', 'date', 'startTime',
+    'participants', 'linkedEntities', 'description',
+    'reminder', 'visibility',
+  ]),
+  note: new Set([
+    'title', 'linkedEntities', 'description', 'visibility',
+  ]),
+}
+
+type LabelOverride = { key: string; fallback: string }
+
+// Per-type section labels (Figma 784:1255 / 829:50 / 790:280 / 790:510).
+// `participants` / `linkedEntities` / `description` resolve via these overrides
+// when present; otherwise the field components fall back to their generic key.
+export const FIELD_LABEL_OVERRIDES: Partial<
+  Record<ActivityType, Partial<Record<ScheduleFieldId, LabelOverride>>>
+> = {
+  meeting: {
+    participants: { key: 'customers.schedule.attendees', fallback: 'Attendees' },
+    linkedEntities: { key: 'customers.schedule.connections', fallback: 'Connections' },
+  },
+  call: {
+    participants: { key: 'customers.schedule.contact', fallback: 'Contact' },
+    linkedEntities: { key: 'customers.schedule.connections', fallback: 'Connections' },
+    description: { key: 'customers.schedule.callNotes', fallback: 'Call notes' },
+  },
+  task: {
+    date: { key: 'customers.schedule.dueDate', fallback: 'Due date' },
+    startTime: { key: 'customers.schedule.dueTime', fallback: 'Due time' },
+    duration: { key: 'customers.schedule.estimate', fallback: 'Estimate' },
+    linkedEntities: { key: 'customers.schedule.connections', fallback: 'Connections' },
+    description: { key: 'customers.schedule.details', fallback: 'Details' },
+  },
+  email: {
+    title: { key: 'customers.schedule.subject', fallback: 'Subject' },
+    participants: { key: 'customers.schedule.to', fallback: 'To' },
+    linkedEntities: { key: 'customers.schedule.connections', fallback: 'Connections' },
+    description: { key: 'customers.schedule.message', fallback: 'Message' },
+  },
+  note: {
+    linkedEntities: { key: 'customers.schedule.connections', fallback: 'Connections' },
+    description: { key: 'customers.schedule.note.content', fallback: 'Note' },
+  },
+}
+
+export function isVisible(type: ActivityType, fieldId: ScheduleFieldId): boolean {
+  return FIELD_VISIBILITY[type].has(fieldId)
+}
+
+// Calendar-bound types must land on a concrete moment, but a task is a backlog
+// item whose due date is optional by design (`interactions.scheduled_at` is
+// nullable and the task lists already render an undated row) — #5941.
+const OPTIONAL_DATE_TYPES: Set<ActivityType> = new Set(['task'])
+
+export function isDateRequired(type: ActivityType): boolean {
+  return isVisible(type, 'date') && !OPTIONAL_DATE_TYPES.has(type)
+}
+
+// A time without a date is meaningless, so the time follows the date: it is
+// only demanded for the types that must be scheduled in the first place.
+export function isTimeRequired(type: ActivityType): boolean {
+  return isVisible(type, 'startTime') && isDateRequired(type)
+}
+
+export function getFieldLabel(
+  type: ActivityType,
+  fieldId: ScheduleFieldId,
+  t: (key: string, fallback: string) => string,
+  defaultKey: string,
+  defaultFallback: string,
+): string {
+  const override = FIELD_LABEL_OVERRIDES[type]?.[fieldId]
+  if (override) return t(override.key, override.fallback)
+  return t(defaultKey, defaultFallback)
+}

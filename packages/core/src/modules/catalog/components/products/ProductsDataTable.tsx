@@ -1,0 +1,759 @@
+"use client"
+
+import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/catalog/extension-points'
+import Link from 'next/link'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import type { SortingState } from '@tanstack/react-table'
+import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
+import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { deleteCrud, buildCrudExportUrl } from '@open-mercato/ui/backend/utils/crud'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { useCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
+import { applyCustomFieldVisibility } from '@open-mercato/ui/backend/utils/customFieldColumns'
+import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
+import type { FilterOption } from '@open-mercato/ui/backend/FilterOverlay'
+import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
+import { markdownToPlainText } from '@open-mercato/ui/backend/markdown/markdownToPlainText'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
+import { E } from '#generated/entities.ids.generated'
+import { ProductImageCell } from './ProductImageCell'
+
+type PricingScope = {
+  variant_id?: string | null
+  offer_id?: string | null
+  channel_id?: string | null
+  user_id?: string | null
+  user_group_id?: string | null
+  customer_id?: string | null
+  customer_group_id?: string | null
+}
+
+type PricingInfo = {
+  kind?: string | null
+  price_kind_id?: string | null
+  price_kind_code?: string | null
+  currency_code?: string | null
+  unit_price_net?: string | null
+  unit_price_gross?: string | null
+  min_quantity?: number | null
+  max_quantity?: number | null
+  tax_rate?: string | null
+  scope?: PricingScope | null
+} | null
+
+type OfferInfo = {
+  id: string
+  channelId: string
+  channelName?: string | null
+  channelCode?: string | null
+  title: string
+  description?: string | null
+  isActive: boolean
+}
+
+export type ProductRow = {
+  id: string
+  title: string
+  subtitle?: string | null
+  description?: string | null
+  sku?: string | null
+  handle?: string | null
+  product_type?: string | null
+  status_entry_id?: string | null
+  primary_currency_code?: string | null
+  default_unit?: string | null
+  default_media_id?: string | null
+  default_media_url?: string | null
+  is_configurable?: boolean
+  is_active?: boolean
+  metadata?: Record<string, unknown> | null
+  custom_fieldset_code?: string | null
+  created_at?: string
+  updated_at?: string
+  offers?: OfferInfo[]
+  pricing?: PricingInfo
+} & Record<string, unknown>
+
+type ProductsResponse = {
+  items?: ProductRow[]
+  total?: number
+  totalPages?: number
+  totalIsCapped?: boolean
+}
+
+const PAGE_SIZE = 25
+const ENTITY_ID = E.catalog.catalog_product
+
+function formatDate(value: string | undefined, locale: string | undefined): string {
+  return formatDisplayDateTime(value, locale) ?? '—'
+}
+
+function renderOffers(offers: OfferInfo[] | undefined): React.ReactNode {
+  if (!offers || offers.length === 0) return <span className="text-xs text-muted-foreground">—</span>
+  const visible = offers.slice(0, 3)
+  return (
+    <div className="flex flex-wrap gap-1">
+      {visible.map((offer) => {
+        const label =
+          typeof offer.channelName === 'string' && offer.channelName.trim().length
+            ? offer.channelName.trim()
+            : typeof offer.title === 'string' && offer.title.trim().length
+              ? offer.title.trim()
+              : offer.channelId
+        const badgeTitle =
+          typeof offer.channelCode === 'string' && offer.channelCode.trim().length ? offer.channelCode : undefined
+        return (
+          <span
+            key={offer.id}
+            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs ${
+              offer.isActive ? 'bg-secondary/80 text-secondary-foreground' : 'bg-muted text-muted-foreground'
+            }`}
+            title={badgeTitle}
+          >
+            {label}
+          </span>
+        )
+      })}
+      {offers.length > visible.length ? (
+        <span className="text-xs text-muted-foreground">+{offers.length - visible.length}</span>
+      ) : null}
+    </div>
+  )
+}
+
+function renderPrice(pricing: PricingInfo | undefined, currency?: string | null, fallback = '—'): React.ReactNode {
+  if (!pricing) return <span className="text-xs text-muted-foreground">{fallback}</span>
+  const unit = pricing.unit_price_net ?? pricing.unit_price_gross
+  if (unit == null) return <span className="text-xs text-muted-foreground">{fallback}</span>
+  const formatted = `${currency ?? pricing.currency_code ?? ''} ${unit}`
+  const kind = pricing.kind ?? 'list'
+  return (
+    <div className="flex flex-col">
+      <span className="font-medium">{formatted.trim()}</span>
+      <span className="text-xs text-muted-foreground">{kind}</span>
+    </div>
+  )
+}
+
+export type ProductsDataTableSnapshot = {
+  search: string
+  filterValues: FilterValues
+  total: number
+}
+
+export type ProductsDataTableProps = {
+  /**
+   * Extra actions rendered alongside the built-in Create button in the
+   * DataTable header. Used by the Step 4.9 AI merchandising sheet
+   * trigger without coupling DataTable to the AI module.
+   */
+  extraActions?: React.ReactNode
+  /**
+   * Optional callback invoked whenever the table's search / filter /
+   * total-matching snapshot changes. Used by the Step 4.9 AI merchandising
+   * sheet to form a selection-aware pageContext per spec §10.1.
+   */
+  onSnapshotChange?: (snapshot: ProductsDataTableSnapshot) => void
+}
+
+export default function ProductsDataTable({
+  extraActions,
+  onSnapshotChange,
+}: ProductsDataTableProps = {}) {
+  const t = useT()
+  const dateLocale = useLocale()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const scopeVersion = useOrganizationScopeVersion()
+  const [rows, setRows] = React.useState<ProductRow[]>([])
+  const [page, setPage] = React.useState(1)
+  const [total, setTotal] = React.useState(0)
+  const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
+  const [cacheStatus, setCacheStatus] = React.useState<'hit' | 'miss' | null>(null)
+  const [sorting, setSorting] = React.useState<SortingState>([{ id: 'title', desc: false }])
+  const [search, setSearch] = React.useState('')
+  const [filterValues, setFilterValues] = React.useState<FilterValues>({})
+  const [isLoading, setIsLoading] = React.useState(false)
+  const [reloadToken, setReloadToken] = React.useState(0)
+  // Step 5.18 (spec §10 line 836, D18 demo): refresh the list when a
+  // catalog.product.* event arrives via the DOM event bridge. Confirmed
+  // AI bulk mutations (one `ai.action.confirmed` + one
+  // `catalog.product.updated` per record) and direct API writes both
+  // surface here so the table reflects the new state without a manual
+  // reload.
+  useAppEvent('catalog.product.*', () => {
+    setReloadToken((token) => token + 1)
+  })
+  const [customFieldsetFilter, setCustomFieldsetFilter] = React.useState<string | null>(null)
+  const { data: customFieldDefs = [], isLoading: customFieldDefsLoading, refetch: refetchCustomFieldDefs } = useCustomFieldDefs(ENTITY_ID, {
+    keyExtras: [scopeVersion],
+  })
+  const [channelOptionsCache, setChannelOptionsCache] = React.useState<Record<string, FilterOption>>({})
+  const [categoryOptionsCache, setCategoryOptionsCache] = React.useState<Record<string, FilterOption>>({})
+  const [tagOptionsCache, setTagOptionsCache] = React.useState<Record<string, FilterOption>>({})
+
+  const registerOptions = React.useCallback(
+    (
+      setter: React.Dispatch<React.SetStateAction<Record<string, FilterOption>>>,
+      options: FilterOption[]
+    ) => {
+      setter((prev) => {
+        const next = { ...prev }
+        options.forEach((opt) => {
+          if (opt.value) next[opt.value] = opt
+        })
+        return next
+      })
+    },
+    []
+  )
+
+  const registerChannelOptions = React.useCallback(
+    (options: FilterOption[]) => registerOptions(setChannelOptionsCache, options),
+    [registerOptions]
+  )
+  const registerCategoryOptions = React.useCallback(
+    (options: FilterOption[]) => registerOptions(setCategoryOptionsCache, options),
+    [registerOptions]
+  )
+  const registerTagOptions = React.useCallback(
+    (options: FilterOption[]) => registerOptions(setTagOptionsCache, options),
+    [registerOptions]
+  )
+
+  const channelOptions = React.useMemo(() => Object.values(channelOptionsCache), [channelOptionsCache])
+  const categoryOptions = React.useMemo(() => Object.values(categoryOptionsCache), [categoryOptionsCache])
+  const tagOptions = React.useMemo(() => Object.values(tagOptionsCache), [tagOptionsCache])
+
+  const loadChannelOptions = React.useCallback(
+    async (term?: string): Promise<FilterOption[]> => {
+      try {
+        const params = new URLSearchParams({ pageSize: '100', isActive: 'true' })
+        if (term && term.trim().length) params.set('search', term.trim())
+        const payload = await readApiResultOrThrow<{ items?: Array<{ id?: string; name?: string; code?: string }> }>(
+          `/api/sales/channels?${params.toString()}`,
+          undefined,
+          { errorMessage: t('catalog.products.filters.channelsLoadError', 'Failed to load channels') },
+        )
+        const items = Array.isArray(payload?.items) ? payload.items : []
+        const options = items
+          .map((entry) => {
+            const value = typeof entry.id === 'string' ? entry.id : null
+            if (!value) return null
+            const label =
+              typeof entry.name === 'string'
+                ? entry.name
+                : typeof entry.code === 'string'
+                  ? entry.code
+                  : value
+            return { value, label, description: typeof entry.code === 'string' ? entry.code : undefined }
+          })
+          .filter((option) => !!option) as FilterOption[]
+        registerChannelOptions(options)
+        return options
+      } catch {
+        return []
+      }
+    },
+    [registerChannelOptions, t],
+  )
+
+  const loadCategoryOptions = React.useCallback(
+    async (term?: string): Promise<FilterOption[]> => {
+      try {
+        const params = new URLSearchParams({ pageSize: '200', view: 'manage' })
+        if (term && term.trim().length) params.set('search', term.trim())
+        const payload = await readApiResultOrThrow<{ items?: Array<{ id?: string; name?: string; parentName?: string | null }> }>(
+          `/api/catalog/categories?${params.toString()}`,
+          undefined,
+          { errorMessage: t('catalog.products.filters.categoriesLoadError', 'Failed to load categories') },
+        )
+        const items = Array.isArray(payload?.items) ? payload.items : []
+        const options = items
+          .map((entry) => {
+            const value = typeof entry.id === 'string' ? entry.id : null
+            if (!value) return null
+            const label = typeof entry.name === 'string' && entry.name.trim().length ? entry.name : value
+            const description =
+              typeof entry.parentName === 'string' && entry.parentName.trim().length ? entry.parentName : null
+            return { value, label, description }
+          })
+          .filter((option) => !!option) as FilterOption[]
+        registerCategoryOptions(options)
+        return options
+      } catch {
+        return []
+      }
+    },
+    [registerCategoryOptions, t],
+  )
+
+  const loadTagOptions = React.useCallback(
+    async (term?: string): Promise<FilterOption[]> => {
+      try {
+        const params = new URLSearchParams({ pageSize: '100' })
+        if (term && term.trim().length) params.set('search', term.trim())
+        const payload = await readApiResultOrThrow<{ items?: Array<{ id?: string; label?: string }> }>(
+          `/api/catalog/tags?${params.toString()}`,
+          undefined,
+          { errorMessage: t('catalog.products.filters.tagsLoadError', 'Failed to load tags') },
+        )
+        const items = Array.isArray(payload?.items) ? payload.items : []
+        const options = items
+          .map((entry) => {
+            const value = typeof entry.id === 'string' ? entry.id : null
+            if (!value) return null
+            const label = typeof entry.label === 'string' && entry.label.trim().length ? entry.label : value
+            return { value, label }
+          })
+          .filter((option) => !!option) as FilterOption[]
+        registerTagOptions(options)
+        return options
+      } catch {
+        return []
+      }
+    },
+    [registerTagOptions, t],
+  )
+
+  const productTypeOptions = React.useMemo<FilterOption[]>(() => [
+    { value: 'simple', label: t('catalog.products.types.simple', 'Simple') },
+    { value: 'configurable', label: t('catalog.products.types.configurable', 'Configurable') },
+    { value: 'virtual', label: t('catalog.products.types.virtual', 'Virtual') },
+    { value: 'downloadable', label: t('catalog.products.types.downloadable', 'Downloadable') },
+    {
+      value: 'bundle',
+      label: `${t('catalog.products.types.bundle', 'Bundle')} (${t('common.comingSoon', 'Coming soon')})`,
+    },
+    {
+      value: 'grouped',
+      label: `${t('catalog.products.types.grouped', 'Grouped')} (${t('common.comingSoon', 'Coming soon')})`,
+    },
+  ], [t])
+
+  const productTypeLabelMap = React.useMemo(() => {
+    const map = new Map<string, string>()
+    productTypeOptions.forEach((opt) => map.set(opt.value, opt.label))
+    return map
+  }, [productTypeOptions])
+
+  const filters = React.useMemo<FilterDef[]>(() => [
+    { id: 'status', label: t('catalog.products.filters.status'), type: 'text' },
+    { id: 'isActive', label: t('catalog.products.filters.active'), type: 'checkbox' },
+    { id: 'configurable', label: t('catalog.products.filters.configurable'), type: 'checkbox' },
+    { id: 'productType', label: t('catalog.products.filters.productType', 'Type'), type: 'select', options: productTypeOptions },
+    {
+      id: 'channelIds',
+      label: t('catalog.products.filters.channels'),
+      type: 'tags',
+      loadOptions: loadChannelOptions,
+      options: channelOptions,
+      formatValue: (val) => channelOptionsCache[val]?.label ?? val,
+      formatDescription: (val) => channelOptionsCache[val]?.description ?? null,
+    },
+    {
+      id: 'categoryIds',
+      label: t('catalog.products.filters.categories', 'Categories'),
+      type: 'tags',
+      loadOptions: loadCategoryOptions,
+      options: categoryOptions,
+      formatValue: (val) => categoryOptionsCache[val]?.label ?? val,
+      formatDescription: (val) => categoryOptionsCache[val]?.description ?? null,
+    },
+    {
+      id: 'tagIds',
+      label: t('catalog.products.filters.tags', 'Tags'),
+      type: 'tags',
+      loadOptions: loadTagOptions,
+      options: tagOptions,
+      formatValue: (val) => tagOptionsCache[val]?.label ?? val,
+    },
+  ], [
+    categoryOptions,
+    categoryOptionsCache,
+    channelOptions,
+    channelOptionsCache,
+    loadCategoryOptions,
+    loadChannelOptions,
+    loadTagOptions,
+    productTypeOptions,
+    tagOptions,
+    tagOptionsCache,
+    t,
+  ])
+
+  const columns = React.useMemo<ColumnDef<ProductRow>[]>(() => {
+    const base: ColumnDef<ProductRow>[] = [
+      {
+        id: 'media',
+        header: '',
+        size: 80,
+        cell: ({ row }) => (
+          <ProductImageCell
+            mediaId={row.original.default_media_id}
+            mediaUrl={row.original.default_media_url}
+            title={row.original.title}
+            cropType="contain"
+          />
+        ),
+        meta: { sticky: true },
+      },
+      {
+        accessorKey: 'title',
+        header: t('catalog.products.table.title', 'Title'),
+        cell: ({ row }) => (
+          <div className="flex flex-col">
+            <span className="font-medium">{row.original.title || '—'}</span>
+            {row.original.subtitle ? (
+              <span className="text-xs text-muted-foreground">{row.original.subtitle}</span>
+            ) : null}
+            {row.original.handle ? (
+              <span className="text-xs text-muted-foreground">/{row.original.handle}</span>
+            ) : null}
+            {row.original.description ? (
+              <span className="text-xs text-muted-foreground">{markdownToPlainText(row.original.description)}</span>
+            ) : null}
+          </div>
+        ),
+        meta: { sticky: true },
+      },
+      {
+        accessorKey: 'sku',
+        header: t('catalog.products.table.sku', 'SKU'),
+        cell: ({ getValue }) => {
+          const value = getValue()
+          return value ? <span className="font-mono text-xs">{String(value)}</span> : <span className="text-xs text-muted-foreground">—</span>
+        },
+      },
+      {
+        accessorKey: 'product_type',
+        header: t('catalog.products.table.type'),
+        cell: ({ row }) => {
+          const type = typeof row.original.product_type === 'string' ? row.original.product_type : 'simple'
+          const label = productTypeLabelMap.get(type) ?? type
+          return <span className="text-xs text-muted-foreground">{label}</span>
+        },
+      },
+      {
+        accessorKey: 'is_configurable',
+        header: t('catalog.products.table.configurable'),
+        cell: ({ row }) => <BooleanIcon value={!!row.original.is_configurable} />,
+      },
+      {
+        accessorKey: 'is_active',
+        header: t('catalog.products.table.active'),
+        cell: ({ row }) => <BooleanIcon value={!!row.original.is_active} />,
+      },
+      {
+        accessorKey: 'pricing',
+        header: t('catalog.products.table.price'),
+        cell: ({ row }) => renderPrice(row.original.pricing, row.original.primary_currency_code),
+      },
+      {
+        accessorKey: 'offers',
+        header: t('catalog.products.table.channels'),
+        cell: ({ row }) => renderOffers(row.original.offers),
+      },
+      {
+        accessorKey: 'updated_at',
+        header: t('catalog.products.table.updatedAt'),
+        cell: ({ row }) => <span className="text-xs text-muted-foreground">{formatDate(row.original.updated_at, dateLocale)}</span>,
+      },
+    ]
+    return applyCustomFieldVisibility(base, customFieldDefs)
+  }, [customFieldDefs, productTypeLabelMap, t, dateLocale])
+
+  const handleSearchChange = React.useCallback((value: string) => {
+    setSearch(value)
+    setPage(1)
+  }, [])
+
+  const handleFiltersApply = React.useCallback((values: FilterValues) => {
+    setFilterValues(values)
+    setPage(1)
+  }, [])
+
+  const handleFiltersClear = React.useCallback(() => {
+    setFilterValues({})
+    setPage(1)
+  }, [])
+
+  const handleCustomFieldsetFilterChange = React.useCallback(
+    (value: string | null) => {
+      if (value === customFieldsetFilter) return
+      setCustomFieldsetFilter(value)
+      setFilterValues((prev) => {
+        const entries = Object.entries(prev)
+        if (!entries.some(([key]) => key.startsWith('cf_'))) return prev
+        const next: FilterValues = {}
+        entries.forEach(([key, val]) => {
+          if (!key.startsWith('cf_')) next[key] = val
+        })
+        return next
+      })
+      setPage(1)
+    },
+    [customFieldsetFilter],
+  )
+
+  const handleRefresh = React.useCallback(() => {
+    void refetchCustomFieldDefs()
+    setReloadToken((token) => token + 1)
+  }, [refetchCustomFieldDefs])
+
+  const queryParams = React.useMemo(() => {
+    const params = new URLSearchParams()
+    params.set('page', String(page))
+    params.set('pageSize', String(PAGE_SIZE))
+    if (search.trim()) params.set('search', search.trim())
+    const sort = sorting[0]
+    if (sort?.id) {
+      params.set('sortField', sort.id)
+      params.set('sortDir', sort.desc ? 'desc' : 'asc')
+    }
+    const status = filterValues.status
+    if (typeof status === 'string' && status.trim()) {
+      params.set('status', status.trim())
+    }
+    if (filterValues.isActive === true) params.set('isActive', 'true')
+    if (filterValues.isActive === false) params.set('isActive', 'false')
+    if (filterValues.configurable === true) params.set('configurable', 'true')
+    if (filterValues.configurable === false) params.set('configurable', 'false')
+    if (typeof filterValues.productType === 'string' && filterValues.productType.trim()) {
+      params.set('productType', filterValues.productType.trim())
+    }
+    if (Array.isArray(filterValues.channelIds) && filterValues.channelIds.length) {
+      const values = filterValues.channelIds
+        .map((value) => (typeof value === 'string' ? value : null))
+        .filter((value): value is string => !!value)
+      if (values.length) params.set('channelIds', values.join(','))
+    }
+    if (Array.isArray(filterValues.categoryIds) && filterValues.categoryIds.length) {
+      const values = filterValues.categoryIds
+        .map((value) => (typeof value === 'string' ? value : null))
+        .filter((value): value is string => !!value)
+      if (values.length) params.set('categoryIds', values.join(','))
+    }
+    if (Array.isArray(filterValues.tagIds) && filterValues.tagIds.length) {
+      const values = filterValues.tagIds
+        .map((value) => (typeof value === 'string' ? value : null))
+        .filter((value): value is string => !!value)
+      if (values.length) params.set('tagIds', values.join(','))
+    }
+    Object.entries(filterValues).forEach(([key, value]) => {
+      if (!key.startsWith('cf_') || value == null) return
+      if (Array.isArray(value)) {
+        const entries = value
+          .map((entry) => (typeof entry === 'string' ? entry.trim() : String(entry || '').trim()))
+          .filter((entry) => entry.length > 0)
+        if (entries.length) params.set(key, entries.join(','))
+      } else if (typeof value === 'object' && value !== null && ('from' in (value as Record<string, unknown>) || 'to' in (value as Record<string, unknown>))) {
+        const range = value as { from?: string; to?: string }
+        if (typeof range.from === 'string' && range.from.trim().length) {
+          params.set(`${key}:from`, range.from.trim())
+        }
+        if (typeof range.to === 'string' && range.to.trim().length) {
+          params.set(`${key}:to`, range.to.trim())
+        }
+      } else if (typeof value === 'string' && value.trim()) {
+        params.set(key, value.trim())
+      }
+    })
+    if (typeof customFieldsetFilter === 'string' && customFieldsetFilter.trim().length > 0) {
+      params.set('customFieldset', customFieldsetFilter.trim())
+    }
+    return params.toString()
+  }, [customFieldsetFilter, filterValues, page, search, sorting])
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setIsLoading(true)
+      setCacheStatus(null)
+      try {
+        const fallback: ProductsResponse = { items: [], total: 0, totalPages: 1 }
+        const call = await apiCall<ProductsResponse>(
+          `/api/catalog/products?${queryParams}`,
+          undefined,
+          { fallback },
+        )
+        if (!call.ok) {
+          const message = t('catalog.products.list.error.load', 'Failed to load products')
+          flash(message, 'error')
+          if (!cancelled) setCacheStatus(null)
+          return
+        }
+        const payload = call.result ?? fallback
+        if (cancelled) return
+        setCacheStatus(call.cacheStatus ?? null)
+        const items = Array.isArray(payload.items) ? payload.items : []
+        const normalized = items.filter((item): item is ProductRow => typeof item?.id === 'string')
+        setRows(normalized)
+        setTotal(typeof payload.total === 'number' ? payload.total : normalized.length)
+        setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : 1)
+        setTotalIsCapped(payload.totalIsCapped === true)
+      } catch (error) {
+        if (!cancelled) {
+          setCacheStatus(null)
+          const message =
+            error instanceof Error
+              ? error.message
+              : t('catalog.products.list.error.load', 'Failed to load products')
+          flash(message, 'error')
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [queryParams, reloadToken, scopeVersion, t])
+
+  const handleDelete = React.useCallback(async (row: ProductRow) => {
+    const confirmed = await confirm({
+      title: t('catalog.products.list.deleteConfirm', 'Delete this product?'),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
+    try {
+      const headers = buildOptimisticLockHeader(typeof row.updated_at === 'string' ? row.updated_at : null)
+      await withScopedApiRequestHeaders(headers, () => (
+        deleteCrud('catalog/products', row.id, {
+          errorMessage: t('catalog.products.list.error.delete', 'Failed to delete product'),
+        })
+      ))
+      flash(t('catalog.products.flash.deleted', 'Product deleted'), 'success')
+      setReloadToken((token) => token + 1)
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : t('catalog.products.list.error.delete', 'Failed to delete product')
+      flash(message, 'error')
+    }
+  }, [confirm, t])
+
+  React.useEffect(() => {
+    if (!onSnapshotChange) return
+    onSnapshotChange({ search, filterValues, total })
+  }, [onSnapshotChange, search, filterValues, total])
+
+  const currentParams = React.useMemo(() => Object.fromEntries(new URLSearchParams(queryParams)), [queryParams])
+
+  const exportConfig = React.useMemo(() => ({
+    view: {
+      getUrl: (format: DataTableExportFormat) =>
+        buildCrudExportUrl('catalog/products', { ...currentParams, exportScope: 'view' }, format),
+    },
+    full: {
+      getUrl: (format: DataTableExportFormat) =>
+        buildCrudExportUrl('catalog/products', { ...currentParams, exportScope: 'full', all: 'true' }, format),
+    },
+  }), [currentParams])
+
+  return (
+    <>
+      <DataTable<ProductRow>
+      title={t('catalog.products.page.title', 'Products & services')}
+      titleHeadingLevel={1}
+        entityId={ENTITY_ID}
+        customFieldFilterKeyExtras={[scopeVersion]}
+        refreshButton={{
+          label: t('catalog.products.actions.refresh', 'Refresh'),
+          onRefresh: handleRefresh,
+          isRefreshing: isLoading,
+        }}
+        actions={(
+          <div className="flex items-center gap-2">
+            {extraActions}
+            <Button asChild>
+              <Link href="/backend/catalog/products/create">
+                {t('catalog.products.actions.create', 'Create')}
+              </Link>
+            </Button>
+          </div>
+        )}
+        columns={columns}
+        data={rows}
+        emptyState={(
+          <ListEmptyState
+            entityName={t('catalog.products.page.title', 'Products & services')}
+            createHref="/backend/catalog/products/create"
+            createLabel={t('catalog.products.actions.create', 'Create')}
+          />
+        )}
+        searchValue={search}
+        onSearchChange={handleSearchChange}
+        filters={filters}
+        filterValues={filterValues}
+        onFiltersApply={handleFiltersApply}
+        onFiltersClear={handleFiltersClear}
+        onCustomFieldFilterFieldsetChange={handleCustomFieldsetFilterChange}
+        sorting={sorting}
+        onSortingChange={setSorting}
+        injectionSpotId={extensionPoints.hosts.productsTable.baseSpotId}
+        injectionContext={{
+          search,
+          filters: filterValues,
+          customFieldset: customFieldsetFilter,
+          page,
+          sorting,
+          scopeVersion,
+          // Step 5.15: surface `total` so the merchandising AI widget
+          // (rendered in `data-table:catalog.products:header`) can build
+          // a selection-aware pageContext per spec §10.1 without taking a
+          // dependency on the host page.
+          total,
+          totalMatching: total,
+          // `total` is a floor when the server capped the count, so the
+          // merchandising widget must not present it as an exact match count.
+          totalIsCapped,
+        }}
+        pagination={{
+          page,
+          pageSize: PAGE_SIZE,
+          total,
+          totalPages,
+          totalIsCapped,
+          onPageChange: setPage,
+          cacheStatus,
+        }}
+        exporter={exportConfig}
+        isLoading={isLoading || customFieldDefsLoading}
+        perspective={{ tableId: extensionPoints.hosts.productsTable.tableId }}
+        stickyActionsColumn
+        rowActions={(row) => (
+          <RowActions
+            items={[
+              {
+                id: 'edit',
+                label: t('catalog.products.table.actions.edit', 'Edit'),
+                href: `/backend/catalog/products/${row.id}`,
+              },
+              {
+                id: 'delete',
+                label: t('catalog.products.table.actions.delete', 'Delete'),
+                destructive: true,
+                onSelect: () => {
+                  void handleDelete(row)
+                },
+              },
+            ]}
+          />
+        )}
+      />
+      {ConfirmDialogElement}
+    </>
+  )
+}

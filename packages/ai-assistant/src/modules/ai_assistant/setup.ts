@@ -1,0 +1,127 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { createHash } from 'node:crypto'
+import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
+
+const logger = createLogger('ai_assistant')
+
+const PENDING_ACTION_CLEANUP_SCHEDULE_KEY = 'ai_assistant:pending-action-cleanup'
+const TOKEN_USAGE_PRUNE_SCHEDULE_KEY = 'ai_assistant:token-usage-prune'
+
+function stableScheduleUuid(stableKey: string): string {
+  const hex = createHash('sha256').update(stableKey).digest('hex')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`
+}
+
+const PENDING_ACTION_CLEANUP_SCHEDULE_ID = stableScheduleUuid(PENDING_ACTION_CLEANUP_SCHEDULE_KEY)
+const TOKEN_USAGE_PRUNE_SCHEDULE_ID = stableScheduleUuid(TOKEN_USAGE_PRUNE_SCHEDULE_KEY)
+
+/**
+ * System-scoped recurring schedule: every 5 minutes, enqueue a job to the
+ * `ai-pending-action-cleanup` queue so the worker can sweep rows whose TTL
+ * elapsed without any confirm/cancel activity (Step 5.12). The schedule id
+ * is stable and `scheduler.register()` is an upsert, so calling this from
+ * every tenant bootstrap stays idempotent.
+ */
+async function ensurePendingActionCleanupSchedule(
+  container: import('awilix').AwilixContainer | undefined,
+): Promise<void> {
+  if (!container) return
+  let schedulerService:
+    | {
+        register: (registration: Record<string, unknown>) => Promise<void>
+      }
+    | undefined
+  try {
+    schedulerService = container.resolve('schedulerService')
+  } catch {
+    schedulerService = undefined
+  }
+  if (!schedulerService) return
+  try {
+    await schedulerService.register({
+      id: PENDING_ACTION_CLEANUP_SCHEDULE_ID,
+      name: 'AI pending-action cleanup',
+      description:
+        'Sweep pending AI mutation approvals whose TTL elapsed without confirm/cancel and flip them to expired.',
+      scopeType: 'system',
+      scheduleType: 'interval',
+      scheduleValue: '5m',
+      timezone: 'UTC',
+      targetType: 'queue',
+      targetQueue: 'ai-pending-action-cleanup',
+      targetPayload: {},
+      sourceType: 'module',
+      sourceModule: 'ai_assistant',
+      isEnabled: true,
+    })
+  } catch (error) {
+    logger.warn('Failed to register pending-action cleanup schedule', { err: error })
+  }
+}
+
+/**
+ * System-scoped daily schedule: enqueue a job to the `ai-token-usage-prune`
+ * queue to prune events older than the retention window and reconcile the
+ * daily rollup session counts.
+ *
+ * Phase 6.4 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+ */
+async function ensureTokenUsagePruneSchedule(
+  container: import('awilix').AwilixContainer | undefined,
+): Promise<void> {
+  if (!container) return
+  let schedulerService:
+    | {
+        register: (registration: Record<string, unknown>) => Promise<void>
+      }
+    | undefined
+  try {
+    schedulerService = container.resolve('schedulerService')
+  } catch {
+    schedulerService = undefined
+  }
+  if (!schedulerService) return
+  try {
+    await schedulerService.register({
+      id: TOKEN_USAGE_PRUNE_SCHEDULE_ID,
+      name: 'AI token-usage prune',
+      description:
+        'Delete ai_token_usage_events rows older than AI_TOKEN_USAGE_EVENTS_RETENTION_DAYS (default 90) and reconcile session_count on the daily rollup.',
+      scopeType: 'system',
+      scheduleType: 'interval',
+      scheduleValue: '24h',
+      timezone: 'UTC',
+      targetType: 'queue',
+      targetQueue: 'ai-token-usage-prune',
+      targetPayload: {},
+      sourceType: 'module',
+      sourceModule: 'ai_assistant',
+      isEnabled: true,
+    })
+  } catch (error) {
+    logger.warn('Failed to register token-usage prune schedule', { err: error })
+  }
+}
+
+export const setup: ModuleSetupConfig = {
+  defaultRoleFeatures: {
+    admin: [
+      'ai_assistant.view',
+      'ai_assistant.settings.manage',
+      'ai_assistant.conversations.manage',
+      'ai_assistant.conversations.share',
+      'ai_assistant.mcp.serve',
+      'ai_assistant.tools.list',
+      'ai_assistant.mcp_servers.view',
+      'ai_assistant.mcp_servers.manage',
+    ],
+    employee: ['ai_assistant.view', 'ai_assistant.conversations.share'],
+  },
+
+  async seedDefaults({ container }) {
+    await ensurePendingActionCleanupSchedule(container)
+    await ensureTokenUsagePruneSchedule(container)
+  },
+}
+
+export default setup

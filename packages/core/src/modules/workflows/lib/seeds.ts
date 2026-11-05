@@ -1,0 +1,227 @@
+import type { EntityManager } from '@mikro-orm/postgresql'
+import * as fs from 'fs'
+import * as path from 'path'
+import { fileURLToPath } from 'node:url'
+import { WorkflowDefinition, type WorkflowDefinitionData } from '../data/entities'
+import { BusinessRule, type RuleType } from '@open-mercato/core/modules/business_rules/data/entities'
+import {
+  invalidateBusinessRuleDiscoveryCache,
+  type RuleDiscoveryCache,
+} from '@open-mercato/core/modules/business_rules/lib/rule-engine'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
+
+const __esmDirname = path.dirname(fileURLToPath(import.meta.url))
+
+export type WorkflowSeedScope = { tenantId: string; organizationId: string }
+
+type WorkflowSeedDefinition = {
+  workflowId: string
+  workflowName: string
+  description?: string | null
+  version?: number
+  definition: WorkflowDefinitionData
+  metadata?: Record<string, unknown> | null
+  enabled?: boolean
+  effectiveFrom?: string | null
+  effectiveTo?: string | null
+  createdBy?: string | null
+  updatedBy?: string | null
+}
+
+type GuardRuleSeed = {
+  ruleId: string
+  ruleName: string
+  ruleType: RuleType
+  entityType: string
+  conditionExpression: unknown
+  eventType?: string | null
+  ruleCategory?: string | null
+  description?: string | null
+  successActions?: unknown
+  failureActions?: unknown
+  enabled?: boolean
+  priority?: number
+  version?: number
+  effectiveFrom?: string | null
+  effectiveTo?: string | null
+  createdBy?: string | null
+  updatedBy?: string | null
+  tagsJson?: string[]
+  labelsJson?: Record<string, string>
+}
+
+function readExampleJson<T>(fileName: string): T {
+  const candidates = [
+    path.join(__esmDirname, '..', 'examples', fileName),
+    path.join(process.cwd(), 'packages', 'core', 'src', 'modules', 'workflows', 'examples', fileName),
+    path.join(process.cwd(), 'src', 'modules', 'workflows', 'examples', fileName),
+  ]
+  const filePath = candidates.find((candidate) => fs.existsSync(candidate))
+  if (!filePath) {
+    throw new Error(`Missing workflow seed file: ${fileName}`)
+  }
+  return JSON.parse(fs.readFileSync(filePath, 'utf8')) as T
+}
+
+function requireString(value: unknown, label: string): string {
+  if (typeof value === 'string' && value.trim().length > 0) return value
+  throw new Error(`Invalid ${label} in workflow seed data.`)
+}
+
+async function seedWorkflowDefinition(
+  em: EntityManager,
+  scope: WorkflowSeedScope,
+  fileName: string,
+): Promise<boolean> {
+  const seed = readExampleJson<WorkflowSeedDefinition>(fileName)
+  const workflowId = requireString(seed.workflowId, 'workflowId')
+
+  // Version-aware: pin to the latest version so re-seeding never updates an
+  // older coexisting version row (workflowId is no longer unique per tenant).
+  const existing = await em.findOne(WorkflowDefinition, {
+    workflowId,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+  }, { orderBy: { version: 'DESC' } })
+
+  if (existing) {
+    // Check if the definition needs to be updated by comparing steps and transitions
+    const seedStepCount = seed.definition.steps.length
+    const existingStepCount = existing.definition.steps.length
+    const seedTransitionCount = seed.definition.transitions.length
+    const existingTransitionCount = existing.definition.transitions.length
+
+    // Check for preConditions on transitions
+    const seedHasTransitionPreConditions = seed.definition.transitions.some(
+      (t: any) => t.preConditions && t.preConditions.length > 0
+    )
+    const existingHasTransitionPreConditions = existing.definition.transitions.some(
+      (t: any) => t.preConditions && t.preConditions.length > 0
+    )
+
+    // Check for preConditions on START step
+    const seedStartStep = seed.definition.steps.find((s: any) => s.stepType === 'START')
+    const existingStartStep = existing.definition.steps.find((s: any) => s.stepType === 'START')
+    const seedHasStartPreConditions = seedStartStep?.preConditions && seedStartStep.preConditions.length > 0
+    const existingHasStartPreConditions = existingStartStep?.preConditions && existingStartStep.preConditions.length > 0
+
+    // Update if structure has changed
+    const needsUpdate =
+      seedStepCount !== existingStepCount ||
+      seedTransitionCount !== existingTransitionCount ||
+      (seedHasStartPreConditions && !existingHasStartPreConditions) ||
+      (seedHasTransitionPreConditions && !existingHasTransitionPreConditions)
+
+    if (needsUpdate) {
+      logger.info('Updating seeded workflow', {
+        component: 'seed',
+        workflowId,
+        existingStepCount,
+        seedStepCount,
+        existingTransitionCount,
+        seedTransitionCount,
+      })
+      existing.definition = seed.definition
+      await em.flush()
+      return true
+    }
+
+    return false
+  }
+
+  const workflow = em.create(WorkflowDefinition, {
+    ...seed,
+    workflowId,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+  })
+  em.persist(workflow)
+  await em.flush()
+  return true
+}
+
+async function seedGuardRules(
+  em: EntityManager,
+  scope: WorkflowSeedScope,
+  fileName: string,
+  cache?: RuleDiscoveryCache | null,
+): Promise<{ seeded: number; skipped: number; updated: number }> {
+  const seeds = readExampleJson<GuardRuleSeed[]>(fileName)
+  if (!Array.isArray(seeds)) {
+    throw new Error('Invalid guard rules seed data.')
+  }
+
+  let seeded = 0
+  let skipped = 0
+  let updated = 0
+  for (const rule of seeds) {
+    const ruleId = requireString(rule.ruleId, 'ruleId')
+    const existing = await em.findOne(BusinessRule, {
+      ruleId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    })
+    if (existing) {
+      // Check if entityType or eventType needs updating
+      const needsUpdate = existing.entityType !== rule.entityType || existing.eventType !== rule.eventType
+      if (needsUpdate) {
+        logger.info('Updating seeded business rule', {
+          component: 'seed',
+          ruleId,
+          entityType: rule.entityType,
+          eventType: rule.eventType,
+        })
+        existing.entityType = rule.entityType
+        existing.eventType = rule.eventType ?? null
+        updated += 1
+      } else {
+        skipped += 1
+      }
+      continue
+    }
+    const entry = em.create(BusinessRule, {
+      ruleId,
+      ruleName: rule.ruleName,
+      ruleType: rule.ruleType,
+      entityType: rule.entityType,
+      conditionExpression: rule.conditionExpression,
+      eventType: rule.eventType,
+      ruleCategory: rule.ruleCategory,
+      description: rule.description,
+      successActions: rule.successActions,
+      failureActions: rule.failureActions,
+      enabled: rule.enabled,
+      priority: rule.priority,
+      version: rule.version,
+      effectiveFrom: rule.effectiveFrom,
+      effectiveTo: rule.effectiveTo,
+      createdBy: rule.createdBy,
+      updatedBy: rule.updatedBy,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    })
+    em.persist(entry)
+    seeded += 1
+  }
+  if (seeded > 0 || updated > 0) {
+    await em.flush()
+    await invalidateBusinessRuleDiscoveryCache(cache, scope.tenantId, scope.organizationId)
+  }
+  return { seeded, skipped, updated }
+}
+
+export async function seedExampleWorkflows(
+  em: EntityManager,
+  scope: WorkflowSeedScope,
+  options: { cache?: RuleDiscoveryCache | null } = {},
+): Promise<void> {
+  // workflows.checkout-demo and workflows.simple-approval are now code-defined
+  // (see packages/core/src/modules/workflows/workflows.ts). Seeding DB rows for
+  // them would shadow the code definitions in the merge layer, so they are no
+  // longer seeded here. Existing tenants are migrated via Migration20260428102318.
+  await seedGuardRules(em, scope, 'guard-rules-example.json', options.cache)
+  await seedWorkflowDefinition(em, scope, 'sales-pipeline-definition.json')
+  await seedGuardRules(em, scope, 'order-approval-guard-rules.json', options.cache)
+}

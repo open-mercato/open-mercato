@@ -1,0 +1,148 @@
+import { requestPasswordResetSchema } from '@open-mercato/core/modules/auth/data/validators'
+import { NextResponse } from 'next/server'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
+import { sendEmail } from '@open-mercato/shared/lib/email/send'
+import ResetPasswordEmail from '@open-mercato/core/modules/auth/emails/ResetPasswordEmail'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { buildNotificationFromType } from '@open-mercato/core/modules/notifications/lib/notificationBuilder'
+import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
+import notificationTypes from '@open-mercato/core/modules/auth/notifications'
+import { z } from 'zod'
+import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
+import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
+import { checkAuthRateLimit } from '@open-mercato/core/modules/auth/lib/rateLimitCheck'
+import { mapSecurityEmailUrlError, toSecurityEmailUrl } from '@open-mercato/shared/lib/url'
+import { withTenantHintUrl } from '@open-mercato/core/modules/auth/lib/tenantHint'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { emitAuthEvent } from '@open-mercato/core/modules/auth/events'
+
+const logger = createLogger('auth').child({ component: 'reset' })
+
+const resetRateLimitConfig = readEndpointRateLimitConfig('RESET', {
+  points: 3, duration: 60, blockDuration: 60, keyPrefix: 'reset',
+})
+const resetIpRateLimitConfig = readEndpointRateLimitConfig('RESET_IP', {
+  points: 10, duration: 60, blockDuration: 60, keyPrefix: 'reset-ip',
+})
+
+// validation via requestPasswordResetSchema
+
+export async function POST(req: Request) {
+  const form = await req.formData()
+  const email = String(form.get('email') ?? '')
+  // Rate limit — two layers, both checked before validation and DB work
+  const { error: rateLimitError } = await checkAuthRateLimit({
+    req, ipConfig: resetIpRateLimitConfig, compoundConfig: resetRateLimitConfig, compoundIdentifier: email,
+  })
+  if (rateLimitError) return rateLimitError
+  const parsed = requestPasswordResetSchema.safeParse({ email })
+  if (!parsed.success) {
+    const fieldErrors = parsed.error.flatten().fieldErrors
+    return NextResponse.json({ error: 'Validation failed', fieldErrors }, { status: 422 })
+  }
+  let resetUrlTemplate: string
+  try {
+    resetUrlTemplate = toSecurityEmailUrl(req, '/reset/__token__')
+  } catch (error) {
+    const mapped = mapSecurityEmailUrlError(error, {
+      scope: 'auth.reset',
+      configMessage: 'Password reset is not configured',
+    })
+    if (mapped) return NextResponse.json(mapped.body, { status: mapped.status })
+    throw error
+  }
+  const c = await createRequestContainer()
+  const auth = c.resolve<AuthService>('authService')
+  const resReq = await auth.requestPasswordReset(parsed.data.email)
+  if (!resReq) return NextResponse.json({ ok: true })
+  const { user, token } = resReq
+  const resetUrl = withTenantHintUrl(resetUrlTemplate.replace('__token__', token), user.tenantId)
+  void emitAuthEvent('auth.password.reset.requested', {
+    id: String(user.id),
+    tenantId: user.tenantId ? String(user.tenantId) : null,
+    organizationId: user.organizationId ? String(user.organizationId) : null,
+    at: new Date().toISOString(),
+  }, { persistent: true }).catch(() => undefined)
+
+  const { translate } = await resolveTranslations()
+  const subject = translate('auth.email.resetPassword.subject', 'Reset your password')
+  const copy = {
+    preview: translate('auth.email.resetPassword.preview', 'Reset your password'),
+    title: translate('auth.email.resetPassword.title', 'Reset your password'),
+    body: translate('auth.email.resetPassword.body', 'Click the link below to set a new password. This link will expire in 60 minutes.'),
+    cta: translate('auth.email.resetPassword.cta', 'Set a new password'),
+    hint: translate('auth.email.resetPassword.hint', "If you didn't request this, you can safely ignore this email."),
+  }
+
+  try {
+    await sendEmail({
+      to: user.email,
+      subject,
+      react: ResetPasswordEmail({ resetUrl, copy }),
+      tenantId: user.tenantId ? String(user.tenantId) : undefined,
+      organizationId: user.organizationId ? String(user.organizationId) : null,
+    })
+  } catch (err) {
+    logger.error('Failed to send reset email', { err })
+  }
+  try {
+    const tenantId = user.tenantId ? String(user.tenantId) : null
+    if (tenantId) {
+      const notificationService = resolveNotificationService(c)
+      const typeDef = notificationTypes.find((type) => type.type === 'auth.password_reset.requested')
+      if (typeDef) {
+        const notificationInput = buildNotificationFromType(typeDef, {
+          recipientUserId: String(user.id),
+          sourceEntityType: 'auth:user',
+          sourceEntityId: String(user.id),
+        })
+        await notificationService.create(notificationInput, {
+          tenantId,
+          organizationId: user.organizationId ? String(user.organizationId) : null,
+        })
+      }
+    }
+  } catch (err) {
+    logger.error('Failed to create notification', { err })
+  }
+  return NextResponse.json({ ok: true })
+}
+
+export const metadata = { requireAuth: false }
+
+const passwordResetRequestSchema = z.object({
+  email: z.string().email(),
+})
+
+const passwordResetResponseSchema = z.object({
+  ok: z.literal(true),
+})
+
+const passwordResetErrorSchema = z.object({
+  error: z.string(),
+})
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Authentication & Accounts',
+  summary: 'Request password reset',
+  methods: {
+    POST: {
+      summary: 'Send reset email',
+      description: 'Requests a password reset email for the given account. The endpoint always returns `ok: true` to avoid leaking account existence.',
+      requestBody: {
+        contentType: 'application/x-www-form-urlencoded',
+        schema: passwordResetRequestSchema,
+      },
+      responses: [
+        { status: 200, description: 'Reset email dispatched (or ignored for unknown accounts)', schema: passwordResetResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid request origin', schema: passwordResetErrorSchema },
+        { status: 429, description: 'Too many password reset requests', schema: rateLimitErrorSchema },
+        { status: 500, description: 'Password reset email origin is not configured', schema: passwordResetErrorSchema },
+      ],
+    },
+  },
+}

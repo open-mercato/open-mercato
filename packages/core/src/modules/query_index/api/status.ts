@@ -1,0 +1,644 @@
+import { NextResponse } from 'next/server'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { sql } from 'kysely'
+import { readCoverageSnapshots, refreshCoverageSnapshot, type CoverageSnapshot } from '../lib/coverage'
+import { mapWithConcurrency } from '@open-mercato/shared/lib/query/bounded-decrypt'
+import type { FullTextSearchStrategy } from '@open-mercato/search/strategies'
+import type { SearchModuleConfig } from '@open-mercato/shared/modules/search'
+import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { queryIndexTag, queryIndexErrorSchema, queryIndexStatusResponseSchema } from './openapi'
+import { flattenSystemEntityIds } from '@open-mercato/shared/lib/entities/system-entities'
+import {
+  envDisablesAutoIndexing,
+  SEARCH_AUTO_INDEX_CONFIG_KEY,
+  SEARCH_AUTO_INDEX_CONFIG_MODULE,
+} from '@open-mercato/shared/lib/search/auto-indexing'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
+import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
+
+export const metadata = {
+  GET: { requireAuth: true, requireFeatures: ['query_index.status.view'] },
+}
+
+const STATUS_REFRESH_COOLDOWN_MS = 60_000
+
+function getCoverageSnapshotRefreshedAt(snapshot: Pick<CoverageSnapshot, 'refreshed_at'> | null | undefined): number | null {
+  const value = snapshot?.refreshed_at
+  if (value instanceof Date) {
+    const time = value.getTime()
+    return Number.isFinite(time) ? time : null
+  }
+  if (typeof value === 'string') {
+    const time = new Date(value).getTime()
+    return Number.isFinite(time) ? time : null
+  }
+  return null
+}
+
+function hasFreshCoverageSnapshots(
+  snapshots: Map<string, CoverageSnapshot>,
+  entityIds: string[],
+  now: number,
+): boolean {
+  for (const entityId of entityIds) {
+    const refreshedAt = getCoverageSnapshotRefreshedAt(snapshots.get(entityId))
+    if (refreshedAt === null || now - refreshedAt >= STATUS_REFRESH_COOLDOWN_MS) return false
+  }
+  return entityIds.length > 0
+}
+
+export async function GET(req: Request) {
+  const auth = await getAuthFromRequest(req)
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const container = await createRequestContainer()
+  const em = container.resolve('em') as EntityManager
+  const db = (em as any).getKysely()
+  const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+
+  const { organizationIds, rbacOrganizationId: organizationId } = resolveOrganizationScopeFilter(scope, auth)
+  const tenantId = typeof scope.tenantId === 'string' && scope.tenantId.trim().length > 0
+    ? scope.tenantId.trim()
+    : (typeof auth.tenantId === 'string' && auth.tenantId.trim().length > 0 ? auth.tenantId.trim() : null)
+  if (!tenantId) {
+    return NextResponse.json({ error: 'Tenant context is required' }, { status: 400 })
+  }
+
+  const organizationFilter = organizationIds ?? null
+
+  if (Array.isArray(organizationFilter) && organizationFilter.length === 0) {
+    return NextResponse.json({ error: 'Organization access denied' }, { status: 403 })
+  }
+
+  const organizationScopeIds = organizationFilter === null
+    ? null
+    : Array.from(
+      new Set(
+        organizationFilter.filter(
+          (value): value is string => typeof value === 'string' && value.length > 0,
+        ),
+      ),
+    )
+
+  if (Array.isArray(organizationScopeIds) && organizationScopeIds.length === 0) {
+    return NextResponse.json({ error: 'Organization access denied' }, { status: 403 })
+  }
+
+  const url = new URL(req.url)
+  const forceRefresh = url.searchParams.has('refresh') && url.searchParams.get('refresh') !== '0'
+
+  const generatedIds = flattenSystemEntityIds(getEntityIds() as Record<string, Record<string, string>>)
+  const generated = generatedIds.map((entityId) => ({ entityId, label: entityId }))
+
+  const byId = new Map<string, { entityId: string; label: string }>()
+  for (const g of generated) byId.set(g.entityId, g)
+
+  // Resolve search module configs to determine which entities each search backend covers.
+  // Entities with buildSource defined are vector-search capable; entities with a fieldPolicy
+  // are fulltext-capable.
+  let searchModuleConfigs: SearchModuleConfig[] = []
+  try {
+    searchModuleConfigs = container.resolve('searchModuleConfigs') as SearchModuleConfig[]
+  } catch {
+    // Search module configs not available
+  }
+
+  const vectorConfiguredEntities = new Set<string>()
+  const fulltextEnabledEntities = new Set<string>()
+  const searchConfiguredEntities = new Set<string>()
+  for (const moduleConfig of searchModuleConfigs) {
+    for (const entity of moduleConfig.entities ?? []) {
+      if (entity.enabled !== false) {
+        // Vector: entities with buildSource defined
+        if (typeof entity.buildSource === 'function') {
+          vectorConfiguredEntities.add(entity.entityId)
+          searchConfiguredEntities.add(entity.entityId)
+        }
+        // Fulltext: entities with fieldPolicy defined
+        if (entity.fieldPolicy && typeof entity.fieldPolicy === 'object') {
+          fulltextEnabledEntities.add(entity.entityId)
+          searchConfiguredEntities.add(entity.entityId)
+        }
+      }
+    }
+  }
+
+  let searchStrategies: unknown[] = []
+  try {
+    searchStrategies = (container.resolve('searchStrategies') as unknown[]) ?? []
+  } catch {
+    searchStrategies = []
+  }
+
+  // Resolve fulltext strategy for entity counts
+  const fulltextStrategy = (searchStrategies.find(
+    (s: unknown) => (s as { id?: string })?.id === 'fulltext',
+  ) as FullTextSearchStrategy) ?? null
+
+  // Vector coverage is only a meaningful signal when embeddings can actually be written:
+  // the instance has not switched auto-indexing off, an embedding provider is reachable,
+  // and the tenant has not opted out. Reporting a permanent `0 / n` gap on installs with
+  // no embedding provider trains operators to ignore this page.
+  const vectorRuntimeEnabled = await (async () => {
+    if (vectorConfiguredEntities.size === 0) return false
+    if (envDisablesAutoIndexing()) return false
+    const vectorStrategy = searchStrategies.find(
+      (s: unknown) => (s as { id?: string })?.id === 'vector',
+    ) as { isAvailable?: () => Promise<boolean> } | undefined
+    if (typeof vectorStrategy?.isAvailable !== 'function') return false
+    try {
+      if (!(await vectorStrategy.isAvailable())) return false
+    } catch {
+      return false
+    }
+    try {
+      const moduleConfigService = container.resolve('moduleConfigService') as ModuleConfigService
+      const value = await moduleConfigService.getValue<boolean>(
+        SEARCH_AUTO_INDEX_CONFIG_MODULE,
+        SEARCH_AUTO_INDEX_CONFIG_KEY,
+        { defaultValue: true, scope: { tenantId } },
+      )
+      return value !== false
+    } catch {
+      return true
+    }
+  })()
+
+  // Fetch fulltext entity counts
+  let fulltextEntityCounts: Record<string, number> | null = null
+  if (fulltextStrategy) {
+    try {
+      fulltextEntityCounts = await fulltextStrategy.getEntityCounts(tenantId)
+    } catch {
+      fulltextEntityCounts = null
+    }
+  }
+
+  // Entities with active custom field definitions in the current scope. This is reported
+  // per row so the client can filter on it — it is NOT a gate on which entities are listed.
+  const customFieldEntities = new Set<string>()
+  try {
+    let cfQuery = db
+      .selectFrom('custom_field_defs' as any)
+      .select(['entity_id' as any])
+      .distinct()
+      .where('is_active' as any, '=', true)
+    if (tenantId != null) {
+      cfQuery = cfQuery.where((eb: any) => eb.or([
+        eb('tenant_id' as any, '=', tenantId),
+        eb('tenant_id' as any, 'is', null),
+      ]))
+    } else {
+      cfQuery = cfQuery.where('tenant_id' as any, 'is', null as any)
+    }
+    if (Array.isArray(organizationScopeIds)) {
+      cfQuery = cfQuery.where((eb: any) => eb.or([
+        eb('organization_id' as any, 'in', organizationScopeIds),
+        eb('organization_id' as any, 'is', null),
+      ]))
+    }
+    const cfRows = await cfQuery.execute() as Array<{ entity_id: string }>
+    for (const row of cfRows || []) customFieldEntities.add(String(row.entity_id))
+  } catch {}
+
+  const HEARTBEAT_STALE_MS = 60_000
+  const COVERAGE_STALE_MS = 60_000
+  const COVERAGE_REFRESH_CONCURRENCY = 8
+
+  const idleJobSummary = () => ({ status: 'idle' as const, partitions: [] as any[] })
+
+  // Job rows for every listed entity are fetched in a single query. This endpoint is polled
+  // every few seconds and the entity list is no longer capped at custom-field entities, so a
+  // per-entity round trip here would scale the poll cost with the number of indexed entities.
+  async function fetchJobSummaries(
+    entityTypes: string[],
+    tenantIdParam: string | null,
+    organizationIdParam: string | null,
+  ): Promise<Map<string, ReturnType<typeof buildJobSummary>>> {
+    const byEntity = new Map<string, ReturnType<typeof buildJobSummary>>()
+    if (!entityTypes.length) return byEntity
+    try {
+      let jobQuery = db
+        .selectFrom('entity_index_jobs' as any)
+        .selectAll()
+        .where('entity_type' as any, 'in', entityTypes)
+        .where(sql<boolean>`tenant_id is not distinct from ${tenantIdParam ?? null}`)
+      if (organizationIdParam != null) {
+        jobQuery = jobQuery.where((eb: any) => eb.or([
+          eb('organization_id' as any, '=', organizationIdParam),
+          eb('organization_id' as any, 'is', null),
+        ]))
+      } else {
+        jobQuery = jobQuery.where(sql<boolean>`organization_id is not distinct from ${null}`)
+      }
+      const rows = await jobQuery
+        .orderBy('started_at' as any, 'desc')
+        .execute() as Array<Record<string, any>>
+
+      const rowsByEntity = new Map<string, Array<Record<string, any>>>()
+      for (const row of rows) {
+        const entityType = String(row.entity_type ?? '')
+        if (!entityType) continue
+        const bucket = rowsByEntity.get(entityType)
+        if (bucket) bucket.push(row)
+        else rowsByEntity.set(entityType, [row])
+      }
+      for (const [entityType, entityRows] of rowsByEntity) {
+        byEntity.set(entityType, buildJobSummary(entityRows, organizationIdParam, tenantIdParam))
+      }
+    } catch {
+      return byEntity
+    }
+    return byEntity
+  }
+
+  function buildJobSummary(
+    rows: Array<Record<string, any>>,
+    organizationIdParam: string | null,
+    tenantIdParam: string | null,
+  ) {
+    if (!rows.length) {
+      return idleJobSummary()
+    }
+
+    const preferOrg =
+      organizationIdParam != null && rows.some((row: any) => row.organization_id === organizationIdParam)
+    const pickPreferred = <T extends { startedTs: number; tenantMatch: boolean; orgMatch: boolean }>(
+      existing: T | null,
+      candidate: T,
+    ): T => {
+      if (!existing) return candidate
+      if (preferOrg) {
+        if (candidate.orgMatch && !existing.orgMatch) return candidate
+        if (!candidate.orgMatch && existing.orgMatch) return existing
+      }
+      if (candidate.tenantMatch && !existing.tenantMatch) return candidate
+      if (!candidate.tenantMatch && existing.tenantMatch) return existing
+      return candidate.startedTs > existing.startedTs ? candidate : existing
+    }
+
+    const partitionRows = new Map<string, { row: any; startedTs: number; tenantMatch: boolean; orgMatch: boolean }>()
+    let scopeRow: { row: any; startedTs: number; tenantMatch: boolean; orgMatch: boolean } | null = null
+    for (const row of rows) {
+      const key = String(row.partition_index ?? '__null__')
+      const startedTs = row.started_at ? new Date(row.started_at).getTime() : 0
+      const tenantMatch = tenantIdParam != null ? row.tenant_id === tenantIdParam : true
+      const orgMatch = organizationIdParam != null ? row.organization_id === organizationIdParam : row.organization_id == null
+      const candidate = { row, startedTs, tenantMatch, orgMatch }
+      if (row.partition_index == null) {
+        scopeRow = pickPreferred(scopeRow, candidate)
+        continue
+      }
+      const existing = partitionRows.get(key)
+      partitionRows.set(key, pickPreferred(existing ?? null, candidate))
+    }
+
+    const partitions = Array.from(partitionRows.values())
+      .filter((entry) => !preferOrg || entry.orgMatch)
+      .map(({ row }) => {
+        const heartbeatDate = row.heartbeat_at ? new Date(row.heartbeat_at) : null
+        const startedDate = row.started_at ? new Date(row.started_at) : null
+        const finishedDate = row.finished_at ? new Date(row.finished_at) : null
+        const stalled =
+          !finishedDate && (!heartbeatDate || Date.now() - heartbeatDate.getTime() > HEARTBEAT_STALE_MS)
+        const state = finishedDate
+          ? (row.status === 'failed' ? 'failed' : 'completed')
+          : stalled
+            ? 'stalled'
+            : (row.status as string) || 'reindexing'
+        return {
+          partitionIndex: row.partition_index ?? null,
+          partitionCount: row.partition_count ?? null,
+          status: state,
+          startedAt: startedDate ? startedDate.toISOString() : null,
+          finishedAt: finishedDate ? finishedDate.toISOString() : null,
+          heartbeatAt: heartbeatDate ? heartbeatDate.toISOString() : null,
+          processedCount: row.processed_count ?? null,
+          totalCount: row.total_count ?? null,
+        }
+      })
+      .sort((a, b) => (a.partitionIndex ?? 0) - (b.partitionIndex ?? 0))
+    const activePartitions = partitions.filter((p) => !p.finishedAt)
+    const runningPartitions = activePartitions.filter(
+      (p) => p.status === 'reindexing' || p.status === 'purging',
+    )
+    const stalledPartitions = activePartitions.filter((p) => p.status === 'stalled')
+    const scopeCandidate = !preferOrg || !scopeRow || scopeRow.orgMatch ? scopeRow : null
+    // A scope-only job (no partition rows, e.g. partitionCount: 1) has nothing in
+    // `partitions` for the checks below to see, so its running/stalled/failed state and
+    // timestamps must fall back to the scope row itself instead of defaulting to idle/null.
+    const computeScopeStatus = (row: any): 'failed' | 'completed' | 'stalled' | 'reindexing' | 'purging' => {
+      const heartbeatDate = row.heartbeat_at ? new Date(row.heartbeat_at) : null
+      const finishedDate = row.finished_at ? new Date(row.finished_at) : null
+      if (finishedDate) return row.status === 'failed' ? 'failed' : 'completed'
+      if (!heartbeatDate || Date.now() - heartbeatDate.getTime() > HEARTBEAT_STALE_MS) {
+        return 'stalled'
+      }
+      return (row.status as 'reindexing' | 'purging' | undefined | null) || 'reindexing'
+    }
+    const scopeStatus = scopeCandidate ? computeScopeStatus(scopeCandidate.row) : null
+    const scopeStartedAt = scopeCandidate?.row.started_at ? new Date(scopeCandidate.row.started_at).toISOString() : null
+    const scopeFinishedAt = scopeCandidate?.row.finished_at ? new Date(scopeCandidate.row.finished_at).toISOString() : null
+    const scopeHeartbeatAt = scopeCandidate?.row.heartbeat_at ? new Date(scopeCandidate.row.heartbeat_at).toISOString() : null
+
+    let status: 'idle' | 'reindexing' | 'purging' | 'stalled' | 'failed' = 'idle'
+    if (activePartitions.length) {
+      if (runningPartitions.length) {
+        status = runningPartitions.some((p) => p.status === 'purging') ? 'purging' : 'reindexing'
+      } else if (stalledPartitions.length) {
+        status = 'stalled'
+      }
+    } else if (
+      partitions.some((p) => p.status === 'failed')
+      || (scopeCandidate?.row.finished_at && scopeCandidate.row.status === 'failed')
+    ) {
+      // The run finished but lost records; without this it reports "idle" and the only
+      // hint that anything went wrong is the coverage percentage.
+      status = 'failed'
+    } else if (!partitions.length && scopeStatus && scopeStatus !== 'completed') {
+      status = scopeStatus
+    }
+
+    const startedAt = activePartitions[0]?.startedAt
+      ?? partitions[0]?.startedAt
+      ?? (!partitions.length ? scopeStartedAt : null)
+    const finishedAt = status === 'idle' || status === 'failed'
+      ? (partitions.find((p) => p.finishedAt)?.finishedAt ?? (!partitions.length ? scopeFinishedAt : null))
+      : null
+    const heartbeatAt = activePartitions[0]?.heartbeatAt
+      ?? partitions[0]?.heartbeatAt
+      ?? (!partitions.length ? scopeHeartbeatAt : null)
+    const jobTotalCount = partitions.reduce((sum, p) => sum + (p.totalCount ?? 0), 0)
+    const processedSum = partitions.reduce((sum, p) => sum + (p.processedCount ?? 0), 0)
+    const processedCount = jobTotalCount ? Math.min(jobTotalCount, processedSum) : processedSum || null
+
+    return {
+      status,
+      startedAt,
+      finishedAt,
+      heartbeatAt,
+      processedCount: jobTotalCount ? processedCount : scopeCandidate?.row?.processed_count ?? null,
+      totalCount: jobTotalCount ? jobTotalCount : scopeCandidate?.row?.total_count ?? null,
+      partitions,
+      scope: scopeCandidate
+        ? {
+            status: scopeStatus!,
+            processedCount: scopeCandidate.row.processed_count ?? null,
+            totalCount: scopeCandidate.row.total_count ?? null,
+          }
+        : null,
+    }
+  }
+
+  const normalizeCount = (value: unknown): number | null => {
+    if (value == null) return null
+    if (typeof value === 'number') return Number.isFinite(value) ? value : null
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+
+  const coverageScope = {
+    tenantId: tenantId ?? null,
+    organizationId,
+    withDeleted: false,
+  } as const
+  const entitiesNeedingRefresh = new Set<string>()
+
+  // Read every entity's coverage snapshot in a single batched query. This endpoint is
+  // polled by the status table every few seconds, so the poll path must stay read-cheap:
+  // stale snapshots are refreshed asynchronously via the query_index.coverage.refresh
+  // event emitted below, never inline per entity.
+  const snapshotByEntity = await readCoverageSnapshots(db, { entityTypes: generatedIds, ...coverageScope })
+
+  const hasIndexCoverage = (entityId: string): boolean => {
+    const snapshot = snapshotByEntity.get(entityId)
+    if (!snapshot) return false
+    return snapshot.baseCount > 0 || snapshot.indexedCount > 0 || snapshot.vectorIndexedCount > 0
+  }
+
+  // Nothing this page reports is custom-field dependent: `lib/indexer.ts` builds the index
+  // doc from the base row and only attaches `cf:*`/`l10n:*` keys when they exist, and
+  // `applyEntityIndexesJoin` runs on every query regardless of custom fields. Gating the
+  // list on `custom_field_defs` hid every fully-indexed entity that happens to have no
+  // custom fields, so its coverage could neither be inspected nor reindexed from here.
+  // List whatever any backend actually covers and let the client filter.
+  const entityIds = generatedIds.filter(
+    (id) => searchConfiguredEntities.has(id) || customFieldEntities.has(id) || hasIndexCoverage(id),
+  )
+
+  // An explicit refresh action (?refresh) may block, but only when the durable
+  // coverage snapshots are stale. Recent persisted snapshots survive workers/restarts,
+  // so repeated refresh requests use them instead of hammering base-table counts.
+  if (forceRefresh && entityIds.length > 0 && !hasFreshCoverageSnapshots(snapshotByEntity, entityIds, Date.now())) {
+    await mapWithConcurrency(entityIds, COVERAGE_REFRESH_CONCURRENCY, (entityId) =>
+      refreshCoverageSnapshot(em, { entityType: entityId, ...coverageScope }).catch(() => undefined),
+    )
+    const refreshed = await readCoverageSnapshots(db, { entityTypes: entityIds, ...coverageScope })
+    for (const [entityId, snapshot] of refreshed) snapshotByEntity.set(entityId, snapshot)
+  }
+
+  const coverageSnapshots = entityIds.map((entityId) => snapshotByEntity.get(entityId) ?? null)
+
+  const jobsByEntity = await fetchJobSummaries(entityIds, tenantId, organizationId)
+
+  const items: any[] = []
+  for (let idx = 0; idx < entityIds.length; idx += 1) {
+    const eid = entityIds[idx]
+    let coverage = coverageSnapshots[idx]
+
+    const refreshedAt = coverage?.refreshed_at instanceof Date ? coverage.refreshed_at : coverage?.refreshed_at ? new Date(coverage.refreshed_at) : null
+    const isStale = !coverage || !refreshedAt || (Date.now() - refreshedAt.getTime() > COVERAGE_STALE_MS)
+    if (isStale) entitiesNeedingRefresh.add(eid)
+
+    const job = jobsByEntity.get(eid) ?? idleJobSummary()
+    const label = (byId.get(eid)?.label) || eid
+    const baseCountNumber = normalizeCount(coverage?.baseCount)
+    const indexCountNumber = normalizeCount(coverage?.indexedCount)
+    // `vectorEnabled` and `vectorCount` keep their published meaning — "the entity declares
+    // buildSource" and its raw coverage — so existing consumers see no change. Whether vector
+    // indexing can actually run ships additively as `vectorIndexingActive`.
+    const vectorEnabled = vectorConfiguredEntities.has(eid)
+    const vectorCountNumber = vectorEnabled
+      ? normalizeCount((coverage as any)?.vectorIndexedCount ?? (coverage as any)?.vector_indexed_count)
+      : null
+    const fulltextEnabled = fulltextEnabledEntities.has(eid)
+    const fulltextCountNumber = fulltextEnabled ? (fulltextEntityCounts?.[eid] ?? 0) : null
+
+    // `ok` keeps its published aggregate meaning (query index AND configured vector coverage)
+    // so consumers using it as a health signal are unaffected. The narrower signal this page
+    // needs — is the query index in sync with the base table — ships additively as
+    // `queryIndexOk`. Folding vector into the badge is what made every vector-capable entity
+    // read "Out of sync" while base == indexed.
+    const ok = (() => {
+      if (baseCountNumber == null || indexCountNumber == null) return false
+      if (baseCountNumber !== indexCountNumber) return false
+      if (!vectorEnabled) return true
+      return vectorCountNumber != null && vectorCountNumber === baseCountNumber
+    })()
+    const queryIndexOk = baseCountNumber != null
+      && indexCountNumber != null
+      && baseCountNumber === indexCountNumber
+    items.push({
+      entityId: eid,
+      label,
+      baseCount: baseCountNumber,
+      indexCount: indexCountNumber,
+      vectorCount: vectorCountNumber,
+      vectorEnabled,
+      vectorIndexingActive: vectorEnabled && vectorRuntimeEnabled,
+      fulltextCount: fulltextCountNumber,
+      fulltextEnabled,
+      hasCustomFields: customFieldEntities.has(eid),
+      ok,
+      queryIndexOk,
+      job,
+      refreshedAt: refreshedAt ?? null,
+    })
+  }
+
+  if (!forceRefresh) {
+    try {
+      const eventBus = container.resolve('eventBus')
+      if (entitiesNeedingRefresh.size > 0) {
+        await Promise.all(
+          Array.from(entitiesNeedingRefresh).map((entityId) =>
+            eventBus
+              .emitEvent('query_index.coverage.refresh', {
+                entityType: entityId,
+                tenantId: tenantId ?? null,
+                organizationId,
+                delayMs: 0,
+              })
+              .catch(() => undefined)
+          )
+        )
+      }
+    } catch {}
+  }
+
+  let errorQuery = db
+    .selectFrom('indexer_error_logs' as any)
+    .selectAll()
+  if (tenantId != null) {
+    errorQuery = errorQuery.where((eb: any) => eb.or([
+      eb('tenant_id' as any, '=', tenantId),
+      eb('tenant_id' as any, 'is', null),
+    ]))
+  } else {
+    errorQuery = errorQuery.where('tenant_id' as any, 'is', null as any)
+  }
+  if (Array.isArray(organizationScopeIds) && organizationScopeIds.length) {
+    errorQuery = errorQuery.where('organization_id' as any, 'in', organizationScopeIds)
+  } else {
+    errorQuery = errorQuery.where('organization_id' as any, 'is', null as any)
+  }
+  const errorRows = await errorQuery
+    .orderBy('occurred_at' as any, 'desc')
+    .limit(100)
+    .execute() as Array<Record<string, any>>
+
+  const errors = errorRows.map((row: any) => {
+    const occurredAt = row.occurred_at instanceof Date ? row.occurred_at : row.occurred_at ? new Date(row.occurred_at) : null
+    return {
+      id: String(row.id),
+      source: String(row.source ?? ''),
+      handler: String(row.handler ?? ''),
+      entityType: row.entity_type ?? null,
+      recordId: row.record_id ?? null,
+      tenantId: row.tenant_id ?? null,
+      organizationId: row.organization_id ?? null,
+      message: String(row.message ?? ''),
+      stack: row.stack ?? null,
+      payload: row.payload ?? null,
+      occurredAt: occurredAt ? occurredAt.toISOString() : new Date().toISOString(),
+    }
+  })
+
+  let logsQuery = db
+    .selectFrom('indexer_status_logs' as any)
+    .selectAll()
+  if (tenantId != null) {
+    logsQuery = logsQuery.where((eb: any) => eb.or([
+      eb('tenant_id' as any, '=', tenantId),
+      eb('tenant_id' as any, 'is', null),
+    ]))
+  } else {
+    logsQuery = logsQuery.where('tenant_id' as any, 'is', null as any)
+  }
+  if (Array.isArray(organizationScopeIds) && organizationScopeIds.length) {
+    logsQuery = logsQuery.where('organization_id' as any, 'in', organizationScopeIds)
+  } else {
+    logsQuery = logsQuery.where('organization_id' as any, 'is', null as any)
+  }
+  const logRows = await logsQuery
+    .orderBy('occurred_at' as any, 'desc')
+    .limit(100)
+    .execute() as Array<Record<string, any>>
+
+  const logs = logRows.map((row: any) => {
+    const occurredAt = row.occurred_at instanceof Date ? row.occurred_at : row.occurred_at ? new Date(row.occurred_at) : null
+    const level = row.level === 'warn' ? 'warn' : 'info'
+    return {
+      id: String(row.id),
+      source: String(row.source ?? ''),
+      handler: String(row.handler ?? ''),
+      level,
+      entityType: row.entity_type ?? null,
+      recordId: row.record_id ?? null,
+      tenantId: row.tenant_id ?? null,
+      organizationId: row.organization_id ?? null,
+      message: String(row.message ?? ''),
+      details: row.details ?? null,
+      occurredAt: occurredAt ? occurredAt.toISOString() : new Date().toISOString(),
+    }
+  })
+
+  const response = NextResponse.json({ items, errors, logs })
+  const partial = items.find((item) => {
+    // Coverage not computed yet (no snapshot) — pending an async refresh, not a partial
+    // index. Do not raise the partial-index warning while counts are still unknown.
+    if (item.baseCount == null && item.indexCount == null) return false
+    if (item.baseCount == null || item.indexCount == null) return true
+    return item.baseCount !== item.indexCount
+  })
+  if (partial) {
+    response.headers.set(
+      'x-om-partial-index',
+      JSON.stringify({
+        type: 'partial_index',
+        entity: partial.entityId,
+        entityLabel: partial.label ?? partial.entityId,
+        baseCount: partial.baseCount,
+        indexedCount: partial.indexCount,
+        scope: organizationId,
+      })
+    )
+  }
+  return response
+}
+
+const queryIndexStatusDoc: OpenApiMethodDoc = {
+  summary: 'Inspect query index coverage',
+  description: 'Returns entity counts comparing base tables with the query index along with the latest job status.',
+  tags: [queryIndexTag],
+  responses: [
+    { status: 200, description: 'Current query index status.', schema: queryIndexStatusResponseSchema },
+  ],
+  errors: [
+    { status: 400, description: 'Tenant or organization context required', schema: queryIndexErrorSchema },
+    { status: 401, description: 'Authentication required', schema: queryIndexErrorSchema },
+    { status: 403, description: 'Organization access denied', schema: queryIndexErrorSchema },
+  ],
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: queryIndexTag,
+  summary: 'Query index status',
+  methods: {
+    GET: queryIndexStatusDoc,
+  },
+}

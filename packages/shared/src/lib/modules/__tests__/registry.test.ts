@@ -1,0 +1,361 @@
+import type { Module } from '@open-mercato/shared/modules/registry'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import {
+  applyModuleOverridesFromEnabledModules,
+  resetModuleContractOverridesForTests,
+  resetModuleOverrideAppliersForTests,
+} from '@open-mercato/shared/modules/overrides'
+import { getEnabledModuleIds } from '@open-mercato/shared/security/enabledModulesRegistry'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+const loggerDebug = createLogger('shared').debug as jest.Mock
+const loggerError = createLogger('shared').error as jest.Mock
+
+
+const GLOBAL_KEY = '__openMercatoModulesRegistry__'
+const LISTENERS_GLOBAL_KEY = '__openMercatoModulesRegistryListeners__'
+const SNAPSHOT_GLOBAL_KEY = '__openMercatoModulesRegistrySnapshot__'
+
+function clearGlobalRegistry(): void {
+  delete (globalThis as any)[GLOBAL_KEY]
+  delete (globalThis as any)[LISTENERS_GLOBAL_KEY]
+  delete (globalThis as any)[SNAPSHOT_GLOBAL_KEY]
+}
+
+function clearRegistryModuleCache(): void {
+  const matchers = [/packages\/shared\/src\/lib\/modules\/registry\.ts$/]
+  for (const key of Object.keys(require.cache)) {
+    if (matchers.some((re) => re.test(key))) {
+      delete require.cache[key]
+    }
+  }
+}
+
+function loadRegistry(): typeof import('../registry') {
+  clearRegistryModuleCache()
+  return require('../registry') as typeof import('../registry')
+}
+
+describe('shared modules registry', () => {
+  const sampleModules: Module[] = [
+    { id: 'auth' } as Module,
+    { id: 'customers' } as Module,
+  ]
+
+  let nodeEnvSnapshot: string | undefined
+
+  beforeEach(() => {
+    nodeEnvSnapshot = process.env.NODE_ENV
+    clearGlobalRegistry()
+  })
+
+  afterEach(() => {
+    clearGlobalRegistry()
+    if (nodeEnvSnapshot === undefined) {
+      delete process.env.NODE_ENV
+    } else {
+      process.env.NODE_ENV = nodeEnvSnapshot
+    }
+    clearRegistryModuleCache()
+  })
+
+  it('returns registered modules from the same module instance', () => {
+    const registry = loadRegistry()
+    registry.registerModules(sampleModules)
+    expect(registry.getModules().map((m) => m.id)).toEqual(['auth', 'customers'])
+  })
+
+  it('throws a helpful error when getModules is called before bootstrap', () => {
+    const registry = loadRegistry()
+    expect(() => registry.getModules()).toThrow(
+      '[Bootstrap] Modules not registered. Call registerModules() at bootstrap.',
+    )
+  })
+
+  it('survives module duplication: a re-required registry instance still sees modules registered by the first', () => {
+    // First load: bootstrap registers modules via the "source" path.
+    const first = loadRegistry()
+    first.registerModules(sampleModules)
+    expect(first.getModules().map((m) => m.id)).toEqual(['auth', 'customers'])
+
+    // Second load: simulate tsx/esbuild re-loading the same file under a
+    // different module identity (e.g. dist/ vs src/). This is the exact
+    // failure mode hit by the standalone TC-CRM-068/069 worker handlers —
+    // they create a fresh container, which calls getModules() through a
+    // different registry instance than the test's bootstrap registered into.
+    // With the module-local `let _modules` variant, this re-require would
+    // throw `[Bootstrap] Modules not registered`. With the globalThis
+    // variant it returns the same list.
+    const second = loadRegistry()
+    expect(second.getModules().map((m) => m.id)).toEqual(['auth', 'customers'])
+  })
+
+  it('reads from globalThis so external setters can prime the registry', () => {
+    // Simulates the case where a bootstrap script in a sibling process or
+    // sibling module instance already wrote to `globalThis` before this
+    // package's registry module was even loaded.
+    ;(globalThis as any).__openMercatoModulesRegistry__ = sampleModules
+    const registry = loadRegistry()
+    expect(registry.getModules().map((m) => m.id)).toEqual(['auth', 'customers'])
+  })
+
+  it('emits the HMR debug log on re-registration in development', () => {
+    process.env.NODE_ENV = 'development'
+    loggerDebug.mockClear()
+    const registry = loadRegistry()
+    registry.registerModules(sampleModules)
+    expect(loggerDebug).not.toHaveBeenCalled()
+    registry.registerModules(sampleModules)
+    expect(loggerDebug).toHaveBeenCalledWith(
+      'Modules re-registered (this may occur during HMR)',
+    )
+  })
+
+  it('does not emit the HMR debug log when NODE_ENV is not development', () => {
+    process.env.NODE_ENV = 'production'
+    loggerDebug.mockClear()
+    const registry = loadRegistry()
+    registry.registerModules(sampleModules)
+    registry.registerModules(sampleModules)
+    expect(loggerDebug).not.toHaveBeenCalled()
+  })
+
+  it('does not let i18n-only registrations clobber runtime module contracts', () => {
+    const registry = loadRegistry()
+    const handler = jest.fn()
+    registry.registerModules([
+      {
+        id: 'checkout',
+        subscribers: [{ id: 'checkout-gateway-payment-failed', event: 'payment_gateways.payment.failed', handler }],
+        translations: { en: { old: 'Old' } },
+      } as Module,
+    ])
+
+    registry.registerModules([
+      {
+        id: 'checkout',
+        translations: { en: { fresh: 'Fresh' } },
+      } as Module,
+    ])
+
+    expect(registry.getModules()).toEqual([
+      expect.objectContaining({
+        id: 'checkout',
+        subscribers: [expect.objectContaining({ id: 'checkout-gateway-payment-failed' })],
+        translations: { en: { fresh: 'Fresh' } },
+      }),
+    ])
+  })
+
+  describe('i18n-only registration with a setup override (#7243)', () => {
+    beforeEach(() => {
+      resetModuleContractOverridesForTests()
+      resetModuleOverrideAppliersForTests()
+    })
+
+    afterEach(() => {
+      resetModuleContractOverridesForTests()
+      resetModuleOverrideAppliersForTests()
+    })
+
+    it('merges translation stubs instead of replacing the runtime registry', () => {
+      applyModuleOverridesFromEnabledModules([
+        { id: 'auth', from: '@open-mercato/core', overrides: { setup: { defaultRoleFeatures: {} } } },
+      ])
+      const registry = loadRegistry()
+      registry.registerModules([
+        {
+          id: 'auth',
+          features: [{ id: 'auth.users.view', title: 'View users', module: 'auth' }],
+          setup: { defaultRoleFeatures: { admin: ['auth.users.view'] } },
+          translations: { en: { title: 'Auth' } },
+        } as Module,
+        {
+          id: 'notary',
+          features: [{ id: 'notary.cases.view', title: 'View cases', module: 'notary' }],
+        } as Module,
+      ])
+
+      registry.registerModules([
+        { id: 'auth', translations: { en: { title: 'Authentication' } } } as Module,
+      ])
+
+      expect(registry.getModules()).toEqual([
+        expect.objectContaining({
+          id: 'auth',
+          features: [expect.objectContaining({ id: 'auth.users.view' })],
+          setup: expect.objectContaining({ defaultRoleFeatures: {} }),
+          translations: { en: { title: 'Authentication' } },
+        }),
+        expect.objectContaining({
+          id: 'notary',
+          features: [expect.objectContaining({ id: 'notary.cases.view' })],
+        }),
+      ])
+      expect(getEnabledModuleIds()).toEqual(['auth', 'notary'])
+      expect(authorizeFeatures(['notary.cases.view'], { grantedFeatures: [], unrestricted: true })).toBe(true)
+    })
+  })
+
+  it('preserves translations when runtime modules register after locale shards', () => {
+    const registry = loadRegistry()
+    const handler = jest.fn()
+    registry.registerModules([
+      {
+        id: 'checkout',
+        translations: { pl: { title: 'Kasa' } },
+      } as Module,
+    ])
+
+    registry.registerModules([
+      {
+        id: 'checkout',
+        subscribers: [{ id: 'checkout-gateway-payment-failed', event: 'payment_gateways.payment.failed', handler }],
+      } as Module,
+    ])
+
+    expect(registry.getModules()).toEqual([
+      expect.objectContaining({
+        id: 'checkout',
+        subscribers: [expect.objectContaining({ id: 'checkout-gateway-payment-failed' })],
+        translations: { pl: { title: 'Kasa' } },
+      }),
+    ])
+  })
+
+  describe('onModulesRegistered (#5103)', () => {
+    it('notifies subscribers with the reconciled module list on first registration', () => {
+      const registry = loadRegistry()
+      const listener = jest.fn()
+      registry.onModulesRegistered(listener)
+
+      registry.registerModules(sampleModules)
+
+      expect(listener).toHaveBeenCalledTimes(1)
+      expect((listener.mock.calls[0][0] as Module[]).map((m) => m.id)).toEqual(['auth', 'customers'])
+    })
+
+    it('notifies subscribers when an i18n-only registration is merged with the full module list', () => {
+      const registry = loadRegistry()
+      const listener = jest.fn()
+      registry.registerModules([{ id: 'checkout', translations: { pl: { title: 'Kasa' } } } as Module])
+      registry.onModulesRegistered(listener)
+
+      registry.registerModules([
+        { id: 'checkout', dashboardWidgets: [] } as unknown as Module,
+        { id: 'reports', dashboardWidgets: [] } as unknown as Module,
+      ])
+
+      expect(listener).toHaveBeenCalledTimes(1)
+      expect((listener.mock.calls[0][0] as Module[]).map((m) => m.id)).toEqual(['checkout', 'reports'])
+    })
+
+    it('does not notify subscribers when the identical module set is re-registered', () => {
+      const registry = loadRegistry()
+      const listener = jest.fn()
+      registry.registerModules(sampleModules)
+      registry.onModulesRegistered(listener)
+
+      registry.registerModules(sampleModules)
+
+      expect(listener).not.toHaveBeenCalled()
+    })
+
+    it('stops notifying after the returned unsubscribe is called', () => {
+      const registry = loadRegistry()
+      const listener = jest.fn()
+      const unsubscribe = registry.onModulesRegistered(listener)
+
+      registry.registerModules(sampleModules)
+      unsubscribe()
+      registry.registerModules([{ id: 'auth', dashboardWidgets: [] } as unknown as Module])
+
+      expect(listener).toHaveBeenCalledTimes(1)
+    })
+
+    it('notifies subscribers when a re-registered module object was mutated in place', () => {
+      const registry = loadRegistry()
+      const mutated = { id: 'dashboards', dashboardWidgets: [] } as unknown as Module
+      const modules = [mutated]
+      registry.registerModules(modules)
+      const listener = jest.fn()
+      registry.onModulesRegistered(listener)
+
+      ;(mutated as unknown as { dashboardWidgets: unknown[] }).dashboardWidgets = [{ key: 'sales-kpi' }]
+      registry.registerModules(modules)
+
+      expect(listener).toHaveBeenCalledTimes(1)
+    })
+
+    it('notifies subscribers when an array-valued contract is mutated in place', () => {
+      const registry = loadRegistry()
+      const widgets: unknown[] = []
+      const mutated = { id: 'dashboards', dashboardWidgets: widgets } as unknown as Module
+      const modules = [mutated]
+      registry.registerModules(modules)
+      const listener = jest.fn()
+      registry.onModulesRegistered(listener)
+
+      widgets.push({ key: 'sales-kpi' })
+      registry.registerModules(modules)
+
+      expect(listener).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not notify subscribers when a semantically identical fresh module list is registered', () => {
+      const registry = loadRegistry()
+      const widget = { key: 'sales-kpi' }
+      registry.registerModules([{ id: 'dashboards', dashboardWidgets: [widget] } as unknown as Module])
+      const listener = jest.fn()
+      registry.onModulesRegistered(listener)
+
+      registry.registerModules([{ id: 'dashboards', dashboardWidgets: [widget] } as unknown as Module])
+
+      expect(listener).not.toHaveBeenCalled()
+    })
+
+    it('observes and logs a rejected async subscriber instead of leaking an unhandled rejection', async () => {
+      const registry = loadRegistry()
+      const rejection = new Error('async listener boom')
+      const failing = jest.fn(async () => {
+        await Promise.resolve()
+        throw rejection
+      })
+      const healthy = jest.fn()
+      registry.onModulesRegistered(failing)
+      registry.onModulesRegistered(healthy)
+      loggerError.mockClear()
+
+      expect(() => registry.registerModules(sampleModules)).not.toThrow()
+      expect(healthy).toHaveBeenCalledTimes(1)
+      await new Promise((resolve) => setImmediate(resolve))
+
+      expect(loggerError).toHaveBeenCalledWith('Module registration listener rejected', { err: rejection })
+    })
+
+    it('keeps registering modules when a subscriber throws', () => {
+      const registry = loadRegistry()
+      const failing = jest.fn(() => {
+        throw new Error('listener boom')
+      })
+      const healthy = jest.fn()
+      registry.onModulesRegistered(failing)
+      registry.onModulesRegistered(healthy)
+
+      expect(() => registry.registerModules(sampleModules)).not.toThrow()
+      expect(healthy).toHaveBeenCalledTimes(1)
+      expect(registry.getModules().map((m) => m.id)).toEqual(['auth', 'customers'])
+    })
+  })
+})

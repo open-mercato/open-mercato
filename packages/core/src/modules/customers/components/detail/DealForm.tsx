@@ -1,0 +1,1370 @@
+"use client"
+
+import { extractResponseEnricherNamespaces } from '@open-mercato/shared/lib/crud/response-enricher-namespaces'
+import * as React from 'react'
+import { z } from 'zod'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { DEAL_DESCRIPTION_MAX_LENGTH } from '../../data/validators'
+import { DictionarySelectField } from '../formConfig'
+import { createDictionarySelectLabels } from './utils'
+import { E } from '#generated/entities.ids.generated'
+import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
+import { useCurrencyDictionary } from './hooks/useCurrencyDictionary'
+import { DictionaryEntrySelect } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
+import { normalizeCustomFieldSubmitValue } from './customFieldUtils'
+import { DealOwnerSelect, type DealOwnerOption } from './DealOwnerSelect'
+import { useCurrentUserId } from '@open-mercato/ui/backend/utils/useCurrentUserId'
+
+/**
+ * Owner control for the deal form. On a create form it self-assigns to the current user once
+ * that id resolves, matching the pipeline quick-create dialog so a new deal does not start
+ * unowned. The ref guard makes that a one-shot: it never overwrites a choice the user has
+ * already made, and never runs at all in edit mode (autoAssignUserId is empty there).
+ */
+function DealOwnerFieldControl({
+  value,
+  setValue,
+  initialOption,
+  disabled,
+  autoAssignUserId,
+}: {
+  value: string | null
+  setValue: (next: string) => void
+  initialOption: DealOwnerOption | null
+  disabled: boolean
+  autoAssignUserId: string
+}) {
+  const seeded = React.useRef(false)
+  React.useEffect(() => {
+    if (seeded.current || !autoAssignUserId) return
+    seeded.current = true
+    if (!value) setValue(autoAssignUserId)
+    // `value` is read but intentionally not a dependency: the ref makes this a one-shot seed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoAssignUserId, setValue])
+
+  return (
+    <DealOwnerSelect
+      value={value && value.length ? value : null}
+      onChange={(next) => {
+        // The current-user id resolves asynchronously. Burn the one-shot here too, so a user
+        // who clears the picker before it arrives is not silently re-assigned by the effect.
+        seeded.current = true
+        setValue(next ?? '')
+      }}
+      initialOption={initialOption}
+      disabled={disabled}
+    />
+  )
+}
+
+/**
+ * Create-mode wrapper. The current-user lookup is a network round-trip, so it lives here
+ * rather than in DealForm itself — an edit form (the deal detail page, the common case)
+ * never self-assigns and must not pay for the request.
+ */
+function DealOwnerCreateField(props: {
+  value: string | null
+  setValue: (next: string) => void
+  initialOption: DealOwnerOption | null
+  disabled: boolean
+}) {
+  const t = useT()
+  const currentUserId = useCurrentUserId()
+  // The self-assigned id may not be on the assignable roster (an admin who is not a staff
+  // team member, or any user when the optional `staff` module is off). Seed it so the field
+  // names whoever it just assigned instead of rendering blank while holding their id.
+  const initialOption = React.useMemo<DealOwnerOption | null>(
+    () => props.initialOption
+      ?? (currentUserId
+        ? { id: currentUserId, name: t('customers.filters.currentUser', 'Current user') }
+        : null),
+    [currentUserId, props.initialOption, t],
+  )
+  return <DealOwnerFieldControl {...props} initialOption={initialOption} autoAssignUserId={currentUserId} />
+}
+
+export type DealFormBaseValues = {
+  title: string
+  ownerUserId?: string | null
+  status?: string | null
+  pipelineStage?: string | null
+  pipelineId?: string | null
+  pipelineStageId?: string | null
+  valueAmount?: number | null
+  valueCurrency?: string | null
+  probability?: number | null
+  expectedCloseAt?: string | null
+  description?: string | null
+  personIds?: string[]
+  companyIds?: string[]
+}
+
+type PipelineOption = { id: string; name: string; isDefault: boolean }
+type PipelineStageOption = { id: string; label: string; order: number }
+
+export type DealFormSubmitPayload = {
+  base: DealFormBaseValues
+  custom: Record<string, unknown>
+}
+
+export type DealFormProps = {
+  mode: 'create' | 'edit'
+  initialValues?: Partial<DealFormBaseValues & Record<string, unknown>>
+  onSubmit: (payload: DealFormSubmitPayload) => Promise<void>
+  onCancel: () => void
+  onDelete?: () => Promise<void> | void
+  submitLabel?: string
+  cancelLabel?: string
+  isSubmitting?: boolean
+  embedded?: boolean
+  trackDirtyWhenEmbedded?: boolean
+  title?: string
+  backHref?: string
+  hideFooterActions?: boolean
+  onDirtyChange?: (dirty: boolean) => void
+  collapsibleGroups?: boolean | { pageType: string; chevronPosition?: 'left' | 'right' }
+  sortableGroups?: boolean | { pageType: string }
+  singleColumnGroups?: boolean
+  showAssociationsGroup?: boolean
+  showVersionHistory?: boolean
+  showCancelAction?: boolean
+  initialPipelineOptions?: PipelineOption[]
+  initialPipelineStageOptions?: PipelineStageOption[]
+  /**
+   * The deal's current owner, so the owner picker shows a name immediately instead of
+   * waiting for the assignable-staff roster — and keeps showing one when that owner sits
+   * outside the fetched page or has left the roster.
+   */
+  initialOwnerOption?: DealOwnerOption | null
+  /**
+   * Injection spot id for the form-scoped record_locks widget (e.g.
+   * `customers.deal`). Mirrors how people-v2/companies-v2 mount their save-time
+   * `crud-form:*` widget so a deal save conflict surfaces the merge dialog.
+   */
+  injectionSpotId?: string
+  /** Optimistic-lock version (`deal.updatedAt`) for the embedded CrudForm. */
+  optimisticLockUpdatedAt?: string | null
+}
+
+type EntityOption = {
+  id: string
+  label: string
+  subtitle?: string | null
+}
+
+export type DealLookupOption = EntityOption
+
+type EntityMultiSelectProps = {
+  value: string[]
+  onChange: (next: string[]) => void
+  initialOptions?: EntityOption[]
+  placeholder: string
+  emptyLabel: string
+  loadingLabel: string
+  noResultsLabel: string
+  removeLabel: string
+  errorLabel: string
+  search: (query: string) => Promise<EntityOption[]>
+  fetchByIds: (ids: string[]) => Promise<EntityOption[]>
+  disabled?: boolean
+  autoFocus?: boolean
+  /**
+   * Minimum trimmed query length before a lookup request is issued. Defaults to
+   * `1`, so a blank input never queries the address book (issue #5118). Set `0`
+   * to opt back into prefetching an unfiltered first page on mount.
+   */
+  minQueryLength?: number
+}
+
+const DEAL_ENTITY_IDS = [E.customers.customer_deal]
+const CURRENCY_PRIORITY = ['EUR', 'USD', 'GBP', 'PLN'] as const
+const PIPELINE_OPTIONS_TTL_MS = 60_000
+const PIPELINE_STAGE_OPTIONS_TTL_MS = 30_000
+
+type MetadataCacheEntry<T> = {
+  expiresAt: number
+  promise: Promise<T>
+}
+
+let pipelineOptionsCache: MetadataCacheEntry<PipelineOption[]> | null = null
+const pipelineStageOptionsCache = new Map<string, MetadataCacheEntry<PipelineStageOption[]>>()
+
+function isFreshCacheEntry<T>(entry: MetadataCacheEntry<T> | null | undefined): entry is MetadataCacheEntry<T> {
+  return Boolean(entry && entry.expiresAt > Date.now())
+}
+
+function normalizePipelineOptions(options: PipelineOption[] | undefined): PipelineOption[] {
+  const byId = new Map<string, PipelineOption>()
+  for (const option of options ?? []) {
+    if (!option.id) continue
+    byId.set(option.id, {
+      id: option.id,
+      name: option.name,
+      isDefault: option.isDefault === true,
+    })
+  }
+  return Array.from(byId.values())
+}
+
+function mergePipelineOptions(seed: PipelineOption[], loaded: PipelineOption[]): PipelineOption[] {
+  const byId = new Map<string, PipelineOption>()
+  for (const option of seed) byId.set(option.id, option)
+  for (const option of loaded) byId.set(option.id, option)
+  return Array.from(byId.values())
+}
+
+function normalizePipelineStageOptions(options: PipelineStageOption[] | undefined): PipelineStageOption[] {
+  return [...(options ?? [])]
+    .filter((option) => option.id)
+    .sort((left, right) => left.order - right.order)
+}
+
+async function fetchPipelineOptions(): Promise<PipelineOption[]> {
+  if (isFreshCacheEntry(pipelineOptionsCache)) return pipelineOptionsCache.promise
+  const entry: MetadataCacheEntry<PipelineOption[]> = {
+    expiresAt: Date.now() + PIPELINE_OPTIONS_TTL_MS,
+    promise: apiCall<{ items: PipelineOption[] }>('/api/customers/pipelines')
+      .then((call) => (call.ok && call.result?.items ? normalizePipelineOptions(call.result.items) : [])),
+  }
+  pipelineOptionsCache = entry
+  try {
+    return await entry.promise
+  } catch (error) {
+    if (pipelineOptionsCache === entry) pipelineOptionsCache = null
+    throw error
+  }
+}
+
+async function fetchPipelineStageOptions(pipelineId: string): Promise<PipelineStageOption[]> {
+  const cached = pipelineStageOptionsCache.get(pipelineId)
+  if (isFreshCacheEntry(cached)) return cached.promise
+  const entry: MetadataCacheEntry<PipelineStageOption[]> = {
+    expiresAt: Date.now() + PIPELINE_STAGE_OPTIONS_TTL_MS,
+    promise: apiCall<{ items: PipelineStageOption[] }>(`/api/customers/pipeline-stages?pipelineId=${encodeURIComponent(pipelineId)}`)
+      .then((call) => (call.ok && call.result?.items ? normalizePipelineStageOptions(call.result.items) : [])),
+  }
+  pipelineStageOptionsCache.set(pipelineId, entry)
+  try {
+    return await entry.promise
+  } catch (error) {
+    if (pipelineStageOptionsCache.get(pipelineId) === entry) pipelineStageOptionsCache.delete(pipelineId)
+    throw error
+  }
+}
+
+export function resetDealPipelineMetadataCacheForTests() {
+  pipelineOptionsCache = null
+  pipelineStageOptionsCache.clear()
+}
+
+const schema = z.object({
+  title: z
+    .string()
+    .trim()
+    .min(1, 'customers.people.detail.deals.titleRequired')
+    .max(200, 'customers.people.detail.deals.titleTooLong'),
+  status: z
+    .string()
+    .trim()
+    .max(50, 'customers.people.detail.deals.statusTooLong')
+    .optional(),
+  pipelineStage: z
+    .string()
+    .trim()
+    .max(100, 'customers.people.detail.deals.pipelineTooLong')
+    .optional(),
+  pipelineId: z.preprocess(
+    (v) => (typeof v === 'string' && !v.trim() ? undefined : v),
+    z.string().uuid('customers.people.detail.deals.pipelineIdInvalid').optional(),
+  ),
+  pipelineStageId: z.preprocess(
+    (v) => (typeof v === 'string' && !v.trim() ? undefined : v),
+    z.string().uuid('customers.people.detail.deals.pipelineStageIdInvalid').optional(),
+  ),
+  valueAmount: z
+    .preprocess((value) => {
+      if (value === '' || value === null || value === undefined) return undefined
+      if (typeof value === 'number') return value
+      if (typeof value === 'string') {
+        const trimmed = value.trim()
+        if (!trimmed) return undefined
+        const parsed = Number(trimmed)
+        if (Number.isNaN(parsed)) return value
+        return parsed
+      }
+      return value
+    }, z
+      .number()
+      .min(0, 'customers.people.detail.deals.valueInvalid')
+      .optional())
+    .optional(),
+  valueCurrency: z
+    .string()
+    .transform((value) => value.trim().toUpperCase())
+    .refine(
+      (value) => !value || /^[A-Z]{3}$/.test(value),
+      'customers.people.detail.deals.currencyInvalid',
+    )
+    .optional(),
+  probability: z
+    .preprocess((value) => {
+      if (value === '' || value === null || value === undefined) return undefined
+      if (typeof value === 'number') return value
+      if (typeof value === 'string') {
+        const trimmed = value.trim()
+        if (!trimmed) return undefined
+        const parsed = Number(trimmed)
+        if (Number.isNaN(parsed)) return value
+        return parsed
+      }
+      return value
+    }, z
+      .number()
+      .min(0, 'customers.people.detail.deals.probabilityInvalid')
+      .max(100, 'customers.people.detail.deals.probabilityInvalid')
+      .optional())
+    .optional(),
+  expectedCloseAt: z
+    .string()
+    .transform((value) => value.trim())
+    .refine(
+      (value) => {
+        if (!value) return true
+        const parsed = new Date(value)
+        return !Number.isNaN(parsed.getTime())
+      },
+      'customers.people.detail.deals.expectedCloseInvalid',
+    )
+    .optional(),
+  description: z
+    .string()
+    .max(DEAL_DESCRIPTION_MAX_LENGTH, 'customers.people.detail.deals.descriptionTooLong')
+    .optional(),
+  ownerUserId: z.string().trim().optional(),
+  personIds: z.array(z.string().trim().min(1)).optional(),
+  companyIds: z.array(z.string().trim().min(1)).optional(),
+}).passthrough()
+
+export const dealFormSchema = schema
+
+import { toDateInputValue as toDateInputValueOrNull } from '@open-mercato/shared/lib/date/format'
+
+function toDateInputValue(value: string | null | undefined): string {
+  return toDateInputValueOrNull(value) ?? ''
+}
+
+function normalizeCurrency(value: string | null | undefined): string {
+  if (!value) return ''
+  return value.trim().slice(0, 3).toUpperCase()
+}
+
+function sanitizeIdList(input: unknown): string[] {
+  if (!Array.isArray(input)) return []
+  const set = new Set<string>()
+  input.forEach((candidate) => {
+    if (typeof candidate !== 'string') return
+    const trimmed = candidate.trim()
+    if (!trimmed.length) return
+    set.add(trimmed)
+  })
+  return Array.from(set)
+}
+
+function extractPersonOption(record: Record<string, unknown>): EntityOption | null {
+  const id = typeof record.id === 'string' ? record.id : null
+  if (!id) return null
+  const displayName =
+    typeof record.displayName === 'string' && record.displayName.trim().length
+      ? record.displayName.trim()
+      : typeof record.display_name === 'string' && record.display_name.trim().length
+        ? (record.display_name as string).trim()
+        : null
+  const email =
+    typeof record.primaryEmail === 'string' && record.primaryEmail.trim().length
+      ? record.primaryEmail.trim()
+      : typeof record.primary_email === 'string' && record.primary_email.trim().length
+        ? (record.primary_email as string).trim()
+        : null
+  const label = displayName ?? email ?? id
+  const subtitle = email && email !== label ? email : null
+  return { id, label, subtitle }
+}
+
+function extractCompanyOption(record: Record<string, unknown>): EntityOption | null {
+  const id = typeof record.id === 'string' ? record.id : null
+  if (!id) return null
+  const displayName =
+    typeof record.displayName === 'string' && record.displayName.trim().length
+      ? record.displayName.trim()
+      : typeof record.display_name === 'string' && record.display_name.trim().length
+        ? (record.display_name as string).trim()
+        : null
+  const domain =
+    typeof record.domain === 'string' && record.domain.trim().length
+      ? record.domain.trim()
+      : typeof record.websiteUrl === 'string' && record.websiteUrl.trim().length
+        ? record.websiteUrl.trim()
+        : typeof record.website_url === 'string' && record.website_url.trim().length
+          ? (record.website_url as string).trim()
+          : null
+  const label = displayName ?? domain ?? id
+  const subtitle = domain && domain !== label ? domain : null
+  return { id, label, subtitle }
+}
+
+function EntityMultiSelect({
+  value,
+  onChange,
+  initialOptions = [],
+  placeholder,
+  emptyLabel,
+  loadingLabel,
+  noResultsLabel,
+  removeLabel,
+  errorLabel,
+  search,
+  fetchByIds,
+  disabled = false,
+  autoFocus = false,
+  minQueryLength = 1,
+}: EntityMultiSelectProps) {
+  const [input, setInput] = React.useState('')
+  const [suggestions, setSuggestions] = React.useState<EntityOption[]>([])
+  const [cache, setCache] = React.useState<Map<string, EntityOption>>(() => new Map())
+  const [loading, setLoading] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+
+  const normalizedValue = React.useMemo(() => sanitizeIdList(value), [value])
+
+  React.useEffect(() => {
+    if (!initialOptions.length) return
+    setCache((prev) => {
+      const next = new Map(prev)
+      initialOptions.forEach((option) => {
+        if (option?.id) next.set(option.id, option)
+      })
+      return next
+    })
+  }, [initialOptions])
+
+  React.useEffect(() => {
+    if (!normalizedValue.length) return
+    const missing = normalizedValue.filter((id) => !cache.has(id))
+    if (!missing.length) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const entries = await fetchByIds(missing)
+        if (cancelled) return
+        setCache((prev) => {
+          const next = new Map(prev)
+          entries.forEach((entry) => {
+            if (entry?.id) next.set(entry.id, entry)
+          })
+          return next
+        })
+      } catch {
+        if (!cancelled) setError(errorLabel)
+      }
+    })().catch(() => {})
+    return () => { cancelled = true }
+  }, [cache, errorLabel, fetchByIds, normalizedValue])
+
+  React.useEffect(() => {
+    if (disabled) {
+      setLoading(false)
+      return
+    }
+    const term = input.trim()
+    if (term.length < minQueryLength) {
+      setSuggestions([])
+      setLoading(false)
+      setError(null)
+      return
+    }
+    let cancelled = false
+    const handler = window.setTimeout(async () => {
+      setLoading(true)
+      try {
+        const results = await search(term)
+        if (cancelled) return
+        setSuggestions(results)
+        setCache((prev) => {
+          const next = new Map(prev)
+          results.forEach((entry) => {
+            if (entry?.id) next.set(entry.id, entry)
+          })
+          return next
+        })
+        setError(null)
+      } catch {
+        if (!cancelled) {
+          setError(errorLabel)
+          setSuggestions([])
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }, 200)
+    return () => {
+      cancelled = true
+      window.clearTimeout(handler)
+    }
+  }, [disabled, errorLabel, input, minQueryLength, search])
+
+  const filteredSuggestions = React.useMemo(
+    () => suggestions.filter((option) => !normalizedValue.includes(option.id)),
+    [normalizedValue, suggestions],
+  )
+
+  const selectedOptions = React.useMemo(
+    () => normalizedValue.map((id) => cache.get(id) ?? { id, label: id }),
+    [cache, normalizedValue],
+  )
+
+  const addOption = React.useCallback(
+    (option: EntityOption) => {
+      if (!option?.id) return
+      if (normalizedValue.includes(option.id)) return
+      const next = [...normalizedValue, option.id]
+      onChange(next)
+      setCache((prev) => {
+        const nextCache = new Map(prev)
+        nextCache.set(option.id, option)
+        return nextCache
+      })
+      setInput('')
+      setSuggestions([])
+    },
+    [normalizedValue, onChange],
+  )
+
+  const removeOption = React.useCallback(
+    (id: string) => {
+      const next = normalizedValue.filter((candidate) => candidate !== id)
+      onChange(next)
+    },
+    [normalizedValue, onChange],
+  )
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2 rounded border px-2 py-1">
+        {selectedOptions.map((option) => (
+          <span key={option.id} className="inline-flex items-center gap-1 rounded bg-muted px-2 py-0.5 text-xs">
+            {option.label}
+            <IconButton
+              variant="ghost"
+              size="xs"
+              className="opacity-60 hover:opacity-100"
+              onClick={() => removeOption(option.id)}
+              aria-label={`${removeLabel} ${option.label}`}
+              disabled={disabled}
+            >
+              ×
+            </IconButton>
+          </span>
+        ))}
+        <input
+          type="text"
+          className="flex-1 min-w-[160px] border-0 bg-transparent py-1 text-sm outline-none"
+          value={input}
+          placeholder={placeholder}
+          onChange={(event) => setInput(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault()
+              const nextOption = filteredSuggestions[0]
+              if (nextOption) addOption(nextOption)
+            } else if (event.key === 'Backspace' && !input.length && normalizedValue.length) {
+              removeOption(normalizedValue[normalizedValue.length - 1])
+            }
+          }}
+          disabled={disabled}
+          autoFocus={autoFocus}
+          data-crud-focus-target=""
+        />
+      </div>
+      {loading ? <div className="text-xs text-muted-foreground">{loadingLabel}</div> : null}
+      {!loading && filteredSuggestions.length ? (
+        <div className="flex flex-wrap gap-2">
+          {filteredSuggestions.slice(0, 10).map((option) => (
+            <Button
+              key={option.id}
+              variant="outline"
+              size="sm"
+              className="h-auto px-2 py-1 text-xs font-normal"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => addOption(option)}
+              disabled={disabled}
+              aria-label={option.label}
+            >
+              <span className="flex flex-col items-start">
+                <span>{option.label}</span>
+                {option.subtitle ? (
+                  <span className="text-overline text-muted-foreground">{option.subtitle}</span>
+                ) : null}
+              </span>
+            </Button>
+          ))}
+        </div>
+      ) : null}
+      {!loading && !filteredSuggestions.length && input.trim().length ? (
+        <div className="text-xs text-muted-foreground">{noResultsLabel}</div>
+      ) : null}
+      {error ? <div className="text-xs text-status-error-text">{error}</div> : null}
+      {!normalizedValue.length && !input.trim().length ? (
+        <div className="text-xs text-muted-foreground">{emptyLabel}</div>
+      ) : null}
+    </div>
+  )
+}
+
+export function useDealAssociationLookups(options?: { excludeLinkedDealId?: string | null }) {
+  const searchPeoplePage = React.useCallback(async (query: string, page = 1): Promise<{ items: EntityOption[]; totalPages: number }> => {
+    const params = new URLSearchParams({
+      page: String(page),
+      pageSize: '20',
+      sortField: 'name',
+      sortDir: 'asc',
+    })
+    if (query.trim().length) params.set('search', query.trim())
+    if (options?.excludeLinkedDealId) params.set('excludeLinkedDealId', options.excludeLinkedDealId)
+    const call = await apiCall<Record<string, unknown>>(`/api/customers/people?${params.toString()}`)
+    if (!call.ok) {
+      throw new Error(typeof call.result?.error === 'string' ? String(call.result?.error) : 'Failed to search people')
+    }
+    const payload = call.result ?? {}
+    const items = Array.isArray(payload.items) ? payload.items : []
+    return {
+      items: items
+      .map((item: unknown) => (item && typeof item === 'object' ? extractPersonOption(item as Record<string, unknown>) : null))
+      .filter((entry: EntityOption | null): entry is EntityOption => entry !== null),
+      totalPages: typeof payload.totalPages === 'number' ? payload.totalPages : 1,
+    }
+  }, [options?.excludeLinkedDealId])
+
+  const searchPeople = React.useCallback(async (query: string): Promise<EntityOption[]> => {
+    const result = await searchPeoplePage(query, 1)
+    return result.items
+  }, [searchPeoplePage])
+
+  const fetchPeopleByIds = React.useCallback(async (ids: string[]): Promise<EntityOption[]> => {
+    const unique = sanitizeIdList(ids)
+    if (!unique.length) return []
+    try {
+      const params = new URLSearchParams({
+        ids: unique.join(','),
+        pageSize: String(Math.max(unique.length, 1)),
+      })
+      const call = await apiCall<Record<string, unknown>>(`/api/customers/people?${params.toString()}`)
+      if (!call.ok) throw new Error()
+      const payload = call.result ?? {}
+      const items = Array.isArray(payload.items) ? payload.items : []
+      const optionMap = new Map<string, EntityOption>()
+      items.forEach((item: unknown) => {
+        if (!item || typeof item !== 'object') return
+        const option = extractPersonOption(item as Record<string, unknown>)
+        if (option?.id) optionMap.set(option.id, option)
+      })
+      return unique.map((id) => optionMap.get(id) ?? { id, label: id })
+    } catch {
+      return unique.map((id) => ({ id, label: id }))
+    }
+  }, [])
+
+  const searchCompaniesPage = React.useCallback(async (query: string, page = 1): Promise<{ items: EntityOption[]; totalPages: number }> => {
+    const params = new URLSearchParams({
+      page: String(page),
+      pageSize: '20',
+      sortField: 'name',
+      sortDir: 'asc',
+    })
+    if (query.trim().length) params.set('search', query.trim())
+    if (options?.excludeLinkedDealId) params.set('excludeLinkedDealId', options.excludeLinkedDealId)
+    const call = await apiCall<Record<string, unknown>>(`/api/customers/companies?${params.toString()}`)
+    if (!call.ok) {
+      throw new Error(typeof call.result?.error === 'string' ? String(call.result?.error) : 'Failed to search companies')
+    }
+    const payload = call.result ?? {}
+    const items = Array.isArray(payload.items) ? payload.items : []
+    return {
+      items: items
+      .map((item: unknown) => (item && typeof item === 'object' ? extractCompanyOption(item as Record<string, unknown>) : null))
+      .filter((entry: EntityOption | null): entry is EntityOption => entry !== null),
+      totalPages: typeof payload.totalPages === 'number' ? payload.totalPages : 1,
+    }
+  }, [options?.excludeLinkedDealId])
+
+  const searchCompanies = React.useCallback(async (query: string): Promise<EntityOption[]> => {
+    const result = await searchCompaniesPage(query, 1)
+    return result.items
+  }, [searchCompaniesPage])
+
+  const fetchCompaniesByIds = React.useCallback(async (ids: string[]): Promise<EntityOption[]> => {
+    const unique = sanitizeIdList(ids)
+    if (!unique.length) return []
+    try {
+      const params = new URLSearchParams({
+        ids: unique.join(','),
+        pageSize: String(Math.max(unique.length, 1)),
+      })
+      const call = await apiCall<Record<string, unknown>>(`/api/customers/companies?${params.toString()}`)
+      if (!call.ok) throw new Error()
+      const payload = call.result ?? {}
+      const items = Array.isArray(payload.items) ? payload.items : []
+      const optionMap = new Map<string, EntityOption>()
+      items.forEach((item: unknown) => {
+        if (!item || typeof item !== 'object') return
+        const option = extractCompanyOption(item as Record<string, unknown>)
+        if (option?.id) optionMap.set(option.id, option)
+      })
+      return unique.map((id) => optionMap.get(id) ?? { id, label: id })
+    } catch {
+      return unique.map((id) => ({ id, label: id }))
+    }
+  }, [])
+
+  return {
+    searchPeople,
+    searchPeoplePage,
+    fetchPeopleByIds,
+    searchCompanies,
+    searchCompaniesPage,
+    fetchCompaniesByIds,
+  }
+}
+
+export function DealPeopleSelector({
+  value,
+  onChange,
+  options = [],
+  disabled = false,
+  autoFocus = false,
+  minQueryLength,
+}: {
+  value: string[]
+  onChange: (next: string[]) => void
+  options?: EntityOption[]
+  disabled?: boolean
+  autoFocus?: boolean
+  minQueryLength?: number
+}) {
+  const t = useT()
+  const { searchPeople, fetchPeopleByIds } = useDealAssociationLookups()
+
+  return (
+    <EntityMultiSelect
+      value={value}
+      onChange={onChange}
+      initialOptions={options}
+      placeholder={t('customers.deals.form.people.searchPlaceholder', 'Search people…')}
+      emptyLabel={t('customers.deals.form.people.empty', 'No people linked yet.')}
+      loadingLabel={t('customers.deals.form.people.loading', 'Searching people…')}
+      noResultsLabel={t('customers.deals.form.people.noResults', 'No people match your search.')}
+      removeLabel={t('customers.deals.form.assignees.remove', 'Remove')}
+      errorLabel={t('customers.deals.form.people.error', 'Failed to load people.')}
+      search={searchPeople}
+      fetchByIds={fetchPeopleByIds}
+      disabled={disabled}
+      autoFocus={autoFocus}
+      minQueryLength={minQueryLength}
+    />
+  )
+}
+
+export function DealCompaniesSelector({
+  value,
+  onChange,
+  options = [],
+  disabled = false,
+  minQueryLength,
+}: {
+  value: string[]
+  onChange: (next: string[]) => void
+  options?: EntityOption[]
+  disabled?: boolean
+  minQueryLength?: number
+}) {
+  const t = useT()
+  const { searchCompanies, fetchCompaniesByIds } = useDealAssociationLookups()
+
+  return (
+    <EntityMultiSelect
+      value={value}
+      onChange={onChange}
+      initialOptions={options}
+      placeholder={t('customers.deals.form.companies.searchPlaceholder', 'Search companies…')}
+      emptyLabel={t('customers.deals.form.companies.empty', 'No companies linked yet.')}
+      loadingLabel={t('customers.deals.form.companies.loading', 'Searching companies…')}
+      noResultsLabel={t('customers.deals.form.companies.noResults', 'No companies match your search.')}
+      removeLabel={t('customers.deals.form.assignees.remove', 'Remove')}
+      errorLabel={t('customers.deals.form.companies.error', 'Failed to load companies.')}
+      search={searchCompanies}
+      fetchByIds={fetchCompaniesByIds}
+      disabled={disabled}
+      minQueryLength={minQueryLength}
+    />
+  )
+}
+
+export function DealForm({
+  mode,
+  initialValues,
+  onSubmit,
+  onCancel,
+  onDelete,
+  submitLabel,
+  cancelLabel,
+  isSubmitting = false,
+  embedded = true,
+  trackDirtyWhenEmbedded = false,
+  title,
+  backHref,
+  hideFooterActions = false,
+  onDirtyChange,
+  collapsibleGroups,
+  sortableGroups,
+  singleColumnGroups = false,
+  showAssociationsGroup = true,
+  showVersionHistory = true,
+  showCancelAction = true,
+  initialPipelineOptions,
+  initialPipelineStageOptions,
+  initialOwnerOption,
+  injectionSpotId,
+  optimisticLockUpdatedAt,
+}: DealFormProps) {
+  const t = useT()
+  const [pending, setPending] = React.useState(false)
+  const {
+    data: currencyDictionaryData,
+    error: currencyDictionaryErrorRaw,
+    isLoading: currencyDictionaryLoading,
+    refetch: refetchCurrencyDictionary,
+  } = useCurrencyDictionary()
+  const currencyDictionaryError = currencyDictionaryErrorRaw
+    ? currencyDictionaryErrorRaw instanceof Error
+      ? currencyDictionaryErrorRaw.message
+      : String(currencyDictionaryErrorRaw)
+    : null
+
+  const translate = React.useCallback(
+    (key: string, fallback: string) => {
+      const value = t(key)
+      return value === key ? fallback : value
+    },
+    [t],
+  )
+
+  const dictionaryLabels = React.useMemo(() => ({
+    status: createDictionarySelectLabels('deal-statuses', translate),
+  }), [translate])
+
+  const resolvedCurrencyError = React.useMemo(() => {
+    if (currencyDictionaryError) return currencyDictionaryError
+    if (!currencyDictionaryLoading && !currencyDictionaryData) {
+      return t('customers.deals.form.currency.missing', 'Currency dictionary is not configured yet.')
+    }
+    return null
+  }, [currencyDictionaryData, currencyDictionaryError, currencyDictionaryLoading, t])
+
+  const fetchCurrencyOptions = React.useCallback(async () => {
+    let payload = currencyDictionaryData ?? null
+    if (!payload) {
+      try {
+        payload = await refetchCurrencyDictionary()
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err ?? '')
+        throw new Error(message || t('customers.deals.form.currency.error', 'Failed to load currency dictionary.'))
+      }
+    }
+    if (!payload) {
+      throw new Error(t('customers.deals.form.currency.missing', 'Currency dictionary is not configured yet.'))
+    }
+    const priorityOrder = new Map<string, number>()
+    CURRENCY_PRIORITY.forEach((code, index) => priorityOrder.set(code, index))
+    const prioritized: { value: string; label: string; color: string | null; icon: string | null }[] = []
+    const remainder: { value: string; label: string; color: string | null; icon: string | null }[] = []
+    payload.entries.forEach((entry) => {
+      const value = entry.value.toUpperCase()
+      const label = entry.label && entry.label.length ? `${value} – ${entry.label}` : value
+      const option = { value, label, color: null, icon: null }
+      if (priorityOrder.has(value)) prioritized.push(option)
+      else remainder.push(option)
+    })
+    prioritized.sort((a, b) => (priorityOrder.get(a.value)! - priorityOrder.get(b.value)!))
+    remainder.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
+    return [...prioritized, ...remainder]
+  }, [currencyDictionaryData, refetchCurrencyDictionary, t])
+
+  const currencyDictionaryLabels = React.useMemo(() => ({
+    placeholder: t('customers.deals.form.currency.placeholder', 'Select currency…'),
+    addLabel: t('customers.deals.form.currency.add', 'Add currency'),
+    dialogTitle: t('customers.deals.form.currency.dialogTitle', 'Add currency'),
+    valueLabel: t('customers.deals.form.currency.valueLabel', 'Currency code'),
+    valuePlaceholder: t('customers.deals.form.currency.valuePlaceholder', 'e.g. USD'),
+    labelLabel: t('customers.deals.form.currency.labelLabel', 'Label'),
+    labelPlaceholder: t('customers.deals.form.currency.labelPlaceholder', 'Display name shown in UI'),
+    emptyError: t('customers.deals.form.currency.error.required', 'Currency code is required.'),
+    cancelLabel: t('customers.deals.form.currency.cancel', 'Cancel'),
+    saveLabel: t('customers.deals.form.currency.save', 'Save'),
+    errorLoad: t('customers.deals.form.currency.error', 'Failed to load currency dictionary.'),
+    errorSave: t('customers.deals.form.currency.error', 'Failed to load currency dictionary.'),
+    loadingLabel: t('customers.deals.form.currency.loading', 'Loading currencies…'),
+    manageTitle: t('customers.deals.form.currency.manage', 'Manage currency dictionary'),
+  }), [t])
+
+  const { searchPeople, fetchPeopleByIds, searchCompanies, fetchCompaniesByIds } = useDealAssociationLookups()
+
+  const disabled = pending || isSubmitting
+  const canDelete = mode === 'edit' && typeof onDelete === 'function'
+
+  const mountedRef = React.useRef(false)
+  const seedPipelineOptions = React.useMemo(
+    () => normalizePipelineOptions(initialPipelineOptions),
+    [initialPipelineOptions],
+  )
+  const seedPipelineStageOptions = React.useMemo(
+    () => Array.isArray(initialPipelineStageOptions) ? normalizePipelineStageOptions(initialPipelineStageOptions) : null,
+    [initialPipelineStageOptions],
+  )
+
+  const [pipelines, setPipelines] = React.useState<PipelineOption[]>(() => seedPipelineOptions)
+  const [pipelineStages, setPipelineStages] = React.useState<PipelineStageOption[]>(() => seedPipelineStageOptions ?? [])
+
+  React.useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
+
+  const loadStagesForPipeline = React.useCallback(async (pipelineId: string) => {
+    if (!pipelineId) {
+      if (mountedRef.current) setPipelineStages([])
+      return
+    }
+    try {
+      const stages = await fetchPipelineStageOptions(pipelineId)
+      if (mountedRef.current) setPipelineStages(stages)
+    } catch {
+      if (mountedRef.current) setPipelineStages([])
+    }
+  }, [])
+
+  React.useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const loaded = await fetchPipelineOptions()
+        if (cancelled || !mountedRef.current) return
+        setPipelines(mergePipelineOptions(seedPipelineOptions, loaded))
+      } catch {
+        if (!cancelled && mountedRef.current && seedPipelineOptions.length > 0) {
+          setPipelines(seedPipelineOptions)
+        }
+      }
+    })().catch(() => {})
+    return () => { cancelled = true }
+  }, [seedPipelineOptions])
+
+  React.useEffect(() => {
+    const pid = initialValues?.pipelineId
+    if (typeof pid === 'string' && pid.length) {
+      if (seedPipelineStageOptions) {
+        setPipelineStages(seedPipelineStageOptions)
+        return
+      }
+      loadStagesForPipeline(pid).catch(() => {})
+    } else {
+      setPipelineStages([])
+    }
+  }, [initialValues?.pipelineId, loadStagesForPipeline, seedPipelineStageOptions])
+
+  const baseFields = React.useMemo<CrudField[]>(() => [
+    {
+      id: 'title',
+      label: t('customers.people.detail.deals.fields.title', 'Title'),
+      type: 'text',
+      required: true,
+    },
+    {
+      id: 'status',
+      label: t('customers.people.detail.deals.fields.status', 'Status'),
+      type: 'custom',
+      layout: 'half',
+      component: ({ value, setValue }) => (
+        <DictionarySelectField
+          kind="deal-statuses"
+          value={typeof value === 'string' ? value : undefined}
+          onChange={(next) => setValue(next ?? '')}
+          labels={dictionaryLabels.status}
+          selectClassName="w-full"
+        />
+      ),
+    } as CrudField,
+    {
+      id: 'pipelineId',
+      label: t('customers.people.detail.deals.fields.pipeline', 'Pipeline'),
+      type: 'custom',
+      layout: 'half',
+      component: ({ value, setValue, setFormValue }) => (
+        <Select
+          value={typeof value === 'string' && value ? value : undefined}
+          onValueChange={(next) => {
+            setValue(next ?? '')
+            setFormValue?.('pipelineStageId', '')
+            loadStagesForPipeline(next ?? '').catch(() => {})
+          }}
+          disabled={disabled}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder={t('customers.deals.form.pipeline.placeholder', 'Select pipeline…')} />
+          </SelectTrigger>
+          <SelectContent>
+            {pipelines.map((p) => (
+              <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ),
+    } as CrudField,
+    {
+      id: 'pipelineStageId',
+      label: t('customers.people.detail.deals.fields.pipelineStage', 'Pipeline stage'),
+      type: 'custom',
+      layout: 'half',
+      component: ({ value, setValue }) => (
+        <Select
+          value={typeof value === 'string' && value ? value : undefined}
+          onValueChange={(next) => setValue(next ?? '')}
+          disabled={disabled || !pipelineStages.length}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder={t('customers.deals.form.pipelineStage.placeholder', 'Select stage…')} />
+          </SelectTrigger>
+          <SelectContent>
+            {pipelineStages.map((s) => (
+              <SelectItem key={s.id} value={s.id}>{s.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ),
+    } as CrudField,
+    {
+      id: 'valueAmount',
+      label: t('customers.people.detail.deals.fields.valueAmount', 'Amount'),
+      type: 'number',
+      layout: 'half',
+    },
+    {
+      id: 'valueCurrency',
+      label: t('customers.people.detail.deals.fields.valueCurrency', 'Currency'),
+      type: 'custom',
+      layout: 'half',
+      component: ({ value, setValue }) => (
+        <div className="space-y-1">
+          <DictionaryEntrySelect
+            value={typeof value === 'string' ? value : undefined}
+            onChange={(next) => setValue(next ?? '')}
+            fetchOptions={fetchCurrencyOptions}
+            labels={currencyDictionaryLabels}
+            manageHref="/backend/config/dictionaries?key=currency"
+            allowInlineCreate={false}
+            allowAppearance={false}
+            selectClassName="w-full"
+            sortOptions="none"
+            disabled={disabled}
+            showLabelInput={false}
+          />
+          {resolvedCurrencyError ? (
+            <div className="text-xs text-muted-foreground">{resolvedCurrencyError}</div>
+          ) : null}
+        </div>
+      ),
+    } as CrudField,
+    {
+      id: 'probability',
+      label: t('customers.people.detail.deals.fields.probability', 'Probability (%)'),
+      type: 'number',
+      layout: 'half',
+    },
+    {
+      id: 'expectedCloseAt',
+      label: t('customers.people.detail.deals.fields.expectedCloseAt', 'Expected close'),
+      type: 'date',
+      layout: 'half',
+    },
+    {
+      id: 'ownerUserId',
+      label: t('customers.deals.fields.owner', 'Owner'),
+      type: 'custom',
+      layout: 'half',
+      component: ({ value, setValue }) => {
+        const controlProps = {
+          value: typeof value === 'string' ? value : null,
+          setValue: (next: string) => setValue(next),
+          initialOption: initialOwnerOption ?? null,
+          disabled,
+        }
+        return mode === 'create'
+          ? <DealOwnerCreateField {...controlProps} />
+          : <DealOwnerFieldControl {...controlProps} autoAssignUserId="" />
+      },
+    } as CrudField,
+    {
+      id: 'description',
+      label: t('customers.people.detail.deals.fields.description', 'Description'),
+      type: 'textarea',
+    },
+    {
+      id: 'personIds',
+      label: t('customers.people.detail.deals.fields.people', 'People'),
+      type: 'custom',
+      component: ({ value, setValue, autoFocus }) => (
+        <EntityMultiSelect
+          value={Array.isArray(value) ? value : []}
+          onChange={(next) => setValue(next)}
+          placeholder={t('customers.deals.form.people.searchPlaceholder', 'Search people…')}
+          emptyLabel={t('customers.deals.form.people.empty', 'No people linked yet.')}
+          loadingLabel={t('customers.deals.form.people.loading', 'Searching people…')}
+          noResultsLabel={t('customers.deals.form.people.noResults', 'No people match your search.')}
+          removeLabel={t('customers.deals.form.assignees.remove', 'Remove')}
+          errorLabel={t('customers.deals.form.people.error', 'Failed to load people.')}
+          search={searchPeople}
+          fetchByIds={fetchPeopleByIds}
+          disabled={disabled}
+          autoFocus={autoFocus}
+        />
+      ),
+    } as CrudField,
+    {
+      id: 'companyIds',
+      label: t('customers.people.detail.deals.fields.companies', 'Companies'),
+      type: 'custom',
+      component: ({ value, setValue }) => (
+        <EntityMultiSelect
+          value={Array.isArray(value) ? value : []}
+          onChange={(next) => setValue(next)}
+          placeholder={t('customers.deals.form.companies.searchPlaceholder', 'Search companies…')}
+          emptyLabel={t('customers.deals.form.companies.empty', 'No companies linked yet.')}
+          loadingLabel={t('customers.deals.form.companies.loading', 'Searching companies…')}
+          noResultsLabel={t('customers.deals.form.companies.noResults', 'No companies match your search.')}
+          removeLabel={t('customers.deals.form.assignees.remove', 'Remove')}
+          errorLabel={t('customers.deals.form.companies.error', 'Failed to load companies.')}
+          search={searchCompanies}
+          fetchByIds={fetchCompaniesByIds}
+          disabled={disabled}
+        />
+      ),
+    } as CrudField,
+  ], [currencyDictionaryLabels, fetchCurrencyOptions, resolvedCurrencyError, pipelines, pipelineStages, loadStagesForPipeline, dictionaryLabels.status, disabled, fetchCompaniesByIds, fetchPeopleByIds, initialOwnerOption, mode, searchCompanies, searchPeople, t])
+
+  const groups = React.useMemo<CrudFormGroup[]>(() => {
+    const nextGroups: CrudFormGroup[] = [
+      {
+        id: 'details',
+        title: t('customers.people.detail.deals.form.details', 'Deal details'),
+        column: 1,
+        fields: ['title', 'status', 'pipelineId', 'pipelineStageId', 'valueAmount', 'valueCurrency', 'probability', 'expectedCloseAt', 'ownerUserId', 'description'],
+      },
+      ...(showAssociationsGroup
+        ? [{
+            id: 'associations',
+            title: t('customers.people.detail.deals.form.associations', 'Associations'),
+            column: 1,
+            fields: ['personIds', 'companyIds'],
+          } satisfies CrudFormGroup]
+        : []),
+      {
+        id: 'custom',
+        title: t('customers.people.detail.deals.form.customFields', 'Custom fields'),
+        column: 2,
+        kind: 'customFields',
+      },
+    ]
+    return nextGroups.map((group) => (singleColumnGroups ? { ...group, column: 1 } : group))
+  }, [showAssociationsGroup, singleColumnGroups, t])
+
+  const embeddedInitialValues = React.useMemo(() => {
+    const normalizeNumber = (value: unknown): number | null => {
+      if (typeof value === 'number' && Number.isFinite(value)) return value
+      if (typeof value === 'string') {
+        const parsed = Number(value)
+        return Number.isNaN(parsed) ? null : parsed
+      }
+      return null
+    }
+
+    const resolveIdsFromSource = (source: unknown): string[] => {
+      if (Array.isArray(source)) {
+        return sanitizeIdList(
+          source.map((entry) => {
+            if (typeof entry === 'string') return entry
+            if (entry && typeof entry === 'object' && 'id' in entry) {
+              const candidate = (entry as { id?: unknown }).id
+              if (typeof candidate === 'string') return candidate
+            }
+            return null
+          }),
+        )
+      }
+      return []
+    }
+
+    return {
+      ...extractResponseEnricherNamespaces(initialValues ?? {}),
+      id: typeof initialValues?.id === 'string' ? initialValues.id : undefined,
+      title: initialValues?.title ?? '',
+      status: initialValues?.status ?? '',
+      pipelineStage: initialValues?.pipelineStage ?? '',
+      pipelineId: initialValues?.pipelineId ?? (typeof (initialValues as Record<string, unknown>)?.pipeline_id === 'string' ? (initialValues as Record<string, unknown>).pipeline_id as string : ''),
+      pipelineStageId: initialValues?.pipelineStageId ?? (typeof (initialValues as Record<string, unknown>)?.pipeline_stage_id === 'string' ? (initialValues as Record<string, unknown>).pipeline_stage_id as string : ''),
+      valueAmount: normalizeNumber(initialValues?.valueAmount ?? null),
+      valueCurrency: normalizeCurrency(initialValues?.valueCurrency ?? null),
+      probability: normalizeNumber(initialValues?.probability ?? null),
+      expectedCloseAt: toDateInputValue(initialValues?.expectedCloseAt ?? null),
+      description: initialValues?.description ?? '',
+      // Seeded explicitly: this object is an allow-list, so an owner left out here is
+      // dropped before it ever reaches the form and the picker starts empty on a deal
+      // that actually has an owner.
+      ownerUserId: typeof initialValues?.ownerUserId === 'string' ? initialValues.ownerUserId : '',
+      personIds: sanitizeIdList(initialValues?.personIds ?? resolveIdsFromSource(initialValues?.people)),
+      companyIds: sanitizeIdList(initialValues?.companyIds ?? resolveIdsFromSource(initialValues?.companies)),
+      ...Object.fromEntries(
+        Object.entries(initialValues ?? {})
+          .filter(([key]) => key.startsWith('cf_'))
+          .map(([key, value]) => [key, value]),
+      ),
+    }
+  }, [initialValues])
+
+  const handleSubmit = React.useCallback(
+    async (values: Record<string, unknown>) => {
+      if (pending || isSubmitting) return
+      setPending(true)
+      try {
+        const parsed = schema.safeParse(values)
+        if (!parsed.success) {
+          throw buildDealValidationError(parsed.error.issues, t)
+        }
+        const expectedCloseAt =
+          parsed.data.expectedCloseAt && parsed.data.expectedCloseAt.length
+            ? new Date(parsed.data.expectedCloseAt).toISOString()
+            : undefined
+        const personIds = sanitizeIdList(parsed.data.personIds)
+        const companyIds = sanitizeIdList(parsed.data.companyIds)
+        const base: DealFormBaseValues = {
+          title: parsed.data.title,
+          status: parsed.data.status || undefined,
+          pipelineStage: parsed.data.pipelineStage || undefined,
+          pipelineId: parsed.data.pipelineId || undefined,
+          pipelineStageId: parsed.data.pipelineStageId || undefined,
+          valueAmount:
+            typeof parsed.data.valueAmount === 'number' ? parsed.data.valueAmount : undefined,
+          valueCurrency: parsed.data.valueCurrency || undefined,
+          probability:
+            typeof parsed.data.probability === 'number' ? parsed.data.probability : undefined,
+          expectedCloseAt,
+          description: parsed.data.description && parsed.data.description.length
+            ? parsed.data.description
+            : undefined,
+          // `base` is an explicit allow-list: a field omitted here never reaches the API.
+          // An empty picker sends `null` rather than being omitted, because clearing an owner
+          // is supported (spec D5) and the update command distinguishes the two — an explicit
+          // null clears the column, an absent key leaves it untouched
+          // (`commands/deals.ts:862`). Both create and update schemas accept null.
+          ownerUserId: parsed.data.ownerUserId && parsed.data.ownerUserId.length
+            ? parsed.data.ownerUserId
+            : null,
+          // Only submit the link lists when this form is actually showing them. The deal
+          // detail page hides the associations group and manages links from its People and
+          // Companies tabs instead, so a Details save there would otherwise write back the
+          // ids this form captured when it mounted — re-linking whoever the user has since
+          // unlinked, and re-dating every surviving link row on the way through.
+          ...(showAssociationsGroup ? { personIds, companyIds } : {}),
+        }
+        const customEntries = collectCustomFieldValues(values, {
+          transform: (value) => normalizeCustomFieldSubmitValue(value),
+        })
+        await onSubmit({ base, custom: customEntries })
+      } finally {
+        setPending(false)
+      }
+    },
+    [isSubmitting, onSubmit, pending, showAssociationsGroup, t],
+  )
+
+  return (
+    <CrudForm<Record<string, unknown>>
+      embedded={embedded}
+      trackDirtyWhenEmbedded={trackDirtyWhenEmbedded}
+      title={title}
+      titleHeadingLevel={2}
+      backHref={backHref}
+      hideFooterActions={hideFooterActions}
+      onDirtyChange={onDirtyChange}
+      injectionSpotId={injectionSpotId}
+      optimisticLockUpdatedAt={optimisticLockUpdatedAt}
+      collapsibleGroups={collapsibleGroups}
+      sortableGroups={sortableGroups}
+      versionHistory={showVersionHistory && mode === 'edit' && initialValues?.id
+        ? { resourceKind: 'customers.deal', resourceId: String(initialValues.id) }
+        : undefined}
+      schema={schema}
+      fields={baseFields}
+      groups={groups}
+      entityId="customers.deal"
+      resourceKind="customers.deal"
+      resourceId={typeof initialValues?.id === 'string' ? initialValues.id : undefined}
+      entityIds={DEAL_ENTITY_IDS}
+      initialValues={embeddedInitialValues}
+      onSubmit={handleSubmit}
+      onDelete={canDelete ? onDelete : undefined}
+      deleteVisible={canDelete}
+      submitLabel={
+        submitLabel ??
+        (mode === 'edit'
+          ? t('customers.people.detail.deals.update', 'Update deal (⌘/Ctrl + Enter)')
+          : t('customers.people.detail.deals.save', 'Save deal (⌘/Ctrl + Enter)'))
+      }
+      extraActions={showCancelAction ? (
+        <Button
+          type="button"
+          variant="outline"
+          onClick={onCancel}
+          disabled={pending || isSubmitting}
+        >
+          {cancelLabel ?? t('customers.people.detail.deals.cancel', 'Cancel')}
+        </Button>
+      ) : undefined}
+    />
+  )
+}
+
+export function buildDealValidationError(issues: z.ZodIssue[], t: (key: string, fallback?: string) => string) {
+  const issue = issues[0]
+  const message =
+    typeof issue?.message === 'string'
+      ? issue.message
+      : t('customers.people.detail.deals.error', 'Failed to save deal.')
+  const firstPath = Array.isArray(issue?.path) ? issue?.path?.[0] : undefined
+  const field = typeof firstPath === 'string' ? firstPath : undefined
+  throw createCrudFormError(message, field ? { [field]: message } : undefined)
+}
+
+export default DealForm

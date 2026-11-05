@@ -1,0 +1,1150 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "../../.mercato/generated/module-package-sources.css";
+
+/*
+Include workspace packages in Tailwind content scanning
+TODO: Fix that latter to have reference by the package names
+*/
+@source "../../../../node_modules/@open-mercato/ui/src/**/*.{ts,tsx}";
+@source "../../../../node_modules/@open-mercato/core/src/**/*.{ts,tsx}";
+@source "../../../../node_modules/@open-mercato/shared/src/**/*.{ts,tsx}";
+@source "../../../../node_modules/@open-mercato/search/src/**/*.{ts,tsx}";
+@source "../../../../node_modules/@open-mercato/onboarding/src/**/*.{ts,tsx}";
+@source "../../../../node_modules/@open-mercato/content/src/**/*.{ts,tsx}";
+@source "../../../../node_modules/@open-mercato/ai-assistant/src/**/*.{ts,tsx}";
+
+@custom-variant dark (&:is(.dark *));
+
+@utility z-popover {
+  z-index: var(--z-index-popover);
+}
+
+/* Explicitly written outside @theme — Tailwind 4 only emits @theme inline
+   variables that some compiled utility references, so writing the value
+   inline here guarantees the rule lands in the bundle even if the source
+   scanner misses the className literal. */
+@utility z-modal-elevated {
+  z-index: var(--z-index-modal-elevated, 55);
+}
+
+/* Explicit text-overline utility. Tailwind 4 sometimes does not generate the
+   `text-X` utility from `--font-size-X` in @theme inline if no class literal
+   is found in the source scanner ahead of compilation. Declaring the utility
+   here guarantees the rule lands in the bundle. Used for tiny section labels
+   (workspace switcher TENANT / ORGANIZATION, notification count badge, etc.). */
+@utility text-ai-body {
+  font-size: 0.9375rem;
+  line-height: 1.5rem;
+}
+
+@utility text-compact {
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+}
+
+@utility text-title-4 {
+  font-size: 2rem;
+  line-height: 2.5rem;
+}
+
+@utility text-overline {
+  font-size: var(--font-size-overline, 0.6875rem);
+  line-height: var(--font-size-overline--line-height, 1rem);
+}
+
+@theme inline {
+  --color-accent-orange: var(--accent-orange);
+  --color-accent-orange-text: var(--accent-orange-text);
+  --color-accent-orange-foreground: var(--accent-orange-foreground);
+  --color-accent-orange-border: var(--accent-orange-border);
+  --radius-ai-control: 0.5625rem;
+  --radius-ai-input: 0.75rem;
+  --radius-ai-prompt: 1.25rem;
+  --radius-ai-prompt-inner: calc(var(--radius-ai-prompt) - 1px);
+  --radius-ai-prompt-mobile: 1.125rem;
+  --radius-ai-prompt-mobile-inner: calc(var(--radius-ai-prompt-mobile) - 1px);
+
+  --color-key-icon-pink-bg: var(--key-icon-pink-bg);
+  --color-key-icon-pink-icon: var(--key-icon-pink-icon);
+  --color-chart-legend-gray: var(--chart-legend-gray);
+  --color-chart-legend-light-gray: var(--chart-legend-light-gray);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  /* Named chart palette (.ai/ds-rules.md - Data Visualization). The unnamed
+     chart-1..5 scale was registered here but the NAMED tokens never were, so
+     the documented utilities (`bg-chart-blue`, `text-chart-violet`, ...) were
+     silently producing no rule at all. */
+  --color-chart-blue: var(--chart-blue);
+  --color-chart-emerald: var(--chart-emerald);
+  --color-chart-amber: var(--chart-amber);
+  --color-chart-rose: var(--chart-rose);
+  --color-chart-violet: var(--chart-violet);
+  --color-chart-cyan: var(--chart-cyan);
+  --color-chart-indigo: var(--chart-indigo);
+  --color-chart-pink: var(--chart-pink);
+  --color-chart-teal: var(--chart-teal);
+  --color-chart-orange: var(--chart-orange);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary: var(--primary);
+  --color-brand-violet: var(--brand-violet);
+  --color-brand-violet-foreground: var(--brand-violet-foreground);
+  --color-bg-disabled: var(--bg-disabled);
+  --color-text-disabled: var(--text-disabled);
+  --color-border-disabled: var(--border-disabled);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-alert: 0.75rem;
+  --radius-content-card: 0.75rem;
+  --radius-textarea: 0.75rem;
+  --radius-upload: 0.75rem;
+  --radius-selection-card: 0.75rem;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 6px);
+
+  /* ═══ Design System: Semantic Status Colors ═══ */
+  --color-status-error-bg: var(--status-error-bg);
+  --color-status-error-text: var(--status-error-text);
+  --color-status-error-border: var(--status-error-border);
+  --color-status-error-icon: var(--status-error-icon);
+
+  --color-status-success-bg: var(--status-success-bg);
+  --color-status-success-text: var(--status-success-text);
+  --color-status-success-border: var(--status-success-border);
+  --color-status-success-icon: var(--status-success-icon);
+
+  --color-status-warning-bg: var(--status-warning-bg);
+  --color-status-warning-text: var(--status-warning-text);
+  --color-status-warning-border: var(--status-warning-border);
+  --color-status-warning-icon: var(--status-warning-icon);
+
+  --color-status-info-bg: var(--status-info-bg);
+  --color-status-info-text: var(--status-info-text);
+  --color-status-info-border: var(--status-info-border);
+  --color-status-info-icon: var(--status-info-icon);
+
+  --color-status-neutral-bg: var(--status-neutral-bg);
+  --color-status-neutral-text: var(--status-neutral-text);
+  --color-status-neutral-border: var(--status-neutral-border);
+  --color-status-neutral-icon: var(--status-neutral-icon);
+
+  --color-status-pink-bg: var(--status-pink-bg);
+  --color-status-pink-text: var(--status-pink-text);
+  --color-status-pink-border: var(--status-pink-border);
+  --color-status-pink-icon: var(--status-pink-icon);
+
+  /* Solid role — filled chips, status dots, emphasis surfaces */
+  --color-status-error-solid: var(--status-error-solid);
+  --color-status-error-solid-foreground: var(--status-error-solid-foreground);
+  --color-status-success-solid: var(--status-success-solid);
+  --color-status-success-solid-foreground: var(--status-success-solid-foreground);
+  --color-status-warning-solid: var(--status-warning-solid);
+  --color-status-warning-solid-foreground: var(--status-warning-solid-foreground);
+  --color-status-info-solid: var(--status-info-solid);
+  --color-status-info-solid-foreground: var(--status-info-solid-foreground);
+  --color-status-neutral-solid: var(--status-neutral-solid);
+  --color-status-neutral-solid-foreground: var(--status-neutral-solid-foreground);
+  --color-status-pink-solid: var(--status-pink-solid);
+  --color-status-pink-solid-foreground: var(--status-pink-solid-foreground);
+
+  /* ═══ Design System: Accent Colors ═══ */
+  /* Additional Figma badge categories; independent of outcome status roles. */
+  --color-badge-yellow-solid: var(--badge-yellow-solid);
+  --color-badge-yellow-solid-foreground: var(--badge-yellow-solid-foreground);
+  --color-badge-yellow-light: var(--badge-yellow-light);
+  --color-badge-yellow-bg: var(--badge-yellow-bg);
+  --color-badge-yellow-text: var(--badge-yellow-text);
+  --color-badge-yellow-border: var(--badge-yellow-border);
+  --color-badge-purple-solid: var(--badge-purple-solid);
+  --color-badge-purple-solid-foreground: var(--badge-purple-solid-foreground);
+  --color-badge-purple-light: var(--badge-purple-light);
+  --color-badge-purple-bg: var(--badge-purple-bg);
+  --color-badge-purple-text: var(--badge-purple-text);
+  --color-badge-purple-border: var(--badge-purple-border);
+  --color-badge-sky-solid: var(--badge-sky-solid);
+  --color-badge-sky-solid-foreground: var(--badge-sky-solid-foreground);
+  --color-badge-sky-light: var(--badge-sky-light);
+  --color-badge-sky-bg: var(--badge-sky-bg);
+  --color-badge-sky-text: var(--badge-sky-text);
+  --color-badge-sky-border: var(--badge-sky-border);
+  --color-badge-teal-solid: var(--badge-teal-solid);
+  --color-badge-teal-solid-foreground: var(--badge-teal-solid-foreground);
+  --color-badge-teal-light: var(--badge-teal-light);
+  --color-badge-teal-bg: var(--badge-teal-bg);
+  --color-badge-teal-text: var(--badge-teal-text);
+  --color-badge-teal-border: var(--badge-teal-border);
+
+  --color-file-format-red: var(--file-format-red);
+  --color-file-format-red-foreground: var(--file-format-red-foreground);
+  --color-file-format-orange: var(--file-format-orange);
+  --color-file-format-orange-foreground: var(--file-format-orange-foreground);
+  --color-file-format-yellow: var(--file-format-yellow);
+  --color-file-format-yellow-foreground: var(--file-format-yellow-foreground);
+  --color-file-format-green: var(--file-format-green);
+  --color-file-format-green-foreground: var(--file-format-green-foreground);
+  --color-file-format-teal: var(--file-format-teal);
+  --color-file-format-teal-foreground: var(--file-format-teal-foreground);
+  --color-file-format-blue: var(--file-format-blue);
+  --color-file-format-blue-foreground: var(--file-format-blue-foreground);
+  --color-file-format-purple: var(--file-format-purple);
+  --color-file-format-purple-foreground: var(--file-format-purple-foreground);
+  --color-file-format-pink: var(--file-format-pink);
+  --color-file-format-pink-foreground: var(--file-format-pink-foreground);
+  --color-file-format-gray: var(--file-format-gray);
+  --color-file-format-gray-foreground: var(--file-format-gray-foreground);
+
+  --color-accent-indigo: var(--accent-indigo);
+  --color-accent-indigo-foreground: var(--accent-indigo-foreground);
+
+  /* ═══ Design System: Brand Colors ═══ */
+  --color-brand-violet: var(--brand-violet);
+  --color-brand-violet-soft: var(--brand-violet-soft);
+  --color-brand-lime: var(--brand-lime);
+  --color-brand-yellow: var(--brand-yellow);
+  --color-brand-lime-foreground: var(--brand-lime-foreground);
+
+  /* ═══ Design System: Social Brand Colors (theme-invariant) ═══ */
+  --color-brand-google: var(--brand-google);
+  --color-brand-google-text-bg: var(--brand-google-text-bg);
+  --color-brand-apple: var(--brand-apple);
+  --color-brand-github: var(--brand-github);
+  --color-brand-x: var(--brand-x);
+  --color-brand-google-stroke: var(--brand-google-stroke);
+  --color-brand-facebook: var(--brand-facebook);
+  --color-brand-dropbox: var(--brand-dropbox);
+  --color-brand-linkedin: var(--brand-linkedin);
+
+  /* ═══ Design System: Typography ═══ */
+  --tracking-badge-small: 0.02em;
+  --font-size-overline: 0.6875rem;
+  --font-size-overline--line-height: 1rem;
+
+  /* ═══ Design System: Z-Index Scale ═══ */
+  --z-index-base: 0;
+  --z-index-sticky: 10;
+  --z-index-dropdown: 20;
+  --z-index-overlay: 30;
+  --z-index-modal: 40;
+  --z-index-popover: 45;
+  --z-index-modal-elevated: 55;
+  --z-index-toast: 50;
+  --z-index-tooltip: 60;
+  --z-index-banner: 70;
+  --z-index-top: 100;
+
+  /* ═══ Design System: Shadow Scale ═══
+     Tuned to ink #101828. Dark mode overrides in .dark below.
+     xs  → flat controls (button, input, icon-button)
+     sm  → cards, panels, sections
+     md  → hover elevation, slightly raised cards
+     lg  → dialogs, overlays, popovers
+     xl  → floating panels (drawers, side sheets)
+     2xl → top-level modals, command palette
+  */
+  --shadow-xs:  0 1px 2px rgb(16 24 40 / 0.05);
+  --shadow-sm:  0 1px 3px rgb(16 24 40 / 0.08), 0 1px 2px rgb(16 24 40 / 0.06);
+  --shadow-md:  0 4px 12px rgb(16 24 40 / 0.08);
+  --shadow-lg:  0 12px 32px rgb(16 24 40 / 0.10);
+  --shadow-xl:  0 20px 40px rgb(16 24 40 / 0.12);
+  --shadow-2xl: 0 25px 50px rgb(16 24 40 / 0.20);
+
+  /* Figma button focus: 2px white inner + 4px slate-alpha-16 outer */
+  --shadow-focus: 0 0 0 2px var(--focus-ring-inner), 0 0 0 4px var(--focus-ring-outer);
+
+  /* Switch thumb: thin drop shadow + hairline outline (matches Figma switch spec). */
+  --shadow-switch-thumb: 0 1px 2px rgb(10 13 20 / 0.10), 0 0 0 0.5px rgb(10 13 20 / 0.04);
+}
+
+:root {
+  --accent-orange-text: #a15a00;
+  --accent-orange: #ff9600;
+  --accent-orange-foreground: #171717;
+  --accent-orange-border: #c46f00;
+  --key-icon-pink-bg: #ffebf4;
+  --key-icon-pink-icon: #fb4ba3;
+  --chart-legend-gray: #7b7b7b;
+  --chart-legend-light-gray: #d1d1d1;
+  color-scheme: light;
+  --font-geist-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-geist-mono: ui-monospace, "SFMono-Regular", "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
+  --radius: 0.625rem;
+  /* Vertical space a viewport-pinned floating CTA needs to clear: its bottom
+     offset (1.5rem) plus its own height, rounded up to the spacing scale.
+     Consumed by the `body[data-demo-feedback-fab]` safe-area rule below.
+     Pure spacing — theme-invariant (no .dark override). */
+  --om-floating-cta-safe-area: 5rem;
+  /* Brand lime + yellow — theme-invariant (no .dark override). Brand violet is themed (see below + .dark). */
+  --brand-lime: #B4F372;
+  /* Brand yellow — mid stop of the OM brand gradient (lime -> yellow -> violet), theme-invariant. */
+  --brand-yellow: #EEFB63;
+  /* Foreground for text/icons placed on the brand-lime surface — dark, theme-invariant (the lime stays light in both themes). */
+  --brand-lime-foreground: #1f2a12;
+  /* Focus ring tokens (Figma dual-shadow spec — opt-in via .focus-ring-fancy) */
+  --focus-ring-inner: rgba(255, 255, 255, 1);
+  --focus-ring-outer: rgba(153, 160, 174, 0.16);
+  /* Social brand colors — theme-invariant */
+  --brand-google: #F14336;
+  --brand-google-text-bg: #D93C31; /* White label contrast4.53:1; source red remains for icon-only. */
+  --brand-apple: #000000;
+  --brand-github: #181717;
+  --brand-x: #000000;
+  --brand-google-stroke: #DADCE0;
+  --brand-facebook: #1877F2;
+  --brand-dropbox: #0061FF;
+  --brand-linkedin: #0A66C2;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --brand-violet: #BC9AFF;
+  --brand-violet-soft: oklch(0.95 0.03 293);
+  --brand-violet-foreground: #0C0C0C;
+  --primary-hover: oklch(0.145 0 0);
+  /* Accent indigo — used for selection controls (checkbox, radio, switch) */
+  /* Figma file-format category colors, identical in both themes. */
+  --badge-yellow-solid: #f6b51e;
+  --badge-yellow-solid-foreground: #171717;
+  --badge-yellow-light: #ffecc0;
+  --badge-yellow-bg: #fffaeb;
+  --badge-yellow-text: #624c18;
+  --badge-yellow-border: #f6b51e;
+  --badge-purple-solid: #7d52f4;
+  --badge-purple-solid-foreground: #ffffff;
+  --badge-purple-light: #cac0ff;
+  --badge-purple-bg: #efebff;
+  --badge-purple-text: #351a75;
+  --badge-purple-border: #7d52f4;
+  --badge-sky-solid: #47c2ff;
+  --badge-sky-solid-foreground: #171717;
+  --badge-sky-light: #c0eaff;
+  --badge-sky-bg: #ebf8ff;
+  --badge-sky-text: #124b68;
+  --badge-sky-border: #47c2ff;
+  --badge-teal-solid: #22d3bb;
+  --badge-teal-solid-foreground: #171717;
+  --badge-teal-light: #c2f5ee;
+  --badge-teal-bg: #e4fbf8;
+  --badge-teal-text: #0b463e;
+  --badge-teal-border: #22d3bb;
+
+  --file-format-red: #dc2626;
+  --file-format-red-foreground: #ffffff;
+  --file-format-orange: #d97706;
+  --file-format-orange-foreground: #171717;
+  --file-format-yellow: #f6b51e;
+  --file-format-yellow-foreground: #171717;
+  --file-format-green: #16a34a;
+  --file-format-green-foreground: #171717;
+  --file-format-teal: #47c2ff;
+  --file-format-teal-foreground: #171717;
+  --file-format-blue: #4f46e5;
+  --file-format-blue-foreground: #ffffff;
+  --file-format-purple: #7d52f4;
+  --file-format-purple-foreground: #ffffff;
+  --file-format-pink: #fb4ba3;
+  --file-format-pink-foreground: #171717;
+  --file-format-gray: #7b7b7b;
+  --file-format-gray-foreground: #0c0c0c;
+
+  --accent-indigo: #6366f1;
+  --accent-indigo-foreground: #ffffff;
+  /* Disabled control tokens (Figma: bg/weak-25, text/disabled-300, stroke-soft-200) */
+  --bg-disabled: #f7f7f7;
+  --text-disabled: #d1d1d1;
+  --border-disabled: #ebebeb;
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.545 0 0); /* darkened from 0.556: 4.54:1 on --muted (AA), was 4.34 */
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  /* Chart named colors - light theme */
+  --chart-blue: oklch(0.546 0.245 262.881);
+  --chart-emerald: oklch(0.596 0.145 163.225);
+  --chart-amber: oklch(0.769 0.188 70.08);
+  --chart-rose: oklch(0.645 0.246 16.439);
+  --chart-violet: oklch(0.606 0.25 292.717);
+  --chart-cyan: oklch(0.715 0.143 215.221);
+  --chart-indigo: oklch(0.511 0.262 276.966);
+  --chart-pink: oklch(0.656 0.241 354.308);
+  --chart-teal: oklch(0.627 0.134 175.001);
+  --chart-orange: oklch(0.705 0.213 47.604);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+
+  /* ═══ Design System: Semantic Status Tokens — Light Mode ═══
+     Token values match the Tailwind v4 default palette so the
+     Alert / Notification / Toast primitive (Figma `169:2358`) is
+     pixel-perfect against the Figma `state/{x}/{base,light,lighter}`
+     variables (`#dc2626` / `#fecaca` / `#fef2f2` for error etc.).
+     Variable → token mapping:
+       state/{x}/base    → status-{x}-icon  (Tailwind 600)
+       state/{x}/light   → status-{x}-border (Tailwind 200)
+       state/{x}/lighter → status-{x}-bg    (Tailwind 50)
+     status-{x}-text uses Tailwind 900 for high contrast on the
+     light/lighter tints. */
+
+  /* Error — Tailwind red (Figma state/error/*) */
+  --status-error-bg: oklch(0.971 0.013 17.38);     /* red-50  #fef2f2 */
+  --status-error-text: oklch(0.396 0.141 25.723);  /* red-900 #7f1d1d */
+  --status-error-border: oklch(0.885 0.062 18.334);/* red-200 #fecaca */
+  --status-error-icon: oklch(0.577 0.245 27.325);  /* red-600 #dc2626 = --destructive */
+
+  /* Success — Tailwind green (Figma state/success/*) */
+  --status-success-bg: oklch(0.982 0.018 155.826);    /* green-50  #f0fdf4 */
+  --status-success-text: oklch(0.393 0.095 152.535);  /* green-900 #14532d */
+  --status-success-border: oklch(0.925 0.084 155.995);/* green-200 #bbf7d0 */
+  --status-success-icon: oklch(0.627 0.194 149.214);  /* green-600 #16a34a */
+
+  /* Warning — Tailwind amber (Figma state/warning/*) */
+  --status-warning-bg: oklch(0.987 0.022 95.277);    /* amber-50  #fffbeb */
+  --status-warning-text: oklch(0.414 0.112 45.904);  /* amber-900 #78350f */
+  --status-warning-border: oklch(0.924 0.12 95.746); /* amber-200 #fde68a */
+  --status-warning-icon: oklch(0.666 0.179 58.318);  /* amber-600 #d97706 */
+
+  /* Info — Tailwind indigo (Figma state/information/*) */
+  --status-info-bg: oklch(0.962 0.018 272.314);    /* indigo-50  #eef2ff */
+  --status-info-text: oklch(0.359 0.144 278.697);  /* indigo-900 #312e81 */
+  --status-info-border: oklch(0.870 0.065 274.039);/* indigo-200 #c7d2fe */
+  --status-info-icon: oklch(0.511 0.262 276.966);  /* indigo-600 #4f46e5 = --chart-indigo */
+
+  /* Neutral — Tailwind neutral (Figma state/faded/*) */
+  --status-neutral-bg: oklch(0.97 0 0);    /* neutral-100 #f5f5f5 */
+  --status-neutral-text: oklch(0.371 0 0); /* neutral-700 #404040 */
+  --status-neutral-border: oklch(0.922 0 0);/* neutral-200 #e5e5e5 (≈ Figma #ebebeb) */
+  --status-neutral-icon: oklch(0.556 0 0);  /* neutral-500 #737373 (≈ Figma #7b7b7b) */
+
+  /* Pink (hue ~340° — Figma SPEC-048 ACCENT / PINK Stage badges; Tailwind pink-500/-200/-700/-50) */
+  --status-pink-bg: oklch(0.965 0.020 340);   /* pink-50 #FDF2F8 */
+  --status-pink-text: oklch(0.388 0.180 340); /* pink-700 #BE185D */
+  --status-pink-border: oklch(0.840 0.090 340);/* pink-200 #FBCFE8 */
+  --status-pink-icon: oklch(0.633 0.238 340); /* pink-500 #EC4899 */
+
+  /* Solid role — filled surfaces that carry text (chips, badges, dots with
+     labels). All pairs hold WCAG AA 4.5:1 with their foreground; verified by
+     scripts/check-token-parity.mjs. Shades follow each family's 600-700. */
+  --status-error-solid: oklch(0.577 0.245 27.325);   /* red-600   #dc2626, on white 4.83 */
+  --status-error-solid-foreground: #ffffff;
+  --status-success-solid: oklch(0.527 0.154 150.069);/* green-700 #15803d, on white 5.02 */
+  --status-success-solid-foreground: #ffffff;
+  --status-warning-solid: oklch(0.555 0.163 48.998); /* amber-700 #b45309, on white 5.02 */
+  --status-warning-solid-foreground: #ffffff;
+  --status-info-solid: oklch(0.511 0.262 276.966);   /* indigo-600 #4f46e5, on white 6.29 */
+  --status-info-solid-foreground: #ffffff;
+  --status-neutral-solid: oklch(0.439 0 0);          /* neutral-600 #525252, on white 7.81 */
+  --status-neutral-solid-foreground: #ffffff;
+  --status-pink-solid: oklch(0.388 0.180 340);       /* pink-700  #be185d, on white 6.04 */
+  --status-pink-solid-foreground: #ffffff;
+}
+
+/* Opt-in Figma-style focus ring: 2px inner ring + 4px outer ring */
+.focus-ring-fancy:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--focus-ring-inner),
+    0 0 0 6px var(--focus-ring-outer);
+}
+
+.dark {
+  --brand-google: #F14336;
+  --brand-google-text-bg: #D93C31; /* White label contrast4.53:1; source red remains for icon-only. */
+  --file-format-red: #dc2626;
+  --file-format-red-foreground: #ffffff;
+  --file-format-orange: #d97706;
+  --file-format-orange-foreground: #171717;
+  --file-format-yellow: #f6b51e;
+  --file-format-yellow-foreground: #171717;
+  --file-format-green: #16a34a;
+  --file-format-green-foreground: #171717;
+  --file-format-teal: #47c2ff;
+  --file-format-teal-foreground: #171717;
+  --file-format-blue: #4f46e5;
+  --file-format-blue-foreground: #ffffff;
+  --file-format-purple: #7d52f4;
+  --file-format-purple-foreground: #ffffff;
+  --file-format-pink: #fb4ba3;
+  --file-format-pink-foreground: #171717;
+  --file-format-gray: #7b7b7b;
+  --file-format-gray-foreground: #0c0c0c;
+  --accent-orange-text: #ffbd5c;
+  --accent-orange: #ff9600;
+  --accent-orange-foreground: #171717;
+  --accent-orange-border: #ff9600;
+  --key-icon-pink-bg: var(--status-pink-bg);
+  --key-icon-pink-icon: var(--status-pink-icon);
+  --chart-legend-gray: var(--muted-foreground);
+  --chart-legend-light-gray: var(--text-disabled);
+  color-scheme: dark;
+  /* Focus ring tokens — dark variant */
+  --focus-ring-inner: var(--background);
+  --focus-ring-outer: rgba(255, 255, 255, 0.18);
+  /* Shadow scale — dark mode: use pure black, higher opacity for visibility */
+  --shadow-xs:  0 1px 2px rgb(0 0 0 / 0.30);
+  --shadow-sm:  0 1px 3px rgb(0 0 0 / 0.40), 0 1px 2px rgb(0 0 0 / 0.30);
+  --shadow-md:  0 4px 12px rgb(0 0 0 / 0.50);
+  --shadow-lg:  0 12px 32px rgb(0 0 0 / 0.60);
+  --shadow-xl:  0 20px 40px rgb(0 0 0 / 0.70);
+  --shadow-2xl: 0 25px 50px rgb(0 0 0 / 0.80);
+
+  /* Switch thumb: brighter outline in dark mode for visibility against the muted track. */
+  --shadow-switch-thumb: 0 1px 2px rgb(0 0 0 / 0.40), 0 0 0 0.5px rgb(0 0 0 / 0.30);
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --brand-violet: #BC9AFF;
+  --brand-violet-soft: oklch(0.3 0.06 293);
+  --brand-violet-foreground: #0C0C0C;
+  --primary-hover: oklch(0.85 0 0);
+  /* Accent indigo — slightly lighter in dark mode for contrast */
+  --badge-yellow-solid: #e6a819;
+  --badge-yellow-solid-foreground: #171717;
+  --badge-yellow-light: rgb(251 198 75 / 24%);
+  --badge-yellow-bg: rgb(251 198 75 / 16%);
+  --badge-yellow-text: #ffd268;
+  --badge-yellow-border: #e6a819;
+  --badge-purple-solid: #7d52f4;
+  --badge-purple-solid-foreground: #ffffff;
+  --badge-purple-light: rgb(120 77 239 / 24%);
+  --badge-purple-bg: rgb(120 77 239 / 16%);
+  --badge-purple-text: #cac0ff;
+  --badge-purple-border: #7d52f4;
+  --badge-sky-solid: #35ade9;
+  --badge-sky-solid-foreground: #171717;
+  --badge-sky-light: rgb(71 194 255 / 24%);
+  --badge-sky-bg: rgb(71 194 255 / 16%);
+  --badge-sky-text: #68cdff;
+  --badge-sky-border: #35ade9;
+  --badge-teal-solid: #1daf9c;
+  --badge-teal-solid-foreground: #171717;
+  --badge-teal-light: rgb(34 211 187 / 24%);
+  --badge-teal-bg: rgb(34 211 187 / 16%);
+  --badge-teal-text: #3fdec9;
+  --badge-teal-border: #1daf9c;
+
+  --accent-indigo: #6d74f4; /* was indigo-400 #818cf8: white glyph 2.98:1 < 3.0 (WCAG non-text); now 3.85:1 */
+  --accent-indigo-foreground: #ffffff;
+  /* Disabled control tokens (dark) */
+  --bg-disabled: oklch(0.25 0 0);
+  --text-disabled: oklch(0.45 0 0);
+  --border-disabled: oklch(0.30 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  /* Chart named colors - dark theme (increased lightness) */
+  --chart-blue: oklch(0.623 0.214 259.815);
+  --chart-emerald: oklch(0.696 0.17 162.48);
+  --chart-amber: oklch(0.82 0.16 84.429);
+  --chart-rose: oklch(0.712 0.194 13.428);
+  --chart-violet: oklch(0.702 0.183 293.541);
+  --chart-cyan: oklch(0.789 0.154 211.53);
+  --chart-indigo: oklch(0.585 0.233 277.117);
+  --chart-pink: oklch(0.718 0.202 349.761);
+  --chart-teal: oklch(0.704 0.14 180.72);
+  --chart-orange: oklch(0.792 0.184 56.043);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+
+  /* ═══ Design System: Semantic Status Tokens — Dark Mode ═══
+     Dark-mode counterparts mirror the Tailwind v4 dark palette
+     (`*-950` for bg, `*-300` for text, `*-800` for border, `*-500`
+     for icon) so the Alert primitive stays pixel-perfect against
+     the Figma dark variants. */
+
+  /* Error — Tailwind red (dark) */
+  --status-error-bg: oklch(0.258 0.092 26.042);    /* red-950 #450a0a */
+  --status-error-text: oklch(0.808 0.114 19.571); /* red-300 #fca5a5 */
+  --status-error-border: oklch(0.444 0.177 26.899);/* red-800 #991b1b */
+  --status-error-icon: oklch(0.637 0.237 25.331);  /* red-500 #ef4444 */
+
+  /* Success — Tailwind green (dark) */
+  --status-success-bg: oklch(0.266 0.065 152.934);    /* green-950 #052e16 */
+  --status-success-text: oklch(0.871 0.15 154.449);  /* green-300 #86efac */
+  --status-success-border: oklch(0.448 0.119 151.328);/* green-800 #166534 */
+  --status-success-icon: oklch(0.723 0.219 149.579);  /* green-500 #22c55e */
+
+  /* Warning — Tailwind amber (dark) */
+  --status-warning-bg: oklch(0.279 0.077 45.635);    /* amber-950 #451a03 */
+  --status-warning-text: oklch(0.879 0.169 91.605); /* amber-300 #fcd34d */
+  --status-warning-border: oklch(0.473 0.137 46.201);/* amber-800 #92400e */
+  --status-warning-icon: oklch(0.769 0.188 70.08);  /* amber-500 #f59e0b */
+
+  /* Info — Tailwind indigo (dark) */
+  --status-info-bg: oklch(0.257 0.09 281.288);    /* indigo-950 #1e1b4b */
+  --status-info-text: oklch(0.785 0.115 274.713);  /* indigo-300 #a5b4fc */
+  --status-info-border: oklch(0.398 0.195 277.366);/* indigo-800 #3730a3 */
+  --status-info-icon: oklch(0.585 0.233 277.117); /* indigo-500 #6366f1 */
+
+  /* Neutral — Tailwind neutral (dark) */
+  --status-neutral-bg: oklch(0.205 0 0);    /* neutral-900 #171717 */
+  --status-neutral-text: oklch(0.872 0 0);  /* neutral-300 #d4d4d4 */
+  --status-neutral-border: oklch(0.371 0 0);/* neutral-700 #404040 */
+  --status-neutral-icon: oklch(0.708 0 0);  /* neutral-400 #a3a3a3 = dark --muted-foreground */
+
+  /* Pink (dark mode) — Figma SPEC-048 ACCENT / PINK Stage badges */
+  --status-pink-bg: oklch(0.225 0.045 340);
+  --status-pink-text: oklch(0.815 0.135 340);
+  --status-pink-border: oklch(0.405 0.155 340);
+  --status-pink-icon: oklch(0.700 0.225 340);
+
+  /* Solid role — same values as light: the fills are saturated enough to
+     read on dark surfaces, and keeping one value preserves chip identity
+     across themes. Listed explicitly so the parity check stays honest. */
+  --status-error-solid: oklch(0.577 0.245 27.325);
+  --status-error-solid-foreground: #ffffff;
+  --status-success-solid: oklch(0.527 0.154 150.069);
+  --status-success-solid-foreground: #ffffff;
+  --status-warning-solid: oklch(0.555 0.163 48.998);
+  --status-warning-solid-foreground: #ffffff;
+  --status-info-solid: oklch(0.511 0.262 276.966);
+  --status-info-solid-foreground: #ffffff;
+  --status-neutral-solid: oklch(0.439 0 0);
+  --status-neutral-solid-foreground: #ffffff;
+  --status-pink-solid: oklch(0.388 0.180 340);
+  --status-pink-solid-foreground: #ffffff;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  /* Native form controls — use the DS indigo accent instead of browser default */
+  input[type="checkbox"],
+  input[type="radio"] {
+    accent-color: var(--accent-indigo);
+  }
+  select,
+  select option {
+    background-color: var(--background);
+    color: var(--foreground);
+  }
+  select:not([multiple]):not([size]):not(.appearance-none) {
+    appearance: none;
+    padding-inline-end: 2rem;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none'%3E%3Cpath d='m4 6 4 4 4-4' stroke='%239ca3af' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-position: right 0.5rem center;
+    background-repeat: no-repeat;
+    background-size: 1rem 1rem;
+  }
+  select:not([multiple]):not([size]):not(.appearance-none)::-ms-expand {
+    display: none;
+  }
+}
+
+.schedule-calendar .rbc-calendar {
+  height: 40rem;
+  font-family: var(--font-sans);
+  color: var(--foreground);
+}
+
+.schedule-calendar .rbc-calendar :is(.rbc-time-view, .rbc-month-view, .rbc-agenda-view) {
+  border: 0;
+}
+
+.schedule-calendar .rbc-calendar .rbc-time-view {
+  min-width: 48rem;
+}
+
+.schedule-calendar .rbc-calendar :is(.rbc-header, .rbc-time-header-content, .rbc-time-content, .rbc-day-bg, .rbc-month-row, .rbc-timeslot-group, .rbc-agenda-table) {
+  border-color: var(--border);
+}
+
+.schedule-calendar .rbc-calendar .rbc-time-header {
+  background: var(--card);
+}
+
+.schedule-calendar .rbc-calendar .rbc-time-header-cell {
+  flex-shrink: 0;
+  min-height: 4.5rem;
+}
+
+.schedule-calendar .rbc-calendar .rbc-header {
+  padding: 0.25rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.schedule-calendar .rbc-calendar .rbc-time-header.rbc-overflowing {
+  border-right-color: var(--border);
+}
+
+.schedule-calendar .rbc-calendar .rbc-time-content {
+  border-top: 1px solid var(--border);
+  font-size: 0.875rem;
+  scrollbar-color: var(--border) transparent;
+  scrollbar-width: thin;
+}
+
+.schedule-calendar .rbc-calendar .rbc-time-content > * + * > * {
+  border-left-color: var(--border);
+}
+
+.schedule-calendar .rbc-calendar .rbc-timeslot-group {
+  min-height: 4rem;
+}
+
+.schedule-calendar .rbc-calendar .rbc-day-slot .rbc-time-slot {
+  border-top: 1px dashed color-mix(in srgb, var(--border) 40%, transparent);
+}
+
+.schedule-calendar .rbc-calendar .rbc-time-gutter {
+  min-width: 4.5rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.schedule-calendar .rbc-calendar .rbc-time-gutter .rbc-timeslot-group {
+  border-bottom-color: transparent;
+}
+
+.schedule-calendar .rbc-calendar .rbc-label {
+  padding-inline: 0.75rem;
+}
+
+.schedule-calendar .rbc-calendar .rbc-allday-cell {
+  height: auto;
+  min-height: 3rem;
+}
+
+.schedule-calendar .rbc-calendar .rbc-row-segment {
+  padding: 0.25rem;
+}
+
+.schedule-calendar .rbc-calendar .rbc-event {
+  border-width: 1px;
+  border-style: solid;
+  border-inline-start-width: 3px;
+  border-radius: var(--radius-md);
+  padding: 0.25rem 0.5rem;
+  box-shadow: var(--shadow-xs);
+}
+
+.schedule-calendar .rbc-calendar .rbc-event-label {
+  margin-bottom: 0.125rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.25;
+}
+
+.schedule-calendar .rbc-calendar .rbc-event-content {
+  white-space: normal;
+}
+
+.schedule-calendar .rbc-month-view .rbc-row-segment {
+  padding: 0.125rem;
+}
+
+.schedule-calendar .rbc-month-view .rbc-event {
+  min-height: 2.75rem;
+  padding: 0.125rem 0.375rem;
+}
+
+.schedule-calendar .rbc-calendar .rbc-event:is(:hover, .rbc-selected) {
+  box-shadow: var(--shadow-md);
+}
+
+.schedule-calendar .rbc-calendar .rbc-event:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.schedule-calendar .rbc-calendar .rbc-today {
+  background-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.schedule-calendar .rbc-calendar .rbc-off-range-bg {
+  background: var(--muted);
+}
+
+.schedule-calendar .rbc-calendar .rbc-off-range {
+  color: var(--muted-foreground);
+}
+
+.schedule-calendar .rbc-calendar .rbc-current-time-indicator {
+  background: var(--primary);
+}
+
+.schedule-calendar .rbc-calendar .rbc-show-more {
+  color: var(--foreground);
+  background: var(--muted);
+  border-radius: var(--radius-sm);
+  padding: 0.25rem 0.5rem;
+}
+
+.schedule-calendar .rbc-calendar .rbc-overlay {
+  color: var(--popover-foreground);
+  background: var(--popover);
+  border-color: var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+
+.schedule-calendar .rbc-calendar .rbc-overlay-header,
+.schedule-calendar .rbc-calendar .rbc-agenda-view table.rbc-agenda-table :is(th, td) {
+  border-color: var(--border);
+}
+
+.schedule-calendar .rbc-calendar :is(.rbc-agenda-time-cell, .rbc-agenda-date-cell) {
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Flash message animations */
+@keyframes slide-in {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+.animate-slide-in {
+    animation: slide-in 0.3s ease-out;
+}
+
+/* AI Assistant dot animations */
+@keyframes ai-pulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}
+
+@keyframes ai-pulse-active {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+}
+
+@keyframes ai-glow {
+  0%, 100% {
+    opacity: 0.5;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.1);
+  }
+}
+
+@keyframes ai-glow-active {
+  0%, 100% {
+    opacity: 0.6;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+}
+
+@keyframes ai-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes ai-sparkle {
+  0%, 100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.1) rotate(15deg);
+    opacity: 0.9;
+  }
+}
+
+@keyframes ai-sparkle-active {
+  0%, 100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
+  25% {
+    transform: scale(1.2) rotate(10deg);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(0.9) rotate(-10deg);
+    opacity: 0.8;
+  }
+  75% {
+    transform: scale(1.15) rotate(5deg);
+    opacity: 1;
+  }
+}
+
+.animate-ai-pulse {
+  animation: ai-pulse 3s ease-in-out infinite;
+}
+
+.animate-ai-pulse-active {
+  animation: ai-pulse-active 1.5s ease-in-out infinite;
+}
+
+.animate-ai-glow {
+  animation: ai-glow 3s ease-in-out infinite;
+}
+
+.animate-ai-glow-active {
+  animation: ai-glow-active 1.5s ease-in-out infinite;
+}
+
+.animate-ai-spin {
+  animation: ai-spin 8s linear infinite;
+}
+
+.animate-ai-sparkle {
+  animation: ai-sparkle 3s ease-in-out infinite;
+}
+
+.animate-ai-sparkle-active {
+  animation: ai-sparkle-active 1s ease-in-out infinite;
+}
+
+/* Conic gradient for AI dot */
+.bg-gradient-conic {
+  background: conic-gradient(from 0deg, var(--tw-gradient-stops));
+}
+
+/* Hide floating demo feedback button while the column chooser panel is open */
+body[data-column-chooser-open="true"] .om-demo-feedback-floating {
+  display: none !important;
+}
+
+/* Hide floating demo feedback button while an AI chat (e.g. the merchandising
+   assistant sheet) is open — the FAB would otherwise overlap the chat
+   composer's send button. The data attribute is set/cleared by the shared
+   <AiChat> component. */
+body[data-ai-chat-open="true"] .om-demo-feedback-floating {
+  display: none !important;
+}
+
+/* Bottom safe area for the floating demo feedback CTA.
+ *
+ * The button is `position: fixed` in the bottom-right corner, so whatever is
+ * last in the page scroll container stays underneath it once the operator
+ * scrolls to the end of the page — the compact-viewport workflow step palette
+ * and in-flow form footers both ended up unreachable that way (#5984).
+ * Stacking order alone cannot fix that: those controls are ordinary in-flow
+ * content, not overlays. Reserving the CTA's own footprint at the end of
+ * `<main>` and the global legal footer lets page content and legal links
+ * scroll clear of the button throughout its animation.
+ *
+ * The attribute is mirrored from the widget's own visibility, so pages that
+ * never render the CTA (demo mode off, `ff_om_hide_contact`, AI dock mounted)
+ * keep their original spacing. */
+body[data-demo-feedback-fab="visible"] main,
+body[data-demo-feedback-fab="visible"] #main-content + footer {
+  padding-bottom: var(--om-floating-cta-safe-area);
+}
+
+/* Hide native scrollbar while keeping scroll behavior — used by sticky sidebars */
+.scrollbar-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Global DS-styled thin scrollbar.
+ *
+ * Every native `overflow-auto` / `overflow-scroll` container inherits a
+ * thin, neutral thumb that matches the `<ScrollArea>` primitive's look
+ * (muted-foreground at 30 % opacity, rising to 50 % on hover). Firefox
+ * honors `scrollbar-width: thin` + `scrollbar-color`; WebKit uses the
+ * `::-webkit-scrollbar` pseudo set. Opt out of this styling explicitly
+ * with `.scrollbar-hide` (used by horizontal scroll rails driven by
+ * chevron buttons). */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklch, var(--muted-foreground) 30%, transparent) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: color-mix(in oklch, var(--muted-foreground) 30%, transparent);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in oklch, var(--muted-foreground) 50%, transparent);
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* MDXEditor (@mdxeditor/editor) — WYSIWYG Markdown editor used by CrudForm. The outer box
+   (border/radius/background) comes from the host wrapper (DS tokens). These rules give the
+   toolbar a divider and the content a minimum editable height + comfortable padding so the
+   field reads as a distinct, clearly bounded input and content never bleeds into the next field. */
+/* MDXEditor themes its chrome (toolbar, selects, popovers, tooltips) via a Radix-style base and
+   accent scale. Map it to DS tokens so the whole editor follows light/dark uniformly. The doubled
+   class out-specifies MDXEditor's own single-class theme regardless of stylesheet order. */
+.om-mdx-editor.om-mdx-editor {
+  --baseBase: var(--background);
+  --basePageBg: var(--background);
+  --baseBgSubtle: var(--muted);
+  --baseBg: var(--background);
+  --baseBgHover: var(--muted);
+  --baseBgActive: var(--muted);
+  --baseLine: var(--border);
+  --baseBorder: var(--border);
+  --baseBorderHover: var(--input);
+  --baseSolid: var(--muted-foreground);
+  --baseSolidHover: var(--foreground);
+  --baseText: var(--foreground);
+  --baseTextContrast: var(--foreground);
+  --accentBase: var(--background);
+  --accentBgSubtle: var(--muted);
+  --accentBg: var(--muted);
+  --accentBgHover: var(--muted);
+  --accentBgActive: var(--muted);
+  --accentLine: var(--border);
+  --accentBorder: var(--border);
+  --accentBorderHover: var(--input);
+  --accentSolid: var(--primary);
+  --accentSolidHover: var(--primary);
+  --accentText: var(--primary);
+  --accentTextContrast: var(--primary);
+}
+.om-mdx-editor [role="toolbar"] {
+  border-bottom: 1px solid var(--border);
+}
+.om-mdx-prose {
+  min-height: 9rem;
+  padding: 0.625rem 0.875rem;
+}
+/* Tailwind Preflight strips heading + list styling globally; MDXEditor relies on browser
+   defaults, so restore them inside the editor content only (scoped to .om-mdx-prose). */
+.om-mdx-prose h1 { font-size: 1.5rem; font-weight: 600; line-height: 1.3; margin: 0.5rem 0; }
+.om-mdx-prose h2 { font-size: 1.25rem; font-weight: 600; line-height: 1.3; margin: 0.5rem 0; }
+.om-mdx-prose h3 { font-size: 1.125rem; font-weight: 600; line-height: 1.35; margin: 0.4rem 0; }
+.om-mdx-prose h4,
+.om-mdx-prose h5,
+.om-mdx-prose h6 { font-size: 1rem; font-weight: 600; margin: 0.4rem 0; }
+.om-mdx-prose ul { list-style: disc outside; padding-left: 1.5rem; }
+.om-mdx-prose ol { list-style: decimal outside; padding-left: 1.5rem; }
+.om-mdx-prose ul ul { list-style: circle outside; }
+.om-mdx-prose li[class*="listItemChecked"],
+.om-mdx-prose li[class*="listItemUnchecked"] { list-style: none; }
+/* Source mode runs on CodeMirror, which ships its own light theme; map it to DS tokens so the
+   raw-markdown view follows light/dark like the rest of the editor (fixes white box in dark mode). */
+.om-mdx-editor .cm-editor,
+.om-mdx-editor .cm-editor .cm-scroller,
+.om-mdx-editor .cm-gutters {
+  background-color: var(--background);
+  color: var(--foreground);
+}
+.om-mdx-editor .cm-gutters {
+  border-right: 1px solid var(--border);
+  color: var(--muted-foreground);
+}
+.om-mdx-editor .cm-activeLine,
+.om-mdx-editor .cm-activeLineGutter {
+  background-color: var(--muted);
+}
+.om-mdx-editor .cm-content {
+  caret-color: var(--foreground);
+  color: var(--foreground);
+}
+.om-mdx-editor .cm-line span {
+  color: inherit !important;
+}
+.om-mdx-editor .cm-cursor,
+.om-mdx-editor .cm-dropCursor {
+  border-left-color: var(--foreground);
+}

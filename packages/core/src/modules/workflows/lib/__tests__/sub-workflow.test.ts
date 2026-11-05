@@ -1,0 +1,1229 @@
+/**
+ * Sub-Workflow Tests (Phase 8, Step 8.1)
+ *
+ * Tests for sub-workflow execution functionality including:
+ * - Basic sub-workflow invocation
+ * - Input/output data mapping
+ * - Error propagation
+ * - Multi-tenant isolation
+ * - Event logging
+ */
+
+import { describe, test, expect, jest, beforeEach, afterEach } from '@jest/globals'
+import type { EntityManager } from '@mikro-orm/core'
+import type { AwilixContainer } from 'awilix'
+import * as stepHandler from '../step-handler'
+import * as workflowExecutor from '../workflow-executor'
+import type {
+  WorkflowDefinition,
+  WorkflowInstance,
+  StepInstance,
+  WorkflowEvent,
+} from '../../data/entities'
+
+describe('Sub-Workflow Execution (Phase 8)', () => {
+  let mockEm: jest.Mocked<EntityManager>
+  let mockContainer: jest.Mocked<AwilixContainer>
+
+  const testTenantId = '00000000-0000-4000-8000-000000000001'
+  const testOrgId = '00000000-0000-4000-8000-000000000002'
+  const parentDefinitionId = '00000000-0000-4000-8000-000000000003'
+  const parentInstanceId = '00000000-0000-4000-8000-000000000004'
+  const childDefinitionId = '00000000-0000-4000-8000-000000000005'
+  const childInstanceId = '00000000-0000-4000-8000-000000000006'
+  const stepInstanceId = '00000000-0000-4000-8000-000000000007'
+
+  afterEach(() => {
+    delete (Object.prototype as Record<string, unknown>).workflowPolluted
+  })
+
+  test('output mapping ignores prototype-bearing paths without polluting the process', () => {
+    const outputMapping = JSON.parse(
+      '{"safe":"status","__proto__.workflowPolluted":"status","alias":"__proto__","alias.workflowPolluted":"status"}',
+    ) as Record<string, string>
+
+    const mapped = stepHandler.mapSubWorkflowOutput({ status: 'approved' }, outputMapping)
+
+    expect(mapped).toEqual({
+      outputData: {
+        safe: 'approved',
+        alias: { workflowPolluted: 'approved' },
+      },
+    })
+    expect(Object.prototype).not.toHaveProperty('workflowPolluted')
+  })
+
+  // Parent workflow definition with SUB_WORKFLOW step
+  const parentDefinition: Partial<WorkflowDefinition> = {
+    id: parentDefinitionId,
+    workflowId: 'parent-workflow',
+    workflowName: 'Parent Workflow',
+    version: 1,
+    enabled: true,
+    definition: {
+      steps: [
+        {
+          stepId: 'start',
+          stepName: 'Start',
+          stepType: 'START',
+        },
+        {
+          stepId: 'invoke-child',
+          stepName: 'Invoke Child Workflow',
+          stepType: 'SUB_WORKFLOW',
+          config: {
+            subWorkflowId: 'child-workflow',
+            version: 1,
+            inputMapping: {
+              childOrderId: 'orderId',
+              childAmount: 'amount',
+            },
+            outputMapping: {
+              result: 'status',
+              timestamp: 'completedAt',
+            },
+          },
+        },
+        {
+          stepId: 'end',
+          stepName: 'End',
+          stepType: 'END',
+        },
+      ],
+      transitions: [],
+    },
+    tenantId: testTenantId,
+    organizationId: testOrgId,
+  }
+
+  // Child workflow definition
+  const childDefinition: Partial<WorkflowDefinition> = {
+    id: childDefinitionId,
+    workflowId: 'child-workflow',
+    workflowName: 'Child Workflow',
+    version: 1,
+    enabled: true,
+    definition: {
+      steps: [
+        {
+          stepId: 'start',
+          stepName: 'Start',
+          stepType: 'START',
+        },
+        {
+          stepId: 'process',
+          stepName: 'Process',
+          stepType: 'AUTOMATED',
+        },
+        {
+          stepId: 'end',
+          stepName: 'End',
+          stepType: 'END',
+        },
+      ],
+      transitions: [],
+    },
+    tenantId: testTenantId,
+    organizationId: testOrgId,
+  }
+
+  const parentInstance: Partial<WorkflowInstance> = {
+    id: parentInstanceId,
+    definitionId: parentDefinitionId,
+    workflowId: 'parent-workflow',
+    version: 1,
+    status: 'RUNNING',
+    currentStepId: 'invoke-child',
+    context: {
+      orderId: '12345',
+      amount: 100,
+      customerEmail: 'test@example.com',
+    },
+    tenantId: testTenantId,
+    organizationId: testOrgId,
+    startedAt: new Date(),
+  }
+
+  const childInstance: Partial<WorkflowInstance> = {
+    id: childInstanceId,
+    definitionId: childDefinitionId,
+    workflowId: 'child-workflow',
+    version: 1,
+    status: 'COMPLETED',
+    currentStepId: 'end',
+    context: {
+      childOrderId: '12345',
+      childAmount: 100,
+      status: 'SUCCESS',
+      completedAt: '2024-01-08T12:00:00Z',
+    },
+    tenantId: testTenantId,
+    organizationId: testOrgId,
+    startedAt: new Date(),
+    completedAt: new Date(),
+  }
+
+  const stepInstance: Partial<StepInstance> = {
+    id: stepInstanceId,
+    workflowInstanceId: parentInstanceId,
+    stepId: 'invoke-child',
+    stepName: 'Invoke Child Workflow',
+    stepType: 'SUB_WORKFLOW',
+    status: 'ACTIVE',
+    tenantId: testTenantId,
+    organizationId: testOrgId,
+  }
+
+  beforeEach(() => {
+    // Create mock EntityManager
+    mockEm = {
+      findOne: jest.fn(),
+      findOneOrFail: jest.fn(),
+      find: jest.fn(),
+      create: jest.fn(),
+      persist: jest.fn(function persist(this: any) { return this }),
+      flush: jest.fn(),
+      persist: jest.fn(function persist(this: any) { return this }),
+      flush: jest.fn(),
+    } as any
+
+    // Create mock container
+    mockContainer = {} as any
+
+    // Reset all mocks
+    jest.clearAllMocks()
+
+    // Setup default mock implementations
+    mockEm.create.mockImplementation((entity: any, data: any) => ({ ...data, id: childInstanceId } as any))
+    mockEm.flush.mockResolvedValue(undefined as any)
+    mockEm.flush.mockResolvedValue(undefined as any)
+  })
+
+  // ============================================================================
+  // Basic Functionality Tests
+  // ============================================================================
+
+  describe('Basic Sub-Workflow Execution', () => {
+    test('should start sub-workflow from parent', async () => {
+      const startWorkflowSpy = jest.spyOn(workflowExecutor, 'startWorkflow')
+      const executeWorkflowSpy = jest.spyOn(workflowExecutor, 'executeWorkflow')
+
+      startWorkflowSpy.mockResolvedValue(childInstance as WorkflowInstance)
+      executeWorkflowSpy.mockResolvedValue({
+        status: 'COMPLETED',
+        currentStep: 'end',
+        context: childInstance.context!,
+        events: [],
+        executionTime: 100,
+      })
+
+      mockEm.findOne.mockResolvedValue(parentDefinition as WorkflowDefinition)
+
+      const result = await stepHandler.executeStep(
+        mockEm,
+        parentInstance as WorkflowInstance,
+        'invoke-child',
+        {
+          workflowContext: parentInstance.context!,
+        },
+        mockContainer
+      )
+
+      expect(startWorkflowSpy).toHaveBeenCalledWith(
+        mockEm,
+        expect.objectContaining({
+          workflowId: 'child-workflow',
+          version: 1,
+          tenantId: testTenantId,
+          organizationId: testOrgId,
+        })
+      )
+      expect(executeWorkflowSpy).toHaveBeenCalledWith(mockEm, mockContainer, childInstanceId, expect.any(Object))
+      expect(result.status).toBe('COMPLETED')
+
+      startWorkflowSpy.mockRestore()
+      executeWorkflowSpy.mockRestore()
+    })
+
+    test('should pass input data to sub-workflow with mapping', async () => {
+      const startWorkflowSpy = jest.spyOn(workflowExecutor, 'startWorkflow')
+      const executeWorkflowSpy = jest.spyOn(workflowExecutor, 'executeWorkflow')
+
+      startWorkflowSpy.mockResolvedValue(childInstance as WorkflowInstance)
+      executeWorkflowSpy.mockResolvedValue({
+        status: 'COMPLETED',
+        currentStep: 'end',
+        context: childInstance.context!,
+        events: [],
+        executionTime: 100,
+      })
+
+      mockEm.findOne.mockResolvedValue(parentDefinition as WorkflowDefinition)
+
+      await stepHandler.executeStep(
+        mockEm,
+        parentInstance as WorkflowInstance,
+        'invoke-child',
+        {
+          workflowContext: parentInstance.context!,
+        },
+        mockContainer
+      )
+
+      const startCall = startWorkflowSpy.mock.calls[0]
+      const initialContext = startCall[1].initialContext
+
+      expect(initialContext).toEqual({
+        childOrderId: '12345',
+        childAmount: 100,
+      })
+
+      startWorkflowSpy.mockRestore()
+      executeWorkflowSpy.mockRestore()
+    })
+
+    test('should return output data to parent with mapping', async () => {
+      const startWorkflowSpy = jest.spyOn(workflowExecutor, 'startWorkflow')
+      const executeWorkflowSpy = jest.spyOn(workflowExecutor, 'executeWorkflow')
+
+      startWorkflowSpy.mockResolvedValue(childInstance as WorkflowInstance)
+      executeWorkflowSpy.mockResolvedValue({
+        status: 'COMPLETED',
+        currentStep: 'end',
+        context: childInstance.context!,
+        events: [],
+        executionTime: 100,
+      })
+
+      mockEm.findOne.mockResolvedValue(parentDefinition as WorkflowDefinition)
+
+      const result = await stepHandler.executeStep(
+        mockEm,
+        parentInstance as WorkflowInstance,
+        'invoke-child',
+        {
+          workflowContext: parentInstance.context!,
+        },
+        mockContainer
+      )
+
+      expect(result.status).toBe('COMPLETED')
+      expect(result.outputData).toEqual({
+        result: 'SUCCESS',
+        timestamp: '2024-01-08T12:00:00Z',
+      })
+
+      startWorkflowSpy.mockRestore()
+      executeWorkflowSpy.mockRestore()
+    })
+
+    test('should complete parent step after child workflow completes', async () => {
+      const startWorkflowSpy = jest.spyOn(workflowExecutor, 'startWorkflow')
+      const executeWorkflowSpy = jest.spyOn(workflowExecutor, 'executeWorkflow')
+
+      startWorkflowSpy.mockResolvedValue(childInstance as WorkflowInstance)
+      executeWorkflowSpy.mockResolvedValue({
+        status: 'COMPLETED',
+        currentStep: 'end',
+        context: childInstance.context!,
+        events: [],
+        executionTime: 100,
+      })
+
+      mockEm.findOne.mockResolvedValue(parentDefinition as WorkflowDefinition)
+
+      const result = await stepHandler.executeStep(
+        mockEm,
+        parentInstance as WorkflowInstance,
+        'invoke-child',
+        {
+          workflowContext: parentInstance.context!,
+        },
+        mockContainer
+      )
+
+      expect(result.status).toBe('COMPLETED')
+      expect(result.outputData).toBeDefined()
+
+      startWorkflowSpy.mockRestore()
+      executeWorkflowSpy.mockRestore()
+    })
+  })
+
+  // ============================================================================
+  // Data Mapping Tests
+  // ============================================================================
+
+  describe('Data Mapping', () => {
+    test('contains legacy unsafe targets through the executeStep boundary while reading own special fields', async () => {
+      const legacyParentDefinition = {
+        ...parentDefinition,
+        definition: {
+          ...parentDefinition.definition,
+          steps: [
+            ...parentDefinition.definition!.steps.slice(0, 1),
+            {
+              stepId: 'invoke-child',
+              stepName: 'Invoke Child Workflow',
+              stepType: 'SUB_WORKFLOW',
+              config: {
+                subWorkflowId: 'child-workflow',
+                inputMapping: JSON.parse(
+                  '{"safeInput":"payload.constructor.value","__proto__.workflowPolluted":"orderId"}',
+                ),
+                outputMapping: JSON.parse(
+                  '{"safeOutput":"result.prototype.value","constructor.prototype.workflowPolluted":"status"}',
+                ),
+              },
+            },
+            ...parentDefinition.definition!.steps.slice(2),
+          ],
+        },
+      }
+      const legacyParentInstance = {
+        ...parentInstance,
+        context: JSON.parse('{"orderId":"12345","payload":{"constructor":{"value":"ctor"}}}'),
+      }
+      const childContext = JSON.parse(
+        '{"status":"SUCCESS","result":{"prototype":{"value":"proto"}}}',
+      )
+      const startWorkflowSpy = jest.spyOn(workflowExecutor, 'startWorkflow')
+      const executeWorkflowSpy = jest.spyOn(workflowExecutor, 'executeWorkflow')
+      startWorkflowSpy.mockResolvedValue(childInstance as WorkflowInstance)
+      executeWorkflowSpy.mockResolvedValue({
+        status: 'COMPLETED',
+        currentStep: 'end',
+        context: childContext,
+        events: [],
+        executionTime: 100,
+      })
+      mockEm.findOne.mockResolvedValue(legacyParentDefinition as WorkflowDefinition)
+
+      const result = await stepHandler.executeStep(
+        mockEm,
+        legacyParentInstance as WorkflowInstance,
+        'invoke-child',
+        { workflowContext: legacyParentInstance.context },
+        mockContainer,
+      )
+
+      expect(startWorkflowSpy.mock.calls[0][1].initialContext).toEqual({ safeInput: 'ctor' })
+      expect(result.outputData).toEqual({ safeOutput: 'proto' })
+      expect(Object.prototype).not.toHaveProperty('workflowPolluted')
+
+      startWorkflowSpy.mockRestore()
+      executeWorkflowSpy.mockRestore()
+    })
+
+    test('should map input data using dot notation', async () => {
+      const nestedParentDef = {
+        ...parentDefinition,
+        definition: {
+          ...parentDefinition.definition,
+          steps: [
+            ...parentDefinition.definition!.steps.slice(0, 1),
+            {
+              stepId: 'invoke-child',
+              stepName: 'Invoke Child Workflow',
+              stepType: 'SUB_WORKFLOW',
+              config: {
+                subWorkflowId: 'child-workflow',
+                inputMapping: {
+                  'order.id': 'customer.order.id',
+                  'order.total': 'customer.order.total',
+                },
+              },
+            },
+            ...parentDefinition.definition!.steps.slice(2),
+          ],
+        },
+      }
+
+      const nestedParentInstance = {
+        ...parentInstance,
+        context: {
+          customer: {
+            order: {
+              id: '12345',
+              total: 250.50,
+            },
+          },
+        },
+      }
+
+      const startWorkflowSpy = jest.spyOn(workflowExecutor, 'startWorkflow')
+      const executeWorkflowSpy = jest.spyOn(workflowExecutor, 'executeWorkflow')
+
+      startWorkflowSpy.mockResolvedValue(childInstance as WorkflowInstance)
+      executeWorkflowSpy.mockResolvedValue({
+        status: 'COMPLETED',
+        currentStep: 'end',
+        context: {},
+        events: [],
+        executionTime: 100,
+      })
+
+      mockEm.findOne.mockResolvedValue(nestedParentDef as WorkflowDefinition)
+
+      await stepHandler.executeStep(
+        mockEm,
+        nestedParentInstance as WorkflowInstance,
+        'invoke-child',
+        {
+          workflowContext: nestedParentInstance.context,
+        },
+        mockContainer
+      )
+
+      const startCall = startWorkflowSpy.mock.calls[0]
+      const initialContext = startCall[1].initialContext
+
+      expect(initialContext).toEqual({
+        order: {
+          id: '12345',
+          total: 250.50,
+        },
+      })
+
+      startWorkflowSpy.mockRestore()
+      executeWorkflowSpy.mockRestore()
+    })
+
+    test('should map output data using dot notation', async () => {
+      const nestedChildContext = {
+        processing: {
+          result: {
+            status: 'APPROVED',
+            code: 200,
+          },
+        },
+      }
+
+      const nestedParentDef = {
+        ...parentDefinition,
+        definition: {
+          ...parentDefinition.definition,
+          steps: [
+            ...parentDefinition.definition!.steps.slice(0, 1),
+            {
+              stepId: 'invoke-child',
+              stepName: 'Invoke Child Workflow',
+              stepType: 'SUB_WORKFLOW',
+              config: {
+                subWorkflowId: 'child-workflow',
+                inputMapping: {},
+                outputMapping: {
+                  'approval.status': 'processing.result.status',
+                  'approval.code': 'processing.result.code',
+                },
+              },
+            },
+            ...parentDefinition.definition!.steps.slice(2),
+          ],
+        },
+      }
+
+      const startWorkflowSpy = jest.spyOn(workflowExecutor, 'startWorkflow')
+      const executeWorkflowSpy = jest.spyOn(workflowExecutor, 'executeWorkflow')
+
+      startWorkflowSpy.mockResolvedValue(childInstance as WorkflowInstance)
+      executeWorkflowSpy.mockResolvedValue({
+        status: 'COMPLETED',
+        currentStep: 'end',
+        context: nestedChildContext,
+        events: [],
+        executionTime: 100,
+      })
+
+      mockEm.findOne.mockResolvedValue(nestedParentDef as WorkflowDefinition)
+
+      const result = await stepHandler.executeStep(
+        mockEm,
+        parentInstance as WorkflowInstance,
+        'invoke-child',
+        {
+          workflowContext: parentInstance.context!,
+        },
+        mockContainer
+      )
+
+      expect(result.outputData).toEqual({
+        approval: {
+          status: 'APPROVED',
+          code: 200,
+        },
+      })
+
+      startWorkflowSpy.mockRestore()
+      executeWorkflowSpy.mockRestore()
+    })
+
+    test('should pass entire context when no input mapping provided', async () => {
+      const noMappingDef = {
+        ...parentDefinition,
+        definition: {
+          ...parentDefinition.definition,
+          steps: [
+            ...parentDefinition.definition!.steps.slice(0, 1),
+            {
+              stepId: 'invoke-child',
+              stepName: 'Invoke Child Workflow',
+              stepType: 'SUB_WORKFLOW',
+              config: {
+                subWorkflowId: 'child-workflow',
+              },
+            },
+            ...parentDefinition.definition!.steps.slice(2),
+          ],
+        },
+      }
+
+      const startWorkflowSpy = jest.spyOn(workflowExecutor, 'startWorkflow')
+      const executeWorkflowSpy = jest.spyOn(workflowExecutor, 'executeWorkflow')
+
+      startWorkflowSpy.mockResolvedValue(childInstance as WorkflowInstance)
+      executeWorkflowSpy.mockResolvedValue({
+        status: 'COMPLETED',
+        currentStep: 'end',
+        context: {},
+        events: [],
+        executionTime: 100,
+      })
+
+      mockEm.findOne.mockResolvedValue(noMappingDef as WorkflowDefinition)
+
+      await stepHandler.executeStep(
+        mockEm,
+        parentInstance as WorkflowInstance,
+        'invoke-child',
+        {
+          workflowContext: parentInstance.context!,
+        },
+        mockContainer
+      )
+
+      const startCall = startWorkflowSpy.mock.calls[0]
+      const initialContext = startCall[1].initialContext
+
+      expect(initialContext).toEqual(parentInstance.context)
+
+      startWorkflowSpy.mockRestore()
+      executeWorkflowSpy.mockRestore()
+    })
+
+    test('should return entire child context when no output mapping provided', async () => {
+      const noMappingDef = {
+        ...parentDefinition,
+        definition: {
+          ...parentDefinition.definition,
+          steps: [
+            ...parentDefinition.definition!.steps.slice(0, 1),
+            {
+              stepId: 'invoke-child',
+              stepName: 'Invoke Child Workflow',
+              stepType: 'SUB_WORKFLOW',
+              config: {
+                subWorkflowId: 'child-workflow',
+              },
+            },
+            ...parentDefinition.definition!.steps.slice(2),
+          ],
+        },
+      }
+
+      const startWorkflowSpy = jest.spyOn(workflowExecutor, 'startWorkflow')
+      const executeWorkflowSpy = jest.spyOn(workflowExecutor, 'executeWorkflow')
+
+      startWorkflowSpy.mockResolvedValue(childInstance as WorkflowInstance)
+      executeWorkflowSpy.mockResolvedValue({
+        status: 'COMPLETED',
+        currentStep: 'end',
+        context: childInstance.context!,
+        events: [],
+        executionTime: 100,
+      })
+
+      mockEm.findOne.mockResolvedValue(noMappingDef as WorkflowDefinition)
+
+      const result = await stepHandler.executeStep(
+        mockEm,
+        parentInstance as WorkflowInstance,
+        'invoke-child',
+        {
+          workflowContext: parentInstance.context!,
+        },
+        mockContainer
+      )
+
+      expect(result.outputData).toEqual(childInstance.context)
+
+      startWorkflowSpy.mockRestore()
+      executeWorkflowSpy.mockRestore()
+    })
+  })
+
+  // ============================================================================
+  // Error Handling Tests
+  // ============================================================================
+
+  describe('Error Handling', () => {
+    test('should fail when sub-workflow ID is missing', async () => {
+      const noSubWorkflowDef = {
+        ...parentDefinition,
+        definition: {
+          ...parentDefinition.definition,
+          steps: [
+            ...parentDefinition.definition!.steps.slice(0, 1),
+            {
+              stepId: 'invoke-child',
+              stepName: 'Invoke Child Workflow',
+              stepType: 'SUB_WORKFLOW',
+              config: {},
+            },
+            ...parentDefinition.definition!.steps.slice(2),
+          ],
+        },
+      }
+
+      mockEm.findOne.mockResolvedValue(noSubWorkflowDef as WorkflowDefinition)
+
+      const result = await stepHandler.executeStep(
+        mockEm,
+        parentInstance as WorkflowInstance,
+        'invoke-child',
+        {
+          workflowContext: parentInstance.context!,
+        },
+        mockContainer
+      )
+
+      expect(result.status).toBe('FAILED')
+      expect(result.error).toContain('Sub-workflow ID not specified')
+    })
+
+    test('should propagate child workflow failure to parent', async () => {
+      const startWorkflowSpy = jest.spyOn(workflowExecutor, 'startWorkflow')
+      const executeWorkflowSpy = jest.spyOn(workflowExecutor, 'executeWorkflow')
+
+      startWorkflowSpy.mockResolvedValue(childInstance as WorkflowInstance)
+      executeWorkflowSpy.mockResolvedValue({
+        status: 'FAILED',
+        currentStep: 'process',
+        context: {},
+        events: [],
+        errors: ['Processing failed: Invalid data'],
+        executionTime: 50,
+      })
+
+      mockEm.findOne.mockResolvedValue(parentDefinition as WorkflowDefinition)
+
+      const result = await stepHandler.executeStep(
+        mockEm,
+        parentInstance as WorkflowInstance,
+        'invoke-child',
+        {
+          workflowContext: parentInstance.context!,
+        },
+        mockContainer
+      )
+
+      expect(result.status).toBe('FAILED')
+      expect(result.error).toContain('Sub-workflow failed')
+      expect(result.error).toContain('Invalid data')
+
+      startWorkflowSpy.mockRestore()
+      executeWorkflowSpy.mockRestore()
+    })
+
+    test('should handle invalid sub-workflow ID error', async () => {
+      const startWorkflowSpy = jest.spyOn(workflowExecutor, 'startWorkflow')
+
+      startWorkflowSpy.mockRejectedValue(new Error('Workflow definition not found: invalid-workflow'))
+
+      mockEm.findOne.mockResolvedValue(parentDefinition as WorkflowDefinition)
+
+      const result = await stepHandler.executeStep(
+        mockEm,
+        parentInstance as WorkflowInstance,
+        'invoke-child',
+        {
+          workflowContext: parentInstance.context!,
+        },
+        mockContainer
+      )
+
+      expect(result.status).toBe('FAILED')
+      expect(result.error).toContain('Sub-workflow execution failed')
+
+      startWorkflowSpy.mockRestore()
+    })
+
+    test('should PARK the parent (suspendable) when child ends in a non-terminal state (Fix #2)', async () => {
+      const startWorkflowSpy = jest.spyOn(workflowExecutor, 'startWorkflow')
+      const executeWorkflowSpy = jest.spyOn(workflowExecutor, 'executeWorkflow')
+
+      startWorkflowSpy.mockResolvedValue(childInstance as WorkflowInstance)
+      // Now that a child correctly parks at its first async/agent step,
+      // executeWorkflow returns a non-terminal status. The parent must park on
+      // SUB_WORKFLOW_SIGNAL_NAME and be resumed by the child's terminal job,
+      // NOT fail immediately.
+      executeWorkflowSpy.mockResolvedValue({
+        status: 'PAUSED',
+        currentStep: 'user-task',
+        context: {},
+        events: [],
+        executionTime: 50,
+      })
+
+      mockEm.findOne.mockResolvedValue(parentDefinition as WorkflowDefinition)
+
+      const instance = { ...parentInstance } as WorkflowInstance
+      const result = await stepHandler.executeStep(
+        mockEm,
+        instance,
+        'invoke-child',
+        {
+          workflowContext: instance.context!,
+        },
+        mockContainer
+      )
+
+      expect(result.status).toBe('WAITING')
+      expect(result.waitReason).toBe('SIGNAL')
+      expect((result.outputData as any).childInstanceId).toBe(childInstanceId)
+      expect(instance.status).toBe('PAUSED')
+
+      startWorkflowSpy.mockRestore()
+      executeWorkflowSpy.mockRestore()
+    })
+  })
+
+  // ============================================================================
+  // Multi-Tenant Isolation Tests
+  // ============================================================================
+
+  describe('Multi-Tenant Isolation', () => {
+    test('should inherit tenant ID from parent workflow', async () => {
+      const startWorkflowSpy = jest.spyOn(workflowExecutor, 'startWorkflow')
+      const executeWorkflowSpy = jest.spyOn(workflowExecutor, 'executeWorkflow')
+
+      startWorkflowSpy.mockResolvedValue(childInstance as WorkflowInstance)
+      executeWorkflowSpy.mockResolvedValue({
+        status: 'COMPLETED',
+        currentStep: 'end',
+        context: {},
+        events: [],
+        executionTime: 100,
+      })
+
+      mockEm.findOne.mockResolvedValue(parentDefinition as WorkflowDefinition)
+
+      await stepHandler.executeStep(
+        mockEm,
+        parentInstance as WorkflowInstance,
+        'invoke-child',
+        {
+          workflowContext: parentInstance.context!,
+        },
+        mockContainer
+      )
+
+      const startCall = startWorkflowSpy.mock.calls[0]
+      expect(startCall[1].tenantId).toBe(testTenantId)
+
+      startWorkflowSpy.mockRestore()
+      executeWorkflowSpy.mockRestore()
+    })
+
+    test('should inherit organization ID from parent workflow', async () => {
+      const startWorkflowSpy = jest.spyOn(workflowExecutor, 'startWorkflow')
+      const executeWorkflowSpy = jest.spyOn(workflowExecutor, 'executeWorkflow')
+
+      startWorkflowSpy.mockResolvedValue(childInstance as WorkflowInstance)
+      executeWorkflowSpy.mockResolvedValue({
+        status: 'COMPLETED',
+        currentStep: 'end',
+        context: {},
+        events: [],
+        executionTime: 100,
+      })
+
+      mockEm.findOne.mockResolvedValue(parentDefinition as WorkflowDefinition)
+
+      await stepHandler.executeStep(
+        mockEm,
+        parentInstance as WorkflowInstance,
+        'invoke-child',
+        {
+          workflowContext: parentInstance.context!,
+        },
+        mockContainer
+      )
+
+      const startCall = startWorkflowSpy.mock.calls[0]
+      expect(startCall[1].organizationId).toBe(testOrgId)
+
+      startWorkflowSpy.mockRestore()
+      executeWorkflowSpy.mockRestore()
+    })
+
+    test('should store parent-child relationship in metadata', async () => {
+      const startWorkflowSpy = jest.spyOn(workflowExecutor, 'startWorkflow')
+      const executeWorkflowSpy = jest.spyOn(workflowExecutor, 'executeWorkflow')
+
+      startWorkflowSpy.mockResolvedValue(childInstance as WorkflowInstance)
+      executeWorkflowSpy.mockResolvedValue({
+        status: 'COMPLETED',
+        currentStep: 'end',
+        context: {},
+        events: [],
+        executionTime: 100,
+      })
+
+      mockEm.findOne.mockResolvedValue(parentDefinition as WorkflowDefinition)
+
+      await stepHandler.executeStep(
+        mockEm,
+        parentInstance as WorkflowInstance,
+        'invoke-child',
+        {
+          workflowContext: parentInstance.context!,
+        },
+        mockContainer
+      )
+
+      const startCall = startWorkflowSpy.mock.calls[0]
+      const metadata = startCall[1].metadata
+
+      expect(metadata?.labels?.parentInstanceId).toBe(parentInstanceId)
+      expect(metadata?.labels?.parentStepId).toBe('invoke-child')
+
+      startWorkflowSpy.mockRestore()
+      executeWorkflowSpy.mockRestore()
+    })
+  })
+
+  // ============================================================================
+  // Event Logging Tests
+  // ============================================================================
+
+  describe('Event Logging', () => {
+    test('should log SUB_WORKFLOW_STARTED event', async () => {
+      const startWorkflowSpy = jest.spyOn(workflowExecutor, 'startWorkflow')
+      const executeWorkflowSpy = jest.spyOn(workflowExecutor, 'executeWorkflow')
+
+      startWorkflowSpy.mockResolvedValue(childInstance as WorkflowInstance)
+      executeWorkflowSpy.mockResolvedValue({
+        status: 'COMPLETED',
+        currentStep: 'end',
+        context: childInstance.context!,
+        events: [],
+        executionTime: 100,
+      })
+
+      mockEm.findOne.mockResolvedValue(parentDefinition as WorkflowDefinition)
+
+      await stepHandler.executeStep(
+        mockEm,
+        parentInstance as WorkflowInstance,
+        'invoke-child',
+        {
+          workflowContext: parentInstance.context!,
+        },
+        mockContainer
+      )
+
+      const createCalls = mockEm.create.mock.calls
+      const eventCalls = createCalls.filter((call: any) => call[0].name === 'WorkflowEvent')
+
+      const startedEvent = eventCalls.find((call: any) => call[1].eventType === 'SUB_WORKFLOW_STARTED')
+      expect(startedEvent).toBeDefined()
+      expect((startedEvent![1] as any).eventData.subWorkflowId).toBe('child-workflow')
+      expect((startedEvent![1] as any).eventData.childInstanceId).toBe(childInstanceId)
+
+      startWorkflowSpy.mockRestore()
+      executeWorkflowSpy.mockRestore()
+    })
+
+    test('should log SUB_WORKFLOW_COMPLETED event with output data', async () => {
+      const startWorkflowSpy = jest.spyOn(workflowExecutor, 'startWorkflow')
+      const executeWorkflowSpy = jest.spyOn(workflowExecutor, 'executeWorkflow')
+
+      startWorkflowSpy.mockResolvedValue(childInstance as WorkflowInstance)
+      executeWorkflowSpy.mockResolvedValue({
+        status: 'COMPLETED',
+        currentStep: 'end',
+        context: childInstance.context!,
+        events: [],
+        executionTime: 100,
+      })
+
+      mockEm.findOne.mockResolvedValue(parentDefinition as WorkflowDefinition)
+
+      await stepHandler.executeStep(
+        mockEm,
+        parentInstance as WorkflowInstance,
+        'invoke-child',
+        {
+          workflowContext: parentInstance.context!,
+        },
+        mockContainer
+      )
+
+      const createCalls = mockEm.create.mock.calls
+      const eventCalls = createCalls.filter((call: any) => call[0].name === 'WorkflowEvent')
+
+      const completedEvent = eventCalls.find((call: any) => call[1].eventType === 'SUB_WORKFLOW_COMPLETED')
+      expect(completedEvent).toBeDefined()
+      expect((completedEvent![1] as any).eventData.childInstanceId).toBe(childInstanceId)
+      expect((completedEvent![1] as any).eventData.outputData).toBeDefined()
+
+      startWorkflowSpy.mockRestore()
+      executeWorkflowSpy.mockRestore()
+    })
+
+    test('should log SUB_WORKFLOW_FAILED event on error', async () => {
+      const startWorkflowSpy = jest.spyOn(workflowExecutor, 'startWorkflow')
+      const executeWorkflowSpy = jest.spyOn(workflowExecutor, 'executeWorkflow')
+
+      startWorkflowSpy.mockResolvedValue(childInstance as WorkflowInstance)
+      executeWorkflowSpy.mockResolvedValue({
+        status: 'FAILED',
+        currentStep: 'process',
+        context: {},
+        events: [],
+        errors: ['Processing error'],
+        executionTime: 50,
+      })
+
+      mockEm.findOne.mockResolvedValue(parentDefinition as WorkflowDefinition)
+
+      await stepHandler.executeStep(
+        mockEm,
+        parentInstance as WorkflowInstance,
+        'invoke-child',
+        {
+          workflowContext: parentInstance.context!,
+        },
+        mockContainer
+      )
+
+      const createCalls = mockEm.create.mock.calls
+      const eventCalls = createCalls.filter((call: any) => call[0].name === 'WorkflowEvent')
+
+      const failedEvent = eventCalls.find((call: any) => call[1].eventType === 'SUB_WORKFLOW_FAILED')
+      expect(failedEvent).toBeDefined()
+      expect((failedEvent![1] as any).eventData.childInstanceId).toBe(childInstanceId)
+      expect((failedEvent![1] as any).eventData.error).toContain('Processing error')
+
+      startWorkflowSpy.mockRestore()
+      executeWorkflowSpy.mockRestore()
+    })
+  })
+
+  // ============================================================================
+  // Port Contract Validation (Explicit Ports)
+  // ============================================================================
+
+  describe('Port Contract Validation', () => {
+    test('fails before starting child when a required input port is missing', async () => {
+      const childDefWithIo = {
+        id: childDefinitionId,
+        workflowId: 'child-workflow',
+        version: 1,
+        enabled: true,
+        definition: {
+          steps: [],
+          transitions: [],
+          io: { inputs: [{ name: 'mustHave', type: 'text', label: 'Must Have', required: true }] },
+        },
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      }
+
+      // Parent-step lookups query by `id`; the child contract resolve queries by `workflowId`.
+      mockEm.findOne.mockImplementation((_entity: any, where: any) => {
+        if (where?.workflowId === 'child-workflow') return Promise.resolve(childDefWithIo as any)
+        return Promise.resolve(parentDefinition as any)
+      })
+
+      const startWorkflowSpy = jest.spyOn(workflowExecutor, 'startWorkflow')
+      const executeWorkflowSpy = jest.spyOn(workflowExecutor, 'executeWorkflow')
+
+      const result = await stepHandler.executeStep(
+        mockEm,
+        parentInstance as WorkflowInstance,
+        'invoke-child',
+        { workflowContext: parentInstance.context! },
+        mockContainer
+      )
+
+      expect(result.status).toBe('FAILED')
+      expect(result.error).toContain('input validation failed')
+      expect(startWorkflowSpy).not.toHaveBeenCalled()
+
+      startWorkflowSpy.mockRestore()
+      executeWorkflowSpy.mockRestore()
+    })
+
+    test('coerces mapped output values against declared output ports', async () => {
+      const parentOutDef = {
+        ...parentDefinition,
+        definition: {
+          ...parentDefinition.definition,
+          steps: [
+            ...parentDefinition.definition!.steps.slice(0, 1),
+            {
+              stepId: 'invoke-child',
+              stepName: 'Invoke Child Workflow',
+              stepType: 'SUB_WORKFLOW',
+              config: { subWorkflowId: 'child-workflow', inputMapping: {}, outputMapping: { amount: 'amount' } },
+            },
+            ...parentDefinition.definition!.steps.slice(2),
+          ],
+        },
+      }
+
+      const childDefWithIo = {
+        id: childDefinitionId,
+        workflowId: 'child-workflow',
+        version: 1,
+        enabled: true,
+        definition: {
+          steps: [],
+          transitions: [],
+          io: { outputs: [{ name: 'amount', type: 'number', label: 'Amount' }] },
+        },
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      }
+
+      mockEm.findOne.mockImplementation((_entity: any, where: any) => {
+        if (where?.workflowId === 'child-workflow') return Promise.resolve(childDefWithIo as any)
+        return Promise.resolve(parentOutDef as any)
+      })
+
+      const startWorkflowSpy = jest.spyOn(workflowExecutor, 'startWorkflow')
+      const executeWorkflowSpy = jest.spyOn(workflowExecutor, 'executeWorkflow')
+
+      startWorkflowSpy.mockResolvedValue(childInstance as WorkflowInstance)
+      executeWorkflowSpy.mockResolvedValue({
+        status: 'COMPLETED',
+        currentStep: 'end',
+        context: { amount: '250' }, // string from child — must be coerced to number
+        events: [],
+        executionTime: 100,
+      })
+
+      const result = await stepHandler.executeStep(
+        mockEm,
+        parentInstance as WorkflowInstance,
+        'invoke-child',
+        { workflowContext: parentInstance.context! },
+        mockContainer
+      )
+
+      expect(result.status).toBe('COMPLETED')
+      expect(result.outputData).toEqual({ amount: 250 })
+
+      startWorkflowSpy.mockRestore()
+      executeWorkflowSpy.mockRestore()
+    })
+
+    type LoggedEvent = { eventType?: string; eventData?: Record<string, unknown> }
+    const loggedEvents = () => mockEm.create.mock.calls.map((call) => call[1] as LoggedEvent)
+
+    function mockRenamedOutputChild(outputMapping: Record<string, string>) {
+      const parentRenamedDef = {
+        ...parentDefinition,
+        definition: {
+          ...parentDefinition.definition,
+          steps: [
+            ...parentDefinition.definition!.steps.slice(0, 1),
+            {
+              stepId: 'invoke-child',
+              stepName: 'Invoke Child Workflow',
+              stepType: 'SUB_WORKFLOW',
+              config: { subWorkflowId: 'child-workflow', inputMapping: {}, outputMapping },
+            },
+            ...parentDefinition.definition!.steps.slice(2),
+          ],
+        },
+      }
+      const childDefWithIo = {
+        id: childDefinitionId,
+        workflowId: 'child-workflow',
+        version: 1,
+        enabled: true,
+        definition: {
+          steps: [],
+          transitions: [],
+          io: { outputs: [{ name: 'childValue', type: 'text', label: 'Child Value', required: true }] },
+        },
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      }
+      mockEm.findOne.mockImplementation((_entity: any, where: any) => {
+        if (where?.workflowId === 'child-workflow') return Promise.resolve(childDefWithIo as any)
+        return Promise.resolve(parentRenamedDef as any)
+      })
+    }
+
+    test('maps a required output port to a differently named parent key', async () => {
+      mockRenamedOutputChild({ renamedValue: 'childValue' })
+      const startWorkflowSpy = jest.spyOn(workflowExecutor, 'startWorkflow').mockResolvedValue(childInstance as WorkflowInstance)
+      const executeWorkflowSpy = jest.spyOn(workflowExecutor, 'executeWorkflow').mockResolvedValue({
+        status: 'COMPLETED',
+        currentStep: 'end',
+        context: { childValue: 'port-alpha' },
+        events: [],
+        executionTime: 10,
+      })
+
+      const result = await stepHandler.executeStep(
+        mockEm,
+        parentInstance as WorkflowInstance,
+        'invoke-child',
+        { workflowContext: parentInstance.context! },
+        mockContainer
+      )
+
+      expect(result.status).toBe('COMPLETED')
+      expect(result.error).toBeUndefined()
+      expect(result.outputData).toEqual({ renamedValue: 'port-alpha' })
+      const completedEvent = loggedEvents().find((event) => event.eventType === 'SUB_WORKFLOW_COMPLETED')
+      expect(completedEvent?.eventData?.outputData).toEqual({ renamedValue: 'port-alpha' })
+
+      startWorkflowSpy.mockRestore()
+      executeWorkflowSpy.mockRestore()
+    })
+
+    test('fails with OUTPUT_VALIDATION when the child omits a required port behind a renamed mapping', async () => {
+      mockRenamedOutputChild({ renamedValue: 'childValue' })
+      const startWorkflowSpy = jest.spyOn(workflowExecutor, 'startWorkflow').mockResolvedValue(childInstance as WorkflowInstance)
+      const executeWorkflowSpy = jest.spyOn(workflowExecutor, 'executeWorkflow').mockResolvedValue({
+        status: 'COMPLETED',
+        currentStep: 'end',
+        context: { renamedValue: 'wrong-namespace' },
+        events: [],
+        executionTime: 10,
+      })
+
+      const result = await stepHandler.executeStep(
+        mockEm,
+        parentInstance as WorkflowInstance,
+        'invoke-child',
+        { workflowContext: parentInstance.context! },
+        mockContainer
+      )
+
+      expect(result.status).toBe('FAILED')
+      expect(result.error).toBe('Sub-workflow output validation failed: Required port "childValue" is missing')
+      const failedEvent = loggedEvents().find((event) => event.eventType === 'SUB_WORKFLOW_FAILED')
+      expect(failedEvent?.eventData?.reason).toBe('OUTPUT_VALIDATION')
+
+      startWorkflowSpy.mockRestore()
+      executeWorkflowSpy.mockRestore()
+    })
+  })
+})

@@ -1,0 +1,890 @@
+import { z } from 'zod'
+import { isValidPhoneNumber } from '@open-mercato/shared/lib/phone'
+import { COORDINATE_RANGES } from '@open-mercato/shared/lib/location/coordinates'
+import { dictionaryEntrySortModeSchema } from '@open-mercato/core/modules/dictionaries/lib/entrySort'
+import { calendarEventTypeBehaviorSchema } from '../calendar-event-types'
+import { calendarDayStartInstant, calendarWallTimeToInstant, isCalendarTimezone } from '../lib/calendar/timezone'
+
+const uuid = () => z.string().uuid()
+
+export const CUSTOMER_PHONE_INVALID_MESSAGE_KEY = 'customers.people.form.primaryPhone.invalid'
+export const CUSTOMER_EMAIL_INVALID_MESSAGE_KEY = 'customers.people.form.primaryEmail.invalid'
+export const CUSTOMER_URL_INVALID_MESSAGE_KEY = 'customers.people.form.websiteUrl.invalid'
+export const ACTIVITY_DATE_REQUIRED_MESSAGE_KEY = 'customers.activities.errors.dateRequired'
+export const ACTIVITY_TIME_REQUIRED_MESSAGE_KEY = 'customers.activities.errors.timeRequired'
+export const ACTIVITY_PHONE_REQUIRED_MESSAGE_KEY = 'customers.activities.errors.phoneRequired'
+export const ACTIVITY_PHONE_INVALID_MESSAGE_KEY = 'customers.activities.errors.phoneInvalid'
+export const INTERACTION_PARTICIPANT_IDENTITY_REQUIRED_MESSAGE_KEY = 'customers.activities.errors.participantIdentityRequired'
+export const INTERACTION_PARTICIPANT_EMAIL_INVALID_MESSAGE_KEY = 'customers.activities.errors.participantEmailInvalid'
+
+// customer_deals.description is an unbounded `text` column; this cap only exists to keep
+// request bodies, fulltext search documents and query-index documents from growing without limit.
+export const DEAL_DESCRIPTION_MAX_LENGTH = 50_000
+
+const emptyStringToNull = (value: unknown): unknown => {
+  if (typeof value !== 'string') return value
+  const trimmed = value.trim()
+  return trimmed.length ? trimmed : null
+}
+
+const phoneSchema = z.preprocess(
+  emptyStringToNull,
+  z
+    .string()
+    .trim()
+    .max(50)
+    .refine((val) => isValidPhoneNumber(val), { message: CUSTOMER_PHONE_INVALID_MESSAGE_KEY })
+    .nullable()
+    .optional(),
+)
+
+const clearableEmailSchema = z.preprocess(
+  emptyStringToNull,
+  z.string().email(CUSTOMER_EMAIL_INVALID_MESSAGE_KEY).max(320).nullable().optional(),
+)
+
+const clearableUrlSchema = z.preprocess(
+  emptyStringToNull,
+  z.string().url(CUSTOMER_URL_INVALID_MESSAGE_KEY).max(300).nullable().optional(),
+)
+
+// Domain is a plain (non-URL) string that maps to a nullable column, so blanking
+// a previously-set value on edit must transmit null to clear it. See #2529.
+const clearableDomainSchema = z.preprocess(
+  emptyStringToNull,
+  z.string().trim().max(200).nullable().optional(),
+)
+
+// Plain optional string fields that map to nullable columns: blanking a previously-set
+// value on edit must transmit null to clear it, not be silently dropped. See #3050.
+const clearableStringSchema = (max: number) =>
+  z.preprocess(emptyStringToNull, z.string().trim().max(max).nullable().optional())
+
+// Annual revenue maps to a nullable numeric column. `''`/whitespace/null all clear it;
+// `.nullable()` short-circuits before coercion so null does not coerce to 0. See #3050.
+const clearableRevenueSchema = z.preprocess(
+  (value) => {
+    if (typeof value === 'string' && value.trim().length === 0) return null
+    return value
+  },
+  z.coerce.number().min(0).nullable().optional(),
+)
+
+const interactionPhoneNumberSchema = z.string().trim().max(50).optional().nullable()
+
+const scopedSchema = z.object({
+  organizationId: uuid(),
+  tenantId: uuid(),
+})
+
+const nextInteractionSchema = z
+  .object({
+    at: z.coerce.date(),
+    name: z.string().trim().min(1).max(200),
+    refId: z.string().trim().max(191).optional().nullable(),
+    icon: z.string().trim().max(100).optional().nullable(),
+    color: z
+      .string()
+      .trim()
+      .regex(/^#([0-9a-fA-F]{6})$/)
+      .optional()
+      .nullable(),
+  })
+  .strict()
+
+const displayNameSchema = z.string().trim().min(1).max(200)
+
+const baseEntitySchema = {
+  displayName: displayNameSchema,
+  // Nullable so a blanked description on edit clears the column instead of being dropped. See #3050.
+  description: clearableStringSchema(4000),
+  ownerUserId: uuid().optional(),
+  primaryEmail: clearableEmailSchema,
+  primaryPhone: phoneSchema,
+  status: z.string().trim().max(100).optional(),
+  lifecycleStage: z.string().trim().max(100).optional(),
+  source: z.string().trim().max(150).optional(),
+  temperature: z.string().trim().max(100).optional(),
+  renewalQuarter: z.string().trim().max(100).optional(),
+  isActive: z.boolean().optional(),
+  nextInteraction: nextInteractionSchema.nullable().optional(),
+  tags: z.array(uuid()).optional(),
+}
+
+const personDetailsSchema = {
+  preferredName: z.string().trim().max(120).optional(),
+  jobTitle: z.string().trim().max(150).optional(),
+  department: z.string().trim().max(150).optional(),
+  seniority: z.string().trim().max(100).optional(),
+  timezone: z.string().trim().max(120).optional(),
+  linkedInUrl: clearableUrlSchema,
+  twitterUrl: clearableUrlSchema,
+  companyEntityId: uuid().nullable().optional(),
+}
+
+const personFirstNameSchema = z.string().trim().min(1).max(120)
+const personLastNameSchema = z.string().trim().min(1).max(120)
+
+const companyDetailsSchema = {
+  // Nullable so blanked values on edit clear the columns instead of being dropped. See #3050.
+  legalName: clearableStringSchema(200),
+  brandName: clearableStringSchema(200),
+  domain: clearableDomainSchema,
+  websiteUrl: clearableUrlSchema,
+  industry: z.string().trim().max(150).optional(),
+  sizeBucket: clearableStringSchema(100),
+  annualRevenue: clearableRevenueSchema,
+}
+
+export const personCreateSchema = scopedSchema.extend({
+  ...baseEntitySchema,
+  displayName: displayNameSchema.optional(),
+  firstName: personFirstNameSchema,
+  lastName: personLastNameSchema,
+  ...personDetailsSchema,
+})
+
+export const personUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(
+    scopedSchema.extend({
+      ...baseEntitySchema,
+      ...personDetailsSchema,
+      firstName: personFirstNameSchema.optional(),
+      lastName: personLastNameSchema.optional(),
+    }).partial()
+  )
+
+export const companyCreateSchema = scopedSchema.extend({
+  ...baseEntitySchema,
+  displayName: displayNameSchema,
+  ...companyDetailsSchema,
+})
+
+export const companyUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(companyCreateSchema.partial())
+
+export const dealCreateSchema = scopedSchema.extend({
+  title: z.string().min(1).max(200),
+  description: z.string().max(DEAL_DESCRIPTION_MAX_LENGTH).optional(),
+  status: z.string().max(50).optional(),
+  pipelineStage: z.string().max(100).optional(),
+  pipelineId: uuid().optional(),
+  pipelineStageId: uuid().optional(),
+  valueAmount: z.coerce.number().min(0).optional(),
+  valueCurrency: z.string().min(3).max(3).optional(),
+  probability: z.number().min(0).max(100).optional(),
+  expectedCloseAt: z.coerce.date().optional(),
+  // Nullable: the bulk owner-update worker passes `null` to clear ownership.
+  // Without `.nullable()`, dealUpdateSchema.parse({ ownerUserId: null }) throws
+  // ZodError "expected string, received null" inside the queue worker (TC-CRM-069).
+  ownerUserId: uuid().optional().nullable(),
+  source: z.string().max(150).optional(),
+  closureOutcome: z.enum(['won', 'lost']).optional(),
+  lossReasonId: uuid().optional(),
+  lossNotes: z.string().max(4000).optional(),
+  companyIds: z.array(uuid()).optional(),
+  personIds: z.array(uuid()).optional(),
+  primaryPersonEntityId: uuid().nullable().optional(),
+})
+
+export const dealUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(dealCreateSchema.partial())
+
+// Bulk update schemas — used by `api/deals/bulk-update-{owner,stage}/route.ts`. Kept here
+// so all deal-write contracts live next to `dealCreateSchema` / `dealUpdateSchema`.
+export const dealsBulkUpdateOwnerSchema = z.object({
+  ids: z.array(uuid()).min(1).max(10000),
+  ownerUserId: uuid().nullable(),
+})
+
+export const dealsBulkUpdateStageSchema = z.object({
+  ids: z.array(uuid()).min(1).max(10000),
+  pipelineStageId: uuid(),
+})
+
+export const dealsBulkUpdateResponseSchema = z.object({
+  ok: z.boolean(),
+  progressJobId: uuid().nullable(),
+  message: z.string(),
+})
+
+export const activityCreateSchema = scopedSchema.extend({
+  entityId: uuid(),
+  activityType: z.string().min(1).max(100),
+  subject: z.string().max(200).optional(),
+  body: z.string().max(8000).optional(),
+  date: z.string().trim().min(1, ACTIVITY_DATE_REQUIRED_MESSAGE_KEY).optional().nullable(),
+  time: z.string().trim().min(1, ACTIVITY_TIME_REQUIRED_MESSAGE_KEY).optional().nullable(),
+  phoneNumber: interactionPhoneNumberSchema,
+  occurredAt: z.coerce.date().optional(),
+  dealId: uuid().optional(),
+  authorUserId: uuid().optional(),
+  appearanceIcon: z.string().trim().max(100).optional().nullable(),
+  appearanceColor: z
+    .string()
+    .trim()
+    .regex(/^#([0-9a-fA-F]{6})$/)
+    .optional()
+    .nullable(),
+})
+
+export const activityUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(activityCreateSchema.partial())
+
+export const commentCreateSchema = scopedSchema.extend({
+  entityId: uuid(),
+  dealId: uuid().optional(),
+  body: z.string().min(1).max(8000),
+  authorUserId: uuid().optional(),
+  appearanceIcon: z.string().trim().max(100).optional().nullable(),
+  appearanceColor: z
+    .string()
+    .trim()
+    .regex(/^#([0-9a-fA-F]{6})$/)
+    .optional()
+    .nullable(),
+})
+
+export const commentUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(commentCreateSchema.partial())
+
+export const addressCreateSchema = scopedSchema.extend({
+  entityId: uuid(),
+  name: z.string().max(150).optional(),
+  purpose: z.string().max(150).optional(),
+  companyName: z.string().max(200).optional(),
+  addressLine1: z.string().min(1).max(300),
+  addressLine2: z.string().max(300).optional(),
+  buildingNumber: z.string().max(50).optional(),
+  flatNumber: z.string().max(50).optional(),
+  city: z.string().max(150).optional(),
+  region: z.string().max(150).optional(),
+  postalCode: z.string().max(30).optional(),
+  country: z.string().max(150).optional(),
+  latitude: z.coerce
+    .number()
+    .min(COORDINATE_RANGES.latitude.min)
+    .max(COORDINATE_RANGES.latitude.max)
+    .nullable()
+    .optional(),
+  longitude: z.coerce
+    .number()
+    .min(COORDINATE_RANGES.longitude.min)
+    .max(COORDINATE_RANGES.longitude.max)
+    .nullable()
+    .optional(),
+  isPrimary: z.boolean().optional(),
+})
+
+export const addressUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(addressCreateSchema.partial())
+
+export const tagCreateSchema = scopedSchema.extend({
+  slug: z
+    .string()
+    .min(1)
+    .max(80)
+    .regex(/^[a-z0-9_-]+$/, 'Slug must be lowercase and may contain dashes or underscores'),
+  label: z.string().min(1).max(120),
+  color: z.string().max(30).optional(),
+  description: z.string().max(400).optional(),
+})
+
+export const tagUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(tagCreateSchema.partial())
+
+const KNOWN_DICTIONARY_KINDS = [
+  'status',
+  'source',
+  'lifecycle_stage',
+  'address_type',
+  'activity_type',
+  'deal_status',
+  'pipeline_stage',
+  'job_title',
+  'industry',
+  'temperature',
+  'renewal_quarter',
+  'person_company_role',
+] as const
+const CUSTOM_DICTIONARY_KIND_PATTERN = /^[a-z0-9]+(?:[-_][a-z0-9]+)*$/
+const dictionaryKindEnum = z.string().trim().refine(
+  (value) =>
+    (KNOWN_DICTIONARY_KINDS as readonly string[]).includes(value) ||
+    CUSTOM_DICTIONARY_KIND_PATTERN.test(value),
+  { message: 'Unsupported dictionary kind' },
+)
+
+const dictionaryValueSchema = z.string().trim().min(1).max(150)
+const dictionaryLabelSchema = z.string().trim().max(150)
+// Pipeline-stage rows migrated to semantic tone identifiers in
+// Migration20260519120000_pipeline_stage_color_tones; AddStageDialog now writes those
+// directly. Other dictionary kinds still store hex. Accept either format so round-tripping
+// a migrated pipeline-stage entry through the dictionary edit UI doesn't fail validation.
+const DICTIONARY_COLOR_TONES = ['success', 'warning', 'info', 'error', 'neutral', 'brand', 'pink'] as const
+const dictionaryColorSchema = z
+  .string()
+  .trim()
+  .regex(
+    new RegExp(`^(#[0-9a-fA-F]{6}|${DICTIONARY_COLOR_TONES.join('|')})$`),
+    'Color must be a six-digit hex code (e.g. #3366ff) or a semantic tone identifier',
+  )
+const dictionaryIconSchema = z.string().trim().max(48)
+
+function validateDictionaryBehavior(
+  payload: { kind: string; behavior?: unknown },
+  ctx: z.RefinementCtx,
+): void {
+  if (payload.behavior !== undefined && payload.kind !== 'activity_type') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['behavior'],
+      message: 'Behavior is only supported for activity types',
+    })
+  }
+}
+
+export const customerDictionaryEntryCreateSchema = scopedSchema.extend({
+  kind: dictionaryKindEnum,
+  value: dictionaryValueSchema,
+  label: dictionaryLabelSchema.optional(),
+  color: dictionaryColorSchema.nullable().optional(),
+  icon: dictionaryIconSchema.nullable().optional(),
+  behavior: calendarEventTypeBehaviorSchema.nullable().optional(),
+}).superRefine(validateDictionaryBehavior)
+
+export type CustomerDictionaryEntryCreateInput = z.infer<typeof customerDictionaryEntryCreateSchema>
+
+export const customerDictionaryEntryUpdateSchema = scopedSchema
+  .extend({
+    id: uuid(),
+    kind: dictionaryKindEnum,
+    value: dictionaryValueSchema.optional(),
+    label: dictionaryLabelSchema.optional(),
+    color: dictionaryColorSchema.nullable().optional(),
+    icon: dictionaryIconSchema.nullable().optional(),
+    behavior: calendarEventTypeBehaviorSchema.nullable().optional(),
+  })
+  .refine(
+    (payload) =>
+      payload.value !== undefined ||
+      payload.label !== undefined ||
+      payload.color !== undefined ||
+      payload.icon !== undefined ||
+      payload.behavior !== undefined,
+    {
+      message: 'Provide at least one field to update.',
+      path: ['value'],
+    }
+  )
+  .superRefine(validateDictionaryBehavior)
+
+export type CustomerDictionaryEntryUpdateInput = z.infer<typeof customerDictionaryEntryUpdateSchema>
+
+export const customerDictionaryEntryDeleteSchema = scopedSchema.extend({
+  id: uuid(),
+  kind: dictionaryKindEnum,
+})
+
+export type CustomerDictionaryEntryDeleteInput = z.infer<typeof customerDictionaryEntryDeleteSchema>
+
+export const tagAssignmentSchema = scopedSchema.extend({
+  tagId: uuid(),
+  entityId: uuid(),
+})
+
+export const todoLinkCreateSchema = scopedSchema.extend({
+  entityId: uuid(),
+  todoId: uuid(),
+  todoSource: z.string().min(1).max(120).default('customers:interaction'),
+  createdByUserId: uuid().optional(),
+})
+
+export const todoLinkWithTodoCreateSchema = scopedSchema.extend({
+  entityId: uuid(),
+  title: z.string().min(1).max(200),
+  isDone: z.boolean().optional(),
+  is_done: z.boolean().optional(),
+  todoSource: z.string().min(1).max(120).default('customers:interaction'),
+  createdByUserId: uuid().optional(),
+  todoCustom: z.record(z.string(), z.any()).optional(),
+  custom: z.record(z.string(), z.any()).optional(),
+})
+
+// --- Interaction schemas ---
+
+/**
+ * @deprecated Interaction statuses are now dictionary-backed and tenant-configurable
+ * (the `interaction-statuses` dictionary). This frozen 3-value list is kept only for
+ * backward compatibility; it is no longer the validation source (the API accepts any
+ * `z.string().max(50)`). For open/terminal semantics use `lib/interactionStatus.ts`
+ * (`isOpenInteractionStatus` / `isTerminalInteractionStatus` / `INTERACTION_STATUS_*`);
+ * for the seeded default set use `INTERACTION_STATUS_DEFAULTS` in `cli.ts`. Do not expand
+ * this list — adding members would break exhaustive consumers.
+ */
+export const interactionStatusValues = ['planned', 'done', 'canceled'] as const
+/** @deprecated See {@link interactionStatusValues}. */
+export type InteractionStatus = typeof interactionStatusValues[number]
+
+// A participant is either a real record (`userId`) or an external guest carrying
+// no id at all. A guest is only addressable through its email, so that email is
+// required and must actually be routable — an unparseable string would persist
+// and only fail later, at invitation or calendar-sync time. Participants that DO
+// have a userId keep an unvalidated auxiliary email, as before.
+const interactionParticipantSchema = z
+  .object({
+    userId: z.string().uuid().optional(),
+    name: z.string().trim().max(200).optional(),
+    email: z.string().trim().max(320).optional(),
+    status: z.string().trim().max(50).optional(),
+  })
+  .superRefine((participant, ctx) => {
+    if (participant.userId) return
+    if (!participant.email) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['email'],
+        message: INTERACTION_PARTICIPANT_IDENTITY_REQUIRED_MESSAGE_KEY,
+      })
+      return
+    }
+    if (!z.string().email().safeParse(participant.email).success) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['email'],
+        message: INTERACTION_PARTICIPANT_EMAIL_INVALID_MESSAGE_KEY,
+      })
+    }
+  })
+
+const interactionLinkedEntitySchema = z.object({
+  id: z.string().uuid(),
+  // 'resource' links calendar events to bookable resources (rooms, cars,
+  // equipment) from the optional resources module (#3552).
+  // 'person' links an interaction to a `customer_entities` row with kind='person',
+  // a first-class CRM record like a company (#5934).
+  type: z.enum(['company', 'deal', 'offer', 'resource', 'person']),
+  label: z.string().trim().max(500),
+})
+
+const interactionGuestPermissionsSchema = z
+  .object({
+    canInviteOthers: z.boolean().optional(),
+    canModify: z.boolean().optional(),
+    canSeeList: z.boolean().optional(),
+  })
+  .strict()
+
+export const calendarTimezoneSchema = z.string().trim().min(1).max(120).refine(isCalendarTimezone, { message: 'customers.calendar.editor.validation.timezoneInvalid' })
+
+const interactionExtendedFields = {
+  timezone: calendarTimezoneSchema.optional().nullable(),
+  durationMinutes: z.number().int().min(0).optional().nullable(),
+  location: z.string().trim().max(500).optional().nullable(),
+  allDay: z.boolean().optional().nullable(),
+  recurrenceRule: z.string().trim().max(500).optional().nullable(),
+  recurrenceEnd: z.coerce.date().optional().nullable(),
+  participants: z.array(interactionParticipantSchema).optional().nullable(),
+  reminderMinutes: z.number().int().min(0).optional().nullable(),
+  visibility: z.string().trim().max(50).optional().nullable(),
+  linkedEntities: z.array(interactionLinkedEntitySchema).optional().nullable(),
+  guestPermissions: interactionGuestPermissionsSchema.optional().nullable(),
+} as const
+
+const interactionCreateBaseSchema = scopedSchema.extend({
+  id: z.string().uuid().optional(),
+  entityId: z.string().uuid(),
+  interactionType: z.string().trim().min(1).max(100),
+  enforceSelectableType: z.boolean().optional(),
+  title: z.string().trim().max(500).optional().nullable(),
+  body: z.string().trim().max(10000).optional().nullable(),
+  // Lenient like `deal_status` (status: z.string().max(50)). The `interaction-statuses`
+  // dictionary drives the UI dropdown; the API accepts any string <=50 chars so existing
+  // rows, external writers, and the dispatch-crm MCP keep working. Open/terminal semantics
+  // live in lib/interactionStatus.ts, not in this validator.
+  status: z.string().max(50).optional().default('planned'),
+  // Nullable like the sibling `scheduledAt` below: an undated activity (a
+  // backlog task) says "no date" with an explicit null, not by omission (#5941).
+  date: z.string().trim().min(1, ACTIVITY_DATE_REQUIRED_MESSAGE_KEY).optional().nullable(),
+  time: z.string().trim().min(1, ACTIVITY_TIME_REQUIRED_MESSAGE_KEY).optional().nullable(),
+  phoneNumber: interactionPhoneNumberSchema,
+  scheduledAt: z.coerce.date().optional().nullable(),
+  occurredAt: z.coerce.date().optional().nullable(),
+  priority: z.number().int().min(0).max(100).optional().nullable(),
+  authorUserId: z.string().uuid().optional().nullable(),
+  ownerUserId: z.string().uuid().optional().nullable(),
+  dealId: z.string().uuid().optional().nullable(),
+  appearanceIcon: z.string().trim().max(100).optional().nullable(),
+  appearanceColor: z.string().trim().regex(/^#([0-9a-fA-F]{6})$/).optional().nullable(),
+  source: z.string().trim().max(100).optional().nullable(),
+  ...interactionExtendedFields,
+})
+
+function deriveScheduledAtFromDateTime(date?: string | null, time?: string | null, timezone?: string | null, allDay?: boolean | null): Date | null {
+  if (!date || typeof date !== 'string') return null
+  const trimmedDate = date.trim()
+  if (!trimmedDate) return null
+  const trimmedTime = typeof time === 'string' ? time.trim() : ''
+  if (timezone && allDay) return calendarDayStartInstant(trimmedDate, timezone)
+  if (timezone) return calendarWallTimeToInstant(trimmedDate, trimmedTime || '00:00', timezone)
+  const iso = trimmedTime ? `${trimmedDate}T${trimmedTime}:00` : `${trimmedDate}T00:00:00`
+  const parsed = new Date(iso)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+export const interactionCreateSchema = interactionCreateBaseSchema
+  .superRefine((value, ctx) => {
+    if (value.interactionType === 'call' && value.phoneNumber !== undefined && value.phoneNumber !== null) {
+      const phone = typeof value.phoneNumber === 'string' ? value.phoneNumber.trim() : ''
+      if (!phone) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['phoneNumber'],
+          message: ACTIVITY_PHONE_REQUIRED_MESSAGE_KEY,
+        })
+      } else if (!isValidPhoneNumber(phone)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['phoneNumber'],
+          message: ACTIVITY_PHONE_INVALID_MESSAGE_KEY,
+        })
+      }
+    }
+  })
+  // Derive `scheduledAt` from `date+time` when only the latter are sent so
+  // external API consumers don't silently persist `scheduled_at: null` after
+  // the validator already enforced non-empty date/time. The form already
+  // computes `scheduledAt` itself, so this branch is a no-op for the form path.
+  .transform((value, ctx) => {
+    if (value.scheduledAt) return value
+    const derived = deriveScheduledAtFromDateTime(value.date, value.time, value.timezone, value.allDay)
+    if (value.timezone && value.date && !derived) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['time'], message: 'customers.calendar.editor.validation.timezoneGap' })
+      return z.NEVER
+    }
+    return derived ? { ...value, scheduledAt: derived } : value
+  })
+
+export type InteractionCreateInput = z.infer<typeof interactionCreateSchema>
+
+const interactionUpdateBaseSchema = z
+  .object({
+    id: z.string().uuid(),
+  })
+  .merge(
+    scopedSchema
+      .extend({
+        // Re-link an existing interaction to a different person/company, the same way
+        // `dealId` below already re-links it to a different deal (#5938). Not nullable:
+        // `CustomerInteraction.entity` is a required relation, so there is no "detach"
+        // state to express — that depends on #5935 making the column nullable first.
+        entityId: z.string().uuid().optional(),
+        interactionType: z.string().trim().min(1).max(100).optional(),
+        enforceSelectableType: z.boolean().optional(),
+        confirmDiscardInapplicableValues: z.boolean().optional(),
+        title: z.string().trim().max(500).optional().nullable(),
+        body: z.string().trim().max(10000).optional().nullable(),
+        status: z.string().max(50).optional(),
+        date: z.string().trim().min(1, ACTIVITY_DATE_REQUIRED_MESSAGE_KEY).optional().nullable(),
+        time: z.string().trim().min(1, ACTIVITY_TIME_REQUIRED_MESSAGE_KEY).optional().nullable(),
+        phoneNumber: interactionPhoneNumberSchema,
+        scheduledAt: z.coerce.date().optional().nullable(),
+        occurredAt: z.coerce.date().optional().nullable(),
+        priority: z.number().int().min(0).max(100).optional().nullable(),
+        authorUserId: z.string().uuid().optional().nullable(),
+        ownerUserId: z.string().uuid().optional().nullable(),
+        dealId: z.string().uuid().optional().nullable(),
+        appearanceIcon: z.string().trim().max(100).optional().nullable(),
+        appearanceColor: z.string().trim().regex(/^#([0-9a-fA-F]{6})$/).optional().nullable(),
+        pinned: z.boolean().optional(),
+        ...interactionExtendedFields,
+      })
+      .partial(),
+  )
+
+export const interactionUpdateSchema = interactionUpdateBaseSchema
+  .superRefine((value, ctx) => {
+    if (value.interactionType === 'call' && value.phoneNumber !== undefined) {
+      const phone = typeof value.phoneNumber === 'string' ? value.phoneNumber.trim() : ''
+      if (!phone) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['phoneNumber'],
+          message: ACTIVITY_PHONE_REQUIRED_MESSAGE_KEY,
+        })
+      } else if (!isValidPhoneNumber(phone)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['phoneNumber'],
+          message: ACTIVITY_PHONE_INVALID_MESSAGE_KEY,
+        })
+      }
+    }
+  })
+  // Mirror the create-schema derivation for partial updates: when an external
+  // caller supplies `date+time` without `scheduledAt`, derive the timestamp so
+  // the update doesn't silently leave `scheduled_at` stale.
+  .transform((value, ctx) => {
+    if (value.scheduledAt !== undefined) return value
+    // An explicit `date: null` is how a caller drops the due date; mirror it
+    // onto `scheduledAt` rather than leaving the old timestamp behind (#5941).
+    if (value.date === null) return { ...value, scheduledAt: null }
+    if (!value.date && !value.time) return value
+    const derived = deriveScheduledAtFromDateTime(value.date, value.time, value.timezone, value.allDay)
+    if (value.timezone && value.date && !derived) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['time'], message: 'customers.calendar.editor.validation.timezoneGap' })
+      return z.NEVER
+    }
+    return derived ? { ...value, scheduledAt: derived } : value
+  })
+
+export type InteractionUpdateInput = z.infer<typeof interactionUpdateSchema>
+
+export const interactionCompleteSchema = z.object({
+  id: z.string().uuid(),
+  occurredAt: z.coerce.date().optional(),
+})
+
+export const interactionCancelSchema = z.object({
+  id: z.string().uuid(),
+})
+
+export const customerAddressFormatSchema = z.enum(['line_first', 'street_first'])
+
+export const customerSettingsUpsertSchema = scopedSchema.extend({
+  addressFormat: customerAddressFormatSchema,
+})
+
+export const customerStuckThresholdUpsertSchema = scopedSchema.extend({
+  stuckThresholdDays: z.number().int().min(1).max(365),
+})
+
+export const customerDictionarySortModesSchema = z.record(z.string(), dictionaryEntrySortModeSchema)
+
+export const customerDictionarySortModesUpsertSchema = scopedSchema.extend({
+  dictionarySortModes: customerDictionarySortModesSchema,
+})
+
+export type PersonCreateInput = z.infer<typeof personCreateSchema>
+export type PersonUpdateInput = z.infer<typeof personUpdateSchema>
+export type CompanyCreateInput = z.infer<typeof companyCreateSchema>
+export type CompanyUpdateInput = z.infer<typeof companyUpdateSchema>
+export type DealCreateInput = z.infer<typeof dealCreateSchema>
+export type DealUpdateInput = z.infer<typeof dealUpdateSchema>
+export type ActivityCreateInput = z.infer<typeof activityCreateSchema>
+export type ActivityUpdateInput = z.infer<typeof activityUpdateSchema>
+export type CommentCreateInput = z.infer<typeof commentCreateSchema>
+export type CommentUpdateInput = z.infer<typeof commentUpdateSchema>
+export type AddressCreateInput = z.infer<typeof addressCreateSchema>
+export type AddressUpdateInput = z.infer<typeof addressUpdateSchema>
+export type TagCreateInput = z.infer<typeof tagCreateSchema>
+export type TagUpdateInput = z.infer<typeof tagUpdateSchema>
+export type TagAssignmentInput = z.infer<typeof tagAssignmentSchema>
+export type TodoLinkCreateInput = z.infer<typeof todoLinkCreateSchema>
+export type TodoLinkWithTodoCreateInput = z.infer<typeof todoLinkWithTodoCreateSchema>
+export type CustomerSettingsUpsertInput = z.infer<typeof customerSettingsUpsertSchema>
+export type CustomerStuckThresholdUpsertInput = z.infer<typeof customerStuckThresholdUpsertSchema>
+export type CustomerDictionarySortModesUpsertInput = z.infer<typeof customerDictionarySortModesUpsertSchema>
+export type CustomerAddressFormatInput = z.infer<typeof customerAddressFormatSchema>
+export type InteractionCompleteInput = z.infer<typeof interactionCompleteSchema>
+export type InteractionCancelInput = z.infer<typeof interactionCancelSchema>
+
+// --- Pipeline schemas ---
+
+export const pipelineCreateSchema = scopedSchema.extend({
+  name: z.string().trim().min(1).max(200),
+  isDefault: z.boolean().optional(),
+})
+
+export const pipelineUpdateSchema = z.object({
+  id: uuid(),
+  name: z.string().trim().min(1).max(200).optional(),
+  isDefault: z.boolean().optional(),
+})
+
+export const pipelineDeleteSchema = z.object({
+  id: uuid(),
+})
+
+export type PipelineCreateInput = z.infer<typeof pipelineCreateSchema>
+export type PipelineUpdateInput = z.infer<typeof pipelineUpdateSchema>
+export type PipelineDeleteInput = z.infer<typeof pipelineDeleteSchema>
+
+// --- Pipeline Stage schemas ---
+
+export const pipelineStageCreateSchema = scopedSchema.extend({
+  pipelineId: uuid(),
+  label: z.string().trim().min(1).max(200),
+  order: z.number().int().min(0).optional(),
+  color: z.string().trim().max(20).nullish(),
+  icon: z.string().trim().max(100).nullish(),
+})
+
+export const pipelineStageUpdateSchema = z.object({
+  id: uuid(),
+  label: z.string().trim().min(1).max(200).optional(),
+  order: z.number().int().min(0).optional(),
+  color: z.string().trim().max(20).nullish(),
+  icon: z.string().trim().max(100).nullish(),
+})
+
+export const pipelineStageDeleteSchema = z.object({
+  id: uuid(),
+})
+
+export const pipelineStageReorderSchema = scopedSchema.extend({
+  stages: z.array(z.object({
+    id: uuid(),
+    order: z.number().int().min(0),
+  })).min(1),
+})
+
+export type PipelineStageCreateInput = z.infer<typeof pipelineStageCreateSchema>
+export type PipelineStageUpdateInput = z.infer<typeof pipelineStageUpdateSchema>
+export type PipelineStageDeleteInput = z.infer<typeof pipelineStageDeleteSchema>
+export type PipelineStageReorderInput = z.infer<typeof pipelineStageReorderSchema>
+
+export const entityRoleCreateSchema = scopedSchema.extend({
+  entityType: z.enum(['company', 'person']),
+  entityId: uuid(),
+  roleType: z.string().trim().min(1).max(100),
+  userId: uuid(),
+})
+
+export const entityRoleUpdateSchema = scopedSchema.extend({
+  id: uuid(),
+  userId: uuid(),
+})
+
+export const entityRoleDeleteSchema = scopedSchema.extend({
+  id: uuid(),
+})
+
+export type EntityRoleCreateInput = z.infer<typeof entityRoleCreateSchema>
+export type EntityRoleUpdateInput = z.infer<typeof entityRoleUpdateSchema>
+export type EntityRoleDeleteInput = z.infer<typeof entityRoleDeleteSchema>
+
+export const updateKindSettingSchema = z.object({
+  kind: z.string().trim().min(1).max(100),
+  selectionMode: z.enum(['single', 'multi']).optional(),
+  visibleInTags: z.boolean().optional(),
+  sortOrder: z.number().int().min(0).optional(),
+})
+
+export type UpdateKindSettingInput = z.infer<typeof updateKindSettingSchema>
+
+export const customerKindSettingsUpsertSchema = scopedSchema.extend({
+  kind: z.string().trim().min(1).max(100),
+  selectionMode: z.enum(['single', 'multi']).optional(),
+  visibleInTags: z.boolean().optional(),
+  sortOrder: z.number().int().min(0).optional(),
+})
+
+export type CustomerKindSettingsUpsertInput = z.infer<typeof customerKindSettingsUpsertSchema>
+
+export const labelCreateSchema = z.object({
+  label: z.string().trim().min(1).max(120),
+  slug: z.string().trim().min(1).max(80).regex(/^[a-z0-9_-]+$/).optional(),
+})
+
+export type LabelCreateInput = z.infer<typeof labelCreateSchema>
+
+export const labelCreateCommandSchema = scopedSchema.extend({
+  label: z.string().trim().min(1).max(120),
+  slug: z.string().trim().min(1).max(80).regex(/^[a-z0-9_-]+$/),
+  userId: uuid(),
+})
+
+export type LabelCreateCommandInput = z.infer<typeof labelCreateCommandSchema>
+
+export const labelAssignmentSchema = z.object({
+  labelId: z.string().uuid(),
+  entityId: z.string().uuid(),
+})
+
+export type LabelAssignmentInput = z.infer<typeof labelAssignmentSchema>
+
+export const labelAssignCommandSchema = scopedSchema.extend({
+  labelId: uuid(),
+  entityId: uuid(),
+})
+
+export const labelUnassignCommandSchema = scopedSchema.extend({
+  labelId: uuid(),
+  entityId: uuid(),
+})
+
+export type LabelAssignCommandInput = z.infer<typeof labelAssignCommandSchema>
+export type LabelUnassignCommandInput = z.infer<typeof labelUnassignCommandSchema>
+
+/**
+ * Set (or clear) the caller's own email-conversation share for one Person.
+ *
+ * Deliberately carries NO owner field: the command derives the owner from the
+ * authenticated actor, so there is no request shape that could share another
+ * user's mailbox.
+ */
+export const emailConversationShareSetCommandSchema = scopedSchema.extend({
+  personEntityId: uuid(),
+  shared: z.boolean(),
+  expectedUpdatedAt: z.string().min(1).nullable().optional(),
+})
+
+export type EmailConversationShareSetCommandInput = z.infer<
+  typeof emailConversationShareSetCommandSchema
+>
+
+export const personCompanyLinkCreateSchema = scopedSchema.extend({
+  personEntityId: uuid(),
+  companyEntityId: uuid(),
+  isPrimary: z.boolean().optional(),
+})
+
+export const personCompanyLinkUpdateSchema = scopedSchema.extend({
+  linkId: uuid(),
+  isPrimary: z.boolean(),
+})
+
+// Two shapes are accepted, because a person can belong to a company in two ways:
+// through a `customer_person_company_links` row (`linkId`), or through a legacy
+// profile-only assignment where `customer_person_profiles.company_id` is set and no
+// link row was ever created (migrated CRM data, #5114). Both detaches go through the
+// same command so audit, undo and cache invalidation stay consistent.
+export const personCompanyLinkDeleteSchema = scopedSchema
+  .extend({
+    linkId: uuid().optional(),
+    personEntityId: uuid().optional(),
+    companyEntityId: uuid().optional(),
+  })
+  .refine(
+    (payload) => Boolean(payload.linkId) || Boolean(payload.personEntityId && payload.companyEntityId),
+    {
+      message: 'Provide either linkId or both personEntityId and companyEntityId.',
+      path: ['linkId'],
+    }
+  )
+
+export type PersonCompanyLinkCreateInput = z.infer<typeof personCompanyLinkCreateSchema>
+export type PersonCompanyLinkUpdateInput = z.infer<typeof personCompanyLinkUpdateSchema>
+export type PersonCompanyLinkDeleteInput = z.infer<typeof personCompanyLinkDeleteSchema>

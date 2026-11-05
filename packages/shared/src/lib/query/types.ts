@@ -1,0 +1,224 @@
+import type { EntityId } from '@open-mercato/shared/modules/entities'
+import type { Profiler } from '../profiler'
+import type { CiphertextSearchWarning } from './ciphertext-search-warning'
+import type { ResolvedCustomFieldDefinitions } from '../crud/custom-field-definition-index'
+
+/**
+ * `overlap` (additive, 2026-10-05): "has any of" over a multi-valued field. An index-document
+ * string array compiles to jsonb `?|`, a `cf:*` key to any-value-in-set, and an array-typed base
+ * column to `&&`. An empty value list matches nothing.
+ *
+ * `noverlap` (additive, 2026-10-05): "has none of" — the negation of `overlap` on an index-document
+ * string array or an array-typed base column. Only a present array can match (a missing/null key or
+ * NULL column never does); an empty value list excludes nothing. Unsupported on `cf:*` keys, where
+ * it compiles to `false`.
+ */
+export type FilterOp = 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'in' | 'nin' | 'like' | 'ilike' | 'exists' | 'overlap' | 'noverlap'
+
+export enum SortDir {
+  Asc = 'asc',
+  Desc = 'desc',
+}
+
+export type FieldSelector = string // base field or custom field key (prefixed with 'cf:')
+
+export type Filter = {
+  field: FieldSelector
+  op: FilterOp
+  value?: any
+}
+
+export type Sort = { field: FieldSelector; dir?: SortDir }
+
+export type Page = { page?: number; pageSize?: number }
+
+// Mongo/Medusa-style filter operators (typed)
+export type WhereOps<T> = {
+  $eq?: T
+  $ne?: T | null
+  $gt?: T extends number | Date ? T : never
+  $gte?: T extends number | Date ? T : never
+  $lt?: T extends number | Date ? T : never
+  $lte?: T extends number | Date ? T : never
+  $in?: T[]
+  $nin?: T[]
+  $like?: T extends string ? string : never
+  $ilike?: T extends string ? string : never
+  $exists?: boolean
+  $overlap?: T extends readonly (infer Element)[] ? Element[] : T[]
+  $noverlap?: T extends readonly (infer Element)[] ? Element[] : T[]
+}
+
+// A field filter can be a direct value (equals) or ops object
+export type WhereValue<T = any> = T | WhereOps<T>
+
+// Generic shape for object filters. If you have a typed map of field→type,
+// pass it as the generic to get end-to-end typing.
+// Example: Where<{
+//   id: string; title: string; created_at: Date; 'cf:severity': number
+// }>
+export type Where<Fields extends Record<string, any> = Record<string, any>> =
+  Partial<{ [K in keyof Fields]: WhereValue<Fields[K]> }> & Record<string, WhereValue>
+
+export type QueryCustomFieldJoin = {
+  fromField: string
+  toField: string
+  type?: 'left' | 'inner'
+}
+
+export type QueryCustomFieldSource = {
+  entityId: EntityId
+  table?: string
+  alias?: string
+  recordIdColumn?: string
+  join?: QueryCustomFieldJoin
+  tenantField?: string
+  organizationField?: string
+}
+
+export type QueryJoinEdge = {
+  alias: string
+  table?: string
+  entityId?: EntityId
+  from: {
+    alias?: string
+    field: string
+  }
+  to: {
+    field: string
+  }
+  type?: 'left' | 'inner'
+}
+
+/**
+ * Optional context for query-level UMES extensions.
+ * When provided, the query engine will execute sync lifecycle events
+ * (querying/queried) and apply query-enabled enrichers.
+ */
+export type QueryExtensionsConfig = {
+  userId?: string
+  container?: unknown
+  userFeatures?: string[]
+  resolve?: <T = unknown>(name: string) => T
+}
+
+export type QueryOptions = {
+  fields?: FieldSelector[] // base fields and/or 'cf:<key>' for custom fields
+  includeExtensions?: boolean | string[] // include all registered extensions or only specific ones by entity id
+  includeCustomFields?: boolean | string[] // include all CFs or specific keys
+  // Accept classic array syntax or Mongo-style object syntax
+  filters?: Filter[] | Where
+  sort?: Sort[]
+  page?: Page
+  organizationId?: string // enforce multi-tenant scope
+  tenantId?: string // enforce tenant scope
+  // Optional list of organization ids to scope results. Takes precedence over organizationId.
+  organizationIds?: string[]
+  /**
+   * When true, the engine does not apply default `organization_id` / `tenant_id` equality guards.
+   *
+   * Callers MUST encode full visibility in `filters` (for example with `$or` of scoped branches)
+   * and MUST fail closed when the authenticated principal lacks a resolvable tenant/org, otherwise
+   * queries return cross-tenant rows.
+   *
+   * When this flag is set, the hybrid query engine delegates to the basic engine. The basic engine
+   * still applies `cf:*` filters/sorts, but `search_tokens` fulltext filtering, the JSONB index read
+   * path, and the vector-search branch are BYPASSED. Only use this on entities whose scoping does
+   * not match the standard `organization_id = X AND tenant_id = Y` shape.
+   */
+  omitAutomaticTenantOrgScope?: boolean
+  /**
+   * When `false`, the engine returns encrypted fields as stored (ciphertext) instead of decrypting
+   * them, and performs no DEK lookup at all. Defaults to `true` — today's behaviour — so existing
+   * callers are unaffected.
+   *
+   * Use it on generic, entity-agnostic surfaces that select every column and do not need plaintext.
+   * Opting in to decline decryption is not an access control: when decryption DOES run it is bound
+   * to the caller's tenant by `resolveDecryptScope`, which refuses any row whose `tenant_id`
+   * contradicts `tenantId`.
+   *
+   * Caveat: declining also disables the plaintext-sort path, so a `sort` on an encrypted field
+   * degrades to SQL `ORDER BY` over ciphertext — a meaningless order. Both engines log one warning
+   * when that combination is requested.
+   */
+  decryptEncryptedFields?: boolean
+  // Soft-delete behavior: when false (default), rows with non-null deleted_at
+  // are excluded if the base table has that column. Set true to include them.
+  withDeleted?: boolean
+  customFieldSources?: QueryCustomFieldSource[]
+  joins?: QueryJoinEdge[]
+  profiler?: Profiler
+  // When true, suppress automatic reindex scheduling triggered by coverage gap detection.
+  // Used by the search indexing pipeline to prevent feedback loops where indexing triggers
+  // re-indexing indefinitely.
+  skipAutoReindex?: boolean
+  /**
+   * Force routing this query to custom-entity doc storage (`custom_entities_storage`)
+   * instead of classifying the entity automatically. Automatic classification routes
+   * ids backed by a registered ORM table to that base table, so surfaces that manage
+   * doc records for ids that are ALSO table-backed (e.g. the entities records browser
+   * reading a module-declared custom entity such as `example:todo`) must set this flag.
+   * Honored by the hybrid query engine only; `BasicQueryEngine` has no doc-storage
+   * reader and ignores it.
+   */
+  forceCustomEntityStorage?: boolean
+  // Optional UMES query extensions context. When provided, the engine will
+  // emit sync lifecycle events and apply query-level enrichers.
+  extensions?: QueryExtensionsConfig
+}
+
+export type PartialIndexWarning = {
+  entity: EntityId
+  entityLabel?: string | null
+  baseCount?: number | null
+  indexedCount?: number | null
+  scope?: 'scoped' | 'global'
+}
+
+export type EncryptedSortRowCapWarning = {
+  entity: EntityId
+  sortFields: string[]
+  maxRows: number
+  /**
+   * Exact when `meta.listCountCapWarning` is absent; a floor when it is
+   * present (the list total itself was bounded at the cap).
+   */
+  totalMatched: number
+}
+
+/**
+ * Present when the list COUNT was bounded at `cap` matching rows
+ * (`OM_LIST_COUNT_CAP`): `total` is a floor, not an exact value. Surfaced on
+ * CRUD list payloads as `totalIsCapped: true`.
+ */
+export type ListCountCapWarning = {
+  entity: EntityId
+  cap: number
+}
+
+export type QueryResultMeta = {
+  ciphertextSearchWarnings?: CiphertextSearchWarning[]
+  partialIndexWarning?: PartialIndexWarning
+  encryptedSortRowCapWarning?: EncryptedSortRowCapWarning
+  listCountCapWarning?: ListCountCapWarning
+}
+
+export type QueryResult<T = any> = {
+  items: T[]
+  page: number
+  pageSize: number
+  total: number
+  meta?: QueryResultMeta
+  /**
+   * Custom-field definitions the engine resolved while building this result
+   * (only present when `includeCustomFields: true`). Lets the CRUD factory
+   * decorate list rows without reloading definitions from the DB (issue #2133).
+   * Internal contract — additive and optional; callers must treat absence as a
+   * cue to load definitions themselves.
+   */
+  customFieldDefinitions?: ResolvedCustomFieldDefinitions
+}
+
+export interface QueryEngine {
+  query<T = any>(entity: EntityId, opts?: QueryOptions): Promise<QueryResult<T>>
+}

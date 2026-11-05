@@ -1,0 +1,187 @@
+/**
+ * @jest-environment jsdom
+ */
+import * as React from 'react'
+import { render, screen } from '@testing-library/react'
+import { registerComponentOverrides } from '@open-mercato/shared/modules/widgets/component-registry'
+import {
+  PERSON_DETAIL_TABS_COMPONENT_ID,
+  PersonDetailTabs,
+  type PersonDetailTabsProps,
+  resolveLegacyTab,
+} from '../PersonDetailTabs'
+
+jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
+  useT: () => (key: string, fallback?: string) => fallback ?? key,
+}))
+
+jest.mock('@open-mercato/ui/primitives/button', () => ({
+  Button: ({ children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) => <button {...props}>{children}</button>,
+}))
+
+describe('PersonDetailTabs', () => {
+  it('preserves a pending injected selection and native defaults while sorting deduplicated tabs', () => {
+    const onTabChange = jest.fn()
+    const { rerender } = render(
+      <PersonDetailTabs activeTab="crm.pending" onTabChange={onTabChange} isLoadingInjectedTabs>
+        <div>content</div>
+      </PersonDetailTabs>,
+    )
+    expect(onTabChange).not.toHaveBeenCalled()
+    const injectedTabs = [
+      { id: 'crm.pending', label: 'Pending', priority: 1000 },
+      { id: 'crm.pending', label: 'Duplicate', priority: 2000 },
+      { id: 'activities', label: 'Spoofed native', priority: 3000 },
+    ]
+    rerender(
+      <PersonDetailTabs activeTab="crm.pending" onTabChange={onTabChange} injectedTabs={injectedTabs}>
+        <div>content</div>
+      </PersonDetailTabs>,
+    )
+    expect(screen.getAllByRole('tab')[0]).toHaveTextContent('Pending')
+    expect(screen.getByRole('tab', { name: 'Pending', exact: true })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.queryByRole('tab', { name: 'Duplicate', exact: true })).toBeNull()
+    expect(screen.queryByRole('tab', { name: 'Spoofed native', exact: true })).toBeNull()
+    expect(onTabChange).not.toHaveBeenCalled()
+    rerender(
+      <PersonDetailTabs activeTab="activities" onTabChange={onTabChange} injectedTabs={injectedTabs}>
+        <div>content</div>
+      </PersonDetailTabs>,
+    )
+    expect(screen.getByRole('tab', { name: 'Activities' })).toHaveAttribute('aria-selected', 'true')
+    expect(onTabChange).not.toHaveBeenCalled()
+  })
+
+  afterEach(() => {
+    registerComponentOverrides([])
+  })
+
+  it('renders an Addresses tab', () => {
+    render(
+      <PersonDetailTabs activeTab="activities" onTabChange={() => {}}>
+        <div>content</div>
+      </PersonDetailTabs>,
+    )
+    expect(screen.getByRole('tab', { name: /address/i })).toBeInTheDocument()
+  })
+
+  it.each([
+    { tasksCount: 0, label: 'Tasks' },
+    { tasksCount: 2, label: 'Tasks 2' },
+    { tasksCount: 1000, label: 'Tasks 999+' },
+  ])(
+    'renders the task total $tasksCount using the shared badge',
+    ({ tasksCount, label }) => {
+      render(
+        <PersonDetailTabs activeTab="activities" onTabChange={() => {}} tasksCount={tasksCount}>
+          <div>content</div>
+        </PersonDetailTabs>,
+      )
+      expect(screen.getByRole('tab', { name: label })).toBeInTheDocument()
+    },
+  )
+
+  it('hides built-in and injected tabs listed in hiddenTabIds (#4379)', () => {
+    render(
+      <PersonDetailTabs
+        activeTab="activities"
+        onTabChange={() => {}}
+        hiddenTabIds={['emails', 'crm.custom-tab']}
+        injectedTabs={[
+          { id: 'crm.custom-tab', label: 'Custom' },
+          { id: 'crm.other-tab', label: 'Other' },
+        ]}
+      >
+        <div>content</div>
+      </PersonDetailTabs>,
+    )
+    expect(screen.queryByRole('tab', { name: /emails/i })).toBeNull()
+    expect(screen.queryByRole('tab', { name: 'Custom' })).toBeNull()
+    expect(screen.getByRole('tab', { name: 'Other' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /activities/i })).toBeInTheDocument()
+  })
+
+  it('lets a downstream props transform hide tabs without replacing the detail page (#4379)', () => {
+    registerComponentOverrides([
+      {
+        target: { componentId: PERSON_DETAIL_TABS_COMPONENT_ID },
+        priority: 50,
+        metadata: { module: 'test' },
+        propsTransform: (props: PersonDetailTabsProps) => ({
+          ...props,
+          hiddenTabIds: ['emails'],
+        }),
+      },
+    ])
+    render(
+      <PersonDetailTabs activeTab="activities" onTabChange={() => {}}>
+        <div>content</div>
+      </PersonDetailTabs>,
+    )
+    expect(screen.queryByRole('tab', { name: /emails/i })).toBeNull()
+    expect(screen.getByRole('tab', { name: /activities/i })).toBeInTheDocument()
+  })
+
+  describe('injected tab ordering', () => {
+    function tabOrder() {
+      return screen.getAllByRole('tab').map((tab) => tab.textContent?.trim())
+    }
+
+    it('places an injected tab before the built-in tabs when its priority is higher', () => {
+      render(
+        <PersonDetailTabs
+          activeTab="activities"
+          onTabChange={() => {}}
+          injectedTabs={[{ id: 'crm.overview', label: 'Overview', priority: 1000 }]}
+        >
+          <div>content</div>
+        </PersonDetailTabs>,
+      )
+      expect(tabOrder()[0]).toBe('Overview')
+    })
+
+    it('keeps an injected tab without a priority after every built-in tab', () => {
+      render(
+        <PersonDetailTabs
+          activeTab="activities"
+          onTabChange={() => {}}
+          injectedTabs={[{ id: 'crm.overview', label: 'Overview' }]}
+        >
+          <div>content</div>
+        </PersonDetailTabs>,
+      )
+      const order = tabOrder()
+      expect(order[0]).not.toBe('Overview')
+      expect(order[order.length - 1]).toBe('Overview')
+    })
+
+    it('keeps the declared order of injected tabs that share a priority', () => {
+      render(
+        <PersonDetailTabs
+          activeTab="activities"
+          onTabChange={() => {}}
+          injectedTabs={[
+            { id: 'crm.first', label: 'First', priority: 10 },
+            { id: 'crm.second', label: 'Second', priority: 10 },
+          ]}
+        >
+          <div>content</div>
+        </PersonDetailTabs>,
+      )
+      expect(tabOrder().slice(0, 2)).toEqual(['First', 'Second'])
+    })
+  })
+
+  describe('resolveLegacyTab', () => {
+    it('keeps built-in ids and falls back for unknown ids', () => {
+      expect(resolveLegacyTab('deals')).toBe('deals')
+      expect(resolveLegacyTab('nonsense')).toBe('activities')
+      expect(resolveLegacyTab(null)).toBe('activities')
+    })
+
+    it('accepts injected tab ids passed as knownTabIds (#4379)', () => {
+      expect(resolveLegacyTab('crm.custom-tab', ['crm.custom-tab'])).toBe('crm.custom-tab')
+      expect(resolveLegacyTab('crm.unknown', ['crm.custom-tab'])).toBe('activities')
+    })
+  })
+})

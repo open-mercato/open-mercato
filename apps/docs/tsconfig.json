@@ -1,0 +1,13 @@
+{
+  "extends": "@tsconfig/docusaurus/tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@site/*": [
+        "./*"
+      ],
+      "@generated/*": [
+        "./.docusaurus/*"
+      ]
+    }
+  }
+}

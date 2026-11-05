@@ -1,0 +1,61 @@
+---
+title: mercato auth sync-role-acls
+sidebar_label: auth sync-role-acls
+description: Re-applies default feature ACLs from every enabled module to the built-in and custom roles of existing tenants.
+---
+
+`yarn mercato auth sync-role-acls` merges each enabled module's `setup.defaultRoleFeatures` into the `RoleAcl` rows of the target tenant(s). It is the recovery command when a tenant's role ACLs have drifted — for example, after a demo user detached features from `admin`, or after a module upgrade introduced new features that were never propagated to pre-existing tenants.
+
+## Usage
+
+```bash
+# Sync a single tenant (recommended)
+yarn mercato auth sync-role-acls --tenant <tenantId>
+
+# Sync every tenant in the connected database
+yarn mercato auth sync-role-acls
+
+# Skip the superadmin role (defensive — superadmin grants isSuperAdmin)
+yarn mercato auth sync-role-acls --tenant <tenantId> --no-superadmin
+```
+
+## Flags
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--tenant <id>` | none — iterates every tenant | Restrict the sync to one tenant. Accepts `--tenantId` and `--tenant_id` as aliases. |
+| `--no-superadmin` | off (superadmin is synced) | Skip writing the `superadmin` role ACL. Use when you do not want to touch `isSuperAdmin` on the target tenant. |
+
+## Behavior
+
+- Collects `defaultRoleFeatures` from every enabled module (via `getCliModules()`).
+- Resolves `superadmin`, `admin`, `employee`, and any custom roles declared by modules.
+- For each role, calls `ensureRoleAclFor`, which:
+  - Creates the `RoleAcl` row if missing.
+  - Merges missing features into an existing ACL — **additive only**. Features that are already granted (including ones not declared by any module) are preserved.
+- Runs tenant-by-tenant; logs `✅ Synced role ACLs for tenant <id>` per tenant.
+- Safe to run multiple times — idempotent.
+
+## When to Run
+
+- **Recovery:** a demo/staging tenant's `admin` role lost features and users can no longer reach guarded pages.
+- **Upgrade hygiene:** a module release added new `defaultRoleFeatures` that existing tenants never received (`setupTenantAndPrimaryUser` only runs during initial tenant creation).
+- **Custom roles declared by modules:** `defaultRoleFeatures` entries for non-built-in roles are synced for every tenant that already has those roles.
+
+## When NOT to Use
+
+- **Not a replacement for `mercato auth seed-roles`.** This command assumes the roles already exist — it does not create them.
+- **Not a replacement for `seed:defaults`.** It does not seed dictionaries, currencies, or example data. It only syncs role feature ACLs.
+- **Does not revoke features.** If a user deliberately removed a feature, that feature is re-added by this command. Use the roles admin UI for curated edits.
+
+## Troubleshooting
+
+- **`❌ No CLI modules registered. Run \`yarn generate\` first.`** — regenerate the module aggregation files.
+- **`❌ Invalid --tenant value: …`** — the value was empty or whitespace. Pass a UUID from `yarn mercato auth list-tenants`.
+- **`No tenants found; nothing to sync.`** — the no-flag form found zero tenants. Ensure `DATABASE_URL` points to the expected environment.
+- **Missing features after run** — confirm the module that owns the feature is enabled in `src/modules.ts` and that its `setup.ts` lists the feature under `defaultRoleFeatures`.
+
+## Related
+
+- [`auth seed-roles`](./auth-seed-roles) — ensures the `employee`/`admin`/`superadmin` roles exist.
+- [`auth setup`](./auth-setup) — full initial tenant bootstrap (calls this logic internally).

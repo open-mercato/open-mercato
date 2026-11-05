@@ -1,0 +1,48 @@
+{
+  "name": "Open Mercato",
+  "initializeCommand": "bash .devcontainer/scripts/generate-compose-volumes.sh",
+  "dockerComposeFile": ["docker-compose.yml", "docker-compose.volumes.yml", "docker-compose.local.yml"],
+  "service": "workspace",
+  "workspaceFolder": "/workspace",
+  "remoteUser": "node",
+
+  "postCreateCommand": "bash .devcontainer/scripts/post-create.sh",
+  "postStartCommand": "bash .devcontainer/scripts/post-start.sh",
+
+  "forwardPorts": [3000, 4000, "postgres:5432", "redis:6379", "meilisearch:7700"],
+  "portsAttributes": {
+    "3000": { "label": "App", "onAutoForward": "notify" },
+    "4000": { "label": "Dev Splash", "onAutoForward": "notify" },
+    "5432": { "label": "PostgreSQL", "onAutoForward": "silent" },
+    "6379": { "label": "Redis", "onAutoForward": "silent" },
+    "7700": { "label": "Meilisearch", "onAutoForward": "silent" }
+  },
+
+  "remoteEnv": {
+    "COREPACK_ENABLE_DOWNLOAD_PROMPT": "0",
+    "OM_AI_PROVIDER": "${localEnv:OM_AI_PROVIDER}",
+    "OM_AI_MODEL": "${localEnv:OM_AI_MODEL}",
+    "OPENCODE_PROVIDER": "${localEnv:OPENCODE_PROVIDER}",
+    "OPENCODE_MODEL": "${localEnv:OPENCODE_MODEL}",
+    "ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}",
+    "OPENAI_API_KEY": "${localEnv:OPENAI_API_KEY}",
+    "GOOGLE_GENERATIVE_AI_API_KEY": "${localEnv:GOOGLE_GENERATIVE_AI_API_KEY}",
+    "OPENROUTER_API_KEY": "${localEnv:OPENROUTER_API_KEY}",
+    "OPENROUTER_BASE_URL": "${localEnv:OPENROUTER_BASE_URL}"
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "bradlc.vscode-tailwindcss",
+        "mikestead.dotenv",
+        "eamodio.gitlens"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  }
+}

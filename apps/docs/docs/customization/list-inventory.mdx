@@ -1,0 +1,93 @@
+---
+title: List inventory items
+description: Render a DataTable-backed admin page that consumes the Inventory API.
+---
+
+# Step 5: List inventory items
+
+With the API live, replace the placeholder page with a data table that calls it. Reuse the shared `DataTable` component from `@open-mercato/ui` to get pagination, filters, and column formatting out of the box.
+
+## 1. Create the list page
+
+```bash
+mkdir -p apps/mercato/src/modules/inventory/backend/inventory/list
+touch apps/mercato/src/modules/inventory/backend/inventory/list/page.tsx
+touch apps/mercato/src/modules/inventory/backend/inventory/list/page.meta.ts
+```
+
+```tsx title="apps/mercato/src/modules/inventory/backend/inventory/list/page.tsx"
+import { DataTable } from '@open-mercato/ui/backend/DataTable';
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall';
+
+type InventoryItem = {
+  id: string;
+  sku: string;
+  name: string;
+  quantity: number;
+  location?: string | null;
+};
+
+const columns = [
+  { id: 'sku', title: 'SKU' },
+  { id: 'name', title: 'Name' },
+  { id: 'quantity', title: 'Quantity' },
+  { id: 'location', title: 'Location' },
+];
+
+const InventoryListPage = async () => {
+  const response = await apiCall('/api/items');
+  const result = await response.json();
+  const rows: InventoryItem[] = result.data ?? result;
+
+  return (
+    <DataTable
+      tableId="inventory-items"
+      title="Inventory"
+      columns={columns}
+      data={rows}
+    />
+  );
+};
+
+export default InventoryListPage;
+```
+
+```ts title="apps/mercato/src/modules/inventory/backend/inventory/list/page.meta.ts"
+import type { PageMetadata } from '@open-mercato/shared/modules/registry';
+
+export const metadata: PageMetadata = {
+  title: 'Inventory',
+  group: 'Operations',
+  order: 20,
+  requireAuth: true,
+  requireFeatures: ['inventory.view'],
+};
+```
+
+:::info DataTable component
+The platform data grid component is called `DataTable` (imported from `@open-mercato/ui/backend/DataTable`). It supports column definitions, row actions, bulk actions, search, custom-field filters, and export. See the [Data Grids reference](../framework/admin-ui/data-grids) for the full API.
+:::
+
+## 2. Link from the module landing page
+
+Update `backend/inventory/page.tsx` to redirect to the list route:
+
+```tsx title="apps/mercato/src/modules/inventory/backend/inventory/page.tsx"
+import { redirect } from 'next/navigation';
+
+const InventoryLanding = () => {
+  redirect('/backend/inventory/list');
+  return null;
+};
+
+export default InventoryLanding;
+```
+
+Regenerate and restart:
+
+```bash
+yarn generate
+yarn mercato configs cache structural --all-tenants
+```
+
+Reload `/backend/inventory`. You should now see a fully functional data table. Filters and pagination can be wired by switching to the query engine (see the [Framework reference](../framework/database/query-engine)) or by extending the API to accept query parameters.

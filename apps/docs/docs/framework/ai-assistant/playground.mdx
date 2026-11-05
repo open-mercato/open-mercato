@@ -1,0 +1,71 @@
+---
+title: AI Playground
+description: Interactive sandbox for exercising registered AI agents in chat and object modes.
+---
+
+# AI Playground
+
+The playground is the fastest way to exercise a registered agent end-to-end without wiring a host page. It supports both `chat` and `object` execution modes and ships a debug panel that mirrors the panels the Code Mode Command Palette exposes.
+
+Open at `/backend/config/ai-assistant/playground`. Requires the `ai_assistant.settings.manage` feature.
+
+## Agent picker
+
+Every agent aggregated into `ai-agents.generated.ts` shows up in the picker. The selection drives:
+
+- The target of `POST /api/ai_assistant/ai/chat?agent=<module>.<agent>` (chat mode).
+- The target of `POST /api/ai_assistant/ai/run-object?agent=<module>.<agent>` (object mode).
+- The system prompt, tool whitelist, and mutation policy displayed in the debug panel.
+
+## Chat mode
+
+When the picked agent declares `executionMode: 'chat'` (the default), the playground renders an `<AiChat>` instance with:
+
+- The four mutation-approval cards (`mutation-preview-card`, `field-diff-card`, `confirmation-card`, `mutation-result-card`) pre-registered.
+- A stable per-session `conversationId` so idempotency dedupes repeated turns.
+- An inline attachment uploader when `agent.acceptedMediaTypes` is non-empty.
+- The live visible task plan rendered above raw tool-call rows when the runtime streams `data-agent-task-plan` / `data-agent-task-update`.
+
+## Object mode
+
+When the picked agent declares `executionMode: 'object'`, the playground swaps the chat for a JSON input editor and a result panel. The runtime validates the returned object against `agent.output.schema` and surfaces violations inline.
+
+## Debug panel
+
+The panel shows the resolution the dispatcher used for the current session:
+
+- Chosen **model id** and **provider id** (from `createModelFactory.resolveModel`).
+- **Resolved tool list** — names, `isMutation` flags, and `requiredFeatures`.
+- **Prompt section map** — each section's source (`default` \| `override` \| `placeholder`).
+- **Tool call + tool result log** streamed live from the dispatcher.
+- **Loop trace** — per-step breakdown of the last completed turn: which model each step used (`prepareStep` swaps are visible here), tool calls and `repairToolCall` attempts per step, total tokens, and the **stop reason** (`stepCountIs` / `hasToolCall` / `loop_budget_exceeded` / `finish-reason:stop|tool-calls|length` / `aborted`). Populated from the dispatcher SSE `loop-finish` event; the same trace renders inside any host `<AiChat>` whose `debug` prop is truthy.
+
+The visible task plan and `LoopTrace` serve different audiences. The task plan is live operator-facing progress copy; it appears during a turn and must never contain private reasoning. `LoopTrace` is a debug-only, post-turn execution trace for developers and admins.
+
+When a tenant has flipped the **Disable agentic loop** kill switch from [Settings](./settings#loop-policy-overrides), the playground (and any `<AiChat>` instance for that agent) renders a `LoopDisabledBanner` above the composer and the dispatcher collapses the agent to a single model call.
+
+Use the panel to confirm that a newly-saved prompt or loop override reached the runtime without restarting anything.
+
+## Shortcuts
+
+The playground reuses the shared `<AiChat>` shortcut set:
+
+| Shortcut | Action |
+|----------|--------|
+| `Cmd/Ctrl + Enter` | Send the current message (or submit the JSON in object mode) |
+| `Escape` | Abort the in-flight request |
+| `Shift + Enter` | Insert a newline inside the message |
+
+## When to use the playground vs `<AiChat>`
+
+- Use the **playground** for agent authoring, prompt-override iteration, and QA of tool whitelists.
+- Use **`<AiChat>`** embedded in a backend page for the real user flow — the playground does not pass a `pageContext`, so agents that depend on `resolvePageContext` see a blank hydration.
+
+## Manual QA route
+
+Use this route after changing task plans, tool streaming, or prompt guidance:
+
+1. Open `/backend/config/ai-assistant/playground` and pick `customers.account_assistant` or `customers.deal_analyzer`.
+2. Ask: `Find deals assigned to Joe and summarize the useful matches.`
+3. Verify the visible plan appears before the CRM tool result finishes, the matching step advances from `pending` or `running` to `done`, and the raw `meta.update_task_plan` tool row is not shown as an operator task. Catalog agents stay quiet by default unless you opt them in with `taskPlan: { enabled: true }`.
+4. To cover the error path, temporarily remove a required CRM tool from the picked agent via a local prompt/tool override or use a test provider stub that returns a tool error. Send the same prompt and verify the matching plan row becomes `failed` while the final assistant text still renders.

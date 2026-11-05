@@ -1,0 +1,440 @@
+import type { ModuleCli } from '@open-mercato/shared/modules/registry'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resetServerLoggerCache } from '@open-mercato/shared/lib/logger'
+import { installNextSubpathResolveHook } from './lib/next-subpath-resolve-hook'
+import { resolveMcpHost } from './lib/mcp-host-resolution'
+/**
+ * Ensure app bootstrap is called before creating DI container.
+ * Uses the shared generated-bootstrap loader so the command works both from
+ * the monorepo app and from standalone apps installed through npm packages.
+ */
+async function ensureBootstrap(): Promise<void> {
+  // These commands run outside Next.js, but the API route modules the
+  // operation runner imports on a tool call say `from 'next/server'`, which
+  // plain Node cannot resolve (#6118). Install the retry-with-`.js` hook before
+  // anything below can pull a route module in.
+  installNextSubpathResolveHook()
+
+  // First check if DI is already available
+  try {
+    const { getDiRegistrars } = await import('@open-mercato/shared/lib/di/container')
+    getDiRegistrars()
+    return // DI already available
+  } catch {
+    // DI not available, need to bootstrap
+  }
+
+  try {
+    const { bootstrapFromAppRoot } = await import('@open-mercato/shared/lib/bootstrap/dynamicLoader')
+    await bootstrapFromAppRoot()
+  } catch (error) {
+    console.error('[MCP] Bootstrap failed:', error instanceof Error ? error.message : error)
+    // Continue - some contexts may not have bootstrap available
+  }
+}
+
+function parseArgs(rest: string[]): Record<string, string | boolean> {
+  const args: Record<string, string | boolean> = {}
+  for (let i = 0; i < rest.length; i++) {
+    const arg = rest[i]
+    if (!arg?.startsWith('--')) continue
+
+    const [key, value] = arg.replace(/^--/, '').split('=')
+    if (value !== undefined) {
+      args[key] = value
+    } else if (rest[i + 1] && !rest[i + 1]!.startsWith('--')) {
+      args[key] = rest[i + 1]!
+      i++
+    } else {
+      args[key] = true
+    }
+  }
+  return args
+}
+
+const mcpServe: ModuleCli = {
+  command: 'mcp:serve',
+  async run(rest) {
+    // stdout carries the MCP JSON-RPC protocol (StdioServerTransport) — route all
+    // facade logs to stderr and rebuild any pino root created earlier in this process.
+    process.env.OM_LOG_DESTINATION = 'stderr'
+    resetServerLoggerCache()
+    const args = parseArgs(rest)
+    // Prefer the OPEN_MERCATO_API_KEY env var so the secret never has to be
+    // placed on the command line (argv is world-readable via ps / /proc).
+    // The --api-key flag stays supported for backward compatibility.
+    const apiKey = String(args['api-key'] ?? args.apiKey ?? '') || process.env.OPEN_MERCATO_API_KEY || null
+    const tenantId = String(args.tenant ?? args.tenantId ?? '') || null
+    const organizationId = String(args.org ?? args.organizationId ?? '') || null
+    const userId = String(args.user ?? args.userId ?? '') || null
+    const debug = args.debug === true || args.debug === 'true'
+    const allowUnauthenticatedSuperadmin =
+      args['allow-unauthenticated-superadmin'] === true ||
+      args['allow-unauthenticated-superadmin'] === 'true'
+
+    // Either API key or tenant is required
+    if (!apiKey && !tenantId) {
+      console.error('Usage: mercato ai_assistant mcp:serve [options]')
+      console.error('')
+      console.error('Authentication (choose one):')
+      console.error('  OPEN_MERCATO_API_KEY env   API key secret (recommended — keeps the secret off argv)')
+      console.error('  --api-key <secret>         API key secret for authentication (visible in process listings)')
+      console.error('  --tenant <id>              Tenant ID (for manual context)')
+      console.error('')
+      console.error('Options (with --tenant):')
+      console.error('  --org <id>           Organization ID (optional)')
+      console.error('  --user <id>          User ID for ACL (required unless --allow-unauthenticated-superadmin is set)')
+      console.error('')
+      console.error('Common options:')
+      console.error('  --debug              Enable debug logging')
+      console.error('  --allow-unauthenticated-superadmin')
+      console.error('                       DEV/TEST ONLY: run as superadmin with no per-user ACL when')
+      console.error('                       no --user (and no --api-key) is supplied. Never use in production.')
+      console.error('')
+      console.error('Examples:')
+      console.error('  OPEN_MERCATO_API_KEY=omk_xxxx.yyyy... mercato ai_assistant mcp:serve')
+      console.error('  mercato ai_assistant mcp:serve --api-key omk_xxxx.yyyy...')
+      console.error('  mercato ai_assistant mcp:serve --tenant 123e4567-e89b-12d3-a456-426614174000 --user <user-id>')
+      console.error('  mercato ai_assistant mcp:serve --tenant 123e4567-e89b-12d3-a456-426614174000 --allow-unauthenticated-superadmin')
+      return
+    }
+
+    await ensureBootstrap()
+    const container = await createRequestContainer()
+
+    const { runMcpServer } = await import('./lib/mcp-server')
+
+    if (apiKey) {
+      await runMcpServer({
+        config: {
+          name: 'open-mercato-mcp',
+          version: '0.1.0',
+          debug,
+        },
+        container,
+        apiKeySecret: apiKey,
+      })
+    } else {
+      await runMcpServer({
+        config: {
+          name: 'open-mercato-mcp',
+          version: '0.1.0',
+          debug,
+        },
+        container,
+        context: {
+          tenantId,
+          organizationId,
+          userId,
+        },
+        allowUnauthenticatedSuperadmin,
+      })
+    }
+  },
+}
+
+const MCP_DEFAULT_PORT = 3001
+
+const mcpServeHttp: ModuleCli = {
+  command: 'mcp:serve-http',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const portArg = parseInt(String(args.port ?? ''), 10)
+    const port = !portArg || isNaN(portArg) ? MCP_DEFAULT_PORT : portArg
+    const debug = args.debug === true || args.debug === 'true'
+    const host = resolveMcpHost(
+      typeof args.host === 'string' ? args.host : undefined,
+      process.env.MCP_HTTP_HOST,
+    )
+
+    await ensureBootstrap()
+    const container = await createRequestContainer()
+
+    const { runMcpHttpServer } = await import('./lib/http-server')
+
+    await runMcpHttpServer({
+      config: {
+        name: 'open-mercato-mcp',
+        version: '0.1.0',
+        debug,
+      },
+      container,
+      port,
+      host,
+    })
+  },
+}
+
+const mcpDev: ModuleCli = {
+  command: 'mcp:dev',
+  async run() {
+    await ensureBootstrap()
+    const { runMcpDevServer } = await import('./lib/mcp-dev-server')
+    await runMcpDevServer()
+  },
+}
+
+const mcpEnsureApiKey: ModuleCli = {
+  command: 'mcp:ensure-api-key',
+  async run(rest) {
+    const args = parseArgs(rest)
+    // A bare `--file` (no value) parses to boolean true — treat it as missing
+    // rather than provisioning into a file literally named "true".
+    const fileArg = typeof args.file === 'string' ? args.file.trim() : ''
+    const filePath =
+      fileArg || process.env.MCP_SERVER_API_KEY_FILE?.trim() || process.env.MCP_API_KEY_FILE?.trim() || ''
+    if (!filePath) {
+      console.error('Usage: mercato ai_assistant mcp:ensure-api-key --file <path> [options]')
+      console.error('')
+      console.error('Ensures a valid MCP server API key exists in the database and that its')
+      console.error('plaintext secret is stored in <path> (the idempotency anchor). The secret')
+      console.error('is never printed; consumers such as the OpenCode container read the file.')
+      console.error('')
+      console.error('Options:')
+      console.error('  --file <path>    Secret file path (or MCP_SERVER_API_KEY_FILE env)')
+      console.error('  --name <name>    API key name (default __mcp_server__)')
+      console.error('  --email <email>  Owner user email (default OM_INIT_SUPERADMIN_EMAIL, then superadmin@acme.com)')
+      console.error('  --rotate         Force rotation even when the file secret is still valid')
+      process.exitCode = 1
+      return
+    }
+
+    const keyName = typeof args.name === 'string' && args.name.length > 0 ? args.name : undefined
+    const ownerEmail = typeof args.email === 'string' && args.email.length > 0 ? args.email : undefined
+    const rotate = args.rotate === true || args.rotate === 'true'
+
+    await ensureBootstrap()
+    const container = await createRequestContainer()
+    const em = container.resolve<import('@mikro-orm/postgresql').EntityManager>('em')
+    const rbac = container.resolve('rbacService') as import('@open-mercato/core/modules/auth/services/rbacService').RbacService
+
+    const { ensureMcpApiKey } = await import('./lib/mcp-ensure-api-key')
+    const result = await ensureMcpApiKey({ em, filePath, keyName, ownerEmail, rotate, rbac })
+    const message = result.status === 'valid' ? 'Existing key is valid' : 'New key created'
+    console.log(`[mcp:ensure-api-key] ${message} (id=${result.keyId}, prefix=${result.keyPrefix})`)
+  },
+}
+
+const listTools: ModuleCli = {
+  command: 'mcp:list-tools',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const verbose = args.verbose === true || args.verbose === 'true'
+
+    // Ensure bootstrap runs so modules are registered for API discovery
+    await ensureBootstrap()
+
+    const { loadAllModuleTools } = await import('./lib/tool-loader')
+    await loadAllModuleTools()
+
+    const { getToolRegistry } = await import('./lib/tool-registry')
+    const registry = getToolRegistry()
+    const toolNames = registry.listToolNames()
+
+    if (toolNames.length === 0) {
+      console.log('\nNo MCP tools registered.')
+      console.log('Tools can be registered by modules using registerMcpTool().\n')
+      return
+    }
+
+    console.log(`\nRegistered MCP Tools (${toolNames.length}):\n`)
+
+    // Group tools by module
+    const byModule = new Map<string, string[]>()
+    for (const name of toolNames) {
+      const [module] = name.split('.')
+      const list = byModule.get(module) ?? []
+      list.push(name)
+      byModule.set(module, list)
+    }
+
+    // Sort modules alphabetically
+    const sortedModules = Array.from(byModule.keys()).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+
+    for (const module of sortedModules) {
+      const tools = byModule.get(module)!
+      console.log(`${module} (${tools.length} tools):`)
+
+      for (const name of tools.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) {
+        const tool = registry.getTool(name)
+        if (!tool) continue
+
+        if (verbose) {
+          console.log(`  ${name}`)
+          console.log(`    ${tool.description}`)
+          if (tool.requiredFeatures?.length) {
+            console.log(`    Requires: ${tool.requiredFeatures.join(', ')}`)
+          }
+        } else {
+          console.log(`  - ${name}`)
+        }
+      }
+      console.log('')
+    }
+  },
+}
+
+const entityGraph: ModuleCli = {
+  command: 'entity-graph',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const format = String(args.format ?? 'triples') as 'json' | 'triples'
+    const entity = args.entity ? String(args.entity) : undefined
+    const module = args.module ? String(args.module) : undefined
+
+    await ensureBootstrap()
+
+    const { getOrm } = await import('@open-mercato/shared/lib/db/mikro')
+    const { extractEntityGraph, formatGraphAsTriples, filterGraphByEntity, filterGraphByModule } = await import(
+      './lib/entity-graph'
+    )
+
+    console.log('[Entity Graph] Extracting from MikroORM metadata...')
+
+    const orm = await getOrm()
+    const graph = await extractEntityGraph(orm)
+
+    // Apply filters
+    let edges = graph.edges
+
+    if (entity) {
+      edges = filterGraphByEntity(graph, entity)
+      console.log(`[Entity Graph] Filtered by entity: ${entity}`)
+    }
+
+    if (module) {
+      const filteredGraph = { ...graph, edges }
+      edges = filterGraphByModule(filteredGraph, module)
+      console.log(`[Entity Graph] Filtered by module: ${module}`)
+    }
+
+    const filteredGraph = { ...graph, edges }
+
+    if (format === 'json') {
+      console.log(JSON.stringify(filteredGraph, null, 2))
+    } else {
+      const triples = formatGraphAsTriples(filteredGraph)
+      console.log('')
+      for (const triple of triples) {
+        console.log(triple)
+      }
+    }
+
+    console.log(`\n[Entity Graph] ${graph.nodes.length} entities, ${edges.length} relationships`)
+  },
+}
+
+const runPendingActionCleanup: ModuleCli = {
+  command: 'run-pending-action-cleanup',
+  async run() {
+    await ensureBootstrap()
+    const container = await createRequestContainer()
+
+    const { runPendingActionCleanup: runCleanup } = await import(
+      './workers/ai-pending-action-cleanup'
+    )
+
+    const em = container.resolve<import('@mikro-orm/postgresql').EntityManager>('em')
+    const summary = await runCleanup({ em })
+
+    console.log('[ai-pending-action-cleanup] Sweep complete:', summary)
+  },
+}
+
+const testTools: ModuleCli = {
+  command: 'test-tools',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const json = args.json === true || args.json === 'true'
+    const moduleFilter =
+      typeof args.module === 'string' && args.module.length > 0 ? args.module : null
+    const includeMutations = args['no-mutations'] !== true && args['no-mutations'] !== 'true'
+    const tenantId =
+      typeof args.tenant === 'string' && args.tenant.length > 0 ? args.tenant : null
+    const organizationId =
+      typeof args.org === 'string' && args.org.length > 0 ? args.org : null
+
+    await ensureBootstrap()
+    const { runToolTests } = await import('./lib/tool-test-runner')
+    const report = await runToolTests({
+      tenantId,
+      organizationId,
+      moduleFilter,
+      includeMutations,
+    })
+
+    if (json) {
+      // Wrap in markers so a Playwright spec (or any caller) can extract the
+      // JSON payload without being thrown off by bootstrap log lines emitted
+      // to stdout by other modules during DI container creation.
+      console.log('---TOOL_TEST_REPORT_BEGIN---')
+      console.log(JSON.stringify(report))
+      console.log('---TOOL_TEST_REPORT_END---')
+    } else {
+      console.log('')
+      console.log(
+        `AI tool test report — tenant=${report.tenantId ?? '<none>'} org=${
+          report.organizationId ?? '<none>'
+        }`,
+      )
+      console.log(
+        `total=${report.total} pass=${report.passed} fail=${report.failed} skip=${report.skipped}`,
+      )
+      const byModule = new Map<string, typeof report.records>()
+      for (const record of report.records) {
+        const list = byModule.get(record.module) ?? []
+        list.push(record)
+        byModule.set(record.module, list)
+      }
+      const sortedModules = Array.from(byModule.keys()).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+      for (const moduleId of sortedModules) {
+        const list = byModule.get(moduleId)!
+        console.log('')
+        console.log(`${moduleId} (${list.length}):`)
+        for (const record of list) {
+          const marker =
+            record.status === 'pass' ? '✓' : record.status === 'fail' ? '✗' : '·'
+          const reason = record.reason ? ` — ${record.reason}` : ''
+          const mutation = record.isMutation ? ' [mutation]' : ''
+          console.log(
+            `  ${marker} ${record.tool}${mutation} (${record.durationMs}ms)${reason}`,
+          )
+        }
+      }
+      console.log('')
+    }
+
+    if (report.failed > 0) {
+      process.exitCode = 1
+    }
+  },
+}
+
+const runTokenUsagePrune: ModuleCli = {
+  command: 'run-token-usage-prune',
+  async run() {
+    await ensureBootstrap()
+    const container = await createRequestContainer()
+
+    const { runTokenUsagePrune: runPrune } = await import(
+      './workers/ai-token-usage-prune'
+    )
+
+    const em = container.resolve<import('@mikro-orm/postgresql').EntityManager>('em')
+    const summary = await runPrune({ em })
+
+    console.log('[ai-token-usage-prune] Prune complete:', summary)
+  },
+}
+
+export default [
+  mcpServe,
+  mcpServeHttp,
+  mcpDev,
+  mcpEnsureApiKey,
+  listTools,
+  entityGraph,
+  runPendingActionCleanup,
+  runTokenUsagePrune,
+  testTools,
+]

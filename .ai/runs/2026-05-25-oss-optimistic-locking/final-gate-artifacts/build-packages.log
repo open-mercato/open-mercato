@@ -1,0 +1,75 @@
+• turbo 2.9.14
+
+   • Packages in scope: @open-mercato/ai-assistant, @open-mercato/cache, @open-mercato/checkout, @open-mercato/cli, @open-mercato/content, @open-mercato/core, @open-mercato/enterprise, @open-mercato/events, @open-mercato/gateway-stripe, @open-mercato/onboarding, @open-mercato/queue, @open-mercato/scheduler, @open-mercato/search, @open-mercato/shared, @open-mercato/storage-s3, @open-mercato/sync-akeneo, @open-mercato/ui, @open-mercato/webhooks, create-mercato-app
+   • Running build in 19 packages
+   • Remote caching disabled, using shared worktree cache
+
+@open-mercato/content:build: cache hit, replaying logs 321c50d366f61932
+@open-mercato/events:build: cache hit, replaying logs b1aa0270d0545912
+@open-mercato/content:build: [build:content] found 7 entry points
+@open-mercato/content:build: [build:content] built successfully
+@open-mercato/events:build: [build:events] found 8 entry points
+@open-mercato/events:build: [build:events] built successfully
+@open-mercato/cache:build: cache hit, replaying logs a9dec7a2267a2ab1
+@open-mercato/cache:build: [build:cache] found 11 entry points
+@open-mercato/cache:build: [build:cache] built successfully
+@open-mercato/queue:build: cache hit, replaying logs 01fa18ca5527145f
+@open-mercato/queue:build: [build:queue] found 8 entry points
+@open-mercato/queue:build: [build:queue] built successfully
+@open-mercato/scheduler:build: cache hit, replaying logs bc43ce23db6a2a4a
+@open-mercato/gateway-stripe:build: cache hit, replaying logs 0fbe32d0b56e1dd0
+@open-mercato/scheduler:build: [build:scheduler] found 42 entry points
+@open-mercato/scheduler:build: [build:scheduler] built successfully
+@open-mercato/gateway-stripe:build: [build:gateway-stripe] found 25 entry points
+@open-mercato/gateway-stripe:build: [build:gateway-stripe] built successfully
+@open-mercato/sync-akeneo:build: cache hit, replaying logs 32f154e33d5e6b1f
+@open-mercato/sync-akeneo:build: [build:sync-akeneo] found 29 entry points
+@open-mercato/sync-akeneo:build: [build:sync-akeneo] built successfully
+@open-mercato/webhooks:build: cache hit, replaying logs a5ea682ca16a7704
+@open-mercato/webhooks:build: [build:webhooks] found 58 entry points
+@open-mercato/webhooks:build: [build:webhooks] built successfully
+@open-mercato/storage-s3:build: cache hit, replaying logs 66f9776e7a07762b
+@open-mercato/storage-s3:build: Found 18 entry points
+@open-mercato/storage-s3:build: storage-s3 built successfully
+@open-mercato/search:build: cache hit, replaying logs 895a23c9d3fc90b7
+@open-mercato/search:build: [build:search] found 81 entry points
+@open-mercato/search:build: [build:search] built successfully
+@open-mercato/onboarding:build: cache hit, replaying logs 2b1d58aebca3bea3
+@open-mercato/onboarding:build: [build:onboarding] found 24 entry points
+@open-mercato/onboarding:build: [build:onboarding] built successfully
+@open-mercato/checkout:build: cache hit, replaying logs 950ed16ff87f5a36
+@open-mercato/checkout:build: [build:checkout] found 147 entry points
+@open-mercato/checkout:build: [build:checkout] built successfully
+@open-mercato/ai-assistant:build: cache hit, replaying logs 4004a17d05b7ae42
+@open-mercato/ai-assistant:build: [build:ai-assistant] found 192 entry points
+@open-mercato/ai-assistant:build: [build:ai-assistant] built successfully
+@open-mercato/cli:build: cache hit, replaying logs 20c42525a0178d5c
+@open-mercato/cli:build: [build:cli] found 71 entry points
+@open-mercato/cli:build: Copied create-app/agentic/ → dist/agentic/
+@open-mercato/cli:build: Discovered 16 standalone guides → dist/agentic/guides/
+@open-mercato/cli:build: [build:cli] built successfully
+@open-mercato/shared:build: cache hit, replaying logs 39e07b68592492f3
+@open-mercato/shared:build: [build:shared] found 214 entry points
+@open-mercato/shared:build: [build:shared] built successfully
+create-mercato-app:build: cache hit, replaying logs a4d15211e275a87d
+create-mercato-app:build: Copied src/lib/templates/ → dist/templates/
+create-mercato-app:build: Copied agentic/ → dist/agentic/
+create-mercato-app:build: Discovered 16 standalone guides → dist/agentic/guides/
+create-mercato-app:build: Build complete: dist/index.js
+@open-mercato/ui:build: cache hit, replaying logs f21650611b014aa8
+@open-mercato/ui:build: Generated lucide registry with 135 icons -> /home/pkarw/Projects/mercato-development/.ai/tmp/auto-continue-pr/pr-2055-20260525-104412/packages/ui/src/backend/icons/lucideRegistry.generated.tsx
+@open-mercato/ui:build: [build:ui] found 354 entry points
+@open-mercato/ui:build: [build:ui] built successfully
+@open-mercato/enterprise:build: cache hit, replaying logs e10c43bcb0694537
+@open-mercato/enterprise:build: [build:enterprise] found 292 entry points
+@open-mercato/enterprise:build: [build:enterprise] built successfully
+@open-mercato/core:build: cache hit, replaying logs 5e9eb1d7436e6331
+@open-mercato/core:build: [build:core] found 2601 entry points
+@open-mercato/core:build: [build:core] built successfully
+@open-mercato/core:build: [build:core:generated] found 172 entry points
+@open-mercato/core:build: [build:core:generated] built successfully
+
+ Tasks:    19 successful, 19 total
+Cached:    19 cached, 19 total
+  Time:    711ms >>> FULL TURBO
+

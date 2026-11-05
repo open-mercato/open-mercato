@@ -1,0 +1,1839 @@
+'use client'
+
+import { useState, useEffect, useCallback } from 'react'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { Input } from '@open-mercato/ui/primitives/input'
+import { EmailInput } from '@open-mercato/ui/primitives/email-input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { Textarea } from '@open-mercato/ui/primitives/textarea'
+import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { AlertCircle, AlertTriangle, Check, CheckCircle2, Info, Zap, Minus, Plus, X } from 'lucide-react'
+import Link from 'next/link'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { deriveCurrentStep } from './deriveCurrentStep'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
+
+interface CartItem {
+  id: string // Product UUID
+  name: string
+  price: number
+  quantity: number
+}
+
+interface Product {
+  id: string
+  title: string
+  pricing: {
+    unit_price_gross: number
+    unit_price_net: number
+    currency_code: string
+    price_kind_code?: string
+  } | null
+}
+
+interface WorkflowResult {
+  instanceId: string
+  status: string
+  workflowId: string
+  currentStepId?: string
+  context?: any
+}
+
+interface StepInfo {
+  stepId: string
+  stepName: string
+  stepType: string
+  description?: string
+}
+
+interface WorkflowEvent {
+  id: string
+  eventType: string
+  occurredAt: string
+  eventData?: any
+}
+
+export default function CheckoutDemoPage() {
+  const queryClient = useQueryClient()
+  const t = useT()
+  const [loading, setLoading] = useState(false)
+  const [advancing, setAdvancing] = useState(false)
+  const [result, setResult] = useState<WorkflowResult | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [formData, setFormData] = useState<Record<string, any>>({})
+  const [submittingTask, setSubmittingTask] = useState(false)
+  const [taskError, setTaskError] = useState<string | null>(null)
+  const [sendingSignal, setSendingSignal] = useState(false)
+  const [signalError, setSignalError] = useState<string | null>(null)
+  const [enableTaskPolling, setEnableTaskPolling] = useState(false)
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('')
+  const [selectedCurrency, setSelectedCurrency] = useState<string>('USD')
+  const [cart, setCart] = useState<CartItem[]>([])
+  const [validationErrors, setValidationErrors] = useState<Array<{ ruleId: string; message: string }>>([])
+  const [isValidating, setIsValidating] = useState(false)
+
+  // Poll workflow instance for real-time status updates
+  const { data: instanceData } = useQuery({
+    queryKey: ['workflow-instance', result?.instanceId],
+    queryFn: async () => {
+      if (!result?.instanceId) return null
+
+      const response = await fetch(`/api/workflows/instances/${result.instanceId}`)
+      if (!response.ok) return null
+
+      const json = await response.json()
+      return json.data // API returns { data: instance }
+    },
+    enabled: !!result?.instanceId,
+    refetchInterval: (query) => {
+      // Poll while workflow is active (not completed, failed, or cancelled)
+      const status = query.state.data?.status || result?.status
+      return (status === 'RUNNING' || status === 'PAUSED' || status === 'WAITING_FOR_ACTIVITIES') ? 500 : false
+    },
+  })
+
+  // Update result when instance data changes
+  useEffect(() => {
+    if (instanceData) {
+      setResult({
+        instanceId: instanceData.id,
+        status: instanceData.status,
+        workflowId: instanceData.workflowId,
+        currentStepId: instanceData.currentStepId,
+        context: instanceData.context,
+      })
+    }
+  }, [instanceData])
+
+  // Fetch workflow events for the current instance
+  const { data: events = [] } = useQuery({
+    queryKey: ['workflow-events', result?.instanceId],
+    queryFn: async () => {
+      if (!result?.instanceId) return []
+
+      const response = await fetch(
+        `/api/workflows/events?workflowInstanceId=${result.instanceId}&sortField=occurredAt&sortDir=desc&pageSize=20`
+      )
+
+      if (!response.ok) return []
+
+      const data = await response.json()
+      return data.items || []
+    },
+    enabled: !!result?.instanceId,
+    refetchInterval: (query) => {
+      // Poll while workflow is active
+      const status = instanceData?.status || result?.status
+      return (status === 'RUNNING' || status === 'PAUSED' || status === 'WAITING_FOR_ACTIVITIES') ? 1000 : false
+    },
+  })
+
+  // Fetch pending user tasks for this workflow instance
+  const { data: userTasks = [], isLoading: tasksLoading, error: tasksError, refetch: refetchTasks } = useQuery({
+    queryKey: ['workflow-user-tasks', result?.instanceId],
+    queryFn: async () => {
+      if (!result?.instanceId) return []
+
+      const response = await fetch(
+        `/api/workflows/tasks?workflowInstanceId=${result.instanceId}&status=PENDING`
+      )
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        logger.error('User tasks request failed', { component: 'UserTasks', errorData })
+        throw new Error(errorData.error || `HTTP ${response.status}`)
+      }
+
+      const data = await response.json()
+      return data.data || []
+    },
+    enabled: !!result?.instanceId && result?.status === 'PAUSED' && enableTaskPolling,
+    refetchInterval: result?.status === 'PAUSED' && enableTaskPolling ? 2000 : false,
+  })
+
+  // Fetch workflow definition to get dynamic steps
+  const { data: workflowDefinition } = useQuery({
+    queryKey: ['workflow-definition', 'workflows.checkout-demo'],
+    queryFn: async () => {
+      const response = await fetch('/api/workflows/definitions?workflowId=workflows.checkout-demo')
+      if (!response.ok) return null
+      const json = await response.json()
+      return json.data?.[0] || null
+    },
+  })
+
+  // Fetch customers for dropdown
+  const { data: customers = [], isLoading: customersLoading } = useQuery({
+    queryKey: ['customers-companies'],
+    queryFn: async () => {
+      const response = await fetch('/api/customers/companies?pageSize=100')
+      if (!response.ok) return []
+      const json = await response.json()
+      return json.items || []
+    },
+  })
+
+  // Fetch products for cart selection with pricing context
+  const { data: products = [], isLoading: productsLoading } = useQuery({
+    queryKey: ['catalog-products', selectedCurrency],
+    queryFn: async () => {
+      // Pass pricing context to get resolved prices
+      const params = new URLSearchParams({
+        pageSize: '100',
+        quantity: '1',
+        priceDate: new Date().toISOString(),
+      })
+
+      const response = await fetch(`/api/catalog/products?${params}`)
+      if (!response.ok) return []
+      const json = await response.json()
+      return json.items || []
+    },
+  })
+
+  // Exchange rates (USD base)
+  const exchangeRates: Record<string, number> = {
+    USD: 1,
+    EUR: 0.92,
+    GBP: 0.79,
+    PLN: 4.02,
+  }
+
+  // Currency symbols
+  const currencySymbols: Record<string, string> = {
+    USD: '$',
+    EUR: '€',
+    GBP: '£',
+    PLN: 'zł',
+  }
+
+  // Cart management functions
+  const addToCart = (product: Product) => {
+    setCart(prev => {
+      const existing = prev.find(item => item.id === product.id)
+      if (existing) {
+        return prev.map(item =>
+          item.id === product.id
+            ? { ...item, quantity: item.quantity + 1 }
+            : item
+        )
+      }
+      return [...prev, {
+        id: product.id,
+        name: product.title,
+        // Use resolved pricing from catalog pricing service (in USD)
+        price: product.pricing?.unit_price_gross || product.pricing?.unit_price_net || 99.99,
+        quantity: 1,
+      }]
+    })
+  }
+
+  const updateQuantity = (productId: string, quantity: number) => {
+    if (quantity <= 0) {
+      setCart(prev => prev.filter(item => item.id !== productId))
+    } else {
+      setCart(prev => prev.map(item =>
+        item.id === productId ? { ...item, quantity } : item
+      ))
+    }
+  }
+
+  const removeFromCart = (productId: string) => {
+    setCart(prev => prev.filter(item => item.id !== productId))
+  }
+
+  // Convert prices to selected currency (cart items are in USD by default)
+  const exchangeRate = exchangeRates[selectedCurrency] || 1
+  const demoCart = cart.map(item => ({
+    ...item,
+    price: item.price * exchangeRate,
+  }))
+
+  const currencySymbol = currencySymbols[selectedCurrency] || selectedCurrency
+
+  const subtotal = demoCart.reduce((sum, item) => sum + item.price * item.quantity, 0)
+  const tax = subtotal * 0.08 // 8% tax
+  const shipping = 9.99 * exchangeRate
+  const total = subtotal + tax + shipping
+
+  // Workflow steps for UI - use dynamic definition or fallback
+  const workflowSteps: StepInfo[] = workflowDefinition?.definition?.steps || [
+    { stepId: 'start', stepName: 'Start', stepType: 'START', description: 'Workflow initiated' },
+    { stepId: 'cart_validation', stepName: 'Cart Validation', stepType: 'AUTOMATED', description: 'Validate cart and reserve inventory' },
+    { stepId: 'customer_info', stepName: 'Customer Information', stepType: 'USER_TASK', description: 'Collect customer shipping and contact information' },
+    { stepId: 'payment_initiation', stepName: 'Initiate Payment', stepType: 'AUTOMATED', description: 'Send payment request to provider' },
+    { stepId: 'wait_payment_confirmation', stepName: 'Wait for Payment Confirmation', stepType: 'WAIT_FOR_SIGNAL', description: 'Waiting for payment provider webhook' },
+    { stepId: 'order_confirmation', stepName: 'Order Confirmation', stepType: 'AUTOMATED', description: 'Create order and send confirmation' },
+    { stepId: 'end', stepName: 'Complete', stepType: 'END', description: 'Checkout completed' },
+  ]
+
+  // Current step derived from the running instance and the workflow steps
+  const currentStep = deriveCurrentStep(result?.currentStepId, workflowSteps)
+
+  // Add initial delay before polling for user tasks when workflow becomes PAUSED
+  // This reduces race condition where API returns before background execution completes
+  useEffect(() => {
+    if (result?.status === 'PAUSED') {
+      setEnableTaskPolling(false)
+
+      const timer = setTimeout(() => {
+        setEnableTaskPolling(true)
+      }, 500)
+
+      return () => clearTimeout(timer)
+    } else {
+      setEnableTaskPolling(false)
+    }
+  }, [result?.status])
+
+  // Validate workflow pre-conditions before starting checkout
+  const validateBeforeCheckout = useCallback(async (): Promise<boolean> => {
+    // Don't validate if no customer selected yet
+    if (!selectedCustomerId) {
+      setValidationErrors([])
+      return false
+    }
+
+    setIsValidating(true)
+
+    try {
+      const response = await fetch('/api/workflows/instances/validate-start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workflowId: 'workflows.checkout-demo',
+          context: {
+            cart: {
+              items: demoCart,
+              itemCount: demoCart.reduce((sum, item) => sum + item.quantity, 0),
+              subtotal: subtotal,
+              tax: tax,
+              shipping: shipping,
+              total: total,
+              currency: selectedCurrency,
+            },
+            customerId: selectedCustomerId,
+            currency: selectedCurrency,
+          },
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!data.canStart) {
+        setValidationErrors(data.errors || [{ ruleId: '_UNKNOWN', message: 'Validation failed' }])
+        return false
+      }
+
+      setValidationErrors([])
+      return true
+    } catch (err) {
+      setValidationErrors([{ ruleId: '_ERROR', message: 'Failed to validate checkout pre-conditions' }])
+      return false
+    } finally {
+      setIsValidating(false)
+    }
+  }, [selectedCustomerId, demoCart, subtotal, tax, shipping, total, selectedCurrency])
+
+  // Auto-validate when customer is selected or cart changes
+  // Using JSON.stringify(cart) to detect actual cart content changes
+  const cartJson = JSON.stringify(cart)
+  useEffect(() => {
+    // Only validate if customer is selected and workflow hasn't started yet
+    if (!selectedCustomerId || result) {
+      return
+    }
+
+    validateBeforeCheckout()
+  }, [selectedCustomerId, cartJson, result]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleCheckout = async () => {
+    // Validate customer selection
+    if (!selectedCustomerId) {
+      setError('Please select a customer before starting checkout')
+      return
+    }
+
+    // Validate pre-conditions before starting workflow
+    const canStart = await validateBeforeCheckout()
+    if (!canStart) {
+      return
+    }
+
+    setLoading(true)
+    setError(null)
+    setResult(null)
+
+    try {
+      // Build the initial context
+      const initialContext = {
+        customerId: selectedCustomerId,
+        cartId: `cart-${Date.now()}`,
+        currency: selectedCurrency,
+        cart: {
+          id: `cart-${Date.now()}`,
+          items: demoCart,
+          orderLines: demoCart.map(item => ({
+            quantity: item.quantity,
+            currencyCode: selectedCurrency || 'USD', // Ensure currency is always set
+            kind: 'product' as const,
+            productId: item.id,
+            name: item.name,
+            unitPriceGross: item.price,
+          })),
+          // Fold the demo's shipping and tax into order-level adjustments so the
+          // created order's grand total matches the cart total shown to the user
+          // (line items alone only cover the product subtotal).
+          orderAdjustments: [
+            ...(shipping > 0
+              ? [{ kind: 'shipping' as const, label: 'Shipping', currencyCode: selectedCurrency || 'USD', amountGross: shipping }]
+              : []),
+            ...(tax > 0
+              ? [{ kind: 'tax' as const, label: 'Tax', currencyCode: selectedCurrency || 'USD', amountGross: tax }]
+              : []),
+          ],
+          itemCount: demoCart.reduce((sum, item) => sum + item.quantity, 0),
+          subtotal: subtotal,
+          tax: tax,
+          shipping: shipping,
+          total: total,
+          currency: selectedCurrency,
+        },
+        customer: {
+          id: selectedCustomerId,
+          name: 'Demo Customer',
+          email: 'demo@example.com',
+        },
+        payment: {
+          id: `payment-${Date.now()}`,
+          methodId: 'pm_demo_visa',
+          method: 'Credit Card',
+          last4: '4242',
+        },
+      }
+
+      // Start the checkout workflow
+      const response = await fetch('/api/workflows/instances', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          workflowId: 'workflows.checkout-demo',
+          version: 1,
+          correlationKey: `DEMO-ORDER-${Date.now()}`,
+          initialContext,
+          metadata: {
+            source: 'checkout-demo',
+            userAgent: navigator.userAgent,
+            timestamp: new Date().toISOString(),
+          },
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        const errorMsg = errorData.error || 'Failed to start checkout workflow'
+
+        if (response.status === 404 && errorMsg.includes('Workflow definition not found')) {
+          throw new Error(
+            'Workflow not found. Please ensure:\n' +
+            '1. You have seeded the demo workflow (see instructions below)\n' +
+            '2. You are logged in with the same tenant/organization used when seeding\n' +
+            '3. The workflow is enabled in the database'
+          )
+        }
+
+        if (response.status === 401) {
+          throw new Error('Please log in to start a workflow')
+        }
+
+        if (response.status === 403) {
+          throw new Error('You do not have permission to start workflows. Please contact your administrator.')
+        }
+
+        throw new Error(errorMsg)
+      }
+
+      const data = await response.json()
+
+      setResult({
+        instanceId: data.data.instance.id,
+        status: data.data.instance.status,
+        workflowId: data.data.instance.workflowId,
+        currentStepId: data.data.instance.currentStepId,
+        context: data.data.instance.context,
+      })
+    } catch (err) {
+      logger.error('Checkout failed', { err })
+      setError(err instanceof Error ? err.message : 'An error occurred during checkout')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleAdvance = async (toStepId?: string) => {
+    if (!result?.instanceId) return
+
+    setAdvancing(true)
+    setError(null)
+
+    try {
+      const response = await fetch(`/api/workflows/instances/${result.instanceId}/advance`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          toStepId,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to advance workflow')
+      }
+
+      const data = await response.json()
+
+      // Update result with new state
+      setResult({
+        instanceId: data.data.instance.id,
+        status: data.data.instance.status,
+        workflowId: result.workflowId,
+        currentStepId: data.data.instance.currentStepId,
+        context: data.data.instance.context,
+      })
+    } catch (err) {
+      logger.error('Advance failed', { err })
+      setError(err instanceof Error ? err.message : 'Failed to advance workflow')
+    } finally {
+      setAdvancing(false)
+    }
+  }
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'RUNNING':
+        return 'text-status-info-text bg-status-info-bg'
+      case 'WAITING_FOR_ACTIVITIES':
+        return 'text-status-info-text bg-status-info-bg'
+      case 'PAUSED':
+        return 'text-status-warning-text bg-status-warning-bg'
+      case 'COMPLETED':
+        return 'text-status-success-text bg-status-success-bg'
+      case 'FAILED':
+        return 'text-status-error-text bg-status-error-bg'
+      default:
+        return 'text-status-neutral-text bg-status-neutral-bg'
+    }
+  }
+
+  const getStepStatus = (stepId: string) => {
+    if (!result?.currentStepId) return 'pending'
+
+    const currentIndex = workflowSteps.findIndex(s => s.stepId === result.currentStepId)
+    const stepIndex = workflowSteps.findIndex(s => s.stepId === stepId)
+
+    if (currentIndex === -1 || stepIndex === -1) return 'pending'
+
+    if (stepIndex < currentIndex) return 'completed'
+    if (stepIndex === currentIndex) {
+      // If workflow is paused at this step, show it as paused
+      return result.status === 'PAUSED' ? 'paused' : 'current'
+    }
+    return 'pending'
+  }
+
+  const getStepColor = (status: string) => {
+    switch (status) {
+      case 'completed':
+        return 'bg-status-success-bg text-status-success-text border-status-success-border'
+      case 'current':
+        return 'bg-status-info-bg text-status-info-text border-status-info-border'
+      case 'paused':
+        return 'bg-status-warning-bg text-status-warning-text border-status-warning-border'
+      default:
+        return 'bg-status-neutral-bg text-status-neutral-text border-status-neutral-border'
+    }
+  }
+
+  const getEventTypeBadgeClass = (eventType: string) => {
+    if (eventType.includes('STARTED')) return 'bg-status-info-bg text-status-info-text'
+    if (eventType.includes('COMPLETED')) return 'bg-status-success-bg text-status-success-text'
+    if (eventType.includes('FAILED') || eventType.includes('REJECTED')) return 'bg-status-error-bg text-status-error-text'
+    if (eventType.includes('CANCELLED')) return 'bg-status-neutral-bg text-status-neutral-text'
+    if (eventType.includes('ENTERED') || eventType.includes('EXITED')) return 'bg-status-info-bg text-status-info-text'
+    return 'bg-status-neutral-bg text-status-neutral-text'
+  }
+
+  const formatEventType = (eventType: string) => {
+    return eventType.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase())
+  }
+
+  const handleFieldChange = (fieldName: string, value: any) => {
+    setFormData(prev => ({
+      ...prev,
+      [fieldName]: value,
+    }))
+  }
+
+  const handleSendPaymentSignal = async () => {
+    if (!result?.instanceId) {
+      setSignalError('No workflow instance found')
+      return
+    }
+
+    // Check if workflow is in the correct step
+    if (result.currentStepId !== 'wait_payment_confirmation') {
+      setSignalError(`Cannot send signal: workflow is at step "${result.currentStepId}", expected "wait_payment_confirmation"`)
+      return
+    }
+
+    setSendingSignal(true)
+    setSignalError(null)
+
+    try {
+      const signalUrl = `/api/workflows/instances/${result.instanceId}/signal`
+
+      const requestPayload = {
+        signalName: 'payment_confirmed',
+        payload: {
+          paymentStatus: 'success',
+          transactionId: `txn_${Date.now()}`,
+          confirmedAt: new Date().toISOString(),
+          provider: 'StripeSimulator',
+        },
+      }
+
+      const response = await fetch(signalUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestPayload),
+      })
+
+      // Read response as text first to handle non-JSON responses
+      const responseText = await response.text()
+
+      if (!response.ok) {
+        let errorData: any = {}
+        let isJson = false
+
+        try {
+          errorData = JSON.parse(responseText)
+          isJson = true
+        } catch (parseError) {
+          logger.error('Signal response is not JSON', { component: 'Signal', responseLength: responseText.length, err: parseError })
+        }
+
+        const errorMsg = isJson && errorData.error
+          ? errorData.error
+          : `HTTP ${response.status}: ${responseText.substring(0, 200) || 'Failed to send signal'}`
+        throw new Error(errorMsg)
+      }
+
+      // Parse success response
+      let data: any
+      try {
+        data = JSON.parse(responseText)
+      } catch (parseError) {
+        data = { success: true }
+      }
+
+      // Invalidate queries to force refresh
+      await queryClient.invalidateQueries({ queryKey: ['workflow-instance', result?.instanceId] })
+      await queryClient.invalidateQueries({ queryKey: ['workflow-events', result?.instanceId] })
+
+      // Clear any previous errors
+      setSignalError(null)
+    } catch (err) {
+      logger.error('Signal failed', { component: 'Signal', err })
+      const errorMessage = err instanceof Error ? err.message : 'Failed to send payment confirmation'
+      setSignalError(errorMessage)
+    } finally {
+      setSendingSignal(false)
+    }
+  }
+
+  const handleTaskSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    if (!userTasks || userTasks.length === 0) return
+
+    const task = userTasks[0]
+
+    // Validate required fields
+    if (task.formSchema?.required) {
+      for (const requiredField of task.formSchema.required) {
+        if (!formData[requiredField] || formData[requiredField] === '') {
+          setTaskError(`Required field is missing: ${requiredField}`)
+          return
+        }
+      }
+    }
+
+    setSubmittingTask(true)
+    setTaskError(null)
+
+    try {
+      const response = await fetch(`/api/workflows/tasks/${task.id}/complete`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          formData,
+        }),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to complete task')
+      }
+
+      // Reset form
+      setFormData({})
+      setTaskError(null)
+
+      // Invalidate all workflow-related queries to force immediate refresh
+      await queryClient.invalidateQueries({ queryKey: ['workflow-instance', result?.instanceId] })
+      await queryClient.invalidateQueries({ queryKey: ['workflow-user-tasks', result?.instanceId] })
+      await queryClient.invalidateQueries({ queryKey: ['workflow-events', result?.instanceId] })
+    } catch (err) {
+      logger.error('Error completing task', { err })
+      setTaskError(err instanceof Error ? err.message : 'Failed to complete task')
+    } finally {
+      setSubmittingTask(false)
+    }
+  }
+
+  const renderFormField = (fieldName: string, fieldSchema: any, required: boolean) => {
+    const fieldType = fieldSchema.type || 'string'
+    const fieldTitle = fieldSchema.title || fieldName
+    const fieldDescription = fieldSchema.description
+    const enumValues = fieldSchema.enum
+
+    const inputClasses = "w-full px-3 py-2 border border-gray-300 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring text-sm"
+    const labelClasses = "block text-sm font-medium text-gray-700 mb-1"
+
+    // Handle enum (select dropdown)
+    if (enumValues && Array.isArray(enumValues)) {
+      return (
+        <div key={fieldName} className="space-y-1">
+          <label htmlFor={fieldName} className={labelClasses}>
+            {fieldTitle}
+            {required && <span className="text-status-error-text ml-1">*</span>}
+          </label>
+          {fieldDescription && (
+            <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
+          )}
+          <Select
+            value={(formData[fieldName] as string) || undefined}
+            onValueChange={(value) => handleFieldChange(fieldName, value ?? '')}
+          >
+            <SelectTrigger id={fieldName} className={inputClasses} aria-required={required}>
+              <SelectValue placeholder={t('workflows.checkoutDemo.formField.selectOption', '-- Select an option --')} />
+            </SelectTrigger>
+            <SelectContent>
+              {enumValues.map((value: any) => (
+                <SelectItem key={value} value={value}>
+                  {value}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )
+    }
+
+    // Handle different field types
+    switch (fieldType) {
+      case 'string':
+        if (fieldSchema.format === 'email') {
+          return (
+            <div key={fieldName} className="space-y-1">
+              <label htmlFor={fieldName} className={labelClasses}>
+                {fieldTitle}
+                {required && <span className="text-status-error-text ml-1">*</span>}
+              </label>
+              {fieldDescription && (
+                <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
+              )}
+              <EmailInput
+                id={fieldName}
+                value={formData[fieldName] || ''}
+                onChange={(e) => handleFieldChange(fieldName, e.target.value)}
+                required={required}
+              />
+            </div>
+          )
+        }
+        if (fieldSchema.format === 'date') {
+          return (
+            <div key={fieldName} className="space-y-1">
+              <label htmlFor={fieldName} className={labelClasses}>
+                {fieldTitle}
+                {required && <span className="text-status-error-text ml-1">*</span>}
+              </label>
+              {fieldDescription && (
+                <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
+              )}
+              <Input
+                type="date"
+                id={fieldName}
+                value={formData[fieldName] || ''}
+                onChange={(e) => handleFieldChange(fieldName, e.target.value)}
+                required={required}
+              />
+            </div>
+          )
+        }
+        if (fieldSchema.maxLength && fieldSchema.maxLength > 200) {
+          return (
+            <div key={fieldName} className="space-y-1">
+              <label htmlFor={fieldName} className={labelClasses}>
+                {fieldTitle}
+                {required && <span className="text-status-error-text ml-1">*</span>}
+              </label>
+              {fieldDescription && (
+                <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
+              )}
+              <Textarea
+                id={fieldName}
+                value={formData[fieldName] || ''}
+                onChange={(e) => handleFieldChange(fieldName, e.target.value)}
+                required={required}
+                rows={3}
+              />
+            </div>
+          )
+        }
+        return (
+          <div key={fieldName} className="space-y-1">
+            <label htmlFor={fieldName} className={labelClasses}>
+              {fieldTitle}
+              {required && <span className="text-status-error-text ml-1">*</span>}
+            </label>
+            {fieldDescription && (
+              <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
+            )}
+            <Input
+              type="text"
+              id={fieldName}
+              value={formData[fieldName] || ''}
+              onChange={(e) => handleFieldChange(fieldName, e.target.value)}
+              required={required}
+            />
+          </div>
+        )
+
+      case 'number':
+      case 'integer':
+        return (
+          <div key={fieldName} className="space-y-1">
+            <label htmlFor={fieldName} className={labelClasses}>
+              {fieldTitle}
+              {required && <span className="text-status-error-text ml-1">*</span>}
+            </label>
+            {fieldDescription && (
+              <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
+            )}
+            <Input
+              type="number"
+              id={fieldName}
+              value={formData[fieldName] || ''}
+              onChange={(e) => handleFieldChange(fieldName, e.target.value ? Number(e.target.value) : '')}
+              required={required}
+              step={fieldType === 'integer' ? 1 : 'any'}
+            />
+          </div>
+        )
+
+      case 'boolean':
+        return (
+          <div key={fieldName} className="space-y-1">
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id={fieldName}
+                checked={!!formData[fieldName]}
+                onCheckedChange={(v) => handleFieldChange(fieldName, v === true)}
+              />
+              <label htmlFor={fieldName} className="text-sm font-medium text-gray-700">
+                {fieldTitle}
+                {required && <span className="text-status-error-text ml-1">*</span>}
+              </label>
+            </div>
+            {fieldDescription && (
+              <p className="text-xs text-gray-500 ml-6">{fieldDescription}</p>
+            )}
+          </div>
+        )
+
+      default:
+        return (
+          <div key={fieldName} className="space-y-1">
+            <label htmlFor={fieldName} className={labelClasses}>
+              {fieldTitle}
+              {required && <span className="text-status-error-text ml-1">*</span>}
+            </label>
+            {fieldDescription && (
+              <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
+            )}
+            <Input
+              type="text"
+              id={fieldName}
+              value={formData[fieldName] || ''}
+              onChange={(e) => handleFieldChange(fieldName, e.target.value)}
+              required={required}
+            />
+          </div>
+        )
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-6xl mx-auto">
+        {/* Header */}
+        <div className="text-center mb-8">
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">
+            {t('workflows.checkoutDemo.title', 'Checkout Demo with Payment Webhooks')}
+          </h1>
+          <p className="text-gray-600">
+            {t(
+              'workflows.checkoutDemo.subtitle',
+              'Interactive workflow demonstration featuring signal-based payment confirmation (WAIT_FOR_SIGNAL)',
+            )}
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {/* Interactive Left Panel - Changes based on workflow step */}
+          <div className="bg-white shadow rounded-lg p-6">
+            {/* Initial State - Cart Summary */}
+            {!result && (
+              <>
+                {/* Customer Selection */}
+                <div className="mb-6 pb-6 border-b border-gray-200">
+                  <label htmlFor="customer-select" className="block text-sm font-medium text-gray-700 mb-2">
+                    {t('workflows.checkoutDemo.customer.selectLabel', 'Select Customer')}{' '}
+                    <span className="text-status-error-text">*</span>
+                  </label>
+                  {customersLoading ? (
+                    <div className="flex items-center justify-center py-3 text-sm text-gray-500">
+                      <Spinner size="sm" className="mr-2" />
+                      {t('workflows.checkoutDemo.customer.loading', 'Loading customers...')}
+                    </div>
+                  ) : customers.length === 0 ? (
+                    <div className="bg-status-warning-bg border border-status-warning-border rounded-lg p-3 text-sm text-status-warning-text">
+                      {t('workflows.checkoutDemo.customer.noneFound', 'No customers found. Please create a customer first.')}
+                    </div>
+                  ) : (
+                    <>
+                      <Select
+                        value={selectedCustomerId || undefined}
+                        onValueChange={(value) => setSelectedCustomerId(value ?? '')}
+                      >
+                        <SelectTrigger id="customer-select">
+                          <SelectValue placeholder={t('workflows.checkoutDemo.customer.selectPlaceholder', '-- Select a customer --')} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {customers.map((customer: any) => (
+                            <SelectItem key={customer.id} value={customer.id}>
+                              {customer.display_name || customer.id}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <div className="mt-2">
+                        <label htmlFor="currency-select" className="block text-xs font-medium text-gray-600 mb-1">
+                          {t('workflows.checkoutDemo.currency.label', 'Currency')}
+                        </label>
+                        <Select
+                          value={selectedCurrency}
+                          onValueChange={(value) => setSelectedCurrency(value)}
+                        >
+                          <SelectTrigger id="currency-select">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="USD">USD - US Dollar</SelectItem>
+                            <SelectItem value="EUR">EUR - Euro</SelectItem>
+                            <SelectItem value="GBP">GBP - British Pound</SelectItem>
+                            <SelectItem value="PLN">PLN - Polish Zloty</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Product Selection */}
+                <div className="mb-6 pb-6 border-b border-gray-200">
+                  <label htmlFor="product-select" className="block text-sm font-medium text-gray-700 mb-2">
+                    {t('workflows.checkoutDemo.product.addLabel', 'Add Products to Cart')}
+                  </label>
+                  {productsLoading ? (
+                    <div className="flex items-center justify-center py-3 text-sm text-gray-500">
+                      <Spinner size="sm" className="mr-2" />
+                      {t('workflows.checkoutDemo.product.loading', 'Loading products...')}
+                    </div>
+                  ) : products.length === 0 ? (
+                    <div className="bg-status-warning-bg border border-status-warning-border rounded-lg p-3 text-sm text-status-warning-text">
+                      {t('workflows.checkoutDemo.product.noneFound', 'No products found. Please create products in the catalog first.')}
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <Select
+                        value={undefined}
+                        onValueChange={(value) => {
+                          const product = products.find((p: any) => p.id === value)
+                          if (product) {
+                            addToCart({
+                              id: product.id,
+                              title: product.title || product.display_name || 'Untitled Product',
+                              pricing: product.pricing || null,
+                            })
+                          }
+                        }}
+                      >
+                        <SelectTrigger id="product-select">
+                          <SelectValue placeholder={t('workflows.checkoutDemo.product.selectPlaceholder', '-- Select a product to add --')} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {products.map((product: any) => {
+                            const basePrice = product.pricing?.unit_price_gross || product.pricing?.unit_price_net || 99.99
+                            const displayPrice = (basePrice * exchangeRate).toFixed(2)
+                            return (
+                              <SelectItem key={product.id} value={product.id}>
+                                {product.title || product.display_name || 'Untitled'} - {currencySymbol}{displayPrice}
+                              </SelectItem>
+                            )
+                          })}
+                        </SelectContent>
+                      </Select>
+                      {cart.length === 0 && (
+                        <p className="text-xs text-gray-500 mt-1">
+                          {t('workflows.checkoutDemo.cart.selectHint', 'Select products from the dropdown to add them to your cart')}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <h2 className="text-xl font-semibold text-gray-900 mb-4">
+                  {t('workflows.checkoutDemo.orderSummary.title', 'Order Summary')}
+                </h2>
+
+                {/* Cart Items */}
+                {cart.length === 0 ? (
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-6 text-center mb-6">
+                    <p className="text-gray-500 text-sm">
+                      {t('workflows.checkoutDemo.cart.empty.title', 'Your cart is empty')}
+                    </p>
+                    <p className="text-gray-400 text-xs mt-1">
+                      {t('workflows.checkoutDemo.cart.empty.hint', 'Add products from the dropdown above')}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4 mb-6">
+                    {demoCart.map((item) => (
+                      <div key={item.id} className="flex justify-between items-center gap-4 pb-3 border-b border-gray-100 last:border-0">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-gray-900 truncate">{item.name}</p>
+                          <p className="text-xs text-gray-500">{currencySymbol}{item.price.toFixed(2)} {t('workflows.checkoutDemo.cart.pricePerUnitSuffix', 'each')}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <IconButton
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            aria-label={t('workflows.checkoutDemo.cart.decreaseQty', 'Decrease quantity')}
+                            onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                          >
+                            <Minus />
+                          </IconButton>
+                          <span className="w-8 text-center text-sm font-medium">{item.quantity}</span>
+                          <IconButton
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            aria-label={t('workflows.checkoutDemo.cart.increaseQty', 'Increase quantity')}
+                            onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                          >
+                            <Plus />
+                          </IconButton>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium text-gray-900 min-w-[80px] text-right">
+                            {currencySymbol}{(item.price * item.quantity).toFixed(2)}
+                          </p>
+                          <IconButton
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="text-status-error-text hover:bg-status-error-bg"
+                            aria-label={t('workflows.checkoutDemo.cart.removeItemTitle', 'Remove from cart')}
+                            onClick={() => removeFromCart(item.id)}
+                          >
+                            <X />
+                          </IconButton>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Totals */}
+                <div className="border-t border-gray-200 pt-4 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">{t('workflows.checkoutDemo.cart.subtotal', 'Subtotal')}</span>
+                    <span className="text-gray-900">{currencySymbol}{subtotal.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">{t('workflows.checkoutDemo.cart.tax', 'Tax (8%)')}</span>
+                    <span className="text-gray-900">{currencySymbol}{tax.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">{t('workflows.checkoutDemo.cart.shipping', 'Shipping')}</span>
+                    <span className="text-gray-900">{currencySymbol}{shipping.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between font-semibold text-lg pt-2 border-t border-gray-200">
+                    <span className="text-gray-900">{t('workflows.checkoutDemo.cart.total', 'Total')}</span>
+                    <span className="text-gray-900">{currencySymbol}{total.toFixed(2)}</span>
+                  </div>
+                </div>
+
+                {/* Validation Errors */}
+                {validationErrors.length > 0 && (
+                  <div className="bg-status-error-bg border border-status-error-border rounded-lg p-4 mt-6">
+                    <h4 className="text-sm font-medium text-status-error-text mb-2 flex items-center gap-2">
+                      <AlertCircle className="h-4 w-4" />
+                      {t('workflows.checkoutDemo.validation.errorTitle', 'Cannot start checkout')}
+                    </h4>
+                    <ul className="list-disc list-inside space-y-1">
+                      {validationErrors.map((err, idx) => (
+                        <li key={idx} className="text-sm text-status-error-text">
+                          {err.message}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Checkout Button */}
+                <Button
+                  onClick={handleCheckout}
+                  disabled={loading || isValidating || result !== null || !selectedCustomerId || customers.length === 0 || validationErrors.length > 0}
+                  className="w-full mt-6"
+                  size="lg"
+                >
+                  {isValidating
+                    ? t('workflows.checkoutDemo.checkout.validating', 'Validating...')
+                    : loading
+                      ? t('workflows.checkoutDemo.checkout.starting', 'Starting...')
+                      : result
+                        ? t('workflows.checkoutDemo.checkout.workflowStarted', 'Workflow Started')
+                        : !selectedCustomerId
+                          ? t('workflows.checkoutDemo.checkout.selectCustomerFirst', 'Select Customer to Continue')
+                          : validationErrors.length > 0
+                            ? t('workflows.checkoutDemo.checkout.fixValidationErrors', 'Fix Validation Errors')
+                            : t('workflows.checkoutDemo.checkout.start', 'Start Checkout Workflow')}
+                </Button>
+                {!selectedCustomerId && customers.length > 0 && validationErrors.length === 0 && (
+                  <p className="text-xs text-gray-500 text-center mt-2">
+                    {t('workflows.checkoutDemo.checkout.pleaseSelectCustomer', 'Please select a customer to continue')}
+                  </p>
+                )}
+              </>
+            )}
+
+            {/* Cart Validation Step */}
+            {result && (result.currentStepId === 'start' || result.currentStepId === 'cart_validation') && (
+              <>
+                <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                  <span className="inline-block w-2 h-2 bg-status-info-icon rounded-full animate-pulse"></span>
+                  {t('workflows.checkoutDemo.cartValidation.title', 'Validating Cart')}
+                </h2>
+                <div className="space-y-4">
+                  {result.status === 'WAITING_FOR_ACTIVITIES' ? (
+                    <div className="bg-status-info-bg border border-status-info-border rounded-lg p-4">
+                      <p className="text-sm text-status-info-text font-medium">{t('workflows.checkoutDemo.cartValidation.processingActivities', 'Processing background activities...')}</p>
+                      <p className="text-xs text-status-info-text mt-1">{t('workflows.checkoutDemo.cartValidation.processingActivitiesHint', 'The workflow is waiting for async tasks to complete before proceeding.')}</p>
+                    </div>
+                  ) : (
+                    <div className="bg-status-info-bg border border-status-info-border rounded-lg p-4">
+                      <p className="text-sm text-status-info-text">{t('workflows.checkoutDemo.cartValidation.inventoryCheck', 'Checking cart items and inventory availability...')}</p>
+                    </div>
+                  )}
+                  {demoCart.map((item) => (
+                    <div key={item.id} className="flex justify-between items-center border-b border-gray-200 pb-2">
+                      <div className="flex-1">
+                        <p className="font-medium text-gray-900">{item.name}</p>
+                        <p className="text-xs text-gray-500">{t('workflows.checkoutDemo.cartValidation.qtyPrefix', 'Qty:')} {item.quantity}</p>
+                      </div>
+                      <span className="text-status-success-text text-sm">{t('workflows.checkoutDemo.cartValidation.available', '✓ Available')}</span>
+                    </div>
+                  ))}
+                  <div className="pt-2 border-t border-gray-200">
+                    <p className="text-sm font-medium text-gray-900">{t('workflows.checkoutDemo.cartValidation.totalPrefix', 'Total:')} {currencySymbol}{total.toFixed(2)}</p>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Customer Information Step - USER_TASK */}
+            {result && result.currentStepId === 'customer_info' && (
+              <>
+                <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                  <span className="inline-block w-2 h-2 bg-status-warning-icon rounded-full animate-pulse"></span>
+                  {t('workflows.checkoutDemo.customerInfo.title', 'Customer Information Required')}
+                </h2>
+                <div className="space-y-4">
+                  <div className="bg-status-warning-bg border border-status-warning-border rounded-lg p-4">
+                    <p className="text-sm text-status-warning-text font-medium mb-2">
+                      {t('workflows.checkoutDemo.customerInfo.promptTitle', 'Please provide your shipping information')}
+                    </p>
+                    <p className="text-xs text-status-warning-text">
+                      {t('workflows.checkoutDemo.customerInfo.promptHint', 'The workflow is paused waiting for customer details. Complete the form to continue checkout.')}
+                    </p>
+                  </div>
+
+                  {tasksError ? (
+                    <div className="bg-status-error-bg border border-status-error-border rounded-lg p-4">
+                      <p className="text-sm text-status-error-text font-medium mb-2">
+                        {t('workflows.checkoutDemo.customerInfo.errorLoadingTask', 'Error loading task')}
+                      </p>
+                      <p className="text-xs text-status-error-text mb-3">
+                        {tasksError instanceof Error ? tasksError.message : t('workflows.checkoutDemo.customerInfo.unknownError', 'Unknown error')}
+                      </p>
+                      <Button
+                        onClick={() => refetchTasks()}
+                        size="sm"
+                        variant="outline"
+                        className="w-full"
+                      >
+                        {t('workflows.checkoutDemo.customerInfo.retry', 'Retry')}
+                      </Button>
+                    </div>
+                  ) : tasksLoading ? (
+                    <div className="bg-status-info-bg border border-status-info-border rounded-lg p-4">
+                      <div className="flex items-center justify-center py-4">
+                        <Spinner size="lg" />
+                        <p className="ml-3 text-sm text-gray-600">{t('workflows.checkoutDemo.customerInfo.loading', 'Loading task...')}</p>
+                      </div>
+                    </div>
+                  ) : userTasks.length > 0 ? (
+                    <form onSubmit={handleTaskSubmit} className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
+                      {taskError && (
+                        <div className="bg-status-error-bg border border-status-error-border rounded-lg p-3">
+                          <p className="text-sm text-status-error-text">{taskError}</p>
+                        </div>
+                      )}
+
+                      {userTasks[0].formSchema?.properties && (
+                        <div className="space-y-3">
+                          {Object.keys(userTasks[0].formSchema.properties).map((fieldName) => {
+                            const required = userTasks[0].formSchema.required?.includes(fieldName) || false
+                            return renderFormField(fieldName, userTasks[0].formSchema.properties[fieldName], required)
+                          })}
+                        </div>
+                      )}
+
+                      <div className="pt-3 border-t border-gray-200">
+                        <Button
+                          type="submit"
+                          disabled={submittingTask}
+                          className="w-full font-medium"
+                        >
+                          {submittingTask
+                            ? t('workflows.checkoutDemo.customerInfo.submitting', 'Submitting...')
+                            : t('workflows.checkoutDemo.customerInfo.submit', 'Complete & Continue Checkout')}
+                        </Button>
+                      </div>
+                    </form>
+                  ) : (
+                    <div className="bg-status-warning-bg border border-status-warning-border rounded-lg p-4">
+                      <p className="text-sm text-status-warning-text font-medium mb-2">
+                        {t('workflows.checkoutDemo.customerInfo.noTaskTitle', 'No task found')}
+                      </p>
+                      <p className="text-xs text-status-warning-text mb-3">
+                        {t('workflows.checkoutDemo.customerInfo.noTaskHint', 'The user task may still be creating. This usually takes less than a second.')}
+                      </p>
+                      <Button
+                        onClick={() => refetchTasks()}
+                        size="sm"
+                        variant="outline"
+                        className="w-full"
+                      >
+                        {t('workflows.checkoutDemo.customerInfo.refresh', 'Refresh')}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+
+            {/* Payment Initiation Step */}
+            {result && result.currentStepId === 'payment_initiation' && (
+              <>
+                <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                  <span className="inline-block w-2 h-2 bg-status-info-icon rounded-full animate-pulse"></span>
+                  {t('workflows.checkoutDemo.paymentInitiation.title', 'Initiating Payment')}
+                </h2>
+                <div className="space-y-6">
+                  <div className="bg-status-info-bg border border-status-info-border rounded-lg p-4">
+                    <p className="text-sm text-status-info-text font-medium mb-2">{t('workflows.checkoutDemo.paymentInitiation.detailsTitle', 'Payment Details')}</p>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">{t('workflows.checkoutDemo.paymentInitiation.methodLabel', 'Method:')}</span>
+                        <span className="text-gray-900">{t('workflows.checkoutDemo.paymentInitiation.methodValue', 'Credit Card ****4242')}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">{t('workflows.checkoutDemo.paymentInitiation.amountLabel', 'Amount:')}</span>
+                        <span className="text-gray-900 font-semibold">{currencySymbol}{total.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-center py-8">
+                    <div className="text-center">
+                      <Spinner size="lg" className="mb-4" />
+                      <p className="text-sm text-gray-600">{t('workflows.checkoutDemo.paymentInitiation.sending', 'Sending payment request...')}</p>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Wait for Payment Confirmation Step - SIGNAL */}
+            {result && result.currentStepId === 'wait_payment_confirmation' && (
+              <>
+                <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                  <span className="inline-block w-2 h-2 bg-status-warning-icon rounded-full animate-pulse"></span>
+                  {t('workflows.checkoutDemo.waitPayment.title', 'Waiting for Payment Confirmation')}
+                </h2>
+                <div className="space-y-4">
+                  <div className="bg-status-warning-bg border border-status-warning-border rounded-lg p-4">
+                    <p className="text-sm text-status-warning-text font-medium mb-2">
+                      {t('workflows.checkoutDemo.waitPayment.heading', 'Awaiting Payment Provider Webhook')}
+                    </p>
+                    <p className="text-xs text-status-warning-text mb-3">
+                      {t('workflows.checkoutDemo.waitPayment.description', 'The workflow is paused waiting for the payment provider to confirm the transaction via webhook. In production, this would be sent automatically by Stripe, PayPal, etc.')}
+                    </p>
+                    <div className="space-y-2 text-xs text-status-warning-text">
+                      <div className="flex items-center gap-2">
+                        <span className="inline-block w-1.5 h-1.5 bg-status-warning-icon rounded-full"></span>
+                        <span>{t('workflows.checkoutDemo.waitPayment.statusLabel', 'Status:')} <strong>{result.status}</strong></span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="inline-block w-1.5 h-1.5 bg-status-warning-icon rounded-full"></span>
+                        <span>{t('workflows.checkoutDemo.waitPayment.signalNameLabel', 'Signal Name:')} <code className="bg-status-warning-bg px-1 py-0.5 rounded">payment_confirmed</code></span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="inline-block w-1.5 h-1.5 bg-status-warning-icon rounded-full"></span>
+                        <span>{t('workflows.checkoutDemo.waitPayment.timeout', 'Timeout: 5 minutes')}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {signalError && (
+                    <div className="bg-status-error-bg border border-status-error-border rounded-lg p-4">
+                      <div className="flex items-start">
+                        <AlertCircle className="h-5 w-5 text-status-error-text mt-0.5 flex-shrink-0" />
+                        <div className="ml-3">
+                          <h3 className="text-sm font-medium text-status-error-text">{t('workflows.checkoutDemo.waitPayment.signalErrorTitle', 'Signal Error')}</h3>
+                          <p className="text-sm text-status-error-text mt-1 whitespace-pre-wrap">{signalError}</p>
+                          <Button
+                            onClick={() => setSignalError(null)}
+                            variant="outline"
+                            size="sm"
+                            className="mt-2"
+                          >
+                            {t('workflows.checkoutDemo.waitPayment.dismiss', 'Dismiss')}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {result.status === 'PAUSED' && (
+                    <div className="bg-white border border-gray-200 rounded-lg p-4">
+                      <p className="text-sm font-medium text-gray-900 mb-2">{t('workflows.checkoutDemo.waitPayment.demoTestingTitle', 'For Demo Testing:')}</p>
+                      <p className="text-xs text-gray-600 mb-3">
+                        {t('workflows.checkoutDemo.waitPayment.demoTestingHint', 'Click the button below to simulate a payment provider webhook confirming the transaction.')}
+                      </p>
+                      <Button
+                        onClick={handleSendPaymentSignal}
+                        disabled={sendingSignal || result.status !== 'PAUSED'}
+                        className="w-full font-medium"
+                      >
+                        {sendingSignal
+                          ? t('workflows.checkoutDemo.waitPayment.sendingSignal', 'Sending Signal...')
+                          : t('workflows.checkoutDemo.waitPayment.simulateWebhook', '🔔 Simulate Payment Webhook')}
+                      </Button>
+                      <p className="text-xs text-gray-500 mt-2 text-center">
+                        {t('workflows.checkoutDemo.waitPayment.sendsPrefix', 'This sends a ')}<code className="bg-gray-100 px-1 py-0.5 rounded text-xs">SIGNAL_RECEIVED</code>{t('workflows.checkoutDemo.waitPayment.sendsSuffix', ' event')}
+                      </p>
+                    </div>
+                  )}
+
+                  {result.status !== 'PAUSED' && (
+                    <div className="bg-status-info-bg border border-status-info-border rounded-lg p-4">
+                      <p className="text-sm text-status-info-text">
+                        <strong>{t('workflows.checkoutDemo.waitPayment.noteLabel', 'Note:')}</strong> {t('workflows.checkoutDemo.waitPayment.noteStatusPrefix', 'Workflow status is ')}<strong>{result.status}</strong>{t('workflows.checkoutDemo.waitPayment.noteStatusSuffix', '. The signal button will appear when the workflow is fully paused at this step.')}
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="bg-status-info-bg border border-status-info-border rounded-lg p-4">
+                    <p className="text-xs text-status-info-text">
+                      <strong>{t('workflows.checkoutDemo.waitPayment.realWorldLabel', 'Real-world scenario:')}</strong> {t('workflows.checkoutDemo.waitPayment.realWorldPart1', 'Your payment provider (Stripe, PayPal) would send a webhook to your server endpoint (e.g., ')}<code className="bg-status-info-bg px-1 py-0.5 rounded">/api/webhooks/payments</code>{t('workflows.checkoutDemo.waitPayment.realWorldPart2', '), which would then call ')}<code className="bg-status-info-bg px-1 py-0.5 rounded">POST /api/workflows/instances/[id]/signal</code>{t('workflows.checkoutDemo.waitPayment.realWorldPart3', ' to resume the workflow.')}
+                    </p>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Order Confirmation Step */}
+            {result && result.currentStepId === 'order_confirmation' && (
+              <>
+                <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                  <span className="inline-block w-2 h-2 bg-status-info-icon rounded-full animate-pulse"></span>
+                  {t('workflows.checkoutDemo.orderConfirmation.title', 'Creating Order')}
+                </h2>
+                <div className="space-y-6">
+                  <div className="bg-status-success-bg border border-status-success-border rounded-lg p-4">
+                    <p className="text-sm text-status-success-text font-medium mb-1">{t('workflows.checkoutDemo.orderConfirmation.paymentSuccess', 'Payment Successful!')}</p>
+                    <p className="text-xs text-status-success-text">{t('workflows.checkoutDemo.orderConfirmation.transactionIdPrefix', 'Transaction ID: ')}{result.instanceId.slice(0, 8)}...</p>
+                  </div>
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="text-status-success-text">✓</span>
+                      <span className="text-gray-700">{t('workflows.checkoutDemo.orderConfirmation.creatingRecord', 'Creating order record')}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-sm">
+                      <Spinner size="sm" />
+                      <span className="text-gray-700">{t('workflows.checkoutDemo.orderConfirmation.sendingEmail', 'Sending confirmation email')}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="text-gray-400">○</span>
+                      <span className="text-gray-500">{t('workflows.checkoutDemo.orderConfirmation.updatingInventory', 'Updating inventory')}</span>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Completed State */}
+            {result && result.status === 'COMPLETED' && (
+              <>
+                <div className="text-center mb-6">
+                  <div className="inline-flex items-center justify-center w-16 h-16 bg-status-success-bg rounded-full mb-4">
+                    <Check className="w-8 h-8 text-status-success-text" />
+                  </div>
+                  <h2 className="text-2xl font-bold text-gray-900 mb-2">{t('workflows.checkoutDemo.completed.title', 'Order Confirmed!')}</h2>
+                  <p className="text-sm text-gray-600">{t('workflows.checkoutDemo.completed.orderNumberPrefix', 'Order #')}{result.instanceId.slice(0, 8).toUpperCase()}</p>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">{t('workflows.checkoutDemo.completed.orderDateLabel', 'Order Date:')}</span>
+                      <span className="text-gray-900">{new Date().toLocaleDateString()}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">{t('workflows.checkoutDemo.completed.paymentMethodLabel', 'Payment Method:')}</span>
+                      <span className="text-gray-900">{t('workflows.checkoutDemo.completed.paymentMethodValue', 'Credit Card ****4242')}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">{t('workflows.checkoutDemo.completed.totalPaidLabel', 'Total Paid:')}</span>
+                      <span className="text-gray-900 font-semibold">{currencySymbol}{total.toFixed(2)}</span>
+                    </div>
+                  </div>
+
+                  <div className="border-t border-gray-200 pt-4">
+                    <p className="text-xs text-gray-600 mb-3">{t('workflows.checkoutDemo.completed.orderItemsLabel', 'Order Items:')}</p>
+                    {demoCart.map((item) => (
+                      <div key={item.id} className="flex justify-between text-sm mb-2">
+                        <span className="text-gray-700">{item.quantity}x {item.name}</span>
+                        <span className="text-gray-900">{currencySymbol}{(item.price * item.quantity).toFixed(2)}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="bg-status-info-bg border border-status-info-border rounded-lg p-4">
+                    <p className="text-xs text-status-info-text">
+                      {t('workflows.checkoutDemo.completed.emailSent', '✉️ A confirmation email has been sent to demo@example.com')}
+                    </p>
+                  </div>
+
+                  <Button
+                    onClick={() => {
+                      setResult(null)
+                      setError(null)
+                    }}
+                    variant="outline"
+                    className="w-full"
+                  >
+                    {t('workflows.checkoutDemo.completed.startNew', 'Start New Order')}
+                  </Button>
+                </div>
+              </>
+            )}
+
+            {/* Failed State */}
+            {result && result.status === 'FAILED' && (
+              <>
+                <h2 className="text-xl font-semibold text-status-error-text mb-4">{t('workflows.checkoutDemo.failed.title', 'Order Failed')}</h2>
+                <div className="bg-status-error-bg border border-status-error-border rounded-lg p-4">
+                  <p className="text-sm text-status-error-text">
+                    {t('workflows.checkoutDemo.failed.message', 'Unfortunately, your order could not be processed. Please try again.')}
+                  </p>
+                </div>
+                <Button
+                  onClick={() => {
+                    setResult(null)
+                    setError(null)
+                  }}
+                  className="w-full mt-6"
+                >
+                  {t('workflows.checkoutDemo.failed.tryAgain', 'Try Again')}
+                </Button>
+              </>
+            )}
+          </div>
+
+          {/* Workflow Status */}
+          <div className="bg-white shadow rounded-lg p-6">
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">{t('workflows.checkoutDemo.progress.title', 'Workflow Progress')}</h2>
+
+            {!result && !error && (
+              <div className="text-center py-12">
+                <Zap className="mx-auto h-12 w-12 text-muted-foreground" />
+                <p className="mt-4 text-gray-600">
+                  {t('workflows.checkoutDemo.progress.prompt', 'Click "Start Checkout Workflow" to begin')}
+                </p>
+              </div>
+            )}
+
+            {loading && (
+              <div className="text-center py-12">
+                <Spinner size="lg" className="mx-auto" />
+                <p className="mt-4 text-gray-600">{t('workflows.checkoutDemo.progress.startingWorkflow', 'Starting workflow...')}</p>
+              </div>
+            )}
+
+            {error && (
+              <div className="bg-status-error-bg border border-status-error-border rounded-lg p-4">
+                <div className="flex items-start">
+                  <AlertCircle className="h-5 w-5 text-status-error-text mt-0.5 flex-shrink-0" />
+                  <div className="ml-3 flex-1">
+                    <h3 className="text-sm font-medium text-status-error-text">{t('workflows.checkoutDemo.progress.errorTitle', 'Error')}</h3>
+                    <p className="mt-1 text-sm text-status-error-text whitespace-pre-wrap">{error}</p>
+                    <Button
+                      onClick={() => setError(null)}
+                      variant="outline"
+                      size="sm"
+                      className="mt-3"
+                    >
+                      {t('workflows.checkoutDemo.progress.errorDismiss', 'Dismiss')}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {result && (
+              <div className="space-y-6">
+                {/* Status Badge */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    {t('workflows.checkoutDemo.progress.statusLabel', 'Status')}
+                  </label>
+                  <span
+                    className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(
+                      result.status
+                    )}`}
+                  >
+                    {result.status}
+                  </span>
+                </div>
+
+                {/* Workflow Steps Visual */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-3">
+                    {t('workflows.checkoutDemo.progress.stepsLabel', 'Steps')}
+                  </label>
+                  <div className="space-y-2">
+                    {workflowSteps.map((step, index) => {
+                      const status = getStepStatus(step.stepId)
+                      const isLastStep = step.stepType === 'END'
+                      const isPaused = status === 'paused'
+
+                      return (
+                        <div
+                          key={step.stepId}
+                          className={`p-3 rounded-lg border-2 ${getStepColor(status)} transition-all duration-300 ${
+                            (status === 'current' || isPaused) && !isLastStep ? 'animate-pulse' : ''
+                          }`}
+                        >
+                          <div className="flex items-center">
+                            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-white flex items-center justify-center font-bold text-sm">
+                              {status === 'completed' ? '✓' : isPaused ? '⏸' : index + 1}
+                            </div>
+                            <div className="ml-3 flex-1">
+                              <p className="font-medium">{step.stepName}</p>
+                              {step.description && (
+                                <p className="text-xs opacity-75 mt-0.5">{step.description}</p>
+                              )}
+                            </div>
+                            {status === 'current' && !isLastStep && !isPaused && (
+                              <span className="ml-2 text-xs font-medium flex items-center gap-1">
+                                <span className="inline-block w-2 h-2 bg-current rounded-full animate-pulse"></span>
+                                {t('workflows.checkoutDemo.progress.processing', 'Processing...')}
+                              </span>
+                            )}
+                            {isPaused && (
+                              <span className="ml-2 text-xs font-medium flex items-center gap-1">
+                                <span className="inline-block w-2 h-2 bg-current rounded-full"></span>
+                                {t('workflows.checkoutDemo.progress.waitingForInput', 'Waiting for input')}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* User Task Required */}
+                {result.status === 'PAUSED' && userTasks.length > 0 && (
+                  <div className="border-t border-gray-200 pt-4">
+                    <div className="bg-status-warning-bg border border-status-warning-border rounded-lg p-4">
+                      <div className="flex items-start mb-3">
+                        <AlertTriangle className="h-5 w-5 text-status-warning-text mt-0.5" />
+                        <div className="ml-3">
+                          <h3 className="text-sm font-medium text-status-warning-text">
+                            {t('workflows.checkoutDemo.progress.userActionTitle', 'User Action Required')}
+                          </h3>
+                          <p className="text-sm text-status-warning-text mt-1">
+                            {t('workflows.checkoutDemo.progress.userActionHint', 'This workflow is paused waiting for user input. Please complete the task below to continue.')}
+                          </p>
+                        </div>
+                      </div>
+
+                      {userTasks.map((task: any) => (
+                        <div key={task.id} className="mt-3 bg-white rounded-md p-3 border border-status-warning-border">
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <h4 className="text-sm font-semibold text-gray-900">{task.taskName}</h4>
+                              {task.description && (
+                                <p className="text-sm text-gray-600 mt-1">{task.description}</p>
+                              )}
+                              {task.dueDate && (
+                                <p className="text-xs text-gray-500 mt-2">
+                                  {t('workflows.checkoutDemo.progress.duePrefix', 'Due: ')}{new Date(task.dueDate).toLocaleString()}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          <div className="mt-3">
+                            <Button asChild>
+                              <a href={`/backend/tasks/${task.id}`}>
+                                {t('workflows.checkoutDemo.progress.completeTask', 'Complete Task →')}
+                              </a>
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Manual Progression */}
+                {result.status === 'RUNNING' && currentStep && currentStep.stepType !== 'END' && (
+                  <div className="border-t border-gray-200 pt-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      {t('workflows.checkoutDemo.progress.manualProgression', 'Manual Progression')}
+                    </label>
+                    <p className="text-sm text-gray-600 mb-3">
+                      {t('workflows.checkoutDemo.progress.manualProgressionHint', 'Manually advance to the next step for testing')}
+                    </p>
+                    <Button
+                      onClick={() => handleAdvance()}
+                      disabled={advancing || result.status !== 'RUNNING'}
+                      className="w-full"
+                    >
+                      {advancing
+                        ? t('workflows.checkoutDemo.progress.advancing', 'Advancing...')
+                        : t('workflows.checkoutDemo.progress.advance', 'Advance to Next Step →')}
+                    </Button>
+                  </div>
+                )}
+
+                {/* Completed State */}
+                {result.status === 'COMPLETED' && (
+                  <div className="bg-status-success-bg border border-status-success-border rounded-lg p-4">
+                    <div className="flex items-start">
+                      <CheckCircle2 className="h-5 w-5 text-status-success-text mt-0.5" />
+                      <div className="ml-3">
+                        <h3 className="text-sm font-medium text-status-success-text">
+                          {t('workflows.checkoutDemo.progress.workflowCompleted', 'Workflow Completed!')}
+                        </h3>
+                        <p className="mt-1 text-sm text-status-success-text">
+                          {t('workflows.checkoutDemo.progress.workflowCompletedHint', 'All steps executed successfully')}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div className="border-t border-gray-200 pt-4 space-y-3">
+                  <Button asChild className="w-full">
+                    <Link href={`/backend/instances/${result.instanceId}`}>
+                      {t('workflows.checkoutDemo.progress.viewInAdmin', 'View in Admin')}
+                    </Link>
+                  </Button>
+
+                  <Button
+                    onClick={() => {
+                      setResult(null)
+                      setError(null)
+                    }}
+                    variant="outline"
+                    className="w-full"
+                  >
+                    {t('workflows.checkoutDemo.progress.startNewCheckout', 'Start New Checkout')}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Workflow Events Timeline */}
+        {result && events.length > 0 && (
+          <div className="mt-8 bg-white shadow rounded-lg p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <h2 className="text-xl font-semibold text-gray-900">
+                  {t('workflows.checkoutDemo.events.title', 'Workflow Events')}
+                  <span className="ml-2 text-sm font-normal text-gray-500">
+                    ({events.length})
+                  </span>
+                </h2>
+                {(result.status === 'RUNNING' || result.status === 'WAITING_FOR_ACTIVITIES') && (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-status-error-bg text-status-error-text">
+                    <span className="inline-block w-2 h-2 bg-status-error-icon rounded-full animate-pulse"></span>
+                    {t('workflows.checkoutDemo.events.liveBadge', 'Live')}
+                  </span>
+                )}
+              </div>
+              <Link
+                href={`/backend/events?workflowInstanceId=${result.instanceId}`}
+                className="text-sm text-primary hover:underline"
+              >
+                {t('workflows.checkoutDemo.events.viewAllLink', 'View all events →')}
+              </Link>
+            </div>
+
+            <div className="space-y-3 max-h-96 overflow-y-auto">
+              {events.map((event: WorkflowEvent) => (
+                <div
+                  key={event.id}
+                  className="border border-gray-200 rounded-lg p-3 hover:bg-gray-50 transition-colors"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getEventTypeBadgeClass(
+                            event.eventType
+                          )}`}
+                        >
+                          {formatEventType(event.eventType)}
+                        </span>
+                        <span className="text-xs text-gray-500">
+                          {new Date(event.occurredAt).toLocaleTimeString()}
+                        </span>
+                      </div>
+                      {event.eventData && Object.keys(event.eventData).length > 0 && (
+                        <details className="mt-2">
+                          <summary className="text-xs text-gray-600 cursor-pointer hover:text-gray-900">
+                            {t('workflows.checkoutDemo.events.viewData', 'View event data')}
+                          </summary>
+                          <pre className="mt-2 text-xs bg-gray-100 p-2 rounded overflow-x-auto max-h-32 overflow-y-auto">
+                            {JSON.stringify(event.eventData, null, 2)}
+                          </pre>
+                        </details>
+                      )}
+                    </div>
+                    <Link
+                      href={`/backend/events/${event.id}`}
+                      className="text-xs text-primary hover:underline whitespace-nowrap"
+                    >
+                      {t('workflows.checkoutDemo.events.detailsLink', 'Details')}
+                    </Link>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {events.length > 10 && (
+              <div className="mt-4 text-center">
+                <Link
+                  href={`/backend/events?workflowInstanceId=${result.instanceId}`}
+                  className="text-sm text-primary hover:underline"
+                >
+                  {t('workflows.checkoutDemo.events.viewAllPrefix', 'View all')} {events.length} {t('workflows.checkoutDemo.events.viewAllSuffix', 'events →')}
+                </Link>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Features Info */}
+        <div className="mt-4 bg-status-info-bg border border-status-info-border rounded-lg p-4">
+          <div className="flex items-start">
+            <Info className="h-5 w-5 text-status-info-text mt-0.5" />
+            <div className="ml-3">
+              <h3 className="text-sm font-medium text-status-info-text">{t('workflows.checkoutDemo.features.title', 'Features')}</h3>
+              <div className="mt-2 text-sm text-status-info-text">
+                <ul className="list-disc list-inside space-y-1">
+                  <li><strong>{t('workflows.checkoutDemo.features.signalFlow.label', 'Signal-Based Payment Flow:')}</strong>{t('workflows.checkoutDemo.features.signalFlow.body', ' Demonstrates real-world webhook pattern with WAIT_FOR_SIGNAL step type')}</li>
+                  <li><strong>{t('workflows.checkoutDemo.features.interactiveUi.label', 'Interactive UI Changes:')}</strong>{t('workflows.checkoutDemo.features.interactiveUi.body', ' Left panel dynamically updates to show cart validation, payment initiation, webhook waiting, and order confirmation screens')}</li>
+                  <li><strong>{t('workflows.checkoutDemo.features.realtimeProgress.label', 'Real-time Progress Tracking:')}</strong>{t('workflows.checkoutDemo.features.realtimeProgress.body', ' Watch the workflow progress through steps automatically with live status updates')}</li>
+                  <li><strong>{t('workflows.checkoutDemo.features.webhookSimulation.label', 'Webhook Simulation:')}</strong>{t('workflows.checkoutDemo.features.webhookSimulation.body', ' Test signal-based workflow resumption with simulated payment provider webhook')}</li>
+                  <li><strong>{t('workflows.checkoutDemo.features.liveEventTimeline.label', 'Live Event Timeline:')}</strong>{t('workflows.checkoutDemo.features.liveEventTimeline.body', ' New workflow events appear in real-time including SIGNAL_AWAITING and SIGNAL_RECEIVED')}</li>
+                  <li><strong>{t('workflows.checkoutDemo.features.completeOrderFlow.label', 'Complete Order Flow:')}</strong>{t('workflows.checkoutDemo.features.completeOrderFlow.body', ' Experience the full checkout journey from cart to confirmation with async payment processing')}</li>
+                  <li><strong>{t('workflows.checkoutDemo.features.userTaskIntegration.label', 'User Task Integration:')}</strong>{t('workflows.checkoutDemo.features.userTaskIntegration.body', ' Form-based user input with workflow pause/resume on task completion')}</li>
+                  <li><strong>{t('workflows.checkoutDemo.features.businessRulesIntegration.label', 'Business Rules Integration:')}</strong>{t('workflows.checkoutDemo.features.businessRulesIntegration.body', ' Guard rules validate transitions with detailed failure information')}</li>
+                  <li><strong>{t('workflows.checkoutDemo.features.startPreconditions.label', 'START Step Pre-conditions:')}</strong>{t('workflows.checkoutDemo.features.startPreconditions.body', ' Validate business rules before workflow can start (e.g., cart not empty) with localized error messages')}</li>
+                </ul>
+                <p className="mt-2">
+                  <Link href="/backend/definitions" className="text-primary underline">
+                    {t('workflows.checkoutDemo.features.viewAllWorkflowsLink', 'View all workflows →')}
+                  </Link>
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

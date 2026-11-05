@@ -1,0 +1,69 @@
+---
+title: Sales settings
+description: Configure numbering, editing guards, payment and shipment dictionaries, adjustment kinds, shipping methods, and tax rates.
+sidebar_label: Sales settings
+---
+
+Use Sales settings to standardize how orders and quotes behave. Access requires `sales.settings.manage`.
+
+![Document numbers](/screenshots/open-mercato-orders-settings-numbering.png)
+
+## Document numbers
+
+- Configure **order** and **quote** number formats with tokens like `{yyyy}`, `{mm}`, `{dd}`, `{seq:5}`, `{kind}`.
+- Control the **next sequence** per type; sequences are scoped per organization.
+- Tokens can combine for readable IDs (e.g., `ORDER-{yyyy}/{seq:5}`).
+
+## Editing guards
+
+![Order editing guards](/screenshots/open-mercato-orders-settings-editing-guards.png)
+
+- Decide when **customers** and **addresses** can change (any status vs only draft).
+- Changing customer clears addresses to prevent data mix-ups.
+
+## Payment methods and statuses
+
+![Payment methods](/screenshots/open-mercato-orders-settings-payment-methods.png)
+
+- **Payment methods** list providers (e.g., Cash on Delivery, Bank Transfer, Card) and active flag.
+- **Payment statuses** define lifecycle (authorized, captured, pending, received, refunded, failed, canceled).
+- Both power the Payments tab and keep reports consistent.
+
+![Payment statuses](/screenshots/open-mercato-orders-settings-payment-statuses.png)
+
+## Shipping methods and shipment statuses
+
+![Shipping methods](/screenshots/open-mercato-orders-settings-shipping-methods.png)
+
+- **Shipping methods** capture provider, base rate, and active flag; used when creating shipments and shipping adjustments.
+- **Shipment statuses** cover fulfillment states (pending, packed, shipped, in_transit, delivered, returned, canceled).
+
+![Shipment statuses](/screenshots/open-mercato-orders-settings-shipment-statuses.png)
+
+## Order statuses and line statuses
+
+![Order statuses](/screenshots/open-mercato-orders-settings-order-statuses.png)
+
+- **Order statuses** control the main document lifecycle (draft, confirmed, in_fulfillment, fulfilled, on_hold, canceled).
+- **Order line statuses** refine per-line fulfillment (pending, picking, packed, shipped, delivered, returned, backordered, allocated).
+
+![Order line statuses](/screenshots/open-mercato-orders-settings-order-line-statuses.png)
+
+## Adjustment kinds
+
+![Adjustment kinds](/screenshots/open-mercato-orders-settings-adjustment-kinds.png)
+
+- Curate reusable kinds (Discount, Shipping, Tax, Surcharge, Custom). Kinds drive the adjustment dialog and reporting.
+
+## Tax rates
+
+![Tax rates](/screenshots/open-mercato-orders-settings-tax-rates.png)
+
+- Maintain VAT/tax classes with code, rate, and default flag. Applied to items and adjustments for consistent totals.
+
+## Tips
+
+- Keep naming consistent across methods, statuses, and kinds so operators pick confidently.
+- Review guards before go-live to prevent mid-fulfillment edits that could break compliance.
+- Align tax classes with catalog pricing and finance reporting.
+

@@ -1,0 +1,166 @@
+"use client"
+
+import * as React from 'react'
+import Link from 'next/link'
+import { useRouter, usePathname } from 'next/navigation'
+import { useQuery } from '@tanstack/react-query'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { apiFetch, withScopedApiHeaders } from '@open-mercato/ui/backend/utils/api'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
+import { readJsonSafe } from '@open-mercato/ui/backend/utils/serverErrors'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import {
+  businessRuleFormSchema,
+  createFormGroups,
+  createFieldDefinitions,
+  type BusinessRuleFormValues,
+} from '../../../components/formConfig'
+import { ConditionBuilder } from '../../../components/ConditionBuilder'
+import { ActionBuilder } from '../../../components/ActionBuilder'
+import { buildRulePayload, parseRuleToFormValues } from '../../../components/utils/formHelpers'
+
+export default function EditBusinessRulePage({ params }: { params?: { id?: string } }) {
+  const router = useRouter()
+  const pathname = usePathname()
+  const ruleId = params?.id
+
+  const t = useT()
+  const { organizationId, tenantId } = useOrganizationScopeDetail()
+
+  const { data: rule, isLoading, error } = useQuery({
+    queryKey: ['business_rule', ruleId],
+    queryFn: async () => {
+      const response = await apiFetch(`/api/business_rules/rules/${ruleId}`)
+      if (!response.ok) {
+        throw new Error(t('business_rules.errors.fetchFailed'))
+      }
+      const result = await response.json()
+      return result
+    },
+    enabled: !!ruleId,
+  })
+
+  const initialValues = React.useMemo(() => {
+    if (rule) {
+      return parseRuleToFormValues(rule)
+    }
+    return null
+  }, [rule])
+
+  const handleSubmit = async (values: BusinessRuleFormValues) => {
+    // Use tenant/org from the loaded rule if available, otherwise from context
+    const effectiveTenantId = rule?.tenantId || tenantId
+    const effectiveOrgId = rule?.organizationId || organizationId
+
+    if (!effectiveTenantId || !effectiveOrgId) {
+      throw new Error(t('business_rules.errors.missingTenantOrOrg'))
+    }
+
+    const payload = buildRulePayload(values, effectiveTenantId, effectiveOrgId, undefined)
+
+    const updateRule = () => apiFetch('/api/business_rules/rules', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...payload,
+        id: ruleId,
+      }),
+    })
+    const headers = buildOptimisticLockHeader(rule?.updatedAt ?? rule?.updated_at ?? null)
+    const response = Object.keys(headers).length
+      ? await withScopedApiHeaders(headers, updateRule)
+      : await updateRule()
+
+    if (!response.ok) {
+      const body = (await readJsonSafe<Record<string, unknown>>(response)) ?? {}
+      const message =
+        (typeof body.error === 'string' && body.error) ||
+        (typeof body.message === 'string' && body.message) ||
+        t('business_rules.errors.updateFailed')
+      throw new CrudHttpError(response.status, { ...body, error: message })
+    }
+
+    router.push('/backend/rules')
+    router.refresh()
+  }
+
+  const fields = React.useMemo(() => createFieldDefinitions(t), [t])
+
+  const formGroups = React.useMemo(
+    () => createFormGroups(t, ConditionBuilder, ActionBuilder),
+    [t]
+  )
+
+  // Publish page-load record context to the AppShell-owned `backend:record:current`
+  // mount so the enterprise record_locks widget resolves `business_rules.rule` + id
+  // explicitly. The resourceKind mirrors the route's `enforceCommandOptimisticLock`
+  // call so the held lock matches the save-time conflict surface for the same rule.
+  useSetCurrentRecordInjectionContext(
+    buildRecordInjectionContext({
+      resourceKind: 'business_rules.rule',
+      resourceId: ruleId ?? null,
+      updatedAt: rule?.updatedAt ?? rule?.updated_at ?? null,
+      data: (rule ?? null) as Record<string, unknown> | null,
+      path: pathname,
+    }),
+  )
+
+  if (isLoading) {
+    return (
+      <Page>
+        <PageBody>
+          <div className="flex h-[50vh] flex-col items-center justify-center gap-2 text-muted-foreground">
+            <Spinner className="h-6 w-6" />
+            <span>{t('business_rules.rules.edit.loading')}</span>
+          </div>
+        </PageBody>
+      </Page>
+    )
+  }
+
+  if (error || !rule) {
+    return (
+      <Page>
+        <PageBody>
+            <div className="flex h-[50vh] flex-col items-center justify-center gap-2 text-muted-foreground">
+            <p>{t('business_rules.errors.loadFailed')}</p>
+            <Button asChild variant="outline">
+              <Link href="/backend/rules">{t('business_rules.rules.backToList')}</Link>
+            </Button>
+          </div>
+        </PageBody>
+      </Page>
+    )
+  }
+
+  if (!initialValues) {
+    return null
+  }
+
+  return (
+    <Page>
+      <PageBody>
+        <CrudForm
+          key={ruleId}
+          title={t('business_rules.rules.edit.title')}
+          titleHeadingLevel={1}
+          backHref="/backend/rules"
+          schema={businessRuleFormSchema}
+          fields={fields}
+          initialValues={initialValues}
+          optimisticLockUpdatedAt={rule?.updatedAt ?? rule?.updated_at ?? null}
+          onSubmit={handleSubmit}
+          cancelHref="/backend/rules"
+          groups={formGroups}
+          submitLabel={t('business_rules.rules.form.update')}
+        />
+      </PageBody>
+    </Page>
+  )
+}

@@ -1,0 +1,100 @@
+@open-mercato/app:build: - remove them if possible, or
+@open-mercato/app:build: - only use them in development, or
+@open-mercato/app:build: - make sure they are statically scoped to some subfolder: path.join(process.cwd(), 'data', bar), or
+@open-mercato/app:build: - add ignore comments: path.join(/*turbopackIgnore: true*/ process.cwd(), bar)
+@open-mercato/app:build: 
+@open-mercato/app:build: Output asset trace:
+@open-mercato/app:build:   [output]/apps/mercato/.mercato/next/server/app/(backend)/backend/[...slug]/page_client-reference-manifest.js
+@open-mercato/app:build:   [output]/apps/mercato/.mercato/next/server/chunks/ssr/[root-of-the-server]__0lyj7~w._.js
+@open-mercato/app:build:   [output]/apps/mercato/.mercato/next/server/chunks/ssr/[root-of-the-server]__0fxhj.r._.js
+@open-mercato/app:build: 
+@open-mercato/app:build: Import trace:
+@open-mercato/app:build:   App Route:
+@open-mercato/app:build:     ./apps/mercato/next.config.ts
+@open-mercato/app:build:     ./packages/queue/dist/strategies/local.js
+@open-mercato/app:build:     ./packages/queue/dist/factory.js
+@open-mercato/app:build:     ./packages/events/dist/bus.js
+@open-mercato/app:build:     ./packages/core/dist/bootstrap.js
+@open-mercato/app:build:     ./apps/mercato/src/app/api/[...slug]/route.ts
+@open-mercato/app:build: 
+@open-mercato/app:build: 
+@open-mercato/app:build: ./apps/mercato/next.config.ts
+@open-mercato/app:build: Encountered unexpected file in NFT list
+@open-mercato/app:build: A file was traced that indicates that the whole project was traced unintentionally. Somewhere in the import trace below, there are:
+@open-mercato/app:build: - filesystem operations (like path.join, path.resolve or fs.readFile), or
+@open-mercato/app:build: - very dynamic requires (like require('./' + foo)).
+@open-mercato/app:build: To resolve this, you can
+@open-mercato/app:build: - remove them if possible, or
+@open-mercato/app:build: - only use them in development, or
+@open-mercato/app:build: - make sure they are statically scoped to some subfolder: path.join(process.cwd(), 'data', bar), or
+@open-mercato/app:build: - add ignore comments: path.join(/*turbopackIgnore: true*/ process.cwd(), bar)
+@open-mercato/app:build: 
+@open-mercato/app:build: Output asset trace:
+@open-mercato/app:build:   [output]/apps/mercato/.mercato/next/server/app/(backend)/backend/page_client-reference-manifest.js
+@open-mercato/app:build:   [output]/apps/mercato/.mercato/next/server/chunks/ssr/[root-of-the-server]__0lyj7~w._.js
+@open-mercato/app:build:   [output]/apps/mercato/.mercato/next/server/chunks/ssr/[root-of-the-server]__0fxhj.r._.js
+@open-mercato/app:build: 
+@open-mercato/app:build: Import trace:
+@open-mercato/app:build:   App Route:
+@open-mercato/app:build:     ./apps/mercato/next.config.ts
+@open-mercato/app:build:     ./packages/queue/dist/strategies/local.js
+@open-mercato/app:build:     ./packages/queue/dist/factory.js
+@open-mercato/app:build:     ./packages/events/dist/bus.js
+@open-mercato/app:build:     ./packages/core/dist/bootstrap.js
+@open-mercato/app:build:     ./apps/mercato/src/app/api/[...slug]/route.ts
+@open-mercato/app:build: 
+@open-mercato/app:build: 
+@open-mercato/app:build: ./apps/mercato/next.config.ts
+@open-mercato/app:build: Encountered unexpected file in NFT list
+@open-mercato/app:build: A file was traced that indicates that the whole project was traced unintentionally. Somewhere in the import trace below, there are:
+@open-mercato/app:build: - filesystem operations (like path.join, path.resolve or fs.readFile), or
+@open-mercato/app:build: - very dynamic requires (like require('./' + foo)).
+@open-mercato/app:build: To resolve this, you can
+@open-mercato/app:build: - remove them if possible, or
+@open-mercato/app:build: - only use them in development, or
+@open-mercato/app:build: - make sure they are statically scoped to some subfolder: path.join(process.cwd(), 'data', bar), or
+@open-mercato/app:build: - add ignore comments: path.join(/*turbopackIgnore: true*/ process.cwd(), bar)
+@open-mercato/app:build: 
+@open-mercato/app:build: Output asset trace:
+@open-mercato/app:build:   [output]/apps/mercato/.mercato/next/server/app/page_client-reference-manifest.js
+@open-mercato/app:build:   [output]/apps/mercato/.mercato/next/server/chunks/ssr/[root-of-the-server]__0lyj7~w._.js
+@open-mercato/app:build:   [output]/apps/mercato/.mercato/next/server/chunks/ssr/[root-of-the-server]__0fxhj.r._.js
+@open-mercato/app:build: 
+@open-mercato/app:build: Import trace:
+@open-mercato/app:build:   App Route:
+@open-mercato/app:build:     ./apps/mercato/next.config.ts
+@open-mercato/app:build:     ./packages/queue/dist/strategies/local.js
+@open-mercato/app:build:     ./packages/queue/dist/factory.js
+@open-mercato/app:build:     ./packages/events/dist/bus.js
+@open-mercato/app:build:     ./packages/core/dist/bootstrap.js
+@open-mercato/app:build:     ./apps/mercato/src/app/api/[...slug]/route.ts
+@open-mercato/app:build: 
+@open-mercato/app:build: 
+@open-mercato/app:build: ✓ Compiled successfully in 18.0s
+@open-mercato/app:build:   Running TypeScript ...
+@open-mercato/app:build:   Finished TypeScript in 57s ...
+@open-mercato/app:build:   Collecting page data using 10 workers ...
+@open-mercato/app:build:   Generating static pages using 10 workers (0/3) ...
+@open-mercato/app:build: ✓ Generating static pages using 10 workers (3/3) in 1542ms
+@open-mercato/app:build:   Finalizing page optimization ...
+@open-mercato/app:build: 
+@open-mercato/app:build: Route (app)
+@open-mercato/app:build: ┌ ƒ /
+@open-mercato/app:build: ├ ƒ /_not-found
+@open-mercato/app:build: ├ ƒ /[...slug]
+@open-mercato/app:build: ├ ƒ /api/[...slug]
+@open-mercato/app:build: ├ ƒ /api/docs/markdown
+@open-mercato/app:build: ├ ƒ /api/docs/openapi
+@open-mercato/app:build: ├ ƒ /backend
+@open-mercato/app:build: └ ƒ /backend/[...slug]
+@open-mercato/app:build: 
+@open-mercato/app:build: 
+@open-mercato/app:build: ƒ Proxy (Middleware)
+@open-mercato/app:build: 
+@open-mercato/app:build: ƒ  (Dynamic)  server-rendered on demand
+@open-mercato/app:build: 
+
+ Tasks:    1 successful, 1 total
+Cached:    0 cached, 1 total
+  Time:    1m22.42s 
+

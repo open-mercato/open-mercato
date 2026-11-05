@@ -1,0 +1,901 @@
+import { NextResponse } from 'next/server'
+import { z } from 'zod'
+import type { CacheStrategy } from '@open-mercato/cache'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { CustomEntity, CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
+import { upsertCustomFieldDefSchema, fieldsetCodeRegex } from '@open-mercato/core/modules/entities/data/validators'
+import {
+  createDefinitionsCacheKey,
+  createDefinitionsCacheTags,
+  invalidateDefinitionsCache,
+  ENTITY_DEFINITIONS_CACHE_TTL_MS,
+} from './definitions.cache'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { filterSelectableSystemEntityIds, isSystemEntitySelectable } from '@open-mercato/shared/lib/entities/system-entities'
+import { isOrmBackedSystemEntityId } from '@open-mercato/shared/lib/data/engine'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { loadEntityFieldsetConfigs, CustomFieldsetDefinition } from '../lib/fieldsets'
+import { installCustomEntitiesFromModules } from '../lib/install-from-ce'
+import { normalizeCustomFieldOptions } from '@open-mercato/shared/modules/entities/options'
+import { CURRENCY_OPTIONS_URL } from '@open-mercato/shared/modules/entities/kinds'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import {
+  beginEntitiesMutationGuard,
+  FIELD_DEFINITION_RESOURCE_KIND,
+} from './definitions.mutation-guard'
+import {
+  canReadAllEntityMetadata,
+  canReadEntityMetadata,
+  getDeclaredCustomEntityRestriction,
+  resolveEntityAclRequirement,
+} from '../lib/entityAcl'
+import {
+  createExactDefinitionWhere,
+  createScopedDefinitionTombstone,
+  createVisibleDefinitionWhere,
+  markDefinitionTombstoned,
+  resolveDefinitionScopeFromOrganizationScope,
+  resolveDefinitionMutationScope,
+  selectVisibleDefinitionWinner,
+} from '../lib/definition-scope'
+import { resolveEntityDefinitionsVersion } from '../lib/definitions-version'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('entities').child({ component: 'definitions' })
+
+/**
+ * Validate defaultValue against the field kind. Returns an error message string
+ * if invalid, or null if valid. For dictionary and currency kinds, queries the
+ * database to verify the token exists.
+ */
+async function validateDefaultValueByKind(
+  value: unknown,
+  kind: string,
+  cfg: Record<string, unknown>,
+  em: EntityManager,
+  tenantContext: { tenantId: string | null; organizationId: string | null },
+): Promise<string | null> {
+  switch (kind) {
+    case 'boolean':
+      if (typeof value !== 'boolean') return 'defaultValue for boolean fields must be true or false'
+      return null
+    case 'integer':
+      if (typeof value !== 'number' || !Number.isInteger(value))
+        return 'defaultValue for integer fields must be a whole number'
+      return null
+    case 'float':
+      if (typeof value !== 'number' || !isFinite(value))
+        return 'defaultValue for float fields must be a finite number'
+      return null
+    case 'text':
+    case 'multiline':
+    case 'date':
+    case 'datetime':
+      if (typeof value !== 'string')
+        return `defaultValue for ${kind} fields must be a string`
+      return null
+    case 'dictionary': {
+      if (typeof value !== 'string')
+        return 'defaultValue for dictionary fields must be a string'
+      const dictionaryId = typeof cfg.dictionaryId === 'string' ? cfg.dictionaryId.trim() : ''
+      if (dictionaryId) {
+        try {
+          const { DictionaryEntry } = await import('@open-mercato/core/modules/dictionaries/data/entities')
+          const entry = await em.findOne(DictionaryEntry, {
+            dictionary: dictionaryId,
+            value: value,
+            ...(tenantContext.organizationId ? { organizationId: tenantContext.organizationId } : {}),
+            ...(tenantContext.tenantId ? { tenantId: tenantContext.tenantId } : {}),
+          })
+          if (!entry) return `defaultValue "${value}" does not match any entry in the configured dictionary`
+        } catch (err) {
+          // If the dictionaries module is not available, skip entry validation
+          logger.debug('Dictionary validation skipped — module not available', { err })
+        }
+      }
+      return null
+    }
+    case 'currency': {
+      if (typeof value !== 'string')
+        return 'defaultValue for currency fields must be a string'
+      try {
+        const { Currency } = await import('@open-mercato/core/modules/currencies/data/entities')
+        const where: Record<string, string> = { code: value as string }
+        if (tenantContext.tenantId) where.tenantId = tenantContext.tenantId
+        if (tenantContext.organizationId) where.organizationId = tenantContext.organizationId
+        const currency = await em.findOne(Currency, where)
+        if (!currency) return `defaultValue "${value}" does not match any available currency`
+      } catch (err) {
+        // If the currencies module is not available, skip currency validation
+        logger.debug('Currency validation skipped — module not available', { err })
+      }
+      return null
+    }
+    case 'select': {
+      if (typeof value !== 'string' && typeof value !== 'number')
+        return 'defaultValue for select fields must be a string or number'
+      const options = normalizeCustomFieldOptions(
+        Array.isArray(cfg.options) ? cfg.options : [],
+      )
+      if (options.length > 0) {
+        const match = options.some(
+          (o) => o.value === value || String(o.value) === String(value),
+        )
+        if (!match) return 'defaultValue does not match any of the configured options'
+      }
+      return null
+    }
+    case 'relation':
+    case 'attachment':
+      return `defaultValue is not supported for ${kind} fields`
+    default:
+      return null
+  }
+}
+
+/**
+ * Normalize defaultValue to the canonical storage shape for the given kind.
+ */
+function normalizeDefaultValueByKind(value: unknown, kind: string): unknown {
+  switch (kind) {
+    case 'boolean':
+      return value === true
+    case 'integer':
+      return Math.round(Number(value))
+    case 'float':
+      return Number(value)
+    default:
+      return value
+  }
+}
+
+export const metadata = {
+  // Reading definitions is needed by record forms; keep it auth-protected but accessible to all authenticated users
+  GET: { requireAuth: true },
+  // Mutations remain admin-only
+  POST: { requireAuth: true, requireFeatures: ['entities.definitions.manage'] },
+  DELETE: { requireAuth: true, requireFeatures: ['entities.definitions.manage'] },
+}
+
+function parseEntityIds(url: URL): string[] {
+  const direct = url.searchParams.getAll('entityId').filter((id) => typeof id === 'string' && id.trim().length > 0)
+  const combined = url.searchParams.get('entityIds')
+  if (combined) {
+    combined
+      .split(',')
+      .map((id) => id.trim())
+      .filter((id) => id.length > 0)
+      .forEach((id) => direct.push(id))
+  }
+  const unique: string[] = []
+  const seen = new Set<string>()
+  for (const id of direct) {
+    if (seen.has(id)) continue
+    seen.add(id)
+    unique.push(id)
+  }
+  return unique
+}
+
+async function resolveEntityDefaultEditor(em: any, entityId: string, tenantId: string | null | undefined): Promise<string | undefined> {
+  try {
+    const ent = await em.findOne(CustomEntity, {
+      entityId,
+      $and: [
+        { $or: [ { tenantId: tenantId ?? undefined as any }, { tenantId: null } ] },
+      ],
+    } as any)
+    if (ent && typeof (ent as any).defaultEditor === 'string') return (ent as any).defaultEditor
+  } catch {}
+  return undefined
+}
+
+function normalizeFieldGroup(raw: unknown): { code: string; title?: string; hint?: string } | undefined {
+  if (!raw) return undefined
+  if (typeof raw === 'string') {
+    const code = raw.trim()
+    return code ? { code } : undefined
+  }
+  if (typeof raw !== 'object') return undefined
+  const entry = raw as Record<string, unknown>
+  const code = typeof entry.code === 'string' ? entry.code.trim() : ''
+  if (!code) return undefined
+  const group: { code: string; title?: string; hint?: string } = { code }
+  if (typeof entry.title === 'string' && entry.title.trim()) group.title = entry.title.trim()
+  if (typeof entry.hint === 'string' && entry.hint.trim()) group.hint = entry.hint.trim()
+  return group
+}
+
+function definitionMatchesReadScope(
+  definition: { tenantId?: string | null; organizationId?: string | null },
+  scope: { tenantId: string | null; organizationId: string | null },
+) {
+  const definitionTenantId = definition.tenantId ?? null
+  const definitionOrganizationId = definition.organizationId ?? null
+  const tenantMatches = definitionTenantId === null || definitionTenantId === scope.tenantId
+  const organizationMatches =
+    definitionOrganizationId === null ||
+    (scope.organizationId !== null && definitionOrganizationId === scope.organizationId)
+  return tenantMatches && organizationMatches
+}
+
+export async function GET(req: Request) {
+  const url = new URL(req.url)
+  const requestedEntityIds = parseEntityIds(url)
+  if (!requestedEntityIds.length) {
+    return NextResponse.json({ error: 'entityId is required' }, { status: 400 })
+  }
+  const requestedFieldset = url.searchParams.get('fieldset')
+  const fieldsetFilter = requestedFieldset && requestedFieldset.trim().length ? requestedFieldset.trim() : null
+
+  const auth = await getAuthFromRequest(req)
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const selectableEntityIds = filterSelectableSystemEntityIds(requestedEntityIds)
+  if (!selectableEntityIds.length) {
+    return NextResponse.json({ items: [] })
+  }
+
+  const container = await createRequestContainer()
+  const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  const definitionScope = resolveDefinitionScopeFromOrganizationScope(auth, scope)
+  const tenantId = definitionScope.tenantId
+  if (!tenantId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const organizationId = definitionScope.organizationId
+  const { resolve } = container
+  const em = resolve('em') as any
+  const rbac = resolve('rbacService') as RbacService
+  const acl = await rbac.loadAcl(auth.sub ?? '', {
+    tenantId,
+    organizationId,
+  })
+  const designerCanRead = canReadAllEntityMetadata(acl)
+  const customEntityRestrictions = new Map<string, boolean>()
+  for (const entityId of selectableEntityIds) {
+    if (isOrmBackedSystemEntityId(em, entityId)) continue
+    const declaredRestriction = getDeclaredCustomEntityRestriction(entityId)
+    if (declaredRestriction !== undefined) customEntityRestrictions.set(entityId, declaredRestriction)
+  }
+  if (!designerCanRead) {
+    const unresolvedEntityIds = selectableEntityIds.filter(
+      (entityId) => !resolveEntityAclRequirement(entityId) && !customEntityRestrictions.has(entityId),
+    )
+    if (unresolvedEntityIds.length) {
+      const registrations = await em.find(CustomEntity as any, {
+        entityId: { $in: unresolvedEntityIds },
+        isActive: true,
+        $and: [
+          { $or: [{ tenantId }, { tenantId: null }] },
+          { $or: [{ organizationId }, { organizationId: null }] },
+        ],
+      } as any)
+      for (const registration of registrations as any[]) {
+        const entityId = String(registration.entityId)
+        if (!isOrmBackedSystemEntityId(em, entityId)) {
+          customEntityRestrictions.set(entityId, registration.accessRestricted === true)
+        }
+      }
+    }
+  }
+  const entityIds = selectableEntityIds.filter((entityId) => canReadEntityMetadata({
+    entityId,
+    isCustomEntity: customEntityRestrictions.has(entityId),
+    isRestricted: customEntityRestrictions.get(entityId) === true,
+    acl,
+  }))
+  if (!entityIds.length) {
+    return NextResponse.json({ items: [], fieldsetsByEntity: {}, entitySettings: {} })
+  }
+  let cache: CacheStrategy | undefined
+  try {
+    cache = resolve('cache') as CacheStrategy
+  } catch {}
+
+  let canManageDefinitions = false
+  if (typeof auth.sub === 'string' && auth.sub.length > 0) {
+    try {
+      canManageDefinitions = await rbac.userHasAllFeatures(auth.sub, ['entities.definitions.manage'], {
+        tenantId,
+        organizationId,
+      })
+    } catch {
+      // RBAC service unavailable — fall back to read-only (no definition sync)
+    }
+  }
+
+  if (canManageDefinitions) {
+    try {
+      await installCustomEntitiesFromModules(em, cache, {
+        tenantIds: [tenantId],
+        entityIds,
+        includeGlobal: true,
+        createOnly: true,
+      })
+    } catch (err) {
+      logger.warn('Failed to synchronize module-backed definitions', {
+        tenantId,
+        entityIds,
+        err,
+      })
+    }
+  }
+
+  let cacheKey: string | null = null
+  if (cache && !fieldsetFilter) {
+    cacheKey = createDefinitionsCacheKey({
+      tenantId,
+      organizationId,
+      entityIds,
+    })
+    try {
+      const cached = await cache.get(cacheKey)
+      if (cached) {
+        return NextResponse.json(cached)
+      }
+    } catch (err) {
+      logger.warn('Failed to read cache', { err })
+    }
+  }
+
+  const fieldsetConfigs = await loadEntityFieldsetConfigs(em, {
+    entityIds,
+    tenantId,
+    organizationId,
+    mode: 'public',
+  })
+
+  const tenantCandidates = [{ tenantId }, { tenantId: null as string | null }]
+  const organizationCandidates = [{ organizationId: null as string | null }]
+  if (organizationId) organizationCandidates.unshift({ organizationId })
+  const readScope = { tenantId, organizationId }
+
+  const whereActive = {
+    entityId: { $in: entityIds as any },
+    deletedAt: null,
+    $and: [
+      { $or: tenantCandidates },
+      { $or: organizationCandidates },
+    ],
+  } as any
+  const defs = (await em.find(CustomFieldDef, whereActive as any))
+    .filter((definition: any) => definitionMatchesReadScope(definition, readScope))
+  const tombstones = (await em.find(CustomFieldDef, {
+    entityId: { $in: entityIds as any },
+    deletedAt: { $ne: null } as any,
+    $and: [
+      { $or: tenantCandidates },
+      { $or: organizationCandidates },
+    ],
+  } as any)).filter((definition: any) => definitionMatchesReadScope(definition, readScope))
+
+  const tombstonedByEntity = new Map<string, Set<string>>()
+  for (const entry of tombstones as any[]) {
+    const eid = String(entry.entityId)
+    if (!tombstonedByEntity.has(eid)) tombstonedByEntity.set(eid, new Set())
+    tombstonedByEntity.get(eid)!.add(entry.key)
+  }
+
+  const scopeScore = (x: any) => (x.tenantId ? 2 : 0) + (x.organizationId ? 1 : 0)
+
+  const definitionsByEntity = new Map<string, any[]>()
+  for (const d of defs) {
+    const eid = String(d.entityId)
+    if (!definitionsByEntity.has(eid)) definitionsByEntity.set(eid, [])
+    definitionsByEntity.get(eid)!.push(d)
+  }
+
+  const entityDefaultEditors = new Map<string, string | undefined>()
+  for (const entityId of entityIds) {
+    const editor = await resolveEntityDefaultEditor(em, entityId, tenantId ?? null)
+    entityDefaultEditors.set(entityId, editor)
+  }
+
+  const items: any[] = []
+
+  const entityOrder = new Map<string, number>()
+  entityIds.forEach((id, idx) => entityOrder.set(id, idx))
+
+  for (const entityId of entityIds) {
+    const defsForEntity = definitionsByEntity.get(entityId) ?? []
+    if (!defsForEntity.length) continue
+    const tombstonedKeys = tombstonedByEntity.get(entityId) ?? new Set<string>()
+    const byKey = new Map<string, any>()
+    for (const d of defsForEntity) {
+      const existing = byKey.get(d.key)
+      if (!existing) { byKey.set(d.key, d); continue }
+      const sNew = scopeScore(d)
+      const sOld = scopeScore(existing)
+      if (sNew > sOld) { byKey.set(d.key, d); continue }
+      if (sNew < sOld) continue
+      const tNew = (d.updatedAt instanceof Date) ? d.updatedAt.getTime() : new Date(d.updatedAt).getTime()
+      const tOld = (existing.updatedAt instanceof Date) ? existing.updatedAt.getTime() : new Date(existing.updatedAt).getTime()
+      if (tNew >= tOld) byKey.set(d.key, d)
+    }
+
+    const defaultEditor = entityDefaultEditors.get(entityId)
+    const winning = Array.from(byKey.values()).filter((d: any) => (d.isActive !== false) && !tombstonedKeys.has(d.key))
+    winning.sort((a: any, b: any) => ((a.configJson?.priority ?? 0) - (b.configJson?.priority ?? 0)))
+
+    for (const d of winning) {
+      const rawFieldset = typeof d.configJson?.fieldset === 'string' ? d.configJson.fieldset.trim() : ''
+      const normalizedFieldset = rawFieldset.length > 0 ? rawFieldset : undefined
+      const normalizedFieldsets = Array.isArray(d.configJson?.fieldsets)
+        ? d.configJson.fieldsets
+            .filter((entry: unknown): entry is string => typeof entry === 'string')
+            .map((entry: string) => entry.trim())
+            .filter((entry: string) => entry.length > 0)
+        : []
+      const effectiveFieldsets = normalizedFieldsets.length > 0
+        ? normalizedFieldsets
+        : (normalizedFieldset ? [normalizedFieldset] : [])
+      if (fieldsetFilter && !effectiveFieldsets.includes(fieldsetFilter)) continue
+      const groupInfo = normalizeFieldGroup(d.configJson?.group)
+      const keyLower = String(d.key).toLowerCase()
+      const candidateBase = {
+        key: d.key,
+        kind: d.kind,
+        label: d.configJson?.label || d.key,
+        description: d.configJson?.description || undefined,
+        multi: Boolean(d.configJson?.multi),
+        relatedEntityId: d.kind === 'relation' && typeof d.configJson?.relatedEntityId === 'string'
+          ? d.configJson.relatedEntityId.trim() || undefined
+          : undefined,
+        options: (() => {
+          if (d.kind === 'currency') return undefined
+          const normalizedOptions = normalizeCustomFieldOptions(d.configJson?.options)
+          return normalizedOptions.length ? normalizedOptions : undefined
+        })(),
+        optionsUrl: (() => {
+          if (d.kind === 'currency') return CURRENCY_OPTIONS_URL
+          const dictionaryId = typeof d.configJson?.dictionaryId === 'string' ? d.configJson.dictionaryId : undefined
+          if (dictionaryId) return `/api/dictionaries/${dictionaryId}/entries`
+          return typeof d.configJson?.optionsUrl === 'string' ? d.configJson.optionsUrl : undefined
+        })(),
+        filterable: Boolean(d.configJson?.filterable),
+        formEditable: d.configJson?.formEditable !== undefined ? Boolean(d.configJson.formEditable) : true,
+        listVisible: d.configJson?.listVisible !== undefined ? Boolean(d.configJson.listVisible) : true,
+        editor: typeof d.configJson?.editor === 'string'
+          ? d.configJson.editor
+          : (d.kind === 'multiline' ? defaultEditor : undefined),
+        input: typeof d.configJson?.input === 'string' ? d.configJson.input : undefined,
+        dictionaryId: typeof d.configJson?.dictionaryId === 'string' ? d.configJson.dictionaryId : undefined,
+        dictionaryInlineCreate: d.configJson?.dictionaryInlineCreate !== undefined
+          ? Boolean(d.configJson.dictionaryInlineCreate)
+          : undefined,
+        priority: typeof d.configJson?.priority === 'number' ? d.configJson.priority : 0,
+        validation: Array.isArray(d.configJson?.validation) ? d.configJson.validation : undefined,
+        defaultValue: d.configJson?.defaultValue !== undefined ? d.configJson.defaultValue : undefined,
+        // attachments config passthrough
+        maxAttachmentSizeMb: typeof d.configJson?.maxAttachmentSizeMb === 'number' ? d.configJson.maxAttachmentSizeMb : undefined,
+        acceptExtensions: Array.isArray(d.configJson?.acceptExtensions) ? d.configJson.acceptExtensions : undefined,
+        // phone config passthrough
+        defaultCountryIso2: typeof d.configJson?.defaultCountryIso2 === 'string' ? d.configJson.defaultCountryIso2 : undefined,
+        entityId,
+        fieldset: normalizedFieldset ?? effectiveFieldsets[0],
+        fieldsets: effectiveFieldsets.length > 0 ? effectiveFieldsets : undefined,
+        group: groupInfo,
+      } as any
+      const metrics = computeDefinitionScore(d, candidateBase, entityOrder.get(entityId) ?? Number.MAX_SAFE_INTEGER)
+      const candidate = { ...candidateBase, __score: metrics }
+      const existing = (items as any[]).find((entry) => entry.key.toLowerCase() === keyLower)
+      if (!existing) {
+        items.push(candidate)
+        continue
+      }
+      const existingScore = existing.__score as { base: number; penalty: number; entityIndex: number }
+      const candidateScoreInfo = candidate.__score as { base: number; penalty: number; entityIndex: number }
+      const better =
+        candidateScoreInfo.base > existingScore.base ||
+        (candidateScoreInfo.base === existingScore.base && candidateScoreInfo.penalty < existingScore.penalty) ||
+        (candidateScoreInfo.base === existingScore.base && candidateScoreInfo.penalty === existingScore.penalty && candidateScoreInfo.entityIndex < existingScore.entityIndex)
+      if (better) {
+        const index = items.findIndex((entry) => entry.key.toLowerCase() === keyLower)
+        if (index >= 0) items[index] = candidate
+      }
+    }
+  }
+
+  const sanitized = items.map((item: any) => {
+    const { __score, ...rest } = item
+    return rest
+  })
+  sanitized.sort((a: any, b: any) => ((a.priority ?? 0) - (b.priority ?? 0)))
+
+  const fieldsetsByEntity: Record<string, CustomFieldsetDefinition[]> = {}
+  const entitySettings: Record<string, { singleFieldsetPerRecord: boolean }> = {}
+  for (const entityId of entityIds) {
+    const cfg = fieldsetConfigs.get(entityId) ?? { fieldsets: [], singleFieldsetPerRecord: true }
+    fieldsetsByEntity[entityId] = cfg.fieldsets
+    entitySettings[entityId] = { singleFieldsetPerRecord: cfg.singleFieldsetPerRecord }
+  }
+
+  const responseBody = { items: sanitized, fieldsetsByEntity, entitySettings }
+
+  if (cache && cacheKey && !fieldsetFilter) {
+    const tags = createDefinitionsCacheTags({
+      tenantId,
+      organizationId,
+      entityIds,
+    })
+    try {
+      await cache.set(cacheKey, responseBody, {
+        ttl: ENTITY_DEFINITIONS_CACHE_TTL_MS,
+        tags,
+      })
+    } catch (err) {
+      logger.warn('Failed to store cache entry', { err })
+    }
+  }
+
+  return NextResponse.json(responseBody)
+}
+
+export async function POST(req: Request) {
+  const auth = await getAuthFromRequest(req)
+  if (!auth || !auth.orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  let body: any
+  try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }) }
+  const parsed = upsertCustomFieldDefSchema.safeParse(body)
+  if (!parsed.success) return NextResponse.json({ error: 'Validation failed', details: parsed.error.flatten() }, { status: 400 })
+  const input = parsed.data
+
+  if (!isSystemEntitySelectable(input.entityId)) {
+    return NextResponse.json({ error: 'Custom fields are not supported for this entity' }, { status: 400 })
+  }
+
+  if (input.kind === 'dictionary') {
+    const dictionaryId = input.configJson?.dictionaryId
+    if (typeof dictionaryId !== 'string' || dictionaryId.trim().length === 0) {
+      return NextResponse.json({ error: 'dictionaryId is required for dictionary custom fields' }, { status: 400 })
+    }
+  }
+
+  const container = await createRequestContainer()
+  const scope = await resolveDefinitionMutationScope({ auth, container, request: req })
+  const { resolve } = container
+  const em = resolve('em') as any
+  let cache: CacheStrategy | undefined
+  try {
+    cache = resolve('cache') as CacheStrategy
+  } catch {}
+
+  const where: any = createExactDefinitionWhere(input.entityId, input.key, scope)
+  let def = await em.findOne(CustomFieldDef, where)
+
+  const guard = await beginEntitiesMutationGuard({
+    container,
+    auth,
+    req,
+    resourceKind: FIELD_DEFINITION_RESOURCE_KIND,
+    resourceId: def ? def.id : `${input.entityId}:${input.key}`,
+    operation: def ? 'update' : 'create',
+    mutationPayload: input as unknown as Record<string, unknown>,
+  })
+  if (guard.blockedResponse) return guard.blockedResponse
+
+  if (!def) def = em.create(CustomFieldDef, { ...where, createdAt: new Date() })
+  def.kind = input.kind
+  const inCfg = (input as any).configJson ?? {}
+  const cfg: Record<string, any> = { ...inCfg }
+  if (cfg.label == null || String(cfg.label).trim() === '') cfg.label = input.key
+  if (cfg.formEditable === undefined) cfg.formEditable = true
+  if (cfg.listVisible === undefined) cfg.listVisible = true
+  if (input.kind === 'dictionary') {
+    const dictionaryId = typeof cfg.dictionaryId === 'string' ? cfg.dictionaryId.trim() : ''
+    cfg.dictionaryId = dictionaryId
+    cfg.dictionaryInlineCreate = cfg.dictionaryInlineCreate !== false
+  }
+  if (input.kind === 'currency') {
+    cfg.optionsUrl = CURRENCY_OPTIONS_URL
+    if (Array.isArray(cfg.options)) delete cfg.options
+  }
+  if (input.kind === 'multiline' && (cfg.editor == null || String(cfg.editor).trim() === '')) {
+    cfg.editor = 'markdown'
+  }
+  // Validate and normalize defaultValue by kind before persisting
+  if (cfg.defaultValue !== undefined && cfg.defaultValue !== null) {
+    const validationError = await validateDefaultValueByKind(
+      cfg.defaultValue, input.kind, cfg, em,
+      { tenantId: scope.tenantId, organizationId: scope.organizationId },
+    )
+    if (validationError) {
+      return NextResponse.json({ error: validationError }, { status: 400 })
+    }
+    cfg.defaultValue = normalizeDefaultValueByKind(cfg.defaultValue, input.kind)
+  }
+  def.configJson = cfg
+  def.isActive = input.isActive ?? true
+  def.deletedAt = def.isActive === false ? (def.deletedAt ?? new Date()) : null
+  def.updatedAt = new Date()
+  em.persist(def)
+  await em.flush()
+  await guard.runAfterSuccess()
+  await invalidateDefinitionsCache(cache, {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    entityIds: [input.entityId],
+  })
+  // Changing field definitions may impact forms but not sidebar items; no nav cache touch
+  return NextResponse.json({ ok: true, item: { id: def.id, key: def.key, kind: def.kind, configJson: def.configJson, isActive: def.isActive } })
+}
+
+export async function DELETE(req: Request) {
+  const auth = await getAuthFromRequest(req)
+  if (!auth || !auth.orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  let body: any
+  try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }) }
+  const { entityId, key } = body || {}
+  if (!entityId || !key) return NextResponse.json({ error: 'entityId and key are required' }, { status: 400 })
+
+  const container = await createRequestContainer()
+  const scope = await resolveDefinitionMutationScope({ auth, container, request: req })
+  const { resolve } = container
+  const em = resolve('em') as any
+  let cache: CacheStrategy | undefined
+  try {
+    cache = resolve('cache') as CacheStrategy
+  } catch {}
+  const where: any = createExactDefinitionWhere(entityId, key, scope)
+  let def = await em.findOne(CustomFieldDef, where)
+  let inherited: any | null = null
+  if (!def) {
+    inherited = selectVisibleDefinitionWinner(await em.find(CustomFieldDef, createVisibleDefinitionWhere(
+      entityId,
+      key,
+      scope,
+      { deletedAt: null, isActive: true },
+    )))
+    if (!inherited) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+
+  const guard = await beginEntitiesMutationGuard({
+    container,
+    auth,
+    req,
+    resourceKind: FIELD_DEFINITION_RESOURCE_KIND,
+    resourceId: def?.id ?? inherited?.id ?? `${entityId}:${key}`,
+    operation: 'delete',
+    mutationPayload: { entityId, key },
+  })
+  if (guard.blockedResponse) return guard.blockedResponse
+
+  if (!def) {
+    def = createScopedDefinitionTombstone(em, inherited, scope)
+  } else {
+    markDefinitionTombstoned(def)
+  }
+  em.persist(def)
+  await em.flush()
+  await guard.runAfterSuccess()
+  await invalidateDefinitionsCache(cache, {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    entityIds: [entityId],
+  })
+  // Changing field definitions may impact forms but not sidebar items; no nav cache touch
+  // Return the post-delete aggregate version so the edit form keeps its optimistic-lock
+  // token in sync after removing a field out-of-band (issue #3152).
+  const version = await resolveEntityDefinitionsVersion(em, {
+    entityId,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+  })
+  return NextResponse.json({ ok: true, version })
+}
+
+const definitionsQuerySchema = z
+  .object({
+    entityId: z.union([z.string(), z.array(z.string())]).optional(),
+    entityIds: z.string().optional(),
+    fieldset: z.string().regex(fieldsetCodeRegex).optional(),
+  })
+  .refine(
+    (value) => {
+      if (value.entityId && typeof value.entityId === 'string' && value.entityId.trim().length > 0) return true
+      if (Array.isArray(value.entityId) && value.entityId.length > 0) return true
+      return typeof value.entityIds === 'string' && value.entityIds.trim().length > 0
+    },
+    { message: 'Provide at least one entityId or an entityIds list.' }
+  )
+
+const customFieldOptionValueSchema = z.union([z.string(), z.number()])
+
+const customFieldDefinitionSchema = z.object({
+  key: z.string(),
+  kind: z.string(),
+  label: z.string(),
+  description: z.string().optional(),
+  multi: z.boolean().optional(),
+  relatedEntityId: z.string().optional(),
+  options: z.array(customFieldOptionValueSchema).optional(),
+  optionsUrl: z.string().optional(),
+  filterable: z.boolean().optional(),
+  formEditable: z.boolean().optional(),
+  listVisible: z.boolean().optional(),
+  editor: z.string().optional(),
+  input: z.string().optional(),
+  dictionaryId: z.string().optional(),
+  dictionaryInlineCreate: z.boolean().optional(),
+  priority: z.number().optional(),
+  validation: z.array(z.any()).optional(),
+  defaultValue: z.union([z.string(), z.number(), z.boolean(), z.null()]).optional(),
+  maxAttachmentSizeMb: z.number().optional(),
+  acceptExtensions: z.array(z.any()).optional(),
+  entityId: z.string(),
+  fieldset: z.string().optional(),
+  group: z
+    .object({
+      code: z.string(),
+      title: z.string().optional(),
+      hint: z.string().optional(),
+    })
+    .optional(),
+})
+
+const customFieldsetGroupResponseSchema = z.object({
+  code: z.string(),
+  title: z.string().optional(),
+  hint: z.string().optional(),
+})
+
+const entityFieldsetResponseSchema = z.object({
+  code: z.string(),
+  label: z.string(),
+  icon: z.string().optional(),
+  description: z.string().optional(),
+  groups: z.array(customFieldsetGroupResponseSchema).optional(),
+})
+
+const definitionsResponseSchema = z.object({
+  items: z.array(customFieldDefinitionSchema),
+  fieldsetsByEntity: z.record(z.string(), z.array(entityFieldsetResponseSchema)).optional(),
+  entitySettings: z
+    .record(
+      z.string(),
+      z.object({
+        singleFieldsetPerRecord: z.boolean().optional(),
+      })
+    )
+    .optional(),
+})
+
+const upsertDefinitionResponseSchema = z.object({
+  ok: z.literal(true),
+  item: z.object({
+    id: z.string().uuid(),
+    key: z.string(),
+    kind: z.string(),
+    configJson: z.record(z.string(), z.any()),
+    isActive: z.boolean().optional(),
+  }),
+})
+
+const deleteDefinitionRequestSchema = z.object({
+  entityId: z.string(),
+  key: z.string(),
+})
+
+const deleteDefinitionResponseSchema = z.object({
+  ok: z.literal(true),
+  version: z.string().nullable().optional(),
+})
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Entities',
+  summary: 'Manage custom field definitions',
+  methods: {
+    GET: {
+      summary: 'List active custom field definitions',
+      description: 'Returns active custom field definitions for the supplied entity ids, respecting tenant scope and tombstones.',
+      query: definitionsQuerySchema,
+      responses: [
+        {
+          status: 200,
+          description: 'Definition list',
+          schema: definitionsResponseSchema,
+        },
+        {
+          status: 400,
+          description: 'Missing entity id',
+          schema: z.object({ error: z.string() }),
+        },
+        {
+          status: 401,
+          description: 'Missing authentication',
+          schema: z.object({ error: z.string() }),
+        },
+      ],
+    },
+    POST: {
+      summary: 'Upsert custom field definition',
+      description: 'Creates or updates a custom field definition for the current tenant/org scope.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: upsertCustomFieldDefSchema,
+      },
+      responses: [
+        {
+          status: 200,
+          description: 'Definition saved',
+          schema: upsertDefinitionResponseSchema,
+        },
+        {
+          status: 400,
+          description: 'Validation failed',
+          schema: z.object({
+            error: z.string(),
+            details: z.any().optional(),
+          }),
+        },
+        {
+          status: 401,
+          description: 'Missing authentication',
+          schema: z.object({ error: z.string() }),
+        },
+      ],
+    },
+    DELETE: {
+      summary: 'Soft delete custom field definition',
+      description: 'Marks the specified definition inactive and tombstones it for the current scope.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: deleteDefinitionRequestSchema,
+      },
+      responses: [
+        {
+          status: 200,
+          description: 'Definition deleted',
+          schema: deleteDefinitionResponseSchema,
+        },
+        {
+          status: 400,
+          description: 'Missing entity id or key',
+          schema: z.object({ error: z.string() }),
+        },
+        {
+          status: 401,
+          description: 'Missing authentication',
+          schema: z.object({ error: z.string() }),
+        },
+        {
+          status: 404,
+          description: 'Definition not found',
+          schema: z.object({ error: z.string() }),
+        },
+      ],
+    },
+  },
+}
+const computeDefinitionScore = (def: any, cfg: Record<string, any>, entityIndex: number) => {
+  const listVisibleScore = cfg.listVisible === false ? 0 : 1
+  const formEditableScore = cfg.formEditable === false ? 0 : 1
+  const filterableScore = cfg.filterable ? 1 : 0
+  const kindScore = (() => {
+    switch (def.kind) {
+      case 'dictionary':
+        return 8
+      case 'relation':
+        return 6
+      case 'select':
+      case 'currency':
+        return 4
+      case 'multiline':
+        return 3
+      case 'boolean':
+      case 'integer':
+      case 'float':
+        return 2
+      default:
+        return 1
+    }
+  })()
+  const optionsBonus = Array.isArray(cfg.options) && cfg.options.length ? 2 : 0
+  const dictionaryBonus = typeof cfg.dictionaryId === 'string' && cfg.dictionaryId.trim().length ? 5 : 0
+  const base = (listVisibleScore * 16) + (formEditableScore * 8) + (filterableScore * 4) + kindScore + optionsBonus + dictionaryBonus
+  const penalty = typeof cfg.priority === 'number' ? cfg.priority : 0
+  return { base, penalty, entityIndex }
+}

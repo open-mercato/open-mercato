@@ -1,0 +1,306 @@
+import type { EntityManager } from '@mikro-orm/core'
+import { ScheduledJob } from '../data/entities.js'
+import { calculateNextRunForWrite } from '../lib/nextRunCalculator.js'
+import { enforceTenantActiveScheduleLimit } from '../lib/activeScheduleLimits.js'
+import type { BullMQSchedulerService } from './bullmqSchedulerService.js'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { createInvalidScheduleValueError } from '@open-mercato/shared/lib/schedule/invalidScheduleValue'
+
+const logger = createLogger('scheduler')
+
+export interface ScheduleRegistration {
+  id: string
+  name: string
+  scopeType: 'system' | 'organization' | 'tenant'
+  organizationId?: string
+  tenantId?: string
+  scheduleType: 'cron' | 'interval'
+  scheduleValue: string
+  timezone?: string
+  targetType: 'queue' | 'command'
+  targetQueue?: string
+  targetCommand?: string
+  targetPayload?: unknown
+  requireFeature?: string
+  sourceType?: 'user' | 'module'
+  sourceModule?: string
+  isEnabled?: boolean
+  description?: string
+}
+
+export class SchedulerService {
+  constructor(
+    private em: () => EntityManager,
+    private bullmqService?: BullMQSchedulerService,
+  ) {}
+
+  /**
+   * Register a new schedule (upsert)
+   */
+  async register(registration: ScheduleRegistration): Promise<void> {
+    const em = this.em().fork()
+    
+    // Validate scope consistency
+    this.validateScope(registration)
+    
+    // Validate target consistency
+    this.validateTarget(registration)
+    
+    // Calculate next run time
+    const nextRunAt = calculateNextRunForWrite(
+      registration.scheduleType,
+      registration.scheduleValue,
+      registration.timezone || 'UTC'
+    )
+    
+    if (!nextRunAt) {
+      throw createInvalidScheduleValueError(
+        registration.scheduleType,
+        registration.scheduleValue,
+        `Failed to calculate next run time for schedule: ${registration.id}`,
+      )
+    }
+    
+    // Check if schedule already exists
+    let schedule = await em.findOne(ScheduledJob, { id: registration.id })
+    const nextTenantId = registration.tenantId || null
+    const nextIsEnabled = registration.isEnabled !== undefined ? registration.isEnabled : (schedule?.isEnabled ?? true)
+    const tenantChanged = schedule ? (schedule.tenantId || null) !== nextTenantId : false
+    if (nextIsEnabled && (schedule?.isEnabled !== true || tenantChanged)) {
+      await enforceTenantActiveScheduleLimit(em, nextTenantId)
+    }
+    
+    if (schedule) {
+      // Update existing
+      schedule.name = registration.name
+      schedule.description = registration.description || null
+      schedule.scopeType = registration.scopeType
+      schedule.organizationId = registration.organizationId || null
+      schedule.tenantId = registration.tenantId || null
+      schedule.scheduleType = registration.scheduleType
+      schedule.scheduleValue = registration.scheduleValue
+      schedule.timezone = registration.timezone || 'UTC'
+      schedule.targetType = registration.targetType
+      schedule.targetQueue = registration.targetQueue || null
+      schedule.targetCommand = registration.targetCommand || null
+      schedule.targetPayload = registration.targetPayload as Record<string, unknown> || null
+      schedule.requireFeature = registration.requireFeature || null
+      schedule.sourceType = registration.sourceType || 'user'
+      schedule.sourceModule = registration.sourceModule || null
+      schedule.isEnabled = registration.isEnabled !== undefined ? registration.isEnabled : schedule.isEnabled
+      schedule.nextRunAt = nextRunAt
+      schedule.updatedAt = new Date()
+    } else {
+      // Create new
+      schedule = em.create(ScheduledJob, {
+        id: registration.id,
+        name: registration.name,
+        description: registration.description || null,
+        scopeType: registration.scopeType,
+        organizationId: registration.organizationId || null,
+        tenantId: registration.tenantId || null,
+        scheduleType: registration.scheduleType,
+        scheduleValue: registration.scheduleValue,
+        timezone: registration.timezone || 'UTC',
+        targetType: registration.targetType,
+        targetQueue: registration.targetQueue || null,
+        targetCommand: registration.targetCommand || null,
+        targetPayload: registration.targetPayload as Record<string, unknown> || null,
+        requireFeature: registration.requireFeature || null,
+        sourceType: registration.sourceType || 'module',
+        sourceModule: registration.sourceModule || null,
+        isEnabled: registration.isEnabled !== undefined ? registration.isEnabled : true,
+        nextRunAt,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      em.persist(schedule)
+    }
+    
+    await em.flush()
+
+    // Sync with BullMQ if available
+    if (this.bullmqService && schedule) {
+      try {
+        if (schedule.isEnabled) {
+          await this.bullmqService.register(schedule)
+        } else {
+          await this.bullmqService.unregister(schedule.id)
+        }
+      } catch (error: unknown) {
+        logger.error('Failed to sync with BullMQ', { scheduleId: schedule.id, err: error })
+        // Don't throw - DB is source of truth, BullMQ sync is best-effort
+      }
+    }
+  }
+
+  /**
+   * Unregister a schedule
+   */
+  async unregister(scheduleId: string): Promise<void> {
+    const em = this.em().fork()
+    const schedule = await em.findOne(ScheduledJob, { id: scheduleId })
+    
+    if (schedule) {
+      await em.remove(schedule).flush()
+      
+      // Unregister from BullMQ if available
+      if (this.bullmqService) {
+        try {
+          await this.bullmqService.unregister(scheduleId)
+        } catch (error: unknown) {
+          logger.error('Failed to unregister from BullMQ', { scheduleId, err: error })
+        }
+      }
+    }
+  }
+
+  /**
+   * Check if a schedule exists
+   */
+  async exists(scheduleId: string): Promise<boolean> {
+    const em = this.em()
+    const count = await em.count(ScheduledJob, { id: scheduleId })
+    return count > 0
+  }
+
+  /**
+   * Update an existing schedule
+   */
+  async update(
+    scheduleId: string,
+    changes: Partial<Omit<ScheduleRegistration, 'id'>>
+  ): Promise<void> {
+    const em = this.em().fork()
+    const schedule = await em.findOne(ScheduledJob, { id: scheduleId })
+    
+    if (!schedule) {
+      throw new Error(`Schedule not found: ${scheduleId}`)
+    }
+
+    if (changes.isEnabled === true && schedule.isEnabled !== true) {
+      await enforceTenantActiveScheduleLimit(em, schedule.tenantId)
+    }
+
+    const scheduleChanged = changes.scheduleType !== undefined || changes.scheduleValue !== undefined || changes.timezone !== undefined
+    const nextRunAt = scheduleChanged
+      ? calculateNextRunForWrite(
+        changes.scheduleType ?? schedule.scheduleType,
+        changes.scheduleValue ?? schedule.scheduleValue,
+        changes.timezone ?? schedule.timezone,
+      )
+      : null
+    if (scheduleChanged && !nextRunAt) {
+      throw createInvalidScheduleValueError(
+        changes.scheduleType ?? schedule.scheduleType,
+        changes.scheduleValue ?? schedule.scheduleValue,
+        `Failed to calculate next run time for schedule: ${scheduleId}`,
+      )
+    }
+    
+    // Apply changes
+    if (changes.name !== undefined) schedule.name = changes.name
+    if (changes.description !== undefined) schedule.description = changes.description || null
+    if (changes.scheduleType !== undefined) schedule.scheduleType = changes.scheduleType
+    if (changes.scheduleValue !== undefined) schedule.scheduleValue = changes.scheduleValue
+    if (changes.timezone !== undefined) schedule.timezone = changes.timezone
+    if (changes.targetPayload !== undefined) {
+      schedule.targetPayload = changes.targetPayload as Record<string, unknown> || null
+    }
+    if (changes.requireFeature !== undefined) schedule.requireFeature = changes.requireFeature || null
+    if (changes.isEnabled !== undefined) schedule.isEnabled = changes.isEnabled
+    
+    // Handle target type changes - clear stale values when switching between queue and command
+    if (changes.targetType !== undefined) {
+      schedule.targetType = changes.targetType
+      
+      if (changes.targetType === 'queue') {
+        // Switching to queue: set new queue and clear command
+        if (changes.targetQueue !== undefined) schedule.targetQueue = changes.targetQueue || null
+        schedule.targetCommand = null
+      } else if (changes.targetType === 'command') {
+        // Switching to command: set new command and clear queue
+        if (changes.targetCommand !== undefined) schedule.targetCommand = changes.targetCommand || null
+        schedule.targetQueue = null
+      }
+    } else {
+      // targetType not changing, but allow updating individual target fields
+      if (changes.targetQueue !== undefined) schedule.targetQueue = changes.targetQueue || null
+      if (changes.targetCommand !== undefined) schedule.targetCommand = changes.targetCommand || null
+    }
+    
+    if (nextRunAt) {
+      schedule.nextRunAt = nextRunAt
+    }
+    
+    schedule.updatedAt = new Date()
+    await em.flush()
+
+    // Sync with BullMQ if available
+    if (this.bullmqService) {
+      try {
+        if (schedule.isEnabled) {
+          await this.bullmqService.register(schedule)
+        } else {
+          await this.bullmqService.unregister(scheduleId)
+        }
+      } catch (error: unknown) {
+        logger.error('Failed to sync update with BullMQ', { scheduleId, err: error })
+      }
+    }
+  }
+
+  /**
+   * Find schedules by module
+   */
+  async findByModule(moduleId: string, limit = 100): Promise<ScheduledJob[]> {
+    const em = this.em()
+    return em.find(ScheduledJob, { sourceModule: moduleId, deletedAt: null }, { limit })
+  }
+
+  /**
+   * Enable a schedule
+   */
+  async enable(scheduleId: string): Promise<void> {
+    await this.update(scheduleId, { isEnabled: true })
+  }
+
+  /**
+   * Disable a schedule
+   */
+  async disable(scheduleId: string): Promise<void> {
+    await this.update(scheduleId, { isEnabled: false })
+  }
+
+  private validateScope(registration: ScheduleRegistration): void {
+    const { scopeType, organizationId, tenantId } = registration
+    
+    if (scopeType === 'system') {
+      if (organizationId || tenantId) {
+        throw new Error('System-scoped schedules cannot have organizationId or tenantId')
+      }
+    } else if (scopeType === 'organization') {
+      if (!organizationId || !tenantId) {
+        throw new Error('Organization-scoped schedules must have both organizationId and tenantId')
+      }
+    } else if (scopeType === 'tenant') {
+      if (organizationId || !tenantId) {
+        throw new Error('Tenant-scoped schedules must have tenantId and no organizationId')
+      }
+    }
+  }
+
+  private validateTarget(registration: ScheduleRegistration): void {
+    const { targetType, targetQueue, targetCommand } = registration
+    
+    if (targetType === 'queue') {
+      if (!targetQueue) {
+        throw new Error('Queue target must have targetQueue')
+      }
+    } else if (targetType === 'command') {
+      if (!targetCommand) {
+        throw new Error('Command target must have targetCommand')
+      }
+    }
+  }
+}

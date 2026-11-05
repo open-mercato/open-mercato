@@ -1,0 +1,11 @@
+{
+  "exampleCustomersSync.errors.invalidCursor": "Ungueltiger Cursor.",
+  "exampleCustomersSync.errors.invalidJson": "Ungueltiger JSON-Text.",
+  "exampleCustomersSync.errors.mappingsLoadFailed": "Example-Kundensynchronisationszuordnungen konnten nicht geladen werden.",
+  "exampleCustomersSync.errors.organizationContextRequired": "Organisationskontext ist erforderlich.",
+  "exampleCustomersSync.errors.organizationScopeMismatch": "Organisationsbereich stimmt nicht ueberein.",
+  "exampleCustomersSync.errors.reconcileEnqueueFailed": "Die Example-Kundensynchronisationsabstimmung konnte nicht in die Warteschlange gestellt werden.",
+  "exampleCustomersSync.errors.tenantScopeMismatch": "Mandantenbereich stimmt nicht ueberein.",
+  "exampleCustomersSync.errors.unauthorized": "Nicht autorisiert",
+  "exampleCustomersSync.errors.validationFailed": "Validierung fehlgeschlagen"
+}

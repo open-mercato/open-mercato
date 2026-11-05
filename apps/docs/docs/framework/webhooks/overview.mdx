@@ -1,0 +1,325 @@
+---
+title: Webhooks
+description: Send and receive webhooks using the Standard Webhooks specification for real-time event delivery to external systems.
+---
+
+# Webhooks
+
+Open Mercato provides a built-in webhook system compliant with the [Standard Webhooks](https://www.standardwebhooks.com/) specification. The webhooks module enables:
+
+1. **Outbound webhooks** — push domain events to external HTTP endpoints
+2. **Inbound webhooks** — receive and verify webhooks from external systems via a generic adapter pattern
+
+## How It Works
+
+### Outbound Flow
+
+When any module emits a domain event (e.g., `customers.person.created`, `sales.order.fulfilled`), the webhooks module:
+
+1. A persistent wildcard subscriber (`*`) catches all platform events
+2. Matches each event against registered webhook subscriptions (supports wildcards like `customers.*`)
+3. Enqueues delivery jobs to a dedicated `webhook-deliveries` queue
+4. A delivery worker signs the payload per Standard Webhooks spec and delivers it
+5. On failure, retries with exponential backoff (up to 10 attempts over ~8.5 minutes by default)
+
+```
+  Module emits event → Event Bus → Webhook Dispatcher → Delivery Queue → HTTP POST
+```
+
+### Standard Webhooks Headers
+
+Every outbound delivery includes these headers per the specification:
+
+```
+webhook-id: msg_2KWPBgLlAfxdpx2AI54pPJ85f4W
+webhook-timestamp: 1674087231
+webhook-signature: v1,K5oZfzN95Z9UVu1EsfQmfVNQhnkZ2pj9o9NDN/H/pI4=
+content-type: application/json
+```
+
+**Signature format**: `v1,<base64_hmac_sha256>` of `{webhook-id}.{webhook-timestamp}.{body}`
+
+### Payload Structure
+
+```json
+{
+  "type": "customers.person.created",
+  "timestamp": "2026-03-04T10:30:00.000Z",
+  "data": {
+    "id": "uuid-here",
+    "firstName": "John",
+    "lastName": "Doe",
+    "tenantId": "tenant-uuid",
+    "organizationId": "org-uuid"
+  }
+}
+```
+
+## Webhook Management
+
+### Integration-level controls
+
+The module also registers a **Custom Webhooks** integration in the Integration Marketplace. That integration acts as the global control plane for the webhook subsystem:
+
+- The integration **State** switch enables or blocks outbound deliveries, retries, test sends, and inbound receives.
+- The integration **Settings** tab exposes quick links to `/backend/webhooks`, a create action, and the **Notify admins on failed delivery** setting.
+- The integration **Logs** tab shows an aggregated delivery log across all configured webhook endpoints.
+
+This means webhook operations have two scopes:
+
+- **Integration scope** — global on/off and shared notification behavior.
+- **Endpoint scope** — per-webhook URL, event patterns, retries, activation state, and secret lifecycle.
+
+### Creating a Webhook
+
+Via API:
+
+```bash
+POST /api/webhooks
+{
+  "name": "My Integration",
+  "url": "https://example.com/webhook",
+  "subscribedEvents": ["customers.*", "sales.order.created"],
+  "httpMethod": "POST"
+}
+```
+
+The response includes a `whsec_`-prefixed signing secret. **This is the only time the secret is returned in plaintext** — store it securely.
+
+:::caution
+The `rateLimitPerMinute` field is accepted and stored for outbound endpoints, but the delivery worker
+does not enforce it yet. Configure throttling on the receiving service until outbound rate limiting
+is implemented.
+:::
+
+### Event Subscriptions
+
+Webhooks support pattern-based event subscriptions:
+
+| Pattern | Matches |
+|---------|---------|
+| `customers.person.created` | Exact match only |
+| `customers.*` | All events in the `customers` namespace |
+| `*` | All platform events |
+
+### API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/webhooks` | List webhooks |
+| `POST` | `/api/webhooks` | Create webhook |
+| `GET` | `/api/webhooks/:id` | Get webhook details |
+| `PUT` | `/api/webhooks/:id` | Update webhook |
+| `DELETE` | `/api/webhooks/:id` | Soft-delete webhook |
+| `POST` | `/api/webhooks/:id/rotate-secret` | Rotate signing secret |
+| `POST` | `/api/webhooks/:id/test` | Send test delivery |
+| `GET` | `/api/webhooks/deliveries` | List delivery logs |
+| `POST` | `/api/webhooks/deliveries/:id/retry` | Retry failed delivery |
+| `GET` | `/api/webhooks/events` | List available event types |
+
+## Inbound Replay Protection
+
+Inbound webhook sources and legacy adapters must verify provider-specific signatures and any provider-specific timestamp rules before returning a verified event. The shared inbound route adds a provider-neutral backstop for Standard Webhooks and Svix-style timestamp headers: when `webhook-timestamp` or `svix-timestamp` is present, requests outside the replay window are rejected before either the source-first or legacy adapter flow persists or emits the inbound receipt.
+
+The default replay window is 5 minutes. Set `OM_WEBHOOKS_INBOUND_TIMESTAMP_TOLERANCE_SECONDS` when a deployment needs to accept a wider delay.
+
+## Verifying Webhooks (Consumer Guide)
+
+If you're building a service that receives webhooks from Open Mercato, verify the signature to ensure authenticity:
+
+```typescript
+import { createHmac, timingSafeEqual } from 'node:crypto'
+
+function verifyWebhook(headers: Record<string, string>, body: string, secret: string): boolean {
+  const webhookId = headers['webhook-id']
+  const timestamp = headers['webhook-timestamp']
+  const signature = headers['webhook-signature']
+
+  // Check replay window (5 minutes)
+  const now = Math.floor(Date.now() / 1000)
+  if (Math.abs(now - parseInt(timestamp)) > 300) return false
+
+  // Verify signature
+  const toSign = `${webhookId}.${timestamp}.${body}`
+  const secretBytes = Buffer.from(secret.replace('whsec_', ''), 'base64')
+  const expected = createHmac('sha256', secretBytes).update(toSign).digest('base64')
+
+  // Extract signature value (after "v1,")
+  const received = signature.split(' ').find(s => s.startsWith('v1,'))?.slice(3)
+  if (!received) return false
+
+  return timingSafeEqual(Buffer.from(expected), Buffer.from(received))
+}
+```
+
+:::tip
+Use the official [Standard Webhooks libraries](https://github.com/standard-webhooks/standard-webhooks/tree/main/libraries) for verification in production — they handle edge cases like key rotation and multiple signatures.
+:::
+
+## Retry Behavior
+
+Failed deliveries are retried with exponential backoff. The delay before attempt *n* is
+`1s × 2^(n-2)` plus up to 1s of jitter (`calculateNextRetry` in `lib/delivery.ts`):
+
+| Attempt | Delay before it |
+|---------|-----------------|
+| 1 | immediate |
+| 2 | ~1 second |
+| 3 | ~2 seconds |
+| 4 | ~4 seconds |
+| 5 | ~8 seconds |
+| 6 | ~16 seconds |
+| 7 | ~32 seconds |
+| 8 | ~1 minute |
+| 9 | ~2 minutes |
+| 10 | ~4 minutes |
+
+**Total window**: with the default `maxRetries` of 10, a delivery exhausts its attempts about
+**8.5 minutes** after the first one — not hours. Retries stop once `attemptNumber` reaches
+`maxRetries`, so the last delay is the one before the final attempt. In general the window is
+`2^(maxRetries - 1) - 1` seconds, so raising `maxRetries` grows it geometrically: 15 gives ~4.5 hours,
+17 gives ~18 hours.
+
+:::warning
+Size your alerting against this window, not against a multi-hour assumption. A receiver that is down
+for more than ~9 minutes will exhaust every attempt for events emitted during the outage. If you need
+longer durability, raise `maxRetries` on the webhook and monitor the delivery log. After the receiver
+recovers, use the delivery's **Retry** action or `POST /api/webhooks/deliveries/:id/retry` to re-enqueue
+an expired delivery.
+:::
+
+**Non-retryable responses**: HTTP 4xx (except 408 and 429) are not retried.
+
+**Auto-disable**: After a configurable number of consecutive failures (default: 100), the webhook is automatically disabled. HTTP 410 (Gone) responses immediately disable the webhook. Re-activating a disabled webhook resets its consecutive-failure counter, so it gets the full threshold again.
+
+## Key Rotation
+
+Rotate webhook secrets without downtime:
+
+```bash
+POST /api/webhooks/:id/rotate-secret
+```
+
+During the rotation period (default: 24 hours):
+- Outbound deliveries are **dual-signed** with both the new and old secret
+- Consumers can verify with either secret
+- After the rotation period, the old secret is automatically removed
+
+## Secret Format
+
+Webhook secrets use the Standard Webhooks format:
+- Prefix: `whsec_`
+- Content: Base64-encoded random bytes (minimum 24 bytes / 192 bits)
+- Example: `whsec_h4fk4iWceEsgYw/JbT9Feg98sgSFYsAy`
+
+## Delivery Strategies
+
+| Strategy | Use Case | Status |
+|----------|----------|--------|
+| `http` | Standard HTTP/HTTPS endpoints (default) | Available today |
+| `sqs` | AWS SQS queues for async processing | Planned |
+| `sns` | AWS SNS topics for fan-out | Planned |
+
+## Inbound Webhooks
+
+The webhooks module provides a generic receiver for external webhook sources:
+
+```
+POST /api/webhooks/inbound/:endpointId
+```
+
+Third-party modules can register `WebhookEndpointAdapter` implementations to handle specific providers (e.g., Stripe, Zapier). The adapter contract:
+
+```typescript
+interface WebhookEndpointAdapter {
+  readonly providerKey: string
+  readonly subscribedEvents: string[]
+  formatPayload(event): Promise<WebhookPayload>
+  verifyWebhook(input): Promise<InboundWebhookEvent>
+  processInbound(event): Promise<void>
+}
+```
+
+Inbound webhooks are:
+- **Rate limited** to 60 requests per minute per endpoint and client IP when the rate-limiter service is available
+- **Body limited** before signature verification (1 MiB by default)
+- **Deduplicated** by message ID
+- Processed via **fire-and-forget** (return 200 immediately, emit event for async processing)
+
+Set `OM_WEBHOOK_MAX_BODY_BYTES` to a positive byte count when globally bounded webhook receivers legitimately need a different default. InboxOps inherits that value when it is set; `INBOX_OPS_WEBHOOK_MAX_BODY_BYTES` can override only the email-ingress source, whose legacy fallback remains 2 MiB when neither variable is configured. Payment gateway handlers preserve legacy reads unless their registration opts into `maxBodyBytes`. The bounded reader checks a valid declared `Content-Length` before reading and also counts streamed bytes, so missing, invalid, or understated lengths cannot bypass the cap. Requests over the applicable limit return `413` without invoking provider verification. Keep the ingress or reverse-proxy limit scoped to the webhook paths and aligned with the effective application values.
+
+## Shared Primitives
+
+The webhook signing, verification, and secret management utilities are available as a shared library for use by any module:
+
+```typescript
+import {
+  signPayload,
+  buildStandardHeaders,
+  verifyStandardWebhook,
+  generateWebhookSecret,
+  parseWebhookSecret,
+} from '@open-mercato/shared/lib/webhooks'
+```
+
+## Admin UI
+
+The webhook management dashboard is available at `/backend/webhooks` with:
+
+- A webhook list with status, event patterns, last delivery, and quick actions
+- Create/edit forms with event selection, retry controls, timeout, rate limiting, and custom headers
+- One-time secret reveal after create or rotate
+- Per-endpoint detail pages with test sends, secret rotation, and delivery drilldown
+- Aggregated delivery visibility from the integration detail page at `/backend/integrations/webhook_custom`
+
+### Primary operator routes
+
+| Route | Purpose |
+|-------|---------|
+| `/backend/integrations/webhook_custom` | Global webhook settings, failed-delivery notifications, configured endpoint shortcuts, aggregated delivery log |
+| `/backend/webhooks` | Endpoint list and create entry point |
+| `/backend/webhooks/create` | Create a new webhook endpoint |
+| `/backend/webhooks/:id` | Endpoint detail, send test, rotate secret, inspect delivery history |
+
+### Failed delivery notifications
+
+When **Notify admins on failed delivery** is enabled in the integration **Settings** tab, the module creates in-app notifications for admin-capable users after a delivery exhausts all retry attempts. This notification layer is independent from HTTP retry logic and is meant to surface operational issues early.
+
+### Secret lifecycle UX
+
+Secrets are generated automatically and revealed in plaintext only:
+
+- immediately after webhook creation
+- immediately after secret rotation
+
+After that, the admin UI only shows a masked value. Operators must copy the secret during the reveal window or rotate it again later.
+
+## RBAC Features
+
+| Feature | Description |
+|---------|-------------|
+| `webhooks.view` | View webhooks and delivery logs |
+| `webhooks.manage` | Create, edit, and delete webhooks |
+| `webhooks.secrets` | View and rotate webhook secrets |
+| `webhooks.test` | Send test webhook deliveries |
+
+## Subscription Cache
+
+The outbound dispatch subscriber (`webhooks:outbound-dispatch`) caches the active webhook subscriptions for each `(tenant, organization)` scope so that events for a tenant with no webhooks configured do not run a decrypting database query on every event.
+
+Only non-sensitive matching data is cached: `id`, `tenantId`, `organizationId`, and `subscribedEvents`. Secrets and target URLs are never cached. When a cache entry names candidate webhook IDs, the subscriber still re-reads those rows from the database before building any delivery, so the data actually sent to a delivery is always fresh.
+
+**Invalidation** happens two ways:
+- Inline, at the point a webhook is created, updated, deleted, or disabled.
+- Event-driven: the subscriber also listens for `webhooks.webhook.created`, `webhooks.webhook.updated`, `webhooks.webhook.deleted`, and `webhooks.webhook.disabled`, and clears the cache tag for that tenant (`webhooks:subscriptions:tenant:<tenantId>`) when one fires.
+
+`OM_WEBHOOKS_SUBSCRIPTION_CACHE_TTL_MS` sets the cache TTL in milliseconds (default `60000`). Set it to `0` to disable the cache entirely. Because invalidation is inline and event-driven, the TTL is a safety net rather than the mechanism that keeps the cache correct.
+
+**Multi-instance caveat**: this cache goes through `CACHE_STRATEGY`. With the `memory` strategy, the cache is per process, so a webhook write on one instance cannot invalidate another instance's copy inline — that instance only sees the change once its own TTL expires or it processes the invalidation event itself. Deployments running multiple instances that need webhook subscription changes to take effect everywhere promptly should use a shared strategy (`CACHE_STRATEGY=redis`) or lower `OM_WEBHOOKS_SUBSCRIPTION_CACHE_TTL_MS`.
+
+## Related
+
+- [User Guide: Custom Webhooks](/user-guide/webhooks) — operator-facing walkthrough with screenshots
+- [Events & Subscribers](../events/overview.mdx) — the event system that powers webhook dispatching
+- [Queue & Workers](../events/queue-workers.mdx) — the queue infrastructure used for delivery processing
+- [SPEC-057 — Webhooks Module](https://github.com/open-mercato/open-mercato/issues/257) — full technical specification

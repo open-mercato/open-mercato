@@ -1,0 +1,378 @@
+/// <reference path="./ai-tools-generated.d.ts" />
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { z } from 'zod'
+import type { SearchService } from '@open-mercato/search/service'
+import { registerMcpTool, getToolRegistry, toolRegistry, unregisterMcpTool } from './tool-registry'
+import {
+  applyToolOverrideMap,
+  composeToolOverrideMap,
+  type AiToolOverrideConfigEntry,
+} from './ai-overrides'
+import type { McpToolDefinition, McpToolContext } from './types'
+import { ToolSearchService } from './tool-search'
+import {
+  findGeneratedFile,
+  compileAndImportGenerated,
+  ensureApiRouteManifestsRegistered,
+} from './generated-registry-loader'
+
+const logger = createLogger('ai_assistant').child({ component: 'tools' })
+
+let allModuleToolsLoad: Promise<void> | null = null
+
+/**
+ * Module tool definition as exported from ai-tools.ts files.
+ */
+type ModuleAiTool = {
+  name: string
+  description: string
+  inputSchema: any
+  requiredFeatures?: string[]
+  handler: (input: any, ctx: any) => Promise<unknown>
+}
+
+/**
+ * Shape of a single entry inside `ai-tools.generated.ts`.
+ * Matches the structural contract emitted by
+ * `packages/cli/src/lib/generators/extensions/ai-tools.ts`.
+ */
+export type AiToolConfigEntry = {
+  moduleId: string
+  tools: unknown[]
+}
+
+function isModuleAiTool(value: unknown): value is ModuleAiTool {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Record<string, unknown>
+  return (
+    typeof candidate.name === 'string' &&
+    typeof candidate.description === 'string' &&
+    candidate.inputSchema !== undefined &&
+    typeof candidate.handler === 'function'
+  )
+}
+
+/**
+ * Built-in context.whoami tool that returns the current authentication context.
+ * This is useful for AI to understand its current tenant/org scope.
+ */
+const contextWhoamiTool: McpToolDefinition = {
+  name: 'context_whoami',
+  description:
+    'Get the current authentication context including tenant ID, organization ID, user ID, and available features. Use this to understand your current scope before performing operations.',
+  inputSchema: z.object({}),
+  requiredFeatures: [], // No specific feature required - available to all authenticated users
+  handler: async (_input: unknown, ctx: McpToolContext) => {
+    return {
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+      userId: ctx.userId,
+      isSuperAdmin: ctx.isSuperAdmin,
+      features: ctx.userFeatures,
+      featureCount: ctx.userFeatures.length,
+    }
+  },
+}
+
+/**
+ * Load and register AI tools from a module's ai-tools.ts export.
+ *
+ * @param moduleId - The module identifier (e.g., 'search', 'customers')
+ * @param tools - Array of tool definitions from the module
+ *
+ * IMPORTANT: We register the full typed tool (spread) — never reconstruct a
+ * minimal `{ name, description, inputSchema, requiredFeatures, handler }`
+ * payload. Stripping fields like `isMutation`, `displayName`, `isBulk`,
+ * `loadBeforeRecord(s)` makes the agent settings UI report mutation tools
+ * as read-only and prevents the chat dispatcher's mutation interceptor
+ * from firing.
+ */
+export function loadModuleTools(moduleId: string, tools: ModuleAiTool[]): void {
+  for (const tool of tools) {
+    registerMcpTool(tool as McpToolDefinition, { moduleId })
+  }
+}
+
+/**
+ * Register the generated `aiToolConfigEntries` shape emitted by the
+ * `ai-tools.generated.ts` generator extension. Entries with an empty
+ * `tools` array stay silent (the generator already filters those out).
+ * Invalid tool objects are skipped with a warning instead of throwing.
+ *
+ * Returns the number of tools actually registered so callers can log it.
+ */
+export function registerGeneratedAiToolEntries(entries: AiToolConfigEntry[]): number {
+  let registered = 0
+  for (const entry of entries) {
+    if (!entry || typeof entry.moduleId !== 'string') continue
+    if (!Array.isArray(entry.tools) || entry.tools.length === 0) continue
+    for (const candidate of entry.tools) {
+      if (!isModuleAiTool(candidate)) {
+        logger.warn('Skipping malformed AI tool', { moduleId: entry.moduleId })
+        continue
+      }
+      // Register the full typed tool — see comment on `loadModuleTools`.
+      registerMcpTool(candidate as McpToolDefinition, { moduleId: entry.moduleId })
+      registered += 1
+    }
+  }
+  return registered
+}
+
+/**
+ * Apply the list of `aiToolOverrides` exports collected by the generator
+ * (one entry per module) to the live tool registry. Tools mapped to
+ * `null` are unregistered; tools mapped to a full definition replace the
+ * existing registration. Module load order controls precedence — last
+ * entry wins. The `modules.ts`-tier and programmatic overrides (set via
+ * {@link applyAiOverridesFromEnabledModules} and
+ * {@link applyAiToolOverrides}) supersede file-based entries.
+ *
+ * Safe to call when no override file is present (the entries array is
+ * empty); it is a no-op then.
+ */
+export function applyAiToolOverrideEntries(
+  entries: readonly AiToolOverrideConfigEntry[],
+): void {
+  const overrideMap = composeToolOverrideMap(entries)
+  if (Object.keys(overrideMap).length === 0) return
+  const baseTools = toolRegistry.getTools() as Map<string, McpToolDefinition>
+  const overridden = applyToolOverrideMap<McpToolDefinition>(baseTools, overrideMap)
+  for (const [name, value] of Object.entries(overrideMap)) {
+    if (value === null) {
+      unregisterMcpTool(name)
+      logger.info('Tool disabled by override', { toolName: name })
+      continue
+    }
+    const next = overridden.get(name)
+    if (!next) continue
+    // Re-register through the public path so moduleMap stays consistent.
+    registerMcpTool(next as McpToolDefinition, { moduleId: 'ai_overrides' })
+    logger.info('Tool replaced by override', { toolName: name })
+  }
+}
+
+/**
+ * Import the generated `ai-tools.generated.ts` registry.
+ *
+ * Dual-strategy so the same code works in every runtime without changing the
+ * existing Next.js / agents-framework behavior:
+ *  1. Prefer the `@/` path-alias import. Inside the Next.js bundler this
+ *     resolves at build time exactly as before — the in-app agents framework
+ *     path is untouched.
+ *  2. Fall back to locating + compiling the file from disk when the alias
+ *     import throws. That only happens in a standalone Node process (the
+ *     `mcp:dev` / `mcp:serve` MCP servers), where `@/` is not a real package
+ *     specifier and Node throws `ERR_MODULE_NOT_FOUND`.
+ *
+ * Returns `null` when no generated file exists (pre-generate builds, tests).
+ */
+async function importGeneratedAiToolsModule(): Promise<Record<string, unknown> | null> {
+  try {
+    return (await import(
+      '@/.mercato/generated/ai-tools.generated'
+    )) as Record<string, unknown>
+  } catch {
+    const tsPath = findGeneratedFile('ai-tools.generated.ts')
+    if (!tsPath) return null
+    // App-source modules (apps/<app>/src/modules/*/ai-tools.ts) are .ts that
+    // node cannot import directly — bundle their sources so one app-source tool
+    // does not abort the whole registry.
+    return compileAndImportGenerated(tsPath, { bundleLocalModules: true })
+  }
+}
+
+/**
+ * Read `aiToolOverrideEntries` from `ai-tools.generated.ts` and apply
+ * them on top of the live tool registry. Safe to call when the file is
+ * missing (pre-generate builds, tests) — applies only the
+ * `modules.ts`-tier and programmatic overrides in that case.
+ */
+export async function loadGeneratedAiToolOverrides(): Promise<void> {
+  let entries: AiToolOverrideConfigEntry[] = []
+  try {
+    const mod = (await importGeneratedAiToolsModule()) as {
+      aiToolOverrideEntries?: unknown[]
+    } | null
+    entries =
+      mod && Array.isArray(mod.aiToolOverrideEntries)
+        ? (mod.aiToolOverrideEntries as AiToolOverrideConfigEntry[])
+        : []
+  } catch {
+    // No override file generated.
+  }
+  applyAiToolOverrideEntries(entries)
+}
+
+/**
+ * Load the generated `ai-tools.generated.ts` file emitted by
+ * `yarn generate` and register every declared module tool through the
+ * existing `registerMcpTool` path. Safe to call when the generated file
+ * is missing (e.g., tests or pre-generate builds) — returns 0.
+ */
+export async function loadGeneratedModuleAiTools(): Promise<number> {
+  try {
+    const mod = (await importGeneratedAiToolsModule()) as {
+      aiToolConfigEntries?: AiToolConfigEntry[]
+    } | null
+    if (!mod) {
+      // No generated file (pre-generate build or tests).
+      return 0
+    }
+    const entries = Array.isArray(mod.aiToolConfigEntries)
+      ? mod.aiToolConfigEntries
+      : []
+    const count = registerGeneratedAiToolEntries(entries)
+    // Apply module-to-module + programmatic tool overrides AFTER the base
+    // registrations so disable / replace semantics work end-to-end.
+    try {
+      await loadGeneratedAiToolOverrides()
+    } catch (error) {
+      logger.error('Failed to apply tool overrides', { err: error })
+    }
+    return count
+  } catch (error) {
+    logger.error('Could not load ai-tools.generated.ts (module tools unavailable)', { err: error })
+    return 0
+  }
+}
+
+/**
+ * Dynamically load tools from known module paths.
+ * This is called during MCP server startup.
+ */
+async function loadAllModuleToolsUncached(): Promise<void> {
+  // 1. Register built-in tools
+  registerMcpTool(contextWhoamiTool, { moduleId: 'context' })
+  logger.debug('Registered built-in context_whoami tool')
+
+  // 2. Register Code Mode tools (search + execute)
+  // These two tools replace the previous api_discover, call_api, discover_schema,
+  // and all module-specific AI tools. The AI writes JavaScript that runs in a
+  // node:vm sandbox with access to the OpenAPI spec and api.request().
+  try {
+    const { loadCodeModeTools } = await import('./codemode-tools')
+    const toolCount = await loadCodeModeTools()
+    logger.info('Registered Code Mode tools', { toolCount })
+  } catch (error) {
+    logger.error('Could not load Code Mode tools', { err: error })
+  }
+
+  // 3. Register module-contributed tools from ai-tools.generated.ts.
+  // Code Mode stays untouched; module tools are additive. Missing
+  // generated file is not fatal (pre-generate builds, tests).
+  try {
+    const moduleToolCount = await loadGeneratedModuleAiTools()
+    logger.info('Registered module-contributed AI tools', { toolCount: moduleToolCount })
+  } catch (error) {
+    logger.error('Could not load module AI tools', { err: error })
+  }
+
+  // 4. Register the API route manifest so API-backed module tools can run.
+  // Their handlers delegate to createAiApiOperationRunner, which fails closed
+  // with "No API route manifest registered" outside the Next.js bootstrap.
+  try {
+    const routeCount = await ensureApiRouteManifestsRegistered()
+    if (routeCount > 0) {
+      logger.info('Registered API route manifests for API-backed tools', { routeCount })
+    }
+  } catch (error) {
+    logger.error('Could not register API route manifests', { err: error })
+  }
+}
+
+export function loadAllModuleTools(): Promise<void> {
+  if (!allModuleToolsLoad) {
+    allModuleToolsLoad = loadAllModuleToolsUncached().catch((error) => {
+      allModuleToolsLoad = null
+      throw error
+    })
+  }
+  return allModuleToolsLoad
+}
+
+/** @__internal Test-only hook — reset the process-wide loader memo. */
+export function resetAllModuleToolsLoadForTests(): void {
+  allModuleToolsLoad = null
+}
+
+/**
+ * Guarantee the tool registry is populated, at most once per process.
+ *
+ * {@link loadAllModuleTools} was only ever called by the entry points that
+ * exist to serve tools — the MCP servers, `/api/ai_assistant/tools[/execute]`,
+ * the action-confirm route, the CLI. Every OTHER path that resolves an agent's
+ * tools (the chat dispatcher, `runAiAgentText`, `runAiAgentObject`) assumed a
+ * populated registry without ever populating it, so whether an in-app agent
+ * could see its own allowlisted tools depended on what that Node process had
+ * happened to serve first. When it had served none, the policy gate rejected
+ * every tool as `tool_unknown`, the runtime silently degraded to a toolless
+ * call, and an agent whose prompt told it to self-check with a tool had no tool
+ * to call. Resolving tools is now the thing that guarantees they are loaded.
+ *
+ * Repeat calls are free. `loadAllModuleTools` itself is idempotent — it
+ * re-registers into a keyed map — but it also re-runs four dynamic imports and
+ * an OpenAPI spec load, so its own memo is about cost, not correctness. This
+ * function holds no second memo of its own: stacking one over that memo made a
+ * reset at either layer insufficient to observe a reload.
+ */
+export async function ensureModuleToolsLoaded(): Promise<void> {
+  await loadAllModuleTools()
+}
+
+/**
+ * @__internal
+ * Test-only hook — drops the memo so a suite can observe the load again.
+ */
+export function resetModuleToolsLoadedForTests(): void {
+  resetAllModuleToolsLoadForTests()
+}
+
+/**
+ * Index all registered tools for hybrid search discovery.
+ * This should be called after loadAllModuleTools() when the search service is available.
+ *
+ * @param searchService - The search service from DI container
+ * @param force - Force re-indexing even if checksums match
+ * @returns Indexing result with statistics
+ */
+export async function indexToolsForSearch(
+  searchService: SearchService,
+  force = false
+): Promise<{
+  indexed: number
+  skipped: number
+  strategies: string[]
+  checksum: string
+}> {
+  const registry = getToolRegistry()
+  const toolSearchService = new ToolSearchService(searchService, registry)
+
+  try {
+    const result = await toolSearchService.indexTools(force)
+
+    logger.info('Indexed tools for search', { indexed: result.indexed })
+    logger.debug('Search strategies available', { strategies: result.strategies.join(',') })
+
+    if (result.skipped > 0) {
+      logger.debug('Skipped unchanged tools', { skipped: result.skipped })
+    }
+
+    return result
+  } catch (error) {
+    logger.error('Failed to index tools for search', { err: error })
+    throw error
+  }
+}
+
+/**
+ * Create a ToolSearchService instance for tool discovery.
+ * Use this to get a configured service for discovering relevant tools.
+ *
+ * @param searchService - The search service from DI container
+ * @returns Configured ToolSearchService
+ */
+export function createToolSearchService(searchService: SearchService): ToolSearchService {
+  const registry = getToolRegistry()
+  return new ToolSearchService(searchService, registry)
+}

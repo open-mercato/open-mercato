@@ -1,0 +1,415 @@
+# SPEC-ENT-004: SSO & Directory Sync Module for @open-mercato/enterprise
+
+**Status:** Draft
+**Date:** 2026-02-19
+**Package:** `packages/enterprise/src/modules/sso/`
+**Framework:** Next.js 16, React 19, MikroORM 6, PostgreSQL
+**Estimated effort:** 2-4 weeks (single senior developer)
+
+---
+
+## TLDR
+
+Enterprise SSO module enabling federated authentication (OIDC + SAML 2.0) with any corporate identity provider, plus SCIM 2.0 directory synchronization for automated user lifecycle management. Per-organization IdP configuration, email-domain-based Home Realm Discovery, JIT provisioning, group-to-role mapping, and SSO enforcement policies. Zero modifications to the core auth module.
+
+---
+
+## 1. Context & Problem Statement
+
+Open Mercato's auth module provides password-based authentication with JWT sessions, RBAC, and multi-tenant scoping. The `User` entity already has a nullable `passwordHash` field, anticipating password-less flows. The enterprise security module (SPEC-ENT-001) provides MFA but does not address federated identity or directory sync.
+
+Enterprise customers need:
+
+- **SSO:** Authenticate via corporate IdP (Entra ID, Okta, Google Workspace, etc.) instead of separate passwords
+- **Directory Sync:** Automated user provisioning/deprovisioning from corporate directory
+- **Centralized Policies:** SSO-required enforcement, allowed domains, break-glass access
+- **Audit:** Full trail for SSO events, account linking, and provisioning actions
+
+### Gap Analysis
+
+| Capability | Current | Required |
+|---|---|---|
+| Authentication | Password-only | Password + SSO (OIDC/SAML) |
+| User provisioning | Manual | SCIM 2.0 + JIT |
+| User deprovisioning | Manual | Automated via SCIM |
+| IdP configuration | None | Per-organization |
+| Home Realm Discovery | None | Email-domain routing |
+| Account linking | N/A | SSO identity → existing user |
+| Group/role sync | N/A | IdP groups → roles in Open Mercato |
+
+---
+
+## 2. Decision
+
+Build an SSO & Directory Sync module delivering nine capabilities:
+
+1. **Multi-protocol SSO** — OIDC (Authorization Code + PKCE) and SAML 2.0 via pluggable provider registry
+2. **Per-organization IdP configuration** — Independent SSO connection per organization
+3. **Home Realm Discovery (HRD)** — Email-domain routing to correct IdP
+4. **JIT provisioning** — Account creation on first SSO login
+5. **SCIM 2.0 endpoint** — Inbound SCIM server for user lifecycle + group sync
+6. **Account linking** — Email-verified linking of SSO identities to existing accounts
+7. **SSO enforcement** — Per-organization toggle to require SSO, disable password login
+8. **SP metadata & certificates** — SAML SP metadata generation, certificate rotation
+9. **Admin dashboard** — IdP setup wizard, connection testing, provisioning logs
+
+### V1 Supported Identity Providers
+
+The first version targets three identity providers covering the most common enterprise scenarios:
+
+| IdP | Protocol | SCIM Support | Notes |
+|---|---|---|---|
+| **Microsoft Entra ID** (Azure AD) | OIDC (primary) + SAML 2.0 | Yes — native SCIM 2.0 client | Most common enterprise IdP. PKCE hardcoded (Entra supports but doesn't advertise in metadata). Known SCIM deviations handled with lenient parser. |
+| **Google Workspace** | OIDC only | No — uses proprietary Directory API | OIDC via Google's `.well-known/openid-configuration`. No SAML SP-initiated needed. Directory sync deferred (Google does not support SCIM push). JIT provisioning only. |
+| **Keycloak** | OIDC + SAML 2.0 | Yes — SCIM via extension | Open-source, self-hosted. Primary development/testing IdP (`docker run quay.io/keycloak/keycloak start-dev`). Full protocol coverage for local testing. |
+
+**Future IdPs** (post-v1, no code changes needed — pluggable architecture): Okta, OneLogin, Ping Identity, ADFS.
+
+### Design Principles
+
+| Principle | Application |
+|---|---|
+| Zero auth module changes | Integrate via event subscribers, extensions, and widget injection |
+| Protocol agnostic core | Provider registry delegates to OIDC/SAML implementations |
+| Tenant isolation | All SSO configs, identities, and SCIM tokens scoped to organization |
+| Gradual migration | Coexistence of password + SSO; phased enforcement (opt-in → required) |
+| Fail-safe | Super-admin break-glass bypass when SSO is enforced |
+
+---
+
+## 3. Architecture
+
+### 3.1 SSO Authentication Flow
+
+```
+┌──────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────┐
+│  Browser  │    │  Login Page  │    │  SSO Module  │    │   IdP    │
+└─────┬─────┘    └──────┬───────┘    └──────┬───────┘    └────┬─────┘
+      │                 │                   │                  │
+      │  1. Enter email │                   │                  │
+      │────────────────>│                   │                  │
+      │                 │  2. HRD lookup    │                  │
+      │                 │──────────────────>│                  │
+      │                 │  3. SSO config    │                  │
+      │                 │<──────────────────│                  │
+      │  4. Redirect    │                   │                  │
+      │<────────────────│                   │                  │
+      │                                                        │
+      │  5. Redirect to IdP (OIDC auth URL / SAML AuthnRequest)│
+      │───────────────────────────────────────────────────────>│
+      │                                                        │
+      │  6. User authenticates at IdP                          │
+      │<───────────────────────────────────────────────────────│
+      │                                                        │
+      │  7. Callback (auth code / SAML Response)               │
+      │────────────────────────────────────>│                  │
+      │                                     │                  │
+      │                  8. Validate token/assertion            │
+      │                  9. Account linking / JIT provision     │
+      │                  10. Issue JWT + session                │
+      │                                     │                  │
+      │  11. Set cookies, redirect to app   │                  │
+      │<────────────────────────────────────│                  │
+```
+
+### 3.2 SCIM Provisioning Flow
+
+```
+┌────────────────┐         ┌────────────────┐          ┌──────────────┐
+│  Entra ID /    │         │  SCIM Endpoint │          │ Open Mercato │
+│  Okta / IdP    │         │  /api/scim/v2/ │          │ Database     │
+└───────┬────────┘         └───────┬────────┘          └──────┬───────┘
+        │  POST /Users             │                          │
+        │  (Bearer token auth)     │                          │
+        │─────────────────────────>│  Create user + identity  │
+        │                          │─────────────────────────>│
+        │  201 Created             │                          │
+        │<─────────────────────────│                          │
+        │                          │                          │
+        │  PATCH /Users/{id}       │                          │
+        │  { active: false }       │  Deactivate + revoke     │
+        │─────────────────────────>│  active sessions         │
+        │                          │─────────────────────────>│
+        │  200 OK                  │                          │
+        │<─────────────────────────│                          │
+```
+
+### 3.3 Provider Architecture
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                    SsoService                            │
+│  (orchestrates login, callback, account linking)         │
+└────────────────────────┬─────────────────────────────────┘
+                         │
+                         ▼
+┌──────────────────────────────────────────────────────────┐
+│                 SsoProviderRegistry                      │
+│  register(provider)  │  resolve(protocol)                │
+└────────┬─────────────────────────────┬───────────────────┘
+         │                             │
+         ▼                             ▼
+┌─────────────────────┐    ┌─────────────────────┐
+│   OidcProvider      │    │   SamlProvider      │
+│ • buildAuthUrl()    │    │ • buildAuthUrl()    │
+│ • handleCallback()  │    │ • handleCallback()  │
+│ • handleLogout()    │    │ • handleLogout()    │
+│ • validateConfig()  │    │ • validateConfig()  │
+│                     │    │ • generateMetadata()│
+│ Uses: openid-client │    │ Uses: @node-saml/   │
+│       v6            │    │       node-saml v5  │
+└─────────────────────┘    └─────────────────────┘
+```
+
+### 3.4 Integration Points
+
+| Integration | Mechanism | Direction |
+|---|---|---|
+| Auth login flow | Event subscriber on `auth.login.attempt` | SSO → Auth |
+| Auth user entity | Entity extension via `data/extensions.ts` | SSO → Auth |
+| Auth session issuance | Calls `authService.issueTokens()` after callback | SSO → Auth |
+| Security module (MFA) | SSO login triggers MFA check if enrolled | SSO → Security |
+| RBAC | SCIM group sync maps to existing roles | SSO → Auth |
+| UI | Widget injection on user detail + org settings pages | SSO → UI |
+| Audit | SSO events emitted for all auth/provisioning actions | SSO → Events |
+
+---
+
+## 4. Data Model
+
+### 4.1 Tables Overview
+
+| Table | Purpose | Key Fields |
+|---|---|---|
+| `sso_configs` | Per-org IdP configuration (1:1 with org) | `organization_id`, `protocol` (oidc/saml), OIDC fields (issuer, client_id, client_secret_enc), SAML fields (entity_id, sso_url, certificate), `allowed_domains` (JSONB), `jit_enabled`, `sso_required` |
+| `sso_identities` | User ↔ IdP identity link | `user_id`, `sso_config_id`, `idp_subject` (stable IdP user ID), `idp_email`, `idp_groups`, `provisioning_method` (jit/scim/manual) |
+| `scim_tokens` | Bearer tokens for SCIM endpoint auth | `sso_config_id`, `token_hash` (bcrypt), nullable indexed `token_lookup_hash` (full-bearer SHA-256), `token_prefix`, `is_active`, `expires_at` |
+| `scim_provisioning_log` | Append-only audit trail | `sso_config_id`, `operation`, `resource_type`, `user_id`, `response_status`, `error_message` |
+| `sso_group_role_mappings` | IdP group → Open Mercato role | `sso_config_id`, `idp_group_id`, `role_id` |
+| `sso_sp_certificates` | SAML SP signing keys | `sso_config_id`, `certificate_pem`, `private_key_enc`, `fingerprint`, `is_active`, `not_after` |
+
+### 4.2 Entity Relationships
+
+```
+organizations ──1:1──> sso_configs ──1:N──> sso_identities ──N:1──> users
+                             │
+                             ├──1:N──> scim_tokens
+                             ├──1:N──> sso_group_role_mappings ──N:1──> roles
+                             ├──1:N──> scim_provisioning_log
+                             └──1:N──> sso_sp_certificates
+```
+
+### 4.3 Key Constraints
+
+- One SSO config per organization/tenant (`UNIQUE(organization_id)`)
+- One identity link per user per SSO config (`UNIQUE(sso_config_id, user_id)`)
+- Unique IdP subject per config (`UNIQUE(sso_config_id, idp_subject)`)
+- OIDC client secret and SP private keys encrypted at rest via tenant DEK
+- SCIM tokens stored as bcrypt hashes only (raw shown once on creation)
+
+---
+
+## 5. API Surface
+
+### 5.1 SSO Authentication (Public)
+
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/api/sso/hrd` | Home Realm Discovery — resolve config from email |
+| GET | `/api/sso/initiate` | Redirect user to IdP |
+| POST | `/api/sso/callback/oidc` | OIDC authorization code callback |
+| POST | `/api/sso/callback/saml` | SAML Response callback (ACS) |
+| GET | `/api/sso/metadata/:configId` | SAML SP metadata XML |
+| POST | `/api/sso/logout` | Initiate single logout |
+
+### 5.2 SSO Admin (Auth Required)
+
+| Method | Endpoint | Feature |
+|---|---|---|
+| CRUD | `/api/sso/config` | `sso.config.view` / `sso.config.manage` |
+| POST | `/api/sso/config/:id/test` | `sso.config.manage` |
+| POST | `/api/sso/config/:id/activate` | `sso.config.manage` |
+| CRUD | `/api/sso/config/:id/domains` | `sso.config.manage` |
+| CRUD | `/api/sso/config/:id/group-mappings` | `sso.config.manage` |
+| GET | `/api/sso/identities` | `sso.identities.view` |
+| DELETE | `/api/sso/identities/:id` | `sso.identities.manage` |
+| GET/PUT | `/api/sso/enforcement` | `sso.enforcement.view` / `sso.enforcement.manage` |
+| GET | `/api/sso/provisioning-log` | `sso.provisioning.view` |
+
+### 5.3 SCIM 2.0 (Bearer Token Auth)
+
+| Method | Endpoint | Description |
+|---|---|---|
+| CRUD | `/api/scim/v2/Users` | User lifecycle (create, update, deactivate, delete) |
+| CRUD | `/api/scim/v2/Groups` | Group/membership sync |
+| GET | `/api/scim/v2/ServiceProviderConfig` | SCIM capabilities |
+| GET | `/api/scim/v2/Schemas` | SCIM schemas |
+| POST | `/api/scim/v2/Bulk` | Bulk operations |
+
+### 5.4 SCIM Token Management (Auth Required)
+
+| Method | Endpoint | Feature |
+|---|---|---|
+| CRUD | `/api/scim/tokens` | `sso.scim.manage` |
+
+---
+
+## 6. Service Layer
+
+| Service | Responsibility |
+|---|---|
+| **SsoProviderRegistry** | Register/resolve protocol providers (same pattern as `MfaProviderRegistry` in SPEC-ENT-001) |
+| **SsoService** | Orchestrate SSO login: HRD → provider → account linking → session issuance |
+| **OidcProvider** | OIDC Authorization Code + PKCE flow via `openid-client` v6 |
+| **SamlProvider** | SAML 2.0 SP flow via `@node-saml/node-saml` v5 |
+| **AccountLinkingService** | Resolve user from IdP identity: lookup by `idp_subject` → email match → JIT provision |
+| **HrdService** | Email domain → SSO config lookup via `allowed_domains` GIN index |
+| **ScimService** | SCIM 2.0 server: user CRUD, group sync, filter parsing, attribute mapping |
+| **SsoEnforcementService** | Check if SSO is required for an org; block password login if so (except super-admin) |
+| **SsoAdminService** | Connection testing, provisioning stats, identity management |
+
+### Provider Interface
+
+Each SSO protocol provider implements:
+- `buildAuthUrl()` — construct redirect URL to IdP
+- `handleCallback()` — validate response, return normalized identity payload (subject, email, name, groups)
+- `validateConfig()` — test IdP connection
+- `handleLogout()` — initiate logout at IdP (optional)
+
+---
+
+## 7. Key Behaviors
+
+### 7.1 Auth Flow Integration
+
+- **Login page extension:** HRD lookup on email entry; if SSO config found, redirect to IdP instead of showing password field
+- **Session issuance:** After SSO callback, call existing `authService.issueTokens()` — no JWT schema changes needed
+- **Enforcement:** Subscriber intercepts password login when `sso_required = true`; rejects with SSO redirect (super-admin bypass)
+- **MFA integration:** SSO login triggers MFA check if security module installed; configurable `skipMfaForSso` flag
+
+### 7.2 Account Linking
+
+Resolution order on SSO callback:
+1. Existing link: lookup `sso_identities` by `idp_subject`
+2. Email match: if `autoLinkByEmail = true`, find user by verified email
+3. JIT provision: if `jitEnabled = true`, create new user (no password) with default role
+
+Use `idp_subject` (not email) as the stable cross-system identifier — emails can change.
+
+### 7.3 SCIM Provisioning
+
+- **Authentication:** Bearer token matched against `scim_tokens` (bcrypt), resolves org scope
+- **User mapping:** `userName` → `email`, `displayName` → `name`, `active: false` → soft-deactivate + revoke sessions
+- **Group sync:** IdP group membership changes → update `user_roles` via `sso_group_role_mappings`, invalidate RBAC cache
+- **Filters:** Support `eq` operator and `and` combinator (minimum for Entra ID compatibility)
+- **Rate limiting:** The five implemented provisioning operations (`GET`/`POST /api/sso/scim/v2/Users` and `GET`/`PATCH`/`DELETE /api/sso/scim/v2/Users/:id`) share a pre-verification budget of 10 requests per second per verified token, falling back to the trusted client IP or a fixed unverified bucket. Public `GET /api/sso/scim/v2/ServiceProviderConfig` discovery has a separate budget. `resolveScimContext` checks admission before bearer verification, retaining the cost-10 bcrypt work for admitted invalid tokens.
+  - Uses the shared process-wide limiter, including the configured memory/Redis strategy and `RATE_LIMIT_ENABLED` switch. Memory budgets apply per process; Redis shares budgets across replicas.
+  - `RATE_LIMIT_TRUST_PROXY_DEPTH` determines the trusted forwarding hop; zero ignores forwarding headers. Every new token stores its full-bearer SHA-256 lookup fingerprint alongside bcrypt. Admission first checks its 30-second DI hint; on a miss, an indexed exact active-token fingerprint lookup selects only token ID and tenant/organization scope. Enrolled tokens therefore retain private budgets on their first request and after cache expiry/restart, even when anonymous traffic exhausts the unverified budget. The cached value is a tenant/organization/token-ID admission key in a dedicated pre-auth namespace, read independently of the request tenant because identity is not yet established. No raw bearer or bcrypt hash is cached. This key takes precedence over trusted IPs, isolating tenants sharing an IdP egress IP. Every admitted call still verifies active credentials with bcrypt and checks organization/configuration scope. A successful comparison enrolls a legacy null fingerprint through a compare-and-set guarded by token ID, tenant, organization, configuration, active state, compared bcrypt hash, and absent/identical fingerprint; a lost guard denies the stale verification before caching. Revocation invalidates the token-tagged cache entry after the database write. Cache invalidation and telemetry errors are reported best-effort and do not turn a committed revocation into an API failure; full token verification continues to reject revoked credentials even if an admission entry remains stale. Use Redis to share entries and invalidation across replicas; other cache backends are local.
+  - `RATE_LIMIT_SCIM_POINTS` (default `10`), `RATE_LIMIT_SCIM_DURATION` (default `1` second), and `RATE_LIMIT_SCIM_BLOCK_DURATION` (default no extra block) tune the ceiling for identity-provider bursts.
+  - Exhaustion returns SCIM `429` with `Retry-After` and `X-RateLimit-*` before generic credential resolution or bcrypt. Every unverified bearer, including an active prefix with a wrong suffix, shares the trusted-IP or fixed fallback budget. Discovery has its own budget. Unenrolled legacy tokens must first pass the unverified budget; the operator cutover requires no active null-fingerprint rows. Existing authentication is preserved during the bridge. Configure IdPs to retry and size quotas for legitimate bursts; raising quotas does not resolve unenrolled-token starvation. An unavailable limiter, admission-cache read, or fingerprint database lookup returns SCIM `503` before verification. A failed legacy fingerprint-enrollment write also returns a redacted SCIM `503` after verification, before configuration reads or provisioning; a later request may retry enrollment.
+  - Sizing evidence: ten local cost-10 `bcryptjs.hash` samples on Node 24.22.1 measured 54.3 ms median wall time and 562 ms aggregate CPU. Ten admitted invalid requests per second therefore cost approximately 0.56 CPU-seconds per second per client on this host. This is a microbenchmark, not a load test or a deployment capacity guarantee.
+  - Regression coverage: `packages/enterprise/src/modules/sso/api/scim/__tests__/rate-limit.test.ts` exercises all six public operations with the real memory limiter, active-prefix wrong-suffix exhaustion, independent verified-token budgets in direct and trusted-IP mode, independent discovery, spoof resistance, quota reset/configuration, fail-closed cache/limiter behavior, disabled fast paths, and organization-scoped provisioning. Token-service tests prove generation fingerprint writes, guarded legacy enrollment, no management-payload fingerprint exposure, verification-only cache writes, TTL, scoped revocation invalidation, and authoritative active-token verification. Migration up/down tests capture the narrow SQL without applying it. `TC-SSO-007-fingerprint-rollout.spec.ts` crosses real management/SCIM APIs and PostgreSQL to verify generation persistence, legacy enrollment, safe list payloads, and revoke rejection; dispatcher regressions cover cold enrolled admission after fallback exhaustion/cache loss and skipped generic work for forged suffixes.
+  - Admission runs through the optional route-file `beforeAuth` export before the dispatcher's generic JWT/API-key resolution, closing credential work that would otherwise precede a handler-level limit. Its `ApiRouteBeforeAuth` contract accepts `(Request, { method, params })`, returns `null` to continue or a `Response` to reject, and leaves normal authentication/authorization intact after admission. Existing routes without the hook retain their behavior; monorepo and create-app template dispatchers are identical.
+  - The helper memoizes admission by request identity, preserving one quota charge across dispatcher and handler. `apps/mercato/src/app/api/__tests__/scim-admission.test.ts` exercises real generic auth, API-key verification, SCIM verification, and limiter flow with instrumented DB/bcrypt boundaries. Exhausted wrong-suffix and rotating-key requests skip generic credential lookup/hash/compare, while previously verified provisioning retains its scoped private budget and consumes one point. The mirrored template test is byte-identical.
+- **Entra ID quirks:** Lenient SCIM parser for non-standard PATCH paths and mixed-case filter operators
+
+### 7.4 Break-Glass
+
+Super-admin accounts (`isSuperAdmin` flag) bypass SSO enforcement. Break-glass logins emit `sso.enforcement.bypassed` event.
+
+---
+
+## 8. Frontend
+
+| Page | Purpose |
+|---|---|
+| SSO Dashboard (`backend/page.tsx`) | Connection status, user count, SCIM sync status, quick actions |
+| IdP Setup Wizard (`backend/config/new/`) | Step-by-step: protocol → IdP config → domains → provisioning → test → activate |
+| IdP Detail (`backend/config/[id]/`) | Tabs: general, domains, group mappings, provisioning, certificates, activity |
+| SCIM Dashboard (`backend/scim/`) | Token management, provisioning stats |
+| Provisioning Log (`backend/provisioning-log/`) | Filterable audit trail |
+
+**Widget injections:** SSO identity info on user detail page; SSO status on org settings page.
+
+---
+
+## 9. Security Considerations
+
+### Token/Assertion Validation
+
+| Check | OIDC | SAML |
+|---|---|---|
+| Signature | JWT via IdP JWKS | XML Signature against stored IdP cert |
+| Issuer | `iss` = stored issuer URL | `Issuer` = stored entity ID |
+| Audience | `aud` = our client_id | `Audience` = our SP entity ID |
+| Expiry | `exp` with 30s skew tolerance | `NotOnOrAfter` with 30s skew |
+| Replay | `nonce` in server session | `InResponseTo` matched |
+| CSRF | `state` parameter | `RelayState` |
+| PKCE | Always enabled (hardcoded) | N/A |
+
+### Critical Security Points
+
+- **SAML XSW protection:** Pin `xml-crypto` >= 6.0.1 (CVE-2025-29774/29775); validate against stored cert, not response cert
+- **IdP-initiated SSO:** Disabled by default; if enabled, enforce <5 min assertion lifetime
+- **Secrets:** OIDC client secret + SP private key encrypted via tenant DEK; SCIM tokens bcrypt-hashed
+- **Session revocation:** SCIM deactivation immediately revokes all active sessions
+- **Tenant isolation:** Token validation bound to specific org's stored config; cross-tenant token reuse impossible
+
+---
+
+## 10. Dependencies
+
+| Package | Purpose |
+|---|---|
+| `openid-client` ^6.x | OIDC Relying Party (Authorization Code + PKCE) |
+| `@node-saml/node-saml` ^5.x | SAML 2.0 Service Provider |
+| `xml-crypto` ^6.0.1 | Pin transitive dependency for XSW patches |
+
+SCIM server implemented directly — no SCIM library needed (straightforward REST + zod validators).
+
+---
+
+
+---
+
+## 11. Risk Assessment
+
+| # | Risk | Impact | Likelihood | Mitigation |
+|---|---|---|---|---|
+| 1 | SAML signature bypass (XSW) | Critical | Low | Pin xml-crypto, validate stored cert, security audit |
+| 2 | IdP outage locks org users | High | Medium | Super-admin break-glass, clear error messaging |
+| 3 | SCIM deprovisioning race | Medium | Medium | Immediate session revocation, event-driven cache invalidation |
+| 4 | Entra SCIM spec deviations | Medium | High | Lenient parser, Entra-specific test suite |
+| 5 | Domain squatting | High | Low | Admin-only config, future DNS TXT verification |
+| 6 | Large SCIM initial sync | Medium | Medium | Rate limiting, batch processing, async via worker queue |
+
+---
+
+## 12. Consequences
+
+**Positive:** Federated auth without separate passwords; automated lifecycle management; zero core auth changes; pluggable provider architecture; gradual enforcement migration.
+
+**Negative:** HRD query on every login page load; SCIM maintenance burden (Entra quirks); SP certificate management complexity; two new npm dependencies.
+
+**Neutral:** IdP availability outside our control; SCIM sync interval set by IdP (~40 min for Entra); IdP-initiated SSO disabled by default.
+
+---
+
+## Migration & Backward Compatibility
+
+Issue [#7829](https://github.com/open-mercato/open-mercato/issues/7829) adds `429` and `503` error responses; existing SCIM URLs, request bodies, successful response bodies, token formats, and organization scoping stay stable. The additive SSO migration adds nullable indexed `token_lookup_hash`; operators must apply it before deploying this code. It does not apply automatically, rewrite existing secrets, or revoke legacy tokens. Newly generated credentials are enrolled before being returned. Existing bcrypt-only tokens cannot be bulk-backfilled without their raw secrets; admitted successful SCIM requests enroll them, or operators rotate through existing management APIs. The full cold-admission guarantee begins only when no active unenrolled legacy rows remain. See the non-secret inventory, enrollment/rotation cutover and rollback procedure in [UPGRADE_NOTES](../../../../UPGRADE_NOTES.md#scim-token-fingerprint-rollout). Clients should honor `Retry-After` on `429`; operators should set trusted proxy depth to the real topology and tune `RATE_LIMIT_SCIM_*` if normal provisioning bursts exceed the default. Public discovery requires no bearer and uses an independent budget. Previously verified full bearers have independent scoped budgets; active-prefix forgeries remain unverified. Only unenrolled legacy bearers require an initial admitted request; persistent fingerprints protect enrolled tokens independently of cache warmth. Redis shares admission entries and revocation invalidation across replicas. The existing integration-test global rate-limit disable behavior remains in effect.
+
+The optional `beforeAuth` route export and `ApiRouteBeforeAuth` type are additive. Existing route exports/signatures and all routes without the hook remain supported. Standalone applications must adopt the updated template dispatcher before relying on this hook to precede generic credential resolution; SCIM's direct-handler fallback still limits its own bearer verifier in older dispatchers. No enterprise-specific behavior is added to shared dispatch code. See [rate-limiting admission documentation](../../../../apps/docs/docs/framework/security/rate-limiting.mdx).
+
+## Changelog
+
+| Date | Changes |
+|---|---|
+| 2026-10-29 | Added indexed full-bearer lookup fingerprints, scoped/hash-guarded legacy enrollment, reversible migration/snapshot, cold/cache-loss boundary regressions, real API/DB rollout coverage, and operator cutover documentation after explicit user approval (#8076). |
+| 2026-10-29 | Kept committed token revocation successful during admission-cache/telemetry failures; regression proves stale admission entries cannot authenticate revoked tokens (#8076, review 5699954649 Low). |
+| 2026-10-29 | Replaced enumerable prefix admission with short-lived verified-bearer cache entries, scoped token quotas, revoke invalidation, and wrong-suffix regressions in direct/trusted-IP/dispatcher paths (#8076). |
+| 2026-10-29 | Isolated discovery and known active-token fallback buckets in the default no-proxy configuration; bounded unknown-token keys and added default-config route/dispatcher regressions (#8076). |
+| 2026-10-28 | Added optional pre-auth admission to both dispatchers, one-charge SCIM reuse, and dispatcher regressions covering generic API-key work (R1, #7829). |
+| 2026-10-27 | Bound public SCIM requests before bcrypt verification; documented trusted-IP budget, configurable defaults, additive errors, benchmark, and regression coverage (#7829). |
+| 2026-02-19 | Initial draft — high-level SSO & Directory Sync specification |
+| 2026-02-19 | Added V1 targeted IdPs: Microsoft Entra ID, Google Workspace, Keycloak |

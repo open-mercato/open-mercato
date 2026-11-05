@@ -1,0 +1,401 @@
+import { OptionalProps } from '@mikro-orm/core'
+import { Entity, Index, ManyToOne, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+
+/**
+ * The principal kind a `User` row represents. `human` (the default) is an
+ * interactively-authenticating person; `agent` is a non-interactive AI principal
+ * provisioned by the agent_orchestrator module (it owns no interactive credential
+ * and is barred from the password/SSO login flow); `service` is reserved for
+ * machine/system principals. Added additively (NOT NULL, default `'human'`) so
+ * every existing row backfills to `human` and no existing reader breaks.
+ */
+export type UserKind = 'human' | 'agent' | 'service'
+
+@Entity({ tableName: 'users' })
+// Email uniqueness is per-tenant, enforced by a partial unique index
+// (`users_tenant_email_hash_uniq`) on `(tenant_id, email_hash)` over live rows
+// (`WHERE deleted_at IS NULL AND email_hash IS NOT NULL`), owned by raw SQL in
+// Migration20260610120000. It keys on the deterministic `email_hash`, not `email`, because
+// `email` is encrypted at rest with a per-row IV (see encryption.ts) — its ciphertext is
+// non-deterministic, so a unique index on it would not detect duplicates. A `@Unique`
+// decorator can't express a partial, tenant-scoped index, so the entity omits it — the
+// migration is the source of truth. A global unique constraint contradicts the multi-tenant
+// login flow and leaks cross-tenant account existence (#2934). Mirrors
+// `customer_users_tenant_email_hash_uniq`.
+export class User {
+  // `kind` carries a default ('human'); marking it optional keeps every existing
+  // `em.create(User, …)` caller (which never passed `kind`) compiling unchanged —
+  // the additive column is backfilled by the default at the DB + entity level.
+  [OptionalProps]?: 'kind'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
+  tenantId?: string | null
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ type: 'text' })
+  email!: string
+
+  @Property({ name: 'email_hash', type: 'text', nullable: true })
+  @Index({ name: 'users_email_hash_idx' })
+  emailHash?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  name?: string | null
+
+  @Property({ name: 'password_hash', type: 'text', nullable: true })
+  passwordHash?: string | null
+
+  @Property({ name: 'is_confirmed', type: 'boolean', default: true })
+  isConfirmed: boolean = true
+
+  // Principal kind. Default 'human' keeps every existing row + external reader
+  // unaffected; 'agent' marks a non-interactive AI principal (see UserKind).
+  @Property({ name: 'kind', type: 'varchar', length: 20, default: 'human' })
+  kind: UserKind = 'human'
+
+  @Property({ name: 'last_login_at', type: Date, nullable: true })
+  lastLoginAt?: Date
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date(), nullable: true })
+  updatedAt?: Date | null
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'roles' })
+@Unique({ properties: ['tenantId', 'name'] })
+export class Role {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ type: 'text' })
+  name!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'min_active_holders', type: 'integer', default: 0 })
+  minActiveHolders: number = 0
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date(), nullable: true })
+  updatedAt?: Date | null
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'user_sidebar_preferences' })
+// Uniqueness is enforced by a partial unique index (`user_sidebar_preferences_active_unique_idx`)
+// scoped to live rows (`WHERE deleted_at IS NULL`) and owned by raw SQL in
+// Migration20260427143311. A `@Unique` decorator can't express a partial index,
+// so the entity intentionally omits it — the migration is the source of truth.
+export class UserSidebarPreference {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => User, { deleteRule: 'cascade' })
+  user!: User
+
+  @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
+  tenantId?: string | null
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ type: 'text' })
+  locale!: string
+
+  @Property({ name: 'settings_json', type: 'json', nullable: true })
+  settingsJson?: unknown
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date(), nullable: true })
+  updatedAt?: Date
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'role_sidebar_preferences' })
+// Uniqueness is enforced by a partial unique index (`role_sidebar_preferences_active_unique_idx`)
+// scoped to live rows (`WHERE deleted_at IS NULL`) and owned by raw SQL in
+// Migration20260427143311. A `@Unique` decorator can't express a partial index,
+// so the entity intentionally omits it — the migration is the source of truth.
+export class RoleSidebarPreference {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => Role)
+  role!: Role
+
+  @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
+  tenantId?: string | null
+
+  @Property({ type: 'text' })
+  locale!: string
+
+  @Property({ name: 'settings_json', type: 'json', nullable: true })
+  settingsJson?: unknown
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date(), nullable: true })
+  updatedAt?: Date
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'sidebar_variants' })
+// Uniqueness is enforced by a partial unique index (`sidebar_variants_active_name_unique_idx`)
+// scoped to live rows (`WHERE deleted_at IS NULL`) and owned by raw SQL in
+// Migration20260427143311. A `@Unique` decorator can't express a partial index,
+// so the entity intentionally omits it — the migration is the source of truth.
+export class SidebarVariant {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => User, { deleteRule: 'cascade' })
+  user!: User
+
+  @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
+  tenantId?: string | null
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ type: 'text' })
+  locale!: string
+
+  @Property({ type: 'text' })
+  name!: string
+
+  @Property({ name: 'settings_json', type: 'json', nullable: true })
+  settingsJson?: unknown
+
+  @Property({ name: 'is_active', type: 'boolean', default: false })
+  isActive: boolean = false
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date(), nullable: true })
+  updatedAt?: Date
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'user_roles' })
+@Index({ name: 'user_roles_user_id_idx', properties: ['user'] })
+@Index({ name: 'user_roles_role_id_idx', properties: ['role'] })
+export class UserRole {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => User)
+  user!: User
+
+  @ManyToOne(() => Role)
+  role!: Role
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'sessions' })
+export class Session {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => User)
+  user!: User
+
+  @Property({ type: 'text', unique: true })
+  token!: string
+
+  @Property({ name: 'expires_at', type: Date })
+  expiresAt!: Date
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'last_used_at', type: Date, nullable: true })
+  lastUsedAt?: Date
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'password_resets' })
+export class PasswordReset {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => User)
+  user!: User
+
+  @Property({ type: 'text', unique: true })
+  token!: string
+
+  @Property({ name: 'expires_at', type: Date })
+  expiresAt!: Date
+
+  @Property({ name: 'used_at', type: Date, nullable: true })
+  usedAt?: Date
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+// RBAC: Role-level ACL
+@Entity({ tableName: 'role_acls' })
+// Uniqueness is enforced by a partial unique index (`role_acls_active_unique_idx`)
+// on `(role_id, tenant_id)` scoped to live rows (`WHERE deleted_at IS NULL`) and
+// owned by raw SQL in Migration20260828120000_auth. A `@Unique` decorator can't
+// express a partial index, so the entity intentionally omits it — the migration
+// is the source of truth.
+export class RoleAcl {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => Role)
+  role!: Role
+
+  // Tenant scope is mandatory for ACL evaluation
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  // Feature list (string-based). Use JSON array to preserve order and allow wildcards like "example.*".
+  @Property({ name: 'features_json', type: 'json', nullable: true })
+  featuresJson?: string[] | null
+
+  // If true, user with this role can do everything regardless of features
+  @Property({ name: 'is_super_admin', type: 'boolean', default: false })
+  isSuperAdmin: boolean = false
+
+  // Visible organizations within the tenant. `null` or the `__all__` sentinel means every
+  // organization. An EMPTY array is a deny-all scope for human principals — it projects to an
+  // empty accessible set so scoped reads and deletes fail closed (#4033). API-key principals
+  // read an empty list as "inherit the key's own organization binding" instead.
+  @Property({ name: 'organizations_json', type: 'json', nullable: true })
+  organizationsJson?: string[] | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date(), nullable: true })
+  updatedAt?: Date
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+// RBAC: Per-user ACL override
+@Entity({ tableName: 'user_acls' })
+// Uniqueness is enforced by a partial unique index (`user_acls_active_unique_idx`)
+// on `(user_id, tenant_id)` scoped to live rows (`WHERE deleted_at IS NULL`) and
+// owned by raw SQL in Migration20260828120000_auth. A `@Unique` decorator can't
+// express a partial index, so the entity intentionally omits it — the migration
+// is the source of truth. This row REPLACES the user's role ACLs rather than
+// merging with them (see RbacService.loadAcl), so a second live row for the same
+// scope would silently decide the whole feature set.
+export class UserAcl {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => User)
+  user!: User
+
+  // Tenant scope is mandatory for ACL evaluation
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  // Feature list (string-based). Use JSON array to preserve order and allow wildcards like "example.*".
+  @Property({ name: 'features_json', type: 'json', nullable: true })
+  featuresJson?: string[] | null
+
+  // If true, this user can do everything regardless of features
+  @Property({ name: 'is_super_admin', type: 'boolean', default: false })
+  isSuperAdmin: boolean = false
+
+  // Visible organizations within the tenant; null/empty means all organizations
+  @Property({ name: 'organizations_json', type: 'json', nullable: true })
+  organizationsJson?: string[] | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date(), nullable: true })
+  updatedAt?: Date
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'user_consents' })
+@Unique({ properties: ['userId', 'tenantId', 'consentType'] })
+export class UserConsent {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'user_id', type: 'uuid' })
+  userId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
+  tenantId?: string | null
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ name: 'consent_type', type: 'text' })
+  consentType!: string
+
+  @Property({ name: 'is_granted', type: 'boolean', default: false })
+  isGranted: boolean = false
+
+  @Property({ name: 'granted_at', type: Date, nullable: true })
+  grantedAt?: Date | null
+
+  @Property({ name: 'withdrawn_at', type: Date, nullable: true })
+  withdrawnAt?: Date | null
+
+  @Property({ type: 'text', nullable: true })
+  source?: string | null
+
+  @Property({ name: 'ip_address', type: 'text', nullable: true })
+  ipAddress?: string | null
+
+  @Property({ name: 'integrity_hash', type: 'text', nullable: true })
+  integrityHash?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date(), nullable: true })
+  updatedAt?: Date
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}

@@ -1,0 +1,629 @@
+import path from 'node:path'
+import fs from 'node:fs'
+import ts from 'typescript-js'
+import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+
+/**
+ * Resolved execution environment for the CLI.
+ * Produced once by resolveEnvironment() and consumed by all subsystems.
+ * Eliminates per-subsystem isMonorepo() branching and hardcoded path segments.
+ */
+export type CliEnvironment = {
+  /** Whether the CLI is running inside a Yarn/npm workspace monorepo. */
+  mode: 'monorepo' | 'standalone'
+  /** Workspace or project root (where package.json / node_modules live). */
+  rootDir: string
+  /** Next.js application directory (contains src/, package.json, next.config.*). */
+  appDir: string
+  /**
+   * Resolve the root directory of an installed @open-mercato package.
+   * Monorepo: packages/<pkg>/   Standalone: node_modules/<pkg>/
+   */
+  packageRoot: (packageName: string) => string
+}
+
+export type ModuleEntry = {
+  id: string
+  from?: '@open-mercato/core' | '@app' | string
+  devSupervisorRequiresFullBootstrap?: boolean
+}
+
+export type PackageInfo = {
+  name: string
+  version?: string | null
+  path: string
+  modulesPath: string
+}
+
+export interface PackageResolver {
+  isMonorepo(): boolean
+  getRootDir(): string
+  getAppDir(): string
+  getOutputDir(): string
+  getModulesConfigPath(): string
+  discoverPackages(): PackageInfo[]
+  loadEnabledModules(): ModuleEntry[]
+  getModulePaths(entry: ModuleEntry): { appBase: string; pkgBase: string }
+  getModuleImportBase(entry: ModuleEntry): { appBase: string; pkgBase: string }
+  getPackageOutputDir(packageName: string): string
+  getPackageRoot(from?: string): string
+}
+
+function pkgDirFor(rootDir: string, from?: string, isMonorepo = true): string {
+  if (!isMonorepo) {
+    const pkgName = from || '@open-mercato/core'
+    const pkgRoot = path.join(rootDir, 'node_modules', pkgName)
+    const distModules = path.join(pkgRoot, 'dist', 'modules')
+    if (fs.existsSync(distModules)) return distModules
+    return path.join(pkgRoot, 'src', 'modules')
+  }
+
+  // Monorepo mode - read from src/modules (TypeScript source)
+  if (!from || from === '@open-mercato/core') {
+    return path.resolve(rootDir, 'packages/core/src/modules')
+  }
+  // Support other local packages like '@open-mercato/onboarding' => packages/onboarding/src/modules
+  const m = from.match(/^@open-mercato\/(.+)$/)
+  if (m) {
+    return path.resolve(rootDir, `packages/${m[1]}/src/modules`)
+  }
+  // Fallback to core modules path
+  return path.resolve(rootDir, 'packages/core/src/modules')
+}
+
+function pkgRootFor(rootDir: string, from?: string, isMonorepo = true): string {
+  if (!isMonorepo) {
+    const pkgName = from || '@open-mercato/core'
+    return path.join(rootDir, 'node_modules', pkgName)
+  }
+
+  if (!from || from === '@open-mercato/core') {
+    return path.resolve(rootDir, 'packages/core')
+  }
+  const m = from.match(/^@open-mercato\/(.+)$/)
+  if (m) {
+    return path.resolve(rootDir, `packages/${m[1]}`)
+  }
+  return path.resolve(rootDir, 'packages/core')
+}
+
+function parseModuleEntryFromObjectLiteral(node: ts.ObjectLiteralExpression): ModuleEntry | null {
+  let id: string | null = null
+  let from: string | null = null
+  let devSupervisorRequiresFullBootstrap = false
+  for (const property of node.properties) {
+    if (!ts.isPropertyAssignment(property)) continue
+    const key = ts.isIdentifier(property.name) || ts.isStringLiteralLike(property.name)
+      ? property.name.text
+      : null
+    if (key === 'id' && ts.isStringLiteralLike(property.initializer)) {
+      id = property.initializer.text
+    }
+    if (key === 'from' && ts.isStringLiteralLike(property.initializer)) {
+      from = property.initializer.text
+    }
+    if (key === 'overrides') {
+      if (!ts.isObjectLiteralExpression(property.initializer)) {
+        devSupervisorRequiresFullBootstrap = true
+        continue
+      }
+      for (const overrideProperty of property.initializer.properties) {
+        if (ts.isSpreadAssignment(overrideProperty)) {
+          devSupervisorRequiresFullBootstrap = true
+          break
+        }
+        if (!ts.isPropertyAssignment(overrideProperty)) continue
+        const overrideKey = ts.isIdentifier(overrideProperty.name) || ts.isStringLiteralLike(overrideProperty.name)
+          ? overrideProperty.name.text
+          : null
+        if (overrideKey === 'workers' || overrideKey === 'cli') {
+          devSupervisorRequiresFullBootstrap = true
+          break
+        }
+      }
+    }
+  }
+  if (!id) return null
+  return {
+    id,
+    from: from ?? '@open-mercato/core',
+    ...(devSupervisorRequiresFullBootstrap ? { devSupervisorRequiresFullBootstrap: true } : {}),
+  }
+}
+
+function parseProcessEnvAccess(
+  node: ts.Expression,
+  env: NodeJS.ProcessEnv,
+): { matched: boolean; value: string | undefined } {
+  if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.name)) {
+    const target = node.expression
+    if (
+      ts.isPropertyAccessExpression(target)
+      && ts.isIdentifier(target.expression)
+      && target.expression.text === 'process'
+      && target.name.text === 'env'
+    ) {
+      return { matched: true, value: env[node.name.text] }
+    }
+  }
+  if (
+    ts.isElementAccessExpression(node)
+    && ts.isPropertyAccessExpression(node.expression)
+    && ts.isIdentifier(node.expression.expression)
+    && node.expression.expression.text === 'process'
+    && node.expression.name.text === 'env'
+    && ts.isStringLiteralLike(node.argumentExpression)
+  ) {
+    return { matched: true, value: env[node.argumentExpression.text] }
+  }
+  return { matched: false, value: undefined }
+}
+
+function evaluateStaticExpression(node: ts.Expression, env: NodeJS.ProcessEnv): unknown {
+  return evaluateStaticExpressionWithScope(node, env, new Map())
+}
+
+function evaluateStaticExpressionWithScope(
+  node: ts.Expression,
+  env: NodeJS.ProcessEnv,
+  scope: Map<string, unknown>,
+): unknown {
+  if (ts.isParenthesizedExpression(node)) return evaluateStaticExpressionWithScope(node.expression, env, scope)
+  if (ts.isIdentifier(node)) {
+    return scope.get(node.text)
+  }
+  if (ts.isStringLiteralLike(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text
+  if (ts.isNumericLiteral(node)) return Number(node.text)
+  if (node.kind === ts.SyntaxKind.TrueKeyword) return true
+  if (node.kind === ts.SyntaxKind.FalseKeyword) return false
+  if (node.kind === ts.SyntaxKind.NullKeyword) return null
+
+  const envAccess = parseProcessEnvAccess(node, env)
+  if (envAccess.matched) return envAccess.value
+
+  if (ts.isPropertyAccessExpression(node)) {
+    const target = evaluateStaticExpressionWithScope(node.expression, env, scope)
+    if (target && typeof target === 'object' && node.name.text in target) {
+      return (target as Record<string, unknown>)[node.name.text]
+    }
+    return undefined
+  }
+
+  if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.ExclamationToken) {
+    return !Boolean(evaluateStaticExpressionWithScope(node.operand, env, scope))
+  }
+
+  if (ts.isBinaryExpression(node)) {
+    if (node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) {
+      return Boolean(evaluateStaticExpressionWithScope(node.left, env, scope))
+        && Boolean(evaluateStaticExpressionWithScope(node.right, env, scope))
+    }
+    if (node.operatorToken.kind === ts.SyntaxKind.BarBarToken) {
+      return Boolean(evaluateStaticExpressionWithScope(node.left, env, scope))
+        || Boolean(evaluateStaticExpressionWithScope(node.right, env, scope))
+    }
+    if (node.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken) {
+      return evaluateStaticExpressionWithScope(node.left, env, scope) === evaluateStaticExpressionWithScope(node.right, env, scope)
+    }
+    if (node.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsEqualsToken) {
+      return evaluateStaticExpressionWithScope(node.left, env, scope) !== evaluateStaticExpressionWithScope(node.right, env, scope)
+    }
+  }
+
+  if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'parseBooleanWithDefault') {
+    const rawValueNode = node.arguments[0]
+    const fallbackNode = node.arguments[1]
+    const rawValue = rawValueNode ? evaluateStaticExpressionWithScope(rawValueNode, env, scope) : undefined
+    const fallbackValue = fallbackNode ? evaluateStaticExpressionWithScope(fallbackNode, env, scope) : false
+    return parseBooleanWithDefault(typeof rawValue === 'string' ? rawValue : undefined, Boolean(fallbackValue))
+  }
+
+  if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'some') {
+    const target = evaluateStaticExpressionWithScope(node.expression.expression, env, scope)
+    const predicate = node.arguments[0]
+    if (!Array.isArray(target) || !predicate) return undefined
+
+    return target.some((entry) => {
+      if (!ts.isArrowFunction(predicate) && !ts.isFunctionExpression(predicate)) return false
+
+      const localScope = new Map(scope)
+      const parameter = predicate.parameters[0]
+      if (parameter && ts.isIdentifier(parameter.name)) {
+        localScope.set(parameter.name.text, entry)
+      }
+
+      if (ts.isBlock(predicate.body)) {
+        const returnStatement = predicate.body.statements.find((statement): statement is ts.ReturnStatement =>
+          ts.isReturnStatement(statement),
+        )
+        if (!returnStatement?.expression) return false
+        return Boolean(evaluateStaticExpressionWithScope(returnStatement.expression, env, localScope))
+      }
+
+      return Boolean(evaluateStaticExpressionWithScope(predicate.body, env, localScope))
+    })
+  }
+
+  return undefined
+}
+
+function evaluateStaticCondition(
+  node: ts.Expression,
+  env: NodeJS.ProcessEnv,
+  scope: Map<string, unknown>,
+): boolean {
+  const evaluated = evaluateStaticExpressionWithScope(node, env, scope)
+  return Boolean(evaluated)
+}
+
+function collectPushEntriesFromStatement(
+  statement: ts.Statement,
+  env: NodeJS.ProcessEnv,
+  targetVariableName: string,
+  scope: Map<string, unknown>,
+): ModuleEntry[] {
+  if (ts.isBlock(statement)) {
+    return statement.statements.flatMap((child) => collectPushEntriesFromStatement(child, env, targetVariableName, scope))
+  }
+
+  if (ts.isIfStatement(statement)) {
+    if (evaluateStaticCondition(statement.expression, env, scope)) {
+      return collectPushEntriesFromStatement(statement.thenStatement, env, targetVariableName, scope)
+    }
+    if (statement.elseStatement) {
+      return collectPushEntriesFromStatement(statement.elseStatement, env, targetVariableName, scope)
+    }
+    return []
+  }
+
+  if (!ts.isExpressionStatement(statement)) return []
+  const expression = statement.expression
+  if (!ts.isCallExpression(expression)) return []
+  if (!ts.isPropertyAccessExpression(expression.expression)) return []
+  const pushTarget = expression.expression.expression
+  const pushMethod = expression.expression.name
+  if (!ts.isIdentifier(pushTarget) || pushTarget.text !== targetVariableName) return []
+  if (pushMethod.text !== 'push') return []
+
+  return expression.arguments.flatMap((argument) => {
+    if (!ts.isObjectLiteralExpression(argument)) return []
+    const entry = parseModuleEntryFromObjectLiteral(argument)
+    return entry ? [entry] : []
+  })
+}
+
+function parseModulesFromSource(source: string, env: NodeJS.ProcessEnv = process.env): ModuleEntry[] {
+  const sourceFile = ts.createSourceFile('modules.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+  const modules: ModuleEntry[] = []
+  const variableName = 'enabledModules'
+  const scope = new Map<string, unknown>()
+  let foundDeclaration = false
+
+  for (const statement of sourceFile.statements) {
+    if (ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        if (!ts.isIdentifier(declaration.name)) continue
+        if (declaration.name.text === variableName) {
+          if (!declaration.initializer || !ts.isArrayLiteralExpression(declaration.initializer)) continue
+          const fromArray = declaration.initializer.elements.flatMap((element) => {
+            if (!ts.isObjectLiteralExpression(element)) return []
+            const entry = parseModuleEntryFromObjectLiteral(element)
+            return entry ? [entry] : []
+          })
+          modules.push(...fromArray)
+          scope.set(variableName, [...modules])
+          foundDeclaration = true
+          continue
+        }
+        if (!declaration.initializer) continue
+        scope.set(
+          declaration.name.text,
+          evaluateStaticExpressionWithScope(declaration.initializer, env, scope),
+        )
+      }
+      continue
+    }
+    if (!foundDeclaration) continue
+    const pushedEntries = collectPushEntriesFromStatement(statement, env, variableName, scope)
+    if (pushedEntries.length > 0) {
+      modules.push(...pushedEntries)
+      scope.set(variableName, [...modules])
+    }
+  }
+
+  return dedupeModulesById(modules)
+}
+
+const reportedDuplicateModuleIds = new Set<string>()
+
+function dedupeModulesById(modules: ModuleEntry[]): ModuleEntry[] {
+  const seen = new Map<string, ModuleEntry>()
+  for (const entry of modules) {
+    const existing = seen.get(entry.id)
+    if (!existing) {
+      seen.set(entry.id, entry)
+      continue
+    }
+    if (entry.devSupervisorRequiresFullBootstrap && !existing.devSupervisorRequiresFullBootstrap) {
+      seen.set(entry.id, { ...existing, devSupervisorRequiresFullBootstrap: true })
+    }
+    if (reportedDuplicateModuleIds.has(entry.id)) continue
+    reportedDuplicateModuleIds.add(entry.id)
+    console.warn(
+      `[resolver] Module "${entry.id}" is registered more than once in src/modules.ts (from "${existing.from ?? '@open-mercato/core'}" and "${entry.from ?? '@open-mercato/core'}"). Keeping the first registration; remove the duplicate entry.`,
+    )
+  }
+  return Array.from(seen.values())
+}
+
+export function readEnabledModulesFromConfig(cfgPath: string): ModuleEntry[] {
+  const source = fs.readFileSync(cfgPath, 'utf8')
+  return parseModulesFromSource(source)
+}
+
+function loadEnabledModulesFromConfig(appDir: string): ModuleEntry[] {
+  const cfgPath = path.resolve(appDir, 'src/modules.ts')
+  if (fs.existsSync(cfgPath)) {
+    try {
+      const loadedModules = readEnabledModulesFromConfig(cfgPath)
+      if (loadedModules.length > 0) return loadedModules
+    } catch (error) {
+      console.warn(
+        '[resolver] Failed to read enabled modules from src/modules.ts, falling back to src/modules scan:',
+        error,
+      )
+    }
+  }
+  // Fallback: scan src/modules/* to keep backward compatibility
+  const modulesRoot = path.resolve(appDir, 'src/modules')
+  if (!fs.existsSync(modulesRoot)) return []
+  const scannedModules = fs
+    .readdirSync(modulesRoot, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
+    .map((e) => ({ id: e.name, from: '@app' as const }))
+
+  return scannedModules
+}
+
+function discoverPackagesInMonorepo(rootDir: string): PackageInfo[] {
+  const packagesDir = path.join(rootDir, 'packages')
+  if (!fs.existsSync(packagesDir)) return []
+
+  const packages: PackageInfo[] = []
+  const entries = fs.readdirSync(packagesDir, { withFileTypes: true })
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    const pkgPath = path.join(packagesDir, entry.name)
+    const pkgJsonPath = path.join(pkgPath, 'package.json')
+
+    if (!fs.existsSync(pkgJsonPath)) continue
+
+    try {
+      const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'))
+      // Read from src/modules (TypeScript source)
+      const modulesPath = path.join(pkgPath, 'src', 'modules')
+
+      if (fs.existsSync(modulesPath)) {
+        packages.push({
+          name: pkgJson.name || `@open-mercato/${entry.name}`,
+          version: typeof pkgJson.version === 'string' ? pkgJson.version : null,
+          path: pkgPath,
+          modulesPath,
+        })
+      }
+    } catch {
+      // Skip invalid packages
+    }
+  }
+
+  return packages
+}
+
+function discoverPackagesInNodeModules(rootDir: string): PackageInfo[] {
+  const nodeModulesPath = path.join(rootDir, 'node_modules', '@open-mercato')
+  if (!fs.existsSync(nodeModulesPath)) return []
+
+  const packages: PackageInfo[] = []
+  const entries = fs.readdirSync(nodeModulesPath, { withFileTypes: true })
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    const pkgPath = path.join(nodeModulesPath, entry.name)
+    const pkgJsonPath = path.join(pkgPath, 'package.json')
+
+    if (!fs.existsSync(pkgJsonPath)) continue
+
+    try {
+      const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'))
+      const distModulesPath = path.join(pkgPath, 'dist', 'modules')
+      const srcModulesPath = path.join(pkgPath, 'src', 'modules')
+      const modulesPath = fs.existsSync(distModulesPath) ? distModulesPath : srcModulesPath
+
+      if (fs.existsSync(modulesPath)) {
+        packages.push({
+          name: pkgJson.name || `@open-mercato/${entry.name}`,
+          version: typeof pkgJson.version === 'string' ? pkgJson.version : null,
+          path: pkgPath,
+          modulesPath,
+        })
+      }
+    } catch {
+      // Skip invalid packages
+    }
+  }
+
+  return packages
+}
+
+function detectAppDir(rootDir: string, isMonorepo: boolean): string {
+  if (!isMonorepo) {
+    // Production mode: app is at root
+    return rootDir
+  }
+
+  // Monorepo mode: look for app in apps/mercato/ or apps/app/
+  const mercatoApp = path.join(rootDir, 'apps', 'mercato')
+  if (fs.existsSync(mercatoApp)) {
+    return mercatoApp
+  }
+
+  const defaultApp = path.join(rootDir, 'apps', 'app')
+  if (fs.existsSync(defaultApp)) {
+    return defaultApp
+  }
+
+  // Fallback: check if apps directory exists and has any app
+  const appsDir = path.join(rootDir, 'apps')
+  if (fs.existsSync(appsDir)) {
+    const entries = fs.readdirSync(appsDir, { withFileTypes: true })
+    const appEntry = entries.find(
+      (e) => e.isDirectory() && !e.name.startsWith('.') && e.name !== 'docs'
+    )
+    if (appEntry) {
+      return path.join(appsDir, appEntry.name)
+    }
+  }
+
+  // Final fallback for legacy structure: root is the app
+  return rootDir
+}
+
+function findNodeModulesRoot(startDir: string): string | null {
+  // Walk up to find node_modules/@open-mercato/core
+  let dir = startDir
+  while (dir !== path.dirname(dir)) {
+    const corePkgPath = path.join(dir, 'node_modules', '@open-mercato', 'core')
+    if (fs.existsSync(corePkgPath)) {
+      return dir
+    }
+    dir = path.dirname(dir)
+  }
+  return null
+}
+
+function detectMonorepoFromNodeModules(appDir: string): { isMonorepo: boolean; monorepoRoot: string | null; nodeModulesRoot: string | null } {
+  // Find where node_modules/@open-mercato/core is located (may be hoisted)
+  const nodeModulesRoot = findNodeModulesRoot(appDir)
+  if (!nodeModulesRoot) {
+    return { isMonorepo: false, monorepoRoot: null, nodeModulesRoot: null }
+  }
+
+  const corePkgPath = path.join(nodeModulesRoot, 'node_modules', '@open-mercato', 'core')
+
+  const workspaceCoreModules = path.join(nodeModulesRoot, 'packages', 'core', 'src', 'modules')
+  if (fs.existsSync(workspaceCoreModules)) {
+    return { isMonorepo: true, monorepoRoot: nodeModulesRoot, nodeModulesRoot }
+  }
+
+  try {
+    const stat = fs.lstatSync(corePkgPath)
+    if (stat.isSymbolicLink()) {
+      // It's a symlink - we're in monorepo dev mode
+      // Resolve the symlink to find the monorepo root
+      const realPath = fs.realpathSync(corePkgPath)
+      // realPath is something like /path/to/monorepo/packages/core
+      // monorepo root is 2 levels up
+      const monorepoRoot = path.dirname(path.dirname(realPath))
+      return { isMonorepo: true, monorepoRoot, nodeModulesRoot }
+    }
+    // It's a real directory - production mode
+    return { isMonorepo: false, monorepoRoot: null, nodeModulesRoot }
+  } catch {
+    // Package doesn't exist yet or error reading - assume production mode
+    return { isMonorepo: false, monorepoRoot: null, nodeModulesRoot }
+  }
+}
+
+export function createResolver(cwd: string = process.cwd()): PackageResolver {
+  // First detect if we're in a monorepo by checking if node_modules packages are symlinks
+  const { isMonorepo: _isMonorepo, monorepoRoot, nodeModulesRoot } = detectMonorepoFromNodeModules(cwd)
+  // In workspaces with hoisted real directories, package sources live under the discovered node_modules root.
+  const rootDir = monorepoRoot ?? nodeModulesRoot ?? cwd
+
+  // shouldResolveAppFromRoot: true when we have a workspace/install root that differs from cwd
+  // (monorepo symlinks detected, or node_modules root found above cwd)
+  const shouldResolveAppFromRoot =
+    _isMonorepo || (nodeModulesRoot !== null && path.resolve(nodeModulesRoot) !== path.resolve(cwd))
+
+  // The app directory depends on context:
+  // - In monorepo: use detectAppDir to find apps/mercato or similar
+  // - When symlinks not detected (e.g. Docker volume node_modules): still use apps/mercato if present at rootDir
+  // - Otherwise: app is at cwd
+  const candidateAppDir = shouldResolveAppFromRoot ? detectAppDir(rootDir, true) : rootDir
+  const appDir =
+    _isMonorepo
+      ? candidateAppDir
+      : shouldResolveAppFromRoot && candidateAppDir !== rootDir && fs.existsSync(candidateAppDir)
+        ? candidateAppDir
+        : cwd
+
+  return {
+    isMonorepo: () => _isMonorepo,
+
+    getRootDir: () => rootDir,
+
+    getAppDir: () => appDir,
+
+    getOutputDir: () => {
+      // Output is ALWAYS .mercato/generated relative to app directory
+      return path.join(appDir, '.mercato', 'generated')
+    },
+
+    getModulesConfigPath: () => path.join(appDir, 'src', 'modules.ts'),
+
+    discoverPackages: () => {
+      return _isMonorepo
+        ? discoverPackagesInMonorepo(rootDir)
+        : discoverPackagesInNodeModules(rootDir)
+    },
+
+    loadEnabledModules: () => loadEnabledModulesFromConfig(appDir),
+
+    getModulePaths: (entry: ModuleEntry) => {
+      const appBase = path.resolve(appDir, 'src/modules', entry.id)
+      const pkgModulesRoot = pkgDirFor(rootDir, entry.from, _isMonorepo)
+      const pkgBase = path.join(pkgModulesRoot, entry.id)
+      return { appBase, pkgBase }
+    },
+
+    getModuleImportBase: (entry: ModuleEntry) => {
+      // Prefer @app overrides at import-time; fall back to provided package alias
+      const from = entry.from || '@open-mercato/core'
+      return {
+        appBase: `@/modules/${entry.id}`,
+        pkgBase: `${from}/modules/${entry.id}`,
+      }
+    },
+
+    getPackageOutputDir: (packageName: string) => {
+      if (packageName === '@app') {
+        // App output goes to .mercato/generated
+        return path.join(appDir, '.mercato', 'generated')
+      }
+      const pkgRoot = pkgRootFor(rootDir, packageName, _isMonorepo)
+      return path.join(pkgRoot, 'generated')
+    },
+
+    getPackageRoot: (from?: string) => {
+      return pkgRootFor(rootDir, from, _isMonorepo)
+    },
+  }
+}
+
+/**
+ * Resolve the CLI execution environment as a plain value-object.
+ * Call once at subsystem init; use the returned object for all path decisions.
+ */
+export function resolveEnvironment(cwd: string = process.cwd()): CliEnvironment {
+  const resolver = createResolver(cwd)
+  const _isMonorepo = resolver.isMonorepo()
+  const rootDir = resolver.getRootDir()
+  const appDir = resolver.getAppDir()
+  return {
+    mode: _isMonorepo ? 'monorepo' : 'standalone',
+    rootDir,
+    appDir,
+    packageRoot: (packageName: string) => pkgRootFor(rootDir, packageName, _isMonorepo),
+  }
+}

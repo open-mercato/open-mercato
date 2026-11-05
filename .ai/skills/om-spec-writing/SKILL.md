@@ -1,0 +1,101 @@
+---
+name: om-spec-writing
+description: Guide for creating high-quality, architecturally compliant specifications for Open Mercato. Use when starting a new SPEC or reviewing specs against "Martin Fowler" staff-engineer standards.
+---
+
+# Spec Writing & Review
+
+Design and review specifications (SPECs) against Open Mercato's architecture, naming, and quality rules. Adopt the **"Martin Fowler"** persona to ensure architectural purity, but remain flexible to innovation.
+
+## Workflow
+
+1.  **Load Context**: Load initial context, take user provided context prompt, and load related files using the Task-Routing table from root `AGENTS.md`.
+2.  **Initialize**: Create an empty file with the correct naming convention for scope:
+    - OSS scope: `{date}-{title}.md` in `.ai/specs/`
+    - Enterprise scope: `{date}-{title}.md` in `.ai/specs/enterprise/`
+    - Use `YYYY-MM-DD` for `date` and kebab-case for `title`
+3.  **Start Minimal**: Write a **Skeleton Spec** first (TLDR + 2-3 key sections). Do NOT write the full spec in one pass.
+    - Before writing the skeleton, scan the brief for **critical unknowns** — decisions that block architecture, data model, or scope. These are questions where a wrong assumption would require rewriting large parts of the spec.
+    - One unknown is always checked: if the brief bundles more than one independently deployable capability (test: would each function without the other?), splitting into separate specs MUST be raised as an Open Question.
+    - If critical unknowns exist, add a numbered **Open Questions** block (`Q1`, `Q2`, …) directly in the skeleton, immediately after the TLDR. One question per line. Keep each question short and answerable (binary or multiple-choice where possible).
+    - **STOP after presenting the skeleton.** Do not proceed to Step 5 (Research) or beyond until the user has answered all questions. This is a hard gate.
+4.  **Iterate**: Apply answers from the Open Questions gate to fill in the skeleton. Remove the Open Questions block once all are resolved. If new unknowns surface during research or design, repeat the gate for those questions only.
+5.  **Research**: Challenge requirements against open-source market leaders in the domain.
+6.  **Design**: Create the spec design and architecture.
+7.  **Implementation Breakdown**: Create implementation details broken down into **Phases** (stories) and **Steps** (testable tasks). Each step should result in a working application.
+8.  **Review**: Apply the [Spec Checklist](references/spec-checklist.md). Delegate its §1 scope-cohesion item to a fresh-context subagent that receives only the spec file path — the author cannot adversarially re-read its own spec.
+9.  **Compliance Gate**: Apply the [Final Compliance Review](references/compliance-review.md).
+10. **Output**: Finalize the specification file.
+
+## Output Formats
+
+### 1. New Specification (Writing)
+When asked to write or draft a specification, use the [Specification Template](references/spec-template.md) as a guide. You may adapt it if the feature requires a different structure, but ensure core architectural concerns are addressed.
+
+**Key Sections to Include:**
+- **TLDR & Overview**: Summary and context.
+- **Problem Statement**: What are we solving?
+- **Proposed Solution**: High-level approach.
+- **Phasing**: Breakdown of delivery.
+- **Implementation Plan**: Detailed steps.
+
+### 2. Architectural Review (Reviewing)
+When asked to review or audit a specification, produce the report using this structure:
+
+```markdown
+# Architectural Review: {Spec Title}
+
+## Summary
+{1-3 sentences: what the spec proposes and overall architectural health}
+
+## Findings
+
+### Critical
+{Violations of core laws: plural naming, cross-module ORM, tenant isolation leaks}
+
+### High
+{Missing Phase strategy, lack of undo logic, incorrect package placement}
+
+### Medium
+{Missing failure scenarios, inconsistent terminology, spec-bloat}
+
+### Low
+{Stylistic suggestions, diagram improvements, nits}
+
+## Checklist
+
+Refer to [Spec Review Checklist](references/spec-checklist.md).
+
+```
+
+## Review Heuristics (The "Martin Fowler" Lens)
+
+1.  **Command Graph vs. Independent Ops**: Should this be a Graph Save (coupled calculation) or a Compound Command (independent steps)?
+2.  **The Architectural Diff**: Is the spec wasting space documenting standard CRUD? Cut the noise, focus on the unique.
+3.  **Singularity Law**: Does the spec use `pos.carts` (FAIL) or `pos.cart` (PASS)?
+4.  **Undo Contract**: How is the state reversed? Is the "Undo" logic as detailed as the "Execute"?
+5.  **Module Isolation**: Are we using Event Bus for side effects or cheating with direct imports? And for OPTIONAL peers — which module owns the glue, and does it degrade gracefully when the peer is absent (soft-optional resolve in `try/catch`, never a hard `requires`)?
+6.  **Canonical Mechanisms**: Does the spec reach for the framework primitives (`makeCrudRoute`, `CrudForm`, `DataTable`, `apiCall` / `useGuardedMutation`, DI-resolved cache, `createModuleEvents`) or invent its own substitute? See `packages/core/AGENTS.md` → API Routes / Module Setup, `packages/ui/AGENTS.md` → CrudForm / DataTable, `packages/cache/AGENTS.md`, `packages/events/AGENTS.md`.
+7.  **Sensitive Data**: For every PII / GDPR / address / contact / free-text-about-people / integration-credential column the spec proposes, does it declare an `encryption.ts` `defaultEncryptionMaps` entry and route reads through `findWithDecryption`? See `packages/core/AGENTS.md` → Encryption and `apps/docs/docs/user-guide/encryption.mdx`. No hand-rolled AES, no `crypto.subtle`, no "TODO encrypt later".
+8.  **Design System**: Does every UI mock / className snippet in the spec match the DS canon — semantic status tokens (no `text-red-*` / `bg-green-*`), Tailwind text scale (no `text-[11px]` / `text-[13px]`), shared primitives (`StatusBadge`, `Alert`, `FormField`, `SectionHeader`, `CollapsibleSection`, `LoadingMessage` / `Spinner` / `DataLoader`, `EmptyState`), lucide-react icons in page body (never inline `<svg>`), dialog `Cmd/Ctrl+Enter` submit and `Escape` cancel, `aria-label` on every icon-only button? See `.ai/ds-rules.md` (foundations), `.ai/ui-components.md` (component reference), `packages/ui/AGENTS.md` (workflow), and the root `AGENTS.md` → Design System Rules. Specs that touch existing pages MUST honour the Boy Scout rule (migrate touched lines to semantic tokens).
+9.  **Frontend Architecture Contract**: For Next.js/App Router UI specs, require a Frontend Architecture Contract. It must include a Server/Client boundary map, a `"use client"` ledger with justification for each client file, client blob guardrails, route/bundle/RAM budgets, hydration/interactivity tests, provider/bootstrap scope, and required performance evidence before merge. Read `references/frontend-architecture-contract.md` when the spec touches `app/**`, generated frontend, shared providers, backend shell UI, or heavy interactive widgets.
+
+## Quick Rule Reference
+
+- **Singular naming** for everything (entities, commands, events, feature IDs).
+- **FK IDs only** for cross-module links.
+- **Organization ID** is mandatory for all scoped entities.
+- **Undoability** is the default for state changes.
+- **Zod validation** for all API inputs.
+- **Encryption maps** for every sensitive / GDPR-relevant column (declare in `<module>/encryption.ts`, read via `findWithDecryption`) — see `packages/core/AGENTS.md` → Encryption.
+- **Canonical primitives** for CRUD APIs (`makeCrudRoute`), backend forms (`CrudForm`), tables (`DataTable`), HTTP (`apiCall` — never raw `fetch`), non-`CrudForm` writes (`useGuardedMutation`), cache (DI-resolved `@open-mercato/cache`), events (`createModuleEvents`) — see the matching rows in root `AGENTS.md` Task Router.
+- **Design System** tokens and shared UI primitives — see `.ai/ds-rules.md` and `.ai/ui-components.md`. No hardcoded status colors, no arbitrary text sizes, no inline `<svg>` in page-body UI.
+- **Frontend Architecture Contract** for Next.js/UI work: Server/Client boundary map, `"use client"` ledger, client blob guardrail, budgets, hydration/interactivity tests, provider/bootstrap scope, and performance evidence. See `references/frontend-architecture-contract.md`.
+
+## Reference Materials
+
+- [Spec Review Checklist](references/spec-checklist.md) — § 3 Data & Security covers encryption maps; § 5 API/UI covers Mandatory Mechanisms + Design System
+- [Final Compliance Review](references/compliance-review.md) — sample matrix calls out encryption-maps, CRUD factory, and DS-rules MUSTs
+- [Specification Template](references/spec-template.md)
+- [Root AGENTS.md](../../../AGENTS.md) — Task Router rows for every canonical primitive listed above
+- [`.ai/ds-rules.md`](../../ds-rules.md), [`.ai/ui-components.md`](../../ui-components.md) — Design System foundations and component reference

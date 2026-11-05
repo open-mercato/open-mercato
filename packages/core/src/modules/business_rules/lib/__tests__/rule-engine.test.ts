@@ -1,0 +1,1083 @@
+import { describe, test, expect, jest, beforeEach } from '@jest/globals'
+import type { EntityManager } from '@mikro-orm/core'
+import * as ruleEngine from '../rule-engine'
+import * as ruleEvaluator from '../rule-evaluator'
+import * as actionExecutor from '../action-executor'
+import type { RuleEngineContext } from '../rule-engine'
+import type { ActionExecutionOutcome } from '../action-executor'
+import type { BusinessRule } from '../../data/entities'
+
+// Mock dependencies
+jest.mock('../rule-evaluator')
+jest.mock('../action-executor')
+
+function createMockRuleDiscoveryCache() {
+  const entries = new Map<string, { value: unknown; tags: string[] }>()
+  return {
+    get: jest.fn(async (key: string) => entries.get(key)?.value ?? null),
+    set: jest.fn(async (key: string, value: unknown, options?: { tags?: string[] }) => {
+      entries.set(key, { value, tags: options?.tags ?? [] })
+    }),
+    deleteByTags: jest.fn(async (tags: string[]) => {
+      let deleted = 0
+      for (const [key, entry] of entries.entries()) {
+        if (entry.tags.some((tag) => tags.includes(tag))) {
+          entries.delete(key)
+          deleted++
+        }
+      }
+      return deleted
+    }),
+  }
+}
+
+describe('Rule Engine (Unit Tests)', () => {
+  let mockEm: jest.Mocked<EntityManager>
+  let mockCache: ReturnType<typeof createMockRuleDiscoveryCache>
+
+  const testTenantId = '00000000-0000-4000-8000-000000000001'
+  const testOrgId = '00000000-0000-4000-8000-000000000002'
+  const testEntityId = '00000000-0000-4000-8000-000000000003'
+  const allowOutcome: ActionExecutionOutcome = {
+    success: true,
+    results: [
+      {
+        action: { type: 'ALLOW_TRANSITION' },
+        success: true,
+        result: { type: 'ALLOW_TRANSITION', allowed: true, message: 'Allowed' },
+        executionTime: 1,
+      },
+    ],
+    totalTime: 1,
+  }
+  const blockOutcome: ActionExecutionOutcome = {
+    success: false,
+    results: [
+      {
+        action: { type: 'BLOCK_TRANSITION' },
+        success: true,
+        result: { type: 'BLOCK_TRANSITION', allowed: false, message: 'Blocked' },
+        executionTime: 1,
+      },
+    ],
+    totalTime: 1,
+  }
+
+  beforeEach(() => {
+    mockCache = createMockRuleDiscoveryCache()
+
+    // Create mock EntityManager
+    mockEm = {
+      find: jest.fn(),
+      findOne: jest.fn(),
+      create: jest.fn(),
+      persist: jest.fn(function persist(this: any) { return this }),
+      flush: jest.fn(),
+      nativeDelete: jest.fn(),
+    } as any
+
+    // Reset all mocks
+    jest.clearAllMocks()
+  })
+
+  describe('findApplicableRules', () => {
+    test('should find rules by entity type', async () => {
+      const mockRule: Partial<BusinessRule> = {
+        id: 'rule-1',
+        ruleId: 'TEST-001',
+        ruleName: 'Test Rule',
+        ruleType: 'GUARD',
+        entityType: 'WorkOrder',
+        enabled: true,
+        priority: 100,
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      }
+
+      mockEm.find.mockResolvedValue([mockRule as BusinessRule])
+
+      const rules = await ruleEngine.findApplicableRules(mockEm, {
+        entityType: 'WorkOrder',
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      })
+
+      expect(rules).toHaveLength(1)
+      expect(rules[0].ruleId).toBe('TEST-001')
+      expect(mockEm.find as any).toHaveBeenCalledWith(
+        expect.any(Function), // BusinessRule class
+        expect.objectContaining({
+          entityType: 'WorkOrder',
+          tenantId: testTenantId,
+          organizationId: testOrgId,
+          enabled: true,
+          deletedAt: null,
+        }),
+        expect.objectContaining({
+          orderBy: expect.objectContaining({ priority: 'DESC' })
+        })
+      )
+    })
+
+    test('should filter by event type when provided', async () => {
+      const mockRule: Partial<BusinessRule> = {
+        id: 'rule-1',
+        ruleId: 'TEST-001',
+        ruleName: 'Before Status Change',
+        ruleType: 'GUARD',
+        entityType: 'WorkOrder',
+        eventType: 'beforeStatusChange',
+        enabled: true,
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      }
+
+      mockEm.find.mockResolvedValue([mockRule as BusinessRule])
+
+      const rules = await ruleEngine.findApplicableRules(mockEm, {
+        entityType: 'WorkOrder',
+        eventType: 'beforeStatusChange',
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      })
+
+      expect(rules).toHaveLength(1)
+      expect(rules[0].eventType).toBe('beforeStatusChange')
+    })
+
+    test('should return empty array when no rules match', async () => {
+      mockEm.find.mockResolvedValue([])
+
+      const rules = await ruleEngine.findApplicableRules(mockEm, {
+        entityType: 'NonExistent',
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      })
+
+      expect(rules).toHaveLength(0)
+    })
+
+    test('should cache empty discovery results for repeated wildcard subscriber events', async () => {
+      mockEm.find.mockResolvedValue([])
+
+      const options = {
+        entityType: 'WorkOrder',
+        eventType: 'created',
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      }
+
+      await ruleEngine.findApplicableRules(mockEm, options, { cache: mockCache })
+      await ruleEngine.findApplicableRules(mockEm, options, { cache: mockCache })
+
+      expect(mockEm.find).toHaveBeenCalledTimes(1)
+    })
+
+    test('should cache rule identifiers and refetch rules with the current entity manager', async () => {
+      const originalRule: Partial<BusinessRule> = {
+        id: 'rule-1',
+        ruleId: 'TEST-001',
+        ruleName: 'Cached Rule',
+        ruleType: 'GUARD',
+        priority: 100,
+        entityType: 'WorkOrder',
+        enabled: true,
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      }
+      const refetchedRule: Partial<BusinessRule> = {
+        ...originalRule,
+        ruleName: 'Refetched Rule',
+      }
+      const options = {
+        entityType: 'WorkOrder',
+        eventType: 'created',
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      }
+
+      mockEm.find
+        .mockResolvedValueOnce([originalRule as BusinessRule])
+        .mockResolvedValueOnce([refetchedRule as BusinessRule])
+
+      await ruleEngine.findApplicableRules(mockEm, options, { cache: mockCache })
+      const rules = await ruleEngine.findApplicableRules(mockEm, options, { cache: mockCache })
+
+      expect(rules).toHaveLength(1)
+      expect(rules[0].ruleName).toBe('Refetched Rule')
+      expect(mockEm.find).toHaveBeenCalledTimes(2)
+      expect(mockCache.set).toHaveBeenCalledWith(
+        expect.any(String),
+        { ruleIds: ['rule-1'] },
+        expect.objectContaining({
+          tags: expect.arrayContaining(['business_rules:discovery']),
+        }),
+      )
+    })
+
+    test('should keep discovery cache scoped by entity and event type', async () => {
+      mockEm.find.mockResolvedValue([])
+
+      await ruleEngine.findApplicableRules(mockEm, {
+        entityType: 'WorkOrder',
+        eventType: 'created',
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      }, { cache: mockCache })
+      await ruleEngine.findApplicableRules(mockEm, {
+        entityType: 'WorkOrder',
+        eventType: 'updated',
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      }, { cache: mockCache })
+
+      expect(mockEm.find).toHaveBeenCalledTimes(2)
+    })
+
+    test('should invalidate cached discovery results for a tenant organization', async () => {
+      mockEm.find.mockResolvedValue([])
+
+      const options = {
+        entityType: 'WorkOrder',
+        eventType: 'created',
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      }
+
+      await ruleEngine.findApplicableRules(mockEm, options, { cache: mockCache })
+      await ruleEngine.invalidateBusinessRuleDiscoveryCache(mockCache, testTenantId, testOrgId)
+      await ruleEngine.findApplicableRules(mockEm, options, { cache: mockCache })
+
+      expect(mockEm.find).toHaveBeenCalledTimes(2)
+    })
+
+    test('should sort rules by priority descending', async () => {
+      const mockRules: Partial<BusinessRule>[] = [
+        {
+          id: 'rule-1',
+          ruleId: 'TEST-001',
+          ruleName: 'Low Priority',
+          priority: 50,
+          entityType: 'WorkOrder',
+          enabled: true,
+          tenantId: testTenantId,
+          organizationId: testOrgId,
+        },
+        {
+          id: 'rule-2',
+          ruleId: 'TEST-002',
+          ruleName: 'High Priority',
+          priority: 100,
+          entityType: 'WorkOrder',
+          enabled: true,
+          tenantId: testTenantId,
+          organizationId: testOrgId,
+        },
+      ]
+
+      mockEm.find.mockResolvedValue(mockRules as BusinessRule[])
+
+      await ruleEngine.findApplicableRules(mockEm, {
+        entityType: 'WorkOrder',
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      })
+
+      expect(mockEm.find as any).toHaveBeenCalledWith(
+        expect.any(Function), // BusinessRule class
+        expect.any(Object),
+        expect.objectContaining({
+          orderBy: expect.objectContaining({
+            priority: 'DESC',
+            ruleId: 'ASC'
+          })
+        })
+      )
+    })
+  })
+
+  describe('executeSingleRule', () => {
+    const mockRule: Partial<BusinessRule> = {
+      id: 'rule-1',
+      ruleId: 'TEST-001',
+      ruleName: 'Status Check',
+      ruleType: 'GUARD',
+      entityType: 'WorkOrder',
+      conditionExpression: { field: 'status', operator: '=', value: 'RELEASED' },
+      successActions: [{ type: 'ALLOW_TRANSITION' }],
+      failureActions: [{ type: 'BLOCK_TRANSITION' }],
+      enabled: true,
+      tenantId: testTenantId,
+      organizationId: testOrgId,
+    }
+
+    test('should execute rule with passing condition', async () => {
+      const context: RuleEngineContext = {
+        entityType: 'WorkOrder',
+        entityId: testEntityId,
+        data: { status: 'RELEASED' },
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        dryRun: true,
+      }
+
+      // Mock evaluateSingleRule to return passing result
+      jest.mocked(ruleEvaluator.evaluateSingleRule).mockResolvedValue({
+        rule: mockRule as BusinessRule,
+        conditionsPassed: true,
+        evaluationCompleted: true,
+        evaluationTime: 1,
+      })
+
+      // Mock action execution
+      jest.mocked(actionExecutor.executeActions).mockResolvedValue(allowOutcome)
+
+      const result = await ruleEngine.executeSingleRule(mockEm, mockRule as BusinessRule, context)
+
+      expect(result.conditionResult).toBe(true)
+      expect(result.actionsExecuted).not.toBeNull()
+      expect(result.actionsExecuted?.success).toBe(true)
+      expect(result.executionTime).toBeGreaterThanOrEqual(0)
+      expect(ruleEvaluator.evaluateSingleRule).toHaveBeenCalledWith(
+        mockRule as any,
+        context.data,
+        expect.objectContaining({
+          entityType: context.entityType,
+          entityId: context.entityId,
+        })
+      )
+      expect(actionExecutor.executeActions).toHaveBeenCalledWith(
+        mockRule.successActions,
+        expect.any(Object)
+      )
+    })
+
+    test('passes the last saver of the rule to the actions as the rule author', async () => {
+      const context: RuleEngineContext = {
+        entityType: 'WorkOrder',
+        entityId: testEntityId,
+        data: { status: 'RELEASED' },
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        dryRun: true,
+      }
+      jest.mocked(actionExecutor.executeActions).mockResolvedValue(allowOutcome)
+
+      for (const [authorFields, expectedAuthor] of [
+        [{ createdBy: 'creator-user', updatedBy: 'editor-user' }, 'editor-user'],
+        [{ createdBy: 'creator-user', updatedBy: null }, 'creator-user'],
+        [{ createdBy: null, updatedBy: null }, null],
+      ] as const) {
+        const rule = { ...mockRule, ...authorFields } as BusinessRule
+        jest.mocked(ruleEvaluator.evaluateSingleRule).mockResolvedValue({
+          rule,
+          conditionsPassed: true,
+          evaluationCompleted: true,
+          evaluationTime: 1,
+        })
+        jest.mocked(actionExecutor.executeActions).mockClear()
+
+        await ruleEngine.executeSingleRule(mockEm, rule, context)
+
+        expect(actionExecutor.executeActions).toHaveBeenCalledWith(
+          mockRule.successActions,
+          expect.objectContaining({ ruleAuthorId: expectedAuthor }),
+        )
+      }
+    })
+
+    test('forwards the caller rbacService to the actions from executeRules and executeRuleById', async () => {
+      const rbacService = { loadAcl: jest.fn() } as any
+      const rule = { ...mockRule, id: testEntityId } as BusinessRule
+      jest.mocked(ruleEvaluator.evaluateSingleRule).mockResolvedValue({
+        rule,
+        conditionsPassed: true,
+        evaluationCompleted: true,
+        evaluationTime: 1,
+      })
+      jest.mocked(actionExecutor.executeActions).mockResolvedValue(allowOutcome)
+      mockEm.find.mockResolvedValue([rule])
+      mockEm.findOne.mockResolvedValue(rule)
+
+      await ruleEngine.executeRules(mockEm, {
+        entityType: 'WorkOrder',
+        data: { status: 'RELEASED' },
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        dryRun: true,
+      }, { rbacService })
+      await ruleEngine.executeRuleById(mockEm, {
+        ruleId: testEntityId,
+        data: { status: 'RELEASED' },
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        dryRun: true,
+      }, { rbacService })
+
+      expect(actionExecutor.executeActions).toHaveBeenCalledTimes(2)
+      for (const [, actionContext] of jest.mocked(actionExecutor.executeActions).mock.calls) {
+        expect(actionContext.rbacService).toBe(rbacService)
+      }
+    })
+
+    test('resolveBusinessRuleRbacService returns undefined when the container cannot resolve it', () => {
+      const rbacService = { loadAcl: jest.fn() }
+      expect(ruleEngine.resolveBusinessRuleRbacService(() => rbacService)).toBe(rbacService)
+      expect(ruleEngine.resolveBusinessRuleRbacService(() => null)).toBeUndefined()
+      expect(ruleEngine.resolveBusinessRuleRbacService(() => {
+        throw new Error('not registered')
+      })).toBeUndefined()
+    })
+
+    // `dryRun` only suppresses the execution LOG — the test above proves it,
+    // because it passes `dryRun: true` and still expects actions to have run.
+    // A caller that must produce no side effects (the workflows dry-run path,
+    // spec section 8.2) therefore needs a separate flag.
+    test('skipActions evaluates the condition but does NOT run the actions', async () => {
+      const context: RuleEngineContext = {
+        entityType: 'WorkOrder',
+        entityId: testEntityId,
+        data: { status: 'RELEASED' },
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        dryRun: true,
+        skipActions: true,
+      }
+
+      jest.mocked(ruleEvaluator.evaluateSingleRule).mockResolvedValue({
+        rule: mockRule as BusinessRule,
+        conditionsPassed: true,
+        evaluationCompleted: true,
+        evaluationTime: 1,
+      })
+      jest.mocked(actionExecutor.executeActions).mockResolvedValue(allowOutcome)
+
+      const result = await ruleEngine.executeSingleRule(mockEm, mockRule as BusinessRule, context)
+
+      expect(actionExecutor.executeActions).not.toHaveBeenCalled()
+      expect(result.actionsExecuted).toBeNull()
+      // The condition still evaluated, so the caller still learns which way the
+      // rule went and takes the route it really would.
+      expect(result.conditionResult).toBe(true)
+      expect(ruleEvaluator.evaluateSingleRule).toHaveBeenCalled()
+    })
+
+    test('skipActions withholds the FAILURE action arm too', async () => {
+      const context: RuleEngineContext = {
+        entityType: 'WorkOrder',
+        entityId: testEntityId,
+        data: { status: 'DRAFT' },
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        dryRun: true,
+        skipActions: true,
+      }
+
+      jest.mocked(ruleEvaluator.evaluateSingleRule).mockResolvedValue({
+        rule: mockRule as BusinessRule,
+        conditionsPassed: false,
+        evaluationCompleted: true,
+        evaluationTime: 1,
+      })
+      jest.mocked(actionExecutor.executeActions).mockResolvedValue(blockOutcome)
+
+      const result = await ruleEngine.executeSingleRule(mockEm, mockRule as BusinessRule, context)
+
+      expect(actionExecutor.executeActions).not.toHaveBeenCalled()
+      expect(result.actionsExecuted).toBeNull()
+      expect(result.conditionResult).toBe(false)
+    })
+
+    test('omitting skipActions leaves the existing behaviour byte-identical', async () => {
+      const context: RuleEngineContext = {
+        entityType: 'WorkOrder',
+        entityId: testEntityId,
+        data: { status: 'RELEASED' },
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        dryRun: true,
+      }
+
+      jest.mocked(ruleEvaluator.evaluateSingleRule).mockResolvedValue({
+        rule: mockRule as BusinessRule,
+        conditionsPassed: true,
+        evaluationCompleted: true,
+        evaluationTime: 1,
+      })
+      jest.mocked(actionExecutor.executeActions).mockResolvedValue(allowOutcome)
+
+      const result = await ruleEngine.executeSingleRule(mockEm, mockRule as BusinessRule, context)
+
+      expect(actionExecutor.executeActions).toHaveBeenCalledTimes(1)
+      expect(result.actionsExecuted).not.toBeNull()
+    })
+
+    test('should execute rule with failing condition', async () => {
+      const context: RuleEngineContext = {
+        entityType: 'WorkOrder',
+        entityId: testEntityId,
+        data: { status: 'DRAFT' },
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        dryRun: true,
+      }
+
+      // Mock evaluateSingleRule to return failing result
+      jest.mocked(ruleEvaluator.evaluateSingleRule).mockResolvedValue({
+        rule: mockRule as BusinessRule,
+        conditionsPassed: false,
+        evaluationCompleted: true,
+        evaluationTime: 1,
+      })
+
+      // Mock failure action execution
+      jest.mocked(actionExecutor.executeActions).mockResolvedValue(blockOutcome)
+
+      const result = await ruleEngine.executeSingleRule(mockEm, mockRule as BusinessRule, context)
+
+      expect(result.conditionResult).toBe(false)
+      expect(result.actionsExecuted).not.toBeNull()
+      expect(result.actionsExecuted?.success).toBe(false)
+      expect(actionExecutor.executeActions).toHaveBeenCalledWith(
+        mockRule.failureActions,
+        expect.any(Object)
+      )
+    })
+
+    test('should handle condition evaluation errors', async () => {
+      const context: RuleEngineContext = {
+        entityType: 'WorkOrder',
+        entityId: testEntityId,
+        data: { status: 'RELEASED' },
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        dryRun: true,
+      }
+
+      // Mock evaluateSingleRule to return error
+      jest.mocked(ruleEvaluator.evaluateSingleRule).mockResolvedValue({
+        rule: mockRule as BusinessRule,
+        conditionsPassed: false,
+        evaluationCompleted: false,
+        evaluationTime: 1,
+        error: 'Invalid condition',
+      })
+
+      const result = await ruleEngine.executeSingleRule(mockEm, mockRule as BusinessRule, context)
+
+      expect(result.error).toBeDefined()
+      expect(result.error).toBe('Invalid condition')
+    })
+
+    test('should handle action execution errors', async () => {
+      const context: RuleEngineContext = {
+        entityType: 'WorkOrder',
+        entityId: testEntityId,
+        data: { status: 'RELEASED' },
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        dryRun: true,
+      }
+
+      jest.mocked(ruleEvaluator.evaluateSingleRule).mockResolvedValue({
+        rule: mockRule as BusinessRule,
+        conditionsPassed: true,
+        evaluationCompleted: true,
+        evaluationTime: 1,
+      })
+
+      jest.mocked(actionExecutor.executeActions).mockRejectedValue(
+        new Error('Action failed')
+      )
+
+      const result = await ruleEngine.executeSingleRule(mockEm, mockRule as BusinessRule, context)
+
+      expect(result.error).toBeDefined()
+      expect(result.error).toContain('Action failed')
+    })
+  })
+
+  describe('executeRules', () => {
+    test('should execute multiple rules in priority order', async () => {
+      const mockRules: Partial<BusinessRule>[] = [
+        {
+          id: 'rule-1',
+          ruleId: 'TEST-001',
+          ruleName: 'High Priority',
+          ruleType: 'GUARD',
+          priority: 100,
+          entityType: 'WorkOrder',
+          conditionExpression: { field: 'status', operator: '=', value: 'RELEASED' },
+          successActions: [],
+          enabled: true,
+          tenantId: testTenantId,
+          organizationId: testOrgId,
+        },
+        {
+          id: 'rule-2',
+          ruleId: 'TEST-002',
+          ruleName: 'Low Priority',
+          ruleType: 'ACTION',
+          priority: 50,
+          entityType: 'WorkOrder',
+          conditionExpression: { field: 'status', operator: '=', value: 'RELEASED' },
+          successActions: [],
+          enabled: true,
+          tenantId: testTenantId,
+          organizationId: testOrgId,
+        },
+      ]
+
+      mockEm.find.mockResolvedValue(mockRules as BusinessRule[])
+
+      // Mock both rules to pass
+      jest.mocked(ruleEvaluator.evaluateSingleRule)
+        .mockResolvedValueOnce({
+          rule: mockRules[0] as BusinessRule,
+          conditionsPassed: true,
+          evaluationCompleted: true,
+          evaluationTime: 1,
+        })
+        .mockResolvedValueOnce({
+          rule: mockRules[1] as BusinessRule,
+          conditionsPassed: true,
+          evaluationCompleted: true,
+          evaluationTime: 1,
+        })
+
+      jest.mocked(actionExecutor.executeActions).mockResolvedValue({
+        success: true,
+        results: [],
+        totalTime: 1,
+      })
+
+      const context: RuleEngineContext = {
+        entityType: 'WorkOrder',
+        entityId: testEntityId,
+        data: { status: 'RELEASED' },
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        dryRun: true,
+      }
+
+      const result = await ruleEngine.executeRules(mockEm, context)
+
+      expect(result.executedRules).toHaveLength(2)
+      expect(result.executedRules[0].rule.ruleId).toBe('TEST-001')
+      expect(result.executedRules[1].rule.ruleId).toBe('TEST-002')
+      expect(result.allowed).toBe(true)
+    })
+
+    test('should block operation when GUARD rule blocks', async () => {
+      const mockRule: Partial<BusinessRule> = {
+        id: 'rule-1',
+        ruleId: 'TEST-001',
+        ruleName: 'Status Guard',
+        ruleType: 'GUARD',
+        entityType: 'WorkOrder',
+        conditionExpression: { field: 'status', operator: '=', value: 'RELEASED' },
+        failureActions: [{ type: 'BLOCK_TRANSITION' }],
+        enabled: true,
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      }
+
+      mockEm.find.mockResolvedValue([mockRule as BusinessRule])
+
+      // Mock GUARD rule to fail (conditions not passed)
+      jest.mocked(ruleEvaluator.evaluateSingleRule).mockResolvedValue({
+        rule: mockRule as BusinessRule,
+        conditionsPassed: false,
+        evaluationCompleted: true,
+        evaluationTime: 1,
+      })
+
+      jest.mocked(actionExecutor.executeActions).mockResolvedValue(blockOutcome)
+
+      const context: RuleEngineContext = {
+        entityType: 'WorkOrder',
+        entityId: testEntityId,
+        data: { status: 'DRAFT' },
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        dryRun: true,
+      }
+
+      const result = await ruleEngine.executeRules(mockEm, context)
+
+      expect(result.allowed).toBe(false)
+      expect(result.executedRules).toHaveLength(1)
+    })
+
+    test('should allow operation when all GUARD rules pass', async () => {
+      const mockRules: Partial<BusinessRule>[] = [
+        {
+          id: 'rule-1',
+          ruleId: 'TEST-001',
+          ruleName: 'Status Guard',
+          ruleType: 'GUARD',
+          entityType: 'WorkOrder',
+          conditionExpression: { field: 'status', operator: '=', value: 'RELEASED' },
+          successActions: [],
+          enabled: true,
+          tenantId: testTenantId,
+          organizationId: testOrgId,
+        },
+        {
+          id: 'rule-2',
+          ruleId: 'TEST-002',
+          ruleName: 'Priority Guard',
+          ruleType: 'GUARD',
+          entityType: 'WorkOrder',
+          conditionExpression: { field: 'priority', operator: '=', value: 'HIGH' },
+          successActions: [],
+          enabled: true,
+          tenantId: testTenantId,
+          organizationId: testOrgId,
+        },
+      ]
+
+      mockEm.find.mockResolvedValue(mockRules as BusinessRule[])
+
+      // Mock both GUARD rules to pass
+      jest.mocked(ruleEvaluator.evaluateSingleRule)
+        .mockResolvedValueOnce({
+          rule: mockRules[0] as BusinessRule,
+          conditionsPassed: true,
+          evaluationCompleted: true,
+          evaluationTime: 1,
+        })
+        .mockResolvedValueOnce({
+          rule: mockRules[1] as BusinessRule,
+          conditionsPassed: true,
+          evaluationCompleted: true,
+          evaluationTime: 1,
+        })
+
+      jest.mocked(actionExecutor.executeActions).mockResolvedValue({
+        success: true,
+        results: [],
+        totalTime: 1,
+      })
+
+      const context: RuleEngineContext = {
+        entityType: 'WorkOrder',
+        entityId: testEntityId,
+        data: { status: 'RELEASED', priority: 'HIGH' },
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        dryRun: true,
+      }
+
+      const result = await ruleEngine.executeRules(mockEm, context)
+
+      expect(result.allowed).toBe(true)
+      expect(result.executedRules).toHaveLength(2)
+      expect(result.executedRules.every((r) => r.conditionResult)).toBe(true)
+    })
+
+    test('should continue execution if non-GUARD rule fails', async () => {
+      const mockRules: Partial<BusinessRule>[] = [
+        {
+          id: 'rule-1',
+          ruleId: 'TEST-001',
+          ruleName: 'Valid Rule',
+          ruleType: 'ACTION',
+          entityType: 'WorkOrder',
+          conditionExpression: { field: 'status', operator: '=', value: 'RELEASED' },
+          successActions: [],
+          enabled: true,
+          tenantId: testTenantId,
+          organizationId: testOrgId,
+        },
+        {
+          id: 'rule-2',
+          ruleId: 'TEST-002',
+          ruleName: 'Another Rule',
+          ruleType: 'ACTION',
+          entityType: 'WorkOrder',
+          conditionExpression: { field: 'priority', operator: '=', value: 'HIGH' },
+          successActions: [],
+          enabled: true,
+          tenantId: testTenantId,
+          organizationId: testOrgId,
+        },
+      ]
+
+      mockEm.find.mockResolvedValue(mockRules as BusinessRule[])
+
+      // First rule passes, second fails
+      jest.mocked(ruleEvaluator.evaluateSingleRule)
+        .mockResolvedValueOnce({
+          rule: mockRules[0] as BusinessRule,
+          conditionsPassed: true,
+          evaluationCompleted: true,
+          evaluationTime: 1,
+        })
+        .mockResolvedValueOnce({
+          rule: mockRules[1] as BusinessRule,
+          conditionsPassed: false,
+          evaluationCompleted: true,
+          evaluationTime: 1,
+        })
+
+      jest.mocked(actionExecutor.executeActions).mockResolvedValue({
+        success: true,
+        results: [],
+        totalTime: 1,
+      })
+
+      const context: RuleEngineContext = {
+        entityType: 'WorkOrder',
+        entityId: testEntityId,
+        data: { status: 'RELEASED', priority: 'LOW' },
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        dryRun: true,
+      }
+
+      const result = await ruleEngine.executeRules(mockEm, context)
+
+      expect(result.executedRules).toHaveLength(2)
+      expect(result.executedRules[0].conditionResult).toBe(true)
+      expect(result.executedRules[1].conditionResult).toBe(false)
+      expect(result.allowed).toBe(true)
+    })
+
+    test('should return validation error for invalid context', async () => {
+      const invalidContext = {
+        // Missing required fields
+        data: { status: 'RELEASED' },
+      } as any
+
+      const result = await ruleEngine.executeRules(mockEm, invalidContext)
+
+      expect(result.allowed).toBe(false)
+      expect(result.errors).toBeDefined()
+      expect(result.errors!.length).toBeGreaterThan(0)
+    })
+
+    test('should return execution metrics', async () => {
+      const mockRule: Partial<BusinessRule> = {
+        id: 'rule-1',
+        ruleId: 'TEST-001',
+        ruleName: 'Test Rule',
+        ruleType: 'ACTION',
+        entityType: 'WorkOrder',
+        conditionExpression: { field: 'status', operator: '=', value: 'RELEASED' },
+        successActions: [],
+        enabled: true,
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      }
+
+      mockEm.find.mockResolvedValue([mockRule as BusinessRule])
+
+      jest.mocked(ruleEvaluator.evaluateSingleRule).mockResolvedValue({
+        rule: mockRule as BusinessRule,
+        conditionsPassed: true,
+        evaluationCompleted: true,
+        evaluationTime: 5,
+      })
+
+      jest.mocked(actionExecutor.executeActions).mockResolvedValue({
+        success: true,
+        results: [],
+        totalTime: 5,
+      })
+
+      const context: RuleEngineContext = {
+        entityType: 'WorkOrder',
+        entityId: testEntityId,
+        data: { status: 'RELEASED' },
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        dryRun: true,
+      }
+
+      const result = await ruleEngine.executeRules(mockEm, context)
+
+      expect(result.totalExecutionTime).toBeGreaterThanOrEqual(0)
+      expect(result.executedRules[0].executionTime).toBeGreaterThanOrEqual(0)
+    })
+
+    test('should handle rule count limit', async () => {
+      // Create more than MAX_RULES_PER_EXECUTION (100) rules
+      const manyRules = Array.from({ length: 101 }, (_, i) => ({
+        id: `rule-${i}`,
+        ruleId: `TEST-${String(i).padStart(3, '0')}`,
+        ruleName: `Rule ${i}`,
+        ruleType: 'ACTION' as const,
+        entityType: 'WorkOrder',
+        conditionExpression: { field: 'status', operator: '=', value: 'RELEASED' },
+        enabled: true,
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      }))
+
+      mockEm.find.mockResolvedValue(manyRules as BusinessRule[])
+
+      const context: RuleEngineContext = {
+        entityType: 'WorkOrder',
+        entityId: testEntityId,
+        data: { status: 'RELEASED' },
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        dryRun: true,
+      }
+
+      const result = await ruleEngine.executeRules(mockEm, context)
+
+      expect(result.allowed).toBe(false)
+      expect(result.errors).toBeDefined()
+      expect(result.errors![0]).toContain('Rule count limit exceeded')
+    })
+
+    test('should emit execution_failed event when rule evaluation fails', async () => {
+      const mockRule: Partial<BusinessRule> = {
+        id: 'rule-1',
+        ruleId: 'TEST-001',
+        ruleName: 'Test Rule',
+        ruleType: 'ACTION',
+        entityType: 'WorkOrder',
+        conditionExpression: { field: 'status', operator: '=', value: 'RELEASED' },
+        enabled: true,
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      }
+
+      mockEm.find.mockResolvedValue([mockRule as BusinessRule])
+      mockEm.create.mockReturnValue({ id: 'log-1' } as any)
+      mockEm.flush.mockResolvedValue(undefined)
+
+      jest.mocked(ruleEvaluator.evaluateSingleRule).mockResolvedValue({
+        rule: mockRule as BusinessRule,
+        conditionsPassed: false,
+        evaluationCompleted: false,
+        evaluationTime: 1,
+        error: 'Evaluation error',
+      })
+
+      const eventBus = { emitEvent: jest.fn().mockResolvedValue(undefined) }
+
+      const context: RuleEngineContext = {
+        entityType: 'WorkOrder',
+        entityId: testEntityId,
+        data: { status: 'RELEASED' },
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        dryRun: false,
+      }
+
+      await ruleEngine.executeRules(mockEm, context, { eventBus })
+
+      expect(eventBus.emitEvent).toHaveBeenCalledWith(
+        'business_rules.rule.execution_failed',
+        expect.objectContaining({
+          ruleId: 'TEST-001',
+          ruleName: 'Test Rule',
+          entityType: 'WorkOrder',
+          errorMessage: 'Evaluation error',
+          tenantId: testTenantId,
+          organizationId: testOrgId,
+        })
+      )
+    })
+  })
+
+  describe('logRuleExecution', () => {
+    test('should create execution log with success result', async () => {
+      const mockRule: Partial<BusinessRule> = {
+        id: 'rule-1',
+        ruleId: 'TEST-001',
+        ruleName: 'Test Rule',
+        ruleType: 'GUARD',
+        entityType: 'WorkOrder',
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      }
+
+      const context: RuleEngineContext = {
+        entityType: 'WorkOrder',
+        entityId: testEntityId,
+        data: { status: 'RELEASED' },
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      }
+
+      const mockLog = {
+        id: 'log-1',
+        executionResult: 'SUCCESS',
+        executionTimeMs: 42,
+      }
+
+      mockEm.create.mockReturnValue(mockLog as any)
+      mockEm.flush.mockResolvedValue(undefined)
+
+      const logId = await ruleEngine.logRuleExecution(mockEm, {
+        rule: mockRule as BusinessRule,
+        context,
+        conditionResult: true,
+        actionsExecuted: null,
+        executionTime: 42,
+      })
+
+      expect(logId).toBe('log-1')
+      expect(mockEm.create).toHaveBeenCalledWith(
+        expect.any(Function), // RuleExecutionLog class
+        expect.objectContaining({
+          executionResult: 'SUCCESS',
+          executionTimeMs: 42,
+        })
+      )
+      expect(mockEm.flush).toHaveBeenCalled()
+    })
+
+    test('should create execution log with error result', async () => {
+      const mockRule: Partial<BusinessRule> = {
+        id: 'rule-1',
+        ruleId: 'TEST-001',
+        ruleName: 'Test Rule',
+        ruleType: 'GUARD',
+        entityType: 'WorkOrder',
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      }
+
+      const context: RuleEngineContext = {
+        entityType: 'WorkOrder',
+        entityId: testEntityId,
+        data: { status: 'DRAFT' },
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      }
+
+      const mockLog = {
+        id: 'log-2',
+        executionResult: 'ERROR',
+        errorMessage: 'Condition failed',
+      }
+
+      mockEm.create.mockReturnValue(mockLog as any)
+      mockEm.flush.mockResolvedValue(undefined)
+
+      const logId = await ruleEngine.logRuleExecution(mockEm, {
+        rule: mockRule as BusinessRule,
+        context,
+        conditionResult: false,
+        actionsExecuted: null,
+        executionTime: 42,
+        error: 'Condition failed',
+      })
+
+      expect(logId).toBe('log-2')
+      expect(mockEm.create).toHaveBeenCalledWith(
+        expect.any(Function), // RuleExecutionLog class
+        expect.objectContaining({
+          executionResult: 'ERROR',
+          errorMessage: 'Condition failed',
+        })
+      )
+    })
+  })
+})

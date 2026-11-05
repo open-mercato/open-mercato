@@ -1,0 +1,59 @@
+---
+title: Injection Spots
+description: All widget injection spots available in the Sales module.
+---
+
+# Sales — Widget Injection Spots
+
+## Order & Quote detail page
+
+| Spot ID | Kind | Description |
+|---|---|---|
+| `sales.document.detail.order:details` | Section | Inject sections into the order detail page |
+| `sales.document.detail.quote:details` | Section | Inject sections into the quote detail page |
+| `sales.document.detail.order:tabs` | Tab | Inject tabs into the order detail page |
+| `sales.document.detail.quote:tabs` | Tab | Inject tabs into the quote detail page |
+| `detail:sales.order:stage-bar` | Section | Order extension region immediately below the document header |
+| `detail:sales.quote:stage-bar` | Section | Quote extension region immediately below the document header |
+| `detail:sales.order:closure` | Section | Order closure extension region below document details |
+| `detail:sales.quote:closure` | Section | Quote closure extension region below document details |
+
+The stage-bar and closure regions mount render widgets through `InjectionSpot`. Without matching widgets, they render no placeholder or container. They provide extension regions rather than a built-in stage workflow or closure dialog.
+
+Widgets receive the current document as `data` and this context, exported as `SalesDocumentExtensionContext` from `@open-mercato/core/modules/sales/components/documents/SalesDocumentExtensionSpot`:
+
+- `kind`, `documentId`, and `record` identify the loaded order or quote.
+- `formId`, `resourceKind`, `resourceId`, and `retryLastMutation` preserve the page's guarded mutation context.
+- `organizationId` and `tenantId` come from the server-scoped document.
+
+The widget's `onDataChange` callback updates the in-page record; it does not persist changes. Widget-owned writes must use guarded mutations and enforce authorization and tenant/organization scope on the server. These render hosts do not add save/delete lifecycle dispatch or change native document status behavior.
+
+## Order list
+
+| Spot ID | Kind | Description |
+|---|---|---|
+| `data-table:sales.orders:columns` | Column | Additional columns in the orders table |
+| `data-table:sales.orders:row-actions` | Row action | Actions on individual order rows |
+
+## Order form
+
+| Spot ID | Kind | Description |
+|---|---|---|
+| `crud-form:sales.sales_order:fields` | Field | Additional fields in the order detail form |
+
+## Payments
+
+| Spot ID | Kind | Description |
+|---|---|---|
+| `data-table:sales.payments:columns` | Column | Additional columns in the payments table |
+
+## Payment methods
+
+| Spot ID | Kind | Description |
+|---|---|---|
+| `crud-form:sales.payment_method:fields` | Field | Additional fields in the payment method form |
+| `crud-form:sales.sales_payment_method:fields` | Field | Additional fields in the sales payment method form |
+
+## See also
+
+- [Widget injection](/framework/widget-injection)

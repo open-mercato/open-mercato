@@ -1,0 +1,237 @@
+import { NextResponse } from 'next/server'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
+import { isMfaPendingJwtPayload, signJwt, verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { refreshSessionRequestSchema } from '@open-mercato/core/modules/auth/data/validators'
+import { checkAuthRateLimit } from '@open-mercato/core/modules/auth/lib/rateLimitCheck'
+import { buildSafeRedirectResponse, resolveTrustedRedirectBase } from '@open-mercato/core/modules/auth/lib/requestRedirect'
+import { sanitizeRedirectPath } from '@open-mercato/core/modules/auth/lib/safeRedirect'
+import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
+import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
+import { isCrossSiteBrowserRequest } from '@open-mercato/shared/lib/url'
+import { z } from 'zod'
+
+const refreshRateLimitConfig = readEndpointRateLimitConfig('REFRESH', {
+  points: 15, duration: 60, blockDuration: 60, keyPrefix: 'refresh',
+})
+const refreshIpRateLimitConfig = readEndpointRateLimitConfig('REFRESH_IP', {
+  points: 60, duration: 60, blockDuration: 60, keyPrefix: 'refresh-ip',
+})
+
+function parseCookie(req: Request, name: string): string | null {
+  const cookie = req.headers.get('cookie') || ''
+  const m = cookie.match(new RegExp('(?:^|;\\s*)' + name + '=([^;]+)'))
+  if (!m) return null
+  try {
+    return decodeURIComponent(m[1])
+  } catch {
+    return null
+  }
+}
+
+// Both handlers are `requireAuth: false`, so the dispatcher's MFA-pending gate never inspects
+// this route's caller. Minting a full staff JWT for a browser that is still holding a provisional
+// `mfa_pending` token would hand it the access the outstanding second factor is meant to withhold,
+// so the pending credential is checked here directly. `refreshFromSessionToken` itself has no MFA
+// awareness — it validates only the token hash and expiry.
+function carriesMfaPendingToken(req: Request): boolean {
+  const authHeader = (req.headers.get('authorization') || '').trim()
+  const bearer = authHeader.toLowerCase().startsWith('bearer ') ? authHeader.slice(7).trim() : null
+  const token = bearer || parseCookie(req, 'auth_token')
+  if (!token) return false
+  try {
+    return isMfaPendingJwtPayload(verifyJwt(token))
+  } catch {
+    return false
+  }
+}
+
+type RefreshedSession = NonNullable<Awaited<ReturnType<AuthService['refreshFromSessionToken']>>>
+
+// Scope claims must stay absent rather than stringified when the user has no tenant/org:
+// `String(null)` yields the literal "null", which is not a UUID, so session-integrity
+// resolution rejects the token it just minted and the caller is stuck in a refresh loop.
+// Mirrors how `api/login.ts` builds the same claims.
+function buildStaffJwtClaims({ user, roles, session }: RefreshedSession) {
+  return {
+    sub: String(user.id),
+    sid: session ? String(session.id) : undefined,
+    tenantId: user.tenantId ? String(user.tenantId) : null,
+    orgId: user.organizationId ? String(user.organizationId) : null,
+    email: user.email,
+    roles,
+  }
+}
+
+function clearStaffAuthCookies(response: NextResponse) {
+  response.cookies.set('auth_token', '', {
+    httpOnly: true,
+    path: '/',
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: 0,
+  })
+  response.cookies.set('session_token', '', {
+    httpOnly: true,
+    path: '/',
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: 0,
+  })
+  return response
+}
+
+export async function GET(req: Request) {
+  const url = new URL(req.url)
+  const baseUrl = resolveTrustedRedirectBase(req) ?? url.origin
+  const redirectTo = sanitizeRedirectPath(url.searchParams.get('redirect'), baseUrl, '/')
+  if (carriesMfaPendingToken(req)) {
+    return clearStaffAuthCookies(
+      buildSafeRedirectResponse(req, '/login?redirect=' + encodeURIComponent(redirectTo))
+    )
+  }
+  const token = parseCookie(req, 'session_token')
+  if (!token) {
+    return clearStaffAuthCookies(
+      buildSafeRedirectResponse(req, '/login?redirect=' + encodeURIComponent(redirectTo))
+    )
+  }
+  const c = await createRequestContainer()
+  const auth = c.resolve<AuthService>('authService')
+  const ctx = await auth.refreshFromSessionToken(token)
+  if (!ctx) {
+    return clearStaffAuthCookies(
+      buildSafeRedirectResponse(req, '/login?redirect=' + encodeURIComponent(redirectTo))
+    )
+  }
+  const jwt = signJwt(buildStaffJwtClaims(ctx))
+  const res = buildSafeRedirectResponse(req, redirectTo)
+  res.cookies.set('auth_token', jwt, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 60 * 60 * 8 })
+  return res
+}
+
+export async function POST(req: Request) {
+  const { translate } = await resolveTranslations()
+  if (isCrossSiteBrowserRequest(req)) {
+    return NextResponse.json({ ok: false, error: translate('auth.login.errors.crossSiteRequest', 'This sign-in request did not come from this application. Open the sign-in page and try again.') }, { status: 403 })
+  }
+  let token: string | null = null
+
+  try {
+    const body = await req.json()
+    const parsed = refreshSessionRequestSchema.safeParse(body)
+    if (parsed.success) {
+      token = parsed.data.refreshToken
+    }
+  } catch {
+    // Invalid JSON
+  }
+
+  const { error: rateLimitError } = await checkAuthRateLimit({
+    req,
+    ipConfig: refreshIpRateLimitConfig,
+    compoundConfig: refreshRateLimitConfig,
+    compoundIdentifier: token ?? undefined,
+  })
+  if (rateLimitError) return rateLimitError
+
+  if (carriesMfaPendingToken(req)) {
+    return clearStaffAuthCookies(
+      NextResponse.json({
+        ok: false,
+        error: translate('auth.session.refresh.errors.invalidToken', 'Invalid or expired refresh token'),
+      }, { status: 401 })
+    )
+  }
+
+  if (!token) {
+    return clearStaffAuthCookies(
+      NextResponse.json({
+        ok: false,
+        error: translate('auth.session.refresh.errors.invalidPayload', 'Missing or invalid refresh token'),
+      }, { status: 400 })
+    )
+  }
+
+  const c = await createRequestContainer()
+  const auth = c.resolve<AuthService>('authService')
+  const ctx = await auth.refreshFromSessionToken(token)
+
+  if (!ctx) {
+    return clearStaffAuthCookies(
+      NextResponse.json({
+        ok: false,
+        error: translate('auth.session.refresh.errors.invalidToken', 'Invalid or expired refresh token'),
+      }, { status: 401 })
+    )
+  }
+
+  const jwt = signJwt(buildStaffJwtClaims(ctx))
+
+  const res = NextResponse.json({
+    ok: true,
+    accessToken: jwt,
+    expiresIn: 60 * 60 * 8,
+  })
+
+  res.cookies.set('auth_token', jwt, {
+    httpOnly: true,
+    path: '/',
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: 60 * 60 * 8,
+  })
+
+  return res
+}
+
+export const metadata = {
+  GET: { requireAuth: false },
+  POST: { requireAuth: false },
+}
+
+const refreshQuerySchema = z.object({
+  redirect: z.string().optional().describe('Absolute or relative URL to redirect after refresh'),
+})
+
+const refreshSuccessSchema = z.object({
+  ok: z.literal(true),
+  accessToken: z.string().describe('New JWT access token'),
+  expiresIn: z.number().describe('Token expiration time in seconds'),
+})
+
+const refreshErrorSchema = z.object({
+  ok: z.literal(false),
+  error: z.string(),
+})
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Authentication & Accounts',
+  summary: 'Refresh session token',
+  methods: {
+    GET: {
+      summary: 'Refresh auth cookie from session token (browser)',
+      description: 'Exchanges an existing `session_token` cookie for a fresh JWT auth cookie and redirects the browser.',
+      query: refreshQuerySchema,
+      responses: [
+        { status: 302, description: 'Redirect to target location when session is valid', mediaType: 'text/html' },
+      ],
+    },
+    POST: {
+      summary: 'Refresh access token (API/mobile)',
+      description: 'Exchanges a refresh token for a new JWT access token. Pass the refresh token obtained from login in the request body.',
+      requestBody: { schema: refreshSessionRequestSchema, contentType: 'application/json' },
+      responses: [
+        { status: 200, description: 'New access token issued', schema: refreshSuccessSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Missing refresh token', schema: refreshErrorSchema },
+        { status: 401, description: 'Invalid or expired token', schema: refreshErrorSchema },
+        { status: 403, description: 'Request was submitted cross-site', schema: refreshErrorSchema },
+        { status: 429, description: 'Too many refresh attempts', schema: rateLimitErrorSchema },
+      ],
+    },
+  },
+}

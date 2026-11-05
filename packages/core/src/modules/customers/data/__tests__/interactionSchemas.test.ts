@@ -1,0 +1,298 @@
+import {
+  interactionCreateSchema,
+  interactionUpdateSchema,
+} from '../validators'
+
+const tenantId = '11111111-1111-4111-8111-111111111111'
+const orgId = '22222222-2222-4222-8222-222222222222'
+const entityId = '33333333-3333-4333-8333-333333333333'
+const interactionId = '44444444-4444-4444-8444-444444444444'
+const personId = '55555555-5555-4555-8555-555555555555'
+const userA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+const userB = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+
+describe('interaction validators — extended scheduling fields', () => {
+  it.each(['meeting', 'call', 'email', 'note', 'event', 'task', 'visit'])('accepts a timezone independently of event type %s', (interactionType) => {
+    expect(interactionCreateSchema.parse({ tenantId, organizationId: orgId, entityId, interactionType, timezone: 'America/New_York' }).timezone).toBe('America/New_York')
+    expect(interactionUpdateSchema.parse({ id: interactionId, timezone: 'Europe/Warsaw' }).timezone).toBe('Europe/Warsaw')
+  })
+
+  it('rejects invalid timezones and supports legacy omission and explicit reset', () => {
+    expect(interactionUpdateSchema.safeParse({ id: interactionId, timezone: 'Invalid/Zone' }).success).toBe(false)
+    expect(interactionUpdateSchema.safeParse({ id: interactionId, timezone: '' }).success).toBe(false)
+    expect(interactionUpdateSchema.parse({ id: interactionId, timezone: null }).timezone).toBeNull()
+    expect(interactionUpdateSchema.parse({ id: interactionId }).timezone).toBeUndefined()
+  })
+
+  const basePayload = {
+    tenantId,
+    organizationId: orgId,
+    interactionType: 'meeting',
+    title: 'Kickoff',
+    durationMinutes: 45,
+    location: 'Room A',
+    allDay: false,
+    recurrenceRule: 'FREQ=WEEKLY;BYDAY=MO,WE',
+    recurrenceEnd: '2026-05-01T00:00:00.000Z',
+    participants: [
+      { userId: userA, name: 'Ada', email: 'ada@example.com', status: 'accepted' },
+      { userId: userB, name: 'Bob', status: 'pending' },
+    ],
+    reminderMinutes: 15,
+    visibility: 'team',
+    linkedEntities: [
+      { id: entityId, type: 'company' as const, label: 'ACME' },
+    ],
+    guestPermissions: { canInviteOthers: true, canModify: false, canSeeList: true },
+  }
+
+  test('interactionCreateSchema preserves all extended fields', () => {
+    const parsed = interactionCreateSchema.parse({ ...basePayload, entityId })
+    expect(parsed.durationMinutes).toBe(45)
+    expect(parsed.location).toBe('Room A')
+    expect(parsed.allDay).toBe(false)
+    expect(parsed.recurrenceRule).toBe('FREQ=WEEKLY;BYDAY=MO,WE')
+    expect(parsed.recurrenceEnd).toBeInstanceOf(Date)
+    expect(parsed.participants).toHaveLength(2)
+    expect(parsed.participants?.[0].userId).toBe(userA)
+    expect(parsed.reminderMinutes).toBe(15)
+    expect(parsed.visibility).toBe('team')
+    expect(parsed.linkedEntities).toEqual([
+      { id: entityId, type: 'company', label: 'ACME' },
+    ])
+    expect(parsed.guestPermissions).toEqual({
+      canInviteOthers: true,
+      canModify: false,
+      canSeeList: true,
+    })
+  })
+
+  test('interactionUpdateSchema preserves all extended fields', () => {
+    const parsed = interactionUpdateSchema.parse({ id: interactionId, ...basePayload })
+    expect(parsed.id).toBe(interactionId)
+    expect(parsed.durationMinutes).toBe(45)
+    expect(parsed.location).toBe('Room A')
+    expect(parsed.allDay).toBe(false)
+    expect(parsed.recurrenceRule).toBe('FREQ=WEEKLY;BYDAY=MO,WE')
+    expect(parsed.recurrenceEnd).toBeInstanceOf(Date)
+    expect(parsed.participants?.map((p) => p.userId)).toEqual([userA, userB])
+    expect(parsed.reminderMinutes).toBe(15)
+    expect(parsed.visibility).toBe('team')
+    expect(parsed.linkedEntities?.[0].type).toBe('company')
+    expect(parsed.guestPermissions?.canInviteOthers).toBe(true)
+  })
+
+  test('interactionUpdateSchema treats omitted extended fields as undefined', () => {
+    const parsed = interactionUpdateSchema.parse({
+      id: interactionId,
+      tenantId,
+      organizationId: orgId,
+      title: 'Just title',
+    })
+    expect(parsed.title).toBe('Just title')
+    expect(parsed.durationMinutes).toBeUndefined()
+    expect(parsed.location).toBeUndefined()
+    expect(parsed.participants).toBeUndefined()
+    expect(parsed.visibility).toBeUndefined()
+    expect(parsed.linkedEntities).toBeUndefined()
+    expect(parsed.guestPermissions).toBeUndefined()
+  })
+
+  test('interactionUpdateSchema allows null clears for nullable extended fields', () => {
+    const parsed = interactionUpdateSchema.parse({
+      id: interactionId,
+      tenantId,
+      organizationId: orgId,
+      durationMinutes: null,
+      location: null,
+      allDay: null,
+      recurrenceRule: null,
+      recurrenceEnd: null,
+      participants: null,
+      reminderMinutes: null,
+      visibility: null,
+      linkedEntities: null,
+      guestPermissions: null,
+    })
+    expect(parsed.durationMinutes).toBeNull()
+    expect(parsed.location).toBeNull()
+    expect(parsed.allDay).toBeNull()
+    expect(parsed.recurrenceRule).toBeNull()
+    expect(parsed.recurrenceEnd).toBeNull()
+    expect(parsed.participants).toBeNull()
+    expect(parsed.reminderMinutes).toBeNull()
+    expect(parsed.visibility).toBeNull()
+    expect(parsed.linkedEntities).toBeNull()
+    expect(parsed.guestPermissions).toBeNull()
+  })
+
+  test('interactionUpdateSchema accepts entityId so an interaction can be re-linked', () => {
+    const parsed = interactionUpdateSchema.parse({
+      id: interactionId,
+      tenantId,
+      organizationId: orgId,
+      entityId,
+    })
+    expect(parsed.entityId).toBe(entityId)
+  })
+
+  test('interactionUpdateSchema leaves entityId undefined when it is not sent', () => {
+    const parsed = interactionUpdateSchema.parse({
+      id: interactionId,
+      tenantId,
+      organizationId: orgId,
+      title: 'Just title',
+    })
+    expect(parsed.entityId).toBeUndefined()
+  })
+
+  test('interactionUpdateSchema rejects a non-uuid entityId', () => {
+    expect(() =>
+      interactionUpdateSchema.parse({
+        id: interactionId,
+        tenantId,
+        organizationId: orgId,
+        entityId: 'not-a-uuid',
+      }),
+    ).toThrow()
+  })
+
+  test('interactionUpdateSchema rejects a null entityId because the relation is required', () => {
+    expect(() =>
+      interactionUpdateSchema.parse({
+        id: interactionId,
+        tenantId,
+        organizationId: orgId,
+        entityId: null,
+      }),
+    ).toThrow()
+  })
+
+  test('interactionUpdateSchema rejects invalid linked entity type', () => {
+    expect(() =>
+      interactionUpdateSchema.parse({
+        id: interactionId,
+        tenantId,
+        organizationId: orgId,
+        linkedEntities: [{ id: entityId, type: 'unicorn', label: 'Nope' }],
+      }),
+    ).toThrow()
+  })
+
+  test('interactionCreateSchema accepts a person linked entity', () => {
+    const parsed = interactionCreateSchema.parse({
+      tenantId,
+      organizationId: orgId,
+      entityId,
+      interactionType: 'task',
+      linkedEntities: [{ id: personId, type: 'person', label: 'Ada Lovelace' }],
+    })
+    expect(parsed.linkedEntities).toEqual([
+      { id: personId, type: 'person', label: 'Ada Lovelace' },
+    ])
+  })
+
+  test('interactionUpdateSchema accepts a person linked entity', () => {
+    const parsed = interactionUpdateSchema.parse({
+      id: interactionId,
+      tenantId,
+      organizationId: orgId,
+      linkedEntities: [{ id: personId, type: 'person', label: 'Ada Lovelace' }],
+    })
+    expect(parsed.linkedEntities).toEqual([
+      { id: personId, type: 'person', label: 'Ada Lovelace' },
+    ])
+  })
+
+  test.each(['company', 'deal', 'offer', 'resource', 'person'])(
+    'interactionUpdateSchema accepts the %s linked entity type',
+    (type) => {
+      const parsed = interactionUpdateSchema.parse({
+        id: interactionId,
+        tenantId,
+        organizationId: orgId,
+        linkedEntities: [{ id: entityId, type, label: 'Linked' }],
+      })
+      expect(parsed.linkedEntities?.[0].type).toBe(type)
+    },
+  )
+
+  test('interactionCreateSchema accepts a guest participant identified only by email', () => {
+    const parsed = interactionCreateSchema.parse({
+      tenantId,
+      organizationId: orgId,
+      entityId,
+      interactionType: 'meeting',
+      participants: [{ name: 'External Guest', email: 'guest@example.org' }],
+    })
+    expect(parsed.participants).toEqual([{ name: 'External Guest', email: 'guest@example.org' }])
+  })
+
+  test('interactionCreateSchema rejects a participant with neither userId nor email', () => {
+    expect(() =>
+      interactionCreateSchema.parse({
+        tenantId,
+        organizationId: orgId,
+        entityId,
+        interactionType: 'meeting',
+        participants: [{ name: 'Nobody' }],
+      }),
+    ).toThrow()
+  })
+
+  test('interactionCreateSchema rejects a guest whose only identity is not a valid email', () => {
+    expect(() =>
+      interactionCreateSchema.parse({
+        tenantId,
+        organizationId: orgId,
+        entityId,
+        interactionType: 'meeting',
+        participants: [{ name: 'External Guest', email: 'not-an-email' }],
+      }),
+    ).toThrow()
+  })
+
+  test('interactionCreateSchema keeps an unvalidated auxiliary email on a participant with a userId', () => {
+    const parsed = interactionCreateSchema.parse({
+      tenantId,
+      organizationId: orgId,
+      entityId,
+      interactionType: 'meeting',
+      participants: [{ userId: userA, name: 'Ada', email: 'ada (work)' }],
+    })
+    expect(parsed.participants).toEqual([{ userId: userA, name: 'Ada', email: 'ada (work)' }])
+  })
+})
+
+describe('interaction validators — dictionary-backed status (lenient widening)', () => {
+  const createBase = { tenantId, organizationId: orgId, entityId, interactionType: 'task' }
+
+  test('create defaults status to planned when omitted', () => {
+    const parsed = interactionCreateSchema.parse(createBase)
+    expect(parsed.status).toBe('planned')
+  })
+
+  test.each(['in_progress', 'waiting', 'done', 'canceled', 'blocked_by_legal'])(
+    'create accepts seeded and custom status %s',
+    (status) => {
+      const parsed = interactionCreateSchema.parse({ ...createBase, status })
+      expect(parsed.status).toBe(status)
+    },
+  )
+
+  test('update accepts a non-legacy status (in_progress)', () => {
+    const parsed = interactionUpdateSchema.parse({
+      id: interactionId,
+      tenantId,
+      organizationId: orgId,
+      status: 'in_progress',
+    })
+    expect(parsed.status).toBe('in_progress')
+  })
+
+  test('create rejects a status longer than 50 chars', () => {
+    expect(() =>
+      interactionCreateSchema.parse({ ...createBase, status: 'x'.repeat(51) }),
+    ).toThrow()
+  })
+})

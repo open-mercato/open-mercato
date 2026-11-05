@@ -1,0 +1,21 @@
+import React from 'react'
+
+const globalTogglesIcon = React.createElement('svg', { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2 },
+  React.createElement('circle', { cx: 12, cy: 12, r: 10 }),
+  React.createElement('path', { d: 'M2 12h20' }),
+  React.createElement('path', { d: 'M12 2a15 15 0 0 1 0 20' }),
+  React.createElement('path', { d: 'M12 2a15 15 0 0 0 0 20' }),
+)
+
+export const metadata = {
+  requireAuth: true,
+  requireFeatures: ['feature_toggles.view'],
+  pageTitle: 'Global',
+  pageTitleKey: 'feature_toggles.nav.global',
+  pageGroup: 'Feature Toggles',
+  pageGroupKey: 'settings.sections.featureToggles',
+  pageOrder: 1,
+  icon: globalTogglesIcon,
+  pageContext: 'settings' as const,
+  breadcrumb: [ { label: 'Feature Toggles', labelKey: 'feature_toggles.nav.global' } ],
+}

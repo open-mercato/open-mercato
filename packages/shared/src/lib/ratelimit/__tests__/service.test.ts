@@ -1,0 +1,369 @@
+import { RateLimiterMemory, RateLimiterRedis, RateLimiterRes } from 'rate-limiter-flexible'
+import {
+  registerLoggerExtension,
+  resetLoggerExtension,
+  type LoggerExtensionRecord,
+} from '../../logger'
+import { RateLimiterService } from '../service'
+import type { RateLimitConfig, RateLimitGlobalConfig } from '../types'
+
+jest.mock('ioredis', () => ({
+  __esModule: true,
+  default: jest.fn().mockImplementation(() => ({ disconnect: jest.fn() })),
+}))
+
+function createConfig(overrides: Partial<RateLimitGlobalConfig> = {}): RateLimitGlobalConfig {
+  return {
+    enabled: true,
+    strategy: 'memory',
+    keyPrefix: 'test',
+    trustProxyDepth: 1,
+    ...overrides,
+  }
+}
+
+const defaultLimitConfig: RateLimitConfig = {
+  points: 3,
+  duration: 60,
+  keyPrefix: 'test-endpoint',
+}
+
+describe('RateLimiterService', () => {
+  let service: RateLimiterService
+
+  afterEach(async () => {
+    if (service) await service.destroy()
+  })
+
+  describe('disabled mode', () => {
+    beforeEach(() => {
+      service = new RateLimiterService(createConfig({ enabled: false }))
+    })
+
+    it('consume returns allowed when disabled', async () => {
+      const result = await service.consume('key1', defaultLimitConfig)
+      expect(result.allowed).toBe(true)
+      expect(result.remainingPoints).toBe(defaultLimitConfig.points)
+      expect(result.consumedPoints).toBe(0)
+    })
+
+    it('get returns null when disabled', async () => {
+      const result = await service.get('key1', defaultLimitConfig)
+      expect(result).toBeNull()
+    })
+
+    it('penalty returns allowed when disabled', async () => {
+      const result = await service.penalty('key1', 5, defaultLimitConfig)
+      expect(result.allowed).toBe(true)
+    })
+
+    it('reward returns allowed when disabled', async () => {
+      const result = await service.reward('key1', 1, defaultLimitConfig)
+      expect(result.allowed).toBe(true)
+    })
+
+    it('delete is a no-op when disabled', async () => {
+      await service.delete('key1', defaultLimitConfig)
+      // Should not throw and should not create a limiter
+      const result = await service.consume('key1', defaultLimitConfig)
+      expect(result.allowed).toBe(true)
+    })
+
+    it('block is a no-op when disabled', async () => {
+      await service.block('key1', 60, defaultLimitConfig)
+      // Should not throw and should not actually block — consume still allowed
+      const result = await service.consume('key1', defaultLimitConfig)
+      expect(result.allowed).toBe(true)
+    })
+  })
+
+  describe('memory strategy', () => {
+    beforeEach(() => {
+      service = new RateLimiterService(createConfig())
+    })
+
+    it('allows requests within the limit', async () => {
+      const result = await service.consume('ip1', defaultLimitConfig)
+      expect(result.allowed).toBe(true)
+      expect(result.remainingPoints).toBe(2)
+      expect(result.consumedPoints).toBe(1)
+    })
+
+    it('rejects after all points are consumed', async () => {
+      for (let i = 0; i < 3; i++) {
+        await service.consume('ip2', defaultLimitConfig)
+      }
+      const result = await service.consume('ip2', defaultLimitConfig)
+      expect(result.allowed).toBe(false)
+      expect(result.remainingPoints).toBe(0)
+      expect(result.msBeforeNext).toBeGreaterThan(0)
+    })
+
+    it('get returns current state without consuming', async () => {
+      await service.consume('ip3', defaultLimitConfig)
+      const state = await service.get('ip3', defaultLimitConfig)
+      expect(state).not.toBeNull()
+      expect(state!.consumedPoints).toBe(1)
+      expect(state!.remainingPoints).toBe(2)
+    })
+
+    it('get returns null for unknown key', async () => {
+      const state = await service.get('unknown-key', defaultLimitConfig)
+      expect(state).toBeNull()
+    })
+
+    it('delete resets the counter', async () => {
+      for (let i = 0; i < 3; i++) {
+        await service.consume('ip4', defaultLimitConfig)
+      }
+      const blocked = await service.consume('ip4', defaultLimitConfig)
+      expect(blocked.allowed).toBe(false)
+
+      await service.delete('ip4', defaultLimitConfig)
+      const afterDelete = await service.consume('ip4', defaultLimitConfig)
+      expect(afterDelete.allowed).toBe(true)
+      expect(afterDelete.consumedPoints).toBe(1)
+    })
+
+    it('penalty adds points to a key', async () => {
+      await service.consume('ip5', defaultLimitConfig)
+      const result = await service.penalty('ip5', 2, defaultLimitConfig)
+      expect(result.consumedPoints).toBe(3)
+      expect(result.remainingPoints).toBe(0)
+    })
+
+    it('reward returns points to a key', async () => {
+      await service.consume('ip6', defaultLimitConfig)
+      await service.consume('ip6', defaultLimitConfig)
+      const result = await service.reward('ip6', 1, defaultLimitConfig)
+      expect(result.consumedPoints).toBe(1)
+      expect(result.allowed).toBe(true)
+    })
+
+    it('block prevents access for given duration', async () => {
+      await service.block('ip7', 2, defaultLimitConfig)
+      const result = await service.consume('ip7', defaultLimitConfig)
+      expect(result.allowed).toBe(false)
+      expect(result.msBeforeNext).toBeGreaterThan(0)
+    })
+
+    it('isolates different keys', async () => {
+      for (let i = 0; i < 3; i++) {
+        await service.consume('ip-a', defaultLimitConfig)
+      }
+      const resultA = await service.consume('ip-a', defaultLimitConfig)
+      expect(resultA.allowed).toBe(false)
+
+      const resultB = await service.consume('ip-b', defaultLimitConfig)
+      expect(resultB.allowed).toBe(true)
+    })
+  })
+
+  describe('degraded limiter', () => {
+    const logRecords: LoggerExtensionRecord[] = []
+
+    beforeEach(() => {
+      logRecords.length = 0
+      registerLoggerExtension({ emit: (record) => logRecords.push(record) })
+      jest.spyOn(console, 'error').mockImplementation(() => {})
+    })
+
+    afterEach(() => {
+      resetLoggerExtension()
+      jest.restoreAllMocks()
+    })
+
+    it('flags the result as degraded when the backing store fails', async () => {
+      jest.spyOn(RateLimiterMemory.prototype, 'consume').mockRejectedValue(new Error('store unreachable'))
+      service = new RateLimiterService(createConfig())
+
+      const result = await service.consume('key1', defaultLimitConfig)
+      expect(result.degraded).toBe(true)
+      expect(result.allowed).toBe(true)
+      expect(logRecords).toEqual([
+        expect.objectContaining({
+          level: 'error',
+          namespace: 'ratelimit',
+          message: 'Rate limiter unavailable, request was not counted',
+        }),
+      ])
+    })
+
+    it('does not flag a real rejection as degraded', async () => {
+      service = new RateLimiterService(createConfig())
+      for (let i = 0; i < defaultLimitConfig.points; i++) {
+        await service.consume('key2', defaultLimitConfig)
+      }
+
+      const result = await service.consume('key2', defaultLimitConfig)
+      expect(result.allowed).toBe(false)
+      expect(result.degraded).toBeFalsy()
+    })
+
+    it('does not flag a config-disabled result as degraded', async () => {
+      service = new RateLimiterService(createConfig({ enabled: false }))
+
+      const result = await service.consume('key3', defaultLimitConfig)
+      expect(result.allowed).toBe(true)
+      expect(result.degraded).toBeFalsy()
+    })
+
+    // Which failure modes actually reach `degraded` under the redis strategy: the store
+    // abstraction absorbs a plain outage through the in-memory insurance limiter, so only
+    // an error it re-throws gets there.
+    describe('redis strategy', () => {
+      async function createRedisService(): Promise<RateLimiterService> {
+        const redisService = new RateLimiterService(createConfig({
+          strategy: 'redis',
+          redisUrl: 'redis://localhost:6379',
+        }))
+        await redisService.initialize()
+        return redisService
+      }
+
+      function buildLimiter(redisService: RateLimiterService): unknown {
+        const internals = redisService as unknown as {
+          getOrCreateLimiter: (config: RateLimitConfig) => unknown
+        }
+        return internals.getOrCreateLimiter(defaultLimitConfig)
+      }
+
+      it('flags an error the redis limiter re-throws as degraded', async () => {
+        service = await createRedisService()
+        expect(buildLimiter(service)).toBeInstanceOf(RateLimiterRedis)
+        jest.spyOn(RateLimiterRedis.prototype, 'consume').mockRejectedValue(new Error('redis down'))
+
+        const result = await service.consume('redis-key', defaultLimitConfig)
+
+        expect(result.degraded).toBe(true)
+        expect(result.allowed).toBe(true)
+        expect(logRecords).toEqual([
+          expect.objectContaining({
+            level: 'error',
+            namespace: 'ratelimit',
+            message: 'Rate limiter unavailable, request was not counted',
+          }),
+        ])
+      })
+
+      it('does not flag a resolved redis decision as degraded, including one the insurance limiter produced', async () => {
+        service = await createRedisService()
+        expect(buildLimiter(service)).toBeInstanceOf(RateLimiterRedis)
+        jest.spyOn(RateLimiterRedis.prototype, 'consume')
+          .mockResolvedValue(new RateLimiterRes(2, 0, 1, undefined))
+
+        const result = await service.consume('redis-key', defaultLimitConfig)
+
+        expect(result.allowed).toBe(true)
+        expect(result.degraded).toBeFalsy()
+        expect(logRecords).toEqual([])
+      })
+    })
+  })
+
+  describe('limiter caching', () => {
+    it('reuses the same limiter for the same config', async () => {
+      service = new RateLimiterService(createConfig())
+      await service.consume('key1', defaultLimitConfig)
+      await service.consume('key2', defaultLimitConfig)
+
+      const state1 = await service.get('key1', defaultLimitConfig)
+      const state2 = await service.get('key2', defaultLimitConfig)
+      expect(state1!.consumedPoints).toBe(1)
+      expect(state2!.consumedPoints).toBe(1)
+    })
+
+    it('creates separate limiters for different configs', async () => {
+      service = new RateLimiterService(createConfig())
+      const configA: RateLimitConfig = { points: 5, duration: 60, keyPrefix: 'a' }
+      const configB: RateLimitConfig = { points: 10, duration: 120, keyPrefix: 'b' }
+
+      await service.consume('same-key', configA)
+      await service.consume('same-key', configB)
+
+      const stateA = await service.get('same-key', configA)
+      const stateB = await service.get('same-key', configB)
+      expect(stateA!.remainingPoints).toBe(4)
+      expect(stateB!.remainingPoints).toBe(9)
+    })
+  })
+
+  describe('block duration', () => {
+    it('blocks key after exceeding limit when blockDuration is set', async () => {
+      service = new RateLimiterService(createConfig())
+      const config: RateLimitConfig = {
+        points: 2,
+        duration: 60,
+        blockDuration: 5,
+        keyPrefix: 'block-test',
+      }
+
+      await service.consume('ip-block', config)
+      await service.consume('ip-block', config)
+      const blocked = await service.consume('ip-block', config)
+      expect(blocked.allowed).toBe(false)
+      expect(blocked.msBeforeNext).toBeGreaterThan(0)
+    })
+  })
+
+  describe('config validation', () => {
+    it('readRateLimitConfig throws for invalid strategy', async () => {
+      const originalEnv = process.env.RATE_LIMIT_STRATEGY
+      process.env.RATE_LIMIT_STRATEGY = 'invalid'
+
+      const { readRateLimitConfig } = await import('../config')
+      expect(() => readRateLimitConfig()).toThrow('Invalid RATE_LIMIT_STRATEGY "invalid"')
+
+      if (originalEnv !== undefined) process.env.RATE_LIMIT_STRATEGY = originalEnv; else delete process.env.RATE_LIMIT_STRATEGY
+    })
+
+    it('readRateLimitConfig uses defaults', async () => {
+      const originalEnabled = process.env.RATE_LIMIT_ENABLED
+      const originalStrategy = process.env.RATE_LIMIT_STRATEGY
+      const originalPrefix = process.env.RATE_LIMIT_KEY_PREFIX
+      const originalTrustDepth = process.env.RATE_LIMIT_TRUST_PROXY_DEPTH
+      delete process.env.RATE_LIMIT_ENABLED
+      delete process.env.RATE_LIMIT_STRATEGY
+      delete process.env.RATE_LIMIT_KEY_PREFIX
+      delete process.env.RATE_LIMIT_TRUST_PROXY_DEPTH
+
+      const { readRateLimitConfig } = await import('../config')
+      const config = readRateLimitConfig()
+
+      expect(config.enabled).toBe(true)
+      expect(config.strategy).toBe('memory')
+      expect(config.keyPrefix).toBe('rl')
+      expect(config.trustProxyDepth).toBe(0)
+
+      if (originalEnabled !== undefined) process.env.RATE_LIMIT_ENABLED = originalEnabled; else delete process.env.RATE_LIMIT_ENABLED
+      if (originalStrategy !== undefined) process.env.RATE_LIMIT_STRATEGY = originalStrategy; else delete process.env.RATE_LIMIT_STRATEGY
+      if (originalPrefix !== undefined) process.env.RATE_LIMIT_KEY_PREFIX = originalPrefix; else delete process.env.RATE_LIMIT_KEY_PREFIX
+      if (originalTrustDepth !== undefined) process.env.RATE_LIMIT_TRUST_PROXY_DEPTH = originalTrustDepth; else delete process.env.RATE_LIMIT_TRUST_PROXY_DEPTH
+    })
+
+    it('readRateLimitConfig reads RATE_LIMIT_TRUST_PROXY_DEPTH from env', async () => {
+      const original = process.env.RATE_LIMIT_TRUST_PROXY_DEPTH
+      process.env.RATE_LIMIT_TRUST_PROXY_DEPTH = '2'
+
+      const { readRateLimitConfig } = await import('../config')
+      const config = readRateLimitConfig()
+      expect(config.trustProxyDepth).toBe(2)
+
+      if (original !== undefined) process.env.RATE_LIMIT_TRUST_PROXY_DEPTH = original; else delete process.env.RATE_LIMIT_TRUST_PROXY_DEPTH
+    })
+  })
+
+  describe('destroy', () => {
+    it('clears all limiters on destroy', async () => {
+      service = new RateLimiterService(createConfig())
+      await service.consume('key', defaultLimitConfig)
+      await service.destroy()
+
+      // After destroy, creating a new consume should work fresh
+      service = new RateLimiterService(createConfig())
+      const result = await service.consume('key', defaultLimitConfig)
+      expect(result.allowed).toBe(true)
+      expect(result.consumedPoints).toBe(1)
+    })
+  })
+})

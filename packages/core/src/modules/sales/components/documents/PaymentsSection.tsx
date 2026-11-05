@@ -1,0 +1,395 @@
+"use client"
+
+import * as React from 'react'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { LoadingMessage, ErrorMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { handleSectionMutationError, readRowUpdatedAt } from './optimisticLock'
+import type { SectionAction } from '@open-mercato/ui/backend/detail'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { formatDisplayDate, formatDisplayDateTime, toUtcDateInputValue } from '@open-mercato/ui/primitives/date-format'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { emitSalesDocumentTotalsRefresh } from '@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents'
+import { extensionPoints } from '@open-mercato/core/modules/sales/extension-points'
+import { PaymentDialog, type PaymentFormData, type PaymentTotals } from './PaymentDialog'
+import { extractCustomFieldValues } from './customFieldHelpers'
+import { Plus } from 'lucide-react'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
+
+type PaymentRow = {
+  id: string
+  updatedAt: string | null
+  paymentReference: string | null
+  paymentMethodId: string | null
+  paymentMethodName: string | null
+  status: string | null
+  statusEntryId: string | null
+  statusLabel: string | null
+  amount: number
+  currencyCode: string | null
+  receivedAt: string | null
+  createdAt: string | null
+  customValues?: Record<string, unknown> | null
+  customFieldSetId?: string | null
+}
+
+type SalesDocumentPaymentsSectionProps = {
+  orderId: string
+  currencyCode: string | null | undefined
+  organizationId?: string | null
+  tenantId?: string | null
+  documentUpdatedAt?: string | null
+  onActionChange?: (action: SectionAction | null) => void
+  onTotalsChange?: () => void
+  onPaymentsChange?: (payments: PaymentRow[]) => void
+}
+
+function normalizeNumber(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim().length) {
+    const parsed = Number(value)
+    if (!Number.isNaN(parsed)) return parsed
+  }
+  return 0
+}
+
+function formatMoney(value: number, currency: string | null | undefined, locale?: string): string {
+  if (!currency || currency.trim().length !== 3) return value.toFixed(2)
+  try {
+    return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(value)
+  } catch {
+    return `${currency.toUpperCase()} ${value.toFixed(2)}`
+  }
+}
+
+export function SalesDocumentPaymentsSection({
+  orderId,
+  currencyCode,
+  organizationId: orgFromProps,
+  tenantId: tenantFromProps,
+  documentUpdatedAt,
+  onActionChange,
+  onTotalsChange,
+  onPaymentsChange,
+}: SalesDocumentPaymentsSectionProps) {
+  const t = useT()
+  const locale = useLocale()
+  const { organizationId, tenantId } = useOrganizationScopeDetail()
+  const resolvedOrganizationId = orgFromProps ?? organizationId ?? null
+  const resolvedTenantId = tenantFromProps ?? tenantId ?? null
+  const [payments, setPayments] = React.useState<PaymentRow[]>([])
+  const [loading, setLoading] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+  const [dialogOpen, setDialogOpen] = React.useState(false)
+  const [editingPayment, setEditingPayment] = React.useState<PaymentFormData | null>(null)
+  const onPaymentsChangeRef = React.useRef<typeof onPaymentsChange>(onPaymentsChange)
+
+  React.useEffect(() => {
+    onPaymentsChangeRef.current = onPaymentsChange
+  }, [onPaymentsChange])
+
+  const addActionLabel = t('sales.documents.payments.add', 'Add payment')
+  const editActionLabel = t('sales.documents.payments.edit', 'Edit payment')
+  const deleteActionLabel = t('sales.documents.payments.delete', 'Delete payment')
+
+  const loadPayments = React.useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const params = new URLSearchParams({ page: '1', pageSize: '100', orderId })
+      const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+        `/api/sales/payments?${params.toString()}`,
+        undefined,
+        { fallback: { items: [] } }
+      )
+      if (response.ok && Array.isArray(response.result?.items)) {
+        const mapped = response.result.items.flatMap<PaymentRow>((item) => {
+          if (typeof item.id !== 'string') return []
+          const customValues =
+            item && typeof item === 'object'
+              ? extractCustomFieldValues(item as Record<string, unknown>)
+              : {}
+          const record: PaymentRow = {
+            id: item.id,
+            updatedAt: readRowUpdatedAt(item),
+            paymentReference: typeof item.payment_reference === 'string' ? item.payment_reference : null,
+            paymentMethodId: typeof item.payment_method_id === 'string' ? item.payment_method_id : null,
+            paymentMethodName:
+              typeof item.payment_method_name === 'string'
+                ? item.payment_method_name
+                : typeof item.payment_method_code === 'string'
+                  ? item.payment_method_code
+                  : null,
+            status: typeof item.status === 'string' ? item.status : null,
+            statusEntryId:
+              typeof (item as any).status_entry_id === 'string'
+                ? (item as any).status_entry_id
+                : typeof (item as any).statusEntryId === 'string'
+                  ? (item as any).statusEntryId
+                  : null,
+            statusLabel:
+              typeof (item as any).status_label === 'string'
+                ? (item as any).status_label
+                : typeof (item as any).statusLabel === 'string'
+                  ? (item as any).statusLabel
+                  : null,
+            amount: normalizeNumber(item.amount),
+            currencyCode:
+              typeof item.currency_code === 'string'
+                ? item.currency_code
+                : typeof currencyCode === 'string'
+                  ? currencyCode
+                  : null,
+            receivedAt: typeof item.received_at === 'string' ? item.received_at : null,
+            createdAt: typeof item.created_at === 'string' ? item.created_at : null,
+            customValues: Object.keys(customValues).length ? customValues : null,
+            customFieldSetId:
+              typeof (item as any)?.custom_field_set_id === 'string'
+                ? (item as any).custom_field_set_id
+                : typeof (item as any)?.customFieldSetId === 'string'
+                  ? (item as any).customFieldSetId
+                  : null,
+          }
+          return [record]
+        })
+        setPayments(mapped)
+        onPaymentsChangeRef.current?.(mapped)
+      } else {
+        setPayments([])
+        onPaymentsChangeRef.current?.([])
+      }
+    } catch (err) {
+      logger.error('sales.payments.list', { err })
+      setError(t('sales.documents.payments.errorLoad', 'Failed to load payments.'))
+      onPaymentsChangeRef.current?.([])
+    } finally {
+      setLoading(false)
+    }
+  }, [currencyCode, orderId, t])
+
+  React.useEffect(() => {
+    void loadPayments()
+  }, [loadPayments])
+
+  const openCreate = React.useCallback(() => {
+    setEditingPayment(null)
+    setDialogOpen(true)
+  }, [])
+
+  const handleDialogChange = React.useCallback((nextOpen: boolean) => {
+    setDialogOpen(nextOpen)
+    if (!nextOpen) {
+      setEditingPayment(null)
+    }
+  }, [])
+
+  const openEditPayment = React.useCallback(
+    (record: PaymentRow) => {
+      setEditingPayment({
+        id: record.id,
+        updatedAt: record.updatedAt ?? null,
+        amount: record.amount ?? '',
+        paymentMethodId: record.paymentMethodId ?? '',
+        paymentReference: record.paymentReference ?? '',
+        receivedAt: record.receivedAt ? record.receivedAt.slice(0, 10) : '',
+        currencyCode: record.currencyCode ?? currencyCode ?? null,
+        statusEntryId: record.statusEntryId ?? null,
+        customValues: record.customValues ?? null,
+        customFieldSetId: record.customFieldSetId ?? null,
+      })
+      setDialogOpen(true)
+    },
+    [currencyCode]
+  )
+
+  const handlePaymentSaved = React.useCallback(
+    async (_totals?: PaymentTotals | null) => {
+      onTotalsChange?.()
+      await loadPayments()
+      emitSalesDocumentTotalsRefresh({ documentId: orderId, kind: 'order' })
+      handleDialogChange(false)
+    },
+    [handleDialogChange, loadPayments, onTotalsChange, orderId]
+  )
+
+  const handleDelete = React.useCallback(
+    async (row: PaymentRow) => {
+      try {
+        const result = await withScopedApiRequestHeaders(
+          // The server guards the PARENT order's aggregate version (Gap A), so
+          // send the order's `updated_at`, not the payment row's.
+          buildOptimisticLockHeader(documentUpdatedAt ?? undefined),
+          () =>
+            deleteCrud<{ orderTotals?: PaymentTotals | null }>('sales/payments', {
+              body: {
+                id: row.id,
+                orderId,
+                organizationId: resolvedOrganizationId ?? undefined,
+                tenantId: resolvedTenantId ?? undefined,
+              },
+              errorMessage: t('sales.documents.payments.errorDelete', 'Failed to delete payment.'),
+            })
+        )
+        if (result.ok) {
+          onTotalsChange?.()
+          flash(t('sales.documents.payments.deleted', 'Payment deleted.'), 'success')
+          await loadPayments()
+          emitSalesDocumentTotalsRefresh({ documentId: orderId, kind: 'order' })
+        }
+      } catch (err) {
+        if (handleSectionMutationError(err, t, () => void loadPayments())) {
+          return
+        }
+        logger.error('sales.payments.delete', { err })
+        flash(t('sales.documents.payments.errorDelete', 'Failed to delete payment.'), 'error')
+      }
+    },
+    [documentUpdatedAt, loadPayments, onTotalsChange, orderId, resolvedOrganizationId, resolvedTenantId, t]
+  )
+
+  React.useEffect(() => {
+    if (!onActionChange) return
+    onActionChange({
+      label: addActionLabel,
+      onClick: openCreate,
+      disabled: false,
+    })
+    return () => onActionChange(null)
+  }, [addActionLabel, onActionChange, openCreate])
+
+  const columns = React.useMemo<ColumnDef<PaymentRow>[]>(
+    () => [
+      {
+        accessorKey: 'paymentReference',
+        header: t('sales.documents.payments.reference', 'Reference'),
+        cell: ({ row }) => row.original.paymentReference || '—',
+      },
+      {
+        accessorKey: 'paymentMethodName',
+        header: t('sales.documents.payments.method', 'Method'),
+        cell: ({ row }) => row.original.paymentMethodName ?? '—',
+      },
+      {
+        // Injected columns are placed against `ColumnDef.id` before the table is
+        // built, so an accessor-derived id is not yet available: the gateway
+        // status widget anchors on this explicit id.
+        id: 'status',
+        accessorKey: 'status',
+        header: t('sales.documents.payments.status', 'Status'),
+        cell: ({ row }) => row.original.statusLabel ?? row.original.status ?? '—',
+      },
+      {
+        accessorKey: 'amount',
+        header: t('sales.documents.payments.amount', 'Amount'),
+        cell: ({ row }) => formatMoney(row.original.amount, row.original.currencyCode ?? currencyCode, locale),
+      },
+      {
+        accessorKey: 'receivedAt',
+        header: t('sales.documents.payments.receivedAt', 'Received'),
+        // `receivedAt` is written from a date input (`PaymentDialog`), coerced with
+        // `z.coerce.date()` and stored as UTC midnight, so its day must be read in UTC.
+        // Reading it locally names the previous day west of UTC — and disagrees with the
+        // Edit dialog, which seeds from `receivedAt.slice(0, 10)`, i.e. the UTC day.
+        cell: ({ row }) => formatDisplayDate(toUtcDateInputValue(row.original.receivedAt), locale) ?? '—',
+      },
+      {
+        accessorKey: 'createdAt',
+        header: t('sales.documents.payments.createdAt', 'Created'),
+        cell: ({ row }) => formatDisplayDateTime(row.original.createdAt, locale) ?? '—',
+        meta: {
+          tooltipContent: (row: PaymentRow) => formatDisplayDateTime(row.createdAt, locale) ?? undefined,
+        },
+      },
+      {
+        id: 'actions',
+        header: t('ui.dataTable.actionsColumn', 'Actions'),
+        cell: ({ row }) => {
+          return (
+            <RowActions
+              items={[
+                { id: 'edit', label: editActionLabel, onSelect: () => openEditPayment(row.original) },
+                {
+                  id: 'delete',
+                  label: deleteActionLabel,
+                  destructive: true,
+                  onSelect: () => void handleDelete(row.original),
+                },
+              ]}
+            />
+          )
+        },
+      },
+    ],
+    [currencyCode, deleteActionLabel, editActionLabel, handleDelete, locale, openEditPayment, t]
+  )
+
+  if (loading) {
+    return (
+      <LoadingMessage
+        label={t('sales.documents.payments.loading', 'Loading payments…')}
+        className="border-0 bg-transparent p-0 py-8 justify-center"
+      />
+    )
+  }
+
+  if (error) {
+    return (
+      <ErrorMessage
+        label={error}
+        action={
+          <Button variant="outline" size="sm" onClick={() => void loadPayments()}>
+            {t('sales.documents.payments.retry', 'Retry')}
+          </Button>
+        }
+      />
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      {payments.length ? (
+        <DataTable<PaymentRow>
+          columns={columns}
+          data={payments}
+          onRowClick={openEditPayment}
+          extensionTableId={extensionPoints.hosts.paymentsTable.tableId}
+        />
+      ) : (
+        <TabEmptyState
+          title={t('sales.documents.payments.emptyTitle', 'No payments yet.')}
+          description={t(
+            'sales.documents.payments.emptyDescription',
+            'Track received payments to keep outstanding balances up to date.'
+          )}
+          action={{
+            label: addActionLabel,
+            onClick: openCreate,
+            icon: <Plus className="h-4 w-4" aria-hidden />,
+            disabled: loading,
+          }}
+        />
+      )}
+
+      <PaymentDialog
+        open={dialogOpen}
+        onOpenChange={handleDialogChange}
+        mode={editingPayment ? 'edit' : 'create'}
+        payment={editingPayment}
+        currencyCode={editingPayment?.currencyCode ?? currencyCode}
+        orderId={orderId}
+        organizationId={resolvedOrganizationId}
+        tenantId={resolvedTenantId}
+        documentUpdatedAt={documentUpdatedAt ?? null}
+        onSaved={handlePaymentSaved}
+      />
+    </div>
+  )
+}

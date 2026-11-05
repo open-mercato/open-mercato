@@ -1,0 +1,726 @@
+import path from 'node:path'
+import fs from 'node:fs'
+import { pathToFileURL } from 'node:url'
+import ts from 'typescript-js'
+import { MikroORM, MetadataStorage, type Logger } from '@mikro-orm/core'
+import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy'
+import { Migrator } from '@mikro-orm/migrations'
+import { PostgreSqlDriver } from '@mikro-orm/postgresql'
+import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
+import type { PackageResolver, ModuleEntry } from '../resolver'
+import { quotePostgresIdentifier } from './identifiers'
+import {
+  checkEncryptionMapBackfills,
+  isEncryptionBackfillCheckEnabled,
+  readDeclaredEncryptionMaps,
+  type DeclaredEncryptionMap,
+  type EncryptionMapRow,
+} from './encryption-backfill-check'
+import {
+  collectQueryIndexReindexEntityTypes,
+  isMigrationReindexEnabled,
+  requestQueryIndexReindex,
+  type AppliedMigration,
+} from './migration-reindex'
+
+const QUIET_MODE = process.env.OM_CLI_QUIET === '1' || process.env.MERCATO_QUIET === '1'
+const PROGRESS_EMOJI = ''
+
+function formatResult(modId: string, message: string, emoji = '\u2022') {
+  return `${emoji} ${modId}: ${message}`
+}
+
+function createProgressRenderer(total: number) {
+  const width = 20
+  const normalizedTotal = total > 0 ? total : 1
+  return (current: number) => {
+    const clamped = Math.min(Math.max(current, 0), normalizedTotal)
+    const filled = Math.round((clamped / normalizedTotal) * width)
+    const bar = `${'='.repeat(filled)}${'.'.repeat(Math.max(width - filled, 0))}`
+    return `[${bar}] ${clamped}/${normalizedTotal}`
+  }
+}
+
+function createMinimalLogger(): Logger {
+  return {
+    log: () => { },
+    error: (_namespace, message) => console.error(message),
+    warn: (_namespace, message) => {
+      if (!QUIET_MODE) console.warn(message)
+    },
+    logQuery: () => { },
+    setDebugMode: () => { },
+    isEnabled: () => false,
+  }
+}
+
+function getClientUrl(): string {
+  const url = process.env.DATABASE_URL
+  if (!url) throw new Error('DATABASE_URL is not set')
+  return url
+}
+
+function sortModules(mods: ModuleEntry[]): ModuleEntry[] {
+  // Sort modules alphabetically since they are now isomorphic
+  return mods.slice().sort((a, b) => a.id.localeCompare(b.id))
+}
+
+/**
+ * Convert a filesystem path into a specifier `import()` can resolve under plain
+ * Node ESM on every platform (#6238).
+ *
+ * Windows already needed `file:` URLs for drive-letter absolute paths. On POSIX,
+ * cwd-relative paths such as `node_modules/.../Migration.js` are treated as
+ * bare package names (`node_modules`), so migration reindex declarations were
+ * logged and skipped. Absolute paths become `file:` URLs on every platform.
+ * Already-URL / `node:` / bare package (and package-subpath) specifiers stay as-is.
+ */
+export function toImportableModuleSpecifier(id: string): string {
+  if (
+    id.startsWith('file:') ||
+    id.startsWith('data:') ||
+    id.startsWith('node:') ||
+    id.startsWith('http:') ||
+    id.startsWith('https:')
+  ) {
+    return id
+  }
+
+  const isWindowsAbsolute = /^[a-zA-Z]:[\\/]/.test(id)
+  const isFilesystemRelative =
+    id.startsWith('./') ||
+    id.startsWith('../') ||
+    id.startsWith('.\\') ||
+    id.startsWith('..\\') ||
+    /(^|[\\/])node_modules([\\/]|$)/.test(id)
+
+  if (path.isAbsolute(id) || isWindowsAbsolute || isFilesystemRelative) {
+    return pathToFileURL(path.resolve(id)).href
+  }
+
+  return id
+}
+
+/**
+ * Custom dynamic import provider for MikroORM and migration reindex loading.
+ * Always converts filesystem paths to `file:` URLs before `import()` (#6238).
+ */
+async function dynamicImportProvider(id: string): Promise<any> {
+  return import(toImportableModuleSpecifier(id))
+}
+
+/**
+ * Sanitizes a module ID for use in SQL identifiers (table names).
+ * Replaces non-alphanumeric characters with underscores to prevent SQL injection.
+ * @public Exported for testing
+ */
+export function sanitizeModuleId(modId: string): string {
+  return modId.replace(/[^a-z0-9_]/gi, '_')
+}
+
+/**
+ * Validates that a table name is safe for use in SQL queries.
+ * @throws Error if the table name contains invalid characters.
+ * @public Exported for testing
+ */
+export function validateTableName(tableName: string): void {
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableName)) {
+    throw new Error(`Invalid table name: ${tableName}. Table names must start with a letter or underscore and contain only alphanumeric characters and underscores.`)
+  }
+}
+
+export function makeConstraintDropsIdempotent(sql: string): string {
+  return sql.replace(/alter table\s+("[^"]+"|\S+)\s+drop constraint\s+("[^"]+"|\S+);/gi, 'alter table $1 drop constraint if exists $2;')
+}
+
+export function getMigrationSnapshotName(resolver: Pick<PackageResolver, 'getRootDir'>): string {
+  void resolver
+  return '.snapshot-open-mercato'
+}
+
+export function shouldCreateInitialModuleMigration(migrationsPath: string, snapshotName: string): boolean {
+  const snapshotPath = path.join(migrationsPath, `${snapshotName}.json`)
+  if (fs.existsSync(snapshotPath)) return false
+  if (!fs.existsSync(migrationsPath)) return true
+
+  const migrationFiles = fs
+    .readdirSync(migrationsPath)
+    .filter((file) => /^Migration.*\.(ts|js)$/.test(file) && !file.endsWith('.d.ts'))
+
+  return migrationFiles.length === 0
+}
+
+export function resolveGeneratedMigrationPath(fileName: string, migrationsPath: string): string {
+  return path.isAbsolute(fileName) ? fileName : path.join(migrationsPath, fileName)
+}
+
+let tsxLoaderRegistered = false
+let temporaryModuleCounter = 0
+
+async function ensureTsxLoaderRegistered() {
+  if (tsxLoaderRegistered) return
+  try {
+    const { register } = await import('tsx/esm/api')
+    register()
+    tsxLoaderRegistered = true
+  } catch {
+    // Continue without the loader. Relative TypeScript imports may fail in this case.
+  }
+}
+
+async function importWithTypeScriptFile(filePath: string): Promise<any> {
+  await ensureTsxLoaderRegistered()
+  const source = fs.readFileSync(filePath, 'utf8')
+  const compiled = ts.transpileModule(source, {
+    fileName: filePath,
+    compilerOptions: {
+      module: ts.ModuleKind.ESNext,
+      target: ts.ScriptTarget.ES2022,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      esModuleInterop: true,
+      resolveJsonModule: true,
+      jsx: ts.JsxEmit.ReactJSX,
+      experimentalDecorators: true,
+      emitDecoratorMetadata: false,
+      useDefineForClassFields: false,
+    },
+  }).outputText
+  const tempPath = `${filePath}.mercato-db-generate-${process.pid}-${temporaryModuleCounter++}.mjs`
+  fs.writeFileSync(tempPath, compiled, 'utf8')
+  try {
+    return await import(pathToFileURL(tempPath).href)
+  } finally {
+    try {
+      fs.unlinkSync(tempPath)
+    } catch {
+      // Ignore cleanup failures for temporary compiled modules.
+    }
+  }
+}
+
+async function loadModuleEntities(entry: ModuleEntry, resolver: PackageResolver): Promise<any[]> {
+  const roots = resolver.getModulePaths(entry)
+  const imps = resolver.getModuleImportBase(entry)
+  const isAppModule = entry.from === '@app'
+  const shouldImportFromSource = isAppModule || resolver.isMonorepo()
+  const bases = [
+    path.join(roots.appBase, 'data'),
+    path.join(roots.pkgBase, 'data'),
+    path.join(roots.appBase, 'db'),
+    path.join(roots.pkgBase, 'db'),
+  ]
+  const candidates = ['entities.ts', 'schema.ts']
+
+  for (const base of bases) {
+    for (const f of candidates) {
+      const p = path.join(base, f)
+      if (fs.existsSync(p)) {
+        const sub = path.basename(base)
+        const fromApp = base.startsWith(roots.appBase)
+        const importPath = fromApp || shouldImportFromSource
+          ? pathToFileURL(p).href
+          : `${imps.pkgBase}/${sub}/${f.replace(/\.ts$/, '')}`
+        try {
+          const mod = fromApp || shouldImportFromSource
+            ? await importWithTypeScriptFile(p)
+            : await import(importPath)
+          const entities = Object.values(mod).filter((v) => typeof v === 'function')
+          if (entities.length) return entities as any[]
+        } catch (err) {
+          // For @app modules we try a TS loader fallback; otherwise propagate errors
+          if (isAppModule) {
+            if (process.env.MERCATO_CLI_DEBUG_IMPORTS === '1') {
+              console.warn(`[db] failed to load app module entities from ${p}: ${(err as Error)?.message || String(err)}`)
+            }
+            continue
+          }
+          throw err
+        }
+      }
+    }
+  }
+  return []
+}
+
+function getMigrationsPath(entry: ModuleEntry, resolver: PackageResolver): string {
+  const roots = resolver.getModulePaths(entry)
+
+  if (entry.from === '@app') {
+    // @app modules: use src/ (user's TypeScript source)
+    // Normalize to forward slashes for ESM compatibility on Windows
+    return path.join(roots.appBase, 'migrations').replace(/\\/g, '/')
+  }
+
+  // Package modules: in standalone mode, use dist/ (compiled JS) since Node.js
+  // can't run TypeScript from node_modules. In monorepo, use src/ (TypeScript).
+  if (!resolver.isMonorepo()) {
+    // Replace src/modules with dist/modules for standalone apps
+    // Use regex to handle both forward and backslashes
+    const distPath = roots.pkgBase.replace(/[/\\]src[/\\]modules[/\\]/, '/dist/modules/')
+    return path.join(distPath, 'migrations').replace(/\\/g, '/')
+  }
+
+  // Normalize to forward slashes for ESM compatibility on Windows
+  return path.join(roots.pkgBase, 'migrations').replace(/\\/g, '/')
+}
+
+async function loadModuleEncryptionMaps(entry: ModuleEntry, resolver: PackageResolver): Promise<DeclaredEncryptionMap[]> {
+  const roots = resolver.getModulePaths(entry)
+  const appFile = path.join(roots.appBase, 'encryption.ts')
+  const pkgFile = path.join(roots.pkgBase, 'encryption.ts')
+  try {
+    if (fs.existsSync(appFile)) return readDeclaredEncryptionMaps(entry.id, await importWithTypeScriptFile(appFile))
+    if (entry.from === '@app' || resolver.isMonorepo()) {
+      return fs.existsSync(pkgFile) ? readDeclaredEncryptionMaps(entry.id, await importWithTypeScriptFile(pkgFile)) : []
+    }
+    return readDeclaredEncryptionMaps(entry.id, await import(`${resolver.getModuleImportBase(entry).pkgBase}/encryption`))
+  } catch {
+    return []
+  }
+}
+
+function readModuleMigrationSources(modules: ModuleEntry[], resolver: PackageResolver): string[] {
+  const sources: string[] = []
+  for (const entry of modules) {
+    const migrationsPath = getMigrationsPath(entry, resolver)
+    if (!fs.existsSync(migrationsPath)) continue
+    for (const file of fs.readdirSync(migrationsPath)) {
+      if (!/^Migration.*\.(ts|js)$/.test(file) || file.endsWith('.d.ts')) continue
+      sources.push(fs.readFileSync(path.join(migrationsPath, file), 'utf8'))
+    }
+  }
+  return sources
+}
+
+async function queryEncryptionMapRows(): Promise<EncryptionMapRow[] | null> {
+  const { Client } = await import('pg')
+  const client = new Client({ connectionString: getClientUrl(), ssl: getSslConfig(), connectionTimeoutMillis: 5000 })
+  await client.connect()
+  try {
+    const table = await client.query(`select to_regclass('encryption_maps') is not null as "exists"`)
+    if (!table.rows[0]?.exists) return null
+    const result = await client.query(
+      `select "tenant_id", "organization_id", "entity_id", "fields_json", "is_active" from "encryption_maps" where "deleted_at" is null`,
+    )
+    return result.rows.map((row) => ({
+      tenantId: row.tenant_id ?? null,
+      organizationId: row.organization_id ?? null,
+      entityId: String(row.entity_id),
+      fieldsJson: row.fields_json,
+      isActive: row.is_active === true,
+    }))
+  } finally {
+    try {
+      await client.end()
+    } catch { }
+  }
+}
+
+export async function warnAboutMissingEncryptionMapBackfills(modules: ModuleEntry[], resolver: PackageResolver): Promise<void> {
+  if (!isEncryptionBackfillCheckEnabled()) return
+  await checkEncryptionMapBackfills({
+    loadDeclaredMaps: async () => {
+      const declared: DeclaredEncryptionMap[] = []
+      for (const entry of modules) declared.push(...(await loadModuleEncryptionMaps(entry, resolver)))
+      return declared
+    },
+    loadMigrationSources: () => readModuleMigrationSources(modules, resolver),
+    queryEncryptionMaps: queryEncryptionMapRows,
+    warn: (message) => console.warn(message),
+  })
+}
+
+export interface DbOptions {
+  quiet?: boolean
+}
+
+export interface GreenfieldOptions extends DbOptions {
+  yes: boolean
+}
+
+export async function dbGenerate(resolver: PackageResolver, options: DbOptions = {}): Promise<void> {
+  const modules = resolver.loadEnabledModules()
+  const ordered = sortModules(modules)
+  const results: string[] = []
+
+  const sslConfig = getSslConfig()
+  const usedFileNames = new Set<string>()
+
+  for (const entry of ordered) {
+    // Clear the global @Entity() decorator registry before loading this module's
+    // entities. MikroORM's migrator reads MetadataStorage at createMigration()
+    // time, so without this clear, every module's migration would include every
+    // previously-loaded module's tables (see issue #1911).
+    MetadataStorage.clear()
+
+    const modId = entry.id
+    const sanitizedModId = sanitizeModuleId(modId)
+    const entities = await loadModuleEntities(entry, resolver)
+    if (!entities.length) {
+      if (entry.from === '@app') {
+        results.push(formatResult(modId, 'no entities discovered', ''))
+      }
+      continue
+    }
+
+    const migrationsPath = getMigrationsPath(entry, resolver)
+    fs.mkdirSync(migrationsPath, { recursive: true })
+
+    const tableName = `mikro_orm_migrations_${sanitizedModId}`
+    validateTableName(tableName)
+    const snapshotName = getMigrationSnapshotName(resolver)
+    const createInitialMigration = shouldCreateInitialModuleMigration(migrationsPath, snapshotName)
+
+    const orm = await MikroORM.init<PostgreSqlDriver>({
+      driver: PostgreSqlDriver,
+      clientUrl: getClientUrl(),
+      loggerFactory: () => createMinimalLogger(),
+      dynamicImportProvider,
+      entities,
+      metadataProvider: ReflectMetadataProvider,
+      migrations: {
+        path: migrationsPath,
+        glob: '!(*.d).{ts,js}',
+        tableName,
+        snapshotName,
+        dropTables: false,
+      },
+      schemaGenerator: {
+        disableForeignKeys: true,
+      },
+      pool: {
+        min: 1,
+        max: 3,
+        idleTimeoutMillis: 30000,
+        // acquireTimeoutMillis removed for v7 (pg.Pool doesn't support it; use connectionTimeoutMillis in driverOptions if needed)
+      },
+      driverOptions: sslConfig ? {
+        ssl: sslConfig,
+      } : undefined,
+    })
+
+    try {
+      const diff = await orm.migrator.create(undefined, false, createInitialMigration)
+      if (diff && diff.fileName) {
+        try {
+          const orig = resolveGeneratedMigrationPath(diff.fileName, migrationsPath)
+          const base = path.basename(orig)
+          const dir = path.dirname(orig)
+          const ext = path.extname(base)
+          const stem = base.replace(ext, '')
+          const suffix = `_${modId}`
+          let candidate = stem.endsWith(suffix) ? base : `${stem}${suffix}${ext}`
+          let dedupe = 1
+
+          while (usedFileNames.has(path.join(dir, candidate))) {
+            candidate = `${stem}${suffix}_${dedupe++}${ext}`
+          }
+
+          const newPath = path.join(dir, candidate)
+          let content = fs.readFileSync(orig, 'utf8')
+          content = makeConstraintDropsIdempotent(content)
+          content = content.replace(
+            /export class (Migration\d+)/,
+            `export class $1_${modId.replace(/[^a-zA-Z0-9]/g, '_')}`
+          )
+          fs.writeFileSync(newPath, content, 'utf8')
+          if (newPath !== orig) fs.unlinkSync(orig)
+          usedFileNames.add(newPath)
+          results.push(formatResult(modId, `generated ${path.basename(newPath)}`, ''))
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          results.push(formatResult(modId, `generated ${path.basename(diff.fileName)} (rename failed: ${message})`, ''))
+        }
+      } else {
+        results.push(formatResult(modId, 'no changes', ''))
+      }
+    } finally {
+      await orm.close(true)
+    }
+  }
+
+  console.log(results.join('\n'))
+  await warnAboutMissingEncryptionMapBackfills(ordered, resolver)
+}
+
+export async function dbMigrate(resolver: PackageResolver, options: DbOptions = {}): Promise<void> {
+  const modules = resolver.loadEnabledModules()
+  const ordered = sortModules(modules)
+  const results: string[] = []
+  const appliedMigrations: AppliedMigration[] = []
+
+  try {
+    for (const entry of ordered) {
+      const modId = entry.id
+      const sanitizedModId = sanitizeModuleId(modId)
+      const entities = await loadModuleEntities(entry, resolver)
+
+      const migrationsPath = getMigrationsPath(entry, resolver)
+
+      // Skip if no entities AND no migrations directory exists
+      // (allows @app modules to run migrations even if entities can't be dynamically imported)
+      if (!entities.length && !fs.existsSync(migrationsPath)) continue
+      fs.mkdirSync(migrationsPath, { recursive: true })
+
+      const tableName = `mikro_orm_migrations_${sanitizedModId}`
+      validateTableName(tableName)
+
+      // dbMigrate only runs existing migration files — entities are intentionally
+      // omitted so MikroORM does not compare them against the snapshot and
+      // auto-generate a phantom diff migration (that would duplicate tables
+      // already created by committed migrations).
+      const sslConfig = getSslConfig()
+      const orm = await MikroORM.init<PostgreSqlDriver>({
+        driver: PostgreSqlDriver,
+        clientUrl: getClientUrl(),
+        loggerFactory: () => createMinimalLogger(),
+        dynamicImportProvider,
+        entities: [],
+        metadataProvider: ReflectMetadataProvider,
+        discovery: { warnWhenNoEntities: false },
+        migrations: {
+          path: migrationsPath,
+          glob: '!(*.d).{ts,js}',
+          tableName,
+          snapshot: false,
+          dropTables: false,
+        },
+        schemaGenerator: {
+          disableForeignKeys: true,
+        },
+        pool: {
+          min: 1,
+          max: 3,
+          idleTimeoutMillis: 30000,
+          // acquireTimeoutMillis removed for v7 (pg.Pool doesn't support it; use connectionTimeoutMillis in driverOptions if needed)
+        },
+        driverOptions: sslConfig ? {
+          ssl: sslConfig,
+        } : undefined,
+      })
+
+      try {
+        const migrator = orm.migrator as Migrator
+        const pending = await migrator.getPending()
+        if (!pending.length) {
+          results.push(formatResult(modId, 'no pending migrations', ''))
+        } else {
+          const renderProgress = createProgressRenderer(pending.length)
+          let applied = 0
+          if (!QUIET_MODE) {
+            process.stdout.write(`   ${PROGRESS_EMOJI} ${modId}: ${renderProgress(applied)}`)
+          }
+          for (const migration of pending) {
+            const migrationName =
+              typeof migration === 'string'
+                ? migration
+                : (migration as any).name ?? (migration as any).fileName
+            await migrator.up(migrationName ? { migrations: [migrationName] } : undefined)
+            if (migrationName) {
+              appliedMigrations.push({
+                moduleId: modId,
+                migrationsPath,
+                name: String(migrationName),
+                filePath: typeof migration === 'string' ? null : (migration as any).path ?? null,
+              })
+            }
+            applied += 1
+            if (!QUIET_MODE) {
+              process.stdout.write(`\r   ${PROGRESS_EMOJI} ${modId}: ${renderProgress(applied)}`)
+            }
+          }
+          if (!QUIET_MODE) process.stdout.write('\n')
+          results.push(
+            formatResult(modId, `${pending.length} migration${pending.length === 1 ? '' : 's'} applied`, '')
+          )
+        }
+      } finally {
+        await orm.close(true)
+      }
+    }
+  } finally {
+    console.log(results.join('\n'))
+    await dischargeQueryIndexReindexRequests(appliedMigrations)
+  }
+}
+
+/**
+ * Runs after every module migrated and after `orm.close()`, so the rewrites the declarations
+ * refer to are committed before the reindex is queued.
+ *
+ * Reached from a `finally`, so it also runs when a later migration threw: the migrations that
+ * did apply already committed, and their declarations are the only record that their projections
+ * are stale — a re-run cannot recover them, because `getPending()` no longer lists them. It must
+ * therefore never throw, or it would replace the migration failure the operator needs to see.
+ */
+export async function dischargeQueryIndexReindexRequests(
+  applied: readonly AppliedMigration[],
+): Promise<void> {
+  if (!applied.length || !isMigrationReindexEnabled()) return
+
+  try {
+    const entityTypes = await collectQueryIndexReindexEntityTypes(applied, {
+      importModule: dynamicImportProvider,
+      onWarn: (message) => console.warn(message),
+    })
+    if (!entityTypes.length) return
+
+    await requestQueryIndexReindex(entityTypes, {
+      createContainer: async () => {
+        const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
+        return (await createRequestContainer()) as any
+      },
+      onInfo: (message) => {
+        if (!QUIET_MODE) console.log(message)
+      },
+      onWarn: (message) => console.warn(message),
+    })
+  } catch (error) {
+    console.warn(
+      `[query_index] Could not determine which projections the migrations invalidated: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    )
+  }
+}
+
+export async function dbGreenfield(resolver: PackageResolver, options: GreenfieldOptions): Promise<void> {
+  if (!options.yes) {
+    console.error('This command will DELETE all data. Use --yes to confirm.')
+    process.exit(1)
+  }
+
+  console.log('Cleaning up migrations and snapshots for greenfield setup...')
+
+  const modules = resolver.loadEnabledModules()
+  const ordered = sortModules(modules)
+  const results: string[] = []
+  const outputDir = resolver.getOutputDir()
+
+  for (const entry of ordered) {
+    const modId = entry.id
+    const migrationsPath = getMigrationsPath(entry, resolver)
+
+    if (fs.existsSync(migrationsPath)) {
+      // Remove all migration files
+      const migrationFiles = fs
+        .readdirSync(migrationsPath)
+        .filter((file) => file.endsWith('.ts') && file.startsWith('Migration'))
+
+      for (const file of migrationFiles) {
+        fs.unlinkSync(path.join(migrationsPath, file))
+      }
+
+      // Remove snapshot files
+      const snapshotFiles = fs
+        .readdirSync(migrationsPath)
+        .filter((file) => file.endsWith('.json') && file.includes('snapshot'))
+
+      for (const file of snapshotFiles) {
+        fs.unlinkSync(path.join(migrationsPath, file))
+      }
+
+      if (migrationFiles.length > 0 || snapshotFiles.length > 0) {
+        results.push(
+          formatResult(modId, `cleaned ${migrationFiles.length} migrations, ${snapshotFiles.length} snapshots`, '')
+        )
+      } else {
+        results.push(formatResult(modId, 'already clean', ''))
+      }
+    } else {
+      results.push(formatResult(modId, 'no migrations directory', ''))
+    }
+
+    // Clean up checksum files using glob pattern
+    if (fs.existsSync(outputDir)) {
+      const files = fs.readdirSync(outputDir)
+      const checksumFiles = files.filter((file) => file.endsWith('.checksum'))
+
+      for (const file of checksumFiles) {
+        fs.unlinkSync(path.join(outputDir, file))
+      }
+
+      if (checksumFiles.length > 0) {
+        results.push(formatResult(modId, `cleaned ${checksumFiles.length} checksum files`, ''))
+      }
+    }
+  }
+
+  console.log(results.join('\n'))
+
+  // Drop per-module MikroORM migration tables to ensure clean slate
+  console.log('Dropping per-module migration tables...')
+  try {
+    const { Client } = await import('pg')
+    const client = new Client({ connectionString: getClientUrl(), ssl: getSslConfig() })
+    await client.connect()
+    try {
+      await client.query('BEGIN')
+      for (const entry of ordered) {
+        const modId = entry.id
+        const sanitizedModId = sanitizeModuleId(modId)
+        const tableName = `mikro_orm_migrations_${sanitizedModId}`
+        validateTableName(tableName)
+        await client.query(`DROP TABLE IF EXISTS "${tableName}"`)
+        console.log(`   ${modId}: dropped table ${tableName}`)
+      }
+      await client.query('COMMIT')
+    } catch (e) {
+      await client.query('ROLLBACK')
+      throw e
+    } finally {
+      try {
+        await client.end()
+      } catch { }
+    }
+  } catch (e) {
+    console.error('Failed to drop migration tables:', (e as any)?.message || e)
+    throw e
+  }
+
+  // Drop all existing user tables to ensure fresh CREATE-only migrations
+  console.log('Dropping ALL public tables for true greenfield...')
+  try {
+    const { Client } = await import('pg')
+    const client = new Client({ connectionString: getClientUrl(), ssl: getSslConfig() })
+    await client.connect()
+    try {
+      const res = await client.query(`SELECT tablename FROM pg_tables WHERE schemaname = current_schema()`)
+      const tables: string[] = (res.rows || []).map((r: any) => String(r.tablename))
+      if (tables.length) {
+        await client.query('BEGIN')
+        try {
+          await client.query("SET session_replication_role = 'replica'")
+          for (const t of tables) {
+            await client.query(`DROP TABLE IF EXISTS ${quotePostgresIdentifier(t)} CASCADE`)
+          }
+          await client.query("SET session_replication_role = 'origin'")
+          await client.query('COMMIT')
+          console.log(`   Dropped ${tables.length} tables.`)
+        } catch (e) {
+          await client.query('ROLLBACK')
+          throw e
+        }
+      } else {
+        console.log('   No tables found to drop.')
+      }
+    } finally {
+      try {
+        await client.end()
+      } catch { }
+    }
+  } catch (e) {
+    console.error('Failed to drop public tables:', (e as any)?.message || e)
+    throw e
+  }
+
+  // Generate fresh migrations for all modules
+  console.log('Generating fresh migrations for all modules...')
+  await dbGenerate(resolver)
+
+  // Apply migrations
+  console.log('Applying migrations...')
+  await dbMigrate(resolver)
+
+  console.log('Greenfield reset complete! Fresh migrations generated and applied.')
+}

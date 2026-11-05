@@ -1,0 +1,274 @@
+import { NextResponse } from 'next/server'
+import { z } from 'zod'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { DashboardUserWidgets } from '@open-mercato/core/modules/dashboards/data/entities'
+import { User } from '@open-mercato/core/modules/auth/data/entities'
+import { userWidgetSettingsSchema } from '@open-mercato/core/modules/dashboards/data/validators'
+import { loadAllWidgets } from '@open-mercato/core/modules/dashboards/lib/widgets'
+import { resolveAllowedWidgetIds } from '@open-mercato/core/modules/dashboards/lib/access'
+import {
+  resolveWidgetAssignmentReadScope,
+  resolveWidgetAssignmentTargetAccess,
+} from '@open-mercato/core/modules/dashboards/lib/widgetAssignmentScope'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
+import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import {
+  dashboardsTag,
+  dashboardsErrorSchema,
+  dashboardUserWidgetsResponseSchema,
+  dashboardUserWidgetsUpdateResponseSchema,
+} from '../../openapi'
+
+const FEATURE = 'dashboards.admin.assign-widgets'
+const RESOURCE_KIND = 'dashboards.userWidgets'
+
+export const metadata = {
+  GET: { requireAuth: true, requireFeatures: [FEATURE] },
+  PUT: { requireAuth: true, requireFeatures: [FEATURE] },
+}
+
+export async function GET(req: Request) {
+  const auth = await getAuthFromRequest(req)
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const url = new URL(req.url)
+  const userId = url.searchParams.get('userId')
+  if (!userId) return NextResponse.json({ error: 'userId is required' }, { status: 400 })
+
+  const container = await createRequestContainer()
+  const em = container.resolve('em') as any
+  const rbac = container.resolve('rbacService') as any
+  const acl = await rbac.loadAcl(auth.sub, { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null })
+  if (!authorizeFeatures([FEATURE], {
+    grantedFeatures: acl.features ?? [],
+    unrestricted: !!acl.isSuperAdmin,
+  })) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  const { tenantId, organizationId } = resolveWidgetAssignmentReadScope({
+    auth: { tenantId: auth.tenantId ?? null, orgId: auth.orgId ?? null },
+    isSuperAdmin: !!acl.isSuperAdmin,
+    queryTenantId: url.searchParams.get('tenantId'),
+    queryOrganizationId: url.searchParams.get('organizationId'),
+  })
+
+  const targetUserForRead = await em.findOne(User, { id: userId, deletedAt: null })
+  const readAccess = resolveWidgetAssignmentTargetAccess({
+    isSuperAdmin: !!acl.isSuperAdmin,
+    scopeTenantId: tenantId,
+    target: targetUserForRead,
+  })
+  if (readAccess === 'forbidden') {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+  if (readAccess === 'not-found') {
+    return NextResponse.json({ error: 'User not found' }, { status: 404 })
+  }
+
+  const widgets = await loadAllWidgets()
+  const targetAcl = await rbac.loadAcl(userId, { tenantId, organizationId })
+  const allowed = await resolveAllowedWidgetIds(
+    em,
+    {
+      userId,
+      tenantId,
+      organizationId,
+      features: targetAcl.features ?? [],
+      isSuperAdmin: !!targetAcl.isSuperAdmin,
+    },
+    widgets,
+  )
+
+  const record = await em.findOne(DashboardUserWidgets, {
+    userId,
+    tenantId,
+    organizationId,
+    deletedAt: null,
+  })
+
+  const response = {
+    mode: record ? record.mode : 'inherit',
+    widgetIds: record && record.mode === 'override' ? record.widgetIdsJson : [],
+    hasCustom: !!record && record.mode === 'override',
+    effectiveWidgetIds: allowed,
+    scope: { tenantId, organizationId },
+  }
+
+  return NextResponse.json(response)
+}
+
+export async function PUT(req: Request) {
+  const auth = await getAuthFromRequest(req)
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  let payload: unknown
+  try {
+    payload = await req.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
+  const parsed = userWidgetSettingsSchema.safeParse(payload)
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Invalid payload', issues: parsed.error.issues }, { status: 400 })
+  }
+
+  const container = await createRequestContainer()
+  const { resolve } = container
+  const em = resolve('em') as any
+  const rbac = resolve('rbacService') as any
+  const acl = await rbac.loadAcl(auth.sub, { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null })
+  if (!authorizeFeatures([FEATURE], {
+    grantedFeatures: acl.features ?? [],
+    unrestricted: !!acl.isSuperAdmin,
+  })) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  const widgets = await loadAllWidgets()
+  const validWidgetIds = new Set(widgets.map((w) => w.metadata.id))
+  const widgetIds = parsed.data.widgetIds.filter((id) => validWidgetIds.has(id))
+
+  const tenantId = auth.tenantId ?? null
+  const organizationId = auth.orgId ?? null
+
+  const targetUser = await em.findOne(User, { id: parsed.data.userId, deletedAt: null })
+  const writeAccess = resolveWidgetAssignmentTargetAccess({
+    isSuperAdmin: !!acl.isSuperAdmin,
+    scopeTenantId: tenantId,
+    target: targetUser,
+  })
+  if (writeAccess === 'forbidden') {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+  if (writeAccess === 'not-found') {
+    return NextResponse.json({ error: 'User not found' }, { status: 404 })
+  }
+
+  const guardResult = await validateCrudMutationGuard(container, {
+    tenantId: tenantId ?? '',
+    organizationId,
+    userId: String(auth.sub),
+    resourceKind: RESOURCE_KIND,
+    resourceId: parsed.data.userId,
+    operation: 'update',
+    requestMethod: req.method,
+    requestHeaders: req.headers,
+    mutationPayload: { userId: parsed.data.userId, mode: parsed.data.mode, widgetIds },
+  })
+  if (guardResult && !guardResult.ok) {
+    return NextResponse.json(guardResult.body, { status: guardResult.status })
+  }
+
+  let record = await em.findOne(DashboardUserWidgets, {
+    userId: parsed.data.userId,
+    tenantId,
+    organizationId,
+    deletedAt: null,
+  })
+
+  if (parsed.data.mode === 'inherit') {
+    if (record) {
+      await em.remove(record).flush()
+    }
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(container, {
+        tenantId: tenantId ?? '',
+        organizationId,
+        userId: String(auth.sub),
+        resourceKind: RESOURCE_KIND,
+        resourceId: parsed.data.userId,
+        operation: 'update',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
+    return NextResponse.json({ ok: true, mode: 'inherit', widgetIds: [] })
+  }
+
+  if (!record) {
+    record = em.create(DashboardUserWidgets, {
+      userId: parsed.data.userId,
+      tenantId,
+      organizationId,
+      mode: 'override',
+      widgetIdsJson: widgetIds,
+    })
+    em.persist(record)
+  } else {
+    record.mode = 'override'
+    record.widgetIdsJson = widgetIds
+  }
+  await em.flush()
+
+  if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+    await runCrudMutationGuardAfterSuccess(container, {
+      tenantId: tenantId ?? '',
+      organizationId,
+      userId: String(auth.sub),
+      resourceKind: RESOURCE_KIND,
+      resourceId: parsed.data.userId,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      metadata: guardResult.metadata ?? null,
+    })
+  }
+
+  return NextResponse.json({ ok: true, mode: 'override', widgetIds })
+}
+
+const userWidgetsQuerySchema = z.object({
+  userId: z.string().uuid(),
+  tenantId: z.string().uuid().optional(),
+  organizationId: z.string().uuid().optional(),
+})
+
+const userWidgetsGetDoc: OpenApiMethodDoc = {
+  summary: 'Read widget overrides for a user',
+  description: 'Returns the widgets inherited and explicitly configured for the requested user within the current scope.',
+  tags: [dashboardsTag],
+  query: userWidgetsQuerySchema,
+  responses: [
+    { status: 200, description: 'Widget settings for the user.', schema: dashboardUserWidgetsResponseSchema },
+  ],
+  errors: [
+    { status: 400, description: 'Missing user identifier', schema: dashboardsErrorSchema },
+    { status: 401, description: 'Authentication required', schema: dashboardsErrorSchema },
+    { status: 403, description: 'Insufficient permissions to manage user widgets', schema: dashboardsErrorSchema },
+  ],
+}
+
+const userWidgetsPutDoc: OpenApiMethodDoc = {
+  summary: 'Update user-specific dashboard widgets',
+  description: 'Sets the widget override mode and allowed widgets for a user. Passing `mode: inherit` clears overrides.',
+  tags: [dashboardsTag],
+  requestBody: {
+    contentType: 'application/json',
+    schema: userWidgetSettingsSchema,
+    description: 'User identifier, override mode, and widget ids. Scope is derived from the authenticated session.',
+  },
+  responses: [
+    { status: 200, description: 'Overrides saved.', schema: dashboardUserWidgetsUpdateResponseSchema },
+  ],
+  errors: [
+    { status: 400, description: 'Invalid payload or unknown widgets', schema: dashboardsErrorSchema },
+    { status: 401, description: 'Authentication required', schema: dashboardsErrorSchema },
+    { status: 403, description: 'Insufficient permissions to manage user widgets', schema: dashboardsErrorSchema },
+  ],
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: dashboardsTag,
+  summary: 'Manage user-level dashboard widgets',
+  methods: {
+    GET: userWidgetsGetDoc,
+    PUT: userWidgetsPutDoc,
+  },
+}

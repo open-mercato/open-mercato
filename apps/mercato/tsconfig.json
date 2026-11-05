@@ -1,0 +1,28 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "plugins": [{ "name": "next" }],
+    "typeRoots": ["./types", "./node_modules/@types"],
+    "verbatimModuleSyntax": false,
+    "paths": {
+      "@/*": ["./src/*"],
+      "@/.mercato/generated/entities/*": ["./.mercato/generated/entities/*/index.ts"],
+      "@/.mercato/*": ["./.mercato/*"]
+    }
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "**/__tests__/**",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "src/modules/**/agents/**/scripts/**",
+    "src/modules/**/agents/**/tools/**"
+  ]
+}

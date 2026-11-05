@@ -1,0 +1,26 @@
+---
+title: Deploy on Railway
+description: Legacy Railway template notice and the supported Open Mercato CLI deployment guide.
+---
+
+# Deploy on Railway
+
+:::danger Legacy template
+The Railway-hosted deploy template previously documented on this page is not maintained by the Open Mercato project. Its service graph, dependencies, and environment variables may be stale.
+
+Use the supported [`mercato deploy railway` guide](/deployment/railway) for new deployments and redeployments.
+:::
+
+## Supported deployment path
+
+The CLI-driven flow provisions PostgreSQL, Redis, the app service, an optional worker, environment variables, healthcheck, and domain. It supports Git-backed and local-source deployments and records Railway resource IDs for repeatable updates.
+
+[Open the Railway deployment guide](/deployment/railway).
+
+## Deprecated template
+
+The legacy button is retained only for existing users who need to identify the old flow:
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/open-mercato)
+
+Do not use this template for a new production deployment. The Open Mercato project does not control its update cadence or guarantee its current behavior.

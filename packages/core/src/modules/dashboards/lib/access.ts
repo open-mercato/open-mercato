@@ -1,0 +1,107 @@
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { DashboardRoleWidgets, DashboardUserWidgets } from '../data/entities'
+import { UserRole } from '@open-mercato/core/modules/auth/data/entities'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+
+type LoadedWidget = {
+  metadata: {
+    id: string
+    features?: string[]
+  }
+}
+
+type AccessContext = {
+  userId: string
+  tenantId: string | null
+  organizationId: string | null
+  features: string[]
+  isSuperAdmin: boolean
+}
+
+function specificity(record: DashboardRoleWidgets): number {
+  let score = 0
+  if (record.tenantId) score += 1
+  if (record.organizationId) score += 2
+  return score
+}
+
+export async function resolveAllowedWidgetIds(
+  em: EntityManager,
+  ctx: AccessContext,
+  widgets: LoadedWidget[],
+): Promise<string[]> {
+  const allWidgetIds = widgets.map((w) => w.metadata.id)
+
+  // Load user override (if any)
+  const userRecord = await em.findOne(DashboardUserWidgets, {
+    userId: ctx.userId,
+    tenantId: ctx.tenantId,
+    organizationId: ctx.organizationId,
+    deletedAt: null,
+  })
+
+  let allowedByUser: Set<string> | null = null
+  if (userRecord) {
+    if (userRecord.mode === 'override') {
+      allowedByUser = new Set(userRecord.widgetIdsJson.filter((id) => allWidgetIds.includes(id)))
+    } else {
+      allowedByUser = null
+    }
+  }
+
+  let baseSet: Set<string>
+  if (allowedByUser) {
+    // A user override fully determines visibility, so role-level lookups would
+    // be discarded — skip them entirely. An empty override is handled by the
+    // shared `baseSet.size === 0` guard below.
+    baseSet = allowedByUser
+  } else {
+    // No user override: aggregate role-level settings.
+    const userRoles = await findWithDecryption(
+      em,
+      UserRole,
+      { user: ctx.userId as any, deletedAt: null },
+      { populate: ['role'] },
+      { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+    )
+    const roleRecords = await em.find(DashboardRoleWidgets, {
+      roleId: { $in: userRoles.map((ur) => String(ur.role?.id || ur.role)) },
+      deletedAt: null,
+    })
+
+    const byRole = new Map<string, DashboardRoleWidgets>()
+    for (const record of roleRecords) {
+      const role = String(record.roleId)
+      if (record.tenantId && ctx.tenantId && record.tenantId !== ctx.tenantId) continue
+      if (record.tenantId && !ctx.tenantId) continue
+      if (record.organizationId && ctx.organizationId && record.organizationId !== ctx.organizationId) continue
+      if (record.organizationId && !ctx.organizationId) continue
+      const current = byRole.get(role)
+      if (!current || specificity(record) > specificity(current)) {
+        byRole.set(role, record)
+      }
+    }
+
+    const allowedByRole = new Set<string>()
+    for (const record of byRole.values()) {
+      for (const id of record.widgetIdsJson) {
+        if (allWidgetIds.includes(id)) allowedByRole.add(id)
+      }
+    }
+
+    baseSet = allowedByRole.size > 0 ? allowedByRole : new Set(allWidgetIds)
+  }
+
+  if (baseSet.size === 0) return []
+
+  const filtered = widgets.filter((widget) => {
+    if (!baseSet.has(widget.metadata.id)) return false
+    return authorizeFeatures(widget.metadata.features ?? [], {
+      grantedFeatures: ctx.features,
+      unrestricted: ctx.isSuperAdmin,
+    })
+  })
+
+  return filtered.map((widget) => widget.metadata.id)
+}

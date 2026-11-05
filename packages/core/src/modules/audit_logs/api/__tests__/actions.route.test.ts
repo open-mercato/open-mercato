@@ -1,0 +1,330 @@
+/** @jest-environment node */
+import { GET } from '@open-mercato/core/modules/audit_logs/api/audit-logs/actions/route'
+import { actionLogListSchema } from '@open-mercato/core/modules/audit_logs/data/validators'
+
+const mockRbac = { userHasAllFeatures: jest.fn() }
+const mockActionLogs = { list: jest.fn() }
+const mockEm = {}
+
+jest.mock('@open-mercato/shared/lib/auth/server', () => ({
+  getAuthFromRequest: jest.fn(),
+}))
+
+jest.mock('@open-mercato/shared/lib/di/container', () => ({
+  createRequestContainer: jest.fn(async () => ({
+    resolve: (token: string) => {
+      if (token === 'rbacService') return mockRbac
+      if (token === 'actionLogService') return mockActionLogs
+      if (token === 'em') return mockEm
+      return null
+    },
+  })),
+}))
+
+jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
+  resolveFeatureCheckContext: jest.fn(),
+}))
+
+jest.mock('@open-mercato/core/modules/audit_logs/api/audit-logs/display', () => ({
+  loadAuditLogDisplayMaps: jest.fn(),
+}))
+
+function makeRequest(url: string) {
+  return new Request(url, { method: 'GET' })
+}
+
+const baseDate = new Date('2024-06-15T12:00:00.000Z')
+
+function makeActionLogEntry(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'action-1',
+    commandId: 'cmd-1',
+    actionLabel: 'Create Product',
+    executionState: 'done',
+    actorUserId: 'user-1',
+    tenantId: 'tenant-1',
+    organizationId: 'org-1',
+    resourceKind: 'product',
+    resourceId: 'prod-1',
+    parentResourceKind: null,
+    parentResourceId: null,
+    undoToken: 'undo-token-1',
+    createdAt: baseDate,
+    updatedAt: baseDate,
+    snapshotBefore: null,
+    snapshotAfter: { name: 'Widget' },
+    changesJson: { name: [null, 'Widget'] },
+    contextJson: null,
+    ...overrides,
+  }
+}
+
+describe('GET /api/audit_logs/audit-logs/actions', () => {
+  beforeEach(async () => {
+    jest.clearAllMocks()
+    const { resolveFeatureCheckContext } = await import('@open-mercato/core/modules/directory/utils/organizationScope')
+    ;(resolveFeatureCheckContext as jest.Mock).mockResolvedValue({
+      organizationId: 'org-1',
+      scope: { allowedIds: null },
+    })
+    const { loadAuditLogDisplayMaps } = await import('@open-mercato/core/modules/audit_logs/api/audit-logs/display')
+    ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({
+      users: { 'user-1': 'Alice' },
+      tenants: { 'tenant-1': 'Tenant' },
+      organizations: { 'org-1': 'Org' },
+    })
+    mockRbac.userHasAllFeatures.mockResolvedValue(false)
+    mockActionLogs.list.mockResolvedValue({
+      items: [makeActionLogEntry()],
+      total: 1,
+      page: 1,
+      pageSize: 50,
+      totalPages: 1,
+    })
+  })
+
+  it('returns 401 when unauthenticated', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue(null)
+
+    const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
+    expect(res.status).toBe(401)
+  })
+
+  it('returns paginated response with default page=1 pageSize=50', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+
+    const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
+    expect(res.status).toBe(200)
+    const data = await res.json()
+
+    expect(data.page).toBe(1)
+    expect(data.pageSize).toBe(50)
+    expect(data.total).toBe(1)
+    expect(data.totalPages).toBe(1)
+    expect(data.items).toHaveLength(1)
+    expect(data.items[0].actorUserName).toBe('Alice')
+    expect(data.items[0].tenantName).toBe('Tenant')
+    expect(data.items[0].organizationName).toBe('Org')
+    expect(data.canViewTenant).toBe(false)
+
+    const listQuery = mockActionLogs.list.mock.calls[0][0]
+    expect(listQuery.page).toBeUndefined()
+    expect(listQuery.pageSize).toBeUndefined()
+    expect(listQuery.limit).toBeUndefined()
+    expect(listQuery.offset).toBeUndefined()
+  })
+
+  it('passes page and pageSize to service', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+
+    mockActionLogs.list.mockResolvedValue({
+      items: [],
+      total: 120,
+      page: 3,
+      pageSize: 25,
+      totalPages: 5,
+    })
+
+    const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions?page=3&pageSize=25'))
+    expect(res.status).toBe(200)
+    const data = await res.json()
+
+    expect(data.page).toBe(3)
+    expect(data.pageSize).toBe(25)
+    expect(data.total).toBe(120)
+    expect(data.totalPages).toBe(5)
+
+    expect(mockActionLogs.list).toHaveBeenCalledWith(expect.objectContaining({
+      page: 3,
+      pageSize: 25,
+    }))
+    const listQuery = mockActionLogs.list.mock.calls[0][0]
+    expect(listQuery.limit).toBeUndefined()
+    expect(listQuery.offset).toBeUndefined()
+  })
+
+  it('passes legacy limit and offset to service without inventing a page', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+
+    const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions?limit=20&offset=40'))
+    expect(res.status).toBe(200)
+
+    const listQuery = mockActionLogs.list.mock.calls[0][0]
+    expect(listQuery.limit).toBe(20)
+    expect(listQuery.offset).toBe(40)
+    expect(listQuery.page).toBeUndefined()
+    expect(listQuery.pageSize).toBeUndefined()
+  })
+
+  it('clamps pageSize to max 200', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+
+    await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions?pageSize=999'))
+    expect(mockActionLogs.list).toHaveBeenCalledWith(expect.objectContaining({
+      pageSize: 200,
+    }))
+  })
+
+  it('scopes to actor when canViewTenant is false', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    mockRbac.userHasAllFeatures.mockResolvedValue(false)
+
+    await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
+    expect(mockActionLogs.list).toHaveBeenCalledWith(expect.objectContaining({
+      actorSubject: 'user-1',
+      actorUserId: undefined,
+    }))
+  })
+
+  it('scopes API-key self views to the canonical subject', async () => {
+    const keyId = '11111111-1111-4111-8111-111111111111'
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: `api_key:${keyId}`,
+      keyId,
+      isApiKey: true,
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    mockRbac.userHasAllFeatures.mockResolvedValue(false)
+
+    const response = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
+
+    expect(response.status).toBe(200)
+    expect(mockActionLogs.list).toHaveBeenCalledWith(expect.objectContaining({
+      actorSubject: `api_key:${keyId}`,
+      actorUserId: undefined,
+    }))
+  })
+
+  it('widens scope when canViewTenant is true', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    mockRbac.userHasAllFeatures.mockResolvedValue(true)
+
+    const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.canViewTenant).toBe(true)
+    expect(mockActionLogs.list).toHaveBeenCalledWith(expect.objectContaining({
+      actorUserId: undefined,
+    }))
+  })
+
+  it('passes undoableOnly filter', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+
+    await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions?undoableOnly=true'))
+    expect(mockActionLogs.list).toHaveBeenCalledWith(expect.objectContaining({
+      undoableOnly: true,
+    }))
+  })
+
+  it('returns 400 (not 500) when a filter fails uuid validation', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    const parsed = actionLogListSchema.safeParse({ actorUserId: 'not-a-uuid' })
+    if (parsed.success) throw new Error('expected actionLogListSchema to reject a non-uuid actorUserId')
+    mockActionLogs.list.mockRejectedValueOnce(parsed.error)
+
+    const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions?actorUserId=not-a-uuid'))
+    expect(res.status).toBe(400)
+    const data = await res.json()
+    expect(data.error).toBe('Validation failed')
+  })
+
+  // Regression for issue #3817 — a caller with no resolved tenant (unscoped API key or
+  // tenant-less global account) holding `audit_logs.view_tenant` used to drop the tenant,
+  // organization and actor predicates at once and read every tenant's action logs.
+  //
+  // Null, omitted and empty-string tenant are all exercised: `.ai/lessons.md` (2026-07-11)
+  // records that covering only explicit null misses the omitted-scope path.
+  const tenantlessAuthContexts: Array<[string, Record<string, unknown>]> = [
+    ['explicit null tenantId', { sub: 'user-1', tenantId: null, orgId: null }],
+    ['omitted tenantId', { sub: 'user-1', orgId: null }],
+    ['empty-string tenantId', { sub: 'user-1', tenantId: '', orgId: null }],
+  ]
+
+  describe.each(tenantlessAuthContexts)('tenant-less non-superadmin caller (%s)', (_label, authContext) => {
+    it('is rejected with 403 before the action-log service is reached', async () => {
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      ;(getAuthFromRequest as jest.Mock).mockResolvedValue(authContext)
+      mockRbac.userHasAllFeatures.mockResolvedValue(true)
+
+      const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
+
+      expect(res.status).toBe(403)
+      expect(mockActionLogs.list).not.toHaveBeenCalled()
+    })
+  })
+
+  it('preserves the intentional cross-tenant read for a tenant-less superadmin', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: null,
+      orgId: null,
+      isSuperAdmin: true,
+    })
+    mockRbac.userHasAllFeatures.mockResolvedValue(true)
+
+    const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
+
+    expect(res.status).toBe(200)
+    expect(mockActionLogs.list).toHaveBeenCalledWith(expect.objectContaining({ tenantId: undefined }))
+  })
+
+  it('leaves a tenant-scoped caller tenant-filtered as before', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    mockRbac.userHasAllFeatures.mockResolvedValue(true)
+
+    const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
+
+    expect(res.status).toBe(200)
+    expect(mockActionLogs.list).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 'tenant-1' }))
+  })
+})

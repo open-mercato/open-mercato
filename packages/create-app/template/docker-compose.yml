@@ -1,0 +1,145 @@
+services:
+  # --- Agent Orchestrator: OpenCode runtime (hybrid dev) --------------------
+  # Opt-in: starts only with `--profile agents`.
+  #
+  #   docker compose --profile agents up -d opencode
+  #
+  # Hybrid model: the app AND the MCP server run on the host (`yarn dev` starts
+  # MCP and provisions its key into .mercato/mcp-shared), and only OpenCode runs
+  # in a container, reaching the host at host.docker.internal:3001.
+  #
+  # `container_name` is pinned because scripts/dev.mjs restarts this container by
+  # name when it detects an MCP key rotation or a disconnected MCP wiring.
+  opencode:
+    profiles:
+      - agents
+    # No local build: OpenCode is pre-installed in the published base image and
+    # the project files below are bind-mounted.
+    image: ${OPENCODE_BASE_IMAGE:-docker.io/openmercatocom/open-mercato-opencode:1.18.3}
+    entrypoint: ["/bin/sh", "/home/opencode/entrypoint.sh"]
+    container_name: ${MERCATO_STACK:-mercato}-opencode
+    restart: unless-stopped
+    environment:
+      OM_AI_PROVIDER: ${OM_AI_PROVIDER:-openai}
+      OM_AI_MODEL: ${OM_AI_MODEL:-gpt-5-mini}
+      OPENCODE_PROVIDER: ${OPENCODE_PROVIDER:-}
+      OPENCODE_MODEL: ${OPENCODE_MODEL:-}
+      OPENCODE_PASSWORD: ${OPENCODE_PASSWORD:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-}
+      # The MCP server runs on the HOST. MCP_SERVER_API_KEY (env) wins when set;
+      # the file fallback reads the key `yarn dev` provisions on the host.
+      OPENCODE_MCP_URL: ${OPENCODE_MCP_URL:-http://host.docker.internal:3001/mcp}
+      MCP_SERVER_API_KEY: ${MCP_SERVER_API_KEY:-}
+      MCP_SERVER_API_KEY_FILE: /run/mcp-shared/mcp-api-key
+      OPENCODE_MCP_KEY_WAIT_SECONDS: ${OPENCODE_MCP_KEY_WAIT_SECONDS:-1800}
+      OM_OPENCODE_FILES_ENABLED: ${OM_OPENCODE_FILES_ENABLED:-false}
+    ports:
+      - "${OPENCODE_PORT:-4096}:4096"
+    volumes:
+      # Host-provisioned MCP API key (see scripts/dev-mcp.mjs).
+      - ${OM_MCP_SHARED_DIR:-./.mercato/mcp-shared}:/run/mcp-shared:ro
+      - ./docker/opencode/entrypoint.sh:/home/opencode/entrypoint.sh:ro
+      - ./docker/opencode/AGENTS.md:/home/opencode/AGENTS.md:ro
+      # File-defined agents + native skills, written by `yarn generate`.
+      # OpenCode reads them on new sessions only — restart this service after
+      # regenerating.
+      - ./docker/opencode/agents:/home/opencode/.config/opencode/agents:ro
+      - ./docker/opencode/skills:/home/opencode/.config/opencode/skills:ro
+      # Corporate CA bundle; no-op when empty.
+      - ./docker/opencode/certs:/run/om-certs:ro
+      # File plane: shared writable sandbox (only used when
+      # OM_OPENCODE_FILES_ENABLED=true).
+      - ${OM_OPENCODE_WORKSPACE_ROOT:-./.mercato/opencode-work}:/home/opencode/work:rw
+    extra_hosts:
+      - "host.docker.internal:${OM_HOST_GATEWAY:-host-gateway}"
+    networks:
+      - mercato-network
+
+  postgres:
+    image: pgvector/pgvector:pg17-trixie
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-open-mercato}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mercato-network
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - ./docker/redis/redis.conf:/usr/local/etc/redis/redis.conf
+      - redis_data:/data
+    command: redis-server /usr/local/etc/redis/redis.conf --maxmemory ${REDIS_MAXMEMORY:-512mb}
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mercato-network
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.11
+    restart: unless-stopped
+    environment:
+      MEILI_ENV: development
+      MEILI_MASTER_KEY: ${MEILISEARCH_MASTER_KEY:-meilisearch-dev-key}
+      MEILI_NO_ANALYTICS: "true"
+    ports:
+      - "${MEILISEARCH_PORT:-7700}:7700"
+    volumes:
+      - meilisearch_data:/meili_data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:7700/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mercato-network
+
+  localstack:
+    image: localstack/localstack:latest
+    restart: unless-stopped
+    profiles:
+      - storage-s3
+    ports:
+      - "${LOCALSTACK_PORT:-4566}:4566"
+    environment:
+      SERVICES: s3
+      AWS_DEFAULT_REGION: us-east-1
+      LOCALSTACK_HOST: localhost
+    volumes:
+      - localstack_data:/var/lib/localstack
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - mercato-network
+
+volumes:
+  postgres_data:
+  redis_data:
+  meilisearch_data:
+  localstack_data:
+
+networks:
+  mercato-network:
+    driver: bridge

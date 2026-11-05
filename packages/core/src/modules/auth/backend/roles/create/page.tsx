@@ -1,0 +1,120 @@
+"use client"
+import * as React from 'react'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { createCrud } from '@open-mercato/ui/backend/utils/crud'
+import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
+import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { E } from '#generated/entities.ids.generated'
+import { TenantSelect } from '@open-mercato/core/modules/directory/components/TenantSelect'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+
+type CreateRoleFormValues = {
+  name: string
+  tenantId?: string
+} & Record<string, unknown>
+
+export default function CreateRolePage() {
+  const t = useT()
+  const [actorIsSuperAdmin, setActorIsSuperAdmin] = React.useState(false)
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function loadActor() {
+      try {
+        const { ok, result } = await apiCall<{ isSuperAdmin?: boolean }>(
+          '/api/auth/roles?page=1&pageSize=1',
+        )
+        if (!cancelled && ok) setActorIsSuperAdmin(Boolean(result?.isSuperAdmin))
+      } catch {
+        if (!cancelled) setActorIsSuperAdmin(false)
+      }
+    }
+    loadActor()
+    return () => { cancelled = true }
+  }, [])
+
+  const fields = React.useMemo<CrudField[]>(() => {
+    const list: CrudField[] = [
+      { id: 'name', label: t('auth.roles.form.field.name', 'Name'), type: 'text', required: true },
+    ]
+    if (actorIsSuperAdmin) {
+      list.push({
+        id: 'tenantId',
+        label: t('auth.roles.form.field.tenant', 'Tenant'),
+        type: 'custom',
+        required: true,
+        component: ({ value, setValue }) => (
+          <TenantSelect
+            id="tenantId"
+            value={typeof value === 'string' ? value : null}
+            onChange={(next) => {
+              setValue(next ?? null)
+            }}
+            includeEmptyOption
+            required
+            className="w-full h-9 rounded border px-2 text-sm"
+          />
+        ),
+      })
+    }
+    return list
+  }, [actorIsSuperAdmin, t])
+
+  const detailFieldIds = React.useMemo(() => {
+    const base = ['name']
+    if (actorIsSuperAdmin) base.push('tenantId')
+    return base
+  }, [actorIsSuperAdmin])
+
+  const groups: CrudFormGroup[] = React.useMemo(() => ([
+    { id: 'details', title: t('auth.roles.form.group.details', 'Details'), column: 1, fields: detailFieldIds },
+    { id: 'customFields', title: t('entities.customFields.title', 'Custom Fields'), column: 2, kind: 'customFields' },
+  ]), [detailFieldIds, t])
+
+  const initialValues = React.useMemo<Partial<CreateRoleFormValues>>(
+    () => ({
+      name: '',
+      tenantId: undefined,
+    }),
+    [],
+  )
+
+  return (
+    <Page>
+      <PageBody>
+        <CrudForm<CreateRoleFormValues>
+          title={t('auth.roles.form.title.create', 'Create Role')}
+          titleHeadingLevel={1}
+          backHref="/backend/roles"
+          entityId={E.auth.role}
+          fields={fields}
+          groups={groups}
+          initialValues={initialValues}
+          submitLabel={t('auth.roles.form.action.create', 'Create')}
+          cancelHref="/backend/roles"
+          successRedirect={`/backend/roles?flash=${encodeURIComponent(t('auth.roles.flash.created', 'Role created'))}&type=success`}
+          onSubmit={async (values) => {
+            const customFields = collectCustomFieldValues(values)
+            const payload: Record<string, unknown> = {
+              name: values.name,
+            }
+            if (actorIsSuperAdmin) {
+              const rawTenant = typeof values.tenantId === 'string' ? values.tenantId.trim() : null
+              payload.tenantId = rawTenant && rawTenant.length ? rawTenant : null
+              if (!payload.tenantId) {
+                const message = t('auth.roles.form.errors.tenantRequired', 'Tenant is required')
+                throw createCrudFormError(message, { tenantId: message })
+              }
+            }
+            if (Object.keys(customFields).length) {
+              payload.customFields = customFields
+            }
+            await createCrud('auth/roles', payload)
+          }}
+        />
+      </PageBody>
+    </Page>
+  )
+}

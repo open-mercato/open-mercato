@@ -1,0 +1,86 @@
+import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+
+type OnboardingStatus = 'pending' | 'processing' | 'completed' | 'expired'
+
+@Entity({ tableName: 'onboarding_requests' })
+@Index({ name: 'onboarding_requests_email_idx', properties: ['email'] })
+@Unique({ properties: ['emailHash'] })
+@Unique({ properties: ['tokenHash'] })
+export class OnboardingRequest {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ type: 'text' })
+  email!: string
+
+  @Property({ name: 'email_hash', type: 'text', nullable: true })
+  emailHash?: string | null
+
+  @Property({ name: 'token_hash', type: 'text' })
+  tokenHash!: string
+
+  @Property({ type: 'text', default: 'pending' })
+  status: OnboardingStatus = 'pending'
+
+  @Property({ name: 'first_name', type: 'text' })
+  firstName!: string
+
+  @Property({ name: 'last_name', type: 'text' })
+  lastName!: string
+
+  @Property({ name: 'organization_name', type: 'text' })
+  organizationName!: string
+
+  @Property({ type: 'text', nullable: true })
+  locale?: string | null
+
+  @Property({ name: 'terms_accepted', type: 'boolean', default: false })
+  termsAccepted: boolean = false
+
+  @Property({ name: 'marketing_consent', type: 'boolean', default: false, nullable: true })
+  marketingConsent?: boolean | null = false
+
+  @Property({ name: 'password_hash', type: 'text', nullable: true })
+  passwordHash?: string | null
+
+  @Property({ name: 'processing_started_at', type: Date, nullable: true })
+  processingStartedAt?: Date | null
+
+  @Property({ name: 'expires_at', type: Date })
+  expiresAt!: Date
+
+  @Property({ name: 'completed_at', type: Date, nullable: true })
+  completedAt?: Date | null
+
+  @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
+  tenantId?: string | null
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ name: 'user_id', type: 'uuid', nullable: true })
+  userId?: string | null
+
+  @Property({ name: 'last_email_sent_at', type: Date, nullable: true })
+  lastEmailSentAt?: Date | null
+
+  @Property({ name: 'preparation_started_at', type: Date, nullable: true })
+  preparationStartedAt?: Date | null
+
+  @Property({ name: 'preparation_completed_at', type: Date, nullable: true })
+  preparationCompletedAt?: Date | null
+
+  @Property({ name: 'ready_email_sent_at', type: Date, nullable: true })
+  readyEmailSentAt?: Date | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date(), nullable: true })
+  updatedAt?: Date
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+export type { OnboardingStatus }

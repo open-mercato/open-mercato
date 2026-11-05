@@ -1,0 +1,428 @@
+"use client"
+import * as React from 'react'
+import { format } from 'date-fns/format'
+import { Info } from 'lucide-react'
+import { Button } from '../primitives/button'
+import { Checkbox } from '../primitives/checkbox'
+import { DateRangePicker } from '../primitives/date-range-picker'
+import type { DateRange } from './date-range/dateRanges'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../primitives/select'
+import { ComboboxInput } from './inputs/ComboboxInput'
+import { TagsInput, type TagsInputOption } from './inputs/TagsInput'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { SimpleTooltip } from '../primitives/tooltip'
+
+export type FilterOption = { value: string; label: string; description?: string | null }
+
+export type FilterDef = {
+  id: string
+  label: string
+  tooltip?: string
+  type: 'text' | 'select' | 'checkbox' | 'dateRange' | 'tags' | 'combobox'
+  options?: FilterOption[]
+  // Optional async loader for options (used by select/tags/combobox)
+  loadOptions?: (query?: string) => Promise<FilterOption[]>
+  multiple?: boolean
+  placeholder?: string
+  group?: string
+  formatValue?: (value: string) => string
+  formatDescription?: (value: string) => string | null | undefined
+}
+
+export type FilterValues = Record<string, any>
+
+export type FilterOverlayProps = {
+  title?: string
+  filters: FilterDef[]
+  initialValues: FilterValues
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onApply: (values: FilterValues) => void
+  onClear?: () => void
+  extraContent?: React.ReactNode
+}
+
+const EMPTY_FILTER_VALUES: FilterValues = {}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value != null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function normalizeKeys(source: FilterValues | null | undefined): string[] {
+  if (!source) return []
+  return Object.keys(source).filter((key) => source[key] !== undefined)
+}
+
+function areFieldValuesEqual(a: any, b: any): boolean {
+  if (a === b) return true
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false
+    for (let i = 0; i < a.length; i += 1) {
+      if (!areFieldValuesEqual(a[i], b[i])) return false
+    }
+    return true
+  }
+  if (isPlainObject(a) && isPlainObject(b)) {
+    const keysA = normalizeKeys(a as FilterValues)
+    const keysB = normalizeKeys(b as FilterValues)
+    if (keysA.length !== keysB.length) return false
+    for (const key of keysA) {
+      if (!keysB.includes(key)) return false
+      if (!areFieldValuesEqual((a as FilterValues)[key], (b as FilterValues)[key])) return false
+    }
+    return true
+  }
+  return false
+}
+
+function areFilterValuesEqual(a?: FilterValues | null, b?: FilterValues | null): boolean {
+  if (a === b) return true
+  const keysA = normalizeKeys(a || EMPTY_FILTER_VALUES)
+  const keysB = normalizeKeys(b || EMPTY_FILTER_VALUES)
+  if (keysA.length !== keysB.length) return false
+  for (const key of keysA) {
+    if (!keysB.includes(key)) return false
+    if (!areFieldValuesEqual(a?.[key], b?.[key])) return false
+  }
+  return true
+}
+
+export function FilterOverlay({
+  title,
+  filters,
+  initialValues,
+  open,
+  onOpenChange,
+  onApply,
+  onClear,
+  extraContent,
+}: FilterOverlayProps) {
+  const t = useT()
+  const defaultTitle = title ?? t('ui.filters.title', 'Filters')
+  const [values, setValues] = React.useState<FilterValues>(initialValues)
+  React.useEffect(() => {
+    setValues((prev) => (areFilterValuesEqual(prev, initialValues) ? prev : initialValues))
+  }, [initialValues])
+  const filtersSignature = React.useMemo(
+    () => filters.map((f) => `${f.id}:${f.type}:${Boolean((f as any).loadOptions)}:${(f.options || []).length}`).join('|'),
+    [filters]
+  )
+  const lastLoadedSignatureRef = React.useRef<string | null>(null)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const stableFilters = React.useMemo(() => filters, [filtersSignature])
+
+  // Load dynamic options for filters that request it
+  const [dynamicOptions, setDynamicOptions] = React.useState<Record<string, FilterOption[]>>({})
+  React.useEffect(() => {
+    if (!open) return
+    if (lastLoadedSignatureRef.current === filtersSignature) return
+    lastLoadedSignatureRef.current = filtersSignature
+    setDynamicOptions({})
+    let cancelled = false
+    const loadAll = async () => {
+      const loaders = filters
+        .filter((f): f is FilterDef & { loadOptions: (query?: string) => Promise<FilterOption[]> } => (f as any).loadOptions != null)
+        .map(async (f) => {
+          try {
+            const opts = await (f as any).loadOptions()
+            if (!cancelled) setDynamicOptions((prev) => ({ ...prev, [f.id]: opts }))
+          } catch {
+            // ignore
+          }
+        })
+      await Promise.all(loaders)
+    }
+    loadAll()
+    return () => {
+      cancelled = true
+    }
+  }, [filters, filtersSignature, open])
+  React.useEffect(() => {
+    if (!open) {
+      lastLoadedSignatureRef.current = null
+    }
+  }, [open])
+
+  const setValue = (id: string, v: any) => setValues((prev) => ({ ...prev, [id]: v }))
+
+  const handleApply = () => {
+    onApply(values)
+    onOpenChange(false)
+  }
+
+  const handleClear = () => {
+    setValues({})
+    onClear?.()
+  }
+
+  const tagLoaders = React.useMemo(() => {
+    const map = new Map<string, (q?: string) => Promise<Array<string | TagsInputOption>>>()
+    for (const f of stableFilters) {
+      if (f.type === 'tags' && typeof f.loadOptions === 'function') {
+        const fieldId = f.id
+        const load = f.loadOptions as (query?: string) => Promise<FilterOption[]>
+        map.set(fieldId, async (q?: string) => {
+          const query = (q ?? '').trim()
+          if (!query.length) return []
+          try {
+            const opts = await load(query)
+            setDynamicOptions((prev) => ({ ...prev, [fieldId]: opts }))
+            return opts.map((o) => ({ value: o.value, label: o.label, description: o.description ?? null }))
+          } catch {
+            return []
+          }
+        })
+      }
+    }
+    return map
+  }, [stableFilters])
+
+  const comboboxLoaders = React.useMemo(() => {
+    const map = new Map<string, (q?: string) => Promise<FilterOption[]>>()
+    for (const f of stableFilters) {
+      if (f.type === 'combobox' && typeof f.loadOptions === 'function') {
+        map.set(f.id, async (query?: string) => {
+          try {
+            const opts = await f.loadOptions?.(query)
+            setDynamicOptions((prev) => ({ ...prev, [f.id]: opts ?? [] }))
+            return opts ?? []
+          } catch {
+            return []
+          }
+        })
+      }
+    }
+    return map
+  }, [stableFilters])
+
+  return (
+    <>
+      {open && (
+        <div className="fixed inset-0 z-modal">
+          <div className="absolute inset-0 bg-black/20" onClick={() => onOpenChange(false)} role="presentation" />
+          <div className="absolute left-0 top-0 h-full w-full sm:w-[380px] bg-background shadow-xl border-r flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b">
+              <h2 className="text-base font-semibold">{defaultTitle}</h2>
+              <Button variant="muted" size="sm" onClick={() => onOpenChange(false)}>{t('common.close')}</Button>
+            </div>
+            {/* Top actions: duplicate Clear/Apply */}
+            <div className="px-4 py-2 border-b flex items-center justify-between gap-2">
+              <Button variant="outline" size="sm" onClick={handleClear}>{t('ui.filters.actions.clear', 'Clear')}</Button>
+              <Button size="sm" onClick={handleApply}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true" className="opacity-80"><path d="M3 4h18"/><path d="M6 8h12l-3 8H9L6 8z"/></svg>
+                {t('ui.filters.actions.apply', 'Apply')}
+              </Button>
+            </div>
+            <div className="flex-1 overflow-auto p-4 space-y-4">
+              {extraContent ? <div className="space-y-2 rounded-md border bg-muted/30 p-3">{extraContent}</div> : null}
+              {filters.map((f) => (
+                <div key={f.id} className="space-y-2">
+                  <div className="flex items-center gap-1.5 text-sm font-medium">
+                    {f.label}
+                    {f.tooltip ? (
+                      <SimpleTooltip content={f.tooltip}>
+                        <Info className="size-3.5 text-muted-foreground" aria-label="More information" />
+                      </SimpleTooltip>
+                    ) : null}
+                  </div>
+                  {f.type === 'text' && (
+                    <input
+                      type="text"
+                      className="w-full h-11 rounded border px-2 text-sm"
+                      placeholder={f.placeholder}
+                      value={values[f.id] ?? ''}
+                      onChange={(e) => setValue(f.id, e.target.value || undefined)}
+                    />
+                  )}
+                  {f.type === 'dateRange' && (() => {
+                    const fromStr = values[f.id]?.from
+                    const toStr = values[f.id]?.to
+                    const parseISODate = (input: unknown): Date | null => {
+                      if (typeof input !== 'string' || !input.length) return null
+                      const candidate = new Date(input)
+                      return Number.isNaN(candidate.getTime()) ? null : candidate
+                    }
+                    const fromDate = parseISODate(fromStr)
+                    const toDate = parseISODate(toStr)
+                    const rangeValue: DateRange | null =
+                      fromDate && toDate
+                        ? { start: fromDate, end: toDate }
+                        : fromDate
+                          ? { start: fromDate, end: fromDate }
+                          : toDate
+                            ? { start: toDate, end: toDate }
+                            : null
+                    return (
+                      <DateRangePicker
+                        value={rangeValue}
+                        onChange={(next) => {
+                          if (!next) {
+                            setValue(f.id, { from: undefined, to: undefined })
+                            return
+                          }
+                          setValue(f.id, {
+                            from: format(next.start, 'yyyy-MM-dd'),
+                            to: format(next.end, 'yyyy-MM-dd'),
+                          })
+                        }}
+                        placeholder={t('ui.filters.dateRange.placeholder', 'Pick a date range')}
+                      />
+                    )
+                  })()}
+                  {f.type === 'select' && (
+                    <div className="space-y-1">
+                      {f.multiple ? (
+                        <div className="flex flex-col gap-1">
+                          {(f.options || dynamicOptions[f.id] || []).map((opt) => {
+                            const arr: string[] = Array.isArray(values[f.id]) ? values[f.id] : []
+                            const checked = arr.includes(opt.value)
+                            return (
+                              <label key={opt.value} className="inline-flex items-center gap-2 cursor-pointer">
+                                <Checkbox
+                                  checked={checked}
+                                  onCheckedChange={(next) => {
+                                    const set = new Set(arr)
+                                    if (next === true) set.add(opt.value)
+                                    else set.delete(opt.value)
+                                    setValue(f.id, Array.from(set))
+                                  }}
+                                />
+                                <span className="text-sm">{opt.label}</span>
+                              </label>
+                            )
+                          })}
+                        </div>
+                      ) : (
+                        <Select
+                          value={values[f.id] || undefined}
+                          onValueChange={(next) => setValue(f.id, next || undefined)}
+                        >
+                          <SelectTrigger size="lg">
+                            <SelectValue placeholder={t('ui.forms.select.emptyOption', '—')} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(f.options || dynamicOptions[f.id] || [])
+                              .filter((opt) => opt.value !== '')
+                              .map((opt) => (
+                                <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </div>
+                  )}
+                  {f.type === 'combobox' && (() => {
+                    const staticOptions = f.options || []
+                    const dynamic = dynamicOptions[f.id] || []
+                    const optionMap = new Map<string, FilterOption>()
+                    staticOptions.forEach((opt) => optionMap.set(opt.value, opt))
+                    dynamic.forEach((opt) => optionMap.set(opt.value, opt))
+                    const currentValue = typeof values[f.id] === 'string' ? values[f.id] : ''
+                    const suggestions = Array.from(optionMap.values()).map((opt) => ({
+                      value: opt.value,
+                      label: opt.label,
+                      description: opt.description ?? null,
+                    }))
+                    const loadSuggestions = comboboxLoaders.get(f.id)
+                    return (
+                      <div className="flex items-start gap-2">
+                        <div className="min-w-0 flex-1">
+                          <ComboboxInput
+                            value={currentValue}
+                            onChange={(next) => setValue(f.id, next.trim().length ? next : undefined)}
+                            suggestions={suggestions}
+                            loadSuggestions={loadSuggestions}
+                            resolveLabel={(value) => f.formatValue?.(value) ?? optionMap.get(value)?.label ?? value}
+                            resolveDescription={(value) => optionMap.get(value)?.description ?? null}
+                            placeholder={f.placeholder}
+                            allowCustomValues={false}
+                          />
+                        </div>
+                        {currentValue ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="shrink-0"
+                            onClick={() => setValue(f.id, undefined)}
+                          >
+                            {t('ui.filters.actions.clear', 'Clear')}
+                          </Button>
+                        ) : null}
+                      </div>
+                    )
+                  })()}
+                  {f.type === 'tags' && (() => {
+                    const arr: string[] = Array.isArray(values[f.id]) ? values[f.id] : []
+                    const staticOptions = f.options || []
+                    const dynamic = dynamicOptions[f.id] || []
+                    const optionMap = new Map<string, FilterOption>()
+                    staticOptions.forEach((opt) => optionMap.set(opt.value, opt))
+                    dynamic.forEach((opt) => optionMap.set(opt.value, opt))
+                    const loadSuggestions = tagLoaders.get(f.id)
+                    const resolveTagLabel = f.formatValue
+                      ? (val: string) => f.formatValue!(val)
+                      : (val: string) => optionMap.get(val)?.label ?? val
+                    const resolveTagDescription = f.formatDescription
+                      ? (val: string) => f.formatDescription!(val) ?? null
+                      : (val: string) => optionMap.get(val)?.description ?? null
+                    const suggestionList: TagsInputOption[] = Array.from(optionMap.values()).map((opt) => ({
+                      value: opt.value,
+                      label: opt.label,
+                      description: opt.description ?? null,
+                    }))
+                    return (
+                      <TagsInput
+                        value={arr}
+                        suggestions={suggestionList}
+                        loadSuggestions={loadSuggestions}
+                        allowCustomValues={false}
+                        resolveLabel={resolveTagLabel}
+                        resolveDescription={resolveTagDescription}
+                        placeholder={f.placeholder}
+                        onChange={(next) => setValue(f.id, next.length ? next : undefined)}
+                      />
+                    )
+                  })()}
+                  {f.type === 'checkbox' && (
+                    <div>
+                      <Select
+                        value={values[f.id] === true ? 'true' : values[f.id] === false ? 'false' : undefined}
+                        onValueChange={(next) => {
+                          if (!next) setValue(f.id, undefined)
+                          else if (next === 'true') setValue(f.id, true)
+                          else if (next === 'false') setValue(f.id, false)
+                        }}
+                      >
+                        <SelectTrigger size="lg">
+                          <SelectValue placeholder={t('ui.forms.select.emptyOption', '—')} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="true">{t('common.yes', 'Yes')}</SelectItem>
+                          <SelectItem value="false">{t('common.no', 'No')}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="p-4 border-t flex items-center justify-between gap-2">
+              <Button variant="outline" onClick={handleClear}>{t('ui.filters.actions.clear', 'Clear')}</Button>
+              <Button onClick={handleApply}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true" className="opacity-80"><path d="M3 4h18"/><path d="M6 8h12l-3 8H9L6 8z"/></svg>
+                {t('ui.filters.actions.apply', 'Apply')}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  )
+}

@@ -1,0 +1,147 @@
+"use client"
+
+import * as React from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
+import { createCrud } from '@open-mercato/ui/backend/utils/crud'
+import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { E } from '#generated/entities.ids.generated'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { extensionPoints } from '../../../../extension-points'
+import {
+  buildPersonPayload,
+  createPersonFormFields,
+  createPersonFormGroups,
+  createPersonFormSchema,
+  type PersonFormValues,
+} from '../../../../components/formConfig'
+
+export default function CreatePersonPage() {
+  const t = useT()
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const { organizationId } = useOrganizationScopeDetail()
+
+  const formSchema = React.useMemo(() => createPersonFormSchema(), [])
+  const fields = React.useMemo(() => createPersonFormFields(t), [t])
+  const groups = React.useMemo(() => createPersonFormGroups(t), [t])
+  const returnTo = searchParams.get('returnTo')
+  const companyParam = searchParams.get('companyId')
+  const companyEntityId = React.useMemo(() => {
+    if (!companyParam) return undefined
+    const trimmed = companyParam.trim()
+    return trimmed.length ? trimmed : undefined
+  }, [companyParam])
+  const initialValues = React.useMemo<Partial<PersonFormValues>>(
+    () => ({
+      addresses: [] as PersonFormValues['addresses'],
+      ...(companyEntityId ? { companyEntityId } : {}),
+    }),
+    [companyEntityId],
+  )
+
+  return (
+    <Page>
+      <PageBody>
+        <CrudForm<PersonFormValues>
+          title={t('customers.people.create.title')}
+          titleHeadingLevel={1}
+          backHref={returnTo ?? '/backend/customers/people'}
+          fields={fields}
+          groups={groups}
+          initialValues={initialValues}
+          injectionSpotId={extensionPoints.hosts.personForm.spotId}
+          legacyInjectionSpotId="crud-form:customers.customer_entity"
+          entityId="customers.person"
+          resourceKind="customers.person"
+          entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
+          submitLabel={t('customers.people.form.submit')}
+          cancelHref={returnTo ?? '/backend/customers/people'}
+          schema={formSchema}
+          onSubmit={async (values) => {
+            const addresses = Array.isArray(values.addresses) ? values.addresses : []
+            let payload: Record<string, unknown>
+            try {
+              payload = buildPersonPayload(values, organizationId)
+            } catch (err) {
+              if (err instanceof Error && err.message === 'DISPLAY_NAME_REQUIRED') {
+                const message = t('customers.people.form.displayName.error')
+                throw createCrudFormError(message, { displayName: message })
+              }
+              throw err
+            }
+
+            const { result: created } = await createCrud<{ id?: string; entityId?: string }>(
+              'customers/people',
+              payload,
+            )
+            const newId =
+              created && typeof created.id === 'string'
+                ? created.id
+                : (typeof created?.entityId === 'string' ? created.entityId : null)
+
+            if (newId && addresses.length) {
+              const normalize = (value?: string | null) => {
+                if (typeof value !== 'string') return undefined
+                const trimmed = value.trim()
+                return trimmed.length ? trimmed : undefined
+              }
+              for (const entry of addresses) {
+                const normalizedLine1 = normalize(entry.addressLine1)
+                if (!normalizedLine1) continue
+                const body: Record<string, unknown> = {
+                  entityId: newId,
+                  ...(organizationId ? { organizationId } : {}),
+                  addressLine1: normalizedLine1,
+                  isPrimary: entry.isPrimary ?? false,
+                }
+                const name = normalize(entry.name)
+                if (name !== undefined) body.name = name
+                const purpose = normalize(entry.purpose)
+                if (purpose !== undefined) body.purpose = purpose
+                const line2 = normalize(entry.addressLine2)
+                if (line2 !== undefined) body.addressLine2 = line2
+                const buildingNumber = normalize(entry.buildingNumber)
+                if (buildingNumber !== undefined) body.buildingNumber = buildingNumber
+                const flatNumber = normalize(entry.flatNumber)
+                if (flatNumber !== undefined) body.flatNumber = flatNumber
+                const city = normalize(entry.city)
+                if (city !== undefined) body.city = city
+                const region = normalize(entry.region)
+                if (region !== undefined) body.region = region
+                const postalCode = normalize(entry.postalCode)
+                if (postalCode !== undefined) body.postalCode = postalCode
+                const country = normalize(entry.country)
+                if (country !== undefined) body.country = country.toUpperCase()
+                if (typeof entry.latitude === 'number') body.latitude = entry.latitude
+                if (typeof entry.longitude === 'number') body.longitude = entry.longitude
+                try {
+                  await createCrud('customers/addresses', body)
+                } catch (addressErr) {
+                  const message =
+                    (addressErr instanceof Error && addressErr.message
+                      ? addressErr.message
+                      : null) ||
+                    t('customers.people.detail.addresses.error')
+                  flash(message, 'error')
+                }
+              }
+            }
+
+            flash(t('customers.people.form.success'), 'success')
+            return newId ? { resourceId: newId } : undefined
+          }}
+          onSubmitSuccess={async (_values, result) => {
+            const newId = result?.resourceId
+            if (returnTo) router.push(returnTo)
+            else if (newId) router.push(`/backend/customers/people-v2/${newId}`)
+            else router.push('/backend/customers/people')
+          }}
+        />
+      </PageBody>
+    </Page>
+  )
+}

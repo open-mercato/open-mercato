@@ -1,0 +1,417 @@
+import { registerCommand } from '@open-mercato/shared/lib/commands'
+import type { CommandHandler } from '@open-mercato/shared/lib/commands'
+import { buildChanges, requireId, emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
+import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { CrudHttpError, conflict, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { ExchangeRate, Currency } from '../data/entities'
+import {
+  exchangeRateCreateSchema,
+  exchangeRateUpdateSchema,
+  exchangeRateDeleteSchema,
+  type ExchangeRateCreateInput,
+  type ExchangeRateUpdateInput,
+  type ExchangeRateDeleteInput,
+} from '../data/validators'
+import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import { buildCurrencyCommandWhere, ensureCurrencyCommandScope } from './scope'
+
+const exchangeRateCrudEvents: CrudEventsConfig = {
+  module: 'currencies',
+  entity: 'exchange_rate',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
+}
+
+type ExchangeRateSnapshot = {
+  id: string
+  organizationId: string
+  tenantId: string
+  fromCurrencyCode: string
+  toCurrencyCode: string
+  rate: string
+  date: string
+  source: string
+  type: string | null
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+type ExchangeRateUndoPayload = UndoPayload<ExchangeRateSnapshot>
+
+async function loadExchangeRateSnapshot(
+  em: EntityManager,
+  id: string,
+  ctx: Parameters<typeof buildCurrencyCommandWhere>[0],
+): Promise<ExchangeRateSnapshot | null> {
+  const record = await em.findOne(
+    ExchangeRate,
+    buildCurrencyCommandWhere<ExchangeRate>(ctx, { id }),
+  )
+  if (!record) return null
+  ensureCurrencyCommandScope(ctx, record)
+  return {
+    id: record.id,
+    organizationId: record.organizationId,
+    tenantId: record.tenantId,
+    fromCurrencyCode: record.fromCurrencyCode,
+    toCurrencyCode: record.toCurrencyCode,
+    rate: record.rate,
+    date: record.date.toISOString(),
+    source: record.source,
+    type: record.type ?? null,
+    isActive: !!record.isActive,
+    createdAt: record.createdAt.toISOString(),
+    updatedAt: record.updatedAt.toISOString(),
+  }
+}
+
+async function validateCurrenciesExist(
+  em: EntityManager,
+  fromCode: string,
+  toCode: string,
+  organizationId: string,
+  tenantId: string
+): Promise<void> {
+  const fromCurrency = await em.findOne(Currency, {
+    code: fromCode,
+    organizationId,
+    tenantId,
+    deletedAt: null,
+  })
+  if (!fromCurrency) {
+    throw new CrudHttpError(400, { error: `From currency ${fromCode} does not exist or is inactive` })
+  }
+
+  const toCurrency = await em.findOne(Currency, {
+    code: toCode,
+    organizationId,
+    tenantId,
+    deletedAt: null,
+  })
+  if (!toCurrency) {
+    throw new CrudHttpError(400, { error: `To currency ${toCode} does not exist or is inactive` })
+  }
+}
+
+const createExchangeRateCommand: CommandHandler<ExchangeRateCreateInput, { exchangeRateId: string }> = {
+  id: 'currencies.exchange_rates.create',
+  async execute(input, ctx) {
+    const parsed = exchangeRateCreateSchema.parse(input)
+    ensureCurrencyCommandScope(ctx, parsed)
+
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+
+    // Validate currencies exist
+    await validateCurrenciesExist(em, parsed.fromCurrencyCode, parsed.toCurrencyCode, parsed.organizationId, parsed.tenantId)
+
+    // Check for duplicate rate (same pair + date + source)
+    const existing = await em.findOne(ExchangeRate, {
+      fromCurrencyCode: parsed.fromCurrencyCode,
+      toCurrencyCode: parsed.toCurrencyCode,
+      date: parsed.date,
+      source: parsed.source,
+      organizationId: parsed.organizationId,
+      tenantId: parsed.tenantId,
+      deletedAt: null,
+    })
+    if (existing) {
+      throw conflict('Exchange rate for this currency pair, date, and source already exists')
+    }
+
+    const now = new Date()
+    const record = em.create(ExchangeRate, {
+      organizationId: parsed.organizationId,
+      tenantId: parsed.tenantId,
+      fromCurrencyCode: parsed.fromCurrencyCode,
+      toCurrencyCode: parsed.toCurrencyCode,
+      rate: parsed.rate,
+      date: parsed.date,
+      source: parsed.source,
+      type: parsed.type ?? null,
+      isActive: parsed.isActive !== false,
+      createdAt: now,
+      updatedAt: now,
+    })
+    em.persist(record)
+    try {
+      await em.flush()
+    } catch (err) {
+      if (isUniqueViolation(err, 'exchange_rates_pair_datetime_source_unique')) {
+        throw conflict('Exchange rate for this currency pair, date, and source already exists')
+      }
+      throw err
+    }
+
+    const de = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'created',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+      events: exchangeRateCrudEvents,
+    })
+
+    return { exchangeRateId: record.id }
+  },
+  captureAfter: async (_input, result, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    return loadExchangeRateSnapshot(em, result.exchangeRateId, ctx)
+  },
+  buildLog: async ({ snapshots }) => {
+    const after = snapshots.after as ExchangeRateSnapshot | undefined
+    if (!after) return null
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('currencies.rates.audit.create', 'Create exchange rate'),
+      resourceKind: 'currencies.exchange_rate',
+      resourceId: after.id,
+      tenantId: after.tenantId,
+      organizationId: after.organizationId,
+      snapshotAfter: after,
+      payload: { undo: { after } },
+    }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<ExchangeRateUndoPayload>(logEntry)
+    const after = payload?.after ?? null
+    if (!after) return
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const record = await em.findOne(ExchangeRate, { id: after.id })
+    if (!record) return
+    record.deletedAt = new Date()
+    record.isActive = false
+    await em.flush()
+  },
+  redo: makeCreateRedo<ExchangeRate, ExchangeRateSnapshot, ExchangeRateCreateInput, { exchangeRateId: string }>({
+    entityClass: ExchangeRate,
+    dateFields: ['createdAt', 'updatedAt', 'deletedAt', 'date'],
+    buildResult: (entity) => ({ exchangeRateId: entity.id }),
+    events: exchangeRateCrudEvents,
+  }),
+}
+
+const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { exchangeRateId: string }> = {
+  id: 'currencies.exchange_rates.update',
+  async prepare(input, ctx) {
+    requireId(input.id, 'Exchange rate ID is required')
+    const em = ctx.container.resolve('em') as EntityManager
+    const before = await loadExchangeRateSnapshot(em, input.id, ctx)
+    return { before }
+  },
+  async execute(input, ctx) {
+    const parsed = exchangeRateUpdateSchema.parse(input)
+    requireId(parsed.id, 'Exchange rate ID is required')
+
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const record = await em.findOne(
+      ExchangeRate,
+      buildCurrencyCommandWhere<ExchangeRate>(ctx, { id: parsed.id }),
+    )
+    if (!record) {
+      throw new CrudHttpError(404, { error: 'Exchange rate not found' })
+    }
+    ensureCurrencyCommandScope(ctx, record)
+
+    // Validate currencies if changed
+    const fromCode = parsed.fromCurrencyCode ?? record.fromCurrencyCode
+    const toCode = parsed.toCurrencyCode ?? record.toCurrencyCode
+    if (parsed.fromCurrencyCode || parsed.toCurrencyCode) {
+      await validateCurrenciesExist(em, fromCode, toCode, record.organizationId, record.tenantId)
+    }
+
+    // Check for duplicate if changing pair, date, or source
+    if (parsed.fromCurrencyCode || parsed.toCurrencyCode || parsed.date || parsed.source) {
+      const date = parsed.date ?? record.date
+      const source = parsed.source ?? record.source
+      const existing = await em.findOne(ExchangeRate, {
+        fromCurrencyCode: fromCode,
+        toCurrencyCode: toCode,
+        date,
+        source,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+        id: { $ne: record.id },
+        deletedAt: null,
+      })
+      if (existing) {
+        throw conflict('Exchange rate for this currency pair, date, and source already exists')
+      }
+    }
+
+    const allChanges = buildChanges(record as unknown as Record<string, unknown>, parsed, [
+      'fromCurrencyCode',
+      'toCurrencyCode',
+      'rate',
+      'date',
+      'source',
+      'type',
+      'isActive',
+    ])
+    const changes = Object.fromEntries(
+      Object.entries(allChanges).filter(([, c]) => c.to !== undefined),
+    ) as Record<string, { from: unknown; to: unknown }>
+
+    if (Object.keys(changes).length === 0) {
+      return { exchangeRateId: record.id }
+    }
+
+    for (const [key, change] of Object.entries(changes)) {
+      ;(record as any)[key] = change.to
+    }
+    record.updatedAt = new Date()
+    
+    // Validate final state after merging changes
+    if (record.fromCurrencyCode === record.toCurrencyCode) {
+      throw new CrudHttpError(400, { error: 'From and To currencies must be different' })
+    }
+    
+    const rateValue = parseFloat(record.rate)
+    if (isNaN(rateValue) || rateValue <= 0) {
+      throw new CrudHttpError(400, { error: 'Rate must be greater than zero' })
+    }
+    
+    await em.flush()
+
+    const de = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'updated',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+      events: exchangeRateCrudEvents,
+    })
+
+    return { exchangeRateId: record.id }
+  },
+  captureAfter: async (_input, result, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    return loadExchangeRateSnapshot(em, result.exchangeRateId, ctx)
+  },
+  buildLog: async ({ snapshots, result }) => {
+    const before = snapshots.before as ExchangeRateSnapshot | undefined
+    const after = snapshots.after as ExchangeRateSnapshot | undefined
+    if (!after) return null
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('currencies.rates.audit.update', 'Update exchange rate'),
+      resourceKind: 'currencies.exchange_rate',
+      resourceId: after.id,
+      tenantId: after.tenantId,
+      organizationId: after.organizationId,
+      snapshotBefore: before ?? undefined,
+      snapshotAfter: after,
+      payload: { undo: { before, after } },
+    }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<ExchangeRateUndoPayload>(logEntry)
+    const before = payload?.before ?? null
+    if (!before) return
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const record = await em.findOne(ExchangeRate, { id: before.id })
+    if (!record) return
+    Object.assign(record, {
+      fromCurrencyCode: before.fromCurrencyCode,
+      toCurrencyCode: before.toCurrencyCode,
+      rate: before.rate,
+      date: new Date(before.date),
+      source: before.source,
+      type: before.type,
+      isActive: before.isActive,
+      updatedAt: new Date(),
+    })
+    await em.flush()
+  },
+}
+
+const deleteExchangeRateCommand: CommandHandler<ExchangeRateDeleteInput, { exchangeRateId: string }> = {
+  id: 'currencies.exchange_rates.delete',
+  async prepare(input, ctx) {
+    requireId(input.id, 'Exchange rate ID is required')
+    const em = ctx.container.resolve('em') as EntityManager
+    const before = await loadExchangeRateSnapshot(em, input.id, ctx)
+    return { before }
+  },
+  async execute(input, ctx) {
+    const parsed = exchangeRateDeleteSchema.parse(input)
+    requireId(parsed.id, 'Exchange rate ID is required')
+
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const record = await em.findOne(
+      ExchangeRate,
+      buildCurrencyCommandWhere<ExchangeRate>(ctx, { id: parsed.id }),
+    )
+    if (!record) {
+      throw new CrudHttpError(404, { error: 'Exchange rate not found' })
+    }
+    ensureCurrencyCommandScope(ctx, record)
+
+    record.deletedAt = new Date()
+    record.isActive = false
+    await em.flush()
+
+    const de = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'deleted',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+      events: exchangeRateCrudEvents,
+    })
+
+    return { exchangeRateId: record.id }
+  },
+  buildLog: async ({ snapshots, result }) => {
+    const before = snapshots.before as ExchangeRateSnapshot | undefined
+    if (!before) return null
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('currencies.rates.audit.delete', 'Delete exchange rate'),
+      resourceKind: 'currencies.exchange_rate',
+      resourceId: before.id,
+      tenantId: before.tenantId,
+      organizationId: before.organizationId,
+      snapshotBefore: before,
+      payload: { undo: { before } },
+    }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<ExchangeRateUndoPayload>(logEntry)
+    const before = payload?.before ?? null
+    if (!before) return
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const record = await em.findOne(ExchangeRate, { id: before.id })
+    if (!record) return
+    record.deletedAt = null
+    record.isActive = before.isActive
+    record.updatedAt = new Date()
+    await em.flush()
+  },
+}
+
+registerCommand(createExchangeRateCommand)
+registerCommand(updateExchangeRateCommand)
+registerCommand(deleteExchangeRateCommand)
+
+export { createExchangeRateCommand, updateExchangeRateCommand, deleteExchangeRateCommand }

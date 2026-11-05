@@ -1,0 +1,5 @@
+# Fixture directories intentionally include compiled dist/ to simulate installed packages.
+# Override root ignores: packages/**/dist/ and packages/*/src/**/*.js
+!dist/
+!dist/**
+!**/*.js

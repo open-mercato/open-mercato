@@ -1,0 +1,28 @@
+import { expect, test } from '@playwright/test';
+import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
+import { addCustomLine, addShipment, createSalesDocument } from '@open-mercato/core/modules/core/__integration__/helpers/salesUi';
+
+/**
+ * TC-SALES-007: Shipment Recording
+ * Source: .ai/qa/scenarios/TC-SALES-007-shipment-recording.md
+ */
+test.describe('TC-SALES-007: Shipment Recording', () => {
+  test('should create shipment from order UI', async ({ page }) => {
+    // Heavy multi-hop UI flow (login + createSalesDocument + line + shipment)
+    // routinely exceeds Playwright's 20s default on a loaded ephemeral shard;
+    // opt into the sanctioned per-test budget (see TC-SALES-005). Global bump
+    // is disallowed.
+    test.slow();
+    await login(page, 'admin');
+    await createSalesDocument(page, { kind: 'order', preferApi: true });
+    await addCustomLine(page, {
+      name: `QA TC-SALES-007 ${Date.now()}`,
+      quantity: 1,
+      unitPriceGross: 42,
+    });
+    const shipmentResult = await addShipment(page);
+    expect(shipmentResult.added, 'Shipment should be saved successfully').toBeTruthy();
+    await page.getByRole('button', { name: /^Shipments$/i }).click();
+    await expect(page.getByText(new RegExp(`Shipment\\s+${shipmentResult.shipmentNumber}`, 'i')).first()).toBeVisible();
+  });
+});

@@ -1,0 +1,213 @@
+/**
+ * In-process generate watcher.
+ *
+ * Coalesces filesystem events on a configurable interval, then verifies them
+ * with the existing structural fingerprint before invoking the generator.
+ * If filesystem watching is unavailable, it falls back to fingerprint polling.
+ * The polling loop is identical to the legacy standalone watcher; the only
+ * difference is that it now runs inside whatever process calls it
+ * (typically `mercato server dev`), so the dev runtime no longer needs a
+ * sidecar `mercato generate watch` Node process.
+ *
+ * Contract preserved from the prior standalone watcher:
+ *   - Default debounce/fallback poll interval 1000 ms (minimum 250 ms).
+ *   - One initial generator run unless `skipInitial` is true.
+ *   - Concurrent regeneration requests are coalesced (running + pending).
+ *   - Generator errors are logged but never crash the watcher.
+ *   - The polling timer uses `.unref()` so it never blocks process exit.
+ */
+
+export type GenerateWatcherLogger = Pick<Console, 'log' | 'error'>
+
+export type GenerateWatcherChangeSignal = {
+  /** Monotonic event generation. Changes indicate that a checksum may be stale. */
+  currentVersion(): number
+  /** Refresh filesystem subscriptions after module configuration changes. */
+  refresh(): Promise<void> | void
+  /** Whether configured roots are missing and should be retried on idle polls. */
+  hasSkippedTargets?(): boolean
+  /** When true, preserve the legacy full-checksum-on-every-poll behavior. */
+  usesPollingFallback(): boolean
+  /** Close filesystem subscriptions. Idempotent. */
+  close(): Promise<void> | void
+}
+
+export type GenerateWatcherOptions = {
+  /**
+   * Function that returns the current structural fingerprint of the module
+   * tree. The watcher re-runs `runGenerators` whenever this value changes.
+   */
+  computeStructureChecksum: () => Promise<string> | string
+  /** Optional event signal that avoids full checksum work during idle polls. */
+  changeSignal?: GenerateWatcherChangeSignal
+  /**
+   * Function that performs the actual regeneration work. Called once on
+   * startup (unless `skipInitial`) and again whenever the checksum changes.
+   * The `reason` argument is suitable for logging (`'initial'`,
+   * `'structure change'`, `'queued change'`).
+   */
+  runGenerators: (reason: string) => Promise<void>
+  /** Poll interval in milliseconds. Defaults to 1000. Clamped to >= 250. */
+  pollMs?: number
+  /** Skip the initial regeneration on startup. Defaults to false. */
+  skipInitial?: boolean
+  /** Suppress informational logs. Errors are always logged. */
+  quiet?: boolean
+  /** Logger override. Defaults to `console`. */
+  logger?: GenerateWatcherLogger
+}
+
+export type GenerateWatcherHandle = {
+  /** Resolves when the watcher loop has stopped (after `close()`). */
+  readonly done: Promise<void>
+  /** Stop the polling loop and resolve `done`. Idempotent. */
+  close(): Promise<void>
+}
+
+const MIN_POLL_MS = 250
+const DEFAULT_POLL_MS = 1000
+
+function resolvePollMs(value: number | undefined): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_POLL_MS
+  const numeric = Math.floor(value)
+  return numeric >= MIN_POLL_MS ? numeric : DEFAULT_POLL_MS
+}
+
+/**
+ * Start an in-process generate watcher. The returned handle exposes a
+ * `close()` to stop polling and a `done` promise that resolves once the
+ * watcher loop has finished.
+ */
+export function startInProcessGenerateWatcher(
+  options: GenerateWatcherOptions,
+): GenerateWatcherHandle {
+  const logger = options.logger ?? console
+  const quiet = options.quiet === true
+  const pollMs = resolvePollMs(options.pollMs)
+  const skipInitial = options.skipInitial === true
+  const { changeSignal, computeStructureChecksum, runGenerators } = options
+
+  let stopping = false
+  let pollTimer: ReturnType<typeof setTimeout> | null = null
+  let running = false
+  let pendingReason: string | null = null
+  let previousChecksum = ''
+  let observedChangeVersion = -1
+  let doneResolve: (() => void) | null = null
+  const done = new Promise<void>((resolve) => {
+    doneResolve = resolve
+  })
+
+  async function runOnce(reason: string): Promise<void> {
+    if (running) {
+      pendingReason = reason
+      return
+    }
+    running = true
+    try {
+      if (!quiet) {
+        logger.log(`[generate:watch] Regenerating (${reason})...`)
+      }
+      await runGenerators(reason)
+      if (!quiet) {
+        logger.log('[generate:watch] Generators completed.')
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      logger.error(`[generate:watch] Generation failed: ${message}`)
+    } finally {
+      running = false
+      if (pendingReason && !stopping) {
+        const queued = pendingReason
+        pendingReason = null
+        await runOnce(queued)
+      }
+    }
+  }
+
+  function scheduleNext(): void {
+    if (stopping) return
+    pollTimer = setTimeout(() => {
+      void (async () => {
+        if (stopping) return
+        try {
+          const changeVersion = changeSignal?.currentVersion() ?? 0
+          const eventGatedIdle = Boolean(
+            changeSignal
+            && !changeSignal.usesPollingFallback()
+            && changeVersion === observedChangeVersion
+          )
+          let refreshedSkippedTargets = false
+          if (eventGatedIdle) {
+            if (!changeSignal?.hasSkippedTargets?.()) return
+            await changeSignal.refresh()
+            refreshedSkippedTargets = true
+            if (changeSignal.hasSkippedTargets?.()) return
+          }
+          const nextChecksum = await computeStructureChecksum()
+          observedChangeVersion = changeVersion
+          if (!refreshedSkippedTargets) {
+            await changeSignal?.refresh()
+          }
+          if (nextChecksum !== previousChecksum) {
+            previousChecksum = nextChecksum
+            await runOnce('structure change')
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          logger.error(`[generate:watch] Poll cycle failed: ${message}`)
+        } finally {
+          if (!stopping) scheduleNext()
+        }
+      })()
+    }, pollMs)
+    pollTimer.unref?.()
+  }
+
+  void (async () => {
+    try {
+      await changeSignal?.refresh()
+      const initialChangeVersion = changeSignal?.currentVersion() ?? 0
+      if (!skipInitial) {
+        await runOnce('initial')
+      }
+      previousChecksum = await computeStructureChecksum()
+      observedChangeVersion = initialChangeVersion
+      if (!quiet) {
+        if (skipInitial) {
+          logger.log('[generate:watch] Skipping initial regeneration and watching the current generated state.')
+        }
+        logger.log(`[generate:watch] Watching structural module files with a ${pollMs}ms debounce (in-process).`)
+      }
+      scheduleNext()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      logger.error(`[generate:watch] Initial setup failed: ${message}`)
+      // Even if the initial bootstrap fails, schedule polling so a later
+      // checksum recovery still picks up the next change on disk.
+      scheduleNext()
+    }
+  })()
+
+  async function close(): Promise<void> {
+    if (stopping) {
+      await done
+      return
+    }
+    stopping = true
+    if (pollTimer) {
+      clearTimeout(pollTimer)
+      pollTimer = null
+    }
+    await changeSignal?.close()
+    if (doneResolve) {
+      doneResolve()
+      doneResolve = null
+    }
+  }
+
+  return {
+    done,
+    close,
+  }
+}

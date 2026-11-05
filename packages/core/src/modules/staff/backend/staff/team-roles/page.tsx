@@ -1,0 +1,423 @@
+"use client"
+
+import * as React from 'react'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { DataTable, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
+import { markdownToPlainText } from '@open-mercato/ui/backend/markdown/markdownToPlainText'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { readApiResultOrThrow, apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { Pencil, Users } from 'lucide-react'
+import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { truncate } from 'fs'
+import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('staff')
+
+const PAGE_SIZE = 50
+
+type TeamRoleRow = {
+  kind: 'team' | 'role'
+  id: string
+  teamId: string | null
+  name: string
+  description: string | null
+  updatedAt: string | null
+  memberCount: number
+}
+
+type TeamRolesResponse = {
+  items?: Array<Record<string, unknown>>
+  total?: number
+  totalPages?: number
+  totalIsCapped?: boolean
+}
+
+type TeamsResponse = {
+  items?: Array<{ id?: string; name?: string }>
+}
+
+export default function StaffTeamRolesPage() {
+  const t = useT()
+  const router = useRouter()
+  const scopeVersion = useOrganizationScopeVersion()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const [rows, setRows] = React.useState<TeamRoleRow[]>([])
+  const [page, setPage] = React.useState(1)
+  const [total, setTotal] = React.useState(0)
+  const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
+  const [search, setSearch] = React.useState('')
+  const [isLoading, setIsLoading] = React.useState(true)
+  const [reloadToken, setReloadToken] = React.useState(0)
+  const [filterValues, setFilterValues] = React.useState<FilterValues>({})
+  const [teamFilterOptions, setTeamFilterOptions] = React.useState<Array<{ value: string; label: string }>>([])
+
+  const labels = React.useMemo(() => ({
+    title: t('staff.teamRoles.page.title', 'Team roles'),
+    description: t('staff.teamRoles.page.description', 'Define roles that can be assigned to team members.'),
+    table: {
+      name: t('staff.teamRoles.table.name', 'Name'),
+      description: t('staff.teamRoles.table.description', 'Description'),
+      members: t('staff.teamRoles.table.members', 'Team members'),
+      updatedAt: t('staff.teamRoles.table.updatedAt', 'Updated'),
+      empty: t('staff.teamRoles.table.empty', 'No team roles yet.'),
+      search: t('staff.teamRoles.table.search', 'Search roles...'),
+    },
+    groups: {
+      unassigned: t('staff.teamRoles.group.unassigned', 'Unassigned'),
+    },
+    filters: {
+      team: t('staff.teamRoles.filters.team', 'Team'),
+    },
+    actions: {
+      add: t('staff.teamRoles.actions.add', 'Add team role'),
+      edit: t('staff.teamRoles.actions.edit', 'Edit'),
+      showMembers: t('staff.teamRoles.actions.showMembers', 'Show team members ({{count}})'),
+      delete: t('staff.teamRoles.actions.delete', 'Delete'),
+      deleteConfirm: t('staff.teamRoles.actions.deleteConfirm', 'Delete team role "{{name}}"?'),
+      refresh: t('staff.teamRoles.actions.refresh', 'Refresh'),
+      editTeam: t('staff.teams.actions.edit', 'Edit'),
+    },
+    messages: {
+      deleted: t('staff.teamRoles.messages.deleted', 'Team role deleted.'),
+    },
+    errors: {
+      load: t('staff.teamRoles.errors.load', 'Failed to load team roles.'),
+      delete: t('staff.teamRoles.errors.delete', 'Failed to delete team role.'),
+    },
+  }), [t])
+
+  const columns = React.useMemo<ColumnDef<TeamRoleRow>[]>(() => [
+    {
+      accessorKey: 'name',
+      header: labels.table.name,
+      meta: { priority: 1, sticky: true },
+      cell: ({ row }) => {
+        if (row.original.kind === 'team') {
+          return (
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                {row.original.teamId ? <Users className="h-4 w-4 text-muted-foreground" /> : null}
+                <span className="font-semibold">{row.original.name}</span>
+              </div>
+              {row.original.teamId ? (
+                <Button
+                  asChild
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7"
+                  title={labels.actions.editTeam}
+                  aria-label={labels.actions.editTeam}
+                >
+                  <Link href={`/backend/staff/teams/${encodeURIComponent(row.original.teamId)}/edit`}>
+                    <Pencil className="h-4 w-4" />
+                  </Link>
+                </Button>
+              ) : null}
+            </div>
+          )
+        }
+        return (
+          <div className="flex flex-col">
+            <span className="font-medium pl-6">{row.original.name}</span>
+            {row.original.description ? (
+              <span className="pl-6 text-xs text-muted-foreground line-clamp-2">
+                {markdownToPlainText(row.original.description)}
+              </span>
+            ) : null}
+          </div>
+        )
+      },
+    },
+    {
+      accessorKey: 'description',
+      header: labels.table.description,
+      meta: { priority: 3 },
+      cell: ({ row }) => row.original.kind === 'team'
+        ? <span className="text-xs text-muted-foreground">-</span>
+        : row.original.description
+          ? (
+            <span className="text-xs text-muted-foreground line-clamp-2">
+              {markdownToPlainText(row.original.description)}
+            </span>
+          )
+          : <span className="text-xs text-muted-foreground">-</span>,
+    },
+    {
+      accessorKey: 'memberCount',
+      header: () => <span className="inline-block min-w-[250px]">{labels.table.members}</span>,
+      meta: { priority: 3, maxWidth: '250px', truncate: true },
+      enableSorting: false,
+      cell: ({ row }) => row.original.kind === 'role'
+        ? (
+          <Link
+            className="inline-flex min-w-[220px] items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+            href={`/backend/staff/team-members?roleId=${encodeURIComponent(row.original.id)}`}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <Users className="h-4 w-4" aria-hidden />
+            {labels.actions.showMembers.replace('{{count}}', String(row.original.memberCount))}
+          </Link>
+        )
+        : <span className="text-xs text-muted-foreground">-</span>,
+    },
+    {
+      accessorKey: 'updatedAt',
+      header: labels.table.updatedAt,
+      meta: { priority: 4 },
+      cell: ({ row }) => row.original.kind === 'team'
+        ? <span className="text-xs text-muted-foreground">-</span>
+        : row.original.updatedAt
+          ? <span className="text-xs text-muted-foreground">{formatDateTime(row.original.updatedAt)}</span>
+          : <span className="text-xs text-muted-foreground">-</span>,
+    },
+  ], [labels.actions.showMembers, labels.table.description, labels.table.members, labels.table.name, labels.table.updatedAt])
+
+  const loadTeamRoles = React.useCallback(async () => {
+    setIsLoading(true)
+    try {
+      const params = new URLSearchParams({
+        page: String(page),
+        pageSize: String(PAGE_SIZE),
+      })
+      if (search.trim()) params.set('search', search.trim())
+      if (typeof filterValues.teamId === 'string' && filterValues.teamId.trim()) {
+        params.set('teamId', filterValues.teamId)
+      }
+      const payload = await readApiResultOrThrow<TeamRolesResponse>(
+        `/api/staff/team-roles?${params.toString()}`,
+        undefined,
+        { errorMessage: labels.errors.load, fallback: { items: [], total: 0, totalPages: 1 } },
+      )
+      const items = Array.isArray(payload.items) ? payload.items : []
+      setRows(buildTeamRoleRows(items.map(mapApiTeamRole), labels.groups.unassigned))
+      setTotal(typeof payload.total === 'number' ? payload.total : items.length)
+      setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : Math.max(1, Math.ceil(items.length / PAGE_SIZE)))
+      setTotalIsCapped(payload?.totalIsCapped === true)
+    } catch (error) {
+      logger.error('staff.team-roles.list', { err: error })
+      flash(labels.errors.load, 'error')
+    } finally {
+      setIsLoading(false)
+    }
+  }, [filterValues.teamId, labels.errors.load, labels.groups, page, search])
+
+  React.useEffect(() => {
+    void loadTeamRoles()
+  }, [loadTeamRoles, scopeVersion, reloadToken])
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function loadFilters() {
+      try {
+        const params = new URLSearchParams({ page: '1', pageSize: '100' })
+        const response = await apiCall<TeamsResponse>(`/api/staff/teams?${params.toString()}`)
+        const teamItems = Array.isArray(response.result?.items) ? response.result.items : []
+        const teams = teamItems
+          .map((team) => {
+            const id = typeof team.id === 'string' ? team.id : null
+            const name = typeof team.name === 'string' ? team.name : null
+            if (!id || !name) return null
+            return { value: id, label: name }
+          })
+          .filter((entry): entry is { value: string; label: string } => entry !== null)
+        if (!cancelled) setTeamFilterOptions(teams)
+      } catch {
+        if (!cancelled) setTeamFilterOptions([])
+      }
+    }
+    loadFilters()
+    return () => { cancelled = true }
+  }, [scopeVersion])
+
+  const filters = React.useMemo<FilterDef[]>(() => [
+    {
+      id: 'teamId',
+      label: labels.filters.team,
+      type: 'select',
+      options: teamFilterOptions,
+      placeholder: labels.filters.team,
+    },
+  ], [labels.filters.team, teamFilterOptions])
+
+  const handleSearchChange = React.useCallback((value: string) => {
+    setSearch(value)
+    setPage(1)
+  }, [])
+
+  const handleFiltersApply = React.useCallback((values: FilterValues) => {
+    setFilterValues(values)
+    setPage(1)
+  }, [])
+
+  const handleFiltersClear = React.useCallback(() => {
+    setFilterValues({})
+    setPage(1)
+  }, [])
+
+  const handleRefresh = React.useCallback(() => {
+    setReloadToken((token) => token + 1)
+  }, [])
+
+  const handleDelete = React.useCallback(async (entry: TeamRoleRow) => {
+    if (entry.kind !== 'role') return
+    const message = labels.actions.deleteConfirm.replace('{{name}}', entry.name)
+    const confirmed = await confirm({
+      title: labels.actions.delete,
+      text: message,
+      variant: 'destructive',
+    })
+    if (!confirmed) return
+    try {
+      const headers = buildOptimisticLockHeader(entry.updatedAt)
+      await withScopedApiRequestHeaders(headers, () => (
+        deleteCrud('staff/team-roles', entry.id, { errorMessage: labels.errors.delete })
+      ))
+      flash(labels.messages.deleted, 'success')
+      handleRefresh()
+    } catch (error) {
+      logger.error('staff.team-roles.delete', { err: error })
+      flash(labels.errors.delete, 'error')
+    }
+  }, [confirm, handleRefresh, labels.actions.deleteConfirm, labels.actions.delete, labels.errors.delete, labels.messages.deleted])
+
+  return (
+    <Page>
+      <PageBody>
+        <DataTable<TeamRoleRow>
+        title={labels.title}
+        titleHeadingLevel={1}
+          data={rows}
+          columns={columns}
+          isLoading={isLoading}
+          searchValue={search}
+          onSearchChange={handleSearchChange}
+          searchPlaceholder={labels.table.search}
+          filters={filters}
+          filterValues={filterValues}
+          onFiltersApply={handleFiltersApply}
+          onFiltersClear={handleFiltersClear}
+          emptyState={(
+            <ListEmptyState
+              entityName={labels.title}
+              createHref="/backend/staff/team-roles/create"
+              createLabel={labels.actions.add}
+            />
+          )}
+          actions={(
+            <Button asChild size="sm">
+              <Link href="/backend/staff/team-roles/create">
+                {labels.actions.add}
+              </Link>
+            </Button>
+          )}
+          refreshButton={{
+            label: labels.actions.refresh,
+            onRefresh: handleRefresh,
+            isRefreshing: isLoading,
+          }}
+          pagination={{
+            page,
+            pageSize: PAGE_SIZE,
+            total,
+            totalPages,
+            totalIsCapped,
+            onPageChange: setPage,
+          }}
+          rowActions={(row) => row.kind === 'role' ? (
+            <RowActions
+              items={[
+                { id: 'edit', label: labels.actions.edit, onSelect: () => { router.push(`/backend/staff/team-roles/${row.id}/edit`) } },
+                { id: 'delete', label: labels.actions.delete, destructive: true, onSelect: () => { void handleDelete(row) } },
+              ]}
+            />
+          ) : null}
+        />
+      </PageBody>
+      {ConfirmDialogElement}
+    </Page>
+  )
+}
+
+type TeamRoleApiRow = {
+  id: string
+  name: string
+  description: string | null
+  updatedAt: string | null
+  teamId: string | null
+  teamName: string | null
+  memberCount: number
+}
+
+function mapApiTeamRole(item: Record<string, unknown>): TeamRoleApiRow {
+  const id = typeof item.id === 'string' ? item.id : ''
+  const name = typeof item.name === 'string' ? item.name : id
+  const description = typeof item.description === 'string' && item.description.trim().length ? item.description.trim() : null
+  const updatedAt = typeof item.updatedAt === 'string'
+    ? item.updatedAt
+    : typeof item.updated_at === 'string'
+      ? item.updated_at
+      : null
+  const teamId = typeof item.teamId === 'string'
+    ? item.teamId
+    : typeof item.team_id === 'string'
+      ? item.team_id
+      : null
+  const team = item.team && typeof item.team === 'object'
+    ? item.team as { name?: unknown }
+    : null
+  const teamName = typeof team?.name === 'string' ? team.name : null
+  const memberCount = typeof item.memberCount === 'number' ? item.memberCount : 0
+  return withDataTableNamespaces({ id, name, description, updatedAt, teamId, teamName, memberCount }, item)
+}
+
+function buildTeamRoleRows(items: TeamRoleApiRow[], unassignedLabel: string): TeamRoleRow[] {
+  const groups = new Map<string, { teamId: string | null; name: string; roles: TeamRoleApiRow[] }>()
+  for (const role of items) {
+    const key = role.teamId ?? 'unassigned'
+    const label = role.teamName ?? unassignedLabel
+    const group = groups.get(key) ?? { teamId: role.teamId ?? null, name: label, roles: [] }
+    group.roles.push(role)
+    groups.set(key, group)
+  }
+  const sortedGroups = Array.from(groups.values()).sort((a, b) => a.name.localeCompare(b.name))
+  const rows: TeamRoleRow[] = []
+  for (const group of sortedGroups) {
+    rows.push({
+      kind: 'team',
+      id: `team:${group.teamId ?? 'unassigned'}`,
+      teamId: group.teamId,
+      name: group.name,
+      description: null,
+      updatedAt: null,
+      memberCount: 0,
+    })
+    const sortedRoles = [...group.roles].sort((a, b) => a.name.localeCompare(b.name))
+    for (const role of sortedRoles) {
+      rows.push({
+        kind: 'role',
+        id: role.id,
+        teamId: role.teamId,
+        name: role.name,
+        description: role.description,
+        updatedAt: role.updatedAt,
+        memberCount: role.memberCount,
+      })
+    }
+  }
+  return rows
+}
+
+

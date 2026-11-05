@@ -1,0 +1,124 @@
+import { NextResponse } from 'next/server'
+import { z } from 'zod'
+import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
+import { getCustomerAuthFromRequest, requireCustomerFeature } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { CustomerUser, CustomerUserRole, CustomerRole } from '@open-mercato/core/modules/customer_accounts/data/entities'
+import { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
+import { assignRolesSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+
+export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
+
+export async function PUT(req: Request, { params }: { params: { id: string } }) {
+  const auth = await getCustomerAuthFromRequest(req)
+  if (!auth) {
+    return NextResponse.json({ ok: false, error: 'Authentication required' }, { status: 401 })
+  }
+
+  const container = await createRequestContainer()
+  const customerRbacService = container.resolve('customerRbacService') as CustomerRbacService
+
+  try {
+    await requireCustomerFeature(auth, ['portal.users.roles.manage'], customerRbacService)
+  } catch (response) {
+    return response as NextResponse
+  }
+
+  if (!auth.customerEntityId) {
+    return NextResponse.json({ ok: false, error: 'No company association' }, { status: 403 })
+  }
+
+  let body: unknown
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ ok: false, error: 'Invalid request body' }, { status: 400 })
+  }
+
+  const parsed = assignRolesSchema.safeParse(body)
+  if (!parsed.success) {
+    return NextResponse.json({ ok: false, error: 'Validation failed' }, { status: 400 })
+  }
+
+  const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
+
+  // Verify target user belongs to same company
+  const targetUser = await findOneWithDecryption(em, CustomerUser, {
+    id: params.id,
+    customerEntityId: auth.customerEntityId,
+    tenantId: auth.tenantId,
+    deletedAt: null,
+  }, undefined, { tenantId: auth.tenantId, organizationId: auth.orgId })
+  if (!targetUser) {
+    return NextResponse.json({ ok: false, error: 'User not found' }, { status: 404 })
+  }
+
+  // Validate all roles are customer_assignable and collect for assignment
+  const requestedRoleIds = parsed.data.roleIds
+  const fetchedRoles = requestedRoleIds.length > 0
+    ? await findWithDecryption(
+        em,
+        CustomerRole,
+        {
+          id: { $in: requestedRoleIds },
+          tenantId: auth.tenantId,
+          organizationId: auth.orgId,
+          deletedAt: null,
+        } as any,
+        undefined,
+        { tenantId: auth.tenantId, organizationId: auth.orgId },
+      )
+    : []
+  const fetchedRolesById = new Map(fetchedRoles.map((role) => [role.id, role]))
+  const validatedRoles: InstanceType<typeof CustomerRole>[] = []
+  for (const roleId of requestedRoleIds) {
+    const role = fetchedRolesById.get(roleId)
+    if (!role || !role.customerAssignable) {
+      return NextResponse.json({ ok: false, error: 'Role not found or not assignable' }, { status: 400 })
+    }
+    validatedRoles.push(role)
+  }
+
+  // Replace the role set atomically: deleting the old roles and inserting the new
+  // ones in one transaction prevents a flush failure from leaving the user with
+  // zero roles (portal lockout / privilege loss) (#2337).
+  await em.transactional(async (tx) => {
+    await tx.nativeDelete(CustomerUserRole, { user: targetUser.id as any })
+    for (const role of validatedRoles) {
+      const userRole = tx.create(CustomerUserRole, {
+        user: targetUser,
+        role,
+        createdAt: new Date(),
+      } as any)
+      tx.persist(userRole)
+    }
+  })
+
+  await customerRbacService.invalidateUserCache(targetUser.id)
+
+  return NextResponse.json({ ok: true })
+}
+
+const successSchema = z.object({ ok: z.literal(true) })
+const errorSchema = z.object({ ok: z.literal(false), error: z.string() })
+
+const methodDoc: OpenApiMethodDoc = {
+  summary: 'Update portal user roles',
+  description: 'Assigns new roles to a company portal user.',
+  tags: ['Customer Portal'],
+  requestBody: { schema: assignRolesSchema },
+  responses: [{ status: 200, description: 'Roles updated', schema: successSchema }],
+  errors: [
+    { status: 400, description: 'Validation failed', schema: errorSchema },
+    { status: 401, description: 'Not authenticated', schema: errorSchema },
+    { status: 403, description: 'Insufficient permissions', schema: errorSchema },
+    { status: 404, description: 'User not found', schema: errorSchema },
+  ],
+}
+
+export const openApi: OpenApiRouteDoc = {
+  summary: 'Update portal user roles',
+  pathParams: z.object({ id: z.string().uuid() }),
+  methods: { PUT: methodDoc },
+}

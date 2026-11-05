@@ -1,0 +1,107 @@
+"use client"
+
+import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { mapCommentSummary, type NotesDataAdapter } from '@open-mercato/ui/backend/detail/NotesSection'
+
+type Translator = (key: string, fallback?: string, params?: Record<string, string | number>) => string
+
+export type ResourceNotesGuardedMutation = <T>(
+  runner: () => Promise<T>,
+  payload?: Record<string, unknown>,
+) => Promise<T>
+
+export type CreateResourceNotesAdapterOptions = {
+  runMutation?: ResourceNotesGuardedMutation
+}
+
+export function createResourceNotesAdapter(
+  translator: Translator,
+  options: CreateResourceNotesAdapterOptions = {},
+): NotesDataAdapter {
+  const runWrite = async <T,>(
+    runner: () => Promise<T>,
+    payload: Record<string, unknown>,
+  ): Promise<T> => {
+    if (options.runMutation) {
+      return options.runMutation(runner, payload)
+    }
+    return runner()
+  }
+
+  return {
+    list: async ({ entityId }) => {
+      const params = new URLSearchParams()
+      if (entityId) params.set('entityId', entityId)
+      const payload = await readApiResultOrThrow<Record<string, unknown>>(
+        `/api/resources/comments?${params.toString()}`,
+        undefined,
+        { errorMessage: translator('resources.resources.detail.notes.loadError', 'Failed to load notes.') },
+      )
+      const items = Array.isArray(payload?.items) ? payload.items : []
+      return items.map(mapCommentSummary)
+    },
+    create: async ({ entityId, body, appearanceIcon, appearanceColor }) => {
+      const requestBody = {
+        entityId,
+        body,
+        appearanceIcon: appearanceIcon ?? undefined,
+        appearanceColor: appearanceColor ?? undefined,
+      }
+      const response = await runWrite(
+        () => apiCallOrThrow<Record<string, unknown>>(
+          '/api/resources/comments',
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(requestBody),
+          },
+          { errorMessage: translator('resources.resources.detail.notes.error', 'Failed to save note.') },
+        ),
+        { operation: 'createNote', entityId },
+      )
+      return response.result ?? {}
+    },
+    update: async ({ id, patch, updatedAt }) => {
+      const payload: Record<string, unknown> = { id }
+      if (patch.body !== undefined) payload.body = patch.body
+      if (patch.appearanceIcon !== undefined) payload.appearanceIcon = patch.appearanceIcon
+      if (patch.appearanceColor !== undefined) payload.appearanceColor = patch.appearanceColor
+      // Run through the guarded-mutation runner AND send the optimistic-lock header
+      // (note's loaded updatedAt) so a stale edit fails with a 409; the shared
+      // NotesSection host surfaces it through surfaceRecordConflict instead of
+      // silently overwriting.
+      await runWrite(
+        () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(updatedAt ?? null),
+          () => apiCallOrThrow(
+            '/api/resources/comments',
+            {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(payload),
+            },
+            { errorMessage: translator('resources.resources.detail.notes.updateError', 'Failed to update note.') },
+          ),
+        ),
+        { operation: 'updateNote', id },
+      )
+    },
+    delete: async ({ id, updatedAt }) => {
+      await runWrite(
+        () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(updatedAt ?? null),
+          () => apiCallOrThrow(
+            `/api/resources/comments?id=${encodeURIComponent(id)}`,
+            {
+              method: 'DELETE',
+              headers: { 'content-type': 'application/json' },
+            },
+            { errorMessage: translator('resources.resources.detail.notes.deleteError', 'Failed to delete note') },
+          ),
+        ),
+        { operation: 'deleteNote', id },
+      )
+    },
+  }
+}

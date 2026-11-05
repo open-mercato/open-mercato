@@ -1,0 +1,922 @@
+"use client"
+
+import * as React from 'react'
+import { FileCode, Loader2, Mail, Pencil, Phone, X } from 'lucide-react'
+import type { PluggableList } from 'unified'
+import { PhoneNumberField } from '@open-mercato/ui/backend/inputs/PhoneNumberField'
+import { Button } from '@open-mercato/ui/primitives/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
+import { Textarea } from '@open-mercato/ui/primitives/textarea'
+import { DatePicker } from '@open-mercato/ui/primitives/date-picker'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { cn } from '@open-mercato/shared/lib/utils'
+import { format } from 'date-fns/format'
+import { LoadingMessage } from './LoadingMessage'
+import { mapCrudServerErrorToFormErrors } from '../utils/serverErrors'
+import { MarkdownPreview } from '../markdown'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('ui')
+
+// Coarse-pointer devices never fire hover, so the hover-only reveal would leave the
+// edit trigger permanently at opacity-0 and untappable. Keep it visible there instead.
+// Exported so sibling inline editors outside this file share one definition rather than
+// re-deriving it — the drift that left these triggers hover-only in the first place.
+export const INLINE_TRIGGER_HIDDEN_CLASSES =
+  'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100'
+
+// Server validation errors arrive as stable i18n keys (e.g. `customers.people.form.*`), the
+// same contract CrudForm resolves via translateValidationMessage; without this they render
+// raw. `t(msg, msg)` is a no-op for already-localized strings.
+function resolveInlineErrorMessage(
+  err: unknown,
+  fallbackMessage: string,
+  translate: (key: string, fallback: string) => string,
+): string {
+  const raw = resolveRawInlineErrorMessage(err, fallbackMessage)
+  return translate(raw, raw)
+}
+
+function resolveRawInlineErrorMessage(err: unknown, fallbackMessage: string): string {
+  const { message, fieldErrors } = mapCrudServerErrorToFormErrors(err)
+  const firstFieldError = fieldErrors
+    ? Object.values(fieldErrors).find((text) => typeof text === 'string' && text.trim().length)
+    : null
+  if (typeof firstFieldError === 'string' && firstFieldError.trim().length) {
+    return firstFieldError.trim()
+  }
+  if (typeof message === 'string' && message.trim().length) {
+    return message.trim()
+  }
+  if (err instanceof Error && typeof err.message === 'string' && err.message.trim().length) {
+    return err.message.trim()
+  }
+  if (typeof err === 'string' && err.trim().length) {
+    return err.trim()
+  }
+  return fallbackMessage
+}
+
+type EditorVariant = 'default' | 'muted' | 'plain'
+
+export type InlineFieldType = 'text' | 'email' | 'tel' | 'url'
+
+const ALLOWED_INLINE_URL_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:'])
+
+export function resolveSafeInlineUrlHref(value: string): string | null {
+  const trimmed = value.trim()
+  if (!trimmed.length) return null
+  try {
+    const parsed = new URL(trimmed)
+    return ALLOWED_INLINE_URL_PROTOCOLS.has(parsed.protocol) ? trimmed : null
+  } catch {
+    return null
+  }
+}
+
+export type InlineTextEditorProps = {
+  label: string
+  value: string | null | undefined
+  placeholder?: string
+  emptyLabel: string
+  onSave: (value: string | null) => Promise<void>
+  type?: InlineFieldType
+  inputType?: React.HTMLInputTypeAttribute
+  validator?: (value: string) => string | null
+  variant?: EditorVariant
+  activateOnClick?: boolean
+  containerClassName?: string
+  triggerClassName?: string
+  hideLabel?: boolean
+  renderDisplay?: (params: { value: string | null | undefined; emptyLabel: string; type: InlineFieldType }) => React.ReactNode
+  onEditingChange?: (editing: boolean) => void
+  renderActions?: React.ReactNode
+  saveLabel?: string
+  recordId?: string
+  onDraftChange?: (draft: string) => void
+  renderBelowInput?: (params: {
+    draft: string
+    resolvedType: InlineFieldType
+    error: string | null
+    saving: boolean
+  }) => React.ReactNode
+}
+
+export function InlineTextEditor({
+  label,
+  value,
+  placeholder,
+  emptyLabel,
+  onSave,
+  type = 'text',
+  inputType,
+  validator,
+  variant = 'default',
+  activateOnClick = false,
+  containerClassName,
+  triggerClassName,
+  hideLabel = false,
+  renderDisplay,
+  onEditingChange,
+  renderActions,
+  saveLabel,
+  onDraftChange,
+  renderBelowInput,
+}: InlineTextEditorProps) {
+  const t = useT()
+  const [editing, setEditing] = React.useState(false)
+  const [draft, setDraft] = React.useState(value ?? '')
+  const [error, setError] = React.useState<string | null>(null)
+  const [saving, setSaving] = React.useState(false)
+  const computedSaveLabel = saveLabel ?? t('ui.detail.inline.saveShortcut', 'Save ⌘⏎ / Ctrl+Enter')
+  const fallbackError = React.useMemo(
+    () => t('ui.detail.inline.error', 'Failed to save value.'),
+    [t],
+  )
+  const resolvedType = React.useMemo<InlineFieldType>(() => {
+    if (type && typeof type === 'string') return type
+    if (inputType && typeof inputType === 'string') {
+      const normalized = inputType.toLowerCase()
+      if (normalized === 'email' || normalized === 'tel' || normalized === 'url') {
+        return normalized as InlineFieldType
+      }
+    }
+    return 'text'
+  }, [inputType, type])
+
+  React.useEffect(() => {
+    if (!editing) setDraft(value ?? '')
+  }, [editing, value])
+
+  React.useEffect(() => {
+    if (onDraftChange) onDraftChange(draft)
+  }, [draft, onDraftChange])
+
+  const containerClasses = cn(
+    'group overflow-hidden',
+    variant === 'muted'
+      ? 'relative rounded border bg-muted/30 p-3'
+      : variant === 'plain'
+        ? 'relative flex items-center gap-3 rounded-none border-0 p-0'
+        : 'rounded-lg border p-4',
+    activateOnClick && !editing ? 'cursor-pointer' : null,
+    containerClassName ?? null,
+  )
+  const readOnlyWrapperClasses = cn(
+    'flex-1 min-w-0',
+    activateOnClick && !editing ? 'cursor-pointer' : null,
+    variant === 'plain' ? 'flex items-center gap-2' : null,
+  )
+  const triggerClasses = cn(
+    'shrink-0 transition-opacity duration-150',
+    editing
+      ? 'opacity-100'
+      : INLINE_TRIGGER_HIDDEN_CLASSES,
+    variant === 'muted' ? 'h-8 w-8' : null,
+    triggerClassName ?? null,
+  )
+  const triggerSize = variant === 'plain' ? 'icon' : 'sm'
+  const triggerLabel = editing
+    ? t('ui.detail.inline.cancel', 'Cancel')
+    : t('ui.detail.inline.edit', 'Edit')
+
+  const setEditingSafe = React.useCallback(
+    (next: boolean) => {
+      setEditing(next)
+      if (onEditingChange) onEditingChange(next)
+    },
+    [onEditingChange],
+  )
+
+  const handleActivate = React.useCallback(() => {
+    if (!editing) setEditingSafe(true)
+  }, [editing, setEditingSafe])
+
+  const handleInteractiveClick = React.useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (!activateOnClick || editing) return
+      const target = event.target as HTMLElement
+      const interactiveElement = target.closest('button, input, select, textarea, a, [role="link"]')
+      if (interactiveElement) {
+        if (interactiveElement.tagName.toLowerCase() === 'a') {
+          if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+            return
+          }
+          event.preventDefault()
+          // let the link click toggle edit mode instead of navigating away
+        } else {
+          return
+        }
+      }
+      handleActivate()
+    },
+    [activateOnClick, editing, handleActivate],
+  )
+
+  const handleContainerKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (!activateOnClick || editing) return
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault()
+        handleActivate()
+      }
+    },
+    [activateOnClick, editing, handleActivate],
+  )
+
+  const handleSave = React.useCallback(async () => {
+    const trimmed = draft.trim()
+    if (validator) {
+      const validationError = validator(trimmed)
+      if (validationError) {
+        setError(validationError)
+        return
+      }
+    }
+    setError(null)
+    setSaving(true)
+    try {
+      await onSave(trimmed.length ? trimmed : null)
+      setEditingSafe(false)
+    } catch (err) {
+      setError(resolveInlineErrorMessage(err, fallbackError, t))
+    } finally {
+      setSaving(false)
+    }
+  }, [draft, fallbackError, onSave, setEditingSafe, t, validator])
+
+  const interactiveProps: React.HTMLAttributes<HTMLDivElement> =
+    activateOnClick && !editing
+      ? {
+          role: 'button' as const,
+          tabIndex: 0,
+          onKeyDown: handleContainerKeyDown,
+        }
+      : {}
+
+  const displayContent = React.useMemo(() => {
+    if (renderDisplay) {
+      return renderDisplay({ value, emptyLabel, type: resolvedType })
+    }
+    const baseValue = value && typeof value === 'string' ? value : ''
+    const anchorClass =
+      variant === 'plain'
+        ? 'inline-flex max-w-full min-w-0 items-center gap-2 text-xl font-semibold leading-tight text-primary hover:text-primary/90 hover:underline'
+        : 'flex max-w-full min-w-0 items-center gap-2 text-sm text-primary hover:text-primary/90 hover:underline'
+    const textClass = variant === 'plain' ? 'text-2xl font-semibold leading-tight' : 'text-sm break-words'
+    if (resolvedType === 'email') {
+      if (!baseValue.length) {
+        return (
+          <p className={variant === 'plain' ? 'text-base text-muted-foreground' : 'text-sm text-muted-foreground'}>
+            {emptyLabel}
+          </p>
+        )
+      }
+      return (
+        <a className={anchorClass} href={`mailto:${baseValue}`}>
+          <Mail aria-hidden className={variant === 'plain' ? 'h-5 w-5' : 'h-4 w-4'} />
+          <span className="truncate min-w-0">{baseValue}</span>
+        </a>
+      )
+    }
+    if (!baseValue.length) {
+      return (
+        <p className={variant === 'plain' ? 'text-base text-muted-foreground' : 'text-sm text-muted-foreground'}>
+          {emptyLabel}
+        </p>
+      )
+    }
+    if (resolvedType === 'tel') {
+      const sanitizedValue = baseValue.replace(/[^+\d]/g, '')
+      const hrefValue = sanitizedValue.length ? sanitizedValue : baseValue
+      return (
+        <a className={anchorClass} href={`tel:${hrefValue}`}>
+          <Phone aria-hidden className={variant === 'plain' ? 'h-5 w-5' : 'h-4 w-4'} />
+          <span className="truncate">{baseValue}</span>
+        </a>
+      )
+    }
+    if (resolvedType === 'url') {
+      const safeHref = resolveSafeInlineUrlHref(baseValue)
+      if (!safeHref) {
+        return <p className={textClass}>{baseValue}</p>
+      }
+      return (
+        <a className={textClass} href={safeHref} target="_blank" rel="noopener noreferrer">
+          {baseValue}
+        </a>
+      )
+    }
+    return <p className={textClass}>{baseValue}</p>
+  }, [emptyLabel, renderDisplay, resolvedType, value, variant])
+
+  const editingContainerClass = variant === 'plain' ? 'mt-0 w-full max-w-sm space-y-3' : 'mt-2 space-y-3'
+
+  return (
+    <div className={containerClasses} onClick={handleInteractiveClick}>
+      <div className="flex items-start justify-between gap-2 min-w-0">
+        <div className={readOnlyWrapperClasses} {...interactiveProps}>
+          {hideLabel ? null : <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>}
+          {editing ? (
+            <form
+              className={editingContainerClass}
+              onSubmit={(event) => {
+                event.preventDefault()
+                if (!saving) void handleSave()
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault()
+                  setEditingSafe(false)
+                  setError(null)
+                  return
+                }
+                if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                  event.preventDefault()
+                  if (!saving) void handleSave()
+                }
+              }}
+            >
+              {(() => {
+                const lowerType = (inputType ?? resolvedType ?? '').toLowerCase()
+                const isDate = lowerType === 'date'
+                const isDateTime = lowerType === 'datetime-local' || lowerType === 'datetime'
+                if (resolvedType === 'tel') {
+                  return (
+                    <PhoneNumberField
+                      value={draft.length ? draft : undefined}
+                      onValueChange={(next) => {
+                        if (error) setError(null)
+                        setDraft(next ?? '')
+                      }}
+                      placeholder={placeholder}
+                      autoFocus
+                      disabled={saving}
+                      minDigits={7}
+                    />
+                  )
+                }
+                if (isDate || isDateTime) {
+                  let parsed: Date | null = null
+                  if (draft && draft.length) {
+                    const candidate = new Date(draft)
+                    if (!Number.isNaN(candidate.getTime())) parsed = candidate
+                  }
+                  return (
+                    <DatePicker
+                      value={parsed}
+                      onChange={(date) => {
+                        if (error) setError(null)
+                        const formatted = !date
+                          ? ''
+                          : isDateTime
+                            ? format(date, "yyyy-MM-dd'T'HH:mm")
+                            : format(date, 'yyyy-MM-dd')
+                        setDraft(formatted)
+                        setSaving(true)
+                        ;(async () => {
+                          try {
+                            await onSave(formatted.length ? formatted : null)
+                            setEditingSafe(false)
+                          } catch (err) {
+                            setError(resolveInlineErrorMessage(err, fallbackError, t))
+                          } finally {
+                            setSaving(false)
+                          }
+                        })()
+                      }}
+                      withTime={isDateTime}
+                      footer="apply-cancel"
+                      placeholder={placeholder}
+                      disabled={saving}
+                    />
+                  )
+                }
+                return (
+                  <input
+                    className="w-full rounded-md border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    value={draft}
+                    onChange={(event) => {
+                      if (error) setError(null)
+                      setDraft(event.target.value)
+                    }}
+                    placeholder={placeholder}
+                    type={inputType ?? resolvedType}
+                    autoFocus
+                  />
+                )
+              })()}
+              {error ? <p className="text-xs text-destructive">{error}</p> : null}
+              {renderBelowInput ? renderBelowInput({ draft, resolvedType, error, saving }) : null}
+              {(() => {
+                const lowerType = (inputType ?? resolvedType ?? '').toLowerCase()
+                const isDateLike = lowerType === 'date' || lowerType === 'datetime-local' || lowerType === 'datetime'
+                if (isDateLike) return null
+                return (
+              <div className="flex items-center gap-2">
+                <Button type="submit" size="sm" disabled={saving}>
+                  {saving ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
+                  {computedSaveLabel}
+                </Button>
+                <Button type="button" size="sm" variant="ghost" onClick={() => setEditingSafe(false)} disabled={saving}>
+                  {t('ui.detail.inline.cancel', 'Cancel')}
+                </Button>
+              </div>
+                )
+              })()}
+            </form>
+          ) : (
+            <div className={variant === 'plain' ? '' : 'mt-1'}>{displayContent}</div>
+          )}
+        </div>
+        {renderActions ? <div className="flex items-center gap-2">{renderActions}</div> : null}
+        <Button
+          type="button"
+          variant="ghost"
+          size={triggerSize}
+          className={triggerClasses}
+          onClick={(event) => {
+            event.stopPropagation()
+            const next = !editing
+            setEditingSafe(next)
+          }}
+          aria-label={triggerLabel}
+          title={triggerLabel}
+        >
+          {editing ? <X className="h-4 w-4" aria-hidden /> : <Pencil className="h-4 w-4" aria-hidden />}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+export type InlineMultilineEditorProps = {
+  label: string
+  value: string | null | undefined
+  placeholder?: string
+  emptyLabel: string
+  onSave: (value: string | null) => Promise<void>
+  validator?: (value: string) => string | null
+  variant?: EditorVariant
+  activateOnClick?: boolean
+  containerClassName?: string
+  triggerClassName?: string
+  renderDisplay?: (params: { value: string | null | undefined; emptyLabel: string }) => React.ReactNode
+}
+
+const isTestEnv =
+  typeof process !== 'undefined' &&
+  (process.env.NODE_ENV === 'test' || typeof process.env.JEST_WORKER_ID !== 'undefined')
+
+let markdownPluginsPromise: Promise<PluggableList> | null = null
+
+async function loadMarkdownPlugins(): Promise<PluggableList> {
+  if (isTestEnv) return []
+  if (!markdownPluginsPromise) {
+    markdownPluginsPromise = import('remark-gfm')
+      .then((mod) => [mod.default ?? mod] as PluggableList)
+      .catch(() => [])
+  }
+  return markdownPluginsPromise
+}
+
+export function InlineMultilineEditor({
+  label,
+  value,
+  placeholder,
+  emptyLabel,
+  onSave,
+  validator,
+  variant = 'default',
+  activateOnClick = true,
+  containerClassName,
+  triggerClassName,
+  renderDisplay,
+}: InlineMultilineEditorProps) {
+  const t = useT()
+  const [editing, setEditing] = React.useState(false)
+  const [draft, setDraft] = React.useState(value ?? '')
+  const [error, setError] = React.useState<string | null>(null)
+  const [saving, setSaving] = React.useState(false)
+  const [isMarkdownEnabled, setIsMarkdownEnabled] = React.useState(true)
+  const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
+  const [markdownPlugins, setMarkdownPlugins] = React.useState<PluggableList>([])
+  const fallbackError = React.useMemo(
+    () => t('ui.detail.inline.error', 'Failed to save value.'),
+    [t],
+  )
+  React.useEffect(() => {
+    if (isTestEnv) return
+    let mounted = true
+    void loadMarkdownPlugins().then((plugins) => {
+      if (!mounted) return
+      setMarkdownPlugins(plugins)
+    })
+    return () => {
+      mounted = false
+    }
+  }, [])
+
+  const adjustTextareaSize = React.useCallback((element: HTMLTextAreaElement | null) => {
+    if (!element) return
+    element.style.height = 'auto'
+    element.style.height = `${element.scrollHeight}px`
+  }, [])
+
+  React.useEffect(() => {
+    adjustTextareaSize(textareaRef.current)
+  }, [adjustTextareaSize, draft, isMarkdownEnabled])
+
+  React.useEffect(() => {
+    if (!editing) return
+    const element = textareaRef.current
+    if (!element) return
+    window.requestAnimationFrame(() => {
+      adjustTextareaSize(element)
+      element.focus()
+    })
+  }, [adjustTextareaSize, editing, isMarkdownEnabled])
+
+  const handleMarkdownToggle = React.useCallback(() => {
+    setIsMarkdownEnabled((prev) => !prev)
+  }, [])
+
+  React.useEffect(() => {
+    if (!editing) {
+      setDraft(value ?? '')
+      setError(null)
+    }
+  }, [editing, value])
+
+  const handleActivate = React.useCallback(() => {
+    if (!editing) setEditing(true)
+  }, [editing])
+
+  const handleInteractiveClick = React.useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (!activateOnClick || editing) return
+      const target = event.target as HTMLElement
+      const interactiveElement = target.closest('button, input, select, textarea, a, [role="link"]')
+      if (interactiveElement) {
+        if (interactiveElement.tagName.toLowerCase() === 'a') {
+          if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+            return
+          }
+          event.preventDefault()
+          // Links should not block activation; let the click toggle edit mode
+        } else {
+          return
+        }
+      }
+      handleActivate()
+    },
+    [activateOnClick, editing, handleActivate],
+  )
+
+  const handleContainerKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (!activateOnClick || editing) return
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault()
+        handleActivate()
+      }
+    },
+    [activateOnClick, editing, handleActivate],
+  )
+
+  const adjustError = React.useCallback(
+    (nextValue: string) => {
+      if (!validator) return null
+      const trimmed = nextValue.trim()
+      return validator(trimmed)
+    },
+    [validator],
+  )
+
+  const containerClasses = cn(
+    'group rounded-lg border p-4',
+    variant === 'muted' ? 'bg-muted/30' : null,
+    activateOnClick && !editing ? 'cursor-pointer' : null,
+    containerClassName ?? null,
+  )
+  const triggerClasses = cn(
+    'transition-opacity duration-150',
+    editing
+      ? 'opacity-100'
+      : INLINE_TRIGGER_HIDDEN_CLASSES,
+    triggerClassName ?? null,
+  )
+  const triggerLabel = editing
+    ? t('ui.detail.inline.cancel', 'Cancel')
+    : t('ui.detail.inline.edit', 'Edit')
+
+  const handleSave = React.useCallback(async () => {
+    const trimmed = draft.trim()
+    const validationError = adjustError(draft)
+    if (validationError) {
+      setError(validationError)
+      return
+    }
+    setSaving(true)
+    try {
+      await onSave(trimmed.length ? trimmed : null)
+      setEditing(false)
+    } catch (err) {
+      setError(resolveInlineErrorMessage(err, fallbackError, t))
+    } finally {
+      setSaving(false)
+    }
+  }, [adjustError, draft, fallbackError, onSave, t])
+
+  return (
+    <div className={containerClasses} onClick={handleInteractiveClick}>
+      <div className="flex items-start justify-between gap-2">
+        <div
+          className={cn('flex-1 min-w-0', activateOnClick && !editing ? 'cursor-pointer' : null)}
+          {...(activateOnClick && !editing
+            ? { role: 'button' as const, tabIndex: 0, onKeyDown: handleContainerKeyDown }
+            : {})}
+        >
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
+          {editing ? (
+            <form
+              className="mt-2 space-y-3"
+              onSubmit={(event) => {
+                event.preventDefault()
+                if (!saving) void handleSave()
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault()
+                  setEditing(false)
+                  setError(null)
+                  return
+                }
+                if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                  event.preventDefault()
+                  if (!saving) void handleSave()
+                }
+              }}
+            >
+              <Textarea
+                ref={textareaRef}
+                rows={isMarkdownEnabled ? 8 : 3}
+                className="w-full resize-none overflow-hidden rounded-md border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                placeholder={placeholder}
+                value={draft}
+                onChange={(event) => {
+                  if (error) setError(null)
+                  setDraft(event.target.value)
+                }}
+                onInput={(event) => adjustTextareaSize(event.currentTarget)}
+                autoFocus
+                disabled={saving}
+              />
+              {error ? <p className="text-xs text-destructive">{error}</p> : null}
+              <div className="flex items-center gap-2">
+                <Button type="submit" size="sm" disabled={saving}>
+                  {saving ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
+                  {t('ui.detail.inline.saveShortcut', 'Save ⌘⏎ / Ctrl+Enter')}
+                </Button>
+                <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={saving}>
+                  {t('ui.detail.inline.cancel', 'Cancel')}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleMarkdownToggle}
+                  aria-pressed={isMarkdownEnabled}
+                  title={
+                    isMarkdownEnabled
+                      ? t('ui.detail.inline.markdownDisable', 'Disable Markdown')
+                      : t('ui.detail.inline.markdownEnable', 'Enable Markdown')
+                  }
+                  aria-label={
+                    isMarkdownEnabled
+                      ? t('ui.detail.inline.markdownDisable', 'Disable Markdown')
+                      : t('ui.detail.inline.markdownEnable', 'Enable Markdown')
+                  }
+                  className={cn('h-8 w-8', isMarkdownEnabled ? 'text-primary' : undefined)}
+                  disabled={saving}
+                >
+                  <FileCode className="h-4 w-4" aria-hidden />
+                  <span className="sr-only">
+                    {isMarkdownEnabled
+                      ? t('ui.detail.inline.markdownDisable', 'Disable Markdown')
+                      : t('ui.detail.inline.markdownEnable', 'Enable Markdown')}
+                  </span>
+                </Button>
+              </div>
+            </form>
+          ) : (
+            <div
+              className={cn(
+                'mt-1 text-sm break-words',
+                renderDisplay ? null : 'whitespace-pre-wrap',
+                activateOnClick && !editing ? 'cursor-pointer' : null,
+              )}
+            >
+              {renderDisplay ? (
+                renderDisplay({ value, emptyLabel })
+              ) : value && value.length ? (
+                <MarkdownPreview
+                  remarkPlugins={markdownPlugins}
+                  className="prose prose-sm max-w-none text-foreground [&>*]:my-2 [&>*:last-child]:mb-0 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5"
+                >
+                  {value}
+                </MarkdownPreview>
+              ) : (
+                <span className="text-muted-foreground">{emptyLabel}</span>
+              )}
+            </div>
+          )}
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className={triggerClasses}
+          onClick={(event) => {
+            event.stopPropagation()
+            setEditing((state) => !state)
+          }}
+          aria-label={triggerLabel}
+          title={triggerLabel}
+        >
+          {editing ? <X className="h-4 w-4" aria-hidden /> : <Pencil className="h-4 w-4" aria-hidden />}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+export type InlineSelectOption = { value: string; label: string; description?: string }
+
+export type InlineSelectEditorProps = {
+  label: string
+  value: string | null | undefined
+  emptyLabel: string
+  options: InlineSelectOption[]
+  onSave: (value: string | null) => Promise<void>
+  variant?: EditorVariant
+  activateOnClick?: boolean
+  containerClassName?: string
+  triggerClassName?: string
+  hideLabel?: boolean
+  renderEditor?: (params: { value: string; onChange: (next: string) => void }) => React.ReactNode
+  renderDisplay?: (params: { value: string | null | undefined; emptyLabel: string }) => React.ReactNode
+}
+
+export function InlineSelectEditor({
+  label,
+  value,
+  emptyLabel,
+  options,
+  onSave,
+  variant = 'default',
+  activateOnClick = false,
+  containerClassName,
+  triggerClassName,
+  hideLabel = false,
+  renderEditor,
+  renderDisplay,
+}: InlineSelectEditorProps) {
+  const t = useT()
+  const [editing, setEditing] = React.useState(false)
+  const [draft, setDraft] = React.useState<string>(value ?? '')
+  const [saving, setSaving] = React.useState(false)
+
+  React.useEffect(() => {
+    if (!editing) setDraft(value ?? '')
+  }, [editing, value])
+
+  const containerClasses = cn(
+    'group',
+    variant === 'muted'
+      ? 'relative rounded border bg-muted/30 p-3'
+      : variant === 'plain'
+        ? 'relative flex flex-col gap-1 rounded-none border-0 p-0'
+        : 'rounded-lg border bg-card p-4',
+    activateOnClick && !editing ? 'cursor-pointer' : null,
+    containerClassName ?? null,
+  )
+  const triggerClasses = cn(
+    'shrink-0 transition-opacity duration-150',
+    editing
+      ? 'opacity-100'
+      : INLINE_TRIGGER_HIDDEN_CLASSES,
+    variant === 'muted' ? 'h-8 w-8' : null,
+    triggerClassName ?? null,
+  )
+  const triggerLabel = editing
+    ? t('ui.detail.inline.cancel', 'Cancel')
+    : t('ui.detail.inline.edit', 'Edit')
+
+  const handleSave = React.useCallback(async () => {
+    setSaving(true)
+    try {
+      await onSave(draft.length ? draft : null)
+      setEditing(false)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t('ui.detail.inline.error', 'Failed to save value.')
+      logger.error(message, { err })
+    } finally {
+      setSaving(false)
+    }
+  }, [draft, onSave, t])
+
+  const selected = options.find((option) => option.value === value)
+
+  const interactiveProps: React.HTMLAttributes<HTMLDivElement> =
+    activateOnClick && !editing
+      ? {
+          role: 'button' as const,
+          tabIndex: 0,
+          onClick: () => setEditing(true),
+          onKeyDown: (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault()
+              setEditing(true)
+            }
+          },
+        }
+      : {}
+
+  return (
+    <div className={containerClasses}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 min-w-0" {...interactiveProps}>
+          {hideLabel ? null : <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>}
+          {editing ? (
+            <div className={variant === 'plain' ? 'space-y-2 pt-1' : 'mt-2 space-y-2'}>
+              {renderEditor ? (
+                renderEditor({ value: draft, onChange: setDraft })
+              ) : (
+                <Select
+                  value={draft || undefined}
+                  onValueChange={(next) => setDraft(next ?? '')}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder={t('ui.detail.inline.select.placeholder', 'Not set')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {options.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              <div className="flex items-center gap-2">
+                <Button type="button" size="sm" onClick={() => void handleSave()} disabled={saving}>
+                  {saving ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
+                  {t('ui.detail.inline.saveShortcut', 'Save ⌘⏎ / Ctrl+Enter')}
+                </Button>
+                <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={saving}>
+                  {t('ui.detail.inline.cancel', 'Cancel')}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className={variant === 'plain' ? 'flex items-center gap-2' : 'mt-1 text-sm'}>
+              {renderDisplay ? (
+                renderDisplay({ value, emptyLabel })
+              ) : selected ? (
+                <div className="space-y-0.5">
+                  <p className="font-medium leading-tight">{selected.label}</p>
+                  {selected.description ? (
+                    <p className="text-xs text-muted-foreground">{selected.description}</p>
+                  ) : null}
+                </div>
+              ) : (
+                <span className="text-muted-foreground">{emptyLabel}</span>
+              )}
+            </div>
+          )}
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size={variant === 'plain' ? 'icon' : 'sm'}
+          className={triggerClasses}
+          onClick={(event) => {
+            event.stopPropagation()
+            setEditing((state) => !state)
+          }}
+          aria-label={triggerLabel}
+          title={triggerLabel}
+        >
+          {editing ? <X className="h-4 w-4" aria-hidden /> : <Pencil className="h-4 w-4" aria-hidden />}
+        </Button>
+      </div>
+    </div>
+  )
+}

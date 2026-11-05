@@ -1,0 +1,677 @@
+---
+title: Scheduler API
+---
+
+# Scheduler API
+
+The Scheduler API allows you to manage scheduled jobs programmatically.
+
+## Authentication
+
+All endpoints require authentication via API key or session token.
+
+```http
+Authorization: Bearer <api-key>
+```
+
+## Base URL
+
+```
+/api/scheduler
+```
+
+## Access Control
+
+| Feature | Description |
+|---------|-------------|
+| `scheduler.jobs.view` | View scheduled jobs |
+| `scheduler.jobs.manage` | Create, update, and delete schedules |
+| `scheduler.jobs.trigger` | Manually trigger schedule execution |
+
+## Endpoints
+
+### List Schedules
+
+Retrieve a paginated list of scheduled jobs.
+
+```http
+GET /api/scheduler/jobs
+```
+
+**Query Parameters:**
+
+| Parameter | Type | Description | Default |
+|-----------|------|-------------|---------|
+| `page` | integer | Page number (1-based) | 1 |
+| `pageSize` | integer | Items per page (max 100) | 20 |
+| `search` | string | Search in name and description | - |
+| `scopeType` | string | Filter by scope: `system`, `organization`, `tenant` | - |
+| `isEnabled` | boolean | Filter by enabled status | - |
+| `sourceType` | string | Filter by source: `user`, `module` | - |
+| `sourceModule` | string | Filter by module ID | - |
+| `sortBy` | string | Sort field: `name`, `nextRunAt`, `createdAt` | `createdAt` |
+| `sortOrder` | string | Sort direction: `asc`, `desc` | `desc` |
+
+**Response:**
+
+```json
+{
+  "data": [
+    {
+      "id": "uuid",
+      "organizationId": "uuid",
+      "tenantId": "uuid",
+      "scopeType": "tenant",
+      "name": "Daily Report Generation",
+      "description": "Generate daily sales and inventory report",
+      "scheduleType": "cron",
+      "scheduleValue": "0 6 * * *",
+      "timezone": "America/New_York",
+      "targetType": "command",
+      "targetQueue": null,
+      "targetCommand": "reports.generate-daily",
+      "targetPayload": { "format": "pdf" },
+      "requireFeature": null,
+      "isEnabled": true,
+      "lastRunAt": "2024-01-27T06:00:00Z",
+      "nextRunAt": "2024-01-28T06:00:00Z",
+      "sourceType": "user",
+      "sourceModule": null,
+      "createdAt": "2024-01-20T10:00:00Z",
+      "updatedAt": "2024-01-27T06:00:05Z",
+      "deletedAt": null,
+      "createdByUserId": "uuid",
+      "updatedByUserId": "uuid"
+    }
+  ],
+  "meta": {
+    "total": 42,
+    "pageSize": 20,
+    "page": 1
+  }
+}
+```
+
+**Status Codes:**
+
+- `200` - Success
+- `401` - Unauthorized
+- `403` - Forbidden (missing `scheduler.jobs.view` feature)
+
+### Create Schedule
+
+Create a new scheduled job.
+
+```http
+POST /api/scheduler/jobs
+Content-Type: application/json
+```
+
+**Request Body:**
+
+```json
+{
+  "name": "Daily Report Generation",
+  "description": "Generate daily sales and inventory report",
+  "scopeType": "tenant",
+  "scheduleType": "cron",
+  "scheduleValue": "0 6 * * *",
+  "timezone": "America/New_York",
+  "targetType": "command",
+  "targetCommand": "reports.generate-daily",
+  "targetPayload": { "format": "pdf" },
+  "requireFeature": "reports.advanced",
+  "isEnabled": true
+}
+```
+
+**Field Validation:**
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| `name` | string | Yes | 1-255 characters |
+| `description` | string | No | Max 2000 characters |
+| `scopeType` | enum | Yes | `system`, `organization`, `tenant` |
+| `scheduleType` | enum | Yes | `cron`, `interval` |
+| `scheduleValue` | string | Yes | Valid cron expression or interval format |
+| `timezone` | string | No | Valid IANA timezone (default: UTC) |
+| `targetType` | enum | Yes | `queue`, `command` |
+| `targetQueue` | string | Conditional | Required if `targetType=queue` |
+| `targetCommand` | string | Conditional | Required if `targetType=command`, must exist in registry |
+| `targetPayload` | object | No | Valid JSON object |
+| `requireFeature` | string | No | Feature flag ID |
+| `isEnabled` | boolean | No | Default: true |
+
+**Scope Validation:**
+
+- `scopeType=system`: Cannot specify `organizationId` or `tenantId`
+- `scopeType=organization`: Must specify both `organizationId` and `tenantId` (auto-populated from context)
+- `scopeType=tenant`: Must specify `tenantId` (auto-populated from context)
+
+**Schedule Value Formats:**
+
+**Cron:**
+```
+0 0 * * *        # Daily at midnight
+0 */6 * * *      # Every 6 hours
+*/15 * * * *     # Every 15 minutes
+0 9 * * 1-5      # Weekdays at 9 AM
+```
+
+**Interval:**
+```
+30s              # 30 seconds
+15m              # 15 minutes
+2h               # 2 hours
+1d               # 1 day
+```
+
+**Response:**
+
+```json
+{
+  "id": "uuid",
+  "organizationId": "uuid",
+  "tenantId": "uuid",
+  "scopeType": "tenant",
+  "name": "Daily Report Generation",
+  "description": "Generate daily sales and inventory report",
+  "scheduleType": "cron",
+  "scheduleValue": "0 6 * * *",
+  "timezone": "America/New_York",
+  "targetType": "command",
+  "targetQueue": null,
+  "targetCommand": "reports.generate-daily",
+  "targetPayload": { "format": "pdf" },
+  "requireFeature": "reports.advanced",
+  "isEnabled": true,
+  "lastRunAt": null,
+  "nextRunAt": "2024-01-28T06:00:00Z",
+  "sourceType": "user",
+  "sourceModule": null,
+  "createdAt": "2024-01-27T10:00:00Z",
+  "updatedAt": "2024-01-27T10:00:00Z",
+  "deletedAt": null,
+  "createdByUserId": "uuid",
+  "updatedByUserId": null
+}
+```
+
+**Status Codes:**
+
+- `200` - Success
+- `400` - Bad Request (validation error)
+- `401` - Unauthorized
+- `403` - Forbidden (missing `scheduler.jobs.manage` feature)
+- `422` - Unprocessable Entity (invalid cron/interval, command not found)
+
+**Error Response:**
+
+```json
+{
+  "error": "Validation failed",
+  "details": [
+    {
+      "field": "scheduleValue",
+      "message": "Invalid cron expression"
+    }
+  ]
+}
+```
+
+### Update Schedule
+
+Update an existing scheduled job.
+
+```http
+PUT /api/scheduler/jobs
+Content-Type: application/json
+```
+
+**Request Body:**
+
+```json
+{
+  "id": "uuid",
+  "scheduleValue": "0 12 * * *",
+  "isEnabled": false
+}
+```
+
+**Field Validation:**
+
+- All fields are optional except `id`
+- Same validation rules as create endpoint
+- Can change `scheduleType` but must provide new `scheduleValue`
+- Changing `targetType` clears previous target fields
+
+**Response:**
+
+Same as create endpoint.
+
+**Status Codes:**
+
+- `200` - Success
+- `400` - Bad Request (validation error)
+- `401` - Unauthorized
+- `403` - Forbidden (missing `scheduler.jobs.manage` feature)
+- `404` - Not Found (schedule doesn't exist or soft deleted)
+- `422` - Unprocessable Entity (invalid cron/interval, command not found)
+
+### Delete Schedule
+
+Soft delete a scheduled job (can be undone).
+
+```http
+DELETE /api/scheduler/jobs
+Content-Type: application/json
+```
+
+**Request Body:**
+
+```json
+{
+  "id": "uuid"
+}
+```
+
+**Response:**
+
+```json
+{
+  "ok": true
+}
+```
+
+**Status Codes:**
+
+- `200` - Success
+- `400` - Bad Request (missing ID)
+- `401` - Unauthorized
+- `403` - Forbidden (missing `scheduler.jobs.manage` feature)
+- `404` - Not Found (schedule doesn't exist or already deleted)
+
+### Trigger Schedule
+
+Manually execute a schedule immediately.
+
+:::caution
+This endpoint requires `QUEUE_STRATEGY=async` and will return an error in local mode.
+:::
+
+```http
+POST /api/scheduler/trigger
+Content-Type: application/json
+```
+
+**Request Body:**
+
+```json
+{
+  "id": "uuid"
+}
+```
+
+**Response:**
+
+```json
+{
+  "ok": true,
+  "jobId": "bullmq-job-id"
+}
+```
+
+**Status Codes:**
+
+- `200` - Success (job enqueued)
+- `400` - Bad Request (missing ID)
+- `401` - Unauthorized
+- `403` - Forbidden (missing `scheduler.jobs.trigger` feature)
+- `404` - Not Found (schedule doesn't exist)
+- `422` - Unprocessable Entity (schedule is disabled)
+- `503` - Service Unavailable (local mode or queue unavailable)
+
+### Get Execution History
+
+Retrieve execution history for a scheduled job.
+
+:::caution
+This endpoint requires `QUEUE_STRATEGY=async` and will return empty results in local mode.
+:::
+
+```http
+GET /api/scheduler/jobs/{id}/executions
+```
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | string | Schedule UUID |
+
+**Query Parameters:**
+
+| Parameter | Type | Description | Default |
+|-----------|------|-------------|---------|
+| `page` | integer | Page number (1-based) | 1 |
+| `pageSize` | integer | Items per page (max 100) | 20 |
+
+**Response:**
+
+```json
+{
+  "data": [
+    {
+      "id": "bullmq-job-id",
+      "state": "completed",
+      "progress": 100,
+      "startedAt": "2024-01-27T06:00:00Z",
+      "completedAt": "2024-01-27T06:00:05Z",
+      "result": {
+        "message": "Report generated successfully",
+        "reportId": "uuid"
+      },
+      "error": null
+    },
+    {
+      "id": "bullmq-job-id-2",
+      "state": "failed",
+      "progress": 50,
+      "startedAt": "2024-01-26T06:00:00Z",
+      "completedAt": "2024-01-26T06:00:03Z",
+      "result": null,
+      "error": "Database connection timeout"
+    }
+  ],
+  "meta": {
+    "total": 15,
+    "pageSize": 20,
+    "page": 1
+  }
+}
+```
+
+**Job States:**
+
+- `waiting` - Queued, not started
+- `active` - Currently executing
+- `completed` - Finished successfully
+- `failed` - Finished with error
+- `delayed` - Scheduled for future execution
+- `paused` - Queue is paused
+
+**Status Codes:**
+
+- `200` - Success
+- `401` - Unauthorized
+- `403` - Forbidden (missing `scheduler.jobs.view` feature)
+- `404` - Not Found (schedule doesn't exist)
+- `503` - Service Unavailable (local mode)
+
+### Get Queue Job Details
+
+Retrieve detailed information about a specific queue job.
+
+:::caution
+This endpoint requires `QUEUE_STRATEGY=async`.
+:::
+
+```http
+GET /api/scheduler/queue-jobs/{jobId}
+```
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `jobId` | string | BullMQ job ID |
+
+**Response:**
+
+```json
+{
+  "id": "bullmq-job-id",
+  "name": "scheduler-execution",
+  "state": "completed",
+  "progress": 100,
+  "data": {
+    "scheduleId": "uuid",
+    "scheduleName": "Daily Report Generation",
+    "tenantId": "uuid",
+    "organizationId": "uuid"
+  },
+  "result": {
+    "message": "Report generated successfully",
+    "reportId": "uuid"
+  },
+  "error": null,
+  "stacktrace": null,
+  "attemptsMade": 1,
+  "timestamp": "2024-01-27T06:00:00Z",
+  "processedOn": "2024-01-27T06:00:00Z",
+  "finishedOn": "2024-01-27T06:00:05Z",
+  "returnvalue": {
+    "message": "Report generated successfully",
+    "reportId": "uuid"
+  }
+}
+```
+
+**Status Codes:**
+
+- `200` - Success
+- `401` - Unauthorized
+- `403` - Forbidden (missing `scheduler.jobs.view` feature)
+- `404` - Not Found (job doesn't exist)
+- `503` - Service Unavailable (local mode)
+
+## Usage Examples
+
+### cURL Examples
+
+**Create a daily report schedule:**
+
+```bash
+curl -X POST http://localhost:3000/api/scheduler/jobs \
+  -H "Authorization: Bearer <api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Daily Sales Report",
+    "scopeType": "tenant",
+    "scheduleType": "cron",
+    "scheduleValue": "0 6 * * *",
+    "timezone": "America/New_York",
+    "targetType": "command",
+    "targetCommand": "reports.generate-daily",
+    "targetPayload": { "format": "pdf" },
+    "isEnabled": true
+  }'
+```
+
+**List all schedules:**
+
+```bash
+curl -X GET "http://localhost:3000/api/scheduler/jobs?page=1&pageSize=20" \
+  -H "Authorization: Bearer <api-key>"
+```
+
+**Update schedule time:**
+
+```bash
+curl -X PUT http://localhost:3000/api/scheduler/jobs \
+  -H "Authorization: Bearer <api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "uuid",
+    "scheduleValue": "0 12 * * *"
+  }'
+```
+
+**Disable a schedule:**
+
+```bash
+curl -X PUT http://localhost:3000/api/scheduler/jobs \
+  -H "Authorization: Bearer <api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "uuid",
+    "isEnabled": false
+  }'
+```
+
+**Trigger schedule manually:**
+
+```bash
+curl -X POST http://localhost:3000/api/scheduler/trigger \
+  -H "Authorization: Bearer <api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{ "id": "uuid" }'
+```
+
+**Get execution history:**
+
+```bash
+curl -X GET "http://localhost:3000/api/scheduler/jobs/uuid/executions?page=1&pageSize=10" \
+  -H "Authorization: Bearer <api-key>"
+```
+
+### JavaScript/TypeScript Examples
+
+**Using fetch:**
+
+```typescript
+const apiKey = 'your-api-key'
+const baseUrl = 'http://localhost:3000/api/scheduler'
+
+// Create schedule
+const response = await fetch(`${baseUrl}/jobs`, {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${apiKey}`,
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    name: 'Hourly Sync',
+    scopeType: 'tenant',
+    scheduleType: 'interval',
+    scheduleValue: '1h',
+    targetType: 'queue',
+    targetQueue: 'data-sync',
+    isEnabled: true,
+  }),
+})
+
+const schedule = await response.json()
+console.log('Created schedule:', schedule)
+
+// List schedules
+const listResponse = await fetch(`${baseUrl}/jobs?pageSize=50`, {
+  headers: { 'Authorization': `Bearer ${apiKey}` },
+})
+
+const { data, meta } = await listResponse.json()
+console.log(`Found ${meta.total} schedules`)
+
+// Trigger schedule
+const triggerResponse = await fetch(`${baseUrl}/trigger`, {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${apiKey}`,
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({ id: schedule.id }),
+})
+
+const { ok, jobId } = await triggerResponse.json()
+console.log(`Triggered: ${ok}, Job ID: ${jobId}`)
+```
+
+**Using axios:**
+
+```typescript
+import axios from 'axios'
+
+const client = axios.create({
+  baseURL: 'http://localhost:3000/api/scheduler',
+  headers: {
+    'Authorization': `Bearer ${process.env.API_KEY}`,
+  },
+})
+
+// Create schedule
+const { data: schedule } = await client.post('/jobs', {
+  name: 'Weekly Cleanup',
+  scopeType: 'system',
+  scheduleType: 'cron',
+  scheduleValue: '0 2 * * 0',
+  targetType: 'command',
+  targetCommand: 'system.cleanup',
+  isEnabled: true,
+})
+
+// Get execution history
+const { data: executions } = await client.get(`/jobs/${schedule.id}/executions`, {
+  params: { page: 1, pageSize: 10 },
+})
+
+console.log(`Latest executions:`, executions.data)
+```
+
+## Webhooks
+
+The scheduler does not currently support webhooks, but you can subscribe to events:
+
+```typescript
+// subscribers/scheduler-webhook.ts
+export const metadata = {
+  event: 'scheduler.job.completed',
+  persistent: true,
+}
+
+export default async function handler(payload: {
+  scheduleId: string
+  scheduleName: string
+  result: any
+}) {
+  // Forward to webhook endpoint
+  await fetch('https://your-webhook.com/scheduler', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+```
+
+## Rate Limits
+
+The Scheduler API respects global API rate limits:
+
+- 100 requests per minute per API key
+- 1000 requests per hour per API key
+
+Trigger endpoint has additional limits:
+- 10 manual triggers per minute per schedule
+- 100 manual triggers per hour per schedule
+
+## Best Practices
+
+1. **Paginate list requests** - Always specify reasonable `pageSize` values
+2. **Filter by scope** - Use `scopeType` filter to reduce response size
+3. **Search efficiently** - Use `search` parameter instead of client-side filtering
+4. **Handle errors gracefully** - Check for 422 errors on invalid cron/interval
+5. **Validate before create** - Verify command exists and payload is valid JSON
+6. **Monitor execution history** - Regularly check for failed executions
+7. **Use idempotent commands** - Design target commands to handle duplicate executions
+8. **Test with manual triggers** - Use trigger endpoint to test before enabling
+9. **Set appropriate timeouts** - Long-running jobs may exceed default timeouts
+10. **Clean up unused schedules** - Delete schedules that are no longer needed
+
+## OpenAPI Specification
+
+The Scheduler API is fully documented in OpenAPI format. Access the interactive documentation at:
+
+```
+http://localhost:3000/backend/docs
+```
+
+Filter by tag: `Scheduler`

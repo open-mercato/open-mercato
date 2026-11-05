@@ -1,0 +1,17 @@
+---
+description: Entity schema-diff guard for the canonical standalone entity file
+globs:
+  - src/modules/*/data/entities.ts
+alwaysApply: false
+---
+
+# Entity Schema Change
+
+Follow root `AGENTS.md` and `om-data-model-design`:
+
+1. Run `yarn db:generate` as a schema-diff probe.
+2. Review and keep only scoped migration SQL plus the touched module snapshot.
+3. Run `yarn generate` when discovery changed.
+4. Ask before applying with `yarn db:migrate`.
+
+Never edit a shipped migration or generated registry.

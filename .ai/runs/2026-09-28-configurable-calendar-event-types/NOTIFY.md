@@ -1,0 +1,16 @@
+# Notify — 2026-09-28-configurable-calendar-event-types
+
+> Append-only log. Every entry is UTC-timestamped. Never rewrite prior entries.
+
+## 2026-09-28T17:26:05Z — run started
+
+- Brief: implement both calendar event-type specs from #6687, including a mirrored example that hides, patches, adds, and custom-renders types.
+- External skill URLs: none.
+- Decision: keep #6687 design-only; create a separate implementation PR for #6684 from `develop` and reference the unmerged source specs by PR/branch.
+- QA mapping: use installed `om-auto-qa-pr` for the requested `om-auto-verify-qa-pr` outcome because no skill with the latter exact name is installed.
+
+## 2026-09-29T16:43:36Z — implementation and browser evidence complete
+
+- All three current source specs are implemented on PR #6688; the Phase 3 Playwright tests cover the manager, catalog, type switching, organization isolation, and Visit behavior.
+- Local browser verification passed seven focused scenarios. Three screenshots are attached to the PR evidence comment.
+- Package build, generation, i18n checks, and typecheck passed. The full unit gate was retried after a Jest mock fix; final build and review remain in progress.

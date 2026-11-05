@@ -1,0 +1,11 @@
+{
+  "exampleCustomersSync.errors.invalidCursor": "Cursor no valido.",
+  "exampleCustomersSync.errors.invalidJson": "Cuerpo JSON no valido.",
+  "exampleCustomersSync.errors.mappingsLoadFailed": "No se pudieron cargar las asignaciones de sincronizacion de clientes de Example.",
+  "exampleCustomersSync.errors.organizationContextRequired": "Se requiere el contexto de organizacion.",
+  "exampleCustomersSync.errors.organizationScopeMismatch": "El alcance de la organizacion no coincide.",
+  "exampleCustomersSync.errors.reconcileEnqueueFailed": "No se pudo encolar la reconciliacion de sincronizacion de clientes de Example.",
+  "exampleCustomersSync.errors.tenantScopeMismatch": "El alcance del tenant no coincide.",
+  "exampleCustomersSync.errors.unauthorized": "No autorizado",
+  "exampleCustomersSync.errors.validationFailed": "La validacion fallo"
+}

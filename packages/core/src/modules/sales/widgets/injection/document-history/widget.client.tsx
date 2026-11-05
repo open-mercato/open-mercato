@@ -1,0 +1,455 @@
+"use client"
+
+import * as React from "react"
+import { Spinner } from "@open-mercato/ui/primitives/spinner"
+import { useT, type TranslateFn } from "@open-mercato/shared/lib/i18n/context"
+import { apiCall } from "@open-mercato/ui/backend/utils/apiCall"
+import { formatRelativeTime, formatDateTime } from "@open-mercato/shared/lib/time"
+import { cn } from "@open-mercato/shared/lib/utils"
+import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
+import { ArrowRightLeft, Zap, MessageSquare, User, Filter, ChevronDown, Check } from 'lucide-react'
+
+export type TimelineEntry = {
+  id: string
+  occurredAt: string
+  kind: "status" | "action" | "comment"
+  action: string
+  actor: { id: string | null; label: string }
+  source: "action_log" | "note"
+  metadata?: {
+    statusFrom?: string | null
+    statusTo?: string | null
+    documentKind?: "order" | "quote"
+    commandId?: string
+    changedFields?: string[]
+  }
+}
+
+type StatusOption = {
+  value: string
+  label: string
+  color: string | null
+  icon: string | null
+}
+
+type TimelineContext = {
+  kind: "order" | "quote"
+  record: { id: string }
+}
+
+const isValidContext = (ctx: unknown): ctx is TimelineContext =>
+  ctx !== null &&
+  typeof ctx === 'object' &&
+  'kind' in ctx &&
+  'record' in ctx &&
+  ((ctx as TimelineContext).kind === 'order' || (ctx as TimelineContext).kind === 'quote') &&
+  typeof (ctx as TimelineContext).record === 'object' &&
+  (ctx as TimelineContext).record !== null &&
+  'id' in (ctx as TimelineContext).record &&
+  typeof (ctx as TimelineContext).record.id === 'string'
+
+const KIND_ICONS = {
+  status: ArrowRightLeft,
+  action: Zap,
+  comment: MessageSquare,
+}
+
+const KIND_ICON_COLORS = {
+  status: 'text-foreground',
+  action: 'text-foreground',
+  comment: 'text-foreground',
+}
+
+const KIND_BG_COLORS = {
+  status: 'bg-muted',
+  action: 'bg-muted',
+  comment: 'bg-muted',
+}
+
+export const CHANGED_FIELD_LABELS: Record<string, { key: string; fallback: string }> = {
+  productId: { key: 'sales.documents.history.fields.product', fallback: 'Product' },
+  productVariantId: { key: 'sales.documents.history.fields.variant', fallback: 'Variant' },
+  name: { key: 'sales.documents.history.fields.name', fallback: 'Name' },
+  description: { key: 'sales.documents.history.fields.description', fallback: 'Description' },
+  comment: { key: 'sales.documents.history.fields.comment', fallback: 'Comment' },
+  quantity: { key: 'sales.documents.history.fields.quantity', fallback: 'Quantity' },
+  quantityUnit: { key: 'sales.documents.history.fields.quantityUnit', fallback: 'Quantity unit' },
+  currencyCode: { key: 'sales.documents.history.fields.currency', fallback: 'Currency' },
+  unitPriceNet: { key: 'sales.documents.history.fields.unitPriceNet', fallback: 'Net unit price' },
+  unitPriceGross: { key: 'sales.documents.history.fields.unitPriceGross', fallback: 'Gross unit price' },
+  discountAmount: { key: 'sales.documents.history.fields.discountAmount', fallback: 'Discount amount' },
+  discountPercent: { key: 'sales.documents.history.fields.discountPercent', fallback: 'Discount percent' },
+  taxRate: { key: 'sales.documents.history.fields.taxRate', fallback: 'Tax class' },
+  configuration: { key: 'sales.documents.history.fields.configuration', fallback: 'Configuration' },
+  promotionCode: { key: 'sales.documents.history.fields.promotionCode', fallback: 'Promotion code' },
+  customFields: { key: 'sales.documents.history.fields.customFields', fallback: 'Custom fields' },
+  statusEntryId: { key: 'sales.documents.history.fields.status', fallback: 'Status' },
+  status: { key: 'sales.documents.history.fields.status', fallback: 'Status' },
+  fulfillmentStatus: { key: 'sales.documents.history.fields.fulfillmentStatus', fallback: 'Fulfillment status' },
+  paymentStatus: { key: 'sales.documents.history.fields.paymentStatus', fallback: 'Payment status' },
+  customerEntityId: { key: 'sales.documents.history.fields.customer', fallback: 'Customer' },
+  customerContactId: { key: 'sales.documents.history.fields.customerContact', fallback: 'Customer contact' },
+  customerSnapshot: { key: 'sales.documents.history.fields.customerSnapshot', fallback: 'Customer details' },
+  customerReference: { key: 'sales.documents.history.fields.customerReference', fallback: 'Customer reference' },
+  externalReference: { key: 'sales.documents.history.fields.externalReference', fallback: 'External reference' },
+  billingAddressId: { key: 'sales.documents.history.fields.billingAddress', fallback: 'Billing address' },
+  billingAddressSnapshot: { key: 'sales.documents.history.fields.billingAddress', fallback: 'Billing address' },
+  shippingAddressId: { key: 'sales.documents.history.fields.shippingAddress', fallback: 'Shipping address' },
+  shippingAddressSnapshot: { key: 'sales.documents.history.fields.shippingAddress', fallback: 'Shipping address' },
+  shippingMethodSnapshot: { key: 'sales.documents.history.fields.shippingMethod', fallback: 'Shipping method' },
+  paymentMethodSnapshot: { key: 'sales.documents.history.fields.paymentMethod', fallback: 'Payment method' },
+  deliveryWindowSnapshot: { key: 'sales.documents.history.fields.deliveryWindow', fallback: 'Delivery window' },
+  channelId: { key: 'sales.documents.history.fields.channel', fallback: 'Channel' },
+  exchangeRate: { key: 'sales.documents.history.fields.exchangeRate', fallback: 'Exchange rate' },
+  comments: { key: 'sales.documents.history.fields.comments', fallback: 'Comments' },
+  internalNotes: { key: 'sales.documents.history.fields.internalNotes', fallback: 'Internal notes' },
+  metadata: { key: 'sales.documents.history.fields.metadata', fallback: 'Metadata' },
+  adjustments: { key: 'sales.documents.history.fields.adjustments', fallback: 'Adjustments' },
+  taxInfo: { key: 'sales.documents.history.fields.taxInfo', fallback: 'Tax details' },
+  placedAt: { key: 'sales.documents.history.fields.placedAt', fallback: 'Placed at' },
+  dueAt: { key: 'sales.documents.history.fields.dueAt', fallback: 'Due at' },
+  expectedDeliveryAt: { key: 'sales.documents.history.fields.expectedDeliveryAt', fallback: 'Expected delivery' },
+  validUntil: { key: 'sales.documents.history.fields.validUntil', fallback: 'Valid until' },
+  lineItemCount: { key: 'sales.documents.history.fields.lineItemCount', fallback: 'Line item count' },
+  subtotalNetAmount: { key: 'sales.documents.history.fields.subtotalNet', fallback: 'Net subtotal' },
+  subtotalGrossAmount: { key: 'sales.documents.history.fields.subtotalGross', fallback: 'Gross subtotal' },
+  discountTotalAmount: { key: 'sales.documents.history.fields.discountTotal', fallback: 'Discount total' },
+  taxTotalAmount: { key: 'sales.documents.history.fields.taxTotal', fallback: 'Tax total' },
+  surchargeTotalAmount: { key: 'sales.documents.history.fields.surchargeTotal', fallback: 'Surcharge total' },
+  shippingNetAmount: { key: 'sales.documents.history.fields.shippingNet', fallback: 'Net shipping' },
+  shippingGrossAmount: { key: 'sales.documents.history.fields.shippingGross', fallback: 'Gross shipping' },
+  grandTotalNetAmount: { key: 'sales.documents.history.fields.grandTotalNet', fallback: 'Net grand total' },
+  grandTotalGrossAmount: { key: 'sales.documents.history.fields.grandTotalGross', fallback: 'Gross grand total' },
+  totalsSnapshot: { key: 'sales.documents.history.fields.totals', fallback: 'Totals' },
+  paidTotalAmount: { key: 'sales.documents.history.fields.paidTotal', fallback: 'Paid total' },
+  refundedTotalAmount: { key: 'sales.documents.history.fields.refundedTotal', fallback: 'Refunded total' },
+  outstandingAmount: { key: 'sales.documents.history.fields.outstanding', fallback: 'Outstanding amount' },
+}
+
+function normalizeChangedField(field: string): string {
+  const segment = field.split('.').pop() ?? field
+  return segment.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())
+}
+
+function humanizeChangedField(field: string): string {
+  const normalized = normalizeChangedField(field)
+  const spaced = normalized.replace(/([a-z0-9])([A-Z])/g, '$1 $2').trim()
+  return spaced.length > 0 ? `${spaced[0].toUpperCase()}${spaced.slice(1)}` : field
+}
+
+export function translateChangedField(t: TranslateFn, field: string): string {
+  const normalized = normalizeChangedField(field)
+  const translation = CHANGED_FIELD_LABELS[normalized]
+  return translation ? t(translation.key, translation.fallback) : humanizeChangedField(field)
+}
+
+function translateAction(t: TranslateFn, entry: TimelineEntry): string {
+  const commandId = entry.metadata?.commandId
+  if (!commandId?.startsWith('sales.')) return entry.action
+  return t(`sales.audit.${commandId.slice('sales.'.length)}`, entry.action)
+}
+
+function StatusDot({ color, className }: { color: string | null | undefined; className?: string }) {
+  if (!color) return <span className={cn('h-2.5 w-2.5 rounded-full bg-muted-foreground/40 border border-border inline-flex', className)} />
+  return (
+    <span
+      className={cn('h-2.5 w-2.5 rounded-full border border-border/70 inline-flex', className)}
+      style={{ backgroundColor: color }}
+      aria-hidden
+    />
+  )
+}
+
+function StatusTransition({
+  statusFrom,
+  statusTo,
+  statusMap,
+}: {
+  statusFrom: string | null | undefined
+  statusTo: string | null | undefined
+  statusMap: Record<string, StatusOption>
+}) {
+  const from = statusFrom ? (statusMap[statusFrom] ?? { value: statusFrom, label: statusFrom, color: null, icon: null }) : null
+  const to = statusTo ? (statusMap[statusTo] ?? { value: statusTo, label: statusTo, color: null, icon: null }) : null
+
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      {from ? (
+        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+          <StatusDot color={from.color} />
+          <span>{from.label}</span>
+        </span>
+      ) : null}
+      {from && to ? (
+        <ArrowRightLeft className="h-3 w-3 text-muted-foreground/60 shrink-0" />
+      ) : null}
+      {to ? (
+        <span className="inline-flex items-center gap-1 text-xs font-medium text-foreground">
+          <StatusDot color={to.color} />
+          <span>{to.label}</span>
+        </span>
+      ) : null}
+    </div>
+  )
+}
+
+function TimelineItem({
+  entry,
+  statusMap,
+  isLast,
+}: {
+  entry: TimelineEntry
+  statusMap: Record<string, StatusOption>
+  isLast: boolean
+}) {
+  const t = useT()
+  const KindIcon = KIND_ICONS[entry.kind]
+  const relativeTime = formatRelativeTime(entry.occurredAt)
+  const absoluteTime = formatDateTime(entry.occurredAt)
+
+  const isStatusChange = entry.kind === 'status' && entry.metadata?.statusTo
+  const action = translateAction(t, entry)
+  const actorLabel = entry.actor.id
+    ? entry.actor.label
+    : t('sales.documents.history.actor.system', 'System')
+  const changedFieldLabels = Array.from(
+    new Set((entry.metadata?.changedFields ?? []).map((field) => translateChangedField(t, field))),
+  )
+
+  return (
+    <div data-testid="timeline-entry" className="relative flex gap-3">
+      {/* Vertical connector line */}
+      {!isLast && (
+        <div className="absolute left-[11px] top-6 bottom-0 w-px bg-border" aria-hidden />
+      )}
+
+      {/* Icon circle */}
+      <div
+        className={cn(
+          'relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border',
+          KIND_BG_COLORS[entry.kind],
+        )}
+      >
+        <KindIcon className={cn('h-3 w-3', KIND_ICON_COLORS[entry.kind])} aria-hidden />
+      </div>
+
+      {/* Content card */}
+      <div className="flex-1 pb-4">
+        <div className="group rounded-lg border bg-card p-3 space-y-1.5">
+          {/* Header: actor + time */}
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-foreground">
+              <User className="h-3 w-3 text-muted-foreground" aria-hidden />
+              {actorLabel}
+            </span>
+            <span
+              className="text-xs text-muted-foreground"
+              title={absoluteTime ?? undefined}
+            >
+              {relativeTime ?? absoluteTime}
+            </span>
+          </div>
+
+          {/* Body */}
+          {isStatusChange ? (
+            <StatusTransition
+              statusFrom={entry.metadata?.statusFrom}
+              statusTo={entry.metadata?.statusTo}
+              statusMap={statusMap}
+            />
+          ) : (
+            <div className="space-y-0.5">
+              <div className="text-sm text-foreground">{action}</div>
+              {entry.kind === 'action' && changedFieldLabels.length > 0 ? (
+                <div className="text-xs text-muted-foreground">
+                  {t('sales.documents.history.changedFields', 'Changed fields: {fields}', {
+                    fields: changedFieldLabels.join(', '),
+                  })}
+                </div>
+              ) : null}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+type FilterKind = 'all' | 'status' | 'action' | 'comment'
+
+type FilterOption = { value: FilterKind; label: string }
+
+function FilterDropdown({ filter, onChange }: { filter: FilterKind; onChange: (kind: FilterKind) => void }) {
+  const t = useT()
+  const [open, setOpen] = React.useState(false)
+  const ref = React.useRef<HTMLDivElement>(null)
+
+  React.useEffect(() => {
+    if (!open) return
+    function onDocClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDocClick)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDocClick)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const options: FilterOption[] = [
+    { value: 'all', label: t('sales.documents.history.filter.all', 'All') },
+    { value: 'status', label: t('sales.documents.history.filter.status', 'Status changes') },
+    { value: 'action', label: t('sales.documents.history.filter.actions', 'Actions') },
+    { value: 'comment', label: t('sales.documents.history.filter.comments', 'Comments') },
+  ]
+
+  const activeLabel = options.find(o => o.value === filter)?.label
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen(prev => !prev)}
+        className="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-2.5 py-1 text-xs font-medium shadow-sm hover:bg-accent hover:text-accent-foreground transition-colors select-none"
+      >
+        <Filter className="h-3 w-3" aria-hidden />
+        {t('sales.documents.history.filter.label', 'Filters')}
+        {filter !== 'all' && (
+          <span className="text-muted-foreground">: {activeLabel}</span>
+        )}
+        <ChevronDown className={cn('h-3 w-3 transition-transform duration-150', open && 'rotate-180')} aria-hidden />
+      </button>
+      {open && (
+        <div
+          role="listbox"
+          aria-label={t('sales.documents.history.filter.label', 'Filters')}
+          className="absolute left-0 top-full mt-1 z-dropdown w-48 rounded-md border bg-background p-1 shadow-md"
+        >
+          {options.map(opt => (
+            <button
+              key={opt.value}
+              type="button"
+              role="option"
+              aria-selected={filter === opt.value}
+              onClick={() => { onChange(opt.value); setOpen(false) }}
+              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-accent"
+            >
+              <Check className={cn('h-3.5 w-3.5 shrink-0', filter === opt.value ? 'opacity-100' : 'opacity-0')} aria-hidden />
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export const DocumentHistoryWidget: React.FC<InjectionWidgetComponentProps<unknown, unknown>> = ({ context }) => {
+  const t = useT()
+  const [entries, setEntries] = React.useState<TimelineEntry[]>([])
+  const [loading, setLoading] = React.useState(true)
+  const [error, setError] = React.useState<string | null>(null)
+  const [statusMap, setStatusMap] = React.useState<Record<string, StatusOption>>({})
+  const [filter, setFilter] = React.useState<FilterKind>('all')
+
+  React.useEffect(() => {
+    const urls = [
+      '/api/sales/order-statuses?pageSize=100',
+      '/api/sales/shipment-statuses?pageSize=100',
+      '/api/sales/payment-statuses?pageSize=100',
+    ]
+    const map: Record<string, StatusOption> = {}
+    const merge = (items: unknown[]) => {
+      if (!Array.isArray(items)) return
+      for (const item of items) {
+        if (!item || typeof item !== 'object') continue
+        const d = item as Record<string, unknown>
+        const value = typeof d.value === 'string' ? d.value : null
+        if (!value) continue
+        map[value] = {
+          value,
+          label: typeof d.label === 'string' && d.label.length ? d.label : value,
+          color: typeof d.color === 'string' && d.color.length ? d.color : null,
+          icon: typeof d.icon === 'string' && d.icon.length ? d.icon : null,
+        }
+      }
+    }
+    Promise.all(urls.map((url) => apiCall<{ items?: unknown[] }>(url)))
+      .then((responses) => {
+        for (const res of responses) {
+          if (res.ok && Array.isArray(res.result?.items)) merge(res.result.items)
+        }
+        setStatusMap(map)
+      })
+      .catch(() => {})
+  }, [])
+
+  React.useEffect(() => {
+    if (!isValidContext(context)) {
+      setLoading(false)
+      setError(t("sales.documents.history.error", "Failed to load history."))
+      return
+    }
+
+    setLoading(true)
+    setError(null)
+    apiCall<{ items: TimelineEntry[] }>(
+      `/api/sales/document-history?kind=${context.kind}&id=${context.record.id}`
+    )
+      .then((res) => {
+        if (res.ok && Array.isArray(res.result?.items)) {
+          setEntries(res.result.items)
+        } else {
+          setError(t("sales.documents.history.error", "Failed to load history."))
+        }
+      })
+      .catch(() => setError(t("sales.documents.history.error", "Failed to load history.")))
+      .finally(() => setLoading(false))
+  }, [context, t])
+
+  const filtered = React.useMemo(
+    () => filter === 'all' ? entries : entries.filter(e => e.kind === filter),
+    [entries, filter]
+  )
+
+  return (
+    <div className="space-y-4">
+      {/* Filter dropdown */}
+      <div>
+        <FilterDropdown filter={filter} onChange={setFilter} />
+      </div>
+
+      {/* Content */}
+      {loading ? (
+        <div className="flex items-center justify-center h-24">
+          <Spinner />
+        </div>
+      ) : error ? (
+        <div className="text-destructive text-sm">{error}</div>
+      ) : !filtered.length ? (
+        <div className="text-muted-foreground text-sm py-6 text-center">
+          {t("sales.documents.history.empty", "No history entries yet.")}
+        </div>
+      ) : (
+        <div className="relative">
+          {filtered.map((entry, index) => (
+            <TimelineItem
+              key={entry.id}
+              entry={entry}
+              statusMap={statusMap}
+              isLast={index === filtered.length - 1}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export default DocumentHistoryWidget

@@ -1,0 +1,377 @@
+import { NextResponse } from 'next/server'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { CommandBus } from '@open-mercato/shared/lib/commands'
+import type { CommandExecuteResult } from '@open-mercato/shared/lib/commands/types'
+import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
+import { CustomerDictionaryEntry } from '../../../data/entities'
+import { mapDictionaryKind, resolveDictionaryActorId, resolveDictionaryRouteContext } from '../context'
+import { createDictionaryCacheKey, createDictionaryCacheTags, invalidateDictionaryCache, DICTIONARY_CACHE_TTL_MS } from '../cache'
+import { loadCustomerSettings } from '../../../commands/settings'
+import {
+  resolveDictionaryEntrySortMode,
+  sortDictionaryEntries,
+} from '@open-mercato/core/modules/dictionaries/lib/entrySort'
+import { z } from 'zod'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { loadRoleTypeUsageMap, resolveRoleTypeUsageKey } from '../../../lib/roleTypeUsage'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
+import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { CUSTOMER_DICTIONARY_ORGANIZATION_REQUIRED_CODE } from '../../../lib/dictionaries'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
+import { getTranslationOverlayPlugin } from '@open-mercato/shared/lib/localization/overlay-plugin'
+import { localizeCustomerDictionaryEntries } from '../../../lib/dictionaryLabels'
+import { calendarEventTypeBehaviorSchema } from '../../../calendar-event-types'
+import type { OrganizationHierarchyService } from '@open-mercato/shared/lib/auth/principal-service'
+
+const logger = createLogger('customers')
+
+const colorSchema = z.string().trim().regex(/^#([0-9A-Fa-f]{6})$/, 'Invalid color hex')
+const iconSchema = z.string().trim().min(1).max(48)
+
+const postSchema = z.object({
+  value: z.string().trim().min(1).max(150),
+  label: z.string().trim().max(150).optional(),
+  color: colorSchema.or(z.null()).optional(),
+  icon: iconSchema.or(z.null()).optional(),
+  behavior: calendarEventTypeBehaviorSchema.nullable().optional(),
+})
+
+const querySchema = z.object({
+  organizationId: z.string().uuid().optional(),
+  labels: z.enum(['localized', 'base']).optional().describe(
+    'Label projection. `localized` (default) resolves labels for the request locale; `base` returns the stored labels that management screens edit.',
+  ),
+})
+
+export const metadata = {
+  GET: { requireAuth: true, requireFeatures: ['customers.people.view'] },
+  POST: { requireAuth: true, requireFeatures: ['customers.settings.manage'] },
+}
+
+export async function GET(req: Request, ctx: { params?: { kind?: string } }) {
+  try {
+    const url = new URL(req.url)
+    const query = querySchema.parse({
+      organizationId: url.searchParams.get('organizationId') ?? undefined,
+      labels: url.searchParams.get('labels') ?? undefined,
+    })
+    const { translate, em, organizationId, readableOrganizationIds, tenantId, cache, container } = await resolveDictionaryRouteContext(req, {
+      selectedId: query.organizationId ?? undefined,
+    })
+    const { kind, mappedKind } = mapDictionaryKind(ctx.params?.kind)
+    const localizeResponse = async (body: z.infer<typeof dictionaryCacheResponseSchema>) => {
+      if (query.labels === 'base') return body
+      const { resolveLocale } = getTranslationOverlayPlugin()
+      const locale = resolveLocale?.(req) ?? (await resolveTranslations()).locale ?? 'en'
+      return {
+        ...body,
+        items: sortDictionaryEntries(
+          await localizeCustomerDictionaryEntries(body.items, { kind: mappedKind, locale, tenantId, container }),
+          resolveDictionaryEntrySortMode(body.sortMode),
+        ),
+      }
+    }
+    if (!organizationId) {
+      throw new CrudHttpError(400, {
+        error: translate('customers.errors.organization_required', 'Organization context is required'),
+        code: CUSTOMER_DICTIONARY_ORGANIZATION_REQUIRED_CODE,
+      })
+    }
+    const settings = await loadCustomerSettings(em, { tenantId, organizationId })
+    const sortMode = resolveDictionaryEntrySortMode(settings?.dictionarySortModes?.[kind])
+    let scopedOrganizationIds = readableOrganizationIds.length > 0 ? readableOrganizationIds : [organizationId]
+    if (mappedKind === 'activity_type') {
+      const hierarchy = container.resolve('organizationHierarchyService') as OrganizationHierarchyService
+      const ancestors = await hierarchy.resolveAncestorIds({ tenantId, organizationId })
+      if (ancestors === null) {
+        throw new CrudHttpError(403, { error: translate('customers.errors.organization_forbidden', 'Organization not accessible') })
+      }
+      scopedOrganizationIds = Array.from(new Set([organizationId, ...ancestors.slice().reverse()]))
+    }
+    const canUseCache = Boolean(cache) && mappedKind !== 'person_company_role'
+
+    let cacheKey: string | null = null
+    if (canUseCache && cache) {
+      cacheKey = createDictionaryCacheKey({
+        tenantId,
+        organizationId,
+        mappedKind,
+        sortMode,
+        readableOrganizationIds: scopedOrganizationIds,
+      })
+      const cached = dictionaryCacheResponseSchema.safeParse(await cache.get(cacheKey))
+      if (cached.success) {
+        return NextResponse.json(await localizeResponse(cached.data))
+      }
+    }
+
+    const entries = await findWithDecryption(
+      em,
+      CustomerDictionaryEntry,
+      { tenantId, kind: mappedKind, organizationId: { $in: scopedOrganizationIds } },
+      { orderBy: { label: 'asc' } },
+      { tenantId, organizationId },
+    )
+
+    const inheritedPriority = new Map(scopedOrganizationIds.map((id, index) => [id, index]))
+    const sortByLabel = (left: CustomerDictionaryEntry, right: CustomerDictionaryEntry) =>
+      left.label.localeCompare(right.label, undefined, { sensitivity: 'base' })
+
+    const localEntries = entries
+      .filter((entry) => entry.organizationId === organizationId)
+      .sort(sortByLabel)
+    const inheritedEntries = entries
+      .filter((entry) => entry.organizationId !== organizationId)
+      .sort((left, right) => {
+        const leftPriority = inheritedPriority.get(left.organizationId) ?? Number.MAX_SAFE_INTEGER
+        const rightPriority = inheritedPriority.get(right.organizationId) ?? Number.MAX_SAFE_INTEGER
+        if (leftPriority !== rightPriority) return leftPriority - rightPriority
+        return sortByLabel(left, right)
+      })
+
+    const preferredEntries = new Map<string, CustomerDictionaryEntry>()
+    for (const entry of [...localEntries, ...inheritedEntries]) {
+      const normalizedValue = entry.normalizedValue?.trim() || entry.value.trim().toLowerCase()
+      if (!normalizedValue || preferredEntries.has(normalizedValue)) continue
+      preferredEntries.set(normalizedValue, entry)
+    }
+
+    const preferredEntryList = Array.from(preferredEntries.values())
+    const usageByEntryKey =
+      mappedKind === 'person_company_role'
+        ? await loadRoleTypeUsageMap(em, {
+            tenantId,
+            entries: preferredEntryList.map((entry) => ({
+              organizationId: entry.organizationId,
+              value: entry.value,
+            })),
+          })
+        : new Map()
+
+    const items = sortDictionaryEntries(
+      preferredEntryList
+        .map((entry) => ({
+          id: entry.id,
+          value: entry.value,
+          label: entry.label,
+          color: entry.color,
+          icon: entry.icon,
+          ...(mappedKind === 'activity_type' ? { behavior: entry.activityTypeBehavior ?? null } : {}),
+          organizationId: entry.organizationId,
+          isInherited: entry.organizationId !== organizationId,
+          createdAt: entry.createdAt,
+          updatedAt: entry.updatedAt,
+          ...(mappedKind === 'person_company_role'
+            ? {
+                usageCount:
+                  usageByEntryKey.get(resolveRoleTypeUsageKey(entry.organizationId, entry.value))?.total ?? 0,
+              }
+            : {}),
+        })),
+      sortMode,
+    )
+
+    const responseBody = {
+      sortMode,
+      items,
+    }
+
+    if (canUseCache && cache && cacheKey) {
+      const tags = createDictionaryCacheTags({
+        tenantId,
+        mappedKind,
+        organizationIds: scopedOrganizationIds,
+      })
+      try {
+        await cache.set(cacheKey, responseBody, {
+          ttl: DICTIONARY_CACHE_TTL_MS,
+          tags,
+        })
+      } catch (err) {
+        logger.warn('Failed to set cache entry', { component: 'dictionaries.cache', err })
+      }
+    }
+
+    return NextResponse.json(await localizeResponse(responseBody))
+  } catch (err) {
+    if (isCrudHttpError(err)) {
+      return NextResponse.json(err.body, { status: err.status })
+    }
+    const { translate } = await resolveTranslations()
+    logger.error('customers.dictionaries.list failed', { err })
+    return NextResponse.json({ error: translate('customers.errors.lookup_failed', 'Failed to load dictionary entries') }, { status: 400 })
+  }
+}
+
+export async function POST(req: Request, ctx: { params?: { kind?: string } }) {
+  try {
+    const context = await resolveDictionaryRouteContext(req)
+    if (!context.organizationId) {
+      throw new CrudHttpError(400, { error: context.translate('customers.errors.organization_required', 'Organization context is required') })
+    }
+    const { mappedKind } = mapDictionaryKind(ctx.params?.kind)
+    const body = postSchema.parse(await readJsonSafe(req, {}))
+    const guardUserId = resolveDictionaryActorId(context.auth)
+    const guardResult = await validateCrudMutationGuard(context.container, {
+      tenantId: context.tenantId,
+      organizationId: context.organizationId,
+      userId: guardUserId,
+      resourceKind: 'customers.dictionary_entry',
+      resourceId: '',
+      operation: 'create',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: body,
+    })
+    if (guardResult && !guardResult.ok) {
+      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    }
+    const commandBus = (context.container.resolve('commandBus') as CommandBus)
+    const { result, logEntry } =
+      (await commandBus.execute('customers.dictionaryEntries.create', {
+        input: {
+          tenantId: context.tenantId,
+          organizationId: context.organizationId,
+          kind: mappedKind,
+          value: body.value,
+          label: body.label,
+          color: body.color,
+          icon: body.icon,
+          behavior: body.behavior,
+        },
+        ctx: context.ctx,
+      })) as CommandExecuteResult<{ entryId: string; mode: 'created' | 'updated' | 'unchanged' }>
+    const entry = await findOneWithDecryption(context.em.fork(), CustomerDictionaryEntry, result.entryId, {}, { tenantId: context.tenantId, organizationId: context.organizationId })
+    if (!entry) {
+      throw new CrudHttpError(400, { error: context.translate('customers.errors.lookup_failed', 'Failed to save dictionary entry') })
+    }
+
+    await invalidateDictionaryCache(context.cache, {
+      tenantId: context.tenantId,
+      mappedKind,
+      organizationIds: [entry.organizationId],
+    })
+
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(context.container, {
+        tenantId: context.tenantId,
+        organizationId: context.organizationId,
+        userId: guardUserId,
+        resourceKind: 'customers.dictionary_entry',
+        resourceId: entry.id,
+        operation: 'create',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
+
+    const response = NextResponse.json(
+      {
+        id: entry.id,
+        value: entry.value,
+        label: entry.label,
+        color: entry.color,
+        icon: entry.icon,
+        ...(mappedKind === 'activity_type' ? { behavior: entry.activityTypeBehavior ?? null } : {}),
+        organizationId: entry.organizationId,
+        isInherited: false,
+        updatedAt: entry.updatedAt,
+      },
+      { status: result.mode === 'created' ? 201 : 200 }
+    )
+    if (logEntry?.undoToken && logEntry?.id && logEntry?.commandId) {
+      response.headers.set(
+        'x-om-operation',
+        serializeOperationMetadata({
+          id: logEntry.id,
+          undoToken: logEntry.undoToken,
+          commandId: logEntry.commandId,
+          actionLabel: logEntry.actionLabel ?? null,
+          resourceKind: logEntry.resourceKind ?? 'customers.dictionary_entry',
+          resourceId: entry.id,
+          executedAt: logEntry.createdAt instanceof Date ? logEntry.createdAt.toISOString() : undefined,
+        })
+      )
+    }
+    return response
+  } catch (err) {
+    if (isCrudHttpError(err)) {
+      return NextResponse.json(err.body, { status: err.status })
+    }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
+    const { translate } = await resolveTranslations()
+    logger.error('customers.dictionaries.create failed', { err })
+    return NextResponse.json({ error: translate('customers.errors.lookup_failed', 'Failed to save dictionary entry') }, { status: 400 })
+  }
+}
+
+const dictionaryEntrySchema = z.object({
+  id: z.string().uuid(),
+  value: z.string(),
+  label: z.string().nullable().optional(),
+  color: z.string().nullable().optional(),
+  icon: z.string().nullable().optional(),
+  behavior: calendarEventTypeBehaviorSchema.nullable().optional(),
+  organizationId: z.string().uuid().nullable().optional(),
+  isInherited: z.boolean().optional(),
+  createdAt: z.date().or(z.string()).optional(),
+  updatedAt: z.date().or(z.string()).optional(),
+})
+
+const dictionaryListResponseSchema = z.object({
+  sortMode: z.string().optional(),
+  items: z.array(dictionaryEntrySchema),
+})
+
+const dictionaryCacheResponseSchema = dictionaryListResponseSchema.extend({
+  items: z.array(dictionaryEntrySchema.extend({ label: z.string(), organizationId: z.string() }).passthrough()),
+})
+
+const dictionaryErrorSchema = z.object({
+  error: z.string(),
+  code: z.string().optional(),
+})
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Customers',
+  summary: 'Customer dictionary entries',
+  methods: {
+    GET: {
+      summary: 'List dictionary entries',
+      description: 'Returns dictionary entries for the requested kind within the currently selected organization. Labels are localized for the request locale unless `labels=base` is passed.',
+      query: querySchema,
+      responses: [
+        { status: 200, description: 'Dictionary entries', schema: dictionaryListResponseSchema },
+        { status: 401, description: 'Unauthorized', schema: dictionaryErrorSchema },
+        { status: 400, description: 'Failed to resolve dictionary context', schema: dictionaryErrorSchema },
+      ],
+    },
+    POST: {
+      summary: 'Create or override dictionary entry',
+      description: 'Creates a dictionary entry (or updates the existing entry for the same value) within the current organization scope.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: postSchema,
+      },
+      responses: [
+        { status: 201, description: 'Dictionary entry created', schema: dictionaryEntrySchema },
+        { status: 200, description: 'Dictionary entry updated', schema: dictionaryEntrySchema },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid payload', schema: dictionaryErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: dictionaryErrorSchema },
+        { status: 409, description: 'Duplicate value conflict', schema: dictionaryErrorSchema },
+      ],
+    },
+  },
+}

@@ -1,0 +1,209 @@
+import { NextResponse } from 'next/server'
+import { z } from 'zod'
+import { Dictionary } from '@open-mercato/core/modules/dictionaries/data/entities'
+import { resolveDictionariesRouteContext, resolveDictionaryActorId } from '@open-mercato/core/modules/dictionaries/api/context'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
+import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import {
+  DEFAULT_DICTIONARY_ENTRY_SORT_MODE,
+  resolveDictionaryEntrySortMode,
+} from '@open-mercato/core/modules/dictionaries/lib/entrySort'
+import {
+  dictionariesErrorSchema,
+  dictionariesTag,
+  dictionaryDetailSchema,
+  dictionaryListQuerySchema,
+  dictionaryListResponseSchema,
+  upsertDictionarySchema,
+} from './openapi'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('dictionaries').child({ component: 'api' })
+
+export const metadata = {
+  GET: { requireAuth: true, requireFeatures: ['dictionaries.view'] },
+  POST: { requireAuth: true, requireFeatures: ['dictionaries.manage'] },
+}
+
+export async function GET(req: Request) {
+  try {
+    const context = await resolveDictionariesRouteContext(req)
+    const url = new URL(req.url)
+    const includeInactive = parseBooleanToken(url.searchParams.get('includeInactive')) === true
+
+    const organizationFilter = context.readableOrganizationIds.length
+      ? { organizationId: { $in: context.readableOrganizationIds } }
+      : {}
+
+    const items = await context.em.find(
+      Dictionary,
+      {
+        ...organizationFilter,
+        tenantId: context.tenantId,
+        deletedAt: null,
+        ...(includeInactive ? {} : { isActive: true }),
+      },
+      { orderBy: { name: 'asc' } },
+    )
+
+    return NextResponse.json({
+      items: items.map((dictionary) => ({
+        id: dictionary.id,
+        key: dictionary.key,
+        name: dictionary.name,
+        description: dictionary.description,
+        isSystem: dictionary.isSystem,
+        isActive: dictionary.isActive,
+        managerVisibility: dictionary.managerVisibility,
+        entrySortMode: resolveDictionaryEntrySortMode(dictionary.entrySortMode),
+        organizationId: dictionary.organizationId,
+        isInherited: context.organizationId ? dictionary.organizationId !== context.organizationId : false,
+        createdAt: dictionary.createdAt,
+        updatedAt: dictionary.updatedAt,
+      })),
+    })
+  } catch (err) {
+    if (isCrudHttpError(err)) {
+      return NextResponse.json(err.body, { status: err.status })
+    }
+    logger.error('Failed to load dictionaries', { err })
+    return NextResponse.json({ error: 'Failed to load dictionaries' }, { status: 500 })
+  }
+}
+
+export async function POST(req: Request) {
+  try {
+    const context = await resolveDictionariesRouteContext(req)
+    const payload = upsertDictionarySchema.parse(await req.json().catch(() => ({})))
+    const key = payload.key.trim().toLowerCase()
+    if (!context.organizationId) {
+      throw new CrudHttpError(400, { error: context.translate('dictionaries.errors.organization_required', 'Organization context is required') })
+    }
+
+    const existing = await context.em.findOne(Dictionary, {
+      organizationId: context.organizationId,
+      tenantId: context.tenantId,
+      key,
+      deletedAt: null,
+    })
+    if (existing) {
+      throw new CrudHttpError(409, { error: context.translate('dictionaries.errors.duplicate', 'A dictionary with this key already exists') })
+    }
+
+    const dictionary = context.em.create(Dictionary, {
+      key,
+      name: payload.name.trim(),
+      description: payload.description?.trim() || null,
+      organizationId: context.organizationId,
+      tenantId: context.tenantId,
+      isSystem: payload.isSystem ?? false,
+      isActive: payload.isActive ?? true,
+      managerVisibility: 'default',
+      entrySortMode: payload.entrySortMode ?? DEFAULT_DICTIONARY_ENTRY_SORT_MODE,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+
+    const guardUserId = resolveDictionaryActorId(context.auth)
+    const guardResult = await validateCrudMutationGuard(context.container, {
+      tenantId: context.tenantId,
+      organizationId: context.organizationId,
+      userId: guardUserId,
+      resourceKind: 'dictionaries.dictionary',
+      resourceId: dictionary.id,
+      operation: 'create',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: payload,
+    })
+    if (guardResult && !guardResult.ok) {
+      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    }
+
+    context.em.persist(dictionary)
+    await context.em.flush()
+
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(context.container, {
+        tenantId: context.tenantId,
+        organizationId: context.organizationId,
+        userId: guardUserId,
+        resourceKind: 'dictionaries.dictionary',
+        resourceId: dictionary.id,
+        operation: 'create',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
+
+    return NextResponse.json({
+      id: dictionary.id,
+      key: dictionary.key,
+      name: dictionary.name,
+      description: dictionary.description,
+      isSystem: dictionary.isSystem,
+      isActive: dictionary.isActive,
+      entrySortMode: resolveDictionaryEntrySortMode(dictionary.entrySortMode),
+      createdAt: dictionary.createdAt,
+      updatedAt: dictionary.updatedAt,
+    }, { status: 201 })
+  } catch (err) {
+    if (isCrudHttpError(err)) {
+      return NextResponse.json(err.body, { status: err.status })
+    }
+    if (err instanceof z.ZodError) {
+      return NextResponse.json({ error: err.issues[0]?.message ?? '[internal] Validation failed' }, { status: 400 })
+    }
+    logger.error('Failed to create dictionary', { err })
+    return NextResponse.json({ error: 'Failed to create dictionary' }, { status: 500 })
+  }
+}
+
+const dictionariesGetDoc: OpenApiMethodDoc = {
+  summary: 'List dictionaries',
+  description: 'Returns dictionaries accessible to the current organization, optionally including inactive records.',
+  tags: [dictionariesTag],
+  query: dictionaryListQuerySchema,
+  responses: [
+    { status: 200, description: 'Dictionary collection.', schema: dictionaryListResponseSchema },
+  ],
+  errors: [
+    { status: 401, description: 'Authentication required', schema: dictionariesErrorSchema },
+    { status: 500, description: 'Failed to load dictionaries', schema: dictionariesErrorSchema },
+  ],
+}
+
+const dictionariesPostDoc: OpenApiMethodDoc = {
+  summary: 'Create dictionary',
+  description: 'Registers a dictionary scoped to the current organization.',
+  tags: [dictionariesTag],
+  requestBody: {
+    contentType: 'application/json',
+    schema: upsertDictionarySchema,
+    description: 'Dictionary definition including unique key and display name.',
+  },
+  responses: [
+    { status: 201, description: 'Dictionary created.', schema: dictionaryDetailSchema },
+  ],
+  errors: [
+    { status: 400, description: 'Validation failed', schema: dictionariesErrorSchema },
+    { status: 401, description: 'Authentication required', schema: dictionariesErrorSchema },
+    { status: 409, description: 'Dictionary key already exists', schema: dictionariesErrorSchema },
+    { status: 500, description: 'Failed to create dictionary', schema: dictionariesErrorSchema },
+  ],
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: dictionariesTag,
+  summary: 'Dictionaries collection',
+  methods: {
+    GET: dictionariesGetDoc,
+    POST: dictionariesPostDoc,
+  },
+}

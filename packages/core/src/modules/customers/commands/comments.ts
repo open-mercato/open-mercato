@@ -1,0 +1,429 @@
+import { registerCommand } from '@open-mercato/shared/lib/commands'
+import type { CommandHandler } from '@open-mercato/shared/lib/commands'
+import { emitCrudSideEffects, emitCrudUndoSideEffects, buildChanges, requireId, normalizeAuthorUserId } from '@open-mercato/shared/lib/commands/helpers'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { CustomerComment } from '../data/entities'
+import { commentCreateSchema, commentUpdateSchema, type CommentCreateInput, type CommentUpdateInput } from '../data/validators'
+import {
+  ensureOrganizationScope,
+  ensureTenantScope,
+  requireTimelineParentEntity,
+  ensureSameScope,
+  extractUndoPayload,
+  requireDealInScope,
+  resolveParentResourceKind,
+} from './shared'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { notFound } from '@open-mercato/shared/lib/crud/errors'
+import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
+import { E } from '#generated/entities.ids.generated'
+import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+
+const commentCrudIndexer: CrudIndexerConfig<CustomerComment> = {
+  entityType: E.customers.customer_comment,
+}
+
+const commentCrudEvents: CrudEventsConfig = {
+  module: 'customers',
+  entity: 'comment',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
+}
+
+type CommentSnapshot = {
+  id: string
+  organizationId: string
+  tenantId: string
+  entityId: string
+  entityKind: string | null
+  dealId: string | null
+  body: string
+  authorUserId: string | null
+  appearanceIcon: string | null
+  appearanceColor: string | null
+}
+
+type CommentUndoPayload = {
+  before?: CommentSnapshot | null
+  after?: CommentSnapshot | null
+}
+
+async function loadCommentSnapshot(em: EntityManager, id: string): Promise<CommentSnapshot | null> {
+  const comment = await em.findOne(CustomerComment, { id }, { populate: ['entity'] })
+  if (!comment) return null
+  const entityRef = comment.entity
+  const entityKind = (typeof entityRef === 'object' && entityRef !== null && 'kind' in entityRef)
+    ? (entityRef as { kind: string }).kind
+    : null
+  return {
+    id: comment.id,
+    organizationId: comment.organizationId,
+    tenantId: comment.tenantId,
+    entityId: typeof entityRef === 'string' ? entityRef : entityRef.id,
+    entityKind,
+    dealId: comment.deal ? (typeof comment.deal === 'string' ? comment.deal : comment.deal.id) : null,
+    body: comment.body,
+    authorUserId: comment.authorUserId ?? null,
+    appearanceIcon: comment.appearanceIcon ?? null,
+    appearanceColor: comment.appearanceColor ?? null,
+  }
+}
+
+const createCommentCommand: CommandHandler<CommentCreateInput, { commentId: string; authorUserId: string | null }> = {
+  id: 'customers.comments.create',
+  async execute(rawInput, ctx) {
+    const parsed = commentCreateSchema.parse(rawInput)
+    ensureTenantScope(ctx, parsed.tenantId)
+    ensureOrganizationScope(ctx, parsed.organizationId)
+    const normalizedAuthor = normalizeAuthorUserId(parsed.authorUserId, ctx.auth)
+
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const entity = await requireTimelineParentEntity(em, parsed.entityId, { tenantId: parsed.tenantId, organizationId: parsed.organizationId })
+    ensureSameScope(entity, parsed.organizationId, parsed.tenantId)
+    const deal = await requireDealInScope(em, parsed.dealId, parsed.tenantId, parsed.organizationId)
+
+    const comment = em.create(CustomerComment, {
+      organizationId: parsed.organizationId,
+      tenantId: parsed.tenantId,
+      entity,
+      deal,
+      body: parsed.body,
+      authorUserId: normalizedAuthor,
+      appearanceIcon: parsed.appearanceIcon ?? null,
+      appearanceColor: parsed.appearanceColor ?? null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    em.persist(comment)
+    await em.flush()
+
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'created',
+      entity: comment,
+      identifiers: {
+        id: comment.id,
+        organizationId: comment.organizationId,
+        tenantId: comment.tenantId,
+      },
+      indexer: commentCrudIndexer,
+      events: commentCrudEvents,
+    })
+
+    return { commentId: comment.id, authorUserId: comment.authorUserId ?? null }
+  },
+  captureAfter: async (_input, result, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    return await loadCommentSnapshot(em, result.commentId)
+  },
+  buildLog: async ({ result, snapshots }) => {
+    const { translate } = await resolveTranslations()
+    const snapshot = snapshots.after as CommentSnapshot | undefined
+    return {
+      actionLabel: translate('customers.audit.comments.create', 'Create note'),
+      resourceKind: 'customers.comment',
+      resourceId: result.commentId,
+      parentResourceKind: snapshot?.entityId ? resolveParentResourceKind(snapshot.entityKind) : (snapshot?.dealId ? 'customers.deal' : null),
+      parentResourceId: snapshot?.entityId ?? snapshot?.dealId ?? null,
+      tenantId: snapshot?.tenantId ?? null,
+      organizationId: snapshot?.organizationId ?? null,
+      snapshotAfter: snapshot ?? null,
+      relatedResourceKind: snapshot?.dealId ? 'customers.deal' : null,
+      relatedResourceId: snapshot?.dealId ?? null,
+      payload: {
+        undo: {
+          after: snapshot ?? null,
+        } satisfies CommentUndoPayload,
+      },
+    }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const commentId = logEntry?.resourceId ?? null
+    if (!commentId) return
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const existing = await em.findOne(CustomerComment, { id: commentId })
+    if (existing) {
+      em.remove(existing)
+      await em.flush()
+    }
+  },
+  redo: makeCreateRedo<CustomerComment, CommentSnapshot, CommentCreateInput, { commentId: string; authorUserId: string | null }>({
+    entityClass: CustomerComment,
+    indexer: commentCrudIndexer,
+    events: commentCrudEvents,
+    findRow: ({ em, id, snapshot }) =>
+      findOneWithDecryption(
+        em,
+        CustomerComment,
+        { id },
+        undefined,
+        { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId },
+      ),
+    seedFromSnapshot: (snapshot) => ({
+      id: snapshot.id,
+      organizationId: snapshot.organizationId,
+      tenantId: snapshot.tenantId,
+      body: snapshot.body,
+      authorUserId: snapshot.authorUserId,
+      appearanceIcon: snapshot.appearanceIcon,
+      appearanceColor: snapshot.appearanceColor,
+    }),
+    beforeRestore: async ({ em, snapshot }) => {
+      const entity = await requireTimelineParentEntity(em, snapshot.entityId, { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId })
+      const deal = await requireDealInScope(em, snapshot.dealId, snapshot.tenantId, snapshot.organizationId)
+      return { entity, deal }
+    },
+    buildResult: (entity) => ({ commentId: entity.id, authorUserId: entity.authorUserId ?? null }),
+  }),
+}
+
+const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: string }> = {
+  id: 'customers.comments.update',
+  async prepare(rawInput, ctx) {
+    const parsed = commentUpdateSchema.parse(rawInput)
+    const em = (ctx.container.resolve('em') as EntityManager)
+    const snapshot = await loadCommentSnapshot(em, parsed.id)
+    return snapshot ? { before: snapshot } : {}
+  },
+  async execute(rawInput, ctx) {
+    const parsed = commentUpdateSchema.parse(rawInput)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const comment = await em.findOne(CustomerComment, { id: parsed.id })
+    if (!comment) throw notFound('Comment not found')
+    ensureTenantScope(ctx, comment.tenantId)
+    ensureOrganizationScope(ctx, comment.organizationId)
+
+    if (parsed.entityId !== undefined) {
+      const entity = await requireTimelineParentEntity(em, parsed.entityId, { tenantId: comment.tenantId, organizationId: comment.organizationId })
+      ensureSameScope(entity, comment.organizationId, comment.tenantId)
+      comment.entity = entity
+    }
+    if (parsed.dealId !== undefined) {
+      comment.deal = await requireDealInScope(em, parsed.dealId, comment.tenantId, comment.organizationId)
+    }
+    if (parsed.body !== undefined) comment.body = parsed.body
+    if (parsed.authorUserId !== undefined) comment.authorUserId = parsed.authorUserId ?? null
+    if (parsed.appearanceIcon !== undefined) comment.appearanceIcon = parsed.appearanceIcon ?? null
+    if (parsed.appearanceColor !== undefined) comment.appearanceColor = parsed.appearanceColor ?? null
+
+    await em.flush()
+
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'updated',
+      entity: comment,
+      identifiers: {
+        id: comment.id,
+        organizationId: comment.organizationId,
+        tenantId: comment.tenantId,
+      },
+      indexer: commentCrudIndexer,
+      events: commentCrudEvents,
+    })
+
+    return { commentId: comment.id }
+  },
+  captureAfter: async (_input, result, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    return await loadCommentSnapshot(em, result.commentId)
+  },
+  buildLog: async ({ snapshots }) => {
+    const { translate } = await resolveTranslations()
+    const before = snapshots.before as CommentSnapshot | undefined
+    if (!before) return null
+    const afterSnapshot = snapshots.after as CommentSnapshot | undefined
+    const changes =
+      afterSnapshot && before
+        ? buildChanges(
+            before as unknown as Record<string, unknown>,
+            afterSnapshot as unknown as Record<string, unknown>,
+            ['entityId', 'dealId', 'body', 'authorUserId', 'appearanceIcon', 'appearanceColor']
+          )
+        : {}
+    return {
+      actionLabel: translate('customers.audit.comments.update', 'Update note'),
+      resourceKind: 'customers.comment',
+      resourceId: before.id,
+      parentResourceKind: before.entityId ? resolveParentResourceKind(before.entityKind) : (before.dealId ? 'customers.deal' : null),
+      parentResourceId: before.entityId ?? before.dealId ?? null,
+      tenantId: before.tenantId,
+      organizationId: before.organizationId,
+      snapshotBefore: before,
+      snapshotAfter: afterSnapshot ?? null,
+      relatedResourceKind: (afterSnapshot?.dealId ?? before.dealId) ? 'customers.deal' : null,
+      relatedResourceId: afterSnapshot?.dealId ?? before.dealId ?? null,
+      changes,
+      payload: {
+        undo: {
+          before,
+          after: afterSnapshot ?? null,
+        } satisfies CommentUndoPayload,
+      },
+    }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<CommentUndoPayload>(logEntry)
+    const before = payload?.before
+    if (!before) return
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    let comment = await em.findOne(CustomerComment, { id: before.id })
+    const entity = await requireTimelineParentEntity(em, before.entityId, { tenantId: before.tenantId, organizationId: before.organizationId })
+    const deal = await requireDealInScope(em, before.dealId, before.tenantId, before.organizationId)
+
+    if (!comment) {
+      comment = em.create(CustomerComment, {
+        id: before.id,
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
+        entity,
+        deal,
+        body: before.body,
+        authorUserId: before.authorUserId,
+        appearanceIcon: before.appearanceIcon,
+        appearanceColor: before.appearanceColor,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      em.persist(comment)
+    } else {
+      comment.entity = entity
+      comment.deal = deal
+      comment.body = before.body
+      comment.authorUserId = before.authorUserId
+      comment.appearanceIcon = before.appearanceIcon
+      comment.appearanceColor = before.appearanceColor
+    }
+    await em.flush()
+
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    await emitCrudUndoSideEffects({
+      dataEngine: de,
+      action: 'updated',
+      entity: comment,
+      identifiers: {
+        id: comment.id,
+        organizationId: comment.organizationId,
+        tenantId: comment.tenantId,
+      },
+      indexer: commentCrudIndexer,
+      events: commentCrudEvents,
+    })
+  },
+}
+
+const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; query?: Record<string, unknown> }, { commentId: string }> =
+  {
+    id: 'customers.comments.delete',
+    async prepare(input, ctx) {
+      const id = requireId(input, 'Comment id required')
+      const em = (ctx.container.resolve('em') as EntityManager)
+      const snapshot = await loadCommentSnapshot(em, id)
+      return snapshot ? { before: snapshot } : {}
+    },
+    async execute(input, ctx) {
+      const id = requireId(input, 'Comment id required')
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
+      const comment = await em.findOne(CustomerComment, { id })
+      if (!comment) throw notFound('Comment not found')
+      ensureTenantScope(ctx, comment.tenantId)
+      ensureOrganizationScope(ctx, comment.organizationId)
+      em.remove(comment)
+      await em.flush()
+
+      const de = (ctx.container.resolve('dataEngine') as DataEngine)
+      await emitCrudSideEffects({
+        dataEngine: de,
+        action: 'deleted',
+        entity: comment,
+        identifiers: {
+          id: comment.id,
+          organizationId: comment.organizationId,
+          tenantId: comment.tenantId,
+        },
+        indexer: commentCrudIndexer,
+        events: commentCrudEvents,
+      })
+      return { commentId: comment.id }
+    },
+    buildLog: async ({ snapshots }) => {
+      const before = snapshots.before as CommentSnapshot | undefined
+      if (!before) return null
+      const { translate } = await resolveTranslations()
+      return {
+        actionLabel: translate('customers.audit.comments.delete', 'Delete note'),
+        resourceKind: 'customers.comment',
+        resourceId: before.id,
+        parentResourceKind: before.entityId ? resolveParentResourceKind(before.entityKind) : (before.dealId ? 'customers.deal' : null),
+        parentResourceId: before.entityId ?? before.dealId ?? null,
+        tenantId: before.tenantId,
+        organizationId: before.organizationId,
+        snapshotBefore: before,
+        relatedResourceKind: before.dealId ? 'customers.deal' : null,
+        relatedResourceId: before.dealId ?? null,
+        payload: {
+          undo: {
+            before,
+          } satisfies CommentUndoPayload,
+        },
+      }
+    },
+    undo: async ({ logEntry, ctx }) => {
+      const payload = extractUndoPayload<CommentUndoPayload>(logEntry)
+      const before = payload?.before
+      if (!before) return
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
+      const entity = await requireTimelineParentEntity(em, before.entityId, { tenantId: before.tenantId, organizationId: before.organizationId })
+      const deal = await requireDealInScope(em, before.dealId, before.tenantId, before.organizationId)
+      let comment = await em.findOne(CustomerComment, { id: before.id })
+      if (!comment) {
+        comment = em.create(CustomerComment, {
+          id: before.id,
+          organizationId: before.organizationId,
+          tenantId: before.tenantId,
+          entity,
+          deal,
+          body: before.body,
+          authorUserId: before.authorUserId,
+          appearanceIcon: before.appearanceIcon,
+          appearanceColor: before.appearanceColor,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })
+        em.persist(comment)
+      } else {
+        comment.entity = entity
+        comment.deal = deal
+        comment.body = before.body
+        comment.authorUserId = before.authorUserId
+        comment.appearanceIcon = before.appearanceIcon
+        comment.appearanceColor = before.appearanceColor
+      }
+      await em.flush()
+
+      const de = (ctx.container.resolve('dataEngine') as DataEngine)
+      await emitCrudUndoSideEffects({
+        dataEngine: de,
+        action: 'created',
+        entity: comment,
+        identifiers: {
+          id: comment.id,
+          organizationId: comment.organizationId,
+          tenantId: comment.tenantId,
+        },
+        indexer: commentCrudIndexer,
+        events: commentCrudEvents,
+      })
+    },
+  }
+
+registerCommand(createCommentCommand)
+registerCommand(updateCommentCommand)
+registerCommand(deleteCommentCommand)

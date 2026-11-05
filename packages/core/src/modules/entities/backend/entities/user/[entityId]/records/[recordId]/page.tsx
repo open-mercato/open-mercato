@@ -1,0 +1,134 @@
+"use client"
+import * as React from 'react'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
+import { z } from 'zod'
+import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
+import { createCrudFormError, raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
+import { useRecordsEntityGuard } from '@open-mercato/core/modules/entities/components/useRecordsEntityGuard'
+
+type UpdateRecordRequest = (payload: { entityId: string; recordId: string; values: Record<string, unknown> }) => Promise<void>
+
+const defaultUpdateRecordRequest: UpdateRecordRequest = async (payload) => {
+  await updateCrud('entities/records', payload)
+}
+
+export async function submitCustomEntityRecordUpdate(options: {
+  entityId: string
+  recordId: string
+  values: Record<string, unknown>
+  updateRecord?: UpdateRecordRequest
+  messages?: {
+    entityIdRequired?: string
+    recordIdRequired?: string
+  }
+}) {
+  const { entityId, recordId, values, updateRecord = defaultUpdateRecordRequest, messages } = options
+  if (!entityId || !entityId.trim()) {
+    const message = messages?.entityIdRequired ?? 'Entity identifier is required'
+    throw createCrudFormError(message, { entityId: message })
+  }
+  if (!recordId || !recordId.trim()) {
+    const message = messages?.recordIdRequired ?? 'Record identifier is required'
+    throw createCrudFormError(message, { recordId: message })
+  }
+  await updateRecord({ entityId, recordId, values })
+}
+
+type RecordsResponse = { items: any[] }
+
+export default function EditRecordPage({ params }: { params: { entityId?: string; recordId?: string } }) {
+  const t = useT()
+  const entityId = decodeURIComponent(params?.entityId || '')
+  const guard = useRecordsEntityGuard(entityId)
+  if (guard === 'blocked') {
+    return <ErrorMessage label={t('entities.userEntities.records.errors.systemEntity', 'This entity is system-managed. Records are available for custom entities only.')} />
+  }
+  if (guard === 'checking') {
+    return <LoadingMessage label={t('entities.userEntities.records.loading', 'Loading records...')} />
+  }
+  return <EditRecordPageInner params={params} />
+}
+
+function EditRecordPageInner({ params }: { params: { entityId?: string; recordId?: string } }) {
+  const t = useT()
+  const entityId = decodeURIComponent(params?.entityId || '')
+  const recordId = decodeURIComponent(params?.recordId || '')
+
+  const [initialValues, setInitialValues] = React.useState<Record<string, any> | null>(null)
+  const [loading, setLoading] = React.useState(true)
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function load() {
+      try {
+        const j = await readApiResultOrThrow<RecordsResponse>(
+          `/api/entities/records?entityId=${encodeURIComponent(entityId)}&page=1&pageSize=1&sortField=id&sortDir=asc&id=${encodeURIComponent(recordId)}`,
+          undefined,
+          { errorMessage: 'Failed to load record', fallback: { items: [] } },
+        )
+        const item = (j.items || []).find((x: any) => String(x.id) === String(recordId)) || null
+        if (!cancelled) setInitialValues(item || {})
+      } catch {
+        if (!cancelled) setInitialValues({})
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    if (entityId && recordId) load()
+    return () => { cancelled = true }
+  }, [entityId, recordId])
+
+  const schema = React.useMemo(() => z.object({}).passthrough(), [])
+
+  const fields: CrudField[] = []
+
+  return (
+    <CrudForm
+      title={t('entities.userEntities.records.form.editTitle', 'Edit record')}
+      titleHeadingLevel={1}
+      backHref={`/backend/entities/user/${encodeURIComponent(entityId)}/records`}
+      schema={schema}
+      fields={fields}
+      entityId={entityId}
+      customEntity
+      initialValues={initialValues || {}}
+      optimisticLockUpdatedAt={
+        typeof initialValues?.updatedAt === 'string'
+          ? initialValues.updatedAt
+          : typeof initialValues?.updated_at === 'string'
+            ? initialValues.updated_at
+            : null
+      }
+      isLoading={loading}
+      loadingMessage={t('entities.userEntities.records.loading', 'Loading record...')}
+      submitLabel={t('entities.userEntities.records.form.submitSave', 'Save')}
+      cancelHref={`/backend/entities/user/${encodeURIComponent(entityId)}/records`}
+      successRedirect={`/backend/entities/user/${encodeURIComponent(entityId)}/records`}
+      onSubmit={async (values) => {
+        await submitCustomEntityRecordUpdate({
+          entityId,
+          recordId,
+          values: values as Record<string, unknown>,
+          messages: {
+            entityIdRequired: t('entities.userEntities.records.errors.entityIdRequired', 'Entity identifier is required'),
+            recordIdRequired: t('entities.userEntities.records.errors.recordIdRequired', 'Record identifier is required'),
+          },
+        })
+      }}
+      onDelete={async () => {
+        const call = await apiCall(
+          `/api/entities/records?entityId=${encodeURIComponent(entityId)}&recordId=${encodeURIComponent(recordId)}`,
+          { method: 'DELETE' },
+        )
+        if (!call.ok) {
+          await raiseCrudError(call.response, t('entities.userEntities.records.errors.deleteFailed', 'Failed to delete record'))
+        }
+        // navigate back
+        if (typeof window !== 'undefined') window.location.href = `/backend/entities/user/${encodeURIComponent(entityId)}/records`
+      }}
+    />
+  )
+}

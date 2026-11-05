@@ -1,0 +1,48 @@
+import type { NotificationDto } from '@open-mercato/shared/modules/notifications/types'
+import { Notification } from '../data/entities'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveNotificationActionHref, toSafeNotificationHref } from './safeHref'
+
+const logger = createLogger('notifications').child({ component: 'mapper' })
+
+export function toNotificationDto(notification: Notification): NotificationDto {
+  const createdAt = notification.createdAt instanceof Date
+    ? notification.createdAt
+    : (() => {
+      if (process.env.NODE_ENV !== 'test') {
+        logger.warn('Invalid createdAt on notification entity, falling back to current time', { id: notification.id, createdAt: notification.createdAt })
+      }
+      return new Date()
+    })()
+  return {
+    id: notification.id,
+    type: notification.type,
+    title: notification.title,
+    body: notification.body,
+    titleKey: notification.titleKey,
+    bodyKey: notification.bodyKey,
+    titleVariables: notification.titleVariables,
+    bodyVariables: notification.bodyVariables,
+    icon: notification.icon,
+    severity: notification.severity,
+    status: notification.status,
+    actions: notification.actionData?.actions?.map((action) => ({
+      id: action.id,
+      label: action.label,
+      labelKey: action.labelKey,
+      variant: action.variant,
+      icon: action.icon,
+      href: toSafeNotificationHref(resolveNotificationActionHref(action.href, notification.sourceEntityId)) ?? undefined,
+    })) ?? [],
+    primaryActionId: notification.actionData?.primaryActionId,
+    sourceModule: notification.sourceModule,
+    sourceEntityType: notification.sourceEntityType,
+    sourceEntityId: notification.sourceEntityId,
+    linkHref: toSafeNotificationHref(notification.linkHref),
+    data: notification.data ?? null,
+    channels: notification.channels ?? null,
+    createdAt: createdAt.toISOString(),
+    readAt: notification.readAt?.toISOString() ?? null,
+    actionTaken: notification.actionTaken,
+  }
+}

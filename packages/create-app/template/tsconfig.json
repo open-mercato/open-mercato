@@ -1,0 +1,60 @@
+{
+  "compilerOptions": {
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "incremental": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "useDefineForClassFields": false,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/*": [
+        "./src/*"
+      ],
+      "@/.mercato/generated/entities/*": [
+        "./.mercato/generated/entities/*/index.ts"
+      ],
+      "@/.mercato/*": [
+        "./.mercato/*"
+      ]
+    },
+    "typeRoots": [
+      "./types",
+      "./node_modules/@types"
+    ],
+    "verbatimModuleSyntax": false,
+    "target": "ES2022"
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    ".mercato/**/*.ts",
+    ".next/dev/types/**/*.ts",
+    ".mercato/next/types/**/*.ts",
+    ".mercato/next/dev/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "src/modules/**/agents/**/scripts/**",
+    "src/modules/**/agents/**/tools/**"
+  ]
+}

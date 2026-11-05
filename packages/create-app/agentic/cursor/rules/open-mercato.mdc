@@ -1,0 +1,8 @@
+---
+description: Route every standalone app task through the root agent rules
+alwaysApply: true
+---
+
+# {{PROJECT_NAME}} — Cursor Entry Point
+
+Read `AGENTS.md`, match every applicable Task Router row, and load only the routed guides, skills, and module facts. The root file owns architecture, safety, writable paths, migrations, generation, and validation; do not duplicate or override it here.

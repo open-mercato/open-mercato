@@ -1,0 +1,168 @@
+"use client"
+
+import * as React from 'react'
+import { Activity, Building2, History, NotebookPen, Paperclip, Users } from 'lucide-react'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { registerComponent } from '@open-mercato/shared/modules/widgets/component-registry'
+import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
+import { Tabs, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
+
+export const DEAL_DETAIL_TAB_IDS = ['activities', 'people', 'companies', 'notes', 'files', 'changelog'] as const
+
+export type DealTabId =
+  | 'activities'
+  | 'people'
+  | 'companies'
+  | 'notes'
+  | 'files'
+  | 'changelog'
+  | string
+
+type TabDef = {
+  id: DealTabId
+  label: string
+  icon?: React.ReactNode
+  count?: React.ReactNode
+  priority?: number
+}
+
+export const DEAL_DETAIL_TABS_COMPONENT_ID = 'section:customers.deals.detailTabs'
+
+export type DealDetailTabsProps = {
+  activeTab: DealTabId
+  onTabChange: (tab: DealTabId) => void
+  injectedTabs?: Array<{ id: string; label: string; priority?: number }>
+  isLoadingInjectedTabs?: boolean
+  hiddenTabIds?: string[]
+  peopleCount?: number
+  companiesCount?: number
+  children: React.ReactNode
+}
+
+const SUPPORTED_TAB_IDS = new Set<DealTabId>(['activities', 'people', 'companies', 'notes', 'files', 'changelog'])
+
+export function resolveLegacyTab(tab: string | null | undefined, knownTabIds?: Iterable<string>): DealTabId {
+  if (!tab) return 'activities'
+  if (SUPPORTED_TAB_IDS.has(tab as DealTabId)) return tab as DealTabId
+  if (knownTabIds && new Set(knownTabIds).has(tab)) return tab
+  return 'activities'
+}
+
+function formatTabCount(count: number): string | number | undefined {
+  if (count <= 0) return undefined
+  return count > 999 ? '999+' : count
+}
+
+function DefaultDealDetailTabs({
+  activeTab,
+  onTabChange,
+  injectedTabs = [],
+  isLoadingInjectedTabs = false,
+  hiddenTabIds = [],
+  peopleCount = 0,
+  companiesCount = 0,
+  children,
+}: DealDetailTabsProps) {
+  const t = useT()
+
+  const builtInTabs = React.useMemo<TabDef[]>(
+    () => [
+      {
+        id: 'activities',
+        label: t('customers.deals.detail.tabs.activities', 'Activities'),
+        icon: <Activity className="size-4" />,
+      },
+      {
+        id: 'people',
+        label: t('customers.deals.detail.tabs.people', 'People'),
+        icon: <Users className="size-4" />,
+        count: formatTabCount(peopleCount),
+      },
+      {
+        id: 'companies',
+        label: t('customers.deals.detail.tabs.companies', 'Companies'),
+        icon: <Building2 className="size-4" />,
+        count: formatTabCount(companiesCount),
+      },
+      {
+        id: 'notes',
+        label: t('customers.deals.detail.tabs.notes', 'Notes'),
+        icon: <NotebookPen className="size-4" />,
+      },
+      {
+        id: 'files',
+        label: t('customers.deals.detail.tabs.files', 'Files'),
+        icon: <Paperclip className="size-4" />,
+      },
+      {
+        id: 'changelog',
+        label: t('customers.deals.detail.tabs.changelog', 'Changelog'),
+        icon: <History className="size-4" />,
+        count: 'NEW',
+      },
+    ],
+    [companiesCount, peopleCount, t],
+  )
+
+  const allTabs = React.useMemo<TabDef[]>(() => {
+    const hidden = new Set(hiddenTabIds)
+    return [
+      ...builtInTabs,
+      ...injectedTabs.filter((tab, index) => !builtInTabs.some((native) => native.id === tab.id) && injectedTabs.findIndex((candidate) => candidate.id === tab.id) === index).map((tab) => ({
+        id: tab.id as DealTabId,
+        label: tab.label,
+        priority: tab.priority,
+      })),
+    ]
+      .sort((left, right) => (right.priority ?? 0) - (left.priority ?? 0))
+      .filter((tab) => !hidden.has(tab.id))
+  }, [builtInTabs, hiddenTabIds, injectedTabs])
+
+  React.useEffect(() => {
+    if (isLoadingInjectedTabs || allTabs.some((tab) => tab.id === activeTab)) return
+    const fallback = allTabs[0]?.id
+    if (fallback) onTabChange(fallback)
+  }, [activeTab, allTabs, isLoadingInjectedTabs, onTabChange])
+
+  return (
+    <div>
+      <Tabs
+        value={activeTab}
+        onValueChange={(value) => onTabChange(value as DealTabId)}
+        variant="underline"
+      >
+        <TabsList
+          aria-label={t('customers.deals.detail.tabs.label', 'Deal detail sections')}
+          className="w-full overflow-x-auto"
+        >
+          {allTabs.map((tab) => (
+            <TabsTrigger key={tab.id} value={tab.id} leading={tab.icon} count={tab.count}>
+              {tab.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
+
+      <div className="pt-5" role="tabpanel">
+        {children}
+      </div>
+    </div>
+  )
+}
+
+registerComponent<DealDetailTabsProps>({
+  id: DEAL_DETAIL_TABS_COMPONENT_ID,
+  component: DefaultDealDetailTabs,
+  metadata: {
+    module: 'customers',
+    description: 'Deal detail tab navigation and content.',
+  },
+})
+
+export function DealDetailTabs(props: DealDetailTabsProps) {
+  const ResolvedTabs = useRegisteredComponent<DealDetailTabsProps>(
+    DEAL_DETAIL_TABS_COMPONENT_ID,
+    DefaultDealDetailTabs,
+  )
+  return <ResolvedTabs {...props} />
+}

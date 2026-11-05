@@ -1,0 +1,251 @@
+---
+title: Attachments
+description: REST endpoints for uploading files, managing metadata, and serving attachment media.
+---
+
+import OpenApiExplorerBanner from '@site/src/components/OpenApiExplorerBanner';
+
+<OpenApiExplorerBanner />
+
+All examples assume the environment variables defined in [REST API Overview](./overview):
+
+```bash
+export BASE_URL="http://localhost:3000/api"
+export API_KEY="<paste your API key secret here>"
+export ORG_ID="<organization uuid in scope>"
+export TENANT_ID="<tenant uuid in scope>"
+export RECORD_ID="<entity record id you want to attach files to>"
+```
+
+- Pass `X-Api-Key: $API_KEY` on every request. API-key calls must always include `organizationId` and `tenantId` in payloads.
+- Required features: `attachments.view` for read-only endpoints, `attachments.manage` for uploads, updates, transfers, partitions, and deletes.
+- Custom fields can be written with either `cf_<slug>` keys or a `customFields` object. Multipart uploads accept a JSON string for `customFields`.
+
+## Storage configuration policy
+
+`OM_ATTACHMENT_STORAGE_POLICY=legacy` is the default and retains the existing local fallback for absent partitions, null drivers and unregistered driver keys. Set `OM_ATTACHMENT_STORAGE_POLICY=strict` in **every web, worker and CLI process** to reject those configurations before selecting or constructing storage. Invalid policy values also fail closed. No schema migration is required.
+
+Strict policy is checked on every factory resolution, including direct and late `new StorageDriverFactory(em)` construction and cache hits. Explicit `local` and `legacyPublic` drivers remain supported; a null configuration on an explicitly selected local driver means an empty object. Provider drivers require a synchronous validator registered before work starts:
+
+```typescript
+import {
+  registerExternalStorageDriver,
+  registerStorageDriverValidator,
+} from '@open-mercato/core/modules/attachments/lib/drivers'
+
+registerStorageDriverValidator('custom_storage', ({ config, stage, scope }) => {
+  if (typeof config.bucket !== 'string' || !config.bucket.trim()) return false
+  if (stage === 'resolved' && scope && config.tenantId !== scope.tenantId) return false
+  return true
+})
+registerExternalStorageDriver('custom_storage', (config) => createCustomStorageDriver(config))
+```
+
+`createCustomStorageDriver` above is supplied by the provider. Validators return exactly `true` to accept and must be synchronous, side-effect free, and avoid logging configuration. They receive the driver key, configuration, optional partition code, optional tenant/organization scope and stage (`configured` before credential enhancement; `resolved` afterward or immediately before construction). Generic object/scope validation also runs after enhancement. Rejected/throwing validators, missing validators and enhancement failures never fall back to local storage; diagnostics discard provider exception messages and causes.
+
+The registration returns a disposer for lifecycle cleanup. Policy helpers, the validator/context types, `AttachmentStorageConfigurationError` and `isAttachmentStorageConfigurationError` are also exported from `@open-mercato/core/modules/attachments`. Use the discriminator across bundled module boundaries, not `instanceof`. The stable code is `ATTACHMENT_STORAGE_CONFIGURATION_INVALID`; reasons are `invalid_policy`, `partition_missing`, `driver_missing`, `unknown_driver`, `invalid_config`, `invalid_scope`, `validator_missing`, `validator_rejected` and `enhancement_failed`. Errors contain no configuration, credentials, partition names or scope IDs.
+
+Attachment upload, file/image retrieval and deletion routes return HTTP **503** with a localized `error`, the stable `code`, and `reason`. Configuration rejection happens before thumbnail or attachment metadata removal. Worker and CLI paths preserve the typed error; CLI deletion rejects instead of reporting success. Authentication and owning-record authorization remain separate checks.
+
+These error-mapping and side-effect guarantees cover the `attachments` module's own routes, quota recovery worker and CLI. Independent warranty portal attachment handlers, the documents attachment download route and enterprise `agent_orchestrator` attachment staging still use factory validation, but do not yet provide the same caller-level handling; [#7941](https://github.com/open-mercato/open-mercato/issues/7941) tracks this work. Errors there may be generic or swallowed, and warranty portal deletion may remove metadata before strict rejection, leaving orphaned bytes. Audit those paths before enabling strict mode in deployments that use them.
+
+The S3 provider registers its own validator. Strict mode supports explicit ambient credentials and the existing default credential chain when no credential fields are supplied; it rejects partial/conflicting keys and incomplete environment-prefix credentials. Endpoint validation uses the existing endpoint-safety policy, including supported HTTP MinIO and the explicit `OM_STORAGE_S3_ALLOW_INTERNAL_ENDPOINTS` choice. Core introduces no S3-specific preconfiguration.
+
+Before enabling strict mode, inventory partitions and register every external driver's validator in all process bootstraps. Ensure initialization has created the intended partitions; strict uploads do not manufacture missing defaults or substitute another partition. To roll back, restore `legacy` and restart all processes; no data is moved or deleted.
+
+Use `attachmentService` for cross-module business operations. Explicit low-level driver construction, standalone S3 APIs and deprecated filesystem helpers do not select a partition driver and are outside this policy. Applications requiring this validation should migrate those callers to the service/factory. The policy is not a filesystem sandbox.
+
+## OCR / text extraction
+
+Open Mercato supports two text-extraction methods for attachments:
+
+1. **LLM-based OCR** (recommended) – uses OpenAI's GPT-4o vision capabilities for images and PDFs
+2. **Pure-JS extraction** – in-process fallback for plain text, PDFs, and DOCX files when LLM OCR is unavailable
+
+### LLM-based OCR (images and PDFs)
+
+**Environment Variables**
+
+Configure LLM-based OCR with the following variables in your `.env`:
+
+```bash
+# Required for LLM-based OCR
+OPENAI_API_KEY=your_openai_api_key_here
+
+# Optional: OCR model selection (default: gpt-4o)
+# Supported models: gpt-4o, gpt-4o-mini
+OCR_MODEL=gpt-4o
+
+# Optional: Custom prompt for text extraction
+# OCR_DEFAULT_PROMPT="Extract all text content from this image..."
+
+# Optional attachment defaults and limits
+# OM_DEFAULT_ATTACHMENT_OCR_ENABLED=true
+# OM_ATTACHMENT_MAX_UPLOAD_MB=25
+# OM_ATTACHMENT_TENANT_QUOTA_MB=512
+```
+
+Attachment env naming follows the standard `OM_*` prefix. Legacy `OPENMERCATO_*` aliases are still read for backward compatibility, but new deployments should use the `OM_*` names.
+
+**How it works**
+
+- **Images** (PNG, JPG, GIF, BMP, WebP, TIFF): Sent directly to GPT-4o for text extraction
+- **PDFs**: Parsed with `pdfjs-dist`; text-layer content is used directly when available, and scanned/image-only pages are rendered through the Node canvas backend before OCR
+- **Processing**: Asynchronous – uploads return immediately, content is populated in the background
+- **Model selection**: Per-partition model override available in partition settings UI
+- **Extracted text**: Stored in `Attachment.content` field and shown in the metadata dialog
+- **Security**: No `pdf2pic`, GraphicsMagick, Ghostscript, or external binaries are used in any extraction path
+- **Fallback**: when LLM OCR is unavailable, plain text files are read directly, PDFs are parsed with `pdfjs-dist`, and DOCX files are parsed with `mammoth`
+
+### Pure-JS extraction (plain text, PDF, DOCX)
+
+No additional setup required — extraction runs in-process with no external binaries.
+
+Supported formats and their extractors:
+
+| Format | Extractor |
+|--------|-----------|
+| Plain text (`text/*`, `.txt`, `.md`, `.csv`, `.log`) | Direct UTF-8 read |
+| PDF (`.pdf`) | `pdfjs-dist` — text layer content |
+| Word document (`.docx`) | `mammoth` |
+
+Formats **not** extracted (returned as no content): `.doc` (legacy binary Word), `.xlsx`, `.xls`, `.pptx`, `.ppt`, `.msg`, and other Office/Outlook formats. LLM-based OCR remains available for these files where the partition is configured with an OCR model.
+
+### Configuration
+
+- `OM_DEFAULT_ATTACHMENT_OCR_ENABLED=true|false` controls whether new partitions opt into OCR by default.
+- `OM_ATTACHMENT_MAX_UPLOAD_MB=<number>` sets the global upload cap per file before field-specific limits are applied. Default: `25`.
+- `OM_ATTACHMENT_TENANT_QUOTA_MB=<number>` sets the tenant-wide stored attachment quota. Default: `512`.
+- Each partition has a `requiresOcr` flag; disable it to skip extraction for that partition.
+- Partition-specific model selection is available in the partition settings UI for image/PDF OCR.
+
+## Attachments per record
+
+### List attachments — `GET /attachments?entityId=<id>&recordId=<id>`
+
+**Feature:** `attachments.view`
+
+Returns files assigned to a specific entity record, ordered newest first.
+
+```bash
+curl -X GET "$BASE_URL/attachments?entityId=catalog:catalog_product&recordId=$RECORD_ID" \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Accept: application/json"
+```
+
+The payload includes `id`, `fileName`, `fileSize`, `createdAt`, `partitionCode`, `url`, `thumbnailUrl`, `tags`, and `assignments`.
+
+Pagination is optional and opt-in: pass **both** `page` (minimum `1`) and `pageSize` (minimum `1`, maximum `100`) to page the result. When you do, the response adds `total`, `page`, `pageSize`, and `totalPages` alongside `items`; when you omit either one, only the newest `100` attachments for the record are returned, without those fields — page with `page` and `pageSize` to reach the rest. Paging is unclamped, exactly like the other list endpoints — a page past the end returns an empty `items` array and echoes back the page you asked for, so a loop that keeps requesting the next page while the current one is full terminates on its own. Use `totalPages` if you need to know where the list ends before you get there.
+
+### Upload attachment — `POST /attachments` (multipart)
+
+**Feature:** `attachments.manage`
+
+Fields:
+
+- `entityId` and `recordId` — required.
+- `file` — required binary part.
+- Optional: `fieldKey` (validates max size/extension + partition overrides from custom-field definitions), `partitionCode` override, `tags` (JSON string array), `assignments` (JSON string array of `{ type, id, href?, label? }`), `customFields` JSON map.
+
+```bash
+curl -X POST "$BASE_URL/attachments" \
+  -H "X-Api-Key: $API_KEY" \
+  -F "entityId=catalog:catalog_product" \
+  -F "recordId=$RECORD_ID" \
+  -F "file=@./hero.jpg" \
+  -F "tags=[\"hero\",\"web\"]"
+```
+
+Response contains the stored item plus a prebuilt `thumbnailUrl` (`/api/attachments/image/{id}`).
+
+### Delete attachment — `DELETE /attachments?id=<uuid>`
+
+**Feature:** `attachments.manage`
+
+```bash
+curl -X DELETE "$BASE_URL/attachments?id=$ATTACHMENT_ID" \
+  -H "X-Api-Key: $API_KEY"
+```
+
+Deletes the record, purges cached thumbnails, and removes the stored asset.
+
+## Attachment library
+
+Use the library endpoints to browse or edit attachments across entities.
+
+### Search library — `GET /attachments/library`
+
+**Feature:** `attachments.view`
+
+Query parameters: `page` (default `1`), `pageSize` (max `100`), `search` (file name substring), `partition`, `tags` (comma separated), `sortField` (`fileName`, `fileSize`, `createdAt`), `sortDir`.
+
+```bash
+curl -X GET "$BASE_URL/attachments/library?page=1&pageSize=20&tags=hero" \
+  -H "X-Api-Key: $API_KEY"
+```
+
+Response includes paginated items, available partitions, and discovered tag list.
+
+### Retrieve attachment — `GET /attachments/library/{id}`
+
+**Feature:** `attachments.view`
+
+Returns metadata for a single attachment: base fields, tags, assignments (enriched with labels/links when possible), partition label, and any custom field values.
+
+### Update metadata — `PATCH /attachments/library/{id}`
+
+**Feature:** `attachments.manage`
+
+Body accepts `tags` (array), `assignments` (array of `{ type, id, href?, label? }`), plus optional custom-field keys (`cf_<slug>` or `customFields`). Returns the updated tags/assignments/custom fields.
+
+### Delete attachment — `DELETE /attachments/library/{id}`
+
+**Feature:** `attachments.manage`
+
+Removes the attachment and its stored file.
+
+## Transfer attachments between records
+
+**Endpoint:** `POST /attachments/transfer`  
+**Feature:** `attachments.manage`
+
+Move multiple attachments within the same entity to a new record id.
+
+```bash
+curl -X POST "$BASE_URL/attachments/transfer" \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "entityId": "catalog:catalog_product",
+    "attachmentIds": ["'$ATTACHMENT_ID'"],
+    "fromRecordId": "old-record-id",
+    "toRecordId": "new-record-id"
+  }'
+```
+
+Assignments pointing at `fromRecordId` are rewritten to `toRecordId`.
+
+## Storage partitions
+
+Partition endpoints let you route uploads to different buckets or visibility tiers.
+
+- List partitions — `GET /attachments/partitions` (`attachments.manage`)  
+  Ensures default partitions exist and returns `code`, `title`, `description`, `isPublic`, `requiresOcr`, `envKey`.
+- Create partition — `POST /attachments/partitions` (`attachments.manage`)  
+  Body: `code`, `title`, optional `description`, `isPublic`, `requiresOcr`. Fails when the environment locks partition management (demo/onboarding).
+- Update partition — `PUT /attachments/partitions` (`attachments.manage`)  
+  Body: `id`, `code` (immutable), `title`, optional `description`, `isPublic`, `requiresOcr`.
+- Delete partition — `DELETE /attachments/partitions?id=<uuid>` (`attachments.manage`)  
+  Default partitions cannot be removed; partitions in use return `409`.
+
+## File delivery and imaging
+
+These routes stream files and thumbnails. Access depends on partition visibility:
+
+- Public partitions: no token required unless `requireAuthForPublic` is enabled server-side.
+- Private partitions: require auth; scope must match attachment `organizationId`/`tenantId` or be a superadmin.
+
+- Download original file — `GET /attachments/file/{id}`  
+  Add `?download=1` to force a download response. Respects partition cache headers.
+- Serve/rescale image — `GET /attachments/image/{id}/{slug?}?width=<n>&height=<n>&cropType=cover|contain`  
+  Returns a resized image (Sharp) and caches thumbnails per size. Omit `width`/`height` to stream the original image type while keeping access controls in place.

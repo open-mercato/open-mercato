@@ -1,0 +1,208 @@
+# Events Package — Agent Guidelines
+
+Use `@open-mercato/events` for all event-driven communication between modules. MUST NOT use direct module-to-module function calls for side effects.
+
+## Always
+
+1. **MUST declare events in the emitting module's `events.ts`** — use `createModuleEvents()` with `as const` for type safety
+2. **MUST run `yarn generate`** after creating or modifying `events.ts` files
+3. **MUST export `metadata`** from every subscriber with `{ event, persistent?, id? }`
+4. **MUST keep subscribers focused** — one side effect per subscriber file
+5. **MUST make persistent subscribers idempotent** — they may be retried on failure
+
+## Ask First
+
+- Ask before renaming event IDs, changing persistent delivery semantics, or altering SSE audience filtering.
+- Ask before increasing SSE payload size limits or heartbeat/deduplication behavior.
+
+## Never
+
+- Never use direct module-to-module function calls for side effects.
+- Never emit undeclared events — undeclared events trigger TypeScript errors and runtime warnings.
+- Never rely on payload-provided tenant or organization scope when trusted scope is available.
+
+## Validation Commands
+
+```bash
+yarn generate
+yarn workspace @open-mercato/events test
+yarn workspace @open-mercato/events build
+```
+
+## Event Declaration
+
+Declare events in the emitting module's `events.ts`. See `packages/core/AGENTS.md` → Events for the full declaration pattern, field reference (`id`, `label`, `category`, `entity`, `excludeFromTriggers`), and code example.
+
+Quick reference:
+
+```typescript
+import { createModuleEvents } from '@open-mercato/shared/modules/events'
+const events = [
+  { id: 'module.entity.created', label: 'Entity Created', entity: 'entity', category: 'crud' },
+] as const
+export const eventsConfig = createModuleEvents({ moduleId: 'module', events })
+export default eventsConfig
+```
+
+## Subscription Types
+
+| Type | When to use | Persistence | Retry behavior |
+|------|-------------|-------------|----------------|
+| Ephemeral | Use for real-time UI updates, cache invalidation | In-memory only — lost on restart | No retry |
+| Persistent | Use for notifications, indexing, audit logging | Stored in queue — survives restarts | Retried on failure |
+
+## Adding an Event Subscriber
+
+1. Create subscriber file in `src/modules/<module>/subscribers/<event-name>.ts`
+2. Export `metadata` with `{ event: 'module.entity.created', persistent: true, id: 'my-subscriber' }`
+3. Export default async handler function
+4. Keep the handler focused on one side effect
+5. Make the handler idempotent if `persistent: true` — it may be retried
+6. Run `yarn generate` to register the subscriber
+7. Test that the subscriber fires correctly after the event is emitted
+
+### Subscriber Contract
+
+```typescript
+export const metadata = { event: 'module.entity.created', persistent: true, id: 'entity-created-notify' }
+export default async function handler(payload, ctx) { /* ... */ }
+```
+
+## Event Bus Architecture
+
+- Supports local (in-process) and async (Redis-backed) event dispatch
+- Events are auto-discovered by generators → `generated/events.generated.ts`
+- When `QUEUE_STRATEGY=async`, persistent events dispatch through the queue package (BullMQ)
+- When `QUEUE_STRATEGY=local`, persistent events process from `.mercato/queue/` (or `QUEUE_BASE_DIR`)
+- Ephemeral subscribers always run in-process regardless of queue strategy
+
+### Persistent delivery: single-delivery (`OM_EVENTS_SINGLE_DELIVERY`, default ON)
+
+Single-delivery is the default. A persistent emit is delivered on exactly one path:
+
+- the bus skips inline delivery of **persistent-marked** subscribers on a persistent emit (ephemeral subscribers still run inline — read-your-writes paths like `query_index.upsert_one` are `persistent: false` and are unaffected);
+- the events worker dispatches **persistent** subscribers via `matchEventPattern`, so wildcard (`event: '*'`) persistent subscribers (workflow triggers, business-rules CRUD trigger, webhook outbound dispatch) are reached.
+
+This avoids the legacy dual-dispatch, where persistent emits ran inline **and** in the worker - double-running exact-match persistent subscribers (duplicate notifications/emails) and never reaching wildcard persistent subscribers in the worker. Both halves ask the SAME bus (`EventBus.dispatchQueued`), so they cannot disagree within a process.
+
+**No worker yet is not the same as lost.** With single-delivery on, persistent subscribers run ONLY in the worker. The bus does not second-guess that against "is a worker running": the queue is durable, so a persistent emit with no worker yet is delayed, not dropped, and a worker started later drains the backlog. Delivering inline instead would move the work back onto the caller's request path - exactly what a split app/worker deployment sets `AUTO_SPAWN_WORKERS=false` to avoid. The `mercato server`/`start` bootstrap still reconciles the flag for a process it *knows* runs no worker (`reconcileSingleDelivery`, mirrored in `packages/cli/src/lib/events-single-delivery.ts`); when it does, the bus stamps the queued job `persistentDeliveredInline: true` so a worker draining the queue skips it. Delivery is exactly-once on either path when handlers succeed; see the failure note below.
+
+**Failure on the inline path.** Inline delivery logs each handler error and continues, so a persistent subscriber that throws inline has no retry of its own. The producer therefore stamps `persistentDeliveredInline` only when every persistent subscriber succeeded; if one threw, the job stays unstamped and the worker runs it with queue retry + dead-lettering. A retry re-runs the persistent subscribers that already succeeded, which is why persistent subscribers MUST be idempotent.
+
+**Enqueue-only emits.** Pass `{ persistent: true, deliverInline: false }` to hand a heavy persistent job (e.g. a full query-index rebuild) to the durable queue without ANY inline delivery, independent of the single-delivery flag. Only use it when every subscriber to the event is `persistent: true`. This is the "Ask First: changing persistent delivery semantics" surface — coordinate before altering these defaults.
+
+## Queue Integration
+
+| Queue strategy | Ephemeral events | Persistent events |
+|----------------|------------------|-------------------|
+| `local` | In-process | Processed from `.mercato/queue/` (or `QUEUE_BASE_DIR`) |
+| `async` | In-process | Dispatched via BullMQ (Redis-backed) |
+
+When `QUEUE_STRATEGY=async`, persistent event workers run as background processes. Start them with:
+
+```bash
+yarn mercato queue worker events --concurrency=5
+```
+
+## Structure
+
+```
+packages/events/src/
+├── modules/
+│   └── events/
+│       └── workers/    # Async event processing workers
+└── __tests__/
+```
+
+## Workers
+
+Workers in `modules/events/workers/` handle async event processing. Follow the standard worker contract: export default handler + `metadata` with `{ queue, id?, concurrency? }`.
+
+The events worker MUST NOT keep a subscriber registry of its own - it resolves `eventBus` from the per-job DI container and calls `dispatchQueued`. It previously built one from `getCliModules()`, which only the `mercato` bin populates, so a worker started any other way dispatched zero subscribers and completed the job silently. When no bus is resolvable it now **throws**, so the job retries and dead-letters with a visible cause.
+
+## Testing
+
+- Tests inside `packages/events` SHOULD import the public `@open-mercato/events/...` API when validating package behavior
+- `tenantId` and `organizationId` in subscriber context are trusted scope inputs from `emit(..., options)` or queued job `options`, not from arbitrary payload fields
+- Add regression tests for both paths:
+  - trusted scope is forwarded when explicitly provided
+  - payload-provided scope is ignored when trusted scope is omitted
+
+## Cross-Reference
+
+- **Declaring events in a module**: `packages/core/AGENTS.md` → Events
+- **Adding subscribers in a module**: `packages/core/AGENTS.md` → Events → Event Subscribers
+- **Queue worker contract**: `packages/queue/AGENTS.md`
+
+## DOM Event Bridge (SSE)
+
+The DOM Event Bridge streams server-side events to the browser via Server-Sent Events (SSE).
+
+### How It Works
+
+1. Module declares events with `clientBroadcast: true` in `events.ts`
+2. SSE endpoint at `/api/events/stream` subscribes to the event bus
+3. Client-side `eventBridge.ts` connects via `EventSource` with auto-reconnect
+4. Events are dispatched as `om:event` CustomEvents on `window`
+5. Widgets/components listen via `useAppEvent(pattern, handler)` hook
+
+### Enabling Broadcast on Events
+
+In your module's `events.ts`:
+```typescript
+const events = [
+  { id: 'mymod.entity.created', label: 'Created', category: 'crud', clientBroadcast: true },
+] as const
+```
+
+### Consuming Events in Components
+
+```typescript
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
+
+// Wildcard: listen to all events from a module
+useAppEvent('mymod.*', (event) => {
+  console.log(event.id, event.payload)
+}, [])
+
+// Exact match
+useAppEvent('mymod.entity.created', (event) => {
+  // refresh data
+}, [])
+```
+
+### Browser Delivery Rules
+
+- Events are server-filtered by audience before SSE send:
+  - Tenant: `tenantId` must match
+  - Organization: `organizationId` or `organizationIds` must match selected organization
+  - Recipient user: `recipientUserId` or `recipientUserIds` must include connection user
+  - Recipient role: `recipientRoleId` or `recipientRoleIds` must intersect connection roles
+- Missing `tenantId` in event payload means no delivery
+- SSE sends heartbeats every 30s; client auto-reconnects if no heartbeat within 45s
+- The staff DOM bridge accepts cookie and Bearer authentication only. It rejects `x-api-key` and `Authorization: ApiKey` before opening, and the UI reconnects immediately after the shared organization-scope change signal so the new request carries current selection cookies.
+- SSE re-resolves canonical auth and organization scope from the original request credentials every 30s through the shared `organizationScopeService.resolveForRequest({ auth, request })` DI contract. It closes fail-closed when the scope is rejected or no longer allowed, validation fails, or its user, tenant, selected organization, or roles change. A successful check replaces the connection identity snapshot.
+- Every server stream closes after 5 minutes even when validation succeeds, forcing native `EventSource` reconnect through fresh request authorization. Operators may lower or raise these positive millisecond bounds with `OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS` and `OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS`; invalid values and values below 1000ms fall back to the defaults, and values above Node's safe timer maximum (`2^31-1`ms) are capped there.
+- Max payload size is 4096 bytes per event
+- Client deduplicates events within a 500ms window
+- `isBroadcastEvent(eventId)` checks if an event has `clientBroadcast: true`
+- The `useEventBridge()` hook must be mounted once in the app shell to start receiving events
+
+### Coalescing browser deliveries (bulk writers)
+
+Every emit of a `clientBroadcast: true` event costs a serialized `pg_notify` roundtrip plus a tenant-wide SSE fan-out, so a bulk writer pays both once per record. Declare `broadcastCoalescing: true` to bound that:
+
+```typescript
+{ id: 'mymod.entity.created', label: 'Created', clientBroadcast: true, broadcastCoalescing: true },
+```
+
+- Only the **browser** half coalesces. Inline subscribers, webhooks, workflow triggers and the queue still receive one event per record — the domain event is untouched.
+- Within `OM_BROADCAST_COALESCE_INTERVAL_MS` (default 250, `0` disables process-wide) only the newest payload per audience (event, tenant, organizations, recipient users/roles) reaches the SSE bridges. The first emit of a burst goes out immediately, and a trailing flush is **always** armed, so the last emit is delivered and a DataTable never ends a burst stale.
+- **When to declare it:** only when browser consumers react to the fact that something changed (a list refetch), never to each occurrence. A consumer that must see every record — a per-record toast, a running tally — MUST NOT have its event opted in; suppressed payloads are dropped, not merged.
+- MUST NOT combine with `crossProcessBroadcast` — delaying private coordination would let another process serve stale data. `createModuleEvents` throws on that declaration, and on `broadcastCoalescing` without a browser sink.
+- `isCoalescedBroadcastEvent(eventId)` reports the resolved decision. `progress.job.updated` keeps its own service-local throttle (`OM_PROGRESS_BROADCAST_MIN_INTERVAL_MS`) and is not affected.
+- `registerGlobalEventTap` is not a browser-only sink — it is a public export that any process-local listener can use (integration-test event capture included), not just the two SSE endpoints. For an opted-in event, every tap sees the same coalesced, trailing-flush-guaranteed stream the browser does, never a call per record. Do not rely on a global tap to observe every occurrence of an event that declares `broadcastCoalescing: true`.
+
+### Private cross-process coordination
+
+Use `crossProcessBroadcast: true` for server-to-server invalidation or coordination that must cross process boundaries but must not be exposed through browser SSE. The event bus publishes `clientBroadcast`, `portalBroadcast` and `crossProcessBroadcast` events to the cross-process bridge (only with trusted tenant scope), while the DOM Event Bridge delivers only `clientBroadcast` events and the portal stream only `portalBroadcast` events — each consumer filters by its own flag and skips its own echo via `CROSS_PROCESS_EVENT_INSTANCE_ID` (never `originPid`). An envelope over the 7 KB `pg_notify` cap is truncated to `{ truncated: true, id/entityId/entityType }` plus its audience-scope fields (consumers re-fetch); private `crossProcessBroadcast` envelopes are never reshaped and are dropped when oversize. Do not use `clientBroadcast` merely to reach another server process when the payload contains record-scoped identifiers or activity that the organization-level SSE audience cannot authorize.

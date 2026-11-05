@@ -1,0 +1,292 @@
+"use client"
+
+import * as React from 'react'
+import { useRouter } from 'next/navigation'
+import Link from 'next/link'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import type { SortingState } from '@tanstack/react-table'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { DataTable, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
+import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useSalesChannelsEnabled } from '../../../components/useSalesChannelsEnabled'
+import { SalesChannelsDisabledNotice } from '../../../components/SalesChannelsDisabledNotice'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
+
+type ChannelRow = {
+  id: string
+  name: string
+  code: string | null
+  description: string | null
+  offerCount: number
+  isActive: boolean
+  updatedAt: string | null
+}
+
+type ChannelsResponse = {
+  items?: Array<Record<string, unknown>>
+  total?: number
+  totalPages?: number
+  totalIsCapped?: boolean
+}
+
+const PAGE_SIZE = 25
+
+const SAVE_CONTEXT_ID = 'sales-channels-list'
+
+export default function SalesChannelsPage() {
+  const t = useT()
+  const { enabled: channelsEnabled, isLoading: channelsEnabledLoading } = useSalesChannelsEnabled()
+  const router = useRouter()
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: SAVE_CONTEXT_ID,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+  const mutationContext = React.useMemo(
+    () => ({
+      formId: SAVE_CONTEXT_ID,
+      resourceKind: 'sales.channels',
+      retryLastMutation,
+    }),
+    [retryLastMutation],
+  )
+  const scopeVersion = useOrganizationScopeVersion()
+  const [rows, setRows] = React.useState<ChannelRow[]>([])
+  const [page, setPage] = React.useState(1)
+  const [total, setTotal] = React.useState(0)
+  const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
+  const [sorting, setSorting] = React.useState<SortingState>([])
+  const [search, setSearch] = React.useState('')
+  const [isLoading, setLoading] = React.useState(true)
+  const [reloadToken, setReloadToken] = React.useState(0)
+
+  const columns = React.useMemo<ColumnDef<ChannelRow>[]>(() => [
+    {
+      accessorKey: 'name',
+      header: t('sales.channels.table.name', 'Name'),
+      cell: ({ row }) => (
+        <div className="flex flex-col">
+          <span className="font-medium">{row.original.name}</span>
+          {row.original.description ? (
+            <span className="text-xs text-muted-foreground">{row.original.description}</span>
+          ) : null}
+        </div>
+      ),
+      meta: { sticky: true },
+    },
+    {
+      accessorKey: 'code',
+      header: t('sales.channels.table.code', 'Code'),
+      cell: ({ row }) => row.original.code ? (
+        <span className="font-mono text-xs">{row.original.code}</span>
+      ) : (
+        <span className="text-xs text-muted-foreground">—</span>
+      ),
+    },
+    {
+      accessorKey: 'offerCount',
+      header: t('sales.channels.table.offers', 'Product offers'),
+      cell: ({ row }) => (
+        <span className="text-sm font-semibold">{row.original.offerCount}</span>
+      ),
+    },
+    {
+      accessorKey: 'isActive',
+      header: t('sales.channels.table.active', 'Active'),
+      cell: ({ row }) => <BooleanIcon value={row.original.isActive} />,
+    },
+    {
+      accessorKey: 'updatedAt',
+      header: t('sales.channels.table.updated', 'Updated'),
+      cell: ({ row }) =>
+        row.original.updatedAt
+          ? <span className="text-xs text-muted-foreground">{new Date(row.original.updatedAt).toLocaleDateString()}</span>
+          : <span className="text-xs text-muted-foreground">—</span>,
+    },
+  ], [t])
+
+  const loadChannels = React.useCallback(async () => {
+    setLoading(true)
+    try {
+      const params = new URLSearchParams({
+        page: String(page),
+        pageSize: String(PAGE_SIZE),
+      })
+      const sort = sorting[0]
+      if (sort?.id) {
+        params.set('sortField', sort.id)
+        params.set('sortDir', sort.desc ? 'desc' : 'asc')
+      }
+      if (search.trim().length) {
+        params.set('search', search.trim())
+      }
+      const payload = await readApiResultOrThrow<ChannelsResponse>(
+        `/api/sales/channels?${params.toString()}`,
+        undefined,
+        { errorMessage: t('sales.channels.table.errors.load', 'Failed to load channels.') },
+      )
+      const items = Array.isArray(payload.items) ? payload.items : []
+      setRows(items.map(mapApiChannel))
+      setTotal(typeof payload.total === 'number' ? payload.total : items.length)
+      setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : Math.max(1, Math.ceil(items.length / PAGE_SIZE)))
+      setTotalIsCapped(payload?.totalIsCapped === true)
+    } catch (err) {
+      logger.error('sales.channels.list', { err })
+      flash(t('sales.channels.table.errors.load', 'Failed to load channels.'), 'error')
+    } finally {
+      setLoading(false)
+    }
+  }, [page, search, sorting, t])
+
+  React.useEffect(() => {
+    void loadChannels()
+  }, [loadChannels, scopeVersion, reloadToken])
+
+  const handleSearchChange = React.useCallback((value: string) => {
+    setSearch(value)
+    setPage(1)
+  }, [])
+
+  const handleRefresh = React.useCallback(() => {
+    setReloadToken((token) => token + 1)
+  }, [])
+
+  const handleDelete = React.useCallback(async (row: ChannelRow) => {
+    try {
+      await runMutation({
+        operation: () =>
+          withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(row.updatedAt),
+            () => deleteCrud('sales/channels', row.id, {
+              errorMessage: t('sales.channels.table.errors.delete', 'Failed to delete channel.'),
+            }),
+          ),
+        context: mutationContext,
+        mutationPayload: { action: 'delete', id: row.id },
+      })
+      flash(t('sales.channels.table.messages.deleted', 'Channel deleted.'), 'success')
+      handleRefresh()
+    } catch (err) {
+      if (extractOptimisticLockConflict(err)) {
+        // Someone edited the channel after this list loaded — refuse the
+        // stale delete, surface the conflict, and reload so the row reflects
+        // the latest server state (QA #2055 channel edit/delete broken state).
+        flash(
+          t('ui.forms.flash.recordModified', 'This record was modified by someone else. Refresh and try again.'),
+          'error',
+        )
+        handleRefresh()
+        return
+      }
+      logger.error('sales.channels.delete', { err })
+    }
+  }, [handleRefresh, mutationContext, runMutation, t])
+
+  if (!channelsEnabled && !channelsEnabledLoading) {
+    return <SalesChannelsDisabledNotice />
+  }
+
+  return (
+    <Page>
+      <PageBody>
+        <DataTable<ChannelRow>
+          title={(
+            <span className="flex flex-col">
+              <span>{t('sales.channels.nav.title', 'Sales channels')}</span>
+              <span className="text-sm font-normal text-muted-foreground">
+                {t('sales.channels.table.subtitle', 'Organize catalog offers per marketplace or storefront.')}
+              </span>
+            </span>
+          )}
+          titleHeadingLevel={1}
+          actions={(
+            <Button asChild>
+              <Link href="/backend/sales/channels/create">
+                {t('sales.channels.actions.create', 'Add channel')}
+              </Link>
+            </Button>
+          )}
+          columns={columns}
+          data={rows}
+          sorting={sorting}
+          onSortingChange={setSorting}
+          isLoading={isLoading}
+          searchValue={search}
+          onSearchChange={handleSearchChange}
+          searchPlaceholder={t('sales.channels.table.search', 'Search channels…')}
+          pagination={{
+            page,
+            pageSize: PAGE_SIZE,
+            total,
+            totalPages,
+            totalIsCapped,
+            onPageChange: setPage,
+          }}
+          refreshButton={{
+            label: t('sales.channels.table.refresh', 'Refresh'),
+            onRefresh: handleRefresh,
+            isRefreshing: isLoading,
+          }}
+          rowActions={(row) => (
+            <RowActions
+              items={[
+                {
+                  id: 'edit',
+                  label: t('sales.channels.table.actions.edit', 'Edit'),
+                  href: `/backend/sales/channels/${row.id}/edit`,
+                },
+                {
+                  id: 'delete',
+                  label: t('sales.channels.table.actions.delete', 'Delete'),
+                  onSelect: () => handleDelete(row),
+                },
+              ]}
+            />
+          )}
+          onRowClick={(row) => router.push(`/backend/sales/channels/${row.id}/edit`)}
+          emptyState={
+            <div className="py-10 text-center text-sm text-muted-foreground">
+              {t('sales.channels.table.empty', 'No channels yet.')}
+            </div>
+          }
+        />
+      </PageBody>
+    </Page>
+  )
+}
+
+function mapApiChannel(item: Record<string, unknown>): ChannelRow {
+  const id = typeof item.id === 'string' ? item.id : ''
+  return withDataTableNamespaces({
+    id,
+    name: typeof item.name === 'string' ? item.name : id,
+    code: typeof item.code === 'string' && item.code.length ? item.code : null,
+    description: typeof item.description === 'string' && item.description.length ? item.description : null,
+    offerCount: typeof item.offerCount === 'number'
+      ? item.offerCount
+      : typeof item.offer_count === 'number'
+        ? item.offer_count
+        : 0,
+    isActive: item.isActive === true || item.is_active === true,
+    updatedAt: typeof item.updatedAt === 'string'
+      ? item.updatedAt
+      : typeof item.updated_at === 'string'
+        ? item.updated_at
+        : null,
+  }, item)
+}

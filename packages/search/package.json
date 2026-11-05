@@ -1,0 +1,148 @@
+{
+  "name": "@open-mercato/search",
+  "version": "0.10.0",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./modules/search": {
+      "types": "./src/modules/search/index.ts",
+      "default": "./dist/modules/search/index.js"
+    },
+    "./modules/search/index": {
+      "types": "./src/modules/search/index.ts",
+      "default": "./dist/modules/search/index.js"
+    },
+    "./modules/search/di": {
+      "types": "./src/modules/search/di.ts",
+      "default": "./dist/modules/search/di.js"
+    },
+    "./modules/search/acl": {
+      "types": "./src/modules/search/acl.ts",
+      "default": "./dist/modules/search/acl.js"
+    },
+    "./modules/search/cli": {
+      "types": "./src/modules/search/cli.ts",
+      "default": "./dist/modules/search/cli.js"
+    },
+    "./modules/search/frontend": {
+      "types": "./src/modules/search/frontend/index.ts",
+      "default": "./dist/modules/search/frontend/index.js"
+    },
+    "./modules/search/i18n/*": "./src/modules/search/i18n/*",
+    "./strategies": {
+      "types": "./src/strategies/index.ts",
+      "default": "./dist/strategies/index.js"
+    },
+    "./indexer": {
+      "types": "./src/indexer/index.ts",
+      "default": "./dist/indexer/index.js"
+    },
+    "./vector": {
+      "types": "./src/vector/index.ts",
+      "default": "./dist/vector/index.js"
+    },
+    "./fulltext": {
+      "types": "./src/fulltext/index.ts",
+      "default": "./dist/fulltext/index.js"
+    },
+    "./types": {
+      "types": "./src/types.ts",
+      "default": "./dist/types.js"
+    },
+    "./di": {
+      "types": "./src/di.ts",
+      "default": "./dist/di.js"
+    },
+    "./*": {
+      "types": [
+        "./src/*.ts",
+        "./src/*.tsx"
+      ],
+      "default": "./dist/*.js"
+    },
+    "./*/*": {
+      "types": [
+        "./src/*/*.ts",
+        "./src/*/*.tsx"
+      ],
+      "default": "./dist/*/*.js"
+    },
+    "./*/*/*": {
+      "types": [
+        "./src/*/*/*.ts",
+        "./src/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*.js"
+    },
+    "./*/*/*/*": {
+      "types": [
+        "./src/*/*/*/*.ts",
+        "./src/*/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*/*.js"
+    },
+    "./*/*/*/*/*": {
+      "types": [
+        "./src/*/*/*/*/*.ts",
+        "./src/*/*/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*/*/*.js"
+    },
+    "./*/*/*/*/*/*": {
+      "types": [
+        "./src/*/*/*/*/*/*.ts",
+        "./src/*/*/*/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*/*/*/*.js"
+    },
+    "./*/*/*/*/*/*/*": {
+      "types": [
+        "./src/*/*/*/*/*/*/*.ts",
+        "./src/*/*/*/*/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*/*/*/*/*.js"
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node watch.mjs",
+    "test": "jest --config jest.config.cjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ai-sdk/amazon-bedrock": "^5.0.2",
+    "@ai-sdk/cohere": "^4.0.14",
+    "@ai-sdk/google": "^4.0.56",
+    "@ai-sdk/mistral": "^4.0.16",
+    "@ai-sdk/openai": "^4.0.50",
+    "ai": "^7.0.83",
+    "ai-sdk-ollama": "4.1.0",
+    "meilisearch": "^0.60.0",
+    "pg": "8.23.0",
+    "zod": "^4.6.6"
+  },
+  "peerDependencies": {
+    "@open-mercato/core": "workspace:*",
+    "@open-mercato/queue": "workspace:*",
+    "@open-mercato/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "jest": "^30.4.2",
+    "ts-jest": "^29.4.12",
+    "typescript": "7.0.2"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/open-mercato/open-mercato",
+    "directory": "packages/search"
+  }
+}

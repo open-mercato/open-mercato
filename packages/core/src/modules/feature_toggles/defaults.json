@@ -1,0 +1,40 @@
+{
+  "toggles": [
+    {
+      "identifier": "feature_toggles_ui",
+      "name": "Feature Toggles UI",
+      "description": "Enable the feature toggles admin UI.",
+      "category": "feature_toggles",
+      "type": "boolean",
+      "defaultValue": true
+    },
+    {
+      "identifier": "marketing_banner_text",
+      "name": "Marketing Banner Text",
+      "description": "Controls the banner copy shown on the storefront.",
+      "category": "storefront",
+      "type": "string",
+      "defaultValue": "Free shipping on orders over $50"
+    },
+    {
+      "identifier": "order_review_threshold",
+      "name": "Order Review Threshold",
+      "description": "Routes orders above this total to manual review.",
+      "category": "sales",
+      "type": "number",
+      "defaultValue": 2500
+    },
+    {
+      "identifier": "support_contact_settings",
+      "name": "Support Contact Settings",
+      "description": "Configures support contact details displayed in the UI.",
+      "category": "support",
+      "type": "json",
+      "defaultValue": {
+        "email": "support@example.com",
+        "phone": "+1-555-0123",
+        "hours": "Mon-Fri 9am-5pm"
+      }
+    }
+  ]
+}

@@ -1,0 +1,391 @@
+import { Check, Entity, Enum, Index, ManyToOne, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+
+export type DomainProvider = 'traefik'
+export type DomainStatus = 'pending' | 'verified' | 'active' | 'dns_failed' | 'tls_failed'
+
+export const DOMAIN_PROVIDERS: readonly DomainProvider[] = ['traefik'] as const
+export const DOMAIN_STATUSES: readonly DomainStatus[] = [
+  'pending',
+  'verified',
+  'active',
+  'dns_failed',
+  'tls_failed',
+] as const
+
+@Entity({ tableName: 'customer_users' })
+@Index({
+  name: 'customer_users_tenant_email_hash_uniq',
+  expression:
+    'create unique index "customer_users_tenant_email_hash_uniq" on "customer_users" ("tenant_id", "email_hash") where "deleted_at" is null',
+})
+export class CustomerUser {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ type: 'text' })
+  email!: string
+
+  @Property({ name: 'email_hash', type: 'text' })
+  @Index({ name: 'customer_users_email_hash_idx' })
+  emailHash!: string
+
+  @Property({ name: 'password_hash', type: 'text', nullable: true })
+  passwordHash?: string | null
+
+  @Property({ name: 'display_name', type: 'text' })
+  displayName!: string
+
+  @Property({ name: 'email_verified_at', type: Date, nullable: true })
+  emailVerifiedAt?: Date | null
+
+  @Property({ name: 'failed_login_attempts', type: 'int', default: 0 })
+  failedLoginAttempts: number = 0
+
+  @Property({ name: 'locked_until', type: Date, nullable: true })
+  lockedUntil?: Date | null
+
+  @Property({ name: 'last_login_at', type: Date, nullable: true })
+  lastLoginAt?: Date | null
+
+  @Property({ name: 'sessions_revoked_at', type: Date, nullable: true })
+  sessionsRevokedAt?: Date | null
+
+  @Property({ name: 'person_entity_id', type: 'uuid', nullable: true })
+  @Index({ name: 'customer_users_person_entity_idx' })
+  personEntityId?: string | null
+
+  @Property({ name: 'customer_entity_id', type: 'uuid', nullable: true })
+  @Index({ name: 'customer_users_customer_entity_idx' })
+  customerEntityId?: string | null
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date(), nullable: true })
+  updatedAt?: Date
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'customer_roles' })
+@Unique({ properties: ['tenantId', 'slug'], name: 'customer_roles_tenant_slug_uniq' })
+export class CustomerRole {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ type: 'text' })
+  name!: string
+
+  @Property({ type: 'text' })
+  slug!: string
+
+  @Property({ type: 'text', nullable: true })
+  description?: string | null
+
+  @Property({ name: 'is_default', type: 'boolean', default: false })
+  isDefault: boolean = false
+
+  @Property({ name: 'is_system', type: 'boolean', default: false })
+  isSystem: boolean = false
+
+  @Property({ name: 'customer_assignable', type: 'boolean', default: false })
+  customerAssignable: boolean = false
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date(), nullable: true })
+  updatedAt?: Date
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'customer_role_acls' })
+@Unique({ properties: ['role', 'tenantId'], name: 'customer_role_acls_role_tenant_uniq' })
+export class CustomerRoleAcl {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => CustomerRole)
+  role!: CustomerRole
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'features_json', type: 'json', nullable: true })
+  featuresJson?: string[] | null
+
+  @Property({ name: 'is_portal_admin', type: 'boolean', default: false })
+  isPortalAdmin: boolean = false
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date(), nullable: true })
+  updatedAt?: Date
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'customer_user_roles' })
+@Unique({ properties: ['user', 'role'], name: 'customer_user_roles_user_role_uniq' })
+export class CustomerUserRole {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => CustomerUser)
+  user!: CustomerUser
+
+  @ManyToOne(() => CustomerRole)
+  role!: CustomerRole
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'customer_user_acls' })
+@Unique({ properties: ['user', 'tenantId'], name: 'customer_user_acls_user_tenant_uniq' })
+export class CustomerUserAcl {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => CustomerUser)
+  user!: CustomerUser
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'features_json', type: 'json', nullable: true })
+  featuresJson?: string[] | null
+
+  @Property({ name: 'is_portal_admin', type: 'boolean', default: false })
+  isPortalAdmin: boolean = false
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date(), nullable: true })
+  updatedAt?: Date
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'customer_user_sessions' })
+@Index({ properties: ['tokenHash'], name: 'customer_user_sessions_token_hash_idx' })
+export class CustomerUserSession {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => CustomerUser)
+  user!: CustomerUser
+
+  @Property({ name: 'token_hash', type: 'text' })
+  tokenHash!: string
+
+  @Property({ name: 'ip_address', type: 'text', nullable: true })
+  ipAddress?: string | null
+
+  @Property({ name: 'user_agent', type: 'text', nullable: true })
+  userAgent?: string | null
+
+  @Property({ name: 'expires_at', type: Date })
+  expiresAt!: Date
+
+  @Property({ name: 'last_used_at', type: Date, nullable: true })
+  lastUsedAt?: Date | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'customer_user_email_verifications' })
+@Index({ properties: ['token'], name: 'customer_user_email_verifications_token_idx' })
+export class CustomerUserEmailVerification {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => CustomerUser)
+  user!: CustomerUser
+
+  @Property({ type: 'text' })
+  token!: string
+
+  @Property({ type: 'text', default: 'email_verification' })
+  purpose: string = 'email_verification'
+
+  @Property({ name: 'expires_at', type: Date })
+  expiresAt!: Date
+
+  @Property({ name: 'used_at', type: Date, nullable: true })
+  usedAt?: Date | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+}
+
+@Entity({ tableName: 'customer_user_password_resets' })
+@Index({ properties: ['token'], name: 'customer_user_password_resets_token_idx' })
+export class CustomerUserPasswordReset {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => CustomerUser)
+  user!: CustomerUser
+
+  @Property({ type: 'text' })
+  token!: string
+
+  @Property({ name: 'expires_at', type: Date })
+  expiresAt!: Date
+
+  @Property({ name: 'used_at', type: Date, nullable: true })
+  usedAt?: Date | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+}
+
+@Entity({ tableName: 'customer_user_invitations' })
+@Index({ properties: ['token'], name: 'customer_user_invitations_token_idx' })
+@Index({ properties: ['tenantId', 'emailHash'], name: 'customer_user_invitations_tenant_email_hash_idx' })
+export class CustomerUserInvitation {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ type: 'text' })
+  email!: string
+
+  @Property({ name: 'email_hash', type: 'text' })
+  emailHash!: string
+
+  @Property({ type: 'text' })
+  token!: string
+
+  @Property({ name: 'customer_entity_id', type: 'uuid', nullable: true })
+  customerEntityId?: string | null
+
+  @Property({ name: 'person_entity_id', type: 'uuid', nullable: true })
+  personEntityId?: string | null
+
+  @Property({ name: 'role_ids_json', type: 'json', nullable: true })
+  roleIdsJson?: string[] | null
+
+  @Property({ name: 'invited_by_user_id', type: 'uuid', nullable: true })
+  invitedByUserId?: string | null
+
+  @Property({ name: 'invited_by_customer_user_id', type: 'uuid', nullable: true })
+  invitedByCustomerUserId?: string | null
+
+  @Property({ name: 'display_name', type: 'text', nullable: true })
+  displayName?: string | null
+
+  @Property({ name: 'expires_at', type: Date })
+  expiresAt!: Date
+
+  @Property({ name: 'accepted_at', type: Date, nullable: true })
+  acceptedAt?: Date | null
+
+  @Property({ name: 'cancelled_at', type: Date, nullable: true })
+  cancelledAt?: Date | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+}
+
+@Entity({ tableName: 'domain_mappings' })
+@Unique({ properties: ['hostname'], name: 'domain_mappings_hostname_unique' })
+@Index({ properties: ['organizationId'], name: 'domain_mappings_organization_id_idx' })
+@Index({ properties: ['tenantId'], name: 'domain_mappings_tenant_id_idx' })
+@Unique({
+  name: 'domain_mappings_replaces_domain_id_unique',
+  expression:
+    `create unique index "domain_mappings_replaces_domain_id_unique" on "domain_mappings" ("replaces_domain_id") where "replaces_domain_id" is not null`,
+})
+@Index({
+  name: 'domain_mappings_pending_verification_idx',
+  expression:
+    `create index "domain_mappings_pending_verification_idx" on "domain_mappings" ("status", "last_dns_check_at") where "status" in ('pending', 'dns_failed')`,
+})
+@Index({
+  name: 'domain_mappings_pending_tls_idx',
+  expression:
+    `create index "domain_mappings_pending_tls_idx" on "domain_mappings" ("status", "updated_at") where "status" in ('verified', 'tls_failed')`,
+})
+@Check({
+  name: 'domain_mappings_hostname_normalized_chk',
+  expression: `"hostname" = lower("hostname") and "hostname" not like '%.'`,
+})
+export class DomainMapping {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ type: 'text' })
+  hostname!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @ManyToOne(() => DomainMapping, { fieldName: 'replaces_domain_id', nullable: true })
+  replacesDomain?: DomainMapping | null
+
+  @Enum({ items: () => DOMAIN_PROVIDERS as unknown as string[], type: 'text', name: 'provider' })
+  provider: DomainProvider = 'traefik'
+
+  @Enum({ items: () => DOMAIN_STATUSES as unknown as string[], type: 'text', name: 'status' })
+  status: DomainStatus = 'pending'
+
+  @Property({ name: 'verified_at', type: Date, nullable: true })
+  verifiedAt?: Date | null
+
+  @Property({ name: 'last_dns_check_at', type: Date, nullable: true })
+  lastDnsCheckAt?: Date | null
+
+  @Property({ name: 'dns_failure_reason', type: 'text', nullable: true, length: 500 })
+  dnsFailureReason?: string | null
+
+  @Property({ name: 'tls_failure_reason', type: 'text', nullable: true, length: 500 })
+  tlsFailureReason?: string | null
+
+  @Property({ name: 'tls_retry_count', type: 'int', default: 0 })
+  tlsRetryCount: number = 0
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date(), nullable: true })
+  updatedAt?: Date | null
+}

@@ -1,0 +1,67 @@
+"use client"
+
+import * as React from 'react'
+import { Package, Tag as TagIcon } from 'lucide-react'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { KeyValueList, RecordCardShell, TagRow, statusToTagVariant } from './RecordCardShell'
+import type { ProductRecordPayload } from './types'
+import { formatCurrency } from '../../utils/format'
+
+export interface ProductCardProps extends ProductRecordPayload {}
+
+export function ProductCard(props: ProductCardProps) {
+  const t = useT()
+  const locale = useLocale()
+  const status = props.status
+    ? { label: props.status, variant: statusToTagVariant(props.status) }
+    : null
+  const price = formatCurrency(props.price, props.currency, locale)
+
+  const leading = props.imageUrl ? (
+    <div className="relative size-12 overflow-hidden rounded-md border border-border bg-muted">
+      <img
+        src={props.imageUrl}
+        alt={props.name}
+        className="size-full object-cover"
+        loading="lazy"
+      />
+    </div>
+  ) : (
+    <div className="flex size-12 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground" aria-hidden>
+      <Package className="size-5" />
+    </div>
+  )
+
+  const items = [
+    props.sku ? { label: t('ai_assistant.chat.records.fields.sku', 'SKU'), value: <span className="font-mono text-[11px]">{props.sku}</span> } : null,
+    price ? { label: t('ai_assistant.chat.records.fields.price', 'Price'), value: <span className="font-medium">{price}</span> } : null,
+    props.category ? { label: t('ai_assistant.chat.records.fields.category', 'Category'), value: props.category } : null,
+  ].filter(Boolean) as { label: string; value: React.ReactNode }[]
+
+  return (
+    <RecordCardShell
+      kindLabel={t('ai_assistant.chat.records.kinds.product', 'Product')}
+      kindIcon={<Package className="size-4" aria-hidden />}
+      leading={leading}
+      title={props.name}
+      subtitle={[props.sku, price].filter(Boolean).join(' • ') || undefined}
+      status={status}
+      href={props.href}
+      id={props.id}
+      className={props.className}
+      dataKind="product"
+    >
+      <div className="space-y-2">
+        <KeyValueList items={items} />
+        {props.description ? (
+          <p className="line-clamp-2 text-muted-foreground">{props.description}</p>
+        ) : null}
+        {props.tags && props.tags.length > 0 ? <TagRow tags={props.tags} /> : null}
+      </div>
+    </RecordCardShell>
+  )
+}
+
+export default ProductCard
+
+export { Package, TagIcon }

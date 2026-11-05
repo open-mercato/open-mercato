@@ -1,0 +1,468 @@
+import { DEFAULT_WEBHOOK_BODY_LIMIT_BYTES } from '../../lib/webhooks/body'
+
+// ── Unified Payment Status ──────────────────────────────────────────────────
+
+export type UnifiedPaymentStatus =
+  | 'pending'
+  | 'authorized'
+  | 'captured'
+  | 'partially_captured'
+  | 'refunded'
+  | 'partially_refunded'
+  | 'cancelled'
+  | 'failed'
+  | 'expired'
+  | 'unknown'
+
+// ── GatewayAdapter Interface ────────────────────────────────────────────────
+
+export interface GatewayAdapter {
+  readonly providerKey: string
+
+  /** Create a payment session / payment intent */
+  createSession(input: CreateSessionInput): Promise<CreateSessionResult>
+
+  /** Capture an authorized payment */
+  capture(input: CaptureInput): Promise<CaptureResult>
+
+  /** Refund a captured payment (full or partial) */
+  refund(input: RefundInput): Promise<RefundResult>
+
+  /** Cancel / void an authorized payment before capture */
+  cancel(input: CancelInput): Promise<CancelResult>
+
+  /** Get current payment status from provider */
+  getStatus(input: GetStatusInput): Promise<GatewayPaymentStatus>
+
+  /** Verify and parse an inbound webhook event */
+  verifyWebhook(input: VerifyWebhookInput): Promise<WebhookEvent>
+
+  /**
+   * Map provider status to unified status. The core webhook processor also passes the verified
+   * event's type and the verified event itself, so an adapter can tell apart events that share a
+   * type or a provider status (for example a partial and a full refund). Both extra arguments are
+   * optional. Map an event to `refunded` / `partially_refunded` only when the provider confirms
+   * captured funds were refunded: webhook sync treats such a status as proof of capture.
+   */
+  mapStatus(providerStatus: string, eventType?: string, event?: WebhookEvent): UnifiedPaymentStatus
+}
+
+export type PaymentGatewayDescriptorFieldType =
+  | 'text'
+  | 'number'
+  | 'select'
+  | 'multiselect'
+  | 'boolean'
+  | 'textarea'
+  | 'secret'
+  | 'url'
+
+export interface PaymentGatewayDescriptorField {
+  key: string
+  label: string
+  type: PaymentGatewayDescriptorFieldType
+  description?: string
+  required?: boolean
+  options?: Array<{ value: string; label: string }>
+}
+
+export type PaymentGatewayRendererType = 'embedded' | 'redirect'
+
+export interface PaymentGatewayRendererDescriptor {
+  key: string
+  label: string
+  type: PaymentGatewayRendererType
+  description?: string
+  supportedPaymentTypes?: '*' | string[]
+  settingsFields?: PaymentGatewayDescriptorField[]
+}
+
+export interface PaymentGatewayPresentationRequest {
+  mode?: 'auto' | PaymentGatewayRendererType
+  rendererKey?: string
+  rendererSettings?: Record<string, unknown>
+}
+
+/**
+ * Payer details a provider needs to create a payment session. Each value maps to
+ * canonical checkout customer fields: `email` → `email`, `name` → `firstName` + `lastName`.
+ */
+export type PaymentGatewayPayerField = 'email' | 'name'
+
+export interface PaymentGatewayDescriptor {
+  providerKey: string
+  label: string
+  /**
+   * Payer details the provider cannot create a session without. Hosts that collect
+   * payer data (for example checkout links) must collect each one as a required field.
+   * Omit when the provider needs no payer data.
+   */
+  requiresPayerFields?: PaymentGatewayPayerField[]
+  sessionConfig?: {
+    fields?: PaymentGatewayDescriptorField[]
+    supportedCurrencies?: '*' | string[]
+    supportedPaymentTypes?: Array<{ value: string; label: string }>
+    defaultRendererKey?: string
+    renderers?: PaymentGatewayRendererDescriptor[]
+    /**
+     * @deprecated Use `renderers` and `defaultRendererKey`.
+     */
+    presentation?: 'embedded' | 'redirect' | 'either'
+    /**
+     * @deprecated Use `renderers`.
+     */
+    embeddedRenderers?: string[]
+  }
+}
+
+export interface EmbeddedPaymentGatewayClientSession {
+  type: 'embedded'
+  rendererKey: string
+  payload?: Record<string, unknown>
+  settings?: Record<string, unknown>
+}
+
+export interface RedirectPaymentGatewayClientSession {
+  type: 'redirect'
+  redirectUrl: string
+  target?: 'self' | 'top'
+}
+
+export type PaymentGatewayClientSession =
+  | EmbeddedPaymentGatewayClientSession
+  | RedirectPaymentGatewayClientSession
+
+// ── Order Amount Reconciliation ─────────────────────────────────────────────
+
+export interface PaymentGatewayScope {
+  organizationId: string
+  tenantId: string
+}
+
+export interface PaymentOrderTotal {
+  orderId: string
+  currencyCode: string
+  amountDue: number
+}
+
+/**
+ * Contract a module that owns orders implements so `payment_gateways` can
+ * reconcile a caller-supplied session amount against the authoritative amount
+ * due, without depending on that module. Implementations MUST scope the lookup
+ * by tenant and organization and MUST return `null` for anything outside the
+ * caller's scope, so an out-of-scope order is indistinguishable from a missing
+ * one. The `sales` module registers the default implementation under the
+ * `paymentOrderTotalResolver` DI name.
+ */
+export interface PaymentOrderTotalResolver {
+  resolveOrderTotal(orderId: string, scope: PaymentGatewayScope): Promise<PaymentOrderTotal | null>
+}
+
+// ── Input / Output Types ────────────────────────────────────────────────────
+
+export interface CreateSessionInput {
+  orderId?: string
+  paymentId: string
+  /** Stable operation key for provider-native session creation idempotency. */
+  idempotencyKey?: string
+  tenantId: string
+  organizationId: string
+  amount: number
+  currencyCode: string
+  captureMethod?: 'automatic' | 'manual'
+  paymentTypes?: string[]
+  description?: string
+  successUrl?: string
+  cancelUrl?: string
+  metadata?: Record<string, unknown>
+  credentials: Record<string, unknown>
+  lineItems?: SessionLineItem[]
+  presentation?: PaymentGatewayPresentationRequest
+}
+
+export interface SessionLineItem {
+  name: string
+  quantity: number
+  unitAmount: number
+  currencyCode: string
+}
+
+export interface CreateSessionResult {
+  sessionId: string
+  clientSecret?: string
+  redirectUrl?: string
+  status: UnifiedPaymentStatus
+  providerData?: Record<string, unknown>
+  clientSession?: PaymentGatewayClientSession
+}
+
+export interface CaptureInput {
+  sessionId: string
+  amount?: number
+  credentials: Record<string, unknown>
+  metadata?: Record<string, unknown>
+  idempotencyKey?: string
+}
+
+export interface CaptureResult {
+  status: UnifiedPaymentStatus
+  capturedAmount: number
+  providerData?: Record<string, unknown>
+}
+
+export interface RefundInput {
+  sessionId: string
+  amount?: number
+  reason?: string
+  credentials: Record<string, unknown>
+  metadata?: Record<string, unknown>
+  idempotencyKey?: string
+}
+
+export interface RefundResult {
+  refundId: string
+  status: UnifiedPaymentStatus
+  refundedAmount: number
+  providerData?: Record<string, unknown>
+}
+
+export interface CancelInput {
+  sessionId: string
+  reason?: string
+  credentials: Record<string, unknown>
+  idempotencyKey?: string
+}
+
+export interface CancelResult {
+  status: UnifiedPaymentStatus
+  providerData?: Record<string, unknown>
+}
+
+export interface GetStatusInput {
+  sessionId: string
+  credentials: Record<string, unknown>
+}
+
+export interface GatewayPaymentStatus {
+  status: UnifiedPaymentStatus
+  amount: number
+  amountReceived: number
+  currencyCode: string
+  providerData?: Record<string, unknown>
+}
+
+export interface VerifyWebhookInput {
+  rawBody: string | Buffer
+  headers: Record<string, string | string[] | undefined>
+  credentials: Record<string, unknown>
+  /** Platform-resolved payment the webhook is expected to concern, when a locator found one. */
+  candidate?: WebhookCandidateSnapshot
+}
+
+/** Raw request material handed to webhook locator hints. */
+export interface WebhookLocatorContext {
+  rawBody: string | Buffer
+  headers: Record<string, string | string[] | undefined>
+}
+
+export interface WebhookCandidateSnapshot {
+  transactionId: string
+  paymentId: string
+  providerSessionId: string | null
+  amount: string
+  currencyCode: string
+}
+
+export type WebhookResponseOutcome =
+  | 'accepted'
+  | 'no_candidate'
+  | 'verification_failed'
+  | 'verification_unavailable'
+  | 'processing_failed'
+  | 'payload_too_large'
+  | 'rate_limited'
+
+export interface WebhookHttpResponse {
+  status: number
+  body: string | Record<string, unknown>
+  contentType?: string
+}
+
+/** Thrown by a webhook handler when verification cannot be performed (for example a provider outage). */
+export class WebhookVerificationUnavailableError extends Error {
+  constructor(message = 'Webhook verification is unavailable') {
+    super(message)
+    this.name = 'WebhookVerificationUnavailableError'
+  }
+}
+
+export interface WebhookEvent {
+  eventType: string
+  eventId: string
+  data: Record<string, unknown>
+  idempotencyKey: string
+  timestamp: Date
+  /** Provider API version the payload was rendered with, when the provider reports one */
+  apiVersion?: string
+}
+
+// ── Webhook Handler ─────────────────────────────────────────────────────────
+
+export interface WebhookHandlerRegistration {
+  handler: (input: VerifyWebhookInput) => Promise<WebhookEvent>
+  queue?: string
+  readSessionIdHint?: (payload: Record<string, unknown> | null, context?: WebhookLocatorContext) => string | null
+  readPaymentIdHint?: (payload: Record<string, unknown> | null, context?: WebhookLocatorContext) => string | null
+  maxBodyBytes?: number
+  rawBody?: WebhookRawBodyMode
+  formatResponse?: (outcome: WebhookResponseOutcome) => WebhookHttpResponse
+}
+
+export type WebhookRawBodyMode = 'text' | 'bytes'
+
+// ── Adapter Registry Options ────────────────────────────────────────────────
+
+export interface RegisterAdapterOptions {
+  version?: string
+}
+
+// ── Registries ──────────────────────────────────────────────────────────────
+
+const ADAPTER_REGISTRY_KEY = '__openMercatoPaymentGatewayAdapters__'
+const WEBHOOK_REGISTRY_KEY = '__openMercatoPaymentGatewayWebhookHandlers__'
+const DESCRIPTOR_REGISTRY_KEY = '__openMercatoPaymentGatewayDescriptors__'
+
+function getAdapterRegistry(): Map<string, GatewayAdapter> {
+  const globalState = globalThis as typeof globalThis & {
+    [ADAPTER_REGISTRY_KEY]?: Map<string, GatewayAdapter>
+  }
+  if (!globalState[ADAPTER_REGISTRY_KEY]) {
+    globalState[ADAPTER_REGISTRY_KEY] = new Map<string, GatewayAdapter>()
+  }
+  return globalState[ADAPTER_REGISTRY_KEY]
+}
+
+function getWebhookHandlerRegistry(): Map<string, WebhookHandlerRegistration> {
+  const globalState = globalThis as typeof globalThis & {
+    [WEBHOOK_REGISTRY_KEY]?: Map<string, WebhookHandlerRegistration>
+  }
+  if (!globalState[WEBHOOK_REGISTRY_KEY]) {
+    globalState[WEBHOOK_REGISTRY_KEY] = new Map<string, WebhookHandlerRegistration>()
+  }
+  return globalState[WEBHOOK_REGISTRY_KEY]
+}
+
+function getDescriptorRegistry(): Map<string, PaymentGatewayDescriptor> {
+  const globalState = globalThis as typeof globalThis & {
+    [DESCRIPTOR_REGISTRY_KEY]?: Map<string, PaymentGatewayDescriptor>
+  }
+  if (!globalState[DESCRIPTOR_REGISTRY_KEY]) {
+    globalState[DESCRIPTOR_REGISTRY_KEY] = new Map<string, PaymentGatewayDescriptor>()
+  }
+  return globalState[DESCRIPTOR_REGISTRY_KEY]
+}
+
+function adapterKey(providerKey: string, version?: string): string {
+  return version ? `${providerKey}:${version}` : providerKey
+}
+
+export function registerGatewayAdapter(adapter: GatewayAdapter, options?: RegisterAdapterOptions): () => void {
+  const adapterRegistry = getAdapterRegistry()
+  const key = adapterKey(adapter.providerKey, options?.version)
+  adapterRegistry.set(key, adapter)
+  if (options?.version) {
+    // Also register as default if no default exists
+    if (!adapterRegistry.has(adapter.providerKey)) {
+      adapterRegistry.set(adapter.providerKey, adapter)
+    }
+  }
+  return () => {
+    adapterRegistry.delete(key)
+  }
+}
+
+export function getGatewayAdapter(providerKey: string, version?: string): GatewayAdapter | undefined {
+  const adapterRegistry = getAdapterRegistry()
+  if (version) {
+    return adapterRegistry.get(adapterKey(providerKey, version)) ?? adapterRegistry.get(providerKey)
+  }
+  return adapterRegistry.get(providerKey)
+}
+
+export function listGatewayAdapters(): GatewayAdapter[] {
+  const adapterRegistry = getAdapterRegistry()
+  const seen = new Set<string>()
+  const result: GatewayAdapter[] = []
+  for (const [key, adapter] of adapterRegistry) {
+    if (!key.includes(':') && !seen.has(adapter.providerKey)) {
+      seen.add(adapter.providerKey)
+      result.push(adapter)
+    }
+  }
+  return result
+}
+
+export function clearGatewayAdapters(): void {
+  getAdapterRegistry().clear()
+}
+
+export function registerWebhookHandler(
+  providerKey: string,
+  handler: (input: VerifyWebhookInput) => Promise<WebhookEvent>,
+  options?: Omit<WebhookHandlerRegistration, 'handler'>,
+): () => void {
+  if (options?.rawBody !== undefined && options.rawBody !== 'text' && options.rawBody !== 'bytes') {
+    throw new Error("[internal] Payment gateway webhook rawBody must be 'text' or 'bytes'")
+  }
+  if (
+    options?.maxBodyBytes !== undefined
+    && (!Number.isSafeInteger(options.maxBodyBytes)
+      || options.maxBodyBytes <= 0
+      || options.maxBodyBytes > DEFAULT_WEBHOOK_BODY_LIMIT_BYTES)
+  ) {
+    throw new Error(
+      `[internal] Payment gateway webhook maxBodyBytes must be a positive safe integer no greater than ${DEFAULT_WEBHOOK_BODY_LIMIT_BYTES}`,
+    )
+  }
+  const webhookHandlerRegistry = getWebhookHandlerRegistry()
+  webhookHandlerRegistry.set(providerKey, {
+    handler,
+    queue: options?.queue,
+    readSessionIdHint: options?.readSessionIdHint,
+    readPaymentIdHint: options?.readPaymentIdHint,
+    maxBodyBytes: options?.maxBodyBytes,
+    rawBody: options?.rawBody,
+    formatResponse: options?.formatResponse,
+  })
+  return () => {
+    webhookHandlerRegistry.delete(providerKey)
+  }
+}
+
+export function getWebhookHandler(providerKey: string): WebhookHandlerRegistration | undefined {
+  return getWebhookHandlerRegistry().get(providerKey)
+}
+
+export function clearWebhookHandlers(): void {
+  getWebhookHandlerRegistry().clear()
+}
+
+export function registerPaymentGatewayDescriptor(descriptor: PaymentGatewayDescriptor): () => void {
+  const descriptorRegistry = getDescriptorRegistry()
+  descriptorRegistry.set(descriptor.providerKey, descriptor)
+  return () => {
+    descriptorRegistry.delete(descriptor.providerKey)
+  }
+}
+
+export function getPaymentGatewayDescriptor(providerKey: string): PaymentGatewayDescriptor | undefined {
+  return getDescriptorRegistry().get(providerKey)
+}
+
+export function listPaymentGatewayDescriptors(): PaymentGatewayDescriptor[] {
+  return Array.from(getDescriptorRegistry().values()).sort((left, right) => left.label.localeCompare(right.label))
+}
+
+export function clearPaymentGatewayDescriptors(): void {
+  getDescriptorRegistry().clear()
+}

@@ -1,0 +1,1005 @@
+'use client'
+
+import type {Edge} from '@xyflow/react'
+import {useEffect, useState} from 'react'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '@open-mercato/ui/primitives/dialog'
+import {Button} from '@open-mercato/ui/primitives/button'
+import {Input} from '@open-mercato/ui/primitives/input'
+import {Label} from '@open-mercato/ui/primitives/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
+import {Badge} from '@open-mercato/ui/primitives/badge'
+import {Checkbox} from '@open-mercato/ui/primitives/checkbox'
+import {Separator} from '@open-mercato/ui/primitives/separator'
+import {ChevronDown, Plus, Trash2} from 'lucide-react'
+import {type BusinessRule, BusinessRulesSelector} from './BusinessRulesSelector'
+import {JsonBuilder} from '@open-mercato/ui/backend/JsonBuilder'
+import {useT} from '@open-mercato/shared/lib/i18n/context'
+import {useActivityTypeOptions} from './fields/useActivityTypeOptions'
+import {useDialogKeyHandler} from '@open-mercato/ui/hooks/useDialogKeyHandler'
+import {useConfirmDialog} from '@open-mercato/ui/backend/confirm-dialog'
+import {DurationInput} from '@open-mercato/ui/backend/inputs/DurationInput'
+
+export interface EdgeEditDialogProps {
+  edge: Edge | null
+  isOpen: boolean
+  onClose: () => void
+  onSave: (edgeId: string, updates: Partial<Edge['data']>) => void
+  onDelete: (edgeId: string) => void
+}
+
+interface TransitionCondition {
+  ruleId: string
+  required: boolean
+}
+
+/**
+ * EdgeEditDialog - Modal dialog for editing transition properties
+ *
+ * Allows editing:
+ * - Label
+ * - Trigger type (auto, manual, signal, timer)
+ * - Pre-conditions (guard rules)
+ * - Post-conditions (validation rules)
+ * - Activities
+ * - Business rules integration
+ */
+export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: EdgeEditDialogProps) {
+  const t = useT()
+  const activityTypeOptions = useActivityTypeOptions()
+  const { confirm: confirmDialog, ConfirmDialogElement } = useConfirmDialog()
+  const [transitionName, setTransitionName] = useState('')
+  const [trigger, setTrigger] = useState('auto')
+  const [priority, setPriority] = useState('100')
+  const [continueOnActivityFailure, setContinueOnActivityFailure] = useState(false)
+  const [preConditions, setPreConditions] = useState<TransitionCondition[]>([])
+  const [postConditions, setPostConditions] = useState<TransitionCondition[]>([])
+  const [showAdvanced, setShowAdvanced] = useState(false)
+  const [advancedConfig, setAdvancedConfig] = useState<Record<string, any>>({})
+  const [activities, setActivities] = useState<any[]>([])
+  const [expandedActivities, setExpandedActivities] = useState<Set<number>>(new Set())
+  const [expandedPreConditions, setExpandedPreConditions] = useState<Set<number>>(new Set())
+  const [expandedPostConditions, setExpandedPostConditions] = useState<Set<number>>(new Set())
+  const [showRuleSelector, setShowRuleSelector] = useState(false)
+  const [ruleSelectorMode, setRuleSelectorMode] = useState<'pre' | 'post'>('pre')
+  const [ruleDetailsCache, setRuleDetailsCache] = useState<Map<string, BusinessRule>>(new Map())
+
+  // Generate a readable name from edge ID (e.g., "start_to_cart" -> "Start to Cart")
+  const generateNameFromId = (edgeId: string): string => {
+    return edgeId
+      .split('_to_')
+      .map(part => part.split('_').map(word =>
+        word.charAt(0).toUpperCase() + word.slice(1)
+      ).join(' '))
+      .join(' → ')
+  }
+
+  // Load edge data when dialog opens
+  useEffect(() => {
+    if (edge && isOpen) {
+      const edgeData = edge.data as any
+
+      // Try to get transition name from various sources
+      let loadedTransitionName = ''
+      if (edgeData?.transitionName && edgeData.transitionName !== '') {
+        loadedTransitionName = edgeData.transitionName
+      } else if (edgeData?.label && edgeData.label !== '' && edgeData.label !== undefined) {
+        loadedTransitionName = edgeData.label
+      } else {
+        // Generate a name from the edge ID as fallback
+        loadedTransitionName = generateNameFromId(edge.id)
+      }
+
+      setTransitionName(loadedTransitionName)
+
+      setTrigger(edgeData?.trigger || 'auto')
+      setPriority((edgeData?.priority || 100).toString())
+      setContinueOnActivityFailure(edgeData?.continueOnActivityFailure !== undefined ? edgeData.continueOnActivityFailure : false)
+
+      // Handle pre/post conditions - convert from various formats
+      const rawPreConditions = edgeData?.preConditions || []
+      const rawPostConditions = edgeData?.postConditions || []
+
+      // Convert to TransitionCondition format
+      setPreConditions(Array.isArray(rawPreConditions)
+        ? rawPreConditions.map((c: any) =>
+            typeof c === 'string' ? { ruleId: c, required: true } : c
+          )
+        : []
+      )
+      setPostConditions(Array.isArray(rawPostConditions)
+        ? rawPostConditions.map((c: any) =>
+            typeof c === 'string' ? { ruleId: c, required: true } : c
+          )
+        : []
+      )
+
+      setActivities(edgeData?.activities || [])
+
+      // Load advanced config (activities, etc.)
+      const advancedFields: any = {}
+      if (edgeData?.activities && edgeData.activities.length > 0) {
+        advancedFields.activities = edgeData.activities
+      }
+      setAdvancedConfig(advancedFields)
+      setExpandedActivities(new Set())
+      setExpandedPreConditions(new Set())
+      setExpandedPostConditions(new Set())
+    }
+  }, [edge, isOpen])
+
+  const toggleActivity = (index: number) => {
+    const newExpanded = new Set(expandedActivities)
+    if (newExpanded.has(index)) {
+      newExpanded.delete(index)
+    } else {
+      newExpanded.add(index)
+    }
+    setExpandedActivities(newExpanded)
+  }
+
+  const addActivity = () => {
+    const newActivity = {
+      activityId: `activity_${Date.now()}`,
+      activityName: t('workflows.common.newActivity'),
+      activityType: 'CALL_API',
+      config: {},
+      timeout: '',
+      retryPolicy: {
+        maxAttempts: 3,
+        initialIntervalMs: 1000,
+        backoffCoefficient: 2,
+        maxIntervalMs: 10000,
+      },
+    }
+    setActivities(prev => [...prev, newActivity])
+    // Auto-expand the new activity
+    const newExpanded = new Set(expandedActivities)
+    newExpanded.add(activities.length)
+    setExpandedActivities(newExpanded)
+  }
+
+  const removeActivity = async (index: number) => {
+    const confirmed = await confirmDialog({
+      title: t('workflows.edgeEditor.confirmRemoveActivity'),
+      variant: 'destructive',
+    })
+    if (confirmed) {
+      setActivities(prev => prev.filter((_, i) => i !== index))
+      // Remove from expanded set
+      const newExpanded = new Set(expandedActivities)
+      newExpanded.delete(index)
+      setExpandedActivities(newExpanded)
+    }
+  }
+
+  const updateActivity = (index: number, field: string, value: any) => {
+    const updated = [...activities]
+    updated[index] = { ...updated[index], [field]: value }
+    setActivities(updated)
+  }
+
+  const updateActivityRetryPolicy = (index: number, field: string, value: any) => {
+    const updated = [...activities]
+    updated[index] = {
+      ...updated[index],
+      retryPolicy: {
+        ...updated[index].retryPolicy,
+        [field]: value,
+      },
+    }
+    setActivities(updated)
+  }
+
+  // Business Rules Management
+  const togglePreCondition = (index: number) => {
+    const newExpanded = new Set(expandedPreConditions)
+    if (newExpanded.has(index)) {
+      newExpanded.delete(index)
+    } else {
+      newExpanded.add(index)
+    }
+    setExpandedPreConditions(newExpanded)
+  }
+
+  const togglePostCondition = (index: number) => {
+    const newExpanded = new Set(expandedPostConditions)
+    if (newExpanded.has(index)) {
+      newExpanded.delete(index)
+    } else {
+      newExpanded.add(index)
+    }
+    setExpandedPostConditions(newExpanded)
+  }
+
+  const openRuleSelector = (mode: 'pre' | 'post') => {
+    setRuleSelectorMode(mode)
+    setShowRuleSelector(true)
+  }
+
+  const closeRuleSelector = () => {
+    setShowRuleSelector(false)
+  }
+
+  const handleRuleSelected = (ruleId: string, rule: BusinessRule) => {
+    // Cache the rule details for display
+    setRuleDetailsCache(prev => new Map(prev).set(ruleId, rule))
+
+    if (ruleSelectorMode === 'pre') {
+      if (!preConditions.find(c => c.ruleId === ruleId)) {
+        setPreConditions(prev => [...prev, { ruleId, required: true }])
+      }
+    } else {
+      if (!postConditions.find(c => c.ruleId === ruleId)) {
+        setPostConditions(prev => [...prev, { ruleId, required: true }])
+      }
+    }
+    closeRuleSelector()
+  }
+
+  const removePreCondition = (index: number) => {
+    setPreConditions(prev => prev.filter((_, i) => i !== index))
+    const newExpanded = new Set(expandedPreConditions)
+    newExpanded.delete(index)
+    setExpandedPreConditions(newExpanded)
+  }
+
+  const removePostCondition = (index: number) => {
+    setPostConditions(prev => prev.filter((_, i) => i !== index))
+    const newExpanded = new Set(expandedPostConditions)
+    newExpanded.delete(index)
+    setExpandedPostConditions(newExpanded)
+  }
+
+  const updatePreCondition = (index: number, field: keyof TransitionCondition, value: any) => {
+    const updated = [...preConditions]
+    updated[index] = { ...updated[index], [field]: value }
+    setPreConditions(updated)
+  }
+
+  const updatePostCondition = (index: number, field: keyof TransitionCondition, value: any) => {
+    const updated = [...postConditions]
+    updated[index] = { ...updated[index], [field]: value }
+    setPostConditions(updated)
+  }
+
+  const getBusinessRuleDetails = (ruleId: string): BusinessRule | null => {
+    return ruleDetailsCache.get(ruleId) || null
+  }
+
+  const handleSave = () => {
+    if (!edge) return
+
+    const updates: Partial<Edge['data']> = {
+      transitionName,
+      label: transitionName, // Keep label for backward compatibility
+      trigger,
+      priority: parseInt(priority) || 100,
+      continueOnActivityFailure,
+      preConditions: preConditions.length > 0 ? preConditions : undefined,
+      postConditions: postConditions.length > 0 ? postConditions : undefined,
+      activities: activities.length > 0 ? activities : undefined,
+    }
+
+    // Merge advanced config
+    if (advancedConfig && Object.keys(advancedConfig).length > 0) {
+      Object.assign(updates, advancedConfig)
+    }
+
+    onSave(edge.id, updates)
+    onClose()
+  }
+
+  const handleDelete = () => {
+    if (!edge) return
+    onDelete(edge.id)
+  }
+
+  const handleKeyDown = useDialogKeyHandler({ onConfirm: handleSave, onCancel: onClose })
+
+  if (!isOpen || !edge) return null
+
+  const triggerVariant = trigger === 'auto' ? 'default' : trigger === 'manual' ? 'secondary' : 'outline'
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto" onKeyDown={handleKeyDown}>
+        <DialogHeader>
+          <div className="flex items-center gap-2 mb-2">
+            <DialogTitle>{t('workflows.edgeEditor.title')}</DialogTitle>
+            <Badge variant={triggerVariant} className="text-xs">
+              {t(`workflows.transitions.triggers.${trigger}`)}
+            </Badge>
+          </div>
+          <div className="space-y-1">
+            <DialogDescription>
+              {t('workflows.edgeEditor.description')}
+            </DialogDescription>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span className="font-medium">{t('workflows.edgeEditor.id')}:</span>
+              <code className="px-1.5 py-0.5 rounded bg-muted font-mono">{edge.id}</code>
+            </div>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span className="font-medium">{t('workflows.edgeEditor.flow')}:</span>
+              <code className="px-1.5 py-0.5 rounded bg-muted font-mono">{edge.source}</code>
+              <span>→</span>
+              <code className="px-1.5 py-0.5 rounded bg-muted font-mono">{edge.target}</code>
+            </div>
+          </div>
+        </DialogHeader>
+
+        <div className="space-y-4">
+            {/* Transition Name */}
+            <div className="space-y-2">
+              <Label htmlFor="transitionName">{t('workflows.edgeEditor.transitionName')}</Label>
+              <Input
+                id="transitionName"
+                type="text"
+                value={transitionName}
+                onChange={(e) => setTransitionName(e.target.value)}
+                placeholder={t('workflows.edgeEditor.transitionNamePlaceholder', { name: generateNameFromId(edge.id) })}
+                autoFocus
+              />
+              <p className="text-xs text-muted-foreground">
+                {t('workflows.edgeEditor.transitionNameHint')}
+              </p>
+            </div>
+
+            {/* Trigger Type */}
+            <div className="space-y-2">
+              <Label htmlFor="trigger">{t('workflows.edgeEditor.triggerType')}</Label>
+              <Select value={trigger} onValueChange={(value) => setTrigger(value)}>
+                <SelectTrigger id="trigger">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">{t('workflows.transitions.triggers.auto')}</SelectItem>
+                  <SelectItem value="manual">{t('workflows.transitions.triggers.manual')}</SelectItem>
+                  <SelectItem value="signal">{t('workflows.transitions.triggers.signal')}</SelectItem>
+                  <SelectItem value="timer">{t('workflows.transitions.triggers.timer')}</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {t(`workflows.edgeEditor.triggerDescriptions.${trigger}`)}
+              </p>
+            </div>
+
+            {/* Priority */}
+            <div className="space-y-2">
+              <Label htmlFor="priority">{t('workflows.edgeEditor.priority')}</Label>
+              <Input
+                id="priority"
+                type="number"
+                value={priority}
+                onChange={(e) => setPriority(e.target.value)}
+                placeholder="100"
+                min="0"
+                max="9999"
+              />
+              <p className="text-xs text-muted-foreground">
+                {t('workflows.edgeEditor.priorityHint')}
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="continueOnActivityFailure"
+                  checked={continueOnActivityFailure}
+                  onCheckedChange={(checked) => setContinueOnActivityFailure(checked === true)}
+                />
+                <Label htmlFor="continueOnActivityFailure" className="font-normal cursor-pointer">
+                  {t('workflows.edgeEditor.continueOnActivityFailure')}
+                </Label>
+              </div>
+              <p className="text-xs text-muted-foreground ml-6">
+                {t('workflows.edgeEditor.continueOnActivityFailureHint')}
+              </p>
+            </div>
+
+            <Separator />
+
+            {/* Pre-conditions (Business Rules) */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold">
+                    {t('workflows.edgeEditor.preConditions')} ({preConditions.length})
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    {t('workflows.edgeEditor.preConditionsHint')}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => openRuleSelector('pre')}
+                >
+                  <Plus className="size-3" />
+                  {t('workflows.edgeEditor.addRule')}
+                </Button>
+              </div>
+
+              {preConditions.length === 0 && (
+                <div className="p-4 text-center text-sm text-muted-foreground bg-muted rounded-lg border">
+                  {t('workflows.edgeEditor.noPreConditions')}
+                </div>
+              )}
+
+              <div className="space-y-2">
+                {preConditions.map((condition, index) => {
+                  const isExpanded = expandedPreConditions.has(index)
+                  const rule = getBusinessRuleDetails(condition.ruleId)
+                  return (
+                    <div key={index} className="border border-border rounded-lg bg-muted">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => togglePreCondition(index)}
+                        className="h-auto w-full justify-between rounded-t-lg px-4 py-3 text-left hover:bg-muted/80"
+                      >
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold text-foreground">
+                              {rule?.ruleName || condition.ruleId}
+                            </span>
+                            {condition.required && (
+                              <Badge variant="destructive" className="text-xs">
+                                {t('workflows.edgeEditor.required')}
+                              </Badge>
+                            )}
+                            {rule && (
+                              <Badge variant="secondary" className="text-xs">
+                                {rule.ruleType}
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {t('workflows.edgeEditor.ruleId')}: <code className="bg-background px-1 rounded">{condition.ruleId}</code>
+                          </p>
+                          {rule?.description && (
+                            <p className="text-xs text-muted-foreground mt-1 line-clamp-1">{rule.description}</p>
+                          )}
+                        </div>
+                        <ChevronDown
+                          className={`size-5 text-muted-foreground transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                        />
+                      </Button>
+
+                      {isExpanded && (
+                        <div className="px-4 pb-4 space-y-3 border-t border-border bg-background">
+                          <div className="pt-3">
+                            <label className="block text-xs font-medium text-foreground mb-1">{t('workflows.edgeEditor.ruleId')}</label>
+                            <Input
+                              type="text"
+                              size="sm"
+                              value={condition.ruleId}
+                              onChange={(e) => updatePreCondition(index, 'ruleId', e.target.value)}
+                            />
+                          </div>
+
+                          <div>
+                            <label className="flex items-center gap-2 text-xs font-medium text-foreground">
+                              <Checkbox
+                                checked={condition.required}
+                                onCheckedChange={(checked) => updatePreCondition(index, 'required', checked === true)}
+                              />
+                              {t('workflows.edgeEditor.requiredCheckbox')}
+                            </label>
+                          </div>
+
+                          {rule && (
+                            <div className="border-t border-border pt-3">
+                              <h4 className="text-xs font-semibold text-foreground mb-2">{t('workflows.edgeEditor.businessRuleDetails')}</h4>
+                              <dl className="space-y-1 text-xs">
+                                <div className="flex justify-between">
+                                  <dt className="font-medium text-foreground">Name:</dt>
+                                  <dd className="text-foreground">{rule.ruleName}</dd>
+                                </div>
+                                <div className="flex justify-between">
+                                  <dt className="font-medium text-foreground">Type:</dt>
+                                  <dd className="text-foreground">{rule.ruleType}</dd>
+                                </div>
+                                {rule.ruleCategory && (
+                                  <div className="flex justify-between">
+                                    <dt className="font-medium text-foreground">Category:</dt>
+                                    <dd className="text-foreground">{rule.ruleCategory}</dd>
+                                  </div>
+                                )}
+                                <div className="flex justify-between">
+                                  <dt className="font-medium text-foreground">Entity Type:</dt>
+                                  <dd className="text-foreground font-mono text-xs">{rule.entityType}</dd>
+                                </div>
+                                {rule.eventType && (
+                                  <div className="flex justify-between">
+                                    <dt className="font-medium text-foreground">Event Type:</dt>
+                                    <dd className="text-foreground">{rule.eventType}</dd>
+                                  </div>
+                                )}
+                                {rule.description && (
+                                  <div className="mt-2 pt-2 border-t border-border">
+                                    <dt className="font-medium text-foreground mb-1">Description:</dt>
+                                    <dd className="text-muted-foreground">{rule.description}</dd>
+                                  </div>
+                                )}
+                              </dl>
+                            </div>
+                          )}
+
+                          <div className="border-t border-border pt-3">
+                            <Button
+                              type="button"
+                              variant="destructive-outline"
+                              size="sm"
+                              onClick={() => removePreCondition(index)}
+                            >
+                              <Trash2 className="size-4" />
+                              {t('workflows.edgeEditor.removePreCondition')}
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Post-conditions (Business Rules) */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold">
+                    {t('workflows.edgeEditor.postConditions')} ({postConditions.length})
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    {t('workflows.edgeEditor.postConditionsHint')}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => openRuleSelector('post')}
+                >
+                  <Plus className="size-3" />
+                  {t('workflows.edgeEditor.addRule')}
+                </Button>
+              </div>
+
+              {postConditions.length === 0 && (
+                <div className="p-4 text-center text-sm text-muted-foreground bg-muted rounded-lg border">
+                  {t('workflows.edgeEditor.noPostConditions')}
+                </div>
+              )}
+
+              <div className="space-y-2">
+                {postConditions.map((condition, index) => {
+                  const isExpanded = expandedPostConditions.has(index)
+                  const rule = getBusinessRuleDetails(condition.ruleId)
+                  return (
+                    <div key={index} className="border border-border rounded-lg bg-muted">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => togglePostCondition(index)}
+                        className="h-auto w-full justify-between rounded-t-lg px-4 py-3 text-left hover:bg-muted/80"
+                      >
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold text-foreground">
+                              {rule?.ruleName || condition.ruleId}
+                            </span>
+                            {condition.required && (
+                              <Badge variant="destructive" className="text-xs">
+                                {t('workflows.edgeEditor.required')}
+                              </Badge>
+                            )}
+                            {rule && (
+                              <Badge variant="secondary" className="text-xs">
+                                {rule.ruleType}
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {t('workflows.edgeEditor.ruleId')}: <code className="bg-background px-1 rounded">{condition.ruleId}</code>
+                          </p>
+                          {rule?.description && (
+                            <p className="text-xs text-muted-foreground mt-1 line-clamp-1">{rule.description}</p>
+                          )}
+                        </div>
+                        <ChevronDown
+                          className={`size-5 text-muted-foreground transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                        />
+                      </Button>
+
+                      {isExpanded && (
+                        <div className="px-4 pb-4 space-y-3 border-t border-border bg-background">
+                          <div className="pt-3">
+                            <label className="block text-xs font-medium text-foreground mb-1">{t('workflows.edgeEditor.ruleId')}</label>
+                            <Input
+                              type="text"
+                              size="sm"
+                              value={condition.ruleId}
+                              onChange={(e) => updatePostCondition(index, 'ruleId', e.target.value)}
+                            />
+                          </div>
+
+                          <div>
+                            <label className="flex items-center gap-2 text-xs font-medium text-foreground">
+                              <Checkbox
+                                checked={condition.required}
+                                onCheckedChange={(checked) => updatePostCondition(index, 'required', checked === true)}
+                              />
+                              {t('workflows.edgeEditor.requiredPostCheckbox')}
+                            </label>
+                          </div>
+
+                          {rule && (
+                            <div className="border-t border-border pt-3">
+                              <h4 className="text-xs font-semibold text-foreground mb-2">{t('workflows.edgeEditor.businessRuleDetails')}</h4>
+                              <dl className="space-y-1 text-xs">
+                                <div className="flex justify-between">
+                                  <dt className="font-medium text-foreground">Name:</dt>
+                                  <dd className="text-foreground">{rule.ruleName}</dd>
+                                </div>
+                                <div className="flex justify-between">
+                                  <dt className="font-medium text-foreground">Type:</dt>
+                                  <dd className="text-foreground">{rule.ruleType}</dd>
+                                </div>
+                                {rule.ruleCategory && (
+                                  <div className="flex justify-between">
+                                    <dt className="font-medium text-foreground">Category:</dt>
+                                    <dd className="text-foreground">{rule.ruleCategory}</dd>
+                                  </div>
+                                )}
+                                <div className="flex justify-between">
+                                  <dt className="font-medium text-foreground">Entity Type:</dt>
+                                  <dd className="text-foreground font-mono text-xs">{rule.entityType}</dd>
+                                </div>
+                                {rule.eventType && (
+                                  <div className="flex justify-between">
+                                    <dt className="font-medium text-foreground">Event Type:</dt>
+                                    <dd className="text-foreground">{rule.eventType}</dd>
+                                  </div>
+                                )}
+                                {rule.description && (
+                                  <div className="mt-2 pt-2 border-t border-border">
+                                    <dt className="font-medium text-foreground mb-1">Description:</dt>
+                                    <dd className="text-muted-foreground">{rule.description}</dd>
+                                  </div>
+                                )}
+                              </dl>
+                            </div>
+                          )}
+
+                          <div className="border-t border-border pt-3">
+                            <Button
+                              type="button"
+                              variant="destructive-outline"
+                              size="sm"
+                              onClick={() => removePostCondition(index)}
+                            >
+                              <Trash2 className="size-4" />
+                              {t('workflows.edgeEditor.removePostCondition')}
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Activities Section */}
+            <div className="border-t border-border pt-4 mt-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-foreground">
+                  {t('workflows.edgeEditor.activities')} ({activities.length})
+                </h3>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={addActivity}
+                >
+                  <Plus className="size-3" />
+                  {t('workflows.edgeEditor.addActivity')}
+                </Button>
+              </div>
+
+              {activities.length === 0 && (
+                <div className="p-4 text-center text-sm text-muted-foreground bg-muted rounded-lg border border-border">
+                  {t('workflows.edgeEditor.noActivities')}
+                </div>
+              )}
+
+              <div className="space-y-2">
+                {activities.map((activity, index) => {
+                  const isExpanded = expandedActivities.has(index)
+                  return (
+                    <div key={index} className="border border-border rounded-lg bg-muted">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => toggleActivity(index)}
+                        className="h-auto w-full justify-between rounded-t-lg px-4 py-3 text-left hover:bg-muted/80"
+                      >
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold text-foreground">
+                              {activity.activityName || activity.label || activity.activityId || `Activity ${index + 1}`}
+                            </span>
+                            <Badge variant="secondary" className="text-xs">
+                              {activity.activityType}
+                            </Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {t('workflows.edgeEditor.activityId')}: <code className="bg-background px-1 rounded">{activity.activityId}</code>
+                          </p>
+                        </div>
+                        <ChevronDown
+                          className={`size-5 text-muted-foreground transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                        />
+                      </Button>
+
+                      {isExpanded && (
+                        <div className="px-4 pb-4 space-y-3 border-t border-border bg-background">
+                          {/* Activity ID */}
+                          <div className="pt-3">
+                            <label className="block text-xs font-medium text-foreground mb-1">{t('workflows.edgeEditor.activityId')} *</label>
+                            <Input
+                              type="text"
+                              size="sm"
+                              value={activity.activityId}
+                              onChange={(e) => updateActivity(index, 'activityId', e.target.value)}
+                              placeholder={t('workflows.edgeEditor.activityIdPlaceholder')}
+                            />
+                          </div>
+
+                          {/* Activity Name */}
+                          <div>
+                            <label className="block text-xs font-medium text-foreground mb-1">{t('workflows.edgeEditor.activityName')} *</label>
+                            <Input
+                              type="text"
+                              size="sm"
+                              value={activity.activityName || ''}
+                              onChange={(e) => updateActivity(index, 'activityName', e.target.value)}
+                              placeholder={t('workflows.edgeEditor.activityNamePlaceholder')}
+                            />
+                          </div>
+
+                          {/* Activity Type */}
+                          <div>
+                            <label className="block text-xs font-medium text-foreground mb-1">{t('workflows.edgeEditor.activityType')} *</label>
+                            <Select
+                              value={activity.activityType}
+                              onValueChange={(value) => updateActivity(index, 'activityType', value)}
+                            >
+                              <SelectTrigger size="sm">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {activityTypeOptions.map((type) => (
+                                  <SelectItem key={type.value} value={type.value}>
+                                    {type.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          {/* Timeout */}
+                          <div>
+                            <label className="block text-xs font-medium text-foreground mb-1">{t('workflows.edgeEditor.timeout')}</label>
+                            <DurationInput
+                              value={activity.timeout || ''}
+                              onChange={(value) => updateActivity(index, 'timeout', value)}
+                              aria-label={t('workflows.edgeEditor.timeout')}
+                            />
+                            <p className="text-xs text-muted-foreground mt-0.5">{t('workflows.edgeEditor.timeoutHint')}</p>
+                          </div>
+
+                          {/* Retry Policy */}
+                          <div className="border-t border-border pt-3">
+                            <h4 className="text-xs font-semibold text-foreground mb-2">{t('workflows.edgeEditor.retryPolicy')}</h4>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              <div>
+                                <label className="block text-xs font-medium text-foreground mb-1">{t('workflows.edgeEditor.maxAttempts')}</label>
+                                <Input
+                                  type="number"
+                                  size="sm"
+                                  value={activity.retryPolicy?.maxAttempts || ''}
+                                  onChange={(e) => updateActivityRetryPolicy(index, 'maxAttempts', parseInt(e.target.value) || 0)}
+                                  placeholder="3"
+                                  min="1"
+                                  max="10"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium text-foreground mb-1">{t('workflows.edgeEditor.initialInterval')}</label>
+                                <Input
+                                  type="number"
+                                  size="sm"
+                                  value={activity.retryPolicy?.initialIntervalMs || ''}
+                                  onChange={(e) => updateActivityRetryPolicy(index, 'initialIntervalMs', parseInt(e.target.value) || 0)}
+                                  placeholder="1000"
+                                  min="0"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium text-foreground mb-1">{t('workflows.edgeEditor.backoffCoefficient')}</label>
+                                <Input
+                                  type="number"
+                                  size="sm"
+                                  step="0.1"
+                                  value={activity.retryPolicy?.backoffCoefficient || ''}
+                                  onChange={(e) => updateActivityRetryPolicy(index, 'backoffCoefficient', parseFloat(e.target.value) || 1)}
+                                  placeholder="2"
+                                  min="1"
+                                  max="10"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium text-foreground mb-1">{t('workflows.edgeEditor.maxInterval')}</label>
+                                <Input
+                                  type="number"
+                                  size="sm"
+                                  value={activity.retryPolicy?.maxIntervalMs || ''}
+                                  onChange={(e) => updateActivityRetryPolicy(index, 'maxIntervalMs', parseInt(e.target.value) || 0)}
+                                  placeholder="10000"
+                                  min="0"
+                                />
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Activity Flags */}
+                          <div className="border-t border-border pt-3">
+                            <h4 className="text-xs font-semibold text-foreground mb-2">{t('workflows.edgeEditor.activityOptions')}</h4>
+                            <div className="space-y-2">
+                              <div className="flex items-center space-x-2">
+                                <Checkbox
+                                  id={`activity-async-${index}`}
+                                  checked={activity.async || false}
+                                  onCheckedChange={(checked) => updateActivity(index, 'async', checked === true)}
+                                />
+                                <label htmlFor={`activity-async-${index}`} className="text-xs text-foreground cursor-pointer">
+                                  {t('workflows.edgeEditor.asyncOption')}
+                                </label>
+                              </div>
+                              <div className="flex items-center space-x-2">
+                                <Checkbox
+                                  id={`activity-compensate-${index}`}
+                                  checked={activity.compensate || false}
+                                  onCheckedChange={(checked) => updateActivity(index, 'compensate', checked === true)}
+                                />
+                                <label htmlFor={`activity-compensate-${index}`} className="text-xs text-foreground cursor-pointer">
+                                  {t('workflows.edgeEditor.compensateOption')}
+                                </label>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Configuration */}
+                          <div className="border-t border-border pt-3">
+                            <label className="block text-xs font-medium text-foreground mb-1">{t('workflows.edgeEditor.configurationJson')}</label>
+                            <JsonBuilder
+                              value={activity.config || {}}
+                              onChange={(config) => {
+                                const updated = [...activities]
+                                updated[index] = { ...updated[index], config }
+                                setActivities(updated)
+                              }}
+                            />
+                            <p className="text-xs text-muted-foreground mt-0.5">{t('workflows.edgeEditor.configurationHint')}</p>
+                          </div>
+
+                          {/* Delete Button */}
+                          <div className="border-t border-border pt-3">
+                            <Button
+                              type="button"
+                              variant="destructive-outline"
+                              size="sm"
+                              onClick={() => removeActivity(index)}
+                            >
+                              <Trash2 className="size-4" />
+                              {t('workflows.edgeEditor.removeActivity')}
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Advanced Configuration */}
+            <div className="border-t border-border pt-4 mt-4">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setShowAdvanced(!showAdvanced)}
+                className="h-auto w-full justify-between px-0 py-0 text-left hover:bg-transparent"
+              >
+                <h3 className="text-sm font-semibold text-foreground">
+                  {t('workflows.edgeEditor.advancedConfiguration')}
+                </h3>
+                <ChevronDown
+                  className={`size-5 transition-transform ${showAdvanced ? 'rotate-180' : ''}`}
+                />
+              </Button>
+              {showAdvanced && (
+                <div className="mt-3">
+                  <JsonBuilder
+                    value={advancedConfig}
+                    onChange={setAdvancedConfig}
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {t('workflows.edgeEditor.advancedConfigHint')}
+                  </p>
+                </div>
+              )}
+            </div>
+        </div>
+
+        <DialogFooter className="flex justify-between">
+          <Button
+            type="button"
+            variant="destructive-outline"
+            onClick={handleDelete}
+          >
+            <Trash2 className="size-4" />
+            {t('workflows.edgeEditor.deleteTransition')}
+          </Button>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onClose}
+            >
+              {t('workflows.edgeEditor.cancel')}
+            </Button>
+            <Button
+              type="button"
+              onClick={handleSave}
+            >
+              {t('workflows.edgeEditor.saveChanges')}
+            </Button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+
+      {/* Business Rule Selector - Using generic component */}
+      <BusinessRulesSelector
+        isOpen={showRuleSelector}
+        onClose={closeRuleSelector}
+        onSelect={handleRuleSelected}
+        excludeRuleIds={
+          ruleSelectorMode === 'pre'
+            ? preConditions.map(c => c.ruleId)
+            : postConditions.map(c => c.ruleId)
+        }
+        title={t('workflows.edgeEditor.selectBusinessRule')}
+        description={t('workflows.edgeEditor.selectBusinessRuleDescription', {
+          mode: ruleSelectorMode === 'pre'
+            ? t('workflows.edgeEditor.preConditions').toLowerCase()
+            : t('workflows.edgeEditor.postConditions').toLowerCase()
+        })}
+      />
+      {ConfirmDialogElement}
+    </Dialog>
+  )
+}

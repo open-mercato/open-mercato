@@ -1,0 +1,79 @@
+---
+title: Commands
+description: Command bus commands registered by the Sales module.
+---
+
+# Sales — Commands
+
+The sales module registers the following commands on the command bus. You can intercept them via command interceptors or dispatch them from your own module.
+
+## Channels
+
+| Command ID | Description |
+|---|---|
+| `sales.channels.create` | Create a sales channel |
+| `sales.channels.update` | Update a sales channel |
+| `sales.channels.delete` | Delete a sales channel |
+
+## Documents
+
+| Command ID | Description |
+|---|---|
+| `sales.document-addresses.create` | Add an address to a sales document |
+| `sales.document-addresses.update` | Update an address on a sales document |
+| `sales.document-addresses.delete` | Remove an address from a sales document |
+
+## Notes
+
+| Command ID | Description |
+|---|---|
+| `sales.notes.create` | Create a note on a sales document |
+| `sales.notes.update` | Update a note |
+| `sales.notes.delete` | Delete a note |
+
+## Payments
+
+| Command ID | Description |
+|---|---|
+| `sales.payments.create` | Record a payment |
+| `sales.payments.update` | Update a payment |
+| `sales.payments.delete` | Delete a payment |
+| `sales.payment-methods.create` | Create a payment method |
+| `sales.payment-methods.update` | Update a payment method |
+| `sales.payment-methods.delete` | Delete a payment method |
+
+## Shipments
+
+| Command ID | Description |
+|---|---|
+| `sales.shipments.create` | Create a shipment |
+| `sales.shipments.update` | Update a shipment |
+| `sales.shipments.delete` | Delete a shipment |
+| `sales.shipping-methods.create` | Create a shipping method |
+| `sales.shipping-methods.update` | Update a shipping method |
+| `sales.shipping-methods.delete` | Delete a shipping method |
+| `sales.delivery-windows.create` | Create a delivery window |
+| `sales.delivery-windows.update` | Update a delivery window |
+| `sales.delivery-windows.delete` | Delete a delivery window |
+
+## Returns
+
+| Command ID | Description |
+|---|---|
+| `sales.returns.create` | Create a return for an order |
+
+## Configuration
+
+| Command ID | Description |
+|---|---|
+| `sales.settings.save` | Save sales module settings |
+| `sales.tax-rates.create` | Create a tax rate |
+| `sales.tax-rates.update` | Update a tax rate |
+| `sales.tax-rates.delete` | Delete a tax rate |
+| `sales.tags.create` | Create a document tag |
+| `sales.tags.update` | Update a document tag |
+| `sales.tags.delete` | Delete a document tag |
+
+## See also
+
+- [Commands overview](/framework/commands/overview)

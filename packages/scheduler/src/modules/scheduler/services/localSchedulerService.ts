@@ -1,0 +1,411 @@
+import type { EntityManager } from '@mikro-orm/core'
+import type { Queue } from '@open-mercato/queue'
+import { CommandBus } from '@open-mercato/shared/lib/commands'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import { ScheduledJob } from '../data/entities.js'
+import { LocalLockStrategy } from '../lib/localLockStrategy'
+import { recalculateNextRun } from '../lib/nextRunCalculator'
+import { emitSchedulerEvent } from '../events.js'
+import { getGlobalEventBus } from '@open-mercato/shared/modules/events'
+import { assertSchedulerSafeCommandAuthorized } from '../lib/scheduler-safe-commands.js'
+import { buildScheduledCommandContext, resolveScheduledCommandActorUserId } from '../lib/commandContext.js'
+import { buildQueueTargetPayload, buildSchedulerIdempotencyKey } from '../lib/queueTargetPayload.js'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import {
+  canDispatchScheduleQueueTarget,
+  getSchedulerQueueRequiredFeatures,
+  sanitizeSchedulerTargetPayload,
+  validateSchedulerTargetPayload,
+} from '../lib/safeQueueTargets'
+
+const logger = createLogger('scheduler').child({ component: 'local' })
+
+export interface RbacServiceLike {
+  tenantHasFeature(tenantId: string | null | undefined, feature: string, opts?: { organizationId?: string | null }): Promise<boolean>
+  userHasAllFeatures(userId: string, required: readonly string[], scope: { tenantId: string | null; organizationId: string | null }): Promise<boolean>
+}
+
+export interface LocalSchedulerConfig {
+  pollIntervalMs: number
+}
+
+/**
+ * Local scheduler service for development
+ * 
+ * This service polls the database for due schedules and executes them locally
+ * without requiring Redis. Perfect for local development.
+ * 
+ * Features:
+ * - PostgreSQL polling (configurable interval, default 30s)
+ * - In-process duplicate prevention across overlapping poll ticks
+ * - Supports both queue and command targets
+ * - Emits the same events as async strategy
+ * - Updates nextRunAt after execution
+ *
+ * Limitations:
+ * - Polling delay (up to configured interval)
+ * - Single instance only (no distributed locking across instances). Duplicate
+ *   prevention is in-process only: the advisory lock serialises the claim, not
+ *   the execution, and nextRunAt is advanced only after the target has run, so
+ *   two processes polling the same database will both execute a due schedule.
+ *   Run exactly one process with QUEUE_STRATEGY=local, or use the async
+ *   strategy, which locks across instances.
+ * - Higher database load than async strategy
+ * 
+ * Set QUEUE_STRATEGY=local to use this service.
+ */
+export class LocalSchedulerService {
+  private isRunning = false
+  private pollTimer?: NodeJS.Timeout
+  private lockStrategy: LocalLockStrategy
+
+  constructor(
+    private em: () => EntityManager,
+    private queueFactory: (name: string) => Queue,
+    private rbacService: RbacServiceLike,
+    private config: LocalSchedulerConfig = { pollIntervalMs: 30000 },
+  ) {
+    this.lockStrategy = new LocalLockStrategy(em)
+  }
+
+  /**
+   * Start the local scheduler polling engine
+   */
+  async start(): Promise<void> {
+    if (this.isRunning) {
+      logger.warn('Polling engine already running')
+      return
+    }
+
+    this.isRunning = true
+    logger.info('Starting polling engine', { pollIntervalMs: this.config.pollIntervalMs })
+    logger.warn(
+      'Local scheduler strategy provides no cross-process protection: duplicate prevention is in-process only, so a second process polling the same database will execute the same due schedule. Run exactly one process with QUEUE_STRATEGY=local, or use the async strategy for distributed locking.',
+    )
+
+    // Run initial poll immediately
+    await this.poll()
+
+    // Schedule recurring polls
+    this.pollTimer = setInterval(() => {
+      this.poll().catch((error) => {
+        logger.error('Poll error', { err: error })
+      })
+    }, this.config.pollIntervalMs)
+
+    logger.info('Polling engine started')
+  }
+
+  /**
+   * Stop the local scheduler
+   */
+  async stop(): Promise<void> {
+    logger.info('Stopping polling engine')
+    this.isRunning = false
+    
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer)
+      this.pollTimer = undefined
+    }
+
+    logger.info('Polling engine stopped')
+  }
+
+  /**
+   * Poll for due schedules and execute them
+   */
+  private async poll(): Promise<void> {
+    if (!this.isRunning) {
+      return
+    }
+
+    const em = this.em().fork()
+
+    try {
+      // Find enabled schedules that are due (limited to avoid spikes after outages)
+      const dueSchedules = await em.find(ScheduledJob, {
+        isEnabled: true,
+        deletedAt: null,
+        nextRunAt: { $lte: new Date() },
+      }, {
+        limit: 100,
+        orderBy: { nextRunAt: 'ASC' },
+      })
+
+      if (dueSchedules.length === 0) {
+        logger.debug('No due schedules')
+        return
+      }
+
+      logger.info('Found due schedules', { count: dueSchedules.length })
+
+      // Execute each schedule
+      for (const schedule of dueSchedules) {
+        await this.executeSchedule(schedule)
+      }
+    } catch (error: unknown) {
+      logger.error('Poll failed', { err: error })
+    }
+  }
+
+  /**
+   * Execute a single schedule
+   */
+  private async executeSchedule(schedule: ScheduledJob): Promise<void> {
+    const lockKey = `schedule:${schedule.id}`
+    const scheduleLogger = logger.child({ scheduleId: schedule.id, scheduleName: schedule.name })
+
+    const { acquired } = await this.lockStrategy.runWithLock(lockKey, async () => {
+      scheduleLogger.info('Executing schedule')
+
+      // Emit started event
+      await emitSchedulerEvent('scheduler.job.started', {
+        id: schedule.id,
+        tenantId: schedule.tenantId,
+        organizationId: schedule.organizationId,
+        scheduleName: schedule.name,
+        scopeType: schedule.scopeType,
+        triggerType: 'scheduled',
+        startedAt: new Date(),
+      })
+
+      try {
+        // Check feature flag if required
+        if (schedule.requireFeature) {
+          const hasFeature = await this.checkFeature(schedule)
+          
+          if (!hasFeature) {
+            scheduleLogger.info('Schedule skipped: missing required feature', { requireFeature: schedule.requireFeature })
+            
+            await emitSchedulerEvent('scheduler.job.skipped', {
+              id: schedule.id,
+              tenantId: schedule.tenantId,
+              organizationId: schedule.organizationId,
+              scheduleName: schedule.name,
+              scopeType: schedule.scopeType,
+              reason: `Missing required feature: ${schedule.requireFeature}`,
+              skippedAt: new Date(),
+            })
+
+            // Still update next run time
+            await this.updateNextRun(schedule)
+            return
+          }
+        }
+
+        // Execute based on target type
+        if (schedule.targetType === 'queue') {
+          await this.executeQueueTarget(schedule)
+        } else if (schedule.targetType === 'command') {
+          await this.executeCommandTarget(schedule)
+        } else {
+          throw new Error(`Unknown target type: ${schedule.targetType}`)
+        }
+
+        // Update last run and next run times
+        const em = this.em().fork()
+        const freshSchedule = await em.findOne(ScheduledJob, { id: schedule.id })
+        
+        if (freshSchedule) {
+          freshSchedule.lastRunAt = new Date()
+          
+          // Calculate next run time
+          const nextRun = recalculateNextRun(
+            freshSchedule.scheduleType,
+            freshSchedule.scheduleValue,
+            freshSchedule.timezone
+          )
+          
+          if (nextRun) {
+            freshSchedule.nextRunAt = nextRun
+          }
+          
+          await em.flush()
+        }
+
+        scheduleLogger.info('Schedule completed')
+
+        // Emit completed event
+        await emitSchedulerEvent('scheduler.job.completed', {
+          id: schedule.id,
+          tenantId: schedule.tenantId,
+          organizationId: schedule.organizationId,
+          scheduleName: schedule.name,
+          scopeType: schedule.scopeType,
+          completedAt: new Date(),
+        })
+      } catch (error: unknown) {
+        scheduleLogger.error('Schedule failed', { err: error })
+
+        // Emit failed event
+        await emitSchedulerEvent('scheduler.job.failed', {
+          id: schedule.id,
+          tenantId: schedule.tenantId,
+          organizationId: schedule.organizationId,
+          scheduleName: schedule.name,
+          scopeType: schedule.scopeType,
+          error: error instanceof Error ? error.message : String(error),
+          failedAt: new Date(),
+        })
+
+        // Still update next run time even on failure
+        await this.updateNextRun(schedule)
+      }
+    })
+
+    if (!acquired) {
+      scheduleLogger.debug('Schedule already locked, skipping')
+      return
+    }
+  }
+
+  /**
+   * Execute a queue-based target
+   */
+  private async executeQueueTarget(schedule: ScheduledJob): Promise<void> {
+    if (!schedule.targetQueue) {
+      throw new Error('Target queue is required for queue target type')
+    }
+
+    // Dispatch-time reauthorization (#5213): provenance is verified against the
+    // live registry (module rows must own their queue), API rows must target
+    // opted-in queues.
+    if (!canDispatchScheduleQueueTarget(schedule)) {
+      throw new Error(`Queue is not an approved scheduler target: ${schedule.targetQueue}`)
+    }
+
+    const payloadIssue = validateSchedulerTargetPayload(schedule.targetQueue, schedule.targetPayload)
+    if (payloadIssue) {
+      throw new Error(`Invalid payload for scheduler queue ${schedule.targetQueue}: ${payloadIssue}`)
+    }
+
+    if (schedule.scopeType !== 'system') {
+      for (const feature of getSchedulerQueueRequiredFeatures(schedule.targetQueue)) {
+        const hasFeature = await this.checkFeature({ ...schedule, requireFeature: feature } as ScheduledJob)
+        if (!hasFeature) {
+          throw new Error(`Tenant lacks feature required by scheduler queue ${schedule.targetQueue}: ${feature}`)
+        }
+      }
+    }
+
+    const queue = this.queueFactory(schedule.targetQueue)
+
+    // Deliver the same flat contract as the asynchronous execute-schedule
+    // worker: targetPayload fields on the root, scheduler-owned scope and
+    // idempotency fields applied last. Local mode runs each firing exactly
+    // once, so the firing timestamp is a valid logical execution key.
+    // Author-supplied scope/envelope keys never survive dispatch (#5213).
+    const sanitizedPayload = sanitizeSchedulerTargetPayload(schedule.targetPayload, schedule)
+
+    await queue.enqueue({
+      ...buildQueueTargetPayload({
+        targetPayload: sanitizedPayload,
+        tenantId: schedule.tenantId,
+        organizationId: schedule.organizationId,
+        idempotencyKey: buildSchedulerIdempotencyKey(schedule.id, Date.now()),
+      }),
+      _jobOrigin: 'scheduler' as const,
+    })
+
+    logger.info('Enqueued job to target queue', { scheduleId: schedule.id, targetQueue: schedule.targetQueue })
+  }
+
+  /**
+   * Execute a command-based target
+   */
+  private async executeCommandTarget(schedule: ScheduledJob): Promise<void> {
+    if (!schedule.targetCommand) {
+      throw new Error('Target command is required for command target type')
+    }
+
+    const commandBus = new CommandBus()
+    const actorUserId = resolveScheduledCommandActorUserId(schedule)
+    await assertSchedulerSafeCommandAuthorized({
+      commandId: schedule.targetCommand,
+      actorUserId,
+      tenantId: schedule.tenantId,
+      organizationId: schedule.organizationId,
+      rbacService: this.rbacService,
+    })
+    
+    const commandInput = {
+      ...((schedule.targetPayload as Record<string, unknown>) || {}),
+      tenantId: schedule.tenantId,
+      organizationId: schedule.organizationId,
+    }
+    
+    // Build the schedule-scoped command context after the allowlist/RBAC gate.
+    const commandCtx = buildScheduledCommandContext(
+      schedule,
+      {
+        resolve: (name: string) => {
+          // Simple resolver that forwards to our dependencies
+          if (name === 'em') return this.em()
+          if (name === 'eventBus') return getGlobalEventBus()
+          if (name === 'rbacService') return this.rbacService
+          throw new Error(`Service not available in scheduler context: ${name}`)
+        },
+      } as AppContainer,
+    )
+
+    await commandBus.execute(schedule.targetCommand, {
+      input: commandInput,
+      ctx: commandCtx,
+    })
+
+    logger.info('Executed command', { scheduleId: schedule.id, targetCommand: schedule.targetCommand })
+  }
+
+  /**
+   * Check if user/tenant has required feature
+   */
+  private async checkFeature(schedule: ScheduledJob): Promise<boolean> {
+    if (!schedule.requireFeature) {
+      return true
+    }
+
+    try {
+      // For system-scoped schedules, no RBAC check needed
+      if (schedule.scopeType === 'system') {
+        return true
+      }
+
+      // For tenant/org scoped schedules, check if ANY admin user has the feature
+      // This is a simplified check - in reality, scheduled jobs run without a user context
+      // so we're just checking if the feature is enabled for the tenant
+      const hasFeature = await this.rbacService.tenantHasFeature(
+        schedule.tenantId,
+        schedule.requireFeature,
+        {
+          organizationId: schedule.organizationId,
+        }
+      )
+
+      return hasFeature
+    } catch (error: unknown) {
+      logger.error('Feature check failed', { scheduleId: schedule.id, err: error })
+      return false
+    }
+  }
+
+  /**
+   * Update next run time for a schedule
+   */
+  private async updateNextRun(schedule: ScheduledJob): Promise<void> {
+    const em = this.em().fork()
+    const freshSchedule = await em.findOne(ScheduledJob, { id: schedule.id })
+    
+    if (freshSchedule) {
+      const nextRun = recalculateNextRun(
+        freshSchedule.scheduleType,
+        freshSchedule.scheduleValue,
+        freshSchedule.timezone
+      )
+      
+      if (nextRun) {
+        freshSchedule.nextRunAt = nextRun
+        await em.flush()
+      }
+    }
+  }
+}

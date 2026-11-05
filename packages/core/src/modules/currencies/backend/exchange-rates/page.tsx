@@ -1,0 +1,347 @@
+'use client'
+
+import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/currencies/extension-points'
+import Link from 'next/link'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { Badge } from '@open-mercato/ui/primitives/badge'
+import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
+import { Plus } from 'lucide-react'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
+
+type ExchangeRateRow = {
+  id: string
+  fromCurrencyCode: string
+  toCurrencyCode: string
+  rate: string
+  date: string
+  source: string | null
+  type: string | null
+  isActive: boolean
+  organizationId: string
+  tenantId: string
+  createdAt: string
+  updatedAt: string
+}
+
+type ResponsePayload = {
+  items: ExchangeRateRow[]
+  total: number
+  page: number
+  totalPages: number
+  totalIsCapped?: boolean
+}
+
+export default function ExchangeRatesPage() {
+  const t = useT()
+  const { confirm: confirmDialog, ConfirmDialogElement } = useConfirmDialog()
+  const [rows, setRows] = React.useState<ExchangeRateRow[]>([])
+  const [page, setPage] = React.useState(1)
+  const [total, setTotal] = React.useState(0)
+  const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
+  const [search, setSearch] = React.useState('')
+  const [filters, setFilters] = React.useState<FilterValues>({})
+  const [isLoading, setIsLoading] = React.useState(true)
+  const [reloadToken, setReloadToken] = React.useState(0)
+  const scopeVersion = useOrganizationScopeVersion()
+  const mutationContextId = 'currencies-exchange-rates-list:mutation'
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    resourceId: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: mutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setIsLoading(true)
+      try {
+        const params = new URLSearchParams()
+        params.set('page', String(page))
+        params.set('pageSize', '50')
+        if (search) params.set('search', search)
+        if (filters.fromCurrencyCode) params.set('fromCurrencyCode', String(filters.fromCurrencyCode))
+        if (filters.toCurrencyCode) params.set('toCurrencyCode', String(filters.toCurrencyCode))
+        if (filters.source) params.set('source', String(filters.source))
+        if (filters.type) params.set('type', String(filters.type))
+        if (filters.isActive === 'true') params.set('isActive', 'true')
+        if (filters.isActive === 'false') params.set('isActive', 'false')
+
+        const fallback: ResponsePayload = { items: [], total: 0, page, totalPages: 1 }
+        const call = await apiCall<ResponsePayload>(
+          `/api/currencies/exchange-rates?${params.toString()}`,
+          undefined,
+          { fallback }
+        )
+
+        if (!call.ok) {
+          flash(t('exchangeRates.list.error.load'), 'error')
+          return
+        }
+
+        const payload = call.result ?? fallback
+        if (!cancelled) {
+          setRows(Array.isArray(payload.items) ? payload.items : [])
+          setTotal(payload.total || 0)
+          setTotalPages(payload.totalPages || 1)
+          setTotalIsCapped(payload?.totalIsCapped === true)
+        }
+      } catch (error) {
+        if (!cancelled) {
+          flash(t('exchangeRates.list.error.load'), 'error')
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [page, search, filters, reloadToken, scopeVersion, t])
+
+  const handleDelete = React.useCallback(
+    async (row: ExchangeRateRow) => {
+      const confirmed = await confirmDialog({
+        title: t('exchangeRates.list.confirmDelete', { pair: `${row.fromCurrencyCode}/${row.toCurrencyCode}` }),
+        variant: 'destructive',
+      })
+      if (!confirmed) return
+
+      try {
+        await runMutation({
+          operation: async () => {
+            const call = await withScopedApiRequestHeaders(
+              buildOptimisticLockHeader(row.updatedAt),
+              () => apiCall(`/api/currencies/exchange-rates`, {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: row.id, organizationId: row.organizationId, tenantId: row.tenantId }),
+              }),
+            )
+            if (!call.ok) {
+              throw Object.assign(new Error('[internal] currencies.exchangeRate.delete failed'), {
+                status: call.status,
+                ...((call.result as Record<string, unknown> | null) ?? {}),
+              })
+            }
+            return call
+          },
+          context: {
+            formId: mutationContextId,
+            resourceKind: 'currencies.exchange_rate',
+            resourceId: row.id,
+            retryLastMutation,
+          },
+          mutationPayload: { id: row.id },
+        })
+
+        flash(t('exchangeRates.flash.deleted'), 'success')
+        setReloadToken((token) => token + 1)
+      } catch (error) {
+        if (surfaceRecordConflict(error, t, { onRefresh: () => setReloadToken((token) => token + 1) })) return
+        flash(t('exchangeRates.flash.deleteError'), 'error')
+      }
+    },
+    [t, confirmDialog, mutationContextId, retryLastMutation, runMutation]
+  )
+
+  const columns = React.useMemo<ColumnDef<ExchangeRateRow>[]>(
+    () => [
+      {
+        accessorKey: 'currencyPair',
+        header: t('exchangeRates.list.columns.currencyPair'),
+        cell: ({ row }) => (
+          <span className="font-mono font-medium">
+            {row.original.fromCurrencyCode} → {row.original.toCurrencyCode}
+          </span>
+        ),
+      },
+      {
+        accessorKey: 'rate',
+        header: t('exchangeRates.list.columns.rate'),
+        cell: ({ row }) => (
+          <span className="font-mono">
+            {parseFloat(row.original.rate).toFixed(8)}
+          </span>
+        ),
+      },
+    {
+      accessorKey: 'date',
+      header: t('exchangeRates.list.columns.date'),
+      cell: ({ row }) => new Date(row.original.date).toLocaleString(undefined, {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+      }),
+    },
+      {
+        accessorKey: 'source',
+        header: t('exchangeRates.list.columns.source'),
+        cell: ({ row }) => row.original.source || '—',
+      },
+      {
+        accessorKey: 'type',
+        header: t('exchangeRates.list.columns.type'),
+        cell: ({ row }) => {
+          const type = row.original.type
+          if (!type) return '—'
+          return (
+            <Badge variant={type === 'buy' ? 'success' : 'info'}>
+              {type === 'buy' ? t('exchangeRates.list.type.buy') : t('exchangeRates.list.type.sell')}
+            </Badge>
+          )
+        },
+      },
+      {
+        accessorKey: 'isActive',
+        header: t('exchangeRates.list.columns.active'),
+        enableSorting: false,
+        cell: ({ getValue }) => <BooleanIcon value={Boolean(getValue())} />,
+      },
+      {
+        accessorKey: 'createdAt',
+        header: t('exchangeRates.list.columns.createdAt'),
+        cell: ({ row }) => {
+          const date = row.original.createdAt
+          return date ? new Date(date).toLocaleString() : '—'
+        },
+      },
+      {
+        accessorKey: 'updatedAt',
+        header: t('exchangeRates.list.columns.updatedAt'),
+        cell: ({ row }) => {
+          const date = row.original.updatedAt
+          return date ? new Date(date).toLocaleString() : '—'
+        },
+      },
+    ],
+    [t]
+  )
+
+  const filterDefs = React.useMemo<FilterDef[]>(
+    () => [
+      {
+        id: 'fromCurrencyCode',
+        label: t('exchangeRates.list.filters.fromCurrency'),
+        type: 'text',
+      },
+      {
+        id: 'toCurrencyCode',
+        label: t('exchangeRates.list.filters.toCurrency'),
+        type: 'text',
+      },
+      {
+        id: 'source',
+        label: t('exchangeRates.list.filters.source'),
+        type: 'text',
+      },
+      {
+        id: 'type',
+        label: t('exchangeRates.list.filters.type'),
+        type: 'select',
+        options: [
+          { label: t('exchangeRates.list.filters.all'), value: '' },
+          { label: t('exchangeRates.list.type.buy'), value: 'buy' },
+          { label: t('exchangeRates.list.type.sell'), value: 'sell' },
+        ],
+      },
+      {
+        id: 'isActive',
+        label: t('exchangeRates.list.filters.status'),
+        type: 'select',
+        options: [
+          { label: t('exchangeRates.list.filters.all'), value: '' },
+          { label: t('exchangeRates.list.filters.active'), value: 'true' },
+          { label: t('exchangeRates.list.filters.inactive'), value: 'false' },
+        ],
+      },
+    ],
+    [t]
+  )
+
+  return (
+    <Page>
+      <PageBody>
+        <DataTable
+        title={t('exchangeRates.list.title')}
+        titleHeadingLevel={1}
+          columns={columns}
+          data={rows}
+          searchValue={search}
+          onSearchChange={(value) => {
+            setSearch(value)
+            setPage(1)
+          }}
+          searchPlaceholder={t('exchangeRates.list.searchPlaceholder')}
+          filters={filterDefs}
+          filterValues={filters}
+          onFiltersApply={(values) => {
+            setFilters(values)
+            setPage(1)
+          }}
+          onFiltersClear={() => {
+            setFilters({})
+            setPage(1)
+          }}
+          actions={
+            <Button asChild>
+              <Link href="/backend/exchange-rates/create">
+                <Plus className="mr-2 h-4 w-4" />
+                {t('exchangeRates.list.actions.create')}
+              </Link>
+            </Button>
+          }
+          rowActions={(row) => (
+            <RowActions
+              items={[
+                {
+                  id: 'edit',
+                  label: t('common.edit'),
+                  href: `/backend/exchange-rates/${row.id}`,
+                },
+                {
+                  id: 'delete',
+                  label: t('common.delete'),
+                  destructive: true,
+                  onSelect: () => handleDelete(row),
+                },
+              ]}
+            />
+          )}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('exchangeRates.list.title')}
+              createHref="/backend/exchange-rates/create"
+              createLabel={t('exchangeRates.list.actions.create')}
+            />
+          )}
+          pagination={{ page, pageSize: 50, total, totalPages, totalIsCapped, onPageChange: setPage }}
+          isLoading={isLoading}
+          perspective={{ tableId: extensionPoints.hosts.exchangeRatesTable.tableId }}
+        />
+      </PageBody>
+      {ConfirmDialogElement}
+    </Page>
+  )
+}

@@ -1,0 +1,1338 @@
+name: CI for Main & Release Lines
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  # Required by the OSS optimistic-locking integration tests (#1981 /
+  # TC-LOCK-OSS-001..004). Set workflow-wide so both `prepare`
+  # (`yarn build:app`) and `ephemeral-integration` see the same value —
+  # divergence between build-time and run-time env can silently
+  # short-circuit the guard.
+  #
+  # `all` activates the auto-registered generic reader for every CRUD
+  # route (Phase 13 of the spec). Hand-wired readers in
+  # `customers/di.ts` and `sales/di.ts` still win — they cover the
+  # polymorphic-table case (`customers.company` / `customers.person`
+  # discriminated by `kind`) and the `sales.order` reference. The
+  # auto-registered reader handles every other entity, including
+  # `customers.deal` exercised by TC-LOCK-OSS-004.
+  #
+  # As of Phase 14 (2026-05-27) the guard is default ON — `all` is now
+  # the same as unset. Kept explicit here to match the snapshot env and
+  # to make the intent obvious in CI logs.
+  OM_OPTIMISTIC_LOCK: 'all'
+  # Keep build-time and runtime onboarding config aligned so the browser
+  # integration suite can exercise the self-service verification flow.
+  SELF_SERVICE_ONBOARDING_ENABLED: 'true'
+  # ── Enterprise modules: MUST be set at BUILD time, not just at test time ────
+  # `apps/mercato/src/modules.ts` reads these four flags to decide which
+  # enterprise modules enter `enabledModules`. That decision is consumed by
+  # `yarn generate` in the `prepare` job, which bakes the module registry into
+  # `.mercato/generated/` — and `yarn build:app` compiles that registry into the
+  # Next.js output every integration shard boots. Setting the flags only on the
+  # `ephemeral-integration` job is TOO LATE: the registry is already frozen, so
+  # the app under test contains no enterprise routes.
+  #
+  # The failure mode is deliberately misleading. Spec discovery
+  # (packages/cli/src/lib/testing/integration-discovery.ts) keys enterprise
+  # overlay specs off OM_ENABLE_ENTERPRISE_MODULES alone, so the runner happily
+  # DISCOVERS the enterprise suites while the app it drives has none of the code
+  # they test — every request 404s and the suite fails for a reason that looks
+  # nothing like the cause.
+  #
+  # Set workflow-wide so `prepare` (generate + build:app) and
+  # `ephemeral-integration` (runtime) can never diverge. Do NOT move these back
+  # to a single job. All four are required — the umbrella flag alone does not
+  # enable sso/security/agent_orchestrator.
+  OM_ENABLE_ENTERPRISE_MODULES: 'true'
+  OM_ENABLE_ENTERPRISE_MODULES_SSO: 'true'
+  OM_ENABLE_ENTERPRISE_MODULES_SECURITY: 'true'
+  OM_ENABLE_ENTERPRISE_MODULES_AGENTS: 'true'
+  # turbo 2.x defaults to `envMode: "strict"`, and turbo.json declares only
+  # `globalEnv: ["NODE_ENV"]`. Both `yarn generate` and `yarn build:app` run
+  # through `turbo run`, so in strict mode turbo STRIPS every OM_* variable
+  # above before the task process starts — the workflow env would be silently
+  # discarded and the registry generated with zero enterprise modules.
+  # `loose` passes the full environment through to tasks.
+  #
+  # Caveat worth knowing: loose mode changes only what tasks can SEE, not what
+  # turbo hashes. These flags are still absent from the cache key, so a cached
+  # `build` produced before this change can in principle be restored. Declaring
+  # them in turbo.json `globalEnv` would fix both passthrough and hashing and is
+  # the better long-term fix; it is deliberately left out of this change.
+  TURBO_ENV_MODE: 'loose'
+  # NEXT_PUBLIC_* values are inlined by Next.js at build time, so this MUST be
+  # workflow-wide: `prepare` builds the app once (`yarn build:app`) and every
+  # `ephemeral-integration` shard reuses that artifact. Declaring it only on
+  # the shard job would leave the built bundle with collaboration disabled and
+  # TC-DOCUMENTS-017 unable to reach the sidecar. The Docker image builds are
+  # unaffected — `docker/build-push-action` forwards no job env. Production
+  # runtime validation ignores loopback endpoints unless the integration flag
+  # explicitly allows them.
+  NEXT_PUBLIC_DOCUMENTS_COLLAB_URL: 'ws://127.0.0.1:4101'
+
+# `release/v*` are the release lines (CONTRIBUTING.md § Releasing): backport PRs into them must
+# run the same checks as PRs into main, or a backport merges untested.
+# `feat/wms` is a temporary stacking base. PRs stacked on it target that branch rather than
+# `main`, and while it is absent from these lists no job is scheduled for them at all.
+# Drop the entry once its stack has landed on `main`.
+on:
+  push:
+    branches:
+      - main
+      - 'release/v*'
+      - feat/wms
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+    branches:
+      - main
+      - 'release/v*'
+      - feat/wms
+
+# PR runs: a new push cancels the in-progress run, so only the latest commit is tested.
+# Branch pushes (main, release lines): never cancel a running suite. A full run takes about
+# an hour and merges land faster than that, so cancelling meant main almost never finished
+# one. GitHub keeps at most one pending run per group and replaces it with the newest push,
+# so a running suite always completes and the next run tests the latest commit.
+concurrency:
+  group: ci-${{ github.ref }}${{ github.event.action == 'labeled' && github.event.label.name != 'ci-full' && format('-label-{0}', github.run_id) || '' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # ── Shared build ────────────────────────────────────────────────────────────
+  # Installs deps, compiles all packages, runs the code generator, and builds
+  # the Next.js app. Also computes integration scope so shards can start the
+  # moment this job finishes — without waiting for typecheck or unit tests.
+  #
+  # Uploads two artifacts:
+  #   build-artifacts  — packages/*/dist/ + generated files (needed by test)
+  #   app-build        — apps/mercato/.mercato/next/ (needed by integration shards)
+  #                      Only uploaded when integration tests will actually run;
+  #                      skipped for CI/docs-only PRs to save ~2 min.
+  prepare:
+    if: github.event.action != 'labeled' || github.event.label.name == 'ci-full'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    outputs:
+      skip_integration: ${{ steps.integration-scope.outputs.skip }}
+      affected_modules: ${{ steps.integration-scope.outputs.modules }}
+      shard_matrix: ${{ steps.integration-scope.outputs.shard_matrix }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          # Depth 2 brings in the merge commit's first parent, which the scope
+          # step diffs against (see audit-scope for why not `origin/<base>`).
+          fetch-depth: 2
+
+      - name: Compute integration scope
+        # Determines which integration tests to run and whether to shard them.
+        # Full-suite runs (push OR PR touching shared packages) use 15 shards.
+        # Affected-only runs (PR touching specific modules) use a single runner.
+        # This workflow runs the full suite; other CI/docs/scripts-only PRs skip integration.
+        # Runs in prepare so shards can start the moment the build is ready,
+        # without waiting for typecheck or unit tests to complete.
+        id: integration-scope
+        env:
+          FORCE_FULL_SUITE: ${{ contains(github.event.pull_request.labels.*.name, 'ci-full') }}
+        run: |
+          FULL_SHARDS='["1/15","2/15","3/15","4/15","5/15","6/15","7/15","8/15","9/15","10/15","11/15","12/15","13/15","14/15","15/15"]'
+          SINGLE_SHARD='["none"]'
+
+          if [ "${{ github.event_name }}" != "pull_request" ] || [ "$FORCE_FULL_SUITE" = "true" ]; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "modules=" >> "$GITHUB_OUTPUT"
+            echo "shard_matrix=${FULL_SHARDS}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          CHANGED=$(git diff --name-only HEAD^1 HEAD)
+
+          # These paths affect behaviour across all modules — run the full sharded suite.
+          # `packages/cli/src/lib/testing/` is the ephemeral harness that boots, drives and tears
+          # down this very suite. A change there matches no `src/modules/` path, so without this
+          # entry the job that would exercise it is the one job it can never trigger.
+          FULL_SUITE_PATTERN='^\.github/workflows/ci\.yml$|^packages/shared/|^packages/ui/|^packages/events/|^packages/queue/|^packages/cache/|^packages/search/|^packages/onboarding/|^packages/webhooks/|^packages/core/src/lib/|^packages/enterprise/src/lib/|^packages/cli/src/lib/testing/|^apps/mercato/src/(app|lib|components|layout\.|page\.)'
+          if echo "$CHANGED" | grep -qE "$FULL_SUITE_PATTERN"; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "modules=" >> "$GITHUB_OUTPUT"
+            echo "shard_matrix=${FULL_SHARDS}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Extract module folder names from module-specific paths.
+          # Match any workspace package or app that follows the src/modules/ convention.
+          MODULES=$(echo "$CHANGED" | \
+            grep -oP '(?:packages/[^/]+|apps/[^/]+)/src/modules/\K[^/]+' | \
+            sort -u | paste -sd,)
+
+          if [ -z "$MODULES" ]; then
+            # Only non-module files changed (CI, docs, scripts) — skip integration.
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "modules=" >> "$GITHUB_OUTPUT"
+            echo "shard_matrix=${SINGLE_SHARD}" >> "$GITHUB_OUTPUT"
+          else
+            # Module-specific changes — single runner with affected-only filter.
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "modules=$MODULES" >> "$GITHUB_OUTPUT"
+            echo "shard_matrix=${SINGLE_SHARD}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.19.0
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Cache Yarn packages
+        uses: actions/cache@v6
+        with:
+          path: .yarn/cache
+          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          restore-keys: yarn-${{ runner.os }}-
+
+      - name: Cache node_modules
+        # With nodeLinker:node-modules, yarn extracts zips into node_modules even
+        # when .yarn/cache hits — the extraction alone is ~85s. Caching node_modules
+        # directly and skipping install on hit eliminates that cost.
+        id: nm-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+            apps/*/node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+
+      - name: Cache Turbo build outputs
+        uses: actions/cache@v6
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-${{ github.ref_name }}-
+            turbo-${{ runner.os }}-
+
+      - name: Install dependencies
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/yarn-retry-on-install-crash.sh" yarn install --immutable
+
+      - name: Build packages
+        # Always builds all packages — no filter. Turbo cache handles the speedup:
+        # unchanged packages are cache hits and restored to disk in milliseconds.
+        # Filtering here would produce an incomplete artifact, breaking downstream
+        # jobs that need every package's dist/ output.
+        run: yarn build:packages
+        env:
+          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+          TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+
+      - name: Prepare generated modules
+        # Always run fully — generator discovers all modules regardless of what
+        # changed, and its output is consumed by the app, not packages.
+        run: yarn generate
+
+      - name: Rebuild packages with generated files
+        run: yarn build:packages
+        env:
+          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+          TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+
+      - name: Build app
+        # Build the Next.js app once here so all 15 integration shards can reuse
+        # it — avoids ~96s x 15 = ~24 min of redundant per-shard rebuilds.
+        # distDir is .mercato/next (set in apps/mercato/next.config.ts).
+        # Skipped for CI/docs-only PRs where integration is also skipped — no
+        # shard will download the artifact, so there is nothing to produce.
+        if: steps.integration-scope.outputs.skip != 'true'
+        run: yarn build:app
+
+      - name: Check Documents bundle budgets
+        if: steps.integration-scope.outputs.skip != 'true'
+        run: yarn documents:check-bundles
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-artifacts
+          path: |
+            packages/*/dist/
+            packages/*/generated/
+            apps/mercato/.mercato/generated/
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Archive app build
+        # upload-artifact rejects filenames containing colons — Next.js chunk
+        # files include colons (e.g. [externals]_node:fs_promises_*.js).
+        # Tar the directory first so the artifact is a single clean file.
+        if: steps.integration-scope.outputs.skip != 'true'
+        run: tar -czf app-build.tar.gz -C apps/mercato .mercato/next
+
+      - name: Upload app build
+        # Separate artifact so the test job (typecheck/unit tests) does not need
+        # to download the large Next.js output unnecessarily.
+        if: steps.integration-scope.outputs.skip != 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: app-build
+          path: app-build.tar.gz
+          retention-days: 1
+          if-no-files-found: error
+
+  # ── Audit scope ─────────────────────────────────────────────────────────────
+  # Determines whether dependency audit needs to run. Package manifests and
+  # lockfiles are the only inputs that can change the dependency graph.
+  audit-scope:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    outputs:
+      should_run: ${{ steps.dependency-files.outputs.should_run }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          # A pull_request checkout is GitHub's merge commit; its first parent is
+          # the base commit the PR was merged onto, so depth 2 is enough to diff
+          # exactly the PR's own changes.
+          fetch-depth: 2
+
+      - name: Detect dependency file changes
+        id: dependency-files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            # Diff against the merge commit's first parent, NOT the current tip of
+            # the base branch. The merge commit is frozen when the run is created,
+            # while the base branch keeps moving: diffing against a freshly fetched
+            # `origin/<base>` also reports every file the base branch changed since
+            # then, so a re-run of a UI-only PR after main bumped `yarn.lock`
+            # ran (and failed) the audit (#6753).
+            CHANGED=$(git diff --name-only HEAD^1 HEAD)
+          else
+            BEFORE="${{ github.event.before }}"
+
+            if [ -z "$BEFORE" ] || [[ "$BEFORE" =~ ^0+$ ]]; then
+              CHANGED=$(git diff-tree --no-commit-id --name-only -r HEAD)
+            else
+              git fetch --no-tags --depth=1 origin "$BEFORE" || true
+
+              if git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+                CHANGED=$(git diff --name-only "$BEFORE" HEAD)
+              else
+                CHANGED=$(git diff-tree --no-commit-id --name-only -r HEAD)
+              fi
+            fi
+          fi
+
+          DEPENDENCY_FILE_PATTERN='(^|/)package\.json$|(^|/)(yarn\.lock|package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|bun\.lock|bun\.lockb)$'
+
+          if printf '%s\n' "$CHANGED" | grep -Eq "$DEPENDENCY_FILE_PATTERN"; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ── Security audit ──────────────────────────────────────────────────────────
+  # Runs only when package manifests or lockfiles changed. Advisories published
+  # against an unchanged graph are covered by the daily
+  # `.github/workflows/audit.yml` instead — this job is the change-triggered
+  # half of the pair (#4479).
+  audit:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 15
+    needs: audit-scope
+    if: needs.audit-scope.outputs.should_run == 'true'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          # Depth 2 brings in the merge commit's first parent, whose yarn.lock is
+          # the PR's audit baseline.
+          fetch-depth: 2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.19.0
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Cache Yarn packages
+        uses: actions/cache@v6
+        with:
+          path: .yarn/cache
+          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          restore-keys: yarn-${{ runner.os }}-
+
+      # There is deliberately no cached `.audit-passed` marker here. It used to
+      # be keyed on manifest/lockfile content, but `yarn npm audit` output is a
+      # function of the dependency graph AND the advisory database at run time:
+      # a marker written before an advisory was published kept satisfying the
+      # key afterwards, so the scan silently did not execute and the job
+      # reported green on a graph that was by then vulnerable (#4479).
+      - name: Cache node_modules
+        # Shared key with other jobs — whichever runs first saves it.
+        id: nm-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+            apps/*/node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+
+      - name: Install dependencies
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/yarn-retry-on-install-crash.sh" yarn install --immutable
+
+      - name: Check for dead resolution keys
+        # Runs before the audit because a dead `resolutions` key is a *cause* of the
+        # failure the next step reports, and nothing else surfaces it: Yarn silently
+        # ignores a resolution whose `@npm:<descriptor>` suffix matches no descriptor
+        # in the tree, so a security pin stops applying the moment its requester bumps
+        # its declared range. All four `undici` keys had rotted that way before #5085,
+        # and the only symptom was a red audit with nothing in the diff to explain it
+        # (#5098). This job is the right home for the check because `audit-scope` gates
+        # it on exactly the inputs that can rot a key — manifests and lockfiles.
+        run: yarn check:resolutions
+
+      - name: Resolve audit baseline lockfile
+        # This job gates the CHANGE, so it fails only on advisories the change
+        # introduces: an advisory already flagged on the base yarn.lock is
+        # reported but not blocking. Otherwise a PR adding one clean dependency
+        # stays red for every advisory already on main (#5868). Those are
+        # owned by the scheduled `.github/workflows/audit.yml`, which audits
+        # without a baseline and keeps a tracking issue open until fixed.
+        # When no baseline can be resolved the audit runs strict (fails closed).
+        id: audit-baseline
+        shell: bash
+        run: |
+          set -uo pipefail
+          BASELINE="$RUNNER_TEMP/baseline-yarn.lock"
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_REF="HEAD^1"
+          else
+            BASE_REF="${{ github.event.before }}"
+            if [ -n "$BASE_REF" ] && ! [[ "$BASE_REF" =~ ^0+$ ]]; then
+              git fetch --no-tags --depth=1 origin "$BASE_REF" || true
+            else
+              BASE_REF=""
+            fi
+          fi
+
+          if [ -n "$BASE_REF" ] && git show "$BASE_REF:yarn.lock" > "$BASELINE" 2>/dev/null; then
+            echo "args=--baseline $BASELINE" >> "$GITHUB_OUTPUT"
+            echo "Auditing against baseline yarn.lock from $BASE_REF."
+          else
+            echo "args=" >> "$GITHUB_OUTPUT"
+            echo "::notice::No baseline yarn.lock available — auditing strictly."
+          fi
+
+      - name: Audit dependencies for known CVEs
+        # Uses scripts/audit-ci.mjs instead of `yarn npm audit` as a workaround for
+        # an npm registry bug: the bulk advisories endpoint returns a gzip body with
+        # no `Content-Encoding` header, so yarn 4.x fails with a JSON ParseError
+        # before evaluating any advisory. The script runs the same high+ severity
+        # gate over every resolved package with defensive gunzip and fails closed.
+        # Revert to `yarn npm audit --all --recursive --severity high` once npm
+        # restores the encoding header on that endpoint.
+        run: node scripts/audit-ci.mjs --severity high ${{ steps.audit-baseline.outputs.args }}
+
+  # ── Lint ─────────────────────────────────────────────────────────────────────
+  # Fast static analysis — runs in parallel with prepare and audit.
+  # ESLint does not need compiled packages, so it can fail fast before heavy jobs.
+  # @open-mercato/app is the only workspace with a `lint` script, so it must stay
+  # in scope: excluding it left turbo with zero commands and a permanently green
+  # no-op job (issue #4472).
+  lint:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.19.0
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Cache Yarn packages
+        uses: actions/cache@v6
+        with:
+          path: .yarn/cache
+          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          restore-keys: yarn-${{ runner.os }}-
+
+      - name: Cache node_modules
+        id: nm-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+            apps/*/node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+
+      - name: Install dependencies
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/yarn-retry-on-install-crash.sh" yarn install --immutable
+
+      - name: Guard against an empty lint task graph
+        # Fails when `turbo run lint` resolves to zero commands, so a future
+        # filter or script rename cannot silently disable the gate again.
+        run: yarn lint:check-graph
+
+      - name: Lint
+        run: yarn lint
+
+      - name: Guard against unmet peer dependencies in published packages
+        # A peer that only lives in devDependencies resolves fine through the
+        # monorepo's hoisted node_modules but is absent from a standalone app,
+        # which installs dependencies + peerDependencies only. No PR job builds a
+        # standalone app, so without this gate the break first appears post-merge
+        # in the snapshot workflow's `Standalone App Integration Tests`.
+        # Pre-existing cases are pinned in scripts/package-peer-deps-allowlist.json.
+        run: yarn packages:check-peer-deps
+
+      - name: Guard against raw console.* logging
+        # Blocking since the application-wide migration to the structured
+        # logging facade (see .ai/specs/2026-07-02-structured-logging-facade.md).
+        # Intentional stdout (CLI output, module cli.ts) is allowlisted in
+        # scripts/logger-console-allowlist.json.
+        run: yarn logger:check-console:ci
+
+  # ── DS lint (advisory) ──────────────────────────────────────────────────────
+  # Reports per-rule DS lint counts and the delta vs the base branch on every
+  # PR. Advisory by construction: joins no `needs` chain and is not a required
+  # status check — making it required is gated on the first per-module `error`
+  # flip (see .ai/specs/2026-07-05-ds-lint-ci-escalation-and-alert-migration.md,
+  # Workstream 1). Runs in parallel with the heavy jobs: the plugin is plain JS
+  # and @typescript-eslint/parser needs no compiled packages. Both lint runs
+  # use the HEAD's plugin + config so rule changes in the PR cannot skew the
+  # comparison. ESLint is invoked through the TypeScript 7 require hook — the
+  # native compiler has no JS API, so the parser's `typescript` import must be
+  # redirected to `typescript-js`.
+  ds-lint:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+      pull-requests: write   # sticky comment; no-op on fork PRs (read-only token)
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.19.0
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Cache Yarn packages
+        uses: actions/cache@v6
+        with:
+          path: .yarn/cache
+          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          restore-keys: yarn-${{ runner.os }}-
+
+      - name: Cache node_modules
+        id: nm-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+            apps/*/node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+
+      - name: Install dependencies
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/yarn-retry-on-install-crash.sh" yarn install --immutable
+
+      - name: DS lint (head)
+        # `|| true`: the report must be published even when error-level
+        # findings exist; enforcement is the separate `--check` step below.
+        run: |
+          node --require ./scripts/typescript-js-require-hook.cjs \
+            node_modules/eslint/bin/eslint.js --config eslint.ds.config.mjs \
+            packages apps --format json --output-file /tmp/ds-head.json || true
+
+      - name: DS lint (base)
+        # Same plugin + config as the head run: flat-config `files` globs
+        # resolve against cwd (the base worktree) while the config's imports
+        # resolve against the config file's own location in the head checkout.
+        # Isolated in its own step so a failure (e.g. a base predating the DS
+        # config) degrades to "delta n/a (no base data)" in the report.
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: |
+          git fetch origin ${{ github.base_ref }} --depth=1
+          git worktree add /tmp/ds-base origin/${{ github.base_ref }}
+          (cd /tmp/ds-base && node --require "$GITHUB_WORKSPACE/scripts/typescript-js-require-hook.cjs" \
+            "$GITHUB_WORKSPACE/node_modules/eslint/bin/eslint.js" \
+            --config "$GITHUB_WORKSPACE/eslint.ds.config.mjs" \
+            packages apps --format json --output-file /tmp/ds-base.json) || true
+
+      - name: Report
+        id: ds-report
+        run: |
+          node scripts/ci/ds-lint-report.mjs /tmp/ds-head.json /tmp/ds-base.json \
+            --base-dir /tmp/ds-base --comment-file /tmp/ds-lint-comment.md
+
+      - name: Sticky PR comment
+        # Same-repo PRs only (fork PRs have a read-only token and rely on the
+        # job summary). Created only when the delta is non-zero or error-level
+        # findings exist; an existing comment is updated in place (never
+        # duplicated) — including back to "+0" when a delta is reverted.
+        if: >
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/github-script@v8
+        env:
+          SHOULD_COMMENT: ${{ steps.ds-report.outputs.should_comment }}
+        with:
+          script: |
+            const fs = require('fs')
+            const marker = '<!-- ds-lint-report -->'
+            const body = fs.readFileSync('/tmp/ds-lint-comment.md', 'utf8')
+            const { owner, repo } = context.repo
+            const issue_number = context.payload.pull_request.number
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number, per_page: 100,
+            })
+            const existing = comments.find((c) => c.body && c.body.includes(marker))
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body })
+            } else if (process.env.SHOULD_COMMENT === 'true') {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body })
+            }
+
+      - name: Enforce error-level findings
+        # Exit 0 while all findings are warn-level; error-level findings
+        # (post-escalation, Workstream 2) fail the job — the enforcement teeth
+        # once per-module flips begin.
+        run: node scripts/ci/ds-lint-report.mjs --check /tmp/ds-head.json
+
+  # ── Quality checks ──────────────────────────────────────────────────────────
+  # Typechecking and unit tests. Runs in parallel with ephemeral-integration
+  # so typecheck cost does not add to the integration wall time.
+  # merge-coverage and docker-build both wait for this job to complete.
+  test:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: [prepare, audit-scope, audit, lint]
+    if: |
+      always() &&
+      !cancelled() &&
+      needs.prepare.result == 'success' &&
+      needs.audit-scope.result == 'success' &&
+      (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
+      needs.lint.result == 'success'
+    services:
+      # `@open-mercato/queue` translates its `coalesce` option into BullMQ deduplication,
+      # and the rest of its tests — which mock BullMQ — prove only that the right options
+      # reach `queue.add`. The guarantee callers rely on is BullMQ's own behaviour, and a
+      # semantic change behind an unchanged option name would pass both the mock and the
+      # installed-BullMQ name guard. One server makes that suite run for real.
+      #
+      # No other suite reaches for a default localhost Redis (they all mock ioredis,
+      # bullmq or the connection helper), so this changes nothing else in the job.
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        # Without a health gate the first enqueue can beat the server's startup and fail
+        # the job for a reason that has nothing to do with the change under test.
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      # app typecheck (tsc --noEmit on the full Next.js app) peaks at ~4 GB;
+      # raise the heap so it does not OOM on cache-miss runs.
+      NODE_OPTIONS: --max-old-space-size=5120
+      # Opts the queue's real-BullMQ coalescing suite in; it skips itself when unset,
+      # which is what keeps it out of every environment that has no Redis.
+      QUEUE_TEST_REDIS_URL: redis://127.0.0.1:6379/0
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Fetch base branch for change detection
+        if: github.event_name == 'pull_request'
+        run: git fetch origin ${{ github.base_ref }} --depth=1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.19.0
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Cache Yarn packages
+        uses: actions/cache@v6
+        with:
+          path: .yarn/cache
+          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          restore-keys: yarn-${{ runner.os }}-
+
+      - name: Cache node_modules
+        id: nm-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+            apps/*/node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+
+      - name: Cache pip packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/pip
+          key: pip-markitdown-v2
+          restore-keys: pip-markitdown-
+
+      - name: Upgrade pip
+        # Upgrade pip in its own invocation: the system pip (24.0) resolver
+        # backtracks through markitdown versions and dead-ends on markdownify
+        # (ResolutionImpossible). A combined `pip install --upgrade pip markitdown`
+        # does NOT help because the newer resolver only takes effect on the next
+        # invocation. Splitting the upgrade out lets the install below run on the
+        # modern resolver.
+        run: python3 -m pip install --upgrade pip
+
+      - name: Install markitdown CLI
+        # Pin the version so resolution is deterministic and a future
+        # markitdown/markdownify release cannot break CI without an explicit bump.
+        run: python3 -m pip install 'markitdown==0.1.6'
+
+      - name: Install dependencies
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/yarn-retry-on-install-crash.sh" yarn install --immutable
+
+      - name: Cache Turbo build outputs
+        uses: actions/cache@v6
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-${{ github.ref_name }}-
+            turbo-${{ runner.os }}-
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: build-artifacts
+
+      - name: Check CLASSIC DI injection survives bundling
+        # Reads packages/*/dist, so it must stay after the artifact download.
+        # Awilix CLASSIC resolves a factory's dependencies by PARAMETER NAME, and
+        # esbuild renames a parameter that shadows an enclosing binding — so a
+        # registration can be correct in source, pass under ts-jest, and still
+        # throw AwilixResolutionError in the published package. Source-level
+        # checks cannot see this; only the built artefact can.
+        run: yarn check:classic-di-injection
+
+      - name: Check dependency version conflicts
+        run: yarn check:dep-versions
+
+      - name: Check paginated lists forward totalIsCapped
+        run: yarn check:pagination-capped
+
+      - name: Check i18n sync
+        run: yarn tsx scripts/i18n-check-sync.ts
+
+      - name: Check i18n usage
+        run: yarn i18n:check-usage
+        continue-on-error: true
+
+      - name: Check for time-bomb test literals
+        run: yarn check:time-bombs:fail
+
+      - name: Check agent instruction budget
+        # The root AGENTS.md must fit Codex's default 32 KiB project-instruction budget,
+        # and the already-oversized root-to-module chains may only shrink (#4484).
+        run: yarn agents:check-budget
+
+      - name: Checking types
+        # Workflow edits and protected branch pushes run the full gate.
+        # Other PRs scope to packages/app that changed since the base branch.
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ] || ! git diff --quiet HEAD^1 HEAD -- .github/workflows/ci.yml; then
+            yarn typecheck
+          else
+            yarn turbo run typecheck --filter=[origin/${{ github.base_ref }}]...
+          fi
+        env:
+          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+          TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+
+      - name: Test
+        # Same scoping as typecheck, including full gates for workflow edits.
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ] || ! git diff --quiet HEAD^1 HEAD -- .github/workflows/ci.yml; then
+            yarn test
+          else
+            yarn turbo run test --filter=[origin/${{ github.base_ref }}]...
+          fi
+
+      - name: Test scripts
+        # Turbo never picks up root-level scripts — run explicitly.
+        run: yarn test:scripts
+
+      - name: Check DS token snapshot drift (always, unfiltered)
+        # .ai/ds/ds-tokens.json is the committed canonical mirror of the token
+        # blocks in apps/mercato/src/app/globals.css. It is not a package, so
+        # the turbo-scoped Test step never guards it — check explicitly, like
+        # the template-parity guard below: a PR that edits a token without
+        # running `yarn ds:tokens` fails here instead of drifting silently.
+        run: yarn ds:tokens:check
+
+      - name: Check lucide icon registry drift (always, unfiltered)
+        # packages/ui/src/backend/icons/lucideRegistry.generated.tsx is emitted
+        # from a repo-WIDE scan for `icon: '<name>'` strings, so the PR that
+        # drifts it usually touches another package entirely. turbo's
+        # --filter=[base]... selects a changed package and its DEPENDENTS, and
+        # packages/ui is a dependency of those packages rather than a dependent,
+        # so any guard living in ui's own suite is skipped on exactly the PRs
+        # that break it — which is how #4391 added `icon: 'bot'` and left the
+        # registry stale until #5651. Same reasoning as the DS token check above.
+        run: yarn ui:icons:check
+
+      - name: Check create-app template parity (always, unfiltered)
+        # The create-app package guards byte-parity between the monorepo app shell
+        # (apps/mercato/**) and the standalone template (packages/create-app/template/**).
+        # Those guards read files across BOTH trees, but the turbo-scoped "Test" step
+        # above uses --filter=[base]... which selects packages by the dependency graph
+        # and never pulls in create-mercato-app when only apps/mercato changes — so on
+        # PRs the parity tests can silently skip while the post-merge push build (full,
+        # unfiltered `yarn test`) turns main red (see #3779). Run the create-app unit
+        # suite unconditionally here so template drift fails the PR, not main.
+        run: yarn workspace create-mercato-app test
+
+      - name: Run repo-wide audit guards (always, unfiltered)
+        # Same class as the create-app parity step above, generalized (#4534). A handful of
+        # tests are repo-wide AUDITS rather than package unit tests: they deliberately scan
+        # other packages, apps/ or scripts/. The turbo filter selects packages, not paths, so
+        # a PR touching only scripts/ selects no package and those audits never run — the
+        # violation then lands on main and the post-merge unfiltered `yarn test` goes red
+        # for everyone (#4527). Run them unconditionally so they fail their own PR — do not
+        # move this step behind an `if:`, or the silent skip comes straight back.
+        #
+        # The guards are enumerated in exactly one place: REPO_WIDE_GUARDS in
+        # scripts/repo-wide-guards.mjs, where each entry carries the reason it is repo-wide.
+        # Print the current set with `yarn test:repo-wide-guards --list`. This comment does
+        # not repeat it: a second copy went stale the first time a guard was added (#4770),
+        # and a stale list in CI config is worse than none because the next reader trusts it.
+        # scripts/__tests__/repo-wide-guards.test.mjs fails if the enumeration reappears here.
+        #
+        # Not here because they already run unfiltered: the create-app parity guards (step
+        # above), `yarn agents:check-budget`, `yarn test:scripts`. All guards are static file
+        # scans — the whole set is ~10 s, so it stays on the common PR path.
+        run: yarn test:repo-wide-guards
+
+  # ── Core suite under a non-UTC timezone ────────────────────────────────────
+  # Runners default to UTC, where wall-clock/timezone defects are invisible: the
+  # planner DTSTART bug (#5862) was built from the host clock, yet every suite
+  # passed at TZ=UTC with it fully present, because the fixtures only ever used
+  # `...Z` values. This job re-runs @open-mercato/core under a positive-offset
+  # zone whose local date differs from UTC for part of the day, so host-clock
+  # leakage fails the build instead of shipping. Kept as its own job rather than
+  # a step in `test`, which is sharded and would repeat the run per shard.
+  core-timezone:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [prepare, audit-scope, audit, lint]
+    if: |
+      always() &&
+      !cancelled() &&
+      needs.prepare.result == 'success' &&
+      needs.audit-scope.result == 'success' &&
+      (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
+      needs.lint.result == 'success'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.19.0
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Cache Yarn packages
+        uses: actions/cache@v6
+        with:
+          path: .yarn/cache
+          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          restore-keys: yarn-${{ runner.os }}-
+
+      - name: Cache node_modules
+        id: nm-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+            apps/*/node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+
+      - name: Install dependencies
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/yarn-retry-on-install-crash.sh" yarn install --immutable
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: build-artifacts
+
+      - name: Run core suite at TZ=Pacific/Auckland
+        run: yarn workspace @open-mercato/core test:tz
+
+  # ── Documents multi-instance durability ────────────────────────────────────
+  # The standard Documents Jest suite intentionally skips this infrastructure
+  # regression. Run it as a dedicated required job on GitHub's Docker-capable
+  # runner so every change proves the two-sidecar Redis/PostgreSQL persistence
+  # path rather than relying on an opt-in local command.
+  documents-multi-instance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [prepare, audit-scope, audit, lint]
+    if: |
+      always() &&
+      !cancelled() &&
+      needs.prepare.result == 'success' &&
+      needs.audit-scope.result == 'success' &&
+      (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
+      needs.lint.result == 'success'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Cache Yarn packages
+        uses: actions/cache@v6
+        with:
+          path: .yarn/cache
+          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          restore-keys: yarn-${{ runner.os }}-
+
+      - name: Cache node_modules
+        id: nm-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+            apps/*/node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+
+      - name: Install dependencies
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/yarn-retry-on-install-crash.sh" yarn install --immutable
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: build-artifacts
+
+      - name: Run real two-sidecar durability regression
+        run: yarn workspace @open-mercato/documents test:multi-instance
+
+      - name: Run advisory lock suite against real Postgres
+        if: ${{ !cancelled() }}
+        run: yarn workspace @open-mercato/shared test:pg-integration
+
+      - name: Run integrations module suites against real Postgres
+        if: ${{ !cancelled() }}
+        run: yarn workspace @open-mercato/core test:pg-integration
+
+      - name: Check OAuth grant import paths resolve against the built dist
+        if: ${{ !cancelled() }}
+        run: node scripts/check-oauth-publish-shape.mjs
+
+  # ── Integration tests ───────────────────────────────────────────────────────
+  # Boots an ephemeral app server and runs the Playwright suite.
+  # Starts as soon as 'prepare' completes — runs in PARALLEL with 'test' so
+  # typecheck/unit-test time does not add to the integration wall time.
+  # 'merge-coverage' is the final gate and waits for both jobs.
+  #
+  # On PRs: a single runner executes only affected modules (OM_INTEGRATION_MODULES).
+  #         If no module-level code changed the job is skipped entirely.
+  # On pushes to main and release/v*: 15 parallel shards run the full suite, cutting
+  #         wall time from ~45 min to ~6 min. A merge-coverage job then
+  #         combines per-shard coverage reports.
+  ephemeral-integration:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: [prepare, audit-scope, audit, lint]
+    if: |
+      always() &&
+      !cancelled() &&
+      needs.prepare.result == 'success' &&
+      needs.audit-scope.result == 'success' &&
+      (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
+      needs.lint.result == 'success' &&
+      needs.prepare.outputs.skip_integration != 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJson(needs.prepare.outputs.shard_matrix) }}
+    env:
+      # OM_ENABLE_ENTERPRISE_MODULES{,_SSO,_SECURITY,_AGENTS} are set at the
+      # WORKFLOW level (top of this file), not here. They were job-level until
+      # the build/runtime split was found: `prepare` never saw them, so the app
+      # these shards boot was built without any enterprise module while this job
+      # still discovered the enterprise specs. Keeping a second copy here would
+      # re-create the two-sources-of-truth problem — read the workflow-level
+      # block before changing enterprise flags.
+      # SELF_SERVICE_ONBOARDING_ENABLED is workflow-level for the same reason.
+      OM_DISABLE_EMAIL_DELIVERY: '0'
+      OM_ENABLE_TEST_CHANNEL_SEEDING: 'true'
+      OM_ENABLE_TEST_OAUTH_GRANTS: 'true'
+      SYSTEM_EMAIL_PROVIDER: '__test_seed__'
+      EMAIL_FROM: 'system@test-seed.local'
+      NOTIFICATIONS_EMAIL_FROM: 'notifications@test-seed.local'
+      ADMIN_EMAIL: 'admin@test-seed.local'
+      # TC-DOCUMENTS-017 owns a disposable loopback collaboration sidecar on
+      # the same ephemeral database. The separate documents-multi-instance job
+      # proves the Redis-backed two-sidecar path.
+      # NEXT_PUBLIC_DOCUMENTS_COLLAB_URL is declared at workflow level so the
+      # reused `prepare` app build agrees with this runtime environment.
+      OM_DOCUMENTS_COLLAB_INTEGRATION: '1'
+      DOCUMENTS_COLLAB_JWT_SECRET_V2: 'ci-documents-collaboration-v2-secret-32-bytes'
+      JWT_SECRET: 'ci-ephemeral-test-jwt-secret-32-chars-min'
+      OM_SECURITY_MFA_SETUP_SECRET: 'ci-ephemeral-test-mfa-setup-secret'
+      # The forms module refuses its DEV-ONLY deterministic KMS adapter under
+      # NODE_ENV=production, which is how the ephemeral harness runs the app.
+      # Without a master key `formsEncryptionService` does not resolve and every
+      # route that touches an encrypted payload answers a bare 500 — the whole
+      # public and portal runtime, the submissions inbox, revisions, audit,
+      # anonymize, export, PDF and analytics. Must decode to exactly 32 bytes.
+      FORMS_ENCRYPTION_MASTER_KEY: '63692d657068656d6572616c2d746573742d666f726d732d6d61737465722d31'
+      OM_WEBHOOKS_ALLOW_PRIVATE_URLS: '1'
+      # The mock inbound webhook adapter now requires a real HMAC-SHA256
+      # signature (#2707). The ephemeral harness spawns the app under
+      # NODE_ENV=production, which disables the adapter's dev-secret
+      # fallback, so the secret must be supplied explicitly here. Setting
+      # it at the job level reaches BOTH the spawned app process (which
+      # verifies the signature) and the Playwright runner (which signs the
+      # request) so TC-WEBHOOK-003 sees matching secrets. Mirrors the value
+      # used by snapshot.yml and the ephemeral harness default.
+      MOCK_INBOUND_WEBHOOK_SECRET: 'open-mercato-mock-dev-inbound-webhook-secret'
+      # Enables the OSS opt-in optimistic-locking guard from PR #1981.
+      # `OM_OPTIMISTIC_LOCK=all` (workflow-level env) auto-registers a
+      # generic reader for every CRUD entity (Phase 13). Required by
+      # TC-LOCK-OSS-001..003 (hand-wired readers) and TC-LOCK-OSS-004
+      # (generic reader path on customers.deal). Other tests are
+      # unaffected because the guard SKIPS when the request omits the
+      # `x-om-ext-optimistic-lock-expected-updated-at` header.
+      # OM_OPTIMISTIC_LOCK and OM_OPTIMISTIC_LOCK_DEBUG are set at the
+      # workflow level so both the build and the run-time stack agree.
+    steps:
+      - name: Compute shard metadata
+        id: shard-meta
+        run: |
+          SHARD="${{ matrix.shard }}"
+          if [ "$SHARD" = "none" ]; then
+            echo "artifact_name=integration-test-results" >> "$GITHUB_OUTPUT"
+            echo "shard_flag=" >> "$GITHUB_OUTPUT"
+            echo "shard_index=none" >> "$GITHUB_OUTPUT"
+          else
+            INDEX="${SHARD%%/*}"
+            echo "artifact_name=integration-test-results-${INDEX}" >> "$GITHUB_OUTPUT"
+            echo "shard_flag=--shard ${SHARD}" >> "$GITHUB_OUTPUT"
+            echo "shard_index=${INDEX}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.19.0
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Cache Yarn packages
+        uses: actions/cache@v6
+        with:
+          path: .yarn/cache
+          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          restore-keys: yarn-${{ runner.os }}-
+
+      - name: Cache node_modules
+        id: nm-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+            apps/*/node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+
+      - name: Install dependencies
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/yarn-retry-on-install-crash.sh" yarn install --immutable
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: build-artifacts
+
+      - name: Download app build
+        # Reuses the Next.js build produced by prepare — avoids rebuilding
+        # (~96s) in each of the 15 parallel shards (~24 min saved total).
+        uses: actions/download-artifact@v8
+        with:
+          name: app-build
+
+      - name: Extract app build
+        # Restore the tarball into apps/mercato/ so .mercato/next/ exists
+        # at the path expected by the Next.js server.
+        run: tar -xzf app-build.tar.gz -C apps/mercato/
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-v1.50.0
+
+      - name: Install Playwright browser
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Run ephemeral integration tests with code coverage
+        env:
+          OM_INTEGRATION_APP_READY_TIMEOUT_SECONDS: '180'
+          OM_INTEGRATION_MODULES: ${{ needs.prepare.outputs.affected_modules }}
+        run: |
+          SHARD_FLAG="${{ steps.shard-meta.outputs.shard_flag }}"
+          if [ -n "$SHARD_FLAG" ]; then
+            yarn test:integration:coverage $SHARD_FLAG
+          else
+            yarn test:integration:coverage
+          fi
+
+      - name: Stage coverage for shard merge
+        # Only needed for sharded push runs — copies per-shard summary to a
+        # named subdirectory so merge-coverage can collect all shards at once.
+        if: always() && matrix.shard != 'none'
+        run: |
+          INDEX="${{ steps.shard-meta.outputs.shard_index }}"
+          DEST=".ai/qa/test-results/coverage-shard-${INDEX}/code"
+          mkdir -p "$DEST"
+          SRC=".ai/qa/test-results/coverage/code/coverage-summary.json"
+          if [ -f "$SRC" ]; then
+            cp "$SRC" "$DEST/coverage-summary.json"
+          fi
+
+      - name: Display integration coverage summary
+        # PR only (shard=none) — push coverage is merged and displayed by merge-coverage job.
+        if: always() && matrix.shard == 'none'
+        run: |
+          SUMMARY_FILE=".ai/qa/test-results/coverage/code/coverage-summary.json"
+          if [ ! -f "$SUMMARY_FILE" ]; then
+            echo "Coverage summary not found at $SUMMARY_FILE"
+            echo "## Integration Coverage" >> "$GITHUB_STEP_SUMMARY"
+            echo "Coverage summary file was not generated." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          node -e "
+          const fs = require('fs');
+          const p = process.argv[1];
+          const summary = JSON.parse(fs.readFileSync(p, 'utf8'));
+          const t = summary.total || {};
+          const f = (name) => {
+            const m = t[name] || {};
+            const covered = m.covered ?? 0;
+            const total = m.total ?? 0;
+            const pct = m.pct ?? 0;
+            return \`\${name}: \${covered}/\${total} (\${pct}%)\`;
+          };
+          const lines = [
+            '[coverage] Final integration coverage summary',
+            f('lines'),
+            f('statements'),
+            f('functions'),
+            f('branches'),
+          ];
+          console.log(lines.join('\n'));
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, [
+            '## Integration Coverage',
+            '',
+            '| Metric | Covered/Total | Percent |',
+            '|---|---:|---:|',
+            \`| Lines | \${t.lines?.covered ?? 0}/\${t.lines?.total ?? 0} | \${t.lines?.pct ?? 0}% |\`,
+            \`| Statements | \${t.statements?.covered ?? 0}/\${t.statements?.total ?? 0} | \${t.statements?.pct ?? 0}% |\`,
+            \`| Functions | \${t.functions?.covered ?? 0}/\${t.functions?.total ?? 0} | \${t.functions?.pct ?? 0}% |\`,
+            \`| Branches | \${t.branches?.covered ?? 0}/\${t.branches?.total ?? 0} | \${t.branches?.pct ?? 0}% |\`,
+            '',
+            'Source: \`.ai/qa/test-results/coverage/code/coverage-summary.json\`',
+            '',
+          ].join('\n'));
+          " "$SUMMARY_FILE"
+
+      - name: Upload integration test artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.shard-meta.outputs.artifact_name }}
+          path: |
+            .ai/qa/test-results/html/
+            .ai/qa/test-results/artifacts/
+            .ai/qa/test-results/results.json
+            .ai/qa/test-results/coverage-shard-${{ steps.shard-meta.outputs.shard_index }}/
+          if-no-files-found: ignore
+
+  # ── Merge shard coverage ─────────────────────────────────────────────────────
+  # Final gate — runs after all integration shards AND the test job complete.
+  # Ensures both typecheck/units and integration must pass before reporting green.
+  # On push: downloads per-shard artifacts, merges coverage reports, writes summary.
+  merge-coverage:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: [prepare, test, documents-multi-instance, ephemeral-integration]
+    if: |
+      always() &&
+      !cancelled() &&
+      needs.prepare.result == 'success' &&
+      needs.test.result == 'success' &&
+      needs.documents-multi-instance.result == 'success' &&
+      needs.ephemeral-integration.result == 'success' &&
+      needs.prepare.outputs.shard_matrix != '["none"]'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.19.0
+
+      - name: Download shard artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: integration-test-results-*
+          merge-multiple: true
+
+      - name: Merge shard coverage reports
+        run: node scripts/merge-coverage.mjs .ai/qa/test-results
+
+      - name: Display merged integration coverage
+        if: always()
+        run: |
+          SUMMARY_FILE=".ai/qa/test-results/coverage/code/coverage-summary.json"
+          if [ ! -f "$SUMMARY_FILE" ]; then
+            echo "Merged coverage summary not found at $SUMMARY_FILE"
+            echo "## Integration Coverage (Merged)" >> "$GITHUB_STEP_SUMMARY"
+            echo "Coverage summary file was not generated." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          node -e "
+          const fs = require('fs');
+          const p = process.argv[1];
+          const summary = JSON.parse(fs.readFileSync(p, 'utf8'));
+          const t = summary.total || {};
+          const f = (name) => {
+            const m = t[name] || {};
+            const covered = m.covered ?? 0;
+            const total = m.total ?? 0;
+            const pct = m.pct ?? 0;
+            return \`\${name}: \${covered}/\${total} (\${pct}%)\`;
+          };
+          const lines = [
+            '[coverage] Merged integration coverage summary',
+            f('lines'),
+            f('statements'),
+            f('functions'),
+            f('branches'),
+          ];
+          console.log(lines.join('\n'));
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, [
+            '## Integration Coverage (Merged)',
+            '',
+            '| Metric | Covered/Total | Percent |',
+            '|---|---:|---:|',
+            \`| Lines | \${t.lines?.covered ?? 0}/\${t.lines?.total ?? 0} | \${t.lines?.pct ?? 0}% |\`,
+            \`| Statements | \${t.statements?.covered ?? 0}/\${t.statements?.total ?? 0} | \${t.statements?.pct ?? 0}% |\`,
+            \`| Functions | \${t.functions?.covered ?? 0}/\${t.functions?.total ?? 0} | \${t.functions?.pct ?? 0}% |\`,
+            \`| Branches | \${t.branches?.covered ?? 0}/\${t.branches?.total ?? 0} | \${t.branches?.pct ?? 0}% |\`,
+            '',
+            'Source: \`.ai/qa/test-results/coverage/code/coverage-summary.json\`',
+            '',
+          ].join('\n'));
+          " "$SUMMARY_FILE"
+
+  # ── Docker image builds ──────────────────────────────────────────────────────
+  # Validates all Dockerfiles build cleanly. Runs in parallel with test and
+  # integration — no longer sequenced after test — so it does not add to wall
+  # time on PRs where Docker rebuilds are fast (GHA cache hit).
+  #
+  # Skipped for CI/docs/scripts-only PRs (skip_integration == 'true'): those
+  # changes do not affect app source or Dockerfiles, so the Docker image is
+  # identical to the last build and there is nothing to validate. This avoids
+  # a 10+ min rebuild caused by Docker layer cache busting when files like
+  # turbo.json or scripts/ are the only things that changed.
+  docker-build:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: prepare
+    # Only run on non-fork PRs and direct pushes (forks don't have access to GHA cache).
+    # Also skip for CI/docs-only PRs — no app code changed, image is unchanged.
+    if: |
+      needs.prepare.outputs.skip_integration != 'true' &&
+      (github.event_name == 'push' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Blacksmith Builder
+        uses: useblacksmith/setup-docker-builder@v2
+        with:
+          # One builder serves all three Dockerfile builds in this job, so they share one
+          # layer cache — same as v1, where the key defaulted to the repository name.
+          cache-key: ci-docker-build
+
+      - name: Build docs Dockerfile
+        uses: useblacksmith/build-push-action@v2
+        with:
+          context: .
+          file: apps/docs/Dockerfile
+          push: false
+
+      - name: Build fullapp (main app)
+        uses: useblacksmith/build-push-action@v2
+        with:
+          context: .
+          file: Dockerfile
+          push: false
+
+      - name: Build opencode container
+        uses: useblacksmith/build-push-action@v2
+        with:
+          context: ./docker/opencode
+          push: false

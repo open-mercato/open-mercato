@@ -1,0 +1,8 @@
+profile-generate-watch-rss: spawning standalone watcher (warmup 8000 ms)...
+--- RSS walk (after warmup) ---
+  PID 761108  RSS=184416 KB
+TOTAL RSS: 184416 KB = 180.1 MB
+-------------------------------
+legacy standalone watcher (this script)  : ~180 MB
+in-process watcher (folded into mercato server dev): 0 MB dedicated
+net savings on yarn dev idle             : ~180 MB

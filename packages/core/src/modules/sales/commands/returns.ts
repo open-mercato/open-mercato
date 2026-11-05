@@ -1,0 +1,1220 @@
+import { randomUUID } from 'crypto'
+import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+import { LockMode } from '@mikro-orm/core'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { SalesDocumentNumberGenerator } from '../services/salesDocumentNumberGenerator'
+import type { SalesCalculationService } from '../services/salesCalculationService'
+import type { SalesAdjustmentDraft, SalesLineSnapshot, SalesDocumentCalculationResult } from '../lib/types'
+import { isExternalAmountsMode } from '../lib/calculations'
+import { readPersistedHeaderTotals } from '../lib/externalAmounts'
+import { cloneJson, deriveLineNetFromGross, ensureOrganizationScope, ensureSameScope, ensureTenantScope, extractUndoPayload, toNumericString, enforceSalesDocumentOptimisticLock, lockSalesDocumentRow, SALES_RESOURCE_KIND_ORDER, SALES_RESOURCE_KIND_RETURN } from './shared'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
+import { SalesOrder, SalesOrderAdjustment, SalesOrderLine, SalesReturn, SalesReturnLine } from '../data/entities'
+import { mapOrderLineEntityToSnapshot } from '../lib/lineSnapshots'
+import { loadShippedQuantityByLine } from '../lib/shipments/snapshots'
+import { computeAvailableReturnQuantity } from '../lib/returnQuantity'
+import {
+  returnCreateSchema,
+  returnUpdateSchema,
+  returnDeleteSchema,
+  type ReturnCreateInput,
+  type ReturnUpdateInput,
+  type ReturnDeleteInput,
+} from '../data/validators'
+import { E } from '#generated/entities.ids.generated'
+
+type ReturnLineInput = { orderLineId: string; quantity: number }
+
+type ReturnSnapshot = {
+  id: string
+  orderId: string
+  organizationId: string
+  tenantId: string
+  returnNumber: string
+  returnedAt: string | null
+  reason: string | null
+  notes: string | null
+  lines: Array<{
+    id: string
+    orderLineId: string
+    quantityReturned: number
+    unitPriceNet: number
+    unitPriceGross: number
+    totalNetAmount: number
+    totalGrossAmount: number
+  }>
+  adjustmentIds: string[]
+}
+
+type ReturnUndoPayload = {
+  after?: ReturnSnapshot | null
+}
+
+const returnCrudEvents: CrudEventsConfig = {
+  module: 'sales',
+  entity: 'return',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
+}
+
+type OrderCacheRecord = Pick<SalesOrder, 'id' | 'organizationId' | 'tenantId'>
+
+/**
+ * Return mutations update the order aggregate, which is also the cache resource
+ * used by the order-lines and order-adjustments routes. Invalidate it after
+ * each committed return lifecycle change so reloads receive its fresh
+ * `updatedAt` optimistic-lock token.
+ */
+async function invalidateOrderCache(
+  container: Parameters<typeof invalidateCrudCache>[0],
+  order: OrderCacheRecord,
+  fallbackTenant: string | null,
+): Promise<void> {
+  await invalidateCrudCache(
+    container,
+    SALES_RESOURCE_KIND_ORDER,
+    { id: order.id, organizationId: order.organizationId, tenantId: order.tenantId },
+    fallbackTenant,
+    'updated',
+  )
+}
+
+function toNumeric(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim().length) {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return 0
+}
+
+function round(value: number): number {
+  return Math.round((value + Number.EPSILON) * 1e4) / 1e4
+}
+
+/**
+ * Payment totals live on the order, not in the line/adjustment math a return
+ * recalculates. Every `calculateDocumentTotals` call that writes order totals
+ * back to the order MUST seed these so `buildBaseDocumentResult` preserves the
+ * recorded `paidTotalAmount` / `refundedTotalAmount` instead of defaulting them
+ * to 0 — otherwise creating/undoing/redoing a return silently zeroes the paid
+ * amount and the order's outstanding balance goes wrong on any paid order
+ * (#3756). Mirrors `resolveExistingPaymentTotals` in `commands/documents.ts`.
+ */
+function resolveExistingPaymentTotals(order: SalesOrder): { paidTotalAmount: number; refundedTotalAmount: number } {
+  return {
+    paidTotalAmount: toNumeric(order.paidTotalAmount),
+    refundedTotalAmount: toNumeric(order.refundedTotalAmount),
+  }
+}
+
+function applyOrderTotals(order: SalesOrder, totals: SalesDocumentCalculationResult['totals'], lineCount: number): void {
+  order.subtotalNetAmount = toNumericString(totals.subtotalNetAmount) ?? '0'
+  order.subtotalGrossAmount = toNumericString(totals.subtotalGrossAmount) ?? '0'
+  order.discountTotalAmount = toNumericString(totals.discountTotalAmount) ?? '0'
+  order.taxTotalAmount = toNumericString(totals.taxTotalAmount) ?? '0'
+  order.shippingNetAmount = toNumericString(totals.shippingNetAmount) ?? '0'
+  order.shippingGrossAmount = toNumericString(totals.shippingGrossAmount) ?? '0'
+  order.surchargeTotalAmount = toNumericString(totals.surchargeTotalAmount) ?? '0'
+  order.grandTotalNetAmount = toNumericString(totals.grandTotalNetAmount) ?? '0'
+  order.grandTotalGrossAmount = toNumericString(totals.grandTotalGrossAmount) ?? '0'
+  order.paidTotalAmount = toNumericString(totals.paidTotalAmount) ?? '0'
+  order.refundedTotalAmount = toNumericString(totals.refundedTotalAmount) ?? '0'
+  order.outstandingAmount = toNumericString(totals.outstandingAmount) ?? '0'
+  order.totalsSnapshot = cloneJson(totals)
+  order.lineItemCount = lineCount
+}
+
+// Deliberate, not an omission: an external order's header belongs to the source
+// system, which issues its own credit document. The return itself is still recorded.
+function applyOrderTotalsUnlessExternal(
+  order: SalesOrder,
+  calculation: SalesDocumentCalculationResult,
+): void {
+  if (isExternalAmountsMode(order.totalsMode ?? 'computed')) return
+  applyOrderTotals(order, calculation.totals, calculation.lines.length)
+}
+
+function resolveOrderCalculationMode(order: SalesOrder) {
+  const totalsMode = order.totalsMode ?? 'computed'
+  return {
+    totalsMode,
+    suppliedTotals: isExternalAmountsMode(totalsMode) ? readPersistedHeaderTotals(order) : null,
+  }
+}
+
+function mapOrderAdjustmentToDraft(adjustment: SalesOrderAdjustment): SalesAdjustmentDraft {
+  return {
+    id: adjustment.id,
+    scope: adjustment.scope ?? 'order',
+    kind: adjustment.kind,
+    code: adjustment.code ?? null,
+    label: adjustment.label ?? null,
+    calculatorKey: adjustment.calculatorKey ?? null,
+    promotionId: adjustment.promotionId ?? null,
+    rate: toNumeric(adjustment.rate),
+    amountNet: toNumeric(adjustment.amountNet),
+    amountGross: toNumeric(adjustment.amountGross),
+    currencyCode: adjustment.currencyCode ?? null,
+    metadata: adjustment.metadata ? cloneJson(adjustment.metadata) : null,
+    position: adjustment.position ?? 0,
+  }
+}
+
+function buildCalculationContext(order: SalesOrder) {
+  return {
+    tenantId: order.tenantId,
+    organizationId: order.organizationId,
+    currencyCode: order.currencyCode,
+    metadata: {
+      shippingMethod: order.shippingMethodSnapshot
+        ? cloneJson(order.shippingMethodSnapshot as Record<string, unknown>)
+        : null,
+      paymentMethod: order.paymentMethodSnapshot ? cloneJson(order.paymentMethodSnapshot as Record<string, unknown>) : null,
+    },
+  }
+}
+
+/**
+ * Recalculates order totals (including line-scoped return adjustments) from lines and
+ * adjustments. Do not merge this into GET /api/sales/orders responses: provider
+ * calculators re-emit shipping/payment fees on top of already-persisted adjustments
+ * and make list vs detail totals diverge (#5438). Persist via commands instead.
+ */
+export async function recalculateOrderTotalsForDisplay(
+  em: EntityManager,
+  container: { resolve: (key: string) => unknown },
+  orderId: string,
+  scope: { tenantId: string; organizationId: string },
+): Promise<SalesDocumentCalculationResult['totals'] | null> {
+  const order = await findOneWithDecryption(
+    em,
+    SalesOrder,
+    { id: orderId, deletedAt: null },
+    {},
+    scope,
+  )
+  if (!order) return null
+  const [orderLines, adjustments] = await Promise.all([
+    findWithDecryption(em, SalesOrderLine, { order: order.id, deletedAt: null }, {}, scope),
+    findWithDecryption(
+      em,
+      SalesOrderAdjustment,
+      { order: order.id, deletedAt: null },
+      { orderBy: { position: 'asc' } },
+      scope,
+    ),
+  ])
+  const lineSnapshots: SalesLineSnapshot[] = orderLines.map(mapOrderLineEntityToSnapshot)
+  const adjustmentDrafts: SalesAdjustmentDraft[] = adjustments.map(mapOrderAdjustmentToDraft)
+  const salesCalculationService = container.resolve('salesCalculationService') as SalesCalculationService
+  const calculation = await salesCalculationService.calculateDocumentTotals({
+    documentKind: 'order',
+    lines: lineSnapshots,
+    adjustments: adjustmentDrafts,
+    context: buildCalculationContext(order),
+    existingTotals: resolveExistingPaymentTotals(order),
+    ...resolveOrderCalculationMode(order),
+  })
+  return calculation.totals
+}
+
+export async function loadReturnSnapshot(em: EntityManager, id: string): Promise<ReturnSnapshot | null> {
+  const header = await findOneWithDecryption(
+    em,
+    SalesReturn,
+    { id, deletedAt: null },
+    { populate: ['order'] },
+    {},
+  )
+  if (!header || !header.order) return null
+  const orderId = typeof header.order === 'string' ? header.order : header.order.id
+  const lines = await findWithDecryption(
+    em,
+    SalesReturnLine,
+    { salesReturn: header.id, deletedAt: null },
+    { populate: ['orderLine'] },
+    { tenantId: header.tenantId, organizationId: header.organizationId },
+  )
+  const adjustmentIds: string[] = []
+  const adjustments = await findWithDecryption(
+    em,
+    SalesOrderAdjustment,
+    { order: orderId, kind: 'return', deletedAt: null },
+    {},
+    { tenantId: header.tenantId, organizationId: header.organizationId },
+  )
+  adjustments.forEach((adj) => {
+    const meta = adj.metadata as Record<string, unknown> | null | undefined
+    if (meta && meta.returnId === header.id) adjustmentIds.push(adj.id)
+  })
+
+  return {
+    id: header.id,
+    orderId,
+    organizationId: header.organizationId,
+    tenantId: header.tenantId,
+    returnNumber: header.returnNumber,
+    returnedAt: header.returnedAt ? header.returnedAt.toISOString() : null,
+    reason: header.reason ?? null,
+    notes: header.notes ?? null,
+    lines: lines.map((line) => ({
+      id: line.id,
+      orderLineId: typeof line.orderLine === 'string' ? line.orderLine : line.orderLine?.id ?? null,
+      quantityReturned: toNumeric(line.quantityReturned),
+      unitPriceNet: toNumeric(line.unitPriceNet),
+      unitPriceGross: toNumeric(line.unitPriceGross),
+      totalNetAmount: toNumeric(line.totalNetAmount),
+      totalGrossAmount: toNumeric(line.totalGrossAmount),
+    })),
+    adjustmentIds,
+  }
+}
+
+type ReturnHeaderSnapshot = {
+  id: string
+  orderId: string
+  organizationId: string
+  tenantId: string
+  reason: string | null
+  notes: string | null
+  returnedAt: string | null
+}
+
+type ReturnHeaderUndoPayload = {
+  before?: ReturnHeaderSnapshot | null
+  after?: ReturnHeaderSnapshot | null
+}
+
+type ReturnDeleteUndoPayload = {
+  before?: ReturnSnapshot | null
+}
+
+async function loadReturnHeaderSnapshot(em: EntityManager, id: string): Promise<ReturnHeaderSnapshot | null> {
+  const header = await findOneWithDecryption(em, SalesReturn, { id, deletedAt: null }, { populate: ['order'] }, {})
+  if (!header || !header.order) return null
+  const orderId = typeof header.order === 'string' ? header.order : header.order.id
+  return {
+    id: header.id,
+    orderId,
+    organizationId: header.organizationId,
+    tenantId: header.tenantId,
+    reason: header.reason ?? null,
+    notes: header.notes ?? null,
+    returnedAt: header.returnedAt ? header.returnedAt.toISOString() : null,
+  }
+}
+
+async function lockReturnOrder(
+  em: EntityManager,
+  orderId: string,
+  scope: { tenantId: string; organizationId: string },
+): Promise<SalesOrder | null> {
+  if (!(await lockSalesDocumentRow(em, 'sales_orders', orderId, scope))) return null
+  return findOneWithDecryption(
+    em,
+    SalesOrder,
+    { id: orderId, deletedAt: null, ...scope },
+    { refresh: true },
+    scope,
+  )
+}
+
+/**
+ * Reverse the order-level effects of a return: restore each order line's
+ * `returnedQuantity`, drop the return's line-scoped credit adjustments, remove
+ * the return header + lines, and recalculate the order totals. Shared by the
+ * create command's undo and the delete command's execute — both need the exact
+ * same teardown. No-op when the order is gone.
+ *
+ * The line reversals, adjustment/return removals, and the order-total recompute
+ * interleave queries on the same EntityManager with scalar mutations, so they
+ * run inside an atomic flush to avoid lost updates and partial commits
+ * (SPEC-018): the per-phase flush boundary persists the line `returnedQuantity`
+ * reversals before the adjustment/header/return-line lookups in the next phase
+ * run any query, which under MikroORM v7 would otherwise silently discard the
+ * pending scalar changes on the managed lines.
+ */
+async function reverseReturnEffects(
+  em: EntityManager,
+  salesCalculationService: SalesCalculationService,
+  snapshot: ReturnSnapshot,
+): Promise<void> {
+  let order: SalesOrder | null = null
+  let lines: SalesOrderLine[] = []
+  await withAtomicFlush(
+    em,
+    [
+      async () => {
+        order = await lockReturnOrder(em, snapshot.orderId, {
+          tenantId: snapshot.tenantId,
+          organizationId: snapshot.organizationId,
+        })
+        if (!order) return
+        lines = await findWithDecryption(
+          em,
+          SalesOrderLine,
+          { order: order.id, deletedAt: null },
+          {},
+          { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId },
+        )
+        const lineMap = new Map(lines.map((line) => [line.id, line]))
+        snapshot.lines.forEach((entry) => {
+          const line = lineMap.get(entry.orderLineId)
+          if (!line) return
+          const next = Math.max(0, toNumeric(line.returnedQuantity) - entry.quantityReturned)
+          line.returnedQuantity = next.toString()
+          line.updatedAt = new Date()
+          em.persist(line)
+        })
+      },
+      async () => {
+        if (!order) return
+        if (snapshot.adjustmentIds.length) {
+          const adjustments = await findWithDecryption(
+            em,
+            SalesOrderAdjustment,
+            { id: { $in: snapshot.adjustmentIds }, deletedAt: null },
+            {},
+            { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId },
+          )
+          adjustments.forEach((adj) => em.remove(adj))
+        }
+
+        const header = await findOneWithDecryption(
+          em,
+          SalesReturn,
+          { id: snapshot.id, deletedAt: null },
+          {},
+          { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId },
+        )
+        const returnLines = await findWithDecryption(
+          em,
+          SalesReturnLine,
+          { salesReturn: snapshot.id, deletedAt: null },
+          {},
+          { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId },
+        )
+        returnLines.forEach((line) => em.remove(line))
+        if (header) em.remove(header)
+
+        const existingAdjustments = await findWithDecryption(
+          em,
+          SalesOrderAdjustment,
+          { order: order.id, deletedAt: null },
+          { orderBy: { position: 'asc' } },
+          { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId },
+        )
+        const lineSnapshots: SalesLineSnapshot[] = lines.map(mapOrderLineEntityToSnapshot)
+        const adjustmentDrafts: SalesAdjustmentDraft[] = existingAdjustments.map(mapOrderAdjustmentToDraft)
+        const calculation = await salesCalculationService.calculateDocumentTotals({
+          documentKind: 'order',
+          lines: lineSnapshots,
+          adjustments: adjustmentDrafts,
+          context: buildCalculationContext(order),
+          existingTotals: resolveExistingPaymentTotals(order),
+          ...resolveOrderCalculationMode(order),
+        })
+        applyOrderTotalsUnlessExternal(order, calculation)
+        order.updatedAt = new Date()
+        em.persist(order)
+      },
+    ],
+    { transaction: true },
+  )
+}
+
+/**
+ * Re-apply a return from a snapshot: recreate the return header + lines and the
+ * line-scoped credit adjustments, bump each order line's `returnedQuantity`, and
+ * recalculate the order totals. Shared by the create command's redo and the
+ * delete command's undo. Returns the recreated return lines so callers can emit
+ * index side effects. Throws a 404 when the order is gone.
+ *
+ * The order may have changed since the snapshot was taken (another return
+ * consumed the shipped quantity, a shipment was removed, an order line was
+ * deleted), so the snapshot quantities are re-checked against the currently
+ * returnable quantity — the same rule `sales.returns.create` enforces — under
+ * the order-line lock and before any write. A stale restore is refused with a
+ * 409 instead of returning and crediting the same shipped units twice.
+ */
+async function restoreReturnEffects(
+  em: EntityManager,
+  salesCalculationService: SalesCalculationService,
+  snapshot: ReturnSnapshot,
+): Promise<SalesReturnLine[]> {
+  const returnId = snapshot.id
+  const createdLines: SalesReturnLine[] = []
+  const { translate } = await resolveTranslations()
+
+  await withAtomicFlush(
+    em,
+    [
+      async () => {
+        const existingOrder = await findOneWithDecryption(
+          em,
+          SalesOrder,
+          { id: snapshot.orderId, deletedAt: null },
+          {},
+          { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId },
+        )
+        if (!existingOrder) {
+          throw notFound(translate('sales.returns.orderMissing', 'Order not found.'))
+        }
+        ensureSameScope(existingOrder, snapshot.organizationId, snapshot.tenantId)
+        const order = await lockReturnOrder(em, existingOrder.id, {
+          tenantId: snapshot.tenantId,
+          organizationId: snapshot.organizationId,
+        })
+        if (!order) {
+          throw notFound(translate('sales.returns.orderMissing', 'Order not found.'))
+        }
+
+        const orderLines = await findWithDecryption(
+          em,
+          SalesOrderLine,
+          { order: order.id, deletedAt: null },
+          { lockMode: LockMode.PESSIMISTIC_WRITE },
+          { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId },
+        )
+        const lineMap = new Map(orderLines.map((line) => [line.id, line]))
+
+        const shippedByLine = await loadShippedQuantityByLine(em, order.id, {
+          tenantId: snapshot.tenantId,
+          organizationId: snapshot.organizationId,
+        })
+        const restoredByLine = new Map<string, { line: SalesOrderLine; quantity: number }>()
+        snapshot.lines.forEach((lineSnapshot) => {
+          const line = lineSnapshot.orderLineId ? lineMap.get(lineSnapshot.orderLineId) : undefined
+          if (!line) {
+            throw new CrudHttpError(409, {
+              error: translate('sales.returns.restoreLineMissing', 'This return cannot be restored: one of its order lines no longer exists.'),
+            })
+          }
+          const restored = restoredByLine.get(line.id)
+          restoredByLine.set(line.id, { line, quantity: (restored?.quantity ?? 0) + lineSnapshot.quantityReturned })
+        })
+        restoredByLine.forEach(({ line, quantity }, orderLineId) => {
+          const available = computeAvailableReturnQuantity({
+            quantity: toNumeric(line.quantity),
+            returnedQuantity: toNumeric(line.returnedQuantity),
+            shippedQuantity: shippedByLine.get(orderLineId) ?? 0,
+          })
+          if (quantity - 1e-6 > available) {
+            throw new CrudHttpError(409, {
+              error: translate('sales.returns.restoreQuantityUnavailable', 'This return cannot be restored: the order no longer has enough shipped quantity left to return.'),
+            })
+          }
+        })
+
+        const existingAdjustments = await findWithDecryption(
+          em,
+          SalesOrderAdjustment,
+          { order: order.id, deletedAt: null },
+          { orderBy: { position: 'asc' } },
+          { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId },
+        )
+        const positionStart = existingAdjustments.reduce((acc, adj) => Math.max(acc, adj.position ?? 0), 0) + 1
+
+        const restoredHeader =
+          (await findOneWithDecryption(
+            em,
+            SalesReturn,
+            { id: snapshot.id },
+            {},
+            { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId },
+          )) ??
+          em.create(SalesReturn, {
+            id: snapshot.id,
+            order,
+            organizationId: snapshot.organizationId,
+            tenantId: snapshot.tenantId,
+            returnNumber: snapshot.returnNumber,
+            reason: snapshot.reason ?? null,
+            notes: snapshot.notes ?? null,
+            returnedAt: snapshot.returnedAt ? new Date(snapshot.returnedAt) : new Date(),
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          })
+        restoredHeader.order = order
+        restoredHeader.deletedAt = null
+        restoredHeader.organizationId = snapshot.organizationId
+        restoredHeader.tenantId = snapshot.tenantId
+        restoredHeader.returnNumber = snapshot.returnNumber
+        restoredHeader.reason = snapshot.reason ?? null
+        restoredHeader.notes = snapshot.notes ?? null
+        restoredHeader.returnedAt = snapshot.returnedAt ? new Date(snapshot.returnedAt) : new Date()
+        restoredHeader.updatedAt = new Date()
+        em.persist(restoredHeader)
+
+        const createdAdjustments: SalesOrderAdjustment[] = []
+        snapshot.lines.forEach((lineSnapshot, index) => {
+          const line = lineMap.get(lineSnapshot.orderLineId)
+          if (!line) return
+          const totalNet = lineSnapshot.totalNetAmount
+          const totalGross = lineSnapshot.totalGrossAmount
+          const adjustmentId = snapshot.adjustmentIds[index] ?? randomUUID()
+
+          const returnLine = em.create(SalesReturnLine, {
+            id: lineSnapshot.id,
+            salesReturn: restoredHeader,
+            orderLine: em.getReference(SalesOrderLine, line.id),
+            organizationId: snapshot.organizationId,
+            tenantId: snapshot.tenantId,
+            quantityReturned: lineSnapshot.quantityReturned.toString(),
+            unitPriceNet: lineSnapshot.unitPriceNet.toString(),
+            unitPriceGross: lineSnapshot.unitPriceGross.toString(),
+            totalNetAmount: totalNet.toString(),
+            totalGrossAmount: totalGross.toString(),
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          })
+          createdLines.push(returnLine)
+          em.persist(returnLine)
+
+          const adjustment = em.create(SalesOrderAdjustment, {
+            id: adjustmentId,
+            order,
+            orderLine: em.getReference(SalesOrderLine, line.id),
+            organizationId: snapshot.organizationId,
+            tenantId: snapshot.tenantId,
+            scope: 'line',
+            kind: 'return',
+            rate: '0',
+            amountNet: totalNet.toString(),
+            amountGross: totalGross.toString(),
+            currencyCode: order.currencyCode,
+            metadata: { returnId, returnLineId: lineSnapshot.id },
+            position: positionStart + index,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          })
+          createdAdjustments.push(adjustment)
+          em.persist(adjustment)
+
+          line.returnedQuantity = (toNumeric(line.returnedQuantity) + lineSnapshot.quantityReturned).toString()
+          line.updatedAt = new Date()
+          em.persist(line)
+        })
+
+        const lineSnapshots: SalesLineSnapshot[] = orderLines.map(mapOrderLineEntityToSnapshot)
+        const adjustmentDrafts: SalesAdjustmentDraft[] = [...existingAdjustments, ...createdAdjustments].map(
+          mapOrderAdjustmentToDraft,
+        )
+        const calculation = await salesCalculationService.calculateDocumentTotals({
+          documentKind: 'order',
+          lines: lineSnapshots,
+          adjustments: adjustmentDrafts,
+          context: buildCalculationContext(order),
+          existingTotals: resolveExistingPaymentTotals(order),
+          ...resolveOrderCalculationMode(order),
+        })
+        applyOrderTotalsUnlessExternal(order, calculation)
+        order.updatedAt = new Date()
+        em.persist(order)
+      },
+    ],
+    { transaction: true },
+  )
+
+  return createdLines
+}
+
+function normalizeLinesInput(lines: ReturnCreateInput['lines']): ReturnLineInput[] {
+  const seen = new Set<string>()
+  const result: ReturnLineInput[] = []
+  for (const line of lines) {
+    const orderLineId = line.orderLineId
+    if (!orderLineId || seen.has(orderLineId)) continue
+    const quantity = toNumeric(line.quantity)
+    if (!Number.isFinite(quantity) || quantity <= 0) continue
+    seen.add(orderLineId)
+    result.push({ orderLineId, quantity })
+  }
+  return result
+}
+
+const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string }> = {
+  id: 'sales.returns.create',
+  async execute(rawInput, ctx) {
+    const input = returnCreateSchema.parse(rawInput ?? {})
+    ensureTenantScope(ctx, input.tenantId)
+    ensureOrganizationScope(ctx, input.organizationId)
+
+    const { translate } = await resolveTranslations()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+
+    const requested = normalizeLinesInput(input.lines)
+    if (!requested.length) {
+      throw new CrudHttpError(400, { error: translate('sales.returns.linesRequired', 'Select at least one line to return.') })
+    }
+
+    const salesCalculationService = ctx.container.resolve<SalesCalculationService>('salesCalculationService')
+    const { header, createdLines, order } = await em.transactional(async (tx) => {
+      const existingOrder = await findOneWithDecryption(
+        tx,
+        SalesOrder,
+        { id: input.orderId, deletedAt: null },
+        {},
+        { tenantId: input.tenantId, organizationId: input.organizationId },
+      )
+      if (!existingOrder) {
+        throw notFound(translate('sales.returns.orderMissing', 'Order not found.'))
+      }
+      ensureSameScope(existingOrder, input.organizationId, input.tenantId)
+      const order = await lockReturnOrder(tx, existingOrder.id, {
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
+      })
+      if (!order) {
+        throw notFound(translate('sales.returns.orderMissing', 'Order not found.'))
+      }
+      await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER)
+
+      const orderLines = await findWithDecryption(
+        tx,
+        SalesOrderLine,
+        { order: order.id, deletedAt: null },
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
+        { tenantId: input.tenantId, organizationId: input.organizationId },
+      )
+      const lineMap = new Map(orderLines.map((line) => [line.id, line]))
+
+      const shippedByLine = await loadShippedQuantityByLine(tx, order.id, {
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
+      })
+
+      requested.forEach(({ orderLineId, quantity }) => {
+        const line = lineMap.get(orderLineId)
+        if (!line) {
+          throw notFound(translate('sales.returns.lineMissing', 'Order line not found.'))
+        }
+        const available = computeAvailableReturnQuantity({
+          quantity: toNumeric(line.quantity),
+          returnedQuantity: toNumeric(line.returnedQuantity),
+          shippedQuantity: shippedByLine.get(orderLineId) ?? 0,
+        })
+        if (quantity - 1e-6 > available) {
+          throw new CrudHttpError(400, { error: translate('sales.returns.quantityExceedsShipped', 'Cannot return more than the shipped quantity. Ship the items before recording a return.') })
+        }
+      })
+
+      const existingAdjustments = await findWithDecryption(
+        tx,
+        SalesOrderAdjustment,
+        { order: order.id, deletedAt: null },
+        { orderBy: { position: 'asc' } },
+        { tenantId: input.tenantId, organizationId: input.organizationId },
+      )
+      const positionStart = existingAdjustments.reduce((acc, adj) => Math.max(acc, adj.position ?? 0), 0) + 1
+
+      const numberGenerator = new SalesDocumentNumberGenerator(tx)
+      const generated = await numberGenerator.generate({
+        kind: 'return',
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
+      })
+      const returnId = randomUUID()
+      const entity = tx.create(SalesReturn, {
+        id: returnId,
+        order,
+        organizationId: input.organizationId,
+        tenantId: input.tenantId,
+        returnNumber: generated.number,
+        reason: input.reason ?? null,
+        notes: input.notes ?? null,
+        returnedAt: input.returnedAt ?? new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      tx.persist(entity)
+
+      const createdAdjustments: SalesOrderAdjustment[] = []
+      const createdReturnLines: SalesReturnLine[] = []
+      requested.forEach((lineInput, index) => {
+        const line = lineMap.get(lineInput.orderLineId)
+        if (!line) return
+        const quantity = lineInput.quantity
+        const lineQuantity = Math.max(toNumeric(line.quantity), 0)
+        // `total_net_amount = 0` while `total_gross_amount > 0` is not a representable
+        // priced state (gross = net * (1 + taxRate) ⇒ net = 0 ⇒ gross = 0). When a line
+        // carries a positive gross but a zeroed/missing net, reconstruct the net from the
+        // line's gross and tax rate so the return credits both sides and the order's net
+        // grand total moves in lockstep with gross (#3036). A genuinely free line
+        // (gross = 0, e.g. a 100% discount / comp) keeps net 0, so the return is not
+        // over-credited at the discount-ignoring unit price (#3521).
+        const lineTotalNet = deriveLineNetFromGross(line.totalNetAmount, line.totalGrossAmount, line.taxRate)
+        const unitNet = lineQuantity > 0 ? lineTotalNet / lineQuantity : toNumeric(line.unitPriceNet)
+        const unitGross = lineQuantity > 0 ? toNumeric(line.totalGrossAmount) / lineQuantity : toNumeric(line.unitPriceGross)
+        const totalNet = -round(Math.max(unitNet, 0) * quantity)
+        const totalGross = -round(Math.max(unitGross, 0) * quantity)
+
+        const returnLineId = randomUUID()
+        const returnLine = tx.create(SalesReturnLine, {
+          id: returnLineId,
+          salesReturn: entity,
+          orderLine: tx.getReference(SalesOrderLine, line.id),
+          organizationId: input.organizationId,
+          tenantId: input.tenantId,
+          quantityReturned: quantity.toString(),
+          unitPriceNet: round(unitNet).toString(),
+          unitPriceGross: round(unitGross).toString(),
+          totalNetAmount: totalNet.toString(),
+          totalGrossAmount: totalGross.toString(),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })
+        createdReturnLines.push(returnLine)
+        tx.persist(returnLine)
+
+        const adjustment = tx.create(SalesOrderAdjustment, {
+          id: randomUUID(),
+          order,
+          orderLine: tx.getReference(SalesOrderLine, line.id),
+          organizationId: input.organizationId,
+          tenantId: input.tenantId,
+          scope: 'line',
+          kind: 'return',
+          rate: '0',
+          amountNet: totalNet.toString(),
+          amountGross: totalGross.toString(),
+          currencyCode: order.currencyCode,
+          metadata: { returnId, returnLineId },
+          position: positionStart + index,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })
+        createdAdjustments.push(adjustment)
+        tx.persist(adjustment)
+
+        line.returnedQuantity = (toNumeric(line.returnedQuantity) + quantity).toString()
+        line.updatedAt = new Date()
+        tx.persist(line)
+      })
+
+      const lineSnapshots: SalesLineSnapshot[] = orderLines.map(mapOrderLineEntityToSnapshot)
+      const adjustmentDrafts: SalesAdjustmentDraft[] = [...existingAdjustments, ...createdAdjustments].map(mapOrderAdjustmentToDraft)
+      const calculation = await salesCalculationService.calculateDocumentTotals({
+        documentKind: 'order',
+        lines: lineSnapshots,
+        adjustments: adjustmentDrafts,
+        context: buildCalculationContext(order),
+        existingTotals: resolveExistingPaymentTotals(order),
+        ...resolveOrderCalculationMode(order),
+      })
+      applyOrderTotalsUnlessExternal(order, calculation)
+      order.updatedAt = new Date()
+      tx.persist(order)
+
+      await tx.flush()
+
+      return { header: entity, createdLines: createdReturnLines, order }
+    })
+
+    await invalidateOrderCache(ctx.container, order, ctx.auth?.tenantId ?? null)
+
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'created',
+      entity: header,
+      identifiers: { id: header.id, organizationId: header.organizationId, tenantId: header.tenantId },
+      indexer: { entityType: E.sales.sales_return },
+      events: returnCrudEvents,
+    })
+
+    if (createdLines.length) {
+      await Promise.all(
+        createdLines.map((line) =>
+          emitCrudSideEffects({
+            dataEngine,
+            action: 'created',
+            entity: line,
+            identifiers: { id: line.id, organizationId: line.organizationId, tenantId: line.tenantId },
+            indexer: { entityType: E.sales.sales_return_line },
+          }),
+        ),
+      )
+    }
+
+    return { returnId: header.id }
+  },
+  captureAfter: async (_input, result, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    return loadReturnSnapshot(em, result.returnId)
+  },
+  buildLog: async ({ result, snapshots }) => {
+    const after = snapshots.after as ReturnSnapshot | undefined
+    if (!after) return null
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('sales.audit.returns.create', 'Create return'),
+      resourceKind: 'sales.return',
+      resourceId: result.returnId,
+      parentResourceKind: 'sales.order',
+      parentResourceId: after.orderId ?? null,
+      tenantId: after.tenantId,
+      organizationId: after.organizationId,
+      snapshotAfter: after,
+      payload: {
+        undo: { after } satisfies ReturnUndoPayload,
+      },
+    }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<ReturnUndoPayload>(logEntry)
+    const after = payload?.after
+    if (!after) return
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const salesCalculationService = ctx.container.resolve<SalesCalculationService>('salesCalculationService')
+    await reverseReturnEffects(em, salesCalculationService, after)
+    await invalidateOrderCache(ctx.container, {
+      id: after.orderId,
+      organizationId: after.organizationId,
+      tenantId: after.tenantId,
+    }, ctx.auth?.tenantId ?? null)
+  },
+  redo: async ({ ctx, logEntry }) => {
+    const after = resolveRedoSnapshot<ReturnSnapshot>(logEntry)
+    if (!after || !after.id) {
+      throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for sales.returns.create' })
+    }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const salesCalculationService = ctx.container.resolve<SalesCalculationService>('salesCalculationService')
+
+    const createdLines = await restoreReturnEffects(em, salesCalculationService, after)
+
+    const header = await findOneWithDecryption(
+      em,
+      SalesReturn,
+      { id: after.id, deletedAt: null },
+      {},
+      { tenantId: after.tenantId, organizationId: after.organizationId },
+    )
+    if (!header) {
+      const { translate } = await resolveTranslations()
+      throw notFound(translate('sales.returns.orderMissing', 'Order not found.'))
+    }
+
+    await invalidateOrderCache(ctx.container, {
+      id: after.orderId,
+      organizationId: after.organizationId,
+      tenantId: after.tenantId,
+    }, ctx.auth?.tenantId ?? null)
+
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'created',
+      entity: header,
+      identifiers: { id: header.id, organizationId: header.organizationId, tenantId: header.tenantId },
+      indexer: { entityType: E.sales.sales_return },
+      events: returnCrudEvents,
+    })
+
+    if (createdLines.length) {
+      await Promise.all(
+        createdLines.map((line) =>
+          emitCrudSideEffects({
+            dataEngine,
+            action: 'created',
+            entity: line,
+            identifiers: { id: line.id, organizationId: line.organizationId, tenantId: line.tenantId },
+            indexer: { entityType: E.sales.sales_return_line },
+          }),
+        ),
+      )
+    }
+
+    return { returnId: header.id }
+  },
+}
+
+const updateReturnCommand: CommandHandler<ReturnUpdateInput, { returnId: string }> = {
+  id: 'sales.returns.update',
+  async prepare(rawInput, ctx) {
+    const parsed = returnUpdateSchema.parse(rawInput ?? {})
+    const em = ctx.container.resolve('em') as EntityManager
+    const snapshot = await loadReturnHeaderSnapshot(em, parsed.id)
+    if (snapshot) {
+      ensureTenantScope(ctx, snapshot.tenantId)
+      ensureOrganizationScope(ctx, snapshot.organizationId)
+    }
+    return snapshot ? { before: snapshot } : {}
+  },
+  async execute(rawInput, ctx) {
+    const input = returnUpdateSchema.parse(rawInput ?? {})
+    ensureTenantScope(ctx, input.tenantId)
+    ensureOrganizationScope(ctx, input.organizationId)
+    const { translate } = await resolveTranslations()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+
+    const header = await em.transactional(async (tx) => {
+      const entity = await findOneWithDecryption(
+        tx,
+        SalesReturn,
+        { id: input.id, deletedAt: null },
+        { populate: ['order'] },
+        { tenantId: input.tenantId, organizationId: input.organizationId },
+      )
+      if (!entity || !entity.order) {
+        throw notFound(translate('sales.returns.notFound', 'Return not found.'))
+      }
+      ensureSameScope(entity, input.organizationId, input.tenantId)
+      const orderId = typeof entity.order === 'string' ? entity.order : entity.order.id
+      if (input.orderId !== orderId) {
+        throw new CrudHttpError(400, { error: translate('sales.returns.orderMismatch', 'Return does not belong to this order.') })
+      }
+      // Lock on the return's own version — editing header fields (reason / notes /
+      // returnedAt) only touches the return, not the order totals.
+      await enforceSalesDocumentOptimisticLock(ctx, entity, SALES_RESOURCE_KIND_RETURN)
+
+      if (input.reason !== undefined) entity.reason = input.reason.length ? input.reason : null
+      if (input.notes !== undefined) entity.notes = input.notes.length ? input.notes : null
+      if (input.returnedAt !== undefined) entity.returnedAt = input.returnedAt ?? null
+      entity.updatedAt = new Date()
+      tx.persist(entity)
+      await tx.flush()
+      return entity
+    })
+
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'updated',
+      entity: header,
+      identifiers: { id: header.id, organizationId: header.organizationId, tenantId: header.tenantId },
+      indexer: { entityType: E.sales.sales_return },
+      events: returnCrudEvents,
+    })
+
+    return { returnId: header.id }
+  },
+  captureAfter: async (_input, result, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    return loadReturnHeaderSnapshot(em, result.returnId)
+  },
+  buildLog: async ({ snapshots, result }) => {
+    const { translate } = await resolveTranslations()
+    const before = snapshots.before as ReturnHeaderSnapshot | undefined
+    const after = snapshots.after as ReturnHeaderSnapshot | undefined
+    return {
+      actionLabel: translate('sales.audit.returns.update', 'Update return'),
+      resourceKind: 'sales.return',
+      resourceId: result.returnId,
+      parentResourceKind: 'sales.order',
+      parentResourceId: after?.orderId ?? before?.orderId ?? null,
+      tenantId: after?.tenantId ?? before?.tenantId ?? null,
+      organizationId: after?.organizationId ?? before?.organizationId ?? null,
+      snapshotBefore: before ?? null,
+      snapshotAfter: after ?? null,
+      payload: {
+        undo: { before, after } satisfies ReturnHeaderUndoPayload,
+      },
+    }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<ReturnHeaderUndoPayload>(logEntry)
+    const before = payload?.before
+    if (!before) return
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    await em.transactional(async (tx) => {
+      const entity = await findOneWithDecryption(
+        tx,
+        SalesReturn,
+        { id: before.id, deletedAt: null },
+        {},
+        { tenantId: before.tenantId, organizationId: before.organizationId },
+      )
+      if (!entity) return
+      entity.reason = before.reason
+      entity.notes = before.notes
+      entity.returnedAt = before.returnedAt ? new Date(before.returnedAt) : null
+      entity.updatedAt = new Date()
+      tx.persist(entity)
+      await tx.flush()
+    })
+
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    const restored = await findOneWithDecryption(
+      em,
+      SalesReturn,
+      { id: before.id, deletedAt: null },
+      {},
+      { tenantId: before.tenantId, organizationId: before.organizationId },
+    )
+    if (restored) {
+      await emitCrudSideEffects({
+        dataEngine,
+        action: 'updated',
+        entity: restored,
+        identifiers: { id: restored.id, organizationId: restored.organizationId, tenantId: restored.tenantId },
+        indexer: { entityType: E.sales.sales_return },
+        events: returnCrudEvents,
+      })
+    }
+  },
+}
+
+const deleteReturnCommand: CommandHandler<ReturnDeleteInput, { returnId: string }> = {
+  id: 'sales.returns.delete',
+  async prepare(rawInput, ctx) {
+    const parsed = returnDeleteSchema.parse(rawInput ?? {})
+    const em = ctx.container.resolve('em') as EntityManager
+    const snapshot = await loadReturnSnapshot(em, parsed.id)
+    if (snapshot) {
+      ensureTenantScope(ctx, snapshot.tenantId)
+      ensureOrganizationScope(ctx, snapshot.organizationId)
+    }
+    return snapshot ? { before: snapshot } : {}
+  },
+  async execute(rawInput, ctx) {
+    const input = returnDeleteSchema.parse(rawInput ?? {})
+    ensureTenantScope(ctx, input.tenantId)
+    ensureOrganizationScope(ctx, input.organizationId)
+    const { translate } = await resolveTranslations()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const salesCalculationService = ctx.container.resolve<SalesCalculationService>('salesCalculationService')
+
+    const snapshot = await loadReturnSnapshot(em, input.id)
+    if (!snapshot) {
+      throw notFound(translate('sales.returns.notFound', 'Return not found.'))
+    }
+    ensureSameScope(snapshot, input.organizationId, input.tenantId)
+    if (input.orderId !== snapshot.orderId) {
+      throw new CrudHttpError(400, { error: translate('sales.returns.orderMismatch', 'Return does not belong to this order.') })
+    }
+
+    const header = await findOneWithDecryption(
+      em,
+      SalesReturn,
+      { id: input.id, deletedAt: null },
+      {},
+      { tenantId: input.tenantId, organizationId: input.organizationId },
+    )
+    if (!header) {
+      throw notFound(translate('sales.returns.notFound', 'Return not found.'))
+    }
+    ensureSameScope(header, input.organizationId, input.tenantId)
+    // Lock on the return's own version, captured before any mutation.
+    await enforceSalesDocumentOptimisticLock(ctx, header, SALES_RESOURCE_KIND_RETURN)
+
+    await reverseReturnEffects(em, salesCalculationService, snapshot)
+    await invalidateOrderCache(ctx.container, {
+      id: snapshot.orderId,
+      organizationId: snapshot.organizationId,
+      tenantId: snapshot.tenantId,
+    }, ctx.auth?.tenantId ?? null)
+
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'deleted',
+      entity: header,
+      identifiers: { id: snapshot.id, organizationId: snapshot.organizationId, tenantId: snapshot.tenantId },
+      indexer: { entityType: E.sales.sales_return },
+      events: returnCrudEvents,
+    })
+
+    if (snapshot.lines.length) {
+      await Promise.all(
+        snapshot.lines.map((line) =>
+          emitCrudSideEffects({
+            dataEngine,
+            action: 'deleted',
+            entity: { id: line.id, organizationId: snapshot.organizationId, tenantId: snapshot.tenantId },
+            identifiers: { id: line.id, organizationId: snapshot.organizationId, tenantId: snapshot.tenantId },
+            indexer: { entityType: E.sales.sales_return_line },
+          }),
+        ),
+      )
+    }
+
+    return { returnId: snapshot.id }
+  },
+  buildLog: async ({ snapshots, result }) => {
+    const before = snapshots.before as ReturnSnapshot | undefined
+    if (!before) return null
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('sales.audit.returns.delete', 'Delete return'),
+      resourceKind: 'sales.return',
+      resourceId: result.returnId,
+      parentResourceKind: 'sales.order',
+      parentResourceId: before.orderId ?? null,
+      tenantId: before.tenantId,
+      organizationId: before.organizationId,
+      snapshotBefore: before,
+      payload: {
+        undo: { before } satisfies ReturnDeleteUndoPayload,
+      },
+    }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<ReturnDeleteUndoPayload>(logEntry)
+    const before = payload?.before
+    if (!before) return
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const salesCalculationService = ctx.container.resolve<SalesCalculationService>('salesCalculationService')
+
+    const createdLines = await restoreReturnEffects(em, salesCalculationService, before)
+
+    const header = await findOneWithDecryption(
+      em,
+      SalesReturn,
+      { id: before.id, deletedAt: null },
+      {},
+      { tenantId: before.tenantId, organizationId: before.organizationId },
+    )
+    if (!header) return
+
+    await invalidateOrderCache(ctx.container, {
+      id: before.orderId,
+      organizationId: before.organizationId,
+      tenantId: before.tenantId,
+    }, ctx.auth?.tenantId ?? null)
+
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'created',
+      entity: header,
+      identifiers: { id: header.id, organizationId: header.organizationId, tenantId: header.tenantId },
+      indexer: { entityType: E.sales.sales_return },
+      events: returnCrudEvents,
+    })
+
+    if (createdLines.length) {
+      await Promise.all(
+        createdLines.map((line) =>
+          emitCrudSideEffects({
+            dataEngine,
+            action: 'created',
+            entity: line,
+            identifiers: { id: line.id, organizationId: line.organizationId, tenantId: line.tenantId },
+            indexer: { entityType: E.sales.sales_return_line },
+          }),
+        ),
+      )
+    }
+  },
+}
+
+registerCommand(createReturnCommand)
+registerCommand(updateReturnCommand)
+registerCommand(deleteReturnCommand)
+
+export const returnCommands = [createReturnCommand, updateReturnCommand, deleteReturnCommand]

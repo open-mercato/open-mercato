@@ -1,0 +1,960 @@
+# Widget Injection System
+
+The Widget Injection System provides a centralized mechanism for injecting custom widgets into admin pages, similar to dashboard widgets but generalized for any location in the admin UI.
+
+## Overview
+
+The widget injection system allows modules to:
+- Define reusable widgets with standardized event handlers
+- Map widgets to specific injection spots (e.g., CRUD forms, detail pages)
+- Respond to lifecycle events (`onLoad`, `onBeforeSave`, `onSave`, `onAfterSave`)
+- Block or augment standard behaviors (e.g., validation, side effects)
+- Render multiple widgets per spot with placement hints (stacked, grouped cards, or tabs)
+
+## Architecture
+
+### Key Components
+
+1. **Injection Widgets** - React components with event handlers
+2. **Injection Tables** - Mappings of spot IDs to widget IDs
+3. **Injection Spots** - Locations where widgets can be injected
+4. **Event Handlers** - Lifecycle hooks for widget behavior
+
+## UMES Phase A and B
+
+Phase A and B add two foundational capabilities:
+
+- **Phase A (Foundation)**: typed placement (`InjectionPosition`) and headless widget loading (`useInjectionDataWidgets`) for non-visual extension payloads such as menu items.
+- **Phase B (Menu Injection)**: menu injection widgets (`InjectionMenuItemWidget`) rendered in app chrome without patching core navigation.
+
+### Menu surfaces (Phase B)
+
+Use these spot IDs in `widgets/injection-table.ts`:
+
+- `menu:sidebar:main`
+- `menu:sidebar:settings`
+- `menu:sidebar:profile`
+- `menu:topbar:profile-dropdown`
+- `menu:topbar:actions`
+
+You can also target scoped IDs such as `menu:sidebar:settings:<sectionId>`.
+
+### Positioning injected items
+
+Use `placement` on each menu item:
+
+```ts
+import { InjectionPosition } from '@open-mercato/shared/modules/widgets/injection-position'
+
+placement: { position: InjectionPosition.Before, relativeTo: 'sign-out' }
+```
+
+Supported positions:
+
+- `First`
+- `Last`
+- `Before` (requires `relativeTo`)
+- `After` (requires `relativeTo`)
+
+If `relativeTo` cannot be resolved, the item is appended.
+
+### i18n requirements for injected menus
+
+Every user-facing injected menu item should include:
+
+- `labelKey`: translation key
+- `label`: localized fallback text
+
+For grouped sidebar/profile items:
+
+- `groupLabelKey`: translation key for group label
+- `groupLabel`: optional fallback text
+
+Example:
+
+```ts
+const widget: InjectionMenuItemWidget = {
+  metadata: { id: 'example.injection.example-menus' },
+  menuItems: [
+    {
+      id: 'example-todos-shortcut',
+      labelKey: 'example.menu.todosShortcut',
+      label: 'Example Todos',
+      href: '/backend/todos',
+      icon: 'CheckSquare',
+      features: ['example.todos.view'],
+      groupId: 'example.nav.group',
+      groupLabelKey: 'example.nav.group',
+      placement: { position: InjectionPosition.Before, relativeTo: 'sign-out' },
+    },
+    {
+      id: 'example-quick-add-todo',
+      labelKey: 'example.menu.quickAddTodo',
+      label: 'Quick Add Todo',
+      href: '/backend/todos/create',
+      icon: 'PlusSquare',
+      features: ['example.todos.manage'],
+      placement: { position: InjectionPosition.Before, relativeTo: 'sign-out' },
+    },
+  ],
+}
+```
+
+### Separators and relative insertion
+
+Use `separator: true` to render visual separators for dropdown-style hosts. Combine with placement to insert separators before/after specific built-in items.
+
+## UMES Phase C — Events & DOM Bridge
+
+Phase C adds real-time server-to-client event delivery and richer widget lifecycle handlers.
+
+### DOM Event Bridge (SSE)
+
+Server-side events marked with `clientBroadcast: true` are automatically bridged to the browser via Server-Sent Events (SSE). The flow:
+
+1. Server emits event via event bus (e.g., `example.todo.created`)
+2. SSE endpoint (`/api/events/stream`) server-filters audience and emits only matching events to each connection
+3. Client `useEventBridge()` hook (mounted in `AppShell`) receives the event
+4. Dispatches a `om:event` CustomEvent on `window`
+5. Widget `useAppEvent` hooks receive and react
+
+Audience filtering is enforced server-side using event payload fields:
+- `tenantId` (required)
+- `organizationId` or `organizationIds`
+- `recipientUserId` or `recipientUserIds`
+- `recipientRoleId` or `recipientRoleIds`
+
+When any provided audience field does not match the connection (`tenant`, selected `organization`, authenticated `user`, role set), the event is dropped before delivery.
+
+#### Enabling broadcast on events
+
+In your module's `events.ts`, add `clientBroadcast: true`:
+
+```ts
+export const eventsConfig = createModuleEvents('example', {
+  todo: {
+    created: { clientBroadcast: true },
+    updated: { clientBroadcast: true },
+    deleted: { clientBroadcast: true },
+  },
+} as const)
+```
+
+#### Consuming events in widgets
+
+```ts
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
+
+// Wildcard — matches example.todo.created, example.todo.updated, etc.
+useAppEvent('example.todo.*', (event) => {
+  console.log('Todo event:', event.id, event.payload)
+  refreshData()
+})
+
+// Exact match
+useAppEvent('example.todo.created', (event) => {
+  flash('New todo created!', 'info')
+})
+```
+
+### Extended Widget Event Handlers (Phase C)
+
+Widgets now support additional lifecycle handlers beyond the original save/delete/load events:
+
+| Handler | Type | Description |
+|---------|------|-------------|
+| `onFieldChange` | Action | Fires when a form field changes. Can return a warning message. |
+| `onBeforeNavigate` | Action | Navigation guard — return `{ ok: false }` to block. |
+| `onVisibilityChange` | Action | Fires when widget visibility changes. |
+| `onAppEvent` | Action | Fires when a matching SSE event arrives. |
+| `transformFormData` | Transformer | Pipeline: transform data before save. |
+| `transformDisplayData` | Transformer | Pipeline: transform data before display. |
+| `transformValidation` | Transformer | Pipeline: transform validation errors. |
+
+**Action handlers** fire independently for each widget. **Transformer handlers** run as a pipeline — the output of widget N becomes the input of widget N+1.
+
+#### Example: Action handlers
+
+```ts
+const widget: InjectionWidgetModule = {
+  metadata: { id: 'example.injection.phase-c-actions', /* ... */ },
+  Widget: ActionWidget,
+  eventHandlers: {
+    onFieldChange: async (fieldId, value) => {
+      if (fieldId === 'title' && typeof value === 'string' && value.toUpperCase().includes('TEST')) {
+        return {
+          message: { text: 'Title contains "TEST" — is this intentional?', severity: 'warning' },
+        }
+      }
+    },
+    onBeforeNavigate: async (target) => {
+      if (target.includes('/blocked')) {
+        return { ok: false, message: 'Navigation blocked by widget policy' }
+      }
+      return { ok: true }
+    },
+    onVisibilityChange: async (visible, context) => {
+      context.sharedState?.set('lastVisibility', visible)
+    },
+    onAppEvent: async (event, context) => {
+      context.sharedState?.set('lastEventId', event.id)
+    },
+  },
+}
+```
+
+#### Example: Transformer handlers
+
+```ts
+const widget: InjectionWidgetModule = {
+  metadata: { id: 'example.injection.phase-c-transformers', /* ... */ },
+  Widget: TransformerWidget,
+  eventHandlers: {
+    transformFormData: async (data, context) => {
+      const trimmed = { ...data }
+      for (const [key, value] of Object.entries(trimmed)) {
+        if (typeof value === 'string') trimmed[key] = value.trim()
+      }
+      return trimmed
+    },
+    transformDisplayData: async (data) => {
+      return {
+        ...data,
+        title: typeof data.title === 'string' ? data.title.toUpperCase() : data.title,
+      }
+    },
+    transformValidation: async (errors) => {
+      if (!errors.title) return errors
+      return { ...errors }
+    },
+  },
+}
+```
+
+### Integration Test Coverage (Phase C)
+
+Use a small test harness page that mounts the widget and calls `useInjectionSpotEvents(...)` to trigger each handler deterministically.
+
+Recommended Playwright coverage:
+
+| Test ID | What to verify |
+|---------|----------------|
+| `TC-UMES-E03` | `onFieldChange` updates warning state when title contains `TEST`. |
+| `TC-UMES-E04` | `transformFormData` trims input (`"  x  "` → `"x"`). |
+| `TC-UMES-E07` | `onBeforeNavigate` blocks `/blocked` and allows safe targets. |
+| `TC-UMES-E08` | `onVisibilityChange` stores latest visibility state. |
+| `TC-UMES-E09` | `onAppEvent` runs when `om:event` (`example.todo.created`) is dispatched. |
+| `TC-UMES-E10` | `transformDisplayData` and `transformValidation` mutate output as expected. |
+
+How to run:
+
+```bash
+npx playwright test --config .ai/qa/tests/playwright.config.ts apps/mercato/src/modules/example/__integration__/TC-UMES-003.spec.ts
+```
+
+### CrudForm Env Toggle
+
+`CrudForm` emits Phase C handlers by default.
+
+Set this variable to disable automatic emission:
+
+```bash
+NEXT_PUBLIC_OM_CRUDFORM_EXTENDED_EVENTS_ENABLED=false
+```
+
+When enabled (`true`, default), `CrudForm` emits:
+- `onFieldChange` on field writes (`setValue`)
+- `onBeforeNavigate` before guarded in-form navigation and CrudForm redirects
+- `onVisibilityChange` on browser `visibilitychange`
+- `onAppEvent` when `om:event` is received
+- `transformFormData` before save pipeline
+- `transformDisplayData` when initial form values are applied
+- `transformValidation` before setting form field errors
+
+### Example Injection Widgets Toggle
+
+The `example` module ships demo injection widgets (CRUD validation panel, sales todos tab, catalog SEO report, sample menu items).
+
+These widgets are registered unconditionally. `NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED`
+used to gate them and **no longer exists** — the registry is now a plain static declaration so the
+module fact extractor can read it (a conditional export folded to nothing, and every entry was
+invisible to generated facts).
+
+Registering an entry is not the same as rendering one: a cross-module entry is keyed on a spot id
+that only its host module renders, so it stays inert when that module is absent. To gate a widget on
+another module explicitly, declare `metadata.requiredModules` — `injection-loader.ts` enforces it.
+
+### Operation Progress Tracking
+
+Track long-running server operations in widgets:
+
+```ts
+import { useOperationProgress } from '@open-mercato/ui/backend/injection/useOperationProgress'
+
+function ImportProgressWidget() {
+  const progress = useOperationProgress('catalog.import.*')
+  if (progress.status === 'idle') return null
+  return <ProgressBar value={progress.progress} label={progress.currentStep} />
+}
+```
+
+## UMES Phase D — Response Enrichers
+
+Phase D adds a federation-like data enrichment system. Modules can inject computed fields into other modules' API responses without modifying core code.
+
+### How It Works
+
+1. Module defines enrichers in `data/enrichers.ts`
+2. Generator discovers and registers them at bootstrap
+3. CRUD factory calls enrichers after `afterList` hook, before HTTP response
+4. Enriched fields appear under a `_<moduleName>` namespace
+5. Response includes `_meta.enrichedBy` tracking which enrichers ran
+
+### Creating a Response Enricher
+
+Create `src/modules/<module>/data/enrichers.ts`:
+
+```ts
+import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'
+
+const customerTodoCount: ResponseEnricher = {
+  id: 'example.customer-todo-count',
+  targetEntity: 'customers.person',      // which entity to enrich
+  features: ['example.view'],            // ACL gating
+  priority: 10,                          // higher = runs first
+  timeout: 2000,                         // max ms per enricher
+  fallback: { _example: { todoCount: 0 } }, // used on timeout/error
+
+  async enrichOne(record, context) {
+    const em = context.em.fork()
+    const count = await em.count(Todo, { organizationId: context.organizationId })
+    return { ...record, _example: { todoCount: count } }
+  },
+
+  // MUST implement for list endpoints (prevents N+1 queries)
+  async enrichMany(records, context) {
+    const em = context.em.fork()
+    const todos = await em.find(Todo, { organizationId: context.organizationId })
+    return records.map(r => ({ ...r, _example: { todoCount: todos.length } }))
+  },
+}
+
+export const enrichers: ResponseEnricher[] = [customerTodoCount]
+```
+
+### Opting In on CRUD Routes
+
+Add `enrichers` to your `makeCrudRoute` call:
+
+```ts
+export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
+  // ... other config
+  enrichers: { entityId: 'customers.person' },
+})
+```
+
+### API Response Shape
+
+```json
+{
+  "items": [
+    {
+      "id": "abc-123",
+      "firstName": "John",
+      "_example": { "todoCount": 5, "openTodoCount": 3 }
+    }
+  ],
+  "_meta": {
+    "enrichedBy": ["example.customer-todo-count"]
+  }
+}
+```
+
+### Key Rules
+
+- Enriched fields **MUST** be namespaced under `_<moduleName>` (e.g., `_example.todoCount`)
+- Enrichers are **additive-only** — never modify or remove existing fields
+- `enrichMany()` is **mandatory** for list endpoints (batch queries prevent N+1)
+- EntityManager usage is **read-only** — no writes in enrichers
+- Non-critical enrichers fail silently (use `fallback`); set `critical: true` to propagate errors
+- Export paths automatically strip enricher fields (anything prefixed with `_`)
+- Keep `cacheableOnListHit` at its `false` default unless the enriched output is record-pure — see below
+
+### List Cache Interaction (`cacheableOnListHit`)
+
+When the opt-in CRUD list cache (`ENABLE_CRUD_API_CACHE`) is on, the factory stores the **enriched** list payload and partitions cache entries by the set of enrichers active for the caller (after ACL + tenant filtering). What happens on a cache hit depends on whether the active enrichers are cacheable:
+
+- If **every** active enricher sets `cacheableOnListHit: true`, the hit serves the stored enriched fields directly **without re-running enrichers** — this is the fast path that makes list caching actually eliminate enrichment cost.
+- Otherwise the hit **re-runs all active enrichers** and the cache stores only the base (pre-enrichment) payload, so non-cacheable enrichers always reflect current data.
+
+```ts
+const customerStatusBadge: ResponseEnricher = {
+  id: 'example.customer-status-badge',
+  targetEntity: 'customers.person',
+  cacheableOnListHit: true, // pure function of the record's own cached fields → safe on a hit
+  // ...
+}
+```
+
+The shipped `example.customer-todo-count` enricher, by contrast, reads other modules' tables, so it keeps the `false` default and re-runs on every hit.
+
+Set `cacheableOnListHit: true` **only** when the enricher's output for a record is a pure function of that record's own cached state and is invalidated together with it. Leave it `false` (the fail-closed default) for any enricher whose output depends on data the list cache does not invalidate on:
+
+- cross-module / cross-entity reads (e.g. a product image fetched for a sales line),
+- wall-clock-relative values (e.g. "days in stage"),
+- aggregates over other tables.
+
+Opting in on such an enricher would serve stale values from the shared cache entry on a hit.
+
+### Directory Structure
+
+```
+src/modules/<module>/
+├── data/
+│   └── enrichers.ts          # Response enrichers (auto-discovered)
+├── widgets/
+│   ├── injection/
+│   │   └── <widget-name>/
+│   │       ├── widget.ts          # Widget definition & event handlers
+│   │       └── widget.client.tsx  # React component (client-side)
+│   └── injection-table.ts         # Spot ID → Widget ID mappings
+```
+
+### Built-in Injection Spots
+
+- **CRUD forms**: `crud-form:<entityId>` (automatically derived from `entityId`/`entityIds` passed to `CrudForm`). Widgets can request `placement.kind: 'group'` to render as a side-card and `column: 2` to appear in the right column. Field injection spot: `crud-form:<entityId>:fields`.
+- **Data tables**: `data-table:<tableId>` (or pass `injectionSpotId` to `DataTable`). Header/footer child spots: `:header`, `:footer`. Deep extension spots: `:columns`, `:row-actions`, `:bulk-actions`, `:filters`, `:toolbar`, `:search-trailing`.
+  - `:toolbar` renders inside the right-side actions row alongside Refresh / Filters / Columns / Export. Suitable for full-sized toolbar buttons.
+  - `:search-trailing` renders inside the `FilterBar`, immediately to the right of the search input on the same row. **Reserve it for compact triggers** — AI assistants, saved-view shortcuts, focus toggles. Full-width or multi-action toolbars belong in `:toolbar` or `:header`. The slot is automatically suppressed when the host DataTable does not render a search input. Use `Button variant="outline"` (default size, h-9, `rounded-md`) with a single leading icon plus a short caption (e.g. `AI`) so the trigger matches the search input's `h-9` row height and the toolbar's standard rounded-rectangle button radius. Resolve the spot id with `DataTableInjectionSpots.searchTrailing(tableId)` from `@open-mercato/ui/backend/injection/spotIds`.
+- **Backend record context**: `backend:record:current` (mounted once per backend page with `{ path, query }` context).
+- **Backend layout**: `backend:layout:top`, `backend:layout:footer` (top and bottom of the main backend content area).
+- **Backend sidebar**: `backend:sidebar:top`, `backend:sidebar:footer` (desktop sidebar top/bottom areas in `AppShell`).
+
+### Replacement Handles
+
+Component replacement uses stable handle IDs:
+- `page:<path>` for backend page-level replacement (for example `page:/backend/customers/people`)
+- `data-table:<tableId>` for each `DataTable` instance
+- `crud-form:<entityId>` for each `CrudForm` instance
+- `section:<scope>.<sectionName>` for detail sections (for example `section:ui.detail.NotesSection`)
+- Module overrides are auto-discovered from `widgets/components.ts` (`componentOverrides`) and generated to `.mercato/generated/component-overrides.generated.ts`.
+- Shared detail sections expose stable handles:
+  - `section:ui.detail.NotesSection`
+  - `section:ui.detail.ActivitiesSection`
+  - `section:ui.detail.AddressesSection`
+  - `section:ui.detail.TagsSection`
+  - `section:ui.detail.CustomDataSection`
+  - `section:ui.detail.DetailFieldsSection`
+  - `section:ui.detail.AttachmentsSection`
+- **Admin layout wrapper**: `admin.page:<path-handle>:before|after` from `PageInjectionBoundary` (wraps every backend page).
+- **Global backend mutations**: `GLOBAL_MUTATION_INJECTION_SPOT_ID` resolves to `backend:record:current` for non-`CrudForm` save hooks. `backend-mutation:global` is still mounted in `AppShell` as a legacy compatibility slot.
+
+### `wrapper` overrides must be pure
+
+The platform composes a `wrapper` override **at most once per `(wrapper, wrapped component)` pair** and caches the composed component, so that a wrapped subtree keeps a stable React identity instead of being torn down and remounted every time overrides re-resolve (a registry revision bump, a feature grant arriving after first paint).
+
+A wrapper must therefore be a pure function of `Original`. Read any dynamic value — a feature flag, the locale, tenant configuration, the clock, request state — **inside the render body of the component you return**, never at composition time:
+
+```tsx
+// ✅ the dynamic read happens on every render
+wrapper: (Original) => function WithBanner(props) {
+  const t = useT()
+  return <><Banner text={t('acme.notice')} /><Original {...props} /></>
+}
+
+// ❌ frozen at first composition — on the server the registry outlives the
+// request, so one tenant's value would render for everyone
+wrapper: (Original) => {
+  const label = readTenantConfig().label
+  return (props) => <><Banner text={label} /><Original {...props} /></>
+}
+```
+
+## UMES Phase L — Integration Extension Widgets
+
+Phase L adds three specialized widget types for building integration modules: a multi-step wizard, pollable status badges, and an external ID mapping display.
+
+### InjectionWizard
+
+A multi-step wizard component for integration onboarding flows (OAuth setup, API credential entry, sync configuration).
+
+#### Step definition
+
+Each step is an `InjectionWizardStep` with:
+
+- `id` — unique step identifier
+- `label` — displayed in the step indicator (supports i18n keys)
+- `description` — optional subtitle text
+- `fields` — optional array of `InjectedField` definitions (text, select, etc.)
+- `validate` — optional async function returning `{ ok, message?, fieldErrors? }`
+- `customComponent` — optional React component for fully custom step content
+
+#### Usage
+
+```ts
+import { InjectionWizard } from '@open-mercato/ui/backend/injection/InjectionWizard'
+import type { InjectionWizardWidget, InjectionContext } from '@open-mercato/shared/modules/widgets/injection'
+
+const widget: InjectionWizardWidget = {
+  metadata: { id: 'my_module.integration.setup-wizard', title: 'Integration Setup' },
+  kind: 'wizard',
+  steps: [
+    {
+      id: 'credentials',
+      label: 'Credentials',
+      fields: [
+        { id: 'apiKey', label: 'API Key', type: 'text' },
+        { id: 'apiSecret', label: 'API Secret', type: 'text' },
+      ],
+      validate: async (data) => {
+        if (!data.apiKey || !data.apiSecret) {
+          return { ok: false, message: 'Both fields are required.' }
+        }
+        return { ok: true }
+      },
+    },
+    { id: 'scope', label: 'Scope', fields: [/* ... */] },
+  ],
+  onComplete: async (allData, context) => {
+    // Save integration config
+  },
+}
+
+<InjectionWizard widget={widget} context={context} />
+```
+
+The wizard renders a numbered step indicator with connecting lines, validates each step before allowing progression, and calls `onComplete` with accumulated data from all steps. `Escape` cancels the wizard.
+
+### StatusBadgeRenderer
+
+A pollable status badge for displaying integration or service health.
+
+#### Badge definition
+
+An `InjectionStatusBadgeWidget` contains a `badge` object with:
+
+- `label` — display text (supports i18n)
+- `statusLoader` — async function returning `{ status, tooltip?, count? }`
+- `pollInterval` — refresh interval in seconds (default: 60)
+- `href` — optional link target
+
+Status values and their colors:
+
+| Status | Color |
+|--------|-------|
+| `healthy` | Green |
+| `warning` | Yellow |
+| `error` | Red |
+| `unknown` | Gray |
+
+#### Usage
+
+```ts
+import { StatusBadgeRenderer } from '@open-mercato/ui/backend/injection/StatusBadgeRenderer'
+import type { InjectionStatusBadgeWidget, StatusBadgeContext } from '@open-mercato/shared/modules/widgets/injection'
+
+const widget: InjectionStatusBadgeWidget = {
+  metadata: { id: 'my_module.integration.sync-status' },
+  kind: 'status-badge',
+  badge: {
+    label: 'Sync Engine',
+    pollInterval: 30,
+    statusLoader: async (ctx) => {
+      const res = await fetch('/api/integrations/health')
+      const data = await res.json()
+      return { status: data.healthy ? 'healthy' : 'error', tooltip: data.message }
+    },
+  },
+}
+
+<StatusBadgeRenderer widget={widget} context={context} />
+```
+
+### ExternalIdsWidget
+
+Displays external system ID mappings from the `_integrations` namespace added by the external ID mapping enricher (see [Data extensibility](/framework/database/data-extensibility)).
+
+Each row shows:
+
+- **Provider name** — resolved via `getIntegrationTitle()` from the integration registry
+- **External ID** — monospace code badge
+- **Sync status** — color-coded dot (`synced`/`pending`/`error`/`not_synced`)
+- **External link** — icon linking to the record in the external system (when `buildExternalUrl` is registered)
+
+The widget reads `data._integrations` (keyed by integration ID) and renders automatically when enriched data is available. It is registered as an injection widget at `integrations.injection.external-ids`.
+
+Widget source: `packages/core/src/modules/integrations/widgets/injection/external-ids/widget.client.tsx`
+
+## Creating an Injection Widget
+
+### 1. Define the Widget
+
+Create `src/modules/<module>/widgets/injection/<widget-name>/widget.ts`:
+
+```typescript
+import type { InjectionWidgetModule } from '@open-mercato/shared/modules/widgets/injection'
+import MyWidgetClient from './widget.client'
+
+const widget: InjectionWidgetModule<ContextType, DataType> = {
+  metadata: {
+    id: 'module.injection.widget-name',
+    title: 'Widget Title',
+    description: 'Widget description',
+    features: ['module.feature'],
+    priority: 100,
+    enabled: true,
+  },
+  Widget: MyWidgetClient,
+  eventHandlers: {
+    onLoad: async (context) => {
+      // Called when widget loads
+      console.log('Widget loaded', context)
+    },
+    onBeforeSave: async (data, context) => {
+      // Called before save action
+      // Return false to prevent save, or provide a message/field errors
+      if (!isValid(data)) {
+        return {
+          ok: false,
+          message: 'Title is required before saving',
+          fieldErrors: { title: 'Title is required' },
+        }
+      }
+      return { ok: true }
+    },
+    onSave: async (data, context) => {
+      // Called during save action
+      console.log('Saving', data)
+    },
+    onAfterSave: async (data, context) => {
+      // Called after successful save
+      console.log('Saved', data)
+    },
+  },
+}
+
+export default widget
+```
+
+### 2. Create the Widget Component
+
+Create `src/modules/<module>/widgets/injection/<widget-name>/widget.client.tsx`:
+
+```typescript
+"use client"
+import * as React from 'react'
+import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
+
+export default function MyWidget({ context, data, onDataChange, disabled }: InjectionWidgetComponentProps) {
+  return (
+    <div className="rounded border border-blue-200 bg-blue-50 p-3 text-sm">
+      <div className="font-medium text-blue-900">My Widget</div>
+      <div className="text-blue-700 mt-1">
+        Custom content here. Context: {JSON.stringify(context)}
+      </div>
+      {disabled && <div className="text-xs text-gray-500 mt-1">Saving...</div>}
+    </div>
+  )
+}
+```
+
+### 3. Register in Injection Table
+
+Create or edit `src/modules/<module>/widgets/injection-table.ts`:
+
+```typescript
+import type { ModuleInjectionTable } from '@open-mercato/shared/modules/widgets/injection'
+
+export const injectionTable: ModuleInjectionTable = {
+  // Map injection spot IDs to widget IDs
+  'crud-form:catalog.product': 'module.injection.widget-name',
+  
+  // Can also inject multiple widgets
+  'crud-form:catalog.variant': [
+    'module.injection.widget-name',
+    'module.injection.another-widget',
+  ],
+}
+
+export default injectionTable
+```
+
+### Ordering a contributed tab
+
+On a `kind: 'tab'` spot, `priority` orders the contributed tab **against the host's
+built-in tabs**, not just against other contributed tabs. Built-in tabs sit at `0`:
+
+- a **positive** priority places the tab before every built-in tab
+- a **negative** priority places it after them
+- entries sharing a priority keep their declaration order, so omitting `priority`
+  leaves a contributed tab where it has always been — last
+
+```typescript
+export const injectionTable: ModuleInjectionTable = {
+  'detail:customers.company:tabs': [
+    {
+      widgetId: 'my_module.injection.overview-tab',
+      priority: 100,
+      kind: 'tab',
+      groupId: 'overview',
+      groupLabel: 'my_module.tabs.overview',
+    },
+  ],
+}
+```
+
+Ordering a tab first does not make it the tab the page opens on — hosts keep their
+own default. Link to `?tab=<groupId>` to land a user on a contributed tab.
+
+Hosts honouring this: company, person and deal detail pages in `customers`.
+
+## Using Injection Spots in CRUD Forms
+
+The `CrudForm` component automatically supports widget injection:
+
+```typescript
+<CrudForm
+  fields={fields}
+  onSubmit={handleSubmit}
+  injectionSpotId="crud-form:catalog.product"
+  // ... other props
+/>
+```
+
+### Standard Injection Spot IDs
+
+Use the helper functions to generate consistent spot IDs:
+
+```typescript
+import { generateCrudFormInjectionSpotId, CrudFormInjectionSpots } from '@open-mercato/ui/backend/injection/helpers'
+
+// Basic form spot
+const spotId = generateCrudFormInjectionSpotId('catalog.product')
+// Result: 'crud-form:catalog.product'
+
+// Specific locations
+const beforeFieldsSpot = CrudFormInjectionSpots.beforeFields('catalog.product')
+// Result: 'crud-form:catalog.product:before-fields'
+
+const afterFieldsSpot = CrudFormInjectionSpots.afterFields('catalog.product')
+// Result: 'crud-form:catalog.product:after-fields'
+```
+
+## Event Handler Reference
+
+### onLoad
+
+Called when the widget is first mounted.
+
+**Signature:**
+```typescript
+onLoad?: (context: TContext) => void | Promise<void>
+```
+
+**Use Cases:**
+- Initialize widget state
+- Fetch additional data
+- Register listeners
+
+### onBeforeSave
+
+Called before a save action is executed. Can prevent the save by returning `false` or throwing an error.
+
+**Signature:**
+```typescript
+onBeforeSave?: (data: TData, context: TContext) => boolean | { ok?: boolean; message?: string; fieldErrors?: Record<string, string> } | void | Promise<boolean | { ok?: boolean; message?: string; fieldErrors?: Record<string, string> } | void>
+```
+
+**Use Cases:**
+- Validation
+- Confirmation dialogs
+- Data transformation
+- Blocking invalid operations
+
+**Example:**
+```typescript
+onBeforeSave: async (data, context) => {
+  if (!data.title || data.title.length < 10) {
+    alert('Title must be at least 10 characters')
+    return false  // Prevent save
+  }
+  return true  // Allow save
+}
+```
+
+### onSave
+
+Called when save action is triggered (alongside the main save operation).
+
+**Signature:**
+```typescript
+onSave?: (data: TData, context: TContext) => void | Promise<void>
+```
+
+**Use Cases:**
+- Side effects during save
+- Logging
+- Analytics
+
+### onAfterSave
+
+Called after save completes successfully.
+
+**Signature:**
+```typescript
+onAfterSave?: (data: TData, context: TContext) => void | Promise<void>
+```
+
+**Use Cases:**
+- Success notifications
+- Cache invalidation
+- Related data updates
+
+## Advanced Usage
+
+### Using the Injection Spot Hook
+
+For custom components that need to trigger injection widget events:
+
+```typescript
+import { useInjectionSpotEvents } from '@open-mercato/ui/backend/injection/InjectionSpot'
+
+function MyCustomForm() {
+  const { triggerEvent } = useInjectionSpotEvents('crud-form:my.form')
+  
+  const handleSave = async (data) => {
+    // Trigger onBeforeSave
+    const canProceed = await triggerEvent('onBeforeSave', data, context)
+    if (!canProceed) {
+      return // Blocked by widget
+    }
+    
+    // Trigger onSave
+    await triggerEvent('onSave', data, context)
+    
+    // Perform save
+    await saveData(data)
+    
+    // Trigger onAfterSave
+    await triggerEvent('onAfterSave', data, context)
+  }
+  
+  return <form onSubmit={handleSave}>...</form>
+}
+```
+
+### Global Mutation Hook for Non-CrudForm Screens
+
+For backend pages that do not use `CrudForm` (for example custom detail screens), use the global mutation spot and emit the generic mutation error event.
+
+```typescript
+import { useInjectionSpotEvents } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import {
+  GLOBAL_MUTATION_INJECTION_SPOT_ID,
+  dispatchBackendMutationError,
+} from '@open-mercato/ui/backend/injection/mutationEvents'
+import { withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+
+const { triggerEvent } = useInjectionSpotEvents(GLOBAL_MUTATION_INJECTION_SPOT_ID)
+
+async function runMutation(operation: () => Promise<unknown>, payload: Record<string, unknown>, context: Record<string, unknown>) {
+  const beforeSave = await triggerEvent('onBeforeSave', payload, context)
+  if (!beforeSave.ok) {
+    dispatchBackendMutationError({ contextId: context.formId as string, error: beforeSave.details ?? beforeSave })
+    throw new Error(beforeSave.message ?? 'Save blocked by validation')
+  }
+
+  try {
+    const result =
+      beforeSave.requestHeaders && Object.keys(beforeSave.requestHeaders).length > 0
+        ? await withScopedApiRequestHeaders(beforeSave.requestHeaders, operation)
+        : await operation()
+    await triggerEvent('onAfterSave', payload, context)
+    return result
+  } catch (error) {
+    dispatchBackendMutationError({ contextId: context.formId as string, error })
+    throw error
+  }
+}
+```
+
+This keeps API helpers generic while still enabling module-level behaviors such as conflict dialogs, validation, or save guards.
+
+### Directly Rendering an Injection Spot
+
+```typescript
+import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
+
+function MyPage() {
+  const context = { pageId: 'my-page', userId: currentUser.id }
+  const [data, setData] = useState({})
+  
+  return (
+    <div>
+      <InjectionSpot
+        spotId="page:my-page:header"
+        context={context}
+        data={data}
+        onDataChange={setData}
+      />
+      {/* Rest of page */}
+    </div>
+  )
+}
+```
+
+## Examples
+
+Here’s how injected widgets look in the admin UI:
+
+![Injected form widget banner](/screenshots/open-mercato-widget-injection-form.png)
+
+![Injected validation card that blocks save](/screenshots/open-mercato-widget-injection-validation.png)
+
+![Injected data table widget in products list](/screenshots/open-mercato-injection-data-table.png)
+
+See these modules for reference implementations:
+
+- `packages/example/src/modules/example/widgets/injection/crud-validation` - Basic validation widget
+- `packages/core/src/modules/catalog/widgets/injection/product-seo` - SEO helper widget for products
+
+## Code Generation
+
+The widget injection system is integrated into the module code generator:
+
+1. Widgets in `src/modules/<module>/widgets/injection/**/widget.ts(x)` are auto-discovered
+2. Injection tables in `src/modules/<module>/widgets/injection-table.ts` are auto-loaded
+3. Generated registry files are created in `generated/injection-widgets.generated.ts`
+4. Run `yarn generate` to regenerate
+
+## Best Practices
+
+1. **Keep widgets focused** - Each widget should have a single, clear purpose
+2. **Use descriptive IDs** - Follow the pattern `module.injection.widget-name`
+3. **Handle errors gracefully** - Catch errors in event handlers to avoid breaking the form
+4. **Document context requirements** - Clearly specify what data the widget expects in context
+5. **Use TypeScript** - Leverage type safety for context and data types
+6. **Test event handlers** - Ensure validation logic works correctly
+7. **Respect disabled state** - Disable UI interactions when `disabled` prop is true
+
+## Troubleshooting
+
+### Widget not appearing
+
+1. Check that the widget is in the correct directory structure
+2. Verify the injection table maps the spot ID correctly
+3. Run `yarn generate` to regenerate
+4. Check browser console for loading errors
+
+### Events not firing
+
+1. Ensure the injection spot ID matches exactly
+2. Check that event handlers are defined in the widget module
+3. Verify the host component is using `useInjectionSpotEvents` or `InjectionSpot`
+4. Check for errors in the event handler itself
+
+### TypeScript errors
+
+1. Import types from `@open-mercato/shared/modules/widgets/injection`
+2. Use the correct generic types for context and data
+3. Ensure the widget module default export matches `InjectionWidgetModule`

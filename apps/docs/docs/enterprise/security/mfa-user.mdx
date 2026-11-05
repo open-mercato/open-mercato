@@ -1,0 +1,54 @@
+---
+title: MFA for Users
+description: "Multi-factor authentication from the end-user perspective: setup, sign-in, and recovery."
+---
+
+MFA adds a second proof of identity after the password step. For users, this means one extra confirmation during sign-in, but much stronger protection if a password is leaked, reused, or guessed.
+
+## Configuring MFA methods
+
+Users manage MFA from **Profile → Security → Multi-factor authentication** (`/backend/profile/security/mfa`). The page lists all available providers and shows how many methods are configured for each.
+
+![MFA providers list](/screenshots/open-mercato-security-mfa.png)
+
+| Method | Best for | Notes |
+| --- | --- | --- |
+| Authenticator app | A familiar and reliable second factor | Good default choice for many teams |
+| Passkey | The strongest and smoothest modern experience | Especially useful on managed devices |
+| Email code | A simple entry point for early rollout | Lower friction for gradual adoption |
+| Recovery codes | Backup access when the main method is unavailable | Should be stored safely offline |
+
+### Setting up a method
+
+Clicking a provider opens its dedicated setup page (`/backend/profile/security/mfa/[providername]`). There the user can add new credentials, see existing ones, and remove any they no longer use. Providers that support multiple credentials (e.g. passkeys on different devices) show each one separately.
+
+![Passkey provider setup](/screenshots/open-mercato-security-mfa-passkey-setup.png)
+
+![TOTP provider setup](/screenshots/open-mercato-security-mfa-totp-setup.png)
+
+## Sign-in with MFA
+
+After entering the correct password, users who have MFA enabled are asked for a second factor before the session continues. The challenge panel lets them pick whichever configured method is most convenient at that moment.
+
+If more than one method is available, users can expand **More options** to switch. When the primary device is unavailable, a 2FA recovery code can be used as a fallback.
+
+![MFA challenge panel](/screenshots/open-mercato-security-login-challenge.png)
+
+## Recovery codes
+
+Recovery codes are the safety net of the MFA experience.
+
+- They are issued when MFA is enabled for the first time.
+- They help users regain access if the usual device or method is unavailable.
+- They are intended for emergencies, not day-to-day sign-in.
+- Regenerating them replaces older unused codes.
+
+## When MFA is required
+
+Some organizations treat MFA as optional, while others require it for everyone or for selected groups.
+
+When MFA is required, users are guided to enroll before they continue working. This allows teams to roll out stronger protection without leaving users unsure about what happens next.
+
+## Next step
+
+If you are managing rollout and policy rather than using MFA yourself, see [MFA for admins](./mfa-admin).

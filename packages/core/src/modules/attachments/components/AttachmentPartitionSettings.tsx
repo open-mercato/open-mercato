@@ -1,0 +1,748 @@
+"use client"
+
+import * as React from 'react'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { Input } from '@open-mercato/ui/primitives/input'
+import { Label } from '@open-mercato/ui/primitives/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@open-mercato/ui/primitives/dialog'
+import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { resolvePartitionEnvKey } from '@open-mercato/core/modules/attachments/lib/partitionEnv'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('attachments').child({ component: 'partitions' })
+
+type Partition = {
+  id: string
+  code: string
+  title: string
+  description: string | null
+  isPublic: boolean
+  requiresOcr: boolean
+  ocrModel: string | null
+  storageDriver: string
+  configJson: Record<string, unknown> | null
+  envKey: string
+  createdAt: string | null
+  updatedAt?: string | null
+}
+
+type DialogState =
+  | { mode: 'create' }
+  | { mode: 'edit'; entry: Partition }
+
+type S3CredentialsSource = 'integration' | 'env'
+
+const DEFAULT_FORM = {
+  code: '',
+  title: '',
+  description: '',
+  isPublic: false,
+  requiresOcr: true,
+  ocrModel: '',
+  storageDriver: 'local',
+  s3CredentialsSource: 'integration' as S3CredentialsSource,
+  s3CredentialsEnvPrefix: '',
+  s3Bucket: '',
+  s3Region: '',
+  s3Endpoint: '',
+  s3ForcePathStyle: false,
+}
+
+const ALL_STORAGE_DRIVER_OPTIONS = [
+  { value: 'local', label: 'Local filesystem' },
+  { value: 's3', label: 'Amazon S3 / S3-compatible', requiresModule: 's3' },
+]
+
+const OCR_MODEL_DEFAULT_VALUE = '__default__'
+
+const OCR_MODEL_OPTIONS = [
+  { value: OCR_MODEL_DEFAULT_VALUE, label: 'Default (from environment)' },
+  { value: 'gpt-4o', label: 'GPT-4o (Recommended)' },
+  { value: 'gpt-4o-mini', label: 'GPT-4o Mini (Faster, Lower Cost)' },
+]
+
+export type AttachmentPartitionSettingsProps = {
+  s3Enabled: boolean
+}
+
+export function AttachmentPartitionSettings({ s3Enabled }: AttachmentPartitionSettingsProps) {
+  const storageDriverOptions = ALL_STORAGE_DRIVER_OPTIONS.filter(
+    (opt) => !opt.requiresModule || (opt.requiresModule === 's3' && s3Enabled),
+  )
+  const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const [items, setItems] = React.useState<Partition[]>([])
+  const [loading, setLoading] = React.useState(false)
+  const [search, setSearch] = React.useState('')
+  const [dialog, setDialog] = React.useState<DialogState | null>(null)
+  const [form, setForm] = React.useState(DEFAULT_FORM)
+  const [submitting, setSubmitting] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+
+  const s3Unavailable = !s3Enabled
+  const s3SelectedWhileUnavailable = s3Unavailable && form.storageDriver === 's3'
+
+  const loadErrorMessage = t('attachments.partitions.errors.load', 'Failed to load partitions.')
+
+  const loadItems = React.useCallback(async () => {
+    setLoading(true)
+    try {
+      const payload = await readApiResultOrThrow<{ items?: Partition[] }>(
+        '/api/attachments/partitions',
+        undefined,
+        { errorMessage: loadErrorMessage },
+      )
+      const normalized = Array.isArray(payload.items) ? payload.items : []
+      const withDefaults = normalized.map((entry) => ({
+        ...entry,
+        requiresOcr: typeof entry.requiresOcr === 'boolean' ? entry.requiresOcr : true,
+      }))
+      setItems(withDefaults)
+    } catch (err) {
+      logger.error('Partition list failed', { err })
+      flash(loadErrorMessage, 'error')
+    } finally {
+      setLoading(false)
+    }
+  }, [loadErrorMessage])
+
+  React.useEffect(() => {
+    loadItems().catch(() => {})
+  }, [loadItems])
+
+  const filteredItems = React.useMemo(() => {
+    if (!search.trim()) return items
+    const term = search.trim().toLowerCase()
+    return items.filter(
+      (entry) =>
+        entry.code.toLowerCase().includes(term) ||
+        entry.title.toLowerCase().includes(term) ||
+        (entry.description ?? '').toLowerCase().includes(term),
+    )
+  }, [items, search])
+
+  const openDialog = React.useCallback((state: DialogState) => {
+    if (state.mode === 'edit') {
+      const cfg = state.entry.configJson ?? {}
+      const credsPrefix = typeof cfg.credentialsEnvPrefix === 'string' ? cfg.credentialsEnvPrefix : ''
+      setForm({
+        code: state.entry.code,
+        title: state.entry.title,
+        description: state.entry.description ?? '',
+        isPublic: state.entry.isPublic,
+        requiresOcr: state.entry.requiresOcr,
+        ocrModel: state.entry.ocrModel ?? '',
+        storageDriver: state.entry.storageDriver ?? 'local',
+        s3CredentialsSource: credsPrefix ? 'env' : 'integration',
+        s3CredentialsEnvPrefix: credsPrefix,
+        s3Bucket: typeof cfg.bucket === 'string' ? cfg.bucket : '',
+        s3Region: typeof cfg.region === 'string' ? cfg.region : '',
+        s3Endpoint: typeof cfg.endpoint === 'string' ? cfg.endpoint : '',
+        s3ForcePathStyle: cfg.forcePathStyle === true,
+      })
+    } else {
+      setForm(DEFAULT_FORM)
+    }
+    setError(null)
+    setDialog(state)
+  }, [])
+
+  const closeDialog = React.useCallback(() => {
+    setDialog(null)
+    setError(null)
+    setSubmitting(false)
+    setForm(DEFAULT_FORM)
+  }, [])
+
+  const handleSubmit = React.useCallback(async () => {
+    if (!dialog) return
+    const trimmedCode = form.code.trim()
+    const trimmedTitle = form.title.trim()
+    if (!trimmedCode || !trimmedTitle) {
+      setError(t('attachments.partitions.errors.required', 'Code and title are required.'))
+      return
+    }
+    if (form.storageDriver === 's3' && form.s3CredentialsSource === 'env') {
+      if (!form.s3CredentialsEnvPrefix.trim()) {
+        setError(
+          t(
+            'attachments.partitions.errors.s3EnvPrefixRequired',
+            'Credentials env prefix is required when using a separate credentials source.',
+          ),
+        )
+        return
+      }
+      if (!form.s3Bucket.trim()) {
+        setError(
+          t(
+            'attachments.partitions.errors.s3BucketRequired',
+            'Bucket is required when using a separate credentials source.',
+          ),
+        )
+        return
+      }
+    }
+    setSubmitting(true)
+    setError(null)
+    try {
+      const s3ConfigJson =
+        form.storageDriver === 's3'
+          ? {
+              bucket: form.s3Bucket.trim() || undefined,
+              region: form.s3Region.trim() || undefined,
+              endpoint: form.s3Endpoint.trim() || undefined,
+              forcePathStyle: form.s3ForcePathStyle || undefined,
+              ...(form.s3CredentialsSource === 'env'
+                ? { credentialsEnvPrefix: form.s3CredentialsEnvPrefix.trim() || undefined }
+                : {}),
+            }
+          : null
+
+      const payload = {
+        code: trimmedCode,
+        title: trimmedTitle,
+        description: form.description.trim() || undefined,
+        isPublic: form.isPublic,
+        requiresOcr: form.requiresOcr,
+        ocrModel: form.ocrModel.trim() || null,
+        storageDriver: form.storageDriver,
+        configJson: s3ConfigJson,
+      }
+      const method = dialog.mode === 'create' ? 'POST' : 'PUT'
+      const body =
+        dialog.mode === 'edit'
+          ? JSON.stringify({ id: dialog.entry.id, ...payload })
+          : JSON.stringify(payload)
+      const lockHeader =
+        dialog.mode === 'edit' ? buildOptimisticLockHeader(dialog.entry.updatedAt) : {}
+      const call = await withScopedApiRequestHeaders(lockHeader, () =>
+        apiCall('/api/attachments/partitions', {
+          method,
+          headers: { 'content-type': 'application/json' },
+          body,
+        }),
+      )
+      if (!call.ok) {
+        await raiseCrudError(
+          call.response,
+          t('attachments.partitions.errors.save', 'Failed to save partition.'),
+        )
+      }
+      flash(
+        dialog.mode === 'create'
+          ? t('attachments.partitions.messages.created', 'Partition created.')
+          : t('attachments.partitions.messages.updated', 'Partition updated.'),
+        'success',
+      )
+      closeDialog()
+      await loadItems()
+    } catch (err) {
+      logger.error('Partition save failed', { err })
+      if (surfaceRecordConflict(err, t)) return
+      const message =
+        err instanceof Error ? err.message : t('attachments.partitions.errors.save', 'Failed to save partition.')
+      setError(message)
+    } finally {
+      setSubmitting(false)
+    }
+  }, [dialog, form, t, closeDialog, loadItems])
+
+  const handleDelete = React.useCallback(
+    async (entry: Partition) => {
+      const confirmMessage = t('attachments.partitions.confirm.delete', 'Delete partition "{{code}}"?').replace(
+        '{{code}}',
+        entry.code,
+      )
+      const confirmed = await confirm({
+        title: confirmMessage,
+        variant: 'destructive',
+      })
+      if (!confirmed) return
+      try {
+        const call = await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(entry.updatedAt),
+          () =>
+            apiCall(`/api/attachments/partitions?id=${encodeURIComponent(entry.id)}`, {
+              method: 'DELETE',
+            }),
+        )
+        if (!call.ok) {
+          await raiseCrudError(
+            call.response,
+            t('attachments.partitions.errors.delete', 'Failed to delete partition.'),
+          )
+        }
+        flash(t('attachments.partitions.messages.deleted', 'Partition removed.'), 'success')
+        await loadItems()
+      } catch (err) {
+        logger.error('Partition delete failed', { err })
+        if (surfaceRecordConflict(err, t)) return
+        flash(t('attachments.partitions.errors.delete', 'Failed to delete partition.'), 'error')
+      }
+    },
+    [confirm, loadItems, t],
+  )
+
+  const columns = React.useMemo<ColumnDef<Partition>[]>(
+    () => [
+      {
+        header: t('attachments.partitions.table.code', 'Code'),
+        accessorKey: 'code',
+        cell: ({ row }) => <code className="font-mono text-xs">{row.original.code}</code>,
+      },
+      {
+        header: t('attachments.partitions.table.title', 'Title'),
+        accessorKey: 'title',
+        cell: ({ row }) => (
+          <div className="flex flex-col">
+            <span className="font-medium">{row.original.title}</span>
+            {row.original.description ? (
+              <span className="text-xs text-muted-foreground line-clamp-2">{row.original.description}</span>
+            ) : null}
+          </div>
+        ),
+      },
+      {
+        header: t('attachments.partitions.table.visibility', 'Visibility'),
+        accessorKey: 'isPublic',
+        cell: ({ row }) => (
+          <span className="text-sm">
+            {row.original.isPublic
+              ? t('attachments.partitions.table.public', 'Public')
+              : t('attachments.partitions.table.private', 'Private')}
+          </span>
+        ),
+      },
+      {
+        header: t('attachments.partitions.table.ocr', 'OCR'),
+        accessorKey: 'requiresOcr',
+        cell: ({ row }) => (
+          <span className="text-sm">
+            {row.original.requiresOcr
+              ? t('common.enabled', 'Enabled')
+              : t('common.disabled', 'Disabled')}
+          </span>
+        ),
+      },
+      {
+        header: t('attachments.partitions.table.storageDriver', 'Storage'),
+        accessorKey: 'storageDriver',
+        cell: ({ row }) => (
+          <span className="text-sm capitalize">
+            {row.original.storageDriver === 's3' ? 'S3' : row.original.storageDriver ?? 'local'}
+          </span>
+        ),
+      },
+      {
+        header: t('attachments.partitions.table.envKey', 'Env variable'),
+        accessorKey: 'envKey',
+        cell: ({ row }) => <code className="text-xs">{row.original.envKey}</code>,
+      },
+    ],
+    [t],
+  )
+
+  const tableLabels = React.useMemo(
+    () => ({
+      search: t('attachments.partitions.table.search', 'Search partitions…'),
+      empty: t('attachments.partitions.table.empty', 'No partitions configured.'),
+    }),
+    [t],
+  )
+
+  const formKeyHandler = React.useCallback(
+    (event: React.KeyboardEvent<HTMLFormElement>) => {
+      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+        event.preventDefault()
+        void handleSubmit()
+      }
+    },
+    [handleSubmit],
+  )
+
+  return (
+    <div className="space-y-6 rounded-lg border bg-card p-6">
+      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold">
+            {t('attachments.partitions.title', 'Attachment partitions')}
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            {t('attachments.partitions.description', 'Define storage partitions and visibility for uploads.')}
+          </p>
+        </div>
+        <Button size="sm" onClick={() => openDialog({ mode: 'create' })}>
+          {t('attachments.partitions.actions.add', 'Add partition')}
+        </Button>
+      </div>
+      <DataTable<Partition>
+        columns={columns}
+        data={filteredItems}
+        searchValue={search}
+        onSearchChange={(value: string) => setSearch(value)}
+        searchPlaceholder={tableLabels.search}
+        emptyState={<p className="py-8 text-center text-sm text-muted-foreground">{tableLabels.empty}</p>}
+        isLoading={loading}
+        refreshButton={{
+          label: t('attachments.partitions.actions.refresh', 'Refresh'),
+          onRefresh: () => { void loadItems() },
+          isRefreshing: loading,
+        }}
+        rowActions={(entry) => (
+          <RowActions
+            items={[
+              {
+                id: 'edit',
+                label: t('attachments.partitions.actions.edit', 'Edit'),
+                onSelect: () => openDialog({ mode: 'edit', entry }),
+              },
+              {
+                id: 'delete',
+                label: t('attachments.partitions.actions.delete', 'Delete'),
+                destructive: true,
+                onSelect: () => { void handleDelete(entry) },
+              },
+            ]}
+          />
+        )}
+      />
+      <Dialog open={dialog !== null} onOpenChange={(open) => { if (!open) closeDialog() }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {dialog?.mode === 'edit'
+                ? t('attachments.partitions.dialog.editTitle', 'Edit partition')
+                : t('attachments.partitions.dialog.createTitle', 'Create partition')}
+            </DialogTitle>
+            <DialogDescription>
+              {dialog?.mode === 'edit'
+                ? t('attachments.partitions.dialog.editDescription', 'Update partition metadata and visibility.')
+                : t('attachments.partitions.dialog.createDescription', 'Define a storage partition for attachments.')}
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            className="space-y-4"
+            onKeyDown={formKeyHandler}
+            onSubmit={(event) => {
+              event.preventDefault()
+              void handleSubmit()
+            }}
+          >
+            <div className="space-y-2">
+              <Label htmlFor="partition-code">{t('attachments.partitions.form.codeLabel', 'Code')}</Label>
+              <Input
+                id="partition-code"
+                value={form.code}
+                onChange={(event) => setForm((prev) => ({ ...prev, code: event.target.value }))}
+                placeholder={t('attachments.partitions.form.codePlaceholder', 'e.g. marketingAssets')}
+                disabled={dialog?.mode === 'edit'}
+                className="font-mono uppercase"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="partition-title">{t('attachments.partitions.form.titleLabel', 'Title')}</Label>
+              <Input
+                id="partition-title"
+                value={form.title}
+                onChange={(event) => setForm((prev) => ({ ...prev, title: event.target.value }))}
+                placeholder={t('attachments.partitions.form.titlePlaceholder', 'e.g. Marketing assets')}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="partition-description">{t('attachments.partitions.form.descriptionLabel', 'Description')}</Label>
+              <textarea
+                id="partition-description"
+                className="min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={form.description}
+                onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
+                placeholder={t('attachments.partitions.form.descriptionPlaceholder', 'Explain how this partition is used.')}
+              />
+            </div>
+            <label className="flex items-center gap-2 text-sm font-medium">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border"
+                checked={form.isPublic}
+                onChange={(event) => setForm((prev) => ({ ...prev, isPublic: event.target.checked }))}
+              />
+              {t('attachments.partitions.form.publicLabel', 'Publicly accessible')}
+            </label>
+            <label className="flex items-center gap-2 text-sm font-medium">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border"
+                checked={form.requiresOcr}
+                onChange={(event) => setForm((prev) => ({ ...prev, requiresOcr: event.target.checked }))}
+              />
+              {t('attachments.partitions.form.ocrLabel', 'Require OCR/text extraction')}
+            </label>
+            {form.requiresOcr && (
+              <div className="space-y-2 pl-6">
+                <Label htmlFor="partition-ocr-model">
+                  {t('attachments.partitions.form.ocrModelLabel', 'OCR Model')}
+                </Label>
+                <Select
+                  value={form.ocrModel ? form.ocrModel : OCR_MODEL_DEFAULT_VALUE}
+                  onValueChange={(value) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      ocrModel: value === OCR_MODEL_DEFAULT_VALUE ? '' : value,
+                    }))
+                  }
+                >
+                  <SelectTrigger id="partition-ocr-model">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {OCR_MODEL_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {t(
+                          `attachments.partitions.form.ocrModelOptions.${
+                            option.value === OCR_MODEL_DEFAULT_VALUE ? 'default' : option.value
+                          }`,
+                          option.label,
+                        )}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {t(
+                    'attachments.partitions.form.ocrModelHelp',
+                    'Choose the LLM model for OCR processing. Falls back to OCR_MODEL environment variable or gpt-4o.'
+                  )}
+                </p>
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label htmlFor="partition-storage-driver">
+                {t('attachments.partitions.form.storageDriverLabel', 'Storage Driver')}
+              </Label>
+              <select
+                id="partition-storage-driver"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={form.storageDriver}
+                onChange={(event) => setForm((prev) => ({ ...prev, storageDriver: event.target.value }))}
+              >
+                {storageDriverOptions.map((option) => (
+                  <option
+                    key={option.value}
+                    value={option.value}
+                    disabled={option.value === 's3' && s3Unavailable}
+                  >
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              {s3Unavailable ? (
+                <p className="text-xs text-muted-foreground">
+                  {t(
+                    'attachments.partitions.form.storageDriverS3DisabledHelp',
+                    'S3 is disabled. Set OM_ENABLE_STORAGE_S3=true and restart to enable S3 partitions.',
+                  )}
+                </p>
+              ) : null}
+            </div>
+            {form.storageDriver === 's3' && (
+              <div className="space-y-3 rounded-md border bg-muted/30 p-3">
+                <p className="text-xs font-medium text-muted-foreground">
+                  {t('attachments.partitions.form.s3ConfigTitle', 'S3 Configuration')}
+                </p>
+                <div className="space-y-2">
+                  <Label htmlFor="partition-s3-creds-source">
+                    {t('attachments.partitions.form.s3CredsSourceLabel', 'Credentials source')}
+                  </Label>
+                  <select
+                    id="partition-s3-creds-source"
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={form.s3CredentialsSource}
+                    onChange={(event) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        s3CredentialsSource: event.target.value as S3CredentialsSource,
+                        ...(event.target.value === 'integration' ? { s3CredentialsEnvPrefix: '' } : {}),
+                      }))
+                    }
+                  >
+                    <option value="integration">
+                      {t(
+                        'attachments.partitions.form.s3CredsSourceIntegration',
+                        'Use Integration Marketplace credentials',
+                      )}
+                    </option>
+                    <option value="env">
+                      {t(
+                        'attachments.partitions.form.s3CredsSourceEnv',
+                        'Use separate env-based credentials',
+                      )}
+                    </option>
+                  </select>
+                  <p className="text-xs text-muted-foreground">
+                    {form.s3CredentialsSource === 'integration'
+                      ? t(
+                          'attachments.partitions.form.s3CredsSourceIntegrationHelp',
+                          'This partition reuses the credentials, bucket, region and endpoint configured in the S3 integration. Override individual fields below only when needed.',
+                        )
+                      : t(
+                          'attachments.partitions.form.s3CredsSourceEnvHelp',
+                          'This partition uses its own credentials read from environment variables. The integration credentials are ignored. Bucket and credentials prefix are required.',
+                        )}
+                  </p>
+                </div>
+                {form.s3CredentialsSource === 'env' && (
+                  <div className="space-y-2">
+                    <Label htmlFor="partition-s3-creds-prefix">
+                      {t('attachments.partitions.form.s3CredsPrefixLabel', 'Credentials Env Prefix')}
+                    </Label>
+                    <Input
+                      id="partition-s3-creds-prefix"
+                      value={form.s3CredentialsEnvPrefix}
+                      onChange={(event) => setForm((prev) => ({ ...prev, s3CredentialsEnvPrefix: event.target.value }))}
+                      placeholder="OM_INTEGRATION_STORAGE_S3"
+                      className="font-mono"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {t(
+                        'attachments.partitions.form.s3CredsPrefixHelp',
+                        'Reads {PREFIX}_ACCESS_KEY_ID and {PREFIX}_SECRET_ACCESS_KEY from environment variables.',
+                      )}
+                    </p>
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <Label htmlFor="partition-s3-bucket">
+                    {form.s3CredentialsSource === 'integration'
+                      ? t('attachments.partitions.form.s3BucketOverrideLabel', 'Bucket override (optional)')
+                      : t('attachments.partitions.form.s3BucketLabel', 'Bucket')}
+                  </Label>
+                  <Input
+                    id="partition-s3-bucket"
+                    value={form.s3Bucket}
+                    onChange={(event) => setForm((prev) => ({ ...prev, s3Bucket: event.target.value }))}
+                    placeholder={
+                      form.s3CredentialsSource === 'integration'
+                        ? t(
+                            'attachments.partitions.form.s3BucketOverridePlaceholder',
+                            'Leave empty to use integration bucket',
+                          )
+                        : 'my-company-attachments'
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="partition-s3-region">
+                    {form.s3CredentialsSource === 'integration'
+                      ? t('attachments.partitions.form.s3RegionOverrideLabel', 'Region override (optional)')
+                      : t('attachments.partitions.form.s3RegionLabel', 'Region')}
+                  </Label>
+                  <Input
+                    id="partition-s3-region"
+                    value={form.s3Region}
+                    onChange={(event) => setForm((prev) => ({ ...prev, s3Region: event.target.value }))}
+                    placeholder={
+                      form.s3CredentialsSource === 'integration'
+                        ? t(
+                            'attachments.partitions.form.s3RegionOverridePlaceholder',
+                            'Leave empty to use integration region',
+                          )
+                        : 'us-east-1'
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="partition-s3-endpoint">
+                    {form.s3CredentialsSource === 'integration'
+                      ? t('attachments.partitions.form.s3EndpointOverrideLabel', 'Custom endpoint override (optional)')
+                      : t('attachments.partitions.form.s3EndpointLabel', 'Custom Endpoint')}
+                  </Label>
+                  <Input
+                    id="partition-s3-endpoint"
+                    value={form.s3Endpoint}
+                    onChange={(event) => setForm((prev) => ({ ...prev, s3Endpoint: event.target.value }))}
+                    placeholder={
+                      form.s3CredentialsSource === 'integration'
+                        ? t(
+                            'attachments.partitions.form.s3EndpointOverridePlaceholder',
+                            'Leave empty to use integration endpoint',
+                          )
+                        : 'https://fra1.digitaloceanspaces.com'
+                    }
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {t('attachments.partitions.form.s3EndpointHelp', 'Leave empty for AWS S3. Required for MinIO, DigitalOcean Spaces, etc.')}
+                  </p>
+                </div>
+                <label className="flex items-center gap-2 text-sm font-medium">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border"
+                    checked={form.s3ForcePathStyle}
+                    onChange={(event) => setForm((prev) => ({ ...prev, s3ForcePathStyle: event.target.checked }))}
+                  />
+                  {t('attachments.partitions.form.s3ForcePathStyleLabel', 'Force Path Style (required for MinIO)')}
+                </label>
+              </div>
+            )}
+            {dialog ? (
+              <div className="rounded-md border bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+                <div>
+                  {t('attachments.partitions.form.envKeyHelp', 'Set this env var to override storage path:')}
+                </div>
+                <code>
+                  {dialog.mode === 'edit'
+                    ? dialog.entry.envKey
+                    : form.code.trim()
+                      ? resolvePartitionEnvKey(form.code.trim())
+                      : 'ATTACHMENTS_PARTITION_CODE_ROOT'}
+                </code>
+              </div>
+            ) : null}
+            {s3SelectedWhileUnavailable ? (
+              <p className="text-sm text-status-error-text">
+                {t(
+                  'attachments.partitions.errors.s3Disabled',
+                  'This partition uses S3, but S3 is disabled. Set OM_ENABLE_STORAGE_S3=true and restart the app.',
+                )}
+              </p>
+            ) : null}
+            {error ? <p className="text-sm text-status-error-text">{error}</p> : null}
+          </form>
+          <DialogFooter>
+            <Button variant="ghost" onClick={closeDialog}>
+              {t('attachments.partitions.actions.cancel', 'Cancel')}
+            </Button>
+            <Button onClick={() => void handleSubmit()} disabled={submitting || s3SelectedWhileUnavailable}>
+              {dialog?.mode === 'edit'
+                ? t('attachments.partitions.actions.save', 'Save changes')
+                : t('attachments.partitions.actions.create', 'Create partition')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {ConfirmDialogElement}
+    </div>
+  )
+}

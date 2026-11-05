@@ -1,0 +1,214 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
+import type { McpClientInterface, ToolInfo, ToolResult } from './types'
+
+const logger = createLogger('ai_assistant')
+
+/**
+ * Options for stdio transport.
+ */
+export type StdioClientOptions = {
+  transport: 'stdio'
+  /**
+   * API key secret. Delivered to the spawned server via the
+   * `OPEN_MERCATO_API_KEY` environment variable, never as a command-line
+   * argument (argv is world-readable via `ps`/`/proc/<pid>/cmdline`).
+   */
+  apiKeySecret: string
+  /** Command to run (default: 'yarn') */
+  command?: string
+  /** Arguments for the command (default: mercato ai_assistant mcp:serve, no secret on argv) */
+  args?: string[]
+  /** Working directory (default: process.cwd()) */
+  cwd?: string
+}
+
+/**
+ * Options for HTTP transport.
+ */
+export type HttpClientOptions = {
+  transport: 'http'
+  /** API key secret (sent via x-api-key header) */
+  apiKeySecret: string
+  /** MCP server URL (e.g., 'http://localhost:3001/mcp') */
+  url: string
+}
+
+/**
+ * Combined options for McpClient.
+ */
+export type McpClientOptions = StdioClientOptions | HttpClientOptions
+
+/**
+ * MCP protocol client for connecting to MCP servers.
+ *
+ * Supports two transport modes:
+ * - stdio: Spawns server as subprocess
+ * - http: Connects to HTTP server
+ */
+export class McpClient implements McpClientInterface {
+  private client: Client
+  private transport: StdioClientTransport | StreamableHTTPClientTransport
+  private apiKeySecret: string
+
+  private constructor(
+    client: Client,
+    transport: StdioClientTransport | StreamableHTTPClientTransport,
+    apiKeySecret: string
+  ) {
+    this.client = client
+    this.transport = transport
+    this.apiKeySecret = apiKeySecret
+  }
+
+  /**
+   * Connect to an MCP server via the specified transport.
+   */
+  static async connect(options: McpClientOptions): Promise<McpClient> {
+    if (options.transport === 'stdio') {
+      return McpClient.connectStdio(options)
+    } else {
+      return McpClient.connectHttp(options)
+    }
+  }
+
+  /**
+   * Connect via stdio transport (spawn subprocess).
+   */
+  private static async connectStdio(options: StdioClientOptions): Promise<McpClient> {
+    const command = options.command ?? 'yarn'
+    // The API key is passed via OPEN_MERCATO_API_KEY in the child env (below),
+    // never on argv — command-line arguments are readable by any local user.
+    const args = options.args ?? [
+      'mercato',
+      'ai_assistant',
+      'mcp:serve',
+    ]
+    const cwd = options.cwd ?? process.cwd()
+
+    const transport = new StdioClientTransport({
+      command,
+      args,
+      cwd,
+      env: { ...process.env, OPEN_MERCATO_API_KEY: options.apiKeySecret } as Record<string, string>,
+      stderr: 'pipe',
+    })
+    transport.stderr?.on('data', (data) => {
+      const message = data.toString().trim()
+      if (message) {
+        logger.info('MCP server stderr output', { output: message })
+      }
+    })
+
+    const client = new Client(
+      { name: 'open-mercato-client', version: '0.1.0' },
+      { capabilities: {} }
+    )
+
+    await client.connect(transport)
+
+    return new McpClient(client, transport, options.apiKeySecret)
+  }
+
+  /**
+   * Connect via HTTP transport.
+   */
+  private static async connectHttp(options: HttpClientOptions): Promise<McpClient> {
+    const transport = new StreamableHTTPClientTransport(
+      new URL(options.url),
+      {
+        requestInit: {
+          headers: {
+            'x-api-key': options.apiKeySecret,
+          },
+        },
+      }
+    )
+
+    const client = new Client(
+      { name: 'open-mercato-client', version: '0.1.0' },
+      { capabilities: {} }
+    )
+
+    await client.connect(transport)
+
+    return new McpClient(client, transport, options.apiKeySecret)
+  }
+
+  /**
+   * List available tools from the server.
+   */
+  async listTools(): Promise<ToolInfo[]> {
+    const response = await this.client.listTools()
+
+    return response.tools.map((tool) => ({
+      name: tool.name,
+      description: tool.description ?? '',
+      inputSchema: (tool.inputSchema ?? {}) as Record<string, unknown>,
+      annotations: tool.annotations,
+    }))
+  }
+
+  /**
+   * Call a tool on the server.
+   */
+  async callTool(name: string, args: unknown): Promise<ToolResult> {
+    try {
+      const response = await this.client.callTool({
+        name,
+        arguments: args as Record<string, unknown>,
+      })
+
+      // Parse content from response
+      const content = response.content
+      if (!Array.isArray(content) || content.length === 0) {
+        return { success: true, result: null }
+      }
+
+      const firstContent = content[0]
+      if (firstContent.type === 'text') {
+        try {
+          const parsed = JSON.parse(firstContent.text)
+
+          // Check if it's an error response
+          if (response.isError || parsed.error) {
+            return {
+              success: false,
+              error: parsed.error ?? 'Unknown error',
+            }
+          }
+
+          return { success: true, result: parsed }
+        } catch {
+          // Not JSON, return as-is
+          return { success: true, result: firstContent.text }
+        }
+      }
+
+      return { success: true, result: content }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      return { success: false, error: message }
+    }
+  }
+
+  /**
+   * Close the client and release resources.
+   */
+  async close(): Promise<void> {
+    try {
+      await this.client.close()
+    } catch {
+      // Ignore close errors
+    }
+
+    try {
+      await this.transport.close()
+    } catch {
+      // Ignore close errors
+    }
+
+  }
+}

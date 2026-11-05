@@ -1,0 +1,1226 @@
+import { z } from 'zod'
+import {
+  createDictionaryEntrySchema,
+  updateDictionaryEntrySchema,
+} from '@open-mercato/core/modules/dictionaries/data/validators'
+import { getPaymentProvider, getShippingProvider } from '../lib/providers'
+import { REFERENCE_UNIT_CODES } from '@open-mercato/shared/lib/units/unitCodes'
+import { isValidPhoneNumber } from '@open-mercato/shared/lib/phone'
+
+export const SALES_PHONE_INVALID_MESSAGE_KEY = 'customers.people.form.primaryPhone.invalid'
+
+const optionalPhoneField = (max = 50) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .refine((val) => isValidPhoneNumber(val), { message: SALES_PHONE_INVALID_MESSAGE_KEY })
+    .optional()
+
+const optionalNullablePhoneField = (max = 50) =>
+  z
+    .union([
+      z
+        .string()
+        .trim()
+        .max(max)
+        .refine((val) => isValidPhoneNumber(val), { message: SALES_PHONE_INVALID_MESSAGE_KEY }),
+      z.literal(''),
+      z.null(),
+    ])
+    .optional()
+
+export const customerSnapshotSchema = z
+  .object({
+    customer: z
+      .object({
+        primaryPhone: optionalNullablePhoneField(),
+      })
+      .passthrough()
+      .nullable()
+      .optional(),
+    contact: z.unknown().optional(),
+  })
+  .passthrough()
+
+const uuid = () => z.string().uuid()
+
+const scoped = z.object({
+  organizationId: uuid(),
+  tenantId: uuid(),
+})
+
+const currencyCode = z
+  .string()
+  .trim()
+  .regex(/^[A-Z]{3}$/, 'currency code must be a three-letter ISO code')
+
+const decimal = (opts?: { min?: number; max?: number; message?: string }) => {
+  let schema = z.coerce.number()
+  if (typeof opts?.min === 'number') schema = schema.min(opts.min)
+  if (typeof opts?.max === 'number') schema = schema.max(opts.max, opts.message)
+  return schema
+}
+
+const MAX_QUANTITY = 999_999_999
+
+const percentage = () => decimal({ min: 0, max: 100 })
+
+const jsonRecord = z.record(z.string(), z.unknown())
+
+const metadata = jsonRecord.optional()
+const providerSettings = jsonRecord.optional()
+
+const channelCodeSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^[a-z0-9\-_]+$/)
+  .max(120)
+
+const numberFormatSchema = z.string().trim().min(1).max(191)
+const statusListSchema = z
+  .array(z.string().trim().min(1).max(120))
+  .max(200)
+  .optional()
+  .nullable()
+
+export const salesSettingsUpsertSchema = scoped.extend({
+  orderNumberFormat: numberFormatSchema,
+  quoteNumberFormat: numberFormatSchema,
+  orderNextNumber: z.coerce.number().int().min(1).max(1_000_000_000).optional(),
+  quoteNextNumber: z.coerce.number().int().min(1).max(1_000_000_000).optional(),
+  orderCustomerEditableStatuses: statusListSchema,
+  orderAddressEditableStatuses: statusListSchema,
+})
+
+export type SalesSettingsUpsertInput = z.infer<typeof salesSettingsUpsertSchema>
+
+export const salesEditingSettingsSchema = scoped.extend({
+  orderNumberFormat: numberFormatSchema.optional(),
+  quoteNumberFormat: numberFormatSchema.optional(),
+  orderCustomerEditableStatuses: statusListSchema,
+  orderAddressEditableStatuses: statusListSchema,
+})
+
+export type SalesEditingSettingsInput = z.infer<typeof salesEditingSettingsSchema>
+
+export const channelCreateSchema = scoped.extend({
+  name: z.string().trim().min(1).max(255),
+  code: channelCodeSchema,
+  description: z.string().trim().max(2000).optional(),
+  statusEntryId: uuid().optional(),
+  websiteUrl: z.string().trim().url().max(300).optional(),
+  contactEmail: z.string().trim().email().max(320).optional(),
+  contactPhone: optionalPhoneField(),
+  addressLine1: z.string().trim().max(255).optional(),
+  addressLine2: z.string().trim().max(255).optional(),
+  city: z.string().trim().max(120).optional(),
+  region: z.string().trim().max(120).optional(),
+  postalCode: z.string().trim().max(30).optional(),
+  country: z.string().trim().max(2).optional(),
+  latitude: decimal().optional(),
+  longitude: decimal().optional(),
+  isActive: z.boolean().optional(),
+  metadata,
+})
+
+export const channelUpdateSchema = z
+  .object({
+    id: uuid(),
+    code: channelCodeSchema,
+  })
+  .merge(channelCreateSchema.omit({ code: true }).partial())
+
+// Base schema without refinements (used for .partial() in update schema)
+const shippingMethodBaseSchema = scoped.extend({
+  name: z.string().trim().min(1).max(255),
+  code: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(/^[a-z0-9\-_]+$/)
+    .max(120),
+  description: z.string().trim().max(2000).optional(),
+  carrierCode: z.string().trim().max(120).optional(),
+  providerKey: z.string().trim().max(120).optional(),
+  serviceLevel: z.string().trim().max(120).optional(),
+  estimatedTransitDays: z.coerce.number().int().min(0).max(365).optional(),
+  baseRateNet: decimal({ min: 0 }).optional(),
+  baseRateGross: decimal({ min: 0 }).optional(),
+  currencyCode: currencyCode.optional(),
+  isActive: z.boolean().optional(),
+  providerSettings,
+  metadata,
+})
+
+// Refinement for provider settings validation
+const shippingMethodRefine = (value: { providerKey?: string; providerSettings?: Record<string, unknown> }, ctx: z.RefinementCtx) => {
+  if (value.providerKey) {
+    const provider = getShippingProvider(value.providerKey)
+    const schema = provider?.settings?.schema
+    if (schema) {
+      const parsed = schema.safeParse(value.providerSettings ?? {})
+      if (!parsed.success) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: parsed.error.issues?.[0]?.message ?? 'Invalid provider configuration',
+          path: ['providerSettings'],
+        })
+      }
+    }
+  }
+}
+
+export const shippingMethodCreateSchema = shippingMethodBaseSchema.superRefine(shippingMethodRefine)
+
+export const shippingMethodUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(shippingMethodBaseSchema.partial())
+  .superRefine(shippingMethodRefine)
+
+export const deliveryWindowCreateSchema = scoped.extend({
+  name: z.string().trim().min(1).max(255),
+  code: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(/^[a-z0-9\-_]+$/)
+    .max(120),
+  description: z.string().trim().max(2000).optional(),
+  leadTimeDays: z.coerce.number().int().min(0).max(365).optional(),
+  cutoffTime: z.string().trim().regex(/^\d{2}:\d{2}$/).optional(),
+  timezone: z.string().trim().max(120).optional(),
+  isActive: z.boolean().optional(),
+  metadata,
+})
+
+export const deliveryWindowUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(deliveryWindowCreateSchema.partial())
+
+// Base schema without refinements (used for .partial() in update schema)
+const paymentMethodBaseSchema = scoped.extend({
+  name: z.string().trim().min(1).max(255),
+  code: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(/^[a-z0-9\-_]+$/)
+    .max(120),
+  description: z.string().trim().max(2000).optional(),
+  providerKey: z.string().trim().max(120).optional(),
+  terms: z.string().trim().max(4000).optional(),
+  isActive: z.boolean().optional(),
+  providerSettings,
+  metadata,
+})
+
+// Refinement for provider settings validation
+const paymentMethodRefine = (value: { providerKey?: string; providerSettings?: Record<string, unknown> }, ctx: z.RefinementCtx) => {
+  if (value.providerKey) {
+    const provider = getPaymentProvider(value.providerKey)
+    const schema = provider?.settings?.schema
+    if (schema) {
+      const parsed = schema.safeParse(value.providerSettings ?? {})
+      if (!parsed.success) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: parsed.error.issues?.[0]?.message ?? 'Invalid provider configuration',
+          path: ['providerSettings'],
+        })
+      }
+    }
+  }
+}
+
+export const paymentMethodCreateSchema = paymentMethodBaseSchema.superRefine(paymentMethodRefine)
+
+export const paymentMethodUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(paymentMethodBaseSchema.partial())
+  .superRefine(paymentMethodRefine)
+
+export const salesTagCreateSchema = scoped.extend({
+  slug: z
+    .string()
+    .trim()
+    .min(1)
+    .max(80)
+    .regex(/^[a-z0-9_-]+$/, 'Slug must be lowercase and may contain dashes or underscores'),
+  label: z.string().trim().min(1).max(120),
+  color: z.string().trim().max(30).optional(),
+  description: z.string().trim().max(400).optional(),
+})
+
+export const salesTagUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(salesTagCreateSchema.partial())
+
+export const taxRateCreateSchema = scoped.extend({
+  name: z.string().trim().min(1).max(255),
+  code: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(/^[a-z0-9\-_]+$/)
+    .max(120),
+  rate: percentage(),
+  countryCode: z.string().trim().length(2).optional(),
+  regionCode: z.string().trim().max(6).optional(),
+  postalCode: z.string().trim().max(30).optional(),
+  city: z.string().trim().max(120).optional(),
+  customerGroupId: uuid().optional(),
+  productCategoryId: uuid().optional(),
+  channelId: uuid().optional(),
+  priority: z.coerce.number().int().min(0).max(10).optional(),
+  isCompound: z.boolean().optional(),
+  isDefault: z.boolean().optional(),
+  metadata,
+  startsAt: z.coerce.date().optional(),
+  endsAt: z.coerce.date().optional(),
+})
+
+export const taxRateUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(taxRateCreateSchema.partial())
+
+const statusDictionaryEntryCreateSchema = z.object({
+  value: createDictionaryEntrySchema.shape.value,
+  label: z.string().trim().min(1).max(150).optional(),
+  color: createDictionaryEntrySchema.shape.color,
+  icon: createDictionaryEntrySchema.shape.icon,
+})
+
+const statusDictionaryEntryUpdateFieldsSchema = z.object({
+  value: updateDictionaryEntrySchema.shape.value,
+  label: z.string().trim().min(1).max(150).optional(),
+  color: updateDictionaryEntrySchema.shape.color,
+  icon: updateDictionaryEntrySchema.shape.icon,
+})
+
+const validateStatusDictionaryUpdate = (
+  payload: z.infer<typeof statusDictionaryEntryUpdateFieldsSchema>,
+) => Object.values(payload).some((value) => value !== undefined)
+
+const statusDictionaryEntryUpdateSchema = statusDictionaryEntryUpdateFieldsSchema.refine(
+  validateStatusDictionaryUpdate,
+  { message: 'Provide at least one field to update.' },
+)
+
+export const statusDictionaryCreateSchema = scoped.merge(statusDictionaryEntryCreateSchema)
+
+export const statusDictionaryUpdateSchema = scoped
+  .merge(statusDictionaryEntryUpdateFieldsSchema)
+  .safeExtend({ id: uuid() })
+  .refine(validateStatusDictionaryUpdate, { message: 'Provide at least one field to update.' })
+
+const lineKindSchema = z.enum(['product', 'service', 'shipping', 'discount', 'adjustment'])
+
+const adjustmentKindSchema = z.string().trim().min(1).max(150)
+
+export const amountsModeSchema = z.enum(['computed', 'external'])
+
+const linePricingSchema = z.object({
+  quantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }),
+  quantityUnit: z.string().trim().max(25).optional(),
+  normalizedQuantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }).optional(),
+  normalizedUnit: z.string().trim().max(25).nullable().optional(),
+  unitPriceNet: decimal({ min: 0 }).optional(),
+  unitPriceGross: decimal({ min: 0 }).optional(),
+  priceId: uuid().optional(),
+  priceMode: z.enum(['net', 'gross']).optional(),
+  taxRateId: uuid().optional(),
+  discountAmount: decimal({ min: 0 }).optional(),
+  // How to read a supplied `discountAmount`. Omitting it reproduces the meaning
+  // the API has always documented — per unit — so no existing caller changes.
+  discountAmountBasis: z.enum(['unit', 'line']).optional(),
+  discountPercent: percentage().optional(),
+  taxRate: percentage().optional(),
+  taxAmount: decimal({ min: 0 }).optional(),
+  totalNetAmount: decimal({ min: 0 }).optional(),
+  totalGrossAmount: decimal({ min: 0 }).optional(),
+  // Omitted inherits the document's mode; defaulting to `computed` would make an
+  // external order mixed. Order lines only — quote commands reject it.
+  amountsMode: amountsModeSchema.optional(),
+})
+
+const uomSnapshotSchema = z.object({
+  version: z.literal(1),
+  productId: z.string().nullable(),
+  productVariantId: z.string().nullable(),
+  baseUnitCode: z.string().nullable(),
+  enteredUnitCode: z.string().nullable(),
+  enteredQuantity: z.string(),
+  toBaseFactor: z.string(),
+  normalizedQuantity: z.string(),
+  rounding: z.object({
+    mode: z.enum(['half_up', 'down', 'up']),
+    scale: z.number().int(),
+  }),
+  source: z.object({
+    conversionId: z.string().nullable(),
+    resolvedAt: z.string(),
+  }),
+  unitPriceReference: z.object({
+    enabled: z.boolean(),
+    referenceUnitCode: z.enum(REFERENCE_UNIT_CODES).nullable(),
+    baseQuantity: z.string().nullable(),
+    grossPerReference: z.string().nullable().optional(),
+    netPerReference: z.string().nullable().optional(),
+  }).optional(),
+}).nullable().optional()
+
+const lineSharedSchema = z.object({
+  kind: lineKindSchema.optional(),
+  statusEntryId: uuid().optional(),
+  productId: uuid().optional(),
+  productVariantId: uuid().optional(),
+  name: z.string().trim().max(255).optional(),
+  description: z.string().trim().max(4000).optional(),
+  comment: z.string().trim().max(2000).optional(),
+  currencyCode,
+  configuration: z.record(z.string(), z.unknown()).optional(),
+  promotionCode: z.string().trim().max(120).optional(),
+  promotionSnapshot: z.record(z.string(), z.unknown()).optional(),
+  uomSnapshot: uomSnapshotSchema,
+  metadata,
+  customFieldSetId: uuid().optional(),
+  customFields: z.record(z.string(), z.unknown()).optional(),
+})
+
+export const orderLineCreateSchema = scoped.extend({
+  orderId: uuid(),
+  lineNumber: z.coerce.number().int().min(0).optional(),
+  ...lineSharedSchema.shape,
+  ...linePricingSchema.shape,
+  catalogSnapshot: z.record(z.string(), z.unknown()).optional(),
+})
+
+export const orderLineUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(orderLineCreateSchema.partial())
+
+/**
+ * Translation keys for the bulk-line schema refusals. The schema runs outside a
+ * request, so it cannot translate; it tags each issue with its key in `params`
+ * and the HTTP boundary resolves it. The English text stays here as the
+ * fallback and as the message a non-HTTP caller sees.
+ */
+export const SALES_ORDER_LINE_BULK_ISSUE_KEYS = {
+  empty: 'sales.documents.items.bulk.errorEmptyBatch',
+  duplicate: 'sales.documents.items.bulk.errorDuplicateId',
+  upsertDeleteConflict: 'sales.documents.items.bulk.errorUpsertDeleteConflict',
+} as const
+
+export const SALES_ORDER_LINE_BULK_EMPTY_MESSAGE =
+  'Provide at least one line to upsert or delete.'
+export const SALES_ORDER_LINE_BULK_DUPLICATE_MESSAGE =
+  'The same line id appears more than once in lines.'
+export const SALES_ORDER_LINE_BULK_UPSERT_DELETE_CONFLICT_MESSAGE =
+  'A line id cannot be upserted and deleted in the same request.'
+
+/**
+ * One entry of a bulk line write. Identical to what the per-line upsert accepts,
+ * minus the scope and parent keys the envelope already carries: `id` present
+ * updates that line, `id` absent appends a new one.
+ */
+export const orderLineBulkUpsertEntrySchema = orderLineCreateSchema
+  .omit({ organizationId: true, tenantId: true, orderId: true })
+  .extend({ id: uuid().optional() })
+
+export const orderLineBulkUpsertSchema = scoped
+  .extend({
+    orderId: uuid(),
+    orderTotals: z.lazy(() => orderHeaderTotalsSchema).optional(),
+    lines: z.array(orderLineBulkUpsertEntrySchema).default([]),
+    deleteIds: z.array(uuid()).default([]),
+  })
+  .superRefine((value, ctx) => {
+    if (!value.lines.length && !value.deleteIds.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['lines'],
+        message: SALES_ORDER_LINE_BULK_EMPTY_MESSAGE,
+        params: { omKey: SALES_ORDER_LINE_BULK_ISSUE_KEYS.empty },
+      })
+    }
+    const seen = new Set<string>()
+    value.lines.forEach((line, index) => {
+      if (!line.id) return
+      if (seen.has(line.id)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['lines', index, 'id'],
+          message: SALES_ORDER_LINE_BULK_DUPLICATE_MESSAGE,
+          params: { omKey: SALES_ORDER_LINE_BULK_ISSUE_KEYS.duplicate },
+        })
+        return
+      }
+      seen.add(line.id)
+    })
+    value.deleteIds.forEach((id, index) => {
+      if (!seen.has(id)) return
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['deleteIds', index],
+        message: SALES_ORDER_LINE_BULK_UPSERT_DELETE_CONFLICT_MESSAGE,
+        params: { omKey: SALES_ORDER_LINE_BULK_ISSUE_KEYS.upsertDeleteConflict },
+      })
+    })
+  })
+
+export type OrderLineBulkUpsertInput = z.infer<typeof orderLineBulkUpsertSchema>
+
+export const quoteLineCreateSchema = scoped.extend({
+  quoteId: uuid(),
+  lineNumber: z.coerce.number().int().min(0).optional(),
+  ...lineSharedSchema.shape,
+  ...linePricingSchema.shape,
+  catalogSnapshot: z.record(z.string(), z.unknown()).optional(),
+})
+
+export const quoteLineUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(quoteLineCreateSchema.partial())
+
+// Each adjustment kind has an intrinsic sign convention so the grand total
+// stays semantically correct regardless of operator input. The calculation
+// engine normalizes signs defensively, but the API edge rejects values that
+// would invert the kind's meaning so bad data never reaches storage.
+//
+// - `return`: non-positive — returns reduce the total (see #1705).
+// - `discount`: non-negative — discounts reduce the total.
+// - `surcharge`/`shipping`/`tax`: non-negative — they add to the total.
+// - `custom` and unknown kinds: unconstrained (operator-controlled).
+//
+// See #1905.
+export const RETURN_ADJUSTMENT_POSITIVE_NET_MESSAGE =
+  'Return adjustments must use a non-positive amountNet (returns reduce the total).'
+export const RETURN_ADJUSTMENT_POSITIVE_GROSS_MESSAGE =
+  'Return adjustments must use a non-positive amountGross (returns reduce the total).'
+export const RETURN_ADJUSTMENT_ZERO_MESSAGE =
+  'Return adjustments must use a non-zero amount. Create the return through the Returns tab instead of recording a zero-value Return adjustment.'
+export const DISCOUNT_ADJUSTMENT_NEGATIVE_NET_MESSAGE =
+  'Discount adjustments must use a non-negative amountNet (discounts reduce the total).'
+export const DISCOUNT_ADJUSTMENT_NEGATIVE_GROSS_MESSAGE =
+  'Discount adjustments must use a non-negative amountGross (discounts reduce the total).'
+export const SURCHARGE_ADJUSTMENT_NEGATIVE_NET_MESSAGE =
+  'Surcharge adjustments must use a non-negative amountNet (surcharges add to the total).'
+export const SURCHARGE_ADJUSTMENT_NEGATIVE_GROSS_MESSAGE =
+  'Surcharge adjustments must use a non-negative amountGross (surcharges add to the total).'
+export const SHIPPING_ADJUSTMENT_NEGATIVE_NET_MESSAGE =
+  'Shipping adjustments must use a non-negative amountNet (shipping adds to the total).'
+export const SHIPPING_ADJUSTMENT_NEGATIVE_GROSS_MESSAGE =
+  'Shipping adjustments must use a non-negative amountGross (shipping adds to the total).'
+export const TAX_ADJUSTMENT_NEGATIVE_NET_MESSAGE =
+  'Tax adjustments must use a non-negative amountNet (taxes add to the total).'
+export const TAX_ADJUSTMENT_NEGATIVE_GROSS_MESSAGE =
+  'Tax adjustments must use a non-negative amountGross (taxes add to the total).'
+
+type AdjustmentSignInput = {
+  kind?: string
+  amountNet?: number
+  amountGross?: number
+}
+
+const NON_NEGATIVE_SIGN_MESSAGES: Record<string, { net: string; gross: string }> = {
+  discount: {
+    net: DISCOUNT_ADJUSTMENT_NEGATIVE_NET_MESSAGE,
+    gross: DISCOUNT_ADJUSTMENT_NEGATIVE_GROSS_MESSAGE,
+  },
+  surcharge: {
+    net: SURCHARGE_ADJUSTMENT_NEGATIVE_NET_MESSAGE,
+    gross: SURCHARGE_ADJUSTMENT_NEGATIVE_GROSS_MESSAGE,
+  },
+  shipping: {
+    net: SHIPPING_ADJUSTMENT_NEGATIVE_NET_MESSAGE,
+    gross: SHIPPING_ADJUSTMENT_NEGATIVE_GROSS_MESSAGE,
+  },
+  tax: {
+    net: TAX_ADJUSTMENT_NEGATIVE_NET_MESSAGE,
+    gross: TAX_ADJUSTMENT_NEGATIVE_GROSS_MESSAGE,
+  },
+}
+
+export const enforceAdjustmentSign = (
+  value: AdjustmentSignInput,
+  ctx: z.RefinementCtx
+) => {
+  if (!value.kind) return
+  if (value.kind === 'return') {
+    const netIsPositive = typeof value.amountNet === 'number' && value.amountNet > 0
+    const grossIsPositive = typeof value.amountGross === 'number' && value.amountGross > 0
+    if (netIsPositive) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: RETURN_ADJUSTMENT_POSITIVE_NET_MESSAGE,
+        path: ['amountNet'],
+      })
+    }
+    if (grossIsPositive) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: RETURN_ADJUSTMENT_POSITIVE_GROSS_MESSAGE,
+        path: ['amountGross'],
+      })
+    }
+    if (!netIsPositive && !grossIsPositive) {
+      const netIsNegative = typeof value.amountNet === 'number' && value.amountNet < 0
+      const grossIsNegative = typeof value.amountGross === 'number' && value.amountGross < 0
+      if (!netIsNegative && !grossIsNegative) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: RETURN_ADJUSTMENT_ZERO_MESSAGE,
+          path: ['amountNet'],
+        })
+      }
+    }
+    return
+  }
+  const messages = NON_NEGATIVE_SIGN_MESSAGES[value.kind]
+  if (!messages) return
+  if (typeof value.amountNet === 'number' && value.amountNet < 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: messages.net,
+      path: ['amountNet'],
+    })
+  }
+  if (typeof value.amountGross === 'number' && value.amountGross < 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: messages.gross,
+      path: ['amountGross'],
+    })
+  }
+}
+
+/**
+ * @deprecated Use `enforceAdjustmentSign` — it enforces the sign convention
+ * for every adjustment kind, not just `return`. Kept for backward compatibility
+ * with third-party code that imported the original helper.
+ */
+export const enforceReturnAdjustmentSign = enforceAdjustmentSign
+
+export const RETURN_ADJUSTMENT_EXCEEDS_REMAINING_NET_MESSAGE =
+  'Return adjustment amountNet exceeds the remaining grand total. Reduce the amount or remove existing returns first.'
+export const RETURN_ADJUSTMENT_EXCEEDS_REMAINING_GROSS_MESSAGE =
+  'Return adjustment amountGross exceeds the remaining grand total. Reduce the amount or remove existing returns first.'
+
+export type ReturnAdjustmentRemainingCheck = {
+  kind?: string | null
+  amountNet?: number | null
+  amountGross?: number | null
+  remainingNet: number
+  remainingGross: number
+}
+
+export type ReturnAdjustmentRemainingIssue = {
+  path: 'amountNet' | 'amountGross'
+  message: string
+}
+
+// Inclusive: abs(amount) === remaining is allowed. Tiny epsilon absorbs
+// floating-point rounding from upstream tax/rate adjustments.
+const RETURN_REMAINING_EPSILON = 0.005
+
+export const validateReturnAdjustmentWithinRemaining = (
+  value: ReturnAdjustmentRemainingCheck
+): ReturnAdjustmentRemainingIssue[] => {
+  if (value.kind !== 'return') return []
+  const absNet = typeof value.amountNet === 'number' ? Math.abs(value.amountNet) : 0
+  const absGross = typeof value.amountGross === 'number' ? Math.abs(value.amountGross) : 0
+  const issues: ReturnAdjustmentRemainingIssue[] = []
+  if (absGross > value.remainingGross + RETURN_REMAINING_EPSILON) {
+    issues.push({ path: 'amountGross', message: RETURN_ADJUSTMENT_EXCEEDS_REMAINING_GROSS_MESSAGE })
+  }
+  if (absNet > value.remainingNet + RETURN_REMAINING_EPSILON) {
+    issues.push({ path: 'amountNet', message: RETURN_ADJUSTMENT_EXCEEDS_REMAINING_NET_MESSAGE })
+  }
+  return issues
+}
+
+export const orderAdjustmentCreateSchema = scoped.extend({
+  orderId: uuid(),
+  orderLineId: uuid().optional(),
+  scope: z.enum(['order', 'line']).optional(),
+  kind: adjustmentKindSchema.optional(),
+  code: z.string().trim().max(120).optional(),
+  label: z.string().trim().max(255).optional(),
+  calculatorKey: z.string().trim().max(120).optional(),
+  promotionId: uuid().optional(),
+  rate: percentage().optional(),
+  amountNet: decimal().optional(),
+  amountGross: decimal().optional(),
+  currencyCode: currencyCode.optional(),
+  metadata,
+  customFields: z.record(z.string(), z.unknown()).optional(),
+  position: z.coerce.number().int().min(0).optional(),
+})
+
+export const orderAdjustmentUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(orderAdjustmentCreateSchema.partial())
+
+export const quoteAdjustmentCreateSchema = scoped.extend({
+  quoteId: uuid(),
+  quoteLineId: uuid().optional(),
+  scope: z.enum(['order', 'line']).optional(),
+  kind: adjustmentKindSchema.optional(),
+  code: z.string().trim().max(120).optional(),
+  label: z.string().trim().max(255).optional(),
+  calculatorKey: z.string().trim().max(120).optional(),
+  promotionId: uuid().optional(),
+  rate: percentage().optional(),
+  amountNet: decimal().optional(),
+  amountGross: decimal().optional(),
+  currencyCode: currencyCode.optional(),
+  metadata,
+  customFields: z.record(z.string(), z.unknown()).optional(),
+  position: z.coerce.number().int().min(0).optional(),
+})
+
+export const quoteAdjustmentUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(quoteAdjustmentCreateSchema.partial())
+
+export const ORDER_PAYMENT_LEDGER_FIELDS = [
+  'paidTotalAmount',
+  'refundedTotalAmount',
+  'outstandingAmount',
+] as const
+
+export type OrderPaymentLedgerField = (typeof ORDER_PAYMENT_LEDGER_FIELDS)[number]
+
+export const ORDER_PAYMENT_LEDGER_WARNING_CODE =
+  'sales.order.payment_ledger_input_deprecated' as const
+
+export type OrderPaymentLedgerWarning = {
+  code: typeof ORDER_PAYMENT_LEDGER_WARNING_CODE
+  fields: OrderPaymentLedgerField[]
+}
+
+export function resolveSuppliedOrderPaymentLedgerFields(value: unknown): OrderPaymentLedgerField[] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return []
+  return ORDER_PAYMENT_LEDGER_FIELDS.filter((field) =>
+    Object.prototype.hasOwnProperty.call(value, field),
+  )
+}
+
+const orderPaymentLedgerShape = {
+  /** @deprecated Derived from recorded payments. Use sales.payments.create or POST /api/sales/payments. */
+  paidTotalAmount: decimal({ min: 0 }).optional(),
+  /** @deprecated Derived from recorded payments. Use sales.payments.create or POST /api/sales/payments. */
+  refundedTotalAmount: decimal({ min: 0 }).optional(),
+  /** @deprecated Derived from recorded payments. Use sales.payments.create or POST /api/sales/payments. */
+  outstandingAmount: decimal().optional(),
+}
+
+const orderTotalsSchema = z.object({
+  subtotalNetAmount: decimal({ min: 0 }).optional(),
+  subtotalGrossAmount: decimal({ min: 0 }).optional(),
+  discountTotalAmount: decimal({ min: 0 }).optional(),
+  taxTotalAmount: decimal({ min: 0 }).optional(),
+  shippingNetAmount: decimal({ min: 0 }).optional(),
+  shippingGrossAmount: decimal({ min: 0 }).optional(),
+  surchargeTotalAmount: decimal({ min: 0 }).optional(),
+  grandTotalNetAmount: decimal({ min: 0 }).optional(),
+  grandTotalGrossAmount: decimal({ min: 0 }).optional(),
+  lineItemCount: z.coerce.number().int().min(0).optional(),
+})
+
+// `lineItemCount` is core's count of the rows it persisted, not one of the amounts
+// a caller owns; asserting it could make a document disagree with its own lines.
+export const orderHeaderTotalsSchema = orderTotalsSchema.omit({ lineItemCount: true })
+
+const quoteTotalsSchema = z.object({
+  subtotalNetAmount: decimal({ min: 0 }).optional(),
+  subtotalGrossAmount: decimal({ min: 0 }).optional(),
+  discountTotalAmount: decimal({ min: 0 }).optional(),
+  taxTotalAmount: decimal({ min: 0 }).optional(),
+  grandTotalNetAmount: decimal({ min: 0 }).optional(),
+  grandTotalGrossAmount: decimal({ min: 0 }).optional(),
+  lineItemCount: z.coerce.number().int().min(0).optional(),
+})
+
+export const SALES_ORDER_LINES_REQUIRED_MESSAGE_KEY = 'sales.orders.linesRequired'
+
+export const orderCreateSchema = scoped.extend({
+  orderNumber: z.string().trim().min(1).max(191).optional(),
+  externalReference: z.string().trim().max(191).optional(),
+  customerReference: z.string().trim().max(191).optional(),
+  customerEntityId: uuid().optional(),
+  customerContactId: uuid().optional(),
+  customerSnapshot: customerSnapshotSchema.optional(),
+  billingAddressId: uuid().optional(),
+  shippingAddressId: uuid().optional(),
+  billingAddressSnapshot: jsonRecord.optional(),
+  shippingAddressSnapshot: jsonRecord.optional(),
+  currencyCode,
+  exchangeRate: decimal({ min: 0 }).optional(),
+  statusEntryId: uuid().optional(),
+  fulfillmentStatusEntryId: uuid().optional(),
+  paymentStatusEntryId: uuid().optional(),
+  taxStrategyKey: z.string().trim().max(120).optional(),
+  discountStrategyKey: z.string().trim().max(120).optional(),
+  taxInfo: jsonRecord.optional(),
+  shippingMethodId: uuid().optional(),
+  shippingMethodCode: z.string().trim().max(120).optional(),
+  deliveryWindowId: uuid().optional(),
+  deliveryWindowCode: z.string().trim().max(120).optional(),
+  paymentMethodId: uuid().optional(),
+  paymentMethodCode: z.string().trim().max(120).optional(),
+  channelId: uuid().optional(),
+  placedAt: z.coerce.date().optional(),
+  expectedDeliveryAt: z.coerce.date().optional(),
+  dueAt: z.coerce.date().optional(),
+  comments: z.string().trim().max(4000).optional(),
+  internalNotes: z.string().trim().max(4000).optional(),
+  shippingMethodSnapshot: jsonRecord.optional(),
+  deliveryWindowSnapshot: jsonRecord.optional(),
+  paymentMethodSnapshot: jsonRecord.optional(),
+  metadata,
+  customFieldSetId: uuid().optional(),
+  customFields: z.record(z.string(), z.unknown()).optional(),
+  lines: z
+    .array(orderLineCreateSchema.omit({ organizationId: true, tenantId: true, orderId: true }), {
+      error: SALES_ORDER_LINES_REQUIRED_MESSAGE_KEY,
+    })
+    .min(1, SALES_ORDER_LINES_REQUIRED_MESSAGE_KEY),
+  adjustments: z.array(orderAdjustmentCreateSchema.omit({ organizationId: true, tenantId: true, orderId: true })).optional(),
+  tags: z.array(uuid()).optional(),
+  totalsMode: amountsModeSchema.optional(),
+  ...orderTotalsSchema.shape,
+  ...orderPaymentLedgerShape,
+})
+
+export const orderUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(orderCreateSchema.partial())
+
+export const quoteCreateSchema = scoped.extend({
+  quoteNumber: z.string().trim().min(1).max(191).optional(),
+  statusEntryId: uuid().optional(),
+  customerEntityId: uuid().optional(),
+  customerContactId: uuid().optional(),
+  channelId: uuid().optional(),
+  customerSnapshot: customerSnapshotSchema.optional(),
+  billingAddressId: uuid().optional(),
+  shippingAddressId: uuid().optional(),
+  billingAddressSnapshot: jsonRecord.optional(),
+  shippingAddressSnapshot: jsonRecord.optional(),
+  currencyCode,
+  validFrom: z.coerce.date().optional(),
+  validUntil: z.coerce.date().optional(),
+  comments: z.string().trim().max(4000).optional(),
+  taxInfo: jsonRecord.optional(),
+  shippingMethodId: uuid().optional(),
+  shippingMethodCode: z.string().trim().max(120).optional(),
+  deliveryWindowId: uuid().optional(),
+  deliveryWindowCode: z.string().trim().max(120).optional(),
+  paymentMethodId: uuid().optional(),
+  paymentMethodCode: z.string().trim().max(120).optional(),
+  shippingMethodSnapshot: jsonRecord.optional(),
+  deliveryWindowSnapshot: jsonRecord.optional(),
+  paymentMethodSnapshot: jsonRecord.optional(),
+  metadata,
+  customFieldSetId: uuid().optional(),
+  customFields: z.record(z.string(), z.unknown()).optional(),
+  lines: z
+    .array(quoteLineCreateSchema.omit({ organizationId: true, tenantId: true, quoteId: true }))
+    .optional(),
+  adjustments: z
+    .array(quoteAdjustmentCreateSchema.omit({ organizationId: true, tenantId: true, quoteId: true }))
+    .optional(),
+  tags: z.array(uuid()).optional(),
+  ...quoteTotalsSchema.shape,
+})
+
+export const quoteUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(quoteCreateSchema.partial())
+
+const documentKind = z.enum(['order', 'quote'])
+
+const documentAddressFields = {
+  documentId: uuid(),
+  documentKind,
+  customerAddressId: uuid().optional(),
+  name: z.string().trim().max(255).nullable().optional(),
+  purpose: z.string().trim().max(120).nullable().optional(),
+  companyName: z.string().trim().max(255).nullable().optional(),
+  addressLine1: z.string().trim().min(1).max(255),
+  addressLine2: z.string().trim().max(255).nullable().optional(),
+  city: z.string().trim().max(120).nullable().optional(),
+  region: z.string().trim().max(120).nullable().optional(),
+  postalCode: z.string().trim().max(60).nullable().optional(),
+  country: z.string().trim().max(2).nullable().optional(),
+  buildingNumber: z.string().trim().max(60).nullable().optional(),
+  flatNumber: z.string().trim().max(60).nullable().optional(),
+  latitude: z.coerce.number().optional().nullable(),
+  longitude: z.coerce.number().optional().nullable(),
+}
+
+export const documentAddressCreateSchema = scoped.extend(documentAddressFields)
+
+export const documentAddressUpdateSchema = scoped.extend({
+  id: uuid(),
+  ...documentAddressFields,
+})
+
+export const documentAddressDeleteSchema = scoped.extend({
+  id: uuid(),
+  documentId: uuid(),
+  documentKind,
+})
+
+export const shipmentCreateSchema = scoped.extend({
+  orderId: uuid(),
+  shipmentNumber: z.string().trim().max(191).optional(),
+  shippingMethodId: uuid().optional(),
+  statusEntryId: uuid().optional(),
+  documentStatusEntryId: uuid().optional(),
+  lineStatusEntryId: uuid().optional(),
+  carrierName: z.string().trim().max(191).optional(),
+  trackingNumbers: z.array(z.string().trim().max(191)).optional(),
+  shippedAt: z.coerce.date().optional(),
+  deliveredAt: z.coerce.date().optional(),
+  weightValue: decimal({ min: 0 }).optional(),
+  weightUnit: z.string().trim().max(25).optional(),
+  declaredValueNet: decimal({ min: 0 }).optional(),
+  declaredValueGross: decimal({ min: 0 }).optional(),
+  currencyCode: currencyCode.optional(),
+  notes: z.string().trim().max(4000).optional(),
+  metadata,
+  shipmentAddressSnapshot: jsonRecord.optional(),
+  customFields: z.record(z.string(), z.unknown()).optional(),
+  items: z
+    .array(
+      z.object({
+        orderLineId: uuid(),
+        quantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }).int('Quantity must be a whole number.'),
+        metadata,
+      })
+    )
+    .optional(),
+})
+
+export const shipmentUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(shipmentCreateSchema.partial())
+
+const returnLineQuantitySchema = z.coerce
+  .number()
+  .int('Return quantity must be a whole number.')
+  .min(1, 'Return quantity must be at least 1.')
+  .max(MAX_QUANTITY, 'Quantity is too large.')
+
+export const RETURN_DATE_IN_FUTURE_MESSAGE = 'Return date cannot be in the future.'
+
+// A return records when goods physically came back to the seller, so a future
+// date is not yet a fact. Evaluate "now" at parse time (not module-load time)
+// so a long-running server never rejects legitimate same-day returns.
+const returnedAtSchema = z.coerce
+  .date()
+  .refine((value) => value.getTime() <= Date.now(), {
+    message: RETURN_DATE_IN_FUTURE_MESSAGE,
+  })
+  .optional()
+
+export const returnCreateSchema = scoped.extend({
+  orderId: uuid(),
+  reason: z.string().trim().max(4000).optional(),
+  notes: z.string().trim().max(4000).optional(),
+  returnedAt: returnedAtSchema,
+  lines: z
+    .array(
+      z.object({
+        orderLineId: uuid(),
+        quantity: returnLineQuantitySchema,
+      })
+    )
+    .min(1),
+})
+
+export const returnUpdateSchema = scoped.extend({
+  id: uuid(),
+  orderId: uuid(),
+  reason: z.string().trim().max(4000).optional(),
+  notes: z.string().trim().max(4000).optional(),
+  returnedAt: returnedAtSchema,
+})
+
+export const returnDeleteSchema = scoped.extend({
+  id: uuid(),
+  orderId: uuid(),
+})
+
+export const invoiceCreateSchema = scoped.extend({
+  orderId: uuid().optional(),
+  invoiceNumber: z.string().trim().min(1).max(191).optional(),
+  statusEntryId: uuid().optional(),
+  issueDate: z.coerce.date().optional(),
+  dueDate: z.coerce.date().optional(),
+  currencyCode,
+  metadata,
+  customFieldSetId: uuid().optional(),
+  lines: z
+    .array(
+      z.object({
+        orderLineId: uuid().optional(),
+        lineNumber: z.coerce.number().int().min(0).optional(),
+        kind: lineKindSchema.optional(),
+        name: z.string().trim().max(500).optional(),
+        sku: z.string().trim().max(191).optional(),
+        description: z.string().trim().max(4000).optional(),
+        quantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }),
+        quantityUnit: z.string().trim().max(25).optional(),
+        normalizedQuantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }).optional(),
+        normalizedUnit: z.string().trim().max(25).nullable().optional(),
+        uomSnapshot: uomSnapshotSchema,
+        currencyCode,
+        unitPriceNet: decimal({ min: 0 }).optional(),
+        unitPriceGross: decimal({ min: 0 }).optional(),
+        discountAmount: decimal({ min: 0 }).optional(),
+        discountPercent: percentage().optional(),
+        taxRate: percentage().optional(),
+        taxAmount: decimal({ min: 0 }).optional(),
+        totalNetAmount: decimal({ min: 0 }).optional(),
+        totalGrossAmount: decimal({ min: 0 }).optional(),
+        metadata,
+      })
+    )
+    .optional(),
+  subtotalNetAmount: decimal({ min: 0 }).optional(),
+  subtotalGrossAmount: decimal({ min: 0 }).optional(),
+  discountTotalAmount: decimal({ min: 0 }).optional(),
+  taxTotalAmount: decimal({ min: 0 }).optional(),
+  grandTotalNetAmount: decimal({ min: 0 }).optional(),
+  grandTotalGrossAmount: decimal({ min: 0 }).optional(),
+  paidTotalAmount: decimal({ min: 0 }).optional(),
+  outstandingAmount: decimal().optional(),
+})
+
+export const invoiceUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(invoiceCreateSchema.partial())
+
+export const creditMemoCreateSchema = scoped.extend({
+  orderId: uuid().optional(),
+  invoiceId: uuid().optional(),
+  creditMemoNumber: z.string().trim().min(1).max(191).optional(),
+  statusEntryId: uuid().optional(),
+  issueDate: z.coerce.date().optional(),
+  reason: z.string().trim().max(4000).optional(),
+  currencyCode,
+  metadata,
+  customFieldSetId: uuid().optional(),
+  lines: z
+    .array(
+      z.object({
+        orderLineId: uuid().optional(),
+        lineNumber: z.coerce.number().int().min(0).optional(),
+        name: z.string().trim().max(500).optional(),
+        sku: z.string().trim().max(191).optional(),
+        description: z.string().trim().max(4000).optional(),
+        quantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }),
+        quantityUnit: z.string().trim().max(25).optional(),
+        normalizedQuantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }).optional(),
+        normalizedUnit: z.string().trim().max(25).nullable().optional(),
+        uomSnapshot: uomSnapshotSchema,
+        currencyCode,
+        unitPriceNet: decimal({ min: 0 }).optional(),
+        unitPriceGross: decimal({ min: 0 }).optional(),
+        taxRate: percentage().optional(),
+        taxAmount: decimal({ min: 0 }).optional(),
+        totalNetAmount: decimal({ min: 0 }).optional(),
+        totalGrossAmount: decimal({ min: 0 }).optional(),
+        metadata,
+      })
+    )
+    .optional(),
+  subtotalNetAmount: decimal({ min: 0 }).optional(),
+  subtotalGrossAmount: decimal({ min: 0 }).optional(),
+  taxTotalAmount: decimal({ min: 0 }).optional(),
+  grandTotalNetAmount: decimal({ min: 0 }).optional(),
+  grandTotalGrossAmount: decimal({ min: 0 }).optional(),
+})
+
+export const creditMemoUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(creditMemoCreateSchema.partial())
+
+export const paymentCreateSchema = scoped.extend({
+  orderId: uuid().optional(),
+  paymentMethodId: uuid().optional(),
+  paymentReference: z.string().trim().max(191).optional(),
+  statusEntryId: uuid().optional(),
+  documentStatusEntryId: uuid().optional(),
+  lineStatusEntryId: uuid().optional(),
+  amount: decimal({ min: 0 }),
+  currencyCode,
+  capturedAmount: decimal({ min: 0 }).optional(),
+  refundedAmount: decimal({ min: 0 }).optional(),
+  receivedAt: z.coerce.date().optional(),
+  capturedAt: z.coerce.date().optional(),
+  metadata,
+  customFieldSetId: uuid().optional(),
+  customFields: z.record(z.string(), z.unknown()).optional(),
+  allocations: z
+    .array(
+      z.object({
+        orderId: uuid().optional(),
+        invoiceId: uuid().optional(),
+        amount: decimal({ min: 0 }),
+        currencyCode,
+        metadata,
+      })
+    )
+    .optional(),
+})
+
+export const paymentUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(paymentCreateSchema.partial())
+
+export const noteCreateSchema = scoped.extend({
+  contextType: z.enum(['order', 'quote', 'invoice', 'credit_memo']),
+  contextId: uuid(),
+  orderId: uuid().optional(),
+  quoteId: uuid().optional(),
+  authorUserId: uuid().optional(),
+  body: z.string().trim().min(1).max(8000),
+  appearanceIcon: z.string().trim().max(100).optional().nullable(),
+  appearanceColor: z
+    .string()
+    .trim()
+    .regex(/^#([0-9a-fA-F]{6})$/)
+    .optional()
+    .nullable(),
+})
+
+export const noteUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(
+    z
+      .object({
+        body: z.string().trim().min(1).max(8000).optional(),
+      })
+      .extend({
+        authorUserId: uuid().optional(),
+        appearanceIcon: z.string().trim().max(100).optional().nullable(),
+        appearanceColor: z
+          .string()
+          .trim()
+          .regex(/^#([0-9a-fA-F]{6})$/)
+          .optional()
+          .nullable(),
+      })
+  )
+
+export const documentNumberRequestSchema = scoped.extend({
+  kind: z.enum(['order', 'quote', 'invoice', 'credit_memo']),
+  format: numberFormatSchema.optional(),
+})
+
+export type DocumentNumberRequestInput = z.infer<typeof documentNumberRequestSchema>
+
+export type ChannelCreateInput = z.infer<typeof channelCreateSchema>
+export type ChannelUpdateInput = z.infer<typeof channelUpdateSchema>
+export type ShippingMethodCreateInput = z.infer<typeof shippingMethodCreateSchema>
+export type ShippingMethodUpdateInput = z.infer<typeof shippingMethodUpdateSchema>
+export type DeliveryWindowCreateInput = z.infer<typeof deliveryWindowCreateSchema>
+export type DeliveryWindowUpdateInput = z.infer<typeof deliveryWindowUpdateSchema>
+export type PaymentMethodCreateInput = z.infer<typeof paymentMethodCreateSchema>
+export type PaymentMethodUpdateInput = z.infer<typeof paymentMethodUpdateSchema>
+export type TaxRateCreateInput = z.infer<typeof taxRateCreateSchema>
+export type TaxRateUpdateInput = z.infer<typeof taxRateUpdateSchema>
+export type DeprecatedOrderPaymentLedgerInput = {
+  /** @deprecated Derived from recorded payments. Use sales.payments.create or POST /api/sales/payments. */
+  paidTotalAmount?: number
+  /** @deprecated Derived from recorded payments. Use sales.payments.create or POST /api/sales/payments. */
+  refundedTotalAmount?: number
+  /** @deprecated Derived from recorded payments. Use sales.payments.create or POST /api/sales/payments. */
+  outstandingAmount?: number
+}
+
+export type OrderCreateInput = Omit<
+  z.infer<typeof orderCreateSchema>,
+  OrderPaymentLedgerField
+> & DeprecatedOrderPaymentLedgerInput
+export type OrderUpdateInput = Omit<
+  z.infer<typeof orderUpdateSchema>,
+  OrderPaymentLedgerField
+> & DeprecatedOrderPaymentLedgerInput
+export type OrderLineCreateInput = z.infer<typeof orderLineCreateSchema>
+export type OrderLineUpdateInput = z.infer<typeof orderLineUpdateSchema>
+export type OrderAdjustmentCreateInput = z.infer<typeof orderAdjustmentCreateSchema>
+export type OrderAdjustmentUpdateInput = z.infer<typeof orderAdjustmentUpdateSchema>
+export type QuoteCreateInput = z.infer<typeof quoteCreateSchema>
+export type QuoteUpdateInput = z.infer<typeof quoteUpdateSchema>
+export type QuoteLineCreateInput = z.infer<typeof quoteLineCreateSchema>
+export type QuoteLineUpdateInput = z.infer<typeof quoteLineUpdateSchema>
+export type QuoteAdjustmentCreateInput = z.infer<typeof quoteAdjustmentCreateSchema>
+export type QuoteAdjustmentUpdateInput = z.infer<typeof quoteAdjustmentUpdateSchema>
+export type ShipmentCreateInput = z.infer<typeof shipmentCreateSchema>
+export type ShipmentUpdateInput = z.infer<typeof shipmentUpdateSchema>
+export type ReturnCreateInput = z.infer<typeof returnCreateSchema>
+export type ReturnUpdateInput = z.infer<typeof returnUpdateSchema>
+export type ReturnDeleteInput = z.infer<typeof returnDeleteSchema>
+export type InvoiceCreateInput = z.infer<typeof invoiceCreateSchema>
+export type InvoiceUpdateInput = z.infer<typeof invoiceUpdateSchema>
+export type CreditMemoCreateInput = z.infer<typeof creditMemoCreateSchema>
+export type CreditMemoUpdateInput = z.infer<typeof creditMemoUpdateSchema>
+export const quoteSendSchema = z.object({
+  quoteId: z.string().uuid(),
+  validForDays: z.coerce.number().int().min(1).max(365).default(14),
+})
+
+export const quoteAcceptSchema = z.object({
+  token: z.string().uuid(),
+})
+
+export type PaymentCreateInput = z.infer<typeof paymentCreateSchema>
+export type PaymentUpdateInput = z.infer<typeof paymentUpdateSchema>
+export type NoteCreateInput = z.infer<typeof noteCreateSchema>
+export type NoteUpdateInput = z.infer<typeof noteUpdateSchema>
+export type SalesTagCreateInput = z.infer<typeof salesTagCreateSchema>
+export type SalesTagUpdateInput = z.infer<typeof salesTagUpdateSchema>
+export type DocumentAddressCreateInput = z.infer<typeof documentAddressCreateSchema>
+export type DocumentAddressUpdateInput = z.infer<typeof documentAddressUpdateSchema>
+export type DocumentAddressDeleteInput = z.infer<typeof documentAddressDeleteSchema>
+export type QuoteSendInput = z.infer<typeof quoteSendSchema>
+export type QuoteAcceptInput = z.infer<typeof quoteAcceptSchema>

@@ -1,0 +1,506 @@
+"use client"
+
+import * as React from 'react'
+import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { resolveTodoApiPath } from '../utils'
+import type { TodoLinkSummary } from '../types'
+import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { hasMoreFromPage } from '@open-mercato/shared/lib/pagination/load-more'
+import { CUSTOMER_INTERACTION_TASK_SOURCE } from '../../../lib/interactionCompatibility'
+
+const DEFAULT_TODO_SOURCE = CUSTOMER_INTERACTION_TASK_SOURCE
+
+type CustomerTodoRow = {
+  id: string
+  todoId: string
+  todoSource: string
+  todoTitle: string | null
+  todoIsDone: boolean | null
+  todoPriority: number | null
+  todoSeverity: string | null
+  todoDescription: string | null
+  todoDueAt: string | null
+  todoCustomValues: Record<string, unknown> | null
+  todoOrganizationId: string | null
+  todoUpdatedAt?: string | null
+  organizationId: string
+  tenantId: string
+  createdAt: string
+}
+
+// `/api/customers/todos` also reports `totalPages`, deliberately left out of
+// this type: the load-more affordance terminates on a short page instead — see
+// `hasMoreFromPage`. `total` stays because it feeds the section's count badge,
+// where an under-report is cosmetic rather than a way to strand rows.
+type CustomerTodosResponse = {
+  items: CustomerTodoRow[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+export type TaskFormPayload = {
+  base: {
+    title: string
+    is_done?: boolean
+    status?: string
+    description?: string | null
+    priority?: number | null
+    scheduledAt?: string | null
+  }
+  custom: Record<string, unknown>
+}
+
+export type UsePersonTasksOptions = {
+  entityId: string | null
+  initialTasks?: TodoLinkSummary[]
+  pageSize?: number
+}
+
+export type UsePersonTasksResult = {
+  tasks: TodoLinkSummary[]
+  isInitialLoading: boolean
+  isLoadingMore: boolean
+  isMutating: boolean
+  hasMore: boolean
+  loadMore: () => Promise<void>
+  refresh: () => Promise<void>
+  createTask: (payload: TaskFormPayload) => Promise<void>
+  updateTask: (task: TodoLinkSummary, payload: TaskFormPayload) => Promise<void>
+  toggleTask: (task: TodoLinkSummary, nextIsDone: boolean) => Promise<void>
+  unlinkTask: (task: TodoLinkSummary) => Promise<void>
+  pendingTaskId: string | null
+  totalCount: number
+  error: string | null
+}
+
+function mapRowToSummary(row: CustomerTodoRow): TodoLinkSummary {
+  return {
+    id: row.id,
+    todoId: row.todoId,
+    todoSource: row.todoSource || DEFAULT_TODO_SOURCE,
+    createdAt: row.createdAt,
+    title: row.todoTitle ?? null,
+    isDone: row.todoIsDone ?? null,
+    status: row.todoIsDone ? 'done' : 'planned',
+    priority: row.todoPriority ?? null,
+    severity: row.todoSeverity ?? null,
+    description: row.todoDescription ?? null,
+    dueAt: row.todoDueAt ?? null,
+    todoOrganizationId: row.todoOrganizationId ?? null,
+    updatedAt: row.todoUpdatedAt ?? null,
+    customValues: row.todoCustomValues ?? null,
+  }
+}
+
+function mergeUnique(existing: TodoLinkSummary[], incoming: TodoLinkSummary[]): TodoLinkSummary[] {
+  if (!existing.length) return incoming
+  if (!incoming.length) return existing
+  const byId = new Map<string, TodoLinkSummary>()
+  const result: TodoLinkSummary[] = []
+  for (const item of existing) {
+    byId.set(item.id, item)
+    result.push(item)
+  }
+  for (const item of incoming) {
+    if (byId.has(item.id)) {
+      const index = result.findIndex((entry) => entry.id === item.id)
+      if (index !== -1) result[index] = item
+    } else {
+      byId.set(item.id, item)
+      result.push(item)
+    }
+  }
+  return result
+}
+
+function normalizeBoolean(value: unknown): boolean | undefined {
+  if (value === null || value === undefined) return undefined
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'string') {
+    const parsed = parseBooleanToken(value)
+    return parsed === null ? undefined : parsed
+  }
+  return undefined
+}
+
+function normalizeNumber(value: unknown): number | null | undefined {
+  if (value === null || value === undefined || value === '') return undefined
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed.length) return undefined
+    const parsed = Number(trimmed)
+    if (!Number.isNaN(parsed)) return parsed
+  }
+  return null
+}
+
+function normalizeString(value: unknown): string | null | undefined {
+  if (value === null || value === undefined) return undefined
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    return trimmed.length ? trimmed : null
+  }
+  return String(value)
+}
+
+function buildLegacyTaskCustomValues(
+  payload: TaskFormPayload,
+  options?: { includeEmptyFields?: boolean },
+): Record<string, unknown> {
+  const includeEmptyFields = options?.includeEmptyFields === true
+  const custom = { ...payload.custom }
+
+  const assignValue = (key: string, value: unknown) => {
+    if (value === undefined) return
+    if (value === null) {
+      if (includeEmptyFields) custom[key] = null
+      return
+    }
+    custom[key] = value
+  }
+
+  assignValue('priority', payload.base.priority)
+  assignValue('description', payload.base.description)
+  assignValue('due_at', payload.base.scheduledAt)
+
+  return custom
+}
+
+export function usePersonTasks({
+  entityId,
+  initialTasks = [],
+  pageSize = 20,
+}: UsePersonTasksOptions): UsePersonTasksResult {
+  const [tasks, setTasks] = React.useState<TodoLinkSummary[]>(initialTasks)
+  const [pageInfo, setPageInfo] = React.useState<{ page: number; hasMore: boolean; total: number }>({
+    page: 1,
+    hasMore: false,
+    total: initialTasks.length,
+  })
+  const [isInitialLoading, setIsInitialLoading] = React.useState<boolean>(() => Boolean(entityId))
+  const [isLoadingMore, setIsLoadingMore] = React.useState(false)
+  const [isMutating, setIsMutating] = React.useState(false)
+  const [pendingTaskId, setPendingTaskId] = React.useState<string | null>(null)
+  const [error, setError] = React.useState<string | null>(null)
+
+  const mapResponse = React.useCallback((payload: CustomerTodosResponse) => {
+    const mapped = Array.isArray(payload.items) ? payload.items.map(mapRowToSummary) : []
+    setPageInfo({
+      page: payload.page ?? 1,
+      // Short-page termination instead of `page < totalPages` — see
+      // `hasMoreFromPage`. `mapRowToSummary` is a 1:1 map and the `mergeUnique`
+      // dedupe happens after this, so `mapped.length` is what the server served.
+      // Measured against the page size the server echoed rather than the one
+      // requested, so a page size the endpoint narrows server-side cannot make a
+      // full page read as short and silently end the sequence.
+      hasMore: hasMoreFromPage(mapped.length, payload.pageSize ?? pageSize),
+      total: payload.total ?? mapped.length,
+    })
+    setError(null)
+    return mapped
+  }, [pageSize])
+
+  const fetchPage = React.useCallback(
+    async (page: number): Promise<CustomerTodosResponse> => {
+      if (!entityId) {
+        return {
+          items: [],
+          total: 0,
+          page: 1,
+          pageSize,
+        }
+      }
+      const params = new URLSearchParams({
+        page: String(page),
+        pageSize: String(pageSize),
+        entityId,
+      })
+      return readApiResultOrThrow<CustomerTodosResponse>(
+        `/api/customers/todos?${params.toString()}`,
+        undefined,
+        { errorMessage: 'Failed to load tasks.' },
+      )
+    },
+    [entityId, pageSize],
+  )
+
+  const refresh = React.useCallback(async () => {
+    if (!entityId) {
+      setTasks([])
+      setPageInfo({ page: 1, hasMore: false, total: 0 })
+      return
+    }
+    setIsInitialLoading(true)
+    try {
+      const payload = await fetchPage(1)
+      const mapped = mapResponse(payload)
+      setTasks(mapped)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load tasks.'
+      setError(message)
+      throw err
+    } finally {
+      setIsInitialLoading(false)
+    }
+  }, [entityId, fetchPage, mapResponse])
+
+  const loadMore = React.useCallback(async () => {
+    if (!entityId) return
+    if (isLoadingMore) return
+    if (!pageInfo.hasMore) return
+    setIsLoadingMore(true)
+    try {
+      const payload = await fetchPage(pageInfo.page + 1)
+      const mapped = mapResponse(payload)
+      setTasks((prev) => mergeUnique(prev, mapped))
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load tasks.'
+      setError(message)
+      throw err
+    } finally {
+      setIsLoadingMore(false)
+    }
+  }, [entityId, fetchPage, isLoadingMore, mapResponse, pageInfo.hasMore, pageInfo.page])
+
+  React.useEffect(() => {
+    if (!entityId) {
+      setTasks([])
+      setPageInfo({ page: 1, hasMore: false, total: 0 })
+      setError(null)
+      setIsInitialLoading(false)
+      return
+    }
+    setTasks(initialTasks)
+    setPageInfo({
+      page: 1,
+      hasMore: false,
+      total: initialTasks.length,
+    })
+    setError(null)
+    let cancelled = false
+    setIsInitialLoading(true)
+    fetchPage(1)
+      .then((payload) => {
+        if (cancelled) return
+        const mapped = mapResponse(payload)
+        setTasks(mapped)
+      })
+      .catch((err) => {
+        if (cancelled) return
+        const message = err instanceof Error ? err.message : 'Failed to load tasks.'
+        setError(message)
+      })
+      .finally(() => {
+        if (!cancelled) setIsInitialLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [entityId, initialTasks, fetchPage, mapResponse])
+
+  const createTask = React.useCallback(
+    async ({ base, custom }: TaskFormPayload) => {
+      if (!entityId) throw new Error('Task creation requires an entity id')
+      setIsMutating(true)
+      try {
+        const customValues = buildLegacyTaskCustomValues({ base, custom })
+        const payload: Record<string, unknown> = {
+          entityId,
+          title: base.title,
+        }
+        const normalizedDone = normalizeBoolean(base.is_done)
+        if (normalizedDone !== undefined) payload.isDone = normalizedDone
+        if (Object.keys(customValues).length) payload.todoCustom = customValues
+
+        const response = await apiCallOrThrow<{ linkId?: string; todoId?: string }>(
+          '/api/customers/todos',
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          },
+          { errorMessage: 'Failed to create task.' },
+        )
+        const body = response.result ?? {}
+        const linkId = typeof body.linkId === 'string' && body.linkId.length ? body.linkId : generateTempId()
+        const todoId = typeof body.todoId === 'string' && body.todoId.length ? body.todoId : generateTempId()
+        const createdAt = new Date().toISOString()
+        const persistedCustomValues = Object.keys(customValues).length ? { ...customValues } : null
+        const priority = normalizeNumber(base.priority ?? customValues.priority)
+        const severity = normalizeString(customValues.severity) ?? null
+        const description = normalizeString(base.description ?? customValues.description) ?? null
+        const newTask: TodoLinkSummary = {
+          id: linkId,
+          todoId,
+          todoSource: DEFAULT_TODO_SOURCE,
+          createdAt,
+          title: base.title,
+          isDone: normalizedDone ?? false,
+          status: normalizedDone ? 'done' : 'planned',
+          priority: priority === undefined ? null : priority,
+          severity,
+          description,
+          dueAt: normalizeString(base.scheduledAt ?? customValues.due_at) ?? normalizeString(customValues.dueAt) ?? null,
+          todoOrganizationId: null,
+          customValues: persistedCustomValues,
+        }
+        setTasks((prev) => [newTask, ...prev])
+        setPageInfo((prev) => ({
+          page: 1,
+          hasMore: prev.hasMore,
+          total: prev.total + 1,
+        }))
+        await refresh()
+      } finally {
+        setIsMutating(false)
+      }
+    },
+    [entityId, refresh],
+  )
+
+  const updateTask = React.useCallback(
+    async (task: TodoLinkSummary, { base, custom }: TaskFormPayload) => {
+      if (!task.todoId) throw new Error('Task is missing todo id')
+      const apiPath = resolveTodoApiPath(task.todoSource || DEFAULT_TODO_SOURCE)
+      if (!apiPath) throw new Error('Unsupported task source')
+      setIsMutating(true)
+      try {
+        const customValues = buildLegacyTaskCustomValues({ base, custom }, { includeEmptyFields: true })
+        const body: Record<string, unknown> = {
+          id: task.todoId,
+          linkId: task.id,
+        }
+        if (typeof base.title === 'string' && base.title.trim().length) {
+          body.title = base.title.trim()
+        }
+        const normalizedDone = normalizeBoolean(base.is_done)
+        if (normalizedDone !== undefined) body.is_done = normalizedDone
+        if (Object.keys(customValues).length) {
+          body.customFields = customValues
+        }
+        // Send the optimistic-lock header (task's loaded updatedAt) so a stale
+        // edit — or an edit after the task was deleted in another tab — surfaces
+        // the unified conflict bar (409) instead of silently overwriting or
+        // returning a bare "Interaction not found" 404 (#2055).
+        await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(task.updatedAt ?? null),
+          () => apiCallOrThrow(
+            apiPath,
+            {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(body),
+            },
+            { errorMessage: 'Failed to update task.' },
+          ),
+        )
+        setTasks((prev) =>
+          prev.map((item) => {
+            if (item.id !== task.id) return item
+            const nextCustomValues = { ...(item.customValues ?? {}) }
+            for (const [key, value] of Object.entries(customValues)) {
+              nextCustomValues[key] = value === undefined ? null : value
+            }
+            return {
+              ...item,
+              title: typeof base.title === 'string' && base.title.trim().length ? base.title.trim() : item.title,
+              isDone: normalizedDone !== undefined ? normalizedDone : item.isDone,
+              status: normalizedDone !== undefined ? (normalizedDone ? 'done' : 'planned') : item.status ?? null,
+              priority:
+                normalizeNumber(base.priority ?? customValues.priority) ??
+                (base.priority === undefined && customValues.priority === undefined ? item.priority ?? null : null),
+              severity:
+                normalizeString(customValues.severity) ??
+                (customValues.severity === undefined ? item.severity ?? null : null),
+              description:
+                normalizeString(base.description ?? customValues.description) ??
+                (base.description === undefined && customValues.description === undefined ? item.description ?? null : null),
+              dueAt:
+                normalizeString(base.scheduledAt ?? customValues.due_at) ??
+                normalizeString(customValues.dueAt) ??
+                (base.scheduledAt === undefined && customValues.due_at === undefined && customValues.dueAt === undefined
+                  ? item.dueAt ?? null
+                  : null),
+              customValues: Object.keys(nextCustomValues).length ? nextCustomValues : null,
+            }
+          }),
+        )
+      } finally {
+        setIsMutating(false)
+      }
+    },
+    [],
+  )
+
+  const toggleTask = React.useCallback(
+    async (task: TodoLinkSummary, nextIsDone: boolean) => {
+      if (!task.todoId) {
+        throw new Error('Task is missing todo id')
+      }
+      const apiPath = resolveTodoApiPath(task.todoSource || DEFAULT_TODO_SOURCE)
+      if (!apiPath) {
+        throw new Error('Unsupported task source')
+      }
+      setPendingTaskId(task.todoId)
+      try {
+        await updateTask(task, { base: { title: task.title ?? '', is_done: nextIsDone }, custom: {} })
+      } finally {
+        setPendingTaskId(null)
+      }
+    },
+    [updateTask],
+  )
+
+  const unlinkTask = React.useCallback(
+    async (task: TodoLinkSummary) => {
+      if (!task.id) throw new Error('Task link id missing')
+      setIsMutating(true)
+    try {
+      await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(task.updatedAt ?? null),
+        () => apiCallOrThrow(
+          '/api/customers/todos',
+          {
+            method: 'DELETE',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ id: task.id }),
+          },
+          { errorMessage: 'Failed to remove task.' },
+        ),
+      )
+        setTasks((prev) => prev.filter((item) => item.id !== task.id))
+        setPageInfo((prev) => ({
+          page: prev.page,
+          hasMore: prev.hasMore,
+          total: Math.max(0, prev.total - 1),
+        }))
+      } finally {
+        setIsMutating(false)
+      }
+    },
+    [],
+  )
+
+  const hasMore = entityId != null && pageInfo.hasMore
+
+  return {
+    tasks,
+    isInitialLoading,
+    isLoadingMore,
+    isMutating,
+    hasMore,
+    loadMore,
+    refresh,
+    createTask,
+    updateTask,
+    toggleTask,
+    unlinkTask,
+    pendingTaskId,
+    totalCount: pageInfo.total,
+    error,
+  }
+}

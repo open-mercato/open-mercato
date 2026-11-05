@@ -1,0 +1,215 @@
+import type {
+  CommandInterceptor,
+  CommandInterceptorBeforeResult,
+  CommandInterceptorContext,
+  CommandInterceptorUndoContext,
+} from './command-interceptor'
+import { authorizeFeatures } from '../../security/featurePolicy'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'commands' })
+
+/**
+ * A blocking verdict from a before-hook, normalized for the command bus. `status`/`body` are
+ * present only when the interceptor supplied a status, so a rejection without one keeps the
+ * historical generic-500 handling downstream.
+ */
+export type CommandInterceptorBlockedError = {
+  message: string
+  status?: number
+  body?: Record<string, unknown>
+}
+
+function buildBlockedError(
+  result: CommandInterceptorBeforeResult,
+  fallbackMessage: string,
+): CommandInterceptorBlockedError {
+  const message = result.message ?? fallbackMessage
+  if (typeof result.status !== 'number') return { message }
+  return { message, status: result.status, body: result.body ?? { error: message } }
+}
+
+// ---------------------------------------------------------------------------
+// Command pattern matching
+// ---------------------------------------------------------------------------
+
+export function matchesCommandPattern(pattern: string, commandId: string): boolean {
+  if (pattern === '*') return true
+  if (pattern === commandId) return true
+  if (pattern.endsWith('.*')) {
+    const prefix = pattern.slice(0, -2)
+    return commandId.startsWith(prefix + '.')
+  }
+  return false
+}
+
+// ---------------------------------------------------------------------------
+// Collect matching interceptors
+// ---------------------------------------------------------------------------
+
+function collectMatching(
+  interceptors: CommandInterceptor[],
+  commandId: string,
+  userFeatures: string[],
+): CommandInterceptor[] {
+  return interceptors
+    .filter((i) => matchesCommandPattern(i.targetCommand, commandId))
+    .filter((i) => authorizeFeatures(i.features ?? [], { grantedFeatures: userFeatures }))
+    .sort((a, b) => (a.priority ?? 50) - (b.priority ?? 50))
+}
+
+// ---------------------------------------------------------------------------
+// Run beforeExecute interceptors
+// ---------------------------------------------------------------------------
+
+export async function runCommandInterceptorsBefore(
+  interceptors: CommandInterceptor[],
+  commandId: string,
+  input: unknown,
+  context: CommandInterceptorContext,
+  userFeatures: string[],
+): Promise<{
+  ok: boolean
+  error?: CommandInterceptorBlockedError
+  modifiedInput?: Record<string, unknown>
+  metadataByInterceptor: Map<string, Record<string, unknown>>
+}> {
+  const matching = collectMatching(interceptors, commandId, userFeatures)
+
+  let currentInput = input
+  const metadataByInterceptor = new Map<string, Record<string, unknown>>()
+
+  for (const interceptor of matching) {
+    if (!interceptor.beforeExecute) continue
+    const result = await interceptor.beforeExecute(currentInput, { ...context, commandId })
+
+    if (result?.ok === false) {
+      return {
+        ok: false,
+        error: buildBlockedError(result, `Blocked by command interceptor: ${interceptor.id}`),
+        metadataByInterceptor,
+      }
+    }
+
+    if (result?.modifiedInput) {
+      currentInput =
+        typeof currentInput === 'object' && currentInput
+          ? { ...(currentInput as Record<string, unknown>), ...result.modifiedInput }
+          : result.modifiedInput
+    }
+
+    if (result?.metadata) {
+      metadataByInterceptor.set(interceptor.id, result.metadata)
+    }
+  }
+
+  const inputChanged = currentInput !== input
+  return {
+    ok: true,
+    modifiedInput: inputChanged ? (currentInput as Record<string, unknown>) : undefined,
+    metadataByInterceptor,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Run afterExecute interceptors
+// ---------------------------------------------------------------------------
+
+export async function runCommandInterceptorsAfter(
+  interceptors: CommandInterceptor[],
+  commandId: string,
+  input: unknown,
+  result: unknown,
+  context: CommandInterceptorContext,
+  userFeatures: string[],
+  metadataByInterceptor: Map<string, Record<string, unknown>>,
+): Promise<{ modifiedResult?: Record<string, unknown> }> {
+  const matching = collectMatching(interceptors, commandId, userFeatures)
+
+  let currentResult = result
+
+  for (const interceptor of matching) {
+    if (!interceptor.afterExecute) continue
+    try {
+      const afterResult = await interceptor.afterExecute(
+        input,
+        currentResult,
+        { ...context, commandId, metadata: metadataByInterceptor.get(interceptor.id) },
+      )
+      if (afterResult?.modifiedResult && typeof currentResult === 'object' && currentResult) {
+        currentResult = { ...(currentResult as Record<string, unknown>), ...afterResult.modifiedResult }
+      }
+    } catch (error) {
+      logger.error('Command interceptor afterExecute failed', { interceptorId: interceptor.id, err: error })
+    }
+  }
+
+  const resultChanged = currentResult !== result
+  return { modifiedResult: resultChanged ? (currentResult as Record<string, unknown>) : undefined }
+}
+
+// ---------------------------------------------------------------------------
+// Run beforeUndo interceptors
+// ---------------------------------------------------------------------------
+
+export async function runCommandInterceptorsBeforeUndo(
+  interceptors: CommandInterceptor[],
+  commandId: string,
+  undoContext: CommandInterceptorUndoContext,
+  context: CommandInterceptorContext,
+  userFeatures: string[],
+): Promise<{
+  ok: boolean
+  error?: CommandInterceptorBlockedError
+  metadataByInterceptor: Map<string, Record<string, unknown>>
+}> {
+  const matching = collectMatching(interceptors, commandId, userFeatures)
+
+  const metadataByInterceptor = new Map<string, Record<string, unknown>>()
+
+  for (const interceptor of matching) {
+    if (!interceptor.beforeUndo) continue
+    const result = await interceptor.beforeUndo(undoContext, { ...context, commandId })
+
+    if (result?.ok === false) {
+      return {
+        ok: false,
+        error: buildBlockedError(result, `Undo blocked by command interceptor: ${interceptor.id}`),
+        metadataByInterceptor,
+      }
+    }
+
+    if (result?.metadata) {
+      metadataByInterceptor.set(interceptor.id, result.metadata)
+    }
+  }
+
+  return { ok: true, metadataByInterceptor }
+}
+
+// ---------------------------------------------------------------------------
+// Run afterUndo interceptors
+// ---------------------------------------------------------------------------
+
+export async function runCommandInterceptorsAfterUndo(
+  interceptors: CommandInterceptor[],
+  commandId: string,
+  undoContext: CommandInterceptorUndoContext,
+  context: CommandInterceptorContext,
+  userFeatures: string[],
+  metadataByInterceptor: Map<string, Record<string, unknown>>,
+): Promise<void> {
+  const matching = collectMatching(interceptors, commandId, userFeatures)
+
+  for (const interceptor of matching) {
+    if (!interceptor.afterUndo) continue
+    try {
+      await interceptor.afterUndo(
+        undoContext,
+        { ...context, commandId, metadata: metadataByInterceptor.get(interceptor.id) },
+      )
+    } catch (error) {
+      logger.error('Command interceptor afterUndo failed', { interceptorId: interceptor.id, err: error })
+    }
+  }
+}

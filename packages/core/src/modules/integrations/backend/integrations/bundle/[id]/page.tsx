@@ -1,0 +1,401 @@
+"use client"
+import * as React from 'react'
+import Link from 'next/link'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { Card, CardHeader, CardTitle, CardContent } from '@open-mercato/ui/primitives/card'
+import { Badge } from '@open-mercato/ui/primitives/badge'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { Switch } from '@open-mercato/ui/primitives/switch'
+import { Input } from '@open-mercato/ui/primitives/input'
+import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import type { CredentialFieldType, IntegrationCredentialField } from '@open-mercato/shared/modules/integrations/types'
+import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
+import {
+  buildCredentialEditValues,
+  buildCredentialSavePayload,
+  type SecretFieldsConfigured,
+} from '../../credential-secret-fields'
+
+type CredentialField = IntegrationCredentialField
+
+const UNSUPPORTED_CREDENTIAL_FIELD_TYPES = new Set<CredentialFieldType>(['oauth', 'ssh_keypair'])
+
+function isEditableCredentialField(field: CredentialField): boolean {
+  return !UNSUPPORTED_CREDENTIAL_FIELD_TYPES.has(field.type)
+}
+
+type BundleIntegration = {
+  id: string
+  title: string
+  description?: string
+  category?: string
+  isEnabled: boolean
+  state?: { updatedAt?: string | null }
+}
+
+type BundleDetail = {
+  integration: {
+    id: string
+    title: string
+    description?: string
+    bundleId?: string
+  }
+  bundle?: {
+    id: string
+    title: string
+    description?: string
+    credentials?: { fields: CredentialField[] }
+  }
+  bundleIntegrations: BundleIntegration[]
+  state: { isEnabled: boolean }
+  hasCredentials: boolean
+  credentialsUpdatedAt?: string | null
+}
+
+type BundleConfigPageProps = {
+  params?: {
+    id?: string
+  }
+}
+
+export default function BundleConfigPage({ params }: BundleConfigPageProps) {
+  const bundleId = params?.id
+  const t = useT()
+
+  const [detail, setDetail] = React.useState<BundleDetail | null>(null)
+  const [isLoading, setIsLoading] = React.useState(true)
+  const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
+  const [credValues, setCredValues] = React.useState<Record<string, unknown>>({})
+  const [secretFieldsConfigured, setSecretFieldsConfigured] = React.useState<SecretFieldsConfigured>({})
+  const [credentialsUpdatedAt, setCredentialsUpdatedAt] = React.useState<string | null>(null)
+  const [isSavingCreds, setIsSavingCreds] = React.useState(false)
+  const [togglingIds, setTogglingIds] = React.useState<Set<string>>(new Set())
+
+  const mutationContextId = React.useMemo(
+    () => `integrations.bundle:${bundleId ?? 'unknown'}`,
+    [bundleId],
+  )
+  const { runMutation, retryLastMutation } = useGuardedMutation<Record<string, unknown>>({
+    contextId: mutationContextId,
+  })
+
+  const load = React.useCallback(async () => {
+    if (!bundleId) {
+      setError(t('integrations.detail.loadError'))
+      setIsLoading(false)
+      return
+    }
+    setIsLoading(true)
+    setError(null)
+    setIsNotFound(false)
+    const call = await apiCall<BundleDetail>(
+      `/api/integrations/${encodeURIComponent(bundleId)}`,
+      undefined,
+      { fallback: null },
+    )
+    if (!call.ok || !call.result) {
+      if (call.status === 404) {
+        setIsNotFound(true)
+      } else {
+        setError(t('integrations.detail.loadError'))
+      }
+      setIsLoading(false)
+      return
+    }
+    setDetail(call.result)
+
+    const credCall = await apiCall<{
+      credentials: Record<string, unknown>
+      secretFieldsConfigured?: SecretFieldsConfigured
+      updatedAt?: string | null
+    }>(
+      `/api/integrations/${encodeURIComponent(bundleId)}/credentials`,
+      undefined,
+      { fallback: null },
+    )
+    if (credCall.ok && credCall.result) {
+      setCredentialsUpdatedAt(credCall.result.updatedAt ?? null)
+      setSecretFieldsConfigured(credCall.result.secretFieldsConfigured ?? {})
+    }
+    if (credCall.ok && credCall.result?.credentials) {
+      const next = { ...credCall.result.credentials }
+      if (bundleId === 'storage_s3') {
+        const authMode = next.authMode
+        if (authMode !== 'access_keys' && authMode !== 'ambient') {
+          const hasKeys = Boolean(next.accessKeyId || next.secretAccessKey)
+          next.authMode = hasKeys ? 'access_keys' : 'ambient'
+        }
+      }
+      setCredValues(buildCredentialEditValues(
+        next,
+        credCall.result.secretFieldsConfigured ?? {},
+      ))
+    }
+    setIsLoading(false)
+  }, [bundleId, t])
+
+  React.useEffect(() => { void load() }, [load])
+
+  const handleSaveCredentials = React.useCallback(async () => {
+    if (!bundleId) return
+    setIsSavingCreds(true)
+    try {
+      const savePayload = buildCredentialSavePayload(
+        credValues,
+        detail?.bundle?.credentials?.fields ?? [],
+        secretFieldsConfigured,
+      )
+      const call = await runMutation({
+        mutationPayload: { bundleId, ...savePayload },
+        context: {
+          formId: mutationContextId,
+          operation: 'update',
+          actionId: 'save-credentials',
+          resourceKind: 'integrations.bundle',
+          resourceId: bundleId,
+          bundleId,
+          retryLastMutation,
+        },
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(credentialsUpdatedAt),
+          () => apiCall(`/api/integrations/${encodeURIComponent(bundleId)}/credentials`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(savePayload),
+          }, { fallback: null }),
+        ),
+      })
+      if (call.ok) {
+        flash(t('integrations.detail.credentials.saved'), 'success')
+        await load()
+      } else {
+        flash(t('integrations.detail.credentials.saveError'), 'error')
+      }
+    } catch {
+      flash(t('integrations.detail.credentials.saveError'), 'error')
+    } finally {
+      setIsSavingCreds(false)
+    }
+  }, [bundleId, runMutation, mutationContextId, retryLastMutation, credValues, credentialsUpdatedAt, detail?.bundle?.credentials?.fields, load, secretFieldsConfigured, t])
+
+  const handleToggle = React.useCallback(async (integrationId: string, enabled: boolean, updatedAt?: string | null) => {
+    setTogglingIds((prev) => new Set(prev).add(integrationId))
+    try {
+      const call = await runMutation({
+        mutationPayload: { integrationId, isEnabled: enabled },
+        context: {
+          formId: mutationContextId,
+          operation: 'update',
+          actionId: 'toggle-state',
+          resourceKind: 'integrations.integration',
+          resourceId: integrationId,
+          integrationId,
+          retryLastMutation,
+        },
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(updatedAt),
+          () => apiCall<{ updatedAt?: string | null }>(`/api/integrations/${encodeURIComponent(integrationId)}/state`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ isEnabled: enabled }),
+          }, { fallback: null }),
+        ),
+      })
+      if (call.ok) {
+        const nextUpdatedAt = call.result?.updatedAt ?? null
+        setDetail((prev) => {
+          if (!prev) return prev
+          return {
+            ...prev,
+            bundleIntegrations: prev.bundleIntegrations.map((item) =>
+              item.id === integrationId
+                ? { ...item, isEnabled: enabled, state: { updatedAt: nextUpdatedAt ?? item.state?.updatedAt ?? null } }
+                : item,
+            ),
+          }
+        })
+      } else {
+        flash(t('integrations.detail.stateError'), 'error')
+      }
+    } catch {
+      flash(t('integrations.detail.stateError'), 'error')
+    } finally {
+      setTogglingIds((prev) => { const next = new Set(prev); next.delete(integrationId); return next })
+    }
+  }, [runMutation, mutationContextId, retryLastMutation, t])
+
+  const handleBulkToggle = React.useCallback(async (enabled: boolean) => {
+    if (!detail) return
+    const targets = detail.bundleIntegrations.filter((item) => item.isEnabled !== enabled)
+    await Promise.all(targets.map((item) => handleToggle(item.id, enabled, item.state?.updatedAt)))
+  }, [detail, handleToggle])
+
+  if (isLoading) return <Page><PageBody><LoadingMessage label={t('integrations.bundle.title')} /></PageBody></Page>
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('integrations.detail.notFound', 'Integration not found.')}
+            backHref="/backend/integrations"
+            backLabel={t('integrations.detail.backToList', 'Back to integrations')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+  if (error || !detail?.bundle) return <Page><PageBody><ErrorMessage label={error ?? t('integrations.detail.loadError')} /></PageBody></Page>
+
+  const credFields = (detail.bundle.credentials?.fields ?? []).filter(isEditableCredentialField)
+
+  function isFieldVisible(field: CredentialField): boolean {
+    if (!field.visibleWhen) return true
+    return credValues[field.visibleWhen.field] === field.visibleWhen.equals
+  }
+
+  return (
+    <Page>
+      <PageBody className="space-y-6">
+        <div>
+          <Link href="/backend/integrations" className="text-sm text-muted-foreground hover:underline">
+            {t('integrations.detail.back')}
+          </Link>
+        </div>
+
+        <div>
+          <h1 className="text-2xl font-semibold">{detail.bundle.title}</h1>
+          {detail.bundle.description && (
+            <p className="text-muted-foreground mt-1">{detail.bundle.description}</p>
+          )}
+        </div>
+
+        {credFields.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>{t('integrations.bundle.sharedCredentials')}</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {credFields.filter(isFieldVisible).map((field) => (
+                <div key={field.key} className="space-y-1.5">
+                  <label htmlFor={`bundle-credential-${field.key}`} className="text-sm font-medium">
+                    {field.label}{field.required && <span className="ml-0.5 text-destructive">*</span>}
+                  </label>
+                  {field.type === 'select' && field.options ? (
+                    <Select
+                      value={(credValues[field.key] as string) || undefined}
+                      onValueChange={(value) => setCredValues((prev) => ({ ...prev, [field.key]: value ?? '' }))}
+                    >
+                      <SelectTrigger id={`bundle-credential-${field.key}`}>
+                        <SelectValue placeholder="—" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {field.options.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : field.type === 'boolean' ? (
+                    <Switch
+                      id={`bundle-credential-${field.key}`}
+                      checked={Boolean(credValues[field.key])}
+                      onCheckedChange={(checked) => setCredValues((prev) => ({ ...prev, [field.key]: checked }))}
+                    />
+                  ) : field.type === 'secret' ? (
+                    <PasswordInput
+                      id={`bundle-credential-${field.key}`}
+                      placeholder={field.placeholder}
+                      value={(credValues[field.key] as string) ?? ''}
+                      onChange={(event) => setCredValues((prev) => ({ ...prev, [field.key]: event.target.value }))}
+                      autoComplete="new-password"
+                    />
+                  ) : (
+                    <Input
+                      id={`bundle-credential-${field.key}`}
+                      type="text"
+                      placeholder={field.placeholder}
+                      value={(credValues[field.key] as string) ?? ''}
+                      onChange={(e) => setCredValues((prev) => ({ ...prev, [field.key]: e.target.value }))}
+                    />
+                  )}
+                  {field.type === 'secret' && secretFieldsConfigured[field.key] ? (
+                    <p className="text-xs text-muted-foreground">
+                      {t('integrations.detail.credentials.secretConfigured')}
+                    </p>
+                  ) : null}
+                </div>
+              ))}
+              <Button type="button" onClick={() => void handleSaveCredentials()} disabled={isSavingCreds}>
+                {isSavingCreds ? <Spinner className="mr-2 h-4 w-4" /> : null}
+                {t('integrations.detail.credentials.save')}
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle>{t('integrations.bundle.integrationToggles')}</CardTitle>
+              <div className="flex gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => void handleBulkToggle(true)}>
+                  {t('integrations.marketplace.enableAll')}
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => void handleBulkToggle(false)}>
+                  {t('integrations.marketplace.disableAll')}
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {detail.bundleIntegrations.map((item) => (
+                <div key={item.id} className="flex items-center justify-between rounded-lg border p-3">
+                  <div>
+                    <Link
+                      href={`/backend/integrations/${encodeURIComponent(item.id)}`}
+                      className="text-sm font-medium hover:underline"
+                    >
+                      {item.title}
+                    </Link>
+                    {item.category && (
+                      <Badge variant="secondary" className="ml-2 text-xs">{item.category}</Badge>
+                    )}
+                    {item.description && (
+                      <p className="text-xs text-muted-foreground mt-0.5">{item.description}</p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Button asChild variant="ghost" size="sm">
+                      <Link href={`/backend/integrations/${encodeURIComponent(item.id)}`}>
+                        {t('integrations.bundle.configureIntegration')}
+                      </Link>
+                    </Button>
+                    <Switch
+                      checked={item.isEnabled}
+                      disabled={togglingIds.has(item.id)}
+                      onCheckedChange={(checked) => void handleToggle(item.id, checked, item.state?.updatedAt)}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </PageBody>
+    </Page>
+  )
+}

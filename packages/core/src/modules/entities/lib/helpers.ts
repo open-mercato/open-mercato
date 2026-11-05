@@ -1,0 +1,309 @@
+import type { EntityManager } from '@mikro-orm/core'
+import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { decryptCustomFieldValue, encryptCustomFieldValue, resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
+import {
+  MAX_CUSTOM_FIELD_KEYS_PER_RECORD,
+  TOO_MANY_CUSTOM_FIELDS_ERROR,
+} from '@open-mercato/shared/modules/entities/validation'
+import { CustomFieldDef, CustomFieldValue } from '../data/entities'
+import { loadScopedCustomFieldDefs } from './scoped-field-defs'
+import { encryptCustomEntityDocument } from '@open-mercato/shared/lib/encryption/customEntityDoc'
+import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
+
+/** @internal */
+export async function encryptCustomEntityRecordDocument(
+  em: EntityManager,
+  opts: { entityId: string; organizationId: string | null; tenantId: string | null; doc: Record<string, unknown>; encryptionService?: TenantDataEncryptionService | null },
+): Promise<Record<string, unknown>> {
+  if (!isTenantDataEncryptionEnabled() || Object.keys(opts.doc).every((key) => key === 'id')) return opts.doc
+  const definitions = await loadScopedCustomFieldDefs(em, opts)
+  const fields = Array.from(definitions.values(), (definition) => ({
+    key: definition.key,
+    kind: definition.kind,
+    encrypted: Boolean(definition.configJson?.encrypted),
+  }))
+  return encryptCustomEntityDocument(opts.doc, fields, opts.tenantId, resolveTenantEncryptionService(em, opts.encryptionService))
+}
+
+type Primitive = string | number | boolean | null | undefined
+type PrimitiveOrArray = Primitive | Primitive[]
+
+export type SetRecordCustomFieldsOptions = {
+  entityId: string
+  recordId: string
+  organizationId?: string | null
+  tenantId?: string | null
+  values: Record<string, PrimitiveOrArray>
+  // When true (default), try to use field definitions to decide storage column
+  preferDefs?: boolean
+  // Optional: notify external systems (e.g., indexing) when values changed
+  onChanged?: (payload: { entityId: string; recordId: string; organizationId: string | null; tenantId: string | null }) => Promise<void> | void
+  // Optional: re-use an existing tenant encryption service instance
+  encryptionService?: TenantDataEncryptionService | null
+  // When true, additionally scope the reconciling delete/lookup by organizationId,
+  // restoring the pre-#5970 organization pin. Default false relies on `recordId`
+  // being unique across organizations for a given entityId — true for every
+  // ORM-backed entity, where recordId is the record's own primary key. That
+  // invariant does not hold for `custom_entities_storage` records written under
+  // `ENTITIES_BACKCOMPAT_EAV_FOR_CUSTOM`: the table upserts on
+  // `(entity_type, entity_id, organization_id)`, so the same id can be a live
+  // record in two organizations of one tenant, and an organization-agnostic
+  // delete could remove another organization's values (#6034 review). Callers
+  // writing those records must pass pinOrganizationId: true.
+  pinOrganizationId?: boolean
+}
+
+function columnFromKind(kind: string): keyof CustomFieldValue {
+  switch (kind) {
+    case 'text':
+    case 'select':
+    case 'currency':
+    case 'dictionary':
+    case 'phone':
+      return 'valueText'
+    case 'multiline':
+      return 'valueMultiline'
+    case 'integer':
+      return 'valueInt'
+    case 'float':
+      return 'valueFloat'
+    case 'boolean':
+      return 'valueBool'
+    default:
+      return 'valueText'
+  }
+}
+
+function columnFromJsValue(v: Primitive): keyof CustomFieldValue {
+  if (v === null || v === undefined) return 'valueText'
+  if (typeof v === 'boolean') return 'valueBool'
+  if (typeof v === 'number') return Number.isInteger(v) ? 'valueInt' : 'valueFloat'
+  return 'valueText'
+}
+
+// Clears all value columns to avoid leftovers on update
+function clearValueColumns(cf: CustomFieldValue) {
+  cf.valueText = null
+  cf.valueMultiline = null
+  cf.valueInt = null
+  cf.valueFloat = null
+  cf.valueBool = null
+}
+
+function valueFromRow(row: CustomFieldValue): Primitive {
+  if (row.valueMultiline != null) return row.valueMultiline
+  if (row.valueText != null) return row.valueText
+  if (row.valueInt != null) return row.valueInt
+  if (row.valueFloat != null) return row.valueFloat
+  if (row.valueBool != null) return row.valueBool
+  return null
+}
+
+// Keeps the value the caller's own scope already holds when the echoed array contains it,
+// so a save that never touched the field does not swap in another organization's value.
+function pickSingleValue(candidates: Primitive[], currentValue: unknown): Primitive {
+  if (currentValue != null) {
+    const kept = candidates.find((candidate) => candidate != null && String(candidate) === String(currentValue))
+    if (kept !== undefined) return kept
+  }
+  const present = candidates.filter((candidate) => candidate != null)
+  return present.length ? present[present.length - 1] : null
+}
+
+export async function setRecordCustomFields(
+  em: EntityManager,
+  opts: SetRecordCustomFieldsOptions,
+): Promise<void> {
+  const { entityId, recordId, values } = opts
+  const organizationId = opts.organizationId ?? null
+  const tenantId = opts.tenantId ?? null
+  const preferDefs = opts.preferDefs !== false
+
+  let defsByKey: Map<string, CustomFieldDef> | undefined
+  if (preferDefs) {
+    defsByKey = await loadScopedCustomFieldDefs(em, { entityId, organizationId, tenantId })
+  }
+
+  const toPersist: CustomFieldValue[] = []
+  let encryptionService: TenantDataEncryptionService | null | undefined
+  const encryptionCache = new Map<string | null, string | null>()
+  const getEncryptionService = () => {
+    if (encryptionService !== undefined) return encryptionService
+    encryptionService = resolveTenantEncryptionService(em as any, opts.encryptionService)
+    return encryptionService
+  }
+  // A write owns every value row a reader in ITS OWN tenant scope could return for this
+  // record: same logical key (entityId, recordId, fieldKey), any organization, and either
+  // the caller's tenant or the instance-global NULL tenant — exactly what the Query Engine
+  // matches. Organization is left out because the Query Engine's value join does not filter
+  // it (engine.ts, the cf join and the EXISTS subquery), so a row from a scope the record
+  // has left is indistinguishable from the live one (#5970). The query-index reader does
+  // scope organization_id, but it never sees another organization's row for a record it is
+  // indexing, so dropping the column here cannot widen what it returns.
+  //
+  // This relies on recordId being unique across organizations and tenants for a given
+  // entityId — true of every ORM-backed caller, which passes the record's own primary key.
+  // A caller that passed a per-organization natural key — or a recordId that is only unique
+  // WITHIN an organization, as custom_entities_storage's EAV backcompat writes are — would
+  // have one organization's write delete another's live rows. Those callers opt into
+  // pinOrganizationId (see SetRecordCustomFieldsOptions) to restore the organization pin.
+  //
+  // Scope of the delete, precisely: another TENANT's own rows are never touched. Rows with a
+  // NULL tenant are, deliberately — they are instance-global and answer every tenant's reads,
+  // so leaving one behind would reproduce the very duplicate this reconciles. Spelled as an
+  // explicit $or rather than `$in: [tenantId, null]` because SQL `IN (NULL)` never matches a
+  // NULL row.
+  const tenantScopeFilter = { $or: [{ tenantId }, { tenantId: null }] }
+  const pinOrganizationId = opts.pinOrganizationId === true
+  const reconcileScopeFilter = pinOrganizationId
+    ? { organizationId, ...tenantScopeFilter }
+    : tenantScopeFilter
+  const keys = Object.keys(values)
+  const presentKeyCount = keys.filter((key) => values[key] !== undefined).length
+  if (preferDefs && presentKeyCount > MAX_CUSTOM_FIELD_KEYS_PER_RECORD) {
+    throw new Error(TOO_MANY_CUSTOM_FIELDS_ERROR)
+  }
+
+  // Run the per-key delete+insert work inside ONE database transaction so a
+  // multi-value replacement is atomic and isolated. The array branch deletes the
+  // existing rows for a key and inserts the replacements; without an enclosing
+  // transaction those can land in separate commit boundaries under MikroORM's
+  // FlushMode.AUTO (a query elsewhere in the unit auto-flushes part of the work),
+  // which intermittently left the field with the delete applied but the inserts
+  // missing — the multi-select EDIT reverted to []. The single commit below makes
+  // it all-or-nothing. We only open our own transaction when the caller has not
+  // already started one (commands fork the request em and may run setCustomFields
+  // outside their own withAtomicFlush tx); join an ambient transaction otherwise.
+  const txEm = em as {
+    begin?: () => Promise<void>
+    commit?: () => Promise<void>
+    rollback?: () => Promise<void>
+    isInTransaction?: () => boolean
+  }
+  const txCapable =
+    typeof txEm.begin === 'function' &&
+    typeof txEm.commit === 'function' &&
+    typeof txEm.rollback === 'function' &&
+    typeof txEm.isInTransaction === 'function'
+  const ownCustomFieldTransaction = txCapable && !txEm.isInTransaction!()
+  if (ownCustomFieldTransaction) await txEm.begin!()
+  try {
+  for (const fieldKey of keys) {
+    const raw = values[fieldKey]
+    if (raw === undefined) continue
+
+    const def = defsByKey?.get(fieldKey)
+    const encrypted = Boolean(def?.configJson && (def as any).configJson?.encrypted)
+    // A single-value definition never stores an array. One arrives when the detail read
+    // returned the duplicate rows #5970 left behind as an array and a form echoed it back
+    // unchanged; treating it as a multi-value replacement re-creates every duplicate under
+    // the caller's organization (#6468). Collapse it to one value so the scalar branch
+    // below reconciles the duplicates away.
+    const collapseToSingle = Array.isArray(raw) && Boolean(def) && (def as any).configJson?.multi !== true
+    const isArray = (Array.isArray(raw) && !collapseToSingle)
+      || (raw === null && def?.configJson?.multi === true)
+    // When array (multi-value): replace all existing rows for the key. Delete
+    // first, then create replacements, all inside the transaction opened above.
+    // Creating rows before a native delete can auto-flush and delete the new
+    // values; mixing em.remove(stale) with new rows for the same EAV scope was
+    // observed to commit an empty set under MikroORM v7. The explicit order keeps
+    // the replacement atomic without letting old-row cleanup target new rows.
+    if (isArray) {
+      const arr = Array.isArray(raw) ? raw.filter((value) => value != null) : []
+      // Reconciling delete (see tenantScopeFilter/reconcileScopeFilter): pinning
+      // organizationId here left the rows written under the record's PREVIOUS
+      // organization alive next to the replacements, and the Query Engine's value join
+      // does not filter organization_id, so both generations answered the same lookup
+      // (#5970) — unless the caller opted into pinOrganizationId because its recordId
+      // is not unique across organizations.
+      await em.nativeDelete(CustomFieldValue, { entityId, recordId, fieldKey, ...reconcileScopeFilter })
+      for (const val of arr) {
+        const col: keyof CustomFieldValue = encrypted ? 'valueText' : def ? columnFromKind(def.kind) : columnFromJsValue(val)
+        const cf = em.create(CustomFieldValue, { entityId, recordId, organizationId, tenantId, fieldKey, createdAt: new Date() })
+        clearValueColumns(cf)
+        const stored = encrypted
+          ? await encryptCustomFieldValue(val, tenantId, getEncryptionService(), encryptionCache, { entityId, fieldKey })
+          : val
+        switch (col) {
+          case 'valueText': cf.valueText = stored == null ? null : String(stored); break
+          case 'valueMultiline': cf.valueMultiline = stored == null ? null : String(stored); break
+          case 'valueInt': cf.valueInt = stored == null ? null : Number(stored); break
+          case 'valueFloat': cf.valueFloat = stored == null ? null : Number(stored); break
+          case 'valueBool': cf.valueBool = stored == null ? null : Boolean(stored); break
+          default: cf.valueText = stored == null ? null : String(stored); break
+        }
+        toPersist.push(cf)
+      }
+      continue
+    }
+
+    // Same reconciliation as the multi-value branch (see tenantScopeFilter): load every
+    // reachable row for the logical key, reuse the one already in the caller's exact
+    // scope and drop the rest, so a row left behind by a previous organization — and
+    // same-scope duplicates from two writes that both missed the lookup — cannot
+    // survive (#5970). Picking the survivor in JS rather than narrowing the query keeps
+    // NULL organizations out of SQL three-valued logic, where an inequality predicate
+    // would silently spare exactly the stale rows this is meant to remove.
+    const existingRows = await em.find(CustomFieldValue, { entityId, recordId, fieldKey, ...reconcileScopeFilter })
+    // A soft-deleted row is never the survivor: writing the new value onto it would leave
+    // deleted_at set, hiding the field from loadCustomFieldValues while the live row it
+    // replaced goes into staleIds. Tombstones still get deleted as stale — the Query
+    // Engine's join does not filter deleted_at, so one left behind would answer reads.
+    let cf = existingRows.find((row) => !row.deletedAt
+      && (row.organizationId ?? null) === organizationId
+      && (row.tenantId ?? null) === tenantId) ?? null
+    const value: Primitive = collapseToSingle
+      ? pickSingleValue(raw as Primitive[], cf ? await decryptCustomFieldValue(valueFromRow(cf), tenantId, encrypted ? getEncryptionService() : null, encryptionCache, { kind: def?.kind ?? null }) : undefined)
+      : raw as Primitive
+    const column: keyof CustomFieldValue = encrypted ? 'valueText' : def ? columnFromKind(def.kind) : columnFromJsValue(value)
+    const storedValue = encrypted
+      ? await encryptCustomFieldValue(value, tenantId, getEncryptionService(), encryptionCache, { entityId, fieldKey })
+      : value
+    const staleIds = existingRows.filter((row) => row !== cf).map((row) => row.id)
+    if (staleIds.length) await em.nativeDelete(CustomFieldValue, { id: { $in: staleIds } })
+    if (!cf) {
+      cf = em.create(CustomFieldValue, { entityId, recordId, organizationId, tenantId, fieldKey, createdAt: new Date() })
+      toPersist.push(cf)
+    }
+    clearValueColumns(cf)
+    switch (column) {
+      case 'valueText':
+        cf.valueText = (storedValue as Primitive) == null ? null : String(storedValue as Primitive)
+        break
+      case 'valueMultiline':
+        cf.valueMultiline = (storedValue as Primitive) == null ? null : String(storedValue as Primitive)
+        break
+      case 'valueInt':
+        cf.valueInt = (storedValue as Primitive) == null ? null : Number(storedValue as Primitive)
+        break
+      case 'valueFloat':
+        cf.valueFloat = (storedValue as Primitive) == null ? null : Number(storedValue as Primitive)
+        break
+      case 'valueBool':
+        cf.valueBool = (storedValue as Primitive) == null ? null : Boolean(storedValue as Primitive)
+        break
+      default:
+        cf.valueText = (storedValue as Primitive) == null ? null : String(storedValue as Primitive)
+        break
+    }
+  }
+
+  if (toPersist.length) em.persist(toPersist)
+  await em.flush()
+    if (ownCustomFieldTransaction) await txEm.commit!()
+  } catch (err) {
+    if (ownCustomFieldTransaction) {
+      try { await txEm.rollback!() } catch { /* surface the original error, not a rollback failure */ }
+    }
+    throw err
+  }
+  // Emit hook for indexing if requested (outside CRUD flows). Runs AFTER the
+  // transaction commits so consumers observe the persisted rows.
+  try {
+    if (typeof opts.onChanged === 'function') {
+      await opts.onChanged({ entityId, recordId, organizationId, tenantId })
+    }
+  } catch {
+    // Non-blocking
+  }
+}

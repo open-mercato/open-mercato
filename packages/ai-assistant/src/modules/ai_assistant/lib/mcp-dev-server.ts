@@ -1,0 +1,438 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { timingSafeEqual } from 'node:crypto'
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
+import { z, type ZodType } from 'zod'
+import { getToolRegistry } from './tool-registry'
+import { executeTool } from './tool-executor'
+import { loadAllModuleTools, indexToolsForSearch } from './tool-loader'
+import { authenticateMcpRequest, extractApiKeyFromHeaders, hasRequiredFeatures } from './auth'
+import { jsonSchemaToZod } from './schema-utils'
+import { buildMcpToolAnnotations } from './mcp-tool-annotations'
+import { getApiKeyFromMcpJson } from './mcp-dev-key-resolution'
+import { isLoopbackHost, resolveMcpHost } from './mcp-host-resolution'
+import type { McpToolContext } from './types'
+import type { SearchService } from '@open-mercato/search/service'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+
+const logger = createLogger('ai_assistant')
+
+const DEFAULT_PORT = 3001
+
+const log = (message: string, ...args: unknown[]) => {
+  logger.info(message, args.length > 0 ? { details: args.map((arg) => String(arg)).join(' ') } : undefined)
+}
+
+/**
+ * Constant-time API-key comparison, length-guarded (`timingSafeEqual` throws on a length
+ * mismatch rather than reporting `false`). A plain `!==` short-circuits at the first
+ * differing byte, leaking a timing side channel an attacker can use to recover the key
+ * one byte at a time — AGENTS.md mandates constant-time comparison for this class of check.
+ */
+export function isMatchingApiKey(expected: string, provided: string): boolean {
+  const expectedBuffer = Buffer.from(expected)
+  const providedBuffer = Buffer.from(provided)
+  if (expectedBuffer.length !== providedBuffer.length) return false
+  return timingSafeEqual(expectedBuffer, providedBuffer)
+}
+
+/**
+ * Maximum request body size (1MB).
+ */
+const MAX_BODY_SIZE = 1 * 1024 * 1024
+
+/**
+ * Parse JSON body from request with size limit.
+ */
+async function parseJsonBody(req: IncomingMessage): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = []
+    let totalSize = 0
+
+    req.on('data', (chunk: Buffer) => {
+      totalSize += chunk.length
+      if (totalSize > MAX_BODY_SIZE) {
+        req.destroy()
+        reject(new Error('Request payload too large'))
+        return
+      }
+      chunks.push(chunk)
+    })
+    req.on('end', () => {
+      try {
+        const body = Buffer.concat(chunks).toString('utf-8')
+        resolve(body ? JSON.parse(body) : undefined)
+      } catch (error) {
+        reject(error)
+      }
+    })
+    req.on('error', reject)
+  })
+}
+
+/**
+ * Create MCP server with tools pre-authenticated for dev use.
+ * No session tokens required - uses API key authentication directly.
+ */
+function createDevMcpServer(
+  toolContext: McpToolContext,
+  authFeatures: string[],
+  isSuperAdmin: boolean,
+  debug: boolean
+): McpServer {
+  const server = new McpServer(
+    { name: 'open-mercato-mcp-dev', version: '0.1.0' },
+    { capabilities: { tools: {} } }
+  )
+
+  const registry = getToolRegistry()
+  const tools = Array.from(registry.getTools().values())
+
+  // Filter tools based on API key permissions
+  const rbacService = toolContext.container.resolve<RbacService>('rbacService')
+  const accessibleTools = tools.filter((tool) =>
+    hasRequiredFeatures(tool.requiredFeatures, authFeatures, isSuperAdmin, rbacService)
+  )
+
+  if (debug) {
+    log(`Registering ${accessibleTools.length}/${tools.length} tools (filtered by API key permissions)`)
+  }
+
+  for (const tool of accessibleTools) {
+    if (debug) {
+      log(`Registering tool: ${tool.name}`)
+    }
+
+    // Convert Zod schema to safe schema without Date types
+    let safeSchema: ZodType | undefined
+    if (tool.inputSchema) {
+      try {
+        const jsonSchema = z.toJSONSchema(tool.inputSchema, { unrepresentable: 'any' }) as Record<string, unknown>
+        const converted = jsonSchemaToZod(jsonSchema)
+        safeSchema = (converted as z.ZodObject<any>).passthrough()
+      } catch (error) {
+        if (debug) {
+          log(`Skipping tool ${tool.name} - schema conversion failed:`, error instanceof Error ? error.message : error)
+        }
+        continue
+      }
+    } else {
+      safeSchema = z.object({}).passthrough()
+    }
+
+    try {
+      server.registerTool(
+        tool.name,
+        {
+          description: tool.description,
+          inputSchema: safeSchema,
+          annotations: buildMcpToolAnnotations(tool),
+        },
+        async (args: unknown) => {
+          const toolArgs = (args ?? {}) as Record<string, unknown>
+
+          if (debug) {
+            log(`Calling tool: ${tool.name}`, JSON.stringify(toolArgs))
+          }
+
+          const result = await executeTool(tool.name, toolArgs, toolContext)
+
+          if (!result.success) {
+            log(`Tool error: ${result.error}`)
+            return {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: JSON.stringify({ error: result.error, code: result.errorCode }),
+                },
+              ],
+              isError: true,
+            }
+          }
+
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify(result.result, null, 2),
+              },
+            ],
+          }
+        }
+      )
+    } catch (error) {
+      if (debug) {
+        log(`Skipping tool ${tool.name} - registration failed:`, error instanceof Error ? error.message : error)
+      }
+      continue
+    }
+  }
+
+  return server
+}
+
+/**
+ * Development MCP server for Claude Code integration.
+ *
+ * This server uses HTTP transport and authenticates via the
+ * x-api-key header configured in .mcp.json file.
+ *
+ * Usage:
+ *   yarn mcp:dev
+ *
+ * Configure in .mcp.json for Claude Code with HTTP transport.
+ */
+export async function runMcpDevServer(): Promise<void> {
+  const apiKey = await getApiKeyFromMcpJson()
+  const port = parseInt(process.env.MCP_DEV_PORT ?? '', 10) || DEFAULT_PORT
+  // Loopback by default: this server authenticates once at startup and reuses a single,
+  // superadmin-equivalent context for every request for the life of the process (no
+  // per-request ACL re-resolution), so exposing it beyond loopback turns a leaked/brute-forced
+  // API key into admin-equivalent access to tenant data. Opt in explicitly if the dev port
+  // genuinely needs to be reachable off-host (e.g. a Docker bridge).
+  const host = resolveMcpHost(undefined, process.env.MCP_DEV_HOST)
+  const debug = process.env.MCP_DEBUG === 'true'
+
+  if (!apiKey) {
+    log('Error: API key not found in .mcp.json')
+    log('')
+    log('To get an API key:')
+    log('  1. Log into Open Mercato as an admin')
+    log('  2. Go to Settings > API Keys')
+    log('  3. Create a new key with the required permissions')
+    log('')
+    log('Then configure in .mcp.json:')
+    log('  {')
+    log('    "mcpServers": {')
+    log('      "open-mercato": {')
+    log('        "type": "http",')
+    log('        "url": "http://localhost:3001/mcp",')
+    log('        "headers": {')
+    log('          "x-api-key": "omk_your_api_key_here"')
+    log('        }')
+    log('      }')
+    log('    }')
+    log('  }')
+    process.exit(1)
+  }
+
+  log('Starting development MCP HTTP server...')
+
+  // Create DI container
+  const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
+  const container = await createRequestContainer()
+
+  // Authenticate the API key upfront
+  log('Authenticating API key...')
+  const authResult = await authenticateMcpRequest(apiKey, container)
+
+  if (!authResult.success) {
+    log(`Authentication failed: ${authResult.error}`)
+    process.exit(1)
+  }
+
+  log(`Authenticated as: ${authResult.keyName}`)
+  log(`Tenant: ${authResult.tenantId ?? '(global)'}`)
+  log(`Organization: ${authResult.organizationId ?? '(none)'}`)
+  log(`Super admin: ${authResult.isSuperAdmin}`)
+  log(`Features: ${authResult.features.length > 0 ? authResult.features.join(', ') : '(none)'}`)
+
+  // Load tools
+  log('Loading tools...')
+  await loadAllModuleTools()
+
+  // Generate and cache entity graph
+  try {
+    const { extractEntityGraph, cacheEntityGraph } = await import('./entity-graph')
+    const { getOrm } = await import('@open-mercato/shared/lib/db/mikro')
+
+    log('Generating entity relationship graph...')
+    const orm = await getOrm()
+    const graph = await extractEntityGraph(orm)
+    cacheEntityGraph(graph)
+    log(`Entity graph: ${graph.nodes.length} entities, ${graph.edges.length} relationships`)
+  } catch (error) {
+    log('Entity graph generation skipped:', error instanceof Error ? error.message : error)
+  }
+
+  // Pre-cache rich OpenAPI spec for Code Mode search tool (prefers runtime module registry over static JSON)
+  try {
+    const { loadRichOpenApiSpec } = await import('./api-endpoint-index')
+    const spec = await loadRichOpenApiSpec()
+    if (spec) {
+      log('Rich OpenAPI spec cached for Code Mode (with requestBody schemas)')
+    } else {
+      log('OpenAPI spec not available')
+    }
+  } catch (error) {
+    log('OpenAPI spec caching skipped:', error instanceof Error ? error.message : error)
+  }
+
+  // Index tools and entity schemas for search (if search service available)
+  try {
+    const searchService = container.resolve('searchService') as SearchService
+    await indexToolsForSearch(searchService)
+
+    // Index entity schemas for hybrid search
+    try {
+      const { getCachedEntityGraph } = await import('./entity-graph')
+      const { indexEntitiesForSearch } = await import('./entity-index')
+      const graph = getCachedEntityGraph()
+      if (graph) {
+        const { count } = await indexEntitiesForSearch(searchService, graph)
+        if (count > 0) {
+          log(`Indexed ${count} entity schemas for discovery`)
+        }
+      }
+    } catch (entityError) {
+      log('Entity schema indexing skipped:', entityError instanceof Error ? entityError.message : entityError)
+    }
+  } catch {
+    log('Search indexing skipped (search service not available)')
+  }
+
+  // Generate a stable session ID for dev mode (enables session memory / caching)
+  const { randomBytes } = await import('node:crypto')
+  const devSessionId = 'dev_' + randomBytes(8).toString('hex')
+  log(`Session ID: ${devSessionId} (stable for this server instance)`)
+
+  // Create tool context from auth result
+  const toolContext: McpToolContext = {
+    tenantId: authResult.tenantId,
+    organizationId: authResult.organizationId,
+    userId: authResult.userId,
+    container,
+    userFeatures: authResult.features,
+    isSuperAdmin: authResult.isSuperAdmin,
+    apiKeySecret: apiKey,
+    sessionId: devSessionId,
+  }
+
+  const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+    const url = new URL(req.url || '/', `http://localhost:${port}`)
+
+    // Health check endpoint
+    if (url.pathname === '/health') {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({
+        status: 'ok',
+        mode: 'development',
+        tools: getToolRegistry().listToolNames().length,
+        tenant: authResult.tenantId,
+        timestamp: new Date().toISOString(),
+      }))
+      return
+    }
+
+    if (url.pathname !== '/mcp') {
+      res.writeHead(404, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'Not found' }))
+      return
+    }
+
+    // Extract and validate API key from header
+    const headers: Record<string, string | undefined> = {}
+    for (const [key, value] of Object.entries(req.headers)) {
+      headers[key] = Array.isArray(value) ? value[0] : value
+    }
+
+    const providedApiKey = extractApiKeyFromHeaders(headers)
+    if (!providedApiKey) {
+      res.writeHead(401, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'API key required (x-api-key header)' }))
+      return
+    }
+
+    // Validate against the configured API key (constant-time; see isMatchingApiKey)
+    if (!isMatchingApiKey(apiKey, providedApiKey)) {
+      res.writeHead(401, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'Invalid API key' }))
+      return
+    }
+
+    if (debug) {
+      log(`Authenticated request (${req.method})`)
+    }
+
+    try {
+      // Create stateless transport
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: undefined,
+        enableJsonResponse: req.method === 'POST',
+      })
+
+      // Create server with pre-authenticated context (no session tokens needed)
+      const mcpServer = createDevMcpServer(toolContext, authResult.features, authResult.isSuperAdmin, debug)
+
+      // Connect server to transport
+      await mcpServer.connect(transport)
+
+      // Handle the request
+      if (req.method === 'POST') {
+        const body = await parseJsonBody(req)
+        await transport.handleRequest(req, res, body)
+      } else {
+        await transport.handleRequest(req, res)
+      }
+
+      // Cleanup after response finishes
+      res.on('finish', () => {
+        transport.close()
+        mcpServer.close()
+        if (debug) {
+          log(`Request completed, cleaned up`)
+        }
+      })
+    } catch (error) {
+      log('Error handling request:', error)
+      if (!res.headersSent) {
+        if (error instanceof Error && error.message === 'Request payload too large') {
+          res.writeHead(413, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: 'Request payload too large (max 1MB)' }))
+          return
+        }
+
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            error: {
+              code: -32603,
+              message: `Internal server error: ${error instanceof Error ? error.message : String(error)}`,
+            },
+            id: null,
+          })
+        )
+      }
+    }
+  })
+
+  const toolCount = getToolRegistry().listToolNames().length
+
+  log(`Tools registered: ${toolCount}`)
+  log(`Endpoint: http://localhost:${port}/mcp`)
+  log(`Health: http://localhost:${port}/health`)
+  log(`Mode: Development (API key auth, no session tokens)`)
+  if (!isLoopbackHost(host)) {
+    log(`WARNING: binding to ${host} instead of loopback — this server grants admin-equivalent access to any caller who passes the single API-key check`)
+  }
+
+  return new Promise<void>((resolve) => {
+    httpServer.listen(port, host, () => {
+      log(`Server listening on ${host}:${port}`)
+      log('Ready for Claude Code connections')
+    })
+
+    const shutdown = async () => {
+      log('Shutting down...')
+      httpServer.close(() => {
+        log('Server closed')
+        resolve()
+      })
+    }
+
+    process.on('SIGINT', shutdown)
+    process.on('SIGTERM', shutdown)
+  })
+}

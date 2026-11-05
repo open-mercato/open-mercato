@@ -1,0 +1,96 @@
+import { Entity, Index, ManyToOne, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+import { OptionalProps } from '@mikro-orm/core'
+import type { DictionaryEntrySortMode } from '../lib/entrySort'
+
+export type DictionaryManagerVisibility = 'default' | 'hidden'
+
+@Entity({ tableName: 'dictionaries' })
+@Unique({ name: 'dictionaries_scope_key_unique', properties: ['organizationId', 'tenantId', 'key'] })
+export class Dictionary {
+  [OptionalProps]?: 'entrySortMode'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ type: 'text' })
+  key!: string
+
+  @Property({ type: 'text' })
+  name!: string
+
+  @Property({ type: 'text', nullable: true })
+  description?: string | null
+
+  @Property({ name: 'is_system', type: 'boolean', default: false })
+  isSystem: boolean = false
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'manager_visibility', type: 'text', default: 'default' })
+  managerVisibility: DictionaryManagerVisibility = 'default'
+
+  @Property({ name: 'entry_sort_mode', type: 'text', default: 'label_asc' })
+  entrySortMode: DictionaryEntrySortMode = 'label_asc'
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'dictionary_entries' })
+@Index({ name: 'dictionary_entries_scope_idx', properties: ['dictionary', 'organizationId', 'tenantId'] })
+@Unique({ name: 'dictionary_entries_unique', properties: ['dictionary', 'organizationId', 'tenantId', 'normalizedValue'] })
+export class DictionaryEntry {
+  [OptionalProps]?: 'position' | 'isDefault' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => Dictionary, { fieldName: 'dictionary_id' })
+  dictionary!: Dictionary
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ type: 'text' })
+  value!: string
+
+  @Property({ name: 'normalized_value', type: 'text' })
+  normalizedValue!: string
+
+  @Property({ type: 'text' })
+  label!: string
+
+  @Property({ type: 'text', nullable: true })
+  color?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  icon?: string | null
+
+  @Property({ type: 'int', default: 0 })
+  position: number = 0
+
+  @Property({ name: 'is_default', type: 'boolean', default: false })
+  isDefault: boolean = false
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}

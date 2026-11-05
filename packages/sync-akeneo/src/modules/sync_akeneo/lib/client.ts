@@ -1,0 +1,948 @@
+import { resolveAttachmentMaxBytes } from '@open-mercato/core/modules/attachments/lib/upload-limits'
+import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import {
+  FetchTimeoutError,
+  type FetchWithTimeoutInit,
+  resolveTimeoutMs,
+} from '@open-mercato/shared/lib/http/fetchWithTimeout'
+import {
+  safeOutboundFetch,
+  type HostLookup,
+  type SafeOutboundFetchOptions,
+  type UrlSafetyReason,
+} from '@open-mercato/shared/lib/url-safety'
+import { dedupeStrings, labelFromLocalizedRecord, safeRecord, type AkeneoAttribute, type AkeneoAttributeOption, type AkeneoCategory, type AkeneoChannel, type AkeneoCredentialShape, type AkeneoFamily, type AkeneoFamilyVariant, type AkeneoLocale, type AkeneoProduct, type AkeneoProductModel } from './shared'
+
+type TokenState = {
+  accessToken: string
+  refreshToken?: string | null
+  expiresAt: number
+}
+
+type AkeneoTokenPayload = {
+  access_token?: string
+  refresh_token?: string
+  expires_in?: number
+}
+
+type AkeneoAttemptOutcome<T> =
+  | { kind: 'done'; value: T }
+  | { kind: 'reauthenticate' }
+  | { kind: 'rate_limited'; retryAfter: string | null }
+
+type AkeneoListResponse<T> = {
+  _embedded?: {
+    items?: T[]
+  }
+  _links?: {
+    next?: {
+      href?: string
+    }
+  }
+  items_count?: number
+}
+
+type AkeneoMediaFile = {
+  code: string
+  original_filename?: string | null
+  mime_type?: string | null
+  size?: number | null
+  extension?: string | null
+  _links?: {
+    download?: {
+      href?: string
+    }
+  }
+}
+
+export type AkeneoClientDeps = {
+  lookupHost?: HostLookup
+  allowPrivate?: boolean
+  fetchImpl?: SafeOutboundFetchOptions['fetchImpl']
+}
+
+export class UnsafeAkeneoUrlError extends Error {
+  public readonly reason: string
+
+  constructor(reason: UrlSafetyReason, message?: string) {
+    super(message ?? `Akeneo URL rejected: ${reason}`)
+    this.name = 'UnsafeAkeneoUrlError'
+    this.reason = reason
+  }
+}
+
+export class AkeneoResponseTooLargeError extends Error {
+  public readonly limitBytes: number
+
+  constructor(limitBytes: number) {
+    super(`Akeneo response exceeds the ${limitBytes} byte limit`)
+    this.name = 'AkeneoResponseTooLargeError'
+    this.limitBytes = limitBytes
+  }
+}
+
+export function isAkeneoResponseTooLargeError(error: unknown): error is AkeneoResponseTooLargeError {
+  return error instanceof Error && error.name === 'AkeneoResponseTooLargeError'
+}
+
+type AkeneoClient = ReturnType<typeof createAkeneoClient>
+
+const AKENEO_URL_SUBJECT = 'Akeneo URL'
+const DEFAULT_ALLOWED_AKENEO_HOST_PATTERNS = ['*.cloud.akeneo.com', '*.akeneo.cloud'] as const
+const ALLOWED_AKENEO_HOSTS_ENV_KEYS = [
+  'OM_INTEGRATION_AKENEO_ALLOWED_HOSTS',
+  'OPENMERCATO_AKENEO_ALLOWED_HOSTS',
+  'AKENEO_ALLOWED_HOSTS',
+] as const
+const ALLOW_PRIVATE_AKENEO_URLS_ENV_KEYS = [
+  'OM_INTEGRATION_AKENEO_ALLOW_PRIVATE_URLS',
+  'OPENMERCATO_AKENEO_ALLOW_PRIVATE_URLS',
+  'AKENEO_ALLOW_PRIVATE_URLS',
+] as const
+
+const akeneoUrlErrorFactory = (reason: UrlSafetyReason, message: string) =>
+  new UnsafeAkeneoUrlError(reason, message)
+
+function normalizeBaseUrl(url: string): string {
+  return url.trim().replace(/\/+$/g, '')
+}
+
+function readAllowedAkeneoHostPatterns(env: NodeJS.ProcessEnv = process.env): string[] {
+  for (const key of ALLOWED_AKENEO_HOSTS_ENV_KEYS) {
+    const raw = env[key]
+    if (typeof raw !== 'string') continue
+    const patterns = raw
+      .split(',')
+      .map((entry) => entry.trim().toLowerCase())
+      .filter((entry) => entry.length > 0)
+    if (patterns.length > 0) {
+      return patterns
+    }
+  }
+
+  return [...DEFAULT_ALLOWED_AKENEO_HOST_PATTERNS]
+}
+
+function isAllowPrivateAkeneoUrlsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  for (const key of ALLOW_PRIVATE_AKENEO_URLS_ENV_KEYS) {
+    const raw = env[key]
+    if (typeof raw === 'string' && raw.trim().length > 0) {
+      return parseBooleanWithDefault(raw, false)
+    }
+  }
+  return false
+}
+
+function matchesAkeneoHostPattern(hostname: string, pattern: string): boolean {
+  if (pattern.startsWith('*.')) {
+    const suffix = pattern.slice(2)
+    return hostname === suffix || hostname.endsWith(`.${suffix}`)
+  }
+
+  return hostname === pattern
+}
+
+export function validateAkeneoApiUrl(rawUrl: string, env: NodeJS.ProcessEnv = process.env): string {
+  let parsed: URL
+  try {
+    parsed = new URL(rawUrl.trim())
+  } catch {
+    throw new Error('Akeneo URL must be a valid absolute URL')
+  }
+
+  if (parsed.protocol !== 'https:') {
+    throw new Error('Akeneo URL must use https')
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error('Akeneo URL must not include embedded credentials')
+  }
+  if (parsed.port && parsed.port !== '443') {
+    throw new Error('Akeneo URL must not use a custom port')
+  }
+  if (parsed.pathname !== '/' && parsed.pathname !== '') {
+    throw new Error('Akeneo URL must not include a path')
+  }
+  if (parsed.search || parsed.hash) {
+    throw new Error('Akeneo URL must not include query parameters or fragments')
+  }
+
+  const hostname = parsed.hostname.toLowerCase()
+  const allowedPatterns = readAllowedAkeneoHostPatterns(env)
+  if (!allowedPatterns.some((pattern) => matchesAkeneoHostPattern(hostname, pattern))) {
+    throw new Error(`Akeneo URL host is not allowed: ${hostname}`)
+  }
+
+  return normalizeBaseUrl(parsed.origin)
+}
+
+export function normalizeAkeneoDateTime(value: string | null | undefined): string | null {
+  if (typeof value !== 'string' || value.trim().length === 0) return null
+  const trimmed = value.trim()
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(trimmed)) {
+    return trimmed
+  }
+
+  const parsed = new Date(trimmed)
+  if (Number.isNaN(parsed.getTime())) {
+    return null
+  }
+
+  const year = parsed.getUTCFullYear()
+  const month = String(parsed.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(parsed.getUTCDate()).padStart(2, '0')
+  const hours = String(parsed.getUTCHours()).padStart(2, '0')
+  const minutes = String(parsed.getUTCMinutes()).padStart(2, '0')
+  const seconds = String(parsed.getUTCSeconds()).padStart(2, '0')
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
+}
+
+export function encodeAkeneoPathParam(value: string): string {
+  return value
+    .split('/')
+    .map((segment) => encodeURIComponent(segment))
+    .join('/')
+}
+
+export function sanitizeAkeneoProductNextUrl(nextUrl: string): string {
+  let url: URL
+  try {
+    url = new URL(nextUrl)
+  } catch {
+    return nextUrl
+  }
+
+  const rawSearch = url.searchParams.get('search')
+  if (!rawSearch) {
+    return url.toString()
+  }
+
+  try {
+    const parsed = JSON.parse(rawSearch) as Record<string, unknown>
+    const updatedFilters = Array.isArray(parsed.updated) ? parsed.updated : []
+    const sanitizedUpdated = updatedFilters
+      .map((entry) => {
+        if (!entry || typeof entry !== 'object') return null
+        const record = entry as Record<string, unknown>
+        const normalizedValue = normalizeAkeneoDateTime(
+          typeof record.value === 'string' ? record.value : null,
+        )
+        if (!normalizedValue) return null
+        return {
+          ...record,
+          value: normalizedValue,
+        }
+      })
+      .filter((entry) => entry !== null) as Record<string, unknown>[]
+
+    if (sanitizedUpdated.length === 0) {
+      delete parsed.updated
+    } else {
+      parsed.updated = sanitizedUpdated
+    }
+
+    if (Object.keys(parsed).length === 0) {
+      url.searchParams.delete('search')
+    } else {
+      url.searchParams.set('search', JSON.stringify(parsed))
+    }
+    return url.toString()
+  } catch {
+    return nextUrl
+  }
+}
+
+function coerceCredentials(credentials: Record<string, unknown>): AkeneoCredentialShape {
+  const apiUrl = typeof credentials.apiUrl === 'string' ? credentials.apiUrl.trim() : ''
+  const clientId = typeof credentials.clientId === 'string' ? credentials.clientId.trim() : ''
+  const clientSecret = typeof credentials.clientSecret === 'string' ? credentials.clientSecret : ''
+  const username = typeof credentials.username === 'string' ? credentials.username.trim() : ''
+  const password = typeof credentials.password === 'string' ? credentials.password : ''
+  if (!apiUrl || !clientId || !clientSecret || !username || !password) {
+    throw new Error('Akeneo credentials are incomplete')
+  }
+  return {
+    apiUrl: validateAkeneoApiUrl(apiUrl),
+    clientId,
+    clientSecret,
+    username,
+    password,
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+const DEFAULT_AKENEO_REQUEST_TIMEOUT_MS = 30_000
+const DEFAULT_AKENEO_MAX_RATE_LIMIT_RETRIES = 5
+const DEFAULT_AKENEO_RETRY_AFTER_CAP_MS = 60_000
+const DEFAULT_AKENEO_MAX_RESPONSE_BYTES = 32 * 1024 * 1024
+const AKENEO_ERROR_BODY_MAX_BYTES = 64 * 1024
+
+function resolvePositiveIntEnv(raw: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(raw ?? '', 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
+function resolveAkeneoRequestTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
+  return resolvePositiveIntEnv(env.OM_INTEGRATION_AKENEO_REQUEST_TIMEOUT_MS, DEFAULT_AKENEO_REQUEST_TIMEOUT_MS)
+}
+
+function resolveAkeneoMaxRateLimitRetries(env: NodeJS.ProcessEnv = process.env): number {
+  return resolvePositiveIntEnv(env.OM_INTEGRATION_AKENEO_MAX_RATE_LIMIT_RETRIES, DEFAULT_AKENEO_MAX_RATE_LIMIT_RETRIES)
+}
+
+function clampAkeneoRetryAfterMs(retryAfterHeader: string | null, env: NodeJS.ProcessEnv = process.env): number {
+  const retryAfter = Number(retryAfterHeader ?? '1')
+  const requestedMs = Number.isFinite(retryAfter) ? retryAfter * 1000 : 1000
+  const cap = resolvePositiveIntEnv(env.OM_INTEGRATION_AKENEO_RETRY_AFTER_CAP_MS, DEFAULT_AKENEO_RETRY_AFTER_CAP_MS)
+  return Math.min(Math.max(requestedMs, 0), cap)
+}
+
+function resolveAkeneoMaxResponseBytes(env: NodeJS.ProcessEnv = process.env): number {
+  return resolvePositiveIntEnv(env.OM_INTEGRATION_AKENEO_MAX_RESPONSE_BYTES, DEFAULT_AKENEO_MAX_RESPONSE_BYTES)
+}
+
+function abortReasonError(signal: AbortSignal): Error {
+  return signal.reason instanceof Error ? signal.reason : new DOMException('Aborted', 'AbortError')
+}
+
+function settleBeforeAbort<T>(pending: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(abortReasonError(signal))
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(abortReasonError(signal))
+    signal.addEventListener('abort', onAbort, { once: true })
+    pending.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort)
+        resolve(value)
+      },
+      (error: unknown) => {
+        signal.removeEventListener('abort', onAbort)
+        reject(error)
+      },
+    )
+  })
+}
+
+function discardAkeneoBody(response: Response): void {
+  void response.body?.cancel().catch(() => undefined)
+}
+
+async function readAkeneoBody(
+  response: Response,
+  options: { maxBytes: number; signal: AbortSignal; truncate?: boolean },
+): Promise<Buffer> {
+  const { maxBytes, signal, truncate = false } = options
+  const declaredLength = Number(response.headers.get('content-length') ?? '')
+  if (!truncate && Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    discardAkeneoBody(response)
+    throw new AkeneoResponseTooLargeError(maxBytes)
+  }
+  if (!response.body) return Buffer.alloc(0)
+
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let receivedBytes = 0
+  let finished = false
+  try {
+    while (true) {
+      const { done, value } = await settleBeforeAbort(reader.read(), signal)
+      if (done) {
+        finished = true
+        break
+      }
+      if (receivedBytes + value.byteLength > maxBytes) {
+        if (!truncate) throw new AkeneoResponseTooLargeError(maxBytes)
+        chunks.push(value.subarray(0, maxBytes - receivedBytes))
+        receivedBytes = maxBytes
+        break
+      }
+      chunks.push(value)
+      receivedBytes += value.byteLength
+    }
+  } finally {
+    if (!finished) void reader.cancel().catch(() => undefined)
+  }
+  return Buffer.concat(chunks, receivedBytes)
+}
+
+async function readAkeneoJson<T>(response: Response, signal: AbortSignal): Promise<T> {
+  const bytes = await readAkeneoBody(response, { maxBytes: resolveAkeneoMaxResponseBytes(), signal })
+  return JSON.parse(new TextDecoder().decode(bytes)) as T
+}
+
+async function readAkeneoErrorText(response: Response, signal: AbortSignal): Promise<string> {
+  const bytes = await readAkeneoBody(response, { maxBytes: AKENEO_ERROR_BODY_MAX_BYTES, signal, truncate: true })
+  return new TextDecoder().decode(bytes)
+}
+
+async function withAkeneoResponse<T>(
+  input: string,
+  init: FetchWithTimeoutInit,
+  deps: AkeneoClientDeps,
+  consume: (response: Response, signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const { timeoutMs, signal, ...rest } = init
+  const effectiveTimeout = resolveTimeoutMs(timeoutMs)
+  const controller = new AbortController()
+  const timer: ReturnType<typeof setTimeout> = setTimeout(() => {
+    controller.abort(new FetchTimeoutError(input, effectiveTimeout))
+  }, effectiveTimeout)
+
+  const onExternalAbort = () => {
+    controller.abort((signal as AbortSignal | undefined)?.reason)
+  }
+
+  if (signal) {
+    if (signal.aborted) {
+      clearTimeout(timer)
+      throw signal.reason instanceof Error ? signal.reason : new DOMException('Aborted', 'AbortError')
+    }
+    signal.addEventListener('abort', onExternalAbort, { once: true })
+  }
+
+  try {
+    const response = await safeOutboundFetch(input, { ...rest, signal: controller.signal }, {
+      errorFactory: akeneoUrlErrorFactory,
+      subject: AKENEO_URL_SUBJECT,
+      allowPrivate: deps.allowPrivate ?? isAllowPrivateAkeneoUrlsEnabled(),
+      lookupHost: deps.lookupHost,
+      fetchImpl: deps.fetchImpl,
+    })
+    return await consume(response, controller.signal)
+  } catch (err) {
+    if ((err as { name?: string } | null)?.name === 'AbortError') {
+      const reason = (controller.signal as AbortSignal & { reason?: unknown }).reason
+      if (reason instanceof FetchTimeoutError) throw reason
+      if (reason instanceof Error) throw reason
+    }
+    throw err
+  } finally {
+    clearTimeout(timer)
+    if (signal) signal.removeEventListener('abort', onExternalAbort)
+  }
+}
+
+export function createAkeneoClient(credentialsInput: Record<string, unknown>, deps: AkeneoClientDeps = {}) {
+  const credentials = coerceCredentials(credentialsInput)
+  const akeneoBaseUrl = new URL(`${credentials.apiUrl}/`)
+  const tokenEndpointUrl = new URL('/api/oauth/v1/token', akeneoBaseUrl).toString()
+  let tokenState: TokenState | null = null
+  let lastAttributeOptionRequestAt = 0
+  const familyCache = new Map<string, Promise<AkeneoFamily | null>>()
+  const familyVariantCache = new Map<string, Promise<AkeneoFamilyVariant | null>>()
+  const productModelCache = new Map<string, Promise<AkeneoProductModel | null>>()
+  const attributeCache = new Map<string, Promise<AkeneoAttribute | null>>()
+  const categoryCache = new Map<string, Promise<AkeneoCategory | null>>()
+  const mediaFileCache = new Map<string, Promise<AkeneoMediaFile | null>>()
+
+  function resolveAkeneoRequestUrl(pathOrUrl: string): string {
+    const resolved = new URL(pathOrUrl, akeneoBaseUrl)
+    if (resolved.origin !== akeneoBaseUrl.origin) {
+      throw new Error(`Akeneo request URL must stay on the configured host: ${resolved.origin}`)
+    }
+    return resolved.toString()
+  }
+
+  function normalizeAkeneoNextUrl(nextUrl: string): string {
+    return resolveAkeneoRequestUrl(nextUrl)
+  }
+
+  async function acquirePasswordGrantToken(): Promise<TokenState> {
+    const payload = await withAkeneoResponse(tokenEndpointUrl, {
+      method: 'POST',
+      timeoutMs: resolveAkeneoRequestTimeoutMs(),
+      redirect: 'manual',
+      headers: {
+        accept: 'application/json',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        grant_type: 'password',
+        client_id: credentials.clientId,
+        client_secret: credentials.clientSecret,
+        username: credentials.username,
+        password: credentials.password,
+      }),
+    }, deps, async (response, signal) => {
+      if (!response.ok) {
+        const message = await readAkeneoErrorText(response, signal)
+        throw new Error(`Akeneo authentication failed (${response.status}): ${message}`)
+      }
+      return readAkeneoJson<AkeneoTokenPayload>(response, signal)
+    })
+    if (!payload.access_token) {
+      throw new Error('Akeneo authentication did not return an access token')
+    }
+
+    return {
+      accessToken: payload.access_token,
+      refreshToken: payload.refresh_token ?? null,
+      expiresAt: Date.now() + ((payload.expires_in ?? 3600) * 1000) - 10_000,
+    }
+  }
+
+  async function refreshAccessToken(current: TokenState): Promise<TokenState> {
+    if (!current.refreshToken) return acquirePasswordGrantToken()
+    const payload = await withAkeneoResponse(tokenEndpointUrl, {
+      method: 'POST',
+      timeoutMs: resolveAkeneoRequestTimeoutMs(),
+      redirect: 'manual',
+      headers: {
+        accept: 'application/json',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        grant_type: 'refresh_token',
+        client_id: credentials.clientId,
+        client_secret: credentials.clientSecret,
+        refresh_token: current.refreshToken,
+      }),
+    }, deps, async (response, signal) => {
+      if (!response.ok) {
+        discardAkeneoBody(response)
+        return null
+      }
+      return readAkeneoJson<AkeneoTokenPayload>(response, signal)
+    })
+
+    if (!payload?.access_token) return acquirePasswordGrantToken()
+    return {
+      accessToken: payload.access_token,
+      refreshToken: payload.refresh_token ?? current.refreshToken ?? null,
+      expiresAt: Date.now() + ((payload.expires_in ?? 3600) * 1000) - 10_000,
+    }
+  }
+
+  async function ensureToken(forceRefresh = false): Promise<string> {
+    if (!forceRefresh && tokenState && tokenState.expiresAt > Date.now()) {
+      return tokenState.accessToken
+    }
+    tokenState = tokenState ? await refreshAccessToken(tokenState) : await acquirePasswordGrantToken()
+    return tokenState.accessToken
+  }
+
+  async function sendAuthenticated<T>(
+    pathOrUrl: string,
+    init: RequestInit,
+    defaultHeaders: Record<string, string>,
+    readSuccess: (response: Response, signal: AbortSignal) => Promise<T>,
+    retried = false,
+    rateLimitAttempts = 0,
+  ): Promise<T> {
+    const url = resolveAkeneoRequestUrl(pathOrUrl)
+    const token = await ensureToken()
+
+    const outcome = await withAkeneoResponse<AkeneoAttemptOutcome<T>>(url, {
+      ...init,
+      timeoutMs: resolveAkeneoRequestTimeoutMs(),
+      redirect: 'manual',
+      headers: {
+        ...defaultHeaders,
+        authorization: `Bearer ${token}`,
+        ...init.headers,
+      },
+    }, deps, async (response, signal) => {
+      if (response.status === 401 && !retried) {
+        discardAkeneoBody(response)
+        return { kind: 'reauthenticate' }
+      }
+      if (response.status === 429 && rateLimitAttempts < resolveAkeneoMaxRateLimitRetries()) {
+        discardAkeneoBody(response)
+        return { kind: 'rate_limited', retryAfter: response.headers.get('retry-after') }
+      }
+      if (!response.ok) {
+        const body = await readAkeneoErrorText(response, signal)
+        throw new Error(`Akeneo request failed (${response.status}): ${body}`)
+      }
+      return { kind: 'done', value: await readSuccess(response, signal) }
+    })
+
+    if (outcome.kind === 'reauthenticate') {
+      await ensureToken(true)
+      return sendAuthenticated(pathOrUrl, init, defaultHeaders, readSuccess, true, rateLimitAttempts)
+    }
+    if (outcome.kind === 'rate_limited') {
+      await sleep(clampAkeneoRetryAfterMs(outcome.retryAfter))
+      return sendAuthenticated(pathOrUrl, init, defaultHeaders, readSuccess, retried, rateLimitAttempts + 1)
+    }
+    return outcome.value
+  }
+
+  async function request<T>(pathOrUrl: string, init: RequestInit = {}): Promise<T> {
+    return sendAuthenticated<T>(pathOrUrl, init, { accept: 'application/json' }, async (response, signal) => {
+      if (response.status === 204) {
+        discardAkeneoBody(response)
+        return null as T
+      }
+      return readAkeneoJson<T>(response, signal)
+    })
+  }
+
+  async function requestBinary(pathOrUrl: string, init: RequestInit = {}): Promise<{
+    buffer: Buffer
+    contentType: string | null
+    contentLength: number | null
+  }> {
+    return sendAuthenticated(pathOrUrl, init, {}, async (response, signal) => {
+      const buffer = await readAkeneoBody(response, { maxBytes: resolveAttachmentMaxBytes(), signal })
+      return {
+        buffer,
+        contentType: response.headers.get('content-type'),
+        contentLength: buffer.byteLength,
+      }
+    })
+  }
+
+  function buildUrl(path: string, params: Record<string, string | number | boolean | undefined | null>): string {
+    const url = new URL(resolveAkeneoRequestUrl(path))
+    for (const [key, value] of Object.entries(params)) {
+      if (value === undefined || value === null || value === '') continue
+      url.searchParams.set(key, String(value))
+    }
+    return url.toString()
+  }
+
+  async function readList<T>(pathOrUrl: string, params?: Record<string, string | number | boolean | undefined | null>): Promise<{
+    items: T[]
+    nextUrl: string | null
+    totalEstimate: number | null
+  }> {
+    const payload = await request<AkeneoListResponse<T>>(
+      params ? buildUrl(pathOrUrl, params) : pathOrUrl,
+    )
+    return {
+      items: Array.isArray(payload?._embedded?.items) ? payload._embedded.items : [],
+      nextUrl: typeof payload?._links?.next?.href === 'string'
+        ? normalizeAkeneoNextUrl(payload._links.next.href)
+        : null,
+      totalEstimate: typeof payload?.items_count === 'number' ? payload.items_count : null,
+    }
+  }
+
+  async function countProducts(updatedAfter?: string | null): Promise<number | null> {
+    const params: Record<string, string | number | boolean | undefined | null> = {
+      limit: 1,
+      pagination_type: 'page',
+      with_count: true,
+    }
+    const normalizedUpdatedAfter = normalizeAkeneoDateTime(updatedAfter)
+    if (normalizedUpdatedAfter) {
+      params.search = JSON.stringify({
+        updated: [
+          {
+            operator: '>',
+            value: normalizedUpdatedAfter,
+          },
+        ],
+      })
+    }
+
+    const page = await readList<AkeneoProduct>('/api/rest/v1/products-uuid', params)
+    return page.totalEstimate
+  }
+
+  async function getSystemProbe(): Promise<{ version: string | null }> {
+    try {
+      const result = await request<Record<string, unknown>>('/api/rest/v1/system-information')
+      return {
+        version: typeof result.pim_version === 'string' ? result.pim_version : null,
+      }
+    } catch {
+      await readList<AkeneoAttribute>('/api/rest/v1/attributes', {
+        limit: 1,
+        pagination_type: 'page',
+      })
+      return { version: null }
+    }
+  }
+
+  async function listProducts(options: {
+    nextUrl?: string | null
+    batchSize: number
+    updatedAfter?: string | null
+  }): Promise<{ items: AkeneoProduct[]; nextUrl: string | null; totalEstimate: number | null }> {
+    if (options.nextUrl) {
+      const page = await readList<AkeneoProduct>(normalizeAkeneoNextUrl(sanitizeAkeneoProductNextUrl(options.nextUrl)))
+      return {
+        ...page,
+        nextUrl: page.nextUrl ? normalizeAkeneoNextUrl(sanitizeAkeneoProductNextUrl(page.nextUrl)) : null,
+      }
+    }
+    const params: Record<string, string | number | boolean | undefined | null> = {
+      limit: Math.min(Math.max(options.batchSize, 1), 100),
+      pagination_type: 'search_after',
+      with_count: false,
+    }
+    const normalizedUpdatedAfter = normalizeAkeneoDateTime(options.updatedAfter)
+    if (normalizedUpdatedAfter) {
+      params.search = JSON.stringify({
+        updated: [
+          {
+            operator: '>',
+            value: normalizedUpdatedAfter,
+          },
+        ],
+      })
+    }
+    const [page, totalEstimate] = await Promise.all([
+      readList<AkeneoProduct>('/api/rest/v1/products-uuid', params),
+      countProducts(normalizedUpdatedAfter).catch(() => null),
+    ])
+    return {
+      ...page,
+      totalEstimate: totalEstimate ?? page.totalEstimate,
+      nextUrl: page.nextUrl ? normalizeAkeneoNextUrl(sanitizeAkeneoProductNextUrl(page.nextUrl)) : null,
+    }
+  }
+
+  async function listCategories(nextUrl?: string | null, batchSize = 100): Promise<{ items: AkeneoCategory[]; nextUrl: string | null; totalEstimate: number | null }> {
+    if (nextUrl) return readList<AkeneoCategory>(nextUrl)
+    return readList<AkeneoCategory>('/api/rest/v1/categories', {
+      limit: Math.min(Math.max(batchSize, 1), 100),
+      pagination_type: 'page',
+      with_count: true,
+    })
+  }
+
+  async function listAttributes(nextUrl?: string | null, batchSize = 100): Promise<{ items: AkeneoAttribute[]; nextUrl: string | null; totalEstimate: number | null }> {
+    if (nextUrl) return readList<AkeneoAttribute>(nextUrl)
+    return readList<AkeneoAttribute>('/api/rest/v1/attributes', {
+      limit: Math.min(Math.max(batchSize, 1), 100),
+      pagination_type: 'page',
+      with_count: true,
+    })
+  }
+
+  async function listFamilies(nextUrl?: string | null, batchSize = 100): Promise<{ items: AkeneoFamily[]; nextUrl: string | null; totalEstimate: number | null }> {
+    if (nextUrl) return readList<AkeneoFamily>(nextUrl)
+    return readList<AkeneoFamily>('/api/rest/v1/families', {
+      limit: Math.min(Math.max(batchSize, 1), 100),
+      pagination_type: 'page',
+      with_count: true,
+    })
+  }
+
+  async function listFamilyVariants(
+    familyCode: string,
+    nextUrl?: string | null,
+    batchSize = 100,
+  ): Promise<{ items: AkeneoFamilyVariant[]; nextUrl: string | null; totalEstimate: number | null }> {
+    if (nextUrl) return readList<AkeneoFamilyVariant>(nextUrl)
+    return readList<AkeneoFamilyVariant>(`/api/rest/v1/families/${encodeURIComponent(familyCode)}/variants`, {
+      limit: Math.min(Math.max(batchSize, 1), 100),
+      with_count: false,
+    })
+  }
+
+  async function listChannels(): Promise<AkeneoChannel[]> {
+    const response = await readList<AkeneoChannel>('/api/rest/v1/channels', {
+      limit: 100,
+      pagination_type: 'page',
+      with_count: true,
+    })
+    return response.items
+  }
+
+  async function listLocales(): Promise<AkeneoLocale[]> {
+    const response = await readList<AkeneoLocale>('/api/rest/v1/locales', {
+      limit: 100,
+      pagination_type: 'page',
+      with_count: true,
+    })
+    return response.items
+  }
+
+  async function getCategory(code: string): Promise<AkeneoCategory | null> {
+    if (!categoryCache.has(code)) {
+      categoryCache.set(code, request<AkeneoCategory>(`/api/rest/v1/categories/${encodeURIComponent(code)}`).catch(() => null))
+    }
+    return categoryCache.get(code) ?? null
+  }
+
+  async function getAttribute(code: string): Promise<AkeneoAttribute | null> {
+    if (!attributeCache.has(code)) {
+      attributeCache.set(code, request<AkeneoAttribute>(`/api/rest/v1/attributes/${encodeURIComponent(code)}`).catch(() => null))
+    }
+    return attributeCache.get(code) ?? null
+  }
+
+  async function listAttributeOptions(attributeCode: string): Promise<AkeneoAttributeOption[]> {
+    const options: AkeneoAttributeOption[] = []
+    let nextUrl: string | null | undefined = null
+    do {
+      const now = Date.now()
+      const waitMs = Math.max(0, 350 - (now - lastAttributeOptionRequestAt))
+      if (waitMs > 0) await sleep(waitMs)
+      lastAttributeOptionRequestAt = Date.now()
+      const page: { items: AkeneoAttributeOption[]; nextUrl: string | null; totalEstimate: number | null } = await readList<AkeneoAttributeOption>(
+        nextUrl ?? `/api/rest/v1/attributes/${encodeURIComponent(attributeCode)}/options`,
+        nextUrl
+          ? undefined
+          : {
+              limit: 100,
+              pagination_type: 'page',
+              with_count: true,
+            },
+      )
+      options.push(...page.items)
+      nextUrl = page.nextUrl
+    } while (nextUrl)
+    return options
+  }
+
+  async function getFamily(code: string): Promise<AkeneoFamily | null> {
+    if (!familyCache.has(code)) {
+      familyCache.set(code, request<AkeneoFamily>(`/api/rest/v1/families/${encodeURIComponent(code)}`).catch(() => null))
+    }
+    return familyCache.get(code) ?? null
+  }
+
+  async function getFamilyVariant(familyCode: string, familyVariantCode: string): Promise<AkeneoFamilyVariant | null> {
+    const cacheKey = `${familyCode}:${familyVariantCode}`
+    if (!familyVariantCache.has(cacheKey)) {
+      familyVariantCache.set(
+        cacheKey,
+        request<AkeneoFamilyVariant>(`/api/rest/v1/families/${encodeURIComponent(familyCode)}/variants/${encodeURIComponent(familyVariantCode)}`).catch(() => null),
+      )
+    }
+    return familyVariantCache.get(cacheKey) ?? null
+  }
+
+  async function getProductModel(code: string): Promise<AkeneoProductModel | null> {
+    if (!productModelCache.has(code)) {
+      productModelCache.set(code, request<AkeneoProductModel>(`/api/rest/v1/product-models/${encodeURIComponent(code)}`).catch(() => null))
+    }
+    return productModelCache.get(code) ?? null
+  }
+
+  async function getMediaFile(code: string): Promise<AkeneoMediaFile | null> {
+    if (!mediaFileCache.has(code)) {
+      mediaFileCache.set(code, request<AkeneoMediaFile>(`/api/rest/v1/media-files/${encodeAkeneoPathParam(code)}`).catch(() => null))
+    }
+    return mediaFileCache.get(code) ?? null
+  }
+
+  async function downloadMediaFile(codeOrUrl: string): Promise<{
+    buffer: Buffer
+    contentType: string | null
+    contentLength: number | null
+    fileName: string | null
+    code: string | null
+  }> {
+    if (codeOrUrl.startsWith('http://') || codeOrUrl.startsWith('https://') || codeOrUrl.startsWith('/')) {
+      const binary = await requestBinary(codeOrUrl)
+      return {
+        ...binary,
+        fileName: null,
+        code: null,
+      }
+    }
+
+    const mediaFile = await getMediaFile(codeOrUrl)
+    if (!mediaFile) {
+      throw new Error(`Akeneo media file ${codeOrUrl} was not found`)
+    }
+    const downloadHref = mediaFile._links?.download?.href
+    const binary = await requestBinary(downloadHref || `/api/rest/v1/media-files/${encodeAkeneoPathParam(codeOrUrl)}/download`)
+    return {
+      ...binary,
+      fileName: typeof mediaFile.original_filename === 'string' && mediaFile.original_filename.trim().length > 0
+        ? mediaFile.original_filename.trim()
+        : null,
+      code: mediaFile.code ?? codeOrUrl,
+    }
+  }
+
+  async function collectDiscoveryData(): Promise<{
+    locales: Array<{ code: string; label: string; enabled: boolean }>
+    channels: Array<{ code: string; label: string; locales: string[] }>
+    attributes: Array<{ code: string; type: string; label: string; localizable: boolean; scopable: boolean; group?: string; metricFamily?: string }>
+    families: Array<{ code: string; label: string; attributeCount: number }>
+    familyVariants: Array<{ familyCode: string; code: string; label: string; axes: string[]; attributes: string[] }>
+    version: string | null
+  }> {
+    const [locales, channels, attributes, families, probe] = await Promise.all([
+      listLocales().catch(() => []),
+      listChannels().catch(() => []),
+      listAttributes(null, 100),
+      listFamilies(null, 100),
+      getSystemProbe().catch(() => ({ version: null })),
+    ])
+
+    const familyVariants: Array<{ familyCode: string; code: string; label: string; axes: string[]; attributes: string[] }> = []
+    for (const family of families.items) {
+      let nextUrl: string | null = null
+      do {
+        const page: { items: AkeneoFamilyVariant[]; nextUrl: string | null; totalEstimate: number | null } = await listFamilyVariants(family.code, nextUrl, 100).catch(() => ({
+          items: [] as AkeneoFamilyVariant[],
+          nextUrl: null,
+          totalEstimate: null,
+        }))
+        familyVariants.push(...page.items.map((familyVariant) => ({
+          familyCode: family.code,
+          code: familyVariant.code,
+          label: labelFromLocalizedRecord(familyVariant.labels ?? null, null, familyVariant.code),
+          axes: dedupeStrings(familyVariant.variant_attribute_sets?.flatMap((set: { axes?: string[] }) => Array.isArray(set.axes) ? set.axes : []) ?? []),
+          attributes: dedupeStrings(familyVariant.variant_attribute_sets?.flatMap((set: { attributes?: string[] }) => Array.isArray(set.attributes) ? set.attributes : []) ?? []),
+        })))
+        nextUrl = page.nextUrl
+      } while (nextUrl)
+    }
+
+    return {
+      locales: locales.map((locale) => ({
+        code: locale.code,
+        label: labelFromLocalizedRecord(locale.labels ?? null, null, locale.code),
+        enabled: locale.enabled ?? false,
+      })),
+      channels: channels.map((channel) => ({
+        code: channel.code,
+        label: labelFromLocalizedRecord(channel.labels ?? null, null, channel.code),
+        locales: dedupeStrings(channel.locales ?? []),
+      })),
+      attributes: attributes.items.map((attribute) => ({
+        code: attribute.code,
+        type: attribute.type,
+        label: labelFromLocalizedRecord(attribute.labels ?? null, null, attribute.code),
+        localizable: Boolean(attribute.localizable),
+        scopable: Boolean(attribute.scopable),
+        group: typeof attribute.group === 'string' && attribute.group.trim().length > 0 ? attribute.group.trim() : undefined,
+        metricFamily: typeof attribute.metric_family === 'string' && attribute.metric_family.trim().length > 0
+          ? attribute.metric_family.trim()
+          : undefined,
+      })),
+      families: families.items.map((family) => ({
+        code: family.code,
+        label: labelFromLocalizedRecord(family.labels ?? null, null, family.code),
+        attributeCount: Array.isArray(family.attributes) ? family.attributes.length : 0,
+      })),
+      familyVariants,
+      version: probe.version,
+    }
+  }
+
+  return {
+    credentials,
+    getSystemProbe,
+    collectDiscoveryData,
+    listProducts,
+    listCategories,
+    listAttributes,
+    listFamilies,
+    listFamilyVariants,
+    listChannels,
+    listLocales,
+    getCategory,
+    getAttribute,
+    listAttributeOptions,
+    getFamily,
+    getFamilyVariant,
+    getProductModel,
+    getMediaFile,
+    downloadMediaFile,
+  }
+}
+
+export type { AkeneoClient }

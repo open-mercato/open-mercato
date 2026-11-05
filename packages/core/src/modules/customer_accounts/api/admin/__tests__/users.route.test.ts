@@ -1,0 +1,800 @@
+/** @jest-environment node */
+import {
+  CustomerRole,
+  CustomerUserRole,
+} from '@open-mercato/core/modules/customer_accounts/data/entities'
+import { Organization } from '@open-mercato/core/modules/directory/data/entities'
+
+const mockGetAuth = jest.fn()
+const mockRbac = { userHasAllFeatures: jest.fn() }
+const mockEmFind = jest.fn()
+const mockEmFindAndCount = jest.fn()
+const mockEmFindOne = jest.fn()
+const mockEmCreate = jest.fn()
+const mockEmPersist = jest.fn()
+const mockEmFlush = jest.fn()
+const mockEmNativeUpdate = jest.fn()
+const mockFindByEmail = jest.fn()
+const mockCreateUser = jest.fn()
+
+const mockSearchTokenExecute = jest.fn()
+const mockSearchTokenWhere = jest.fn().mockImplementation(() => searchTokenQueryBuilder)
+const mockSearchTokenHaving = jest.fn().mockImplementation(() => searchTokenQueryBuilder)
+const mockSearchTokenGroupBy = jest.fn().mockImplementation(() => searchTokenQueryBuilder)
+const mockSearchTokenSelect = jest.fn().mockImplementation(() => searchTokenQueryBuilder)
+const searchTokenQueryBuilder: any = {
+  select: mockSearchTokenSelect,
+  where: mockSearchTokenWhere,
+  groupBy: mockSearchTokenGroupBy,
+  having: mockSearchTokenHaving,
+  execute: mockSearchTokenExecute,
+}
+const mockSelectFrom = jest.fn((table: string) => {
+  if (table === 'search_tokens') return searchTokenQueryBuilder
+  throw new Error(`Unexpected selectFrom ${table}`)
+})
+const mockKysely = { selectFrom: mockSelectFrom }
+
+const mockEm: Record<string, unknown> = {
+  find: mockEmFind,
+  findAndCount: mockEmFindAndCount,
+  findOne: mockEmFindOne,
+  create: mockEmCreate,
+  persist: mockEmPersist,
+  flush: mockEmFlush,
+  nativeUpdate: mockEmNativeUpdate,
+  getKysely: jest.fn(() => mockKysely),
+  transactional: (cb: (tx: unknown) => Promise<unknown>) => cb(mockEm),
+}
+
+const mockContainer = {
+  resolve: jest.fn((token: string) => {
+    if (token === 'rbacService') return mockRbac
+    if (token === 'em') return mockEm
+    if (token === 'customerUserService') return {
+      findByEmail: mockFindByEmail,
+      createUser: mockCreateUser,
+    }
+    return null
+  }),
+}
+
+jest.mock('@open-mercato/shared/lib/auth/server', () => ({
+  getAuthFromRequest: jest.fn((req: Request) => mockGetAuth(req)),
+}))
+
+jest.mock('@open-mercato/shared/lib/di/container', () => ({
+  createRequestContainer: jest.fn(async () => mockContainer),
+}))
+
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findWithDecryption: (em: any, entity: any, where: any, options?: any) => em.find(entity, where, options),
+  findOneWithDecryption: (em: any, entity: any, where: any, options?: any) => em.findOne(entity, where, options),
+  findAndCountWithDecryption: (em: any, entity: any, where: any, options?: any) => em.findAndCount(entity, where, options),
+}))
+
+jest.mock('@open-mercato/core/modules/customer_accounts/events', () => ({
+  emitCustomerAccountsEvent: jest.fn(async () => undefined),
+}))
+
+const mockResolveOrganizationScope = jest.fn()
+jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
+  resolveOrganizationScopeForRequest: jest.fn((args: unknown) => mockResolveOrganizationScope(args)),
+}))
+
+import { GET, POST } from '@open-mercato/core/modules/customer_accounts/api/admin/users'
+
+const tenantId = '11111111-1111-4111-8111-111111111111'
+const orgId = '22222222-2222-4222-8222-222222222222'
+const adminId = '33333333-3333-4333-8333-333333333333'
+
+mockResolveOrganizationScope.mockImplementation(async () => ({
+  selectedId: orgId,
+  filterIds: [orgId],
+  allowedIds: null,
+  tenantId,
+}))
+
+const roleAlpha = {
+  id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  name: 'Alpha',
+  slug: 'alpha',
+}
+const roleBeta = {
+  id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+  name: 'Beta',
+  slug: 'beta',
+}
+
+function makeUser(id: string, overrides: Record<string, unknown> = {}) {
+  return {
+    id,
+    email: `${id}@example.com`,
+    displayName: `User ${id}`,
+    emailVerifiedAt: new Date('2026-01-01T00:00:00Z'),
+    isActive: true,
+    lockedUntil: null,
+    lastLoginAt: null,
+    customerEntityId: null,
+    personEntityId: null,
+    createdAt: new Date('2026-01-01T00:00:00Z'),
+    ...overrides,
+  }
+}
+
+function buildRequest(url = 'http://localhost/api/customer_accounts/admin/users', init?: RequestInit) {
+  return new Request(url, init)
+}
+
+describe('admin /api/customer_accounts/admin/users — GET listing', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockGetAuth.mockResolvedValue({ sub: adminId, tenantId, orgId })
+    mockRbac.userHasAllFeatures.mockResolvedValue(true)
+  })
+
+  it('fetches roles in a single batched query regardless of user count (no N+1)', async () => {
+    const users = ['u1', 'u2', 'u3', 'u4', 'u5'].map((id) => makeUser(id))
+    mockEmFindAndCount.mockResolvedValue([users, users.length])
+
+    const roleLinks = [
+      { user: { id: 'u1' }, role: roleAlpha },
+      { user: { id: 'u1' }, role: roleBeta },
+      { user: { id: 'u3' }, role: roleAlpha },
+      { user: { id: 'u5' }, role: roleBeta },
+    ]
+    mockEmFind.mockResolvedValue(roleLinks)
+
+    const res = await GET(buildRequest())
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body.ok).toBe(true)
+    expect(body.items).toHaveLength(5)
+
+    const customerUserRoleCalls = mockEmFind.mock.calls.filter(
+      (call) => call[0] === CustomerUserRole,
+    )
+    expect(customerUserRoleCalls).toHaveLength(1)
+    expect(customerUserRoleCalls[0][1]).toMatchObject({
+      user: { $in: ['u1', 'u2', 'u3', 'u4', 'u5'] },
+      deletedAt: null,
+    })
+
+    const rolesByUser = Object.fromEntries(body.items.map((item: any) => [item.id, item.roles]))
+    expect(rolesByUser.u1).toHaveLength(2)
+    expect(rolesByUser.u2).toHaveLength(0)
+    expect(rolesByUser.u3).toHaveLength(1)
+    expect(rolesByUser.u4).toHaveLength(0)
+    expect(rolesByUser.u5[0]).toMatchObject({ id: roleBeta.id, slug: 'beta' })
+  })
+
+  it('skips the CustomerUserRole query when the page is empty', async () => {
+    mockEmFindAndCount.mockResolvedValue([[], 0])
+
+    const res = await GET(buildRequest())
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body.items).toEqual([])
+    const customerUserRoleCalls = mockEmFind.mock.calls.filter(
+      (call) => call[0] === CustomerUserRole,
+    )
+    expect(customerUserRoleCalls).toHaveLength(0)
+  })
+
+  it('returns an empty page and never queries the junction table when roleId is out of scope', async () => {
+    // roleId filter must first validate the role against the scoped CustomerRole
+    // set so the junction table cannot be used as a role-UUID existence oracle (#2693).
+    mockEmFindOne.mockResolvedValue(null)
+
+    const crossOrgRoleId = roleAlpha.id
+    const res = await GET(
+      buildRequest(`http://localhost/api/customer_accounts/admin/users?roleId=${crossOrgRoleId}`),
+    )
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body).toEqual({ ok: true, items: [], total: 0, totalPages: 1, page: 1 })
+    const roleLookup = mockEmFindOne.mock.calls.find((call) => call[0] === CustomerRole)
+    expect(roleLookup).toBeDefined()
+    expect(roleLookup![1]).toMatchObject({
+      id: crossOrgRoleId,
+      tenantId,
+      organizationId: orgId,
+      deletedAt: null,
+    })
+    // The junction table is never touched once the role is out of scope.
+    const junctionCalls = mockEmFind.mock.calls.filter((call) => call[0] === CustomerUserRole)
+    expect(junctionCalls).toHaveLength(0)
+    expect(mockEmFindAndCount).not.toHaveBeenCalled()
+  })
+
+  it('queries the junction table only after an in-scope roleId is validated', async () => {
+    mockEmFindOne.mockResolvedValue({ id: roleAlpha.id, name: 'Alpha' })
+    mockEmFind.mockImplementation(async (entity: unknown, where: any) => {
+      if (entity !== CustomerUserRole) return []
+      // The role-filter lookup keys on `role`; the page role-batch keys on `user`.
+      if (where?.role) return [{ user: { id: 'u1' } }]
+      return [{ user: { id: 'u1' }, role: roleAlpha }]
+    })
+    mockEmFindAndCount.mockResolvedValue([[makeUser('u1')], 1])
+
+    const res = await GET(
+      buildRequest(`http://localhost/api/customer_accounts/admin/users?roleId=${roleAlpha.id}`),
+    )
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body.total).toBe(1)
+    const junctionCalls = mockEmFind.mock.calls.filter((call) => call[0] === CustomerUserRole)
+    expect(junctionCalls.length).toBeGreaterThanOrEqual(1)
+  })
+})
+
+describe('admin /api/customer_accounts/admin/users — GET organization column (#5575)', () => {
+  const orgAlpha = { id: '44444444-4444-4444-8444-444444444444', name: 'Alpha Org' }
+  const orgBeta = { id: '55555555-5555-4555-8555-555555555555', name: 'Beta Org' }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockGetAuth.mockResolvedValue({ sub: adminId, tenantId, orgId })
+    mockRbac.userHasAllFeatures.mockResolvedValue(true)
+  })
+
+  it('returns organizationId and the resolved organizationName for every user in one batched query', async () => {
+    const users = [
+      makeUser('u1', { organizationId: orgAlpha.id }),
+      makeUser('u2', { organizationId: orgBeta.id }),
+      makeUser('u3', { organizationId: orgAlpha.id }),
+    ]
+    mockEmFindAndCount.mockResolvedValue([users, users.length])
+    mockEmFind.mockImplementation(async (entity: unknown) => {
+      if (entity === Organization) return [orgAlpha, orgBeta]
+      return []
+    })
+
+    const res = await GET(buildRequest())
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    const organizationByUser = Object.fromEntries(
+      body.items.map((item: any) => [item.id, { id: item.organizationId, name: item.organizationName }]),
+    )
+    expect(organizationByUser.u1).toEqual({ id: orgAlpha.id, name: 'Alpha Org' })
+    expect(organizationByUser.u2).toEqual({ id: orgBeta.id, name: 'Beta Org' })
+    expect(organizationByUser.u3).toEqual({ id: orgAlpha.id, name: 'Alpha Org' })
+
+    const organizationCalls = mockEmFind.mock.calls.filter((call) => call[0] === Organization)
+    expect(organizationCalls).toHaveLength(1)
+    expect(organizationCalls[0][1]).toMatchObject({
+      id: { $in: [orgAlpha.id, orgBeta.id] },
+      tenant: tenantId,
+      deletedAt: null,
+    })
+  })
+
+  it('falls back to a null organizationName when the organization cannot be resolved', async () => {
+    mockEmFindAndCount.mockResolvedValue([[makeUser('u1', { organizationId: orgAlpha.id })], 1])
+    mockEmFind.mockResolvedValue([])
+
+    const res = await GET(buildRequest())
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body.items[0]).toMatchObject({
+      organizationId: orgAlpha.id,
+      organizationName: null,
+    })
+  })
+
+  it('never queries organizations when no user on the page carries one', async () => {
+    mockEmFindAndCount.mockResolvedValue([[makeUser('u1')], 1])
+    mockEmFind.mockResolvedValue([])
+
+    const res = await GET(buildRequest())
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body.items[0]).toMatchObject({ organizationId: null, organizationName: null })
+    expect(mockEmFind.mock.calls.filter((call) => call[0] === Organization)).toHaveLength(0)
+  })
+})
+
+describe('admin /api/customer_accounts/admin/users — GET organization switcher scope (#5574)', () => {
+  const selectedOrgId = '66666666-6666-4666-8666-666666666666'
+  const childOrgId = '77777777-7777-4777-8777-777777777777'
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockGetAuth.mockResolvedValue({ sub: adminId, tenantId, orgId })
+    mockRbac.userHasAllFeatures.mockResolvedValue(true)
+    mockEmFind.mockResolvedValue([])
+    mockEmFindAndCount.mockResolvedValue([[], 0])
+  })
+
+  afterAll(() => {
+    mockResolveOrganizationScope.mockImplementation(async () => ({
+      selectedId: orgId,
+      filterIds: [orgId],
+      allowedIds: null,
+      tenantId,
+    }))
+  })
+
+  it('filters by the organization selected in the switcher instead of the account organization', async () => {
+    mockResolveOrganizationScope.mockResolvedValue({
+      selectedId: selectedOrgId,
+      filterIds: [selectedOrgId, childOrgId],
+      allowedIds: null,
+      tenantId,
+    })
+    const req = buildRequest()
+
+    const res = await GET(req)
+
+    expect(res.status).toBe(200)
+    expect(mockResolveOrganizationScope).toHaveBeenCalledWith(expect.objectContaining({ request: req }))
+    const whereArg = mockEmFindAndCount.mock.calls[0][1] as Record<string, unknown>
+    expect(whereArg).toMatchObject({
+      tenantId,
+      organizationId: { $in: [selectedOrgId, childOrgId] },
+      deletedAt: null,
+    })
+  })
+
+  it('lists users from every organization of the tenant when "All organizations" is selected', async () => {
+    mockResolveOrganizationScope.mockResolvedValue({
+      selectedId: null,
+      filterIds: null,
+      allowedIds: null,
+      tenantId,
+    })
+
+    const res = await GET(buildRequest())
+
+    expect(res.status).toBe(200)
+    const whereArg = mockEmFindAndCount.mock.calls[0][1] as Record<string, unknown>
+    expect(whereArg).toMatchObject({ tenantId, deletedAt: null })
+    expect(whereArg).not.toHaveProperty('organizationId')
+  })
+
+  it('returns an empty page without querying users when the caller can access no organization', async () => {
+    mockResolveOrganizationScope.mockResolvedValue({
+      selectedId: null,
+      filterIds: [],
+      allowedIds: [],
+      tenantId,
+    })
+
+    const res = await GET(buildRequest())
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body).toEqual({ ok: true, items: [], total: 0, totalPages: 1, page: 1 })
+    expect(mockEmFindAndCount).not.toHaveBeenCalled()
+  })
+})
+
+describe('admin /api/customer_accounts/admin/users — GET search', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockGetAuth.mockResolvedValue({ sub: adminId, tenantId, orgId })
+    mockRbac.userHasAllFeatures.mockResolvedValue(true)
+    mockSearchTokenExecute.mockResolvedValue([])
+  })
+
+  it('queries search_tokens with the generated entity id (E.customer_accounts.customer_user) and scopes by tenant', async () => {
+    const matchedId = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa'
+    mockSearchTokenExecute.mockResolvedValueOnce([{ entity_id: matchedId }])
+    mockEmFindAndCount.mockResolvedValueOnce([[makeUser(matchedId)], 1])
+
+    const res = await GET(buildRequest('http://localhost/api/customer_accounts/admin/users?search=alice'))
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(mockSelectFrom).toHaveBeenCalledWith('search_tokens')
+    const entityTypeCall = mockSearchTokenWhere.mock.calls.find(
+      (call) => call[0] === 'entity_type' && call[1] === '=' && call[2] === 'customer_accounts:customer_user',
+    )
+    expect(entityTypeCall).toBeDefined()
+    const tenantScopeCall = mockSearchTokenWhere.mock.calls.find((call) => {
+      const clause = call[0] as { toOperationNode?: () => { sqlFragments?: string[]; parameters?: Array<{ value?: unknown }> } } | undefined
+      const node = clause && typeof clause === 'object' && typeof clause.toOperationNode === 'function'
+        ? clause.toOperationNode()
+        : null
+      if (!node || !Array.isArray(node.sqlFragments)) return false
+      const joined = node.sqlFragments.join('?')
+      if (!joined.includes('tenant_id is not distinct from')) return false
+      const params = Array.isArray(node.parameters) ? node.parameters : []
+      return params.some((p) => p && typeof p === 'object' && 'value' in p && p.value === tenantId)
+    })
+    expect(tenantScopeCall).toBeDefined()
+
+    const whereArg = mockEmFindAndCount.mock.calls[0][1] as Record<string, any>
+    expect(whereArg.$or).toEqual(expect.arrayContaining([
+      { id: { $in: [matchedId] } },
+    ]))
+    expect(body.total).toBe(1)
+    expect(body.items).toHaveLength(1)
+    expect(body.items[0]).toMatchObject({ id: matchedId })
+  })
+
+  it('combines emailHash lookup with search_tokens matches when the query looks like an email', async () => {
+    const tokenId = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb'
+    mockSearchTokenExecute.mockResolvedValueOnce([{ entity_id: tokenId }])
+    mockEmFindAndCount.mockResolvedValueOnce([[makeUser(tokenId)], 1])
+
+    const res = await GET(buildRequest('http://localhost/api/customer_accounts/admin/users?search=alice%40example.com'))
+
+    expect(res.status).toBe(200)
+    const whereArg = mockEmFindAndCount.mock.calls[0][1] as Record<string, any>
+    expect(Array.isArray(whereArg.$or)).toBe(true)
+    expect(whereArg.$or).toEqual(expect.arrayContaining([
+      { id: { $in: [tokenId] } },
+      expect.objectContaining({ emailHash: { $in: expect.arrayContaining([expect.any(String)]) } }),
+    ]))
+  })
+
+  it('returns an empty page when neither search_tokens nor the email-hash fallback match', async () => {
+    mockSearchTokenExecute.mockResolvedValueOnce([])
+
+    const res = await GET(buildRequest('http://localhost/api/customer_accounts/admin/users?search=nobody'))
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body).toEqual({ ok: true, items: [], total: 0, totalPages: 1, page: 1 })
+    expect(mockEmFindAndCount).not.toHaveBeenCalled()
+  })
+
+  it('falls back to emailHash-only search when search_tokens yield no match but the query is email-like', async () => {
+    mockSearchTokenExecute.mockResolvedValueOnce([])
+    mockEmFindAndCount.mockResolvedValueOnce([[], 0])
+
+    const res = await GET(buildRequest('http://localhost/api/customer_accounts/admin/users?search=ghost%40example.com'))
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(mockEmFindAndCount).toHaveBeenCalled()
+    const whereArg = mockEmFindAndCount.mock.calls[0][1] as Record<string, any>
+    expect(whereArg.$or).toEqual([expect.objectContaining({ emailHash: { $in: expect.arrayContaining([expect.any(String)]) } })])
+    expect(body.total).toBe(0)
+  })
+})
+
+describe('admin /api/customer_accounts/admin/users — POST role validation', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockGetAuth.mockResolvedValue({ sub: adminId, tenantId, orgId })
+    mockRbac.userHasAllFeatures.mockResolvedValue(true)
+    mockFindByEmail.mockResolvedValue(null)
+    mockCreateUser.mockResolvedValue({
+      id: '44444444-4444-4444-8444-444444444444',
+      email: 'new@example.com',
+      displayName: 'New User',
+    })
+    mockEmCreate.mockImplementation((_entity: unknown, data: unknown) => data)
+    mockEmFind.mockResolvedValue([])
+  })
+
+  it('validates all requested roles via a single $in query scoped to tenant AND organization', async () => {
+    mockEmFind.mockImplementation(async (entity: unknown, where: any) => {
+      if (entity === CustomerRole) {
+        return [
+          { id: roleAlpha.id, name: 'Alpha' },
+          { id: roleBeta.id, name: 'Beta' },
+        ].filter((role) => (where?.id?.$in as string[]).includes(role.id))
+      }
+      return []
+    })
+
+    const body = {
+      email: 'new@example.com',
+      password: 'Secret123!',
+      displayName: 'New User',
+      roleIds: [roleAlpha.id, roleBeta.id],
+    }
+    const req = buildRequest('http://localhost/api/customer_accounts/admin/users', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+
+    const res = await POST(req)
+
+    expect(res.status).toBe(201)
+    expect(mockEmFindOne).not.toHaveBeenCalledWith(CustomerRole, expect.anything())
+    const roleFinds = mockEmFind.mock.calls.filter((call) => call[0] === CustomerRole)
+    expect(roleFinds).toHaveLength(1)
+    expect(roleFinds[0][1]).toMatchObject({
+      id: { $in: [roleAlpha.id, roleBeta.id] },
+      tenantId,
+      organizationId: orgId,
+      deletedAt: null,
+    })
+    // Two persists for the user-role links (one per valid role)
+    const userRoleCreates = mockEmCreate.mock.calls.filter((call) => call[0] === CustomerUserRole)
+    expect(userRoleCreates).toHaveLength(2)
+  })
+
+  it('rejects with 400 when a requested role is missing from the scoped set (cross-org role UUID)', async () => {
+    // Role from another org in the same tenant: the org-scoped lookup returns
+    // only the in-scope role, so the cross-org UUID is rejected, not dropped.
+    mockEmFind.mockImplementation(async (entity: unknown, where: any) => {
+      if (entity === CustomerRole) {
+        return [{ id: roleAlpha.id, name: 'Alpha' }].filter((role) =>
+          (where?.id?.$in as string[]).includes(role.id),
+        )
+      }
+      return []
+    })
+
+    const crossOrgRoleId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+    const body = {
+      email: 'new@example.com',
+      password: 'Secret123!',
+      displayName: 'New User',
+      roleIds: [roleAlpha.id, crossOrgRoleId],
+    }
+    const req = buildRequest('http://localhost/api/customer_accounts/admin/users', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+
+    const res = await POST(req)
+    const resBody = await res.json()
+
+    expect(res.status).toBe(400)
+    expect(resBody.ok).toBe(false)
+    expect(resBody.error).toContain(crossOrgRoleId)
+    // No user is created when role validation fails.
+    expect(mockCreateUser).not.toHaveBeenCalled()
+  })
+
+  it('rejects with 400 when customerEntityId is not an owned company in the caller scope', async () => {
+    mockEmFind.mockResolvedValue([])
+    // Company lookup (findOneWithDecryption -> em.findOne) returns nothing:
+    // the company belongs to another org, so the link must be rejected.
+    mockEmFindOne.mockResolvedValue(null)
+
+    const foreignCompanyId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+    const body = {
+      email: 'new@example.com',
+      password: 'Secret123!',
+      displayName: 'New User',
+      customerEntityId: foreignCompanyId,
+    }
+    const req = buildRequest('http://localhost/api/customer_accounts/admin/users', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+
+    const res = await POST(req)
+    const resBody = await res.json()
+
+    expect(res.status).toBe(400)
+    expect(resBody.ok).toBe(false)
+    // The company ownership lookup is scoped to tenant + org + kind=company.
+    const companyLookup = mockEmFindOne.mock.calls.find(
+      (call) => (call[1] as any)?.id === foreignCompanyId,
+    )
+    expect(companyLookup).toBeDefined()
+    expect(companyLookup![1]).toMatchObject({
+      id: foreignCompanyId,
+      tenantId,
+      organizationId: orgId,
+      kind: 'company',
+      deletedAt: null,
+    })
+    expect(mockCreateUser).not.toHaveBeenCalled()
+  })
+
+  it('persists a customerEntityId that is an owned company in the caller scope', async () => {
+    mockEmFind.mockResolvedValue([])
+    const ownedCompanyId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+    mockEmFindOne.mockResolvedValue({ id: ownedCompanyId, kind: 'company' })
+
+    const body = {
+      email: 'new@example.com',
+      password: 'Secret123!',
+      displayName: 'New User',
+      customerEntityId: ownedCompanyId,
+    }
+    const req = buildRequest('http://localhost/api/customer_accounts/admin/users', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+
+    const res = await POST(req)
+
+    expect(res.status).toBe(201)
+    const companyUpdate = mockEmNativeUpdate.mock.calls.find(
+      (call) => (call[2] as any)?.customerEntityId === ownedCompanyId,
+    )
+    expect(companyUpdate).toBeDefined()
+  })
+})
+
+describe('admin /api/customer_accounts/admin/users — POST target organization (#5576)', () => {
+  const targetOrgId = '66666666-6666-4666-8666-666666666666'
+  const createdUserId = '77777777-7777-4777-8777-777777777777'
+
+  function postRequest(body: Record<string, unknown>) {
+    return buildRequest('http://localhost/api/customer_accounts/admin/users', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        email: 'new@example.com',
+        password: 'Secret123!',
+        displayName: 'New User',
+        ...body,
+      }),
+    })
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockGetAuth.mockResolvedValue({ sub: adminId, tenantId, orgId })
+    mockRbac.userHasAllFeatures.mockResolvedValue(true)
+    mockFindByEmail.mockResolvedValue(null)
+    mockCreateUser.mockResolvedValue({ id: createdUserId, email: 'new@example.com', displayName: 'New User' })
+    mockEmCreate.mockImplementation((_entity: unknown, data: unknown) => data)
+    mockEmFind.mockResolvedValue([])
+    mockResolveOrganizationScope.mockResolvedValue({
+      selectedId: targetOrgId,
+      filterIds: [targetOrgId],
+      allowedIds: null,
+      tenantId,
+    })
+  })
+
+  it('creates the user in the requested organization and scopes roles to it', async () => {
+    mockEmFind.mockImplementation(async (entity: unknown, where: any) => {
+      if (entity === CustomerRole && where?.organizationId === targetOrgId) return [{ id: roleAlpha.id, name: 'Alpha' }]
+      return []
+    })
+
+    const res = await POST(postRequest({ organizationId: targetOrgId, roleIds: [roleAlpha.id] }))
+
+    expect(res.status).toBe(201)
+    expect(mockResolveOrganizationScope).toHaveBeenCalledWith(
+      expect.objectContaining({ selectedId: targetOrgId, tenantId }),
+    )
+    expect(mockRbac.userHasAllFeatures).toHaveBeenCalledWith(
+      adminId,
+      ['customer_accounts.manage'],
+      { tenantId, organizationId: targetOrgId },
+    )
+    const roleFinds = mockEmFind.mock.calls.filter((call) => call[0] === CustomerRole)
+    expect(roleFinds[0][1]).toMatchObject({ tenantId, organizationId: targetOrgId })
+    expect(mockCreateUser).toHaveBeenCalledWith(
+      'new@example.com',
+      'Secret123!',
+      'New User',
+      { tenantId, organizationId: targetOrgId },
+    )
+  })
+
+  it('rejects an organization the scope resolver refuses to grant', async () => {
+    mockResolveOrganizationScope.mockResolvedValue({
+      selectedId: orgId,
+      filterIds: [orgId],
+      allowedIds: [orgId],
+      tenantId,
+      selectionRejected: true,
+    })
+
+    const res = await POST(postRequest({ organizationId: targetOrgId }))
+    const body = await res.json()
+
+    expect(res.status).toBe(400)
+    expect(body).toEqual({ ok: false, error: 'Organization not found' })
+    expect(mockCreateUser).not.toHaveBeenCalled()
+  })
+
+  it('rejects an organization resolved under a different tenant', async () => {
+    mockResolveOrganizationScope.mockResolvedValue({
+      selectedId: targetOrgId,
+      filterIds: [targetOrgId],
+      allowedIds: null,
+      tenantId: '88888888-8888-4888-8888-888888888888',
+    })
+
+    const res = await POST(postRequest({ organizationId: targetOrgId }))
+
+    expect(res.status).toBe(400)
+    expect(mockCreateUser).not.toHaveBeenCalled()
+  })
+
+  it('returns 403 when the caller lacks customer_accounts.manage in the requested organization', async () => {
+    mockRbac.userHasAllFeatures.mockImplementation(async (_sub: string, _features: string[], scope: any) => (
+      scope.organizationId !== targetOrgId
+    ))
+
+    const res = await POST(postRequest({ organizationId: targetOrgId }))
+
+    expect(res.status).toBe(403)
+    expect(mockCreateUser).not.toHaveBeenCalled()
+  })
+
+  it('lets a non-superadmin target another organization the scope resolver grants', async () => {
+    mockGetAuth.mockResolvedValue({ sub: adminId, tenantId, orgId })
+
+    const res = await POST(postRequest({ organizationId: targetOrgId }))
+
+    expect(res.status).toBe(201)
+    expect(mockResolveOrganizationScope).toHaveBeenCalledWith(
+      expect.objectContaining({ selectedId: targetOrgId, tenantId }),
+    )
+    expect(mockCreateUser).toHaveBeenCalledWith(
+      'new@example.com',
+      'Secret123!',
+      'New User',
+      { tenantId, organizationId: targetOrgId },
+    )
+  })
+
+  it('accepts the active organization when a non-superadmin sends it explicitly', async () => {
+    mockGetAuth.mockResolvedValue({ sub: adminId, tenantId, orgId })
+
+    const res = await POST(postRequest({ organizationId: orgId }))
+
+    expect(res.status).toBe(201)
+    expect(mockResolveOrganizationScope).not.toHaveBeenCalled()
+    expect(mockCreateUser).toHaveBeenCalledWith(
+      'new@example.com',
+      'Secret123!',
+      'New User',
+      { tenantId, organizationId: orgId },
+    )
+  })
+
+  it('rejects a malformed organizationId before resolving scope', async () => {
+    const res = await POST(postRequest({ organizationId: 'not-a-uuid' }))
+
+    expect(res.status).toBe(400)
+    expect(mockResolveOrganizationScope).not.toHaveBeenCalled()
+    expect(mockCreateUser).not.toHaveBeenCalled()
+  })
+
+  it('keeps the caller organization when no organizationId is sent', async () => {
+    const res = await POST(postRequest({}))
+
+    expect(res.status).toBe(201)
+    expect(mockResolveOrganizationScope).not.toHaveBeenCalled()
+    expect(mockCreateUser).toHaveBeenCalledWith(
+      'new@example.com',
+      'Secret123!',
+      'New User',
+      { tenantId, organizationId: orgId },
+    )
+  })
+
+  it('falls back to the actor organization under an all-organizations selection instead of creating an org-less user', async () => {
+    mockGetAuth.mockResolvedValue({ sub: adminId, tenantId, orgId: null, actorOrgId: orgId, actorTenantId: tenantId, isSuperAdmin: true })
+
+    const res = await POST(postRequest({}))
+
+    expect(res.status).toBe(201)
+    expect(mockCreateUser).toHaveBeenCalledWith(
+      'new@example.com',
+      'Secret123!',
+      'New User',
+      { tenantId, organizationId: orgId },
+    )
+  })
+
+  it('answers organization_scope_required when no organization can be resolved', async () => {
+    mockGetAuth.mockResolvedValue({ sub: adminId, tenantId, orgId: null, isSuperAdmin: true })
+
+    const res = await POST(postRequest({}))
+    const body = await res.json()
+
+    expect(res.status).toBe(400)
+    expect(body.code).toBe('organization_scope_required')
+    expect(mockCreateUser).not.toHaveBeenCalled()
+  })
+})

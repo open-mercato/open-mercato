@@ -1,0 +1,84 @@
+import type { AppDiRegistrar, DiRegistrar } from '../di/container'
+import type { EntityIds } from '../encryption/entityIds'
+import type { EntityFieldsRegistry } from '../encryption/entityFields'
+import type { Module, ModuleDashboardWidgetEntry, ModuleInjectionWidgetEntry } from '../../modules/registry'
+import type { ModuleInjectionTable } from '../../modules/widgets/injection'
+import type { SearchModuleConfig } from '../../modules/search'
+import type { AnalyticsModuleConfig } from '../../modules/analytics'
+import type { EntityClass, EntitySchema } from '@mikro-orm/core'
+
+export type OrmEntity = EntityClass<unknown> | EntitySchema<unknown>
+
+export interface InjectionTableEntry {
+  moduleId: string
+  table: ModuleInjectionTable
+}
+
+export interface EnricherBootstrapEntry {
+  moduleId: string
+  enrichers: import('../../lib/crud/response-enricher').ResponseEnricher[]
+}
+
+export interface InterceptorBootstrapEntry {
+  moduleId: string
+  interceptors: import('../../lib/crud/api-interceptor').ApiInterceptor[]
+}
+
+export interface ComponentOverrideBootstrapEntry {
+  moduleId: string
+  componentOverrides: import('../../modules/widgets/component-registry').ComponentOverride[]
+}
+
+export interface GuardBootstrapEntry {
+  moduleId: string
+  guards: import('../../lib/crud/mutation-guard-registry').MutationGuard[]
+}
+
+export interface CommandInterceptorBootstrapEntry {
+  moduleId: string
+  interceptors: import('../../lib/commands/command-interceptor').CommandInterceptor[]
+}
+
+export interface NotificationHandlerBootstrapEntry {
+  moduleId: string
+  handlers: import('../../modules/notifications/handler').NotificationHandler[]
+}
+
+export type CommandLoaderBootstrapEntry = import('../commands/registry').CommandLoader
+
+export interface BootstrapData {
+  modules: Module[]
+  entities: OrmEntity[]
+  diRegistrars: (DiRegistrar | undefined)[]
+  entityIds: EntityIds
+  entityFieldsRegistry?: EntityFieldsRegistry
+  dashboardWidgetEntries: ModuleDashboardWidgetEntry[]
+  injectionWidgetEntries: ModuleInjectionWidgetEntry[]
+  injectionTables: InjectionTableEntry[]
+  searchModuleConfigs: SearchModuleConfig[]
+  analyticsModuleConfigs?: AnalyticsModuleConfig[]
+  enricherEntries?: EnricherBootstrapEntry[]
+  interceptorEntries?: InterceptorBootstrapEntry[]
+  componentOverrideEntries?: ComponentOverrideBootstrapEntry[]
+  guardEntries?: GuardBootstrapEntry[]
+  commandInterceptorEntries?: CommandInterceptorBootstrapEntry[]
+  commandLoaderEntries?: CommandLoaderBootstrapEntry[]
+  notificationHandlerEntries?: NotificationHandlerBootstrapEntry[]
+  codeWorkflows?: import('../../modules/workflows/types').CodeWorkflowDefinition[]
+}
+
+export interface BootstrapOptions {
+  skipSearchConfigs?: boolean
+  /** Independent registration scope for partitioned runtime bootstraps. */
+  registrationKey?: string
+  /** Skip browser-facing dashboard/injection registries in API-only runtimes. */
+  skipUiRegistries?: boolean
+  /**
+   * Keep an existing core injection-widget registry intact in partitioned runtimes: this
+   * bootstrap's entries are merged in rather than published as the whole registry, so a
+   * partition that registers second never shrinks what the first one already exposed.
+   */
+  skipCoreInjectionWidgets?: boolean
+  onRegistrationComplete?: () => void
+  appDiRegistrar?: AppDiRegistrar
+}

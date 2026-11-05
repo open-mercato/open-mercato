@@ -1,0 +1,175 @@
+import { NextResponse } from 'next/server'
+import { z } from 'zod'
+import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
+import { getCustomerAuthFromRequest, requireCustomerFeature } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { CustomerInvitationService } from '@open-mercato/core/modules/customer_accounts/services/customerInvitationService'
+import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
+import { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
+import { CustomerRole } from '@open-mercato/core/modules/customer_accounts/data/entities'
+import { inviteUserSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
+import {
+  checkAuthRateLimit,
+  customerInviteRateLimitConfig,
+  customerInviteIpRateLimitConfig,
+} from '@open-mercato/core/modules/customer_accounts/lib/rateLimiter'
+import { readNormalizedEmailFromJsonRequest } from '@open-mercato/core/modules/customer_accounts/lib/rateLimitIdentifier'
+import { sendCustomerInvitationEmail } from '@open-mercato/core/modules/customer_accounts/lib/invitationEmail'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customer_accounts').child({ component: 'portal-users-invite' })
+
+export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
+
+export async function POST(req: Request) {
+  const auth = await getCustomerAuthFromRequest(req)
+  if (!auth) {
+    return NextResponse.json({ ok: false, error: 'Authentication required' }, { status: 401 })
+  }
+
+  const rateLimitEmail = await readNormalizedEmailFromJsonRequest(req)
+  const { error: rateLimitError } = await checkAuthRateLimit({
+    req,
+    ipConfig: customerInviteIpRateLimitConfig,
+    compoundConfig: customerInviteRateLimitConfig,
+    compoundIdentifier: rateLimitEmail,
+  })
+  if (rateLimitError) return rateLimitError
+
+  const container = await createRequestContainer()
+  const customerRbacService = container.resolve('customerRbacService') as CustomerRbacService
+
+  try {
+    await requireCustomerFeature(auth, ['portal.users.manage'], customerRbacService)
+  } catch (response) {
+    return response as NextResponse
+  }
+
+  if (!auth.customerEntityId) {
+    return NextResponse.json({ ok: false, error: 'No company association' }, { status: 403 })
+  }
+
+  let body: unknown
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ ok: false, error: 'Invalid request body' }, { status: 400 })
+  }
+
+  const parsed = inviteUserSchema.safeParse(body)
+  if (!parsed.success) {
+    return NextResponse.json({ ok: false, error: 'Validation failed', details: parsed.error.flatten().fieldErrors }, { status: 400 })
+  }
+
+  const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
+
+  // Validate all roles are customer_assignable
+  const requestedRoleIds = parsed.data.roleIds
+  const roles = requestedRoleIds.length > 0
+    ? await findWithDecryption(
+        em,
+        CustomerRole,
+        {
+          id: { $in: requestedRoleIds },
+          tenantId: auth.tenantId,
+          organizationId: auth.orgId,
+          deletedAt: null,
+        } as any,
+        undefined,
+        { tenantId: auth.tenantId, organizationId: auth.orgId },
+      )
+    : []
+  const rolesById = new Map(roles.map((role) => [role.id, role]))
+  for (const roleId of requestedRoleIds) {
+    const role = rolesById.get(roleId)
+    if (!role) {
+      return NextResponse.json({ ok: false, error: `Role ${roleId} not found` }, { status: 400 })
+    }
+    if (!role.customerAssignable) {
+      return NextResponse.json({ ok: false, error: `Role "${role.name}" cannot be assigned by portal users` }, { status: 403 })
+    }
+  }
+
+  const customerInvitationService = container.resolve('customerInvitationService') as CustomerInvitationService
+
+  const { invitation, rawToken, rollbackState } = await customerInvitationService.createInvitation(
+    parsed.data.email,
+    { tenantId: auth.tenantId, organizationId: auth.orgId },
+    {
+      customerEntityId: auth.customerEntityId,
+      roleIds: parsed.data.roleIds,
+      invitedByCustomerUserId: auth.sub,
+      displayName: parsed.data.displayName || null,
+    },
+  )
+
+  try {
+    await sendCustomerInvitationEmail({
+      container,
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId,
+      email: invitation.email,
+      rawToken,
+    })
+  } catch (error) {
+    logger.error('Invitation email failed', { err: error })
+    try {
+      await customerInvitationService.rollbackInvitation(invitation, rollbackState)
+    } catch (rollbackError) {
+      logger.error('Invitation rollback failed', { err: rollbackError })
+    }
+    return NextResponse.json({ ok: false, error: 'Invitation email could not be sent' }, { status: 502 })
+  }
+
+  // Emit only after the email is sent, so a subscriber observing "invited" can
+  // assume the recipient was actually notified (no event fires on the 502 path).
+  void emitCustomerAccountsEvent('customer_accounts.user.invited', {
+    invitationId: invitation.id,
+    email: invitation.email,
+    customerEntityId: invitation.customerEntityId || null,
+    invitedByType: 'portal',
+    tenantId: auth.tenantId,
+    organizationId: auth.orgId,
+  }).catch(() => undefined)
+
+  return NextResponse.json({
+    ok: true,
+    invitation: {
+      id: invitation.id,
+      email: invitation.email,
+      expiresAt: invitation.expiresAt,
+    },
+  }, { status: 201 })
+}
+
+const successSchema = z.object({
+  ok: z.literal(true),
+  invitation: z.object({
+    id: z.string().uuid(),
+    email: z.string(),
+    expiresAt: z.string().datetime(),
+  }),
+})
+const errorSchema = z.object({ ok: z.literal(false), error: z.string() })
+
+const methodDoc: OpenApiMethodDoc = {
+  summary: 'Invite a user to the company portal',
+  description: 'Creates an invitation for a new user to join the company portal.',
+  tags: ['Customer Portal'],
+  requestBody: { schema: inviteUserSchema },
+  responses: [{ status: 201, description: 'Invitation created', schema: successSchema }],
+  errors: [
+    { status: 400, description: 'Validation failed', schema: errorSchema },
+    { status: 401, description: 'Not authenticated', schema: errorSchema },
+    { status: 403, description: 'Insufficient permissions or non-assignable role', schema: errorSchema },
+    { status: 429, description: 'Too many invitation requests', schema: rateLimitErrorSchema },
+    { status: 502, description: 'Invitation email could not be sent', schema: errorSchema },
+  ],
+}
+
+export const openApi: OpenApiRouteDoc = {
+  summary: 'Invite portal user',
+  methods: { POST: methodDoc },
+}

@@ -1,0 +1,167 @@
+import { randomBytes } from 'node:crypto'
+import { Buffer } from 'node:buffer'
+import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import ts from 'typescript-js'
+
+// Windows: AV scanners, indexers, and watchers briefly hold freshly written
+// destination files open, and rename-over-existing fails with EPERM/EACCES
+// until the handle closes (the same transient race graceful-fs retries
+// around). Back off and retry before surfacing the error; a genuinely locked
+// file (open in an editor) still throws once the deadline passes.
+const RETRYABLE_RENAME_CODES = new Set(['EPERM', 'EACCES', 'EBUSY'])
+const sleepBuffer = new Int32Array(new SharedArrayBuffer(4))
+
+function sleepSync(ms) {
+  Atomics.wait(sleepBuffer, 0, 0, ms)
+}
+
+export function renameReplaceSync(tmpPath, filePath, { renameImpl = renameSync, platform = process.platform, maxWaitMs = 2000, sleepImpl = sleepSync } = {}) {
+  const deadline = Date.now() + maxWaitMs
+  let delay = 10
+  for (;;) {
+    try {
+      renameImpl(tmpPath, filePath)
+      return
+    } catch (error) {
+      if (platform !== 'win32' || !RETRYABLE_RENAME_CODES.has(error?.code) || Date.now() >= deadline) throw error
+    }
+    sleepImpl(delay)
+    delay = Math.min(delay * 2, 250)
+  }
+}
+
+// Atomic write: write to a temp sibling file, then rename over the target.
+// rename() is atomic on POSIX (and replaces the destination on Windows since Node 16),
+// so concurrent readers never observe a truncated file — they see either the old
+// or the new contents in full.
+export function atomicWriteFileSync(filePath, data) {
+  const next = Buffer.isBuffer(data) ? data : Buffer.from(data)
+  try {
+    if (readFileSync(filePath).equals(next)) return false
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error
+  }
+
+  mkdirSync(dirname(filePath), { recursive: true })
+  const tmpPath = `${filePath}.tmp.${process.pid}.${randomBytes(6).toString('hex')}`
+  try {
+    writeFileSync(tmpPath, next)
+    renameReplaceSync(tmpPath, filePath)
+  } catch (error) {
+    try {
+      unlinkSync(tmpPath)
+    } catch {}
+    throw error
+  }
+  return true
+}
+
+// Decide whether `import './foo'` should be rewritten to `./foo.js` (a sibling
+// file) or `./foo/index.js` (a directory with barrel export). With `write: false`
+// the plugin iterates outputs in memory — nothing is on disk yet — so
+// `existsSync` would wrongly report every directory as missing. Consult the set
+// of paths that THIS build is about to emit first; fall back to `existsSync`
+// only for pre-existing files carried over from an earlier build.
+function resolveRelativeImport(fileDir, importPath, knownOutputPaths) {
+  const directoryIndexPath = join(fileDir, importPath, 'index.js')
+  if (knownOutputPaths && knownOutputPaths.has(directoryIndexPath)) {
+    return `${importPath}/index.js`
+  }
+  const resolvedPath = join(fileDir, importPath)
+  if (existsSync(resolvedPath) && existsSync(directoryIndexPath)) {
+    return `${importPath}/index.js`
+  }
+  return `${importPath}.js`
+}
+
+export function rewriteRelativeImports(content, fileDir, options = {}) {
+  const {
+    skipExtensions = ['.js', '.json'],
+    skipTemplateLiterals = false,
+    resolveGeneratedImport = null,
+    knownOutputPaths = null,
+  } = options
+
+  if (!/\b(?:import|export)\b/.test(content)) return content
+  const sourceFile = ts.createSourceFile('output.js', content, ts.ScriptTarget.Latest, false, ts.ScriptKind.JS)
+  const edits = []
+  const explicitResourceExtension = /\.(?:mjs|cjs|node|svg|png|jpe?g|gif|webp|avif|ico|bmp|css|s[ac]ss|less|woff2?|ttf|otf|eot|wasm|html|mdx?|txt|pdf)$/i
+
+  const rewriteSpecifier = (literal) => {
+    if (!literal || !ts.isStringLiteral(literal)) return
+    const original = literal.text
+    let importPath = original
+    if (importPath.startsWith('#generated/') && typeof resolveGeneratedImport === 'function') {
+      importPath = resolveGeneratedImport(importPath.slice('#generated/'.length), fileDir) || importPath
+    }
+    if (importPath.startsWith('.') && !(skipTemplateLiterals && importPath.includes('${'))) {
+      const suffixIndex = importPath.search(/[?#]/)
+      const pathname = suffixIndex === -1 ? importPath : importPath.slice(0, suffixIndex)
+      const suffix = suffixIndex === -1 ? '' : importPath.slice(suffixIndex)
+      if (!skipExtensions.some(extension => pathname.endsWith(extension)) && !explicitResourceExtension.test(pathname)) {
+        importPath = resolveRelativeImport(fileDir, pathname, knownOutputPaths) + suffix
+      }
+    }
+    if (importPath !== original) edits.push({ start: literal.getStart(sourceFile), end: literal.end, text: JSON.stringify(importPath) })
+  }
+
+  const visit = (node) => {
+    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) rewriteSpecifier(node.moduleSpecifier)
+    else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) rewriteSpecifier(node.arguments[0])
+    ts.forEachChild(node, visit)
+  }
+  visit(sourceFile)
+  let output = content
+  for (const edit of edits.sort((left, right) => right.start - left.start)) {
+    output = output.slice(0, edit.start) + edit.text + output.slice(edit.end)
+  }
+  return output
+}
+
+// esbuild plugin that:
+//   1) Forces `write: false` so esbuild does not touch the filesystem itself.
+//   2) Rewrites relative imports in every emitted .js file to add .js extensions
+//      (required for native Node ESM resolution).
+//   3) Writes changed output files atomically via temp+rename while preserving
+//      the mtimes of byte-identical outputs.
+//
+// Together this eliminates the read-modify-write race that the previous
+// glob-based implementation had: it no longer re-reads files that may be in
+// the process of being written by another builder (parallel turbo worker,
+// watcher, cache restore), and atomic rename guarantees readers see only
+// complete contents.
+export function createAtomicWritePlugin(rewriteOptions = {}) {
+  const { onWrite, ...contentRewriteOptions } = rewriteOptions
+  return {
+    name: 'atomic-write-with-js-extensions',
+    setup(build) {
+      build.initialOptions.write = false
+
+      build.onEnd((result) => {
+        if (result.errors && result.errors.length > 0) return
+        const outputs = result.outputFiles
+        if (!outputs || outputs.length === 0) return
+
+        // Precompute the full set of paths this build will emit so the rewriter
+        // can resolve `./foo` → `./foo/index.js` for directory-with-barrel imports
+        // without querying the filesystem (nothing is on disk yet with write: false).
+        const knownOutputPaths = new Set(outputs.map((file) => file.path))
+        const effectiveOptions = { ...contentRewriteOptions, knownOutputPaths }
+
+        for (const file of outputs) {
+          let data = file.contents
+          if (file.path.endsWith('.js')) {
+            const text = Buffer.from(file.contents).toString('utf-8')
+            const rewritten = rewriteRelativeImports(text, dirname(file.path), effectiveOptions)
+            if (rewritten !== text) {
+              data = Buffer.from(rewritten, 'utf-8')
+            }
+          }
+          const changed = atomicWriteFileSync(file.path, data)
+          onWrite?.(file.path, changed)
+        }
+      })
+    },
+  }
+}

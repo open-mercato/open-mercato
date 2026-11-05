@@ -1,0 +1,388 @@
+"use client"
+
+import * as React from 'react'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { hasFeature } from '@open-mercato/shared/security/features'
+
+const MANAGE_FEATURE = 'configs.cache.manage'
+
+const API_PATH = '/api/configs/cache'
+const CACHE_MUTATION_CONTEXT_ID = 'configs-cache-panel'
+
+type CrudCacheSegment = {
+  segment: string
+  resource: string | null
+  method: string | null
+  path: string | null
+  keyCount: number
+}
+
+type CrudCacheStats = {
+  generatedAt: string
+  totalKeys: number
+  segments: CrudCacheSegment[]
+}
+
+type FetchState = {
+  loading: boolean
+  error: string | null
+  stats: CrudCacheStats | null
+}
+
+export function CachePanel() {
+  const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const [state, setState] = React.useState<FetchState>({ loading: true, error: null, stats: null })
+  const [canManage, setCanManage] = React.useState(false)
+  const [checkingFeature, setCheckingFeature] = React.useState(true)
+  const [purgingAll, setPurgingAll] = React.useState(false)
+  const [segmentPurges, setSegmentPurges] = React.useState<Record<string, boolean>>({})
+
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: CACHE_MUTATION_CONTEXT_ID,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+  const cacheMutationContext = React.useMemo(
+    () => ({
+      formId: CACHE_MUTATION_CONTEXT_ID,
+      resourceKind: 'configs.cache',
+      retryLastMutation,
+    }),
+    [retryLastMutation],
+  )
+
+  const loadStats = React.useCallback(async () => {
+    setState((current) => ({ ...current, loading: true, error: null }))
+    try {
+      const stats = await readApiResultOrThrow<CrudCacheStats>(API_PATH, undefined, {
+        errorMessage: t('configs.cache.loadError', 'Failed to load cache statistics.'),
+      })
+      setState({ loading: false, error: null, stats })
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : t('configs.cache.loadError', 'Failed to load cache statistics.')
+      setState({ loading: false, error: message, stats: null })
+    }
+  }, [t])
+
+  React.useEffect(() => {
+    loadStats().catch(() => {})
+  }, [loadStats])
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function checkManageFeature() {
+      try {
+        const payload = await readApiResultOrThrow<{ ok?: boolean; granted?: unknown }>(
+          '/api/auth/feature-check',
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ features: [MANAGE_FEATURE] }),
+          },
+          {
+            errorMessage: t('configs.cache.loadError', 'Failed to load cache statistics.'),
+            allowNullResult: true,
+          },
+        )
+        if (cancelled) return
+        const granted = Array.isArray(payload?.granted)
+          ? (payload.granted as unknown[]).filter((feature) => typeof feature === 'string') as string[]
+          : []
+        const canManageFeature = payload?.ok === true || hasFeature(granted, MANAGE_FEATURE)
+        setCanManage(canManageFeature)
+      } catch {
+        if (!cancelled) setCanManage(false)
+      } finally {
+        if (!cancelled) setCheckingFeature(false)
+      }
+    }
+    checkManageFeature().catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [t])
+
+  const handleRefresh = React.useCallback(() => {
+    loadStats().catch(() => {})
+  }, [loadStats])
+
+  const handlePurgeAll = React.useCallback(async () => {
+    if (!canManage || purgingAll) return
+    const confirmed = await confirm({
+      title: t('configs.cache.purgeAllConfirm', 'Purge all cached entries for this tenant?'),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
+    setPurgingAll(true)
+    try {
+      const payload = await runMutation({
+        operation: () =>
+          readApiResultOrThrow<{ stats?: CrudCacheStats }>(
+            API_PATH,
+            {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ action: 'purgeAll' }),
+            },
+            {
+              errorMessage: t('configs.cache.purgeError', 'Failed to purge cache segment.'),
+              allowNullResult: true,
+            },
+          ),
+        context: cacheMutationContext,
+        mutationPayload: { action: 'purgeAll' },
+      })
+      const stats = payload?.stats
+      if (stats) {
+        setState({ loading: false, error: null, stats })
+      } else {
+        handleRefresh()
+      }
+      flash(t('configs.cache.purgeAllSuccess', 'Cache cleared.'), 'success')
+      setSegmentPurges({})
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : t('configs.cache.purgeError', 'Failed to purge cache segment.')
+      flash(message, 'error')
+    } finally {
+      setPurgingAll(false)
+    }
+  }, [canManage, confirm, purgingAll, t, handleRefresh, runMutation, cacheMutationContext]);
+
+
+  const handlePurgeSegment = React.useCallback(async (segment: string) => {
+    if (!canManage || segmentPurges[segment]) return
+    const confirmed = await confirm({
+      title: t('configs.cache.purgeSegmentConfirm', 'Purge cached entries for this segment?'),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
+    setSegmentPurges((prev) => ({ ...prev, [segment]: true }))
+    try {
+      const payload = await runMutation({
+        operation: () =>
+          readApiResultOrThrow<{ stats?: CrudCacheStats; deleted?: number }>(
+            API_PATH,
+            {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ action: 'purgeSegment', segment }),
+            },
+            {
+              errorMessage: t('configs.cache.purgeError', 'Failed to purge cache segment.'),
+              allowNullResult: true,
+            },
+          ),
+        context: cacheMutationContext,
+        mutationPayload: { action: 'purgeSegment', segment },
+      })
+      const stats = payload?.stats
+      if (stats) {
+        setState({ loading: false, error: null, stats })
+      } else {
+        handleRefresh()
+      }
+      const deleted = typeof payload?.deleted === 'number' ? payload.deleted : 0
+      flash(
+        t('configs.cache.purgeSegmentSuccess', {
+          segment,
+          count: deleted,
+        }),
+        'success'
+      )
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : t('configs.cache.purgeError', 'Failed to purge cache segment.')
+      flash(message, 'error')
+    } finally {
+      setSegmentPurges((prev) => {
+        const next = { ...prev }
+        delete next[segment]
+        return next
+      })
+    }
+  }, [canManage, confirm, segmentPurges, t, handleRefresh, runMutation, cacheMutationContext]);
+
+  if (state.loading) {
+    return (
+      <section className="space-y-3 rounded-lg border bg-background p-6">
+        {ConfirmDialogElement}
+        <header className="space-y-1">
+          <h2 className="text-lg font-semibold">{t('configs.cache.title', 'Cache overview')}</h2>
+          <p className="text-sm text-muted-foreground">
+            {t('configs.cache.description', 'Inspect cached responses and clear segments when necessary.')}
+          </p>
+        </header>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Spinner className="h-4 w-4" />
+          {t('configs.cache.loading', 'Loading cache statistics…')}
+        </div>
+      </section>
+    )
+  }
+
+  if (state.error) {
+    return (
+      <section className="space-y-3 rounded-lg border bg-background p-6">
+        {ConfirmDialogElement}
+        <header className="space-y-1">
+          <h2 className="text-lg font-semibold">{t('configs.cache.title', 'Cache overview')}</h2>
+          <p className="text-sm text-muted-foreground">
+            {t('configs.cache.description', 'Inspect cached responses and clear segments when necessary.')}
+          </p>
+        </header>
+        <ErrorMessage label={state.error} />
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" type="button" onClick={handleRefresh}>
+            {t('configs.cache.retry', 'Retry')}
+          </Button>
+        </div>
+      </section>
+    )
+  }
+
+  const stats = state.stats
+  const canShowActions = !checkingFeature && canManage
+
+  return (
+    <section className="space-y-6 rounded-lg border bg-background p-6">
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="space-y-1">
+          <h2 className="text-lg font-semibold">{t('configs.cache.title', 'Cache overview')}</h2>
+          <p className="text-sm text-muted-foreground">
+            {t('configs.cache.description', 'Inspect cached responses and clear segments when necessary.')}
+          </p>
+          {stats ? (
+            <>
+              <p className="text-xs text-muted-foreground">
+                {t(
+                  'configs.cache.generatedAt',
+                  'Stats generated {{timestamp}}',
+                  { timestamp: new Date(stats.generatedAt).toLocaleString() }
+                )}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {t(
+                  'configs.cache.totalEntries',
+                  '{{count}} cached entries',
+                  { count: stats.totalKeys }
+                )}
+              </p>
+            </>
+          ) : null}
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" type="button" onClick={handleRefresh}>
+            {t('configs.cache.refresh', 'Refresh')}
+          </Button>
+          {canShowActions ? (
+            <Button variant="destructive" type="button" disabled={purgingAll} onClick={() => { void handlePurgeAll() }}>
+              {purgingAll
+                ? t('configs.cache.purgeAllLoading', 'Purging…')
+                : t('configs.cache.purgeAll', 'Purge all cache')}
+            </Button>
+          ) : null}
+        </div>
+      </header>
+      <div className="space-y-4 rounded-lg border bg-card p-4">
+        {stats && stats.segments.length ? (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[560px] text-sm">
+              <thead>
+                <tr className="text-xs uppercase tracking-wide text-muted-foreground">
+                  <th className="px-3 py-2 text-left">
+                    {t('configs.cache.table.segment', 'Segment')}
+                  </th>
+                  <th className="px-3 py-2 text-left">
+                    {t('configs.cache.table.path', 'Path')}
+                  </th>
+                  <th className="px-3 py-2 text-left">
+                    {t('configs.cache.table.method', 'Method')}
+                  </th>
+                  <th className="px-3 py-2 text-left">
+                    {t('configs.cache.table.count', 'Cached keys')}
+                  </th>
+                  {canShowActions ? (
+                    <th className="px-3 py-2 text-right">
+                      {t('configs.cache.table.actions', 'Actions')}
+                    </th>
+                  ) : null}
+                </tr>
+              </thead>
+              <tbody>
+                {stats.segments.map((segment) => {
+                  const isPurging = !!segmentPurges[segment.segment]
+                  return (
+                    <tr key={segment.segment} className="border-t">
+                      <td className="px-3 py-2 align-top font-medium">
+                        <div className="flex flex-col">
+                          <span>{segment.segment}</span>
+                          {segment.resource ? (
+                            <span className="text-xs text-muted-foreground">{segment.resource}</span>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 align-top">
+                        <code className="text-xs text-muted-foreground">
+                          {segment.path ?? t('configs.cache.table.pathUnknown', 'n/a')}
+                        </code>
+                      </td>
+                      <td className="px-3 py-2 align-top">
+                        <span className="text-xs uppercase text-muted-foreground">
+                          {segment.method ?? 'GET'}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 align-top">
+                        {t('configs.cache.table.countValue', '{{count}} keys', { count: segment.keyCount })}
+                      </td>
+                      {canShowActions ? (
+                        <td className="px-3 py-2 align-top text-right">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            type="button"
+                            disabled={isPurging}
+                            onClick={() => { void handlePurgeSegment(segment.segment) }}
+                          >
+                            {isPurging
+                              ? t('configs.cache.purgeSegmentLoading', 'Purging…')
+                              : t('configs.cache.purgeSegment', 'Purge segment')}
+                          </Button>
+                        </td>
+                      ) : null}
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            {t('configs.cache.empty', 'No cached responses for this tenant.')}
+          </p>
+        )}
+      </div>
+      {ConfirmDialogElement}
+    </section>
+  )
+}
+
+export default CachePanel

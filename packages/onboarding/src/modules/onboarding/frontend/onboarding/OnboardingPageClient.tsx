@@ -1,0 +1,426 @@
+'use client'
+
+import Image from 'next/image'
+import Link from 'next/link'
+import { useState } from 'react'
+import { useSearchParams } from 'next/navigation'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
+import { formatPasswordRequirements, getPasswordPolicy } from '@open-mercato/shared/lib/auth/passwordPolicy'
+import { onboardingStartSchema } from '@open-mercato/onboarding/modules/onboarding/data/validators'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
+import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
+import { Input } from '@open-mercato/ui/primitives/input'
+import { EmailInput } from '@open-mercato/ui/primitives/email-input'
+import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
+import { Label } from '@open-mercato/ui/primitives/label'
+import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
+
+type SubmissionState = 'idle' | 'loading' | 'success'
+type FieldErrors = Partial<Record<
+  'email' | 'firstName' | 'lastName' | 'organizationName' | 'password' | 'confirmPassword' | 'termsAccepted' | 'marketingConsent',
+  string
+>>
+
+type Props = {
+  onboardingEnabled: boolean
+}
+
+export default function OnboardingPageClient({ onboardingEnabled }: Props) {
+  const t = useT()
+  const translate = (key: string, fallback: string, params?: Record<string, string | number>) =>
+    translateWithFallback(t, key, fallback, params)
+  const locale = useLocale()
+  const searchParams = useSearchParams()
+  const [state, setState] = useState<SubmissionState>('idle')
+  const [globalError, setGlobalError] = useState<string | null>(null)
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
+  const [termsAccepted, setTermsAccepted] = useState(false)
+  const [marketingConsent, setMarketingConsent] = useState(false)
+  const [emailSubmitted, setEmailSubmitted] = useState<string | null>(null)
+  const passwordPolicy = getPasswordPolicy()
+  const passwordRequirements = formatPasswordRequirements(passwordPolicy, translate, 'onboarding.password.requirements')
+  const passwordDescription = passwordRequirements
+    ? translate(
+        'onboarding.password.requirements.help',
+        'Password requirements: {requirements}',
+        { requirements: passwordRequirements },
+      )
+    : ''
+
+  async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!onboardingEnabled) return
+
+    setState('loading')
+    setGlobalError(null)
+    setFieldErrors({})
+
+    const form = new FormData(event.currentTarget)
+    const payload = {
+      email: String(form.get('email') ?? '').trim(),
+      firstName: String(form.get('firstName') ?? '').trim(),
+      lastName: String(form.get('lastName') ?? '').trim(),
+      organizationName: String(form.get('organizationName') ?? '').trim(),
+      password: String(form.get('password') ?? ''),
+      confirmPassword: String(form.get('confirmPassword') ?? ''),
+      termsAccepted,
+      marketingConsent,
+      locale,
+    }
+
+    const parsed = onboardingStartSchema.safeParse(payload)
+    if (!parsed.success) {
+      const issueMap: FieldErrors = {}
+      parsed.error.issues.forEach((issue) => {
+        const path = issue.path[0]
+        if (!path) return
+        switch (path) {
+          case 'email':
+            issueMap.email = translate('onboarding.errors.emailInvalid', 'Enter a valid work email.')
+            break
+          case 'firstName':
+            issueMap.firstName = translate('onboarding.errors.firstNameRequired', 'First name is required.')
+            break
+          case 'lastName':
+            issueMap.lastName = translate('onboarding.errors.lastNameRequired', 'Last name is required.')
+            break
+          case 'organizationName':
+            issueMap.organizationName = translate('onboarding.errors.organizationNameRequired', 'Organization name is required.')
+            break
+          case 'password':
+            issueMap.password = translate(
+              'onboarding.errors.passwordRequired',
+              'Password must meet the requirements: {requirements}.',
+              { requirements: passwordRequirements },
+            )
+            break
+          case 'confirmPassword':
+            issueMap.confirmPassword = translate('onboarding.errors.passwordMismatch', 'Passwords must match.')
+            break
+          case 'termsAccepted':
+            issueMap.termsAccepted = translate('onboarding.form.termsRequired', 'Please accept the terms to continue.')
+            break
+          default:
+            break
+        }
+      })
+      if (!issueMap.termsAccepted && !termsAccepted) {
+        issueMap.termsAccepted = translate('onboarding.form.termsRequired', 'Please accept the terms to continue.')
+      }
+      setFieldErrors(issueMap)
+      setState('idle')
+      return
+    }
+
+    try {
+      const call = await apiCall<{ ok?: boolean; error?: string; email?: string; fieldErrors?: Record<string, string> }>(
+        '/api/onboarding/onboarding',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ ...parsed.data, termsAccepted: true, marketingConsent }),
+        },
+      )
+      const data = call.result ?? {}
+      if (!call.ok || data.ok === false) {
+        if (data.fieldErrors && typeof data.fieldErrors === 'object') {
+          const mapped: FieldErrors = {}
+          for (const key of Object.keys(data.fieldErrors)) {
+            const value = data.fieldErrors[key]
+            if (typeof value === 'string' && value.trim()) {
+              mapped[key as keyof FieldErrors] = value
+            }
+          }
+          setFieldErrors(mapped)
+        }
+        const message = typeof data.error === 'string' && data.error.trim()
+          ? data.error
+          : translate('onboarding.form.genericError', 'Something went wrong. Please try again.')
+        setGlobalError(message)
+        setState('idle')
+        return
+      }
+      setEmailSubmitted(data.email ?? parsed.data.email)
+      setState('success')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : ''
+      setGlobalError(message || translate('onboarding.form.genericError', 'Something went wrong. Please try again.'))
+      setState('idle')
+    }
+  }
+
+  const onboardingDisabled = !onboardingEnabled
+  const submitting = state === 'loading'
+  const disabled = onboardingDisabled || submitting || state === 'success'
+  const verifyStatusMessages: Record<string, string> = {
+    redirect_misconfigured: translate(
+      'onboarding.verifyStatus.redirectMisconfigured',
+      'The verification link cannot redirect safely because APP_URL does not match the URL that handled the request. Check APP_URL and APP_ALLOWED_ORIGINS, then open the verification link again.',
+    ),
+    origin_not_allowed: translate(
+      'onboarding.verifyStatus.originNotAllowed',
+      'The verification link was opened from an origin that is not allowed. Check APP_URL and APP_ALLOWED_ORIGINS, then open the verification link again.',
+    ),
+    url_not_configured: translate(
+      'onboarding.verifyStatus.urlNotConfigured',
+      'Onboarding verification is not configured. APP_URL must be set before verification links can be used.',
+    ),
+    already_exists: translate(
+      'onboarding.verifyStatus.alreadyExists',
+      'We already have an account with this email. Try signing in or resetting your password.',
+    ),
+    invalid: translate(
+      'onboarding.verifyStatus.invalid',
+      'The verification link is invalid or expired. Submit the onboarding form again to receive a new link.',
+    ),
+    error: translate(
+      'onboarding.verifyStatus.error',
+      'We could not complete verification. Please try again or contact support.',
+    ),
+  }
+  const verifyStatus = searchParams.get('status') ?? ''
+  const verifyStatusError = verifyStatusMessages[verifyStatus] ?? null
+
+  return (
+    <div className="relative flex min-h-svh items-center justify-center bg-muted/50 px-4 pb-24">
+      <Card className="relative w-full max-w-lg overflow-hidden shadow-lg">
+        {onboardingDisabled ? (
+          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-background/80 p-6 backdrop-blur-[2px]">
+            <div
+              className="max-w-sm rounded-xl border border-border/70 bg-background/95 px-5 py-4 text-center shadow-sm"
+              role="alert"
+              aria-live="polite"
+            >
+              <p className="text-base font-semibold text-foreground">
+                {translate('onboarding.disabled.title', 'Self-service onboarding is currently unavailable')}
+              </p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                {translate(
+                  'onboarding.disabled.description',
+                  'Workspace creation is currently handled manually. Contact the Open Mercato team or your administrator to request access before continuing.',
+                )}
+              </p>
+              <div className="mt-4 flex justify-center">
+                <Button asChild variant="outline">
+                  <Link href="/login">
+                    {translate('onboarding.disabled.cta', 'Go to login')}
+                  </Link>
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+        <CardHeader className="flex flex-col gap-4 p-10 text-center">
+          <div className="flex flex-col items-center gap-3">
+            <Image alt="Open Mercato" src="/open-mercato.svg" width={120} height={120} priority />
+            <CardTitle className="text-2xl font-semibold">
+              {translate('onboarding.title', 'Create your Open Mercato workspace')}
+            </CardTitle>
+            <CardDescription>
+              {translate('onboarding.subtitle', 'Tell us a bit about you and we will set everything up.')}
+            </CardDescription>
+          </div>
+        </CardHeader>
+        <CardContent className={onboardingDisabled ? 'pb-10 opacity-45' : 'pb-10'}>
+          {state === 'success' && emailSubmitted && (
+            <div className="mb-6 rounded-md border border-status-success-border bg-status-success-bg px-4 py-3 text-sm text-status-success-text" role="status" aria-live="polite">
+              <strong className="block text-sm font-medium">
+                {translate('onboarding.form.successTitle', 'Check your inbox')}
+              </strong>
+              <p>
+                {translate('onboarding.form.successBody', 'We sent a verification link to {email}. Confirm it within 24 hours to activate your workspace.', { email: emailSubmitted })}
+              </p>
+            </div>
+          )}
+          {state !== 'success' && (globalError || verifyStatusError) && (
+            <Alert status="error" style="lighter" showIcon={false} className="mb-4 text-sm" aria-live="assertive">
+              <AlertDescription>{globalError || verifyStatusError}</AlertDescription>
+            </Alert>
+          )}
+          <form className="grid gap-4" onSubmit={onSubmit} noValidate>
+            <div className="grid gap-1">
+              <Label htmlFor="email">{translate('onboarding.form.email', 'Work email')}</Label>
+              <EmailInput
+                id="email"
+                name="email"
+                required
+                disabled={disabled}
+                aria-invalid={Boolean(fieldErrors.email)}
+                aria-describedby={fieldErrors.email ? 'email-error' : undefined}
+              />
+              {fieldErrors.email && (
+                <p id="email-error" className="text-xs text-status-error-text">{fieldErrors.email}</p>
+              )}
+            </div>
+            <div className="grid gap-1 sm:grid-cols-2 sm:gap-4">
+              <div className="grid gap-1">
+                <Label htmlFor="firstName">{translate('onboarding.form.firstName', 'First name')}</Label>
+                <Input
+                  id="firstName"
+                  name="firstName"
+                  type="text"
+                  required
+                  disabled={disabled}
+                  autoComplete="given-name"
+                  aria-invalid={Boolean(fieldErrors.firstName)}
+                  aria-describedby={fieldErrors.firstName ? 'firstName-error' : undefined}
+                />
+                {fieldErrors.firstName && (
+                  <p id="firstName-error" className="text-xs text-status-error-text">{fieldErrors.firstName}</p>
+                )}
+              </div>
+              <div className="grid gap-1">
+                <Label htmlFor="lastName">{translate('onboarding.form.lastName', 'Last name')}</Label>
+                <Input
+                  id="lastName"
+                  name="lastName"
+                  type="text"
+                  required
+                  disabled={disabled}
+                  autoComplete="family-name"
+                  aria-invalid={Boolean(fieldErrors.lastName)}
+                  aria-describedby={fieldErrors.lastName ? 'lastName-error' : undefined}
+                />
+                {fieldErrors.lastName && (
+                  <p id="lastName-error" className="text-xs text-status-error-text">{fieldErrors.lastName}</p>
+                )}
+              </div>
+            </div>
+            <div className="grid gap-1">
+              <Label htmlFor="organizationName">{translate('onboarding.form.organizationName', 'Organization name')}</Label>
+              <Input
+                id="organizationName"
+                name="organizationName"
+                type="text"
+                required
+                disabled={disabled}
+                autoComplete="organization"
+                aria-invalid={Boolean(fieldErrors.organizationName)}
+                aria-describedby={fieldErrors.organizationName ? 'organizationName-error' : undefined}
+              />
+              {fieldErrors.organizationName && (
+                <p id="organizationName-error" className="text-xs text-status-error-text">{fieldErrors.organizationName}</p>
+              )}
+            </div>
+            <div className="grid gap-1">
+              <Label htmlFor="password">{translate('onboarding.form.password', 'Password')}</Label>
+              <PasswordInput
+                id="password"
+                name="password"
+                required
+                disabled={disabled}
+                autoComplete="new-password"
+                minLength={passwordPolicy.minLength}
+                aria-invalid={Boolean(fieldErrors.password)}
+                aria-describedby={fieldErrors.password ? 'password-error' : undefined}
+              />
+              {passwordDescription ? (
+                <p className="text-xs text-muted-foreground">{passwordDescription}</p>
+              ) : null}
+              {fieldErrors.password && (
+                <p id="password-error" className="text-xs text-status-error-text">{fieldErrors.password}</p>
+              )}
+            </div>
+            <div className="grid gap-1">
+              <Label htmlFor="confirmPassword">{translate('onboarding.form.confirmPassword', 'Confirm password')}</Label>
+              <PasswordInput
+                id="confirmPassword"
+                name="confirmPassword"
+                required
+                disabled={disabled}
+                autoComplete="new-password"
+                aria-invalid={Boolean(fieldErrors.confirmPassword)}
+                aria-describedby={fieldErrors.confirmPassword ? 'confirmPassword-error' : undefined}
+              />
+              {fieldErrors.confirmPassword && (
+                <p id="confirmPassword-error" className="text-xs text-status-error-text">{fieldErrors.confirmPassword}</p>
+              )}
+            </div>
+            <label className="flex items-start gap-3 text-sm text-muted-foreground">
+              <Checkbox
+                id="terms"
+                checked={termsAccepted}
+                disabled={disabled}
+                onCheckedChange={(value: boolean | 'indeterminate') => {
+                  setTermsAccepted(value === true)
+                  if (value === true) {
+                    setFieldErrors((prev) => {
+                      const next = { ...prev }
+                      delete next.termsAccepted
+                      return next
+                    })
+                  }
+                }}
+                aria-invalid={Boolean(fieldErrors.termsAccepted)}
+              />
+              <span>
+                {translate('onboarding.form.termsLabel', 'I have read and accept the ')}
+                <a className="underline hover:text-foreground" href="/terms" target="_blank" rel="noreferrer">
+                  {translate('onboarding.form.termsLink', 'Terms of Service')}
+                </a>
+                {translate('onboarding.form.termsAnd', ' and ')}
+                <a className="underline hover:text-foreground" href="/privacy" target="_blank" rel="noreferrer">
+                  {translate('onboarding.form.privacyLink', 'Privacy Policy')}
+                </a>
+                {fieldErrors.termsAccepted && (
+                  <span className="mt-1 block text-xs text-status-error-text">{fieldErrors.termsAccepted}</span>
+                )}
+              </span>
+            </label>
+            <label className="flex items-start gap-3 text-sm text-muted-foreground">
+              <Checkbox
+                id="marketingConsent"
+                checked={marketingConsent}
+                disabled={disabled}
+                onCheckedChange={(value: boolean | 'indeterminate') => {
+                  setMarketingConsent(value === true)
+                }}
+              />
+              <span>
+                {translate(
+                  'onboarding.form.marketingLabel',
+                  "I consent to receiving direct marketing from Open Mercato sp. z o.o. by email at the address I provide. I'm aware that I can withdraw my consent at any time (e.g., via the unsubscribe link), and that Open Mercato sp. z o.o. may also process my email address under its legitimate interests to manage its mailing list, keep proof of my consent, and record opt-outs. See our {termsLink} and {privacyLink}.",
+                )
+                  .split(/{termsLink}|{privacyLink}/)
+                  .map((part, index, parts) => (
+                    <span key={index}>
+                      {part}
+                      {index < parts.length - 1 && (
+                        index === 0 ? (
+                          <a className="underline hover:text-foreground" href="/terms" target="_blank" rel="noreferrer">
+                            {translate('onboarding.form.termsLink', 'Terms of Service')}
+                          </a>
+                        ) : (
+                          <a className="underline hover:text-foreground" href="/privacy" target="_blank" rel="noreferrer">
+                            {translate('onboarding.form.privacyLink', 'Privacy Policy')}
+                          </a>
+                        )
+                      )}
+                    </span>
+                  ))}
+              </span>
+            </label>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              {translate(
+                'onboarding.form.legalEntity',
+                'Open Mercato sp. z o.o., with its registered office at ul. Wyspa Słodowa 7, 50-266 Wrocław, Poland, entered into the Register of Entrepreneurs of the National Court Register (KRS) maintained by the District Court for Wrocław-Fabryczna in Wrocław, 6th Commercial Division of the National Court Register, under KRS No. 0001253104, VAT No. (NIP) PL8982336029, REGON 545230330, with a share capital of PLN 80,000.00, fully paid.',
+              )}
+            </p>
+            <Button
+              type="submit"
+              disabled={disabled}
+              className="mt-2 h-11 bg-foreground text-background transition hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {submitting
+                ? translate('onboarding.form.loading', 'Sending...')
+                : translate('onboarding.form.submit', 'Send verification email')}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}

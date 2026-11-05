@@ -1,0 +1,60 @@
+---
+title: Price kinds
+description: Define named pricing tiers such as Regular and Sale, control how each one displays tax, and use them to drive product prices and per-channel offer overrides.
+---
+
+A **price kind** is a named pricing tier that a price belongs to—for example **Regular** or **Sale**. Every product, variant, and sales-channel offer price is stored against a price kind, so the same item can carry a standard price and one or more promotional prices at the same time. Price kinds live in the **Catalog** module and are shared across the catalog and sales surfaces.
+
+## Built-in price kinds
+
+A fresh install seeds two price kinds so pricing works out of the box:
+
+| Title | Code | Promotion? | Display mode | Currency |
+|-------|------|------------|--------------|----------|
+| **Regular** | `regular` | No | Including tax | USD |
+| **Sale** | `sale` | Yes | Including tax | USD |
+
+`Regular` is the everyday price; `Sale` is flagged as a promotion (`isPromotion`) so downstream pricing logic can treat it as a discount tier. You can rename, extend, or add to these to match your business (e.g., `wholesale`, `member`, `msrp`).
+
+## Manage price kinds
+
+Open **Settings → Catalog** (in the **Module Configs** group) to view and edit price kinds. Each price kind captures:
+
+- **Title** – the human-readable label shown in dropdowns and offer tables.
+- **Code** – a stable machine identifier (e.g., `regular`, `sale`) used by APIs, imports, and pricing rules. It must be unique per tenant and is **fixed after creation**—choose it carefully, because it cannot be changed when you edit the kind.
+- **Display mode** – whether prices in this kind are shown **including tax** or **excluding tax**. This drives how amounts render in the backoffice and storefront; see [Taxes](./taxes) for how the tax pipeline computes net/gross.
+- **Currency** – an optional currency code to scope the kind to a single currency, or leave it empty to keep it currency-agnostic.
+- **Promotion** – mark the kind as a promotional tier (e.g., **Sale**) so pricing resolution and reporting can distinguish discounts from list prices.
+- **Active** – deactivate a kind to hide it from new offers without deleting historical prices.
+
+Price kinds are tenant-scoped and can optionally be narrowed to a single organization, so teams can share one common set or maintain their own.
+
+:::note
+A price kind cannot be deleted while product or offer prices still reference it—the link is protected to avoid orphaning prices. Deactivate the kind, or reassign the affected prices, before removing it.
+:::
+
+## How price kinds shape pricing
+
+Prices cascade from the catalog down to each channel, and the price kind is what ties an override back to the tier it belongs to:
+
+- **Base prices** on a product or variant are recorded per price kind, so a variant can hold both a `regular` and a `sale` amount.
+- **Sales channel offers** can add **price overrides per price kind**. An override takes precedence over the channel price while the offer is active—so a **Sale** override replaces the **Regular** price only where and when you set it.
+- The **Sales → Sales channel offers** list can be **filtered by price kind**, making it easy to audit every promotional price across channels.
+
+![Channel price and per-price-kind overrides](/screenshots/open-mercato-override-sales-channel-prices.png)
+
+For the full offer and channel workflow, see [Products and sales channels](./products-and-sales-channels#how-pricing-works).
+
+## Price resolution
+
+When the catalog resolves the price to show for a product, variant, or offer, it selects the best matching price row for the current context (channel, currency, customer group, and price kind). The promotion flag lets a **Sale** kind win over **Regular** where a valid promotional price exists. Developers can customize which price wins—for example, prefer a member-only kind for logged-in loyalty customers—by registering a pricing resolver; see [Pricing and tax overrides](../framework/pricing-tax-overrides) for the extension points (`registerCatalogPricingResolver`, `catalog.pricing.resolve.*` events).
+
+## API access
+
+Price kinds are exposed through the catalog API at `/api/catalog/price-kinds` (list, create, update, delete). All operations require authentication and the `catalog.settings.manage` feature.
+
+## Access control
+
+- **View and manage price kinds** requires `catalog.settings.manage`.
+- This is an administrator-level catalog setting: the default **admin** role includes it (through `catalog.*`), while staff who only manage products and prices do not get it by default.
+- Pair this with organization scope so users only manage price kinds for the tenants they are allowed to access.

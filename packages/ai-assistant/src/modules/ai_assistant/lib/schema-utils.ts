@@ -1,0 +1,209 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { z, type ZodType } from 'zod'
+
+const logger = createLogger('ai_assistant')
+
+/**
+ * Cache for converted safe schemas to avoid repeated conversions per request.
+ */
+const safeSchemaCache = new WeakMap<ZodType, ZodType>()
+
+function coerceNumberLike(value: unknown): unknown {
+  if (typeof value !== 'string') return value
+  const trimmed = value.trim()
+  if (trimmed.length === 0) return value
+  return Number(trimmed)
+}
+
+function jsonNumberSchemaToZod(jsonSchema: Record<string, unknown>, integer: boolean): ZodType {
+  let numberSchema = integer ? z.number().int() : z.number()
+  const minimum = jsonSchema.minimum
+  const maximum = jsonSchema.maximum
+  const exclusiveMinimum = jsonSchema.exclusiveMinimum
+  const exclusiveMaximum = jsonSchema.exclusiveMaximum
+
+  if (typeof minimum === 'number') numberSchema = numberSchema.min(minimum)
+  if (typeof maximum === 'number') numberSchema = numberSchema.max(maximum)
+  if (typeof exclusiveMinimum === 'number') numberSchema = numberSchema.gt(exclusiveMinimum)
+  if (typeof exclusiveMaximum === 'number') numberSchema = numberSchema.lt(exclusiveMaximum)
+
+  return z.preprocess(coerceNumberLike, numberSchema)
+}
+
+/**
+ * Convert a JSON Schema to a simple Zod schema.
+ * This creates a schema that can be converted back to JSON Schema without errors.
+ *
+ * Supports:
+ * - Basic types: string, number, integer, boolean, null
+ * - Arrays with item types
+ * - Objects with properties and required fields
+ * - Records/dictionaries via additionalProperties
+ * - Union types via anyOf/oneOf
+ * - Enum values
+ * - `description` and `default`, which a model needs to call the tool correctly
+ */
+export function jsonSchemaToZod(jsonSchema: Record<string, unknown>): ZodType {
+  let schema = jsonSchemaTypeToZod(jsonSchema)
+  if (hasNonObjectDefault(jsonSchema)) {
+    schema = schema.default(jsonSchema.default)
+  }
+  if (typeof jsonSchema.description === 'string' && jsonSchema.description.length > 0) {
+    schema = schema.describe(jsonSchema.description)
+  }
+  return schema
+}
+
+// Object schemas stay unwrapped so callers can still `.passthrough()` the root; the tool's own
+// schema applies an object default when the tool runs.
+function hasNonObjectDefault(jsonSchema: Record<string, unknown>): boolean {
+  return 'default' in jsonSchema && jsonSchema.type !== 'object'
+}
+
+function isLiteralValue(value: unknown): value is string | number | boolean | null {
+  return value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+}
+
+function jsonEnumToZod(values: unknown[]): ZodType | null {
+  if (values.length === 0 || !values.every(isLiteralValue)) return null
+  if (values.every((value): value is string => typeof value === 'string')) {
+    return z.enum(values as [string, ...string[]])
+  }
+  return z.literal(values)
+}
+
+function jsonSchemaTypeToZod(jsonSchema: Record<string, unknown>): ZodType {
+  const type = jsonSchema.type as string | undefined
+
+  const enumSchema = Array.isArray(jsonSchema.enum) ? jsonEnumToZod(jsonSchema.enum) : null
+  if (enumSchema) {
+    return enumSchema
+  }
+
+  if (type === 'string') {
+    return z.string()
+  }
+  if (type === 'number' || type === 'integer') {
+    return jsonNumberSchemaToZod(jsonSchema, type === 'integer')
+  }
+  if (type === 'boolean') {
+    return z.boolean()
+  }
+  if (type === 'null') {
+    return z.null()
+  }
+  if (type === 'array') {
+    const items = jsonSchema.items as Record<string, unknown> | undefined
+    if (items) {
+      return z.array(jsonSchemaToZod(items))
+    }
+    return z.array(z.unknown())
+  }
+  if (type === 'object') {
+    const properties = jsonSchema.properties as Record<string, Record<string, unknown>> | undefined
+    const required = (jsonSchema.required as string[]) || []
+    const additionalProperties = jsonSchema.additionalProperties
+
+    // Handle z.record() - objects with additionalProperties but no fixed properties.
+    // Skip the record path when properties is present but empty — that is a
+    // no-arg object schema, not a dictionary. OpenAI requires `properties: {}`
+    // in the JSON Schema, and `z.object({})` produces that, whereas
+    // `z.record()` does not.
+    const hasFixedProperties = properties && Object.keys(properties).length > 0
+    if (additionalProperties && !hasFixedProperties && properties === undefined) {
+      // This is a record/dictionary type - allow any properties
+      if (typeof additionalProperties === 'object') {
+        return z.record(z.string(), jsonSchemaToZod(additionalProperties as Record<string, unknown>))
+      }
+      // additionalProperties: true means any value
+      return z.record(z.string(), z.unknown())
+    }
+
+    if (properties) {
+      const shape: Record<string, ZodType> = {}
+      for (const [key, propSchema] of Object.entries(properties)) {
+        let fieldSchema = jsonSchemaToZod(propSchema)
+        // Make field optional if not in required array; a field with a default already accepts a missing value
+        if (!required.includes(key) && !hasNonObjectDefault(propSchema)) {
+          fieldSchema = fieldSchema.optional()
+        }
+        shape[key] = fieldSchema
+      }
+      // If additionalProperties is allowed, use passthrough
+      if (additionalProperties) {
+        return z.object(shape).passthrough()
+      }
+      return z.object(shape)
+    }
+
+    // Empty object with additionalProperties - treat as record
+    if (additionalProperties) {
+      return z.record(z.string(), z.unknown())
+    }
+    return z.object({})
+  }
+
+  // Handle union types (anyOf, oneOf)
+  const anyOf = jsonSchema.anyOf as Record<string, unknown>[] | undefined
+  const oneOf = jsonSchema.oneOf as Record<string, unknown>[] | undefined
+  const unionTypes = anyOf || oneOf
+  if (unionTypes && unionTypes.length >= 2) {
+    const schemas = unionTypes.map(s => jsonSchemaToZod(s))
+    return z.union(schemas as [ZodType, ZodType, ...ZodType[]])
+  }
+
+  // Handle nullable via anyOf with null
+  if (anyOf && anyOf.length === 2) {
+    const types = anyOf.map((s) => s.type)
+    if (types.includes('null')) {
+      const nonNullSchema = anyOf.find((s) => s.type !== 'null')
+      if (nonNullSchema) {
+        return jsonSchemaToZod(nonNullSchema).nullable()
+      }
+    }
+  }
+
+  // Fallback for empty schemas (like Date converted with unrepresentable: 'any')
+  return z.unknown()
+}
+
+/**
+ * Convert a Zod schema to a safe Zod schema that has no Date types.
+ * Uses JSON Schema as an intermediate format to handle all Zod v4 internal complexities.
+ * Results are cached to avoid repeated conversions.
+ *
+ * @param schema - The original Zod schema
+ * @returns A safe Zod schema without Date types
+ */
+export function toSafeZodSchema(schema: ZodType): ZodType {
+  // Check cache first
+  const cached = safeSchemaCache.get(schema)
+  if (cached) {
+    return cached
+  }
+
+  try {
+    // Use Zod 4's toJSONSchema with unrepresentable: 'any' to handle Date types.
+    // `io: 'input'` describes what the caller (the model) sends, so a `.default()` field stays optional.
+    const jsonSchema = z.toJSONSchema(schema, { io: 'input', unrepresentable: 'any' }) as Record<string, unknown>
+
+    // OpenAI requires `properties` on object schemas. Empty passthrough objects
+    // (tools that take no args) roundtrip as `{ type: "object", additionalProperties: true }`
+    // without `properties`, which OpenAI rejects. Ensure `properties` is present.
+    if (jsonSchema.type === 'object' && !jsonSchema.properties) {
+      jsonSchema.properties = {}
+    }
+
+    // Convert back to a simple Zod schema without Date types
+    const safeSchema = jsonSchemaToZod(jsonSchema)
+
+    // Cache the result
+    safeSchemaCache.set(schema, safeSchema)
+
+    return safeSchema
+  } catch (error) {
+    logger.error('Schema Utils — Error converting schema', { err: error })
+    // Fallback to the original schema if conversion fails
+    return schema
+  }
+}

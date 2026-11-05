@@ -1,0 +1,36 @@
+---
+title: Adjustments
+description: Apply shipping fees, surcharges, discounts, and taxes that flow into document totals.
+sidebar_label: Adjustments
+---
+
+Adjustments let you add charges or discounts without editing line items. They support percentage or fixed amounts and respect tax classes. Access requires order/quote manage plus `sales.settings.manage` to curate kinds and tax rates.
+
+![Adjustment dialog](/screenshots/open-mercato-orders-order-add-adjustments.png)
+
+## Add an adjustment
+
+1) Open **Adjustments** on the order/quote and click **Add adjustment**.  
+2) Set **label** and optional **code** for reporting.  
+3) Choose **adjustment kind** (Shipping, Discount, Surcharge, Tax, Custom).  
+4) Pick **calculation mode**: Percentage or Fixed amount.  
+5) Enter **rate** or **net/gross amount**; select a **tax class** if applicable.  
+6) Set **position** to control ordering in totals (optional).  
+7) Save with `Cmd/Ctrl + Enter`; `Escape` cancels.
+
+![Adjustments tab](/screenshots/open-mercato-orders-order-adjustments.png)
+
+## How adjustments roll into totals
+
+- Each adjustment contributes to subtotals and grand totals based on kind and tax class.
+- Shipping and surcharge entries increase totals; discounts reduce them; tax adjustments apply the selected rate or amounts.
+- Order detail shows grouped totals (net, gross, discounts, surcharges, tax) for transparency.
+
+![Totals with adjustments](/screenshots/open-mercato-orders-order-add-adjustments.png)
+
+## Tips
+
+- Predefine **Adjustment kinds** in Sales settings so operators pick from curated options.
+- Use **percentage** for promos tied to the subtotal; use **fixed amount** for fees like “Stripe processing”.
+- Keep tax classes aligned with your catalog pricing for consistent VAT handling.
+

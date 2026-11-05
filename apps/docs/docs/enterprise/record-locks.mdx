@@ -1,0 +1,57 @@
+---
+title: Record locks
+description: Prevent edit collisions with optimistic or pessimistic locking, live editor presence, and conflict resolution.
+---
+
+Record locks help teams avoid accidental overwrites when multiple users edit the same record at the same time.
+
+## Overview
+
+Record locking supports two strategies:
+
+- **Optimistic locking**: Multiple users can edit in parallel, and conflicts are detected when saving.
+- **Pessimistic locking**: The first editor gets an exclusive lock until release or timeout.
+
+You can apply locking only to selected resources and tune timeout/heartbeat values.
+
+## Configure record locking
+
+Open **Settings → Record locking** and configure the behavior for your workspace.
+
+![Record locking settings page](/screenshots/open-mercato-record-locking-settings.png)
+
+Key settings:
+
+- **Enable record locking** to turn the feature on.
+- **Strategy** to choose optimistic or pessimistic mode.
+- **Lock timeout** and **heartbeat interval** to control stale lock cleanup.
+- **Enabled resources** to scope locking to specific resource kinds.
+- **Allow force unlock** for administrative lock recovery.
+- **Allow overriding incoming changes** to let authorized users keep their version during conflicts.
+- **Notify on conflict** to send in-app conflict alerts.
+
+## Live collaboration signals
+
+When another user opens the same record, participants are shown on the record page and notifications are sent.
+
+![Active editors and notifications for a shared record](/screenshots/open-mercato-record-locking-notifications.png)
+
+Record lock UI is mounted through the backend record context spot (`backend:record:current`) and participates in non-`CrudForm` mutation hooks via `GLOBAL_MUTATION_INJECTION_SPOT_ID` (which resolves to `backend:record:current`).
+This means lock presence, notifications, and conflict dialogs can work on both:
+
+- standard `CrudForm` pages
+- custom backend detail pages that save data without `CrudForm` (for example Customers and Sales custom editors)
+
+## Conflict handling
+
+When optimistic locking detects incoming changes, users get a field-level comparison and can choose how to proceed:
+
+- **Accept incoming** to load the newest server state.
+- **Keep my changes** to overwrite with your draft (if permitted).
+- **Keep editing** to continue adjusting before saving again.
+
+![Conflict resolution modal with changed fields](/screenshots/open-mercato-conflict.png)
+
+## Access control
+
+If incoming-change overrides are enabled globally, users still need the corresponding ACL/role feature to keep local edits during conflicts.

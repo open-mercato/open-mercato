@@ -1,0 +1,47 @@
+"use client"
+
+import * as React from 'react'
+import * as PopoverPrimitive from '@radix-ui/react-popover'
+import { cn } from '@open-mercato/shared/lib/utils'
+
+export const Popover = PopoverPrimitive.Root
+
+export const PopoverTrigger = PopoverPrimitive.Trigger
+
+export const PopoverAnchor = PopoverPrimitive.Anchor
+
+export const PopoverClose = PopoverPrimitive.Close
+
+/** Source Popover [1.1] tail; follows Radix side/align and collision handling. */
+export const PopoverArrow = React.forwardRef<
+  React.ElementRef<typeof PopoverPrimitive.Arrow>,
+  React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Arrow>
+>(({ className, width = 12, height = 6, ...props }, ref) => (
+  <PopoverPrimitive.Arrow ref={ref} width={width} height={height} data-slot="popover-arrow" className={cn('fill-popover stroke-border', className)} {...props} />
+))
+PopoverArrow.displayName = 'PopoverArrow'
+
+export const PopoverContent = React.forwardRef<
+  React.ElementRef<typeof PopoverPrimitive.Content>,
+  React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Content>
+>(({ className, align = 'start', sideOffset = 4, ...props }, ref) => (
+  <PopoverPrimitive.Portal>
+    <PopoverPrimitive.Content
+      ref={ref}
+      data-slot="popover-content"
+      align={align}
+      sideOffset={sideOffset}
+      className={cn(
+        'z-popover min-w-[280px] rounded-md border bg-popover p-0 text-popover-foreground shadow-md outline-none',
+        'data-[state=open]:animate-in data-[state=closed]:animate-out',
+        'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
+        'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
+        'data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2',
+        'data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2',
+        className
+      )}
+      {...props}
+    />
+  </PopoverPrimitive.Portal>
+))
+PopoverContent.displayName = PopoverPrimitive.Content.displayName

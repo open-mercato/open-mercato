@@ -1,0 +1,161 @@
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: () => {} }),
+  usePathname: () => '/',
+  useSearchParams: () => new URLSearchParams(),
+}))
+jest.mock('remark-gfm', () => ({ __esModule: true, default: {} }))
+
+import * as React from 'react'
+import { renderToString } from 'react-dom/server'
+import { pl } from 'date-fns/locale/pl'
+import { CrudForm, type CrudField } from '../CrudForm'
+import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
+
+function renderFormWithLocale(
+  fields: CrudField[],
+  locale: string,
+  initialValues?: Record<string, unknown>,
+): string {
+  return renderToString(
+    React.createElement(
+      I18nProvider as React.ComponentType<{
+        locale: string
+        dict: Record<string, string>
+        children: React.ReactNode
+      }>,
+      { locale, dict: {} },
+      React.createElement(CrudForm as React.ComponentType<{
+        title: string
+        fields: CrudField[]
+        initialValues?: Record<string, unknown>
+        onSubmit: () => void
+      }>, {
+        title: 'Form',
+        fields,
+        initialValues,
+        onSubmit: () => {},
+      })
+    )
+  )
+}
+
+function renderForm(
+  fields: CrudField[],
+  initialValues?: Record<string, unknown>,
+): string {
+  return renderToString(
+    React.createElement(
+      I18nProvider as React.ComponentType<{
+        locale: string
+        dict: Record<string, string>
+        children: React.ReactNode
+      }>,
+      { locale: 'en', dict: {} },
+      React.createElement(CrudForm as React.ComponentType<{
+        title: string
+        fields: CrudField[]
+        initialValues?: Record<string, unknown>
+        onSubmit: () => void
+      }>, {
+        title: 'Form',
+        fields,
+        initialValues,
+        onSubmit: () => {},
+      })
+    )
+  )
+}
+
+describe('CrudForm — datetime field types render correct picker component', () => {
+  it('type: datepicker renders DatePicker trigger (aria-haspopup + date placeholder)', () => {
+    const fields: CrudField[] = [{ id: 'due_date', label: 'Due Date', type: 'datepicker' }]
+    const html = renderForm(fields)
+    expect(html).toContain('aria-haspopup="dialog"')
+    expect(html).toContain('Pick a date')
+  })
+
+  it('type: datetime renders DateTimePicker trigger (aria-haspopup + datetime placeholder)', () => {
+    const fields: CrudField[] = [{ id: 'occurred_at', label: 'Occurred At', type: 'datetime' }]
+    const html = renderForm(fields)
+    expect(html).toContain('aria-haspopup="dialog"')
+    expect(html).toContain('Pick date and time')
+  })
+
+  it('type: time renders TimePicker trigger (aria-haspopup + time placeholder)', () => {
+    const fields: CrudField[] = [{ id: 'sync_time', label: 'Sync Time', type: 'time' }]
+    const html = renderForm(fields)
+    expect(html).toContain('aria-haspopup="dialog"')
+    expect(html).toContain('Pick a time')
+  })
+
+  it('type: datetime-local renders DateTimePicker trigger (DS unification — no native input)', () => {
+    const fields: CrudField[] = [{ id: 'at', label: 'At', type: 'datetime-local' }]
+    const html = renderForm(fields)
+    expect(html).toContain('aria-haspopup="dialog"')
+    expect(html).toContain('data-slot="date-picker-trigger"')
+    expect(html).not.toContain('type="datetime-local"')
+  })
+
+  it('type: date renders DatePicker trigger (DS unification — no native input)', () => {
+    const fields: CrudField[] = [{ id: 'dt', label: 'Date', type: 'date' }]
+    const html = renderForm(fields)
+    expect(html).toContain('aria-haspopup="dialog"')
+    expect(html).toContain('data-slot="date-picker-trigger"')
+    expect(html).not.toContain('type="date"')
+  })
+
+  it('datepicker shows formatted date in trigger when initialValues provided', () => {
+    const fields: CrudField[] = [{ id: 'due_date', label: 'Due Date', type: 'datepicker' }]
+    const html = renderForm(fields, { due_date: '2026-02-22' })
+    // parseISO('2026-02-22') = local midnight Feb 22; default format contains year
+    expect(html).toContain('2026')
+  })
+
+  it('datetime shows formatted datetime in trigger when initialValues provided', () => {
+    const fields: CrudField[] = [{ id: 'occurred_at', label: 'Occurred At', type: 'datetime' }]
+    // UTC ISO string → local Date; default format contains year
+    const html = renderForm(fields, { occurred_at: '2026-02-22T12:00:00.000Z' })
+    expect(html).toContain('2026')
+  })
+
+  it('time shows 12h-formatted value in trigger when initialValues provided', () => {
+    const fields: CrudField[] = [{ id: 'sync_time', label: 'Sync Time', type: 'time' }]
+    const html = renderForm(fields, { sync_time: '14:30' })
+    // Legacy TimePicker shim renders the trigger in 12h "HH:MM AM/PM" format to
+    // match the slot list inside the popover.
+    expect(html).toContain('02:30 PM')
+  })
+})
+
+describe('CrudForm — date and time fields agree on the app locale', () => {
+  const DATE_AND_TIME: CrudField[] = [
+    { id: 'due_date', label: 'Due Date', type: 'datepicker' },
+    { id: 'sync_time', label: 'Sync Time', type: 'time' },
+  ]
+  const VALUES = { due_date: '2026-01-15', sync_time: '14:30' }
+
+  // A date field and a time field sitting in the same form must not disagree about which
+  // language they speak: before #5942 the date picker defaulted to English while the time
+  // picker defaulted to a 12h clock, and fixing only one of them is worse than fixing neither.
+  it('localizes both fields for a non-English app', () => {
+    const html = renderFormWithLocale(DATE_AND_TIME, 'pl', VALUES)
+    expect(html).toContain('15 sty 2026')
+    expect(html).toContain('14:30')
+    expect(html).not.toContain('PM')
+  })
+
+  it('leaves both fields on the English defaults for an English app', () => {
+    const html = renderFormWithLocale(DATE_AND_TIME, 'en', VALUES)
+    expect(html).toContain('Jan 15, 2026')
+    expect(html).toContain('02:30 PM')
+  })
+
+  it('lets a field pin its own locale ahead of the app locale', () => {
+    const html = renderFormWithLocale(
+      [{ id: 'due_date', label: 'Due Date', type: 'datepicker', locale: pl }],
+      'en',
+      { due_date: '2026-01-15' },
+    )
+    expect(html).toContain('15 sty 2026')
+  })
+})

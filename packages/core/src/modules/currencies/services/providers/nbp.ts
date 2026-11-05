@@ -1,0 +1,121 @@
+import { RateProvider, RateProviderResult } from './base'
+import { fromZonedTime } from 'date-fns-tz'
+import { fetchWithTimeout, resolveTimeoutMs } from '@open-mercato/shared/lib/http/fetchWithTimeout'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('currencies').child({ component: 'nbp' })
+
+const DEFAULT_RATE_FETCH_TIMEOUT_MS = 15_000
+
+function resolveRateFetchTimeoutMs(): number {
+  const raw = process.env.CURRENCY_RATE_FETCH_TIMEOUT_MS
+  const parsed = raw ? Number.parseInt(raw, 10) : undefined
+  return resolveTimeoutMs(parsed, DEFAULT_RATE_FETCH_TIMEOUT_MS)
+}
+
+interface NBPTableCResponse {
+  table: string
+  no: string
+  tradingDate: string
+  effectiveDate: string
+  rates: Array<{
+    currency: string
+    code: string
+    bid: number
+    ask: number
+  }>
+}
+
+export class NBPProvider implements RateProvider {
+  readonly name = 'NBP (National Bank of Poland)'
+  readonly source = 'NBP'
+  readonly providerBaseCurrency = 'PLN'
+
+  private readonly baseUrl = 'https://api.nbp.pl/api'
+
+  isAvailable(): boolean {
+    return true // Public API, always available
+  }
+
+  async fetchRates(
+    date: Date,
+    scope: { tenantId: string; organizationId: string },
+    availableCurrencies: Set<string>
+  ): Promise<RateProviderResult[]> {
+    // Check if PLN is available (required as base currency for NBP)
+    if (!availableCurrencies.has(this.providerBaseCurrency)) {
+      logger.debug('Skipping: PLN not found in available currencies')
+      return []
+    }
+
+    const dateStr = this.formatDate(date)
+    const url = `${this.baseUrl}/exchangerates/tables/c/${dateStr}/?format=json`
+
+    try {
+      const response = await fetchWithTimeout(url, { timeoutMs: resolveRateFetchTimeoutMs() })
+
+      if (response.status === 404) {
+        // No data for this date (weekend/holiday)
+        logger.debug('No data available', { date: dateStr })
+        return []
+      }
+
+      if (!response.ok) {
+        throw new Error(`NBP API error: ${response.status} ${response.statusText}`)
+      }
+
+      const data: NBPTableCResponse[] = await response.json()
+
+      if (!data || data.length === 0) {
+        return []
+      }
+
+      const table = data[0]
+      const results: RateProviderResult[] = []
+      
+      // Parse as midnight Europe/Warsaw, then convert to UTC for DB storage
+      const effectiveDate = fromZonedTime(
+        `${table.effectiveDate} 00:00:00`,
+        'Europe/Warsaw'
+      )
+
+      for (const rate of table.rates) {
+        // NBP rates are from bank's perspective:
+        // - ASK (sprzedaż): bank sells XXX for PLN → 1 XXX = ask PLN
+        // - BID (kupno): bank buys XXX for PLN → 1 XXX = bid PLN
+        
+        // Rate 1: PLN → XXX (inverse of ASK) - this is when bank SELLS foreign currency
+        // If ask = 4.5 (1 EUR costs 4.5 PLN), then 1 PLN = 1/4.5 EUR
+        results.push({
+          fromCurrencyCode: this.providerBaseCurrency,
+          toCurrencyCode: rate.code,
+          rate: (1 / rate.ask).toString(),
+          source: this.source,
+          date: effectiveDate,
+          type: 'sell', // Bank sells foreign currency (from their perspective)
+        })
+
+        // Rate 2: XXX → PLN (using BID) - this is when bank BUYS foreign currency
+        // If bid = 4.3 (1 EUR gives 4.3 PLN), then 1 EUR = 4.3 PLN
+        results.push({
+          fromCurrencyCode: rate.code,
+          toCurrencyCode: this.providerBaseCurrency,
+          rate: rate.bid.toString(),
+          source: this.source,
+          date: effectiveDate,
+          type: 'buy', // Bank buys foreign currency (from their perspective)
+        })
+      }
+
+      logger.info('Fetched rates', { count: results.length, date: dateStr })
+      return results
+    } catch (err: any) {
+      logger.error('Fetch error', { date: dateStr, err })
+      throw new Error(`Failed to fetch NBP rates: ${err.message}`)
+    }
+  }
+
+  private formatDate(date: Date): string {
+    return date.toISOString().split('T')[0] // YYYY-MM-DD
+  }
+}
