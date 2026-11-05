@@ -14,6 +14,7 @@ import {
 } from '../packages/cli/src/lib/testing/runtime-utils'
 import { createDevSplashCodingFlow } from './dev-splash-coding-flow.mjs'
 import { createEnvFileFromExample } from './dev-env-file.mjs'
+import { createEphemeralDatabaseGuard } from '../packages/cli/src/lib/testing/ephemeral-database-guard'
 import { createEphemeralShutdownController } from './dev-ephemeral-shutdown.mjs'
 import { acquireDevSessionWithRecovery as acquireDevSession } from './dev-session-recovery.mjs'
 import { normalizeSplashDisplayState } from './dev-splash-state.mjs'
@@ -167,6 +168,7 @@ let splashServer: ReturnType<typeof createServer> | null = null
 let splashHtmlTemplate: string | null = null
 let splashLogoSvg: string | null = null
 let shuttingDown = false
+let ephemeralDatabaseGuardDirectory: string | null = null
 const codingFlow = createDevSplashCodingFlow({
   env: process.env,
   platform: process.platform,
@@ -478,6 +480,7 @@ const shutdownController = createEphemeralShutdownController({
   beforeExit: () => {
     announceShutdown()
     closeSplashServer()
+    if (ephemeralDatabaseGuardDirectory) rmSync(ephemeralDatabaseGuardDirectory, { recursive: true, force: true })
   },
   onInterrupt: () => {
     announceShutdown()
@@ -1200,10 +1203,12 @@ async function main(): Promise<void> {
       APP_URL: baseUrl,
       NEXT_PUBLIC_APP_URL: baseUrl,
     }
+    ephemeralDatabaseGuardDirectory = path.join(projectRootDirectory, '.mercato', 'ephemeral-database-guards', postgres.containerId)
+    const guardPath = await createEphemeralDatabaseGuard(postgres.databaseUrl, postgres.databaseName, ephemeralDatabaseGuardDirectory)
     const initializeExitCode = await runCompactStage(
       'Initializing app against ephemeral PostgreSQL',
       'yarn',
-      ['initialize', '--', '--reinstall'],
+      ['initialize', '--', '--reinstall', `--ephemeral-database-guard=${guardPath}`],
       {
         env: initEnvironment,
         phase: 'Ephemeral dev environment is starting...',
