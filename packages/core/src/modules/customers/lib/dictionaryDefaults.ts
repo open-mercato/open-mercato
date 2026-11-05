@@ -66,7 +66,7 @@ export const ACTIVITY_TYPE_DEFAULTS: DictionaryDefault[] = [
   { value: 'call', label: 'Call', color: '#2563eb', icon: 'lucide:phone-call' },
   { value: 'email', label: 'Email', color: '#16a34a', icon: 'lucide:mail' },
   { value: 'event', label: 'Event', color: '#6366f1', icon: 'lucide:calendar' },
-  { value: 'meeting', label: 'Meeting', color: '#f59e0b', icon: 'lucide:users' },
+  { value: 'meeting', label: 'Meeting', color: '#0f766e', icon: 'lucide:users' },
   { value: 'note', label: 'Note', color: '#a855f7', icon: 'lucide:notebook' },
   { value: 'task', label: 'Task', color: '#ef4444', icon: 'lucide:check-square' },
 ]

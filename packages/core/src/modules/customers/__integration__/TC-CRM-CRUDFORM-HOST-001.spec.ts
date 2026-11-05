@@ -42,7 +42,10 @@ test.describe('TC-CRM-CRUDFORM-HOST-001: Canonical CRM create hosts', () => {
           if (host === 'person') {
             await page.getByRole('main').getByRole('textbox').nth(0).fill('Host')
             await page.getByRole('main').getByRole('textbox').nth(1).fill(name)
-          } else if (host === 'company') await page.getByRole('main').getByRole('textbox').first().fill(name)
+          } else if (host === 'company') {
+            await page.getByRole('main').getByRole('textbox').first().fill(name)
+            await page.locator('[data-crud-field-id="taxId"] input').fill('PL1234567890')
+          }
           else await page.getByRole('textbox', { name: 'Deal title *', exact: true }).fill(name)
         }
         await selectPriority(page, 'Critical')

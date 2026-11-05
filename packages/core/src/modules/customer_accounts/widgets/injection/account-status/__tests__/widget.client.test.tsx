@@ -297,6 +297,30 @@ describe('customer_accounts AccountStatusWidget invite form', () => {
 })
 
 
+describe('customer_accounts AccountStatusWidget person tab host (#7499)', () => {
+  beforeEach(() => {
+    mockQueryData.clear()
+    mockQueryCalls.length = 0
+    mockApiCall.mockReset()
+    mockApiCall.mockResolvedValue({ ok: true, status: 200, result: { items: [] } } as never)
+  })
+
+  it.each([
+    ['resourceId', { resourceId: 'person-from-resource' }, 'person-from-resource'],
+    ['personId', { personId: 'person-from-person' }, 'person-from-person'],
+  ] as const)('queries the account for the id passed as %s', async (_label, context, expectedId) => {
+    render(<AccountStatusWidget context={context} />)
+
+    const accountQuery = mockQueryCalls.find((call) => call.queryKey[0] === 'customer-account-status')
+    expect(accountQuery?.queryKey[1]).toBe(expectedId)
+    await accountQuery?.queryFn()
+    expect(mockApiCall).toHaveBeenCalledWith(
+      `/api/customer_accounts/admin/users?personEntityId=${expectedId}&pageSize=1`,
+    )
+    expect(screen.getByText('No portal account linked')).toBeInTheDocument()
+  })
+})
+
 it('renders no portal-account content before a person record exists', () => {
   mockApiCall.mockClear()
   const { container } = render(<AccountStatusWidget context={{}} />)

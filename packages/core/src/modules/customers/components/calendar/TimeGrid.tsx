@@ -9,7 +9,12 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
-import { packOverlaps } from '../../lib/calendar/layout'
+import {
+  collapseDenseClusters,
+  packOverlaps,
+  packedColumnGeometry,
+  resolveMaxPackedColumns,
+} from '../../lib/calendar/layout'
 import { getVisibleRange } from '../../lib/calendar/range'
 import {
   applyWeekendVisibility,
@@ -20,6 +25,7 @@ import {
 } from '../../lib/calendar/grid'
 import { EventBlock, formatTimeRange, resolveEventTone } from './EventBlock'
 import { EventPeekPopover } from './EventPeekPopover'
+import { OverflowBlock } from './OverflowBlock'
 import type { CalendarItem, TimeGridProps } from './types'
 
 const HOUR_HEIGHT_PX = 120
@@ -28,7 +34,10 @@ const GRID_BODY_MAX_HEIGHT_PX = 654
 const INITIAL_SCROLL_HOUR = 8
 const BLOCK_VERTICAL_GAP_PX = 1
 const MIN_BLOCK_HEIGHT_PX = 32
-const PACKED_COLUMN_GAP_PX = 2
+const BLOCK_INSET_PX = 8
+const SLOT_MINUTES = 30
+const LAST_SLOT_START_MINUTES = HOURS_PER_DAY * 60 - SLOT_MINUTES
+const COMPACT_SLOT_MAX_WIDTH_PX = 110
 
 const NON_WORKING_HATCH_BACKGROUND =
   'repeating-linear-gradient(45deg, transparent 0px, transparent 8px, var(--border) 8px, var(--border) 9px)'
@@ -39,17 +48,52 @@ type PositionedBlock = {
   height: number
   insetInlineStart: string
   width: string
+  compact: boolean
+}
+
+type PositionedOverflow = {
+  key: string
+  items: CalendarItem[]
+  start: Date
+  end: Date
+  top: number
+  height: number
+  insetInlineStart: string
+  width: string
 }
 
 type DayColumnData = {
   dayStart: Date
   allDayItems: CalendarItem[]
   blocks: PositionedBlock[]
+  overflows: PositionedOverflow[]
 }
 
-type DragState = { dayMs: number; startMin: number; endMin: number; moved: boolean }
+type DragState = { dayMs: number; startMin: number; endMin: number; pressSlotStartMin: number; moved: boolean }
 
-function buildDayColumn(dayStart: Date, items: CalendarItem[]): DayColumnData {
+type HoverSlot = { dayMs: number; startMin: number }
+
+function slotStartFor(minute: number): number {
+  return Math.min(LAST_SLOT_START_MINUTES, Math.floor(minute / SLOT_MINUTES) * SLOT_MINUTES)
+}
+
+function verticalGeometry(dayStartMs: number, startMs: number, endMs: number): { top: number; height: number } {
+  const startMinutes = (startMs - dayStartMs) / 60000
+  const durationMinutes = (endMs - startMs) / 60000
+  const rawTop = (startMinutes / 60) * HOUR_HEIGHT_PX
+  const rawHeight = (durationMinutes / 60) * HOUR_HEIGHT_PX
+  return {
+    top: rawTop + BLOCK_VERTICAL_GAP_PX,
+    height: Math.max(MIN_BLOCK_HEIGHT_PX, rawHeight - BLOCK_VERTICAL_GAP_PX * 2),
+  }
+}
+
+function buildDayColumn(
+  dayStart: Date,
+  items: CalendarItem[],
+  maxPackedColumns: number,
+  usableWidthPx: number | null,
+): DayColumnData {
   const dayEnd = addDays(dayStart, 1)
   const dayStartMs = dayStart.getTime()
   const dayEndMs = dayEnd.getTime()
@@ -77,22 +121,25 @@ function buildDayColumn(dayStart: Date, items: CalendarItem[]): DayColumnData {
   const originalByClone = new Map<CalendarItem, CalendarItem>()
   clones.forEach((clone, index) => originalByClone.set(clone, segments[index].original))
 
-  const blocks: PositionedBlock[] = packOverlaps(clones).map(({ item: clone, column, columns }) => {
-    const startMinutes = (clone.start.getTime() - dayStartMs) / 60000
-    const durationMinutes = (clone.end.getTime() - clone.start.getTime()) / 60000
-    const rawTop = (startMinutes / 60) * HOUR_HEIGHT_PX
-    const rawHeight = (durationMinutes / 60) * HOUR_HEIGHT_PX
-    const widthPct = 100 / columns
-    return {
-      item: originalByClone.get(clone) ?? clone,
-      top: rawTop + BLOCK_VERTICAL_GAP_PX,
-      height: Math.max(MIN_BLOCK_HEIGHT_PX, rawHeight - BLOCK_VERTICAL_GAP_PX * 2),
-      insetInlineStart: `calc(${column * widthPct}% + ${column * PACKED_COLUMN_GAP_PX}px)`,
-      width: `calc(${widthPct}% - ${((columns - 1) * PACKED_COLUMN_GAP_PX) / columns}px)`,
-    }
-  })
+  const { visible, overflow } = collapseDenseClusters(packOverlaps(clones), maxPackedColumns)
 
-  return { dayStart, allDayItems, blocks }
+  const blocks: PositionedBlock[] = visible.map(({ item: clone, column, columns }) => ({
+    item: originalByClone.get(clone) ?? clone,
+    ...verticalGeometry(dayStartMs, clone.start.getTime(), clone.end.getTime()),
+    ...packedColumnGeometry(column, columns),
+    compact: columns > 1 && usableWidthPx != null && usableWidthPx / columns < COMPACT_SLOT_MAX_WIDTH_PX,
+  }))
+
+  const overflows: PositionedOverflow[] = overflow.map((entry) => ({
+    key: `${dayStartMs}-${entry.cluster}`,
+    items: entry.items.map((clone) => originalByClone.get(clone) ?? clone),
+    start: entry.start,
+    end: entry.end,
+    ...verticalGeometry(dayStartMs, entry.start.getTime(), entry.end.getTime()),
+    ...packedColumnGeometry(entry.column, entry.columns),
+  }))
+
+  return { dayStart, allDayItems, blocks, overflows }
 }
 
 type ConflictBadgeProps = { count: number }
@@ -136,7 +183,7 @@ const AllDayChip = React.forwardRef<HTMLButtonElement, AllDayChipProps>(function
         'h-auto w-full min-w-0 justify-start rounded-sm px-2 py-0.5 text-start hover:bg-muted/70',
         tone.surfaceClassName,
         conflicted && 'ring-1 ring-status-warning-icon',
-        selected && 'shadow-md ring-2 ring-foreground',
+        selected && 'shadow-md ring-2 ring-primary/40',
         highlighted && 'motion-safe:animate-pulse',
         'focus-visible:ring-2 focus-visible:ring-ring',
         className,
@@ -161,7 +208,9 @@ export function TimeGrid({
   aiSummaries,
   canManage = true,
   highlightItemId,
+  typeIcons,
   onItemClick,
+  onCancelItem,
   onJoin,
   onNavigate,
   onCreateRange,
@@ -174,7 +223,12 @@ export function TimeGrid({
   const todayMs = today.getTime()
   const anchorMs = anchor.getTime()
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
+  const [openOverflowKey, setOpenOverflowKey] = React.useState<string | null>(null)
   const [drag, setDrag] = React.useState<DragState | null>(null)
+  const [hoverSlot, setHoverSlot] = React.useState<HoverSlot | null>(null)
+  const floatingScrollOriginRef = React.useRef<{ top: number; left: number } | null>(null)
+  const measureRef = React.useRef<HTMLDivElement | null>(null)
+  const [columnWidthPx, setColumnWidthPx] = React.useState<number | null>(null)
   const dragRef = React.useRef<DragState | null>(null)
   const updateDrag = (next: DragState | null) => {
     dragRef.current = next
@@ -187,9 +241,28 @@ export function TimeGrid({
     return days === 7 ? applyWeekendVisibility(all, showWeekends, new Date(todayMs)) : all
   }, [days, anchorMs, showWeekends, todayMs])
 
+  React.useEffect(() => {
+    const node = scrollRef.current
+    const floatingOpen = selectedId !== null || openOverflowKey !== null
+    floatingScrollOriginRef.current = node && floatingOpen ? { top: node.scrollTop, left: node.scrollLeft } : null
+  }, [selectedId, openOverflowKey])
+
+  React.useEffect(() => {
+    const node = measureRef.current
+    if (!node || typeof ResizeObserver === 'undefined') return
+    const measure = () => setColumnWidthPx(node.getBoundingClientRect().width)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [dayStarts])
+
+  const usableWidthPx = columnWidthPx == null ? null : columnWidthPx - BLOCK_INSET_PX * 2
+  const maxPackedColumns = React.useMemo(() => resolveMaxPackedColumns(usableWidthPx), [usableWidthPx])
+
   const dayColumns = React.useMemo(
-    () => dayStarts.map((dayStart) => buildDayColumn(dayStart, items)),
-    [dayStarts, items],
+    () => dayStarts.map((dayStart) => buildDayColumn(dayStart, items, maxPackedColumns, usableWidthPx)),
+    [dayStarts, items, maxPackedColumns, usableWidthPx],
   )
 
   const resolveJoinUrl = React.useCallback((location: string | null): string | null => {
@@ -245,7 +318,7 @@ export function TimeGrid({
 
   const headerLabelFor = (dayStart: Date): string => {
     const dayNumber = formatters.dayNumber.format(dayStart)
-    if (days === 1) return `${formatters.weekdayLong.format(dayStart).toUpperCase()} · ${dayNumber}`
+    if (days === 1) return `${dayNumber} ${formatters.weekdayLong.format(dayStart).toUpperCase()}`
     return `${dayNumber} ${formatters.weekdayShort.format(dayStart).toUpperCase()}`
   }
 
@@ -253,22 +326,43 @@ export function TimeGrid({
 
   const beginDrag = (event: React.PointerEvent<HTMLDivElement>, dayStart: Date) => {
     if (!canCreateRange || event.button !== 0) return
+    // A click beside an open peek or overflow list only dismisses it; it must
+    // not double as "create an event in this slot".
+    if (selectedId !== null || openOverflowKey !== null) {
+      closeFloating()
+      return
+    }
     const layer = event.currentTarget
     const rect = layer.getBoundingClientRect()
-    const minute = offsetYToMinutes(event.clientY - rect.top, HOUR_HEIGHT_PX)
+    const offsetY = event.clientY - rect.top
+    const minute = offsetYToMinutes(offsetY, HOUR_HEIGHT_PX)
     try {
       layer.setPointerCapture(event.pointerId)
     } catch {
       // Pointer capture is best-effort; ignore environments that reject it.
     }
     setSelectedId(null)
-    updateDrag({ dayMs: dayStart.getTime(), startMin: minute, endMin: minute, moved: false })
+    updateDrag({
+      dayMs: dayStart.getTime(),
+      startMin: minute,
+      endMin: minute,
+      pressSlotStartMin: slotStartFor(offsetYToMinutes(offsetY, HOUR_HEIGHT_PX, 1)),
+      moved: false,
+    })
   }
 
-  const moveDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+  const moveDrag = (event: React.PointerEvent<HTMLDivElement>, dayStart: Date) => {
     const previous = dragRef.current
-    if (!previous) return
     const rect = event.currentTarget.getBoundingClientRect()
+    if (!previous) {
+      const slotStart = slotStartFor(offsetYToMinutes(event.clientY - rect.top, HOUR_HEIGHT_PX, 1))
+      setHoverSlot((current) =>
+        current && current.dayMs === dayStart.getTime() && current.startMin === slotStart
+          ? current
+          : { dayMs: dayStart.getTime(), startMin: slotStart },
+      )
+      return
+    }
     const minute = offsetYToMinutes(event.clientY - rect.top, HOUR_HEIGHT_PX)
     if (minute === previous.endMin) return
     updateDrag({
@@ -278,13 +372,36 @@ export function TimeGrid({
     })
   }
 
+  // A peek or overflow list anchored to a block that is scrolling away (possibly
+  // under the sticky day header) would float over unrelated chrome, so close it.
+  const closeFloating = () => {
+    setSelectedId((current) => (current === null ? current : null))
+    setOpenOverflowKey((current) => (current === null ? current : null))
+  }
+
+  // Scroll events are delivered on the next frame, so one can arrive after the click
+  // that followed the scroll. Only movement since the peek opened may close it.
+  const closeFloatingIfScrolled = () => {
+    const node = scrollRef.current
+    const origin = floatingScrollOriginRef.current
+    if (!node || !origin) return
+    if (node.scrollTop === origin.top && node.scrollLeft === origin.left) return
+    closeFloating()
+  }
+
   const endDrag = (dayStart: Date) => {
     const previous = dragRef.current
     updateDrag(null)
-    if (previous && previous.moved && onCreateRange) {
+    if (!previous || !onCreateRange) return
+    if (previous.moved) {
       const range = buildDragRange(dayStart, previous.startMin, previous.endMin)
       onCreateRange(range.start, range.end)
+      return
     }
+    // A plain click creates the half-hour slot under the pointer, so the user
+    // never has to discover drag-to-create first.
+    const range = buildDragRange(dayStart, previous.pressSlotStartMin, previous.pressSlotStartMin + SLOT_MINUTES)
+    onCreateRange(range.start, range.end)
   }
 
   return (
@@ -293,8 +410,9 @@ export function TimeGrid({
         ref={scrollRef}
         className="overflow-auto overscroll-contain"
         style={{ maxHeight: GRID_BODY_MAX_HEIGHT_PX }}
+        onScroll={closeFloatingIfScrolled}
       >
-        <div className="sticky top-0 z-30 min-w-full bg-card max-md:w-max">
+        <div className="sticky top-0 z-40 min-w-full bg-card max-md:w-max">
           <div className="flex border-b border-border">
             <div className="sticky start-0 z-10 flex w-14 shrink-0 bg-card md:w-26">
               <span className="flex flex-1 items-center justify-center border-e border-border">
@@ -353,9 +471,11 @@ export function TimeGrid({
                       joinUrl={resolveJoinUrl(item.location)}
                       aiSummaries={aiSummaries}
                       canManage={canManage}
+                      typeIcon={typeIcons?.[item.interactionType]}
                       onOpenChange={(open) => setSelectedId(open ? item.id : null)}
                       onJoin={onJoin}
                       onEdit={onItemClick}
+                      onCancel={onCancelItem}
                     >
                       <AllDayChip
                         item={item}
@@ -387,10 +507,14 @@ export function TimeGrid({
               )}
             </div>
           </div>
-          {dayColumns.map(({ dayStart, blocks }) => {
+          {dayColumns.map(({ dayStart, blocks, overflows }, columnIndex) => {
             const nonWorking = isWeekendDay(dayStart)
             const conflictCount = showConflicts
-              ? blocks.filter((block) => conflictIds.has(block.item.id)).length
+              ? blocks.filter((block) => conflictIds.has(block.item.id)).length +
+                overflows.reduce(
+                  (sum, overflow) => sum + overflow.items.filter((item) => conflictIds.has(item.id)).length,
+                  0,
+                )
               : 0
             const dragActive = drag && drag.moved && drag.dayMs === dayStart.getTime()
             const dragRange = dragActive ? buildDragRange(dayStart, drag.startMin, drag.endMin) : null
@@ -403,6 +527,7 @@ export function TimeGrid({
             return (
               <div
                 key={dayStart.getTime()}
+                ref={columnIndex === 0 ? measureRef : undefined}
                 className={cn(
                   'relative min-w-0 flex-1 border-e border-border last:border-e-0',
                   days === 7 && 'min-w-[120px] max-md:max-w-[120px] md:min-w-0',
@@ -424,13 +549,22 @@ export function TimeGrid({
                     style={{ backgroundImage: NON_WORKING_HATCH_BACKGROUND }}
                   />
                 ) : null}
+                {canCreateRange && !dragActive && hoverSlot && hoverSlot.dayMs === dayStart.getTime() ? (
+                  <div
+                    aria-hidden
+                    data-calendar-hover-slot={hoverSlot.startMin}
+                    className="pointer-events-none absolute inset-x-0 rounded-sm bg-muted/50"
+                    style={{ top: (hoverSlot.startMin / 60) * HOUR_HEIGHT_PX, height: HOUR_HEIGHT_PX / 2 }}
+                  />
+                ) : null}
                 {canCreateRange ? (
                   <div
                     className="absolute inset-0 cursor-cell"
                     onPointerDown={(event) => beginDrag(event, dayStart)}
-                    onPointerMove={moveDrag}
+                    onPointerMove={(event) => moveDrag(event, dayStart)}
                     onPointerUp={() => endDrag(dayStart)}
                     onPointerCancel={() => updateDrag(null)}
+                    onPointerLeave={() => setHoverSlot(null)}
                     aria-hidden
                   />
                 ) : null}
@@ -441,8 +575,8 @@ export function TimeGrid({
                     style={{
                       top: (dragStartMinutes / 60) * HOUR_HEIGHT_PX,
                       height: Math.max(MIN_BLOCK_HEIGHT_PX, (dragDurationMinutes / 60) * HOUR_HEIGHT_PX),
-                      insetInlineStart: 8,
-                      insetInlineEnd: 8,
+                      insetInlineStart: BLOCK_INSET_PX,
+                      insetInlineEnd: BLOCK_INSET_PX,
                     }}
                   >
                     <span className="text-overline font-semibold text-foreground">
@@ -456,7 +590,10 @@ export function TimeGrid({
                 {conflictCount > 0 ? <ConflictBadge count={conflictCount} /> : null}
                 {/* Click-through container so empty space reaches the drag-to-create layer
                     below; each block re-enables pointer events for its own click/peek. */}
-                <div className="pointer-events-none absolute inset-y-0" style={{ insetInlineStart: 8, insetInlineEnd: 8 }}>
+                <div
+                  className="pointer-events-none absolute inset-y-0"
+                  style={{ insetInlineStart: BLOCK_INSET_PX, insetInlineEnd: BLOCK_INSET_PX }}
+                >
                   {blocks.map((block) => (
                     <EventPeekPopover
                       key={`${block.item.id}-${block.top}`}
@@ -465,9 +602,11 @@ export function TimeGrid({
                       joinUrl={resolveJoinUrl(block.item.location)}
                       aiSummaries={aiSummaries}
                       canManage={canManage}
+                      typeIcon={typeIcons?.[block.item.interactionType]}
                       onOpenChange={(open) => setSelectedId(open ? block.item.id : null)}
                       onJoin={onJoin}
                       onEdit={onItemClick}
+                      onCancel={onCancelItem}
                     >
                       <EventBlock
                         item={block.item}
@@ -475,12 +614,37 @@ export function TimeGrid({
                         height={block.height}
                         insetInlineStart={block.insetInlineStart}
                         width={block.width}
+                        compact={block.compact}
                         conflicted={showConflicts && conflictIds.has(block.item.id)}
                         highlighted={highlightItemId === block.item.id}
                         selected={selectedId === block.item.id}
                         nowMs={nowMs}
                       />
                     </EventPeekPopover>
+                  ))}
+                  {overflows.map((overflow) => (
+                    <OverflowBlock
+                      key={overflow.key}
+                      items={overflow.items}
+                      start={overflow.start}
+                      end={overflow.end}
+                      top={overflow.top}
+                      height={overflow.height}
+                      insetInlineStart={overflow.insetInlineStart}
+                      width={overflow.width}
+                      open={openOverflowKey === overflow.key}
+                      conflictIds={conflictIds}
+                      showConflicts={showConflicts}
+                      highlightItemId={highlightItemId}
+                      typeIcons={typeIcons}
+                      canManage={canManage}
+                      aiSummaries={aiSummaries}
+                      nowMs={nowMs}
+                      resolveJoinUrl={resolveJoinUrl}
+                      onOpenChange={(open) => setOpenOverflowKey(open ? overflow.key : null)}
+                      onJoin={onJoin}
+                      onEdit={onItemClick}
+                    />
                   ))}
                 </div>
               </div>

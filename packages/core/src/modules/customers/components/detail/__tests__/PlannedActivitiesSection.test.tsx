@@ -55,15 +55,16 @@ const PL_DICT = {
 // formatScheduledDate at all.
 const FIXED_NOW = new Date(2026, 3, 10, 9, 0, 0)
 
-// The leaf cells rendering the generic `Day, D Mon · HH:MM` form. Matching on the
-// separator rather than on locale-formatted day and month names keeps this
-// independent of whichever locale the runtime resolves `toLocaleDateString` to.
+// The leaf cells rendering the generic `Day, D Mon, HH:MM` form. Matching on the
+// comma before the time rather than on locale-formatted day and month names keeps
+// this independent of whichever locale the runtime resolves `toLocaleDateString` to
+// (the "Tomorrow HH:MM" form carries no comma before its time).
 function genericDateCells(): HTMLElement[] {
   return screen.getAllByText(
     (_content, element) =>
       element?.tagName === 'SPAN' &&
       element.children.length === 0 &&
-      (element.textContent ?? '').includes(' · '),
+      /, \d{1,2}:\d{2}/.test(element.textContent ?? ''),
   )
 }
 

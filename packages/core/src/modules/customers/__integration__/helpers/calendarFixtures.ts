@@ -151,15 +151,15 @@ export function escapeRegExp(value: string): string {
  * Locator regex for a week/day TimeGrid event block: its accessible name is
  * `${title}, ${timeRange}` (see EventBlock aria-label), so anchoring on
  * `title + ", "` distinguishes grid blocks from month pills / agenda rows
- * (which use `${title} · …`).
+ * (which use `${title}, …`).
  */
 export function gridBlockName(title: string): RegExp {
   return new RegExp(`^${escapeRegExp(title)}, `);
 }
 
-/** Month pill / agenda row accessible name: `${title} · …` (or bare title for all-day month pills). */
+/** Month pill / agenda row accessible name: `${title}, …` (or bare title for all-day month pills). */
 export function dotSeparatedItemName(title: string): RegExp {
-  return new RegExp(`^${escapeRegExp(title)}( · |$)`);
+  return new RegExp(`^${escapeRegExp(title)}(, |$)`);
 }
 
 /**

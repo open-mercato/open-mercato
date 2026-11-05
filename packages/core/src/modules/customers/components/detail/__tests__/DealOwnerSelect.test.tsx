@@ -41,14 +41,17 @@ describe('DealOwnerSelect', () => {
     expect(screen.getByText('Ada Lovelace')).toBeTruthy()
   })
 
-  it('falls back to the email, then the raw id, when no display name is known', () => {
-    const { rerender } = render(
+  it('falls back to the email and never shows a raw id when no display name is known', () => {
+    const { rerender, container } = render(
       <DealOwnerSelect value="user-1" onChange={() => {}} initialOption={{ id: 'user-1', email: 'ada@example.com' }} />,
     )
     expect(screen.getByText('ada@example.com')).toBeTruthy()
 
+    // A preset owner starts on the collapsed summary (#5109); with nothing but the id to
+    // show, the summary stays away rather than putting the id on screen.
     rerender(<DealOwnerSelect value="user-2" onChange={() => {}} initialOption={{ id: 'user-2' }} />)
-    expect(screen.getByText('user-2')).toBeTruthy()
+    expect(screen.queryByText('user-2')).toBeNull()
+    expect(container.textContent ?? '').not.toContain('user-2')
   })
 
   it('maps roster members to lookup items using the shared staff helper', async () => {
@@ -130,6 +133,7 @@ describe('DealOwnerSelect seed survives the roster fetch', () => {
       />,
     )
 
+    fireEvent.click(await screen.findByRole('button', { name: 'Change' }))
     fireEvent.change(getInput(container), { target: { value: 'gra' } })
     await waitFor(() => expect(fetchAssignableStaffMembers).toHaveBeenCalled())
 
@@ -150,6 +154,7 @@ describe('DealOwnerSelect seed survives the roster fetch', () => {
       />,
     )
 
+    fireEvent.click(await screen.findByRole('button', { name: 'Change' }))
     fireEvent.change(getInput(container), { target: { value: 'ada' } })
     await waitFor(() => expect(fetchAssignableStaffMembers).toHaveBeenCalled())
 
@@ -211,6 +216,8 @@ describe('DealOwnerSelect identity reporting (#6857)', () => {
       />,
     )
 
+    // A preset owner starts on the collapsed summary (#5109); the search box comes back on Change.
+    fireEvent.click(await screen.findByRole('button', { name: 'Change' }))
     fireEvent.change(getInput(container), { target: { value: 'ale' } })
     await waitFor(() => expect(screen.getByText('Alex Chen')).toBeTruthy())
 
@@ -241,7 +248,9 @@ describe('DealOwnerSelect identity reporting (#6857)', () => {
     )
 
     // With a value set, LookupSelect searches immediately with an empty query — the unfiltered
-    // fetch that teaches the picker the roster, exactly as on page load.
+    // fetch that teaches the picker the roster, exactly as on page load. A preset owner starts
+    // on its collapsed summary (#5109), so the list is opened through Change.
+    fireEvent.click(await screen.findByRole('button', { name: 'Change' }))
     await waitFor(() => expect(screen.getByText('Priya Nair')).toBeTruthy())
 
     // Reproduce the reset: LookupSelect stops searching when there is no value and no query,
@@ -255,7 +264,10 @@ describe('DealOwnerSelect identity reporting (#6857)', () => {
       <DealOwnerSelect value="user-1" onChange={() => {}} initialOption={{ id: 'user-1', name: 'Alex Chen' }} />,
     )
 
-    // The whole roster must still be offered, not just the seeded owner.
+    // The whole roster must still be offered, not just the seeded owner. The re-adopted
+    // value lands on the collapsed summary again, so the list is reopened through Change.
+    const change = await screen.findByRole('button', { name: 'Change' })
+    fireEvent.click(change)
     await waitFor(() => expect(screen.getByText('Alex Chen')).toBeTruthy())
     expect(screen.getByText('Priya Nair')).toBeTruthy()
   })

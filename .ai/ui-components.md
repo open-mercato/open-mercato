@@ -100,6 +100,7 @@ All sizes share `rounded-md`. Same-row buttons MUST share `size`.
 3. Use `IconButton` (not `Button size="icon"`) for icon-only buttons.
 4. Add `hover:bg-transparent` when using `variant="ghost"` for tab-style buttons with underline indicators.
 5. Add `h-auto` in compact inline contexts (tag chips, toolbars, inline lists) where fixed height would overflow.
+6. A `ghost` button placed on an `accent-indigo`-tinted surface (selected summary bar, selected card, tab rail) MUST hover with `hover:bg-accent-indigo/10 hover:text-accent-indigo`, not the default grey ghost hover — see "Selection accent" in [`ds-rules.md`](ds-rules.md).
 
 ### Same-row size consistency (MUST)
 
@@ -345,7 +346,7 @@ Match the size of paired buttons in toolbars / form footers (same-size rule).
 | State | Trigger | Visual |
 |---|---|---|
 | Default | — | `border-input` + `bg-background` + `shadow-xs` |
-| Hover | mouse over wrapper | `bg-muted/40` |
+| Hover | mouse over wrapper | no fill change, `bg-background` stays |
 | Focus | input focus-visible | `border-foreground` + `shadow-focus` (Figma 2-ring) |
 | Disabled | `disabled` prop on input | `bg-bg-disabled` + `text-text-disabled` + `border-border-disabled` (NOT opacity) |
 | Error | `aria-invalid={true}` on input | `border-destructive` (also on focus) |
@@ -842,7 +843,7 @@ Multi-line text input aligned with Figma DS Text Area. Same wrapper styling as `
 | State | Visual |
 |---|---|
 | Default | `border-input` + `bg-background` + `shadow-xs` |
-| Hover | `bg-muted/40` |
+| Hover | no fill change, `bg-background` stays |
 | Focus | `border-foreground` + `shadow-focus` (Figma 2-ring) |
 | Disabled | `bg-bg-disabled` + `border-border-disabled` (NOT opacity) |
 | Error | `border-destructive` (auto via `aria-invalid={true}`) |
@@ -953,7 +954,7 @@ Match the size of paired buttons / inputs in the same row.
 | State | Trigger | Visual |
 |---|---|---|
 | Default | — | `border-input` + `bg-background` + `shadow-xs` |
-| Hover | mouse over trigger | `bg-muted/40` |
+| Hover | mouse over trigger | no fill change, `bg-background` stays |
 | Focus | keyboard focus | `border-foreground` + `shadow-focus` (Figma 2-ring) |
 | Open | menu expanded | (Radix manages — same as Focus visually) |
 | Disabled | `disabled` prop on `SelectTrigger` | `bg-bg-disabled` + `text-text-disabled` + `border-border-disabled` |
@@ -1563,6 +1564,7 @@ Two-row primitive (input on top, chips below) for collecting a flat list of free
 - **Click ×** on chip — removes that tag.
 - **`maxTags` reached** — input becomes `disabled`; further typing is blocked.
 - **`validate`** — `(tag) => true | false | string`. Return `false` to silently reject; return a string to surface as inline error.
+- **`inputValue` / `onInputValueChange`** — optional control of the text typed but not yet committed. Use when a submit action has to commit or reject that text, because the primitive does not commit on blur.
 
 ### Usage
 
@@ -2136,7 +2138,7 @@ Common options:
 import { EmptyState, type EmptyStateProps, emptyStateVariants } from '@open-mercato/ui/primitives/empty-state'
 ```
 
-Centered "nothing-to-show" panel for empty lists, empty tabs, empty DataTable cells, and zero-result search panes. Title is required; the rest (icon / illustration / description / actions) is optional. Default variant renders a dashed-border muted card; `'subtle'` drops the border for embedded contexts (inside cards / popovers / DataTable empty cells).
+Centered "nothing-to-show" panel for empty lists, empty tabs, empty DataTable cells, and zero-result search panes. Title is required; the rest (icon / illustration / description / actions) is optional. The default variant draws no frame, so it can sit inside a card, a tab panel or a DataTable cell without stacking borders; `'outlined'` adds the dashed muted card for standalone drop-zone-like surfaces.
 
 ### Quick usage
 
@@ -2159,14 +2161,15 @@ Centered "nothing-to-show" panel for empty lists, empty tabs, empty DataTable ce
 
 | `variant` | Token | Use |
 |---|---|---|
-| `default` | `rounded-lg border border-dashed border-muted-foreground/40 bg-muted/30` | Standalone empty page / tab. |
-| `subtle` | `rounded-lg` (no border, no fill) | Inside cards, popovers, DataTable empty cells. |
+| `default` | `rounded-lg` (no border, no fill) | Everywhere the empty state already sits inside chrome: cards, tab panels, popovers, DataTable cells. |
+| `subtle` | `rounded-lg` | Alias of `default`, kept for existing call sites. |
+| `outlined` | `rounded-lg border border-dashed border-muted-foreground/40 bg-muted/30` | Standalone surfaces with no surrounding chrome, e.g. a bare page or a drop zone. |
 
 | `size` | Padding / gap | Icon box (subtle variant) |
 |---|---|---|
 | `sm` | `gap-2 px-4 py-6` | `size-10` |
-| `default` | `gap-3 px-6 py-10` | `size-12` |
-| `lg` | `gap-4 px-8 py-16` | `size-16` |
+| `default` | `gap-3 px-6 py-8` | `size-12` |
+| `lg` | `gap-4 px-8 py-12` | `size-16` |
 
 Title type scale: `text-sm` for `sm` / `default`, `text-base` for `lg`. Description is always `text-sm text-muted-foreground` and capped to `max-w-sm` centred.
 
@@ -2176,26 +2179,26 @@ Title type scale: `text-sm` for `sm` / `default`, `text-base` for `lg`. Descript
 |---|---|---|---|
 | `title` | `string` | — | Required. Rendered as `<p>` (not a heading) so it does not disrupt page heading hierarchy. |
 | `description` | `string` | — | Optional muted body line under the title. |
-| `icon` | `React.ReactNode` | — | Typically a `lucide-react` icon. With `variant='subtle'` it is wrapped in a round muted box (`size-10` / `size-12` / `size-16`); with `variant='default'` it sits inline tinted as `text-muted-foreground`. Ignored when `illustration` is provided. |
+| `icon` | `React.ReactNode` | — | Typically a `lucide-react` icon. With `variant='default'` / `'subtle'` it is wrapped in a round muted box (`size-10` / `size-12` / `size-16`); with `variant='outlined'` it sits inline tinted as `text-muted-foreground`. Ignored when `illustration` is provided. |
 | `illustration` | `React.ReactNode` | — | Figma-style illustration slot (typically a scaled SVG from the DS illustrations library). Takes precedence over `icon`; rendered without any icon-box wrapping so its own background shows through. |
 | `actions` | `React.ReactNode` | — | Primary action node, typically `<Button>` or a button group. |
 | `children` | `React.ReactNode` | — | Alternative to `actions` for custom content rendered below the title/description block. |
 | `size` | `'sm' \| 'default' \| 'lg'` | `'default'` | Controls padding, gap, and icon-box size. |
-| `variant` | `'default' \| 'subtle'` | `'default'` | See variants table. |
+| `variant` | `'default' \| 'subtle' \| 'outlined'` | `'default'` | See variants table. |
 | `className` | `string` | — | Applied to the outer wrapper. |
 | `action` / `actionLabel` / `onAction` / `actionLabelClassName` | — | — | `@deprecated` — kept only for the legacy backend `EmptyState` consumers. New code MUST use `actions={<Button>…</Button>}`. |
 
 ### MUST rules
 
 - Title is plain text in a `<p>` — DO NOT pre-wrap it in `<h1>`/`<h2>`. If the surrounding page needs a heading, render it OUTSIDE the `EmptyState`. This keeps the heading hierarchy of the page intact wherever an empty state appears (DataTable cell, tab, dialog, etc.).
-- For empty DataTable cells, use `variant='subtle'` so the dashed border doesn't double up with the table chrome.
+- Never put `variant='outlined'` inside a card, tab panel or table: a frame inside a frame steals space and reads as clutter. The default is frameless for exactly that reason.
 - Prefer `illustration` over `icon` when the DS illustration library has a relevant asset — it ships with its own circular background and reads better at `size='lg'`.
 - Use `actions` (not the deprecated `action` / `actionLabel` / `onAction` triple) for any new code. The deprecated props are routed to a built-in `<Button variant="outline" size="sm">` with a leading `<Plus />` icon — keep that only for legacy parity.
 - Pass all strings through `useT()` — the primitive has no built-in default copy.
 
 ### Anti-patterns
 
-- `<div className="text-center text-muted-foreground py-12">Nothing yet</div>` → use `EmptyState` (dashed-border card + token-driven spacing + a11y heading slot).
+- `<div className="text-center text-muted-foreground py-12">Nothing yet</div>` → use `EmptyState` (token-driven spacing + a11y heading slot).
 - Wrapping `title` in `<h1>` / `<h2>` inside `EmptyState` → renders a `<p>`; if the page needs a heading render it OUTSIDE the EmptyState.
 - Reaching for `action` / `actionLabel` / `onAction` / `actionLabelClassName` props in new code → those are `@deprecated`; use `actions={<Button>…</Button>}`.
 - Passing a custom `<Plus />` button as `children` instead of `actions` → `children` sits between description and actions; for the primary CTA use the typed slot.
@@ -5083,7 +5086,7 @@ type LookupSelectItem = {
   description?: string | null
   rightLabel?: string | null      // small uppercase tracked label on top right (country code, status badge etc.)
   badge?: string | null
-  icon?: React.ReactNode          // 48×48 leading slot (rounded-lg). Falls back to the first letter of `title`.
+  icon?: React.ReactNode          // 32×32 leading slot (rounded-md). Falls back to the first letter of `title`.
   disabled?: boolean              // disables the row unless it is currently selected
 }
 ```
@@ -5091,12 +5094,12 @@ type LookupSelectItem = {
 ### Visual
 
 - Container: vertical card list, `gap-1.5`, `max-h-80` scroll
-- Card: `rounded-xl border p-4` with `gap-4` between the 48×48 leading slot, the text column, and the trailing checkmark slot
-- Leading slot: **frameless** when `item.icon` is provided (the icon brings its own visual — Avatar circle, lucide icon, etc.). The styled `rounded-lg border bg-muted` box renders ONLY for the fallback first-letter case, so Avatar / icon don't get a redundant square frame around them.
-- Default state: `border-input bg-card` with `hover:border-foreground/20 hover:bg-muted/30 hover:shadow-sm` (subtle elevation)
-- Selected state: `border-brand-violet bg-brand-violet/5 shadow-sm` with a `Check` icon (`size-5 text-brand-violet`) on the right and the leading icon box tinted `bg-brand-violet/10`
+- Card: `rounded-lg border px-3 py-2` with `gap-3` between the 32×32 leading slot, the text column, and the trailing checkmark slot
+- Leading slot: **frameless** when `item.icon` is provided (the icon brings its own visual — Avatar circle, lucide icon, etc.). The styled `rounded-md border bg-muted` box renders ONLY for the fallback first-letter case, so Avatar / icon don't get a redundant square frame around them.
+- Default state: `border-input bg-card` with `hover:border-foreground/20 hover:bg-muted/30`
+- Selected state: `border-accent-indigo bg-accent-indigo/5` with a `Check` icon (`size-4 text-accent-indigo`) on the right and the leading icon box tinted `bg-accent-indigo/10`
 - The right-hand `Select` / `Selected` button has been **removed** — the entire row is the click target. The resolved labels are still exposed via the row's `title` attribute (browser tooltip + screen-reader hint) for backward compatibility
-- Typography: title `text-sm font-semibold`, subtitle `text-xs text-muted-foreground`, description `text-xs text-muted-foreground/70`, `rightLabel` `text-overline uppercase tracking-wider text-muted-foreground`
+- Typography: title `text-sm font-medium`, subtitle `text-xs text-muted-foreground`, description `text-xs text-muted-foreground/70`, `rightLabel` `text-overline uppercase tracking-wider text-muted-foreground`
 
 ### Props
 
@@ -5108,7 +5111,7 @@ type LookupSelectItem = {
 | `fetchOptions` | `(query?: string) => Promise<LookupSelectItem[]>` | — | Legacy alias. Prefer `fetchItems`. |
 | `options` | `LookupSelectItem[]` | — | Sync list. Mutually exclusive with `fetchItems`/`fetchOptions`. |
 | `minQuery` | `number` | `2` | Minimum query length before the loader fires. Bypassed by `defaultOpen` or a preselected `value`. |
-| `defaultOpen` | `boolean` | `false` | Loads on mount and ignores `minQuery`. |
+| `defaultOpen` | `boolean` | `false` | Loads on mount, ignores `minQuery` and starts on the open list even with a `value`. Pass it where the lookup mounts because the user asked to change the value (inline editors, "Change user"). |
 | `actionSlot` | `React.ReactNode` | — | Right-of-search slot, typically a "Create new" button. |
 | `onReady` | `(controls: { setQuery: (value: string) => void }) => void` | — | Receives a parent-driven query setter (deep-linking, "Search again" buttons). |
 | `searchPlaceholder` | `string` | `placeholder ?? t('ui.lookupSelect.searchPlaceholder', 'Search…')` | Auto-translated. |
@@ -5118,15 +5121,18 @@ type LookupSelectItem = {
 | `loadingLabel` | `string` | `t('ui.lookupSelect.searching', 'Searching…')` | Auto-translated. |
 | `selectLabel` / `selectedLabel` | `string` | `t('ui.lookupSelect.select', 'Select')` / `t('ui.lookupSelect.selected', 'Selected')` | Auto-translated button labels per row. |
 | `minQueryHintLabel` | `string` | `t('ui.lookupSelect.minQueryHint', 'Type at least {minQuery} characters or paste an id to search.', { minQuery })` | Shown when the user has typed but below `minQuery`. |
-| `startTypingLabel` | `string` | `t('ui.lookupSelect.startTyping', 'Start typing to search.')` | Auto-translated. |
-| `selectedHintLabel` | `(id: string) => string` | — | Future hook for an inline preview block (currently unused by the primitive — pass through for forward-compat). |
+| `startTypingLabel` | `string` | none | Opt-in hint under the collapsed search; the placeholder already says what to type, so leave it unset unless the surface needs extra guidance. |
+| `selectedHintLabel` | `(id: string) => string` | — | Label resolver for the collapsed selection summary. Only a value that is a real name counts: a resolver that returns the id or embeds it (`Selected customer: <id>`) is ignored and the summary falls back to the picked item's `title`, so a record id never reaches the DOM. |
 | `disabled` | `boolean` | `false` | Disables both the search input and row interaction. |
 | `loading` | `boolean` | `false` | Force the loading state regardless of the internal fetch — useful when the parent owns the request. |
 
 ### MUST rules
 
-- All default labels (`searchPlaceholder`, `clearLabel`, `emptyLabel`, `loadingLabel`, `selectLabel`, `selectedLabel`, `startTypingLabel`, `minQueryHintLabel`) are auto-translated via `useT()` against `ui.lookupSelect.*` keys. Override only when the surface needs custom copy.
-- Search input is styled `h-10 rounded-lg border-input shadow-xs focus-visible:shadow-focus focus-visible:border-brand-violet` — slightly bigger and more rounded than a standard form `Input` to read as a picker chrome rather than a form field. The leading search icon sits at `left-3.5`. Card rows use `rounded-xl p-4` with selected state `border-brand-violet bg-brand-violet/5 shadow-sm` and a leading `Check` icon (DS active token).
+- All default labels (`searchPlaceholder`, `clearLabel`, `emptyLabel`, `loadingLabel`, `selectLabel`, `selectedLabel`, `minQueryHintLabel`) are auto-translated via `useT()` against `ui.lookupSelect.*` keys. Override only when the surface needs custom copy. `startTypingLabel` has no default: the collapsed control renders nothing under the search box unless a caller passes one.
+- Search input is styled `h-9 rounded-lg border-input shadow-xs focus-visible:shadow-focus focus-visible:border-foreground` — the default control height, so a default-size `Button` in `actionSlot` lines up with it. The leading search icon sits at `left-3.5`. Card rows are compact (`rounded-lg px-3 py-2`, 32px avatar) with the selected state on the selection accent: `border-accent-indigo bg-accent-indigo/5`, a `Check` in `text-accent-indigo` and a `text-foreground` "Selected" label (never `brand-violet`, see "Selection accent" in [`ds-rules.md`](ds-rules.md)).
+- Picking a result ends the interaction (#6196): once the parent adopts the id the list closes, the query clears and the search box gives way to a single summary row (`data-testid="lookup-select-selected"`, same accent tint). The picked `title`/`subtitle` is a ghost `Button` that reopens the search (**Change**, its accessible name), and an `IconButton` clears (**Clear selection**); a `disabled` lookup shows plain text with neither. A host that keeps `value` at `null` to collect picks (multi-add) keeps browsing instead.
+- A value already set when the lookup mounts starts on that summary row, unless `defaultOpen` is set.
+- Focus follows the swap: after a pick or `Escape` it lands on the Change control, and after Change or Clear on the search box.
 - Set `minQuery` to match the API's minimum filter length (typically 2 or 3). For pre-loaded short lists, switch to `options` instead of `fetchItems`.
 - Use `actionSlot` for a "Create new" affordance — do not render a separate `<Button>` outside the primitive that breaks the search-row alignment.
 - For modules with permission-gated lookup APIs, route `fetchItems` through `apiCall`/`apiCallOrThrow` so 401/403 flows reach the global error handler.

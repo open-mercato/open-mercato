@@ -728,7 +728,7 @@ export function PhoneNumberField({
             size={size}
             className={cn(
               'h-auto w-auto shrink-0 gap-1.5 rounded-none rounded-l-md border-0 bg-transparent px-2.5 py-2 shadow-none',
-              'hover:bg-muted/40 focus:bg-muted/40 focus-visible:shadow-none focus-visible:border-0',
+              'focus-visible:shadow-none focus-visible:border-0',
               'disabled:bg-transparent disabled:hover:bg-transparent',
               size && 'h-full gap-2 rounded-l-none py-0 pl-2.5 pr-2 [&>svg]:size-5',
               size === 32 && 'pl-1.5 pr-1',

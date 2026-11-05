@@ -16,7 +16,6 @@ export type DealCreateSidebarProps = {
   onCustomChange: (key: string, value: unknown) => void
   errors: Record<string, string>
   disabled: boolean
-  customCount: number
   manageHref: string
   onCustomLoaded: (state: DealCustomAttributesLoadState) => void
 }
@@ -27,7 +26,6 @@ export function DealCreateSidebar({
   onCustomChange,
   errors,
   disabled,
-  customCount,
   manageHref,
   onCustomLoaded,
 }: DealCreateSidebarProps) {
@@ -36,9 +34,6 @@ export function DealCreateSidebar({
       <DealSectionCard
         icon={Sparkles}
         title={tr('customers.deals.create.sections.custom.title', 'Custom attributes')}
-        subtitle={tr('customers.deals.create.sections.custom.subtitle', '{count} fields defined for this tenant', {
-          count: customCount,
-        })}
       >
         <DealCustomAttributes
           values={customValues}

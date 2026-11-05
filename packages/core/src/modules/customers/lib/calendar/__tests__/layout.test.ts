@@ -1,4 +1,10 @@
-import { packOverlaps } from '../layout'
+import {
+  collapseDenseClusters,
+  DEFAULT_MAX_PACKED_COLUMNS,
+  packOverlaps,
+  packedColumnGeometry,
+  resolveMaxPackedColumns,
+} from '../layout'
 import { makeCalendarItem } from './fixtures'
 
 function at(hours: number, minutes = 0): Date {
@@ -97,5 +103,136 @@ describe('packOverlaps', () => {
     expect(packed[0]).toMatchObject({ column: 0, columns: 2 })
     expect(packed[1].item.id).toBe('short')
     expect(packed[1]).toMatchObject({ column: 1, columns: 2 })
+  })
+})
+
+describe('packOverlaps cluster index', () => {
+  it('numbers clusters in chronological order and shares the index inside a cluster', () => {
+    const packed = packOverlaps([
+      makeCalendarItem({ id: 'a-1', start: at(9), end: at(10) }),
+      makeCalendarItem({ id: 'a-2', start: at(9, 30), end: at(10, 30) }),
+      makeCalendarItem({ id: 'b-1', start: at(13), end: at(14) }),
+    ])
+    const byId = packedById(packed)
+    expect(byId.get('a-1')?.cluster).toBe(0)
+    expect(byId.get('a-2')?.cluster).toBe(0)
+    expect(byId.get('b-1')?.cluster).toBe(1)
+  })
+})
+
+describe('resolveMaxPackedColumns', () => {
+  it('falls back to the default when the width is unknown or unusable', () => {
+    expect(resolveMaxPackedColumns(null)).toBe(DEFAULT_MAX_PACKED_COLUMNS)
+    expect(resolveMaxPackedColumns(0)).toBe(DEFAULT_MAX_PACKED_COLUMNS)
+    expect(resolveMaxPackedColumns(Number.NaN)).toBe(DEFAULT_MAX_PACKED_COLUMNS)
+  })
+
+  it('never drops below two slots on very narrow columns', () => {
+    expect(resolveMaxPackedColumns(30)).toBe(2)
+    expect(resolveMaxPackedColumns(112)).toBe(2)
+  })
+
+  it('grows with the usable width', () => {
+    expect(resolveMaxPackedColumns(154)).toBe(2)
+    expect(resolveMaxPackedColumns(200)).toBe(3)
+    expect(resolveMaxPackedColumns(400)).toBe(6)
+  })
+})
+
+describe('collapseDenseClusters', () => {
+  function sixAtTen() {
+    return packOverlaps(
+      ['one', 'two', 'three', 'four', 'five', 'six'].map((id) =>
+        makeCalendarItem({ id, start: at(10), end: at(11) }),
+      ),
+    )
+  }
+
+  it('leaves clusters that fit untouched', () => {
+    const packed = packOverlaps([
+      makeCalendarItem({ id: 'first', start: at(9), end: at(10, 30) }),
+      makeCalendarItem({ id: 'second', start: at(10), end: at(11) }),
+    ])
+    const { visible, overflow } = collapseDenseClusters(packed, 2)
+    expect(visible).toEqual(packed)
+    expect(overflow).toEqual([])
+  })
+
+  it('keeps the first columns and collapses the rest of a dense cluster into one overflow slot', () => {
+    const { visible, overflow } = collapseDenseClusters(sixAtTen(), 3)
+    expect(visible.map((entry) => entry.item.id)).toEqual(['one', 'two'])
+    expect(visible.every((entry) => entry.columns === 3)).toBe(true)
+    expect(overflow).toHaveLength(1)
+    expect(overflow[0]).toMatchObject({ cluster: 0, column: 2, columns: 3 })
+    expect(overflow[0].items.map((item) => item.id)).toEqual(['three', 'four', 'five', 'six'])
+    expect(overflow[0].start).toEqual(at(10))
+    expect(overflow[0].end).toEqual(at(11))
+  })
+
+  it('floors the limit at two columns so a dense cluster keeps one event beside the overflow', () => {
+    const { visible, overflow } = collapseDenseClusters(sixAtTen(), 1)
+    expect(visible.map((entry) => entry.item.id)).toEqual(['one'])
+    expect(visible[0]).toMatchObject({ column: 0, columns: 2 })
+    expect(overflow).toHaveLength(1)
+    expect(overflow[0]).toMatchObject({ column: 1, columns: 2 })
+    expect(overflow[0].items).toHaveLength(5)
+  })
+
+  it('never collapses a pair, even when the requested limit is one', () => {
+    const packed = packOverlaps([
+      makeCalendarItem({ id: 'first', start: at(9), end: at(10, 30) }),
+      makeCalendarItem({ id: 'second', start: at(10), end: at(11) }),
+    ])
+    const { visible, overflow } = collapseDenseClusters(packed, 1)
+    expect(visible).toEqual(packed)
+    expect(overflow).toEqual([])
+  })
+
+  it('spans the overflow slot over the hidden events only for chained intervals', () => {
+    const packed = packOverlaps([
+      makeCalendarItem({ id: 'long', start: at(9), end: at(13) }),
+      makeCalendarItem({ id: 'mid', start: at(9, 30), end: at(10, 30) }),
+      makeCalendarItem({ id: 'late', start: at(10), end: at(11) }),
+      makeCalendarItem({ id: 'later', start: at(10, 15), end: at(12) }),
+      makeCalendarItem({ id: 'tail', start: at(11, 30), end: at(12, 30) }),
+    ])
+    const { visible, overflow } = collapseDenseClusters(packed, 3)
+    expect(visible.map((entry) => entry.item.id)).toEqual(['long', 'mid', 'tail'])
+    expect(overflow).toHaveLength(1)
+    expect(overflow[0].items.map((item) => item.id)).toEqual(['late', 'later'])
+    expect(overflow[0].start).toEqual(at(10))
+    expect(overflow[0].end).toEqual(at(12))
+  })
+
+  it('collapses dense clusters independently of each other', () => {
+    const packed = packOverlaps([
+      ...['a1', 'a2', 'a3', 'a4'].map((id) => makeCalendarItem({ id, start: at(9), end: at(10) })),
+      makeCalendarItem({ id: 'solo', start: at(12), end: at(13) }),
+      ...['b1', 'b2', 'b3', 'b4', 'b5'].map((id) => makeCalendarItem({ id, start: at(15), end: at(16) })),
+    ])
+    const { visible, overflow } = collapseDenseClusters(packed, 3)
+    expect(visible.map((entry) => entry.item.id)).toEqual(['a1', 'a2', 'solo', 'b1', 'b2'])
+    expect(overflow.map((entry) => entry.items.map((item) => item.id))).toEqual([
+      ['a3', 'a4'],
+      ['b3', 'b4', 'b5'],
+    ])
+    expect(overflow[0].cluster).not.toBe(overflow[1].cluster)
+  })
+
+  it('never produces an overflow slot holding a single event', () => {
+    const packed = packOverlaps(['x', 'y', 'z', 'w'].map((id) => makeCalendarItem({ id, start: at(9), end: at(10) })))
+    const { overflow } = collapseDenseClusters(packed, 3)
+    expect(overflow[0].items).toHaveLength(2)
+  })
+})
+
+describe('packedColumnGeometry', () => {
+  it('keeps a single column at the full width', () => {
+    expect(packedColumnGeometry(0, 1)).toEqual({ insetInlineStart: 'calc(0% + 0px)', width: 'calc(100% - 0px)' })
+  })
+
+  it('shares the gap so the last column ends at the container edge', () => {
+    expect(packedColumnGeometry(0, 2)).toEqual({ insetInlineStart: 'calc(0% + 0px)', width: 'calc(50% - 1px)' })
+    expect(packedColumnGeometry(1, 2)).toEqual({ insetInlineStart: 'calc(50% + 1px)', width: 'calc(50% - 1px)' })
   })
 })

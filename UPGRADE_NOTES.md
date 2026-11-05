@@ -1,5 +1,22 @@
 # Upgrade Notes
 
+## `PersonCard` and `sectionSubtitle` deprecated (#7493)
+
+`LinkedPeopleSection` now renders linked people through `DataTable` (extension table id
+`customers.linked_people.list`) instead of mapping `PersonCard`, and its row actions are
+`RowActions` items with the ids `open` and `unlink`.
+
+`PersonCard` stays exported from `components/detail/PersonCard` with the same props and the same
+standalone card markup, so existing callers need no change, and is marked `@deprecated`. New tables
+should compose the exported `Person*Cell` components and `buildPersonRowActionItems` as `DataTable`
+columns and row actions.
+
+`LinkedPeopleSectionProps.sectionSubtitle` is still accepted and rendered, and is marked
+`@deprecated`. The built-in company and deal sections no longer pass it, so their subtitle is gone.
+Move any custom text out of the section, for example into `header`.
+
+Both stay for at least one minor release. No database migration is required.
+
 ## Agent search answers honor domain policy (#7234)
 
 When an allow-list or deny-list is configured, agent `web_search` and the settings

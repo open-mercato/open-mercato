@@ -84,7 +84,7 @@ describe('AgendaList — shared time formatting (#5275)', () => {
       view.unmount()
 
       expect(rowTimes).toEqual([formatTimeLabel(locale, item.start), formatTimeLabel(locale, item.end)])
-      expect(rowLabel).toBe(`${item.title} · ${formatTimeRange(locale, item.start, item.end)}`)
+      expect(rowLabel).toBe(`${item.title}, ${formatTimeRange(locale, item.start, item.end)}`)
     },
   )
 })

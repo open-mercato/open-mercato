@@ -188,7 +188,7 @@ function DealMapPreviewCard({ preview, onClose }: PreviewCardProps): React.React
       </div>
       <h3 className="text-base font-semibold leading-normal text-foreground">{preview.title}</h3>
       {metaParts.length > 0 ? (
-        <p className="text-sm leading-normal text-muted-foreground">{metaParts.join(' · ')}</p>
+        <p className="text-sm leading-normal text-muted-foreground">{metaParts.join(', ')}</p>
       ) : null}
       {preview.stageLabel || preview.ownerName ? (
         <div className="flex flex-wrap items-center gap-1.5">

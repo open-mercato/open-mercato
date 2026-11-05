@@ -13,12 +13,9 @@ import { login } from '@open-mercato/core/modules/core/__integration__/helpers/a
 import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures'
 
-// TODO(crm-activity-redesign): The inline activity composer (4 type buttons with
-// `aria-pressed` state, "what happened?" textarea, inline "Save activity" button) was
-// removed from the people-v2 Activities tab by PR #1791. Type selection now happens via
-// `ActivitiesAddNewMenu` → `ScheduleActivityDialog`. Re-author this scenario against the new
-// menu/dialog once the UX flow is finalised.
-test.describe.skip('TC-UX-002: Inline Activity Composer', () => {
+// Re-enabled by #7494: the people-v2 Activities tab renders the shared
+// `InlineActivityComposer` again (deal-layout parity).
+test.describe('TC-UX-002: Inline Activity Composer', () => {
   test('should show activity composer with type selection and cancel', async ({ page, request }) => {
     test.slow()
 

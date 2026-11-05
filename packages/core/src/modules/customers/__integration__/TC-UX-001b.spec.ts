@@ -52,7 +52,7 @@ test.describe('TC-UX-001b: Collapsible Zone 1 Panel', () => {
       // When Zone 1 is collapsed, the CrudForm group headers should no longer be visible.
       // (Header-level Save button stays visible and disabled — it's not part of Zone 1.)
       const main = page.locator('main')
-      await expect(main.getByRole('button', { name: /^IDENTITY(?:\s|·|$)/ })).not.toBeVisible()
+      await expect(main.getByRole('button', { name: /^IDENTITY(?:\s|$)/ })).not.toBeVisible()
 
       // Expand back
       await expandButton.click()
@@ -61,7 +61,7 @@ test.describe('TC-UX-001b: Collapsible Zone 1 Panel', () => {
       await expect(page.getByRole('button', { name: /collapse form panel/i })).toBeVisible({ timeout: 5_000 })
 
       // Zone 1 IDENTITY group header visible again
-      await expect(main.getByRole('button', { name: /^IDENTITY(?:\s|·|$)/ }).first()).toBeVisible()
+      await expect(main.getByRole('button', { name: /^IDENTITY(?:\s|$)/ }).first()).toBeVisible()
 
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)

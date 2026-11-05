@@ -93,7 +93,7 @@ describe('composeAccessibleName (regression for #3484 item 3)', () => {
   })
 
   it('honors a custom separator', () => {
-    expect(composeAccessibleName(['a', 'b'], ' · ')).toBe('a · b')
+    expect(composeAccessibleName(['a', 'b'], ', ')).toBe('a, b')
   })
 })
 

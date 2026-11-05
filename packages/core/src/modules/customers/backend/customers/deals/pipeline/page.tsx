@@ -2634,7 +2634,6 @@ export default function DealsKanbanPage(): React.ReactElement {
                   </span>
                   {boardSummary.baseCurrencyCode && boardSummary.totalInBaseCurrency > 0 ? (
                     <>
-                      <span aria-hidden="true">·</span>
                       <span className="flex items-baseline gap-1 font-semibold text-foreground">
                         {boardSummary.convertedAll ? null : (
                           <span className="text-muted-foreground" aria-hidden="true">

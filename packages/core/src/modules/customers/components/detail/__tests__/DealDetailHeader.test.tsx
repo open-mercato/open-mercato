@@ -97,9 +97,7 @@ describe('DealDetailHeader', () => {
     expect(onDelete).toHaveBeenCalledTimes(1)
   })
 
-  it('offers stage progression from the header actions', () => {
-    const onStageChange = jest.fn()
-
+  it('keeps the stage out of the header chips', () => {
     renderWithProviders(
       <DealDetailHeader
         deal={{
@@ -118,12 +116,6 @@ describe('DealDetailHeader', () => {
         people={[]}
         companies={[]}
         pipelineName="Default"
-        stageOptions={[
-          { id: 'stage-1', label: 'Discovery', order: 1 },
-          { id: 'stage-2', label: 'Proposal', order: 2 },
-        ]}
-        currentStageId="stage-1"
-        onStageChange={onStageChange}
         onSave={jest.fn()}
         onDelete={jest.fn()}
         isDirty={false}
@@ -131,9 +123,8 @@ describe('DealDetailHeader', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: /Discovery/i }))
-    fireEvent.click(screen.getByRole('button', { name: 'Proposal' }))
-
-    expect(onStageChange).toHaveBeenCalledWith('stage-2')
+    expect(screen.queryByText('Discovery')).not.toBeInTheDocument()
+    expect(screen.queryByText('Deal')).not.toBeInTheDocument()
+    expect(screen.getByText('Expansion renewal')).toBeInTheDocument()
   })
 })

@@ -79,7 +79,7 @@ test.describe('TC-CRM-007: Create Deal', () => {
       }
       await selectByFieldId('status', 'Open')
       await selectByFieldId('pipelineId', pipelineName)
-      // Stage options render "<label> · stage N of M", so match by substring (not exact) —
+      // Stage options render "<label> stage N of M", so match by substring (not exact) —
       // same pattern as the currency option below.
       await selectByFieldId('pipelineStageId', stageName, false)
       // Deal value + probability are sanitized text inputs (SuffixInput with a currency-code / %

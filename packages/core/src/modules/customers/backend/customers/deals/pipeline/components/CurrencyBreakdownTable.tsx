@@ -21,7 +21,7 @@ type CurrencyBreakdownTableProps = {
 /**
  * Read-only currency breakdown body shared between `LaneCurrencyBreakdown` and any future
  * informational popover. Matches the SPEC-048 Figma node 1251:610 currency table:
- *   - Column header row: "Currency · Native total · Deals" (overline gray)
+ *   - Column header row: "Currency, Native total, Deals" (overline gray)
  *   - Divider line
  *   - Per-currency rows with thin bottom dividers; BASE pill on the base-currency row
  *

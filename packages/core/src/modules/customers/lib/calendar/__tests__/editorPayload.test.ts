@@ -95,7 +95,7 @@ describe('buildInteractionPayload — meeting', () => {
       category: 'meeting',
       participants: [
         { userId: '22222222-2222-4222-8222-222222222222', name: 'Anna Kowalska', email: 'anna@acme.test', isCustomer: false },
-        { userId: '33333333-3333-4333-8333-333333333333', name: 'Globex Corp · J. Diaz', isCustomer: true },
+        { userId: '33333333-3333-4333-8333-333333333333', name: 'Globex Corp, J. Diaz', isCustomer: true },
       ],
       description: 'Budget split and launch calendar.',
     })
@@ -110,7 +110,7 @@ describe('buildInteractionPayload — meeting', () => {
     expect(parsed.description).toBe('Budget split and launch calendar.')
     expect(parsed.participants).toEqual([
       { userId: '22222222-2222-4222-8222-222222222222', name: 'Anna Kowalska', email: 'anna@acme.test', isCustomer: false, status: 'pending' },
-      { userId: '33333333-3333-4333-8333-333333333333', name: 'Globex Corp · J. Diaz', email: undefined, isCustomer: true, status: 'customer' },
+      { userId: '33333333-3333-4333-8333-333333333333', name: 'Globex Corp, J. Diaz', email: undefined, isCustomer: true, status: 'customer' },
     ])
     expect(parsed.relatedTo?.id).toBe(state.relatedTo?.id)
     expect(parsed.status).toBe('planned')

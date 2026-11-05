@@ -4,6 +4,7 @@ import * as React from 'react'
 import { Check } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { isTerminalPipelineOutcomeLabel } from './pipelineStageUtils'
 
 type PipelineStageInfo = {
@@ -27,7 +28,9 @@ type PipelineStepperProps = {
   currentStageId: string | null
   pipelineName?: string | null
   closureOutcome?: 'won' | 'lost' | null
-  footer?: React.ReactNode
+  /** Moves the deal to the clicked stage; without it the path is read-only. */
+  onStageChange?: (stageId: string) => Promise<void> | void
+  stageChangeDisabled?: boolean
 }
 
 function isTerminalOutcomeStage(stage: PipelineStageInfo): boolean {
@@ -44,16 +47,16 @@ function formatStageSubtitle(
   transition: StageTransitionInfo | null,
   isCurrent: boolean,
   t: ReturnType<typeof useT>,
-): string {
+): string | null {
   if (transition && isCurrent) {
-    return t('customers.deals.detail.pipeline.currentWithDate', '{{date}} · {{state}}', {
+    return t('customers.deals.detail.pipeline.currentWithDate', '{{date}}, {{state}}', {
       date: formatTransitionDate(transition.transitionedAt, t),
       state: t('customers.deals.detail.pipeline.current', 'current'),
     })
   }
   if (transition) return formatTransitionDate(transition.transitionedAt, t)
   if (isCurrent) return t('customers.deals.detail.pipeline.current', 'current')
-  return '—'
+  return null
 }
 
 export function PipelineStepper({
@@ -62,7 +65,8 @@ export function PipelineStepper({
   currentStageId,
   pipelineName,
   closureOutcome = null,
-  footer = null,
+  onStageChange,
+  stageChangeDisabled = false,
 }: PipelineStepperProps) {
   const t = useT()
   const allStages = React.useMemo(
@@ -95,6 +99,7 @@ export function PipelineStepper({
   const currentIndex = currentVisibleStage ? sortedStages.findIndex((stage) => stage.id === currentVisibleStage.id) : -1
   const compactStage = currentVisibleStage ?? sortedStages[0] ?? null
   const renderClosedProgress = closureOutcome !== null
+  const canSelectStages = !renderClosedProgress && typeof onStageChange === 'function' && !stageChangeDisabled
   const progressValue = currentIndex >= 0 ? currentIndex + 1 : 0
   const progressValueText = renderClosedProgress
     ? closureOutcome === 'won'
@@ -109,137 +114,126 @@ export function PipelineStepper({
     ? t('customers.deals.detail.pipeline.ariaLabelNamed', 'Pipeline progress — {{name}}', { name: pipelineName })
     : t('customers.deals.detail.pipeline.ariaLabel', 'Pipeline progress')
 
-  if (!sortedStages.length) return null
+  const outcomeSegment = renderClosedProgress ? (
+    <div className="flex w-full min-w-0 flex-col gap-2.5 text-left">
+      <span
+        aria-hidden="true"
+        className={cn(
+          'block h-1.5 rounded-full',
+          closureOutcome === 'won' ? 'bg-status-success-icon' : 'bg-status-error-icon',
+        )}
+      />
+      <span className="block truncate text-xs leading-tight text-foreground">
+        {closureOutcome === 'won'
+          ? t('customers.deals.detail.badge.won', 'Won')
+          : t('customers.deals.detail.badge.lost', 'Lost')}
+      </span>
+    </div>
+  ) : null
+
+  if (!sortedStages.length) return outcomeSegment
 
   return (
-    <div
-      className="rounded-lg border border-border bg-card px-5 py-3.5 sm:px-6"
-      role="progressbar"
-      aria-label={progressLabel}
-      aria-valuemin={0}
-      aria-valuemax={sortedStages.length}
-      aria-valuenow={progressValue}
-      aria-valuetext={progressValueText}
-    >
-      <div className="mb-5 flex flex-wrap items-center gap-2 text-xs leading-none">
-        <p className="font-semibold uppercase tracking-[0.02em] text-muted-foreground">
-          {t('customers.deals.detail.pipeline.label', 'Pipeline stages')}
-        </p>
-        <span className="text-border">·</span>
-        <p className="font-normal text-muted-foreground">
-          {t('customers.deals.detail.pipeline.stageOf', 'Stage {{current}} of {{total}}', {
-            current: currentIndex >= 0 ? currentIndex + 1 : 0,
-            total: sortedStages.length,
-          })}
-        </p>
-        <span className="text-border">·</span>
-        <p className="font-normal text-muted-foreground">
-          {pipelineName ?? t('customers.deals.detail.pipeline.defaultName', 'Current pipeline')}
-        </p>
-      </div>
+    <div>
+      <div
+        role="progressbar"
+        aria-label={progressLabel}
+        aria-valuemin={0}
+        aria-valuemax={sortedStages.length}
+        aria-valuenow={progressValue}
+        aria-valuetext={progressValueText}
+        className="sr-only"
+      />
 
-      <div className="space-y-4 sm:hidden">
+      <div className="sm:hidden">
         {compactStage ? (
           <div
-            className="rounded-lg border border-border bg-muted/20 px-4 py-4"
+            className="rounded-md bg-muted px-3 py-2.5"
             aria-current={!renderClosedProgress && compactStage.id === currentVisibleStage?.id ? 'step' : undefined}
           >
             <div className="flex items-center gap-3">
               <div
                 className={cn(
-                  'flex size-9 items-center justify-center rounded-full border-2 bg-background text-foreground',
-                  renderClosedProgress ? 'border-status-success-icon bg-status-success-icon text-white' : 'border-foreground',
+                  'flex size-7 items-center justify-center rounded-full border-2 bg-background text-xs text-foreground',
+                  renderClosedProgress ? 'border-status-success-icon bg-status-success-icon text-white' : 'border-accent-indigo',
                 )}
               >
                 {renderClosedProgress ? (
-                  <Check className="size-4 stroke-[2.5]" />
+                  <Check className="size-3.5 stroke-[2.5]" />
                 ) : (
-                  <span className="text-sm font-semibold leading-none">
-                    {(currentIndex >= 0 ? currentIndex : 0) + 1}
-                  </span>
+                  <span className="font-medium leading-none">{(currentIndex >= 0 ? currentIndex : 0) + 1}</span>
                 )}
               </div>
               <div className="min-w-0">
-                <div className="truncate text-sm font-semibold text-foreground">{compactStage.label}</div>
-                <div className="text-xs text-muted-foreground">
+                <div className="truncate text-sm font-medium text-foreground">{compactStage.label}</div>
+                <div className="min-h-4 text-xs text-muted-foreground">
                   {formatStageSubtitle(transitionByStageId.get(compactStage.id) ?? null, !renderClosedProgress, t)}
                 </div>
               </div>
             </div>
           </div>
         ) : null}
+        {outcomeSegment ? <div className="mt-3">{outcomeSegment}</div> : null}
       </div>
 
-      <div className="hidden min-h-[115px] items-start sm:flex">
-        {sortedStages.map((stage, index) => {
-          const transition = transitionByStageId.get(stage.id) ?? null
-          const isCurrent = !renderClosedProgress && currentVisibleStage?.id === stage.id
-          const isCompleted = renderClosedProgress
-            ? currentIndex >= 0 && index <= currentIndex
-            : !isCurrent && (transition !== null || (currentIndex >= 0 && index < currentIndex))
-          const isFuture = !isCurrent && !isCompleted
-          const isFirst = index === 0
-          const isLast = index === sortedStages.length - 1
-          const beforeFilled = renderClosedProgress ? index <= currentIndex : index <= currentIndex
-          const afterFilled = renderClosedProgress ? index < currentIndex : index < currentIndex
-
-          return (
-            <div
-              key={stage.id}
-              className="flex min-w-0 flex-1 flex-col items-center justify-center gap-2"
-              aria-current={isCurrent ? 'step' : undefined}
-            >
-              <div className="flex w-full items-center" aria-hidden="true">
-                <div
+      <div className="hidden sm:block">
+        <ol className="flex min-w-0 gap-1" aria-label={progressLabel}>
+          {sortedStages.map((stage, index) => {
+            const transition = transitionByStageId.get(stage.id) ?? null
+            const isCurrent = !renderClosedProgress && currentVisibleStage?.id === stage.id
+            const isCompleted = renderClosedProgress
+              ? currentIndex >= 0 && index <= currentIndex
+              : !isCurrent && (transition !== null || (currentIndex >= 0 && index < currentIndex))
+            const selectable = canSelectStages && !isCurrent
+            const segmentClassName = 'flex w-full min-w-0 flex-col gap-2.5 rounded-sm text-left'
+            const content = (
+              <>
+                <span
+                  aria-hidden="true"
                   className={cn(
-                    'h-[2px] flex-1',
-                    isFirst ? 'bg-transparent' : beforeFilled ? 'bg-status-success-icon' : 'bg-border/60',
+                    'block h-1.5 rounded-full transition-colors',
+                    isCurrent && 'bg-accent-indigo',
+                    isCompleted && !isCurrent && 'bg-status-success-icon',
+                    !isCurrent && !isCompleted && 'bg-border',
+                    selectable && 'group-hover:bg-muted-foreground',
                   )}
                 />
-                <div
+                <span
                   className={cn(
-                    'mx-0 flex size-9 items-center justify-center rounded-full border-2 text-sm leading-none transition-colors',
-                    isCurrent && 'border-foreground bg-background font-bold text-foreground',
-                    isCompleted && !isCurrent && 'border-status-success-icon bg-status-success-icon text-white',
-                    isFuture && 'border-border bg-background font-medium text-muted-foreground',
-                  )}
-                >
-                  {isCompleted ? (
-                    <Check className="size-4 stroke-[2.5]" />
-                  ) : (
-                    <span>{index + 1}</span>
-                  )}
-                </div>
-                <div
-                  className={cn(
-                    'h-[2px] flex-1',
-                    isLast ? 'bg-transparent' : afterFilled ? 'bg-status-success-icon' : 'bg-border/60',
-                  )}
-                />
-              </div>
-              <div className="flex max-w-[12rem] flex-col items-center gap-0.5 text-center">
-                <div
-                  className={cn(
-                    'text-xs leading-[1.2]',
-                    isCurrent ? 'font-bold text-foreground' : isFuture ? 'font-medium text-muted-foreground' : 'font-semibold text-foreground',
+                    'block truncate text-xs leading-tight',
+                    isCurrent ? 'text-foreground' : 'text-muted-foreground',
+                    selectable && 'group-hover:text-foreground',
                   )}
                 >
                   {stage.label}
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  {formatStageSubtitle(transition, isCurrent, t)}
-                </div>
-              </div>
-            </div>
-          )
-        })}
+                </span>
+              </>
+            )
+            return (
+              <li key={stage.id} className="min-w-0 flex-1" aria-current={isCurrent ? 'step' : undefined}>
+                {selectable ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className={cn(
+                      segmentClassName,
+                      'group h-auto items-stretch justify-start whitespace-normal p-0 font-normal hover:bg-transparent dark:hover:bg-transparent',
+                    )}
+                    onClick={() => {
+                      void onStageChange?.(stage.id)
+                    }}
+                  >
+                    {content}
+                  </Button>
+                ) : (
+                  <div className={segmentClassName}>{content}</div>
+                )}
+              </li>
+            )
+          })}
+          {outcomeSegment ? <li className="min-w-0 flex-1">{outcomeSegment}</li> : null}
+        </ol>
       </div>
-
-      {footer ? (
-        <div className="mt-5 border-t border-border/80 pt-4">
-          {footer}
-        </div>
-      ) : null}
     </div>
   )
 }

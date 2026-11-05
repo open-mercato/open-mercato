@@ -1,4 +1,4 @@
-import { resolveEncryptedSortPage } from '../encryptedSortPage'
+import { matchesDecryptedSearch, resolveEncryptedSearchMaxRows, resolveEncryptedSortPage } from '../encryptedSortPage'
 
 const namesById: Record<string, string> = {
   '1': 'cipher-a', '2': 'cipher-b', '3': 'cipher-c', '4': 'cipher-d', '5': 'cipher-e',
@@ -22,6 +22,30 @@ async function decryptRow<T extends { id: string }>(row: T): Promise<T> {
 }
 
 describe('resolveEncryptedSortPage', () => {
+  test('keeps the candidate order when SQL already sorted, and pages over the matching rows only', async () => {
+    const first = await resolveEncryptedSortPage({
+      candidates: makeCandidates(),
+      decryptRow,
+      sortField: null,
+      sortDir: 'desc',
+      cursorId: null,
+      limit: 1,
+      matches: (row) => matchesDecryptedSearch(row, 'E'),
+    })
+    expect(first).toEqual({ pageIds: ['3'], hasMore: true })
+
+    const second = await resolveEncryptedSortPage({
+      candidates: makeCandidates(),
+      decryptRow,
+      sortField: null,
+      sortDir: 'desc',
+      cursorId: '3',
+      limit: 1,
+      matches: (row) => matchesDecryptedSearch(row, 'E'),
+    })
+    expect(second.pageIds).toEqual(['1'])
+  })
+
   test('sorts by decrypted plaintext, not ciphertext, on page 1', async () => {
     const { pageIds, hasMore } = await resolveEncryptedSortPage({
       candidates: makeCandidates(),
@@ -124,5 +148,28 @@ describe('resolveEncryptedSortPage', () => {
     })
     expect(pageIds).toEqual([])
     expect(hasMore).toBe(false)
+  })
+})
+
+describe('matchesDecryptedSearch', () => {
+  test('matches title or body, ignoring case, and treats the term literally', () => {
+    expect(matchesDecryptedSearch({ title: 'Renewal CALL', body: null }, 'renewal')).toBe(true)
+    expect(matchesDecryptedSearch({ title: null, body: 'discussed 50%_off' }, '50%_off')).toBe(true)
+    expect(matchesDecryptedSearch({ title: 'Renewal', body: 'call' }, 'r%l')).toBe(false)
+    expect(matchesDecryptedSearch({ title: null, body: null }, 'a')).toBe(false)
+  })
+})
+
+describe('resolveEncryptedSearchMaxRows', () => {
+  afterEach(() => {
+    delete process.env.OM_ENCRYPTED_SEARCH_MAX_ROWS
+  })
+
+  test('is bounded by default and honours a valid override', () => {
+    expect(resolveEncryptedSearchMaxRows()).toBe(5000)
+    process.env.OM_ENCRYPTED_SEARCH_MAX_ROWS = '250'
+    expect(resolveEncryptedSearchMaxRows()).toBe(250)
+    process.env.OM_ENCRYPTED_SEARCH_MAX_ROWS = 'nonsense'
+    expect(resolveEncryptedSearchMaxRows()).toBe(5000)
   })
 })

@@ -33,7 +33,7 @@ const stages = [
   { id: 's3', label: 'Won', order: 3 },
 ]
 
-const formatCount = (position: number, total: number) => `· stage ${position} of ${total}`
+const formatCount = (position: number, total: number) => `stage ${position} of ${total}`
 
 describe('PipelineStageSelect', () => {
   it('shows the placeholder when nothing is selected', () => {
@@ -59,7 +59,7 @@ describe('PipelineStageSelect', () => {
         formatCount={formatCount}
       />,
     )
-    expect(screen.getByTestId('select-value')).toHaveTextContent('Proposal· stage 2 of 3')
+    expect(screen.getByTestId('select-value')).toHaveTextContent('Proposalstage 2 of 3')
   })
 
   it('labels every option with its 1-based position out of the total', () => {

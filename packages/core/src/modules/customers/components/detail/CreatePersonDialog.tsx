@@ -176,7 +176,6 @@ export function CreatePersonDialog({
             <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
               <Building2 className="size-3.5" />
               <span>{companyName}</span>
-              <span className="text-xs">·</span>
               <span>{t('customers.people.createDialog.autoLink', 'auto-linked to company')}</span>
             </div>
           ) : null}

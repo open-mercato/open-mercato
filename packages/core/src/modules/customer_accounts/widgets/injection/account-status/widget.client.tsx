@@ -29,6 +29,8 @@ interface AccountStatusProps {
   context?: {
     entityId?: string
     recordId?: string
+    resourceId?: string
+    personId?: string
   }
 }
 
@@ -257,7 +259,9 @@ function InviteForm({
 export default function AccountStatusWidget({ context }: AccountStatusProps) {
   const t = useT()
   const queryClient = useQueryClient()
-  const personEntityId = context?.recordId
+  // CrudForm hosts pass `recordId`; the person detail tab host passes the page's
+  // injection context (`resourceId` / `personId`).
+  const personEntityId = context?.recordId ?? context?.resourceId ?? context?.personId
   const [showInviteForm, setShowInviteForm] = React.useState(false)
 
   const { data, isLoading } = useQuery({
@@ -333,7 +337,7 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
 
   if (!data) {
     return (
-      <div className="rounded-md border p-3">
+      <div className="max-w-xl rounded-lg border bg-card p-4">
         <div className="text-sm font-medium mb-1">{t('customer_accounts.widgets.accountStatus', 'Portal Account')}</div>
         {isResolvingInvitation ? (
           <div className="text-sm text-muted-foreground">{t('common.loading', 'Loading...')}</div>
@@ -384,7 +388,7 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
   }
 
   return (
-    <div className="rounded-md border p-3">
+    <div className="max-w-xl rounded-lg border bg-card p-4">
       <div className="text-sm font-medium mb-2">{t('customer_accounts.widgets.accountStatus', 'Portal Account')}</div>
       <div className="space-y-1 text-sm">
         <div className="flex justify-between">

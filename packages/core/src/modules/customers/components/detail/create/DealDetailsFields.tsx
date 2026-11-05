@@ -103,7 +103,7 @@ export function DealDetailsFields({
           disabled={isSubmitting || !values.pipelineId}
           placeholder={tr('customers.deals.form.pipelineStage.placeholder', 'Select stage…')}
           formatCount={(position, total) =>
-            tr('customers.deals.create.fields.stageOf', '· stage {position} of {total}', { position, total })
+            tr('customers.deals.create.fields.stageOf', 'stage {position} of {total}', { position, total })
           }
         />
       </DealFormField>

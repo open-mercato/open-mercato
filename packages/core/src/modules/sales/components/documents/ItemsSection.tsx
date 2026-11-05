@@ -701,6 +701,7 @@ export function SalesDocumentItemsSection({
         <DictionaryValue
           value={value}
           map={lineStatusMap}
+          appearance="dot"
           fallback={<span className="text-xs font-medium">{value}</span>}
           className="text-xs font-medium"
           iconWrapperClassName="inline-flex h-6 w-6 items-center justify-center rounded bg-muted text-muted-foreground"

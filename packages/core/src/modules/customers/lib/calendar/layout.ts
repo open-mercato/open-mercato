@@ -1,9 +1,29 @@
 import type { CalendarItem } from '../../components/calendar/types'
 
+export const PACKED_COLUMN_GAP_PX = 2
+export const MIN_PACKED_COLUMN_WIDTH_PX = 64
+export const DEFAULT_MAX_PACKED_COLUMNS = 3
+export const MIN_COLLAPSE_LIMIT_COLUMNS = 2
+
 export type PackedCalendarItem = {
   item: CalendarItem
   column: number
   columns: number
+  cluster: number
+}
+
+export type PackedOverflow = {
+  cluster: number
+  items: CalendarItem[]
+  column: number
+  columns: number
+  start: Date
+  end: Date
+}
+
+export type DenseLayout = {
+  visible: PackedCalendarItem[]
+  overflow: PackedOverflow[]
 }
 
 export function packOverlaps(dayItems: CalendarItem[]): PackedCalendarItem[] {
@@ -17,12 +37,14 @@ export function packOverlaps(dayItems: CalendarItem[]): PackedCalendarItem[] {
   let cluster: Array<{ item: CalendarItem; column: number }> = []
   let columnEnds: number[] = []
   let clusterEnd = Number.NEGATIVE_INFINITY
+  let clusterIndex = 0
 
   const flushCluster = () => {
     const columns = columnEnds.length
     for (const entry of cluster) {
-      result.push({ item: entry.item, column: entry.column, columns })
+      result.push({ item: entry.item, column: entry.column, columns, cluster: clusterIndex })
     }
+    if (cluster.length > 0) clusterIndex += 1
     cluster = []
     columnEnds = []
     clusterEnd = Number.NEGATIVE_INFINITY
@@ -44,4 +66,78 @@ export function packOverlaps(dayItems: CalendarItem[]): PackedCalendarItem[] {
   flushCluster()
 
   return result
+}
+
+/**
+ * How many packed columns still leave each event a readable label. Unknown or
+ * unmeasured widths fall back to a conservative default; a column never drops
+ * below two slots, so a pair stays visible and at least one event sits beside
+ * the overflow disclosure, however narrow the column.
+ */
+export function resolveMaxPackedColumns(usableWidthPx: number | null): number {
+  if (usableWidthPx == null || !Number.isFinite(usableWidthPx) || usableWidthPx <= 0) {
+    return DEFAULT_MAX_PACKED_COLUMNS
+  }
+  const slotWidth = MIN_PACKED_COLUMN_WIDTH_PX + PACKED_COLUMN_GAP_PX
+  return Math.max(MIN_COLLAPSE_LIMIT_COLUMNS, Math.floor((usableWidthPx + PACKED_COLUMN_GAP_PX) / slotWidth))
+}
+
+/**
+ * Collapses clusters wider than `maxColumns` into the first `maxColumns - 1`
+ * regular columns plus one overflow slot that lists every remaining event.
+ * Clusters that already fit are returned untouched. The limit never drops below
+ * two columns: a pair is never folded, and a denser cluster keeps one visible event.
+ */
+export function collapseDenseClusters(packed: PackedCalendarItem[], maxColumns: number): DenseLayout {
+  const limit = Math.max(MIN_COLLAPSE_LIMIT_COLUMNS, Math.floor(maxColumns))
+  const visibleColumns = limit - 1
+  const visible: PackedCalendarItem[] = []
+  const hiddenByCluster = new Map<number, PackedCalendarItem[]>()
+
+  for (const entry of packed) {
+    if (entry.columns <= limit) {
+      visible.push(entry)
+      continue
+    }
+    if (entry.column < visibleColumns) {
+      visible.push({ ...entry, columns: limit })
+      continue
+    }
+    const bucket = hiddenByCluster.get(entry.cluster)
+    if (bucket) bucket.push(entry)
+    else hiddenByCluster.set(entry.cluster, [entry])
+  }
+
+  const overflow: PackedOverflow[] = []
+  for (const [cluster, entries] of hiddenByCluster) {
+    let startMs = Number.POSITIVE_INFINITY
+    let endMs = Number.NEGATIVE_INFINITY
+    for (const entry of entries) {
+      startMs = Math.min(startMs, entry.item.start.getTime())
+      endMs = Math.max(endMs, entry.item.end.getTime())
+    }
+    overflow.push({
+      cluster,
+      items: entries.map((entry) => entry.item),
+      column: visibleColumns,
+      columns: limit,
+      start: new Date(startMs),
+      end: new Date(endMs),
+    })
+  }
+
+  return { visible, overflow }
+}
+
+/**
+ * Inline geometry for a packed column. The gap is shared evenly across the
+ * cluster so the last column ends exactly at the container edge.
+ */
+export function packedColumnGeometry(column: number, columns: number): { insetInlineStart: string; width: string } {
+  const widthPct = 100 / columns
+  const gapShare = PACKED_COLUMN_GAP_PX / columns
+  return {
+    insetInlineStart: `calc(${column * widthPct}% + ${column * gapShare}px)`,
+    width: `calc(${widthPct}% - ${(columns - 1) * gapShare}px)`,
+  }
 }

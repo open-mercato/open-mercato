@@ -30,10 +30,9 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 
-import { ActivitiesSection } from '../../../../components/detail/ActivitiesSection'
+import { ActivityLogTab } from '../../../../components/detail/ActivityLogTab'
 import { PersonEmailThreadsTab } from '../../../../components/detail/PersonEmailThreadsTab'
-import { ActivitiesCard } from '../../../../components/detail/ActivitiesCard'
-import type { ActivityKind } from '../../../../components/detail/ActivitiesAddNewMenu'
+import { usePlannedActivities } from '../../../../components/detail/hooks/usePlannedActivities'
 import { DealsSection } from '../../../../components/detail/DealsSection'
 import { TasksSection } from '../../../../components/detail/TasksSection'
 import type { TagSummary } from '../../../../components/detail/types'
@@ -98,7 +97,6 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const [scheduleDialogOpen, setScheduleDialogOpen] = React.useState(false)
   const [scheduleEditData, setScheduleEditData] = React.useState<ScheduleActivityEditData | null>(null)
-  const [activityRefreshKey, setActivityRefreshKey] = React.useState(0)
   const [dealCount, setDealCount] = React.useState(0)
 
   const currentPersonId = data?.person?.id ?? null
@@ -192,14 +190,9 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
     setDealCount(data?.counts?.deals ?? 0)
   }, [data?.counts?.deals])
 
-  const handleActivityCreated = React.useCallback(() => {
-    setActivityRefreshKey((k) => k + 1)
+  const reloadAfterActivityChange = React.useCallback(() => {
     loadData().catch((err) => logger.warn('reload after activity failed', { component: 'people-v2', err }))
   }, [loadData])
-
-  const plannedActivities = React.useMemo(() => {
-    return data?.plannedActivitiesPreview ?? []
-  }, [data?.plannedActivitiesPreview])
 
   // Injection context for UMES
   const injectionContext = React.useMemo(
@@ -226,6 +219,20 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
     [injectionContext, runMutation],
   )
 
+  const {
+    plannedActivities,
+    activityRefreshKey,
+    loadPlannedActivities,
+    handleActivityCreated,
+    handleMarkDone,
+    handleCancelActivity,
+  } = usePlannedActivities({
+    scope: { entityId: currentPersonId ?? id ?? '' },
+    runMutationWithContext,
+    logContext: 'customers.people-v2',
+    onAfterChange: reloadAfterActivityChange,
+  })
+
   // Publish page-load record context to the AppShell-owned `backend:record:current`
   // mount so the enterprise record_locks widget resolves `customers.person` + id
   // explicitly (the hardcoded path allowlist misses the `people-v2` route).
@@ -240,24 +247,8 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
     }),
   )
 
-  const handleAddActivity = React.useCallback((kind: ActivityKind) => {
-    setScheduleEditData({
-      id: '',
-      interactionType: kind,
-      title: null,
-      body: null,
-      scheduledAt: null,
-      durationMinutes: null,
-      location: null,
-      allDay: null,
-      recurrenceRule: null,
-      recurrenceEnd: null,
-      participants: null,
-      reminderMinutes: null,
-      visibility: null,
-      linkedEntities: null,
-      guestPermissions: null,
-    })
+  const openNewScheduleDialog = React.useCallback(() => {
+    setScheduleEditData(null)
     setScheduleDialogOpen(true)
   }, [])
 
@@ -320,6 +311,12 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
   React.useEffect(() => {
     setActiveTab(initialTab)
   }, [initialTab])
+
+  const isActivityTabActive = activeTab === 'activities'
+  React.useEffect(() => {
+    if (!isActivityTabActive) return
+    void loadPlannedActivities({ cache: true })
+  }, [isActivityTabActive, loadPlannedActivities])
 
   const handleTabChange = React.useCallback(
     (tab: PersonTabId) => {
@@ -568,7 +565,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                 activeTab={activeTab}
                 onTabChange={handleTabChange}
                 isLoadingInjectedTabs={injectedTabsLoading}
-                injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label, priority: tab.priority }))}
+                injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label, icon: tab.icon, priority: tab.priority }))}
                 activitiesCount={interactionCount}
                 dealsCount={dealCount}
                 companiesCount={companyCount}
@@ -582,31 +579,26 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
 
                   if (activeTab === 'activities') {
                     return (
-                      <div className="space-y-4">
-                        <ActivitiesCard
-                          entityId={personId}
-                          plannedActivities={plannedActivities}
-                          refreshKey={activityRefreshKey}
-                          onAddNew={handleAddActivity}
-                          onEditActivity={handleEditActivity}
-                          entityCompanyName={data.company?.displayName ?? data.companies?.[0]?.displayName ?? null}
-                        />
-                        <ActivitiesSection
-                          entityId={personId}
-                          entityName={personName}
-                          useCanonicalInteractions={useCanonicalInteractions}
-                          runGuardedMutation={runMutationWithContext}
-                          onDataRefresh={handleActivityCreated}
-                          refreshKey={activityRefreshKey}
-                          addActionLabel={t('customers.people.detail.activities.add', 'Log activity')}
-                          emptyState={{
-                            title: t('customers.people.detail.emptyState.activities.title', 'No activities logged yet'),
-                            actionLabel: t('customers.people.detail.emptyState.activities.action', 'Log activity'),
-                          }}
-                          onActionChange={handleSectionActionChange}
-                          onEditActivity={handleEditActivity}
-                        />
-                      </div>
+                      <ActivityLogTab
+                        entityType="person"
+                        entityId={personId}
+                        entityName={personName}
+                        plannedActivities={plannedActivities}
+                        onActivityCreated={() => { void handleActivityCreated() }}
+                        onScheduleRequested={openNewScheduleDialog}
+                        onMarkDone={handleMarkDone}
+                        onEditActivity={handleEditActivity}
+                        onCancelActivity={handleCancelActivity}
+                        runGuardedMutation={runMutationWithContext}
+                        refreshKey={activityRefreshKey}
+                        useCanonicalInteractions={useCanonicalInteractions}
+                        addActionLabel={t('customers.people.detail.activities.add', 'Log activity')}
+                        emptyState={{
+                          title: t('customers.people.detail.emptyState.activities.title', 'No activities logged yet'),
+                          actionLabel: t('customers.people.detail.emptyState.activities.action', 'Log activity'),
+                        }}
+                        onActionChange={handleSectionActionChange}
+                      />
                     )
                   }
 
@@ -694,7 +686,6 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                         entityId={E.customers.customer_entity}
                         recordId={personId}
                         title={t('customers.people.detail.tabs.files', 'Files')}
-                        description={t('customers.people.detail.files.subtitle', 'Upload and manage files linked to this person.')}
                       />
                     )
                   }
@@ -740,7 +731,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
             entityName={personName}
             companyName={scheduleDialogCompanyName}
             entityType="person"
-            onActivityCreated={handleActivityCreated}
+            onActivityCreated={() => { void handleActivityCreated() }}
             editData={scheduleEditData}
           />
           {ConfirmDialogElement}

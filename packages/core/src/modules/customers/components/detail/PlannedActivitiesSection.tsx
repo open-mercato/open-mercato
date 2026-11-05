@@ -93,10 +93,7 @@ export function PlannedActivitiesSection({ activities, onComplete, onSchedule, o
                     {activity.scheduledAt ? formatRelativeOverdue(activity.scheduledAt, t) : ''}
                   </span>
                   {activity.authorName && (
-                    <>
-                      <span>·</span>
-                      <span>{activity.authorName}</span>
-                    </>
+                    <span>{activity.authorName}</span>
                   )}
                 </div>
               </div>
@@ -173,10 +170,7 @@ export function PlannedActivitiesSection({ activities, onComplete, onSchedule, o
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <span>{activity.scheduledAt ? formatScheduledDate(activity.scheduledAt, t) : ''}</span>
                   {activity.authorName && (
-                    <>
-                      <span>·</span>
-                      <span>{activity.authorName}</span>
-                    </>
+                    <span>{activity.authorName}</span>
                   )}
                 </div>
               </div>
@@ -248,7 +242,7 @@ function formatScheduledDate(isoString: string, t: TranslateFn): string {
     if (isSameDay(date, tomorrow)) {
       return t('customers.timeline.planned.tomorrow', 'Tomorrow {{time}}', { time: timeStr })
     }
-    return `${dayName}, ${dateStr} · ${timeStr}`
+    return `${dayName}, ${dateStr}, ${timeStr}`
   } catch {
     return isoString
   }

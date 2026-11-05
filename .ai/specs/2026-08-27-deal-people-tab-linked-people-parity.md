@@ -79,7 +79,7 @@ Three components after the change, all under `packages/core/src/modules/customer
 
 | Component | Role |
 |-----------|------|
-| `LinkedPeopleSection.tsx` (new) | The shared shell. Owns search, Filters toggle, sort, the `PersonCard` grid, pagination, the link dialog, the empty state and the starred-people preference. Host-agnostic. |
+| `LinkedPeopleSection.tsx` (new) | The shared shell. Owns search, the search-and-sort disclosure, sort, the `PersonCard` grid, pagination, the link dialog, the empty state and the starred-people preference. Host-agnostic. |
 | `CompanyPeopleSection.tsx` (rewritten as a wrapper) | Company adapter. Supplies the company fetch/link/unlink handlers, `RolesSection` as a header slot, `DecisionMakersFooter` as a footer slot, and owns `CreatePersonDialog`. |
 | `DealPeopleSection.tsx` (new) | Deal adapter. Supplies the deal fetch handler, the selection-based link/unlink handlers, and owns `CreatePersonDialog`. |
 
@@ -259,6 +259,8 @@ Concurrency is **not** part of this rationale. Before PR 1 the whole-set path of
 | `CreatedPersonSummary` **payload** | `companyId`/`companyName` widened `string` → `string \| null`, still always emitted | ADDITIVE — a consumer reading them still gets a property; only a consumer assigning to a non-nullable `string` needs a null check. Making them *optional* would have been a break and is explicitly rejected. |
 | `createPersonLinkAdapter` | optional option added | ADDITIVE |
 | `PersonCard` | imports its person type from the new module | NONE (structural type, re-exported) |
+| `PersonCard` — #7493 | `LinkedPeopleSection` no longer renders it; the export keeps its props and standalone card markup | DEPRECATED — `@deprecated` JSDoc, kept for at least one minor release; replaced by the `Person*Cell` exports and `buildPersonRowActionItems` |
+| `LinkedPeopleSectionProps.sectionSubtitle` — #7493 | built-in hosts stop passing it; the prop is still accepted and rendered | DEPRECATED — `@deprecated` JSDoc, kept for at least one minor release; move the text into `header` |
 | `syncDealPeople` — PR 1 | deal `updated_at` advances on link membership or primary-flag change | BEHAVIOURAL FIX — no signature or payload change. A caller that ignored the lock now receives the 409 it should always have received. |
 | `syncDealPeople` — PR 3 | link rows survive an unrelated update, so `linkedAt` becomes durable | BEHAVIOURAL FIX — no signature or payload change. No caller relies on `linkedAt` being rewritten; nothing renders it before PR 3. |
 | `PersonCard` — PR 2 | optional `showLinkedDate` prop, default `true` | ADDITIVE — company call sites unchanged |
@@ -303,7 +305,7 @@ Each PR ships its own coverage. Nothing below is deferred to a later PR than the
 1. loads from `/api/customers/deals/{id}/people` with `page`/`pageSize`/`sort`
 2. unlink saves the remaining selection
 3. search and sort changes are forwarded to the endpoint
-4. Filters toggle hides and restores the controls
+4. The search box is always visible and sorting lives in the column headers (`aria-sort` on the Name header; company tabs also get a sortable Linked column) — no disclosure toggle (#7493)
 5. empty state offers both link and add actions
 6. the add-person dialog opens without a company context
 7. a created person is appended to the deal selection
@@ -396,3 +398,4 @@ Applies to all three PRs. The second `yarn build:packages` rebuilds against what
 | 2026-08-27 | Spec review round 1: added § Deal Write Path (set-diffing `syncDealPeople` + `updated_at` stamp) after review showed the stated optimistic-lock guarantee did not hold and that every people write reset `linkedAt`; rewrote the no-new-endpoint rationale and Risks 2–3; corrected the integration-test path, the validation gate and the `CreatedPersonSummary` BC row; trimmed the Goals list; documented the deal refresh-event decision and the sibling-tab asymmetry. |
 | 2026-08-28 | Spec review round 2: added the `is_primary` ordering requirement (partial unique index is immediate, and set-diffing removes the delete-everything-first protection); widened the lock-stamp rule to cover primary-flag changes and both link tables; split the `syncDealCompanies` note into its deferrable and non-deferrable halves; fixed the `data/entities.ts` line citation. |
 | 2026-08-28 | Round-3 inline review: corrected the `is_primary` rule to cover a removed displaced row (inserts commit before deletes), named the `updated_at` touch mechanism and the undo-path semantics, split the write-path fix into its own issue and PR, and enumerated the real `LinkedPeopleSection` prop surface. |
+| 2026-11-04 | #7493 compatibility: `PersonCard` and `sectionSubtitle` stay as deprecated bridges instead of changing shape or disappearing. |

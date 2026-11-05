@@ -361,9 +361,11 @@ New CrudForm component group "roles" in Zone 1 (column 1, below "details" group)
 │  Service Owner:  [— assign —    ▾]  │
 │  Account Mgr:    [Anna Nowak    ✕]  │
 │                                     │
-│  [+ Add role]                       │
+│  [+ Assign role]                    │
 └─────────────────────────────────────┘
 ```
+
+**Assignment and reassignment (Rev 7, #7490).** Both go through the shared `AssignRoleDialog`. An empty role card's **Choose person** opens it with that role preselected (Select person → Confirm); the generic **Assign role** shortcut starts at Role type and is rendered only while an unassigned role type remains. **Change user** on an assigned card opens the same dialog in reassign mode: the role stays fixed, the incumbent is preselected and marked *Current*, the title reads *Change assignee*, and confirming calls `PUT …/roles?roleId=<assignmentId>` (the assignment keeps its id). Confirming the unchanged incumbent or cancelling writes nothing; a failed save keeps the dialog and selection for a retry. **Manage role types** stays the dictionary-management action. `RoleAssignmentRow` keeps its inline lookup only as a fallback when a host does not pass `onChangeUser`.
 
 #### Data Model
 
@@ -821,7 +823,7 @@ Each `ActivityCard` exposes a row of contextual AI action chips (e.g., "Draft re
 | `packages/core/src/modules/customers/components/detail/AiActionChips.tsx` | New — chip row |
 | `packages/core/src/modules/customers/components/detail/ActivityAiActions.tsx` | New — execution wrapper |
 | `packages/core/src/modules/customers/components/detail/ActivityCard.tsx` | New — canonical activity card composition |
-| `packages/core/src/modules/customers/components/detail/ActivityLogTab.tsx` | New — Activities tab shell |
+| `packages/core/src/modules/customers/components/detail/ActivityLogTab.tsx` | New — Activities tab shell. Since #7494 it composes the deal reference layout (`InlineActivityComposer` → `PlannedActivitiesSection` → `ActivitiesSection`) for both person and company pages; `ActivitiesCard` / `ActivityHistorySection` stay exported but are no longer mounted by the detail pages |
 | `packages/core/src/modules/customers/components/detail/ActivityHistorySection.tsx` | New — grouped history list |
 
 ---
@@ -1222,7 +1224,7 @@ Verify CrudForm is NOT dirty after activity save
 Navigate: /backend/customers/companies-v2/{id}
 
 Verify Roles section visible in Zone 1
-Click [+ Add role]:
+Click [+ Assign role]:
   - Select role type: "Sales Owner"
   - Search and select user: "Jan Kowalski"
   - Verify role appears in section
@@ -1236,6 +1238,12 @@ Click ✕ on "Sales Owner":
 
 Reload page:
   - Verify "Service Owner: Anna Nowak" persisted
+
+Click [Change user] on "Service Owner":
+  - Same dialog opens as "Change assignee", role fixed, "Anna Nowak" preselected
+  - Pick "Jan Kowalski" → [Save change] → card shows Jan Kowalski (PUT, same assignment id)
+  - Reopen, press Escape → nothing written
+When every role type is assigned, [+ Assign role] is not rendered
 ```
 
 ### TC-UX-004: Stage Progress Bar
@@ -1422,6 +1430,11 @@ Third-party modules need no migration to keep working. Consumers that want to:
 
 | Date | Change |
 | ---- | ------ |
+| 2026-11-04 | Rev 8 (#7494): The planned list selects open activities with the new additive `excludeStatus` query parameter on `GET /api/customers/interactions`, so custom non-terminal statuses stay visible on person, company and deal records. Complete and cancel send the displayed activity's `updatedAt` as the optimistic-lock version. |
+| 2026-11-01 | Rev 7 (#7490): one modal flow for role assignment and reassignment. `AssignRoleDialog` gains optional `editingAssignment` + `onReassign` (role fixed, incumbent preselected, `PUT …/roles?roleId=`), `RoleAssignmentRow` gains optional `onChangeUser`, the generic shortcut is labelled *Assign role* and hidden once every role type is assigned. Existing routes, commands, schema and ACLs unchanged; the inline lookup remains as a fallback for hosts that do not pass `onChangeUser` |
+| 2026-11-03 | Rev 7 (#7494): `ActivitiesSection` gains the optional `serverHistoryControls` prop, set by `ActivityLogTab` for person and company. It sends `search` and `sortField`/`sortDir` to `GET /api/customers/interactions`, shows the sort control, and turns failed interaction loads into `ErrorMessage` with retry. Other callers keep the local filter. Loaded rows are still matched locally because the API search does not cover author, deal or type. |
+| 2026-11-03 | `GET /api/customers/interactions` with `search` no longer returns nothing when `title` or `body` are encrypted: it drops the ILIKE, decrypts a candidate set ordered by the requested sort, and matches title and body case-insensitively. The scan is capped by `OM_ENCRYPTED_SEARCH_MAX_ROWS` (default 5000); a capped scan logs a warning and can miss older matches. Tenants without encrypted `title`/`body` keep the SQL search. |
+| 2026-10-29 | Rev 6 (#7494): Person and company activity tabs now reuse the deal Activities composition. `ActivityLogTab` renders `InlineActivityComposer` → `PlannedActivitiesSection` → `ActivitiesSection` scoped to the owning record (planned list fetched by `entityId`, never a deal filter) and accepts `entityType`, `entityName`, `addActionLabel`, `emptyState`, `onActionChange`; its `onAddActivity` / `entityCompanyName` props are deprecated no-ops. Planned/complete/cancel state moved into the shared `usePlannedActivities` hook (`useDealActivities` delegates to it). No route, API, schema or ACL changes |
 | 2026-10-22 | Implement the four advertised Sales order/quote stage-bar and closure render-widget hosts (#7782), with live canonical declarations, unchanged native lifecycle, context/compatibility documentation, and rendering coverage. |
 | 2026-04-19 | Rev 5: Retroactively documented UX iterations that shipped alongside Phases 1–5 after the initial 2026-04-06 draft. Added "Additional UX Iterations" section covering Enhancements 6–16 (Company Dashboard tab + widgets, AI Action Chips, per-user Customer Labels, Dictionary Kind Settings, Dictionary Entry Reorder/Set-Default, Company Billing extension, Person-Company Roles junction, Deal Stage Transitions audit, Decision Makers Footer, Mini Week Calendar, Coming Soon Placeholder). Extended Implementation Phases table with Phases 5–8. Updated Scope list in TLDR. No contract or migration changes beyond what Rev 3/Rev 4 already documented in the Migration & Backward Compatibility section — the new tables, columns, events, routes and ACL features referenced here are the same ones already enumerated there. This revision closes the gap where the spec described the original 5 enhancements but the branch delivered 16 |
 | 2026-04-18 | Rev 4: Post-review fixes. Documented `audit_logs` schema + service + CLI + export route additions that back the Changelog tab. Added `aria-*` semantics (`role="progressbar"`, `aria-valuenow`, `aria-valuetext`, `aria-current="step"`) to `PipelineStepper`. Added `Cmd/Ctrl+Enter` handler to `CreatePersonDialog`. Restored `data-component-handle` on the UMES example `PageBody` that was removed by an unrelated commit on this branch |
