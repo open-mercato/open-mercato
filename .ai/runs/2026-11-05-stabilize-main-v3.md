@@ -4,7 +4,7 @@
 Keep full CI green after #8806 removed the main prepare failure.
 
 ## Scope
-The workflow shell fixture inherits FORCE_FULL_SUITE=true from full CI. Give each fixture its own explicit flag and cover both ordinary and forced scope. No production or workflow behavior change.
+The workflow shell fixture inherits FORCE_FULL_SUITE=true from full CI. Give each fixture its own explicit flag and cover both ordinary and forced scope. Also narrow two Close locators to shared UI buttons: recorded CI DOM contains both an alert-dismiss button and the intended shared button. No production or workflow behavior change.
 
 ## Risks
 Other full-suite failures can emerge after this unit failure is repaired. #8806 merged externally while tests were pending.
@@ -16,6 +16,8 @@ PR: #8834
 
 ### Phase 1: Repair
 - [x] 1.1 Isolate scope fixture environment and verify full-suite regression — 27578b168
+
+- [ ] 1.2 Disambiguate alert dismiss buttons in API-key and column chooser tests
 
 ### Phase 2: Verify
 - [ ] 2.1 Pass full stabilization CI and record review evidence
