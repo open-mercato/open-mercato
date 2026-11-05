@@ -45,6 +45,11 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     rel: 'scripts/dev-mcp.mjs',
   },
   {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-session-guard.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-session-guard.mjs'),
+    rel: 'scripts/dev-session-guard.mjs',
+  },
+  {
     // `scripts/dev.mjs` imports this to keep its optional Docker probe bounded,
     // so a scaffolded app fails to boot `yarn dev` without it.
     sourceFile: path.join(ROOT, 'scripts', 'dev-docker-availability.mjs'),
@@ -70,6 +75,11 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     sourceFile: path.join(ROOT, 'scripts', 'dev-cache-purge.mjs'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-cache-purge.mjs'),
     rel: 'scripts/dev-cache-purge.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-port-preflight.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-port-preflight.mjs'),
+    rel: 'scripts/dev-port-preflight.mjs',
   },
   {
     sourceFile: path.join(ROOT, 'scripts', 'dev-inotify-limits.mjs'),
@@ -167,6 +177,13 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     rel: 'scripts/dev-runtime-log-policy.mjs',
   },
   {
+    // Shared Docker preflight: the monorepo starter and the generated app's
+    // `yarn setup` / `yarn infra:up` (scripts/infra.mjs) run the same logic.
+    sourceFile: path.join(ROOT, 'packages', 'starter', 'src', 'infra-preflight.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-infra-preflight.mjs'),
+    rel: 'scripts/dev-infra-preflight.mjs',
+  },
+  {
     sourceFile: path.join(ROOT, 'docker', 'redis', 'redis.conf'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'docker', 'redis', 'redis.conf'),
     rel: 'docker/redis/redis.conf',
@@ -189,6 +206,7 @@ const SYNC_INTERNAL_PACKAGE_KEYS = [
   // so the dependency must track the monorepo version or a scaffolded app fails
   // module resolution the moment the flag is flipped.
   '@open-mercato/enterprise',
+  '@open-mercato/gateway-autopay',
   '@open-mercato/gateway-stripe',
   '@open-mercato/gateway-tpay',
   '@open-mercato/sync-akeneo',
@@ -333,6 +351,15 @@ export const TEMPLATE_COMMENTED_MODULES: Record<string, { source: string; templa
   // intact'), and #4983 for the discussion.
   // { id: 'channel_discord', from: '@open-mercato/channel-discord' },`,
   },
+  gateway_autopay: {
+    source: `  { id: 'gateway_autopay', from: '@open-mercato/gateway-autopay' },`,
+    template: `  // Autopay hosted-redirect PLN payment gateway. The package ships with the
+  // scaffold but stays disabled by default: the hosted-session redirect
+  // transport has not been verified against a live Autopay sandbox (see
+  // .ai/specs/2026-09-10-autopay-hosted-pln-payment-sessions.md). Enabling it
+  // here is a deliberate follow-up once that is resolved, not a one-line edit.
+  // { id: 'gateway_autopay', from: '@open-mercato/gateway-autopay' },`,
+  },
   carrier_inpost: {
     source: `  { id: 'carrier_inpost', from: '@open-mercato/carrier-inpost' },`,
     template: `  // InPost shipping carrier provider for the shipping_carriers hub. It stays
@@ -396,6 +423,38 @@ export const TEMPLATE_COMMENTED_MODULES: Record<string, { source: string; templa
   // the module-sets \`commerce\` preset (.ai/specs/2026-09-29-module-sets-for-standalone-apps.md
   // Phase 3) enables the suite together with its standalone-harness coverage.
   // { id: 'ecommerce', from: '@open-mercato/core' },`,
+  },
+  promotions: {
+    source: `  // Promotions engine (SPEC-055): rule-condition trees, codes, cart effect resolution.
+  { id: 'promotions', from: '@open-mercato/core' },`,
+    template: `  // Promotions engine (.ai/specs/SPEC-055-2026-02-23-promotions-module.md Phases 1-3):
+  // rule-condition trees, promotional codes, and cart effect resolution. Stays commented out
+  // with customer_groups and ecommerce above until
+  // the module-sets \`commerce\` preset (.ai/specs/2026-09-29-module-sets-for-standalone-apps.md
+  // Phase 3) enables the suite together with its standalone-harness coverage: no case in
+  // packages/create-app/agentic/shared/ai/harness/cases.json lists
+  // .ai/guides/modules/promotions/index.md in context.required, so enabling it here trips
+  // packages/create-app/src/lib/module-facts-build.test.ts ('every module fact-sheet a
+  // scaffold ships is required by at least one catalog case'). Run the
+  // om-refresh-standalone-harness skill to add that coverage, then enable it in the template.
+  // { id: 'promotions', from: '@open-mercato/core' },`,
+  },
+  cart: {
+    source: `  // Channel-agnostic basket module (cart-module spec): priced lines, promotions,
+  // totals, token-bound public access. Requires catalog, sales and customer_groups.
+  { id: 'cart', from: '@open-mercato/core' },`,
+    template: `  // Channel-agnostic basket module (.ai/specs/2026-08-14-cart-module.md Phases 1-3): priced
+  // lines, promotions, totals, and token-bound public access. Requires catalog, sales,
+  // customer_groups and promotions (packages/core/src/modules/cart/index.ts's own
+  // \`requires\`). Stays commented out with customer_groups and promotions above until
+  // the module-sets \`commerce\` preset (.ai/specs/2026-09-29-module-sets-for-standalone-apps.md
+  // Phase 3) enables the suite together with its standalone-harness coverage: no case in
+  // packages/create-app/agentic/shared/ai/harness/cases.json lists
+  // .ai/guides/modules/cart/index.md in context.required, so enabling it here trips
+  // packages/create-app/src/lib/module-facts-build.test.ts ('every module fact-sheet a
+  // scaffold ships is required by at least one catalog case'). Run the
+  // om-refresh-standalone-harness skill to add that coverage, then enable it in the template.
+  // { id: 'cart', from: '@open-mercato/core' },`,
   },
 }
 

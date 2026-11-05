@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/carrier-inpost",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -80,7 +80,7 @@
     "@types/react-dom": "^19.2.5",
     "chance": "^1.1.13",
     "esbuild": "^0.28.2",
-    "glob": "^13.0.6",
+    "glob": "^14.0.3",
     "jest": "^30.4.2",
     "react": "19.2.8",
     "react-dom": "19.2.8",

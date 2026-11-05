@@ -1,12 +1,32 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { copyFileSync, existsSync } from 'node:fs'
 import { collectForwardedSetupFlags } from './dev-database-url.mjs'
+import { NO_INFRA_FLAG } from './dev-infra-preflight.mjs'
+import { ensureInfra } from './infra.mjs'
 
 const argv = process.argv.slice(2)
 const reinstall = argv.includes('--reinstall')
 const classic = argv.includes('--classic')
 const verbose = argv.includes('--verbose')
+const noInfra = argv.includes(NO_INFRA_FLAG)
 const forwardedDatabaseFlags = collectForwardedSetupFlags(argv)
+
+// Compose and the port preflight read POSTGRES_PORT & co. from .env, so it has
+// to exist before infra starts. Never overwritten once present.
+if (!existsSync('.env') && existsSync('.env.example')) {
+  copyFileSync('.env.example', '.env')
+  console.log('[setup] Copied .env.example to .env')
+}
+
+// Infra comes first so a Docker problem surfaces before minutes of installing,
+// and so no database step ever runs against services that are not up.
+// `--no-infra` keeps the external-services path: no Docker call at all.
+if (noInfra) {
+  console.log(`[setup] ${NO_INFRA_FLAG}: skipping Docker, using the services configured in .env`)
+} else {
+  const infra = await ensureInfra()
+  if (!infra.ok) process.exit(2)
+}
 
 if (!existsSync('node_modules/cross-spawn')) {
   const bootstrap = spawnSync('yarn', ['install'], {
@@ -24,12 +44,12 @@ const result = spawnSync(
     ...(reinstall ? ['--reinstall'] : []),
     ...(classic ? ['--classic'] : []),
     ...(verbose ? ['--verbose'] : []),
+    ...(noInfra ? [NO_INFRA_FLAG] : []),
     ...forwardedDatabaseFlags,
   ],
-  {
-    stdio: 'inherit',
-    shell: process.platform === 'win32',
-  },
+  // process.execPath is a real executable, so no shell is needed; with a
+  // shell, cmd.exe would split an unquoted "C:\Program Files\nodejs\node.exe".
+  { stdio: 'inherit' },
 )
 
 if (result.status !== 0) {

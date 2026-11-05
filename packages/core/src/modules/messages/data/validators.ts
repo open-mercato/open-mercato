@@ -151,15 +151,16 @@ const composeMessageBaseSchema = z.object({
    * (#6095). Channel ingest sets it to the provider's timestamp so an imported
    * mailbox keeps its real chronology instead of collapsing onto the import
    * minute. Server-only: the HTTP route strips any client-sent value, so a
-   * browser caller cannot backdate a message. Ignored for drafts.
+   * browser caller cannot backdate a message. Explicit null preserves unknown
+   * external occurrence time; omission uses the send time. Ignored for drafts.
    */
-  sentAt: z.coerce.date().optional(),
+  sentAt: z.coerce.date().nullable().optional(),
 })
 
 type ComposeMessageRefinementValue = Omit<
   z.infer<typeof composeMessageBaseSchema>,
   'sourceChannelType' | 'sentAt'
-> & { sourceChannelType?: string; sentAt?: Date }
+> & { sourceChannelType?: string; sentAt?: Date | null }
 
 function refineComposeMessage(value: ComposeMessageRefinementValue, ctx: z.RefinementCtx): void {
   const isDraft = value.isDraft ?? false

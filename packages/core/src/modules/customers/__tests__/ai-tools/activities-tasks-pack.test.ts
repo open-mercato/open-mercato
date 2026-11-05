@@ -8,6 +8,15 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
 }))
 
+jest.mock('../../lib/conversationShares', () => ({
+  listGrantsForViewer: jest.fn(async () => []),
+  listSharedChannelIds: jest.fn(async () => []),
+}))
+
+jest.mock('../../lib/interactionFeatureFlags', () => ({
+  resolveCustomerInteractionFeatureFlags: jest.fn(async () => ({ unified: false, legacyAdapters: true })),
+}))
+
 import activitiesTasksAiTools from '../../ai-tools/activities-tasks-pack'
 import { knownFeatureIds, makeCtx } from './shared'
 
@@ -35,27 +44,30 @@ describe('customers.list_activities', () => {
   })
 
   it('filters cross-tenant rows and passes scope correctly', async () => {
-    findWithDecryptionMock.mockResolvedValue([
+    findWithDecryptionMock.mockResolvedValueOnce([
       {
         id: 'a1',
         tenantId: 'tenant-1',
         organizationId: 'org-1',
-        activityType: 'call',
-        subject: 'followup',
+        interactionType: 'call',
+        title: 'followup',
         createdAt: new Date('2024-01-01'),
       },
       {
         id: 'a2',
         tenantId: 'tenant-2',
         organizationId: 'org-1',
-        activityType: 'call',
-        subject: 'cross',
+        interactionType: 'call',
+        title: 'cross',
         createdAt: new Date('2024-01-02'),
       },
-    ])
+    ]).mockResolvedValueOnce([])
     const ctx = makeCtx()
+    Object.assign(ctx.em, {
+      createQueryBuilder: jest.fn(() => ({ select: () => ({ where: () => ({}) }) })),
+    })
     ctx.em.count.mockResolvedValue(2)
-    const result = (await tool.handler({}, ctx as any)) as Record<string, unknown>
+    const result = (await tool.handler({}, ctx as never)) as Record<string, unknown>
     const items = result.items as Array<Record<string, unknown>>
     expect(items.map((item) => item.id)).toEqual(['a1'])
     expect(findWithDecryptionMock.mock.calls[0][2].tenantId).toBe('tenant-1')
