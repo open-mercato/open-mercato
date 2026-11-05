@@ -66,6 +66,7 @@
   "communication_channels.profile.actions.setPrimary": "Als primär festlegen",
   "communication_channels.profile.actions.setPrimaryFailed": "Festlegen als primär fehlgeschlagen",
   "communication_channels.profile.actions.setPrimarySuccess": "Als primär markiert.",
+  "communication_channels.profile.alerts.automaticSyncOff": "Die automatische Synchronisierung ist deaktiviert: Das Scheduler-Modul ist nicht aktiviert, daher kommen neue Nachrichten nur an, wenn Sie auf \"Jetzt abrufen\" klicken. Bitten Sie einen Administrator, das Scheduler-Modul zu aktivieren.",
   "communication_channels.profile.alerts.requiresReauth": "{count} Kanäle müssen erneut verbunden werden. Klicken Sie unten beim betroffenen Kanal auf \"Erneut verbinden\".",
   "communication_channels.profile.columns.lastPolled": "Zuletzt synchronisiert",
   "communication_channels.profile.columns.primary": "Primär",

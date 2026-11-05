@@ -85,6 +85,7 @@ export default function ProfileCommunicationChannelsPage() {
   const [isLoading, setIsLoading] = React.useState(true)
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null)
   const [reloadKey, setReloadKey] = React.useState(0)
+  const [automaticSyncEnabled, setAutomaticSyncEnabled] = React.useState(true)
   const [importChannel, setImportChannel] = React.useState<ChannelRow | null>(null)
   const [disconnectChannel, setDisconnectChannel] = React.useState<ChannelRow | null>(null)
   const { runMutation, retryLastMutation } = useGuardedMutation<ChannelMutationContext>({
@@ -144,7 +145,7 @@ export default function ProfileCommunicationChannelsPage() {
     async function load() {
       setIsLoading(true)
       setErrorMessage(null)
-      const response = await apiCall<{ items?: ChannelRow[] }>(
+      const response = await apiCall<{ items?: ChannelRow[]; automaticSyncEnabled?: boolean }>(
         '/api/communication_channels/me/channels',
       ).catch((err: unknown) => ({
         ok: false,
@@ -158,8 +159,9 @@ export default function ProfileCommunicationChannelsPage() {
         )
         setRows([])
       } else {
-        const data = (response.result ?? {}) as { items?: ChannelRow[] }
+        const data = (response.result ?? {}) as { items?: ChannelRow[]; automaticSyncEnabled?: boolean }
         setRows(Array.isArray(data.items) ? data.items : [])
+        setAutomaticSyncEnabled(data.automaticSyncEnabled !== false)
       }
       setIsLoading(false)
     }
@@ -632,6 +634,17 @@ export default function ProfileCommunicationChannelsPage() {
               dropdown so the header does not widen per installed provider. */}
           <ConnectChannelMenu onConnected={reloadChannels} />
         </header>
+
+        {!automaticSyncEnabled ? (
+          <Alert status="warning" className="mb-4">
+            <AlertDescription>
+              {t(
+                'communication_channels.profile.alerts.automaticSyncOff',
+                'Automatic sync is off: the scheduler module is not enabled, so new messages arrive only when you click "Poll now". Ask an administrator to enable the scheduler module.',
+              )}
+            </AlertDescription>
+          </Alert>
+        ) : null}
 
         {reauthRows.length > 0 ? (
           <Alert status="warning" className="mb-4">

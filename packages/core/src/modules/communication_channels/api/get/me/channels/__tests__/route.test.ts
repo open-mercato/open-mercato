@@ -21,7 +21,9 @@ function defaultResolve(name: string) {
   throw new Error(`Unexpected container resolve: ${name}`)
 }
 
-const container = { resolve: jest.fn(defaultResolve) }
+const hasRegistrationMock = jest.fn((name: string) => name === 'schedulerService')
+
+const container = { resolve: jest.fn(defaultResolve), hasRegistration: hasRegistrationMock }
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: (...args: unknown[]) => getAuthFromRequestMock(...args),
@@ -73,6 +75,7 @@ describe('communication_channels me/channels route', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     container.resolve.mockImplementation(defaultResolve)
+    hasRegistrationMock.mockImplementation((name: string) => name === 'schedulerService')
     getAuthFromRequestMock.mockResolvedValue({ sub: userId, tenantId, orgId: organizationId })
     // Gmail is the one provider implementing `registerPush`; a gateway provider
     // such as Discord implements none but declares real-time push.
@@ -126,6 +129,29 @@ describe('communication_channels me/channels route', () => {
     const [row] = await invoke()
 
     expect(row.supportsPushRegistration).toBe(false)
+  })
+
+  // Regression for https://github.com/open-mercato/open-mercato/issues/8804 — an app
+  // without the scheduler module never polls mailboxes, and the profile page must say so.
+  it('reports automatic sync as enabled when the scheduler service is registered', async () => {
+    findWithDecryptionMock.mockResolvedValue([])
+
+    const response = await GET(new Request('http://localhost/api/communication_channels/me/channels'))
+    const body = (await response.json()) as { automaticSyncEnabled: boolean }
+
+    expect(body.automaticSyncEnabled).toBe(true)
+    expect(hasRegistrationMock).toHaveBeenCalledWith('schedulerService')
+  })
+
+  it('reports automatic sync as disabled when the scheduler module is not enabled', async () => {
+    hasRegistrationMock.mockReturnValue(false)
+    findWithDecryptionMock.mockResolvedValue([channel('imap', { realtimePush: false })])
+
+    const response = await GET(new Request('http://localhost/api/communication_channels/me/channels'))
+    const body = (await response.json()) as { automaticSyncEnabled: boolean; items: SerializedChannel[] }
+
+    expect(body.automaticSyncEnabled).toBe(false)
+    expect(body.items).toHaveLength(1)
   })
 
   it('rejects an unauthenticated caller', async () => {

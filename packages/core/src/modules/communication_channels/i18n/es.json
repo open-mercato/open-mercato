@@ -66,6 +66,7 @@
   "communication_channels.profile.actions.setPrimary": "Establecer como principal",
   "communication_channels.profile.actions.setPrimaryFailed": "No se pudo establecer como principal",
   "communication_channels.profile.actions.setPrimarySuccess": "Marcado como principal.",
+  "communication_channels.profile.alerts.automaticSyncOff": "La sincronización automática está desactivada: el módulo scheduler no está habilitado, por lo que los mensajes nuevos solo llegan cuando haces clic en \"Sondear ahora\". Pide a un administrador que habilite el módulo scheduler.",
   "communication_channels.profile.alerts.requiresReauth": "{count} canal(es) necesitan volver a conectarse. Haz clic en \"Volver a conectar\" en el canal afectado a continuación.",
   "communication_channels.profile.columns.lastPolled": "Última sincronización",
   "communication_channels.profile.columns.primary": "Principal",

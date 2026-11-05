@@ -23,6 +23,7 @@ const AI_ASSISTANT = '@open-mercato/ai-assistant'
 const SEARCH = '@open-mercato/search'
 const CHANNEL_IMAP = '@open-mercato/channel-imap'
 const CHANNEL_GMAIL = '@open-mercato/channel-gmail'
+const SCHEDULER = '@open-mercato/scheduler'
 
 const EMPTY_MODULES: ModuleEntry[] = [
   { id: 'auth', from: CORE },
@@ -106,6 +107,13 @@ export const STARTER_PRESETS: Record<string, StarterPreset> = {
         { id: 'communication_channels', from: CORE },
         { id: 'channel_imap', from: CHANNEL_IMAP },
         { id: 'channel_gmail', from: CHANNEL_GMAIL },
+        // `communication_channels` only polls connected mailboxes and renews Gmail push
+        // watches through schedules it registers with `schedulerService`, and it skips
+        // that registration when `scheduler` is absent — without this entry mail arrives
+        // only after a manual "Poll now" (issue #8804). `@open-mercato/scheduler` is
+        // already pinned in the template's package.json, and `mercato server dev/start`
+        // auto-spawn the polling engine once the module is enabled.
+        { id: 'scheduler', from: SCHEDULER },
         { id: 'ai_assistant', from: AI_ASSISTANT },
       ],
     },

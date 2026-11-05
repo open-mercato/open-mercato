@@ -4,6 +4,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import { CommunicationChannel } from './data/entities'
+import { isAutomaticSyncAvailable } from './lib/automatic-sync'
 import { COMMUNICATION_CHANNELS_QUEUES } from './lib/queue'
 import { isTestChannelSeedingEnabled, TEST_SEED_PROVIDER_KEY } from './lib/test-seed'
 
@@ -191,12 +192,11 @@ export const setup: ModuleSetupConfig = {
      * fans out to the `communication-channels-poll` queue.
      *
      * The registration is per-organization (one tick row per org/tenant pair)
-     * so multi-tenant deploys schedule independently. Skipped silently when the
+     * so multi-tenant deploys schedule independently. Skipped when the
      * scheduler module isn't enabled — keeps the hub usable in scheduler-less
-     * test harnesses.
+     * test harnesses; the profile page reports that automatic sync is off.
      */
-    const cradle = container as { hasRegistration?: (name: string) => boolean }
-    if (typeof cradle.hasRegistration !== 'function' || !cradle.hasRegistration('schedulerService')) {
+    if (!isAutomaticSyncAvailable(container)) {
       return
     }
     const schedulerService = container.resolve('schedulerService') as SchedulerServiceLike

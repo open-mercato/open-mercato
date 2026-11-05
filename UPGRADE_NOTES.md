@@ -1,5 +1,32 @@
 # Upgrade Notes
 
+## CRM preset enables the scheduler (#8804)
+
+New apps scaffolded with `create-mercato-app --preset crm` now enable the
+`scheduler` module. Without it, `communication_channels` registers no polling
+schedules, so connected IMAP and Gmail mailboxes received new mail only after a
+manual "Poll now", and Gmail push watches were never renewed. `mercato server dev`
+and `mercato server start` start the scheduler automatically once the module is
+enabled (`AUTO_SPAWN_SCHEDULER` defaults to on), so new apps need no extra step.
+
+**Existing `crm` apps:** add `{ id: 'scheduler', from: '@open-mercato/scheduler' }`
+to `src/modules.ts` (the package is already a template dependency), then run
+`yarn generate` and `yarn db:migrate` for the scheduler tables. The schedules are
+registered from `seedDefaults`, so existing organizations need them seeded once:
+
+```bash
+yarn mercato seed:defaults --module communication_channels
+yarn mercato seed:defaults --module integrations
+yarn mercato seed:defaults --module ai_assistant
+```
+
+Each command is idempotent. The last two register the integration health probes
+and the AI assistant cleanup jobs, which those modules also skip without a
+scheduler. The profile page "My
+communication channels" now warns when automatic sync is off, and
+`GET /api/communication_channels/me/channels` returns an additive
+`automaticSyncEnabled` boolean that drives that warning.
+
 ## Search writes honor entity strategy pins (#5930)
 
 SearchService direct and bulk writes now honor each registered entity's existing
