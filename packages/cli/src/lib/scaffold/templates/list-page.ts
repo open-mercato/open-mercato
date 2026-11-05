@@ -40,7 +40,7 @@ export default function {{entityPascal}}ListPage() {
   const t = useT()
   const router = useRouter()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
-  const { runMutation } = useGuardedMutation({ contextId: '{{moduleId}}.list' })
+  const { runMutation, retryLastMutation } = useGuardedMutation({ contextId: '{{moduleId}}.list' })
   const [rows, setRows] = React.useState<{{entityPascal}}Row[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
   const [page, setPage] = React.useState(1)
@@ -97,7 +97,12 @@ export default function {{entityPascal}}ListPage() {
             buildOptimisticLockHeader(row.updatedAt ?? undefined),
             () => deleteCrud('{{moduleId}}', row.id),
           ),
-        context: { resourceKind: '{{moduleId}}.{{entitySnake}}', resourceId: row.id },
+        context: {
+          formId: '{{moduleId}}.list',
+          resourceKind: '{{moduleId}}.{{entitySnake}}',
+          resourceId: row.id,
+          retryLastMutation,
+        },
         mutationPayload: { id: row.id },
       })
       flash(t('{{moduleId}}.delete.success', '{{entityTitle}} deleted'), 'success')
@@ -105,7 +110,7 @@ export default function {{entityPascal}}ListPage() {
     } catch {
       flash(t('{{moduleId}}.delete.error', 'Failed to delete {{entityLower}}'), 'error')
     }
-  }, [confirm, runMutation, t])
+  }, [confirm, retryLastMutation, runMutation, t])
 
   const columns = React.useMemo<ColumnDef<{{entityPascal}}Row>[]>(() => [
 {{columnsBlock}}

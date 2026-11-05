@@ -44,7 +44,7 @@ export default function {{entityPascal}}DetailPage({ params }: { params?: { id?:
   const router = useRouter()
   const id = typeof params?.id === 'string' ? params.id : null
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
-  const { runMutation } = useGuardedMutation({ contextId: '{{moduleId}}.detail' })
+  const { runMutation, retryLastMutation } = useGuardedMutation({ contextId: '{{moduleId}}.detail' })
   const [record, setRecord] = React.useState<{{entityPascal}}Record | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [loadError, setLoadError] = React.useState<string | null>(null)
@@ -111,7 +111,12 @@ export default function {{entityPascal}}DetailPage({ params }: { params?: { id?:
             buildOptimisticLockHeader(record.updatedAt ?? undefined),
             () => deleteCrud('{{moduleId}}', record.id),
           ),
-        context: { resourceKind: '{{moduleId}}.{{entitySnake}}', resourceId: record.id },
+        context: {
+          formId: '{{moduleId}}.detail',
+          resourceKind: '{{moduleId}}.{{entitySnake}}',
+          resourceId: record.id,
+          retryLastMutation,
+        },
         mutationPayload: { id: record.id },
       })
       flash(t('{{moduleId}}.delete.success', '{{entityTitle}} deleted'), 'success')
@@ -119,7 +124,7 @@ export default function {{entityPascal}}DetailPage({ params }: { params?: { id?:
     } catch {
       flash(t('{{moduleId}}.delete.error', 'Failed to delete {{entityLower}}'), 'error')
     }
-  }, [confirm, record, router, runMutation, t])
+  }, [confirm, record, retryLastMutation, router, runMutation, t])
 
   if (isLoading) {
     return (

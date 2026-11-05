@@ -91,7 +91,7 @@ export default function StockItemDetailPage({ params }: { params?: { id?: string
   const router = useRouter()
   const id = typeof params?.id === 'string' ? params.id : null
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
-  const { runMutation } = useGuardedMutation({ contextId: 'inventory_items.detail' })
+  const { runMutation, retryLastMutation } = useGuardedMutation({ contextId: 'inventory_items.detail' })
   const [record, setRecord] = React.useState<StockItemRecord | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [loadError, setLoadError] = React.useState<string | null>(null)
@@ -164,7 +164,12 @@ export default function StockItemDetailPage({ params }: { params?: { id?: string
             buildOptimisticLockHeader(record.updatedAt ?? undefined),
             () => deleteCrud('inventory_items', record.id),
           ),
-        context: { resourceKind: 'inventory_items.stock_item', resourceId: record.id },
+        context: {
+          formId: 'inventory_items.detail',
+          resourceKind: 'inventory_items.stock_item',
+          resourceId: record.id,
+          retryLastMutation,
+        },
         mutationPayload: { id: record.id },
       })
       flash(t('inventory_items.delete.success', 'Stock item deleted'), 'success')
@@ -172,7 +177,7 @@ export default function StockItemDetailPage({ params }: { params?: { id?: string
     } catch {
       flash(t('inventory_items.delete.error', 'Failed to delete stock item'), 'error')
     }
-  }, [confirm, record, router, runMutation, t])
+  }, [confirm, record, retryLastMutation, router, runMutation, t])
 
   if (isLoading) {
     return (
@@ -370,7 +375,7 @@ export default function StockItemListPage() {
   const t = useT()
   const router = useRouter()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
-  const { runMutation } = useGuardedMutation({ contextId: 'inventory_items.list' })
+  const { runMutation, retryLastMutation } = useGuardedMutation({ contextId: 'inventory_items.list' })
   const [rows, setRows] = React.useState<StockItemRow[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
   const [page, setPage] = React.useState(1)
@@ -430,7 +435,12 @@ export default function StockItemListPage() {
             buildOptimisticLockHeader(row.updatedAt ?? undefined),
             () => deleteCrud('inventory_items', row.id),
           ),
-        context: { resourceKind: 'inventory_items.stock_item', resourceId: row.id },
+        context: {
+          formId: 'inventory_items.list',
+          resourceKind: 'inventory_items.stock_item',
+          resourceId: row.id,
+          retryLastMutation,
+        },
         mutationPayload: { id: row.id },
       })
       flash(t('inventory_items.delete.success', 'Stock item deleted'), 'success')
@@ -438,7 +448,7 @@ export default function StockItemListPage() {
     } catch {
       flash(t('inventory_items.delete.error', 'Failed to delete stock item'), 'error')
     }
-  }, [confirm, runMutation, t])
+  }, [confirm, retryLastMutation, runMutation, t])
 
   const columns = React.useMemo<ColumnDef<StockItemRow>[]>(() => [
     { accessorKey: 'name', header: t('inventory_items.fields.name', 'Name') },
@@ -975,7 +985,7 @@ export default function NoteDetailPage({ params }: { params?: { id?: string } })
   const router = useRouter()
   const id = typeof params?.id === 'string' ? params.id : null
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
-  const { runMutation } = useGuardedMutation({ contextId: 'notes.detail' })
+  const { runMutation, retryLastMutation } = useGuardedMutation({ contextId: 'notes.detail' })
   const [record, setRecord] = React.useState<NoteRecord | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [loadError, setLoadError] = React.useState<string | null>(null)
@@ -1043,7 +1053,12 @@ export default function NoteDetailPage({ params }: { params?: { id?: string } })
             buildOptimisticLockHeader(record.updatedAt ?? undefined),
             () => deleteCrud('notes', record.id),
           ),
-        context: { resourceKind: 'notes.note', resourceId: record.id },
+        context: {
+          formId: 'notes.detail',
+          resourceKind: 'notes.note',
+          resourceId: record.id,
+          retryLastMutation,
+        },
         mutationPayload: { id: record.id },
       })
       flash(t('notes.delete.success', 'Note deleted'), 'success')
@@ -1051,7 +1066,7 @@ export default function NoteDetailPage({ params }: { params?: { id?: string } })
     } catch {
       flash(t('notes.delete.error', 'Failed to delete note'), 'error')
     }
-  }, [confirm, record, router, runMutation, t])
+  }, [confirm, record, retryLastMutation, router, runMutation, t])
 
   if (isLoading) {
     return (
@@ -1236,7 +1251,7 @@ export default function NoteListPage() {
   const t = useT()
   const router = useRouter()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
-  const { runMutation } = useGuardedMutation({ contextId: 'notes.list' })
+  const { runMutation, retryLastMutation } = useGuardedMutation({ contextId: 'notes.list' })
   const [rows, setRows] = React.useState<NoteRow[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
   const [page, setPage] = React.useState(1)
@@ -1293,7 +1308,12 @@ export default function NoteListPage() {
             buildOptimisticLockHeader(row.updatedAt ?? undefined),
             () => deleteCrud('notes', row.id),
           ),
-        context: { resourceKind: 'notes.note', resourceId: row.id },
+        context: {
+          formId: 'notes.list',
+          resourceKind: 'notes.note',
+          resourceId: row.id,
+          retryLastMutation,
+        },
         mutationPayload: { id: row.id },
       })
       flash(t('notes.delete.success', 'Note deleted'), 'success')
@@ -1301,7 +1321,7 @@ export default function NoteListPage() {
     } catch {
       flash(t('notes.delete.error', 'Failed to delete note'), 'error')
     }
-  }, [confirm, runMutation, t])
+  }, [confirm, retryLastMutation, runMutation, t])
 
   const columns = React.useMemo<ColumnDef<NoteRow>[]>(() => [
     { accessorKey: 'title', header: t('notes.fields.title', 'Title') },
