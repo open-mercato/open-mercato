@@ -1,4 +1,4 @@
-import { ZodError } from 'zod'
+import { z, ZodError, type ZodTypeAny } from 'zod'
 import { orderLineCreateSchema, orderLineUpdateSchema } from '../../data/validators'
 
 const makeCrudRouteMock = jest.fn(() => ({
@@ -28,16 +28,16 @@ const STATUS_ENTRY_ID = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
 
 type MapInput = (args: { raw: unknown; ctx: unknown }) => Promise<{ body: Record<string, unknown> }>
 
-function buildActions() {
+function buildRoute(options: { partialUpdates?: boolean } = {}) {
   makeCrudRouteMock.mockClear()
-  makeSalesLineRoute({
+  const route = makeSalesLineRoute({
     entity: class SalesOrderLine {},
     entityId: 'sales:sales_order_line',
     fieldConstants: { id: 'id', order_id: 'order_id' },
     parentFkColumn: 'order_id',
     parentFkParam: 'orderId',
     createSchema: orderLineCreateSchema,
-    updateSchema: orderLineUpdateSchema,
+    ...(options.partialUpdates === false ? {} : { updateSchema: orderLineUpdateSchema }),
     features: { view: 'sales.orders.view', manage: 'sales.orders.manage' },
     commandPrefix: 'sales.orders.lines',
     openApi: { resourceName: 'Order line', description: 'an order line' },
@@ -45,7 +45,24 @@ function buildActions() {
   const config = makeCrudRouteMock.mock.calls.at(-1)?.[0] as unknown as {
     actions: { create: { mapInput: MapInput }; update: { mapInput: MapInput } }
   }
-  return config.actions
+  return { actions: config.actions, openApi: route.openApi }
+}
+
+function buildActions(options: { partialUpdates?: boolean } = {}) {
+  return buildRoute(options).actions
+}
+
+function putRequestSchema(options: { partialUpdates?: boolean } = {}): ZodTypeAny {
+  const schema = buildRoute(options).openApi.methods.PUT?.requestBody?.schema
+  if (!schema) throw new Error('PUT request body schema missing')
+  return schema
+}
+
+const completeLine = {
+  orderId: ORDER_ID,
+  currencyCode: 'USD',
+  quantity: 1,
+  name: 'Widget',
 }
 
 const ctx = {
@@ -96,5 +113,37 @@ describe('makeSalesLineRoute PUT partial updates (#6947)', () => {
         ctx,
       }),
     ).rejects.toBeInstanceOf(ZodError)
+  })
+
+  it('keeps the previous PUT contract when updateSchema is not configured', async () => {
+    const { update } = buildActions({ partialUpdates: false })
+
+    await expect(
+      update.mapInput({ raw: { id: LINE_ID, orderId: ORDER_ID, statusEntryId: STATUS_ENTRY_ID }, ctx }),
+    ).rejects.toBeInstanceOf(ZodError)
+    const { body } = await update.mapInput({ raw: { id: LINE_ID, ...completeLine }, ctx })
+    expect(body).toMatchObject({ id: LINE_ID, ...completeLine })
+    expect(
+      putRequestSchema({ partialUpdates: false }).safeParse({
+        organizationId: ORG_ID,
+        tenantId: TENANT_ID,
+        id: LINE_ID,
+        orderId: ORDER_ID,
+        statusEntryId: STATUS_ENTRY_ID,
+      }).success,
+    ).toBe(false)
+  })
+})
+
+describe('makeSalesLineRoute PUT OpenAPI (#6947)', () => {
+  it('documents both the id-less complete line and the id-bearing partial update', () => {
+    const schema = putRequestSchema()
+    expect(schema).toBeInstanceOf(z.ZodUnion)
+    const scope = { organizationId: ORG_ID, tenantId: TENANT_ID }
+
+    expect(schema.safeParse({ ...scope, ...completeLine }).success).toBe(true)
+    expect(schema.safeParse({ ...scope, id: LINE_ID, orderId: ORDER_ID, statusEntryId: STATUS_ENTRY_ID }).success).toBe(true)
+    expect(schema.safeParse({ ...scope, orderId: ORDER_ID, statusEntryId: STATUS_ENTRY_ID }).success).toBe(false)
+    expect(schema.safeParse({ ...scope, id: LINE_ID, statusEntryId: STATUS_ENTRY_ID }).success).toBe(false)
   })
 })

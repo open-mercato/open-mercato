@@ -45,6 +45,53 @@ const NEW_STATUS_ENTRY_ID = '44444444-4444-4444-8444-444444444444'
 
 type PersistedLine = Record<string, unknown> & { id: string }
 
+type DocumentRecord = {
+  id: string
+  organizationId: string
+  tenantId: string
+  deletedAt: Date | null
+  currencyCode: string
+  shippingMethodSnapshot: null
+  paymentMethodSnapshot: null
+  shippingMethodId: null
+  paymentMethodId: null
+  shippingMethodCode: null
+  paymentMethodCode: null
+  paidTotalAmount: string
+  refundedTotalAmount: string
+  updatedAt: Date
+}
+
+type PartialLineWorld = { quote: DocumentRecord; order: DocumentRecord; lines: PersistedLine[] }
+
+// Prefixed with `mock` so the jest.mock factories below may read it lazily.
+let mockWorld: PartialLineWorld | null = null
+
+function currentWorld(): PartialLineWorld {
+  if (!mockWorld) throw new Error('partial line world not initialised')
+  return mockWorld
+}
+
+type EntityManagerFixture = {
+  fork: () => EntityManagerFixture
+  transactional: (cb: (tx: EntityManagerFixture) => Promise<unknown>) => Promise<unknown>
+  getKysely: () => ReturnType<typeof createSalesDocumentLockKyselyFixture>
+  find: jest.Mock<Promise<PersistedLine[]>, [unknown, ...unknown[]]>
+  findOne: jest.Mock<Promise<null>, unknown[]>
+  count: jest.Mock<Promise<number>, unknown[]>
+  create: jest.Mock<unknown, [unknown, unknown]>
+  persist: jest.Mock<void, unknown[]>
+  remove: jest.Mock<void, unknown[]>
+  flush: jest.Mock<Promise<void>, []>
+  begin: jest.Mock<Promise<void>, []>
+  commit: jest.Mock<Promise<void>, []>
+  rollback: jest.Mock<Promise<void>, []>
+  isInTransaction: jest.Mock<boolean, []>
+  getUnitOfWork: jest.Mock<{ getChangeSets: () => unknown[]; computeChangeSets: () => void }, []>
+  getReference: jest.Mock<{ id: string }, [unknown, string]>
+  getConnection: () => { execute: jest.Mock<Promise<Array<{ value: number }>>, unknown[]> }
+}
+
 function storedLine(): PersistedLine {
   return {
     id: LINE_ID,
@@ -81,7 +128,7 @@ function storedLine(): PersistedLine {
 }
 
 function setWorld() {
-  const document = {
+  const document: DocumentRecord = {
     id: QUOTE_ID,
     organizationId: ORG_ID,
     tenantId: TENANT_ID,
@@ -98,18 +145,18 @@ function setWorld() {
     updatedAt: new Date('2026-10-05T00:00:00.000Z'),
   }
   const order = { ...document, id: ORDER_ID }
-  ;(globalThis as any).__partialLineWorld = { quote: document, order, lines: [storedLine()] }
+  mockWorld = { quote: document, order, lines: [storedLine()] }
 }
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(async (_em: unknown, entityClass: unknown) => {
-    const world = (globalThis as any).__partialLineWorld
+    const world = currentWorld()
     if (entityClass === SalesQuote) return world.quote
     if (entityClass === SalesOrder) return world.order
     return null
   }),
   findWithDecryption: jest.fn(async (_em: unknown, entityClass: unknown) => {
-    const world = (globalThis as any).__partialLineWorld
+    const world = currentWorld()
     const entityName = (entityClass as { name?: string })?.name ?? ''
     if (entityName === 'SalesQuoteLine' || entityName === 'SalesOrderLine') return [...world.lines]
     if (entityClass === SalesShipment) return []
@@ -118,17 +165,14 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   }),
 }))
 
-function makeEm(documentId: string) {
-  const world = () => (globalThis as any).__partialLineWorld
-  const em: any = {
-    fork: function () {
-      return this
-    },
-    transactional: async (cb: (tx: unknown) => Promise<unknown>) => cb(em),
+function makeEm(documentId: string): EntityManagerFixture {
+  const em: EntityManagerFixture = {
+    fork: () => em,
+    transactional: async (cb) => cb(em),
     getKysely: () => createSalesDocumentLockKyselyFixture(documentId),
     find: jest.fn(async (entityClass: unknown) => {
       const entityName = (entityClass as { name?: string })?.name ?? ''
-      if (entityName === 'SalesQuoteLine' || entityName === 'SalesOrderLine') return [...world().lines]
+      if (entityName === 'SalesQuoteLine' || entityName === 'SalesOrderLine') return [...currentWorld().lines]
       return []
     }),
     findOne: jest.fn(async () => null),
@@ -136,10 +180,10 @@ function makeEm(documentId: string) {
     create: jest.fn((_entity: unknown, data: unknown) => data),
     persist: jest.fn(),
     remove: jest.fn(),
-    flush: jest.fn(async () => {}),
-    begin: jest.fn(async () => {}),
-    commit: jest.fn(async () => {}),
-    rollback: jest.fn(async () => {}),
+    flush: jest.fn(async () => undefined),
+    begin: jest.fn(async () => undefined),
+    commit: jest.fn(async () => undefined),
+    rollback: jest.fn(async () => undefined),
     isInTransaction: jest.fn(() => false),
     getUnitOfWork: jest.fn(() => ({
       getChangeSets: () => [],
@@ -177,8 +221,7 @@ async function runCommand(commandId: string, body: Record<string, unknown>) {
   } catch (err) {
     caught = err
   }
-  const world = (globalThis as any).__partialLineWorld
-  return { caught, em, line: world.lines[0] as PersistedLine }
+  return { caught, em, line: currentWorld().lines[0] }
 }
 
 const scope = { organizationId: ORG_ID, tenantId: TENANT_ID }
@@ -194,7 +237,7 @@ describe('sales line upsert — partial updates (#6947)', () => {
   })
 
   afterEach(() => {
-    delete (globalThis as any).__partialLineWorld
+    mockWorld = null
   })
 
   it('changes only the status of an order line when the body carries just the status', async () => {
