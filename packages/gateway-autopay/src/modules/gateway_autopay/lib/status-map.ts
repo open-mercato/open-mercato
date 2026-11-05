@@ -37,13 +37,18 @@ export interface AutopayStatusInterpretation {
    * never describe two different underlying transactions. */
   amount: number
   /** `amount` as an exact decimal string. */
-  amountExact: string
+  amountExact?: string
   amountReceived: number
   /** `amountReceived` as an exact decimal string. */
-  amountReceivedExact: string
+  amountReceivedExact?: string
   currencyCode: string
   matchedRemoteId?: string
   anomaly?: 'overpaid'
+}
+
+export type AutopayExactStatusInterpretation = AutopayStatusInterpretation & {
+  amountExact: string
+  amountReceivedExact: string
 }
 
 /**
@@ -68,7 +73,7 @@ function amounts(amount: string, amountReceived: string) {
 
 export function interpretAutopayTransactionStatus(
   transactions: AutopayTransactionRecord[],
-): AutopayStatusInterpretation {
+): AutopayExactStatusInterpretation {
   const successes = transactions.filter((transaction) => transaction.paymentStatus === 'SUCCESS')
   const pendings = transactions.filter((transaction) => transaction.paymentStatus === 'PENDING')
   const failures = transactions.filter((transaction) => transaction.paymentStatus === 'FAILURE')

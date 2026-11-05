@@ -25,7 +25,7 @@ import {
   sanitizeOrderId,
   type AutopayCredentials,
 } from '../autopay-client'
-import { mapAutopayStatus, interpretAutopayTransactionStatus, type AutopayStatusInterpretation } from '../status-map'
+import { mapAutopayStatus, interpretAutopayTransactionStatus, type AutopayExactStatusInterpretation } from '../status-map'
 
 function resolveCredentials(raw: Record<string, unknown>): AutopayCredentials {
   const serviceId = raw.serviceId
@@ -71,7 +71,7 @@ function readGatewayId(metadata: Record<string, unknown> | undefined): string | 
 async function resolveStatusInterpretation(
   credentials: AutopayCredentials,
   orderId: string,
-): Promise<AutopayStatusInterpretation> {
+): Promise<AutopayExactStatusInterpretation> {
   const { transactions } = await queryTransactionStatus(credentials, { orderId })
   return interpretAutopayTransactionStatus(transactions)
 }
