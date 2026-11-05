@@ -35,8 +35,10 @@ const TENANT_ID = '22222222-2222-4222-8222-222222222222'
 const PERSON_ID = '33333333-3333-4333-8333-333333333333'
 const COMPANY_A_ID = '44444444-4444-4444-8444-444444444444'
 const COMPANY_B_ID = '55555555-5555-4555-8555-555555555555'
+const COMPANY_C_ID = '88888888-8888-4888-8888-888888888888'
 const LINK_A_ID = '66666666-6666-4666-8666-666666666666'
 const LINK_B_ID = '77777777-7777-4777-8777-777777777777'
+const LINK_C_ID = '99999999-9999-4999-8999-999999999999'
 
 type LinkRow = { isPrimary: boolean; deletedAt: Date | null }
 type ProfileRow = { companyId: string | null }
@@ -81,7 +83,8 @@ function makeFixtures(linkStates: Array<{ id: string; companyId: string } & Link
   const person = makeCustomerEntity(PERSON_ID, 'person', 'Jane Doe')
   const companyA = makeCustomerEntity(COMPANY_A_ID, 'company', 'Acme A')
   const companyB = makeCustomerEntity(COMPANY_B_ID, 'company', 'Acme B')
-  const companies = new Map([[COMPANY_A_ID, companyA], [COMPANY_B_ID, companyB]])
+  const companyC = makeCustomerEntity(COMPANY_C_ID, 'company', 'Acme C')
+  const companies = new Map([[COMPANY_A_ID, companyA], [COMPANY_B_ID, companyB], [COMPANY_C_ID, companyC]])
 
   const linkRows = new Map<string, LinkRow>()
   const links = linkStates.map((state) => {
@@ -376,6 +379,27 @@ describe('customers.personCompanyLinks.create — repeated request undo (#7857)'
     expect(fixtures.linkRows.get(LINK_B_ID)?.deletedAt).toBeInstanceOf(Date)
     expect(fixtures.linkRows.get(LINK_B_ID)?.isPrimary).toBe(false)
     expect(fixtures.profileRow.companyId).toBe(COMPANY_A_ID)
+  })
+
+  it('preserves a later primary selection when undoing a non-primary creation', async () => {
+    const fixtures = makeFixtures([
+      { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: true, deletedAt: null },
+      { id: LINK_C_ID, companyId: COMPANY_C_ID, isPrimary: false, deletedAt: null },
+    ], COMPANY_A_ID)
+    const created = await createAndLog(fixtures, COMPANY_B_ID)
+    await createAndLog(fixtures, COMPANY_C_ID, true)
+    expect(fixtures.profileRow.companyId).toBe(COMPANY_C_ID)
+
+    await created.handler.undo!({
+      input: created.input,
+      ctx: created.ctx,
+      logEntry: { commandPayload: created.log?.payload },
+    })
+
+    expect(fixtures.linkRows.get(LINK_B_ID)?.deletedAt).toBeInstanceOf(Date)
+    expect(fixtures.linkRows.get(LINK_A_ID)).toEqual({ isPrimary: false, deletedAt: null })
+    expect(fixtures.linkRows.get(LINK_C_ID)).toEqual({ isPrimary: true, deletedAt: null })
+    expect(fixtures.profileRow.companyId).toBe(COMPANY_C_ID)
   })
 
   it('restores a null profile assignment and no primary after undoing promotion', async () => {

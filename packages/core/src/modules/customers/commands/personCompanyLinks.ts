@@ -283,30 +283,32 @@ async function restoreCreatePersonCompanyLink(
   if (!link) return
   const person = await requirePersonEntity(em, after.personEntityId, after.tenantId, after.organizationId)
   const profile = await requirePersonProfile(em, person)
-  const company = before.profileCompanyId
+  const company = after.isPrimary && before.profileCompanyId
     ? await requireCompanyEntity(em, before.profileCompanyId, after.tenantId, after.organizationId)
     : null
   const primaryLinkIds = before.primaryLinkIds.filter((id) => id !== link.id)
 
   await withAtomicFlush(em, [
     async () => {
-      await em.nativeUpdate(
-        CustomerPersonCompanyLink,
-        { person, ...scope, id: { $ne: link.id }, deletedAt: null, isPrimary: true },
-        { isPrimary: false },
-      )
-      if (primaryLinkIds.length) {
+      if (after.isPrimary) {
         await em.nativeUpdate(
           CustomerPersonCompanyLink,
-          { person, ...scope, id: { $in: primaryLinkIds }, deletedAt: null },
-          { isPrimary: true },
+          { person, ...scope, id: { $ne: link.id }, deletedAt: null, isPrimary: true },
+          { isPrimary: false },
         )
+        if (primaryLinkIds.length) {
+          await em.nativeUpdate(
+            CustomerPersonCompanyLink,
+            { person, ...scope, id: { $in: primaryLinkIds }, deletedAt: null },
+            { isPrimary: true },
+          )
+        }
+        profile.company = company
       }
       link.isPrimary = before.link?.isPrimary ?? false
       link.deletedAt = before.link
         ? before.link.deletedAt ? new Date(before.link.deletedAt) : null
         : new Date()
-      profile.company = company
     },
   ], { transaction: true })
 
