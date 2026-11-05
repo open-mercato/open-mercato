@@ -20,6 +20,18 @@ export {
   type ReleaseScopedAttachmentInput,
 } from './lib/attachment-service'
 
+export {
+  AttachmentStorageConfigurationError,
+  getAttachmentStoragePolicy,
+  isAttachmentStorageConfigurationError,
+  registerStorageDriverValidator,
+  type AttachmentStoragePolicy,
+  type AttachmentStorageScope,
+  type AttachmentStorageValidationStage,
+  type AttachmentStorageValidationContext,
+  type AttachmentStorageValidator,
+  type AttachmentStorageConfigurationReason,
+} from './lib/drivers/storageValidation'
 export type {
   AttachmentAccessAction,
   AttachmentAccessDecision,

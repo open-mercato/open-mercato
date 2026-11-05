@@ -180,6 +180,21 @@ validation: [
 - Keep field validation in Zod; mark `required: true` for labels only (the schema drives actual validation).
 - Prefer simple value shapes for portability (e.g., tags as `string[]`, relations as a single foreign key `string`).
 
+## Custom field text
+
+Stored custom-field labels, descriptions, fieldset labels, and group text render literally by default. A form can opt into translation with `resolveCustomFieldText?: (text: string, context: { entityId: string; path: string }) => string`. The callback changes display text only; definition keys and submitted values stay unchanged.
+
+The context identifies the owning entity and metadata location:
+
+| Metadata | Path |
+| --- | --- |
+| Field label or description | `fields.<fieldKey>.label` / `fields.<fieldKey>.description` |
+| Field group title or hint | `fields.<fieldKey>.group.title` / `fields.<fieldKey>.group.hint` |
+| Fieldset label or description | `fieldsets.<fieldsetCode>.label` / `fieldsets.<fieldsetCode>.description` |
+| Fieldset group title or hint | `fieldsets.<fieldsetCode>.groups.<groupCode>.title` / `fieldsets.<fieldsetCode>.groups.<groupCode>.hint` |
+
+Keep module-specific defaults and namespaced translation keys in the owning module. Translate only recognized metadata whose stored text still matches its seeded default, return customized or unknown text unchanged, and pass the stored text as the translator fallback. Memoize the resolver with the current translator as a dependency so locale changes update the same mounted form.
+
 ## Custom Fields → Editors and Inputs
 When `entityId` is provided, custom fields are fetched from `/api/entities/definitions` and rendered automatically:
 

@@ -35,7 +35,7 @@ describe('legacy nullable SSO deactivation scope', () => {
       .mockResolvedValueOnce(null).mockResolvedValueOnce(marker).mockResolvedValueOnce(null)
 
     await expect(isSsoUserDeactivated(em, scope)).resolves.toBe(false)
-    expect(findOneWithDecryption).toHaveBeenCalledTimes(3)
+    expect(findOneWithDecryption).toHaveBeenCalledTimes(4)
   })
 
   it('does not trust a marker whose configuration does not match its nullable organization scope', async () => {

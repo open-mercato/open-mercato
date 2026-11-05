@@ -68,6 +68,12 @@ async function otelApiIsRegistered(page: Page): Promise<boolean> {
 
 test.describe('TC-TELEMETRY-002: browser RUM runtime', () => {
   test('exports document-load and fetch spans without breaking either fetch path', async ({ page, baseURL }) => {
+    // The server ignores the opt-in cookie unless the app runs with this variable; lanes that
+    // start the app from their own env (the standalone app) do not set it, so there is no SDK to boot.
+    test.skip(
+      process.env.OM_TEST_BROWSER_TELEMETRY_MODE !== 'opt-in',
+      'OM_TEST_BROWSER_TELEMETRY_MODE=opt-in is not configured for this lane.',
+    )
     const origin = new URL(baseURL ?? 'http://localhost:3000').origin
     await page.context().addCookies([{ name: OPT_IN_COOKIE, value: 'on', url: origin }])
     const ingest = recordIngest(page)

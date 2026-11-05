@@ -196,20 +196,12 @@ describe('module-facts BC resolve guard (T2)', () => {
     // so uniform growth across all four is the evidence that this is repo size,
     // not a duplicated payload. The headroom ratio is kept at the ~1.15 the
     // previous raise used, so the guard keeps the same detection power it had.
-    //
-    // Re-measured again when the additive `sync_xero` provider package landed.
-    // Ordinary repo growth since the agent_orchestrator raise had used up the
-    // headroom (markdown sat 0.1% under its cap), and `sync_xero` alone adds
-    // ~3.1KB markdown and ~3.1KB directory markdown, which pushed both over.
-    // All four measures grew by a similar proportion since that raise
-    // (+15.0% / +14.9% / +15.4% / +15.3%), so this is repo size, not a
-    // duplicated payload; the caps keep the same ~1.15 headroom ratio.
     expect(Buffer.byteLength(completeJson)).toBeLessThan(6_380_000)
-    // Measured on the merged tree (`yarn jest module-facts.bc-guard`):
-    //   completeJson 5,545,712 · legacy delta 2,425,563 · markdown 2,101,224 ·
-    //   directory markdown 2,290,442.
-    // (Previous, at the agent_orchestrator raise: 4,823,226 · 2,111,784 ·
-    //   1,820,787 · 1,985,779.)
+    // Measured on the current merged tree (`yarn jest module-facts.bc-guard`):
+    //   completeJson 5,547,284 · legacy delta 2,425,489 · markdown 2,100,437 ·
+    //   directory markdown 2,289,693.
+    // The four measures grew uniformly since the previous baseline
+    // (+15.0% / +14.9% / +15.4% / +15.3%), preserving the linear-growth signal.
     expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(2_790_000)
     // Markdown cap raised with the source-link contract: entities, events, ACL
     // features, DI tokens, search entities, notifications, UMES hosts and UMES

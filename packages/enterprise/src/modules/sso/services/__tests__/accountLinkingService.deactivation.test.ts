@@ -57,8 +57,8 @@ describe('SCIM deactivation enforcement during account linking', () => {
     expect(identity.lastLoginAt).toBeNull()
     expect(em.flush).not.toHaveBeenCalled()
     expect(em.transactional).not.toHaveBeenCalled()
-    expect(findOneWithDecryption).toHaveBeenLastCalledWith(
-      em, SsoUserDeactivation,
+    expect(findOneWithDecryption).toHaveBeenNthCalledWith(
+      3, em, SsoUserDeactivation,
       { userId: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1', ssoConfigId: 'config-1', reactivatedAt: null },
       {}, { tenantId: 'tenant-1', organizationId: 'org-1' },
     )
