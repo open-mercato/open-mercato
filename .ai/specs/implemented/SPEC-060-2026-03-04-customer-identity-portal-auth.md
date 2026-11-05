@@ -81,7 +81,7 @@ Create a `customer_accounts` core module with a two-tier identity model and full
 | Nullable `customer_entity_id` | B2C users have no company. B2B users may sign up before their company is set up in CRM. Progressive linking via subscriber or staff action. |
 | Application-level `kind='person'` validation on person link | Database FK goes to `customer_entities.id` (no DB-level kind constraint). Validation in the linking logic ensures only person-kind entities are linked. |
 | Separate JWT cookie (`customer_auth_token`) | Prevents accidental cross-acceptance. Staff middleware reads `auth_token`, customer middleware reads `customer_auth_token`. |
-| `customer_assignable` flag on `CustomerRole` | Customer admins with `portal.users.roles.manage` can only assign roles where `customer_assignable: true`. Prevents self-escalation to privileged roles like `portal_admin`. Staff can assign any role regardless. Inspired by OroCommerce's `selfManaged`/`public` role flags and Magento's irrevocable company-admin concept. |
+| `customer_assignable` flag on `CustomerRole` | Customer admins with `portal.users.roles.manage` can only assign roles where `customer_assignable: true`. Prevents self-escalation to privileged roles like `portal_admin`. Staff may assign privileged roles through manage-user routes; invitation paths accept only customer-assignable roles (#2252). Inspired by OroCommerce's `selfManaged`/`public` role flags and Magento's irrevocable company-admin concept. |
 
 ### Alternatives Considered
 
@@ -618,7 +618,7 @@ Features control all portal authorization. Consuming modules check features via 
 | Buyer | `buyer` | `portal.storefront.*`, `portal.account.*` | true | true | false | true |
 | Viewer | `viewer` | `portal.storefront.access`, `portal.storefront.orders.view`, `portal.account.view` | false | true | false | true |
 
-The `buyer` role is `is_default: true` — automatically assigned to self-signups. The `portal_admin` role has `customer_assignable: false` — only staff can assign it. This prevents customer admins from self-escalating or granting full portal admin to other users without staff oversight. Staff can assign any role regardless of `customer_assignable`.
+The `buyer` role is `is_default: true` — automatically assigned to self-signups. The `portal_admin` role has `customer_assignable: false` — only staff can assign it. This prevents customer admins from self-escalating or granting full portal admin to other users without staff oversight. Staff may assign privileged roles through manage-user routes; staff invitations accept only customer-assignable roles (#2252).
 
 ### Staff Admin Features (acl.ts)
 
@@ -1177,7 +1177,36 @@ export function extractFeatureStrings(entries: FeatureEntry[]): string[] {
 - `packages/core/src/modules/auth/services/rbacService.ts`: Replace private `matchFeature` and `hasAllFeatures` methods with imports from `@open-mercato/shared/lib/auth/featureMatch`. The class methods become thin wrappers or are removed entirely.
 - This is a backward-compatible refactor: the public API of `RbacService` does not change.
 
-## Migration & Compatibility
+## Migration & Backward Compatibility
+
+### Invitation role authorization (#2252, 2026-11-04)
+
+The current `POST /api/customer_accounts/admin/users-invite` route rejects a role
+unless it is live, customer-assignable, and in the authenticated staff tenant and
+organization. Duplicate role IDs remain accepted. An invalid role rejects the
+whole invitation before persistence, email, or invitation events. Existing
+company/person scope checks remain in force. Invitation acceptance resolves only
+live, customer-assignable roles in the invitation scope, including for invitations
+created before this fix. It can therefore accept an older invitation without
+granting its now-restricted role. Staff manage-user role assignment remains the
+separate privileged path.
+
+No route, schema, signature, database structure, startup command or environment
+setting changes. Clients sending unavailable/restricted roles now receive `400`;
+use eligible roles. Operators should review pending invitations for privileged
+roles and use the existing staff manage-user workflow after acceptance where
+such a grant is intended. Existing assigned roles are not rewritten.
+
+The old invitation behavior itself permits the escalation described in #2252;
+retaining it behind a bridge would keep the vulnerability reachable. The PR must
+carry `security` and a named human maintainer acknowledgment of the emergency
+security exception before merge; automated review cannot supply that approval.
+Unit regressions cover invalid/scoped/deleted/restricted roles, duplicates and
+acceptance filtering. `TC-CACC-INVITE-AUTH-001` covers invite-only and no-permission
+staff, wrong-org role/company rejection, zero invitation side effects, and legacy
+acceptance filtering against a real API/database. Existing invitation happy-path
+specs create their own eligible roles and clean up fixtures.
+
 
 ### Database Migrations
 - 9 new tables, no modifications to existing tables.
@@ -1637,6 +1666,11 @@ The following capabilities are explicitly deferred from the current scope. They 
 - **No changes to `customer_accounts` RBAC needed**: Purchase limits are separate from feature-based RBAC. They operate on financial thresholds, not access permissions.
 
 ## Changelog
+
+### 2026-11-04 (#2252 — Invitation role authorization)
+
+- Staff invitations now require live, in-scope customer-assignable roles; acceptance rechecks assignability for old invitations. Staff manage-user assignment stays privileged.
+- Added unit/API integration regressions and removed seeded-role assumptions from affected invitation tests.
 
 ### 2026-04-29 (v5 — Portal signup messaging alignment)
 - **Portal signup success UX fix**: The portal signup page no longer promises immediate login after a `202 Accepted` response. It now tells users to check email for next steps before signing in, which stays compatible with anti-enumeration responses, email verification, and tenants that require manual activation.
