@@ -47,10 +47,10 @@ async function createDocument(request: APIRequestContext, token: string, title: 
   return { id: expectId(body?.id, 'document id'), updatedAt: expectId(body?.updatedAt, 'document updatedAt') }
 }
 
-async function createComment(request: APIRequestContext, token: string, documentId: string, body: string) {
+async function createComment(request: APIRequestContext, token: string, documentId: string, body: string, grantAccessTo?: string[]) {
   const response = await apiRequest(request, 'POST', `/api/documents/${documentId}/comments`, {
     token,
-    data: { body, anchor: null, parentCommentId: null },
+    data: { body, anchor: null, parentCommentId: null, ...(grantAccessTo ? { grantAccessTo } : {}) },
   })
   const payload = await readJsonSafe<Mutation>(response)
   expect(response.status(), 'comment create should return 201').toBe(201)
@@ -81,6 +81,71 @@ function countByType(items: NotificationItem[], type: string): number {
 }
 
 test.describe('TC-DOCUMENTS-022 document watch subscriptions', () => {
+  for (const principalType of ['user', 'role'] as const) {
+    test(`stops watch and mention delivery after documents.view revocation with a retained ${principalType} share`, async ({ request }) => {
+      const adminToken = await getAuthToken(request)
+      const scope = getTokenScope(adminToken)
+      const cleanup: Array<() => Promise<void>> = []
+      try {
+        const roleId = await createRoleFixture(request, adminToken, {
+          name: `TC-DOCUMENTS-022 revoked ${principalType} ${RUN_TAG}`,
+          tenantId: scope.tenantId,
+        })
+        cleanup.push(async () => { await deleteRoleIfExists(request, adminToken, roleId) })
+        await setRoleAclFeatures(request, adminToken, { roleId, features: ['documents.view', 'notifications.view'] })
+        const email = `${RUN_TAG}.revoked-${principalType}@example.com`
+        const password = policyPassword('Revoked')
+        const userId = await createUserFixture(request, adminToken, {
+          email, password, organizationId: scope.organizationId, roles: [roleId],
+          name: `TC Documents revoked ${principalType}`,
+        })
+        cleanup.push(async () => { await deleteUserIfExists(request, adminToken, userId) })
+        const recipientToken = await getAuthToken(request, email, password)
+        const document = await createDocument(request, adminToken, `${RUN_TAG} before revocation ${principalType}`)
+        cleanup.push(async () => { await deleteDocumentBestEffort(request, adminToken, document.id) })
+        const shareResponse = await apiRequest(request, 'POST', `/api/documents/${document.id}/shares`, {
+          token: adminToken,
+          data: { principalType, principalId: principalType === 'user' ? userId : roleId, permission: 'editor' },
+        })
+        expect(shareResponse.status()).toBe(201)
+        const watchResponse = await apiRequest(request, 'POST', `/api/documents/${document.id}/watch`, { token: recipientToken })
+        expect(watchResponse.status()).toBe(200)
+        const before = await createComment(request, adminToken, document.id, `${RUN_TAG} authorized update`)
+        expect(countByType(await listNotificationsBySource(request, recipientToken, before.id), 'documents.watch.commented')).toBe(1)
+
+        await setRoleAclFeatures(request, adminToken, { roleId, features: ['notifications.view'] })
+        const forbiddenDetail = await apiRequest(request, 'GET', `/api/documents/${document.id}`, { token: recipientToken })
+        expect(forbiddenDetail.status(), 'revocation must deny document access with the retained share').toBe(403)
+        const detailResponse = await apiRequest(request, 'GET', `/api/documents/${document.id}`, { token: adminToken })
+        const detail = await readJsonSafe<Mutation>(detailResponse)
+        expect(detailResponse.status()).toBe(200)
+        const renameResponse = await request.fetch(`/api/documents/${document.id}`, {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${adminToken}`,
+            [OPTIMISTIC_LOCK_HEADER_NAME]: expectId(detail?.updatedAt, 'document version'),
+          },
+          data: { title: `${RUN_TAG} private renamed title ${principalType}` },
+        })
+        expect(renameResponse.status()).toBe(200)
+        const plain = await createComment(request, adminToken, document.id, `${RUN_TAG} private update`)
+        const mention = await createComment(request, adminToken, document.id, `${RUN_TAG} private ping @[${userId}]`, [userId])
+        expect(await listNotificationsBySource(request, recipientToken, plain.id)).toEqual([])
+        expect(await listNotificationsBySource(request, recipientToken, mention.id)).toEqual([])
+        const sharesResponse = await apiRequest(request, 'GET', `/api/documents/${document.id}/shares`, { token: adminToken })
+        const shares = await readJsonSafe<{ items?: Array<{ principalType?: string; principalId?: string; permission?: string }> }>(sharesResponse)
+        expect(sharesResponse.status()).toBe(200)
+        expect(shares?.items).toEqual([expect.objectContaining({
+          principalType, principalId: principalType === 'user' ? userId : roleId, permission: 'editor',
+        })])
+      } finally {
+        for (const step of cleanup.reverse()) {
+          await step().catch(() => undefined)
+        }
+      }
+    })
+  }
+
   test('delivers watch notifications with mention dedup and fail-closed revocation', async ({ request }) => {
     const adminToken = await getAuthToken(request)
     const scope = getTokenScope(adminToken)

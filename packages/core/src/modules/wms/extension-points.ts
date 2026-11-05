@@ -17,6 +17,8 @@ export const extensionPoints = defineModuleExtensionPoints({
     lotsTable: dataTableExtensionHost({ tableId: 'wms.lots.list', source: 'components/backend/WmsLotsListPage.tsx' }),
     skuDistributionTable: dataTableExtensionHost({ tableId: 'wms.sku.distribution', source: 'components/backend/WmsSkuDetailPage.tsx' }),
     skuActivityTable: dataTableExtensionHost({ tableId: 'wms.sku.activity', source: 'components/backend/WmsSkuDetailPage.tsx' }),
+    asnsTable: dataTableExtensionHost({ tableId: 'wms.asns.list', source: 'components/backend/WmsAsnsListPage.tsx' }),
+    putawayTasksTable: dataTableExtensionHost({ tableId: 'wms.putaway.tasks', source: 'components/backend/WmsPutawayQueuePage.tsx' }),
   },
 })
 

@@ -1,9 +1,11 @@
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import {
+  appendMissingFieldsToOrganizationMaps,
   EncryptionMapVersionConflictError,
   mergeEncryptionMapFields,
   resolveCanonicalEncryptionMap,
   upsertCanonicalEncryptionMap,
+  upsertEncryptionMapSpecs,
 } from '../encryption-maps'
 
 function mapRecord(input: {
@@ -231,5 +233,99 @@ describe('upsertCanonicalEncryptionMap optimistic version', () => {
       if (previous === undefined) delete process.env.TENANT_DATA_ENCRYPTION
       else process.env.TENANT_DATA_ENCRYPTION = previous
     }
+  })
+})
+
+describe('appendMissingFieldsToOrganizationMaps', () => {
+  it('appends each declared rule to the tenant organization maps that lack it, one atomic statement per rule', async () => {
+    const execute = jest.fn(async (_sql: string, params: readonly unknown[]) => (
+      params[3] === 'phone' ? [{ organization_id: 'org-1' }, { organization_id: 'org-2' }] : []
+    ))
+
+    const scopes = await appendMissingFieldsToOrganizationMaps({ execute } as never, {
+      entityId: 'customers:person',
+      tenantId: 'tenant-1',
+      fields: [{ field: 'email', hashField: 'email_hash' }, { field: 'phone' }],
+    })
+
+    expect(execute).toHaveBeenCalledTimes(2)
+    const [sql, params] = execute.mock.calls[0]
+    expect(sql).toMatch(/update "encryption_maps"[\s\S]*"organization_id" is not null[\s\S]*not exists[\s\S]*returning "organization_id"/)
+    expect(params).toEqual(['[{"field":"email","hashField":"email_hash"}]', 'customers:person', 'tenant-1', 'email'])
+    expect(execute.mock.calls[1][1]).toEqual(['[{"field":"phone"}]', 'customers:person', 'tenant-1', 'phone'])
+    expect(scopes).toEqual([
+      { entityId: 'customers:person', tenantId: 'tenant-1', organizationId: 'org-1' },
+      { entityId: 'customers:person', tenantId: 'tenant-1', organizationId: 'org-2' },
+    ])
+  })
+
+  it('reports each organization once when several rules reach it', async () => {
+    const execute = jest.fn(async () => [{ organization_id: 'org-1' }])
+
+    const scopes = await appendMissingFieldsToOrganizationMaps({ execute } as never, {
+      entityId: 'customers:person',
+      tenantId: 'tenant-1',
+      fields: [{ field: 'email' }, { field: 'phone' }],
+    })
+
+    expect(scopes).toEqual([{ entityId: 'customers:person', tenantId: 'tenant-1', organizationId: 'org-1' }])
+  })
+})
+
+describe('upsertEncryptionMapSpecs organization maps', () => {
+  const spec = { entityId: 'fleet:vehicle_profile', fields: [{ field: 'email' }, { field: 'phone' }] }
+
+  function createEm(appendedOrganizationIds: string[]) {
+    const execute = jest.fn(async (sql: string, _params: readonly unknown[]) => {
+      if (sql.includes('insert into "encryption_maps"')) {
+        return [{ id: 'map-id', updated_at: new Date('2026-10-04T12:05:00.000Z') }]
+      }
+      if (sql.includes('update "encryption_maps"')) {
+        return appendedOrganizationIds.map((organizationId) => ({ organization_id: organizationId }))
+      }
+      return []
+    })
+    return { em: { execute } as never, execute }
+  }
+
+  function appendCalls(execute: jest.Mock) {
+    return execute.mock.calls.filter(([sql]) => String(sql).includes('update "encryption_maps"'))
+  }
+
+  it('brings the tenant organization maps up to date on a tenant-wide seed and reports them for invalidation', async () => {
+    const { em, execute } = createEm(['org-1'])
+    const invalidated: unknown[] = []
+
+    const scopes = await upsertEncryptionMapSpecs(em, 'tenant-1', null, [spec], () => {}, (scope) => {
+      invalidated.push(scope)
+    })
+
+    expect(appendCalls(execute).map(([, params]) => params)).toEqual([
+      ['[{"field":"email"}]', 'fleet:vehicle_profile', 'tenant-1', 'email'],
+      ['[{"field":"phone"}]', 'fleet:vehicle_profile', 'tenant-1', 'phone'],
+    ])
+    const expected = [
+      { entityId: 'fleet:vehicle_profile', tenantId: 'tenant-1', organizationId: null },
+      { entityId: 'fleet:vehicle_profile', tenantId: 'tenant-1', organizationId: 'org-1' },
+    ]
+    expect(scopes).toEqual(expected)
+    expect(invalidated).toEqual(expected)
+  })
+
+  it('leaves other organizations alone when seeding one organization', async () => {
+    const { em, execute } = createEm(['org-1'])
+
+    const scopes = await upsertEncryptionMapSpecs(em, 'tenant-1', 'org-2', [spec])
+
+    expect(appendCalls(execute)).toHaveLength(0)
+    expect(scopes).toEqual([{ entityId: 'fleet:vehicle_profile', tenantId: 'tenant-1', organizationId: 'org-2' }])
+  })
+
+  it('skips system-scoped maps entirely', async () => {
+    const { em, execute } = createEm(['org-1'])
+
+    await upsertEncryptionMapSpecs(em, 'tenant-1', null, [{ ...spec, keyScope: 'system' }])
+
+    expect(execute).not.toHaveBeenCalled()
   })
 })
