@@ -64,6 +64,20 @@ describe('POST /api/auth/login with custom route interceptors', () => {
     mockTenantLookup.mockResolvedValue({ id: tenantId })
   })
 
+  test.each(['inactive', 'soft-deleted', 'missing'])('rejects a correct password for an %s tenant with the generic 401', async () => {
+    mockTenantLookup.mockResolvedValueOnce(null as never)
+    const response = await POST(new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      body: makeFormData({ email: 'user@example.com', password: 'secret' }),
+    }))
+    expect(response.status).toBe(401)
+    expect(await response.json()).toEqual({ ok: false, error: 'Invalid email or password' })
+    expect(authServiceMock.verifyPassword).toHaveBeenCalledWith(expect.anything(), 'secret')
+    expect(authServiceMock.updateLastLoginAt).not.toHaveBeenCalled()
+    expect(authServiceMock.createSession).not.toHaveBeenCalled()
+    expect(response.headers.get('set-cookie')).toBeNull()
+  })
+
   test('returns the existing generic 401 when session eligibility changes after password verification', async () => {
     authServiceMock.createSession.mockRejectedValueOnce(new AuthSessionRejectedError())
     const response = await POST(new Request('http://localhost/api/auth/login', {

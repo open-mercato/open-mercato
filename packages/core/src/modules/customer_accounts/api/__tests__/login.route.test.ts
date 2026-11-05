@@ -9,6 +9,10 @@
  */
 import { POST } from '@open-mercato/core/modules/customer_accounts/api/login'
 
+jest.mock('@open-mercato/core/modules/customer_accounts/lib/tenantEligibility', () => ({
+  isCustomerTenantActive: jest.fn(async () => true),
+}))
+
 const mockCheckAuthRateLimit = jest.fn()
 const mockResolveTenantContext = jest.fn()
 const mockFindByEmail = jest.fn()

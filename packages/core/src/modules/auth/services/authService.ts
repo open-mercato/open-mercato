@@ -155,6 +155,7 @@ export class AuthService {
     if (!sess || sess.expiresAt <= now) return null
     const user = await findOneWithDecryption(this.em, User, { id: sess.user.id, deletedAt: null })
     if (!user) return null
+    if (!(await isStaffTenantActive(this.em, user.tenantId))) return null
     const roles = await this.getUserRoles(user, user.tenantId ?? null)
     return { user, roles, session: sess }
   }

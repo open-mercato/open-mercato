@@ -21,6 +21,10 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: (...args: unknown[]) => createRequestContainer(...args),
 }))
 
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: (_manager: unknown, ...args: unknown[]) => emFindOne(...args),
+}))
+
 jest.mock('@open-mercato/core/modules/auth/lib/sessionIntegrity', () => ({
   resolveCanonicalStaffAuthContext: jest.fn(async (_em: unknown, auth: unknown) => auth),
 }))
@@ -412,6 +416,7 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
       lastUsedAt: null,
     })
     emFindOne.mockImplementation(async (_entity: unknown, where: Record<string, unknown>) => {
+      if (where.id === 'tenant-1' && where.isActive === true) return { id: 'tenant-1' }
       if (where.id === 'creator-1') {
         return { id: 'creator-1', tenantId: 'tenant-1', organizationId: 'org-1' }
       }
@@ -446,6 +451,7 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
       lastUsedAt: null,
     })
     emFindOne.mockImplementation(async (_entity: unknown, where: Record<string, unknown>) => {
+      if (where.id === 'tenant-1' && where.isActive === true) return { id: 'tenant-1' }
       if (where.id === 'creator-1') {
         return { id: 'creator-1', tenantId: 'tenant-1', organizationId: 'org-2' }
       }
@@ -526,6 +532,7 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
       lastUsedAt: null,
     })
     emFindOne.mockImplementation(async (_entity: unknown, where: Record<string, unknown>) => {
+      if (where.id === 'tenant-1' && where.isActive === true) return { id: 'tenant-1' }
       if (where.id === 'session-user-1') {
         return { id: 'session-user-1', tenantId: 'tenant-1', organizationId: 'user-org' }
       }
@@ -552,6 +559,10 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
       createdBy: 'creator-1',
       expiresAt: null,
       lastUsedAt: null,
+    })
+    emFindOne.mockImplementation(async (_entity: unknown, where: Record<string, unknown>) => {
+      if (where.id === 'tenant-1' && where.isActive === true) return { id: 'tenant-1' }
+      return null
     })
 
     await expect(

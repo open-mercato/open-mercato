@@ -280,6 +280,7 @@
   "customer_accounts.domainMapping.tls.diagnostics.title": "SSL certificate issue",
   "customer_accounts.domainMapping.tls.retryButton": "Retry SSL",
   "customer_accounts.domainMapping.verifyNow": "Check Now",
+  "customer_accounts.errors.crossSiteRequest": "Esta solicitud de inicio de sesión no procede de esta aplicación. Abre la página de inicio de sesión e inténtalo de nuevo.",
   "customer_accounts.errors.emailAlreadyExists": "Ya existe una cuenta con esta dirección de correo electrónico",
   "customer_accounts.invitation.email.body": "Use this secure invitation link to create your password and access the customer portal.",
   "customer_accounts.invitation.email.cta": "Accept invitation",
