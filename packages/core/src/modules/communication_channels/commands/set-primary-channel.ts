@@ -22,6 +22,7 @@ export type SetPrimaryChannelResult =
   | { status: 'set'; channelId: string; previousPrimaryChannelId: string | null }
   | { status: 'noop'; reason: string }
   | { status: 'not_owner'; reason: string }
+  | { status: 'disconnected'; reason: string }
 
 export const COMMUNICATION_CHANNELS_SET_PRIMARY_COMMAND_ID =
   'communication_channels.channel.set_primary'
@@ -32,6 +33,9 @@ export const COMMUNICATION_CHANNELS_SET_PRIMARY_COMMAND_ID =
  * partial unique index `communication_channels_one_primary_per_user_uq`.
  *
  * Ownership-checked: refuses to set a primary on someone else's channel.
+ * Refuses a disconnected channel: every path that disconnects a channel also
+ * clears its primary flag, so promoting one would hand the user a primary that
+ * cannot send.
  */
 const setPrimaryChannelCommand: CommandHandler<
   SetPrimaryChannelInput,
@@ -74,6 +78,9 @@ const setPrimaryChannelCommand: CommandHandler<
     }
     if (channel.userId !== input.userId) {
       return { status: 'not_owner', reason: 'channel is not owned by the current user' }
+    }
+    if (channel.status === 'disconnected') {
+      return { status: 'disconnected', reason: 'channel is disconnected' }
     }
     if (channel.isPrimary) {
       return { status: 'noop', reason: 'channel is already primary' }
