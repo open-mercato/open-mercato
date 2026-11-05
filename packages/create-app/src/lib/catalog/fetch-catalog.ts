@@ -136,16 +136,120 @@ export async function fetchPickerCatalog(options: {
   return { status: 'unavailable', url, reason }
 }
 
+const NPM_NAME = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/
+const NPM_NAME_MAX_LENGTH = 214
+const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
+const MODULE_ID = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/
+const MODULE_ID_MAX_LENGTH = 64
+const ENV_FLAG = /^OM_ENABLE_[A-Z0-9_]+=true$/
+const STEP_SEPARATOR = ' && '
+
+type PackageSpec = { name: string; version: string }
+
+type InstallStep =
+  | { kind: 'module-add'; spec: PackageSpec; allowThirdParty: boolean; moduleId: string | null }
+  | { kind: 'module-enable'; name: string; moduleId: string }
+  | { kind: 'package-add'; specs: PackageSpec[] }
+  | { kind: 'env-flag'; assignment: string }
+  | { kind: 'generate' }
+
+const isPackageName = (token: string | undefined): token is string =>
+  token !== undefined && token.length <= NPM_NAME_MAX_LENGTH && NPM_NAME.test(token)
+
+const isModuleId = (token: string | undefined): token is string =>
+  token !== undefined && token.length <= MODULE_ID_MAX_LENGTH && MODULE_ID.test(token)
+
+function parsePackageSpec(token: string | undefined): PackageSpec | null {
+  if (token === undefined) return null
+  const at = token.lastIndexOf('@')
+  if (at <= 0) return null
+  const name = token.slice(0, at)
+  const version = token.slice(at + 1)
+  return isPackageName(name) && EXACT_VERSION.test(version) ? { name, version } : null
+}
+
+function parseModuleAdd(rest: string[]): InstallStep | null {
+  const spec = parsePackageSpec(rest[0])
+  if (!spec) return null
+  let position = 1
+  const allowThirdParty = rest[position] === '--allow-third-party'
+  if (allowThirdParty) position += 1
+  let moduleId: string | null = null
+  if (rest[position] === '--module') {
+    if (!isModuleId(rest[position + 1])) return null
+    moduleId = rest[position + 1]!
+    position += 2
+  }
+  return position === rest.length ? { kind: 'module-add', spec, allowThirdParty, moduleId } : null
+}
+
+function parseInstallStep(segment: string): InstallStep | null {
+  const tokens = segment.split(' ')
+  const [first, second, third, fourth, ...rest] = tokens
+  if (first === 'yarn' && second === 'generate' && tokens.length === 2) return { kind: 'generate' }
+  if (first === 'yarn' && second === 'add' && tokens.length > 2) {
+    const specs = tokens.slice(2).map(parsePackageSpec)
+    return specs.every((spec): spec is PackageSpec => spec !== null) ? { kind: 'package-add', specs } : null
+  }
+  if (first === 'echo' && tokens.length === 4 && ENV_FLAG.test(second ?? '') && third === '>>' && fourth === '.env') {
+    return { kind: 'env-flag', assignment: second! }
+  }
+  if (first !== 'yarn' || second !== 'mercato' || third !== 'module') return null
+  if (fourth === 'add') return parseModuleAdd(rest)
+  if (fourth === 'enable' && rest.length === 3 && isPackageName(rest[0]) && rest[1] === '--module' && isModuleId(rest[2])) {
+    return { kind: 'module-enable', name: rest[0], moduleId: rest[2] }
+  }
+  return null
+}
+
+const formatPackageSpec = (spec: PackageSpec) => `${spec.name}@${spec.version}`
+
+function formatInstallStep(step: InstallStep): string {
+  switch (step.kind) {
+    case 'module-add':
+      return [
+        'yarn mercato module add',
+        formatPackageSpec(step.spec),
+        ...(step.allowThirdParty ? ['--allow-third-party'] : []),
+        ...(step.moduleId ? ['--module', step.moduleId] : []),
+      ].join(' ')
+    case 'module-enable':
+      return `yarn mercato module enable ${step.name} --module ${step.moduleId}`
+    case 'package-add':
+      return `yarn add ${step.specs.map(formatPackageSpec).join(' ')}`
+    case 'env-flag':
+      return `echo ${step.assignment} >> .env`
+    case 'generate':
+      return 'yarn generate'
+  }
+}
+
+/**
+ * The catalog command rebuilt from its parsed steps, or null unless every ` && ` step matches the grammar the
+ * catalog emits (`yarn mercato module add|enable`, `yarn add <pkg>@<version>...`, `echo OM_ENABLE_<NAME>=true >> .env`,
+ * `yarn generate`) and one of them installs or enables a module: a package, a `module add|enable` or an `OM_ENABLE_*`
+ * flag, the way the catalog turns on the enterprise modules a new app registers behind flags. create-app prints and stores the result for the
+ * user to paste, so it is an allowlist of exact tokens, not a filter of shell characters.
+ */
+export function parseInstallCommand(command: string): string | null {
+  const steps: InstallStep[] = []
+  for (const segment of command.split(STEP_SEPARATOR)) {
+    const step = parseInstallStep(segment)
+    if (!step) return null
+    steps.push(step)
+  }
+  const installs = steps.some((step) => step.kind !== 'generate')
+  return installs ? steps.map(formatInstallStep).join(STEP_SEPARATOR) : null
+}
+
 /**
  * Install command for an app on `line`: the catalog's command for that line, else `install` when `line` is the
  * latest line (`lines[0]`). Null otherwise: `install` pins the version verified on the latest line, which was
- * never verified on an older line or on `next`.
+ * never verified on an older line or on `next`. Null as well for a command outside `parseInstallCommand`'s grammar.
  */
 export function installCommandFor(entry: CatalogModule, line: string, lines: readonly string[]): string | null {
   const command = entry.installByLine?.[line] ?? (line === lines[0] ? entry.install : null)
-  if (typeof command !== 'string' || !/^yarn mercato module (add|enable) \S/.test(command)) return null
-  if (/[;&|`$<>\\\r\n]/.test(command)) return null
-  return command
+  return typeof command === 'string' ? parseInstallCommand(command) : null
 }
 
 const verifiedOnLine = (index: PickerIndex, line: string): CatalogModule[] =>
