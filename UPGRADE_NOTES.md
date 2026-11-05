@@ -12,7 +12,8 @@ enabled (`AUTO_SPAWN_SCHEDULER` defaults to on), so new apps need no extra step.
 **Existing `crm` apps:** add `{ id: 'scheduler', from: '@open-mercato/scheduler' }`
 to `src/modules.ts` (the package is already a template dependency), then run
 `yarn generate` and `yarn db:migrate` for the scheduler tables. The schedules are
-registered from `seedDefaults`, so existing organizations need them seeded once:
+registered when defaults are seeded or an organization is created, so
+organizations that already exist need them seeded once:
 
 ```bash
 yarn mercato seed:defaults --module communication_channels
@@ -5169,3 +5170,9 @@ When opening a PR that bumps a dependency across a major boundary, add an entry 
 the same PR. The `auto-upgrade-...` skill for the window picks up entries from this file;
 keep the headings stable (exactly `#### \`<package>\` \`^<from>\` → \`^<to>\``) so the
 skill can parse them.
+
+## Staff logout redirect status correction (2026-11-05, #7383)
+
+`POST /api/auth/logout` now returns `303 See Other` with the same login Location, so browsers navigate with GET and reloading the login page does not resubmit a form. This supersedes the 307 status in the earlier logout notes, including refresh-cookie-only and cookieless requests.
+
+**Action for integrators:** accept 303 instead of asserting 307 and follow Location with GET. Operators need no configuration or database migration. Session revocation, cookie expiry and events retain their current behavior, and other users of the shared redirect helper still default to 307. See [spec](.ai/specs/2026-11-05-logout-post-redirect.md).
