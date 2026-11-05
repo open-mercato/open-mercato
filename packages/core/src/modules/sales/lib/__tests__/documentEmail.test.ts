@@ -1,6 +1,7 @@
 import {
   documentEmailForCustomerChange,
   readDocumentEmail,
+  resolveSavedContactEmail,
   syncDocumentEmailWithSnapshot,
 } from '../documentEmail'
 
@@ -55,5 +56,21 @@ describe('documentEmailForCustomerChange', () => {
   it('leaves the metadata alone when the customer stays and no e-mail is given', () => {
     expect(documentEmailForCustomerChange({ customerEmail: 'old@example.test' }, null, false)).toBeUndefined()
     expect(documentEmailForCustomerChange({ other: 1 }, null, true)).toBeUndefined()
+  })
+})
+
+describe('resolveSavedContactEmail', () => {
+  it('uses the address the server reports over the fallback', () => {
+    expect(resolveSavedContactEmail({ contactEmail: 'new@example.test' }, 'old@example.test')).toBe('new@example.test')
+  })
+
+  it('honors an explicit null instead of keeping the old address', () => {
+    expect(resolveSavedContactEmail({ contactEmail: null }, 'old@example.test')).toBeNull()
+  })
+
+  it('falls back only when the response has no contactEmail field', () => {
+    expect(resolveSavedContactEmail({ id: 'quote-1' }, 'old@example.test')).toBe('old@example.test')
+    expect(resolveSavedContactEmail(null, 'old@example.test')).toBe('old@example.test')
+    expect(resolveSavedContactEmail(undefined, null)).toBeNull()
   })
 })

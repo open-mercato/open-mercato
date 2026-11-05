@@ -8,9 +8,9 @@
  * - the Send quote dialog announces it
  * - the quote e-mail goes to it (needs the test channel seeding; skipped otherwise)
  * - a copy equal to the customer e-mail follows an edit on the customer card
+ * - clearing that copy, or moving to a customer without e-mail, removes the recipient at once
  *
- * Fixtures: one person with a primary e-mail and one quote, created through the API
- * and removed in `finally`.
+ * Fixtures: people and one quote per case, created through the API and removed in `finally`.
  */
 import { expect, test, type Page } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
@@ -35,6 +35,25 @@ async function expectAnnouncedRecipient(page: Page, email: string): Promise<void
   await expect(dialog.getByText(`Email will be sent to: ${email}`), 'the dialog names the recipient').toBeVisible()
   await page.keyboard.press('Escape')
   await expect(dialog).toBeHidden()
+}
+
+async function expectNoRecipient(page: Page): Promise<void> {
+  await page.getByRole('button', { name: 'Actions', exact: true }).hover()
+  await page.getByRole('menuitem', { name: 'Send to customer', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Send quote to customer' })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByText('Email will be sent to: No email'), 'the dialog has no recipient').toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Send quote', exact: true }), 'sending needs a recipient').toBeDisabled()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+}
+
+async function saveCustomerCard(page: Page): Promise<void> {
+  const saved = page.waitForResponse(
+    (response) => new URL(response.url()).pathname === '/api/sales/quotes' && response.request().method() === 'PUT',
+  )
+  await page.getByRole('button', { name: /^Save .*Ctrl\+Enter/ }).first().click()
+  expect((await saved).status()).toBe(200)
 }
 
 test.describe('TC-SALES-8459: Send to precedence', () => {
@@ -155,6 +174,99 @@ test.describe('TC-SALES-8459: Send to precedence', () => {
       await expectAnnouncedRecipient(page, editedEmail)
     } finally {
       await deleteSalesEntityIfExists(request, token, '/api/sales/quotes', quoteId)
+      await deleteEntityIfExists(request, token, '/api/customers/people', personId)
+    }
+  })
+
+  test('clearing the copied e-mail on the card removes the recipient without a reload', async ({ page, request }) => {
+    test.slow()
+    const token = await getAuthToken(request, 'admin')
+    const stamp = Date.now()
+    const recordEmail = `qa-8459-clear-${stamp}@example.test`
+    let personId: string | null = null
+    let quoteId: string | null = null
+
+    try {
+      personId = await createPersonFixture(request, token, {
+        firstName: 'SendTo',
+        lastName: `Clear ${stamp}`,
+        displayName: `SendTo Clear ${stamp}`,
+        primaryEmail: recordEmail,
+      })
+      const create = await apiRequest(request, 'POST', '/api/sales/quotes', {
+        token,
+        data: { currencyCode: 'USD', customerEntityId: personId, metadata: { customerEmail: recordEmail } },
+      })
+      expect(create.status()).toBe(201)
+      quoteId = (await readJsonSafe<{ id?: string }>(create))?.id ?? null
+      expect(typeof quoteId).toBe('string')
+
+      await login(page, 'admin')
+      await page.goto(`/backend/sales/quotes/${encodeURIComponent(quoteId as string)}`, { waitUntil: 'domcontentloaded' })
+      await page.getByRole('button', { name: 'Edit customer snapshot' }).and(page.locator('button')).click()
+      const emailInput = page.getByPlaceholder('name@example.com')
+      await expect(emailInput).toHaveValue(recordEmail)
+      await emailInput.fill('')
+      await expect(emailInput).toHaveValue('')
+      await saveCustomerCard(page)
+
+      await expectNoRecipient(page)
+      await page.reload({ waitUntil: 'domcontentloaded' })
+      await expectNoRecipient(page)
+    } finally {
+      await deleteSalesEntityIfExists(request, token, '/api/sales/quotes', quoteId)
+      await deleteEntityIfExists(request, token, '/api/customers/people', personId)
+    }
+  })
+
+  test('moving to a customer without an e-mail removes the recipient without a reload', async ({ page, request }) => {
+    test.slow()
+    const token = await getAuthToken(request, 'admin')
+    const stamp = Date.now()
+    const recordEmail = `qa-8459-switch-${stamp}@example.test`
+    const noEmailName = `SendTo NoEmail ${stamp}`
+    let personId: string | null = null
+    let noEmailPersonId: string | null = null
+    let quoteId: string | null = null
+
+    try {
+      personId = await createPersonFixture(request, token, {
+        firstName: 'SendTo',
+        lastName: `Switch ${stamp}`,
+        displayName: `SendTo Switch ${stamp}`,
+        primaryEmail: recordEmail,
+      })
+      noEmailPersonId = await createPersonFixture(request, token, {
+        firstName: 'SendTo',
+        lastName: `NoEmail ${stamp}`,
+        displayName: noEmailName,
+      })
+      const create = await apiRequest(request, 'POST', '/api/sales/quotes', {
+        token,
+        data: { currencyCode: 'USD', customerEntityId: personId, metadata: { customerEmail: recordEmail } },
+      })
+      expect(create.status()).toBe(201)
+      quoteId = (await readJsonSafe<{ id?: string }>(create))?.id ?? null
+      expect(typeof quoteId).toBe('string')
+
+      await login(page, 'admin')
+      await page.goto(`/backend/sales/quotes/${encodeURIComponent(quoteId as string)}`, { waitUntil: 'domcontentloaded' })
+      await page.getByRole('button', { name: 'Select customer' }).and(page.locator('button')).click()
+      const search = page.getByPlaceholder('Search customers…')
+      const option = page.getByRole('option', { name: new RegExp(noEmailName) })
+      await expect(async () => {
+        await search.fill(noEmailName)
+        await expect(option).toBeVisible({ timeout: 3_000 })
+      }).toPass({ timeout: 30_000 })
+      await option.click()
+      await saveCustomerCard(page)
+
+      await expectNoRecipient(page)
+      await page.reload({ waitUntil: 'domcontentloaded' })
+      await expectNoRecipient(page)
+    } finally {
+      await deleteSalesEntityIfExists(request, token, '/api/sales/quotes', quoteId)
+      await deleteEntityIfExists(request, token, '/api/customers/people', noEmailPersonId)
       await deleteEntityIfExists(request, token, '/api/customers/people', personId)
     }
   })
