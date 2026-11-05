@@ -77,6 +77,22 @@ Prerequisites for the fulltext path to actually drain: `QUEUE_STRATEGY=async` + 
 
 ### A.4 Configuration surface
 
+#### Entity strategy restrictions on writes (#5930)
+
+`SearchService.index` and `bulkIndex` honor each entity's existing `strategies`
+restriction from the registered search module configurations, including the
+per-record bulk fallback. An explicit empty list prevents all strategy writes;
+entities without a restriction retain all available writers. Mixed batches are
+filtered separately for each strategy. Delete and purge remain unrestricted so
+previously indexed content can still be removed.
+
+Migration & Backward Compatibility: no signature, startup, configuration shape,
+API, schema, or default strategy change. Modules already restricting an entity
+now receive the intended write isolation. Existing unwanted vectors require an
+operator purge after workers are upgraded; this fix does not delete stored data
+or undo embedding-provider retention. Fulltext content and null-source behavior
+remain as documented below; this addresses only part (c) of #5930.
+
 #### Customer vector privacy invariant (#7826)
 
 Custom `buildSource` functions must enforce their own allowlists: the default
@@ -313,6 +329,8 @@ writer inputs without external services.
 - **Phase 4 (when implemented)**: `yarn workspace @open-mercato/shared test` + `yarn workspace @open-mercato/core test`; the four probe-count tests from #4723 pass without modification; new `BasicQueryEngine` parity and memoization tests as listed in B.4; no integration tests required (no API/DB/UI surface changes — same exemption #4723 claims).
 
 ## Changelog
+
+- 2026-11-05 — Enforced registered entity strategy restrictions on direct and mixed bulk writes (#5930 part c); preserved cleanup, unpinned writers, fulltext content, and null-source semantics.
 
 - 2026-10-31 — Integrated #7894 exclusions with shared single/bulk source preparation; source failures still skip vector writes, with by-ID/bulk/reindex boundary regressions preserving fulltext filtering and token inputs.
 
