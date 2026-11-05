@@ -14,6 +14,9 @@ Phase 1: Diagnose build failures and implement root-cause fixes with regression 
 Phase 2: Run configured validation and full PR CI, repair any remaining failures, then dispatch one final independent review and resolve findings.
 Phase 3: Record evidence, release claims, promote ready and add automerge only after green checks and approved review.
 
+## Validation evidence
+CI run 42075693679 passed prepare, lint, DS, Docker, timezone and multi-instance jobs; 14/15 integration shards passed while shard 14 was still running. Unit job exposed OMH-057 context growth: 115086 bytes exceeded its 114688-byte cap. Recalibrated only its total allowance to 116736 bytes (1650 bytes headroom); initial allowance, exact files and forbidden paths remain fixed. Existing compatibility regression reproduced failure before and passed all 6 tests after; source-link inventory check passed unchanged. Local configured gate passed build/generate/rebuild/i18n sync/usage, then was interrupted during typecheck; remaining verification comes from full PR CI.
+
 ## Risks
 Full CI can expose additional failures after prepare succeeds. No local dependencies installed initially. ci-full applies on next scheduled PR event, avoiding label-only skipped check replacement.
 
