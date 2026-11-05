@@ -6,8 +6,9 @@ const COMMAND_ID = 'test.command.redo-claim'
 type SourceState = { executionState: string }
 
 function buildCasService(source: SourceState) {
+  let logCount = 0
   return {
-    log: jest.fn(async () => ({ id: `log-${Math.random()}` })),
+    log: jest.fn(async () => ({ id: `log-${++logCount}` })),
     claimForRedo: jest.fn(async () => {
       await Promise.resolve()
       if (source.executionState !== 'undone') return false

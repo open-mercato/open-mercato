@@ -490,14 +490,14 @@ export class CommandBus {
       }], { transaction: true, label: `${commandId}.redo` })
       replaySourceFinalized = !ambientReplay.joinsAmbient
     } else if (replayLogEntry?.id) {
-      const releaseRedoClaim = await this.claimRedoSource(effectiveOptions.ctx, commandId, replayLogEntry.id)
+      const redoClaimRelease = await this.claimRedoSource(effectiveOptions.ctx, commandId, replayLogEntry.id)
       try {
         coreResult = await executeCore(effectiveOptions)
       } catch (err) {
-        await releaseRedoClaim?.()
+        await redoClaimRelease?.()
         throw err
       }
-      replaySourceFinalized = releaseRedoClaim !== null
+      replaySourceFinalized = redoClaimRelease !== null
     } else {
       coreResult = await executeCore(effectiveOptions)
     }
