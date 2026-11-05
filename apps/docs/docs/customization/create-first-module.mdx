@@ -7,6 +7,8 @@ description: Scaffold the Inventory module and surface its first admin page in t
 
 With the base app running, add a custom `inventory` module directly inside the app. Modules placed under `apps/mercato/src/modules/<id>/` (or `src/modules/<id>/` in a standalone app) are automatically resolved when you register them with `from: '@app'` -- no separate package setup required.
 
+Before you build, search [modules.openmercato.com](https://modules.openmercato.com). The feature you need may already exist as a module you can install with one command.
+
 :::info Monorepo vs. standalone paths
 This tutorial uses monorepo paths (`apps/mercato/src/modules/`). If you scaffolded a standalone app with `create-mercato-app`, replace every `apps/mercato/src/` prefix with `src/`. Everything else is identical.
 :::
@@ -133,11 +135,11 @@ yarn mercato configs cache structural --all-tenants
 Restart the dev server (or wait for hot reload) and open `/backend`. You should now see an **Inventory** link in the sidebar that leads to the placeholder page.
 
 :::tip Existing reference modules
-Browse `apps/mercato/src/modules/example/` for a full working module that exercises most platform features (entities, APIs, forms, grids, events, dashboard widgets, custom fields, and injection). Core modules from `@open-mercato/core` can be customized by adding override files under `apps/mercato/src/modules/auth`, `apps/mercato/src/modules/directory`, etc.
+Browse `apps/mercato/src/modules/example/` for a full working module that exercises most platform features (entities, APIs, forms, grids, events, dashboard widgets, custom fields, and injection) — or start from the [Reference Example Module](../framework/modules/reference-example-module) showcase, which indexes every capability it demonstrates with an exact link to the source. Core modules from `@open-mercato/core` can be customized by adding override files under `apps/mercato/src/modules/auth`, `apps/mercato/src/modules/directory`, etc.
 :::
 
 :::tip Publish your module
 
-If you've built a module that would be useful for others, you can publish it to the [Official Modules repository](../framework/modules/official-modules). This is the recommended way to share your work with the community -- your module gets core-team review, npm publication, and one-command installation for all Open Mercato users.
+If you've built a module that would be useful for others, publish it as an npm package with [`create-mercato-module`](../framework/modules/publishing-custom-modules) and list it on [modules.openmercato.com/submit](https://modules.openmercato.com/submit). Other Open Mercato users then find it in the [Modules catalog](../framework/modules/official-modules) and install it with one command.
 
 :::

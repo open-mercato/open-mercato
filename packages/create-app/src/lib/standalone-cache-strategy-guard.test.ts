@@ -28,18 +28,43 @@ function collectCacheStrategyValues(source: string): string[] {
   return Array.from(matches, (match) => match[1])
 }
 
-test('snapshot workflow standalone lane uses a cross-process cache strategy', () => {
-  const workflow = readRepoFile('.github/workflows/snapshot.yml')
+function collectSqlitePaths(source: string): string[] {
+  const matches = source.matchAll(/CACHE_SQLITE_PATH['"]?\s*[:=]\s*['"]?([^\s'"]+)/g)
+  return Array.from(matches, (match) => match[1])
+}
+
+function assertWorkflowUsesSharedCache(relativePath: string): void {
+  const workflow = readRepoFile(relativePath)
   const values = collectCacheStrategyValues(workflow)
-  assert.ok(
-    values.length >= 2,
-    'snapshot.yml must pin CACHE_STRATEGY for both the standalone app .env and the integration-test step (drain child processes inherit the step env, not the app .env)',
+  assert.equal(
+    values.length,
+    2,
+    `${relativePath} must pin CACHE_STRATEGY once for the standalone app .env and once for the integration-test step`,
   )
   for (const value of values) {
     assert.ok(
       CROSS_PROCESS_STRATEGIES.has(value),
-      `snapshot.yml sets CACHE_STRATEGY=${value}; the standalone lane drains queue jobs in child processes and requires a cross-process strategy (${Array.from(CROSS_PROCESS_STRATEGIES).join(', ')})`,
+      `${relativePath} sets CACHE_STRATEGY=${value}; the standalone lane drains queue jobs in child processes and requires a cross-process strategy (${Array.from(CROSS_PROCESS_STRATEGIES).join(', ')})`,
     )
+  }
+
+  const sqlitePaths = collectSqlitePaths(workflow)
+  assert.deepEqual(
+    sqlitePaths,
+    [
+      '/tmp/standalone-app/.mercato/cache/cache.db',
+      '/tmp/standalone-app/.mercato/cache/cache.db',
+    ],
+    `${relativePath} must give the standalone server and queue-drain child processes the same absolute sqlite path`,
+  )
+}
+
+test('published standalone workflows share cache state across server and drain processes', () => {
+  for (const relativePath of [
+    '.github/workflows/snapshot.yml',
+    '.github/workflows/npm-snapshot-preview.yml',
+  ]) {
+    assertWorkflowUsesSharedCache(relativePath)
   }
 })
 

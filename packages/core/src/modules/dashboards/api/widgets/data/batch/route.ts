@@ -5,10 +5,13 @@ import type { CacheStrategy } from '@open-mercato/cache'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import {
   createWidgetDataService,
   type WidgetDataRequest,
   WidgetDataValidationError,
+  WidgetDataScanLimitError,
+  WidgetDataEncryptionUnavailableError,
 } from '../../../../services/widgetDataService'
 import { runWidgetDataBatch } from '../../../../lib/widgetDataBatch'
 import type { AnalyticsRegistry } from '../../../../services/analyticsRegistry'
@@ -16,6 +19,7 @@ import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib
 import { dashboardsTag, dashboardsErrorSchema } from '../../../openapi'
 import { widgetDataRequestSchema, widgetDataResponseSchema } from '../schema'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveOptionalBaseCurrencyResolver } from '../../../../lib/optionalBaseCurrency'
 
 const logger = createLogger('dashboards').child({ component: 'widgets-data-batch' })
 
@@ -93,16 +97,16 @@ export async function POST(req: Request) {
 
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
 
-  const organizationIds = (() => {
-    if (scope?.selectedId) return [scope.selectedId]
-    if (Array.isArray(scope?.filterIds) && scope.filterIds.length > 0) return scope.filterIds
-    if (scope?.allowedIds === null) return undefined
-    if (auth.orgId) return [auth.orgId]
-    return undefined
-  })()
+  const { organizationIds, rbacOrganizationId } = resolveOrganizationScopeFilter(scope, auth)
 
   const cache = container.resolve<CacheStrategy>('cache')
-  const service = createWidgetDataService(em, { tenantId, organizationIds }, analyticsRegistry, cache)
+  const service = createWidgetDataService(
+    em,
+    { tenantId, organizationIds },
+    analyticsRegistry,
+    cache,
+    resolveOptionalBaseCurrencyResolver(container),
+  )
 
   const rbacService = container.resolve<{
     userHasAllFeatures: (
@@ -119,12 +123,14 @@ export async function POST(req: Request) {
         if (features.length === 0) return Promise.resolve(true)
         return rbacService.userHasAllFeatures(auth.sub, features, {
           tenantId,
-          organizationId: auth.orgId,
+          organizationId: rbacOrganizationId,
         })
       },
       fetchOne: (request) => service.fetchWidgetData(request),
       describeError: (error) =>
         error instanceof WidgetDataValidationError
+        || error instanceof WidgetDataScanLimitError
+        || error instanceof WidgetDataEncryptionUnavailableError
           ? error.message
           : 'An error occurred while processing your request',
     })

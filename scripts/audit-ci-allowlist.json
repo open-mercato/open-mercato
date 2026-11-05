@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "advisories": {
+    "GHSA-w3rx-r6r6-pgpr": {
+      "package": "image-size",
+      "reason": "image-size <=2.0.2 ICNS parser DoS (CVE-2025-71330). image-size/image-size is archived upstream with no maintainer and no patched release exists (2.0.2 is still latest). Reachable only through @docusaurus/mdx-loader, used solely to build apps/docs at CI/dev time from trusted, repo-controlled Markdown — it never parses attacker-supplied images in production. Re-check when the docs toolchain drops the dependency or a fixed image-size ships.",
+      "addedAt": "2026-08-10"
+    },
+    "GHSA-5p2g-fcmc-qvqq": {
+      "package": "image-size",
+      "reason": "image-size <=2.0.2 JXL/HEIF parser DoS (CVE-2025-71329). Same archived, unpatched image-size <=2.0.2 as GHSA-w3rx-r6r6-pgpr, reachable only via the docs build — see that entry for the full justification.",
+      "addedAt": "2026-08-10"
+    }
+  }
+}

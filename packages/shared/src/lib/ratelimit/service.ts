@@ -1,5 +1,9 @@
 import { RateLimiterMemory, RateLimiterRedis, RateLimiterRes } from 'rate-limiter-flexible'
+import { createLogger } from '../logger'
+import { parseRedisUrl } from '../redis/connection'
 import type { RateLimitConfig, RateLimitResult, RateLimitGlobalConfig } from './types'
+
+const logger = createLogger('ratelimit')
 
 /** Narrow interface for the ioredis client — only the methods we actually use. */
 interface RedisClient {
@@ -15,13 +19,14 @@ export class RateLimiterService {
 
   constructor(globalConfig: RateLimitGlobalConfig) {
     this.globalConfig = globalConfig
-    this.trustProxyDepth = globalConfig.trustProxyDepth ?? 1
+    this.trustProxyDepth = globalConfig.trustProxyDepth ?? 0
   }
 
   async initialize(): Promise<void> {
     if (this.globalConfig.strategy === 'redis' && this.globalConfig.redisUrl) {
       const { default: Redis } = await import('ioredis')
-      this.redisClient = new Redis(this.globalConfig.redisUrl, {
+      this.redisClient = new Redis({
+        ...parseRedisUrl(this.globalConfig.redisUrl),
         enableOfflineQueue: false,
         maxRetriesPerRequest: 1,
       })
@@ -42,7 +47,12 @@ export class RateLimiterService {
       if (error instanceof RateLimiterRes) {
         return this.toResult(error, false)
       }
-      return this.disabledResult(config)
+      logger.error('Rate limiter unavailable, request was not counted', {
+        err: error,
+        keyPrefix: config.keyPrefix,
+        strategy: this.globalConfig.strategy,
+      })
+      return this.degradedResult(config)
     }
   }
 
@@ -93,6 +103,10 @@ export class RateLimiterService {
 
   private disabledResult(config: RateLimitConfig): RateLimitResult {
     return { allowed: true, remainingPoints: config.points, msBeforeNext: 0, consumedPoints: 0 }
+  }
+
+  private degradedResult(config: RateLimitConfig): RateLimitResult {
+    return { ...this.disabledResult(config), degraded: true }
   }
 
   private getOrCreateLimiter(config: RateLimitConfig): RateLimiterMemory | RateLimiterRedis {

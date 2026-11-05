@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, symlinkSync, lstatSync, unlinkSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { AgenticConfig } from '../wizard.js'
@@ -37,25 +37,18 @@ export function generateClaudeCode(config: AgenticConfig): void {
   writeTemplate('CLAUDE.md.template', join(targetDir, 'CLAUDE.md'), config)
 
   // .claude/settings.json
-  copyFile('settings.json', join(targetDir, '.claude', 'settings.json'))
+  copyFile(
+    config.experimentalHooksValidator ? 'settings.experimental-hooks-validator.json' : 'settings.json',
+    join(targetDir, '.claude', 'settings.json'),
+  )
 
   // .claude/hooks/entity-migration-check.ts
   copyFile('hooks/entity-migration-check.ts', join(targetDir, '.claude', 'hooks', 'entity-migration-check.ts'))
 
+  if (config.experimentalHooksValidator) {
+    copyFile('hooks/gate-evidence.ts', join(targetDir, '.claude', 'hooks', 'gate-evidence.ts'))
+  }
+
   // .mcp.json.example
   copyFile('mcp.json.example', join(targetDir, '.mcp.json.example'))
-
-  // Symlink .claude/skills → ../.ai/skills
-  ensureSkillsLink(join(targetDir, '.claude', 'skills'), join('..', '.ai', 'skills'))
-}
-
-function ensureSkillsLink(linkPath: string, target: string): void {
-  ensureDir(linkPath)
-  if (existsSync(linkPath) && !lstatSync(linkPath).isSymbolicLink()) {
-    return
-  }
-  if (lstatSync(linkPath, { throwIfNoEntry: false })?.isSymbolicLink()) {
-    unlinkSync(linkPath)
-  }
-  symlinkSync(target, linkPath)
 }

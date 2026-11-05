@@ -4,7 +4,7 @@ export const translationBodySchema = z
   .record(
     z.string().trim().min(2).max(10),
     z.record(
-      z.string().trim().min(1).max(100),
+      z.string().trim().min(1).max(400),
       z.union([z.string().max(10000), z.null()]),
     ),
   )

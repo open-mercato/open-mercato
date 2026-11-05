@@ -49,6 +49,11 @@
       "cache": false,
       "outputs": []
     },
+    "create-mercato-app#test": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "outputs": []
+    },
     "lint": {
       "outputs": []
     },
@@ -74,7 +79,8 @@
     },
     "initialize": {
       "cache": false,
-      "outputs": []
+      "outputs": [],
+      "passThroughEnv": ["OM_INIT_DEV_AUTOSTART"]
     },
     "seed:defaults": {
       "cache": false,

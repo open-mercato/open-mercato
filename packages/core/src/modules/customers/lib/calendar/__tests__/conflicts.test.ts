@@ -1,11 +1,50 @@
 import { findConflicts } from '../conflicts'
-import { makeCalendarItem } from './fixtures'
+import { mapInteractionToCalendarItem } from '../mapItem'
+import { makeCalendarItem, makePayload } from './fixtures'
 
 function at(hours: number, minutes = 0): Date {
   return new Date(2026, 5, 11, hours, minutes, 0)
 }
 
 describe('findConflicts', () => {
+  describe.each(['all', 'mine'] as const)('cross-role conflicts in scope %s', (scope) => {
+    it.each([
+      { taskFirst: true, meetingOwnerUserId: 'other-user' },
+      { taskFirst: false, meetingOwnerUserId: 'other-user' },
+      { taskFirst: true, meetingOwnerUserId: null },
+      { taskFirst: false, meetingOwnerUserId: null },
+    ])('matches task assignee and meeting participant: %j', ({ taskFirst, meetingOwnerUserId }) => {
+      const task = mapInteractionToCalendarItem(makePayload({
+        id: 'task',
+        interactionType: 'task',
+        scheduledAt: at(10, taskFirst ? 0 : 30).toISOString(),
+        durationMinutes: 60,
+        ownerUserId: 'shared-user',
+      }), {})!
+      const meeting = mapInteractionToCalendarItem(makePayload({
+        id: 'meeting',
+        scheduledAt: at(10, taskFirst ? 30 : 0).toISOString(),
+        durationMinutes: 60,
+        ownerUserId: meetingOwnerUserId,
+        participants: [{ userId: 'shared-user', name: 'Alex' }],
+      }), {})!
+      const conflicts = findConflicts([task, meeting], { scope, currentUserId: 'shared-user' })
+
+      expect(conflicts.get('task')).toEqual(['meeting'])
+      expect(conflicts.get('meeting')).toEqual(['task'])
+      expect(findConflicts([task, meeting], { scope: 'mine', currentUserId: 'other-user' }).size).toBe(0)
+    })
+  })
+
+  it('keeps owner user identities separate from guest email identities', () => {
+    const conflicts = findConflicts([
+      makeCalendarItem({ id: 'task', start: at(10), end: at(11), ownerUserId: 'guest@example.org' }),
+      makeCalendarItem({ id: 'meeting', start: at(10, 30), end: at(11), participants: [{ email: 'guest@example.org' }] }),
+    ])
+
+    expect(conflicts.size).toBe(0)
+  })
+
   it('flags overlapping items sharing an owner in both directions', () => {
     const conflicts = findConflicts([
       makeCalendarItem({ id: 'first', start: at(10), end: at(11), ownerUserId: 'owner-a' }),
@@ -38,6 +77,61 @@ describe('findConflicts', () => {
     const conflicts = findConflicts([
       makeCalendarItem({ id: 'first', start: at(10), end: at(11), ownerUserId: 'owner-a', participants: [{ userId: 'user-1' }] }),
       makeCalendarItem({ id: 'second', start: at(10), end: at(11), ownerUserId: 'owner-b', participants: [{ userId: 'user-2' }] }),
+    ])
+    expect(conflicts.size).toBe(0)
+  })
+
+  it('does not treat two guest participants without a userId as sharing an actor', () => {
+    const conflicts = findConflicts([
+      makeCalendarItem({
+        id: 'first',
+        start: at(10),
+        end: at(11),
+        participants: [{ email: 'guest-one@example.org' }],
+      }),
+      makeCalendarItem({
+        id: 'second',
+        start: at(10),
+        end: at(11),
+        participants: [{ email: 'guest-two@example.org' }],
+      }),
+    ])
+    expect(conflicts.size).toBe(0)
+  })
+
+  it('flags overlapping items sharing the same guest, matched on the normalized email', () => {
+    const conflicts = findConflicts([
+      makeCalendarItem({
+        id: 'first',
+        start: at(10),
+        end: at(11),
+        participants: [{ email: 'guest@example.org' }],
+      }),
+      makeCalendarItem({
+        id: 'second',
+        start: at(10, 30),
+        end: at(11, 30),
+        participants: [{ email: '  Guest@Example.ORG ' }],
+      }),
+    ])
+    expect(conflicts.get('first')).toEqual(['second'])
+    expect(conflicts.get('second')).toEqual(['first'])
+  })
+
+  it('does not match a guest email against a participant carrying a userId', () => {
+    const conflicts = findConflicts([
+      makeCalendarItem({
+        id: 'first',
+        start: at(10),
+        end: at(11),
+        participants: [{ userId: 'user-1', email: 'staff@example.org' }],
+      }),
+      makeCalendarItem({
+        id: 'second',
+        start: at(10),
+        end: at(11),
+        participants: [{ email: 'staff@example.org' }],
+      }),
     ])
     expect(conflicts.size).toBe(0)
   })

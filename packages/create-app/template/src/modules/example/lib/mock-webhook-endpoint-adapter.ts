@@ -63,6 +63,7 @@ function timingSafeEqualStrings(provided: string, expected: string): boolean {
 export const mockWebhookEndpointAdapter: WebhookEndpointAdapter = {
   providerKey: 'mock_inbound',
   subscribedEvents: ['*'],
+  allowUnscopedInbound: true,
   async verifyWebhook(input) {
     const providedSignature = readHeader(input.headers, MOCK_INBOUND_SIGNATURE_HEADER)
     const providedToken = readHeader(input.headers, MOCK_INBOUND_TOKEN_HEADER)

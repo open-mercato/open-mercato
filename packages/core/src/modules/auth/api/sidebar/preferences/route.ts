@@ -9,9 +9,9 @@ import {
   sidebarPreferencesScopeSchema,
 } from '../../../data/validators'
 import {
+  findSidebarPreference,
   loadRoleSidebarPreferenceUpdatedAt,
   loadRoleSidebarPreferences,
-  loadSidebarPreference,
   loadSidebarPreferenceUpdatedAt,
   saveRoleSidebarPreference,
   saveSidebarPreference,
@@ -204,7 +204,7 @@ export async function GET(req: Request) {
   // For API key auth, use userId (the actual user) if available
   const effectiveUserId = auth.isApiKey ? auth.userId : auth.sub
   const settings = effectiveUserId
-    ? await loadSidebarPreference(em, {
+    ? await findSidebarPreference(em, {
         userId: effectiveUserId,
         tenantId: auth.tenantId ?? null,
         organizationId: auth.orgId ?? null,

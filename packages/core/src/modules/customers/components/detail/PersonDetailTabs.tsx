@@ -16,6 +16,10 @@ import {
   MapPin,
 } from 'lucide-react'
 import type { SectionAction } from '@open-mercato/ui/backend/detail'
+import { registerComponent } from '@open-mercato/shared/modules/widgets/component-registry'
+import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
+
+export const PERSON_DETAIL_TAB_IDS = ['activities', 'emails', 'deals', 'companies', 'addresses', 'tasks', 'changelog', 'files'] as const
 
 export type PersonTabId =
   | 'activities'
@@ -33,12 +37,17 @@ type TabDef = {
   label: string
   icon?: React.ReactNode
   count?: React.ReactNode
+  priority?: number
 }
 
-type PersonDetailTabsProps = {
+export const PERSON_DETAIL_TABS_COMPONENT_ID = 'section:customers.people.detailTabs'
+
+export type PersonDetailTabsProps = {
   activeTab: PersonTabId
   onTabChange: (tab: PersonTabId) => void
-  injectedTabs?: Array<{ id: string; label: string }>
+  injectedTabs?: Array<{ id: string; label: string; priority?: number }>
+  isLoadingInjectedTabs?: boolean
+  hiddenTabIds?: string[]
   activitiesCount?: number
   dealsCount?: number
   companiesCount?: number
@@ -51,9 +60,11 @@ type PersonDetailTabsProps = {
 
 const SUPPORTED_TAB_IDS = new Set<PersonTabId>(['activities', 'emails', 'deals', 'companies', 'addresses', 'tasks', 'changelog', 'files'])
 
-export function resolveLegacyTab(tab: string | null | undefined): PersonTabId {
+export function resolveLegacyTab(tab: string | null | undefined, knownTabIds?: Iterable<string>): PersonTabId {
   if (!tab) return 'activities'
-  return SUPPORTED_TAB_IDS.has(tab as PersonTabId) ? (tab as PersonTabId) : 'activities'
+  if (SUPPORTED_TAB_IDS.has(tab as PersonTabId)) return tab as PersonTabId
+  if (knownTabIds && new Set(knownTabIds).has(tab)) return tab
+  return 'activities'
 }
 
 function formatTabCount(count: number): string | number | undefined {
@@ -61,10 +72,12 @@ function formatTabCount(count: number): string | number | undefined {
   return count > 999 ? '999+' : count
 }
 
-export function PersonDetailTabs({
+function DefaultPersonDetailTabs({
   activeTab,
   onTabChange,
   injectedTabs = [],
+  isLoadingInjectedTabs = false,
+  hiddenTabIds = [],
   activitiesCount = 0,
   dealsCount = 0,
   companiesCount = 0,
@@ -129,16 +142,25 @@ export function PersonDetailTabs({
     [t, activitiesCount, dealsCount, companiesCount, addressesCount, tasksCount, filesCount],
   )
 
-  const allTabs: TabDef[] = React.useMemo(
-    () => [
+  const allTabs: TabDef[] = React.useMemo(() => {
+    const hidden = new Set(hiddenTabIds)
+    return [
       ...builtInTabs,
-      ...injectedTabs.map((tab) => ({
+      ...injectedTabs.filter((tab, index) => !builtInTabs.some((native) => native.id === tab.id) && injectedTabs.findIndex((candidate) => candidate.id === tab.id) === index).map((tab) => ({
         id: tab.id as PersonTabId,
         label: tab.label,
+        priority: tab.priority,
       })),
-    ],
-    [builtInTabs, injectedTabs],
-  )
+    ]
+      .sort((left, right) => (right.priority ?? 0) - (left.priority ?? 0))
+      .filter((tab) => !hidden.has(tab.id))
+  }, [builtInTabs, hiddenTabIds, injectedTabs])
+
+  React.useEffect(() => {
+    if (isLoadingInjectedTabs || allTabs.some((tab) => tab.id === activeTab)) return
+    const fallback = allTabs[0]?.id
+    if (fallback) onTabChange(fallback)
+  }, [activeTab, allTabs, isLoadingInjectedTabs, onTabChange])
 
   return (
     <div>
@@ -181,4 +203,21 @@ export function PersonDetailTabs({
       </div>
     </div>
   )
+}
+
+registerComponent<PersonDetailTabsProps>({
+  id: PERSON_DETAIL_TABS_COMPONENT_ID,
+  component: DefaultPersonDetailTabs,
+  metadata: {
+    module: 'customers',
+    description: 'Person detail tab navigation and content.',
+  },
+})
+
+export function PersonDetailTabs(props: PersonDetailTabsProps) {
+  const ResolvedTabs = useRegisteredComponent<PersonDetailTabsProps>(
+    PERSON_DETAIL_TABS_COMPONENT_ID,
+    DefaultPersonDetailTabs,
+  )
+  return <ResolvedTabs {...props} />
 }

@@ -9,6 +9,7 @@ import {
 } from '../commands/ingest-inbound-message'
 import { COMMUNICATION_CHANNELS_QUEUES, getCommunicationChannelsQueue } from '../lib/queue'
 import { preservePushState } from '../lib/push-state'
+import { isHubPolledChannel } from '../lib/polling-eligibility'
 import { writeIngestDeadLetter } from '../lib/dead-letter'
 import { classifyOutboundError, computeBackoffMs, isReauthError } from '../lib/error-classification'
 import { refreshCredentialsIfNeeded } from '../lib/credential-refresh'
@@ -16,6 +17,7 @@ import { emitCommunicationChannelsEvent } from '../events'
 import type { ChannelAdapterRegistry } from '../lib/registry'
 import type { NormalizedInboundMessage } from '../lib/adapter'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('communication_channels').child({ component: 'poll-channel' })
 
@@ -81,7 +83,7 @@ type CredentialsServiceLike = {
  *      `(channel_id, external_message_id)`).
  *   6. Update `channel.lastPolledAt = NOW()` on success.
  *   7. On error: classify, set `channel.status` accordingly, set `last_error`, emit
- *      `channel.requires_reauth` on 401, retry transient failures up to MAX.
+ *      `channel.requires_reauth` after failed 401 recovery, retry transient failures up to MAX.
  *
  * The hub doesn't drain a remote mailbox indefinitely — `fetchHistory` returns a
  * single page (provider decides the size). If the provider has more, the next tick
@@ -123,9 +125,8 @@ export default async function handle(
     logger.warn('no adapter for provider', { providerKey: channel.providerKey, channelId })
     return
   }
-  // Adapter opted out of polling — webhook providers.
-  const capabilities = (channel.capabilities as { realtimePush?: boolean } | null) ?? null
-  if (capabilities?.realtimePush !== false) {
+  // Adapter opted out of polling — webhook and gateway providers.
+  if (!isHubPolledChannel(channel.capabilities)) {
     // realtimePush is `true` (default for back-compat) — don't poll push providers.
     return
   }
@@ -158,6 +159,10 @@ export default async function handle(
       credentials = {}
     }
   }
+  const refreshDeps = {
+    credentialsService,
+    logger: (...args: unknown[]) => logger.warn('credential refresh diagnostic', { channelId: channel.id, details: args }),
+  }
   const refreshed = await refreshCredentialsIfNeeded(
     {
       adapter,
@@ -165,7 +170,7 @@ export default async function handle(
       credentials,
       scope: credentialsScope,
     },
-    { credentialsService },
+    refreshDeps,
   )
   credentials = refreshed.credentials
 
@@ -178,15 +183,16 @@ export default async function handle(
   let normalized: NormalizedInboundMessage[] = []
   let nextCursor: string | undefined
   let hasMore = false
-  try {
-    const result = await adapter.fetchHistory({
+  const fetchHistory = adapter.fetchHistory.bind(adapter)
+  const fetchPage = (withCredentials: Record<string, unknown>) =>
+    fetchHistory({
       conversationId: channel.externalIdentifier ?? channel.id,
-      credentials,
+      credentials: withCredentials,
       cursor: channel.lastPolledAt ? channel.lastPolledAt.toISOString() : undefined,
       channelState: (channel.channelState as Record<string, unknown> | null) ?? undefined,
       scope: {
         tenantId: scope.tenantId,
-        organizationId: scope.organizationId ?? scope.tenantId,
+        organizationId: channel.organizationId ?? null,
       },
       // `contactFilter.sinceDays` is a hint to provider adapters about how far
       // back to look on first-poll bootstrap. For UID-incremental polls (every
@@ -194,6 +200,29 @@ export default async function handle(
       // since the persisted cursor.
       contactFilter: { addresses: [], sinceDays: 7 },
     })
+  try {
+    let result: Awaited<ReturnType<typeof fetchPage>>
+    try {
+      result = await fetchPage(credentials)
+    } catch (err) {
+      if (!isReauthError(classifyOutboundError(err))) throw err
+      try {
+        getTelemetryRuntime()?.reportError(err, {
+          module: 'communication_channels',
+          code: 'communication_channels.poll_authentication_failed',
+          attributes: { channelId: channel.id, providerKey: channel.providerKey },
+        })
+      } catch {
+        logger.warn('poll authentication failure could not be reported', { channelId: channel.id })
+      }
+      const forced = await refreshCredentialsIfNeeded(
+        { adapter, channelId: channel.id, credentials, scope: credentialsScope, force: true },
+        refreshDeps,
+      )
+      if (!forced.refreshed) throw err
+      credentials = forced.credentials
+      result = await fetchPage(credentials)
+    }
     normalized = Array.isArray(result?.messages) ? result.messages : []
     nextCursor = result?.nextCursor
     hasMore = result?.hasMore === true

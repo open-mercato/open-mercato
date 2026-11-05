@@ -87,4 +87,17 @@ describe('AnthropicAdapter', () => {
     })
     expect(model).toBeDefined()
   })
+
+  it('maps an end-user identifier into the Anthropic metadata.userId providerOptions fragment', () => {
+    // Key MUST be the AI SDK provider-option name `userId` (camelCase); the SDK
+    // translates it to the `metadata.user_id` request-body field and strips
+    // unknown providerOptions keys, so a snake_case key would be dropped.
+    expect(adapter.mapEndUserIdentifier?.('hashed-id')).toEqual({
+      anthropic: { metadata: { userId: 'hashed-id' } },
+    })
+  })
+
+  it('does not advertise input moderation support (Anthropic has no moderation endpoint)', () => {
+    expect(adapter.supportsInputModeration).toBeFalsy()
+  })
 })

@@ -3,7 +3,7 @@ import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import type { User } from '../../data/entities'
+import { User } from '../../data/entities'
 
 describe('auth.users.update display name clearing', () => {
   it('clears the display name when the submitted value is blank', async () => {
@@ -39,12 +39,22 @@ describe('auth.users.update display name clearing', () => {
 
     const em = {
       find: async () => [],
+      begin: async () => undefined,
+      commit: async () => undefined,
+      rollback: async () => undefined,
       remove: () => undefined,
       persist: () => undefined,
       flush: async () => undefined,
       nativeDelete: async () => 0,
       create: (_entity: unknown, data: unknown) => data,
-      findOne: async () => null,
+      findOne: async (entity: unknown) => (entity === User
+        ? {
+            id: '523e4567-e89b-12d3-a456-426614174901',
+            organizationId: 'org-1',
+            tenantId: 'tenant-1',
+            deletedAt: null,
+          }
+        : null),
     } as unknown as EntityManager
 
     const container = {
@@ -55,7 +65,13 @@ describe('auth.users.update display name clearing', () => {
           case 'em':
             return em
           case 'rbacService':
-            return { invalidateUserCache: jest.fn(async () => {}) }
+            return {
+              invalidateUserCache: jest.fn(async () => {}),
+              userHasAllFeatures: jest.fn(async () => true),
+              userHasAllFeaturesWithEntityManager: jest.fn(async () => true),
+              loadAcl: jest.fn(async () => ({ isSuperAdmin: true, features: ['*'], organizations: null })),
+              loadAclWithEntityManager: jest.fn(async () => ({ isSuperAdmin: true, features: ['*'], organizations: null })),
+            }
           case 'cache':
             return { deleteByTags: jest.fn(async () => {}) }
           default:
@@ -96,12 +112,26 @@ describe('auth.users.update display name clearing', () => {
 
     const em = {
       find: async () => [],
+      begin: async () => undefined,
+      commit: async () => undefined,
+      rollback: async () => undefined,
       remove: () => undefined,
       persist: () => undefined,
       flush: async () => undefined,
       nativeDelete: async () => 0,
       create: (_entity: unknown, data: unknown) => data,
-      findOne: async () => null,
+      findOne: async (entity: unknown) => (entity === User
+        ? {
+            id: '523e4567-e89b-12d3-a456-426614174902',
+            email: 'before@example.com',
+            organizationId: 'org-1',
+            tenantId: 'tenant-1',
+            passwordHash: null,
+            name: 'Stale Name',
+            isConfirmed: true,
+            deletedAt: null,
+          }
+        : null),
     } as unknown as EntityManager
 
     const container = {
@@ -112,7 +142,13 @@ describe('auth.users.update display name clearing', () => {
           case 'em':
             return em
           case 'rbacService':
-            return { invalidateUserCache: jest.fn(async () => {}) }
+            return {
+              invalidateUserCache: jest.fn(async () => {}),
+              userHasAllFeatures: jest.fn(async () => true),
+              userHasAllFeaturesWithEntityManager: jest.fn(async () => true),
+              loadAcl: jest.fn(async () => ({ isSuperAdmin: true, features: ['*'], organizations: null })),
+              loadAclWithEntityManager: jest.fn(async () => ({ isSuperAdmin: true, features: ['*'], organizations: null })),
+            }
           case 'cache':
             return { deleteByTags: jest.fn(async () => {}) }
           default:
@@ -172,12 +208,26 @@ describe('auth.users.update display name clearing', () => {
 
     const em = {
       find: async () => [],
+      begin: async () => undefined,
+      commit: async () => undefined,
+      rollback: async () => undefined,
       remove: () => undefined,
       persist: () => undefined,
       flush: async () => undefined,
       nativeDelete: async () => 0,
       create: (_entity: unknown, data: unknown) => data,
-      findOne: async () => null,
+      findOne: async (entity: unknown) => (entity === User
+        ? {
+            id: '523e4567-e89b-12d3-a456-426614174902',
+            email: 'before@example.com',
+            organizationId: 'org-1',
+            tenantId: 'tenant-1',
+            passwordHash: null,
+            name: 'Stale Name',
+            isConfirmed: true,
+            deletedAt: null,
+          }
+        : null),
     } as unknown as EntityManager
 
     const container = {
@@ -188,7 +238,13 @@ describe('auth.users.update display name clearing', () => {
           case 'em':
             return em
           case 'rbacService':
-            return { invalidateUserCache: jest.fn(async () => {}) }
+            return {
+              invalidateUserCache: jest.fn(async () => {}),
+              userHasAllFeatures: jest.fn(async () => true),
+              userHasAllFeaturesWithEntityManager: jest.fn(async () => true),
+              loadAcl: jest.fn(async () => ({ isSuperAdmin: true, features: ['*'], organizations: null })),
+              loadAclWithEntityManager: jest.fn(async () => ({ isSuperAdmin: true, features: ['*'], organizations: null })),
+            }
           case 'cache':
             return { deleteByTags: jest.fn(async () => {}) }
           default:
@@ -220,7 +276,17 @@ describe('auth.users.update display name clearing', () => {
             roles: [],
             acls: [],
           },
-          after: null,
+          after: {
+            id: '523e4567-e89b-12d3-a456-426614174902',
+            email: 'before@example.com',
+            organizationId: 'org-1',
+            tenantId: 'tenant-1',
+            passwordHash: null,
+            name: 'Stale Name',
+            isConfirmed: true,
+            roles: [],
+            acls: [],
+          },
         },
       },
     }

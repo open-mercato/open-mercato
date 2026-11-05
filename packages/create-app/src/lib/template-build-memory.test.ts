@@ -45,4 +45,32 @@ test('standalone template ships cross-env so the heap flag works cross-platform'
     template.scripts.build.includes('cross-env'),
     'expected standalone template build script to invoke cross-env',
   )
+  assert.ok(
+    template.scripts.typecheck.includes('cross-env'),
+    'expected standalone template typecheck script to invoke cross-env',
+  )
+})
+
+test('standalone template typecheck uses the same Node heap as its build', () => {
+  const template = readJson('../../template/package.json.template')
+
+  const buildHeap = extractMaxOldSpaceSize(template.scripts.build)
+  const typecheckHeap = extractMaxOldSpaceSize(template.scripts.typecheck)
+
+  assert.ok(buildHeap && buildHeap > 0, 'expected standalone build to set --max-old-space-size')
+  assert.equal(
+    typecheckHeap,
+    buildHeap,
+    'standalone typecheck must keep the same heap headroom as standalone build',
+  )
+})
+
+test('standalone template forces production mode for Next builds', () => {
+  const template = readJson('../../template/package.json.template')
+
+  assert.match(
+    template.scripts.build,
+    /cross-env\s+NODE_ENV=production\s+NODE_OPTIONS=/,
+    'the development container exports NODE_ENV=development, so the build script must override it before invoking Next',
+  )
 })

@@ -1,10 +1,13 @@
 import type { SyncCrudEventPayload } from '@open-mercato/shared/lib/crud/sync-event-types'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('example').child({ subscriber: 'audit-delete' })
 
 /**
  * Sync after-delete subscriber: logs a deletion audit trail.
  *
  * Fires after a todo has been deleted. After-event subscribers cannot block
- * the operation — errors are swallowed with console.error. Demonstrates
+ * the operation — a throw here is swallowed by the dispatcher. Demonstrates
  * the sync after-event contract (m2).
  */
 export const metadata = {
@@ -17,8 +20,9 @@ export const metadata = {
 export default async function handler(
   payload: SyncCrudEventPayload,
 ): Promise<void> {
-  // eslint-disable-next-line no-console
-  console.log(
-    `[example:audit-delete] Todo ${payload.resourceId} deleted by user ${payload.userId} in org ${payload.organizationId}`,
-  )
+  logger.info('Todo deleted', {
+    resourceId: payload.resourceId,
+    userId: payload.userId,
+    organizationId: payload.organizationId,
+  })
 }

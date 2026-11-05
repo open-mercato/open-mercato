@@ -321,12 +321,56 @@ describe('customers.analyze_deals handler', () => {
     // activity where
     const activityWhere = findWithDecryptionMock.mock.calls[1][2]
     expect(activityWhere).toMatchObject({ tenantId: 'tenant-1', organizationId: 'org-1' })
-    // person link where (raw em.find)
+    // person link where (raw em.find) — junction has no tenant/org columns, so
+    // DB scoping is via the tenant-filtered dealIds. Post-fetch filtering
+    // against the scoped deals map provides defense-in-depth (see next test).
     expect(findMock).toHaveBeenCalledTimes(1)
     const personLinkWhere = findMock.mock.calls[0][1]
     expect(personLinkWhere).toEqual({ deal: { $in: ['deal-1'] } })
     expect(personLinkWhere).not.toHaveProperty('tenantId')
     expect(personLinkWhere).not.toHaveProperty('organizationId')
+  })
+
+  it('discards person links whose deal is not in the tenant-scoped deal set (defense-in-depth)', async () => {
+    const deal = makeDeal({ id: 'deal-1', title: 'Scoped Deal' })
+    findWithDecryptionMock
+      .mockResolvedValueOnce([deal]) // deals — only deal-1 is tenant-scoped
+      .mockResolvedValueOnce([]) // activities
+      .mockResolvedValueOnce([
+        {
+          id: 'person-1',
+          displayName: 'Alice InScope',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+        },
+      ]) // CustomerEntity — only the in-scope person is resolved
+
+    const findMock = jest.fn().mockResolvedValue([
+      { id: 'link-1', deal: { id: 'deal-1' }, person: { id: 'person-1' } },
+      { id: 'link-foreign', deal: { id: 'deal-other' }, person: { id: 'person-foreign' } },
+    ])
+    const ctx = makeCtx()
+    ;(ctx.container.resolve as jest.Mock).mockImplementation((name: string) => {
+      if (name === 'em') return { find: findMock, count: jest.fn().mockResolvedValue(0) }
+      throw new Error(`unexpected resolve: ${name}`)
+    })
+
+    const result = (await tool.handler({}, ctx as any)) as {
+      deals: Array<{ id: string; primaryContact: string | null }>
+    }
+
+    // The raw junction query still uses the scoped dealIds.
+    expect(findMock.mock.calls[0][1]).toEqual({ deal: { $in: ['deal-1'] } })
+    // But even if the DB returned an extra cross-tenant link (deal-other),
+    // the handler filtered it to the scoped set before resolving persons.
+    expect(findWithDecryptionMock.mock.calls[2][2]).toEqual({
+      id: { $in: ['person-1'] },
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })
+    expect(result.deals).toHaveLength(1)
+    expect(result.deals[0].id).toBe('deal-1')
+    expect(result.deals[0].primaryContact).toBe('Alice InScope')
   })
 
   it('rejects calls with no tenant scope', async () => {

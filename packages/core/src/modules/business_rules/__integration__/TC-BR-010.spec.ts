@@ -1,183 +1,111 @@
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
-import {
-  createRoleFixture,
-  createUserFixture,
-  deleteRoleIfExists,
-  deleteUserIfExists,
-} from '@open-mercato/core/helpers/integration/authFixtures'
-import { deleteUserAclInDb } from '@open-mercato/core/helpers/integration/dbFixtures'
-import {
-  deleteGeneralEntityIfExists,
-  getTokenScope,
-  readJsonSafe,
-} from '@open-mercato/core/helpers/integration/generalFixtures'
+import { createRoleFixture, deleteRoleIfExists, setRoleAclFeatures } from '@open-mercato/core/helpers/integration/authFixtures'
+import { expectId, getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
   createBusinessRuleFixture,
   deleteBusinessRuleIfExists,
 } from '@open-mercato/core/helpers/integration/businessRulesFixtures'
 import {
-  BUSINESS_RULES_TEST_PASSWORD,
   buildBusinessRulePayload,
-  createOrganizationInTenant,
-  createTenantFixture,
-  scopeCookie,
-  setRoleAclFeaturesForTenant,
   type ExecutionRuleEntry,
 } from './helpers/businessRulesApi'
 
-test.describe('TC-BR-010: Tenant and organization scoping', () => {
-  test('does not expose or execute a rule outside the selected tenant or organization', async ({ request }) => {
-    const stamp = Date.now()
-    const orgCUserEmail = `tc-br-010-org-c-${stamp}@example.com`
-    const tenantBUserEmail = `tc-br-010-tenant-b-${stamp}@example.com`
-    const ruleKey = `TC_BR_010_A_${stamp}`
+const API_KEYS_PATH = '/api/api_keys/keys'
+const RULES_PATH = '/api/business_rules/rules'
 
-    let adminToken: string | null = null
-    let superadminToken: string | null = null
-    let orgCToken: string | null = null
-    let tenantBToken: string | null = null
-    let organizationCId: string | null = null
-    let roleCId: string | null = null
-    let userCId: string | null = null
-    let tenantBId: string | null = null
-    let organizationBId: string | null = null
-    let roleBId: string | null = null
-    let userBId: string | null = null
-    let ruleAId: string | null = null
+test.describe('TC-BR-010: CALL_OPEN_MERCATO action config and execution', () => {
+  test('persists and executes a Call OpenMercato action without webhook url validation', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const { organizationId, tenantId } = getTokenContext(token)
+    const stamp = Date.now()
+    const entityId = crypto.randomUUID()
+    const entityType = `QaCallOpenMercatoEntity${stamp}`
+    const ruleKey = `TC_BR_010_${stamp}`
+
+    let roleId: string | null = null
+    let apiKeyId: string | null = null
+    let ruleId: string | null = null
 
     try {
-      adminToken = await getAuthToken(request, 'admin')
-      superadminToken = await getAuthToken(request, 'superadmin')
-      const adminScope = getTokenScope(adminToken)
-      const superScope = getTokenScope(superadminToken)
-      expect(adminScope.tenantId, 'admin token should carry tenant A').toBeTruthy()
-      expect(adminScope.organizationId, 'admin token should carry organization A').toBeTruthy()
+      roleId = await createRoleFixture(request, token, {
+        name: `QA BR OpenMercato Caller ${stamp}`,
+        tenantId: tenantId || undefined,
+      })
+      await setRoleAclFeatures(request, token, {
+        roleId,
+        features: ['business_rules.view'],
+        organizations: organizationId ? [organizationId] : null,
+      })
 
-      const ruleARecordId = await createBusinessRuleFixture(
-        request,
-        adminToken,
-        buildBusinessRulePayload(stamp, {
-          ruleId: ruleKey,
-          ruleName: 'TC-BR-010 Tenant A Rule',
-          entityType: `QaTenantScopeEntity${stamp}`,
-        }),
-      )
-      ruleAId = ruleARecordId
+      const apiKeyResponse = await apiRequest(request, 'POST', API_KEYS_PATH, {
+        token,
+        data: {
+          name: `QA BR OpenMercato Profile ${stamp}`,
+          description: 'Temporary profile for CALL_OPEN_MERCATO integration coverage',
+          roles: [roleId],
+          organizationId,
+        },
+      })
+      expect(apiKeyResponse.status(), `create api key failed: ${apiKeyResponse.status()}`).toBe(201)
+      const apiKeyBody = await readJsonSafe<{ id?: string }>(apiKeyResponse)
+      apiKeyId = expectId(apiKeyBody?.id, 'api key profile creation should return id')
 
-      const expectRuleHiddenFrom = async (token: string, label: string) => {
-        const listResponse = await apiRequest(
-          request,
-          'GET',
-          `/api/business_rules/rules?ruleId=${encodeURIComponent(ruleKey)}`,
-          { token },
-        )
-        expect(listResponse.status(), `${label} rule list should succeed`).toBe(200)
-        const listBody = await readJsonSafe<{ items?: Array<{ id?: string; ruleId?: string }> }>(listResponse)
-        expect(listBody?.items?.some((item) => item.id === ruleARecordId || item.ruleId === ruleKey)).toBe(false)
+      const optionsResponse = await apiRequest(request, 'GET', '/api/business_rules/openmercato-call-options', { token })
+      expect(optionsResponse.status(), 'OpenMercato options should load').toBe(200)
+      const optionsBody = await readJsonSafe<{ endpoints?: Array<{ id?: string }>; apiKeys?: Array<{ id?: string }> }>(optionsResponse)
+      expect(optionsBody?.endpoints?.map((endpoint) => endpoint.id)).toContain('GET /api/business_rules/rules')
+      expect(optionsBody?.apiKeys?.map((apiKey) => apiKey.id)).toContain(apiKeyId)
 
-        const detailResponse = await apiRequest(
-          request,
-          'GET',
-          `/api/business_rules/rules/${encodeURIComponent(ruleARecordId)}`,
-          { token },
-        )
-        expect(detailResponse.status(), `${label} must not read tenant A organization A rule detail`).toBe(404)
-
-        const updateResponse = await apiRequest(request, 'PUT', '/api/business_rules/rules', {
-          token,
-          data: {
-            id: ruleARecordId,
-            ruleName: `TC-BR-010 Unauthorized ${label} Update`,
-          },
-        })
-        expect(updateResponse.status(), `${label} must not update tenant A organization A rule`).toBe(404)
-
-        const executeResponse = await apiRequest(request, 'POST', '/api/business_rules/execute', {
-          token,
-          data: {
-            entityType: `QaTenantScopeEntity${stamp}`,
-            eventType: 'beforeSave',
-            entityId: crypto.randomUUID(),
-            data: { status: 'ACTIVE' },
-          },
-        })
-        expect(executeResponse.status(), `${label} execute request should stay scoped`).toBe(200)
-        const executeBody = await readJsonSafe<{ executedRules?: ExecutionRuleEntry[] }>(executeResponse)
-        expect(executeBody?.executedRules?.some((entry) => entry.ruleId === ruleKey)).toBe(false)
+      const action = {
+        type: 'CALL_OPEN_MERCATO',
+        config: {
+          endpoint: RULES_PATH,
+          method: 'GET',
+          apiKeyId,
+        },
       }
 
-      organizationCId = await createOrganizationInTenant(
+      ruleId = await createBusinessRuleFixture(
         request,
-        superadminToken,
-        scopeCookie(adminScope.tenantId, adminScope.organizationId || null),
-        adminScope.tenantId,
-        `TC-BR-010 Org C ${stamp}`,
+        token,
+        buildBusinessRulePayload(stamp, {
+          ruleId: ruleKey,
+          ruleType: 'ACTION',
+          entityType,
+          conditionExpression: { field: 'status', operator: '=', value: 'ACTIVE' },
+          successActions: [action],
+        }),
       )
-      roleCId = await createRoleFixture(request, superadminToken, {
-        name: `TC-BR-010 Org C Role ${stamp}`,
-        tenantId: adminScope.tenantId,
-      })
-      await setRoleAclFeaturesForTenant(request, superadminToken, {
-        roleId: roleCId,
-        tenantId: adminScope.tenantId,
-        features: ['business_rules.*'],
-        organizations: null,
-      })
-      userCId = await createUserFixture(request, superadminToken, {
-        email: orgCUserEmail,
-        password: BUSINESS_RULES_TEST_PASSWORD,
-        organizationId: organizationCId,
-        roles: [roleCId],
-      })
-      orgCToken = await getAuthToken(request, orgCUserEmail, BUSINESS_RULES_TEST_PASSWORD)
-      const orgCScope = getTokenScope(orgCToken)
-      expect(orgCScope.tenantId, 'organization C user token should stay in tenant A').toBe(adminScope.tenantId)
-      expect(orgCScope.organizationId, 'organization C user token should be scoped to organization C').toBe(
-        organizationCId,
-      )
-      await expectRuleHiddenFrom(orgCToken, 'same-tenant organization C')
 
-      tenantBId = await createTenantFixture(request, superadminToken, `TC-BR-010 Tenant B ${stamp}`)
-      organizationBId = await createOrganizationInTenant(
-        request,
-        superadminToken,
-        scopeCookie(superScope.tenantId, superScope.organizationId || null),
-        tenantBId,
-        `TC-BR-010 Org B ${stamp}`,
-      )
-      roleBId = await createRoleFixture(request, superadminToken, {
-        name: `TC-BR-010 Tenant B Role ${stamp}`,
-        tenantId: tenantBId,
+      const detailResponse = await apiRequest(request, 'GET', `${RULES_PATH}/${encodeURIComponent(ruleId)}`, { token })
+      expect(detailResponse.status(), 'created rule detail should load').toBe(200)
+      const detail = await readJsonSafe<{ successActions?: unknown[] }>(detailResponse)
+      expect(detail?.successActions).toEqual([action])
+
+      const executeResponse = await apiRequest(request, 'POST', '/api/business_rules/execute', {
+        token,
+        data: {
+          entityType,
+          eventType: 'beforeSave',
+          entityId,
+          data: { status: 'ACTIVE' },
+        },
       })
-      await setRoleAclFeaturesForTenant(request, superadminToken, {
-        roleId: roleBId,
-        tenantId: tenantBId,
-        features: ['business_rules.*'],
-        organizations: null,
-      })
-      userBId = await createUserFixture(request, superadminToken, {
-        email: tenantBUserEmail,
-        password: BUSINESS_RULES_TEST_PASSWORD,
-        organizationId: organizationBId,
-        roles: [roleBId],
-      })
-      tenantBToken = await getAuthToken(request, tenantBUserEmail, BUSINESS_RULES_TEST_PASSWORD)
-      const tenantBScope = getTokenScope(tenantBToken)
-      expect(tenantBScope.tenantId, 'tenant B user token should be scoped to tenant B').toBe(tenantBId)
-      expect(tenantBScope.organizationId, 'tenant B user token should be scoped to organization B').toBe(organizationBId)
-      await expectRuleHiddenFrom(tenantBToken, 'tenant B')
+      expect(executeResponse.status(), `rule execution failed: ${executeResponse.status()}`).toBe(200)
+      const executeBody = await readJsonSafe<{ executedRules?: ExecutionRuleEntry[] }>(executeResponse)
+      const entry = executeBody?.executedRules?.find((item) => item.ruleId === ruleKey)
+      expect(entry?.conditionResult).toBe(true)
+      expect(entry?.actionsExecuted?.success).toBe(true)
+      expect(entry?.actionsExecuted?.results).toEqual([
+        { type: 'CALL_OPEN_MERCATO', success: true },
+      ])
     } finally {
-      await deleteBusinessRuleIfExists(request, adminToken, ruleAId)
-      await deleteUserAclInDb(userCId ?? '').catch(() => undefined)
-      await deleteUserIfExists(request, superadminToken, userCId)
-      await deleteRoleIfExists(request, superadminToken, roleCId)
-      await deleteGeneralEntityIfExists(request, superadminToken, '/api/directory/organizations', organizationCId)
-      await deleteUserAclInDb(userBId ?? '').catch(() => undefined)
-      await deleteUserIfExists(request, superadminToken, userBId)
-      await deleteRoleIfExists(request, superadminToken, roleBId)
-      await deleteGeneralEntityIfExists(request, superadminToken, '/api/directory/organizations', organizationBId)
-      await deleteGeneralEntityIfExists(request, superadminToken, '/api/directory/tenants', tenantBId)
+      await deleteBusinessRuleIfExists(request, token, ruleId)
+      if (apiKeyId) {
+        await apiRequest(request, 'DELETE', `${API_KEYS_PATH}?id=${encodeURIComponent(apiKeyId)}`, { token }).catch(() => undefined)
+      }
+      await deleteRoleIfExists(request, token, roleId)
     }
   })
 })

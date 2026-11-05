@@ -1,9 +1,32 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
+import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
+import { resolveRegisteredEntityTableName } from '@open-mercato/shared/lib/query/engine'
+import { listEntityMetadata } from '@open-mercato/shared/lib/db/entityMetadata'
 
 export type QueryIndexScope = {
   tenantId: string | null
   organizationId: string | null
+}
+
+export type QueryIndexSourceMetadata = {
+  table: string
+  schema?: string
+  tableName?: string
+  organizationColumn: string | null
+  tenantColumn: string | null
+}
+
+export type QueryIndexSourceScope =
+  | { kind: 'global' }
+  | { kind: 'missing' }
+  | { kind: 'row'; scope: QueryIndexScope }
+
+type QueryIndexEntityMetadata = {
+  tableName?: unknown
+  className?: unknown
+  name?: unknown
+  schema?: unknown
+  properties?: Record<string, { fieldNames?: unknown }>
 }
 
 export class QueryIndexScopeError extends Error {
@@ -18,7 +41,7 @@ type ResolveRecordScopeInput = {
   payloadOrganizationId: string | null | undefined
   hasPayloadTenantId: boolean
   hasPayloadOrganizationId: boolean
-  rowScope: QueryIndexScope | null
+  sourceScope: QueryIndexSourceScope
 }
 
 type ResolveReindexScopeInput = {
@@ -27,26 +50,85 @@ type ResolveReindexScopeInput = {
   allowAllTenants?: boolean
 }
 
-export async function loadQueryIndexRowScope(
+export function resolveQueryIndexSourceMetadata(
   em: EntityManager,
   entityType: string,
-  recordId: string
-): Promise<QueryIndexScope | null> {
+): QueryIndexSourceMetadata {
+  const registeredEntityIds = Object.values(getEntityIds(false)).flatMap((moduleEntities) => Object.values(moduleEntities ?? {}))
+  if (!registeredEntityIds.includes(entityType)) {
+    throw new QueryIndexScopeError(`Query index entity type is not registered: ${entityType}`)
+  }
+
+  const source = resolveQueryIndexSourceTableMetadata(em, entityType)
+  if (!source) throw new QueryIndexScopeError(`Query index entity type has no registered ORM table: ${entityType}`)
+  const listed = listEntityMetadata(em).some((metadata) => metadata.tableName === (source.tableName ?? source.table) && (metadata.schema && metadata.schema !== '*' ? metadata.schema : undefined) === source.schema)
+  if (!listed) throw new QueryIndexScopeError(`[internal] Query index entity metadata was not found for table: ${source.table}`)
+  return source
+}
+
+export function resolveQueryIndexSourceTableMetadata(
+  em: EntityManager,
+  entityType: string,
+): QueryIndexSourceMetadata | null {
+  const rawName = entityType.split(':').pop() ?? ''
+  const className = rawName.split(/[_\s]+/).filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1)).join('')
+  const allMetadata = listEntityMetadata(em) as unknown as QueryIndexEntityMetadata[]
+  let metadata: QueryIndexEntityMetadata | undefined
+  for (const candidate of [className, `${className}Entity`]) {
+    const matches = allMetadata.filter((entry) => entry.className === candidate || entry.name === candidate)
+    if (matches.length > 1) throw new QueryIndexScopeError(`[internal] Ambiguous query-index entity metadata: ${entityType}`)
+    if (matches.length === 1) {
+      metadata = matches[0]
+      break
+    }
+  }
+  if (!metadata) {
+    const table = resolveRegisteredEntityTableName(em, entityType)
+    if (!table) return null
+    const matches = allMetadata.filter((entry) => entry.tableName === table)
+    if (matches.length !== 1) throw new QueryIndexScopeError(`[internal] Ambiguous query-index table metadata: ${entityType}`)
+    metadata = matches[0]
+  }
+  const tableName = String(metadata.tableName ?? '')
+  if (!tableName) return null
+  const schema = typeof metadata.schema === 'string' && metadata.schema !== '*' ? metadata.schema : undefined
+  const table = schema ? `${schema}.${tableName}` : tableName
+  return {
+    table,
+    ...(schema ? { schema, tableName } : {}),
+    organizationColumn: resolveScopeColumn(metadata, 'organizationId', table),
+    tenantColumn: resolveScopeColumn(metadata, 'tenantId', table),
+  }
+}
+
+export async function loadQueryIndexRowScope(
+  em: EntityManager,
+  source: QueryIndexSourceMetadata,
+  recordId: string,
+): Promise<QueryIndexSourceScope> {
+  if (!source.organizationColumn && !source.tenantColumn) {
+    return { kind: 'global' }
+  }
+
   const db = em.getKysely<any>()
-  const table = resolveEntityTableName(em, entityType)
+  const columns = [source.organizationColumn, source.tenantColumn].filter((column): column is string => column !== null)
   const row = await db
-    .selectFrom(table as any)
-    .select(['organization_id' as any, 'tenant_id' as any])
+    .selectFrom(source.table as any)
+    .select(columns as any)
     .where('id' as any, '=', recordId)
-    .executeTakeFirst() as { organization_id: string | null; tenant_id: string | null } | undefined
+    .executeTakeFirst() as Record<string, string | null | undefined> | undefined
 
   if (!row) {
-    return null
+    return { kind: 'missing' }
   }
 
   return {
-    organizationId: row.organization_id ?? null,
-    tenantId: row.tenant_id ?? null,
+    kind: 'row',
+    scope: {
+      organizationId: source.organizationColumn ? row[source.organizationColumn] ?? null : null,
+      tenantId: source.tenantColumn ? row[source.tenantColumn] ?? null : null,
+    },
   }
 }
 
@@ -56,10 +138,23 @@ export function resolveQueryIndexRecordScope(input: ResolveRecordScopeInput): Qu
     payloadOrganizationId,
     hasPayloadTenantId,
     hasPayloadOrganizationId,
-    rowScope,
+    sourceScope,
   } = input
 
-  if (!rowScope) {
+  if (sourceScope.kind === 'global') {
+    if (!hasPayloadTenantId || !hasPayloadOrganizationId || payloadTenantId !== null || payloadOrganizationId !== null) {
+      throw new QueryIndexScopeError(
+        'Query index event for a global entity must explicitly provide tenantId and organizationId as null'
+      )
+    }
+
+    return {
+      tenantId: null,
+      organizationId: null,
+    }
+  }
+
+  if (sourceScope.kind === 'missing') {
     if (!hasPayloadTenantId || !hasPayloadOrganizationId) {
       throw new QueryIndexScopeError(
         'Query index event is missing tenantId/organizationId and source row scope could not be resolved'
@@ -71,6 +166,8 @@ export function resolveQueryIndexRecordScope(input: ResolveRecordScopeInput): Qu
       organizationId: payloadOrganizationId ?? null,
     }
   }
+
+  const rowScope = sourceScope.scope
 
   if (hasPayloadTenantId && !isSameScopeValue(payloadTenantId, rowScope.tenantId)) {
     throw new QueryIndexScopeError(
@@ -108,4 +205,16 @@ export function resolveQueryIndexReindexScope(input: ResolveReindexScopeInput): 
 
 function isSameScopeValue(left: string | null | undefined, right: string | null): boolean {
   return (left ?? null) === right
+}
+
+function resolveScopeColumn(metadata: QueryIndexEntityMetadata, property: string, table: string): string | null {
+  const scopeProperty = metadata.properties?.[property]
+  if (!scopeProperty) return null
+  const fieldNames = scopeProperty.fieldNames
+  if (!Array.isArray(fieldNames) || fieldNames.length !== 1 || typeof fieldNames[0] !== 'string' || !fieldNames[0]) {
+    throw new QueryIndexScopeError(
+      `Query index ${property} metadata must map exactly one physical column for table: ${table}`
+    )
+  }
+  return fieldNames[0]
 }

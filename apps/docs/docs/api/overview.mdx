@@ -84,6 +84,7 @@ Full examples live in the [Directory service guide](./directory).
 - `GET /docs/api` opens the OpenAPI Explorer, an interactive playground generated from the live module registry. Access it from the admin UI once signed in, browse every operation, review example payloads, and paste an API token to execute authenticated requests against your chosen base URL.
 - `GET /api/docs/openapi` returns the OpenAPI 3.1 JSON document for client generation, contract testing, or syncing external tooling.
 - `GET /api/docs/markdown` serves the same specification as Markdown, ideal for quick sharing or feeding into LLM prompts.
+- Both export routes stay publicly reachable, but the access-control metadata of each operation (the `Requires features/roles` description lines and the `x-require-features` / `x-require-roles` extensions) is served only to signed-in staff callers. Anonymous clients receive the same document with those internal identifiers stripped, so the ACL feature names of your deployment are never published.
 
 ## Module Guides
 

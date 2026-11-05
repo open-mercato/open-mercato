@@ -6,6 +6,7 @@ const widget: InjectionWidgetModule = {
     id: 'example.injection.catalog-seo-report',
     title: 'Catalog SEO Report',
     description: 'Flags products that need SEO updates directly in the list view.',
+    requiredModules: ['catalog'],
     priority: 10,
     enabled: true,
   },

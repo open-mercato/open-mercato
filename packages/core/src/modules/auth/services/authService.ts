@@ -1,9 +1,10 @@
-import { EntityManager } from '@mikro-orm/postgresql'
+import { EntityManager, type RequiredEntityData } from '@mikro-orm/postgresql'
 import { compare, hash } from 'bcryptjs'
 import { User, Role, UserRole, Session, PasswordReset } from '@open-mercato/core/modules/auth/data/entities'
 import { emailHashLookupValues } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { generateAuthToken, hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { isStaffTenantActive } from '@open-mercato/core/modules/auth/lib/tenantEligibility'
 
 // A fixed, valid bcrypt hash (cost 10) of a throwaway value no real password
 // can match. verifyPassword compares against it whenever the user is missing or
@@ -95,11 +96,22 @@ export class AuthService {
 
 
   async createSession(user: User, expiresAt: Date): Promise<{ session: Session; token: string }> {
+    return this.createSessionWithEntityManager(this.em, user, expiresAt)
+  }
+
+  protected async createSessionWithEntityManager(
+    em: EntityManager,
+    user: User,
+    expiresAt: Date,
+  ): Promise<{ session: Session; token: string }> {
+    if (!(await isStaffTenantActive(em, user.tenantId))) {
+      throw new Error('[internal] Tenant is not available for authentication')
+    }
     const rawToken = generateAuthToken()
     const tokenHash = hashAuthToken(rawToken)
-    const sess = this.em.create(Session as any, { user, token: tokenHash, expiresAt, createdAt: new Date() } as any)
-    await this.em.persist(sess).flush()
-    return { session: sess as Session, token: rawToken }
+    const session = em.create(Session, { user, token: tokenHash, expiresAt, createdAt: new Date() } as RequiredEntityData<Session>)
+    await em.persist(session).flush()
+    return { session, token: rawToken }
   }
 
   async deleteSessionByToken(token: string) {
@@ -129,6 +141,7 @@ export class AuthService {
     if (!sess || sess.expiresAt <= now) return null
     const user = await findOneWithDecryption(this.em, User, { id: sess.user.id, deletedAt: null })
     if (!user) return null
+    if (!(await isStaffTenantActive(this.em, user.tenantId))) return null
     const roles = await this.getUserRoles(user, user.tenantId ?? null)
     return { user, roles, session: sess }
   }
@@ -144,11 +157,27 @@ export class AuthService {
     return { user, token: rawToken }
   }
 
-  async confirmPasswordReset(token: string, newPassword: string): Promise<User | null> {
+  private async findUnconsumedPasswordReset(token: string): Promise<PasswordReset | null> {
     const now = new Date()
     const hashedToken = hashAuthToken(token)
     const row = await this.em.findOne(PasswordReset, { token: hashedToken })
-    if (!row || (row.usedAt && row.usedAt <= now) || row.expiresAt <= now) return null
+    if (!row) return null
+    if (row.usedAt && row.usedAt <= now) return null
+    if (row.expiresAt <= now) return null
+    return row
+  }
+
+  async isPasswordResetTokenValid(token: string): Promise<boolean> {
+    const row = await this.findUnconsumedPasswordReset(token)
+    if (!row) return false
+    const user = await findOneWithDecryption(this.em, User, { id: row.user.id, deletedAt: null })
+    return user != null
+  }
+
+  async confirmPasswordReset(token: string, newPassword: string): Promise<User | null> {
+    const now = new Date()
+    const row = await this.findUnconsumedPasswordReset(token)
+    if (!row) return null
 
     // Atomic compare-and-set: only mark used if still unused — prevents token replay under concurrency
     const affected = await this.em.nativeUpdate(

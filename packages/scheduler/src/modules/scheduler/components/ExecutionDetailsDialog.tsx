@@ -147,7 +147,7 @@ export function ExecutionDetailsDialog({
           {run.status === 'failed' && run.errorMessage && (
             <div>
               <Label className="text-sm font-medium text-muted-foreground">{t('scheduler.execution.error_message', 'Error Message')}</Label>
-              <Alert variant="destructive" className="mt-2">
+              <Alert status="error" className="mt-2">
                 <AlertDescription>
                   <div className="flex items-start gap-2">
                     <span className="text-lg">⚠️</span>

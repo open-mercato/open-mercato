@@ -106,6 +106,7 @@ export const searchConfig: SearchModuleConfig = {
   entities: [
     {
       entityId: 'resources:resources_resource',
+      aclFeatures: ['resources.view'],
       enabled: true,
       priority: 8,
       buildSource: async (ctx) => {
@@ -131,6 +132,7 @@ export const searchConfig: SearchModuleConfig = {
     },
     {
       entityId: 'resources:resources_resource_type',
+      aclFeatures: ['resources.view'],
       enabled: true,
       priority: 7,
       buildSource: async (ctx) => {

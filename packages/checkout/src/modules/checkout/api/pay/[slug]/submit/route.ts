@@ -3,10 +3,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
-import { checkRateLimit, getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
 import type { PaymentGatewayClientSession } from '@open-mercato/shared/modules/payment_gateways/types'
 import type { PaymentGatewayService } from '@open-mercato/core/modules/payment_gateways/lib/gateway-service'
 import { GatewayTransaction } from '@open-mercato/core/modules/payment_gateways/data/entities'
@@ -22,7 +20,8 @@ import {
   validateDescriptorCurrencies,
 } from '../../../../lib/utils'
 import { validateCheckoutCustomerData } from '../../../../lib/customerDataValidation'
-import { checkoutSubmitRateLimitConfig } from '../../../../lib/rateLimiter'
+import { checkoutSubmitRateLimitConfig, enforceCheckoutRateLimit } from '../../../../lib/rateLimiter'
+import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { checkoutTag } from '../../../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -185,6 +184,23 @@ function requestHostAuthorities(req: Request): string[] {
   return authorities
 }
 
+function readTrimmedString(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+function buildPayerSessionMetadata(customerData: Record<string, unknown>): Record<string, string> {
+  const payerMetadata: Record<string, string> = {}
+  const email = readTrimmedString(customerData.email)
+  if (email) payerMetadata.customerEmail = email
+  const name = [readTrimmedString(customerData.firstName), readTrimmedString(customerData.lastName)]
+    .filter((part): part is string => part !== null)
+    .join(' ')
+  if (name) payerMetadata.customerName = name
+  return payerMetadata
+}
+
 function isIdempotencyConflict(error: unknown): boolean {
   const message = error instanceof Error ? error.message : ''
   return message.includes('checkout_transactions_organization_id_tenant_id_link_idempotency_key_index')
@@ -274,14 +290,16 @@ export const metadata = {
 export async function POST(req: Request, { params }: { params: Promise<{ slug: string }> | { slug: string } }) {
   try {
     const container = await createRequestContainer()
-    try {
-      const rateLimiter = container.resolve('rateLimiterService') as RateLimiterService
-      const ip = getClientIp(req, 1) ?? 'unknown'
-      const rateLimitResponse = await checkRateLimit(rateLimiter, checkoutSubmitRateLimitConfig, `checkout-submit:${ip}`, 'Too many payment attempts. Please try again later.')
-      if (rateLimitResponse) return rateLimitResponse
-    } catch {
-      // Rate limiting is fail-open
-    }
+    // Fail-closed: this endpoint creates payment sessions that can charge cards.
+    const rateLimitResponse = await enforceCheckoutRateLimit({
+      req,
+      container,
+      config: checkoutSubmitRateLimitConfig,
+      namespace: 'checkout-submit',
+      errorMessage: 'Too many payment attempts. Please try again later.',
+      posture: 'fail-closed',
+    })
+    if (rateLimitResponse) return rateLimitResponse
     const resolvedParams = await params
 
     const allowedOrigins = buildAllowedOrigins()
@@ -472,8 +490,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
         || link.gatewaySettings?.presentationMode === 'auto'
         ? link.gatewaySettings.presentationMode
         : undefined
+
+      let sessionResult: Awaited<ReturnType<typeof paymentGatewayService.createPaymentSession>>
       try {
-        const sessionResult = await paymentGatewayService.createPaymentSession({
+        sessionResult = await paymentGatewayService.createPaymentSession({
           providerKey: link.gatewayProviderKey,
           paymentId: transactionId,
           idempotencyKey,
@@ -486,6 +506,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
           metadata: {
             checkoutLinkId: link.id,
             checkoutSlug: link.slug,
+            ...buildPayerSessionMetadata(collectedCustomerData),
           },
           presentation: rendererKey || rendererSettings || presentationMode
             ? {
@@ -497,18 +518,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
           organizationId: link.organizationId,
           tenantId: link.tenantId,
         })
-        await commandBus.execute('checkout.transaction.updateStatus', {
-          input: {
-            id: transaction.id,
-            status: mapGatewayStatusToCheckoutStatus(sessionResult.transaction.unifiedStatus),
-            paymentStatus: sessionResult.transaction.unifiedStatus,
-            gatewayTransactionId: sessionResult.transaction.id,
-            organizationId: link.organizationId,
-            tenantId: link.tenantId,
-          },
-          ctx,
-        })
       } catch (error) {
+        // The gateway itself failed — mark the transaction failed and surface 502.
         await commandBus.execute('checkout.transaction.updateStatus', {
           input: {
             id: transaction.id,
@@ -525,8 +536,43 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
           providerKey: link.gatewayProviderKey,
           err: error,
         })
-        throw new CrudHttpError(502, { error: 'Unable to start the payment session' })
+        throw new CrudHttpError(502, { error: 'checkout.payPage.errors.sessionStart' })
       }
+
+      // Update the transaction status to reflect the gateway response.
+      // If the webhook already raced ahead and completed this transaction,
+      // updateStatus will throw a 409 conflict — that is correct behavior and
+      // means the payment succeeded, so we treat it as benign and fall through
+      // to return the real, already-terminal transaction below.
+      let statusConflict = false
+      try {
+        await commandBus.execute('checkout.transaction.updateStatus', {
+          input: {
+            id: transaction.id,
+            status: mapGatewayStatusToCheckoutStatus(sessionResult.transaction.unifiedStatus),
+            paymentStatus: sessionResult.transaction.unifiedStatus,
+            gatewayTransactionId: sessionResult.transaction.id,
+            organizationId: link.organizationId,
+            tenantId: link.tenantId,
+          },
+          ctx,
+        })
+      } catch (error) {
+        const isConflict = isCrudHttpError(error)
+          && error.status === 409
+          && (
+            (error.body as Record<string, unknown> | undefined)?.code === 'concurrent_status_update'
+            || (error.body as Record<string, unknown> | undefined)?.code === 'invalid_status_transition'
+          )
+        if (!isConflict) throw error
+        logger.info('Transaction status already advanced by concurrent writer — webhook won the race', {
+          linkId: link.id,
+          transactionId: transaction.id,
+          conflictCode: (error.body as Record<string, unknown> | undefined)?.code,
+        })
+        statusConflict = true
+      }
+
       const refreshedTransaction = await findOneWithDecryption(em, CheckoutTransaction, {
         id: transaction.id,
         organizationId: link.organizationId,
@@ -535,26 +581,29 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
       if (!refreshedTransaction) {
         throw new CrudHttpError(404, { error: 'Transaction not found' })
       }
-      await emitCheckoutEvent('checkout.transaction.sessionStarted', {
-        transactionId: refreshedTransaction.id,
-        linkId: refreshedTransaction.linkId,
-        templateId: link.templateId ?? null,
-        slug: link.slug,
-        status: refreshedTransaction.status,
-        paymentStatus: refreshedTransaction.paymentStatus ?? null,
-        amount: Number(refreshedTransaction.amount),
-        currency: refreshedTransaction.currencyCode,
-        gatewayProvider: link.gatewayProviderKey,
-        gatewayTransactionId: refreshedTransaction.gatewayTransactionId ?? null,
-        occurredAt: new Date().toISOString(),
-        tenantId: link.tenantId,
-        organizationId: link.organizationId,
-      }).catch(() => undefined)
+      if (!statusConflict) {
+        await emitCheckoutEvent('checkout.transaction.sessionStarted', {
+          transactionId: refreshedTransaction.id,
+          linkId: refreshedTransaction.linkId,
+          templateId: link.templateId ?? null,
+          slug: link.slug,
+          status: refreshedTransaction.status,
+          paymentStatus: refreshedTransaction.paymentStatus ?? null,
+          amount: Number(refreshedTransaction.amount),
+          currency: refreshedTransaction.currencyCode,
+          gatewayProvider: link.gatewayProviderKey,
+          gatewayTransactionId: refreshedTransaction.gatewayTransactionId ?? null,
+          occurredAt: new Date().toISOString(),
+          tenantId: link.tenantId,
+          organizationId: link.organizationId,
+        }).catch(() => undefined)
+      }
       return NextResponse.json(
         await buildSubmitResponse(req, em, link, refreshedTransaction, link.gatewayProviderKey),
         { status: 201 },
       )
     }
+
     return NextResponse.json(await buildSubmitResponse(req, em, link, transaction, link.gatewayProviderKey), { status: 201 })
   } catch (error) {
     return handleCheckoutRouteError(error)
@@ -563,6 +612,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
 
 export const openApi = {
   tags: [checkoutTag],
+  methods: {
+    POST: {
+      errors: [
+        { status: 429, description: 'Too many payment attempts', schema: rateLimitErrorSchema },
+        { status: 503, description: 'Rate limiting could not be enforced, so the payment was rejected', schema: rateLimitErrorSchema },
+      ],
+    },
+  },
 }
 
 export default POST

@@ -6,7 +6,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
+import { llmProviderRegistry } from '../../../lib/llm-registry'
 import { loadAgentRegistry } from '../../../lib/agent-registry'
 import { checkAgentPolicy, type AgentPolicyDenyCode } from '../../../lib/agent-policy'
 import {
@@ -15,6 +15,7 @@ import {
   type AiAgentLoopBudgetPreset,
 } from '../../../lib/agent-runtime'
 import { AgentPolicyError } from '../../../lib/agent-tools'
+import { AiModerationBlockedError, AiModerationUnavailableError } from '../../../lib/moderation'
 import { readBaseurlAllowlist, isBaseurlAllowlisted } from '../../../lib/baseurl-allowlist'
 import {
   canonicalProviderId,
@@ -110,7 +111,8 @@ const agentQuerySchema = z.object({
   model: z.string().optional(),
   /**
    * Per-request base URL override. Must parse as a URL and match
-   * `AI_RUNTIME_BASEURL_ALLOWLIST` (comma-separated host patterns). When the
+   * `AI_RUNTIME_BASEURL_ALLOWLIST` (comma-separated hosts, meaning https on
+   * port 443, or full `scheme://host[:port]` origins). When the
    * env var is unset or empty, any non-empty value is rejected.
    *
    * Phase 4a of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
@@ -621,7 +623,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       if (!isBaseurlAllowlisted(rawBaseUrl.trim(), allowlist)) {
         return jsonError(
           400,
-          `baseUrl "${rawBaseUrl}" is not in the AI_RUNTIME_BASEURL_ALLOWLIST. Set that env var to a comma-separated list of allowed host patterns to enable per-request baseUrl overrides.`,
+          `baseUrl "${rawBaseUrl}" is not in the AI_RUNTIME_BASEURL_ALLOWLIST. Set that env var to a comma-separated list of allowed hosts (https only) or full origins such as http://localhost:11434 to enable per-request baseUrl overrides.`,
           'baseurl_not_allowlisted',
         )
       }
@@ -699,6 +701,15 @@ export async function POST(req: NextRequest): Promise<Response> {
   } catch (error) {
     if (error instanceof AgentPolicyError) {
       return jsonError(statusForDenyCode(error.code), error.message, error.code)
+    }
+    // Input pre-moderation outcomes (spec 2026-06-04). The blocked categories
+    // are NEVER sent to the client — only the typed code, which the chat UI
+    // maps to a generic translated message.
+    if (error instanceof AiModerationBlockedError) {
+      return jsonError(400, 'Input rejected by the content safety filter.', 'moderation_blocked')
+    }
+    if (error instanceof AiModerationUnavailableError) {
+      return jsonError(503, 'Content safety check temporarily unavailable.', 'moderation_unavailable')
     }
     logger.error('AI Chat Agent — Dispatch failure', { err: error })
     return jsonError(

@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures';
+import { lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes';
 
 export const integrationMeta = {
   dependsOnModules: ['onboarding'],
@@ -26,6 +27,15 @@ type UserConsentRow = {
   granted_at: Date | null;
 };
 
+type PendingRequestAtRest = {
+  email: string;
+  email_hash: string | null;
+  first_name: string;
+  last_name: string;
+  organization_name: string;
+  password_hash: string;
+};
+
 const ONBOARDING_PASSWORD = 'IntegrationPass123!';
 const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000';
 
@@ -40,13 +50,30 @@ async function replaceVerificationToken(email: string, token: string): Promise<s
          set token_hash = $2,
              expires_at = now() + interval '24 hours',
              updated_at = now()
-       where email = $1
+       where email_hash = any($1::text[])
        returning id`,
-      [email, hashToken(token)],
+      [lookupHashCandidates(email), hashToken(token)],
     );
     expect(result.rowCount, 'onboarding request should exist after submitting the form').toBe(1);
     return result.rows[0].id;
   });
+}
+
+async function readPendingRequestAtRest(email: string): Promise<PendingRequestAtRest> {
+  return withClient(async (client) => {
+    const result = await client.query<PendingRequestAtRest>(
+      `select email, email_hash, first_name, last_name, organization_name, password_hash
+         from onboarding_requests
+        where email_hash = any($1::text[])`,
+      [lookupHashCandidates(email)],
+    );
+    expect(result.rowCount, 'onboarding request should be queryable by its lookup hash').toBe(1);
+    return result.rows[0];
+  });
+}
+
+function expectEncryptedPayload(value: string): void {
+  expect(value).toMatch(/^[^:]+:[^:]+:[^:]+:v1$/);
 }
 
 async function readCompletedRequest(requestId: string): Promise<OnboardingRequestRow> {
@@ -141,6 +168,14 @@ test.describe('TC-ONB-001: self-service onboarding with marketing consent', () =
 
     await expect(page.getByRole('status')).toContainText('Check your inbox');
     await expect(page.getByRole('status')).toContainText(email);
+
+    const pendingAtRest = await readPendingRequestAtRest(email);
+    expect(lookupHashCandidates(email)).toContain(pendingAtRest.email_hash);
+    expectEncryptedPayload(pendingAtRest.email);
+    expectEncryptedPayload(pendingAtRest.first_name);
+    expectEncryptedPayload(pendingAtRest.last_name);
+    expectEncryptedPayload(pendingAtRest.organization_name);
+    expectEncryptedPayload(pendingAtRest.password_hash);
 
     const requestId = await replaceVerificationToken(email, token);
     const verifyUrl = `${BASE_URL}/api/onboarding/onboarding/verify?token=${encodeURIComponent(token)}`;

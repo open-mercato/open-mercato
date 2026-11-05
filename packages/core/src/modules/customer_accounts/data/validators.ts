@@ -81,6 +81,7 @@ export const updateRoleAclSchema = z.object({
 export const inviteUserSchema = z.object({
   email: emailField,
   customerEntityId: z.string().uuid().optional(),
+  personEntityId: z.string().uuid().optional(),
   roleIds: z.array(z.string().uuid()).min(1),
   displayName: displayNameField.optional(),
 })
@@ -95,6 +96,7 @@ export const adminCreateUserSchema = z.object({
   displayName: displayNameField,
   roleIds: z.array(z.string().uuid()).optional(),
   customerEntityId: z.string().uuid().optional(),
+  organizationId: z.string().uuid().optional(),
 })
 
 export const adminUpdateUserSchema = z.object({

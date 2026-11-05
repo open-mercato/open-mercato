@@ -7,6 +7,8 @@ import { getCurrentCacheTenant } from './tenantContext'
 import { createHash } from 'node:crypto'
 import { CacheDependencyUnavailableError } from './errors'
 import { matchCacheKeyPattern } from './patterns'
+import { parseCacheCompression, parseCacheCompressionMinBytes } from './codec'
+import type { CacheCodecOptions } from './codec'
 
 function normalizeTenantKey(raw: string | null | undefined): string {
   const value = typeof raw === 'string' ? raw.trim() : ''
@@ -41,10 +43,23 @@ function isCacheMetadata(value: CacheValue | null): value is CacheMetadata {
 
 type CacheStrategyName = NonNullable<CacheServiceOptions['strategy']>
 const KNOWN_STRATEGIES: CacheStrategyName[] = ['memory', 'redis', 'sqlite', 'jsonfile']
+const TENANT_META_KEY_PATTERN = 'tenant:*:key:meta:*'
+const TENANT_META_KEY_MARKER = ':key:meta:'
+
+type TenantAwareCacheStrategy = CacheStrategy & {
+  deleteByPatternsAcrossScopes(patterns: string[]): Promise<number>
+}
 
 function isCacheStrategyName(value: string | undefined): value is CacheStrategyName {
   if (!value) return false
   return KNOWN_STRATEGIES.includes(value as CacheStrategyName)
+}
+
+function resolveConfiguredStrategyType(options?: CacheServiceOptions): CacheStrategyName {
+  const envStrategy = isCacheStrategyName(process.env.CACHE_STRATEGY)
+    ? process.env.CACHE_STRATEGY
+    : undefined
+  return options?.strategy ?? envStrategy ?? 'memory'
 }
 
 function resolveTenantPrefixes(): TenantPrefixes {
@@ -58,7 +73,7 @@ function resolveTenantPrefixes(): TenantPrefixes {
 }
 
 function hashIdentifier(input: string): string {
-  return createHash('sha1').update(input).digest('hex')
+  return createHash('sha256').update(input).digest('hex')
 }
 
 function storageKey(originalKey: string, prefixes: TenantPrefixes): string {
@@ -84,7 +99,7 @@ function buildTagSet(tags: string[] | undefined, prefixes: TenantPrefixes, inclu
   return Array.from(scoped)
 }
 
-function createTenantAwareWrapper(base: CacheStrategy, reportsBoundedCounters: boolean): CacheStrategy {
+function createTenantAwareWrapper(base: CacheStrategy, reportsBoundedCounters: boolean): TenantAwareCacheStrategy {
   function normalizeDeletionCount(raw: number): number {
     if (!raw) return raw
     if (!Number.isFinite(raw)) return raw
@@ -154,6 +169,32 @@ function createTenantAwareWrapper(base: CacheStrategy, reportsBoundedCounters: b
     return originals
   }
 
+  const deleteByPatternsAcrossScopes = async (patterns: string[]) => {
+    const normalizedPatterns = Array.from(new Set(patterns.map((pattern) => pattern.trim()).filter(Boolean)))
+    if (normalizedPatterns.length === 0) return 0
+
+    const metaKeys = await base.keys(TENANT_META_KEY_PATTERN)
+    let deleted = 0
+    for (const metadataKey of metaKeys) {
+      const metadataValue = await base.get(metadataKey, { returnExpired: true })
+      if (!metadataValue) continue
+      const metadata = typeof metadataValue === 'string'
+        ? null
+        : (isCacheMetadata(metadataValue) ? metadataValue : null)
+      const originalKey = typeof metadataValue === 'string' ? metadataValue : metadata?.key
+      if (!originalKey || !normalizedPatterns.some((pattern) => matchCacheKeyPattern(originalKey, pattern))) {
+        continue
+      }
+
+      const markerIndex = metadataKey.lastIndexOf(TENANT_META_KEY_MARKER)
+      if (markerIndex < 0) continue
+      const primaryKey = `${metadataKey.slice(0, markerIndex)}:key:k:${metadataKey.slice(markerIndex + TENANT_META_KEY_MARKER.length)}`
+      if (await base.delete(primaryKey)) deleted += 1
+      await base.delete(metadataKey)
+    }
+    return deleted
+  }
+
   const stats = async () => {
     const prefixes = resolveTenantPrefixes()
     const metaKeys = await base.keys(`${prefixes.keyPrefix}meta:*`)
@@ -206,30 +247,12 @@ function createTenantAwareWrapper(base: CacheStrategy, reportsBoundedCounters: b
     healthcheck,
     cleanup,
     close,
+    deleteByPatternsAcrossScopes,
   }
 }
 
-/**
- * Cache service that provides a unified interface to different cache strategies
- * 
- * Configuration via environment variables:
- * - CACHE_STRATEGY: 'memory' | 'redis' | 'sqlite' | 'jsonfile' (default: 'memory')
- * - CACHE_TTL: Default TTL in milliseconds (optional)
- * - CACHE_REDIS_URL: Redis connection URL (for redis strategy)
- * - CACHE_SQLITE_PATH: SQLite database file path (for sqlite strategy)
- * - CACHE_JSON_FILE_PATH: JSON file path (for jsonfile strategy)
- * 
- * @example
- * const cache = createCacheService({ strategy: 'memory', defaultTtl: 60000 })
- * await cache.set('user:123', { name: 'John' }, { tags: ['users', 'user:123'] })
- * const user = await cache.get('user:123')
- * await cache.deleteByTags(['users']) // Invalidate all user-related cache
- */
-export function createCacheService(options?: CacheServiceOptions): CacheStrategy {
-  const envStrategy = isCacheStrategyName(process.env.CACHE_STRATEGY)
-    ? process.env.CACHE_STRATEGY
-    : undefined
-  const strategyType: CacheStrategyName = options?.strategy ?? envStrategy ?? 'memory'
+function createConfiguredTenantAwareStrategy(options?: CacheServiceOptions): TenantAwareCacheStrategy {
+  const strategyType = resolveConfiguredStrategyType(options)
 
   const envTtl = process.env.CACHE_TTL
   const parsedEnvTtl = envTtl ? Number.parseInt(envTtl, 10) : undefined
@@ -239,11 +262,61 @@ export function createCacheService(options?: CacheServiceOptions): CacheStrategy
   const parsedEnvMaxEntries = envMaxEntries ? Number.parseInt(envMaxEntries, 10) : undefined
   const maxEntries = options?.maxEntries ?? (typeof parsedEnvMaxEntries === 'number' && Number.isFinite(parsedEnvMaxEntries) ? parsedEnvMaxEntries : undefined)
 
-  const baseStrategy = createStrategyForType(strategyType, options, defaultTtl, maxEntries)
+  const codecOptions: CacheCodecOptions = {
+    compression: options?.compression ?? parseCacheCompression(process.env.CACHE_COMPRESSION),
+    compressionMinBytes: options?.compressionMinBytes ?? parseCacheCompressionMinBytes(process.env.CACHE_COMPRESSION_MIN_BYTES),
+  }
+
+  const baseStrategy = createStrategyForType(strategyType, options, defaultTtl, maxEntries, codecOptions)
   const resilientStrategy = withDependencyFallback(baseStrategy, strategyType, defaultTtl, maxEntries)
   const reportsBoundedCounters = strategyType === 'memory'
 
   return createTenantAwareWrapper(resilientStrategy, reportsBoundedCounters)
+}
+
+/**
+ * Cache service that provides a unified interface to different cache strategies
+ *
+ * Configuration via environment variables:
+ * - CACHE_STRATEGY: 'memory' | 'redis' | 'sqlite' | 'jsonfile' (default: 'memory')
+ * - CACHE_TTL: Default TTL in milliseconds (optional)
+ * - CACHE_REDIS_URL: Redis connection URL (for redis strategy)
+ * - CACHE_SQLITE_PATH: SQLite database file path (for sqlite strategy)
+ * - CACHE_JSON_FILE_PATH: JSON file path (for jsonfile strategy)
+ * - CACHE_COMPRESSION: 'off' | 'zstd' | 'gzip' value compression for redis/sqlite (default: 'off')
+ * - CACHE_COMPRESSION_MIN_BYTES: smallest serialized entry that gets compressed (default: 1024)
+ *
+ * @example
+ * const cache = createCacheService({ strategy: 'memory', defaultTtl: 60000 })
+ * await cache.set('user:123', { name: 'John' }, { tags: ['users', 'user:123'] })
+ * const user = await cache.get('user:123')
+ * await cache.deleteByTags(['users']) // Invalidate all user-related cache
+ */
+export function createCacheService(options?: CacheServiceOptions): CacheStrategy {
+  return createConfiguredTenantAwareStrategy(options)
+}
+
+/**
+ * Delete matching logical keys across every tenant scope in the configured
+ * stock cache backend without bootstrapping application DI or querying the
+ * tenant database. Intended for maintenance tasks that already operate on all
+ * scopes, such as post-generation structural invalidation.
+ */
+export async function purgeConfiguredCachePatternsAcrossTenantScopes(
+  patterns: string[],
+  options?: CacheServiceOptions,
+): Promise<number> {
+  // A newly-created memory strategy cannot reach the running app's process-local
+  // cache, so constructing one here would only allocate and immediately discard
+  // an empty store. Persistent stock backends remain cross-process maintainable.
+  if (resolveConfiguredStrategyType(options) === 'memory') return 0
+
+  const cache = createConfiguredTenantAwareStrategy(options)
+  try {
+    return await cache.deleteByPatternsAcrossScopes(patterns)
+  } finally {
+    await cache.close?.()
+  }
 }
 
 /**
@@ -309,12 +382,12 @@ export class CacheService implements CacheStrategy {
   }
 }
 
-function createStrategyForType(strategyType: CacheStrategyName, options?: CacheServiceOptions, defaultTtl?: number, maxEntries?: number): CacheStrategy {
+function createStrategyForType(strategyType: CacheStrategyName, options?: CacheServiceOptions, defaultTtl?: number, maxEntries?: number, codecOptions?: CacheCodecOptions): CacheStrategy {
   switch (strategyType) {
     case 'redis':
-      return createRedisStrategy(options?.redisUrl, { defaultTtl })
+      return createRedisStrategy(options?.redisUrl, { defaultTtl, ...codecOptions })
     case 'sqlite':
-      return createSqliteStrategy(options?.sqlitePath, { defaultTtl })
+      return createSqliteStrategy(options?.sqlitePath, { defaultTtl, ...codecOptions })
     case 'jsonfile':
       return createJsonFileStrategy(options?.jsonFilePath, { defaultTtl })
     case 'memory':

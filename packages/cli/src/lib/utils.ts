@@ -96,18 +96,22 @@ export function writeIfChanged(
       structure: structureChecksum || '',
     }
 
-    const shouldWrite =
-      !existingRecord ||
-      existingRecord.content !== newRecord.content ||
-      (structureChecksum && existingRecord.structure !== newRecord.structure)
-
-    if (shouldWrite) {
+    const outputChanged = !fs.existsSync(filePath) || fs.readFileSync(filePath, 'utf8') !== content
+    if (outputChanged) {
       ensureDir(filePath)
       fs.writeFileSync(filePath, content)
-      writeChecksumRecord(checksumPath, newRecord)
-      return true
     }
-    return false
+
+    const checksumChanged =
+      !existingRecord ||
+      existingRecord.content !== newRecord.content ||
+      existingRecord.structure !== newRecord.structure
+    if (checksumChanged) {
+      ensureDir(checksumPath)
+      writeChecksumRecord(checksumPath, newRecord)
+    }
+
+    return outputChanged
   }
 
   // Simple comparison without checksum file
@@ -234,18 +238,22 @@ export function writeGeneratedFile(options: {
   const { outFile, checksumFile, content, structureChecksum, result, quiet } = options
   const checksum = { content: calculateChecksum(content), structure: structureChecksum }
   const existing = readChecksumRecord(checksumFile)
-  const shouldWrite =
-    !fs.existsSync(outFile) ||
-    !existing ||
-    existing.content !== checksum.content ||
-    existing.structure !== checksum.structure
-  if (shouldWrite) {
+  const outputChanged = !fs.existsSync(outFile) || fs.readFileSync(outFile, 'utf8') !== content
+  if (outputChanged) {
     fs.mkdirSync(path.dirname(outFile), { recursive: true })
     fs.writeFileSync(outFile, content)
-    writeChecksumRecord(checksumFile, checksum)
     result.filesWritten.push(outFile)
   } else {
     result.filesUnchanged.push(outFile)
   }
-  if (!quiet) logGenerationResult(path.relative(process.cwd(), outFile), shouldWrite)
+
+  const checksumChanged =
+    !existing ||
+    existing.content !== checksum.content ||
+    existing.structure !== checksum.structure
+  if (checksumChanged) {
+    fs.mkdirSync(path.dirname(checksumFile), { recursive: true })
+    writeChecksumRecord(checksumFile, checksum)
+  }
+  if (!quiet) logGenerationResult(path.relative(process.cwd(), outFile), outputChanged)
 }

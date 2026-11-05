@@ -4,7 +4,16 @@ import { copyFileSync, mkdirSync, readdirSync, rmSync } from 'node:fs'
 import { basename, dirname, join, relative } from 'node:path'
 import { createAtomicWritePlugin } from './lib/add-js-extension.mjs'
 
-const DEFAULT_IGNORE = ['**/__tests__/**', '**/*.test.ts', '**/*.test.tsx']
+// `*.typecheck.*` files exist only so `tsc --noEmit` can assert a type contract;
+// nothing imports them, so they are excluded here for the same reason tests are —
+// a published package should not ship them.
+const DEFAULT_IGNORE = [
+  '**/__tests__/**',
+  '**/*.test.ts',
+  '**/*.test.tsx',
+  '**/*.typecheck.ts',
+  '**/*.typecheck.tsx',
+]
 
 async function resolveEntryPoints(packageDir, entryPoints, extraIgnore) {
   if (Array.isArray(entryPoints)) return entryPoints

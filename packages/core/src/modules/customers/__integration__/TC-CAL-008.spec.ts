@@ -27,11 +27,12 @@ import {
  *   ON). Toggling **Conflict warnings** OFF in the settings modal + Save removes
  *   the badge.
  *
- * Drag-to-create is covered by a second test below: a real-mouse drag over an
- * empty grid cell (resolved via `elementFromPoint` so it never lands on a block)
- * opens the create editor with the dragged time prefilled — exercising the
- * pointer→onCreateRange→editor `defaultRange` wiring. The pure drag time math is
- * additionally unit-tested in `lib/calendar/grid.ts`.
+ * Drag-to-create is covered by a second test below: a unique search filter first
+ * removes every event block from the rendered grid, then a real-mouse drag over
+ * one fixed cell opens the create editor with the dragged time prefilled. This
+ * exercises the pointer→onCreateRange→editor `defaultRange` wiring without
+ * relying on seeded event placement. The pure drag time math is additionally
+ * unit-tested in `lib/calendar/grid.ts`.
  *
  * Determinism notes:
  * - The default Playwright viewport (1280px) boots the calendar in Week view.
@@ -156,40 +157,59 @@ test.describe('TC-CAL-008: Calendar week-view states', () => {
 
   // Real-mouse drag-to-create: covers the end-to-end pointer→onCreateRange→editor
   // `defaultRange` wiring that the grid.ts unit tests (pure time math) cannot reach.
-  // Targets a point where the topmost element is the drag layer (`.cursor-cell`), so
-  // the drag never lands on an event block (which would open the peek instead).
+  // A per-run search token guarantees the rendered grid contains no event blocks.
+  // The drag targets one fixed point in the first weekday layer instead of scanning
+  // the viewport for somewhere that happens to be empty.
   test('dragging empty week-grid space opens the create editor with the dragged time prefilled', async ({ page }) => {
     test.slow();
     await login(page, 'admin');
     await page.goto('/backend/calendar');
     await waitForCalendarLoaded(page);
 
-    const coords = await page.evaluate(() => {
-      const scroller = document.querySelector<HTMLElement>('.overflow-auto');
-      const layers = Array.from(document.querySelectorAll<HTMLElement>('.cursor-cell'));
-      if (!scroller || layers.length === 0) return null;
-      // Scroll into a late-day region where seeded/demo events are unlikely.
-      scroller.scrollTop = Math.floor(scroller.scrollHeight * 0.6);
-      const viewport = scroller.getBoundingClientRect();
-      for (const layer of layers) {
-        const rect = layer.getBoundingClientRect();
-        const x = rect.left + rect.width / 2;
-        for (let fraction = 0.3; fraction < 0.75; fraction += 0.05) {
-          const y = viewport.top + viewport.height * fraction;
-          const hit = document.elementFromPoint(x, y);
-          if (hit && hit.classList.contains('cursor-cell')) {
-            return { x, y0: y, y1: Math.min(y + 130, viewport.bottom - 16) };
-          }
-        }
-      }
-      return null;
-    });
-    expect(coords, 'found empty grid space to drag on').not.toBeNull();
+    const emptyGridSearch = `__qa_empty_drag_${Date.now()}__`;
+    const searchInput = page.locator('[data-calendar-search]');
+    await searchInput.fill(emptyGridSearch);
+    await searchInput.blur();
 
-    await page.mouse.move(coords!.x, coords!.y0);
+    const dragLayer = page.locator('.cursor-cell').first();
+    const scroller = dragLayer.locator(
+      'xpath=ancestor::div[contains(concat(" ", normalize-space(@class), " "), " overflow-auto ")][1]',
+    );
+    await expect(dragLayer, 'week grid should expose a drag layer').toBeVisible();
+
+    await expect.poll(async () => {
+      const [layerBox, scrollerBox] = await Promise.all([
+        dragLayer.boundingBox(),
+        scroller.boundingBox(),
+      ]);
+      if (!layerBox || !scrollerBox) return false;
+      const x = layerBox.x + layerBox.width / 2;
+      const y = scrollerBox.y + scrollerBox.height * 0.45;
+      return page.evaluate(
+        ({ clientX, clientY }) =>
+          document.elementFromPoint(clientX, clientY)?.classList.contains('cursor-cell') === true,
+        { clientX: x, clientY: y },
+      );
+    }, {
+      message: `search filter ${emptyGridSearch} should expose the fixed drag target`,
+    }).toBe(true);
+
+    const [layerBox, scrollerBox] = await Promise.all([
+      dragLayer.boundingBox(),
+      scroller.boundingBox(),
+    ]);
+    expect(layerBox, 'fixed weekday drag layer should have a bounding box').not.toBeNull();
+    expect(scrollerBox, 'week grid scroller should have a bounding box').not.toBeNull();
+    const coords = {
+      x: layerBox!.x + layerBox!.width / 2,
+      y0: scrollerBox!.y + scrollerBox!.height * 0.45,
+      y1: scrollerBox!.y + scrollerBox!.height * 0.65,
+    };
+
+    await page.mouse.move(coords.x, coords.y0);
     await page.mouse.down();
-    await page.mouse.move(coords!.x, (coords!.y0 + coords!.y1) / 2, { steps: 6 });
-    await page.mouse.move(coords!.x, coords!.y1, { steps: 6 });
+    await page.mouse.move(coords.x, (coords.y0 + coords.y1) / 2, { steps: 6 });
+    await page.mouse.move(coords.x, coords.y1, { steps: 6 });
     await page.mouse.up();
 
     const editor = page.getByRole('dialog');

@@ -1,0 +1,913 @@
+"use client"
+
+/**
+ * Per-tenant web-search policy: which adapters run, in what order, and under
+ * what deadlines. Env supplies the deployment default; saving here writes a
+ * tenant override, so a fresh tenant inherits until someone deliberately diverges.
+ *
+ * optimistic-lock-exempt — the target is a single ModuleConfigService value, not
+ * a versioned entity: there is no `updatedAt` to send, and the surface is a
+ * single-admin settings screen rather than a collaborative-edit record.
+ */
+
+import * as React from 'react'
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { RotateCw } from 'lucide-react'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
+import { Input } from '@open-mercato/ui/primitives/input'
+import { Label } from '@open-mercato/ui/primitives/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
+import { Switch } from '@open-mercato/ui/primitives/switch'
+import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
+import { hasFeature } from '@open-mercato/shared/security/features'
+import { ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { AdapterRow, type AdapterHealth, type InstalledAdapter } from './AdapterRow'
+import { WebSearchPreview } from './WebSearchPreview'
+
+const SETTINGS_URL = '/api/agent_orchestrator/web-search/settings'
+const HEALTH_URL = '/api/agent_orchestrator/web-search/health'
+
+type AdapterEntry = {
+  id: string
+  enabled: boolean
+  order: number
+  weight: number
+  timeoutMs?: number
+  maxCallsPerHour?: number
+}
+
+type Policy = {
+  settleMode: 'race' | 'quorum' | 'exhaustive'
+  concurrency: number
+  minResults: number
+  minConfidence: number
+  softDeadlineMs: number
+  hardDeadlineMs: number
+  cacheTtlMs: number
+  lastResort: string | null
+  escalateToBrowser: boolean
+  content: { enabledByDefault: boolean; maxPages: number; maxBytesPerPage: number }
+  adapters: AdapterEntry[]
+}
+
+type Guardrails = {
+  allowDomains: string[]
+  denyDomains: string[]
+  allowPrivateHosts: string[]
+  searchesPerRun: number
+  fetchesPerRun: number
+  callsPerTenantPerMinute: number
+  maxFetchBytes: number
+}
+
+type SettingsResponse = {
+  policy: Policy
+  guardrails: Guardrails
+  source: 'tenant' | 'instance'
+  installed?: InstalledAdapter[]
+  /** False when this deployment has no key to encrypt stored credentials with. */
+  secretsEncrypted?: boolean
+}
+
+type AdapterOptions = Record<string, Record<string, unknown>>
+
+/**
+ * A unit of dirty-tracking. `'all'` is the single Save the page now presents;
+ * the narrower ids remain because dirtiness is still reported per card (an
+ * adapter row shows whether IT differs), even though every commit writes the
+ * whole document.
+ */
+type SectionId = 'all' | 'adapters' | 'tuning' | `adapter:${string}`
+
+/** Top-level keys of the stored document, as the PUT accepts them. */
+type Baseline = Record<string, unknown>
+
+function sameValue(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null)
+}
+
+/**
+ * The list card owns the roster — which adapters run, and in what order. Each
+ * adapter's own card owns its tuning. Splitting them this way is what lets one
+ * edit light exactly one Save button instead of two.
+ */
+function rosterOf(entries: readonly AdapterEntry[]): unknown {
+  return entries.map((entry) => ({ id: entry.id, enabled: entry.enabled, order: entry.order }))
+}
+
+function tuningOf(entry: AdapterEntry | undefined): unknown {
+  if (!entry) return null
+  return { weight: entry.weight, timeoutMs: entry.timeoutMs ?? null, maxCallsPerHour: entry.maxCallsPerHour ?? null }
+}
+
+function isSettings(value: unknown): value is SettingsResponse {
+  return typeof value === 'object' && value !== null && 'policy' in value
+}
+
+/** Installed adapters not yet in the policy appear immediately, disabled. */
+function mergeAdapters(policy: Policy, installed: InstalledAdapter[]): AdapterEntry[] {
+  const byId = new Map(policy.adapters.map((entry) => [entry.id, entry]))
+  return installed
+    .map(
+      (adapter, index) =>
+        byId.get(adapter.id) ?? {
+          id: adapter.id,
+          enabled: false,
+          order: policy.adapters.length + index,
+          weight: 1,
+        },
+    )
+    .sort((left, right) => left.order - right.order)
+}
+
+/**
+ * Whether web search is usable at all, which is what an operator wants to know at
+ * a glance. A save receipt is transient noise; this stays meaningful.
+ */
+function HeaderStatus({
+  activeCount,
+  hasUnsaved,
+  isRefreshing,
+  canProbe,
+  onRefresh,
+}: {
+  activeCount: number
+  hasUnsaved: boolean
+  isRefreshing: boolean
+  /** Whether this operator may spend a billable probe. */
+  canProbe: boolean
+  onRefresh: () => void
+}) {
+  const t = useT()
+  const refresh = (
+    <Button
+      variant="outline"
+      size="sm"
+      // A live probe calls each adapter, which spends a real search credit on a
+      // metered source, so it is a deliberate press rather than a page load.
+      title={t(
+        'agent_orchestrator.settings.webSearch.recheckHint',
+        'Calls each enabled adapter. Metered sources bill for this.',
+      )}
+      aria-label={t('agent_orchestrator.settings.webSearch.recheck', 'Test adapters')}
+      disabled={isRefreshing}
+      onClick={onRefresh}
+    >
+      <RotateCw className={isRefreshing ? 'size-4 animate-spin' : 'size-4'} />
+    </Button>
+  )
+  const badge =
+    hasUnsaved ? (
+      <StatusBadge variant="warning" dot>
+        {t('agent_orchestrator.settings.webSearch.unsaved', 'Unsaved changes')}
+      </StatusBadge>
+    ) : activeCount > 0 ? (
+      <StatusBadge variant="success" dot>
+        {t('agent_orchestrator.settings.webSearch.statusActive', 'Active - {count} adapter(s)', {
+          count: String(activeCount),
+        })}
+      </StatusBadge>
+    ) : (
+      <StatusBadge variant="neutral" dot>
+        {t('agent_orchestrator.settings.webSearch.statusInactive', 'Inactive - no adapter enabled')}
+      </StatusBadge>
+    )
+
+  // The probe is gated on `agents.manage`, so offering the button to a reader who
+  // would only get a 403 is worse than not offering it.
+  return (
+    <div className="flex items-center gap-2">
+      {badge}
+      {canProbe ? refresh : null}
+    </div>
+  )
+}
+
+/** A labelled subsection inside a card, so a long knob grid reads in chunks. */
+function FieldGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="space-y-3">
+      <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{title}</h3>
+      {children}
+    </section>
+  )
+}
+
+function NumberField({
+  label,
+  hint,
+  value,
+  step,
+  max,
+  onChange,
+}: {
+  label: string
+  hint?: string
+  value: number
+  step?: number
+  max?: number
+  onChange: (next: number) => void
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label>{label}</Label>
+      <Input
+        type="number"
+        min={0}
+        autoComplete="off"
+        {...(max === undefined ? {} : { max })}
+        {...(step === undefined ? {} : { step })}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value) || 0)}
+      />
+      {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
+    </div>
+  )
+}
+
+/**
+ * ONE Save for the whole screen.
+ *
+ * This page used to carry a Save per section — the roster, the tuning block and
+ * every adapter card each had their own — so configuring a single adapter
+ * presented two buttons and no way to tell which one committed what. Operators
+ * read that as "did it save?", which is the opposite of what per-section Save
+ * was for. One control, stating plainly whether anything differs from what is
+ * stored, answers that question once.
+ *
+ * It still does NOT autosave: the original reason for having a button at all was
+ * that keystroke-autosave left no way to abandon a half-typed value.
+ */
+function PageSave({
+  dirty,
+  saving,
+  onSave,
+}: {
+  dirty: boolean
+  saving: boolean
+  onSave: () => void
+}) {
+  const t = useT()
+  return (
+    <div className="sticky bottom-0 z-sticky mt-4 flex items-center justify-end gap-3 border-t border-border bg-background/95 py-3 backdrop-blur">
+      <span className="text-xs text-muted-foreground">
+        {dirty
+          ? t('agent_orchestrator.settings.webSearch.unsavedHint', 'Not saved yet')
+          : t('agent_orchestrator.settings.webSearch.allSaved', 'All changes saved')}
+      </span>
+      <Button size="sm" disabled={!dirty || saving} onClick={onSave}>
+        {saving ? <Spinner className="size-4" /> : null}
+        {t('agent_orchestrator.settings.webSearch.save', 'Save')}
+      </Button>
+    </div>
+  )
+}
+
+function ToggleRow({
+  label,
+  hint,
+  checked,
+  onChange,
+}: {
+  label: string
+  hint?: string
+  checked: boolean
+  onChange: (next: boolean) => void
+}) {
+  return (
+    <div className="flex items-start gap-3 rounded-lg border border-border p-3">
+      <Switch checked={checked} onCheckedChange={onChange} />
+      <div className="min-w-0">
+        <Label>{label}</Label>
+        {hint ? <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p> : null}
+      </div>
+    </div>
+  )
+}
+
+export default function WebSearchSettingsPage() {
+  const t = useT()
+  const [policy, setPolicy] = React.useState<Policy | null>(null)
+  const [installed, setInstalled] = React.useState<InstalledAdapter[]>([])
+  const [health, setHealth] = React.useState<AdapterHealth[]>([])
+  const [adapterOptions, setAdapterOptions] = React.useState<AdapterOptions>({})
+  const [guardrails, setGuardrails] = React.useState<Guardrails | null>(null)
+  const [secretsEncrypted, setSecretsEncrypted] = React.useState(true)
+
+  /**
+   * What the server will accept. `allowPrivateHosts` is instance-only and the
+   * PUT schema is strict, so echoing back the value the GET returned would 400
+   * the whole save — the field is displayed, never submitted.
+   */
+  const writableGuardrails = React.useMemo(() => {
+    if (!guardrails) return null
+    const { allowPrivateHosts: _instanceOnly, ...writable } = guardrails
+    return writable
+  }, [guardrails])
+  const [source, setSource] = React.useState<'tenant' | 'instance'>('instance')
+  const [loadError, setLoadError] = React.useState<string | null>(null)
+  const [isLoading, setIsLoading] = React.useState(true)
+  const [savingSection, setSavingSection] = React.useState<SectionId | null>(null)
+  // What the server currently holds, so a section can say whether it differs.
+  const [baseline, setBaseline] = React.useState<Baseline>({})
+  const { runMutation } = useGuardedMutation({ contextId: 'agent_orchestrator.web_search.settings' })
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
+
+  const load = React.useCallback(async () => {
+    setIsLoading(true)
+    try {
+      const call = await apiCall<unknown>(SETTINGS_URL)
+      if (!call.ok || !isSettings(call.result)) {
+        setLoadError(t('agent_orchestrator.settings.webSearch.loadError', 'Could not load web search settings.'))
+        return
+      }
+      const next = call.result
+      const adapters = next.installed ?? []
+      setInstalled(adapters)
+      setAdapterOptions(Object.fromEntries(adapters.map((adapter) => [adapter.id, { ...adapter.options }])))
+      setSource(next.source)
+      setGuardrails(next.guardrails)
+      setSecretsEncrypted(next.secretsEncrypted !== false)
+      const mergedAdapters = mergeAdapters(next.policy, adapters)
+      setPolicy({ ...next.policy, adapters: mergedAdapters })
+      setBaseline({
+        adapters: mergedAdapters,
+        settleMode: next.policy.settleMode,
+        concurrency: next.policy.concurrency,
+        minResults: next.policy.minResults,
+        minConfidence: next.policy.minConfidence,
+        lastResort: next.policy.lastResort,
+        softDeadlineMs: next.policy.softDeadlineMs,
+        hardDeadlineMs: next.policy.hardDeadlineMs,
+        cacheTtlMs: next.policy.cacheTtlMs,
+        escalateToBrowser: next.policy.escalateToBrowser,
+        content: next.policy.content,
+        guardrails: next.guardrails,
+        adapterOptions: Object.fromEntries(adapters.map((adapter) => [adapter.id, { ...adapter.options }])),
+      })
+      setLoadError(null)
+    } catch {
+      setLoadError(t('agent_orchestrator.settings.webSearch.loadError', 'Could not load web search settings.'))
+    } finally {
+      setIsLoading(false)
+    }
+  }, [t])
+
+  const { payload: chromePayload } = useBackendChrome()
+  const canProbe = hasFeature(chromePayload?.grantedFeatures, 'agent_orchestrator.agents.manage')
+
+  const [isRefreshing, setIsRefreshing] = React.useState(false)
+
+  /**
+   * `probe` calls each adapter for real. A metered source bills for that, so the
+   * page load asks for configuration status only and the refresh button is what
+   * spends anything.
+   */
+  const loadHealth = React.useCallback(async (probe = false) => {
+    setIsRefreshing(true)
+    try {
+      const call = await apiCall<{ adapters?: AdapterHealth[] }>(`${HEALTH_URL}${probe ? '?probe=1' : ''}`)
+      if (call.ok && Array.isArray(call.result?.adapters)) setHealth(call.result.adapters)
+    } catch {
+      // Health is advisory; a failed probe must not break the settings screen.
+    } finally {
+      setIsRefreshing(false)
+    }
+  }, [])
+
+  React.useEffect(() => {
+    void load()
+    void loadHealth()
+  }, [load, loadHealth])
+
+  /**
+   * Saves one section's fields and nothing else.
+   *
+   * The PUT is a partial update, so a section submits only what it owns. That is
+   * what makes per-section Save honest: pressing Save under Timing cannot quietly
+   * write a half-edited adapter list from another card.
+   */
+  const saveSection = React.useCallback(
+    async (
+      section: SectionId,
+      patch: Record<string, unknown>,
+      /**
+       * What the baseline becomes on success. Separate from the wire patch because
+       * an adapter card sends only its own entry, while the baseline must keep the
+       * whole `adapterOptions` record — folding the partial in directly would make
+       * every other adapter read as unsaved.
+       */
+      nextBaseline: Record<string, unknown> = patch,
+    ) => {
+      setSavingSection(section)
+      await runMutation({
+        context: { contextId: 'agent_orchestrator.web_search.settings' },
+        operation: async () => {
+          const call = await apiCall(SETTINGS_URL, { method: 'PUT', body: JSON.stringify(patch) })
+          if (!call.ok) {
+            flash(
+              t('agent_orchestrator.settings.webSearch.saveError', 'Could not save web search settings.'),
+              'error',
+            )
+            return
+          }
+          setSource('tenant')
+          // Moves only for what was actually written, so every other card keeps
+          // showing its own unsaved changes.
+          setBaseline((current) => ({ ...current, ...nextBaseline }))
+          flash(t('agent_orchestrator.settings.webSearch.saved', 'Saved.'), 'success')
+        },
+      })
+      setSavingSection(null)
+    },
+    [runMutation, t],
+  )
+
+  /** The fields a section owns, in the shape the PUT accepts. */
+  const sectionPatch = React.useCallback(
+    (section: SectionId): Record<string, unknown> => {
+      if (!policy) return {}
+      const savedAdapters = (baseline.adapters ?? []) as AdapterEntry[]
+      if (section.startsWith('adapter:')) {
+        const id = section.slice('adapter:'.length)
+        const edited = policy.adapters.find((entry) => entry.id === id)
+        // Only this row moves: every other entry, and every position, comes from
+        // what is already stored, so saving one adapter cannot commit a reorder
+        // or another row's toggle that the operator has not finished.
+        return {
+          adapters: savedAdapters.map((saved) =>
+            saved.id === id && edited
+              ? {
+                  ...saved,
+                  weight: edited.weight,
+                  ...(edited.timeoutMs === undefined ? {} : { timeoutMs: edited.timeoutMs }),
+                  ...(edited.maxCallsPerHour === undefined ? {} : { maxCallsPerHour: edited.maxCallsPerHour }),
+                }
+              : saved,
+          ),
+          adapterOptions: { [id]: adapterOptions[id] ?? {} },
+        }
+      }
+      switch (section) {
+        case 'adapters':
+          // Conversely the roster card carries only enablement and order, taking
+          // each row's tuning from what is stored.
+          return {
+            adapters: policy.adapters.map((entry) => {
+              const saved = savedAdapters.find((candidate) => candidate.id === entry.id)
+              return { ...(saved ?? entry), enabled: entry.enabled, order: entry.order }
+            }),
+          }
+        case 'tuning':
+          return {
+            settleMode: policy.settleMode,
+            concurrency: policy.concurrency,
+            minResults: policy.minResults,
+            minConfidence: policy.minConfidence,
+            lastResort: policy.lastResort,
+            softDeadlineMs: policy.softDeadlineMs,
+            hardDeadlineMs: policy.hardDeadlineMs,
+            cacheTtlMs: policy.cacheTtlMs,
+            escalateToBrowser: policy.escalateToBrowser,
+            content: policy.content,
+            ...(writableGuardrails ? { guardrails: writableGuardrails } : {}),
+          }
+        default:
+          return {}
+      }
+    },
+    [policy, writableGuardrails, adapterOptions],
+  )
+
+  const isDirty = React.useCallback(
+    (section: SectionId): boolean => {
+      const savedAdapters = (baseline.adapters ?? []) as AdapterEntry[]
+      if (section.startsWith('adapter:')) {
+        const id = section.slice('adapter:'.length)
+        const savedOptions = (baseline.adapterOptions ?? {}) as AdapterOptions
+        const tuningChanged = !sameValue(
+          tuningOf(policy?.adapters.find((entry) => entry.id === id)),
+          tuningOf(savedAdapters.find((entry) => entry.id === id)),
+        )
+        return tuningChanged || !sameValue(adapterOptions[id], savedOptions[id])
+      }
+      if (section === 'adapters') {
+        return !sameValue(rosterOf(policy?.adapters ?? []), rosterOf(savedAdapters))
+      }
+      return Object.entries(sectionPatch(section)).some(([key, value]) => !sameValue(value, baseline[key]))
+    },
+    [sectionPatch, baseline, adapterOptions, policy],
+  )
+
+  /**
+   * Everything the screen owns, in the shape the PUT accepts.
+   *
+   * With one Save there is no longer a reason to send a narrowed patch: the
+   * operator commits when the screen as a whole is how they want it, so the
+   * roster, each adapter's tuning and credentials, and the tuning block all go
+   * together. That also removes the per-section baseline bookkeeping that a
+   * partial write needed.
+   */
+  const wholePatch = React.useCallback((): Record<string, unknown> => {
+    if (!policy) return {}
+    return {
+      adapters: policy.adapters.map((entry) => ({
+        id: entry.id,
+        enabled: entry.enabled,
+        order: entry.order,
+        weight: entry.weight,
+        ...(entry.timeoutMs === undefined ? {} : { timeoutMs: entry.timeoutMs }),
+        ...(entry.maxCallsPerHour === undefined ? {} : { maxCallsPerHour: entry.maxCallsPerHour }),
+      })),
+      adapterOptions: { ...adapterOptions },
+      settleMode: policy.settleMode,
+      concurrency: policy.concurrency,
+      minResults: policy.minResults,
+      minConfidence: policy.minConfidence,
+      lastResort: policy.lastResort,
+      softDeadlineMs: policy.softDeadlineMs,
+      hardDeadlineMs: policy.hardDeadlineMs,
+      cacheTtlMs: policy.cacheTtlMs,
+      escalateToBrowser: policy.escalateToBrowser,
+      content: policy.content,
+      ...(writableGuardrails ? { guardrails: writableGuardrails } : {}),
+    }
+  }, [policy, adapterOptions, writableGuardrails])
+
+  /** True when any part of the screen differs from what is stored. */
+  const anyDirty = React.useMemo(() => {
+    if (!policy) return false
+    if (isDirty('adapters') || isDirty('tuning')) return true
+    return policy.adapters.some((entry) => isDirty(`adapter:${entry.id}`))
+  }, [policy, isDirty])
+
+  const saveAll = React.useCallback(() => {
+    const patch = wholePatch()
+    void saveSection('all', patch)
+  }, [wholePatch, saveSection])
+
+
+  const update = (patch: Partial<Policy>) => {
+    setPolicy((current) => (current ? { ...current, ...patch } : current))
+  }
+
+  const updateAdapter = (id: string, patch: Partial<AdapterEntry>) => {
+    setPolicy((current) =>
+      current
+        ? {
+            ...current,
+            adapters: current.adapters.map((entry) => (entry.id === id ? { ...entry, ...patch } : entry)),
+          }
+        : current,
+    )
+  }
+
+  const updateOption = (adapterId: string, field: string, value: unknown) => {
+    setAdapterOptions((current) => {
+      const next = { ...(current[adapterId] ?? {}) }
+      if (value === undefined) delete next[field]
+      else next[field] = value
+      return { ...current, [adapterId]: next }
+    })
+  }
+
+  const SECTIONS: readonly SectionId[] = ['adapters', 'tuning']
+  const hasUnsavedChanges =
+    SECTIONS.some((section) => isDirty(section)) ||
+    installed.some((adapter) => isDirty(`adapter:${adapter.id}`))
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    setPolicy((current) => {
+      if (!current) return current
+      const from = current.adapters.findIndex((entry) => entry.id === active.id)
+      const to = current.adapters.findIndex((entry) => entry.id === over.id)
+      if (from === -1 || to === -1) return current
+      const adapters = [...current.adapters]
+      const [moved] = adapters.splice(from, 1)
+      adapters.splice(to, 0, moved)
+      // Order is re-derived from position, so the saved policy always matches
+      // what the list shows.
+      return { ...current, adapters: adapters.map((entry, index) => ({ ...entry, order: index })) }
+    })
+  }
+
+  if (isLoading) {
+    return (
+      <Page>
+        <PageBody>
+          <div className="flex justify-center py-16">
+            <Spinner className="size-5" />
+          </div>
+        </PageBody>
+      </Page>
+    )
+  }
+  if (loadError) {
+    return (
+      <Page>
+        <PageBody>
+          <ErrorMessage label={loadError} />
+        </PageBody>
+      </Page>
+    )
+  }
+  if (!policy) return null
+
+  const enabledCount = policy.adapters.filter((entry) => entry.enabled).length
+
+  return (
+    <Page>
+      <PageHeader
+        title={t('agent_orchestrator.settings.webSearch.title', 'Web search')}
+        description={t(
+          'agent_orchestrator.settings.webSearch.description',
+          'Choose which search sources agents may use, in which order, and how long they may take.',
+        )}
+        actions={
+          <HeaderStatus
+            activeCount={enabledCount}
+            hasUnsaved={hasUnsavedChanges}
+            isRefreshing={isRefreshing}
+            canProbe={canProbe}
+            onRefresh={() => void loadHealth(true)}
+          />
+        }
+      />
+
+      <PageBody>
+        <Card>
+          <CardHeader>
+            <CardTitle>{t('agent_orchestrator.settings.webSearch.adapters', 'Adapters')}</CardTitle>
+            <CardDescription>
+              {t(
+                'agent_orchestrator.settings.webSearch.adaptersDragHint',
+                'Drag to set the order they are tried in, and open one to tune it. {count} of {total} enabled.',
+                { count: String(enabledCount), total: String(policy.adapters.length) },
+              )}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {/* Said BEFORE a key is pasted, not after it is on disk in the
+                clear. An operator who knows can decide; one who assumes
+                encryption cannot. */}
+            {!secretsEncrypted ? (
+              <p className="mb-3 rounded-md bg-status-warning-bg px-3 py-2 text-xs text-status-warning-text">
+                {t(
+                  'agent_orchestrator.settings.webSearch.secretsPlaintext',
+                  'Tenant data encryption is not available on this deployment, so adapter API keys are stored unencrypted. Enable it before saving a production key.',
+                )}
+              </p>
+            ) : null}
+            {policy.adapters.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                {t(
+                  'agent_orchestrator.settings.webSearch.none',
+                  'No adapter packages are installed. Add one with yarn add, then run yarn generate.',
+                )}
+              </p>
+            ) : (
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                <SortableContext
+                  items={policy.adapters.map((entry) => entry.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <div className="space-y-2">
+                    {policy.adapters.map((entry) => (
+                      <AdapterRow
+                        key={entry.id}
+                        id={entry.id}
+                        enabled={entry.enabled}
+                        weight={entry.weight}
+                        timeoutMs={entry.timeoutMs}
+                        maxCallsPerHour={entry.maxCallsPerHour}
+                        meta={installed.find((adapter) => adapter.id === entry.id)}
+                        health={health.find((report) => report.id === entry.id)}
+                        options={adapterOptions[entry.id] ?? {}}
+                        onToggle={(enabled) => updateAdapter(entry.id, { enabled })}
+                        onWeight={(weight) => updateAdapter(entry.id, { weight })}
+                        onTimeout={(timeoutMs) => updateAdapter(entry.id, { timeoutMs })}
+                        onMaxCalls={(maxCallsPerHour) => updateAdapter(entry.id, { maxCallsPerHour })}
+                        onOption={(field, value) => updateOption(entry.id, field, value)}
+                      />
+                    ))}
+                  </div>
+                </SortableContext>
+              </DndContext>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>{t('agent_orchestrator.settings.webSearch.tuning', 'Tuning')}</CardTitle>
+            <CardDescription>
+              {source === 'tenant'
+                ? t('agent_orchestrator.settings.webSearch.sourceTenant', "Using this tenant's override.")
+                : t(
+                    'agent_orchestrator.settings.webSearch.sourceInstance',
+                    'Using the deployment default. Saving creates a tenant override.',
+                  )}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <FieldGroup title={t('agent_orchestrator.settings.webSearch.groupResolution', 'Resolution')}>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="space-y-1.5">
+                  <Label>{t('agent_orchestrator.settings.webSearch.settleMode', 'Settle mode')}</Label>
+                  <Select
+                    value={policy.settleMode}
+                    onValueChange={(next) => update({ settleMode: next as Policy['settleMode'] })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="race">race</SelectItem>
+                      <SelectItem value="quorum">quorum</SelectItem>
+                      <SelectItem value="exhaustive">exhaustive</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <NumberField
+                  label={t('agent_orchestrator.settings.webSearch.concurrency', 'Concurrent adapters')}
+                  value={policy.concurrency}
+                  onChange={(next) => update({ concurrency: next })}
+                />
+                <NumberField
+                  label={t('agent_orchestrator.settings.webSearch.minResults', 'Minimum results')}
+                  value={policy.minResults}
+                  onChange={(next) => update({ minResults: next })}
+                />
+                <NumberField
+                  label={t('agent_orchestrator.settings.webSearch.minConfidence', 'Confidence threshold')}
+                  value={policy.minConfidence}
+                  max={1}
+                  step={0.05}
+                  onChange={(next) => update({ minConfidence: next })}
+                />
+
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label>{t('agent_orchestrator.settings.webSearch.lastResort', 'Last-resort adapter')}</Label>
+                  <Select
+                    value={policy.lastResort ?? '__none__'}
+                    onValueChange={(next) => update({ lastResort: next === '__none__' ? null : next })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">—</SelectItem>
+                      {installed.map((adapter) => (
+                        <SelectItem key={adapter.id} value={adapter.id}>
+                          {adapter.id}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {t(
+                      'agent_orchestrator.settings.webSearch.lastResortHint',
+                      'Runs when every other adapter came up short, even if it is disabled above.',
+                    )}
+                  </p>
+                </div>
+              </div>
+            </FieldGroup>
+
+            <FieldGroup title={t('agent_orchestrator.settings.webSearch.groupTiming', 'Timing and caching')}>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <NumberField
+                  label={t('agent_orchestrator.settings.webSearch.softDeadlineMs', 'Soft deadline (ms)')}
+                  hint={t(
+                    'agent_orchestrator.settings.webSearch.softDeadlineHint',
+                    'Stop waiting for stragglers once results are in hand.',
+                  )}
+                  value={policy.softDeadlineMs}
+                  onChange={(next) => update({ softDeadlineMs: next })}
+                />
+                <NumberField
+                  label={t('agent_orchestrator.settings.webSearch.hardDeadlineMs', 'Hard deadline (ms)')}
+                  hint={t(
+                    'agent_orchestrator.settings.webSearch.hardDeadlineHint',
+                    'Absolute ceiling, even with nothing found yet.',
+                  )}
+                  value={policy.hardDeadlineMs}
+                  onChange={(next) => update({ hardDeadlineMs: next })}
+                />
+                <NumberField
+                  label={t('agent_orchestrator.settings.webSearch.cacheTtlMs', 'Cache TTL (ms)')}
+                  hint={t(
+                    'agent_orchestrator.settings.webSearch.cacheTtlHint',
+                    'How long an identical query reuses its previous answer.',
+                  )}
+                  value={policy.cacheTtlMs}
+                  onChange={(next) => update({ cacheTtlMs: next })}
+                />
+              </div>
+            </FieldGroup>
+
+            <FieldGroup title={t('agent_orchestrator.settings.webSearch.groupBehaviour', 'Behaviour')}>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <ToggleRow
+                  label={t(
+                    'agent_orchestrator.settings.webSearch.escalateToBrowser',
+                    'Escalate blocked sources to a browser',
+                  )}
+                  hint={t(
+                    'agent_orchestrator.settings.webSearch.escalateHint',
+                    'Retry in a real browser when a source returns a challenge page.',
+                  )}
+                  checked={policy.escalateToBrowser}
+                  onChange={(checked) => update({ escalateToBrowser: checked })}
+                />
+                <ToggleRow
+                  label={t(
+                    'agent_orchestrator.settings.webSearch.includeContentDefault',
+                    'Read page content by default',
+                  )}
+                  hint={t(
+                    'agent_orchestrator.settings.webSearch.includeContentHint',
+                    'Return page text with results, sparing a fetch per link.',
+                  )}
+                  checked={policy.content.enabledByDefault}
+                  onChange={(checked) => update({ content: { ...policy.content, enabledByDefault: checked } })}
+                />
+              </div>
+            </FieldGroup>
+
+            <FieldGroup title={t('agent_orchestrator.settings.webSearch.groupEgress', 'Network egress')}>
+              <div className="space-y-1.5">
+                <Label>
+                  {t('agent_orchestrator.settings.webSearch.allowPrivateHosts', 'Reachable internal hosts')}
+                </Label>
+                {/* Read-only by design. Naming a host here lets an adapter and
+                    web_fetch resolve to a private address — that widens the
+                    deployment's egress boundary, which is an operator decision
+                    about the network the app runs in, not a tenant preference.
+                    Shown rather than hidden so an admin can see what the
+                    deployment allows and who to ask to change it. */}
+                <Input
+                  value={(guardrails?.allowPrivateHosts ?? []).join(', ')}
+                  placeholder={t(
+                    'agent_orchestrator.settings.webSearch.allowPrivateHostsPlaceholder',
+                    'none — every private address is refused',
+                  )}
+                  autoComplete="off"
+                  readOnly
+                  disabled
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t(
+                    'agent_orchestrator.settings.webSearch.allowPrivateHostsHint',
+                    'Comma-separated hosts allowed to resolve to a private address, for a service you run yourself such as SearXNG. Everything else stays blocked. A host named here is also reachable by web_fetch, so add it to the deny list too if only an adapter should reach it.',
+                  )}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {t(
+                    'agent_orchestrator.settings.webSearch.allowPrivateHostsInstanceOnly',
+                    'Set by the deployment in OM_WEB_SEARCH_ALLOW_PRIVATE_HOSTS. It is not editable per tenant, because reaching a private address is a property of the network the app runs in.',
+                  )}
+                </p>
+              </div>
+            </FieldGroup>
+
+          </CardContent>
+        </Card>
+
+        <PageSave dirty={anyDirty} saving={savingSection === 'all'} onSave={saveAll} />
+
+        <div className="mt-4">
+          <WebSearchPreview />
+        </div>
+      </PageBody>
+    </Page>
+  )
+}

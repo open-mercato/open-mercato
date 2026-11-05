@@ -173,7 +173,7 @@ Four variables control the rate limiter globally:
 | `RATE_LIMIT_ENABLED` | `boolean` | `true` | Master switch. When `false`, all rate limit checks are skipped (returns allowed). |
 | `RATE_LIMIT_STRATEGY` | `'memory' \| 'redis'` | `memory` | Backend strategy. Use `redis` in production for distributed limiting. |
 | `RATE_LIMIT_KEY_PREFIX` | `string` | `'rl'` | Default key prefix for all rate limiter keys. Prevents collisions with other Redis data. |
-| `RATE_LIMIT_TRUST_PROXY_DEPTH` | `number` | `1` | Number of trusted reverse proxies for `X-Forwarded-For` IP extraction. `0` = ignore `X-Forwarded-For` entirely. |
+| `RATE_LIMIT_TRUST_PROXY_DEPTH` | `number` | `0` | Number of trusted reverse proxies for `X-Forwarded-For` IP extraction. `0` = safe direct mode with endpoint-scoped fallback buckets. |
 
 ### Redis Connection
 
@@ -273,7 +273,7 @@ export interface RateLimitGlobalConfig {
   strategy: RateLimitStrategy
   keyPrefix: string
   redisUrl?: string
-  /** Number of trusted reverse proxies for X-Forwarded-For IP extraction (default: 1) */
+  /** Number of trusted reverse proxies for X-Forwarded-For IP extraction (default: 0) */
   trustProxyDepth: number
 }
 ```
@@ -296,7 +296,7 @@ export class RateLimiterService {
 
   constructor(globalConfig: RateLimitGlobalConfig) {
     this.globalConfig = globalConfig
-    this.trustProxyDepth = globalConfig.trustProxyDepth ?? 1
+    this.trustProxyDepth = globalConfig.trustProxyDepth ?? 0
   }
 
   async initialize(): Promise<void> {
@@ -432,7 +432,7 @@ export function readRateLimitConfig(): RateLimitGlobalConfig {
     throw new Error(`Invalid RATE_LIMIT_STRATEGY "${strategy}". Must be one of: ${VALID_STRATEGIES.join(', ')}`)
   }
 
-  const trustProxyDepth = parsePositiveInt(process.env.RATE_LIMIT_TRUST_PROXY_DEPTH) ?? 1
+  const trustProxyDepth = parseTrustProxyDepth(process.env.RATE_LIMIT_TRUST_PROXY_DEPTH)
 
   return {
     enabled: parseBooleanWithDefault(process.env.RATE_LIMIT_ENABLED, true),
@@ -491,16 +491,18 @@ export async function checkRateLimit(
 
 /**
  * Extract client IP from a request, respecting reverse proxy trust depth.
- * Returns null when the IP cannot be determined (callers skip rate limiting).
+ * Returns null when no trustworthy IP can be determined; rate-limit callers
+ * use RATE_LIMIT_FALLBACK_KEY instead of skipping enforcement.
  */
 export function getClientIp(req: Request, trustProxyDepth: number = 0): string | null {
   const forwarded = req.headers.get('x-forwarded-for')
-  if (forwarded && trustProxyDepth > 0) {
+  if (!Number.isInteger(trustProxyDepth) || trustProxyDepth <= 0) return null
+  if (forwarded) {
     const ips = forwarded.split(',').map((ip) => ip.trim())
     const clientIndex = ips.length - trustProxyDepth
-    return clientIndex >= 0 ? ips[clientIndex] : ips[0]
+    return clientIndex >= 0 ? ips[clientIndex] || null : null
   }
-  return req.headers.get('x-real-ip') ?? null
+  return trustProxyDepth === 1 ? req.headers.get('x-real-ip')?.trim() || null : null
 }
 ```
 
@@ -513,7 +515,7 @@ export function getClientIp(req: Request, trustProxyDepth: number = 0): string |
 
 export { RateLimiterService } from './service'
 export { readRateLimitConfig } from './config'
-export { checkRateLimit, getClientIp, RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK } from './helpers'
+export { checkRateLimit, getClientIp, RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK, RATE_LIMIT_FALLBACK_KEY } from './helpers'
 export type { RateLimitConfig, RateLimitResult, RateLimitStrategy, RateLimitGlobalConfig } from './types'
 ```
 
@@ -573,7 +575,7 @@ try {
 ```typescript
 import type { RateLimitConfig } from '@open-mercato/shared/lib/ratelimit/types'
 import { getCachedRateLimiterService } from '@open-mercato/core/bootstrap'
-import { checkRateLimit, getClientIp, RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK } from '@open-mercato/shared/lib/ratelimit/helpers'
+import { checkRateLimit, getClientIp, RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK, RATE_LIMIT_FALLBACK_KEY } from '@open-mercato/shared/lib/ratelimit/helpers'
 ```
 
 #### 2. Extend `MethodMetadata` type
@@ -614,15 +616,13 @@ if (methodMetadata?.rateLimit) {
   const rateLimiterService = getCachedRateLimiterService()
   if (rateLimiterService) {
     const clientIp = getClientIp(req, rateLimiterService.trustProxyDepth)
-    if (clientIp) {
-      const rateLimitError = await checkRateLimit(
-        rateLimiterService,
-        methodMetadata.rateLimit,
-        clientIp,
-        t(RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK),
-      )
-      if (rateLimitError) return rateLimitError
-    }
+    const rateLimitError = await checkRateLimit(
+      rateLimiterService,
+      methodMetadata.rateLimit,
+      clientIp ?? RATE_LIMIT_FALLBACK_KEY,
+      t(RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK),
+    )
+    if (rateLimitError) return rateLimitError
   }
 }
 ```
@@ -630,7 +630,7 @@ if (methodMetadata?.rateLimit) {
 Key points:
 - Rate limit check runs **after** auth but **before** the handler.
 - Uses `getCachedRateLimiterService()` (global singleton), not DI container resolution. Null-check ensures graceful degradation if service creation failed.
-- Uses `getClientIp(req)` for the rate limit key (IP-based for metadata-driven enforcement).
+- Uses the trusted client IP when available and `RATE_LIMIT_FALLBACK_KEY` otherwise, so metadata-driven enforcement never skips solely because IP attribution is unavailable.
 - Uses `t()` from the dispatcher's existing `resolveTranslations()` call.
 - Returns `NextResponse` with 429 on rate limit exceeded, consistent with how auth errors return `NextResponse` with 401/403.
 
@@ -675,7 +675,7 @@ export async function resetAuthRateLimit(compoundKey: string, config: RateLimitC
 ```
 
 Key design decisions:
-- **Fail-open at every level**: returns `{ error: null }` when the service is `null`, IP is unresolvable, or any exception is thrown.
+- **Fail-open on infrastructure failure**: returns `{ error: null }` when the service is `null` or any exception is thrown. An unresolvable IP uses the bounded fallback key and remains throttled.
 - **Hashes email internally** via `computeEmailHash()` (SHA-256) — callers pass raw email, never construct compound keys themselves.
 - **Returns `compoundKey`** so the caller can pass it to `resetAuthRateLimit` on successful authentication.
 - **IP-only mode**: when `compoundConfig`/`compoundIdentifier` are omitted, only Layer 1 runs.
@@ -878,10 +878,10 @@ RATE_LIMIT_STRATEGY=memory
 # Key prefix for rate limiter keys in storage (default: rl)
 RATE_LIMIT_KEY_PREFIX=rl
 
-# Number of trusted reverse proxies for X-Forwarded-For IP extraction (default: 1).
+# Number of trusted reverse proxies for X-Forwarded-For IP extraction (default: 0).
 # Set to the number of proxies (nginx, CloudFlare, ALB, etc.) between clients and the app.
-# 0 = ignore X-Forwarded-For entirely (fall back to X-Real-IP).
-# RATE_LIMIT_TRUST_PROXY_DEPTH=1
+# 0 = direct mode: ignore forwarding headers and use endpoint-scoped fallback buckets.
+# RATE_LIMIT_TRUST_PROXY_DEPTH=0
 
 # Per-endpoint overrides (optional — sensible defaults are hardcoded)
 # Auth endpoints use two-layer rate limiting:
@@ -940,10 +940,10 @@ translate('api.errors.rateLimit', 'Too many requests. Please try again later.')
 ## Security Considerations
 
 1. **Two-Layer Rate Limiting**: Auth endpoints use two rate limit layers: (a) an IP-only layer that caps total attempts from a single IP regardless of email rotation, and (b) a compound `IP:emailHash` layer that caps attempts against a specific account. The email is SHA-256 hashed via `computeEmailHash()` before being used in the key — raw emails never appear in rate limit storage keys. This prevents credential stuffing from a single IP against multiple accounts, and also limits attacks from distributed IPs against a single account.
-2. **IP Extraction — Trust Proxy Depth**: `getClientIp` reads the Nth-from-last entry in `X-Forwarded-For` based on `RATE_LIMIT_TRUST_PROXY_DEPTH` (default: 1). The `X-Forwarded-For` header is a comma-separated list where each proxy appends the IP it received the request from. The leftmost entries are client-controlled and can be freely spoofed; only the rightmost entries (appended by trusted proxies) are reliable. **Misconfiguration risks**: if `trustProxyDepth` is too high (e.g., 2 when there's only 1 proxy), an attacker can prepend a fake IP to `X-Forwarded-For` and the function will read the spoofed value — effectively bypassing rate limiting because each request appears to come from a different IP. If it's too low, all clients behind the same proxy collapse into a single rate-limit bucket. Operators must set the depth to exactly match the number of reverse proxies in their deployment chain.
-3. **Unidentifiable Clients**: When no IP can be determined (`getClientIp` returns `null`), rate limiting is skipped (fail-open) rather than collapsing all unidentified clients into a shared `'unknown'` bucket. This prevents legitimate users from being blocked by unrelated traffic and avoids creating a single shared bucket that an attacker could exploit.
+2. **IP Extraction — Trust Proxy Depth**: `RATE_LIMIT_TRUST_PROXY_DEPTH=0` is the safe default and ignores forwarding headers. Positive values read the Nth-from-last `X-Forwarded-For` entry and must match the trusted proxy chain exactly. Missing or shorter chains return `null` rather than trusting the first, potentially attacker-controlled entry. Invalid configured values warn and fall back to `0`.
+3. **Unidentifiable Clients**: When `getClientIp` returns `null`, auth, metadata-driven, and checkout rate limiters consume the endpoint-scoped `RATE_LIMIT_FALLBACK_KEY` (`global`) instead of skipping enforcement. Compound auth keys become `global:<identifierHash>`. Direct-mode traffic therefore shares each endpoint limit; proxied deployments should configure their exact depth to retain per-client buckets.
 4. **Key Collision**: The global `keyPrefix` + per-endpoint `keyPrefix` combination prevents collisions between endpoints and between Open Mercato instances sharing the same Redis.
-5. **Fail-Open Design**: Handler-level enforcement wraps rate limit checks in `try/catch` to ensure rate limiter infrastructure failures never block authentication flows. The service itself also fails open on unexpected errors (not `RateLimiterRes`).
+5. **Fail-Open Design**: Handler-level enforcement wraps rate limit checks in `try/catch` to ensure rate limiter infrastructure failures never block authentication flows. Missing trusted IP data is handled by a bounded fallback and is not treated as an infrastructure failure.
 6. **Null-Safe Service Access**: `getCachedRateLimiterService()` returns `null` if creation fails. All callers null-check before using.
 7. **Timing Attacks**: The generic "Too many requests" message does not leak whether the account exists.
 8. **DDoS vs Brute-Force**: In-memory `blockDuration` (via `rate-limiter-flexible`'s built-in mechanism) can be configured for additional DDoS protection at the process level, independent of Redis.
@@ -973,7 +973,7 @@ translate('api.errors.rateLimit', 'Too many requests. Please try again later.')
 Tests for `checkAuthRateLimit`:
 
 1. **Fail-open when service is null**: Returns `{ error: null }` when `getCachedRateLimiterService()` returns null.
-2. **Fail-open when IP is null**: Returns `{ error: null }` when `getClientIp` returns null.
+2. **Bounded fallback when IP is null**: Uses `global` and `global:<identifierHash>` so both the IP-only and compound counters remain enforced.
 3. **IP-only error**: Returns error response when IP rate limit is exceeded.
 4. **Compound error**: Returns error when IP passes but compound `IP:hash` layer fails.
 5. **Happy path**: Returns `{ error: null, compoundKey }` when both layers pass.
@@ -1076,6 +1076,12 @@ Playwright API-level tests verifying end-to-end rate limiting behavior:
 ---
 
 ## Changelog
+
+### 2026-07-10 (Direct and Proxy Rate-Limit Hardening — #4041)
+- Defaulted proxy trust depth to safe direct mode (`0`) and made invalid values warn and fall back to direct mode.
+- Preserved `getClientIp(req, depth)` while rejecting undersized forwarded chains and keeping exact one-/multi-proxy extraction.
+- Added endpoint-scoped `global` fallback enforcement for auth, metadata-dispatched routes, checkout, and adjacent configured rate-limit consumers.
+- **Migration & Backward Compatibility**: function signatures, import paths, config types, and correctly configured positive-depth behavior remain compatible. Deployments that relied on the implicit depth-1 default must explicitly set `RATE_LIMIT_TRUST_PROXY_DEPTH=1` (or their exact proxy count); direct deployments require no action.
 
 ### 2026-02-17 (Documentation & Test Coverage)
 - **`checkAuthRateLimit` centralizer documented**: Replaced inline rate limit code in all three auth handler examples with the `checkAuthRateLimit`/`resetAuthRateLimit` helper from `packages/core/src/modules/auth/lib/rateLimitCheck.ts`. Added centralizer interface and design decisions section.

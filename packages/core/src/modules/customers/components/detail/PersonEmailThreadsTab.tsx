@@ -21,6 +21,7 @@ import {
   type ComposeEmailChannel,
   type ComposeEmailValues,
 } from './ComposeEmailDialog'
+import { PersonEmailShareControl } from './PersonEmailShareControl'
 
 type PersonEmailThreadsTabProps = {
   personId: string
@@ -93,6 +94,11 @@ function readEventMessageId(event: unknown): string | null {
 export function PersonEmailThreadsTab({ personId, defaultRecipient }: PersonEmailThreadsTabProps) {
   const t = useT()
   const [threads, setThreads] = React.useState<EmailThread[]>([])
+  // Incremented after every thread fetch. The share control's visibility depends
+  // on server state that lands asynchronously (the outbound email becomes a
+  // CustomerInteraction on a queue worker), so it re-reads on this signal rather
+  // than only on mount — see #6455.
+  const [threadsRevision, setThreadsRevision] = React.useState(0)
   const [optimistic, setOptimistic] = React.useState<OptimisticSend[]>([])
   const [channels, setChannels] = React.useState<ComposeEmailChannel[]>([])
   const [loading, setLoading] = React.useState(true)
@@ -137,6 +143,10 @@ export function PersonEmailThreadsTab({ personId, defaultRecipient }: PersonEmai
         setError(err instanceof Error ? err.message : t('customers.email.threads.loadFailed', 'Failed to load emails'))
       } finally {
         if (opts?.showLoading) setLoading(false)
+        // Whether the fetch succeeded or not, this is a point at which the
+        // server state may have moved on — the share control mirrors the same
+        // data (#6455) and rides this cadence instead of polling on its own.
+        setThreadsRevision((value) => value + 1)
       }
     },
     [personId, t],
@@ -211,6 +221,10 @@ export function PersonEmailThreadsTab({ personId, defaultRecipient }: PersonEmai
         direction: 'outbound',
         fromName: null,
         fromEmail: channel?.externalIdentifier ?? null,
+        // The viewer just composed this one, so it renders as "You" before the
+        // server round-trip replaces it with the persisted message.
+        authoredByViewer: true,
+        authorName: null,
         to: values.to,
         cc: values.cc ?? [],
         subject: values.subject,
@@ -422,6 +436,18 @@ export function PersonEmailThreadsTab({ personId, defaultRecipient }: PersonEmai
 
   return (
     <>
+      <PersonEmailShareControl
+        personId={personId}
+        // Re-read whenever the thread list does. The control appears only once
+        // the caller owns a private email with this Person, and that row is
+        // written by a queue worker after the send — so on a first send the
+        // mount-time read is always too early (#6455). The tab's burst poll
+        // already covers exactly that window.
+        reloadToken={threadsRevision}
+        // Flipping the share changes which messages the read filter admits, so
+        // refetch rather than waiting for the background heartbeat.
+        onChanged={() => { void loadThreads() }}
+      />
       <EmailThreadsPanel
         threads={mergedThreads}
         loading={loading}

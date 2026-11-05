@@ -23,6 +23,18 @@ export type SearchResultPresenter = {
   title: string
   subtitle?: string
   icon?: string
+  /**
+   * @deprecated No search UI renders this field, and none is planned — the Cmd+K dialog,
+   * the topbar inline results and `/backend/search` render only `title`, `subtitle` and `icon`.
+   * Slated for removal in 0.11.0.
+   *
+   * For an entity-type label, add a `search.entityType.<module>.<entity>` translation key
+   * instead: every search surface already renders one next to the result title, so a badge
+   * carrying the same word would render it twice. Declare that key in your own module's
+   * `i18n/*.json` — dictionaries are merged flat across modules, so a `search.*` key
+   * contributed by any module resolves normally. For per-record detail (a status, a
+   * counterparty, a date), put the value in `subtitle`, which is rendered.
+   */
   badge?: string
 }
 
@@ -94,6 +106,39 @@ export type SearchOptions = {
   offset?: number
   /** How to combine results: 'or' merges all, 'and' requires match in all strategies */
   combineMode?: 'or' | 'and'
+  /**
+   * Restricts results to records whose query-index row (`entity_indexes`) matches this predicate,
+   * evaluated inside the strategy's ranking query so a restrictive filter never starves the result
+   * set (additive, 2026-10-06). Only strategies with `supportsIndexDocFilter: true` receive a
+   * filtered search; any other strategy returns no results for it rather than unfiltered ones.
+   */
+  indexDocFilter?: SearchIndexDocFilter
+}
+
+/**
+ * One condition over a record's query-index document (`entity_indexes.doc`), with the query
+ * engine's index-document semantics:
+ * - `exists`: the key is present and not JSON `null`;
+ * - `eq`: the key's text value equals `value` (booleans and numbers compare by their JSON text);
+ * - `overlap`: the key holds an array sharing at least one entry with `values`; empty `values`
+ *   matches nothing;
+ * - `noverlap`: the key holds an array sharing no entry with `values`; a missing key never matches;
+ * - `recordIdNotIn`: the record id is none of `values`.
+ */
+export type SearchIndexDocCondition =
+  | { op: 'exists'; key: string }
+  | { op: 'eq'; key: string; value: string | number | boolean }
+  | { op: 'overlap'; key: string; values: string[] }
+  | { op: 'noverlap'; key: string; values: string[] }
+  | { op: 'recordIdNotIn'; values: string[] }
+
+/**
+ * A predicate over a record's `entity_indexes` row in disjunctive normal form: the record matches
+ * when its index row is not deleted and every condition of at least one `anyOf` branch holds.
+ * An empty `anyOf` matches nothing; an empty branch matches every indexed record.
+ */
+export type SearchIndexDocFilter = {
+  anyOf: SearchIndexDocCondition[][]
 }
 
 // =============================================================================
@@ -114,6 +159,8 @@ export type IndexableRecord = {
   organizationId?: string | null
   /** All fields from the record (strategies will filter based on their needs) */
   fields: Record<string, unknown>
+  /** Custom-field keys excluded from plaintext fulltext/vector fields; `all` denies every custom field. Tokens retain `fields`; omission preserves legacy direct-client behavior. */
+  plaintextExcludedCustomFields?: readonly string[] | 'all'
   /** Optional presenter for result display */
   presenter?: SearchResultPresenter
   /** Primary URL for the record */
@@ -143,6 +190,12 @@ export interface SearchStrategy {
 
   /** Priority for result merging (higher = more prominent in results) */
   readonly priority: number
+
+  /**
+   * Whether `search()` applies `SearchOptions.indexDocFilter` inside its ranking query. Absent or
+   * `false` means the strategy is skipped for filtered searches (fail closed).
+   */
+  readonly supportsIndexDocFilter?: boolean
 
   /** Check if strategy is available and configured */
   isAvailable(): Promise<boolean>
@@ -176,7 +229,7 @@ export interface SearchStrategy {
 export type ResultMergeConfig = {
   /** How to handle duplicate results: 'highest_score' | 'first' | 'merge_scores' */
   duplicateHandling: 'highest_score' | 'first' | 'merge_scores'
-  /** Weight multipliers per strategy (e.g., { meilisearch: 1.2, tokens: 0.8 }) */
+  /** Weight multipliers per strategy (e.g., { fulltext: 1.2, tokens: 0.8 }) */
   strategyWeights?: Record<SearchStrategyId, number>
   /** Minimum score threshold to include in results */
   minScore?: number
@@ -206,6 +259,8 @@ export type SearchServiceOptions = {
   mergeConfig?: ResultMergeConfig
   /** Callback to enrich results with presenter data from database */
   presenterEnricher?: PresenterEnricherFn
+  /** Resolve entity write restrictions; omission uses the registered search configurations. */
+  resolveEntityStrategies?: (entityId: EntityId) => SearchStrategyId[] | undefined
   /** TTL (ms) for the per-strategy availability cache. Defaults to 2_000. */
   availabilityCacheTtlMs?: number
 }

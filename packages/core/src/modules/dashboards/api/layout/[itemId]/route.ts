@@ -2,9 +2,10 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { resolveUserDataSubject } from '@open-mercato/core/modules/auth/lib/userDataSubject'
 import { DashboardLayout } from '@open-mercato/core/modules/dashboards/data/entities'
 import { dashboardLayoutItemPatchSchema } from '@open-mercato/core/modules/dashboards/data/validators'
-import { hasFeature } from '@open-mercato/shared/security/features'
 import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
@@ -49,21 +50,31 @@ export async function PATCH(req: Request, ctx: { params?: { itemId?: string } })
   const em = resolve('em') as any
   const rbac = resolve('rbacService') as any
 
+  const userId = await resolveUserDataSubject(em, auth)
+  if (!userId) {
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({ error: translate('api.errors.forbidden', 'Forbidden') }, { status: 403 })
+  }
+
   const scope = {
-    userId: String(auth.sub),
+    userId,
     tenantId: auth.tenantId ?? null,
     organizationId: auth.orgId ?? null,
   }
 
-  const acl = await rbac.loadAcl(scope.userId, { tenantId: scope.tenantId, organizationId: scope.organizationId })
-  if (!acl.isSuperAdmin && !hasFeature(acl.features, 'dashboards.configure')) {
+  const canConfigure = await rbac.userHasAllFeatures(
+    auth.sub,
+    ['dashboards.configure'],
+    { tenantId: scope.tenantId, organizationId: scope.organizationId },
+  )
+  if (!canConfigure) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
   const guardResult = await validateCrudMutationGuard(container, {
     tenantId: scope.tenantId ?? '',
     organizationId: scope.organizationId,
-    userId: scope.userId,
+    userId: auth.sub,
     resourceKind: RESOURCE_KIND,
     resourceId: layoutItemId,
     operation: 'update',
@@ -102,7 +113,7 @@ export async function PATCH(req: Request, ctx: { params?: { itemId?: string } })
     await runCrudMutationGuardAfterSuccess(container, {
       tenantId: scope.tenantId ?? '',
       organizationId: scope.organizationId,
-      userId: scope.userId,
+      userId: auth.sub,
       resourceKind: RESOURCE_KIND,
       resourceId: layoutItemId,
       operation: 'update',

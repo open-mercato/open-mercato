@@ -84,7 +84,7 @@ export function GatewaySettingsFields({ providerKey, value, onChange }: Props) {
   const fields = descriptor?.sessionConfig?.fields ?? []
   if (!providerKey) {
     return (
-      <Alert variant="info">
+      <Alert status="information">
         <AlertDescription>
           {t('checkout.gatewaySettings.notices.chooseProvider')}
         </AlertDescription>
@@ -93,7 +93,7 @@ export function GatewaySettingsFields({ providerKey, value, onChange }: Props) {
   }
   if (!fields.length) {
     return (
-      <Alert variant="info">
+      <Alert status="information">
         <AlertDescription>
           {t('checkout.gatewaySettings.notices.noSettings')}
         </AlertDescription>

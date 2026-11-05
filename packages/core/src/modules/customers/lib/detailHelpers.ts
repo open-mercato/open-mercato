@@ -34,4 +34,8 @@ export function isValidSocialUrl(
   return normalizedPath.length > 0
 }
 
+export function isDetailNotFoundStatus(status: number | null | undefined): boolean {
+  return status === 404 || status === 400
+}
+
 export { slugifyTagLabel }

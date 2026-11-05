@@ -16,6 +16,7 @@ import { login } from '@open-mercato/core/modules/core/__integration__/helpers/a
  */
 test.describe('TC-CAT-035: Product SEO Helper i18n save-block', () => {
   test('blocks a short-title save with a Polish SEO helper message', async ({ page }) => {
+    test.setTimeout(120_000)
     const baseUrl = process.env.BASE_URL || 'http://localhost:3000'
 
     // Log in first (default English chrome), then pin the locale to Polish so the
@@ -28,18 +29,27 @@ test.describe('TC-CAT-035: Product SEO Helper i18n save-block', () => {
     ])
 
     await page.goto('/backend/catalog/products/create', { waitUntil: 'domcontentloaded' })
+    await expect(page.getByTestId('backend-chrome-ready')).toHaveAttribute('data-ready', 'true', {
+      timeout: 30_000,
+    })
 
     // A too-short title (< 10 chars) with an otherwise-valid long description, so
     // exactly one SEO issue (title) drives the localized validation.
-    await page.getByPlaceholder('np. Letnie trampki').fill('Buty')
-    await page
-      .getByPlaceholder('Opisz produkt...')
-      .fill('To jest wystarczająco długi opis produktu dla dobrego SEO i walidacji.')
+    const titleInput = page.getByPlaceholder('np. Letnie trampki')
+    const descriptionInput = page.getByPlaceholder('Opisz produkt...')
+    const titleTooShortScore = page.getByText('Za krótki', { exact: true }).first()
 
     // Wait (web-first, no arbitrary timeout) until the SEO helper has processed the
     // short title — its title score flips to "Za krótki" — before saving, so the
-    // block runs against the settled form state.
-    await expect(page.getByText('Za krótki', { exact: true }).first()).toBeVisible()
+    // block runs against the settled form state. The fills are retried inside the
+    // poll because the product form is a client component: under CI load a fill()
+    // that lands before it hydrates only writes the DOM value, which the controlled
+    // input discards on mount, leaving the helper with an empty title forever.
+    await expect(async () => {
+      await titleInput.fill('Buty')
+      await descriptionInput.fill('To jest wystarczająco długi opis produktu dla dobrego SEO i walidacji.')
+      await expect(titleTooShortScore).toBeVisible({ timeout: 3_000 })
+    }).toPass({ timeout: 45_000, intervals: [500, 1_000, 2_000] })
 
     await page.getByRole('button', { name: 'Utwórz produkt' }).first().click()
 

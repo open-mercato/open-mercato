@@ -14,6 +14,7 @@ import { Switch } from '../../primitives/switch'
 import { Card, CardContent, CardHeader, CardTitle } from '../../primitives/card'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../../primitives/dialog'
 import { Tag } from '../../primitives/tag'
+import { Badge } from '../../primitives/badge'
 import {
   Select,
   SelectContent,
@@ -31,12 +32,14 @@ import { useConfirmDialog } from '../confirm-dialog'
 import { useGuardedMutation } from '../injection/useGuardedMutation'
 import {
   applyCustomizationDraft,
+  applyGroupHidden,
   applyItemOrder,
   cloneSidebarGroups,
   collectSidebarDefaults,
   filterMainSidebarGroups,
   mergeGroupOrder,
   resolveGroupKey,
+  resolveGroupVisibility,
   resolveItemKey,
   type SidebarCustomizationDraft,
   type SidebarGroup,
@@ -545,6 +548,19 @@ export function SidebarCustomizationEditor({
         }
       }
       return { ...draft, hiddenItemIds: next }
+    })
+  }, [updateDraft])
+
+  /**
+   * Hiding a whole group previously meant toggling every item in it one at a time — a dozen-plus
+   * clicks for what reads as a single decision. Writes the same `hiddenItemIds` keys the per-item
+   * switches do, so the persisted settings are indistinguishable from reaching this state by hand.
+   */
+  const setGroupHidden = React.useCallback((groupKey: string, hidden: boolean) => {
+    updateDraft((draft) => {
+      const group = baseSnapshotRef.current?.find((candidate) => resolveGroupKey(candidate) === groupKey)
+      if (!group) return draft
+      return { ...draft, hiddenItemIds: applyGroupHidden(draft.hiddenItemIds, group, hidden) }
     })
   }, [updateDraft])
 
@@ -1222,7 +1238,30 @@ export function SidebarCustomizationEditor({
                             </p>
                           ) : null}
                         </div>
-                        <div className="flex shrink-0 items-center gap-1 mt-[26px]">
+                        <div className="flex shrink-0 items-center gap-2 mt-6">
+                          {(() => {
+                            const visibility = resolveGroupVisibility(baseGroup, draft.hiddenItemIds)
+                            const groupName = trimmedValue.length > 0 ? trimmedValue : placeholder
+                            const label = visibility === 'partial'
+                              ? t('appShell.sidebarCustomizationHideGroupPartial', 'Some items in {group} are hidden — turn off to hide the whole group', { group: groupName })
+                              : t('appShell.sidebarCustomizationShowGroup', 'Show {group}', { group: groupName })
+                            return (
+                              <>
+                                {visibility === 'hidden' ? (
+                                  <Badge variant="muted" size="sm" className="uppercase tracking-wide">
+                                    {t('appShell.sidebarCustomizationHiddenBadge', 'Hidden')}
+                                  </Badge>
+                                ) : null}
+                                <Switch
+                                  checked={visibility !== 'hidden'}
+                                  onCheckedChange={(next) => setGroupHidden(groupId, next !== true)}
+                                  disabled={isBusy}
+                                  aria-label={label}
+                                  title={label}
+                                />
+                              </>
+                            )
+                          })()}
                           <IconButton
                             type="button"
                             variant="outline"
@@ -1349,9 +1388,9 @@ function ItemRow({ item, draft, saving, onLabelChange, onHiddenChange, t, depth,
       </div>
       <div className="flex shrink-0 items-center gap-2 pt-1.5">
         {hidden ? (
-          <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          <Badge variant="muted" size="sm" className="uppercase tracking-wide">
             {t('appShell.sidebarCustomizationHiddenBadge', 'Hidden')}
-          </span>
+          </Badge>
         ) : null}
         <Switch
           checked={!hidden}
@@ -1540,11 +1579,10 @@ function SidebarPreview({
 
   return (
     <div className="relative w-[240px] overflow-hidden rounded-xl border bg-background shadow-sm">
-      {/* Match AppShell's outer aside: border-r, py-4, px-3 — minus border-r since the
-          card border already serves that purpose, plus rounded so it reads as a preview tile. */}
-      <div className="flex flex-col gap-3 px-3 py-4">
+      {/* Match AppShell's full-width group boxes with padding applied by each inner region. */}
+      <div className="flex flex-col gap-3 py-4">
         {/* Brand block — same classes as AppShell brand tile */}
-        <div className="mb-2">
+        <div className="mb-2 px-3">
           <div className="flex items-center gap-3 rounded-xl p-3">
             <Image
               src="/open-mercato.svg"
@@ -1557,11 +1595,13 @@ function SidebarPreview({
           </div>
         </div>
         {/* Search input mock — same container styling as the real sidebar */}
-        <div className="mb-2 flex items-center gap-2 rounded-lg border border-border bg-background pl-2.5 pr-2 py-2 shadow-sm">
-          <Search className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-          <span className="min-w-0 flex-1 text-sm text-muted-foreground/70 truncate">
-            {t('appShell.sidebarCustomizationPreviewSearchPlaceholder', 'Search...')}
-          </span>
+        <div className="px-3">
+          <div className="mb-2 flex items-center gap-2 rounded-lg border border-border bg-background pl-2.5 pr-2 py-2 shadow-sm">
+            <Search className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+            <span className="min-w-0 flex-1 text-sm text-muted-foreground/70 truncate">
+              {t('appShell.sidebarCustomizationPreviewSearchPlaceholder', 'Search...')}
+            </span>
+          </div>
         </div>
         {groups.length === 0 ? (
           <p className="px-2 text-sm text-muted-foreground">
@@ -1573,7 +1613,10 @@ function SidebarPreview({
               const visibleItems = group.items.filter((item) => item.hidden !== true)
               if (visibleItems.length === 0) return null
               return (
-                <div key={resolveGroupKey(group)}>
+                <div
+                  key={resolveGroupKey(group)}
+                  className={`px-3 ${gi < groups.length - 1 ? 'border-b pb-2' : ''}`}
+                >
                   <div className="w-full px-1 justify-between flex text-xs font-medium uppercase tracking-wider text-muted-foreground/70 py-1">
                     <span>{group.name}</span>
                   </div>
@@ -1602,7 +1645,6 @@ function SidebarPreview({
                       )
                     })}
                   </div>
-                  {gi < groups.length - 1 ? <div className="my-2 border-t -ml-3 -mr-4" /> : null}
                 </div>
               )
             })}

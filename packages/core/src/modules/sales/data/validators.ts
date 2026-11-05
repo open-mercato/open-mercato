@@ -329,6 +329,8 @@ const lineKindSchema = z.enum(['product', 'service', 'shipping', 'discount', 'ad
 
 const adjustmentKindSchema = z.string().trim().min(1).max(150)
 
+export const amountsModeSchema = z.enum(['computed', 'external'])
+
 const linePricingSchema = z.object({
   quantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }),
   quantityUnit: z.string().trim().max(25).optional(),
@@ -340,11 +342,17 @@ const linePricingSchema = z.object({
   priceMode: z.enum(['net', 'gross']).optional(),
   taxRateId: uuid().optional(),
   discountAmount: decimal({ min: 0 }).optional(),
+  // How to read a supplied `discountAmount`. Omitting it reproduces the meaning
+  // the API has always documented — per unit — so no existing caller changes.
+  discountAmountBasis: z.enum(['unit', 'line']).optional(),
   discountPercent: percentage().optional(),
   taxRate: percentage().optional(),
   taxAmount: decimal({ min: 0 }).optional(),
   totalNetAmount: decimal({ min: 0 }).optional(),
   totalGrossAmount: decimal({ min: 0 }).optional(),
+  // Omitted inherits the document's mode; defaulting to `computed` would make an
+  // external order mixed. Order lines only — quote commands reject it.
+  amountsMode: amountsModeSchema.optional(),
 })
 
 const uomSnapshotSchema = z.object({
@@ -404,6 +412,77 @@ export const orderLineUpdateSchema = z
     id: uuid(),
   })
   .merge(orderLineCreateSchema.partial())
+
+/**
+ * Translation keys for the bulk-line schema refusals. The schema runs outside a
+ * request, so it cannot translate; it tags each issue with its key in `params`
+ * and the HTTP boundary resolves it. The English text stays here as the
+ * fallback and as the message a non-HTTP caller sees.
+ */
+export const SALES_ORDER_LINE_BULK_ISSUE_KEYS = {
+  empty: 'sales.documents.items.bulk.errorEmptyBatch',
+  duplicate: 'sales.documents.items.bulk.errorDuplicateId',
+  upsertDeleteConflict: 'sales.documents.items.bulk.errorUpsertDeleteConflict',
+} as const
+
+export const SALES_ORDER_LINE_BULK_EMPTY_MESSAGE =
+  'Provide at least one line to upsert or delete.'
+export const SALES_ORDER_LINE_BULK_DUPLICATE_MESSAGE =
+  'The same line id appears more than once in lines.'
+export const SALES_ORDER_LINE_BULK_UPSERT_DELETE_CONFLICT_MESSAGE =
+  'A line id cannot be upserted and deleted in the same request.'
+
+/**
+ * One entry of a bulk line write. Identical to what the per-line upsert accepts,
+ * minus the scope and parent keys the envelope already carries: `id` present
+ * updates that line, `id` absent appends a new one.
+ */
+export const orderLineBulkUpsertEntrySchema = orderLineCreateSchema
+  .omit({ organizationId: true, tenantId: true, orderId: true })
+  .extend({ id: uuid().optional() })
+
+export const orderLineBulkUpsertSchema = scoped
+  .extend({
+    orderId: uuid(),
+    orderTotals: z.lazy(() => orderHeaderTotalsSchema).optional(),
+    lines: z.array(orderLineBulkUpsertEntrySchema).default([]),
+    deleteIds: z.array(uuid()).default([]),
+  })
+  .superRefine((value, ctx) => {
+    if (!value.lines.length && !value.deleteIds.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['lines'],
+        message: SALES_ORDER_LINE_BULK_EMPTY_MESSAGE,
+        params: { omKey: SALES_ORDER_LINE_BULK_ISSUE_KEYS.empty },
+      })
+    }
+    const seen = new Set<string>()
+    value.lines.forEach((line, index) => {
+      if (!line.id) return
+      if (seen.has(line.id)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['lines', index, 'id'],
+          message: SALES_ORDER_LINE_BULK_DUPLICATE_MESSAGE,
+          params: { omKey: SALES_ORDER_LINE_BULK_ISSUE_KEYS.duplicate },
+        })
+        return
+      }
+      seen.add(line.id)
+    })
+    value.deleteIds.forEach((id, index) => {
+      if (!seen.has(id)) return
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['deleteIds', index],
+        message: SALES_ORDER_LINE_BULK_UPSERT_DELETE_CONFLICT_MESSAGE,
+        params: { omKey: SALES_ORDER_LINE_BULK_ISSUE_KEYS.upsertDeleteConflict },
+      })
+    })
+  })
+
+export type OrderLineBulkUpsertInput = z.infer<typeof orderLineBulkUpsertSchema>
 
 export const quoteLineCreateSchema = scoped.extend({
   quoteId: uuid(),
@@ -624,6 +703,38 @@ export const quoteAdjustmentUpdateSchema = z
   })
   .merge(quoteAdjustmentCreateSchema.partial())
 
+export const ORDER_PAYMENT_LEDGER_FIELDS = [
+  'paidTotalAmount',
+  'refundedTotalAmount',
+  'outstandingAmount',
+] as const
+
+export type OrderPaymentLedgerField = (typeof ORDER_PAYMENT_LEDGER_FIELDS)[number]
+
+export const ORDER_PAYMENT_LEDGER_WARNING_CODE =
+  'sales.order.payment_ledger_input_deprecated' as const
+
+export type OrderPaymentLedgerWarning = {
+  code: typeof ORDER_PAYMENT_LEDGER_WARNING_CODE
+  fields: OrderPaymentLedgerField[]
+}
+
+export function resolveSuppliedOrderPaymentLedgerFields(value: unknown): OrderPaymentLedgerField[] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return []
+  return ORDER_PAYMENT_LEDGER_FIELDS.filter((field) =>
+    Object.prototype.hasOwnProperty.call(value, field),
+  )
+}
+
+const orderPaymentLedgerShape = {
+  /** @deprecated Derived from recorded payments. Use sales.payments.create or POST /api/sales/payments. */
+  paidTotalAmount: decimal({ min: 0 }).optional(),
+  /** @deprecated Derived from recorded payments. Use sales.payments.create or POST /api/sales/payments. */
+  refundedTotalAmount: decimal({ min: 0 }).optional(),
+  /** @deprecated Derived from recorded payments. Use sales.payments.create or POST /api/sales/payments. */
+  outstandingAmount: decimal().optional(),
+}
+
 const orderTotalsSchema = z.object({
   subtotalNetAmount: decimal({ min: 0 }).optional(),
   subtotalGrossAmount: decimal({ min: 0 }).optional(),
@@ -634,11 +745,12 @@ const orderTotalsSchema = z.object({
   surchargeTotalAmount: decimal({ min: 0 }).optional(),
   grandTotalNetAmount: decimal({ min: 0 }).optional(),
   grandTotalGrossAmount: decimal({ min: 0 }).optional(),
-  paidTotalAmount: decimal({ min: 0 }).optional(),
-  refundedTotalAmount: decimal({ min: 0 }).optional(),
-  outstandingAmount: decimal().optional(),
   lineItemCount: z.coerce.number().int().min(0).optional(),
 })
+
+// `lineItemCount` is core's count of the rows it persisted, not one of the amounts
+// a caller owns; asserting it could make a document disagree with its own lines.
+export const orderHeaderTotalsSchema = orderTotalsSchema.omit({ lineItemCount: true })
 
 const quoteTotalsSchema = z.object({
   subtotalNetAmount: decimal({ min: 0 }).optional(),
@@ -649,6 +761,8 @@ const quoteTotalsSchema = z.object({
   grandTotalGrossAmount: decimal({ min: 0 }).optional(),
   lineItemCount: z.coerce.number().int().min(0).optional(),
 })
+
+export const SALES_ORDER_LINES_REQUIRED_MESSAGE_KEY = 'sales.orders.linesRequired'
 
 export const orderCreateSchema = scoped.extend({
   orderNumber: z.string().trim().min(1).max(191).optional(),
@@ -686,10 +800,17 @@ export const orderCreateSchema = scoped.extend({
   paymentMethodSnapshot: jsonRecord.optional(),
   metadata,
   customFieldSetId: uuid().optional(),
-  lines: z.array(orderLineCreateSchema.omit({ organizationId: true, tenantId: true, orderId: true })).optional(),
+  customFields: z.record(z.string(), z.unknown()).optional(),
+  lines: z
+    .array(orderLineCreateSchema.omit({ organizationId: true, tenantId: true, orderId: true }), {
+      error: SALES_ORDER_LINES_REQUIRED_MESSAGE_KEY,
+    })
+    .min(1, SALES_ORDER_LINES_REQUIRED_MESSAGE_KEY),
   adjustments: z.array(orderAdjustmentCreateSchema.omit({ organizationId: true, tenantId: true, orderId: true })).optional(),
   tags: z.array(uuid()).optional(),
+  totalsMode: amountsModeSchema.optional(),
   ...orderTotalsSchema.shape,
+  ...orderPaymentLedgerShape,
 })
 
 export const orderUpdateSchema = z
@@ -725,6 +846,7 @@ export const quoteCreateSchema = scoped.extend({
   paymentMethodSnapshot: jsonRecord.optional(),
   metadata,
   customFieldSetId: uuid().optional(),
+  customFields: z.record(z.string(), z.unknown()).optional(),
   lines: z
     .array(quoteLineCreateSchema.omit({ organizationId: true, tenantId: true, quoteId: true }))
     .optional(),
@@ -1046,8 +1168,23 @@ export type PaymentMethodCreateInput = z.infer<typeof paymentMethodCreateSchema>
 export type PaymentMethodUpdateInput = z.infer<typeof paymentMethodUpdateSchema>
 export type TaxRateCreateInput = z.infer<typeof taxRateCreateSchema>
 export type TaxRateUpdateInput = z.infer<typeof taxRateUpdateSchema>
-export type OrderCreateInput = z.infer<typeof orderCreateSchema>
-export type OrderUpdateInput = z.infer<typeof orderUpdateSchema>
+export type DeprecatedOrderPaymentLedgerInput = {
+  /** @deprecated Derived from recorded payments. Use sales.payments.create or POST /api/sales/payments. */
+  paidTotalAmount?: number
+  /** @deprecated Derived from recorded payments. Use sales.payments.create or POST /api/sales/payments. */
+  refundedTotalAmount?: number
+  /** @deprecated Derived from recorded payments. Use sales.payments.create or POST /api/sales/payments. */
+  outstandingAmount?: number
+}
+
+export type OrderCreateInput = Omit<
+  z.infer<typeof orderCreateSchema>,
+  OrderPaymentLedgerField
+> & DeprecatedOrderPaymentLedgerInput
+export type OrderUpdateInput = Omit<
+  z.infer<typeof orderUpdateSchema>,
+  OrderPaymentLedgerField
+> & DeprecatedOrderPaymentLedgerInput
 export type OrderLineCreateInput = z.infer<typeof orderLineCreateSchema>
 export type OrderLineUpdateInput = z.infer<typeof orderLineUpdateSchema>
 export type OrderAdjustmentCreateInput = z.infer<typeof orderAdjustmentCreateSchema>

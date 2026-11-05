@@ -84,6 +84,46 @@ describe('mergeMaskedSecretCredentials', () => {
     expect(merged.apiSecret).toBe('rotated-secret')
   })
 
+  it('preserves only listed omitted secret fields', () => {
+    const merged = mergeMaskedSecretCredentials(
+      schema,
+      { apiUrl: 'https://example.com' },
+      {
+        clientId: 'stored-client',
+        apiSecret: 'stored-secret',
+        sshKey: { privateKey: 'PRIVATE', publicKey: 'PUBLIC' },
+      },
+      ['clientId', 'apiSecret', 'sshKey', 'unknownSecret'],
+    )
+
+    expect(merged).toEqual({
+      apiUrl: 'https://example.com',
+      apiSecret: 'stored-secret',
+      sshKey: { privateKey: 'PRIVATE', publicKey: 'PUBLIC' },
+    })
+  })
+
+  it('keeps plain omission as full replacement behavior', () => {
+    const merged = mergeMaskedSecretCredentials(
+      schema,
+      { apiUrl: 'https://example.com' },
+      { apiSecret: 'stored-secret' },
+    )
+
+    expect(merged).toEqual({ apiUrl: 'https://example.com' })
+  })
+
+  it('lets an explicit replacement win over the unchanged list', () => {
+    const merged = mergeMaskedSecretCredentials(
+      schema,
+      { apiSecret: 'rotated-secret' },
+      { apiSecret: 'stored-secret' },
+      ['apiSecret'],
+    )
+
+    expect(merged.apiSecret).toBe('rotated-secret')
+  })
+
   it('clears the secret when the client submits an empty string', () => {
     const merged = mergeMaskedSecretCredentials(
       schema,
@@ -99,6 +139,11 @@ describe('mergeMaskedSecretCredentials', () => {
       { apiSecret: MASKED_SECRET_VALUE },
       {},
     )
+    expect(merged).not.toHaveProperty('apiSecret')
+  })
+
+  it('does not create a listed secret when nothing was stored before', () => {
+    const merged = mergeMaskedSecretCredentials(schema, {}, {}, ['apiSecret'])
     expect(merged).not.toHaveProperty('apiSecret')
   })
 

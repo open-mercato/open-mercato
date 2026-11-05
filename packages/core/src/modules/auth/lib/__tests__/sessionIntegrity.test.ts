@@ -1,5 +1,7 @@
 import { RoleAcl, Session, User, UserAcl } from '@open-mercato/core/modules/auth/data/entities'
 import { isAuthContextValid, resolveCanonicalStaffAuthContext } from '@open-mercato/core/modules/auth/lib/sessionIntegrity'
+import { signJwt, verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
+import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
 
 const findOneWithDecryption = jest.fn()
 const findWithDecryption = jest.fn()
@@ -19,6 +21,7 @@ const impostorRoleId = '77777777-7777-4777-8777-777777777777'
 const sessionId = '88888888-8888-4888-8888-888888888888'
 
 type MockStore = {
+  tenant?: unknown
   user?: unknown
   userAcl?: unknown
   roleAcl?: unknown
@@ -27,6 +30,7 @@ type MockStore = {
 function mockFindOneByEntity(store: MockStore & { session?: SessionLookupResult }) {
   findOneWithDecryption.mockImplementation(async (...args: unknown[]) => {
     const entity = args[1]
+    if (entity === Tenant) return 'tenant' in store ? store.tenant : { id: tenantId }
     if (entity === Session) return store.session ?? null
     if (entity === User) return store.user ?? null
     if (entity === UserAcl) return store.userAcl ?? null
@@ -69,6 +73,14 @@ describe('isAuthContextValid', () => {
       undefined,
       { tenantId, organizationId },
     )
+  })
+
+  it.each(['inactive', 'soft-deleted', 'missing'])('rejects an otherwise valid session for an %s tenant', async () => {
+    mockFindOneByEntity({ session: validSession, user: { id: userId, tenantId, organizationId }, tenant: null })
+    await expect(isAuthContextValid(em, {
+      sub: userId, sid: sessionId, tenantId, orgId: organizationId, roles: [],
+    })).resolves.toBe(false)
+    expect(findWithDecryption).not.toHaveBeenCalled()
   })
 
   it('returns canonical auth with roles refreshed from the database', async () => {
@@ -206,6 +218,22 @@ describe('isAuthContextValid', () => {
     expect(findOneWithDecryption).not.toHaveBeenCalled()
   })
 
+  it('rejects an unavailable actor tenant even when a superadmin selected an active tenant', async () => {
+    mockFindOneByEntity({ session: validSession, user: { id: userId, tenantId, organizationId }, tenant: null })
+    await expect(isAuthContextValid(em, {
+      sub: userId,
+      sid: sessionId,
+      tenantId: scopedTenantId,
+      orgId: scopedOrganizationId,
+      actorTenantId: tenantId,
+      actorOrgId: organizationId,
+      roles: [],
+      isSuperAdmin: true,
+    })).resolves.toBe(false)
+    expect(findOneWithDecryption).toHaveBeenCalledWith(em, Tenant,
+      { id: tenantId, isActive: true, deletedAt: null }, { fields: ['id'], refresh: true })
+  })
+
   it('accepts legacy tokens without sid when _legacyToken flag is set (grace period)', async () => {
     mockFindOneByEntity({ user: { id: userId, tenantId, organizationId } })
 
@@ -298,6 +326,7 @@ describe('isAuthContextValid', () => {
     })
     findOneWithDecryption.mockImplementation(async (...args: unknown[]) => {
       const entity = args[1]
+      if (entity === Tenant) return { id: tenantId }
       if (entity === Session) {
         callOrder.push('session')
         await sessionGate
@@ -333,6 +362,7 @@ describe('isAuthContextValid', () => {
     })
     findOneWithDecryption.mockImplementation(async (...args: unknown[]) => {
       const entity = args[1]
+      if (entity === Tenant) return { id: tenantId }
       if (entity === Session) return validSession
       if (entity === User) return { id: userId, tenantId, organizationId }
       if (entity === UserAcl) {
@@ -382,5 +412,67 @@ describe('isAuthContextValid', () => {
     ).resolves.toBe(true)
 
     expect(findOneWithDecryption).not.toHaveBeenCalled()
+  })
+})
+
+describe('staff legacy tokens across the migration window', () => {
+  const em = {} as import('@mikro-orm/postgresql').EntityManager
+  const originalJwtSecret = process.env.JWT_SECRET
+  const originalGrace = process.env.JWT_LEGACY_GRACE_MINUTES
+  const originalCutover = process.env.JWT_LEGACY_CUTOVER_AT
+  const rawSecret = 'staff-legacy-window-test-secret'
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    findWithDecryption.mockResolvedValue([])
+    findOneWithDecryption.mockResolvedValue(null)
+    process.env.JWT_SECRET = rawSecret
+    process.env.JWT_LEGACY_GRACE_MINUTES = '60'
+    process.env.JWT_LEGACY_CUTOVER_AT = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString()
+  })
+
+  afterEach(() => {
+    jest.restoreAllMocks()
+    process.env.JWT_SECRET = originalJwtSecret
+    if (originalGrace === undefined) delete process.env.JWT_LEGACY_GRACE_MINUTES
+    else process.env.JWT_LEGACY_GRACE_MINUTES = originalGrace
+    if (originalCutover === undefined) delete process.env.JWT_LEGACY_CUTOVER_AT
+    else process.env.JWT_LEGACY_CUTOVER_AT = originalCutover
+  })
+
+  function signSessionlessLegacyToken(): string {
+    // Pre-migration staff token: raw secret, no aud/iss, no sid. The long TTL keeps `exp` valid so
+    // these assertions turn on the grace window rather than ordinary expiry.
+    return signJwt({ sub: userId, tenantId, orgId: organizationId, roles: ['admin'] }, rawSecret, 30 * 24 * 3600)
+  }
+
+  it('accepts a sessionless legacy staff token inside the grace window', async () => {
+    mockFindOneByEntity({ user: { id: userId, tenantId, organizationId } })
+    const payload = verifyJwt(signSessionlessLegacyToken()) as Record<string, unknown> | null
+
+    expect(payload).not.toBeNull()
+    await expect(isAuthContextValid(em, payload as never)).resolves.toBe(true)
+  })
+
+  it('stops accepting the same token once its grace window has lapsed', async () => {
+    mockFindOneByEntity({ user: { id: userId, tenantId, organizationId } })
+    const token = signSessionlessLegacyToken()
+    jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 61 * 60 * 1000)
+
+    // Verification now fails outright, so no auth context ever reaches the session-integrity
+    // check — which is what makes a sessionless token unusable after the window.
+    expect(verifyJwt(token)).toBeNull()
+  })
+
+  it('never lets a sessionless token in on a _legacyToken claim baked into the payload', async () => {
+    mockFindOneByEntity({ user: { id: userId, tenantId, organizationId } })
+    // Signed on the modern audience-derived path, so it is not a legacy token — the smuggled
+    // claim must not survive verification and must not buy an exemption from the sid requirement.
+    const token = signJwt({ sub: userId, tenantId, orgId: organizationId, roles: [], _legacyToken: true })
+    const payload = verifyJwt(token) as Record<string, unknown> | null
+
+    expect(payload).not.toBeNull()
+    expect(payload?._legacyToken).toBeUndefined()
+    await expect(isAuthContextValid(em, payload as never)).resolves.toBe(false)
   })
 })

@@ -154,6 +154,102 @@ test('require-status-badge', () => {
   })
 })
 
+test('no-legacy-alert-variant', () => {
+  const dsImport = `import { Alert } from '@open-mercato/ui/primitives/alert'\n`
+  ruleTester.run('no-legacy-alert-variant', plugin.rules['no-legacy-alert-variant'], {
+    valid: [
+      {
+        // New API — nothing to flag.
+        code: `${dsImport}const P = () => <Alert status="error">Oops</Alert>`,
+        filename: backendFilename,
+      },
+      {
+        // Non-DS Alert import legitimately exposing `variant` — must not fire.
+        code: `import { Alert } from 'some-other-library'\nconst P = () => <Alert variant="destructive">Oops</Alert>`,
+        filename: backendFilename,
+      },
+      {
+        // Bare name match without any DS import — must not fire.
+        code: `const P = () => <Alert variant="info">FYI</Alert>`,
+        filename: backendFilename,
+      },
+    ],
+    invalid: [
+      {
+        code: `${dsImport}const P = () => <Alert variant="destructive">Oops</Alert>`,
+        filename: backendFilename,
+        errors: [
+          {
+            messageId: 'legacyVariant',
+            suggestions: [
+              {
+                messageId: 'replaceWithStatus',
+                data: { status: 'error' },
+                output: `${dsImport}const P = () => <Alert status="error">Oops</Alert>`,
+              },
+            ],
+          },
+        ],
+      },
+      {
+        code: `${dsImport}const P = () => <Alert variant="info">FYI</Alert>`,
+        filename: backendFilename,
+        errors: [
+          {
+            messageId: 'legacyVariant',
+            suggestions: [
+              {
+                messageId: 'replaceWithStatus',
+                data: { status: 'information' },
+                output: `${dsImport}const P = () => <Alert status="information">FYI</Alert>`,
+              },
+            ],
+          },
+        ],
+      },
+      {
+        // `default` maps to the default status — the suggestion removes the prop.
+        code: `${dsImport}const P = () => <Alert variant="default">Hello</Alert>`,
+        filename: backendFilename,
+        errors: [
+          {
+            messageId: 'legacyVariant',
+            suggestions: [
+              {
+                messageId: 'removeProp',
+                output: `${dsImport}const P = () => <Alert>Hello</Alert>`,
+              },
+            ],
+          },
+        ],
+      },
+      {
+        // Relative import from within packages/ui.
+        code: `import { Alert } from '../../primitives/alert'\nconst P = () => <Alert variant="warning" className="mb-2">Careful</Alert>`,
+        filename: '/repo/packages/ui/src/ai/parts/Banner.tsx',
+        errors: [
+          {
+            messageId: 'legacyVariant',
+            suggestions: [
+              {
+                messageId: 'replaceWithStatus',
+                data: { status: 'warning' },
+                output: `import { Alert } from '../../primitives/alert'\nconst P = () => <Alert status="warning" className="mb-2">Careful</Alert>`,
+              },
+            ],
+          },
+        ],
+      },
+      {
+        // Dynamic expression — flagged, but no mechanical suggestion.
+        code: `${dsImport}const P = () => <Alert variant={overdue ? 'warning' : 'info'}>Hi</Alert>`,
+        filename: backendFilename,
+        errors: [{ messageId: 'legacyVariant', suggestions: [] }],
+      },
+    ],
+  })
+})
+
 test('no-hardcoded-status-colors', () => {
   ruleTester.run('no-hardcoded-status-colors', plugin.rules['no-hardcoded-status-colors'], {
     valid: [

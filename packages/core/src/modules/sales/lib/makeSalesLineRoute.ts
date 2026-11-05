@@ -28,6 +28,8 @@ interface SalesLineRouteConfig {
   parentFkColumn: string
   parentFkParam: string
   createSchema: z.ZodObject<z.ZodRawShape>
+  /** Extra fields accepted by the write payloads on top of `createSchema`. */
+  writeExtensionShape?: z.ZodRawShape
   features: { view: string; manage: string }
   commandPrefix: string
   openApi: {
@@ -110,6 +112,7 @@ export function makeSalesLineRoute(config: SalesLineRouteConfig) {
     parentFkColumn,
     parentFkParam,
     createSchema,
+    writeExtensionShape,
     features,
     commandPrefix,
   } = config
@@ -127,11 +130,13 @@ export function makeSalesLineRoute(config: SalesLineRouteConfig) {
 
   const upsertSchema = createSchema.extend({
     id: z.string().uuid().optional(),
+    ...(writeExtensionShape ?? {}),
   })
 
   const deleteSchema = z.object({
     id: z.string().uuid(),
     [parentFkParam]: z.string().uuid(),
+    ...(writeExtensionShape ?? {}),
   })
 
   const routeMetadata = {
@@ -199,13 +204,23 @@ export function makeSalesLineRoute(config: SalesLineRouteConfig) {
         ]
         const returnedQuantity = F['returned_quantity']
         if (typeof returnedQuantity === 'string') fields.push(returnedQuantity)
+        const amountsMode = F['amounts_mode']
+        if (typeof amountsMode === 'string') fields.push(amountsMode)
         return fields
       })(),
       sortFieldMap: {
+        id: F.id,
         createdAt: F.created_at,
         updatedAt: F.updated_at,
         lineNumber: F.line_number,
       },
+      // Line ids are random v4 UUIDs, so the factory's `id` default orders a
+      // document's lines arbitrarily and reshuffles them whenever an integration
+      // rewrites the lines (delete-and-reinsert is the normal upsert shape).
+      // `line_number` is the document's real reading order; `id` only breaks ties
+      // between legacy rows that all still sit at the column default of 0.
+      defaultSort: { field: 'lineNumber', dir: 'asc' },
+      tiebreakSortField: 'id',
       buildFilters: async (query: Record<string, unknown>, ctx: CrudCtx) => {
         const filters: Record<string, unknown> = {}
         if (query.id) filters.id = { $eq: query.id }
@@ -313,6 +328,7 @@ export function makeSalesLineRoute(config: SalesLineRouteConfig) {
     promotion_snapshot: z.record(z.string(), z.unknown()).nullable().optional(),
     metadata: z.record(z.string(), z.unknown()).nullable().optional(),
     custom_field_set_id: z.string().uuid().nullable().optional(),
+    amounts_mode: z.enum(['computed', 'external']).optional(),
     created_at: z.string(),
     updated_at: z.string(),
   })

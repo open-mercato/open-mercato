@@ -17,6 +17,15 @@ const createResponse = (payload: unknown, ok = true) => {
   }
 }
 
+const PAGE_SIZE = 50
+
+const fillerPeople = (count: number, offset = 0) =>
+  Array.from({ length: count }, (_, index) => ({
+    id: `filler-${offset + index}`,
+    display_name: `Filler ${offset + index}`,
+    primary_phone: `+1 555 000-${String(offset + index).padStart(4, '0')}`,
+  }))
+
 describe('customers utils - phone duplicate lookup', () => {
   beforeEach(() => {
     mockedApiCall.mockReset()
@@ -54,8 +63,8 @@ describe('customers utils - phone duplicate lookup', () => {
         createResponse({
           items: [
             { id: 'current', display_name: 'Keep', primary_phone: '+1 555 123-4567' },
+            ...fillerPeople(PAGE_SIZE - 1),
           ],
-          total: 120,
         })
       )
       .mockResolvedValueOnce(
@@ -63,10 +72,9 @@ describe('customers utils - phone duplicate lookup', () => {
           items: [
             { id: 'duplicate', display_name: 'Grace Hopper', primary_phone: '+1 555 123-4567' },
           ],
-          total: 120,
         })
       )
-      .mockResolvedValue(createResponse({ items: [], total: 120 }))
+      .mockResolvedValue(createResponse({ items: [] }))
 
     const result = await lookupPhoneDuplicate('+1 555 123-4567', { recordId: 'current' })
     expect(result).toEqual({
@@ -85,14 +93,49 @@ describe('customers utils - phone duplicate lookup', () => {
           items: [
             { id: 'c1', display_name: 'Incomplete', primary_phone: '+1 555 000-0000' },
             { id: 'c2', display_name: null, primary_phone: '+1 555 123-4567' },
+            ...fillerPeople(PAGE_SIZE - 2),
           ],
-          total: 200,
         })
       )
-      .mockResolvedValue(createResponse({ items: [], total: 200 }))
+      .mockResolvedValue(createResponse({ items: fillerPeople(PAGE_SIZE, PAGE_SIZE) }))
 
     const result = await lookupPhoneDuplicate('+1 555 999-9999')
     expect(result).toBeNull()
+    expect(mockedApiCall).toHaveBeenCalledTimes(3)
+  })
+
+  it('stops on a short page without consulting total', async () => {
+    mockedApiCall.mockResolvedValueOnce(
+      createResponse({
+        items: fillerPeople(3),
+        total: 10_000,
+      })
+    )
+
+    const result = await lookupPhoneDuplicate('+1 555 999-9999')
+    expect(result).toBeNull()
+    expect(mockedApiCall).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps scanning full pages up to MAX_PAGES even when total under-reports', async () => {
+    mockedApiCall
+      .mockResolvedValueOnce(createResponse({ items: fillerPeople(PAGE_SIZE), total: 1 }))
+      .mockResolvedValueOnce(createResponse({ items: fillerPeople(PAGE_SIZE, PAGE_SIZE), total: 1 }))
+      .mockResolvedValueOnce(
+        createResponse({
+          items: [
+            { id: 'duplicate', display_name: 'Grace Hopper', primary_phone: '+1 555 123-4567' },
+          ],
+          total: 1,
+        })
+      )
+
+    const result = await lookupPhoneDuplicate('+1 555 123-4567')
+    expect(result).toEqual({
+      id: 'duplicate',
+      label: 'Grace Hopper',
+      href: '/backend/customers/people/duplicate',
+    })
     expect(mockedApiCall).toHaveBeenCalledTimes(3)
   })
 })
