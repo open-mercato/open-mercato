@@ -4,6 +4,7 @@
 import * as React from 'react'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { CreateAsnDialog } from '../CreateAsnDialog'
+import type { WmsInventoryMutationAccess } from '../useWmsInventoryMutationAccess'
 
 const mockApiCall = jest.fn()
 
@@ -62,14 +63,28 @@ jest.mock('../inventoryMutationLoaders', () => ({
   resolveWarehouseLabel: jest.fn(async () => null),
 }))
 
-const access = {
+const access: WmsInventoryMutationAccess = {
   loading: false,
   organizationId: 'org-1',
   tenantId: 'tenant-1',
   userId: 'user-1',
   scopeReady: true,
-  canManageInventory: true,
-} as any
+  canAdjust: false,
+  canManage: true,
+  canReceive: true,
+  canManageAsn: true,
+  canManagePutaway: true,
+  canCycleCount: false,
+  canImport: false,
+  canMove: false,
+  canRelease: false,
+  canReserve: false,
+  canAllocate: false,
+  canManageLocations: false,
+  canManageWarehouses: false,
+  canManageZones: false,
+  canManageLots: false,
+}
 
 describe('CreateAsnDialog', () => {
   beforeEach(() => {
