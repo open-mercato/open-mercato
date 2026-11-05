@@ -2,6 +2,7 @@ import { QueryClient } from '@tanstack/query-core'
 import {
   ensureCustomerDictionary,
   invalidateCustomerDictionary,
+  customerDictionaryQueryOptions,
 } from '../useCustomerDictionary'
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
@@ -44,7 +45,7 @@ describe('ensureCustomerDictionary', () => {
     const result = await ensureCustomerDictionary(queryClient, 'statuses', 0)
 
     expect(mockReadApiResultOrThrow).toHaveBeenCalledWith(
-      '/api/customers/dictionaries/statuses',
+      '/api/customers/dictionaries/statuses?locale=en',
       undefined,
       { errorMessage: 'Failed to load dictionary entries.' },
     )
@@ -91,7 +92,24 @@ describe('ensureCustomerDictionary', () => {
     expect(scopeOne.entries[0]?.value).toBe('scope-1')
 
     const cachedKeys = queryClient.getQueryCache().findAll().map((query) => query.queryKey)
-    expect(cachedKeys).toContainEqual(['customers', 'dictionaries', 'sources', 'scope:0', 'org:default'])
-    expect(cachedKeys).toContainEqual(['customers', 'dictionaries', 'sources', 'scope:1', 'org:default'])
+    expect(cachedKeys).toContainEqual(['customers', 'dictionaries', 'sources', 'scope:0', 'org:default', 'locale:en'])
+    expect(cachedKeys).toContainEqual(['customers', 'dictionaries', 'sources', 'scope:1', 'org:default', 'locale:en'])
+  })
+})
+
+
+describe('dictionary locale isolation', () => {
+  it('uses distinct query keys and matching request locales', async () => {
+    const client = new QueryClient()
+    mockReadApiResultOrThrow.mockReset()
+    mockReadApiResultOrThrow
+      .mockResolvedValueOnce(createApiResponse([{ id: '1', value: 'active', label: 'Active' }]))
+      .mockResolvedValueOnce(createApiResponse([{ id: '1', value: 'active', label: 'Aktywny' }]))
+    const english = await client.fetchQuery(customerDictionaryQueryOptions('statuses', 0, undefined, 'en'))
+    const polish = await client.fetchQuery(customerDictionaryQueryOptions('statuses', 0, undefined, 'pl'))
+    expect(english.entries[0].label).toBe('Active')
+    expect(polish.entries[0].label).toBe('Aktywny')
+    expect(mockReadApiResultOrThrow).toHaveBeenNthCalledWith(2, '/api/customers/dictionaries/statuses?locale=pl', undefined, expect.any(Object))
+    client.clear()
   })
 })

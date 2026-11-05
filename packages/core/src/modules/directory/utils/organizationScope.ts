@@ -49,7 +49,8 @@ function buildOrgScopeCacheKey(parts: {
 }): string {
   const selected = parts.selectedOrgId ?? 'none'
   const requested = parts.requestedTenantId ?? 'none'
-  return `${ORG_SCOPE_CACHE_KEY_PREFIX}:${parts.userId}:${parts.effectiveTenantId}:${selected}:${requested}`
+  const namespace = parts.userId.startsWith('api_key:') ? `${ORG_SCOPE_CACHE_KEY_PREFIX}:delegated-v1` : ORG_SCOPE_CACHE_KEY_PREFIX
+  return `${namespace}:${parts.userId}:${parts.effectiveTenantId}:${selected}:${requested}`
 }
 
 // Tag builders are exported so the modules that own the "this user's scope
@@ -65,10 +66,11 @@ export function buildOrgScopeTenantCacheTag(tenantId: string): string {
   return `${ORG_SCOPE_CACHE_KEY_PREFIX}:tenant:${tenantId}`
 }
 
-function buildOrgScopeCacheTags(parts: { userId: string; effectiveTenantId: string }): string[] {
+function buildOrgScopeCacheTags(parts: { userId: string; effectiveTenantId: string; ownerUserId: string | null }): string[] {
   return [
     buildOrgScopeUserCacheTag(parts.userId),
     buildOrgScopeTenantCacheTag(parts.effectiveTenantId),
+    ...(parts.ownerUserId ? [buildOrgScopeUserCacheTag(parts.ownerUserId)] : []),
   ]
 }
 
@@ -488,6 +490,7 @@ export async function resolveOrganizationScopeForRequest({
     : null
 
   const userId = typeof auth.sub === 'string' && auth.sub.length > 0 ? auth.sub : null
+  const ownerUserId = auth.isApiKey && typeof auth.userId === 'string' && auth.userId.length > 0 ? auth.userId : null
   const ttlMs = resolveOrgScopeTtlMs()
   const cache = ttlMs > 0 ? resolveCacheFromContainer(container) : null
   const cacheKey = userId
@@ -532,7 +535,7 @@ export async function resolveOrganizationScopeForRequest({
       try {
         await crossRequestCache.set(cacheKey, baseScope, {
           ttl: ttlMs,
-          tags: buildOrgScopeCacheTags({ userId, effectiveTenantId }),
+          tags: buildOrgScopeCacheTags({ userId, effectiveTenantId, ownerUserId }),
         })
       } catch (err) {
         logger.warn('Cache write failed', { err })

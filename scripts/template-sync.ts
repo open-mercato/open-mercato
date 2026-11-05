@@ -45,6 +45,11 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     rel: 'scripts/dev-mcp.mjs',
   },
   {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-session-guard.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-session-guard.mjs'),
+    rel: 'scripts/dev-session-guard.mjs',
+  },
+  {
     // `scripts/dev.mjs` imports this to keep its optional Docker probe bounded,
     // so a scaffolded app fails to boot `yarn dev` without it.
     sourceFile: path.join(ROOT, 'scripts', 'dev-docker-availability.mjs'),
@@ -70,6 +75,11 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     sourceFile: path.join(ROOT, 'scripts', 'dev-cache-purge.mjs'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-cache-purge.mjs'),
     rel: 'scripts/dev-cache-purge.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-port-preflight.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-port-preflight.mjs'),
+    rel: 'scripts/dev-port-preflight.mjs',
   },
   {
     sourceFile: path.join(ROOT, 'scripts', 'dev-inotify-limits.mjs'),
@@ -165,6 +175,13 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     sourceFile: path.join(ROOT, 'apps', 'mercato', 'scripts', 'dev-runtime-log-policy.mjs'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-log-policy.mjs'),
     rel: 'scripts/dev-runtime-log-policy.mjs',
+  },
+  {
+    // Shared Docker preflight: the monorepo starter and the generated app's
+    // `yarn setup` / `yarn infra:up` (scripts/infra.mjs) run the same logic.
+    sourceFile: path.join(ROOT, 'packages', 'starter', 'src', 'infra-preflight.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-infra-preflight.mjs'),
+    rel: 'scripts/dev-infra-preflight.mjs',
   },
   {
     sourceFile: path.join(ROOT, 'docker', 'redis', 'redis.conf'),
