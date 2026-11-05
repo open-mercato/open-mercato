@@ -207,7 +207,10 @@ describe('module-facts BC resolve guard (T2)', () => {
     // contributions all render a resolved Source cell, and contribution
     // resolutions render as their own source-linked section — plus the additive
     // `channel_discord` module's own render, per the growth note above.
-    expect(markdownBytes).toBeLessThan(2_100_000)
+    // Raised again for the exact-decimal money contract (#7324): `main` measured
+    // all four measures within 0.2% of their caps, and this branch tipped
+    // markdown to 2,100,218. Headroom kept at the ~1.15 ratio above.
+    expect(markdownBytes).toBeLessThan(2_420_000)
     // Raised even though it was still passing: at 2,050,000 it sat 3.2% above
     // the union measurement, and a cap that close has stopped detecting blow-ups
     // and started rejecting the next additive module — the failure mode the note
