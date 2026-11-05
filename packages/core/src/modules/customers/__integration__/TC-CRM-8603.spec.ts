@@ -3,8 +3,9 @@ import { test as base, expect, type APIRequestContext, type Locator, type Page, 
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { createUserFixture, setUserAclVisibility } from '@open-mercato/core/helpers/integration/authFixtures'
 import { createCompanyFixture, createPersonFixture } from '@open-mercato/core/helpers/integration/crmFixtures'
-import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures'
-import { createInteractionFixture, listInteractionsInWindow } from './helpers/calendarFixtures'
+import { getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import { createInteractionFixture, listInteractionsInWindow, type InteractionFixtureInput } from './helpers/calendarFixtures'
 import { authenticateCrm, cleanupCrmFixtures } from './helpers/umesFixtures'
 
 const scheduledAt = '2026-11-03T23:30:00.000Z'
@@ -49,6 +50,7 @@ async function withCalendar(
   kind: CustomerKind,
   populated: boolean,
   run: (calendar: CalendarContext) => Promise<void>,
+  interactionFields: Partial<Omit<InteractionFixtureInput, 'entityId' | 'scheduledAt'>> = {},
 ): Promise<void> {
   const { request } = account
   const token = await authenticateCrm(page, request)
@@ -71,6 +73,7 @@ async function withCalendar(
       interactionId = await createInteractionFixture(request, token, {
         entityId, interactionType: 'meeting', title: 'Calendar meeting',
         scheduledAt: new Date(scheduledAt), status: 'done', durationMinutes: 30,
+        ...interactionFields,
       })
       ownRecord('/api/customers/interactions', interactionId)
     }
@@ -272,4 +275,60 @@ for (const kind of ['companies', 'people'] as const) {
       await assertBounds(card)
     })
   })
+
+  for (const concurrentEdit of [false, true]) {
+    test(`TC-CRM-8730 ${kind} preserves untouched activity fields${concurrentEdit ? ' after a stale edit and retry' : ''}`, async ({ page, calendarAccount }) => {
+      await page.setViewportSize({ width: 390, height: 844 })
+      await withCalendar(page, calendarAccount, kind, true, async ({ card, entityId, interactionId, token }) => {
+        const readRecord = async (): Promise<Record<string, unknown> & { updatedAt: string }> => {
+          const params = new URLSearchParams({ entityId, pageSize: '100' })
+          const response = await apiRequest(calendarAccount.request, 'GET', `/api/customers/interactions?${params}`, { token })
+          expect(response.status()).toBe(200)
+          const body = await readJsonSafe<{ items?: Array<Record<string, unknown>> }>(response)
+          const record = body?.items?.find((item) => item.id === interactionId)
+          if (!record || typeof record.updatedAt !== 'string') throw new Error('Owned interaction version is missing')
+          return { ...record, updatedAt: record.updatedAt }
+        }
+        const initial = await readRecord()
+        expect(initial).toMatchObject({ allDay: null, reminderMinutes: null, visibility: null, location: 'Original room' })
+        await card.getByText('Calendar meeting', { exact: true }).click()
+        const dialog = page.getByRole('dialog', { name: 'Edit activity' })
+        await dialog.getByPlaceholder('Add location or meeting link...').fill('Updated room')
+        let beforeSave = initial
+
+        if (concurrentEdit) {
+          const concurrent = await apiRequest(calendarAccount.request, 'PUT', '/api/customers/interactions', {
+            token,
+            headers: { [OPTIMISTIC_LOCK_HEADER_NAME]: initial.updatedAt },
+            data: { id: interactionId, title: 'Concurrent title' },
+          })
+          expect(concurrent.status()).toBe(200)
+          beforeSave = await readRecord()
+          expect(beforeSave.updatedAt).not.toBe(initial.updatedAt)
+          expect(beforeSave).toEqual({ ...initial, title: 'Concurrent title', updatedAt: beforeSave.updatedAt })
+          const rejected = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/customers/interactions' && response.request().method() === 'PUT')
+          await dialog.getByRole('button', { name: 'Update activity', exact: true }).click()
+          const rejection = await rejected
+          expect(rejection.status()).toBe(409)
+          expect(rejection.request().headers()[OPTIMISTIC_LOCK_HEADER_NAME]).toBe(initial.updatedAt)
+          expect(await readRecord()).toEqual(beforeSave)
+          await page.reload()
+          await page.getByRole('tab', { name: kind === 'companies' ? /^Activity log(?: \d+)?$/ : 'Activity', exact: true }).click()
+          await card.getByText('Concurrent title', { exact: true }).click()
+          await dialog.getByPlaceholder('Add location or meeting link...').fill('Updated room')
+        }
+
+        const savedResponse = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/customers/interactions' && response.request().method() === 'PUT')
+        await dialog.getByRole('button', { name: 'Update activity', exact: true }).click()
+        const response = await savedResponse
+        expect(response.status()).toBe(200)
+        expect(response.request().headers()[OPTIMISTIC_LOCK_HEADER_NAME]).toBe(beforeSave.updatedAt)
+        const payload = response.request().postDataJSON() as Record<string, unknown>
+        for (const field of ['allDay', 'reminderMinutes', 'visibility']) expect(payload).not.toHaveProperty(field)
+        const saved = await readRecord()
+        expect(saved.updatedAt).not.toBe(beforeSave.updatedAt)
+        expect(saved).toEqual({ ...beforeSave, location: 'Updated room', updatedAt: saved.updatedAt })
+      }, { allDay: null, reminderMinutes: null, visibility: null, location: 'Original room' })
+    })
+  }
 }
