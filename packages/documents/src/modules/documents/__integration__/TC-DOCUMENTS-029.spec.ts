@@ -53,6 +53,11 @@ async function folderRequest(
   })
 }
 
+function expectUpdatedAt(value: unknown): string {
+  expect(typeof value === 'string' && !Number.isNaN(Date.parse(value)), 'folder create response should include updatedAt').toBe(true)
+  return value as string
+}
+
 async function createFolder(
   request: APIRequestContext,
   scope: CapScope,
@@ -63,7 +68,7 @@ async function createFolder(
   expect(response.status(), `create folder ${name}`).toBe(201)
   return {
     id: expectId(body?.id, 'folder create response should include id'),
-    updatedAt: expectId(body?.updatedAt, 'folder create response should include updatedAt'),
+    updatedAt: expectUpdatedAt(body?.updatedAt),
   }
 }
 
@@ -191,7 +196,7 @@ test.describe('TC-DOCUMENTS-029: folder delete undo respects the organization fo
       await page.getByRole('menuitem', { name: /delete/i }).click()
       const deleteResponse = page.waitForResponse((response) =>
         response.url().includes(FOLDERS_PATH) && response.request().method() === 'DELETE')
-      await page.getByRole('alertdialog').getByRole('button', { name: /delete|confirm/i }).last().click()
+      await page.getByRole('alertdialog').getByRole('button', { name: 'Confirm', exact: true }).click()
       expect((await deleteResponse).status()).toBe(200)
       await expect(page.getByRole('button', { name: folderName, exact: true })).toHaveCount(0)
 
@@ -200,7 +205,10 @@ test.describe('TC-DOCUMENTS-029: folder delete undo respects the organization fo
       const undoResponse = page.waitForResponse((response) =>
         response.url().includes(UNDO_PATH) && response.request().method() === 'POST')
       await page.getByRole('button', { name: /^undo$/i }).first().click()
-      expect((await undoResponse).status()).toBe(422)
+      const undoResult = await undoResponse
+      const undoBody = await undoResult.json() as { error?: string }
+      expect(undoResult.status()).toBe(422)
+      expect(undoBody.error).toBe(FOLDER_LIMIT_MESSAGE)
       await expect(page.getByText(FOLDER_LIMIT_MESSAGE).first()).toBeVisible({ timeout: 15_000 })
       expect(await folderDeletedAt(scope, folder.id)).not.toBeNull()
     } finally {
