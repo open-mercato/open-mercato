@@ -11,7 +11,7 @@ import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } fro
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { AttachmentsSection, ErrorMessage, LoadingMessage, RecordNotFoundState, type SectionAction } from '@open-mercato/ui/backend/detail'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -56,6 +56,7 @@ const logger = createLogger('customers')
 export default function CompanyDetailV2Page({ params }: { params?: { id?: string } }) {
   const id = params?.id
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const searchParams = useSearchParams()
   const pathname = usePathname()
@@ -392,7 +393,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
       try {
         let payload: Record<string, unknown>
         try {
-          payload = buildCompanyEditPayload(values, organizationId)
+          payload = buildCompanyEditPayload(values, organizationId, locale)
         } catch (err) {
           if (err instanceof Error) {
             if (err.message === 'DISPLAY_NAME_REQUIRED') {
@@ -413,7 +414,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
         setIsSaving(false)
       }
     },
-    [loadData, organizationId, t],
+    [loadData, locale, organizationId, t],
   )
 
   // Save handler (triggers form submit via ref)
