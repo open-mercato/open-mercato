@@ -98,8 +98,11 @@ export function catalogLineFor(version: string, lines: readonly string[]): strin
   const match = /^(\d+)\.(\d+)\.\d+(?:-([0-9A-Za-z.-]+))?$/.exec(version.trim())
   if (!match) return null
   const prerelease = match[3] ?? ''
-  if (/(^|[.-])develop([.-]|$)/.test(prerelease)) return lines.includes('next') ? 'next' : null
   const key = `${Number(match[1])}.${Number(match[2])}`
+  if (/(^|[.-])develop([.-]|$)/.test(prerelease)) return lines.includes('next') ? 'next' : null
+  // A canary previews a pull request: on a release branch its x.y line is in the catalog; on main it is not yet
+  // (main moves to the next minor at the release cut), so it runs the unreleased line like a develop snapshot.
+  if (/(^|[.-])canary([.-]|$)/.test(prerelease) && !lines.includes(key)) return lines.includes('next') ? 'next' : null
   return lines.includes(key) ? key : null
 }
 
@@ -139,9 +142,10 @@ export async function fetchPickerCatalog(options: {
  * never verified on an older line or on `next`.
  */
 export function installCommandFor(entry: CatalogModule, line: string, lines: readonly string[]): string | null {
-  const command = entry.installByLine?.[line]
-  if (command !== undefined) return command
-  return line === lines[0] ? entry.install : null
+  const command = entry.installByLine?.[line] ?? (line === lines[0] ? entry.install : null)
+  if (typeof command !== 'string' || !/^yarn mercato module (add|enable) \S/.test(command)) return null
+  if (/[;&|`$<>\\\r\n]/.test(command)) return null
+  return command
 }
 
 const verifiedOnLine = (index: PickerIndex, line: string): CatalogModule[] =>
