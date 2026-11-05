@@ -20,7 +20,9 @@ With [Node.js](https://nodejs.org/en/download) installed, one command does every
 npx @open-mercato/starter
 ```
 
-It clones the repo if needed, audits your machine (`doctor`, which expects Node 24), handles corporate proxies and TLS interception, generates `.env` and secrets, starts the infra containers, initializes the database and boots the supervised dev runtime. Re-running it resumes where it stopped. Inside a clone use `yarn om`. No Node at all? Use the no-admin bootstraps in [`packages/starter/platform/`](packages/starter/platform/) (`start.cmd` on Windows, `start.sh` on macOS and Linux). A container runtime ([Docker Desktop](https://www.docker.com/products/docker-desktop/) or [Rancher Desktop](https://rancherdesktop.io)) is detected and guided, never installed for you. See [`packages/starter/README.md`](packages/starter/README.md); the first run needs about 20 GB of free disk.
+Already inside a clone? Run `yarn setup` (the same starter as `yarn om up`). It checks Docker first, starts PostgreSQL, Redis, Meilisearch and OpenCode, waits until they are healthy, and only then initializes the database and starts the app. If Docker is missing, stopped or a port is taken, it stops and tells you what to fix. Using your own services instead of Docker? Point `.env` at them and run `yarn setup --no-infra`; it makes no Docker calls.
+
+The starter clones the repo if needed, audits your machine (`doctor`, which expects Node 24), handles corporate proxies and TLS interception, generates `.env` and secrets, starts the infra containers, initializes the database and boots the supervised dev runtime. Re-running it resumes where it stopped. Inside a clone use `yarn om`. No Node at all? Use the no-admin bootstraps in [`packages/starter/platform/`](packages/starter/platform/) (`start.cmd` on Windows, `start.sh` on macOS and Linux). A container runtime ([Docker Desktop](https://www.docker.com/products/docker-desktop/) or [Rancher Desktop](https://rancherdesktop.io)) is detected and guided, never installed for you. See [`packages/starter/README.md`](packages/starter/README.md); the first run needs about 20 GB of free disk.
 
 ### Manual steps (macOS and Linux)
 
@@ -48,7 +50,7 @@ Working with an AI coding agent in this repository? Run `yarn install-skills` af
 
 ### Running multiple persistent local instances
 
-To keep two long-lived local instances on the same PostgreSQL server, pass an optional database-name override to `yarn dev`, `yarn dev:greenfield` or `yarn setup`:
+To keep two long-lived local instances on the same PostgreSQL server, pass an optional database-name override to `yarn dev` or `yarn dev:greenfield` (in a generated app also `yarn setup`):
 
 ```bash
 yarn dev:greenfield --database-name=my_db     # explicit name; a .env update is offered (default yes)
@@ -97,6 +99,12 @@ This ensures design decisions are documented and the codebase remains well-under
 - Reference related issues or discussions; add screenshots or recordings for UI tweaks.
 - Tag maintainers early if you need design or architectural guidance.
 
+### Stabilization CI
+
+Use a same-repository branch under `stabilize/` (for example `stabilize/main-2026-11-05`) for a stabilization PR. CI automatically runs full typechecking, the full unit suite, and all 15 integration shards when that PR opens, reopens, or receives a new commit. Ordinary PRs retain affected scope; shared-code and workflow edits can still require broader validation. Existing pushes to `main` and release lines retain full validation.
+
+Label changes do not start or cancel CI. The legacy `ci-full` label no longer controls scheduling or scope, including on ordinary PRs. Use the stabilization branch convention for new stabilization work instead of relying on label timing or historical `fix/stabilize-*` branch names. A fork branch with the same prefix retains normal PR scope.
+
 ### Enterprise Module Contributions
 
 > [!IMPORTANT]
@@ -132,6 +140,19 @@ PRs do not publish npm canary packages automatically. Maintainers can publish pk
 
 The legacy npm canary snapshot path is still available for comparison by dispatching the `NPM Snapshot Preview` workflow manually with the PR number on a trusted same-repository PR branch. That workflow publishes real npm canary packages and runs standalone app integration against the exact snapshot, so use it only when pkg.pr.new previews are not enough evidence. Both preview workflows are restricted to same-repository PR branches.
 
+### Npm snapshot preview security setup
+
+Before enabling npm snapshot previews, a repository administrator and npm package owner must configure and verify these controls together:
+
+1. Create the **`npm-preview`** GitHub Environment in Settings → Environments. Require a maintainer reviewer, enable **Prevent self-review**, and disable **Allow administrators to bypass configured protection rules**. Under deployment branches and tags, select only the trusted `main` branch and allow no tags. Dispatch the workflow from `main`; the workflow checks out the separately resolved, pinned PR SHA after approval. Keep the `production` environment and its stable release approvals separate.
+2. Create a distinct, short-lived npm **granular access token** with read/write publishing access to the explicit public package names under `packages/*/package.json` (`private != true`), including the unscoped `create-mercato-app`. Exclude unrelated packages, whole-organization administration, and blanket access to all packages or scopes. Use only the noninteractive publishing/2FA permission required by the registry's current policy. Review the allowlist when a public package is added and rotate the token before expiration. See [npm's granular token permissions](https://docs.npmjs.com/about-access-tokens/).
+3. Store that distinct value as **`NPM_PREVIEW_TOKEN` only in `npm-preview` environment secrets**. Do not define it as a repository or organization secret, copy the stable `NPM_TOKEN`, or add a fallback to it. The workflow stops on a missing preview token before dependency installation. The stable release and trusted branch snapshot workflows retain their existing credentials.
+4. Record non-secret verification evidence on the security issue or fix PR: environment reviewers, self-review/bypass settings, allowed dispatch ref, environment-only secret placement, and the token's actual package allowlist, permission flags, owner, expiration, and rotation owner. Inspect grants in npm's token settings; a secret name or workflow reference does not prove registry scope. Never include the token value. Repository tests cannot establish these external settings.
+
+Before any PR code is checked out, the workflow checks the run's deployment approval history and requires an approver other than the PR author, dispatcher, or rerun initiator. An absent approval, an approval for another environment, or an unavailable review API stops the job. Use a **new workflow dispatch** for retries or a newer commit; **Re-run jobs** is refused so an approval from an earlier attempt cannot authorize a different snapshot. The reviewer must inspect the pinned SHA from `Resolve PR`, including install hooks and release scripts, before approving. GitHub's [environment configuration guide](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments) explains the required protection settings.
+
+Npm package write grants do **not** isolate versions or dist-tags: even a separate preview token for these package names can affect their stable versions and tags. Independent approval remains necessary. Before first use, maintainers must verify that unapproved and self-approved runs stop before checkout, then approve an intended same-repository SHA and confirm canary publication, provenance, and standalone integration. Only maintainers perform this live publishing acceptance check; local validation never publishes packages.
+
 ## Developing on Windows
 
 The fastest way to a working dev environment on Windows is the starter: double-click `packages\starter\platform\start.cmd` (no admin needed — it installs a portable, checksum-verified Node 24 and hands off to the cross-platform CLI), or run `npx @open-mercato/starter` if you already have Node. The starter audits the machine, handles corporate proxies and TLS interception (CA capture + provisioning into host tooling, image builds, and the container engine), and starts the stack; WSL2 and Docker Desktop / Rancher Desktop are detected and *proposed* with exact instructions — including a "hand this to IT" sheet from `yarn om doctor` — never installed behind your back. Hardware floor: 16 GB RAM recommended (12 GB minimum), ~20 GB free disk. On machines where host Node workloads are not allowed, use `npx @open-mercato/starter up --mode docker` for the fully containerized stack. Printable EN/PL manuals with troubleshooting live in [`docs/manuals/windows/`](docs/manuals/windows/); the docs site covers the [Windows monorepo path](https://docs.openmercato.com/installation/monorepo#windows) and the [WSL2-native guide](https://docs.openmercato.com/installation/wsl2).
@@ -154,7 +175,7 @@ release/v0.10.x                                     └─ 0.10.0 ─ 0.10.1 …
 
 Two channels ship packages to npm:
 
-- **Snapshots** — every push to `main` runs `Develop Snapshot Release`, publishing under the `develop` dist-tag (the name survives from the retired `develop` branch). Install them with `yarn add @open-mercato/core@develop` or `npx create-mercato-app@develop my-app`; all `@open-mercato/*` packages must use the same tag. Exact snapshot versions stay installable for debugging or rollback.
+- **Snapshots** — every push to `main` runs `Main Snapshot Release`, publishing under the `develop` dist-tag (the name survives from the retired `develop` branch). Install them with `yarn add @open-mercato/core@develop` or `npx create-mercato-app@develop my-app`; all `@open-mercato/*` packages must use the same tag. Exact snapshot versions stay installable for debugging or rollback.
 - **Stable releases** — the maintainer-run workflows below. Only maintainers run them; agents never do.
 
 ### The workflows

@@ -9,6 +9,13 @@
  *  - Alphabetically sorted keys
  *  - Key parity across all locales
  *
+ * Target locales:
+ *  - Modules outside `apps/` follow the platform set in `packages/shared/src/lib/i18n/config.ts`.
+ *  - Modules inside `apps/<app>/` follow that app's own set: the locale files in
+ *    `apps/<app>/src/i18n/`, which is how an app adds or drops a language
+ *    (see `.ai/specs/2026-09-03-extensible-locale-set.md`). An app without that
+ *    directory follows the platform set.
+ *
  * Usage:
  *   tsx scripts/i18n-check-sync.ts          # Report only
  *   tsx scripts/i18n-check-sync.ts --fix    # Auto-fix: normalize format, add missing keys, remove extras
@@ -20,9 +27,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { globSync } from 'glob'
+import { createTargetLocaleResolver } from './lib/i18n-locale-set.mjs'
 
 const REFERENCE_LOCALE = 'en'
-const TARGET_LOCALES = ['pl', 'es', 'de', 'ko']
 const MAX_KEYS_TO_SHOW = 10
 
 const __filename_ = typeof __filename !== 'undefined' ? __filename : fileURLToPath(import.meta.url)
@@ -93,8 +100,18 @@ function main() {
     process.exit(0)
   }
 
+  const localeResolver = createTargetLocaleResolver({ root: ROOT, referenceLocale: REFERENCE_LOCALE })
+  const scopes = new Map<string, string[]>()
+  for (const enPath of enFiles) {
+    const { scope, locales } = localeResolver.describeScope(enPath)
+    scopes.set(scope, locales)
+  }
+
   const mode = fixMode ? cyan('[fix]') : '[check]'
-  console.log(`${mode} Checking translation sync across ${TARGET_LOCALES.length + 1} locales (${REFERENCE_LOCALE}, ${TARGET_LOCALES.join(', ')})...`)
+  console.log(`${mode} Checking translation sync against reference locale ${REFERENCE_LOCALE}...`)
+  for (const [scope, locales] of scopes) {
+    console.log(dim(`  ${scope}: ${locales.join(', ')}`))
+  }
   console.log(dim(`Found ${enFiles.length} modules with translations\n`))
 
   let totalIssues = 0
@@ -130,7 +147,7 @@ function main() {
 
     const missingFiles: string[] = []
 
-    for (const locale of TARGET_LOCALES) {
+    for (const locale of localeResolver.targetsFor(enPath)) {
       const localePath = path.join(i18nDir, `${locale}.json`)
 
       if (!fs.existsSync(localePath)) {

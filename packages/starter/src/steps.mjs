@@ -10,7 +10,8 @@ import { CAPTURED_CA_BUNDLE, DEFAULT_OPENCODE_BASE_IMAGE, OPENCODE_SERVICE_IMAGE
 import { checkBuildToolchain, checkContainerRuntime, checkGit, checkNodeVersion, checkWsl2, detectHostGateway } from './doctor.mjs'
 import { ensureEnvFiles } from './env-setup.mjs'
 import { addEnvValue, readEnvValue } from './env-file.mjs'
-import { ensureMcpSharedDir, infraUp } from './infra.mjs'
+import { describeInfraProblem, startInfra } from './infra.mjs'
+import { findUnhealthyServices } from './infra-preflight.mjs'
 import { ensureLlmProvider } from './providers.mjs'
 import { color, formatDuration, guideBox, statusLine, stepHeader } from './ui.mjs'
 
@@ -129,6 +130,7 @@ export function migrationsFingerprint(repoRoot) {
 // probe cannot run (postgres not up yet, compose unavailable) — callers fall
 // back to marker-only behavior.
 export function readAppliedMigrationModules(ctx, { runComposeImpl = runCompose } = {}) {
+  if (ctx.flags?.noInfra) return null
   const dbUrl = readEnvValue(path.join(ctx.repoRoot, 'apps', 'mercato', '.env'), 'DATABASE_URL') ?? ''
   const dbName = dbUrl.split('/').pop()?.split('?')[0]?.trim() || 'open-mercato'
   let result
@@ -168,6 +170,7 @@ export function readAppliedMigrationModules(ctx, { runComposeImpl = runCompose }
 // Returns 'ok', 'auth-failed', or null when no verdict is possible (URL
 // unparsable, compose unavailable, postgres not managed here).
 export function probePostgresCredentials(ctx, { runComposeImpl = runCompose } = {}) {
+  if (ctx.flags?.noInfra) return null
   const dbUrl = readEnvValue(path.join(ctx.repoRoot, 'apps', 'mercato', '.env'), 'DATABASE_URL') ?? ''
   let parsed
   try {
@@ -199,6 +202,7 @@ export function probePostgresCredentials(ctx, { runComposeImpl = runCompose } = 
 // existence in one round trip. Returns true (seeded), false (empty/no table),
 // or null when the probe cannot run.
 export function databaseIsInitialized(ctx, { runComposeImpl = runCompose } = {}) {
+  if (ctx.flags?.noInfra) return null
   const dbUrl = readEnvValue(path.join(ctx.repoRoot, 'apps', 'mercato', '.env'), 'DATABASE_URL') ?? ''
   const dbName = dbUrl.split('/').pop()?.split('?')[0]?.trim() || 'open-mercato'
   let result
@@ -249,7 +253,7 @@ export function yarnInvocation(ctx, args) {
 
 function runYarn(ctx, args) {
   const invocation = yarnInvocation(ctx, args)
-  const status = runStreamingSync(invocation.command, invocation.args, { cwd: ctx.repoRoot, env: ctx.env })
+  const status = (ctx.runStreamingImpl ?? runStreamingSync)(invocation.command, invocation.args, { cwd: ctx.repoRoot, env: ctx.env })
   if (status !== 0) {
     throw new Error(`yarn ${args.join(' ')} failed (exit ${status}) — fix the error above and re-run; completed steps are skipped.`)
   }
@@ -312,7 +316,7 @@ export const containerRuntimeStep = {
     if (wsl && wsl.level !== 'pass') guide.push(`WSL2 first: ${wsl.detail}`, ...wsl.guide, '')
     guide.push(...runtime.guide)
     guide.push('', 'Re-run this starter once the runtime is up — every completed step is skipped.')
-    if (ctx.mode === 'hybrid') guide.push('No container runtime at all? `up --no-infra` starts just the app against services you point .env at.')
+    if (ctx.mode === 'hybrid') guide.push('No container runtime at all? `yarn setup --no-infra` (or `yarn om up --no-infra`) starts just the app against services you point .env at, without any Docker call.')
     throw new StepBlocked(this.id, guide)
   },
 }
@@ -539,26 +543,34 @@ export const infraUpStep = {
   title: 'Infra containers (postgres, redis, meilisearch, opencode)',
   appliesTo: (ctx) => ctx.mode === 'hybrid' && !ctx.flags.noInfra,
   async check(ctx) {
-    const ps = runCompose(ctx.repoRoot, ['ps', '--format', 'json'], { stdio: 'pipe' })
+    const ps = (ctx.runComposeImpl ?? runCompose)(ctx.repoRoot, ['ps', '--format', 'json'], { stdio: 'pipe' })
     const services = parseComposePsOutput(ps.stdout ?? '')
-    const running = new Set(services.filter((entry) => entry.State === 'running').map((entry) => entry.Service))
     const required = ['postgres', 'redis', 'meilisearch', 'opencode']
-    const missing = required.filter((service) => !running.has(service))
+    // "running" is not enough: a container whose healthcheck is still
+    // `starting` (or `unhealthy`) must go through apply, whose `up --wait`
+    // blocks until it is healthy, before the database step touches postgres.
+    const notReady = findUnhealthyServices(services, required)
+    const missing = notReady.map((entry) => entry.service)
     ctx.infraMissing = missing
-    return { ok: missing.length === 0 && !ctx.flags.rebuild, detail: missing.length === 0 ? 'all infra containers running' : `starting: ${missing.join(', ')}` }
+    const detail = missing.length === 0
+      ? 'all infra containers running and healthy'
+      : `starting: ${notReady.map(({ service, state, health }) => (state === 'running' && health ? `${service} (${health})` : service)).join(', ')}`
+    return { ok: missing.length === 0 && !ctx.flags.rebuild, detail }
   },
   async apply(ctx) {
-    const ports = resolveStackPorts(ctx.repoRoot)
-    ensureMcpSharedDir(ctx.repoRoot)
-    ensureOpencodeImage(ctx)
-    const status = infraUp(ctx.repoRoot, { build: false, profiles: ctx.flags.profiles })
-    if (status !== 0) {
-      const hints = ['docker compose up failed — see the output above. Re-running resumes from this step.']
+    const prepareOpencodeImage = ctx.ensureOpencodeImageImpl ?? ensureOpencodeImage
+    const outcome = await (ctx.startInfraImpl ?? startInfra)(ctx.repoRoot, {
+      profiles: ctx.flags.profiles,
+      log: ctx.log,
+      beforeUp: () => prepareOpencodeImage(ctx),
+    })
+    if (!outcome.ok) {
+      const lines = describeInfraProblem(outcome.problem)
       if (ctx.tlsProbes?.some((entry) => entry.status === 'intercepted')) {
-        hints.push('TLS/certificate errors from the engine usually mean it does not trust the corporate CA yet: restart Docker Desktop (it re-imports the Windows certificate store) or Rancher Desktop (the starter wrote a provisioning script for it), then re-run.')
+        lines.push('  TLS/certificate errors from the engine usually mean it does not trust the corporate CA yet: restart Docker Desktop (it re-imports the Windows certificate store) or Rancher Desktop (the starter wrote a provisioning script for it), then re-run.')
       }
-      hints.push(`Port conflicts? Something else may own ${ports.postgres}/${ports.redis}/${ports.meilisearch}/${ports.opencode} — override the *_PORT vars in .env.`)
-      throw new Error(hints.join('\n'))
+      lines.push('  Re-running resumes from this step; database setup is not attempted until the infra is healthy.')
+      throw new Error(lines.join('\n'))
     }
   },
 }
@@ -634,7 +646,13 @@ export const databaseStep = {
       if (alreadyInitialized) {
         ctx.log('   database already initialized (existing data volume) — recording state, skipping first-run seed')
       } else {
-        runYarn(ctx, ['initialize'])
+        // --skip-if-initialized keeps re-runs non-destructive when no probe
+        // could tell (e.g. --no-infra against an external, already seeded
+        // database): init then keeps the data instead of aborting with a hint
+        // to run the destructive --reinstall. An emptied volume (dbReinitialize)
+        // has no users, so it seeds either way; the flag is left off there.
+        const initArgs = ctx.dbReinitialize ? ['initialize'] : ['initialize', '--', '--skip-if-initialized']
+        runYarn({ ...ctx, env: { ...ctx.env, OM_INIT_DEV_AUTOSTART: '1' } }, initArgs)
       }
       writeState(ctx.repoRoot, ctx.dbMarker, new Date().toISOString())
     }

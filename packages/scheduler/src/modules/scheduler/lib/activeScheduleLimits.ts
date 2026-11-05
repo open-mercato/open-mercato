@@ -36,6 +36,7 @@ export async function enforceTenantActiveScheduleLimit(
   const maxActiveSchedules = getMaxActiveSchedulesPerTenant()
   const activeScheduleCount = await em.count(ScheduledJob, {
     tenantId,
+    sourceType: 'user',
     isEnabled: true,
     deletedAt: null,
   })

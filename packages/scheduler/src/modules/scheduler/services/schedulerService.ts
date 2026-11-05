@@ -64,9 +64,11 @@ export class SchedulerService {
     // Check if schedule already exists
     let schedule = await em.findOne(ScheduledJob, { id: registration.id })
     const nextTenantId = registration.tenantId || null
+    const nextSourceType = registration.sourceType ?? 'module'
     const nextIsEnabled = registration.isEnabled !== undefined ? registration.isEnabled : (schedule?.isEnabled ?? true)
     const tenantChanged = schedule ? (schedule.tenantId || null) !== nextTenantId : false
-    const activatesSchedule = nextIsEnabled && (schedule?.isEnabled !== true || tenantChanged)
+    const changedToUserSource = schedule?.sourceType !== 'user' && nextSourceType === 'user'
+    const activatesSchedule = nextSourceType === 'user' && nextIsEnabled && (schedule?.isEnabled !== true || tenantChanged || changedToUserSource)
 
     await withTenantActiveScheduleSlot(em, nextTenantId, activatesSchedule, () => {
       if (schedule) {
@@ -84,7 +86,7 @@ export class SchedulerService {
         schedule.targetCommand = registration.targetCommand || null
         schedule.targetPayload = registration.targetPayload as Record<string, unknown> || null
         schedule.requireFeature = registration.requireFeature || null
-        schedule.sourceType = registration.sourceType || 'user'
+        schedule.sourceType = nextSourceType
         schedule.sourceModule = registration.sourceModule || null
         schedule.isEnabled = registration.isEnabled !== undefined ? registration.isEnabled : schedule.isEnabled
         schedule.nextRunAt = nextRunAt
@@ -106,7 +108,7 @@ export class SchedulerService {
           targetCommand: registration.targetCommand || null,
           targetPayload: registration.targetPayload as Record<string, unknown> || null,
           requireFeature: registration.requireFeature || null,
-          sourceType: registration.sourceType || 'module',
+          sourceType: nextSourceType,
           sourceModule: registration.sourceModule || null,
           isEnabled: registration.isEnabled !== undefined ? registration.isEnabled : true,
           nextRunAt,
@@ -176,7 +178,7 @@ export class SchedulerService {
       throw new Error(`Schedule not found: ${scheduleId}`)
     }
 
-    const activatesSchedule = changes.isEnabled === true && schedule.isEnabled !== true
+    const activatesSchedule = schedule.sourceType === 'user' && changes.isEnabled === true && schedule.isEnabled !== true
 
     const scheduleChanged = changes.scheduleType !== undefined || changes.scheduleValue !== undefined || changes.timezone !== undefined
     const nextRunAt = scheduleChanged
