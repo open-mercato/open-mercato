@@ -108,6 +108,7 @@ export function useTimelinePermissions(): TimelinePermissions {
   const query = useQuery<string[]>({
     queryKey: ['customers', 'deals', 'timeline-features', `scope:${scopeVersion}`],
     staleTime: 300_000,
+    placeholderData: (previous) => previous,
     queryFn: async () => {
       const call = await apiCall<{ granted?: string[] }>('/api/auth/feature-check', {
         method: 'POST',

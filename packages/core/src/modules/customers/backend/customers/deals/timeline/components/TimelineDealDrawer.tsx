@@ -177,6 +177,9 @@ export function TimelineDealDrawer({
 
   const previewItem = initialItem && initialItem.id === dealId ? initialItem : null
   const deal: DealDrawerDeal | null = state.deal ?? (previewItem ? itemToPreview(previewItem) : null)
+  const stageLabel = deal
+    ? deal.stages.find((stage) => stage.id === deal.pipelineStageId)?.label ?? deal.pipelineStage
+    : null
   const currentDealId = deal?.id ?? null
 
   const { runMutation, retryLastMutation } = useGuardedMutation<DrawerMutationContext>({
@@ -434,7 +437,7 @@ export function TimelineDealDrawer({
                     </SummaryRow>
                     <SummaryRow label={t('customers.deals.timeline.drawer.summary.stage', 'Stage')}>
                       <span className="truncate">
-                        {deal.pipelineStage ?? t('customers.deals.timeline.drawer.summary.noStage', 'No stage')}
+                        {stageLabel ?? t('customers.deals.timeline.drawer.summary.noStage', 'No stage')}
                       </span>
                       <StatusBadge variant={STATUS_VARIANT[statusKind]} dot>
                         {statusLabels[statusKind]}
