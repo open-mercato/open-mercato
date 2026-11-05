@@ -21,17 +21,23 @@ No MCP delegation/policy redesign, trace signature changes, relation-options API
 2.1 Demonstrate failure before/fix after, run targeted security tests and ordered configured validation gate.
 2.2 Recheck source/claim deduplication, publish evidence, obtain independent review and finalize the same PR.
 
+## Verification evidence
+
+Runner: local. Immutable pinned-Yarn install passed with optional native-build warnings. New unit regressions against main: 2 failed, 28 passed; patched focused matrix: 10 suites, 118 tests passed. Scoped ESLint exit0 (existing pages-directory warning). Full ordered gate and managed ephemeral integration running.
+
 ## Risks
 Concurrency claims must use refreshed database state under lock, preserve owner/tenant/organization filters and prevent cancellation/expiry from overwriting the winner. Duplicate requests may return the current in-flight result before completion. No automatic retry of crashed execution. Keep draft if verification is incomplete.
 
 ## Progress
+
+PR: #8740
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Exclusive confirmation
 
 - [x] 1.1 Add regression coverage and a locked expected-state transition; only the winner invokes the handler. — d441ecf5a9
-- [ ] 1.2 Add self-contained concurrent confirmation integration coverage and document the existing approval lifecycle.
+- [x] 1.2 Add self-contained concurrent confirmation integration coverage and document the existing approval lifecycle. — f16bc3c446
 
 ### Phase 2: Verification and review
 
