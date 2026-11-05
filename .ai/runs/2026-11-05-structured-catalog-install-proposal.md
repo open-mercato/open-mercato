@@ -34,12 +34,14 @@ Documentation-only gate: manual code-grounded review, `git diff --check`, local 
 
 ## Progress
 
+PR: #8775
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Ground and draft the proposal
 
-- [ ] 1.1 Trace the current picker, selection plan, and CLI installer; record scope and autonomous defaults.
-- [ ] 1.2 Write the structured-installation specification, compatibility bridge, acceptance criteria, and implementation/test breakdown; cross-link existing documentation.
+- [x] 1.1 Trace the current picker, selection plan, and CLI installer; record scope and autonomous defaults. — 5f2f13da7
+- [x] 1.2 Write the structured-installation specification, compatibility bridge, acceptance criteria, and implementation/test breakdown; cross-link existing documentation. — 5f2f13da7
 
 ### Phase 2: Verify and hand off
 
