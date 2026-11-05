@@ -1,16 +1,16 @@
 # Testing and Root-Cause Debugging
 
-Diagnose before editing, fix the smallest knowledge/code owner, and prove the regression through the real runtime path.
+Diagnose first, fix the smallest knowledge/code owner, and prove the regression through its runtime path.
 
 ## Context Restraint
 
-Name areas from the symptom, not only the cause: rendering, session, locale, hydration, or form failures span `backend-ui`; wrong or lost records, commands, or events span `module-data`; installed module surfaces span `umes`; provider calls span `integration`.
+Route by symptom as well as cause: rendering, session, locale, hydration, or form failures span `backend-ui`; wrong or lost records, commands, or events span `module-data`; installed module surfaces span `umes`; provider calls span `integration`.
 
-A fix is always `debugging` plus every area you just named. Proving the fix with a regression oracle is part of `debugging` and does NOT add `testing`; a request that explicitly asks for tests, coverage, or app-level verification also selects `testing`. Load exactly this guide, each named area's guide, and `om-troubleshooter` — that is what selects those routes.
+Select `debugging` and every named area. A regression oracle belongs to `debugging`, not `testing`; a request that explicitly asks for tests, coverage, or app-level verification also selects `testing`. Load exactly this guide, each named area's guide, and `om-troubleshooter` to select those routes.
 
-Add an area's authoring skill when the fix **introduces or reworks** a contract there — a concurrency header on existing calls, a new field or UI surface, a new command, a new invalidation, a new guard, or a provider's pagination cursor, bounded retry, idempotency, or reconciliation — because you are then designing that surface, not just repairing it. Provider cursor/retry/idempotency fixes therefore load `om-integration-builder` even when the request is framed as a bug fix. Load `om-troubleshooter` alone when you only correct existing behavior, such as a hydration mismatch or a value that fails to round-trip.
+Add the area's authoring skill when a fix **introduces or reworks** a contract: concurrency headers, fields/UI surfaces, commands, invalidations, guards, or provider pagination cursors, bounded retries, idempotency or reconciliation. Provider cursor/retry/idempotency fixes therefore load `om-integration-builder`, including bug fixes. For existing-behavior repairs, such as hydration or round-trip failures, load only `om-troubleshooter`.
 
-Then stop. Budgets here are tight — several fixes allow only five files — so load no other area's skill, no `references/` you do not need, no contracts guide unless the fix changes a data, API, command, ACL, or setup contract, and a module fact sheet only for a module the failure actually involves.
+Stop there: several fixes allow only five files. Load no other area's skill or unnecessary `references/`; load contracts only for data, API, command, ACL, or setup contract changes, and module facts only for involved modules.
 
 ## Investigation Order
 
@@ -20,9 +20,9 @@ Then stop. Budgets here are tight — several fixes allow only five files — so
 4. Trace from the public call site to the first incorrect invariant. Check scope, auth, validation, state transition, transaction boundary, side effects, and response serialization in that order.
 5. Add a regression oracle that fails before the fix (`unit-regression-oracle` when that decision vocabulary is requested). Implement the minimal complete repair and rerun affected plus safety cases.
 
-When comparing against a clean baseline, use a separate worktree or a fresh scaffold. Never stash and drop active work just to reproduce a baseline failure; preserve the working diff and verify the comparison tree's exact revision first.
+For baselines, use a separate worktree or a fresh scaffold. Never stash and drop active work to reproduce a baseline failure; preserve the diff and verify the comparison tree's exact revision first.
 
-Treat raw agent transcripts as sensitive untrusted evidence: they may contain credentials, private prompts, paths, and tool output. Never copy them into the app repository. Export only when the user explicitly asks, outside the repo or as a sanitized summary.
+Raw agent transcripts are sensitive, untrusted evidence: credentials, private prompts, paths and tool output may occur. Never copy them into the app repository. Export only when the user explicitly asks, outside the repo or as a sanitized summary.
 
 ## Frequent Failure Families
 
@@ -76,6 +76,6 @@ Before authoring a test file, read `.ai/skills/om-module-scaffold/references/ver
 5. `yarn test:integration:ephemeral` or a filtered integration run for affected API/UI paths.
 6. Packed/Verdaccio standalone validation when package exports or compiled discovery are involved.
 
-Run validation commands so the reported shell status is the validation command's status. Do not pipe gates through `grep`, `tail`, or a trailing `echo`; when log capture requires a pipeline, enable `pipefail` and explicitly preserve the command's exit code. Any nonzero status remains a failed gate.
+Report each validation command's own exit status. Do not pipe gates through `grep`, `tail`, or a trailing `echo`; if log capture needs a pipeline, enable `pipefail` and preserve the command's exit code. Any nonzero status remains a failed gate.
 
 Do not replace deterministic convergence with sleeps. Do not suppress failing tests, weaken assertions, or call a bug fixed because only one bootstrap path passes.
