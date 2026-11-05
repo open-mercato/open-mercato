@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { useQueryClient, type QueryKey } from '@tanstack/react-query'
+import { useQueryClient, type QueryClient, type QueryKey } from '@tanstack/react-query'
 import { apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
@@ -183,6 +183,15 @@ type RescheduleMutationContext = {
 
 const RESCHEDULE_CONTEXT_ID = 'customers-deals-timeline:reschedule'
 
+export function writeTimelineCacheLocally(
+  queryClient: QueryClient,
+  key: QueryKey,
+  data: DealTimelineResponse | undefined,
+): void {
+  const updatedAt = queryClient.getQueryState(key)?.dataUpdatedAt
+  queryClient.setQueryData(key, data, updatedAt ? { updatedAt } : undefined)
+}
+
 export function useRescheduleDeal(queryKey: QueryKey) {
   const t = useT()
   const queryClient = useQueryClient()
@@ -205,7 +214,7 @@ export function useRescheduleDeal(queryKey: QueryKey) {
         {
           queryKey,
           getData: (key) => queryClient.getQueryData<DealTimelineResponse>(key),
-          setData: (key, data) => queryClient.setQueryData(key, data),
+          setData: (key, data) => writeTimelineCacheLocally(queryClient, key, data),
           cancel: (key) => queryClient.cancelQueries({ queryKey: key }),
           send: ({ item, expectedCloseAt }) =>
             runMutation({

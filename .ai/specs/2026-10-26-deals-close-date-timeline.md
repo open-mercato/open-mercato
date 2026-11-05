@@ -188,7 +188,7 @@ No new entities and no migrations.
   - **Dropped params:** `dealListQuerySchema` is `.passthrough()`, so the route builds the object passed to `buildDealListFilters` from the parsed subset above only. Close-date params (`expectedCloseAtFrom`/`To`, `hasExpectedCloseAt`), `isOverdue`, and the advanced-filter tree (`filter[...]`) never reach the builder; the window bounds close dates.
   - **Merging with the builder's output:** `buildDealListFilters` can already set `filters.expected_close_at` and `filters.status`. The per-column `[from, to)` window (`$gte`/`$lt`) and the `excludeClosed` `$nin` are **merged** into the existing operator objects for those keys (or wrapped in `$and` when an operator would collide), never assigned over them. A unit test asserts that a `status` filter from the builder survives `excludeClosed` and that the window doesn't replace a builder-set `expected_close_at` condition.
   - **`bucket`:** `'week' | 'month' | 'quarter'`, default `'week'`.
-  - **`from`:** `YYYY-MM-DD`. Defaults to the start of the bucket before the current one: last week, the current month, or the current quarter. Any value is aligned down to its bucket start.
+  - **`from`:** `YYYY-MM-DD`. Defaults to the start of last week for week columns, and to the start of the current month or quarter for month and quarter columns. Any value is aligned down to its bucket start.
   - **`columns`:** integer 1–8, default 5 for weeks and 4 for months and quarters.
   - **`groupBy`:** `'owner' | 'stage'`, default `'owner'`.
   - **`perCell`:** integer 1–10, default 3.
@@ -216,7 +216,7 @@ No new entities and no migrations.
         "id": "uuid", "title": "LIMS migration", "status": "open",
         "valueAmount": 91000, "valueCurrency": "EUR", "probability": 65, // valueAmount: number | null
         "expectedCloseAt": "2026-11-02",              // UTC calendar date
-        "pipelineId": "uuid", "pipelineStageId": "uuid",
+        "pipelineId": "uuid", "pipelineStageId": "uuid", "pipelineStage": "Qualified", // pipelineStage: the deal's stage label text, string | null
         "ownerUserId": "uuid|null", "updatedAt": "2026-10-23T09:12:44.120Z",
         "primaryCompany": { "id": "uuid", "label": "Veridian Labs" }, // or null
         "primaryPerson": { "id": "uuid", "label": "Ingrid Malmberg" }   // or null; first linked person
@@ -236,7 +236,7 @@ No new entities and no migrations.
 }
 ```
 
-- **`scopeHasDeals`:** one `LIMIT 1` existence query on `customer_deals` with only the org/tenant scope and soft delete applied. It lets the page tell a new organization (first-run state) apart from one whose deals are all closed, undated, outside the window or filtered out.
+- **`scopeHasDeals`:** one 1-row query on `customer_deals` with only the org/tenant scope and soft delete applied. The query engine always runs its capped count probe first (up to `OM_LIST_COUNT_CAP` + 1 rows) and then the 1-row select; the engine has no option to skip the probe. It lets the page tell a new organization (first-run state) apart from one whose deals are all closed, undated, outside the window or filtered out.
 - **Cell-mode response:** `{ "lane": "uuid|__unassigned|__nostage:<pipelineId>", "column": 1, "items": [ /* same item shape */ ], "total": 5, "page": 1, "pageSize": 50, "totalPages": 1, "countsCapped": false }`. The items use the same ordering as the grid.
 - **Capped counts:** each count carries its own flag (`columns[].countCapped`, `overdueBefore.countCapped`, `undatedCountCapped`), so one capped count never marks the others as floors. `countsCapped` is the aggregate.
 
@@ -596,7 +596,7 @@ Every pass and side query goes through the Map route's scope resolution. Company
 There are no migrations; the routes and the param are additive. Rolling back means removing the page and route, and saved timeline perspectives become inert rows.
 
 ### Operational Risks
-Endpoint cost: the filter build runs once. Each column is one light query of up to 300 rows plus its count probe, so the worst case is 8 columns × 2 = 16 light statements, run two columns at a time. After the column passes come five side queries (overdue, undated, previous, next, scope), also two at a time, so at most two queries are in flight per request. On top of that come the heavy pass and the stage lookups. Lanes are unbounded, so `lanes × columns × perCell` is bounded only by the light-pass cap: the heavy pass is capped at `TIMELINE_RESPONSE_CARD_CAP` (240 = 8 columns × 3 × 10) decrypted cards per response. Cells beyond the cap return `items: []` with their exact `total`, render as "+N more" and load through cell mode, and the response sets `cardsTruncated: true`. Without the cap the worst case would be 8 × 300 = 2,400 decrypted rows and rendered cards (for example stage grouping across all pipelines). Cell mode costs one paged query. Phase 1 profiles the worst case on a seeded 10k-deal tenant (`OM_PROFILE=customers.*`). If it exceeds the deals-list p95, the follow-up is a grouped count through the query engine, not a raised cap.
+Endpoint cost: the filter build runs once. Each column is one light query of up to 300 rows plus its count probe, so the worst case is 8 columns × 2 = 16 light statements, run two columns at a time. After the column passes come five side queries (overdue, undated, previous, next, scope), also two at a time, so at most two queries are in flight per request. Each side query is the engine's capped count probe plus a 1-row select, so they add about ten statements; the probes visit at most `OM_LIST_COUNT_CAP` + 1 rows each. On top of that come the heavy pass and the stage lookups. Lanes are unbounded, so `lanes × columns × perCell` is bounded only by the light-pass cap: the heavy pass is capped at `TIMELINE_RESPONSE_CARD_CAP` (240 = 8 columns × 3 × 10) decrypted cards per response. Cells beyond the cap return `items: []` with their exact `total`, render as "+N more" and load through cell mode, and the response sets `cardsTruncated: true`. Without the cap the worst case would be 8 × 300 = 2,400 decrypted rows and rendered cards (for example stage grouping across all pipelines). Cell mode costs one paged query. Phase 1 profiles the worst case on a seeded 10k-deal tenant (`OM_PROFILE=customers.*`). If it exceeds the deals-list p95, the follow-up is a grouped count through the query engine, not a raised cap.
 
 ### Risk Register
 
@@ -670,14 +670,14 @@ Endpoint cost: the filter build runs once. Each column is one light query of up 
 | core AGENTS.md | ACL boundaries respected | Compliant | Stage and pipeline metadata gated on `customers.pipelines.view`; degraded lanes otherwise |
 | core AGENTS.md | No cross-module ORM relations | Compliant | Customers-only, plus the perspectives HTTP API |
 | root AGENTS.md | `apiCall`/`readApiResultOrThrow`, no raw `fetch` | Compliant | Specified for all client calls |
-| root AGENTS.md | No hard-coded strings; `pageSize ≤ 100` | Compliant | i18n ×5; popover and light-pass paging at 100 |
+| root AGENTS.md | No hard-coded strings; `pageSize ≤ 100` | Compliant | i18n ×5; user-facing paging (the cell popover) at most 100; the light pass reads up to 300 rows per column in one internal query, a deliberate internal exception documented under API Contracts |
 | DS rules | Status tokens; no arbitrary values or `dark:` overrides | Compliant | Tone maps from `Lane.tsx`; prototype verified token-only |
 | Dialog rules | Cmd/Ctrl+Enter submit, Escape cancel | Compliant | `ChangeCloseDateDialog` |
 | BACKWARD_COMPATIBILITY.md | Additive changes only | Compliant | Route, page, param, union widening; UPGRADE note |
 | specs AGENTS.md | Integration coverage for all new API and UI paths | Compliant | TC-CRM-TL-001/002/003 |
 
 ### Verdict
-Draft, ready for review. No non-compliant items.
+Implemented (Phases 1 and 2, 2026-11-05) and revised through four code-review rounds. No non-compliant items.
 
 ## Implementation Status
 
@@ -810,3 +810,4 @@ Draft, ready for review. No non-compliant items.
   - **Dialogs above the drawer:** the shared `Drawer` sits on `z-popover` (45) and `Dialog` on `z-modal` (40), so Schedule follow-up, Change close date, Change stage and Mark lost opened underneath it. `TimelineDealDrawer` now sets its content to `var(--z-index-modal)`, so dialogs opened from it stack on top and popovers stay above both. The shared primitive is unchanged; aligning `Drawer` with `Dialog` app-wide is a separate UI-package decision.
 - Code-review fix round: explicit sort comparator in saved views; module-facts budgets re-measured; capped counts surfaced as `countsCapped` and rendered as "{n}+"; one count per column with bounded query concurrency; translated timeline route errors; round-robin card cap; parsed-date contradiction check documented in OpenAPI; in-flight reschedule lock; functional URL-state updates; `closed` status in the drawer; app-locale formatting. Integration coverage closed the review gaps: Show deal focus without a manual focus, Show deal opening a full cell's popover, real drag attempts for read-only users and closed deals, a follow-up on a won deal leaving its `updatedAt` unchanged, the summary won-count regression, two quick moves without a stale-version conflict, the cross-org cell-mode probe, the search token carried by the undated link, and `?deal=` with an unknown id.
 - Code-review round 2: per-count capped flags (`columns[].countCapped`, `overdueBefore.countCapped`, `undatedCountCapped`; `countsCapped` stays the aggregate) so one capped count no longer marks every count as a floor; saved views are validated before saving (`validateDealTimelineSavedViewForSave`, the same bounds the loader applies, plus status and search length); the Architecture and cost paragraphs describe the single-query light pass, round-robin card allotment and two-at-a-time side queries; the list 400 docs say `needsAttention` "is not `true`".
+- Code-review round 3: optimistic and rollback cache writes keep the query's `dataUpdatedAt`, and write locks settle at the write's wall-clock time, so a later drag or another window's older cache can no longer release an earlier deal's lock before fetched data lands; a drawer re-read that fails shows Retry and keeps its writes disabled; URL updates made while a history back is pending wait for it to land (with a timeout fallback); saved-view save errors name the field that failed, and URL search and status values are capped at the saved-view bounds; the spec describes `scopeHasDeals` and the side-query cost as the engine runs them.

@@ -12,7 +12,11 @@ import {
   type DealTimelineGroupBy,
 } from '../../../../../lib/dealsTimeline'
 import { isClosedDealStatus } from '../../../../../lib/dealStatus'
-import { DEAL_TIMELINE_SAVED_VIEW_MAX_VALUES } from '../../../../../data/validators'
+import {
+  DEAL_TIMELINE_SAVED_VIEW_MAX_SEARCH_LENGTH,
+  DEAL_TIMELINE_SAVED_VIEW_MAX_STATUS_LENGTH,
+  DEAL_TIMELINE_SAVED_VIEW_MAX_VALUES,
+} from '../../../../../data/validators'
 import type { DealTimelineFilters } from '../../../../../lib/dealsTimelineTypes'
 
 export const TIMELINE_PATH = '/backend/customers/deals/timeline'
@@ -112,12 +116,14 @@ export function parseTimelineUrlState(params: URLSearchParams): TimelineUrlState
   const groupBy: DealTimelineGroupBy = isDealTimelineGroupBy(groupByRaw) ? groupByRaw : 'owner'
   const fromRaw = params.get('from')?.trim() ?? ''
   const from = fromRaw && isValidDateKey(fromRaw) ? alignToBucketStart(fromRaw, bucket) : null
-  const search = params.get('search')?.trim() || undefined
+  const search = params.get('search')?.trim().slice(0, DEAL_TIMELINE_SAVED_VIEW_MAX_SEARCH_LENGTH) || undefined
   const pipelineId = readUuid(params.get('pipelineId'))
   const dealId = readUuid(params.get('deal'))
   const filters = normalizeTimelineFilters({
     search,
-    status: readList(params, 'status').slice(0, DEAL_TIMELINE_SAVED_VIEW_MAX_VALUES),
+    status: readList(params, 'status')
+      .filter((value) => value.length <= DEAL_TIMELINE_SAVED_VIEW_MAX_STATUS_LENGTH)
+      .slice(0, DEAL_TIMELINE_SAVED_VIEW_MAX_VALUES),
     pipelineId,
     ownerUserId: readUuidList(params, 'ownerUserId'),
     personId: readUuidList(params, 'personId'),
@@ -159,6 +165,10 @@ export type TimelineUrlStatePatch = Partial<Omit<TimelineUrlState, 'filters'>> &
 
 export type TimelineUrlStateUpdate = TimelineUrlStatePatch | ((current: TimelineUrlState) => TimelineUrlStatePatch)
 
+export const TIMELINE_BACK_NAVIGATION_TIMEOUT_MS = 1_000
+
+type TimelineNavigation = 'push' | 'replace'
+
 export function useTimelineUrlState() {
   const router = useRouter()
   const pathname = usePathname() ?? TIMELINE_PATH
@@ -169,8 +179,50 @@ export function useTimelineUrlState() {
   stateRef.current = state
   const pendingStateRef = React.useRef<TimelineUrlState | null>(null)
   const inFlightQueriesRef = React.useRef<string[]>([])
+  const backPendingRef = React.useRef(false)
+  const deferredNavigationRef = React.useRef<TimelineNavigation | null>(null)
+  const backTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const navigate = React.useCallback(
+    (query: string, navigation: TimelineNavigation) => {
+      const href = query ? `${pathname}?${query}` : pathname
+      if (navigation === 'push') router.push(href, { scroll: false })
+      else router.replace(href, { scroll: false })
+    },
+    [pathname, router],
+  )
+
+  const flushDeferredNavigation = React.useCallback(
+    (landedQuery: string | null) => {
+      backPendingRef.current = false
+      if (backTimeoutRef.current) {
+        clearTimeout(backTimeoutRef.current)
+        backTimeoutRef.current = null
+      }
+      const deferred = deferredNavigationRef.current
+      deferredNavigationRef.current = null
+      const pending = pendingStateRef.current
+      if (!deferred || !pending) return false
+      const query = buildTimelineSearchParams(pending).toString()
+      if (query === landedQuery) return false
+      inFlightQueriesRef.current = [query]
+      navigate(query, deferred)
+      return true
+    },
+    [navigate],
+  )
+
+  React.useEffect(() => () => {
+    if (backTimeoutRef.current) clearTimeout(backTimeoutRef.current)
+  }, [])
 
   React.useEffect(() => {
+    if (backPendingRef.current) {
+      if (flushDeferredNavigation(paramsKey)) return
+      inFlightQueriesRef.current = []
+      pendingStateRef.current = null
+      return
+    }
     const inFlight = inFlightQueriesRef.current
     const landedIndex = inFlight.indexOf(paramsKey)
     if (landedIndex === -1 || landedIndex === inFlight.length - 1) {
@@ -179,7 +231,7 @@ export function useTimelineUrlState() {
       return
     }
     inFlightQueriesRef.current = inFlight.slice(landedIndex + 1)
-  }, [paramsKey])
+  }, [flushDeferredNavigation, paramsKey])
 
   const update = React.useCallback(
     (change: TimelineUrlStateUpdate, options?: { history?: 'push' | 'replace' | 'back' }) => {
@@ -192,16 +244,27 @@ export function useTimelineUrlState() {
       }
       pendingStateRef.current = next
       const query = buildTimelineSearchParams(next).toString()
-      inFlightQueriesRef.current = [...inFlightQueriesRef.current, query]
       if (options?.history === 'back') {
+        inFlightQueriesRef.current = [...inFlightQueriesRef.current, query]
+        backPendingRef.current = true
+        if (backTimeoutRef.current) clearTimeout(backTimeoutRef.current)
+        backTimeoutRef.current = setTimeout(() => {
+          backTimeoutRef.current = null
+          if (backPendingRef.current) flushDeferredNavigation(null)
+        }, TIMELINE_BACK_NAVIGATION_TIMEOUT_MS)
         router.back()
         return
       }
-      const href = query ? `${pathname}?${query}` : pathname
-      if (options?.history === 'push') router.push(href, { scroll: false })
-      else router.replace(href, { scroll: false })
+      const navigation: TimelineNavigation = options?.history === 'push' ? 'push' : 'replace'
+      if (backPendingRef.current) {
+        deferredNavigationRef.current =
+          navigation === 'push' || deferredNavigationRef.current === 'push' ? 'push' : 'replace'
+        return
+      }
+      inFlightQueriesRef.current = [...inFlightQueriesRef.current, query]
+      navigate(query, navigation)
     },
-    [pathname, router],
+    [flushDeferredNavigation, navigate, router],
   )
 
   return { state, update }

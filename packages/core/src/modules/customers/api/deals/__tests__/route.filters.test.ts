@@ -449,6 +449,12 @@ describe('customers deals list contradiction check', () => {
     expect(findDealListQueryContradiction(params('hasExpectedCloseAt=false&needsAttention=true'))).toBeNull()
   })
 
+  it('rejects false with isOverdue when needsAttention is explicitly false', () => {
+    expect(
+      findDealListQueryContradiction(params('needsAttention=false&isOverdue=true&hasExpectedCloseAt=false')),
+    ).toBe('undated_with_overdue')
+  })
+
   it('ignores close-date params the filter builder cannot parse', () => {
     expect(findDealListQueryContradiction(params('hasExpectedCloseAt=false&expectedCloseAtFrom=garbage'))).toBeNull()
     expect(findDealListQueryContradiction(params('hasExpectedCloseAt=false&expectedCloseAtTo='))).toBeNull()

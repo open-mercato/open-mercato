@@ -383,4 +383,29 @@ describe('TimelineDealDrawer', () => {
     await waitFor(() => expect(onRefreshed).toHaveBeenCalledWith(DEAL_ID))
     expect(onRefreshed).toHaveBeenCalledTimes(1)
   })
+
+  it('offers Retry and keeps writes disabled when a token-triggered re-read fails', async () => {
+    mockBackend()
+    const onRefreshed = jest.fn()
+    const props = {
+      dealId: DEAL_ID,
+      onClose: jest.fn(),
+      onDealChanged: jest.fn(),
+      onRescheduled: jest.fn(),
+      canManage: true,
+      onRefreshed,
+    }
+    const { rerender } = render(<TimelineDealDrawer {...props} refreshToken={0} />)
+    const drawer = await findDrawer()
+    mockBackend({ detailStatus: 500 })
+    rerender(<TimelineDealDrawer {...props} refreshToken={1} />)
+    const refreshError = await within(drawer).findByTestId('timeline-drawer-refresh-error')
+    expect(onRefreshed).not.toHaveBeenCalled()
+    expect(within(drawer).getByRole('button', { name: 'Mark won' })).toBeDisabled()
+    mockBackend()
+    fireEvent.click(within(refreshError).getByRole('button', { name: 'Retry' }))
+    await waitFor(() => expect(onRefreshed).toHaveBeenCalledWith(DEAL_ID))
+    await waitFor(() => expect(within(drawer).queryByTestId('timeline-drawer-refresh-error')).toBeNull())
+    expect(within(drawer).getByRole('button', { name: 'Mark won' })).toBeEnabled()
+  })
 })

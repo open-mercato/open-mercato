@@ -198,6 +198,7 @@ export function TimelineDealDrawer({
 
   const previewItem = initialItem && initialItem.id === dealId ? initialItem : null
   const deal: DealDrawerDeal | null = state.deal ?? (previewItem ? itemToPreview(previewItem) : null)
+  const writesDisabled = writesLocked || state.status === 'error'
   const stageLabel = deal
     ? deal.stages.find((stage) => stage.id === deal.pipelineStageId)?.label ?? deal.pipelineStage
     : null
@@ -408,12 +409,24 @@ export function TimelineDealDrawer({
               <LoadingMessage label={t('customers.deals.timeline.drawer.loading', 'Loading deal…')} />
             ) : (
               <div className="flex flex-col">
+                {state.status === 'error' ? (
+                  <div className="mb-4" data-testid="timeline-drawer-refresh-error">
+                    <ErrorMessage
+                      label={t('customers.deals.timeline.drawer.refreshError', 'Could not refresh the deal. Actions stay disabled until it reloads.')}
+                      action={
+                        <Button type="button" variant="outline" size="sm" onClick={() => void reload()}>
+                          {t('customers.deals.timeline.drawer.retry', 'Retry')}
+                        </Button>
+                      }
+                    />
+                  </div>
+                ) : null}
                 <DrawerSection
                   id="timeline-drawer-close-date"
                   title={t('customers.deals.timeline.drawer.section.closeDate', 'Expected close date')}
                   action={
                     canWrite ? (
-                      <Button type="button" variant="outline" size="sm" disabled={writesLocked} onClick={() => setCloseDateDialogOpen(true)}>
+                      <Button type="button" variant="outline" size="sm" disabled={writesDisabled} onClick={() => setCloseDateDialogOpen(true)}>
                         <CalendarClock className="size-4" aria-hidden="true" />
                         {t('customers.deals.timeline.reschedule.action', 'Change close date')}
                       </Button>
@@ -470,7 +483,7 @@ export function TimelineDealDrawer({
                           type="button"
                           variant="ghost"
                           size="sm"
-                          disabled={writesLocked}
+                          disabled={writesDisabled}
                           onClick={() => setStageDialogOpen(true)}
                         >
                           <Workflow className="size-4" aria-hidden="true" />
@@ -529,11 +542,11 @@ export function TimelineDealDrawer({
                     title={t('customers.deals.timeline.drawer.section.closeDeal', 'Close deal')}
                   >
                     <div className="flex flex-wrap gap-2">
-                      <Button type="button" variant="outline" size="sm" disabled={writesLocked} onClick={() => void closure.handleWon()}>
+                      <Button type="button" variant="outline" size="sm" disabled={writesDisabled} onClick={() => void closure.handleWon()}>
                         <Trophy className="size-4" aria-hidden="true" />
                         {t('customers.deals.timeline.drawer.action.markWon', 'Mark won')}
                       </Button>
-                      <Button type="button" variant="outline" size="sm" disabled={writesLocked} onClick={closure.openLostDialog}>
+                      <Button type="button" variant="outline" size="sm" disabled={writesDisabled} onClick={closure.openLostDialog}>
                         <XCircle className="size-4" aria-hidden="true" />
                         {t('customers.deals.timeline.drawer.action.markLost', 'Mark lost')}
                       </Button>

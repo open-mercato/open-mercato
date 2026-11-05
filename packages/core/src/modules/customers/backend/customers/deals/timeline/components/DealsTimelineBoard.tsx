@@ -426,6 +426,10 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
     return true
   }, [])
 
+  React.useEffect(() => {
+    if (!state.dealId) drawerPushedRef.current = false
+  }, [state.dealId])
+
   const [dismissedDealId, setDismissedDealId] = React.useState<string | null>(null)
   React.useEffect(() => {
     if (dismissedDealId && state.dealId !== dismissedDealId) setDismissedDealId(null)
@@ -561,10 +565,10 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
 
   const lockAfterDrawerWrite = React.useCallback(
     (dealId: string) => {
-      const baseline = readDataUpdatedAt()
+      const baseline = Date.now()
       setWriteLocks((prev) => settleDealWrite(lockDealWrite(prev, dealId), dealId, baseline, false))
     },
-    [readDataUpdatedAt],
+    [],
   )
 
   const handleDrawerChanged = React.useCallback(
@@ -629,7 +633,7 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
         {
           onSettled: () => {
             const drawerShowsDeal = drawerDealIdRef.current === dealId
-            const baseline = readDataUpdatedAt()
+            const baseline = Date.now()
             setWriteLocks((prev) => settleDealWrite(prev, dealId, baseline, drawerShowsDeal))
             if (drawerShowsDeal) setDrawerRefreshToken((value) => value + 1)
           },
@@ -639,7 +643,7 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
         else window.requestAnimationFrame(() => focusCard(dealId))
       })
     },
-    [activeDrag, afterReschedule, bucket, focusCard, readDataUpdatedAt, reschedule],
+    [activeDrag, afterReschedule, bucket, focusCard, reschedule],
   )
 
   const collisionDetection = React.useCallback<CollisionDetection>((args) => {

@@ -16,6 +16,9 @@ informational; no migration or configuration is required.
 - `GET /api/customers/deals` accepts an optional `hasExpectedCloseAt` boolean
   (`false` = no close date). Combining `hasExpectedCloseAt=false` with a close-date range,
   or with `isOverdue` while `needsAttention` is not `true`, returns `400`.
+- Perspectives keep saved `settings.filters` payloads whose every entry is a versioned
+  namespaced object (for example `{ timeline: { v: 1, ... } }`) instead of dropping them as a
+  legacy flat filter record on read; other legacy flat records are still dropped.
 
 ## Search writes honor entity strategy pins (#5930)
 

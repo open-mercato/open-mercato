@@ -1,8 +1,21 @@
-import type { QueryKey } from '@tanstack/react-query'
+import { QueryClient, type QueryKey } from '@tanstack/react-query'
 import { createTranslator } from '@open-mercato/shared/lib/i18n/translate'
 import type { DealTimelineItem, DealTimelineResponse } from '../../../../../../lib/dealsTimelineTypes'
 import { buildTimelineColumns } from '../../../../../../lib/dealsTimeline'
-import { findTimelineDeal, moveDealInTimeline, runReschedule, type RescheduleDeps } from '../useRescheduleDeal'
+import {
+  findTimelineDeal,
+  moveDealInTimeline,
+  runReschedule,
+  writeTimelineCacheLocally,
+  type RescheduleDeps,
+} from '../useRescheduleDeal'
+import {
+  EMPTY_DEAL_WRITE_LOCKS,
+  isDealWriteLocked,
+  lockDealWrite,
+  releaseFreshDealWrites,
+  settleDealWrite,
+} from '../dealWriteLocks'
 import { buildTimelineCardAriaLabel } from '../TimelineDealCard'
 
 jest.mock('@dnd-kit/core', () => ({ useDraggable: jest.fn() }))
@@ -216,5 +229,40 @@ describe('card aria-label', () => {
     expect(won).not.toContain('overdue')
     const lostAlias = buildTimelineCardAriaLabel(t, item('z', '2026-10-01', { status: 'loose' }), '2026-11-05')
     expect(lostAlias).toContain('Lost')
+  })
+})
+
+describe('local timeline cache writes', () => {
+  const key: QueryKey = ['customers', 'deals', 'timeline', 'test']
+
+  it('keep the fetch timestamp so an optimistic move never counts as fresh data', () => {
+    const queryClient = new QueryClient()
+    queryClient.setQueryData(key, fixture(), { updatedAt: 1_000 })
+    writeTimelineCacheLocally(queryClient, key, moveDealInTimeline(fixture(), 'a', '2026-11-05'))
+    expect(queryClient.getQueryState(key)?.dataUpdatedAt).toBe(1_000)
+    expect(findTimelineDeal(queryClient.getQueryData<DealTimelineResponse>(key), 'a')?.column).toBe(1)
+  })
+
+  it('keeps an earlier drag locked through a later drag until fetched data lands', () => {
+    const queryClient = new QueryClient()
+    queryClient.setQueryData(key, fixture(), { updatedAt: 1_000 })
+    let locks = settleDealWrite(lockDealWrite(EMPTY_DEAL_WRITE_LOCKS, 'a'), 'a', 1_500, false)
+    locks = lockDealWrite(locks, 'c')
+    writeTimelineCacheLocally(queryClient, key, moveDealInTimeline(fixture(), 'c', '2026-11-12'))
+    locks = releaseFreshDealWrites(locks, queryClient.getQueryState(key)?.dataUpdatedAt ?? 0)
+    expect(isDealWriteLocked(locks, 'a')).toBe(true)
+    queryClient.setQueryData(key, fixture(), { updatedAt: 2_000 })
+    locks = releaseFreshDealWrites(locks, queryClient.getQueryState(key)?.dataUpdatedAt ?? 0)
+    expect(isDealWriteLocked(locks, 'a')).toBe(false)
+    expect(isDealWriteLocked(locks, 'c')).toBe(true)
+  })
+
+  it('does not release a lock on another window\'s older cached data', () => {
+    const queryClient = new QueryClient()
+    const otherKey: QueryKey = ['customers', 'deals', 'timeline', 'other']
+    queryClient.setQueryData(otherKey, fixture(), { updatedAt: 1_200 })
+    const locks = settleDealWrite(lockDealWrite(EMPTY_DEAL_WRITE_LOCKS, 'a'), 'a', 1_500, false)
+    const released = releaseFreshDealWrites(locks, queryClient.getQueryState(otherKey)?.dataUpdatedAt ?? 0)
+    expect(isDealWriteLocked(released, 'a')).toBe(true)
   })
 })

@@ -90,9 +90,11 @@ describe('buildDealsListHref', () => {
     expect(conditions).toContain('"$gte":"2026-11-01"')
   })
 
-  it('reads an absent or unknown hasExpectedCloseAt as null', () => {
+  it('reads an absent or unknown hasExpectedCloseAt as null and accepts the shared boolean tokens', () => {
     expect(readDealsListUrlState(new URLSearchParams('')).hasExpectedCloseAt).toBeNull()
-    expect(readDealsListUrlState(new URLSearchParams('hasExpectedCloseAt=1')).hasExpectedCloseAt).toBeNull()
+    expect(readDealsListUrlState(new URLSearchParams('hasExpectedCloseAt=maybe')).hasExpectedCloseAt).toBeNull()
+    expect(readDealsListUrlState(new URLSearchParams('hasExpectedCloseAt=1')).hasExpectedCloseAt).toBe(true)
+    expect(readDealsListUrlState(new URLSearchParams('hasExpectedCloseAt=false')).hasExpectedCloseAt).toBe(false)
     expect(readDealsListUrlState(new URLSearchParams('hasExpectedCloseAt=true')).hasExpectedCloseAt).toBe(true)
     expect(readDealsListUrlState(null).filterTree.root.children).toEqual([])
   })

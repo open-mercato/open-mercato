@@ -169,6 +169,9 @@ function isVersionedNamespacedFilters(record: Record<string, unknown>): boolean 
  * if old saved-view JSON were imported.
  *
  * - Tree-shaped state (`v:2` or `root` key) is passed through unchanged.
+ * - Versioned namespaced view payloads (every entry an object with a numeric
+ *   `v`, e.g. `{ timeline: { v: 1, ... } }` from the deals timeline) are passed
+ *   through unchanged.
  * - Undefined / null filters are passed through unchanged.
  * - Legacy `FilterValues`-shaped records are dropped (set to `undefined`)
  *   because there is no reliable mapping back to the new operator model;

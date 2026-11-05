@@ -7,6 +7,7 @@ import {
   serializeTree,
   type FilterOperator,
 } from '@open-mercato/shared/lib/query/advanced-filter'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { CLOSED_DEAL_STATUS_LIST, expandDealStatusAliases } from './dealStatus'
 import type { DealTimelineFilters } from './dealsTimelineTypes'
 
@@ -68,10 +69,7 @@ export function readDealListFilterTreeFromParams(params: URLSearchParams | null 
 }
 
 export function readHasExpectedCloseAtParam(params: URLSearchParams | null | undefined): boolean | null {
-  const raw = params?.get('hasExpectedCloseAt')
-  if (raw === 'true') return true
-  if (raw === 'false') return false
-  return null
+  return parseBooleanToken(params?.get('hasExpectedCloseAt'))
 }
 
 export function readDealsListUrlState(params: URLSearchParams | null | undefined): DealsListUrlState {

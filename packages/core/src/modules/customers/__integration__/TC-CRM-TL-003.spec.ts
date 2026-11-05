@@ -1,4 +1,4 @@
-import { test, expect, type Locator, type Page } from '@playwright/test';
+import { test, expect, type Locator, type Page, type Route } from '@playwright/test';
 import { login } from '@open-mercato/core/helpers/integration/auth';
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
 import { getTokenContext, getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
@@ -83,26 +83,36 @@ function isDealPut(request: { method: () => string; url: () => string }): boolea
   return request.method() === 'PUT' && new URL(request.url()).pathname === '/api/customers/deals';
 }
 
-async function holdDealPuts(page: Page): Promise<{ release: () => Promise<void>; held: () => number }> {
+type DealPutHold = { release: () => Promise<void>; dispose: () => Promise<void>; held: () => number };
+
+const DEAL_PUT_ROUTE = '**/api/customers/deals';
+
+async function holdDealPuts(page: Page): Promise<DealPutHold> {
   const pending: Array<() => Promise<void>> = [];
   let holding = true;
-  await page.route('**/api/customers/deals', async (route) => {
+  const handler = async (route: Route) => {
     if (route.request().method() !== 'PUT' || !holding) {
       await route.continue();
       return;
     }
     await new Promise<void>((resolve) => {
       pending.push(async () => {
-        await route.continue();
+        await route.continue().catch(() => undefined);
         resolve();
       });
     });
-  });
+  };
+  await page.route(DEAL_PUT_ROUTE, handler);
+  const release = async () => {
+    holding = false;
+    while (pending.length) await (pending.shift() as () => Promise<void>)();
+  };
   return {
     held: () => pending.length,
-    release: async () => {
-      holding = false;
-      while (pending.length) await (pending.shift() as () => Promise<void>)();
+    release,
+    dispose: async () => {
+      await release();
+      await page.unroute(DEAL_PUT_ROUTE, handler).catch(() => undefined);
     },
   };
 }
@@ -300,6 +310,7 @@ test.describe('TC-CRM-TL-003: deals timeline rescheduling', () => {
     const adminUserId = getTokenScope(token).userId;
     const today = todayKey();
     let scope: TimelineFixtureScope | null = null;
+    let hold: DealPutHold | null = null;
     try {
       scope = await createTimelineScope(request, token, 'TC-CRM-TL-003 Rapid');
       const dealId = await addTimelineDeal(request, token, scope, { title: `TL003 Rapid ${scope.stamp}`, date: today, ownerUserId: adminUserId });
@@ -308,17 +319,18 @@ test.describe('TC-CRM-TL-003: deals timeline rescheduling', () => {
       await openTimeline(page, `pipelineId=${scope.pipelineId}`);
       await expectDraggable(timelineCard(page, dealId));
       const puts = trackDealPuts(page);
-      const hold = await holdDealPuts(page);
+      const activeHold = await holdDealPuts(page);
+      hold = activeHold;
 
       await dragCardTo(page, timelineCard(page, dealId), timelineCell(page, adminUserId, 2));
-      await expect.poll(() => hold.held(), { timeout: 15_000 }).toBe(1);
+      await expect.poll(() => activeHold.held(), { timeout: 15_000 }).toBe(1);
       await expect(timelineCard(page, dealId), 'the card is locked while its write is in flight').not.toHaveClass(/cursor-grab/);
       const secondWhileLocked = page.waitForRequest(isDealPut, { timeout: 3_000 });
       await dragCardTo(page, timelineCard(page, dealId), timelineCell(page, adminUserId, 3));
       await expect(secondWhileLocked, 'a locked card sends no second write').rejects.toThrow();
       expect(puts.sent()).toBe(1);
 
-      await hold.release();
+      await activeHold.release();
       await expect.poll(() => puts.statuses.length, { timeout: 30_000 }).toBe(1);
       await expect.poll(() => closeDateOf(request, token, dealId), { timeout: 15_000 }).toBe(shiftCloseDate(today, 'week', 1));
       await expectDraggable(timelineCard(page, dealId));
@@ -333,6 +345,7 @@ test.describe('TC-CRM-TL-003: deals timeline rescheduling', () => {
       await expect(timelineCard(page, dealId)).toHaveAttribute('aria-label', utcMonthDayLabel(finalDate));
       await expect(page.getByText('Record changed')).toHaveCount(0);
     } finally {
+      await hold?.dispose();
       await cleanupTimelineScope(request, token, scope);
     }
   });
@@ -343,6 +356,7 @@ test.describe('TC-CRM-TL-003: deals timeline rescheduling', () => {
     const adminUserId = getTokenScope(token).userId;
     const today = todayKey();
     let scope: TimelineFixtureScope | null = null;
+    let hold: DealPutHold | null = null;
     try {
       scope = await createTimelineScope(request, token, 'TC-CRM-TL-003 InFlight');
       const dealId = await addTimelineDeal(request, token, scope, { title: `TL003 InFlight ${scope.stamp}`, date: today, ownerUserId: adminUserId });
@@ -350,10 +364,11 @@ test.describe('TC-CRM-TL-003: deals timeline rescheduling', () => {
       await login(page, 'admin');
       await openTimeline(page, `pipelineId=${scope.pipelineId}`);
       await expectDraggable(timelineCard(page, dealId));
-      const hold = await holdDealPuts(page);
+      const activeHold = await holdDealPuts(page);
+      hold = activeHold;
 
       await dragCardTo(page, timelineCard(page, dealId), timelineCell(page, adminUserId, 2));
-      await expect.poll(() => hold.held(), { timeout: 15_000 }).toBe(1);
+      await expect.poll(() => activeHold.held(), { timeout: 15_000 }).toBe(1);
       await timelineCard(page, dealId).click();
       const drawer = page.getByTestId('timeline-deal-drawer');
       await expect(drawer).toBeVisible();
@@ -362,7 +377,7 @@ test.describe('TC-CRM-TL-003: deals timeline rescheduling', () => {
       await expect(drawer.getByRole('button', { name: 'Change close date' })).toBeDisabled();
 
       const dragResponse = page.waitForResponse((response) => isDealPut(response.request()));
-      await hold.release();
+      await activeHold.release();
       expect((await dragResponse).status()).toBeLessThan(400);
       const moved = shiftCloseDate(today, 'week', 1);
       await expect(drawer.getByTestId('timeline-drawer-close-date'), 'the drawer re-reads the deal').toContainText(utcMonthDayLabel(moved));
@@ -375,6 +390,7 @@ test.describe('TC-CRM-TL-003: deals timeline rescheduling', () => {
       expect((await wonResponse).status(), 'Mark won after the in-flight drag does not hit a stale-version 409').toBeLessThan(400);
       await expect(page.getByText('Record changed')).toHaveCount(0);
     } finally {
+      await hold?.dispose();
       await cleanupTimelineScope(request, token, scope);
     }
   });

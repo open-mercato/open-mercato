@@ -10,7 +10,12 @@ import {
   formatTimelineMoreLabel,
   formatTimelineUndatedLabel,
 } from '../TimelineLane'
-import { parseTimelineUrlState, resolveTimelineFrom, useTimelineUrlState } from '../useTimelineUrlState'
+import {
+  TIMELINE_BACK_NAVIGATION_TIMEOUT_MS,
+  parseTimelineUrlState,
+  resolveTimelineFrom,
+  useTimelineUrlState,
+} from '../useTimelineUrlState'
 import { addBuckets } from '../../../../../../lib/dealsTimeline'
 
 jest.mock('next/navigation', () => ({
@@ -68,15 +73,17 @@ describe('capped and partial count labels', () => {
 
 describe('useTimelineUrlState functional updates', () => {
   const replace = jest.fn()
+  const push = jest.fn()
   const back = jest.fn()
   let currentParams = new URLSearchParams()
 
   beforeEach(() => {
     replace.mockReset()
+    push.mockReset()
     back.mockReset()
     currentParams = new URLSearchParams()
     ;(usePathname as jest.Mock).mockReturnValue('/backend/customers/deals/timeline')
-    ;(useRouter as jest.Mock).mockReturnValue({ replace, push: jest.fn(), back })
+    ;(useRouter as jest.Mock).mockReturnValue({ replace, push, back })
     ;(useSearchParams as jest.Mock).mockImplementation(() => currentParams)
   })
 
@@ -102,16 +109,50 @@ describe('useTimelineUrlState functional updates', () => {
     expect(href).toContain('from=2026-11-16')
   })
 
-  it('closes the drawer through history back and records the pending state', () => {
+  it('defers updates made while a history back is pending until it lands', () => {
     currentParams = new URLSearchParams('bucket=month&deal=66666666-6666-4666-8666-666666666666')
-    const { result } = renderHook(() => useTimelineUrlState())
+    const { result, rerender } = renderHook(() => useTimelineUrlState())
     act(() => result.current.update({ dealId: null }, { history: 'back' }))
     expect(back).toHaveBeenCalledTimes(1)
     act(() => result.current.update({ groupBy: 'stage' }))
-    const href = replace.mock.calls[replace.mock.calls.length - 1][0] as string
+    expect(replace).not.toHaveBeenCalled()
+    currentParams = new URLSearchParams('bucket=month')
+    act(() => rerender())
+    expect(replace).toHaveBeenCalledTimes(1)
+    const href = replace.mock.calls[0][0] as string
     expect(href).toContain('groupBy=stage')
     expect(href).toContain('bucket=month')
     expect(href).not.toContain('deal=')
+  })
+
+  it('applies deferred updates after a timeout when the history back never lands', () => {
+    jest.useFakeTimers()
+    try {
+      currentParams = new URLSearchParams('deal=66666666-6666-4666-8666-666666666666')
+      const { result } = renderHook(() => useTimelineUrlState())
+      act(() => result.current.update({ dealId: null }, { history: 'back' }))
+      act(() => result.current.update({ bucket: 'quarter' }))
+      expect(replace).not.toHaveBeenCalled()
+      act(() => {
+        jest.advanceTimersByTime(TIMELINE_BACK_NAVIGATION_TIMEOUT_MS)
+      })
+      expect(replace).toHaveBeenCalledTimes(1)
+      const href = replace.mock.calls[0][0] as string
+      expect(href).toContain('bucket=quarter')
+      expect(href).not.toContain('deal=')
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('does not navigate again when the history back alone matches the pending state', () => {
+    currentParams = new URLSearchParams('bucket=month&deal=66666666-6666-4666-8666-666666666666')
+    const { result, rerender } = renderHook(() => useTimelineUrlState())
+    act(() => result.current.update({ dealId: null }, { history: 'back' }))
+    currentParams = new URLSearchParams('bucket=month')
+    act(() => rerender())
+    expect(replace).not.toHaveBeenCalled()
+    expect(push).not.toHaveBeenCalled()
   })
 })
 
@@ -120,6 +161,15 @@ describe('URL id lists', () => {
     const ids = Array.from({ length: 150 }, (_value, index) => `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`)
     const state = parseTimelineUrlState(new URLSearchParams(`ownerUserId=${ids.join(',')}`))
     expect(state.filters.ownerUserId).toHaveLength(100)
+  })
+
+  it('caps the search length and drops oversized status values parsed from the URL', () => {
+    const longStatus = 'x'.repeat(101)
+    const state = parseTimelineUrlState(
+      new URLSearchParams(`search=${'a'.repeat(250)}&status=open,${longStatus}`),
+    )
+    expect(state.filters.search).toHaveLength(200)
+    expect(state.filters.status).toEqual(['open'])
   })
 })
 

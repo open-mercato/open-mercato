@@ -176,11 +176,23 @@ export function TimelineSavedViews({ currentView, onApply }: TimelineSavedViewsP
     const check = validateDealTimelineSavedViewForSave(currentView)
     if (!check.ok) {
       setNameError(
-        translateWithFallback(
-          t,
-          'customers.deals.timeline.savedViews.tooLarge',
-          'This view has too many filter values to save. Narrow the filters and try again.',
-        ),
+        check.field === 'search'
+          ? translateWithFallback(
+              t,
+              'customers.deals.timeline.savedViews.searchTooLong',
+              'The search text is too long to save in a view. Shorten it and try again.',
+            )
+          : check.field === 'status'
+            ? translateWithFallback(
+                t,
+                'customers.deals.timeline.savedViews.statusInvalid',
+                'A selected status is too long to save in a view. Change the Status filter and try again.',
+              )
+            : translateWithFallback(
+                t,
+                'customers.deals.timeline.savedViews.tooLarge',
+                'This view has too many filter values to save. Narrow the filters and try again.',
+              ),
       )
       return
     }

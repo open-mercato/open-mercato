@@ -400,6 +400,43 @@ describe('customers deals timeline route', () => {
     expect(body.columns.every((column) => column.countCapped === false)).toBe(true)
   })
 
+  it('flags a capped overdue count and ignores caps reported by the existence side queries', async () => {
+    const futureFrom = addDays(thisWeek, 70)
+    deals = [makeDeal({ expected_close_at: lastWeek }), makeDeal({ expected_close_at: null })]
+    const ltBound = (args: QueryArgs): Date | null => {
+      const condition = args.filters.expected_close_at as { $lt?: unknown } | undefined
+      return condition?.$lt instanceof Date ? condition.$lt : null
+    }
+    const isOverdue = (args: QueryArgs) => ltBound(args)?.toISOString().startsWith(today) === true
+    const isPrevious = (args: QueryArgs) => ltBound(args)?.toISOString().startsWith(futureFrom) === true
+    const isNext = (args: QueryArgs) =>
+      args.page.pageSize === 1 && (args.filters.expected_close_at as { $gte?: unknown } | undefined)?.$gte instanceof Date
+    const isScope = (args: QueryArgs) => Object.keys(args.filters).length === 0
+    const capped = (entity: string, result: Awaited<ReturnType<typeof fakeQuery>>) => ({
+      ...result,
+      meta: { listCountCapWarning: { entity, cap: 10000 } },
+    })
+
+    queryMock.mockImplementation(async (entity: string, args: QueryArgs) => {
+      const result = await fakeQuery(entity, args)
+      return isPrevious(args) || isNext(args) || isScope(args) ? capped(entity, result) : result
+    })
+    const sideOnly = await grid(`from=${futureFrom}`)
+    expect(sideOnly.countsCapped).toBe(false)
+    expect(sideOnly.overdueBefore.countCapped).toBe(false)
+    expect(sideOnly.undatedCountCapped).toBe(false)
+
+    queryMock.mockImplementation(async (entity: string, args: QueryArgs) => {
+      const result = await fakeQuery(entity, args)
+      return isOverdue(args) ? capped(entity, result) : result
+    })
+    const overdueCapped = await grid(`from=${futureFrom}`)
+    expect(overdueCapped.overdueBefore.countCapped).toBe(true)
+    expect(overdueCapped.countsCapped).toBe(true)
+    expect(overdueCapped.undatedCountCapped).toBe(false)
+    expect(overdueCapped.columns.every((column) => column.countCapped === false)).toBe(true)
+  })
+
   it('flags a capped count only on the column whose pass reported it', async () => {
     deals = [makeDeal({ expected_close_at: thisWeek }), makeDeal({ expected_close_at: null })]
     queryMock.mockImplementation(async (entity: string, args: QueryArgs) => {
