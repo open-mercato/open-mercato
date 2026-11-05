@@ -330,9 +330,9 @@ export default function CustomersCompaniesPage() {
     }
   }, [fetchDictionaryEntries, scopeVersion, reloadToken])
 
-  const { data: customFieldDefs = [] } = useCustomFieldDefs(
+  const { data: customFieldDefs = [], isLoading: customFieldDefsLoading, refetch: refetchCustomFieldDefs } = useCustomFieldDefs(
     [E.customers.customer_entity, E.customers.customer_company_profile],
-    { keyExtras: [scopeVersion, reloadToken] },
+    { keyExtras: [scopeVersion] },
   )
   const currentUserId = useCurrentUserId()
   const activeOrgId = useCurrentOrganization()?.id ?? null
@@ -449,8 +449,9 @@ export default function CustomersCompaniesPage() {
   }, [queryParams, reloadToken, scopeVersion, t])
 
   const handleRefresh = React.useCallback(() => {
+    void refetchCustomFieldDefs()
     setReloadToken((token) => token + 1)
-  }, [])
+  }, [refetchCustomFieldDefs])
 
   const handleDelete = React.useCallback(async (company: CompanyRow) => {
     if (!company?.id) return
@@ -993,7 +994,7 @@ export default function CustomersCompaniesPage() {
           )}
           virtualized
           pagination={{ page, pageSize, total, totalPages, totalIsCapped, onPageChange: setPage, pageSizeOptions: [10, 25, 50, 100], onPageSizeChange: handlePageSizeChange, cacheStatus }}
-          isLoading={isLoading}
+          isLoading={isLoading || customFieldDefsLoading}
         />
         <AdvancedFilterPanel
           fields={advancedFilterFields}
