@@ -334,6 +334,40 @@ The exact payload is endpoint-specific and must be covered by endpoint tests.
   flow.
 - **Residual risk**: Merge UX remains a future enterprise/premium enhancement.
 
+## Custom Record Creation — #7815
+
+`POST /api/entities/records` creates records only. A caller-supplied UUID already
+present in the same tenant, organization and entity returns HTTP 409 with code
+`custom_entity_record_exists`, including soft-deleted records. It never replaces
+the stored document or changes its version. UUID comparison is case-insensitive.
+Omitted and invalid UUIDs retain automatic ID generation.
+
+The route passes the additive `createOnly: true` option to
+`DataEngine.createCustomEntityRecord`. This mode uses `withAdvisoryXactLock` keyed
+by the full scope and normalized UUID, checks storage and performs a plain insert
+on the lock's transaction EntityManager. Concurrent POSTs for one identity are
+serialized even on installations whose original storage index is non-unique.
+Conflicts stop before optional EAV writes. No database migration is required.
+
+### Migration & Backward Compatibility
+
+Clients creating new records keep their request and response shapes. Clients
+using POST to replace existing records must use PUT with the current
+`x-om-ext-optimistic-lock-expected-updated-at` header. This closes the overwrite
+bypass reported in #7815. Internal seed/import callers that omit `createOnly`
+retain the existing data-engine upsert behavior; the optional field does not
+change existing implementations or required arguments. Operators need no schema
+or configuration changes.
+
+### Regression Coverage
+
+Unit tests cover duplicate/tombstoned UUIDs, UUID case, transaction-bound writes,
+tenant/organization scoping, database failure propagation and the localized 409.
+`TC-ENTITIES-011-create-only-records.spec.ts` creates its own entity and field,
+updates a record, rejects a stale POST while preserving the updated values and
+version, and races two POSTs to verify exactly one succeeds. Cleanup removes all
+test-created records and definitions.
+
 ## Final Compliance Report — 2026-05-28
 
 ### AGENTS.md Files Reviewed
@@ -427,6 +461,9 @@ one-time ACL sync). `superadmin` is intentionally not used: the order fixture PO
 organization/channel scope that an admin principal carries.
 
 ## Changelog
+
+- 2026-10-29: #7815 makes custom-record POST create-only with a scoped advisory
+  transaction, documents the 409 contract and preserves internal seed upserts.
 
 ### 2026-06-01
 
