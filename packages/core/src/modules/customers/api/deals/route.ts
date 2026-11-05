@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { NextResponse } from 'next/server'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { CustomerDeal, CustomerDealPersonLink, CustomerDealCompanyLink } from '../../data/entities'
@@ -67,6 +68,7 @@ export const dealListQuerySchema = z
     isStuck: booleanQueryParam,
     isOverdue: booleanQueryParam,
     needsAttention: booleanQueryParam,
+    hasExpectedCloseAt: booleanQueryParam,
     valueCurrency: stringOrStringArray.optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
@@ -407,6 +409,16 @@ export async function buildDealListFilters(query: DealListQuery, ctx?: import('@
     filters.expected_close_at = existingRange
   }
 
+  if (query.hasExpectedCloseAt === true && filters.expected_close_at === undefined) {
+    filters.expected_close_at = { $ne: null }
+  } else if (query.hasExpectedCloseAt === false) {
+    const existing = filters.expected_close_at
+    filters.expected_close_at =
+      existing && typeof existing === 'object' && !Array.isArray(existing)
+        ? { ...(existing as Record<string, unknown>), $eq: null }
+        : { $eq: null }
+  }
+
   if (query.isStuck && !query.needsAttention && ctx) {
     const tenantId = ctx.auth?.tenantId
     // CrudCtx.auth carries `orgId` (not `organizationId`). The previous code referenced
@@ -724,7 +736,28 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
 const { POST, PUT, DELETE } = crud
 
 export { POST, PUT, DELETE }
-export const GET = crud.GET
+
+export function findDealListQueryContradiction(searchParams: URLSearchParams): string | null {
+  const hasExpectedCloseAt = parseBooleanFromUnknown(searchParams.get('hasExpectedCloseAt'))
+  if (hasExpectedCloseAt !== false) return null
+  if (searchParams.get('expectedCloseAtFrom') || searchParams.get('expectedCloseAtTo')) {
+    return 'hasExpectedCloseAt=false cannot be combined with an expected close date range'
+  }
+  const isOverdue = parseBooleanFromUnknown(searchParams.get('isOverdue'))
+  const needsAttention = parseBooleanFromUnknown(searchParams.get('needsAttention'))
+  if (isOverdue === true && needsAttention !== true) {
+    return 'hasExpectedCloseAt=false cannot be combined with isOverdue'
+  }
+  return null
+}
+
+export async function GET(request: Request) {
+  const contradiction = findDealListQueryContradiction(new URL(request.url).searchParams)
+  if (contradiction) {
+    return NextResponse.json({ error: contradiction }, { status: 400 })
+  }
+  return crud.GET(request)
+}
 
 const dealAssociationSchema = z.object({
   id: z.string().uuid(),

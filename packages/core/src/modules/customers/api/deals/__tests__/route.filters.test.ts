@@ -6,7 +6,8 @@ jest.mock('../../../lib/stuckDeals', () => ({
   fetchStuckDealIds: (...args: unknown[]) => mockFetchStuckDealIds(...args),
 }))
 
-import { buildDealListFilters, dealListQuerySchema } from '../route'
+import { z } from 'zod'
+import { GET, buildDealListFilters, dealListQuerySchema, findDealListQueryContradiction, openApi } from '../route'
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 
 const tenantId = '11111111-1111-4111-8111-111111111111'
@@ -387,5 +388,86 @@ describe('customers deals list filters', () => {
     const filters = await buildDealListFilters(parsed, ctx)
 
     expect(filters.id).toEqual({ $eq: '00000000-0000-0000-0000-000000000000' })
+  })
+})
+
+describe('customers deals list hasExpectedCloseAt filter', () => {
+  beforeEach(() => {
+    mockFetchStuckDealIds.mockReset()
+    mockFetchStuckDealIds.mockResolvedValue([])
+  })
+
+  it('maps true to not-null, false to null and leaves absent untouched', async () => {
+    expect((await buildDealListFilters(dealListQuerySchema.parse({ hasExpectedCloseAt: 'true' }))).expected_close_at)
+      .toEqual({ $ne: null })
+    expect((await buildDealListFilters(dealListQuerySchema.parse({ hasExpectedCloseAt: 'false' }))).expected_close_at)
+      .toEqual({ $eq: null })
+    expect((await buildDealListFilters(dealListQuerySchema.parse({}))).expected_close_at).toBeUndefined()
+  })
+
+  it('keeps the range alone when true is combined with a close date range', async () => {
+    const filters = await buildDealListFilters(
+      dealListQuerySchema.parse({ hasExpectedCloseAt: 'true', expectedCloseAtFrom: '2026-11-01', expectedCloseAtTo: '2026-11-30' }),
+    )
+    expect(filters.expected_close_at).toEqual({
+      $gte: new Date('2026-11-01'),
+      $lte: new Date('2026-11-30'),
+    })
+  })
+
+  it('keeps the overdue bound when true is combined with isOverdue', async () => {
+    const filters = await buildDealListFilters(
+      dealListQuerySchema.parse({ hasExpectedCloseAt: 'true', isOverdue: 'true' }),
+    )
+    const range = filters.expected_close_at as Record<string, unknown>
+    expect(range.$lt).toBeInstanceOf(Date)
+    expect(range.$ne).toBeUndefined()
+  })
+
+  it('intersects false with the needsAttention composite', async () => {
+    const { ctx } = createDealFilterContext([{ id: '33333333-3333-4333-8333-333333333333' }])
+    const filters = await buildDealListFilters(
+      dealListQuerySchema.parse({ hasExpectedCloseAt: 'false', needsAttention: 'true', isOverdue: 'true' }),
+      ctx,
+    )
+    expect(filters.expected_close_at).toEqual({ $eq: null })
+    expect(filters.id).toEqual({ $in: ['33333333-3333-4333-8333-333333333333'] })
+  })
+})
+
+describe('customers deals list contradiction check', () => {
+  const params = (query: string) => new URLSearchParams(query)
+
+  it('rejects false combined with a close date range', () => {
+    expect(findDealListQueryContradiction(params('hasExpectedCloseAt=false&expectedCloseAtFrom=2026-11-01'))).not.toBeNull()
+    expect(findDealListQueryContradiction(params('hasExpectedCloseAt=false&expectedCloseAtTo=2026-11-01'))).not.toBeNull()
+  })
+
+  it('rejects false combined with isOverdue unless needsAttention is set', () => {
+    expect(findDealListQueryContradiction(params('hasExpectedCloseAt=false&isOverdue=true'))).not.toBeNull()
+    expect(findDealListQueryContradiction(params('hasExpectedCloseAt=false&isOverdue=true&needsAttention=true'))).toBeNull()
+    expect(findDealListQueryContradiction(params('hasExpectedCloseAt=false&needsAttention=true'))).toBeNull()
+  })
+
+  it('allows true with ranges and absent values', () => {
+    expect(findDealListQueryContradiction(params('hasExpectedCloseAt=true&expectedCloseAtFrom=2026-11-01'))).toBeNull()
+    expect(findDealListQueryContradiction(params('isOverdue=true'))).toBeNull()
+  })
+
+  it('returns 400 from the list GET handler', async () => {
+    const response = await GET(new Request('https://example.test/api/customers/deals?hasExpectedCloseAt=false&isOverdue=true'))
+    expect(response.status).toBe(400)
+  })
+})
+
+describe('customers deals list query schema stays extendable', () => {
+  it('supports extend and the OpenAPI ids param', () => {
+    const extended = dealListQuerySchema.extend({ extra: z.string().optional() })
+    expect(extended.parse({ extra: 'x', hasExpectedCloseAt: 'false' })).toMatchObject({ extra: 'x', hasExpectedCloseAt: false })
+    const getDoc = openApi.methods?.GET as { query?: unknown } | undefined
+    expect(getDoc?.query).toBeInstanceOf(z.ZodObject)
+    const shape = (getDoc?.query as z.ZodObject<z.ZodRawShape>).shape
+    expect(shape).toHaveProperty('ids')
+    expect(shape).toHaveProperty('hasExpectedCloseAt')
   })
 })
