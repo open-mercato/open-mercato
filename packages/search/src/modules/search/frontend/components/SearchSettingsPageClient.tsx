@@ -403,7 +403,7 @@ export function SearchSettingsPageClient() {
   }, [])
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex min-w-0 flex-col gap-6">
       {/* Header */}
       <div className="space-y-1">
         <h1 className="text-2xl font-bold">{t('search.settings.pageTitle', 'Search Settings')}</h1>

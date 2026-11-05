@@ -7,6 +7,7 @@ import {
   VectorSearchSection,
   type VectorSearchSectionProps,
 } from '../VectorSearchSection'
+import polishTranslations from '../../../../i18n/pl.json'
 
 jest.mock('@open-mercato/ui/backend/injection/useAppEvent', () => ({
   useAppEvent: jest.fn(),
@@ -268,5 +269,44 @@ describe('VectorSearchSection store availability', () => {
     })
 
     expect(screen.queryByText('Vector store is not available')).toBeNull()
+  })
+})
+
+describe('VectorSearchSection Polish provider availability', () => {
+  beforeEach(() => {
+    Object.defineProperty(globalThis, 'fetch', {
+      configurable: true,
+      value: jest.fn(() => new Promise(() => undefined)),
+    })
+  })
+
+  it.each([
+    ['openai', 'Set OPENAI_API_KEY to enable OpenAI', 'Ustaw OPENAI_API_KEY, aby włączyć OpenAI'],
+    ['ollama', 'Ollama not reachable at http://localhost:11434', 'Ollama jest niedostępna pod adresem http://localhost:11434'],
+    ['ollama', 'Ollama not reachable at http://localhost:11434 (timed out)', 'Ollama nie odpowiedziała pod adresem http://localhost:11434 (przekroczono limit czasu)'],
+    ['ollama', 'Ollama responded 503 at http://localhost:11434', 'Ollama zwróciła status 503 pod adresem http://localhost:11434'],
+  ] as const)('localizes %s probe messages without changing provider availability', (providerId, reason, translatedReason) => {
+    render(
+      <I18nProvider locale="pl" dict={polishTranslations}>
+        <VectorSearchSection
+          embeddingSettings={{
+            ...embeddingSettings,
+            embeddingConfig: null,
+            configuredProviders: [],
+            providerAvailability: [{ providerId, available: false, reason }],
+          }}
+          embeddingLoading={false}
+          vectorStoreConfig={vectorStoreConfig}
+          vectorStoreConfigLoading={false}
+          vectorReindexLock={null}
+          onEmbeddingSettingsUpdate={jest.fn()}
+          onRefreshEmbeddings={jest.fn().mockResolvedValue(undefined)}
+        />
+      </I18nProvider>,
+    )
+
+    expect(screen.getByText(translatedReason)).toBeTruthy()
+    expect(screen.queryByText(reason)).toBeNull()
+    expect(screen.getByText(translatedReason).closest('button')).toHaveProperty('disabled', true)
   })
 })
