@@ -1,5 +1,15 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type APIRequestContext } from '@playwright/test';
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
+import {
+  createOrganizationFixture,
+  createRoleFixture,
+  createUserFixture,
+  deleteOrganizationIfExists,
+  deleteRoleIfExists,
+  deleteUserIfExists,
+  setRoleAclFeatures,
+} from '@open-mercato/core/helpers/integration/authFixtures';
+import { expectId, getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
 import {
   expectOperation,
   skipIfUndoTestsDisabled,
@@ -26,8 +36,103 @@ import {
  * globally deleted message back for every participant. The sender undoing
  * their own global delete still restores the message. When a sender who is
  * also a recipient sends two overlapping deletes, each undo must reverse the
- * branch its own request actually executed.
+ * branch its own request actually executed. Replaying either delete token as
+ * another actor without tenant-wide undo, as an actor from another
+ * organization, or as an actor from another tenant is rejected and leaves both
+ * deletes and their action logs untouched.
  */
+
+type ReplayActor = {
+  label: string;
+  token: string;
+};
+
+type MessageDeletionState = {
+  messageDeletedAt: Date | null;
+  recipientStatus: string | null;
+  recipientDeletedAt: Date | null;
+  logStates: string[];
+};
+
+async function createTenantFixture(request: APIRequestContext, superadminToken: string, name: string): Promise<string> {
+  const response = await apiRequest(request, 'POST', '/api/directory/tenants', {
+    token: superadminToken,
+    data: { name },
+  });
+  expect(response.status(), 'POST /api/directory/tenants should return 201').toBe(201);
+  return expectId((await readJsonSafe<{ id?: string }>(response))?.id, 'tenant fixture should return an id');
+}
+
+async function deleteTenantIfExists(
+  request: APIRequestContext,
+  superadminToken: string | null,
+  tenantId: string | null,
+): Promise<void> {
+  if (!superadminToken || !tenantId) return;
+  await apiRequest(request, 'DELETE', `/api/directory/tenants?id=${encodeURIComponent(tenantId)}`, {
+    token: superadminToken,
+  }).catch(() => undefined);
+}
+
+async function createReplayActor(
+  request: APIRequestContext,
+  superadminToken: string,
+  input: { label: string; stamp: string; tenantId: string; organizationId: string; features: string[] },
+  created: Array<{ userId: string | null; roleId: string | null }>,
+): Promise<ReplayActor> {
+  const slot: { userId: string | null; roleId: string | null } = { userId: null, roleId: null };
+  created.push(slot);
+  const roleId = await createRoleFixture(request, superadminToken, {
+    name: `qa_msg023_${input.label}_${input.stamp}`,
+    tenantId: input.tenantId,
+  });
+  slot.roleId = roleId;
+  await setRoleAclFeatures(request, superadminToken, {
+    roleId,
+    features: input.features,
+    organizations: [input.organizationId],
+  });
+  const email = `qa-msg023-${input.label}-${input.stamp}@test.invalid`;
+  const password = 'Msg023!Pass1';
+  const userId = await createUserFixture(request, superadminToken, {
+    email,
+    password,
+    organizationId: input.organizationId,
+    roles: [roleId],
+  });
+  slot.userId = userId;
+  const token = await getAuthToken(request, email, password);
+  return { label: input.label, token };
+}
+
+async function readMessageDeletionState(
+  messageId: string,
+  recipientUserId: string,
+  logIds: string[],
+): Promise<MessageDeletionState> {
+  return withClient(async (client) => {
+    const messageRows = await client.query<{ deleted_at: Date | null }>(
+      'select deleted_at from messages where id = $1',
+      [messageId],
+    );
+    const recipientRows = await client.query<{ status: string; deleted_at: Date | null }>(
+      'select status, deleted_at from message_recipients where message_id = $1 and recipient_user_id = $2',
+      [messageId, recipientUserId],
+    );
+    const logRows = await client.query<{ id: string; execution_state: string }>(
+      'select id, execution_state from action_logs where id = any($1::uuid[])',
+      [logIds],
+    );
+    const logStateById = new Map(logRows.rows.map((row) => [row.id, row.execution_state]));
+    return {
+      messageDeletedAt: messageRows.rows[0]?.deleted_at ?? null,
+      recipientStatus: recipientRows.rows[0]?.status ?? null,
+      recipientDeletedAt: recipientRows.rows[0]?.deleted_at ?? null,
+      logStates: logIds.map((logId) => logStateById.get(logId) ?? 'missing'),
+    };
+  });
+}
+
 test.describe('TC-API-MSG-023: Recipient delete undo keeps the sender global delete', () => {
   test('recipient undo after a sender global delete leaves the message deleted', async ({ request }) => {
     skipIfUndoTestsDisabled();
@@ -198,6 +303,125 @@ test.describe('TC-API-MSG-023: Recipient delete undo keeps the sender global del
         await deleteMessageIfExists(request, senderToken, messageId);
         await deleteMessageIfExists(request, senderToken, messageId);
       }
+    }
+  });
+
+  test('replaying the delete tokens as another actor, organization, or tenant is rejected', async ({ request }) => {
+    skipIfUndoTestsDisabled();
+    const stamp = `${Date.now()}`;
+    const superadminToken = await getAuthToken(request, 'superadmin');
+    const createdActors: Array<{ userId: string | null; roleId: string | null }> = [];
+    let messageId: string | null = null;
+    let senderToken: string | null = null;
+    let otherOrganizationId: string | null = null;
+    let otherTenantId: string | null = null;
+    let otherTenantOrganizationId: string | null = null;
+
+    try {
+      const composed = await composeInternalMessage(request, {
+        subject: `QA TC-API-MSG-023 replay ${stamp}`,
+      });
+      messageId = composed.messageId;
+      senderToken = composed.senderToken;
+      const recipientToken = composed.recipientToken;
+      const recipientUserId = decodeJwtSubject(recipientToken);
+      const senderScope = getTokenScope(senderToken);
+
+      const recipientDelete = await apiRequest(request, 'DELETE', `/api/messages/${messageId}`, {
+        token: recipientToken,
+      });
+      expect(recipientDelete.status()).toBe(200);
+      const recipientDeleteOperation = expectOperation(recipientDelete, 'recipient-only delete');
+
+      const senderDelete = await apiRequest(request, 'DELETE', `/api/messages/${messageId}`, {
+        token: senderToken,
+      });
+      expect(senderDelete.status()).toBe(200);
+      const senderDeleteOperation = expectOperation(senderDelete, 'global delete');
+
+      const logIds = [recipientDeleteOperation.logId, senderDeleteOperation.logId];
+      const deletedState = await readMessageDeletionState(messageId, recipientUserId, logIds);
+      expect(deletedState.messageDeletedAt).not.toBeNull();
+      expect(deletedState.recipientStatus).toBe('deleted');
+      expect(deletedState.recipientDeletedAt).not.toBeNull();
+      expect(deletedState.logStates).toEqual(['done', 'done']);
+
+      otherOrganizationId = await createOrganizationFixture(request, superadminToken, {
+        name: `QA TC-API-MSG-023 Other Org ${stamp}`,
+        tenantId: senderScope.tenantId,
+      });
+      otherTenantId = await createTenantFixture(request, superadminToken, `QA TC-API-MSG-023 Tenant ${stamp}`);
+      otherTenantOrganizationId = await createOrganizationFixture(request, superadminToken, {
+        name: `QA TC-API-MSG-023 Tenant Org ${stamp}`,
+        tenantId: otherTenantId,
+      });
+
+      const replayActors = [
+        await createReplayActor(
+          request,
+          superadminToken,
+          {
+            label: 'peer',
+            stamp,
+            tenantId: senderScope.tenantId,
+            organizationId: senderScope.organizationId,
+            features: ['audit_logs.view_self', 'audit_logs.undo_self'],
+          },
+          createdActors,
+        ),
+        await createReplayActor(
+          request,
+          superadminToken,
+          {
+            label: 'otherorg',
+            stamp,
+            tenantId: senderScope.tenantId,
+            organizationId: otherOrganizationId,
+            features: ['audit_logs.view_self', 'audit_logs.undo_self', 'audit_logs.undo_tenant'],
+          },
+          createdActors,
+        ),
+        await createReplayActor(
+          request,
+          superadminToken,
+          {
+            label: 'othertenant',
+            stamp,
+            tenantId: otherTenantId,
+            organizationId: otherTenantOrganizationId,
+            features: ['*'],
+          },
+          createdActors,
+        ),
+      ];
+
+      for (const actor of replayActors) {
+        for (const operation of [recipientDeleteOperation, senderDeleteOperation]) {
+          const replay = await undoByToken(request, actor.token, operation.undoToken);
+          const replayBody = await readJsonSafe<{ error?: string }>(replay);
+          expect(replay.status(), `${actor.label} replay of ${operation.logId} is rejected`).toBe(400);
+          expect(replayBody?.error).toBe('Undo token not available');
+        }
+        const afterReplay = await readMessageDeletionState(messageId, recipientUserId, logIds);
+        expect(afterReplay, `${actor.label} replays leave both deletes untouched`).toEqual(deletedState);
+      }
+
+      await undoOk(request, recipientToken, recipientDeleteOperation.undoToken, 'recipient-only delete');
+      await undoOk(request, senderToken, senderDeleteOperation.undoToken, 'global delete');
+      const restoredState = await readMessageDeletionState(messageId, recipientUserId, logIds);
+      expect(restoredState.messageDeletedAt, 'the sender still undoes their own global delete').toBeNull();
+      expect(restoredState.recipientDeletedAt, 'the recipient still undoes their own delete').toBeNull();
+      expect(restoredState.recipientStatus).toBe('unread');
+      expect(restoredState.logStates).toEqual(['undone', 'undone']);
+    } finally {
+      await deleteMessageIfExists(request, senderToken, messageId);
+      for (const actor of createdActors) {
+        await deleteUserIfExists(request, superadminToken, actor.userId);
+        await deleteRoleIfExists(request, superadminToken, actor.roleId);
+      }
+      await deleteOrganizationIfExists(request, superadminToken, otherTenantOrganizationId);
+      await deleteTenantIfExists(request, superadminToken, otherTenantId);
+      await deleteOrganizationIfExists(request, superadminToken, otherOrganizationId);
     }
   });
 });
