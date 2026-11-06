@@ -39,9 +39,29 @@ Results: TaskDrawer50/50 (3.995s), CrudForm10/10 (2.925s), CreateDealForm9/9 (2.
 yarn node --test scripts/__tests__/ci-merge-coverage.test.mjs scripts/__tests__/npm-metadata-wait.test.mjs
 ```
 
-This supplementary local run **failed**: 15 passed, three failed, exit1 after1.893s. All13 coverage tests and the changed deterministic shared-deadline case passed. Three unchanged metadata-wait tests failed before their npm stub created its attempt counter. The unchanged wait script invokes GNU `timeout --signal=TERM`; neither `timeout` nor `gtimeout` is installed on this macOS host. No substitute was invented, infrastructure installed, assertion weakened or unchanged command retried. These tests are outside the configured eight-command local gate. Their failure remains recorded, and the exact published-head Linux scripts job must pass before verification is complete.
+This supplementary local run **failed**: 15 passed, three failed, exit 1 after 1.893s. All 13 coverage tests and the changed deterministic shared-deadline case passed. Three unchanged metadata-wait tests failed before their npm stub created its attempt counter. The unchanged wait script invokes GNU `timeout --signal=TERM`; neither `timeout` nor `gtimeout` is installed on this macOS host. No substitute was invented, infrastructure installed, assertion weakened or unchanged command retried. These tests are outside the configured eight-command local gate. Their local failure remains recorded separately from the subsequent Linux result below.
 
-Current-head hosted integration must also verify the published combined source. The prior4d integration/manual evidence and prior418 Linux CI remain historical evidence for those heads, not a combined-head result. Mobile-width, restricted-role, all-locale and full perceived-performance checks remain unexercised. Human review and `needs-qa` continue to gate merge; this task does not add QA approval.
+### Published-source hosted verification
+
+[CI run 42165496818](https://github.com/open-mercato/open-mercato/actions/runs/42165496818) tests published commit `d4e2a339a3932ffb32e098d6b7d1033f4cb33235`, whose production and test source is identical to the locally validated combined candidate. Its [unit and script job](https://github.com/open-mercato/open-mercato/actions/runs/42165496818/job/127722188363) passed. The actual Linux log confirms all five metadata-wait tests passed, including the three affected by the missing local GNU prerequisite. This does not retroactively turn the macOS attempt into a pass.
+
+Native `results.json` artifacts from integration shards 4, 5, 6, 7 and 13 verify all nine affected cases passed on their first attempt: each has one result, `retry: 0`, status `passed`, and no errors.
+
+| Integration case | Result | Duration |
+| --- | --- | --- |
+| TC-STAFF-ISSUE-8204-dialog-rejection | PASS | 2.147s |
+| TC-STAFF-ISSUE-8204-drawer-claim | PASS | 2.969s |
+| TC-STAFF-ISSUE-8204-drawer-status | PASS | 3.796s |
+| TC-STAFF-ISSUE-8204-page-rejection | PASS | 8.067s |
+| TC-CAT-002 | PASS | 1.739s |
+| TC-CGRP-022 | PASS | 2.140s |
+| TC-CRM-002 | PASS | 2.699s |
+| TC-ADMIN-001 | PASS | 2.830s |
+| TC-CRM-5117 | PASS | 7.254s |
+
+The bounded 40-minute CI watch ended at 05:39:33 UTC on 2026-11-06. At the last pre-expiry snapshot, 14 of 15 integration shards passed and shard 14 remained running. This is not a complete-CI pass. Final check state and any later documentation-only head are reported on the PR; required CI remains a merge gate, and no further CI follow-up is promised by this run.
+
+The prior `4d568dfd` integration/manual evidence and prior `418d73d` evidence remain historical. An earlier recovered drawer-status flake is not declared causally fixed by the Select focus repair. Mobile-width, restricted-role, all-locale and full perceived-performance checks remain unexercised. Human review and `needs-qa` continue to gate merge; this task does not add QA approval.
 
 ## Earlier verified candidate315ff6 — 2026-11-06
 

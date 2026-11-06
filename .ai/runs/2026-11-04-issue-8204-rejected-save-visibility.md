@@ -38,18 +38,18 @@ PR: #8672
 ### Phase 2: Browser verification
 - [x] 2.1 Ship self-contained integration coverage for long form/dialog, drawer claim/stale rejection, repeat failures, and success.
 ### Phase 3: Validation and review
-- [ ] 3.1 Run configured validation in order, independent code review, UI evidence and publication chain; document blockers and outstanding checks accurately.
+- [x] 3.1 Run configured validation in order, independent code review, UI evidence and publication chain; document blockers and outstanding checks accurately. — d4e2a339a3932ffb32e098d6b7d1033f4cb33235
 
 ## Current validation state
 
 Combined candidate: `10024a8575ab85584fd9a1942d102936b526b346`. [Exact commands, results and retained failures](../analysis/issue-8204-validation.md).
 
-All eight configured commands passed in order on this combined source: package build, generation, package rebuild, translation sync, translation usage, typecheck, full unit tests and application build. Unit tests completed51/51 tasks (five cached); the app build completed1/1 without a cache hit. Normal hooks passed, source/index/lock stayed unchanged, and all owned processes exited.
+All eight configured commands passed in order on this combined source: package build, generation, package rebuild, translation sync, translation usage, typecheck, full unit tests and application build. Unit tests completed 51/51 tasks (five cached); the app build completed 1/1 without a cache hit. Normal hooks passed, source/index/lock stayed unchanged, and all owned validation processes exited.
 
-The ordinary merge preserves the published Select teardown repair and the local field-only rejection fix. Focused native regressions passed50 TaskDrawer,10 CrudForm and9 CreateDealForm tests. Independent combined-source content review has no remaining Medium-or-higher findings.
+The ordinary merge preserves the published Select teardown repair and the local field-only rejection fix. Focused native regressions passed 50 TaskDrawer, 10 CrudForm and 9 CreateDealForm tests. Independent combined-source content review has no remaining Medium-or-higher findings.
 
-A supplementary Linux-script test run failed15PASS/3FAIL because GNUtimeout is absent on the macOS host. No assertion or environment substitute was introduced; exact published-head Linux CI must validate these scripts. The earlier field-only baseline comparison, ambiguous dependent locator failure, stale DOM-reference failure, native integration timeouts and runtime failures remain documented honestly.
+A supplementary Linux-script test run had 15 passes and three failures because GNU `timeout` is absent on the macOS host. No assertion or environment substitute was introduced. The actual Linux script job on published `d4e2a339` subsequently passed all five metadata cases. The earlier field-only baseline comparison, ambiguous dependent locator failure, stale DOM-reference failure, native integration timeouts and runtime failures remain documented honestly.
 
-Prior coverage commit4d568dfd passed all four new integration cases and three adjusted existing cases in native CI41849313454. Actual manual UI exploration and five screenshots cover long-form, dialog, claim-race and stale-status rejection/retry. These retain their source attribution; current published-head integration is still required for the combined source. Mobile, role/locale and full performance checks remain unexercised; no QA approval is claimed.
+Native CI run 42165496818 on published `d4e2a339` passed all four new integration cases and five adjusted existing cases, each on its first attempt with no errors or retries. Actual manual UI exploration and five screenshots cover long-form, dialog, claim-race and stale-status rejection/retry. Prior-head evidence retains its source attribution; an earlier recovered drawer-status flake is not claimed causally fixed. Mobile, role/locale and full performance checks remain unexercised; no QA approval is claimed.
 
-Phase3 remains open until publication, current-head hosted review evidence and claim cleanup are complete. The PR records the published head and pending checks; a local gate does not waive hosted CI or human QA.
+The implementation, configured validation, content review and evidence handoff are complete. The 40-minute CI watch ended at its configured limit; the last pre-expiry snapshot had 14 of 15 integration shards passing and shard 14 still running. The PR records the final published head and outstanding checks. No further CI follow-up is promised by this run; required CI, independent GitHub review and human QA still gate merge. This completion is an implementation handoff, not a merge-readiness claim.
