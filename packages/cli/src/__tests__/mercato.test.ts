@@ -1125,8 +1125,8 @@ describe('init command failure output', () => {
     expect(authSetup).toHaveBeenCalledWith(expect.arrayContaining(['--include-demo-users']))
     expect(consoleLogSpy).toHaveBeenCalledWith('👤 Demo accounts (admin@/employee@): enabled')
     const loggedLines = consoleLogSpy.mock.calls.map((args) => args.join(' '))
-    expect(loggedLines.some((line) => line.includes('🧰 Admin:'))).toBe(true)
-    expect(loggedLines.some((line) => line.includes('👷 Employee:'))).toBe(true)
+    expect(loggedLines.some((line) => line.includes('🧰 Admin'))).toBe(true)
+    expect(loggedLines.some((line) => line.includes('👷 Employee'))).toBe(true)
 
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()
@@ -1148,8 +1148,8 @@ describe('init command failure output', () => {
       '👤 Demo accounts (admin@/employee@): skipped (--no-demo-users)',
     )
     const loggedLines = consoleLogSpy.mock.calls.map((args) => args.join(' '))
-    expect(loggedLines.some((line) => line.includes('🧰 Admin:'))).toBe(false)
-    expect(loggedLines.some((line) => line.includes('👷 Employee:'))).toBe(false)
+    expect(loggedLines.some((line) => line.includes('🧰 Admin'))).toBe(false)
+    expect(loggedLines.some((line) => line.includes('👷 Employee'))).toBe(false)
 
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()
@@ -1735,6 +1735,11 @@ describe('server dev managed process exits', () => {
     expect(exitCode).toBe(0)
     expect(consoleErrorSpy).not.toHaveBeenCalled()
     expect(consoleLogSpy).toHaveBeenCalledWith('[server] Skipping scheduler auto-start — module not enabled')
+    const { spawn } = await import('child_process')
+    const nextSpawn = (spawn as jest.Mock).mock.calls.find((call) =>
+      pathIncludes(call[1]?.[0] ?? '', 'next/dist/bin/next') && call[1]?.includes('dev'),
+    )
+    expect(nextSpawn?.[2]?.env.NODE_ENV).toBe('development')
 
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()
@@ -2477,6 +2482,11 @@ describe('server start managed process exits', () => {
     expect(exitCode).toBe(0)
     expect(consoleErrorSpy).not.toHaveBeenCalled()
     expect(consoleLogSpy).toHaveBeenCalledWith('[server] Skipping scheduler auto-start — module not enabled')
+    const { spawn } = await import('child_process')
+    const nextSpawn = (spawn as jest.Mock).mock.calls.find((call) =>
+      pathIncludes(call[1]?.[0] ?? '', 'next/dist/bin/next') && call[1]?.includes('start'),
+    )
+    expect(nextSpawn?.[2]?.env.NODE_ENV).toBe('production')
 
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()
