@@ -2,6 +2,8 @@
 
 > Split from `2026-07-02-automated-backups-and-gdpr-erasure-propagation.md` (rev 5) on 2026-07-08. Companion spec: [`2026-07-08-gdpr-data-erasure.md`](2026-07-08-gdpr-data-erasure.md) — GDPR erasure orchestration, the primary consumer of this spec's erasure-manifest mechanism.
 
+> Proposed shared manual primitives: [Manual PostgreSQL Backup and Restore CLI](../2026-11-06-cli-backup-restore.md) in OSS `packages/cli`. This enterprise spec retains scheduling, object storage, retention, UI and erasure-manifest ownership; future implementation must reconcile the linked proposal’s archive-container and restore-safety gates before reusing it.
+
 ## TLDR
 **Key Points:**
 - Enterprise module `backups`: scheduled encrypted physical database backups to object storage, tooled CLI restore with safety rails, bounded retention, on-demand restore verification, superadmin status page.
