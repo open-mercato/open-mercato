@@ -2672,14 +2672,9 @@ function startMcpRuntime() {
 }
 
 async function applyPendingMigrationsBestEffort() {
-  if (!shouldAutoMigrateOnDev()) return
   try {
-    await guardDatabaseMutation(['db:migrate'])
-  } catch (error) {
-    if (error?.name !== 'EncryptionCompatibilityError') throw error
-    console.warn('[setup] Automatic migrations were skipped because encryption compatibility could not be verified. Restore the configured encryption keys and service access before running setup.')
-    return
-  }
+  if (!shouldAutoMigrateOnDev()) return
+  await guardDatabaseMutation(['db:migrate'])
   console.log('💾 Applying database migrations...')
   const child = spawnCommand(yarnCommand, ['db:migrate'], {
     label: 'Applying database migrations',
@@ -2692,6 +2687,10 @@ async function applyPendingMigrationsBestEffort() {
   if (resolveChildExitCode(result) !== 0) {
     console.warn('❗ Database migrations were not applied (database unreachable or migration failed).')
     console.warn('   ↳ start the infra containers with `yarn infra:up`, then run `yarn db:migrate` (opt out of this check with OM_DEV_AUTO_MIGRATE=0)')
+  }
+  } catch (error) {
+    if (error?.name !== 'EncryptionCompatibilityError') throw error
+    console.warn('[setup] Automatic migrations were skipped because encryption compatibility could not be verified. Restore the configured encryption keys and service access before running setup.')
   }
 }
 
