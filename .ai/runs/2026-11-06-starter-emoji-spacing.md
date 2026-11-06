@@ -1,0 +1,23 @@
+# Starter setup: emoji spacing in log lines
+
+## Goal
+
+Stop `yarn setup` / starter log text from colliding with status emojis (`ℹ️lockfile changed`, `⚙️working…`).
+
+## Scope
+
+`ℹ️`, `⚠️` and `⚙️` are narrow base characters turned into emoji by the U+FE0F variation selector. Many terminals draw them two columns wide but move the cursor only one, so the single following space disappears under the glyph. Follow the existing starter convention (`⚠️  `, already used in `infra-preflight.mjs` / `steps.mjs`): use two spaces after these emojis everywhere in `packages/starter/src`, including the shared `icons` map and the step spinner label.
+
+Non-goals: `✅` / `❌` (wide by default, render fine); other packages; changing message text.
+
+## Risks
+
+Cosmetic only; tests that assert exact strings get updated.
+
+## Progress
+
+> Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
+
+### Phase 1: Spacing
+
+- [ ] 1.1 Double-space after VS16 emojis in starter output and update tests
