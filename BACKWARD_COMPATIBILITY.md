@@ -637,7 +637,7 @@ SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: A
 
 ## Encryption maintenance safety gates (2026-11-02, #6767)
 
-Legacy `--old-key`/`--oldKey` needs `--allow-unsafe-old-key`; map retirement needs `--confirm-offline-maintenance <tenantUuid>`. Offline only; stop writers and restart replicas. [Migration and stable formats](UPGRADE_NOTES.md#encryption-maintenance-safety-confirmations-6767).
+CLI safety confirmations changed; stop writers and restart replicas. [Flags, migration and stable formats](UPGRADE_NOTES.md#encryption-maintenance-safety-confirmations-6767).
 
 ## Staff Logout Uses Post/Redirect/Get (2026-11-05)
 
