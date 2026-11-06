@@ -112,7 +112,7 @@ const crud = makeCrudRoute({
         filters[F.team_id] = query.teamId
       }
       if (query.roleId) {
-        filters[F.role_ids] = { $contains: [query.roleId] }
+        filters[F.role_ids] = { $overlap: [query.roleId] }
       }
       return filters
     },
