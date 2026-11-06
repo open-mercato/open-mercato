@@ -1492,7 +1492,7 @@ export async function run(argv = process.argv) {
         })),
         autoStart: parseBooleanToken(process.env.OM_INIT_DEV_AUTOSTART) === true,
         columns: summaryColumns,
-        color: process.env.NO_COLOR === undefined && (summaryColor ?? Boolean(process.stdout.isTTY)),
+        color: process.env.NO_COLOR === undefined && (summaryColor ?? (Boolean(process.stdout.isTTY) || parseBooleanToken(process.env.FORCE_COLOR) === true)),
       })
       for (const line of summary) console.log(line)
 

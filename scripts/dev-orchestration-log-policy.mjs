@@ -158,7 +158,10 @@ function extractInitSummaryPanel(lines) {
       while (visible < column && offset < line.length) {
         const escape = line.slice(offset).match(/^\u001b\[[0-9;]*m/)
         if (escape) offset += escape[0].length
-        else { offset += 1; visible += 1 }
+        else {
+          offset += 1
+          visible += 1
+        }
       }
       return line.slice(offset).replace(/^(?:\u001b\[0m)+/, '')
     })
@@ -174,7 +177,6 @@ export function extractInitSummaryLines(lines) {
   if (panel.length > 0) return panel
   const box = extractInitSummaryBox(lines)
   if (box.length > 0) return box
-  if (!Array.isArray(lines)) return []
   const kept = lines.map((line) => normalize(line)).find((line) => line.includes('Database already initialized'))
   return kept ? [kept] : []
 }
