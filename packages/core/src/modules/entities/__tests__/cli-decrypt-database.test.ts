@@ -541,6 +541,22 @@ describe('entities decrypt-database CLI', () => {
     expect(deactivateCalls).toHaveLength(0)
   })
 
+  it.each([
+    { exactPolicy: false, expectedCount: 0 },
+    { exactPolicy: true, expectedCount: 1 },
+  ])('previews only organization policies eligible for retirement (exactPolicy: $exactPolicy)', async ({ exactPolicy, expectedCount }) => {
+    const maps = [makeMap({ id: 'fallback-map', organizationId: null })]
+    if (exactPolicy) maps.push(makeMap({ id: 'exact-map', organizationId: 'org-1' }))
+    setupDefaultMapFind(maps)
+    setupScopesAndRows([])
+    const log = jest.spyOn(console, 'log').mockImplementation()
+
+    await getCmd().run(['--tenant', 'tenant-1', '--org', 'org-1', '--confirm', 'tenant-1', '--deactivate-maps', '--dry-run'])
+
+    expect(log).toHaveBeenCalledWith(`[dry-run] Would deactivate ${expectedCount} EncryptionMap record(s).`)
+    expect(execute.mock.calls.some(([sql]) => String(sql).includes('UPDATE encryption_maps'))).toBe(false)
+  })
+
   it('--batch-size: keyset pagination processes all rows across multiple batches', async () => {
     setupDefaultMapFind()
     let selectCallCount = 0

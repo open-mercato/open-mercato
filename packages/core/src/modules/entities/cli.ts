@@ -1194,8 +1194,8 @@ const decryptDatabase: ModuleCli = {
       )
     }
 
+    const retiring = resolvedMaps.filter(({ map }) => !organizationIdArg || Boolean(map.organizationId))
     if (deactivateMaps && !dryRun) {
-      const retiring = resolvedMaps.filter(({ map }) => !organizationIdArg || Boolean(map.organizationId))
       if (retiring.length) {
         const policySignature = (policies: EncryptionMap[]) => JSON.stringify(policies.map((map) => [map.id, map.entityId, map.tenantId, map.organizationId, map.fieldsJson]).sort((left, right) => String(left[0]).localeCompare(String(right[0]))))
         const selectedPolicySignature = policySignature(allMaps)
@@ -1251,7 +1251,7 @@ const decryptDatabase: ModuleCli = {
     }
 
     if (deactivateMaps && dryRun) {
-      console.log(`[dry-run] Would deactivate ${maps.length} EncryptionMap record(s).`)
+      console.log(`[dry-run] Would deactivate ${retiring.length} EncryptionMap record(s).`)
     }
 
     if (!dryRun && organizationIdArg) {
