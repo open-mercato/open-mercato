@@ -303,7 +303,7 @@ describe('Xero tab', () => {
     await waitFor(() => expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({ title: enDict['sync_xero.disconnect.anywayTitle'] })))
     await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalledTimes(2))
     expect(JSON.parse(mockApiCallOrThrow.mock.calls[1][1].body)).toEqual({ force: true, removeClientCredentials: false })
-    await waitFor(() => expect(mockFlash).toHaveBeenCalledWith(enDict['sync_xero.disconnect.revocationFailed'], 'warning'))
+    await waitFor(() => expect(mockFlash).toHaveBeenCalledWith(enDict['sync_xero.disconnect.doneWithoutRevoke'], 'success'))
   })
 
   it('offers only Disconnect anyway for a grant the platform cannot read', async () => {
