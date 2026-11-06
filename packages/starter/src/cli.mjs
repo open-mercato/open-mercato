@@ -23,6 +23,8 @@ import readline from 'node:readline'
 
 import { composeArgs, detectDocker, resolveRepoRoot, runCompose, runStreaming, spawnStreaming } from './compose.mjs'
 import { readEnvValue } from './env-file.mjs'
+import { chooseServiceMode, printManualSetup } from './service-modes.mjs'
+import { FRESH_CLONE_NO_INFRA_COMMAND, acquireSetupSession, selectStarterServiceMode } from './setup-session.mjs'
 import { FULLAPP_DEV_COMPOSE_FILE, STARTER_STATE_DIR, resolveStackPorts, stackUrls } from './constants.mjs'
 import { loadCompanyConfig } from './company.mjs'
 import { printDoctorReport, runDoctor } from './doctor.mjs'
@@ -56,6 +58,8 @@ function parseArgs(argv) {
     skipLlmPrompt: false,
     skipDb: false,
     noInfra: false,
+    serviceArgs: [],
+    remoteDatabaseArgs: [],
     rebuild: false,
     clean: false,
     volumes: false,
@@ -96,7 +100,15 @@ function parseArgs(argv) {
         flags.skipDb = true
         break
       case '--no-infra':
-        flags.noInfra = true
+      case '--reuse-services':
+      case '--ephemeral':
+      case '--random-ports':
+      case '--infra':
+        flags.serviceArgs.push(arg)
+        break
+      case '--allow-remote-database':
+        flags.remoteDatabaseArgs.push(arg)
+        if (args[0] && !args[0].startsWith('-')) flags.remoteDatabaseArgs.push(args.shift())
         break
       case '--rebuild':
         flags.rebuild = true
@@ -121,6 +133,7 @@ function parseArgs(argv) {
         if (command === 'infra') flags.infraAction = arg
         break
       default:
+        if (arg.startsWith('--allow-remote-database=')) { flags.remoteDatabaseArgs.push(arg); break }
         console.error(`Unknown option: ${arg} (see starters/README.md)`)
         process.exit(1)
     }
@@ -162,7 +175,50 @@ async function confirm(question, { nonInteractive }) {
 
 async function commandUp(flags) {
   const selectedMode = resolveMode(flags.mode)
-  const mode = resolveUpMode(selectedMode, flags)
+  const containerized = flags.mode === 'docker' && flags.serviceArgs.length === 0
+  let session = null
+  if (!containerized) {
+    try {
+      session = await acquireSetupSession(repoRoot)
+    } catch (error) {
+      console.error(`❌ ${error instanceof Error ? error.message : String(error)}`)
+      console.error('   No service configuration, .env file or container was changed.')
+      process.exitCode = 2
+      return
+    }
+  }
+  const state = { handedOff: false }
+  try {
+    return await runUp(flags, { selectedMode, containerized, session, state })
+  } finally {
+    if (!state.handedOff) session?.release()
+  }
+}
+
+async function runUp(flags, { selectedMode, containerized, session, state }) {
+  if (containerized) {
+    flags.serviceMode = 'compose'
+  } else {
+    try {
+      flags.serviceMode = await chooseServiceMode({
+        argv: [...flags.serviceArgs, ...(flags.nonInteractive ? ['--non-interactive'] : [])],
+        selectDefault: () => selectStarterServiceMode(repoRoot),
+      })
+    } catch (error) {
+      if (!error.problem) throw error
+      console.error(`❌ ${error.message}`)
+      printInfraProblem(error.problem, { optOutCommand: FRESH_CLONE_NO_INFRA_COMMAND })
+      process.exitCode = 2
+      return
+    }
+  }
+  flags.noInfra = ['reuse', 'ephemeral'].includes(flags.serviceMode)
+  if (flags.serviceMode === 'ephemeral' && flags.detach) {
+    console.error('Ephemeral services belong to a foreground setup session. Omit --detach or use --random-ports for persistent local services.')
+    process.exitCode = 2
+    return
+  }
+  const mode = flags.serviceMode === 'random' ? 'hybrid' : resolveUpMode(selectedMode, flags)
   if (flags.clean) {
     // Full re-converge: drop the completed-step markers (keeps the mode, all
     // data, and the one-time initialize state — `reset` is the destructive
@@ -172,11 +228,38 @@ async function commandUp(flags) {
     console.log(color.dim(`  --clean: cleared ${cleared.length} convergence marker(s) — install, build, and migrations will re-run (data untouched).`))
   }
   const ctx = await createStepContext(repoRoot, { mode, flags })
+  if (session) Object.assign(ctx.env, session.childEnv)
+  let devChild
+  let signalExitCode
+  let shutdownTimer
+  let closing = false
+  const finish = async (code) => {
+    if (closing) return
+    closing = true
+    clearTimeout(shutdownTimer)
+    try { await ctx.cleanupServices?.() }
+    catch (error) { console.error(`Could not clean up ephemeral services: ${error.message}`); code = 1 }
+    session?.release()
+    process.exit(code)
+  }
+  if (flags.serviceMode === 'ephemeral') {
+    for (const [signal, code] of [['SIGINT', 130], ['SIGTERM', 143]]) {
+      process.once(signal, () => {
+        signalExitCode = code
+        ctx.cancelled = true
+        if (devChild) {
+          devChild.kill(signal)
+          shutdownTimer = setTimeout(() => devChild.kill('SIGKILL'), 5000)
+          shutdownTimer.unref()
+        }
+      })
+    }
+  }
   printBanner(`dev environment starter — mode: ${mode}${ctx.company.name ? ` — company profile: ${ctx.company.name}` : ''}`)
   console.log(color.dim(`  Repo: ${repoRoot}`))
   console.log(color.dim('  Every step is idempotent — re-running always resumes where it stopped.'))
   if (selectedMode !== mode) {
-    console.log(color.dim('  --no-infra: using the host runtime for this run so no Docker command is invoked.'))
+    console.log(color.dim('  Using the host runtime for the selected service mode.'))
   }
 
   if (mode === 'docker') return commandUpDocker(ctx, flags)
@@ -187,7 +270,10 @@ async function commandUp(flags) {
       'Fix the item above and re-run the same command — completed steps are skipped.',
       'Full environment audit with an IT handout:  yarn om doctor   (or: npx @open-mercato/starter doctor)',
     ])
-    process.exit(2)
+    await ctx.cleanupServices?.()
+    printManualSetup({ monorepo: true })
+    process.exitCode = signalExitCode ?? 2
+    return
   }
 
   const ports = resolveStackPorts(repoRoot)
@@ -198,21 +284,26 @@ async function commandUp(flags) {
   console.log(`  MCP:      ${color.cyan(urls.mcp)}`)
   console.log(`  OpenCode: ${color.cyan(`http://127.0.0.1:${ports.opencode}`)}`)
   console.log(color.dim(`  Superadmin sign-in: ${readEnvValue(path.join(repoRoot, '.env'), 'OM_INIT_SUPERADMIN_EMAIL')?.trim() || 'superadmin@acme.com'} / ${readEnvValue(path.join(repoRoot, '.env'), 'OM_INIT_SUPERADMIN_PASSWORD')?.trim() || 'secret'}`))
-  console.log(color.dim('  Stop: Ctrl+C (infra containers keep running; `stop` shuts everything down)'))
+  console.log(color.dim(flags.serviceMode === 'ephemeral'
+    ? '  Stop: Ctrl+C (ephemeral services are removed and their previous configuration is restored)'
+    : flags.serviceMode === 'reuse' ? '  Stop: Ctrl+C (your existing services are left running)' : '  Stop: Ctrl+C (Compose containers keep running; `stop` shuts them down)'))
   console.log('')
 
-  const devArgs = devRuntimeArgs(flags.passthrough, { noInfra: ctx.flags.noInfra })
+  const devArgs = devRuntimeArgs([...flags.passthrough, ...(ctx.remoteDatabaseArgument ? [ctx.remoteDatabaseArgument] : flags.remoteDatabaseArgs)], { noInfra: flags.noInfra })
   if (flags.detach) {
-    startDetached(repoRoot, devArgs, { env: ctx.env })
+    const pid = startDetached(repoRoot, devArgs, { env: ctx.env })
+    session?.registerChild({ pid }, 'dev-runner')
     console.log('Manage it with the status / logs / stop subcommands.')
     return
   }
   const dev = yarnInvocation(ctx, ['dev', ...devArgs])
-  const child = spawnStreaming(dev.command, dev.args, { cwd: repoRoot, env: ctx.env })
-  child.on('close', (code) => process.exit(code ?? 0))
-  child.on('error', (error) => {
+  devChild = spawnStreaming(dev.command, dev.args, { cwd: repoRoot, env: ctx.env })
+  state.handedOff = true
+  session?.registerChild(devChild, 'dev-runner')
+  devChild.on('close', (code) => { void finish(signalExitCode ?? code ?? 0) })
+  devChild.on('error', (error) => {
     console.error(`❌ Could not start yarn dev: ${error.message}`)
-    process.exit(1)
+    void finish(1)
   })
 }
 
@@ -220,7 +311,7 @@ async function commandUpDocker(ctx, flags) {
   // Containerized mode: converge trust/env, then let compose own the stack.
   const steps = buildUpSteps(ctx).filter((step) => ['prerequisites', 'container-runtime', 'corporate-certs', 'env-files', 'llm-provider'].includes(step.id))
   const outcome = await runSteps(steps, ctx)
-  if (!outcome.ok) process.exit(2)
+  if (!outcome.ok) { printManualSetup({ monorepo: true }); process.exit(2) }
 
   ensureMcpSharedDir(repoRoot)
   const composeFile = FULLAPP_DEV_COMPOSE_FILE
@@ -405,8 +496,10 @@ async function commandInfra(flags) {
   }
 }
 
-function printInfraProblem(problem, log = console.error) {
-  const [title, ...rest] = describeInfraProblem(problem)
+function printInfraProblem(problem, options = {}) {
+  const log = typeof options === 'function' ? options : console.error
+  if (typeof options === 'function') options = {}
+  const [title, ...rest] = describeInfraProblem(problem, options)
   log(`❌ ${title}`)
   for (const line of rest) log(` ${line}`)
 }
@@ -434,7 +527,10 @@ async function main() {
   }
 }
 
-await main().catch((error) => {
-  console.error(`❌ ${error instanceof Error ? error.message : String(error)}`)
-  process.exitCode = 1
-})
+try {
+  await main()
+} catch (error) {
+  console.error(`\n❌ Setup failed: ${error instanceof Error ? error.message : String(error)}`)
+  printManualSetup({ monorepo: true })
+  process.exitCode = 2
+}

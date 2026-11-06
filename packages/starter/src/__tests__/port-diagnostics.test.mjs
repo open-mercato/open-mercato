@@ -7,6 +7,7 @@ import {
   parseListenerProcesses,
   requestExistingServicesConsent,
   startInfraServices,
+  suggestFreePorts,
 } from '../infra-preflight.mjs'
 
 const service = { service: 'postgres', port: 5432, envKey: 'POSTGRES_PORT' }
@@ -105,4 +106,24 @@ test('consent separates warning emojis and the continuing paragraph from the ans
 
 test('standalone preflight stays byte-identical to the shared starter implementation', () => {
   assert.deepEqual(fs.readFileSync(new URL('../infra-preflight.mjs', import.meta.url)), fs.readFileSync(new URL('../../../create-app/template/scripts/dev-infra-preflight.mjs', import.meta.url)))
+})
+
+test('port conflicts suggest the next free port, skipping taken ones and ports suggested for another service', async () => {
+  const taken = new Set([5433, 6380])
+  const suggested = await suggestFreePorts(
+    [{ service: 'postgres', envKey: 'POSTGRES_PORT', port: 5432 }, { service: 'redis', envKey: 'REDIS_PORT', port: 6379 }],
+    { probe: async (port) => taken.has(port), reserved: [5432, 6379, 5435] },
+  )
+  assert.deepEqual(suggested.map((entry) => entry.suggestedPort), [5434, 6381])
+  const skipped = await suggestFreePorts([{ service: 'postgres', envKey: 'POSTGRES_PORT', port: 5432 }], { probe: async () => false, reserved: [5433] })
+  assert.equal(skipped[0].suggestedPort, 5434, 'a port configured for another service in the stack is never suggested')
+  const text = formatInfraProblem({ code: 'port-conflict', ports: suggested }, { output: { isTTY: false }, env: {} }).join('\n')
+  assert.match(text, /set POSTGRES_PORT=5434 in \.env/)
+  assert.match(text, /\(:5432 -> :5434\)/)
+})
+
+test('a known container owner is named instead of an unavailable listener PID', () => {
+  const text = formatInfraProblem({ code: 'port-conflict', ports: [{ ...service, containerName: 'other-checkout-postgres' }] }, { output: { isTTY: false }, env: {} }).join('\n')
+  assert.match(text, /Container: other-checkout-postgres/)
+  assert.doesNotMatch(text, /Listener PID: unavailable/)
 })
