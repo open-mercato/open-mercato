@@ -7,21 +7,6 @@ import ts from 'typescript'
 const packageDir = path.resolve(__dirname, '../..')
 
 describe('published ai-assistant root export', () => {
-  let archiveDir: string | undefined
-  let tarballPath: string
-
-  beforeAll(() => {
-    archiveDir = realpathSync(mkdtempSync(path.join(tmpdir(), 'ai-assistant-package-')))
-    tarballPath = path.join(archiveDir, 'ai-assistant.tgz')
-    execFileSync('yarn', ['pack', '--out', tarballPath], {
-      cwd: packageDir, encoding: 'utf8', timeout: 20000,
-    })
-  })
-
-  afterAll(() => {
-    if (archiveDir) rmSync(archiveDir, { recursive: true, force: true })
-  })
-
   it.each([
     ['bundler', ts.ModuleResolutionKind.Bundler, ts.ModuleKind.ESNext],
     ['NodeNext', ts.ModuleResolutionKind.NodeNext, ts.ModuleKind.NodeNext],
@@ -30,7 +15,10 @@ describe('published ai-assistant root export', () => {
     try {
       const installedDir = path.join(consumerDir, 'node_modules/@open-mercato/ai-assistant')
       mkdirSync(installedDir, { recursive: true })
-      execFileSync('tar', ['-xzf', tarballPath,
+      const packResult = JSON.parse(execFileSync('npm', [
+        'pack', '--ignore-scripts', '--json', '--pack-destination', consumerDir,
+      ], { cwd: packageDir, encoding: 'utf8', timeout: 20000 })) as Array<{ filename: string }>
+      execFileSync('tar', ['-xzf', path.join(consumerDir, packResult[0].filename),
         '--strip-components=1', '-C', installedDir], { timeout: 10000 })
       writeFileSync(path.join(consumerDir, 'package.json'), JSON.stringify({ type: 'module' }))
       const consumerFile = path.join(consumerDir, 'index.ts')
