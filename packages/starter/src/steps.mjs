@@ -9,6 +9,7 @@ import { loadCompanyConfig, resolveCompanyCertBundles } from './company.mjs'
 import { CAPTURED_CA_BUNDLE, DEFAULT_OPENCODE_BASE_IMAGE, OPENCODE_SERVICE_IMAGE, STARTER_STATE_DIR, resolveStackPorts } from './constants.mjs'
 import { checkBuildToolchain, checkContainerRuntime, checkGit, checkNodeVersion, checkWsl2, detectHostGateway } from './doctor.mjs'
 import { ensureEnvFiles } from './env-setup.mjs'
+import { extractInitSummaryLines } from './init-summary.mjs'
 import { addEnvValue, readEnvValue } from './env-file.mjs'
 import { describeInfraProblem, startInfra } from './infra.mjs'
 import { configureServiceMode } from './service-modes.mjs'
@@ -18,6 +19,8 @@ import { ensureLlmProvider } from './providers.mjs'
 import { verifyServiceConnections } from './service-connections.mjs'
 import { createSetupLogs } from './setup-logs.mjs'
 import { color, createSpinner, formatDuration, guideBox, statusLine, stepHeader } from './ui.mjs'
+
+const INIT_OUTPUT_TAIL = 256 * 1024
 
 // The idempotent convergence pipeline behind `up`. Every step follows the same
 // contract so re-running is always safe and always cheap when nothing changed:
@@ -741,8 +744,18 @@ export const databaseStep = {
         // has no users, so it seeds either way; the flag is left off there.
         const initArgs = ctx.dbReinitialize ? ['initialize'] : ['initialize', '--', '--skip-if-initialized']
         await authorizeWrites()
+        let initOutput = ''
+        const initLogs = ctx.logs && Object.create(ctx.logs, {
+          raw: {
+            value: (chunk, displayChunk) => {
+              initOutput = `${initOutput}${chunk}`.slice(-INIT_OUTPUT_TAIL)
+              ctx.logs.raw(chunk, displayChunk)
+            },
+          },
+        })
         await runYarn({
           ...ctx,
+          logs: initLogs,
           env: {
             ...ctx.env,
             OM_INIT_DEV_AUTOSTART: '1',
@@ -750,6 +763,13 @@ export const databaseStep = {
             OM_INIT_SUMMARY_COLOR: process.stdout.isTTY && ctx.env.NO_COLOR === undefined ? '1' : '0',
           },
         }, initArgs)
+        if (ctx.logs?.interactive) {
+          const summary = extractInitSummaryLines(initOutput.split(/\r?\n/))
+          if (summary.length > 0) {
+            for (const line of summary) (ctx.promptLog ?? ctx.log)(`   ${line}`)
+            ctx.logs.resumeActivity?.()
+          }
+        }
       }
       writeState(ctx.repoRoot, ctx.dbMarker, new Date().toISOString())
     }

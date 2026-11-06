@@ -27,3 +27,7 @@ PR: #8927
 ### Phase 2: Dev runtime output (scope extension requested by the user)
 
 - [x] 2.1 Double-space after VS16 emojis in yarn dev / dev:greenfield output, dedent the "Press [d]" hint, sync create-app template — c9c875c355
+
+### Phase 3: Keep init credentials visible (scope extension requested by the user)
+
+- [x] 3.1 Re-print the `mercato init` credentials panel outside the folded setup log (regression from #8838)
