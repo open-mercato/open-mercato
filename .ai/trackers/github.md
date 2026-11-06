@@ -243,6 +243,219 @@ gh api repos/{owner}/{repo}/issues/{number}/comments --jq '.[] | {id,user:.user.
 gh api -X PATCH repos/{owner}/{repo}/issues/comments/{commentId} -F body=@<path>
 ```
 
+```bash
+tracker_repo() {
+  if [ -n "${REPO:-}" ]; then printf '%s\n' "$REPO";
+  else gh repo view --json nameWithOwner --jq .nameWithOwner; fi
+}
+```
+
+#### get-lock
+
+`{kind}` (`issue` or `pr`), `{item}` → `null` for an absent exact lock, or
+`{ref,sha,repo,kind,item,runId,actor,createdAt}`. The authoritative GitHub lock is
+`refs/om-locks/{kind}-{item}`. Its SHA points to an otherwise empty metadata
+commit using the configured base's existing tree, with no branch/history edits.
+The commit message binds the unique run id and actor; a base SHA alone cannot
+identify two runs sharing a bot login. `createdAt` comes from the server commit
+metadata, not a comment timestamp. Unknown/malformed refs and failed reads block.
+Load these helpers before **acquire-lock** or **release-lock**:
+
+```bash
+gh_lock_target() {
+  case "$1" in issue|pr) ;; *) return 1 ;; esac
+  case "$2" in ''|*[!0-9]*) return 1 ;; esac
+  LOCK_REPO=$(tracker_repo) || return 1
+  LOCK_REF="refs/om-locks/$1-$2"
+}
+gh_get_lock() {
+  gh_lock_target "$1" "$2" || return 1
+  lock_refs=$(gh api "repos/$LOCK_REPO/git/matching-refs/om-locks/$1-$2") || return 1
+  lock_entry=$(printf '%s' "$lock_refs" | jq -c --arg ref "$LOCK_REF" '
+    if type != "array" then error("Invalid ref list") else
+    [.[] | select(.ref == $ref)] | if length == 0 then null
+    elif length == 1 and .[0].object.type == "commit" then .[0]
+    else error("Ambiguous lock ref") end end') || return 1
+  if [ "$lock_entry" = "null" ]; then printf 'null\n'; return 0; fi
+  lock_sha=$(printf '%s' "$lock_entry" | jq -er '.object.sha | select(test("^[0-9a-f]{40}$"))') || return 1
+  lock_commit=$(gh api "repos/$LOCK_REPO/git/commits/$lock_sha") || return 1
+  printf '%s' "$lock_commit" | jq -ce --arg repo "$LOCK_REPO" --arg kind "$1" --arg item "$2" --arg ref "$LOCK_REF" --arg sha "$lock_sha" '
+    .committer.date as $created |
+    .message | select(startswith("om-claim-v1\n")) | ltrimstr("om-claim-v1\n") | fromjson |
+    select(.repo == $repo and .kind == $kind and .item == $item and
+      (.runId | type == "string" and length > 0) and
+      (.actor | type == "string" and length > 0) and ($created | type == "string")) |
+    . + {ref:$ref,sha:$sha,createdAt:$created}'
+}
+gh_get_lock "{kind}" "{number}"
+```
+
+#### acquire-lock
+
+`{kind}`, `{item}`, unique run id, authenticated actor, resolved base SHA →
+`{status: acquired|owned|conflict, lock: <get-lock result>}`. On GitHub this is
+mandatory, including for unassignable bots and PRs in split-provider setups.
+Requires contents-write and authenticated Git transport for eventual release.
+Never switch to comments on 403/422/transport errors: an existing ref is a
+conflict only after an exact successful read proves its owner. Reconcile an
+uncertain POST through **get-lock** before retrying. No labels/assignment/comment
+candidate or work is produced by a losing fresh run.
+
+```bash
+gh_acquire_lock() {
+  # kind, item, run id, authenticated actor, configured base SHA
+  gh_lock_target "$1" "$2" || return 1
+  case "$3" in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac
+  [ -n "$4" ] || return 1
+  printf '%s' "$5" | grep -Eq '^[0-9a-f]{40}$' || return 1
+  lock_before=$(gh_get_lock "$1" "$2") || return 1
+  if [ "$lock_before" != "null" ]; then
+    printf '%s' "$lock_before" | jq --arg run "$3" --arg actor "$4" '
+      {status:(if .runId == $run and .actor == $actor then "owned" else "conflict" end),lock:.}'
+    return 0
+  fi
+  lock_tree=$(gh api "repos/$LOCK_REPO/git/commits/$5" --jq '.tree.sha') || return 1
+  lock_message=$(jq -cn --arg repo "$LOCK_REPO" --arg kind "$1" --arg item "$2" --arg run "$3" --arg actor "$4" '
+    "om-claim-v1\n" + ({repo:$repo,kind:$kind,item:$item,runId:$run,actor:$actor}|tojson)') || return 1
+  lock_created=$(jq -n --argjson message "$lock_message" --arg tree "$lock_tree" --arg parent "$5" '
+    {message:$message,tree:$tree,parents:[$parent]}' |
+    gh api -X POST "repos/$LOCK_REPO/git/commits" --input -) || return 1
+  lock_proposed=$(printf '%s' "$lock_created" | jq -er '.sha | select(test("^[0-9a-f]{40}$"))') || return 1
+  # Create-only POST is the ownership decision; never PATCH/update an existing ref.
+  if gh api -X POST "repos/$LOCK_REPO/git/refs" -f "ref=$LOCK_REF" -f "sha=$lock_proposed" >/dev/null 2>&1; then
+    lock_posted=true
+  else
+    lock_posted=false
+  fi
+  lock_after=$(gh_get_lock "$1" "$2") || return 1
+  [ "$lock_after" != "null" ] || return 1
+  printf '%s' "$lock_after" | jq --arg run "$3" --arg actor "$4" --arg sha "$lock_proposed" --arg posted "$lock_posted" '
+    {status:(if .sha == $sha and .runId == $run and .actor == $actor then "acquired"
+      elif .runId == $run and .actor == $actor then "owned"
+      elif $posted == "false" then "conflict" else error("Lock replaced after creation") end),lock:.}'
+}
+gh_acquire_lock "{kind}" "{number}" "$CLAIM_RUN_ID" "$CURRENT_USER" "$BASE_SHA"
+```
+
+Persist the returned lock SHA plus run id before comment/label writes; reconcile
+the same run on resume. A metadata commit created by a losing contender may be
+unreferenced and garbage-collected; it contains no secrets or new project content.
+
+#### release-lock
+
+`{kind}`, `{item}`, exact expected lock SHA, expected owner run id/actor → delete
+only that exact ref. Normal callers pass their own verified identity; recovery
+passes the observed previous owner only after the shared stale/force/UI recovery
+authorization checks. Keep the lock while cleaning up owned labels and marking
+the comment released; delete the ref last. A loser never calls this operation.
+
+```bash
+gh_release_lock() {
+  # kind, item, expected SHA, expected owner's run id and actor
+  gh_lock_target "$1" "$2" || return 1
+  printf '%s' "$3" | grep -Eq '^[0-9a-f]{40}$' || return 1
+  lock_current=$(gh_get_lock "$1" "$2") || return 1
+  [ "$lock_current" != "null" ] || { printf 'absent\n'; return 0; }
+  printf '%s' "$lock_current" | jq -e --arg sha "$3" --arg run "$4" --arg actor "$5" '
+    .sha == $sha and .runId == $run and .actor == $actor' >/dev/null || return 1
+  lock_url=$(gh repo view "$LOCK_REPO" --json url --jq .url) || return 1
+  # Git's explicit expected-SHA lease is atomic compare-and-delete. REST DELETE
+  # has no expected-SHA condition and can remove a successor during recovery.
+  git push --porcelain --force-with-lease="$LOCK_REF:$3" "$lock_url.git" ":$LOCK_REF" || return 1
+  lock_remaining=$(gh_get_lock "$1" "$2") || return 1
+  if [ "$lock_remaining" = "null" ]; then printf 'released\n'
+  elif printf '%s' "$lock_remaining" | jq -e --arg sha "$3" '.sha != $sha' >/dev/null; then
+    printf 'released; successor retained\n'
+  else return 1; fi
+}
+gh_release_lock "{kind}" "{number}" "$CLAIM_LOCK_SHA" "$CLAIM_RUN_ID" "$CURRENT_USER"
+```
+
+This narrowly scoped lease-deletion is authorized lock housekeeping, never a
+force-push of project branches. Resolve the target repository's GitHub URL as
+above rather than assuming `origin` is the target. Do not change credentials,
+remove hooks or retry with an unconditional REST DELETE when Git transport fails.
+Absent is idempotent; a changed SHA/owner blocks and preserves the successor.
+
+#### get-claim-reset
+
+`{kind}`, `{item}` → latest tracker-audited human `claim-reset` label application
+as `{id,createdAt,actor}`, or `null` if none. Read every event page, including past
+applications after label removal. Verify the event actor is a human permitted to
+manage item labels; bot applications and comment/body text never authorize reset.
+A failed/unsupported audit read is not `null`: stop recovery and report the gap.
+This cutoff permanently retires claim comments created strictly before it;
+same-second/unknown timestamps are uncertain and remain blocking. It does not
+relax QA, merge, scheduler reservations or command/process isolation.
+
+```bash
+gh_get_claim_reset() {
+  case "$1" in ''|*[!0-9]*) return 1 ;; esac
+  reset_pages=$(gh api --paginate --slurp "repos/$(tracker_repo)/issues/$1/events?per_page=100") || return 1
+  printf '%s' "$reset_pages" | jq -e 'type == "array" and all(.[]; type == "array")' >/dev/null || return 1
+  reset_event=$(printf '%s' "$reset_pages" | jq '
+    [ .[][] | select(.event == "labeled" and .label.name == "claim-reset" and .actor.type == "User") ]
+    | sort_by(.created_at, .id) | .[-1] // null') || return 1
+  if [ "$reset_event" = "null" ]; then printf 'null\n'; return 0; fi
+  reset_actor=$(printf '%s' "$reset_event" | jq -r '.actor.login') || return 1
+  case "$reset_actor" in ''|*[!A-Za-z0-9-]*) return 1 ;; esac
+  reset_permission=$(gh api "repos/$(tracker_repo)/collaborators/$reset_actor/permission") || return 1
+  printf '%s' "$reset_permission" | jq -e '
+    (.permission == "admin" or .permission == "write" or .permission == "maintain" or .permission == "triage")
+    or (.user.permissions | .admin == true or .maintain == true or .push == true or .triage == true)' >/dev/null || return 1
+  printf '%s' "$reset_event" | jq '{id: (.id | tostring), createdAt: .created_at, actor: .actor.login}'
+}
+gh_get_claim_reset "{number}"
+```
+
+The platform event plus repository-permission read proves human label authority.
+A label still present is an operator-visible recovery breadcrumb, not a permanent
+bypass. Removing it does not revive retired claims; remove and reapply to request
+a later reset. Never apply this label automatically.
+
+#### claim-winner
+
+`{kind}`, `{item}`, `LIVE_CLAIM_IDS` (JSON array of comment handles from a complete
+fresh **list-issue-comments** read, selected by the skill's live/stale policy) →
+`{id,user,body}` for the lowest server creation-order candidate, or `null` when
+none is visible. Missing/unreadable/incomplete data is an error, never an empty
+success. Require the caller's own id in the fresh candidate set before proceeding.
+Ignore explicitly `released`/`withdrawn` comments even if passed as live. Do not
+filter by actor: two contenders may share one bot account. Numeric ids compare
+numerically; opaque ids use creation time then stable id. The caller repeats the
+read/election and performs the post-label ownership check; this is not atomic.
+
+```bash
+gh_claim_winner() {
+  # $1 = item number; $2 = LIVE_CLAIM_IDS as JSON string handles.
+  case "$1" in ''|*[!0-9]*) return 1 ;; esac
+  printf '%s' "$2" | jq -e 'type == "array" and all(.[]; type == "string")' >/dev/null || return 1
+  claim_pages=$(gh api --paginate --slurp "repos/$(tracker_repo)/issues/$1/comments?per_page=100") || return 1
+  printf '%s' "$claim_pages" | jq -e 'type == "array" and all(.[]; type == "array")' >/dev/null || return 1
+  printf '%s' "$claim_pages" | jq --argjson live "$2" '
+    [ .[][] | select((.id | tostring) as $id | $live | index($id))
+      | select((.body | test("(?m)^Claim-State: (released|withdrawn)\\r?$")) | not)
+      | {id: (.id | tostring), user: .user.login, body} ]
+    | sort_by(.id | [length, .]) | .[0] // null'
+}
+gh_claim_winner "{number}" "$LIVE_CLAIM_IDS"
+```
+
+All comment pages are read before ranking. Preserve REST numeric ids as string
+handles at the operation boundary (do not substitute GraphQL node ids).
+
+#### withdraw-claim
+
+`{kind}`, `{item}`, `{commentId}`, full terminal body file, expected authenticated
+actor and `Claim-Run` → rewrite only that run's original candidate through **update-comment**,
+then read it back through **list-issue-comments**. Retain its legacy first line,
+marker and run id; change `Claim-State: active` to `withdrawn` (loser) or `released`
+(owner after cleanup), with the reason/winner. Before writing, verify exact item,
+comment id, authenticated author and run id; a mismatch stops cleanup. Do not
+edit a foreign candidate or delete its label. Return the same id and verified
+terminal state; failed update/read-back is a blocker. Never fall back to a new
+comment leaving the old active candidate in place.
+
 ### Pull requests
 
 #### get-pr
