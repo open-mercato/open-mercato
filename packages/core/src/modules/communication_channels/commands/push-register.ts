@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
@@ -185,6 +186,11 @@ export async function pushRegister(params: {
     await transaction.flush()
     return current.channelState
   })
+
+  if (!persistedState) {
+    const { translate } = await resolveTranslations()
+    throw createCrudFormError(translate('communication_channels.detail.notFound'), undefined, { status: 404 })
+  }
 
   if (registration.status === 'active') {
     await emitCommunicationChannelsEvent(

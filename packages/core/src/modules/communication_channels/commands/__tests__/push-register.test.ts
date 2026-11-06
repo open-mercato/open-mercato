@@ -1,3 +1,5 @@
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({ resolveTranslations: async () => ({ translate: (key: string) => key }) }))
+
 // Spec C § Phase C5 — push-register orchestration.
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
@@ -241,4 +243,12 @@ it('preserves a cursor committed while registration was in flight and merges pus
   expect(initial.channelState).toEqual({ historyId: '100' })
   expect(em.transactional).toHaveBeenCalledTimes(1)
   expect((findOneWithDecryption as jest.Mock).mock.calls[1][3]).toMatchObject({ lockMode: expect.anything(), refresh: true })
+})
+
+it('does not emit registration success when the row disappears during provider I/O', async () => {
+  ;(findOneWithDecryption as jest.Mock).mockResolvedValueOnce(buildChannel()).mockResolvedValueOnce(null)
+  ;(getChannelAdapterRegistry as jest.Mock).mockReturnValue({ get: () => ({ registerPush: async () => ({ status: 'active', channelStatePatch: { pushStatus: 'active' } }) }) })
+  const { container } = buildContainer()
+  await expect(pushRegister({ container, scope: { tenantId: TENANT, organizationId: ORG }, input: { channelId: CHANNEL } })).rejects.toMatchObject({ status: 404 })
+  expect(emitCommunicationChannelsEvent).not.toHaveBeenCalled()
 })

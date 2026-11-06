@@ -155,7 +155,7 @@ export async function pushUnregister(params: {
 
   // Clear push markers from channel state so a subsequent reconnect starts
   // fresh.
-  await withLockedChannel(em, { ...channel, tenantId: scope.tenantId }, async (current, transaction) => {
+  const committed = await withLockedChannel(em, { ...channel, tenantId: scope.tenantId }, async (current, transaction) => {
     current.channelState = {
       ...(current.channelState ?? {}),
       pushStatus: 'inactive',
@@ -163,7 +163,9 @@ export async function pushUnregister(params: {
     }
     current.pollIntervalSeconds = POLLING_ONLY_DEFAULT_INTERVAL_SECONDS
     await transaction.flush()
+    return true
   })
+  if (!committed) return { channelId: channel.id, status: 'noop' }
 
   await emitCommunicationChannelsEvent(
     'communication_channels.push.deactivated',

@@ -215,3 +215,11 @@ it('clears only push markers while preserving a cursor committed during provider
   expect(initial.channelState.pushStatus).toBe('active')
   expect(em.transactional).toHaveBeenCalledTimes(1)
 })
+
+it('returns noop without emitting success when the row disappears during provider I/O', async () => {
+  ;(findOneWithDecryption as jest.Mock).mockResolvedValueOnce(buildActiveGmailChannel()).mockResolvedValueOnce(null)
+  ;(getChannelAdapterRegistry as jest.Mock).mockReturnValue({ get: () => ({ unregisterPush: async () => undefined }) })
+  const { container } = buildContainer()
+  await expect(pushUnregister({ container, scope: { tenantId: TENANT, organizationId: ORG }, input: { channelId: CHANNEL } })).resolves.toMatchObject({ status: 'noop' })
+  expect(emitCommunicationChannelsEvent).not.toHaveBeenCalled()
+})
