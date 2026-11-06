@@ -46,7 +46,7 @@ import ProductsDataTable from '../products/ProductsDataTable'
 import { VariantBuilder } from '../products/VariantBuilder'
 import { ServiceForm, buildServicePayload, createServiceInitialValues, normalizeServiceDefaultPriceAmount, normalizeServiceMediaItem } from '../services/ServiceForm'
 import { ServiceWorkRequirements } from '../services/ServiceWorkRequirements'
-import { formatServiceDefaultPrice } from '../services/ServicesDataTable'
+import ServicesDataTable, { formatServiceDefaultPrice } from '../services/ServicesDataTable'
 import type { VariantFormValues } from '../products/variantForm'
 import type { ProductFormValues } from '../products/productForm'
 
@@ -649,6 +649,61 @@ describe('catalog module components', () => {
     expect(handleChange).toHaveBeenCalledWith(expect.arrayContaining([
       expect.objectContaining({ targetId: null, labelSnapshot: 'Lead designer' }),
     ]))
+  })
+
+  it('shows the create action when a wildcard grant covers catalog.services.manage', async () => {
+    mockApiCall.mockImplementation((url: string) => Promise.resolve({
+      ok: true,
+      result: url === '/api/auth/feature-check' ? { ok: false, granted: ['catalog.*'] } : { items: [] },
+    }))
+
+    render(<ServicesDataTable />)
+
+    expect(await screen.findByRole('link', { name: 'Create' })).toHaveAttribute('href', '/backend/catalog/services/create')
+  })
+
+  it('hides the create action without the manage feature', async () => {
+    mockApiCall.mockImplementation((url: string) => Promise.resolve({
+      ok: true,
+      result: url === '/api/auth/feature-check' ? { ok: false, granted: ['catalog.services.view'] } : { items: [] },
+    }))
+
+    render(<ServicesDataTable />)
+
+    await waitFor(() => expect(mockApiCall).toHaveBeenCalledWith('/api/auth/feature-check', expect.anything()))
+    expect(screen.queryByRole('link', { name: 'Create' })).not.toBeInTheDocument()
+  })
+
+  it('parses locale decimals typed into the default price and work requirements', () => {
+    const t = (_key: string, fallback?: string) => fallback ?? _key
+    const payload = buildServicePayload(createServiceInitialValues({
+      title: 'Workshop',
+      defaultPriceAmount: '12,50',
+      defaultPriceCurrencyCode: 'PLN',
+      workRequirements: [{
+        targetType: 'generic',
+        targetId: null,
+        labelSnapshot: 'Consultant',
+        allocationMode: 'fixed_hours',
+        allocationValue: '1,5',
+      }],
+    }), t)
+
+    expect(payload.defaultPriceAmount).toBe('12.5')
+    expect(payload.workRequirements).toEqual([
+      expect.objectContaining({ allocationValue: 1.5 }),
+    ])
+  })
+
+  it('rejects an unreadable or negative default price before submit', () => {
+    const t = (_key: string, fallback?: string) => fallback ?? _key
+    for (const defaultPriceAmount of ['abc', '-5']) {
+      expect(() => buildServicePayload(createServiceInitialValues({
+        title: 'Workshop',
+        defaultPriceAmount,
+        defaultPriceCurrencyCode: 'USD',
+      }), t)).toThrow('Provide a valid, non-negative default price.')
+    }
   })
 
   it('maps valid integer work requirements and rejects invalid values before submit', () => {

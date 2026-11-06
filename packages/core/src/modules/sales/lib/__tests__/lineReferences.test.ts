@@ -17,6 +17,8 @@ describe('findLineReferenceConflict', () => {
     [{ kind: 'service', serviceId: null, productId: null, productVariantId: null }],
     [{ productId: PRODUCT_ID }],
     [{ kind: 'shipping' }],
+    [{ kind: 'service', productId: PRODUCT_ID }],
+    [{ kind: 'service', productVariantId: PRODUCT_ID, serviceId: null }],
   ])('accepts %j', (line) => {
     expect(findLineReferenceConflict(line)).toBeNull()
   })
@@ -26,9 +28,19 @@ describe('findLineReferenceConflict', () => {
     expect(findLineReferenceConflict({ serviceId: SERVICE_ID })).toBe('service_on_non_service_line')
   })
 
-  it('flags a product or variant on a service line', () => {
-    expect(findLineReferenceConflict({ kind: 'service', productId: PRODUCT_ID })).toBe('product_on_service_line')
-    expect(findLineReferenceConflict({ kind: 'service', productVariantId: PRODUCT_ID })).toBe('product_on_service_line')
+  it('accepts the InboxOps service-line shape: kind service with a matched product and no service', () => {
+    expect(
+      findLineReferenceConflict({ kind: 'service', productId: PRODUCT_ID, productVariantId: null, serviceId: null }),
+    ).toBeNull()
+  })
+
+  it('flags a line that references a service and a product or variant at the same time', () => {
+    expect(
+      findLineReferenceConflict({ kind: 'service', serviceId: SERVICE_ID, productId: PRODUCT_ID }),
+    ).toBe('service_and_product_reference')
+    expect(
+      findLineReferenceConflict({ kind: 'service', serviceId: SERVICE_ID, productVariantId: PRODUCT_ID }),
+    ).toBe('service_and_product_reference')
   })
 })
 
@@ -38,9 +50,11 @@ describe('assertLineReferencesConsistent', () => {
   })
 
   it('throws a 400 naming the line', async () => {
-    await expect(assertLineReferencesConsistent({ kind: 'service', productId: PRODUCT_ID }, 3)).rejects.toMatchObject({
+    await expect(
+      assertLineReferencesConsistent({ kind: 'service', serviceId: SERVICE_ID, productId: PRODUCT_ID }, 3),
+    ).rejects.toMatchObject({
       status: 400,
-      body: { error: 'Line 3 is a service line and cannot reference a product or variant.' },
+      body: { error: 'Line 3 cannot reference both a service and a product or variant.' },
     })
   })
 })

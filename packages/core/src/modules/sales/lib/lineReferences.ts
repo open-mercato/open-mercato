@@ -1,7 +1,7 @@
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
-export type LineReferenceConflict = 'service_on_non_service_line' | 'product_on_service_line'
+export type LineReferenceConflict = 'service_on_non_service_line' | 'service_and_product_reference'
 
 type LineReferenceFields = {
   kind?: string | null
@@ -11,9 +11,9 @@ type LineReferenceFields = {
 }
 
 export function findLineReferenceConflict(line: LineReferenceFields): LineReferenceConflict | null {
-  const kind = line.kind ?? 'product'
-  if (line.serviceId && kind !== 'service') return 'service_on_non_service_line'
-  if (kind === 'service' && (line.productId || line.productVariantId)) return 'product_on_service_line'
+  if (!line.serviceId) return null
+  if ((line.kind ?? 'product') !== 'service') return 'service_on_non_service_line'
+  if (line.productId || line.productVariantId) return 'service_and_product_reference'
   return null
 }
 
@@ -33,8 +33,8 @@ export async function assertLineReferencesConsistent(
             { line: String(lineNumber) },
           )
         : translate(
-            'sales.errors.serviceLineCannotReferenceProduct',
-            'Line {{line}} is a service line and cannot reference a product or variant.',
+            'sales.errors.serviceAndProductReference',
+            'Line {{line}} cannot reference both a service and a product or variant.',
             { line: String(lineNumber) },
           ),
   })

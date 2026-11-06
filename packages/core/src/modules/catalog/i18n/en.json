@@ -806,6 +806,7 @@
   "catalog.services.form.errors.load": "Failed to load service",
   "catalog.services.form.errors.notFound": "Service not found",
   "catalog.services.form.errors.priceCurrency": "Provide both default price and currency, or leave both empty.",
+  "catalog.services.form.errors.priceInvalid": "Provide a valid, non-negative default price.",
   "catalog.services.form.errors.title": "Provide the service title.",
   "catalog.services.form.errors.workRequirementLabel": "Provide a label for every work requirement.",
   "catalog.services.form.errors.workRequirementValue": "Provide a positive value for every work requirement.",

@@ -294,7 +294,7 @@ describe('sales line writes — service lines', () => {
       ).rejects.toMatchObject({ status: 400 })
     })
 
-    it('rejects a product reference on a service line', async () => {
+    it('rejects a product reference added to a line that still references a service', async () => {
       setWorld([serviceLine()])
 
       await expect(
@@ -305,6 +305,24 @@ describe('sales line writes — service lines', () => {
           productId: PRODUCT_ID,
         }),
       ).rejects.toMatchObject({ status: 400 })
+    })
+
+    it('accepts edits to an existing service-kind line that carries a product and no service', async () => {
+      setWorld([buildLine({ id: FIRST_LINE_ID, kind: 'service', productId: PRODUCT_ID })])
+
+      const lines = await runCommand(commandId, {
+        ...baseBody,
+        id: FIRST_LINE_ID,
+        [parentKey]: parentId,
+        kind: 'service',
+        productId: PRODUCT_ID,
+        quantity: 3,
+      })
+
+      const line = lines.get(FIRST_LINE_ID)!
+      expect(line.kind).toBe('service')
+      expect(line.productId).toBe(PRODUCT_ID)
+      expect(line.serviceId).toBeNull()
     })
 
     it('aligns the document currency with the first line of an empty document', async () => {

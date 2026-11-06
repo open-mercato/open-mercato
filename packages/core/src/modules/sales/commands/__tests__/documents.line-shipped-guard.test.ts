@@ -35,6 +35,9 @@ const TENANT_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 const ORDER_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
 const LINE_ID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
 const SHIPMENT_ID = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+const PRODUCT_ID = '55555555-5555-4555-8555-555555555555'
+const VARIANT_ID = '66666666-6666-4666-8666-666666666666'
+const SERVICE_ID = '77777777-7777-4777-8777-777777777777'
 
 const UNIT_PRICE_NET = 100
 const UNIT_PRICE_GROSS = 123
@@ -47,6 +50,7 @@ function setWorld(options: {
   shipments: Array<{ id: string }>
   shipmentItems: ShipmentItem[]
   quantityUnit?: string | null
+  references?: Record<string, string | null>
 }) {
   const order = {
     id: ORDER_ID,
@@ -62,6 +66,8 @@ function setWorld(options: {
     kind: 'product',
     productId: null,
     productVariantId: null,
+    serviceId: null,
+    ...options.references,
     name: 'Shipped line',
     quantity: String(ORDERED_QUANTITY),
     quantityUnit: options.quantityUnit ?? null,
@@ -179,11 +185,58 @@ async function runUpsert(input: ReturnType<typeof editInput>) {
   return { caught, em }
 }
 
-const shippedWorld = () =>
+const shippedWorld = (references?: Record<string, string | null>) =>
   setWorld({
     shipments: [{ id: SHIPMENT_ID }],
     shipmentItems: [{ shipment: { id: SHIPMENT_ID }, orderLine: { id: LINE_ID }, quantity: '2' }],
+    references,
   })
+
+const REFERENCE_SHIPPED_MESSAGE =
+  'You cannot change the item type or catalog reference of a line that has shipped items.'
+
+const catalogReferences = { kind: 'product', productId: PRODUCT_ID, productVariantId: VARIANT_ID }
+
+function undoInput(line: Record<string, unknown>) {
+  return {
+    logEntry: {
+      commandPayload: {
+        undo: {
+          before: {
+            order: { id: ORDER_ID, organizationId: ORG_ID, tenantId: TENANT_ID },
+            lines: [{
+              id: LINE_ID,
+              kind: 'product',
+              quantity: ORDERED_QUANTITY,
+              quantityUnit: null,
+              currencyCode: 'USD',
+              unitPriceNet: UNIT_PRICE_NET,
+              unitPriceGross: UNIT_PRICE_GROSS,
+              discountAmount: 0,
+              discountPercent: 0,
+              taxRate: TAX_RATE,
+              totalNetAmount: 400,
+              totalGrossAmount: 492,
+              ...line,
+            }],
+          },
+        },
+      },
+    },
+  }
+}
+
+async function runOrderUpdateUndo(line: Record<string, unknown>) {
+  const handler = commandRegistry.get('sales.orders.update')!
+  const em = makeEm()
+  let caught: unknown
+  try {
+    await handler.undo?.({ ...undoInput(line), ctx: makeCtx(em), input: {} } as never)
+  } catch (err) {
+    caught = err
+  }
+  return { caught, em }
+}
 
 describe('sales.orders.lines.upsert shipment guard (issue #3993)', () => {
   beforeAll(async () => {
@@ -300,6 +353,49 @@ describe('sales.orders.lines.upsert shipment guard (issue #3993)', () => {
   it('allows lowering the quantity when the line has no shipments', async () => {
     setWorld({ shipments: [], shipmentItems: [] })
     const { caught } = await runUpsert(editInput({ quantity: 1, unitPriceNet: 5, unitPriceGross: 6 }))
+    expect(isCrudHttpError(caught) && (caught as CrudHttpError).status === 409).toBe(false)
+  })
+
+  it.each([
+    ['service reference', { serviceId: SERVICE_ID }],
+    ['line kind', { kind: 'service' }],
+    ['product', { productId: '88888888-8888-4888-8888-888888888888' }],
+    ['variant', { productVariantId: null }],
+  ])('rejects changing the %s of a shipped line', async (_label, overrides) => {
+    shippedWorld(catalogReferences)
+    const { caught, em } = await runUpsert(editInput({ ...catalogReferences, ...overrides }))
+    expect(isCrudHttpError(caught)).toBe(true)
+    expect((caught as CrudHttpError).status).toBe(409)
+    expect((caught as CrudHttpError).body?.error).toBe(REFERENCE_SHIPPED_MESSAGE)
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('allows resending the stored references of a shipped line', async () => {
+    shippedWorld(catalogReferences)
+    const { caught } = await runUpsert(
+      editInput({ ...catalogReferences, serviceId: null, quantity: 10 }),
+    )
+    expect(isCrudHttpError(caught) && (caught as CrudHttpError).status === 409).toBe(false)
+  })
+
+  it('allows a shipped-line edit that omits the references', async () => {
+    shippedWorld(catalogReferences)
+    const { caught } = await runUpsert(editInput({ kind: undefined, quantity: 10 }))
+    expect(isCrudHttpError(caught) && (caught as CrudHttpError).status === 409).toBe(false)
+  })
+
+  it('rejects undo when its snapshot would restore a different catalog reference onto a shipped line', async () => {
+    shippedWorld(catalogReferences)
+    const { caught, em } = await runOrderUpdateUndo({ ...catalogReferences, productId: null })
+    expect(isCrudHttpError(caught)).toBe(true)
+    expect((caught as CrudHttpError).status).toBe(409)
+    expect((caught as CrudHttpError).body?.error).toBe(REFERENCE_SHIPPED_MESSAGE)
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('does not reject undo whose snapshot restores the same references onto a shipped line', async () => {
+    shippedWorld(catalogReferences)
+    const { caught } = await runOrderUpdateUndo({ ...catalogReferences, serviceId: null })
     expect(isCrudHttpError(caught) && (caught as CrudHttpError).status === 409).toBe(false)
   })
 

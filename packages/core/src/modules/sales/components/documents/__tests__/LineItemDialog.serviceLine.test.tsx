@@ -7,10 +7,12 @@
  * new first line never issues a second, client-side write to the document
  * currency — the line upsert already aligns it in the same transaction.
  *
- * Custom mode never sends `kind`, and only clears references when the user
- * switched into it: the server keeps stored values for omitted keys, so a
- * shipping/adjustment line keeps its kind and a line whose catalog product was
- * deleted keeps its stored product and variant ids.
+ * Custom mode only clears references when the user switched into it: the
+ * server keeps stored values for omitted keys, so a shipping/adjustment line
+ * keeps its kind and a line whose catalog product was deleted keeps its stored
+ * product and variant ids. A service line switched to Custom becomes a freeform
+ * product line, so it also sends `kind: 'product'`; otherwise Custom sends no
+ * `kind`.
  */
 import * as React from 'react'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -357,8 +359,49 @@ describe('LineItemDialog service lines', () => {
     })
 
     const [, payload] = mockUpdateCrud.mock.calls[0] as [string, FormValues]
-    expect(payload).toMatchObject({ serviceId: null, productId: null, productVariantId: null })
-    expect(definedKeys(payload)).not.toContain('kind')
+    expect(payload).toMatchObject({
+      kind: 'product',
+      serviceId: null,
+      productId: null,
+      productVariantId: null,
+    })
+  })
+
+  it('looks up catalog services without the forbidden or unauthorized redirect', async () => {
+    render(
+      <LineItemDialog
+        open
+        kind="order"
+        documentId="order-1"
+        currencyCode="USD"
+        organizationId="org-1"
+        tenantId="tenant-1"
+        initialLine={{
+          ...productLine,
+          productId: null,
+          productVariantId: null,
+          serviceId: 'service-1',
+          metadata: { lineMode: 'service', priceMode: 'gross' },
+        }}
+        shippedQuantity={0}
+        onOpenChange={() => {}}
+        onSaved={async () => {}}
+      />,
+    )
+
+    const serviceCalls = () =>
+      mockApiCall.mock.calls.filter(([url]) => String(url).startsWith('/api/catalog/services?'))
+    await waitFor(() => {
+      expect(serviceCalls().some(([url]) => String(url).includes('ids=service-1'))).toBe(true)
+      expect(serviceCalls().some(([url]) => !String(url).includes('ids='))).toBe(true)
+    })
+
+    for (const [, init, options] of serviceCalls()) {
+      expect(init).toEqual({
+        headers: { 'x-om-forbidden-redirect': '0', 'x-om-unauthorized-redirect': '0' },
+      })
+      expect(options).toEqual({ fallback: { items: [] } })
+    }
   })
 
   it('keeps the kind and references of a line that was already custom', async () => {

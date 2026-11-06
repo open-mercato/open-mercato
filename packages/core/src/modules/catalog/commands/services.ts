@@ -194,6 +194,7 @@ async function syncServiceMedia(
   em: EntityManager,
   service: CatalogService,
   mediaInput: ServiceMediaInput[] | undefined,
+  requestedDefaultId: string | null | undefined,
 ) {
   if (!mediaInput) return
   await em.nativeDelete(CatalogServiceMedia, { service })
@@ -211,15 +212,20 @@ async function syncServiceMedia(
       isDefault: item.isDefault === true,
       metadata: cloneMetadata(item.metadata),
     }))
-  for (const row of rows) em.persist(row)
-  const currentDefault = service.defaultMediaId
-    ? rows.find((item) => item.fileId === service.defaultMediaId) ?? null
-    : null
-  const defaultItem = currentDefault ?? rows.find((item) => item.isDefault) ?? rows[0] ?? null
+  const findByFileId = (fileId: string | null | undefined) =>
+    fileId ? rows.find((item) => item.fileId === fileId) ?? null : null
+  const defaultItem =
+    findByFileId(requestedDefaultId)
+    ?? rows.find((item) => item.isDefault)
+    ?? findByFileId(service.defaultMediaId)
+    ?? rows[0]
+    ?? null
+  for (const row of rows) {
+    row.isDefault = row === defaultItem
+    em.persist(row)
+  }
   service.defaultMediaId = defaultItem?.fileId ?? null
-  service.defaultMediaUrl = currentDefault
-    ? (service.defaultMediaUrl ?? currentDefault.url ?? null)
-    : (defaultItem?.url ?? null)
+  service.defaultMediaUrl = defaultItem?.url ?? null
 }
 
 async function syncWorkRequirements(
@@ -431,7 +437,7 @@ const createServiceCommand: CommandHandler<ServiceCreateInput, { serviceId: stri
         () => {
           em.persist(record)
         },
-        () => syncServiceMedia(em, record, parsed.media),
+        () => syncServiceMedia(em, record, parsed.media, parsed.defaultMediaId),
         () => syncWorkRequirements(em, record, parsed.workRequirements),
       ],
       sideEffect: () => ({ entity: record, identifiers: identifiers(record) }),
@@ -550,7 +556,7 @@ const updateServiceCommand: CommandHandler<ServiceUpdateInput, { serviceId: stri
       indexer: serviceCrudIndexer,
       phases: [
         () => em.flush(),
-        () => syncServiceMedia(em, record, parsed.media),
+        () => syncServiceMedia(em, record, parsed.media, parsed.defaultMediaId),
         () => syncWorkRequirements(em, record, parsed.workRequirements),
       ],
       sideEffect: () => ({ entity: record, identifiers: identifiers(record) }),

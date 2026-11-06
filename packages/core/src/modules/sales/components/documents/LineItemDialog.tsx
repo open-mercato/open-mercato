@@ -336,6 +336,11 @@ const defaultForm = (currencyCode?: string | null): LineFormState => ({
 
 const UNIT_PRICE_INPUT_SCALE = 4;
 
+const OPTIONAL_CATALOG_SERVICE_HEADERS = {
+  "x-om-forbidden-redirect": "0",
+  "x-om-unauthorized-redirect": "0",
+};
+
 function buildPriceScopeReason(
   item: Record<string, unknown>,
   t: (k: string, f: string) => string,
@@ -865,7 +870,7 @@ export function LineItemDialog({
         items?: Array<Record<string, unknown>>;
       }>(
         `/api/catalog/services?ids=${encodeURIComponent(serviceId)}&pageSize=1`,
-        undefined,
+        { headers: OPTIONAL_CATALOG_SERVICE_HEADERS },
         { fallback: { items: [] } },
       );
       const items = Array.isArray(response.result?.items)
@@ -887,9 +892,11 @@ export function LineItemDialog({
       if (query && query.trim().length) params.set("search", query.trim());
       const response = await apiCall<{
         items?: Array<Record<string, unknown>>;
-      }>(`/api/catalog/services?${params.toString()}`, undefined, {
-        fallback: { items: [] },
-      });
+      }>(
+        `/api/catalog/services?${params.toString()}`,
+        { headers: OPTIONAL_CATALOG_SERVICE_HEADERS },
+        { fallback: { items: [] } },
+      );
       const items = Array.isArray(response.result?.items)
         ? (response.result?.items ?? [])
         : [];
@@ -1845,7 +1852,14 @@ export function LineItemDialog({
               productVariantId: null,
             }
           : switchedToCustomLine
-            ? { productId: null, productVariantId: null, serviceId: null }
+            ? {
+                ...(initialValues.lineMode === "service"
+                  ? { kind: "product" }
+                  : {}),
+                productId: null,
+                productVariantId: null,
+                serviceId: null,
+              }
             : {};
 
       const payload: Record<string, unknown> = {

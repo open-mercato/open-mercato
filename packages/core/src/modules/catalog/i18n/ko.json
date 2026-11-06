@@ -806,6 +806,7 @@
   "catalog.services.form.errors.load": "서비스를 불러오지 못했습니다",
   "catalog.services.form.errors.notFound": "서비스를 찾을 수 없습니다",
   "catalog.services.form.errors.priceCurrency": "기본 가격과 통화를 모두 입력하거나 둘 다 비워 두세요.",
+  "catalog.services.form.errors.priceInvalid": "0 이상의 올바른 기본 가격을 입력하세요.",
   "catalog.services.form.errors.title": "서비스 제목을 입력하세요.",
   "catalog.services.form.errors.workRequirementLabel": "모든 작업 요구사항에 라벨을 입력하세요.",
   "catalog.services.form.errors.workRequirementValue": "모든 작업 요구사항에 양수 값을 입력하세요.",

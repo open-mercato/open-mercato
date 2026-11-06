@@ -7,6 +7,7 @@ import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customF
 import { Input } from '@open-mercato/ui/primitives/input'
 import { AMOUNT_CURRENCIES } from '@open-mercato/ui/primitives/amount-input'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { parseLocaleNumber } from '@open-mercato/shared/lib/number'
 import { E } from '#generated/entities.ids.generated'
 import {
   CatalogMediaManager,
@@ -72,10 +73,14 @@ function trimOptional(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length ? value.trim() : null
 }
 
-function toPriceAmount(value: unknown): string | null {
-  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
-  if (typeof value === 'string' && value.trim().length) return value.trim()
+function parseUserDecimal(value: unknown): number | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+  if (typeof value === 'string') return parseLocaleNumber(value)
   return null
+}
+
+function hasUserInput(value: unknown): boolean {
+  return typeof value === 'number' || (typeof value === 'string' && value.trim().length > 0)
 }
 
 export function normalizeServiceDefaultPriceAmount(value: unknown): string {
@@ -117,7 +122,12 @@ export function buildServicePayload(values: ServiceFormValues, t: ReturnType<typ
     throw createCrudFormError(message, { title: message })
   }
   const currency = trimOptional(values.defaultPriceCurrencyCode)
-  const price = toPriceAmount(values.defaultPriceAmount)
+  const parsedPrice = parseUserDecimal(values.defaultPriceAmount)
+  if (hasUserInput(values.defaultPriceAmount) && (parsedPrice === null || parsedPrice < 0)) {
+    const message = t('catalog.services.form.errors.priceInvalid', 'Provide a valid, non-negative default price.')
+    throw createCrudFormError(message, { defaultPriceAmount: message })
+  }
+  const price = parsedPrice === null ? null : String(parsedPrice)
   if (price && !currency) {
     const message = t('catalog.services.form.errors.priceCurrency', 'Provide both default price and currency, or leave both empty.')
     throw createCrudFormError(message, { defaultPriceAmount: message, defaultPriceCurrencyCode: message })
@@ -129,7 +139,7 @@ export function buildServicePayload(values: ServiceFormValues, t: ReturnType<typ
   const customFields = collectCustomFieldValues(values)
   const workRequirements = Array.isArray(values.workRequirements) ? values.workRequirements.map((item, index) => {
     const labelSnapshot = trimOptional(item.labelSnapshot) ?? ''
-    const allocationValue = Number(item.allocationValue)
+    const allocationValue = parseUserDecimal(item.allocationValue) ?? Number.NaN
     if (!labelSnapshot) {
       const message = t('catalog.services.form.errors.workRequirementLabel', 'Provide a label for every work requirement.')
       throw createCrudFormError(message, { workRequirements: message })

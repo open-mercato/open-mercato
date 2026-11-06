@@ -96,6 +96,10 @@ type ServiceListItem = {
   workRequirements?: unknown[]
 }
 
+function uniqueStrings(values: Array<string | null | undefined>): string[] {
+  return Array.from(new Set(values.filter((value): value is string => typeof value === 'string' && value.length > 0)))
+}
+
 function serviceCategoryId(item: ServiceListItem): string | null {
   return item.category_id ?? item.categoryId ?? null
 }
@@ -112,12 +116,21 @@ export async function decorateServicesAfterList(
     organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
     tenantId: ctx.auth?.tenantId ?? null,
   }
+  const rowOrganizationIds = uniqueStrings(items.map((item) => item.organization_id))
+  const rowTenantIds = uniqueStrings(items.map((item) => item.tenant_id))
   const scopedWhere = (base: Record<string, unknown>) =>
-    buildScopedWhere(base, {
-      organizationId: scope.organizationId,
-      organizationIds: Array.isArray(ctx.organizationIds) ? ctx.organizationIds : undefined,
-      tenantId: scope.tenantId,
-    })
+    rowOrganizationIds.length && rowTenantIds.length
+      ? {
+          ...base,
+          organizationId: { $in: rowOrganizationIds },
+          tenantId: { $in: rowTenantIds },
+          deletedAt: null,
+        }
+      : buildScopedWhere(base, {
+          organizationId: scope.organizationId,
+          organizationIds: Array.isArray(ctx.organizationIds) ? ctx.organizationIds : undefined,
+          tenantId: scope.tenantId,
+        })
   const [mediaRows, requirementRows, categories] = await Promise.all([
     findWithDecryption(
       em,

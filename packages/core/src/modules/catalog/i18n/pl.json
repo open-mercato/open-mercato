@@ -806,6 +806,7 @@
   "catalog.services.form.errors.load": "Nie udało się wczytać usługi",
   "catalog.services.form.errors.notFound": "Nie znaleziono usługi",
   "catalog.services.form.errors.priceCurrency": "Podaj domyślną cenę i walutę albo zostaw oba pola puste.",
+  "catalog.services.form.errors.priceInvalid": "Podaj prawidłową, nieujemną cenę domyślną.",
   "catalog.services.form.errors.title": "Podaj nazwę usługi.",
   "catalog.services.form.errors.workRequirementLabel": "Podaj etykietę dla każdego wymagania pracy.",
   "catalog.services.form.errors.workRequirementValue": "Podaj dodatnią wartość dla każdego wymagania pracy.",

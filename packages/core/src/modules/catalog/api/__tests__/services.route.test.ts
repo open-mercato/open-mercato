@@ -166,4 +166,34 @@ describe('catalog services route helpers', () => {
     }
     expect(findWithDecryption).toHaveBeenCalledTimes(3)
   })
+
+  it('scopes decoration to the organizations of the returned rows when no organization is selected', async () => {
+    ;(findWithDecryption as jest.Mock).mockResolvedValue([])
+    const ctx = {
+      container: { resolve: jest.fn().mockReturnValue({ fork: () => ({}) }) },
+      auth: { orgId: null, tenantId: null, isSuperAdmin: true },
+      selectedOrganizationId: null,
+      organizationIds: null,
+    } as any
+
+    await decorateServicesAfterList(
+      {
+        items: [
+          { id: '11111111-1111-4111-8111-111111111111', organization_id: 'org-a', tenant_id: 'tenant-1' },
+          { id: '66666666-6666-4666-8666-666666666666', organization_id: 'org-b', tenant_id: 'tenant-1' },
+          { id: '77777777-7777-4777-8777-777777777777', organization_id: 'org-a', tenant_id: 'tenant-1' },
+        ],
+      },
+      ctx,
+    )
+
+    expect(findWithDecryption).toHaveBeenCalledTimes(3)
+    for (const call of (findWithDecryption as jest.Mock).mock.calls) {
+      expect(call[2]).toEqual(expect.objectContaining({
+        organizationId: { $in: ['org-a', 'org-b'] },
+        tenantId: { $in: ['tenant-1'] },
+        deletedAt: null,
+      }))
+    }
+  })
 })

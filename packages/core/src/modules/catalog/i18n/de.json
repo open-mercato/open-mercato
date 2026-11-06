@@ -806,6 +806,7 @@
   "catalog.services.form.errors.load": "Service konnte nicht geladen werden",
   "catalog.services.form.errors.notFound": "Service nicht gefunden",
   "catalog.services.form.errors.priceCurrency": "Gib Standardpreis und Währung an oder lasse beide Felder leer.",
+  "catalog.services.form.errors.priceInvalid": "Geben Sie einen gültigen, nicht negativen Standardpreis an.",
   "catalog.services.form.errors.title": "Gib einen Servicetitel an.",
   "catalog.services.form.errors.workRequirementLabel": "Gib für jede Arbeitsanforderung ein Label an.",
   "catalog.services.form.errors.workRequirementValue": "Gib für jede Arbeitsanforderung einen positiven Wert an.",

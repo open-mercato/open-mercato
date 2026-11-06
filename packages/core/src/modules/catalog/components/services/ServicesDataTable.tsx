@@ -19,6 +19,7 @@ import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { hasFeature } from '@open-mercato/shared/security/features'
 
 type ServiceRow = {
   id: string
@@ -142,7 +143,7 @@ export default function ServicesDataTable() {
         })
         if (!cancelled) {
           const granted = Array.isArray(call.result?.granted) ? call.result.granted : []
-          setCanManage(call.result?.ok === true || granted.includes('catalog.services.manage'))
+          setCanManage(call.result?.ok === true || hasFeature(granted, 'catalog.services.manage'))
         }
       } catch {
         if (!cancelled) setCanManage(false)

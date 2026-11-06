@@ -1,5 +1,23 @@
 # Upgrade Notes
 
+## Catalog services and sales service lines
+
+Catalog gains a Services surface (`/backend/catalog/services`, `/api/catalog/services`) guarded by
+the new `catalog.services.view` and `catalog.services.manage` features. New tenants receive them
+through the catalog role defaults (`employee` gets both; `admin` keeps `catalog.*`). **Existing
+tenants must run `yarn mercato auth sync-role-acls`** so their roles pick up the features; until
+then the Services page is hidden and the sales line dialog's Service lookup returns no results.
+The service work-requirements editor only lists staff and resources the user may read
+(`staff.view`, `resources.view`).
+
+Sales quote, order, invoice and credit memo lines accept an optional `serviceId` (credit memo
+lines also gain `kind`, default `product`). Apply the catalog and sales migrations. Writes now
+reject a line that carries a `serviceId` without `kind: 'service'`, or a `serviceId` together with
+a `productId`/`productVariantId` (400); `kind: 'service'` lines without a catalog `serviceId`
+behave as before. Shipments reject order lines that reference a catalog service, and a line with
+shipped quantity can no longer change its kind or catalog references. Products navigation and
+page titles now read "Products" instead of "Products & services".
+
 ## Starter reuse and optional AI
 
 `yarn setup` can continue with pre-existing services after an explicit interactive confirmation. It shows port owners and restart/health states and then leaves those containers untouched, using the URLs already configured in `.env`. Declining shows `yarn om stop` guidance for the original checkout. Non-interactive users must explicitly pass `--no-infra` to use external services.

@@ -363,25 +363,74 @@ describe('catalog.services commands', () => {
     expect(record.defaultMediaUrl).toBe('/new-b.png')
   })
 
-  it('keeps the default media when it is still part of the replaced list', async () => {
+  it('honours an explicit default media id and flags only that row as default', async () => {
     const command = loadCommand('catalog.services.update')
-    const keptFile = '66666666-6666-4666-8666-666666666666'
-    const record = buildRecord({ defaultMediaId: keptFile, defaultMediaUrl: '/kept.png' })
+    const fileA = '66666666-6666-4666-8666-666666666666'
+    const fileB = '77777777-7777-4777-8777-777777777777'
+    const record = buildRecord({ defaultMediaId: fileA, defaultMediaUrl: '/a-stale.png' })
+    const { ctx, em } = buildCtx(record)
+
+    await command.execute(
+      {
+        id: SERVICE_ID,
+        defaultMediaId: fileB,
+        media: [
+          { fileId: fileA, url: '/a.png', isDefault: true },
+          { fileId: fileB, url: '/b.png' },
+        ],
+      },
+      ctx,
+    )
+
+    expect(record.defaultMediaId).toBe(fileB)
+    expect(record.defaultMediaUrl).toBe('/b.png')
+    const persistedMedia = (em.persist as jest.Mock).mock.calls
+      .map(([row]) => row as { fileId?: string; isDefault?: boolean })
+      .filter((row) => typeof row.fileId === 'string')
+    expect(persistedMedia.map((row) => [row.fileId, row.isDefault])).toEqual([[fileA, false], [fileB, true]])
+  })
+
+  it('prefers a flagged row over a stale stored default', async () => {
+    const command = loadCommand('catalog.services.update')
+    const fileA = '66666666-6666-4666-8666-666666666666'
+    const fileB = '77777777-7777-4777-8777-777777777777'
+    const record = buildRecord({ defaultMediaId: fileA, defaultMediaUrl: '/a.png' })
     const { ctx } = buildCtx(record)
 
     await command.execute(
       {
         id: SERVICE_ID,
         media: [
-          { fileId: '77777777-7777-4777-8777-777777777777', url: '/other.png', isDefault: true },
-          { fileId: keptFile, url: '/kept.png' },
+          { fileId: fileA, url: '/a.png' },
+          { fileId: fileB, url: '/b.png', isDefault: true },
         ],
       },
       ctx,
     )
 
-    expect(record.defaultMediaId).toBe(keptFile)
-    expect(record.defaultMediaUrl).toBe('/kept.png')
+    expect(record.defaultMediaId).toBe(fileB)
+    expect(record.defaultMediaUrl).toBe('/b.png')
+  })
+
+  it('keeps a surviving stored default but takes its url from the media row', async () => {
+    const command = loadCommand('catalog.services.update')
+    const fileA = '66666666-6666-4666-8666-666666666666'
+    const record = buildRecord({ defaultMediaId: fileA, defaultMediaUrl: '/a-old.png' })
+    const { ctx } = buildCtx(record)
+
+    await command.execute(
+      {
+        id: SERVICE_ID,
+        media: [
+          { fileId: '77777777-7777-4777-8777-777777777777', url: '/b.png' },
+          { fileId: fileA, url: '/a-new.png' },
+        ],
+      },
+      ctx,
+    )
+
+    expect(record.defaultMediaId).toBe(fileA)
+    expect(record.defaultMediaUrl).toBe('/a-new.png')
   })
 
   it('answers a missing service with a translated 404', async () => {

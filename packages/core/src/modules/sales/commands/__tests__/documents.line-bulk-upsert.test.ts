@@ -656,6 +656,39 @@ describe('sales.orders.lines.upsert_many', () => {
     expect(world.lines).toHaveLength(2)
   })
 
+  it('refuses to change the catalog reference of a line that has shipped items', async () => {
+    const world = makeWorld(2)
+    const shippedLine = world.lines[0]
+    world.shipments.push({ id: 'shipment-1', deletedAt: null })
+    world.shipmentItems.push({
+      id: 'shipment-item-1',
+      shipment: { id: 'shipment-1' },
+      orderLine: shippedLine.id,
+      quantity: '1',
+    })
+
+    const { caught, em } = await runBulk(world, {
+      lines: [
+        {
+          id: shippedLine.id,
+          kind: 'service',
+          serviceId: '77777777-7777-4777-8777-777777777777',
+          currencyCode: 'USD',
+          quantity: 1,
+          unitPriceNet: 100,
+          unitPriceGross: 123,
+          taxRate: 23,
+        },
+      ],
+    })
+
+    expect(conflictMessage(caught)).toBe(
+      'You cannot change the item type or catalog reference of a line that has shipped items.',
+    )
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(shippedLine.kind).toBe('product')
+  })
+
   it('moves a line earlier when lineNumber names an earlier position', async () => {
     const world = makeWorld(3)
     const { caught } = await runBulk(world, {

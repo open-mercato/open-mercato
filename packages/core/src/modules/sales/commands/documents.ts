@@ -7666,12 +7666,20 @@ const SHIPPED_LINE_DERIVED_TOTAL_FIELDS = [
   "totalGrossAmount",
 ] as const;
 
+const SHIPPED_LINE_REFERENCE_FIELDS = [
+  "kind",
+  "productId",
+  "productVariantId",
+  "serviceId",
+] as const;
+
 type ShippedLineComparable = Pick<
   SalesLineSnapshot,
   | "quantity"
   | "quantityUnit"
   | (typeof SHIPPED_LINE_NUMERIC_PRICING_FIELDS)[number]
   | (typeof SHIPPED_LINE_DERIVED_TOTAL_FIELDS)[number]
+  | (typeof SHIPPED_LINE_REFERENCE_FIELDS)[number]
 >;
 
 const hasNumericChange = (
@@ -7765,6 +7773,18 @@ function hasShippedLinePricingChange(
   );
 }
 
+function hasShippedLineReferenceChange(
+  next: Partial<ShippedLineComparable>,
+  previous: ShippedLineComparable,
+  exact: boolean,
+): boolean {
+  return SHIPPED_LINE_REFERENCE_FIELDS.some((field) => {
+    const nextValue = next[field];
+    if (nextValue === undefined && !exact) return false;
+    return (nextValue ?? null) !== (previous[field] ?? null);
+  });
+}
+
 async function assertShippedOrderLineChangeAllowed(
   existingSnapshot: SalesLineSnapshot,
   nextSnapshot: Partial<ShippedLineComparable> | null,
@@ -7781,6 +7801,9 @@ async function assertShippedOrderLineChangeAllowed(
   const quantityInvalid =
     nextQuantity === undefined ||
     nextQuantity < shippedQuantity - SHIPPED_QUANTITY_TOLERANCE;
+  const referenceChanged =
+    nextSnapshot !== null &&
+    hasShippedLineReferenceChange(nextSnapshot, existingSnapshot, exact);
   const pricingChanged =
     nextSnapshot !== null &&
     hasShippedLinePricingChange(
@@ -7789,7 +7812,7 @@ async function assertShippedOrderLineChangeAllowed(
       nextQuantity,
       exact,
     );
-  if (!quantityInvalid && !pricingChanged) return;
+  if (!quantityInvalid && !referenceChanged && !pricingChanged) return;
 
   const { translate } = await resolveTranslations();
   if (quantityInvalid) {
@@ -7798,6 +7821,14 @@ async function assertShippedOrderLineChangeAllowed(
         "sales.documents.items.errorQuantityBelowShipped",
         "You cannot lower the quantity below the {{shipped}} already shipped.",
         { shipped: shippedQuantity },
+      ),
+    });
+  }
+  if (referenceChanged) {
+    throw new CrudHttpError(409, {
+      error: translate(
+        "sales.documents.items.errorReferenceShipped",
+        "You cannot change the item type or catalog reference of a line that has shipped items.",
       ),
     });
   }

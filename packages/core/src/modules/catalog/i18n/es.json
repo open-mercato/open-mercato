@@ -806,6 +806,7 @@
   "catalog.services.form.errors.load": "No se pudo cargar el servicio",
   "catalog.services.form.errors.notFound": "Servicio no encontrado",
   "catalog.services.form.errors.priceCurrency": "Indica precio y moneda predeterminados, o deja ambos campos vacíos.",
+  "catalog.services.form.errors.priceInvalid": "Introduce un precio predeterminado válido y no negativo.",
   "catalog.services.form.errors.title": "Indica el título del servicio.",
   "catalog.services.form.errors.workRequirementLabel": "Indica una etiqueta para cada requisito de trabajo.",
   "catalog.services.form.errors.workRequirementValue": "Indica un valor positivo para cada requisito de trabajo.",
