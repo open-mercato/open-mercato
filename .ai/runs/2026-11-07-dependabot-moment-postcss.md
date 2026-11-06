@@ -21,15 +21,18 @@ Baseline main:620dfa185f340dddbd8cb0d20637e64040a27ef2. Authenticated paginated 
 Engine: om-auto-create-pr (steps:4, --loop:no)
 
 ## Progress
+PR: #8971
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Patch dependencies
 
-- [ ] 1.1 Verify installed vulnerable paths and add regression coverage
+- [x] 1.1 Verify installed vulnerable paths and add regression coverage — 81d1763c0
 - [ ] 1.2 Upgrade compatible dependencies and prove removal
 
 ### Phase 2: Verify and publish
 
 - [ ] 2.1 Run ordered validation and record exact results
 - [ ] 2.2 Recheck duplicates and obtain independent review
+
+Baseline: Yarn4.17.1 immutable install passes with existing native better-sqlite3/cpu-features build warnings. yarn why confirms Moment2.30.1 via react-big-calendar/moment-timezone ^2.29.4 and PostCSS8.5.22 forced globally. Four focused tests: both exploit regressions fail, both ordinary-consumer controls pass. Short TMPDIR needed for tsx Unix sockets.
