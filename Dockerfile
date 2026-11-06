@@ -343,7 +343,7 @@ ARG ALPINE_MIRROR=""
 RUN [ -z "$ALPINE_MIRROR" ] || sed -i "s|https://dl-cdn.alpinelinux.org|$ALPINE_MIRROR|g" /etc/apk/repositories
 
 # Install only production system dependencies (Alpine uses apk)
-# sudo: allows non-root user to chown the Railway-mounted volume at startup
+# sudo runs only the fixed, root-owned storage mount initializer.
 RUN if [ "$INSTALL_CHROMIUM" = "1" ]; then \
       apk add --no-cache ca-certificates chromium openssl sudo; \
     else \
@@ -439,10 +439,13 @@ RUN chmod +x /app/docker/scripts/mcp-entrypoint.sh
 # Prepare storage directory for Railway volume mount
 RUN mkdir -p /app/apps/mercato/storage
 
-# Create non-root user and grant passwordless sudo for chown only
+COPY docker/scripts/init-storage.sh /usr/local/sbin/om-init-storage
+
 RUN adduser -D -u 1001 omuser \
  && chown -R omuser:omuser /app/apps/mercato/storage \
- && echo "omuser ALL=(root) NOPASSWD: /bin/chown" > /etc/sudoers.d/omuser \
+ && chown root:root /usr/local/sbin/om-init-storage \
+ && chmod 0755 /usr/local/sbin/om-init-storage \
+ && echo 'omuser ALL=(root) NOPASSWD: /usr/local/sbin/om-init-storage ""' > /etc/sudoers.d/omuser \
  && chmod 0440 /etc/sudoers.d/omuser
 
 USER omuser
