@@ -1839,24 +1839,18 @@ export function LineItemDialog({
       const lineModeChanged = Boolean(editingId) && initialLineMode !== lineMode;
       const switchedToCustomLine =
         Boolean(editingId) && initialLineMode !== "custom";
-      const enteringOrLeavingServiceMode =
-        lineModeChanged && (isServiceLine || initialLineMode === "service");
       const isDraftEdit = Boolean(editingId) && Boolean(onDraftSaved);
       const storedKind =
         typeof initialLine?.kind === "string" && initialLine.kind.length
           ? initialLine.kind
           : null;
       const modeKind = isServiceLine ? "service" : isProductLine ? "product" : null;
-      const transitionKind = enteringOrLeavingServiceMode
-        ? isServiceLine
-          ? "service"
-          : "product"
-        : null;
+      const switchedKind = !lineModeChanged
+        ? null
+        : modeKind ?? (initialLineMode === "service" ? "product" : null);
       const resolvedKind = !editingId
         ? modeKind
-        : isDraftEdit
-          ? (transitionKind ?? (lineModeChanged ? modeKind : (storedKind ?? modeKind)))
-          : transitionKind;
+        : (switchedKind ?? (isDraftEdit ? (storedKind ?? modeKind) : null));
       const kindPayload: Record<string, unknown> = resolvedKind
         ? { kind: resolvedKind }
         : {};

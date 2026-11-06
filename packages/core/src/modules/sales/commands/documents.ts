@@ -151,6 +151,7 @@ import {
   type SalesPersistedLineSnapshot,
 } from "../lib/lineSnapshots";
 import { assertLineReferencesConsistent } from "../lib/lineReferences";
+import { buildLineUomInput, canConvertLineUnitPrices } from "../lib/lineUomInput";
 import {
   assertLineServicesExistInScope,
   changedLineServiceReference,
@@ -7999,46 +8000,6 @@ function createTaxCalculationServiceResolver(container: {
  * totals and persistence stay with the callers — this builds a value and
  * touches nothing.
  */
-type LineUomSource = {
-  productId?: string | null;
-  productVariantId?: string | null;
-  quantity?: number | null;
-  quantityUnit?: string | null;
-};
-
-type StoredLineUom = {
-  productId?: string | null;
-  productVariantId?: string | null;
-  quantity?: number | null;
-  quantityUnit?: string | null;
-  normalizedQuantity?: number | null;
-  normalizedUnit?: string | null;
-  uomSnapshot?: SalesLineSnapshot["uomSnapshot"];
-};
-
-function buildLineUomInput(parsed: LineUomSource, existingSnapshot: StoredLineUom | null | undefined) {
-  const productId =
-    parsed.productId !== undefined ? parsed.productId : (existingSnapshot?.productId ?? null);
-  const productVariantId =
-    parsed.productVariantId !== undefined
-      ? parsed.productVariantId
-      : (existingSnapshot?.productVariantId ?? null);
-  const sameProduct =
-    Boolean(existingSnapshot) &&
-    (existingSnapshot?.productId ?? null) === (productId ?? null) &&
-    (existingSnapshot?.productVariantId ?? null) === (productVariantId ?? null);
-  const inherited = sameProduct ? existingSnapshot : null;
-  return {
-    productId: productId ?? null,
-    productVariantId: productVariantId ?? null,
-    quantity: parsed.quantity ?? existingSnapshot?.quantity ?? 0,
-    quantityUnit: parsed.quantityUnit ?? inherited?.quantityUnit ?? null,
-    normalizedQuantity: inherited?.normalizedQuantity ?? null,
-    normalizedUnit: inherited?.normalizedUnit ?? null,
-    uomSnapshot: inherited?.uomSnapshot ?? null,
-  };
-}
-
 async function buildUpsertedOrderLineSnapshot(
   dependencies: OrderLineUpsertDependencies,
   parsed: OrderLineUpsertInput,
@@ -8103,13 +8064,15 @@ async function buildUpsertedOrderLineSnapshot(
       unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
     },
   });
-  const convertedPrices = convertLineUnitPricesOnUnitChange({
-    existingSnapshot,
-    nextQuantityUnit: normalizedUom.quantityUnit,
-    nextUomSnapshot: normalizedUom.uomSnapshot,
-    unitPriceNet,
-    unitPriceGross,
-  });
+  const convertedPrices = canConvertLineUnitPrices(parsed, lineUomInput, existingSnapshot)
+    ? convertLineUnitPricesOnUnitChange({
+        existingSnapshot,
+        nextQuantityUnit: normalizedUom.quantityUnit,
+        nextUomSnapshot: normalizedUom.uomSnapshot,
+        unitPriceNet,
+        unitPriceGross,
+      })
+    : { unitPriceNet, unitPriceGross, didConvert: false };
   if (convertedPrices.didConvert) {
     unitPriceNet = convertedPrices.unitPriceNet;
     unitPriceGross = convertedPrices.unitPriceGross;
@@ -8847,13 +8810,15 @@ const quoteLineUpsertCommand: CommandHandler<
           unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
         },
       });
-      const convertedPrices = convertLineUnitPricesOnUnitChange({
-        existingSnapshot,
-        nextQuantityUnit: normalizedUom.quantityUnit,
-        nextUomSnapshot: normalizedUom.uomSnapshot,
-        unitPriceNet,
-        unitPriceGross,
-      });
+      const convertedPrices = canConvertLineUnitPrices(parsed, lineUomInput, existingSnapshot)
+        ? convertLineUnitPricesOnUnitChange({
+            existingSnapshot,
+            nextQuantityUnit: normalizedUom.quantityUnit,
+            nextUomSnapshot: normalizedUom.uomSnapshot,
+            unitPriceNet,
+            unitPriceGross,
+          })
+        : { unitPriceNet, unitPriceGross, didConvert: false };
       if (convertedPrices.didConvert) {
         unitPriceNet = convertedPrices.unitPriceNet;
         unitPriceGross = convertedPrices.unitPriceGross;

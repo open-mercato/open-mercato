@@ -327,6 +327,27 @@ describe('sales line writes — service lines', () => {
       }))
     })
 
+    it('refreshes the normalized quantity when a service line quantity changes', async () => {
+      setWorld([
+        serviceLine({
+          quantity: '3',
+          normalizedQuantity: '3',
+          uomSnapshot: { productId: null, enteredQuantity: '3', normalizedQuantity: '3', toBaseFactor: '1' },
+        }),
+      ])
+
+      const lines = await runCommand(commandId, {
+        ...baseBody,
+        id: FIRST_LINE_ID,
+        [parentKey]: parentId,
+        quantity: 5,
+      })
+
+      const line = lines.get(FIRST_LINE_ID)!
+      expect(Number(line.normalizedQuantity)).toBe(5)
+      expect(line.uomSnapshot).toEqual(expect.objectContaining({ enteredQuantity: '5', normalizedQuantity: '5' }))
+    })
+
     it('clears the stored catalog snapshot when the caller sends null', async () => {
       setWorld([serviceLine()])
 
