@@ -8,6 +8,9 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { runRouteMutationGuards, type RouteMutationGuardResult } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { checkRateLimit, rateLimitErrorSchema, RATE_LIMIT_ERROR_FALLBACK, RATE_LIMIT_ERROR_KEY } from '@open-mercato/shared/lib/ratelimit/helpers'
+import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
+import { resolveAttachmentsUploadRateLimitConfig } from '@open-mercato/core/modules/attachments/lib/ocrLimits'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { CustomerAuthContext } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 import { Attachment, AttachmentPartition } from '@open-mercato/core/modules/attachments/data/entities'
@@ -17,6 +20,7 @@ import { checkAttachmentAccess } from '@open-mercato/core/modules/attachments/li
 import { attachmentCrudEvents, attachmentCrudIndexer } from '@open-mercato/core/modules/attachments/lib/crud'
 import { readAttachmentMetadata } from '@open-mercato/core/modules/attachments/lib/metadata'
 import { clearAttachmentThumbnailCache } from '@open-mercato/core/modules/attachments/lib/thumbnailCache'
+import { removeAttachmentRecord } from '@open-mercato/core/modules/attachments/lib/storageReferences'
 import {
   isMultipartUploadLimitError,
   parseMultipartFormDataWithinUploadLimit,
@@ -202,11 +206,12 @@ async function loadOwnedVisibleAttachment(
 }
 
 async function deletePortalAttachment(context: PortalContext, attachment: Attachment): Promise<void> {
-  await context.em.remove(attachment).flush()
+  const removal = await removeAttachmentRecord(context.em, attachment)
+  if (!removal.removed) return
   await clearAttachmentThumbnailCache(attachment.partitionCode, attachment.id).catch((error) => {
     logger.error('Failed to clean portal attachment thumbnails', { err: error, attachmentId: attachment.id })
   })
-  if (attachment.storagePath) {
+  if (attachment.storagePath && removal.releaseStorage) {
     try {
       const driver = await (await resolveStorageDriverFactory(context)).resolveForPartition(attachment.partitionCode, {
         tenantId: attachment.tenantId ?? context.tenantId,
@@ -358,6 +363,21 @@ async function handleUpload(req: Request, replacement: boolean): Promise<Respons
   if (contextOrResponse instanceof Response) return contextOrResponse
   const context = contextOrResponse
   const { t, translate } = await resolveTranslations()
+  let rateLimiterService: RateLimiterService | null = null
+  try {
+    rateLimiterService = context.container.resolve<RateLimiterService>('rateLimiterService') ?? null
+  } catch {
+    logger.warn('Portal attachment upload rate limiter unavailable; throttle skipped')
+  }
+  if (rateLimiterService) {
+    const rateLimitResponse = await checkRateLimit(
+      rateLimiterService,
+      resolveAttachmentsUploadRateLimitConfig(),
+      `portal:${context.tenantId}:${context.auth.sub}`,
+      t(RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK),
+    )
+    if (rateLimitResponse) return rateLimitResponse
+  }
   const contentType = req.headers.get('content-type') || ''
   if (!contentType.toLowerCase().includes('multipart/form-data')) {
     return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
@@ -526,6 +546,7 @@ export const openApi: OpenApiRouteDoc = {
     },
     POST: {
       summary: 'Upload an attachment for an owned claim',
+      errors: [{ status: 429, description: 'Attachment upload rate limit exceeded', schema: rateLimitErrorSchema }],
       requestBody: { contentType: 'multipart/form-data', schema: uploadBodySchema },
       responses: [
         {
@@ -537,6 +558,7 @@ export const openApi: OpenApiRouteDoc = {
     },
     PUT: {
       summary: 'Replace an attachment on an owned claim',
+      errors: [{ status: 429, description: 'Attachment upload rate limit exceeded', schema: rateLimitErrorSchema }],
       requestBody: { contentType: 'multipart/form-data', schema: replaceBodySchema },
       responses: [
         {

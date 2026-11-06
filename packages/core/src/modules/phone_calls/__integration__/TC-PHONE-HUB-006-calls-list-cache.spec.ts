@@ -1,11 +1,10 @@
 import path from 'node:path'
 import { randomInt } from 'node:crypto'
 import { expect, test, type APIRequestContext } from '@playwright/test'
-import { bootstrapFromAppRoot } from '@open-mercato/shared/lib/bootstrap/dynamicLoader'
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { importFromAppRuntime } from '@open-mercato/core/helpers/integration/appRuntime'
 import { deletePhoneCallsIfExist } from './helpers/phoneCallsFixtures'
 
 const APP_ROOT = process.env.OM_TEST_APP_ROOT?.trim()
@@ -43,6 +42,7 @@ test.describe('TC-PHONE-HUB-006: ingest invalidates the cached calls list', () =
 
     const stamp = `${Date.now()}-${randomInt(1_000_000)}`
     const externalCallId = `qa-phone-hub-006-${stamp}`
+    const providerKey = `qa-cache-${stamp}`
     let ingestedId: string | null = null
 
     try {
@@ -50,7 +50,7 @@ test.describe('TC-PHONE-HUB-006: ingest invalidates the cached calls list', () =
       const scope = getTokenScope(token)
       // The query never changes across the three reads: a differing key would be a cache miss
       // for the trivial reason and would prove nothing about invalidation.
-      const query = `/api/phone_calls/calls?q=${encodeURIComponent(externalCallId)}&pageSize=100`
+      const query = `/api/phone_calls/calls?providerKey=${encodeURIComponent(providerKey)}&pageSize=100`
 
       async function read(context: APIRequestContext): Promise<{ cache: string | undefined; ids: string[] }> {
         const response = await apiRequest(context, 'GET', query, { token })
@@ -72,6 +72,12 @@ test.describe('TC-PHONE-HUB-006: ingest invalidates the cached calls list', () =
       expect(cached.cache, 'the repeated query must be served from the cache').toBe('hit')
       expect(cached.ids).toEqual([])
 
+      const { bootstrapFromAppRoot } = await importFromAppRuntime<
+        typeof import('@open-mercato/shared/lib/bootstrap/dynamicLoader')
+      >('@open-mercato/shared/lib/bootstrap/dynamicLoader')
+      const { createRequestContainer } = await importFromAppRuntime<
+        typeof import('@open-mercato/shared/lib/di/container')
+      >('@open-mercato/shared/lib/di/container')
       await bootstrapFromAppRoot(APP_ROOT)
       const container = await createRequestContainer()
       const commandBus = container.resolve('commandBus') as CommandBus
@@ -82,7 +88,7 @@ test.describe('TC-PHONE-HUB-006: ingest invalidates the cached calls list', () =
           input: {
             organizationId: scope.organizationId,
             tenantId: scope.tenantId,
-            providerKey: 'tillio',
+            providerKey,
             externalCallId,
             direction: 'inbound',
             status: 'completed',

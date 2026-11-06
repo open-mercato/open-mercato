@@ -2,7 +2,7 @@ import type { EntityData, EntityName, FilterQuery, RequiredEntityData } from '@m
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { type Kysely, sql } from 'kysely'
-import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
+import { encryptCustomEntityRecordDocument, setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
 import { validateCustomFieldValuesServer } from '@open-mercato/core/modules/entities/lib/validation'
 import { sanitizeCustomFieldHtmlRichTextValuesServer } from '@open-mercato/core/modules/entities/lib/htmlRichTextSanitizer'
 import type { EventBus } from '@open-mercato/events/types'
@@ -14,7 +14,8 @@ import {
   type CrudEntityIdentifiers,
 } from '../crud/types'
 import type { BulkImportSuppression } from '../commands/types'
-import { CrudHttpError } from '../crud/errors'
+import { conflict, CrudHttpError, isUniqueViolation, notFound } from '../crud/errors'
+import { withAdvisoryXactLock } from '../db/advisoryLock'
 import { resolveRegisteredEntityTableName } from '../query/engine'
 import { getEntityIds } from '../encryption/entityIds'
 import { normalizeCustomFieldValues } from '../custom-fields/normalize'
@@ -23,6 +24,7 @@ import { isReadProjectionAlwaysConsistent } from './consistency'
 import { isEventDeclared } from '../../modules/events'
 import { createLogger } from '../logger'
 import { createBoundedTtlMemo } from '../query/bounded-ttl-memo'
+import type { TenantDataEncryptionService } from '../encryption/tenantDataEncryptionService'
 
 const logger = createLogger('shared').child({ component: 'data-engine' })
 
@@ -67,6 +69,19 @@ function shouldTriggerCoverageRefresh(entityType: string | undefined, tenantId: 
 
 type CustomEntityValues = Record<string, unknown>
 
+type CustomEntityStorageDatabase = {
+  custom_entities_storage: {
+    entity_type: string
+    entity_id: string
+    organization_id: string | null
+    tenant_id: string | null
+    doc: CustomEntityValues
+    updated_at: Date
+    created_at: Date
+    deleted_at: Date | null
+  }
+}
+
 type QueuedCrudSideEffect = {
   action: CrudEventAction
   entity: unknown
@@ -107,6 +122,7 @@ export interface DataEngine {
   createCustomEntityRecord(opts: {
     entityId: string // '<module>:<entity>'
     recordId?: string // optional; auto-generate if not provided
+    createOnly?: boolean
     organizationId?: string | null
     tenantId?: string | null
     values: CustomEntityValues
@@ -120,6 +136,7 @@ export interface DataEngine {
     tenantId?: string | null
     values: CustomEntityValues
     notify?: boolean // keep event emitting as it is via setCustomFields (updated)
+    requireActive?: boolean
   }): Promise<void>
 
   deleteCustomEntityRecord(opts: {
@@ -337,6 +354,14 @@ export class DefaultDataEngine implements DataEngine {
     } catch { return false }
   }
 
+  private resolveCustomEntityEncryptionService(): TenantDataEncryptionService | null {
+    try {
+      return this.container.resolve<TenantDataEncryptionService>('tenantEncryptionService')
+    } catch {
+      return null
+    }
+  }
+
   private getKysely(): Kysely<any> {
     return this.em.getKysely<any>()
   }
@@ -417,36 +442,64 @@ export class DefaultDataEngine implements DataEngine {
     })() : rawId
     const orgId = opts.organizationId ?? null
     const tenantId = opts.tenantId ?? null
-    const doc: Record<string, unknown> = { id, ...this.normalizeDocValues(sanitizedValues || {}) }
+    const doc = await encryptCustomEntityRecordDocument(this.em, {
+      entityId: opts.entityId, organizationId: orgId, tenantId,
+      doc: { id, ...this.normalizeDocValues(sanitizedValues || {}) },
+      encryptionService: this.resolveCustomEntityEncryptionService(),
+    })
 
-    const now = sql`now()`
+    const now = sql<Date>`now()`
     const payload = {
       entity_type: opts.entityId,
       entity_id: id,
       organization_id: orgId,
       tenant_id: tenantId,
-      doc: sql`${JSON.stringify(doc)}::jsonb`,
+      doc: sql<CustomEntityValues>`${JSON.stringify(doc)}::jsonb`,
       updated_at: now,
       created_at: now,
       deleted_at: null,
     }
 
-    // Upsert by scoped uniqueness
-    try {
-      await db
-        .insertInto('custom_entities_storage' as any)
-        .values(payload as any)
-        .onConflict((oc) => oc
-          .columns(['entity_type', 'entity_id', 'organization_id'])
-          .doUpdateSet({
-            doc: sql`${JSON.stringify(doc)}::jsonb`,
-            updated_at: sql`now()`,
-            deleted_at: null,
-          } as any))
-        .execute()
-    } catch {
-      // Fallback for global scope uniqueness
+    if (opts.createOnly) {
+      const duplicateError = () => {
+        const error = conflict('[internal] Custom entity record already exists')
+        error.body.code = 'custom_entity_record_exists'
+        return error
+      }
+      const lockKey = `custom_entity_create:${JSON.stringify([tenantId, orgId, opts.entityId, id.toLowerCase()])}`
+      await withAdvisoryXactLock(this.em, lockKey, async (txEm) => {
+        const storage = txEm.getKysely<CustomEntityStorageDatabase>()
+        const existing = await storage
+          .selectFrom('custom_entities_storage')
+          .select('entity_id')
+          .where('entity_type', '=', opts.entityId)
+          .where(sql<string>`lower(entity_id)`, '=', id.toLowerCase())
+          .where('organization_id', orgId === null ? 'is' : '=', orgId)
+          .where('tenant_id', tenantId === null ? 'is' : '=', tenantId)
+          .executeTakeFirst()
+        if (existing) throw duplicateError()
+        try {
+          await storage.insertInto('custom_entities_storage').values(payload).execute()
+        } catch (error) {
+          if (isUniqueViolation(error, 'custom_entities_storage_unique_idx')) throw duplicateError()
+          throw error
+        }
+      })
+    } else {
       try {
+        await db
+          .insertInto('custom_entities_storage' as any)
+          .values(payload as any)
+          .onConflict((oc) => oc
+            .columns(['entity_type', 'entity_id', 'organization_id'])
+            .doUpdateSet({
+              doc: sql`${JSON.stringify(doc)}::jsonb`,
+              updated_at: sql`now()`,
+              deleted_at: null,
+            } as any))
+          .execute()
+      } catch {
+        // Fallback for global scope uniqueness
         const updated = await db
           .updateTable('custom_entities_storage' as any)
           .set({
@@ -462,9 +515,6 @@ export class DefaultDataEngine implements DataEngine {
         if (!updated || Number(updated.numUpdatedRows ?? 0) === 0) {
           await db.insertInto('custom_entities_storage' as any).values(payload as any).execute()
         }
-      } catch (err) {
-        // Surface a clear error so it doesn't silently fall back only to EAV
-        throw err
       }
     }
 
@@ -500,6 +550,7 @@ export class DefaultDataEngine implements DataEngine {
     const id = String(opts.recordId)
     const orgId = opts.organizationId ?? null
     const tenantId = opts.tenantId ?? null
+    const requireActive = opts.requireActive === true
 
     // Merge doc shallowly: load existing doc and overlay
     await this.ensureStorageTableExists()
@@ -512,13 +563,19 @@ export class DefaultDataEngine implements DataEngine {
       chain = tenantId === null
         ? chain.where('tenant_id' as any, 'is', null as any)
         : chain.where('tenant_id' as any, '=', tenantId)
+      if (requireActive) chain = chain.where('deleted_at', 'is', null)
       return chain
     }
     const row = await applyScope(
       db.selectFrom('custom_entities_storage' as any).select(['doc' as any])
     ).executeTakeFirst()
+    if (requireActive && !row) throw notFound()
     const prevDoc: Record<string, unknown> = (row as any)?.doc || { id }
-    const nextDoc: Record<string, unknown> = { ...prevDoc, ...this.normalizeDocValues(sanitizedValues || {}), id }
+    const nextDoc = await encryptCustomEntityRecordDocument(this.em, {
+      entityId: opts.entityId, organizationId: orgId, tenantId,
+      doc: { ...prevDoc, ...this.normalizeDocValues(sanitizedValues || {}), id },
+      encryptionService: this.resolveCustomEntityEncryptionService(),
+    })
     try {
       const updated = await applyScope(
         db.updateTable('custom_entities_storage' as any).set({
@@ -528,6 +585,7 @@ export class DefaultDataEngine implements DataEngine {
         } as any) as any
       ).executeTakeFirst()
       if (!updated || Number((updated as any).numUpdatedRows ?? 0) === 0) {
+        if (requireActive) throw notFound()
         await db.insertInto('custom_entities_storage' as any).values({
           entity_type: opts.entityId,
           entity_id: id,
