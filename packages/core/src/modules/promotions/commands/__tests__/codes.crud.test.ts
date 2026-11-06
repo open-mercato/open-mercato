@@ -6,6 +6,7 @@
 // by that suite's `useCode` coverage.
 
 import { randomUUID } from 'crypto'
+import { LockMode } from '@mikro-orm/core'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
@@ -323,6 +324,158 @@ describe('promotions.code.update command', () => {
 
     await updateCodeCommand.undo!({ logEntry: { commandPayload: logEntry!.payload } as any, ctx, input: {} as any })
     expect(code.name).toBe('Original')
+  })
+
+  type UpdateInput = Parameters<typeof updateCodeCommand.execute>[0]
+  type UpdateUndoArgs = Parameters<NonNullable<typeof updateCodeCommand.undo>>[0]
+
+  function undoUpdate(payload: unknown, ctx: CommandRuntimeContext) {
+    const logEntry = { commandPayload: payload } as unknown as UpdateUndoArgs['logEntry']
+    return updateCodeCommand.undo!({ logEntry, ctx, input: {} as UpdateUndoArgs['input'] })
+  }
+
+  async function runLoggedUpdate(
+    em: FakeEm,
+    code: Row,
+    input: Omit<UpdateInput, 'id'>,
+    afterCommit: () => void = () => {},
+  ) {
+    const ctx = fakeCtx(em, { dataEngine: fakeDataEngine() })
+    const updateInput: UpdateInput = { id: code.id as string, ...input }
+    const prepared = await updateCodeCommand.prepare!(updateInput, ctx)
+    await updateCodeCommand.execute(updateInput, ctx)
+    afterCommit()
+    const after = await updateCodeCommand.captureAfter!(updateInput, { codeId: code.id as string }, ctx)
+    const logEntry = await updateCodeCommand.buildLog!({
+      input: updateInput,
+      result: { codeId: code.id as string },
+      ctx,
+      snapshots: { before: prepared && 'before' in prepared ? prepared.before : undefined, after },
+    })
+    return () => undoUpdate(logEntry!.payload, ctx)
+  }
+
+  it('undo does not reactivate a code that was used up after the update it reverts', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { name: 'Original', usage: 'single', used: 0, active: true })
+    const undo = await runLoggedUpdate(em, code, { name: 'Changed' })
+
+    code.used = 1
+    code.active = false
+
+    await undo()
+    expect(code.name).toBe('Original')
+    expect(code.active).toBe(false)
+  })
+
+  it('undo does not reactivate a code used up between the update commit and its log snapshot', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { name: 'Original', usage: 'single', used: 0, active: true })
+    const undo = await runLoggedUpdate(em, code, { name: 'Changed' }, () => {
+      code.used = 1
+      code.active = false
+    })
+
+    await undo()
+    expect(code.name).toBe('Original')
+    expect(code.used).toBe(1)
+    expect(code.active).toBe(false)
+  })
+
+  it('undo reactivates a code used up after the update when the restored usage limit leaves uses again', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { usage: 'multiple', usageAmount: 5, used: 0, active: true })
+    const undo = await runLoggedUpdate(em, code, { usageAmount: 3 })
+
+    code.used = 3
+    code.active = false
+
+    await undo()
+    expect(code.usageAmount).toBe(5)
+    expect(code.active).toBe(true)
+  })
+
+  it('undo keeps a used-up code inactive when the log entry carries no after snapshot', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { name: 'Original', usage: 'single', used: 0, active: true })
+    const ctx = fakeCtx(em, { dataEngine: fakeDataEngine() })
+    const before = { ...code, updatedAt: (code.updatedAt as Date).toISOString() }
+    code.name = 'Changed'
+    code.used = 1
+    code.active = false
+
+    await undoUpdate({ undo: { before } }, ctx)
+    expect(code.name).toBe('Original')
+    expect(code.active).toBe(false)
+  })
+
+  it('undo deactivates a code redeemed after the update when the restored usage limit leaves no uses', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { usage: 'single', used: 0, active: true })
+    const undo = await runLoggedUpdate(em, code, { usage: 'unlimited' })
+
+    code.used = 1
+
+    await undo()
+    expect(code.usage).toBe('single')
+    expect(code.active).toBe(false)
+  })
+
+  it('undo still restores the active flag of a dynamic code deactivated after the update', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { type: 'dynamic', code: null, usage: 'single', used: 1, active: true })
+    const undo = await runLoggedUpdate(em, code, { name: 'Changed' })
+
+    code.active = false
+
+    await undo()
+    expect(code.active).toBe(true)
+  })
+
+  it('undo of a deactivation still reactivates a used-up code', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { usage: 'single', used: 1, active: true })
+    const undo = await runLoggedUpdate(em, code, { active: false })
+    expect(code.active).toBe(false)
+
+    await undo()
+    expect(code.active).toBe(true)
+  })
+
+  it('undo of a deactivation keeps a code inactive when it was reactivated and used up before the undo', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { usage: 'single', used: 0, active: true })
+    const undoDeactivation = await runLoggedUpdate(em, code, { active: false })
+    const undoReactivation = await runLoggedUpdate(em, code, { active: true })
+
+    code.used = 1
+    code.active = false
+
+    await undoReactivation()
+    expect(code.active).toBe(false)
+    await undoDeactivation()
+    expect(code.active).toBe(false)
+  })
+
+  it('undo reads the code under a scoped row lock inside its transaction', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { usage: 'single', used: 0, active: true })
+    const undo = await runLoggedUpdate(em, code, { usage: 'unlimited' })
+    const baseFindOne = em.findOne
+    const codeReads: Array<{ where: Row; options: unknown; inTransaction: boolean }> = []
+    em.findOne = (async (entity: Function, where: Row, options?: unknown) => {
+      if (entity === Code) codeReads.push({ where, options, inTransaction: em.isInTransaction() })
+      return baseFindOne(entity, where)
+    }) as FakeEm['findOne']
+
+    await undo()
+    expect(codeReads).toEqual([
+      {
+        where: { id: code.id, tenantId: TENANT, organizationId: ORG },
+        options: { lockMode: LockMode.PESSIMISTIC_WRITE },
+        inTransaction: true,
+      },
+    ])
   })
 })
 
