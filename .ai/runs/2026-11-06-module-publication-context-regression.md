@@ -30,4 +30,8 @@ PR: #8898
 
 ### Phase 2: Verification and delivery
 
-- [ ] 2.1 Run the configured gate, perform the authoritative review and publish the ready follow-up PR.
+- [x] 2.1 Run the configured gate, perform the authoritative review and publish the ready follow-up PR. — 74b22938e0
+
+## Final validation
+
+Runner: local macOS, Node 24.22.2. All eight configured commands passed on the fixed source tree: builds 37.3s/9.6s, generation 11.9s, translation sync 1.1s/usage 181.6s, typecheck 14.8s, full tests 472.9s, app build 108.6s. All 51 workspace test tasks passed; create-app 1128 passed with 6 skips and core 2695 suites/27087 tests passed. The authoritative review found no actionable issue; GitHub author self-approval is unavailable. Final documentation-only progress commit changes no tested source. Current-head GitHub CI and independent approval remain merge gates.
