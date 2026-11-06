@@ -128,6 +128,7 @@ type DealRow = {
   valueCurrency?: string | null
   probability?: number | null
   expectedCloseAt?: string | null
+  createdAt?: string | null
   updatedAt?: string | null
   ownerUserId?: string | null
   companies: { id: string; label: string }[]
@@ -1148,6 +1149,21 @@ export default function CustomersDealsPage() {
         },
       },
       {
+        accessorKey: 'createdAt',
+        header: t('customers.deals.list.columns.createdAt'),
+        meta: {
+          columnChooserGroup: 'Dates',
+          filterKey: 'created_at',
+          filterGroup: 'Activity',
+          filterIconName: 'calendar',
+        },
+        cell: ({ row }) => (
+          <span className="text-sm">
+            {formatDateValue(row.original.createdAt ?? null, t('customers.deals.list.noValue'))}
+          </span>
+        ),
+      },
+      {
         accessorKey: 'updatedAt',
         header: t('customers.deals.list.columns.updatedAt'),
         meta: {
@@ -1491,6 +1507,7 @@ function mapDeal(item: Record<string, unknown>): DealRow | null {
         ? Number(probabilityRaw)
         : null
   const expectedCloseAt = typeof item.expected_close_at === 'string' ? item.expected_close_at : null
+  const createdAt = typeof item.created_at === 'string' ? item.created_at : null
   const updatedAt = typeof item.updated_at === 'string' ? item.updated_at : null
   const ownerUserId = typeof item.owner_user_id === 'string' ? item.owner_user_id : null
   const peopleRaw = Array.isArray(item.people) ? item.people : []
@@ -1530,6 +1547,7 @@ function mapDeal(item: Record<string, unknown>): DealRow | null {
     valueCurrency,
     probability,
     expectedCloseAt,
+    createdAt,
     updatedAt,
     ownerUserId,
     people,
