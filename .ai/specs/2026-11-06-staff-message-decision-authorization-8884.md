@@ -43,6 +43,10 @@ operators should audit them. No compatibility bypass or emergency waiver is prop
 - Local verification: 69 focused Jest tests pass; all 16 isolated API cases pass
   in 23.9 seconds, including native API-key ACL checks.
 
+## Enterprise mutation compatibility
+
+With enterprise record locking enabled, post-mutation cleanup must not query human lock ownership using an API-key subject. API keys cannot own user locks, so their successful mutations skip only the user-lock release operation; authorization, optimistic-lock validation, competing-lock checks and notification handling remain active. A record-lock service regression and the existing API-key accept/reject cases cover this production-mode path.
+
 ## Changelog
 
 - 2026-11-06: Document existing permission enforcement at the owning command boundary.

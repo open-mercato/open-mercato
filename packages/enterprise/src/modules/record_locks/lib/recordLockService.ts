@@ -4,6 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { type Kysely, sql } from 'kysely'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
+import { API_KEY_ACTOR_PREFIX } from '@open-mercato/core/modules/audit_logs/lib/actorSubject'
 import type { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -1128,6 +1129,7 @@ export class RecordLockService {
   }
 
   async releaseAfterMutation(input: RecordLockReleaseInput): Promise<void> {
+    if (input.userId.startsWith(API_KEY_ACTOR_PREFIX)) return
     const releaseResult = await this.release({
       ...input,
       reason: input.reason ?? 'saved',
