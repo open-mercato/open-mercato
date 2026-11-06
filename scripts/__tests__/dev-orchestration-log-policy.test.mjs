@@ -175,3 +175,13 @@ test('extractInitSummaryLines falls back to the kept-data notice when a re-run s
   assert.deepEqual(extractInitSummaryLines(['╔═╗', '║ x ║', '╚═╝']), ['╔═╗', '║ x ║', '╚═╝'])
   assert.deepEqual(extractInitSummaryLines(['nothing']), [])
 })
+
+test('extractInitSummaryLines preserves dark panel styling and removes turbo prefixes', () => {
+  const style = '\u001b[48;2;57;62;70m\u001b[38;2;238;238;238m'
+  const panel = ['━━━━━━━━━━━━━━━━━━━━', '  ', '  🔑 DEVELOPMENT', '  ACCOUNTS', '  ', '  👑 Superadmin', '  Email: demo', '━━━━━━━━━━━━━━━━━━━━']
+    .map((line) => `${style}${line}\u001b[0m`)
+  const prefixed = panel.map((line) => `\u001b[32mapp:initialize: \u001b[0m${line}`)
+  assert.deepEqual(extractInitSummaryLines(['noise', ...prefixed, 'done']), panel)
+  assert.deepEqual(extractInitSummaryLines(panel), panel)
+  assert.deepEqual(extractInitSummaryLines(prefixed.slice(0, -1)), [])
+})

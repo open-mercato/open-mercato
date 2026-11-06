@@ -1748,7 +1748,11 @@ function resolveChildExitCode(result, fallback = 1) {
 
 // `mercato init` prints "Start the dev server: yarn dev" unless told that this
 // runner launches the dev server right after it.
-const INIT_DEV_AUTOSTART_ENV = { OM_INIT_DEV_AUTOSTART: '1' }
+const INIT_DEV_AUTOSTART_ENV = {
+  OM_INIT_DEV_AUTOSTART: '1',
+  OM_INIT_SUMMARY_COLUMNS: String(process.stdout.columns || 80),
+  OM_INIT_SUMMARY_COLOR: process.stdout.isTTY && process.env.NO_COLOR === undefined ? '1' : '0',
+}
 
 async function runRawYarnCommand(commandArgs, options = {}) {
   const child = spawnCommand(yarnCommand, commandArgs, {
